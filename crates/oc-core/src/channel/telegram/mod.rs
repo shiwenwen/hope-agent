@@ -235,26 +235,29 @@ impl ChannelPlugin for TelegramPlugin {
             return Ok(DeliveryResult::ok(msg.id.0.to_string()));
         }
 
-        // Send media
+        // Send media. Multi-attachment payloads iterate the full list and
+        // return the final message id so the caller can reply/thread against
+        // the last-sent message.
+        let mut last_id: Option<String> = None;
         for m in &payload.media {
             let input_file = media::media_data_to_input_file(&m.data)?;
-            match m.media_type {
+            let msg = match m.media_type {
                 MediaType::Photo => {
-                    let msg = api
-                        .send_photo(chat_id_num, input_file, m.caption.as_deref(), thread_id)
-                        .await?;
-                    return Ok(DeliveryResult::ok(msg.id.0.to_string()));
+                    api.send_photo(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?
                 }
                 _ => {
-                    let msg = api
-                        .send_document(chat_id_num, input_file, m.caption.as_deref(), thread_id)
-                        .await?;
-                    return Ok(DeliveryResult::ok(msg.id.0.to_string()));
+                    api.send_document(chat_id_num, input_file, m.caption.as_deref(), thread_id)
+                        .await?
                 }
-            }
+            };
+            last_id = Some(msg.id.0.to_string());
         }
 
-        Ok(DeliveryResult::ok("no_content"))
+        match last_id {
+            Some(id) => Ok(DeliveryResult::ok(id)),
+            None => Ok(DeliveryResult::ok("no_content")),
+        }
     }
 
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {

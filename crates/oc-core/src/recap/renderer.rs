@@ -451,3 +451,70 @@ fn find_double_star(bytes: &[u8], start: usize) -> Option<usize> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn escape_html_entities() {
+        assert_eq!(
+            escape(r#"<a href="x">it's & safe</a>"#),
+            "&lt;a href=&quot;x&quot;&gt;it&#39;s &amp; safe&lt;/a&gt;"
+        );
+    }
+
+    #[test]
+    fn escape_preserves_non_special_utf8() {
+        assert_eq!(escape("emoji 🚀 中文"), "emoji 🚀 中文");
+    }
+
+    #[test]
+    fn short_count_formats_magnitudes() {
+        assert_eq!(short_count(0), "0");
+        assert_eq!(short_count(999), "999");
+        assert_eq!(short_count(1_500), "1.5K");
+        assert_eq!(short_count(2_500_000), "2.5M");
+    }
+
+    #[test]
+    fn inline_md_bold_italic_and_code() {
+        let html = inline_md("**strong** and *em* with `code`");
+        assert!(html.contains("<strong>strong</strong>"));
+        assert!(html.contains("<em>em</em>"));
+        assert!(html.contains("<code>code</code>"));
+    }
+
+    #[test]
+    fn inline_md_escapes_raw_html_before_markdown() {
+        // `<script>` in the source must be escaped, but the surrounding
+        // markdown markers should still transform normally.
+        let html = inline_md("**<script>** after");
+        assert!(html.contains("<strong>&lt;script&gt;</strong>"));
+        assert!(!html.contains("<script>"));
+    }
+
+    #[test]
+    fn render_markdown_handles_headings_and_lists() {
+        let html = render_markdown("## Title\n\nIntro paragraph.\n\n- one\n- two");
+        assert!(html.contains("<h3>Title</h3>"));
+        assert!(html.contains("<p>Intro paragraph.</p>"));
+        assert!(html.contains("<ul><li>one</li><li>two</li></ul>"));
+    }
+
+    #[test]
+    fn render_markdown_multiline_paragraph_collapses_to_single_p() {
+        // Two non-empty adjacent lines should join with a space inside one <p>.
+        let html = render_markdown("first line\nsecond line");
+        assert_eq!(html, "<p>first line second line</p>");
+    }
+
+    #[test]
+    fn utf8_char_len_covers_ascii_and_multibyte() {
+        assert_eq!(utf8_char_len(b'a'), 1);
+        // 0xE4 is the first byte of a 3-byte UTF-8 sequence (e.g. "中").
+        assert_eq!(utf8_char_len(0xE4), 3);
+        // 0xF0 starts a 4-byte sequence (e.g. emoji).
+        assert_eq!(utf8_char_len(0xF0), 4);
+    }
+}

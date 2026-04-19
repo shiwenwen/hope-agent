@@ -88,3 +88,68 @@ impl JobOrigin {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn async_job_status_as_str_parse_roundtrip() {
+        for s in [
+            AsyncJobStatus::Running,
+            AsyncJobStatus::Completed,
+            AsyncJobStatus::Failed,
+            AsyncJobStatus::Interrupted,
+            AsyncJobStatus::TimedOut,
+        ] {
+            assert_eq!(AsyncJobStatus::parse(s.as_str()), Some(s));
+        }
+    }
+
+    #[test]
+    fn async_job_status_parse_unknown_returns_none() {
+        assert!(AsyncJobStatus::parse("not-a-status").is_none());
+        assert!(AsyncJobStatus::parse("").is_none());
+    }
+
+    #[test]
+    fn is_terminal_marks_only_running_as_non_terminal() {
+        assert!(!AsyncJobStatus::Running.is_terminal());
+        for s in [
+            AsyncJobStatus::Completed,
+            AsyncJobStatus::Failed,
+            AsyncJobStatus::Interrupted,
+            AsyncJobStatus::TimedOut,
+        ] {
+            assert!(s.is_terminal(), "{:?} should be terminal", s);
+        }
+    }
+
+    #[test]
+    fn terminal_status_sql_list_covers_every_terminal_variant() {
+        let list = AsyncJobStatus::TERMINAL_STATUS_SQL_LIST;
+        for s in [
+            AsyncJobStatus::Completed,
+            AsyncJobStatus::Failed,
+            AsyncJobStatus::Interrupted,
+            AsyncJobStatus::TimedOut,
+        ] {
+            let fragment = format!("'{}'", s.as_str());
+            assert!(
+                list.contains(&fragment),
+                "SQL list '{}' missing {}",
+                list,
+                fragment
+            );
+        }
+        // Running must NOT be in the terminal list.
+        assert!(!list.contains("'running'"));
+    }
+
+    #[test]
+    fn job_origin_as_str_is_stable() {
+        assert_eq!(JobOrigin::Explicit.as_str(), "explicit");
+        assert_eq!(JobOrigin::PolicyForced.as_str(), "policy_forced");
+        assert_eq!(JobOrigin::AutoBackgrounded.as_str(), "auto_backgrounded");
+    }
+}

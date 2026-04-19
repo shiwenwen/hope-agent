@@ -112,3 +112,252 @@ fn top_n_map(map: HashMap<String, u32>, n: usize) -> Vec<(String, u32)> {
     v.truncate(n);
     v
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::recap::types::FrictionCounts;
+
+    fn facet(id: &str) -> SessionFacet {
+        SessionFacet {
+            session_id: id.to_string(),
+            underlying_goal: String::new(),
+            goal_categories: Vec::new(),
+            outcome: Outcome::Unclear,
+            user_satisfaction: None,
+            agent_helpfulness: None,
+            session_type: String::new(),
+            friction_counts: FrictionCounts::default(),
+            friction_detail: Vec::new(),
+            primary_success: None,
+            brief_summary: String::new(),
+            user_instructions: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn roll_up_empty_returns_all_zeroes() {
+        let summary = roll_up(&[]);
+        assert_eq!(summary.total_facets, 0);
+        assert!(summary.goal_histogram.is_empty());
+        assert!(summary.outcome_distribution.is_empty());
+        assert!(summary.friction_top.is_empty());
+        assert!(summary.satisfaction_distribution.is_empty());
+        assert!(summary.success_examples.is_empty());
+    }
+
+    #[test]
+    fn outcome_histogram_buckets_by_variant() {
+        let facets = vec![
+            SessionFacet {
+                outcome: Outcome::FullyAchieved,
+                ..facet("a")
+            },
+            SessionFacet {
+                outcome: Outcome::FullyAchieved,
+                ..facet("b")
+            },
+            SessionFacet {
+                outcome: Outcome::Failed,
+                ..facet("c")
+            },
+        ];
+        let s = roll_up(&facets);
+        assert_eq!(s.total_facets, 3);
+        assert_eq!(
+            s.outcome_distribution
+                .iter()
+                .find(|(k, _)| k == "fully_achieved")
+                .map(|(_, n)| *n),
+            Some(2)
+        );
+        assert_eq!(
+            s.outcome_distribution
+                .iter()
+                .find(|(k, _)| k == "failed")
+                .map(|(_, n)| *n),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn outcome_histogram_sorted_by_count_desc() {
+        let facets = vec![
+            SessionFacet {
+                outcome: Outcome::Failed,
+                ..facet("a")
+            },
+            SessionFacet {
+                outcome: Outcome::MostlyAchieved,
+                ..facet("b")
+            },
+            SessionFacet {
+                outcome: Outcome::MostlyAchieved,
+                ..facet("c")
+            },
+            SessionFacet {
+                outcome: Outcome::MostlyAchieved,
+                ..facet("d")
+            },
+        ];
+        let s = roll_up(&facets);
+        assert_eq!(s.outcome_distribution[0].0, "mostly_achieved");
+        assert_eq!(s.outcome_distribution[0].1, 3);
+    }
+
+    #[test]
+    fn goal_histogram_accumulates_across_facets() {
+        let facets = vec![
+            SessionFacet {
+                goal_categories: vec!["code".into(), "debug".into()],
+                ..facet("a")
+            },
+            SessionFacet {
+                goal_categories: vec!["code".into()],
+                ..facet("b")
+            },
+        ];
+        let s = roll_up(&facets);
+        assert_eq!(
+            s.goal_histogram
+                .iter()
+                .find(|(k, _)| k == "code")
+                .map(|(_, n)| *n),
+            Some(2)
+        );
+        assert_eq!(
+            s.goal_histogram
+                .iter()
+                .find(|(k, _)| k == "debug")
+                .map(|(_, n)| *n),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn friction_counts_roll_into_buckets() {
+        let facets = vec![
+            SessionFacet {
+                friction_counts: FrictionCounts {
+                    tool_errors: 3,
+                    misunderstanding: 1,
+                    ..Default::default()
+                },
+                ..facet("a")
+            },
+            SessionFacet {
+                friction_counts: FrictionCounts {
+                    tool_errors: 2,
+                    stuck: 4,
+                    ..Default::default()
+                },
+                ..facet("b")
+            },
+        ];
+        let s = roll_up(&facets);
+        assert_eq!(
+            s.friction_top
+                .iter()
+                .find(|(k, _)| k == "tool_errors")
+                .map(|(_, n)| *n),
+            Some(5)
+        );
+        assert_eq!(
+            s.friction_top
+                .iter()
+                .find(|(k, _)| k == "stuck")
+                .map(|(_, n)| *n),
+            Some(4)
+        );
+        assert!(!s.friction_top.iter().any(|(k, _)| k == "repetition"));
+    }
+
+    #[test]
+    fn satisfaction_distribution_sorted_ascending_by_score() {
+        let facets = vec![
+            SessionFacet {
+                user_satisfaction: Some(5),
+                ..facet("a")
+            },
+            SessionFacet {
+                user_satisfaction: Some(2),
+                ..facet("b")
+            },
+            SessionFacet {
+                user_satisfaction: Some(5),
+                ..facet("c")
+            },
+            SessionFacet {
+                user_satisfaction: None,
+                ..facet("d")
+            },
+        ];
+        let s = roll_up(&facets);
+        let scores: Vec<u8> = s.satisfaction_distribution.iter().map(|(k, _)| *k).collect();
+        assert_eq!(scores, vec![2, 5]);
+        assert_eq!(s.satisfaction_distribution[1].1, 2);
+    }
+
+    #[test]
+    fn success_examples_capped_at_twelve() {
+        let facets: Vec<SessionFacet> = (0..20)
+            .map(|i| SessionFacet {
+                primary_success: Some(format!("win {}", i)),
+                ..facet(&format!("s{}", i))
+            })
+            .collect();
+        let s = roll_up(&facets);
+        assert_eq!(s.success_examples.len(), 12);
+        assert_eq!(s.success_examples[0], "win 0");
+    }
+
+    #[test]
+    fn friction_examples_capped_at_twelve_across_facets() {
+        let facets: Vec<SessionFacet> = (0..5)
+            .map(|i| SessionFacet {
+                friction_detail: (0..5).map(|j| format!("f{}-{}", i, j)).collect(),
+                ..facet(&format!("s{}", i))
+            })
+            .collect();
+        let s = roll_up(&facets);
+        assert_eq!(s.friction_examples.len(), 12);
+    }
+
+    #[test]
+    fn repeat_user_instructions_drops_singletons_and_lowercases() {
+        let facets = vec![
+            SessionFacet {
+                user_instructions: vec!["Be concise".into(), "Keep going".into()],
+                ..facet("a")
+            },
+            SessionFacet {
+                user_instructions: vec!["be concise".into()],
+                ..facet("b")
+            },
+            SessionFacet {
+                user_instructions: vec!["be concise".into()],
+                ..facet("c")
+            },
+        ];
+        let s = roll_up(&facets);
+        assert_eq!(
+            s.repeat_user_instructions
+                .iter()
+                .find(|(k, _)| k == "be concise")
+                .map(|(_, n)| *n),
+            Some(3)
+        );
+        // "keep going" only appears once → dropped by `>= 2` filter.
+        assert!(!s
+            .repeat_user_instructions
+            .iter()
+            .any(|(k, _)| k == "keep going"));
+    }
+
+    #[test]
+    fn empty_session_type_does_not_pollute_distribution() {
+        let facets = vec![facet("a"), facet("b")];
+        let s = roll_up(&facets);
+        assert!(s.session_type_distribution.is_empty());
+    }
+}

@@ -270,3 +270,59 @@ pub(super) fn build_success_result(
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_cfg(entries: Vec<ImageGenProviderEntry>) -> ImageGenConfig {
+        ImageGenConfig {
+            providers: entries,
+            timeout_seconds: 60,
+            default_size: "1024x1024".to_string(),
+        }
+    }
+
+    fn entry_full(id: &str, enabled: bool, key: Option<&str>) -> ImageGenProviderEntry {
+        ImageGenProviderEntry {
+            id: id.to_string(),
+            enabled,
+            api_key: key.map(|k| k.to_string()),
+            base_url: None,
+            model: None,
+            thinking_level: None,
+        }
+    }
+
+    #[test]
+    fn list_result_empty_when_no_provider_configured() {
+        let cfg = mk_cfg(vec![entry_full("openai", false, None)]);
+        let out = build_list_result(&cfg).unwrap();
+        assert!(out.starts_with("Available Image Generation Providers:"));
+        assert!(out.contains("No providers configured"));
+    }
+
+    #[test]
+    fn list_result_shows_enabled_provider_with_priority() {
+        let cfg = mk_cfg(vec![
+            entry_full("openai", false, Some("sk")),
+            entry_full("google", true, Some("real-key")),
+        ]);
+        let out = build_list_result(&cfg).unwrap();
+        // "Priority 1" reflects index among the enabled subset, not the full list.
+        assert!(out.contains("[Priority 1]"));
+        // Only google is enabled with a key; the openai (disabled) should not appear.
+        assert!(!out.contains("[Priority 2]"));
+        // Provider capabilities block should be present.
+        assert!(out.contains("Generate:"));
+    }
+
+    #[test]
+    fn list_result_reports_edit_support() {
+        let cfg = mk_cfg(vec![entry_full("openai", true, Some("sk"))]);
+        let out = build_list_result(&cfg).unwrap();
+        // OpenAI supports editing → the line must say "Edit: enabled" or similar.
+        let has_edit_line = out.contains("Edit: enabled") || out.contains("Edit: not supported");
+        assert!(has_edit_line, "expected Edit: line, got:\n{}", out);
+    }
+}

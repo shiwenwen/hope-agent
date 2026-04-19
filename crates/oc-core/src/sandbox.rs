@@ -503,15 +503,10 @@ async fn wait_for_container(docker: &Docker, container_id: &str) -> Result<i64> 
     };
 
     let mut stream = docker.wait_container(container_id, Some(options));
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(response) => {
-                return Ok(response.status_code);
-            }
-            Err(e) => {
-                return Err(anyhow::anyhow!("Wait error: {}", e));
-            }
-        }
+    if let Some(result) = stream.next().await {
+        return result
+            .map(|response| response.status_code)
+            .map_err(|e| anyhow::anyhow!("Wait error: {}", e));
     }
 
     Err(anyhow::anyhow!("Container wait stream ended unexpectedly"))

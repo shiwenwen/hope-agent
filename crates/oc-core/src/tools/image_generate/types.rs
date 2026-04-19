@@ -240,3 +240,71 @@ pub fn backfill_providers(config: &mut ImageGenConfig) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backfill_adds_missing_known_providers_to_empty_list() {
+        let mut cfg = ImageGenConfig {
+            providers: Vec::new(),
+            timeout_seconds: 60,
+            default_size: "1024x1024".to_string(),
+        };
+        backfill_providers(&mut cfg);
+        for id in super::super::known_provider_ids() {
+            assert!(
+                cfg.providers.iter().any(|p| &p.id == id),
+                "missing provider {}",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn backfill_normalizes_legacy_display_names() {
+        let mut cfg = ImageGenConfig {
+            providers: vec![
+                ImageGenProviderEntry {
+                    id: "OpenAI".to_string(),
+                    enabled: true,
+                    api_key: Some("sk".to_string()),
+                    ..Default::default()
+                },
+                ImageGenProviderEntry {
+                    id: "Minimax".to_string(),
+                    ..Default::default()
+                },
+            ],
+            timeout_seconds: 60,
+            default_size: "1024x1024".to_string(),
+        };
+        backfill_providers(&mut cfg);
+        assert!(cfg.providers.iter().any(|p| p.id == "openai" && p.enabled));
+        assert!(cfg.providers.iter().any(|p| p.id == "minimax"));
+        // Legacy ids must have been replaced, not duplicated.
+        assert!(!cfg.providers.iter().any(|p| p.id == "OpenAI"));
+        assert!(!cfg.providers.iter().any(|p| p.id == "Minimax"));
+    }
+
+    #[test]
+    fn backfill_preserves_existing_config_for_known_provider() {
+        let mut cfg = ImageGenConfig {
+            providers: vec![ImageGenProviderEntry {
+                id: "openai".to_string(),
+                enabled: true,
+                api_key: Some("kept".to_string()),
+                model: Some("custom-model".to_string()),
+                ..Default::default()
+            }],
+            timeout_seconds: 60,
+            default_size: "1024x1024".to_string(),
+        };
+        backfill_providers(&mut cfg);
+        let openai = cfg.providers.iter().find(|p| p.id == "openai").unwrap();
+        assert_eq!(openai.api_key.as_deref(), Some("kept"));
+        assert_eq!(openai.model.as_deref(), Some("custom-model"));
+        assert!(openai.enabled);
+    }
+}

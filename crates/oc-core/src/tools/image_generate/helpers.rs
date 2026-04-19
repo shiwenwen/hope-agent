@@ -309,3 +309,146 @@ pub(super) fn validate_capabilities(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(id: &str, enabled: bool, key: Option<&str>, model: Option<&str>) -> ImageGenProviderEntry {
+        ImageGenProviderEntry {
+            id: id.to_string(),
+            enabled,
+            api_key: key.map(|k| k.to_string()),
+            base_url: None,
+            model: model.map(|m| m.to_string()),
+            thinking_level: None,
+        }
+    }
+
+    fn cfg(entries: Vec<ImageGenProviderEntry>) -> ImageGenConfig {
+        ImageGenConfig {
+            providers: entries,
+            timeout_seconds: 60,
+            default_size: "1024x1024".to_string(),
+        }
+    }
+
+    #[test]
+    fn has_configured_provider_rejects_disabled_or_empty_key() {
+        assert!(!has_configured_provider_from_config(&cfg(vec![])));
+        assert!(!has_configured_provider_from_config(&cfg(vec![entry(
+            "openai", false, Some("sk-x"), None
+        )])));
+        assert!(!has_configured_provider_from_config(&cfg(vec![entry(
+            "openai",
+            true,
+            Some(""),
+            None
+        )])));
+        assert!(!has_configured_provider_from_config(&cfg(vec![entry(
+            "openai", true, None, None
+        )])));
+    }
+
+    #[test]
+    fn has_configured_provider_accepts_one_enabled_with_key() {
+        assert!(has_configured_provider_from_config(&cfg(vec![
+            entry("openai", false, Some("sk-x"), None),
+            entry("google", true, Some("real-key"), None),
+        ])));
+    }
+
+    #[test]
+    fn effective_model_prefers_user_override() {
+        let e = entry("openai", true, Some("sk"), Some("dall-e-custom"));
+        assert_eq!(effective_model(&e), "dall-e-custom");
+    }
+
+    #[test]
+    fn effective_model_falls_back_to_provider_default() {
+        let e = entry("openai", true, Some("sk"), None);
+        // Default model for openai provider is non-empty (per ImageGenProviderImpl).
+        let got = effective_model(&e);
+        assert!(!got.is_empty());
+        assert_ne!(got, "unknown");
+    }
+
+    #[test]
+    fn effective_model_unknown_provider_returns_unknown() {
+        let e = entry("nonesuch", true, Some("sk"), None);
+        assert_eq!(effective_model(&e), "unknown");
+    }
+
+    #[test]
+    fn effective_model_empty_string_treated_as_none() {
+        let e = entry("openai", true, Some("sk"), Some(""));
+        // Empty override must not win; falls back to provider default.
+        let got = effective_model(&e);
+        assert!(!got.is_empty());
+        assert_ne!(got, "");
+    }
+
+    #[test]
+    fn find_provider_by_model_matches_user_override_exactly() {
+        let config = cfg(vec![
+            entry("openai", true, Some("sk"), Some("custom-model")),
+            entry("google", true, Some("sk2"), None),
+        ]);
+        let found = find_provider_by_model("custom-model", &config).unwrap();
+        assert_eq!(found.id, "openai");
+    }
+
+    #[test]
+    fn find_provider_by_model_misses_when_no_configured_provider() {
+        let config = cfg(vec![entry("openai", false, Some("sk"), Some("x"))]);
+        assert!(find_provider_by_model("x", &config).is_none());
+    }
+
+    #[test]
+    fn find_provider_by_model_missing_returns_none() {
+        let config = cfg(vec![entry("openai", true, Some("sk"), Some("foo"))]);
+        assert!(find_provider_by_model("not-a-model", &config).is_none());
+    }
+
+    #[test]
+    fn decode_data_url_base64_png() {
+        // Base64 for the ASCII string "hello" == "aGVsbG8=".
+        let url = "data:image/png;base64,aGVsbG8=";
+        let img = decode_data_url(url).unwrap();
+        assert_eq!(img.mime, "image/png");
+        assert_eq!(img.data, b"hello");
+    }
+
+    #[test]
+    fn decode_data_url_missing_comma_is_error() {
+        let err = decode_data_url("data:image/png;base64aGVsbG8=");
+        assert!(err.is_err(), "expected comma-less data URL to fail");
+    }
+
+    #[test]
+    fn decode_data_url_empty_header_leaves_mime_empty() {
+        // `data:,xxx` (no mime / no parameters) splits to an empty header.
+        // `split(';').next()` returns `Some("")`, so the `unwrap_or` fallback
+        // doesn't trigger and mime stays "". Documenting current behavior so
+        // downstream consumers can decide whether to tolerate it.
+        let img = decode_data_url("data:,aGVsbG8=").unwrap();
+        assert_eq!(img.mime, "");
+        assert_eq!(img.data, b"hello");
+    }
+
+    #[test]
+    fn infer_resolution_zero_dim_returns_1k() {
+        // Empty input list → max dim stays 0 → "1K".
+        assert_eq!(infer_resolution(&[]), "1K");
+    }
+
+    #[test]
+    fn infer_resolution_invalid_bytes_returns_1k() {
+        // Garbage bytes that can't be decoded → dims unknown → "1K".
+        let bogus = InputImage {
+            data: vec![0u8; 32],
+            mime: "image/png".to_string(),
+        };
+        assert_eq!(infer_resolution(&[bogus]), "1K");
+    }
+}

@@ -528,3 +528,94 @@ fn preview_byte_budget() -> usize {
 fn now_secs() -> i64 {
     chrono::Utc::now().timestamp()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_job_id_uses_job_prefix_and_uuid_suffix() {
+        let id = new_job_id();
+        assert!(id.starts_with("job_"), "unexpected prefix in {}", id);
+        // Simple uuid v4 is 32 hex chars; whole id is "job_" + 32 = 36.
+        assert_eq!(id.len(), 36);
+        assert!(id[4..].chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn new_job_id_is_unique() {
+        let a = new_job_id();
+        let b = new_job_id();
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn synthetic_started_result_explicit_shape() {
+        let body = synthetic_started_result("job_xyz", "exec", JobOrigin::Explicit);
+        let v: Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(v["job_id"], "job_xyz");
+        assert_eq!(v["status"], "started");
+        assert_eq!(v["tool"], "exec");
+        assert_eq!(v["origin"], "explicit");
+        let hint = v["hint"].as_str().unwrap();
+        assert!(hint.contains("background"));
+        assert!(hint.contains("job_status"));
+    }
+
+    #[test]
+    fn synthetic_started_result_auto_backgrounded_has_distinct_hint() {
+        let explicit = synthetic_started_result("j1", "t", JobOrigin::Explicit);
+        let auto = synthetic_started_result("j1", "t", JobOrigin::AutoBackgrounded);
+        assert_ne!(explicit, auto);
+        let v: Value = serde_json::from_str(&auto).unwrap();
+        assert_eq!(v["origin"], "auto_backgrounded");
+        assert!(v["hint"]
+            .as_str()
+            .unwrap()
+            .contains("exceeded the synchronous time budget"));
+    }
+
+    #[test]
+    fn truncate_preview_returns_input_unchanged_when_within_budget() {
+        let s = "short output";
+        assert_eq!(truncate_preview(s, 100), s);
+    }
+
+    #[test]
+    fn truncate_preview_includes_head_tail_and_omitted_marker() {
+        // 120-byte ASCII input with 30-byte budget (head=20, tail=10).
+        let body: String = (b'a'..=b'z')
+            .chain(b'0'..=b'9')
+            .cycle()
+            .take(120)
+            .map(|b| b as char)
+            .collect();
+        let preview = truncate_preview(&body, 30);
+        assert!(
+            preview.contains("[..."),
+            "expected omission marker in:\n{}",
+            preview
+        );
+        assert!(
+            preview.contains("bytes omitted"),
+            "expected omission phrasing in:\n{}",
+            preview
+        );
+        // Head budget = 2/3 of 30 = 20.
+        assert!(preview.starts_with(&body[..20]));
+        // Tail budget = 30 - 20 = 10 bytes from the end.
+        assert!(preview.ends_with(&body[body.len() - 10..]));
+    }
+
+    #[test]
+    fn truncate_preview_does_not_split_utf8_multibyte() {
+        // Each "中" is 3 bytes. 40 × "中" = 120 bytes. A 20-byte budget gets
+        // floored to char boundaries in both head and tail — the output must
+        // start with whole "中" glyphs, not with a stray continuation byte.
+        let body: String = "中".repeat(40);
+        let preview = truncate_preview(&body, 20);
+        assert!(preview.starts_with("中"));
+        assert!(preview.ends_with("中"));
+        assert!(preview.contains("bytes omitted"));
+    }
+}
