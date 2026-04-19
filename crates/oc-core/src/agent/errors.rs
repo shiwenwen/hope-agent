@@ -63,21 +63,10 @@ pub(super) fn parse_error_response(status: u16, raw: &str) -> String {
     format!("Codex API 错误 ({}): {}", status, raw)
 }
 
-/// Get OS version string
+/// Get OS version string.
+///
+/// Routed through [`crate::platform::os_version_string`] so error reports
+/// carry the real Windows / Linux version instead of `"unknown"`.
 pub(super) fn os_version() -> String {
-    #[cfg(target_os = "macos")]
-    {
-        use std::process::Command;
-        Command::new("sw_vers")
-            .arg("-productVersion")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .map(|s| s.trim().to_string())
-            .unwrap_or_else(|| "unknown".to_string())
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        "unknown".to_string()
-    }
+    crate::platform::os_version_string()
 }

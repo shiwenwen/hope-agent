@@ -49,11 +49,11 @@ export default function App() {
     }
   }, [view])
 
-  // Cmd+, to open settings (macOS convention)
+  // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
   const handleOpenSettings = useCallback(() => setView("settings"), [])
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if (e.metaKey && e.key === ",") {
+      if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault()
         handleOpenSettings()
       }

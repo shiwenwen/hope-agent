@@ -218,17 +218,9 @@ async fn tool_process_kill(session_id: &str) -> Result<String> {
     }
 
     if let Some(pid) = session.pid {
-        // Kill the process and its children
-        #[cfg(unix)]
-        {
-            unsafe {
-                libc::kill(-(pid as i32), libc::SIGKILL);
-            }
-        }
-        #[cfg(not(unix))]
-        {
-            let _ = pid; // suppress unused warning on non-unix
-        }
+        // Kill the process and its children (Unix: SIGKILL to pgid;
+        // Windows: taskkill /F /T).
+        crate::platform::terminate_process_tree(pid);
     }
 
     registry.mark_exited(

@@ -25,8 +25,12 @@ jobs:
         run: cargo fmt --all --check
 
   clippy:
-    name: cargo clippy -D warnings
-    runs-on: ubuntu-latest
+    name: clippy (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -36,6 +40,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # Vendored OpenSSL needs NASM to build on Windows MSVC. macOS /
+      # Linux runners ship with the required toolchain out of the box.
+      - name: Install NASM (Windows only)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
       # Matches the local invariant the workspace maintains: all clippy
       # warnings are handled (either fixed at the source or allowed in
       # `Cargo.toml`'s `[workspace.lints.clippy]` with a rationale).
@@ -43,14 +53,22 @@ jobs:
         run: cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings
 
   test:
-    name: cargo test (oc-core + oc-server)
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
 
       - uses: Swatinem/rust-cache@v2
+
+      - name: Install NASM (Windows only)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
 
       # Only oc-core and oc-server are pure Rust and host tests. The Tauri
       # shell crate (open-computer) pulls glib/webkit system libs that are

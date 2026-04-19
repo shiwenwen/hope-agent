@@ -67,6 +67,13 @@
 | [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
 
 
+## 平台支持
+
+| 文档                                          | 说明                                                |
+| ------------------------------------------- | ------------------------------------------------- |
+| [Windows 开发指南](platform/windows-development.md) | 前置环境、第一次构建、server 模式（Task Scheduler）、CI/Release、已知限制 |
+
+
 ---
 
 ## 代码审计（Audit）

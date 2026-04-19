@@ -142,7 +142,7 @@ fn detect_system_proxy() -> Option<String> {
 
 #[cfg(not(target_os = "macos"))]
 fn detect_system_proxy() -> Option<String> {
-    None
+    crate::platform::detect_system_proxy()
 }
 
 fn should_bypass_proxy(target_url: &str) -> bool {

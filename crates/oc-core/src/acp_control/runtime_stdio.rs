@@ -510,7 +510,11 @@ impl AcpRuntime for StdioAcpRuntime {
     async fn cancel_turn(&self, session: &AcpExternalSession) -> anyhow::Result<()> {
         let mut children = self.children.lock().await;
         if let Some(handle) = children.get_mut(&session.session_id) {
-            // Send SIGTERM to the process group
+            // Unix: SIGTERM to -pgid reaches any tools the ACP backend
+            // spawned (child was started with setpgid(0,0) in pre_exec).
+            // Windows: direct-pid taskkill only; ACP backends in practice
+            // (claude / codex) don't fork subprocesses, so the narrower
+            // semantics are fine.
             if let Some(pid) = handle.child.id() {
                 #[cfg(unix)]
                 {
@@ -520,7 +524,7 @@ impl AcpRuntime for StdioAcpRuntime {
                 }
                 #[cfg(not(unix))]
                 {
-                    let _ = handle.child.kill().await;
+                    crate::platform::send_graceful_stop(pid);
                 }
             }
         }

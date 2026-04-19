@@ -101,6 +101,40 @@ pub fn run_guardian(child_args: Vec<String>, config: GuardianConfig) -> ! {
         let _ = signal_hook::flag::register(SIGINT, exit_flag);
     }
 
+    // Windows doesn't have POSIX signals — instead we spin up a tiny
+    // tokio runtime on a dedicated thread to watch for CTRL_C / CTRL_BREAK
+    // console events (covers both `Ctrl+C` in an interactive shell and the
+    // `sc stop` / Windows Service Control Manager shutdown path, which
+    // delivers CTRL_BREAK to the process group).
+    #[cfg(windows)]
+    {
+        let exit_flag = should_exit.clone();
+        std::thread::spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(_) => return,
+            };
+            rt.block_on(async move {
+                let mut ctrl_c = match tokio::signal::windows::ctrl_c() {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                let mut ctrl_break = match tokio::signal::windows::ctrl_break() {
+                    Ok(s) => s,
+                    Err(_) => return,
+                };
+                tokio::select! {
+                    _ = ctrl_c.recv() => {},
+                    _ = ctrl_break.recv() => {},
+                }
+                exit_flag.store(true, Ordering::Relaxed);
+            });
+        });
+    }
+
     let mut crash_count: u32 = 0;
     let mut last_crash_time: Option<Instant> = None;
 

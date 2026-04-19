@@ -92,5 +92,9 @@ fn detect_macos_system_proxy() -> Option<String> {
 
 #[cfg(not(target_os = "macos"))]
 fn detect_macos_system_proxy() -> Option<String> {
-    None
+    // Name kept for symmetry with the macOS branch — platform layer
+    // caches per-process so Windows deploys don't re-read the registry.
+    let url = crate::platform::detect_system_proxy()?;
+    info(&format!("Detected system proxy: {}", url));
+    Some(url)
 }

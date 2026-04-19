@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS arm64 — Apple silicon DMG. Universal / x64 builds are
+          # intentionally skipped for now (Rosetta 2 handles x64 execution
+          # of the arm64 bundle on Intel Macs acceptably for an agent
+          # process, and a second macOS lane roughly doubles release
+          # wall time).
+          - platform: macos-arm64
+            os: macos-14
+            args: '--target aarch64-apple-darwin'
+          # Linux x64 — AppImage + deb.
+          - platform: linux-x64
+            os: ubuntu-22.04
+            args: ''
+          # Windows x64 — MSI (wix) + NSIS. Code signing certificate is
+          # not wired up yet; bundles are unsigned. See
+          # src-tauri/tauri.conf.json `bundle.windows.certificateThumbprint`
+          # for where to plug it in.
+          - platform: windows-x64
+            os: windows-latest
+            args: ''
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform == 'macos-arm64' && 'aarch64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      # Windows MSVC + vendored OpenSSL needs NASM.
+      - name: Install NASM (Windows)
+        if: runner.os == 'Windows'
+        uses: ilammy/setup-nasm@v1
+
+      # Tauri on Linux pulls WebKit2GTK + a handful of gtk helpers.
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Build & draft release
+        uses: tauri-apps/tauri-action@v0.5.14
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'OpenComputer ${{ github.ref_name }}'
+          releaseBody: |
+            See CHANGELOG.md for details.
+
+            Binaries are attached to this draft release. Review them
+            before publishing.
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}

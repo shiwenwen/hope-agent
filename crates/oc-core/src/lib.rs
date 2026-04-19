@@ -47,6 +47,7 @@ pub mod openclaw_import;
 pub mod paths;
 pub mod permissions;
 pub mod plan;
+pub mod platform;
 pub mod process_registry;
 pub mod project;
 pub mod provider;

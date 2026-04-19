@@ -76,23 +76,18 @@ impl ManagedProcess {
         Ok(self.child.try_wait()?)
     }
 
-    /// Graceful shutdown: send SIGTERM, wait up to `timeout`, then SIGKILL.
+    /// Graceful shutdown: ask the child to stop, wait up to `timeout`,
+    /// then force-kill. Unix sends `SIGTERM` to the pid; Windows calls
+    /// `taskkill /PID` which delivers a WM_CLOSE / CTRL_BREAK depending
+    /// on the child type.
     pub async fn shutdown(&mut self, timeout: std::time::Duration) {
-        // Try graceful termination first
-        #[cfg(unix)]
-        {
-            if let Some(pid) = self.child.id() {
-                unsafe {
-                    libc::kill(pid as i32, libc::SIGTERM);
-                }
-            }
+        if let Some(pid) = self.child.id() {
+            crate::platform::send_graceful_stop(pid);
         }
 
-        // Wait for graceful exit or timeout
         match tokio::time::timeout(timeout, self.child.wait()).await {
             Ok(_) => {}
             Err(_) => {
-                // Force kill
                 let _ = self.child.kill().await;
             }
         }

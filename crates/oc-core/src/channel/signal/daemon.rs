@@ -17,6 +17,20 @@ impl SignalDaemon {
     /// - `cli_path`: path to signal-cli binary, or None to use "signal-cli" from PATH
     /// - `port`: HTTP port to listen on, or None to auto-select a free port
     pub fn start(account: &str, cli_path: Option<&str>, port: Option<u16>) -> Result<Self> {
+        // Windows: `signal-cli` is a Java app typically delivered as a
+        // `.bat` launcher under an install path like
+        // `C:\Program Files\signal-cli\bin\signal-cli.bat`. Bail with a
+        // clear message instead of the generic "No such file or directory"
+        // you get from spawning a bare `signal-cli` on Windows.
+        #[cfg(windows)]
+        if cli_path.is_none() {
+            anyhow::bail!(
+                "signal-cli is not on PATH. On Windows, set channels.signal.cli_path \
+                 in config.json to the signal-cli.bat launcher (e.g. \
+                 C:\\Program Files\\signal-cli\\bin\\signal-cli.bat)."
+            );
+        }
+
         let program = cli_path.unwrap_or("signal-cli");
 
         let port = match port {

@@ -114,6 +114,14 @@ impl BrowserState {
 
         if let Some(path) = executable_path {
             config = config.chrome_executable(path);
+        } else if let Some(probed) = crate::platform::find_chrome_executable() {
+            app_debug!(
+                "browser",
+                "cdp",
+                "Using probed Chrome executable: {}",
+                probed.display()
+            );
+            config = config.chrome_executable(probed);
         }
 
         if headless {

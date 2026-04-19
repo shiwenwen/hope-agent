@@ -43,6 +43,19 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      },
+      "digestAlgorithm": "sha256",
+      "wix": {
+        "language": ["en-US", "zh-CN"]
+      },
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["English", "SimplifiedChinese"]
+      }
+    }
   }
 }

@@ -1,7 +1,6 @@
 use anyhow::Result;
 use serde_json::Value;
 use std::sync::OnceLock;
-use tokio::process::Command;
 
 use crate::process_registry::{
     create_session_id, get_registry, now_ms, ProcessSession, ProcessStatus,
@@ -31,33 +30,45 @@ static LOGIN_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
 /// Resolve the full PATH from the user's login shell.
 /// This ensures tools like npm, python, etc. are available even when
 /// launched from a desktop environment that doesn't source .bashrc/.zshrc.
+///
+/// On Windows this returns `None` — the inherited process PATH already
+/// reflects the user's HKCU + HKLM PATH; spawning a "login shell" is a
+/// Unix-only concept.
 pub(crate) fn get_login_shell_path() -> Option<&'static str> {
-    LOGIN_SHELL_PATH
-        .get_or_init(|| {
-            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-            let output = std::process::Command::new(&shell)
-                .args(["-l", "-c", "echo $PATH"])
-                .output()
-                .ok()?;
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !path.is_empty() {
-                    app_info!(
-                        "tool",
-                        "exec",
-                        "Resolved login shell PATH: {}",
-                        &path[..path.len().min(120)]
-                    );
-                    Some(path)
+    #[cfg(windows)]
+    {
+        return None;
+    }
+
+    #[cfg(unix)]
+    {
+        LOGIN_SHELL_PATH
+            .get_or_init(|| {
+                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+                let output = std::process::Command::new(&shell)
+                    .args(["-l", "-c", "echo $PATH"])
+                    .output()
+                    .ok()?;
+                if output.status.success() {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path.is_empty() {
+                        app_info!(
+                            "tool",
+                            "exec",
+                            "Resolved login shell PATH: {}",
+                            &path[..path.len().min(120)]
+                        );
+                        Some(path)
+                    } else {
+                        None
+                    }
                 } else {
+                    app_warn!("tool", "exec", "Failed to resolve login shell PATH");
                     None
                 }
-            } else {
-                app_warn!("tool", "exec", "Failed to resolve login shell PATH");
-                None
-            }
-        })
-        .as_deref()
+            })
+            .as_deref()
+    }
 }
 
 /// Compute dynamic max output chars based on model context window.
@@ -182,9 +193,8 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         );
     }
 
-    // Build the command
-    let mut cmd = Command::new("sh");
-    cmd.arg("-c").arg(command);
+    // Build the command via the platform shell (sh -c on Unix, cmd /C on Windows)
+    let mut cmd = crate::platform::default_shell_command_tokio(command);
 
     // Set working directory: explicit cwd > agent home > user home
     if let Some(ref dir) = cwd {
@@ -709,11 +719,36 @@ async fn exec_via_pty(
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|e| anyhow::anyhow!("Failed to open PTY: {}", e))?;
+            .map_err(|e| {
+                // ConPTY requires Windows 10 1809+. Older builds or sandboxed
+                // environments (some CI runners) will surface a handle error
+                // here; callers should fall back to the non-PTY path.
+                #[cfg(windows)]
+                {
+                    app_warn!(
+                        "tool",
+                        "exec",
+                        "ConPTY unavailable ({}): caller should retry with pty=false",
+                        e
+                    );
+                }
+                anyhow::anyhow!("Failed to open PTY: {}", e)
+            })?;
 
-        let mut cmd = CommandBuilder::new("sh");
-        cmd.arg("-c");
-        cmd.arg(&command_owned);
+        #[cfg(unix)]
+        let mut cmd = {
+            let mut c = CommandBuilder::new("sh");
+            c.arg("-c");
+            c.arg(&command_owned);
+            c
+        };
+        #[cfg(windows)]
+        let mut cmd = {
+            let mut c = CommandBuilder::new("cmd");
+            c.arg("/C");
+            c.arg(&command_owned);
+            c
+        };
 
         // Set working directory: explicit cwd > agent home > user home
         if let Some(ref dir) = cwd_owned {

@@ -58,7 +58,7 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tokio-tungstenite = { version = "0.29", features = ["native-tls"] }
 native-tls = "0.2"
 tokio-native-tls = "0.3"
-openssl = "0.10"
+openssl = { version = "0.10", features = ["vendored"] }
 hmac = "0.12"
 jsonwebtoken = "9"
 axum = "0.8"
@@ -67,6 +67,9 @@ axum = "0.8"
 objc2 = { version = "0.6.4", features = ["std"] }
 objc2-app-kit = { version = "0.3.2", features = ["NSWindow", "NSColor"] }
 objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSDate", "NSError", "NSObject", "NSRunLoop", "NSString"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.52"
 
 [lints]
 workspace = true

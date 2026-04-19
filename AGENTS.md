@@ -163,6 +163,7 @@ crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
   docker/               Docker 服务管理（status/deploy/lifecycle/helpers/proxy 拆分）
   dashboard/            数据大盘聚合查询（types/cost/filters/queries/detail_queries/insights 拆分）
   logging/              统一日志（types/db/file_writer/app_logger/file_ops/config 拆分）
+  platform/             跨平台原语（mod/unix/windows 拆分：terminate_process_tree / send_graceful_stop / detect_system_proxy / default_shell_command(_tokio) / find_chrome_executable / os_version_string）
 ```
 
 ### oc-server（HTTP/WS 服务器）
@@ -320,6 +321,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **禁止使用 `log` crate 宏**（`log::info!` 等），必须使用 `app_info!` / `app_warn!` / `app_error!` / `app_debug!`（定义在 `logging.rs`）。唯一例外：`lib.rs` 的 `run()` 中 AppLogger 初始化之前，以及 `main.rs` 的 panic 恢复
 - 日志宏用法：`app_info!("category", "source", "message {}", arg)`
 - **禁止对字符串使用字节索引切片**（如 `&s[..80]`），必须使用 `crate::truncate_utf8(s, max_bytes)` 安全截断
+- **跨平台分支**：优先用 `#[cfg(unix)]` / `#[cfg(windows)]`（macOS + Linux + BSD 共享 Unix 路径），少写 `target_os = "linux"`。新增跨平台原语统一放 `crates/oc-core/src/platform/`（`mod.rs` 是门面，`unix.rs` / `windows.rs` 是实现），不要在业务代码里散落 `#[cfg]` 分支。调用方用 `crate::platform::xxx()` 单一入口
 
 ## 安全红线
 

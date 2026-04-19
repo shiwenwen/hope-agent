@@ -51,7 +51,18 @@ fn systemd_escape_arg(s: &str) -> String {
 
 // ── Public API ────────────────────────────────────────────────────
 
-/// Install OpenComputer as a system service (launchd on macOS, systemd on Linux).
+/// Install OpenComputer as a user-level background service.
+///
+/// - macOS: `launchctl` LaunchAgent at `~/Library/LaunchAgents/…plist`
+/// - Linux: `systemctl --user` unit at `~/.config/systemd/user/…service`
+/// - Windows: a Task Scheduler entry (`schtasks /create /sc onlogon`) that
+///   auto-launches the binary at user login. The task runs under the
+///   current user with Interactive token and no admin escalation. This
+///   is *not* a real Windows Service (which would require implementing
+///   the SCM protocol via `StartServiceCtrlDispatcher`); for the
+///   "background agent per user" use case Task Scheduler matches the
+///   behavior of launchd `LaunchAgent` and `systemctl --user` more
+///   closely than a system-scoped service would.
 ///
 /// Returns a human-readable status message on success.
 pub fn install_service(bind_addr: &str, api_key: Option<&str>) -> Result<String> {
@@ -70,7 +81,10 @@ pub fn install_service(bind_addr: &str, api_key: Option<&str>) -> Result<String>
     #[cfg(target_os = "linux")]
     return install_systemd(&exe_path, bind_addr, api_key, &log_path);
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    return windows_task::install_scheduled_task(&exe_path, bind_addr, api_key, &log_path);
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     bail!("Service installation is not supported on this platform")
 }
 
@@ -82,7 +96,10 @@ pub fn uninstall_service() -> Result<()> {
     #[cfg(target_os = "linux")]
     return uninstall_systemd();
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    return windows_task::uninstall_scheduled_task();
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     bail!("Service uninstallation is not supported on this platform")
 }
 
@@ -96,11 +113,19 @@ pub fn service_status() -> Result<String> {
     #[cfg(target_os = "linux")]
     return status_systemd();
 
-    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    #[cfg(windows)]
+    return windows_task::status_scheduled_task();
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     bail!("Service status is not supported on this platform")
 }
 
-/// Stop the running OpenComputer server by sending SIGTERM to the PID in the PID file.
+/// Stop the running OpenComputer server.
+///
+/// Unix: sends SIGTERM to the PID in `~/.opencomputer/server.pid`.
+/// Windows: calls `taskkill` on the same PID (a polite shutdown request;
+/// `run_guardian` catches `ctrl_break` delivered by `taskkill` and exits
+/// cleanly).
 pub fn stop_server() -> Result<()> {
     let pid_path = crate::paths::root_dir()?.join("server.pid");
     if !pid_path.exists() {
@@ -128,8 +153,10 @@ pub fn stop_server() -> Result<()> {
         }
     }
 
-    #[cfg(not(unix))]
-    bail!("stop_server is only supported on Unix platforms");
+    #[cfg(windows)]
+    {
+        crate::platform::send_graceful_stop(pid);
+    }
 
     // Clean up PID file
     let _ = std::fs::remove_file(&pid_path);
@@ -461,4 +488,163 @@ fn status_systemd() -> Result<String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     Ok(stdout.to_string())
+}
+
+// ── Windows Task Scheduler ─────────────────────────────────────────
+
+#[cfg(windows)]
+mod windows_task {
+    use super::*;
+    use std::os::windows::process::CommandExt as _;
+    use std::process::Command;
+
+    /// CREATE_NO_WINDOW — prevent `schtasks.exe` from flashing a console
+    /// window when invoked from the Tauri GUI process.
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    /// Task name as it appears in Task Scheduler. Mirrors the launchd
+    /// label convention but uses the native forward-slash-free style
+    /// that `schtasks.exe` expects.
+    const TASK_NAME: &str = "OpenComputer";
+
+    /// Double every embedded double-quote so the argument survives the
+    /// Windows command line quoting rules when passed through
+    /// `schtasks /tr`, which takes a single quoted string that is parsed
+    /// by the eventual target command.
+    fn quote_arg(s: &str) -> String {
+        if s.is_empty() {
+            return "\"\"".to_string();
+        }
+        let needs_quotes = s.contains(' ') || s.contains('"') || s.contains('\t');
+        if !needs_quotes {
+            return s.to_string();
+        }
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('"');
+        for c in s.chars() {
+            if c == '"' {
+                out.push('\\');
+            }
+            out.push(c);
+        }
+        out.push('"');
+        out
+    }
+
+    pub(super) fn install_scheduled_task(
+        exe_path: &str,
+        bind_addr: &str,
+        api_key: Option<&str>,
+        log_path: &str,
+    ) -> Result<String> {
+        // Build the argv the task will run. We use a wrapper `cmd /C` so
+        // stdout/stderr can be redirected into our logs directory — the
+        // native schtasks TaskRun doesn't capture output on its own.
+        let mut inner = format!(
+            "{} server --bind {}",
+            quote_arg(exe_path),
+            quote_arg(bind_addr)
+        );
+        if let Some(key) = api_key {
+            inner.push_str(&format!(" --api-key {}", quote_arg(key)));
+        }
+
+        let stdout_log = format!("{}\\server.stdout.log", log_path);
+        let stderr_log = format!("{}\\server.stderr.log", log_path);
+
+        let tr = format!(
+            "cmd /C {} >> {} 2>> {}",
+            inner,
+            quote_arg(&stdout_log),
+            quote_arg(&stderr_log),
+        );
+
+        // `/F` on /Create force-overwrites any existing task with the
+        // same name — no separate /Delete needed.
+        let output = Command::new("schtasks")
+            .args([
+                "/Create", "/TN", TASK_NAME, "/TR", &tr, "/SC", "ONLOGON", "/RL", "LIMITED", "/F",
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .context("Failed to run schtasks /Create")?;
+
+        if !output.status.success() {
+            bail!(
+                "schtasks /Create failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+
+        // Start it now so the user doesn't have to log out / back in.
+        let run_output = Command::new("schtasks")
+            .args(["/Run", "/TN", TASK_NAME])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        let run_note = match run_output {
+            Ok(o) if o.status.success() => "running".to_string(),
+            Ok(o) => format!(
+                "created but failed to start: {}",
+                String::from_utf8_lossy(&o.stderr).trim()
+            ),
+            Err(e) => format!("created but failed to start: {}", e),
+        };
+
+        Ok(format!(
+            "Scheduled task installed.\n  Task: {}\n  Bind: {}\n  Logs: {}\\server.{{stdout,stderr}}.log\n  Status: {}\n  Note: auto-starts at next user login; does not survive a reboot-before-login.",
+            TASK_NAME, bind_addr, log_path, run_note,
+        ))
+    }
+
+    pub(super) fn uninstall_scheduled_task() -> Result<()> {
+        // Best-effort: stop any running instance first.
+        let _ = Command::new("schtasks")
+            .args(["/End", "/TN", TASK_NAME])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        let output = Command::new("schtasks")
+            .args(["/Delete", "/TN", TASK_NAME, "/F"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .context("Failed to run schtasks /Delete")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            bail!("schtasks /Delete failed: {}", stderr.trim());
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn status_scheduled_task() -> Result<String> {
+        let output = Command::new("schtasks")
+            .args(["/Query", "/TN", TASK_NAME, "/FO", "LIST"])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .context("Failed to run schtasks /Query")?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("cannot find")
+                || stderr.contains("ERROR: The system")
+                || stderr.contains("does not exist")
+            {
+                return Ok("not installed".to_string());
+            }
+            bail!("schtasks /Query failed: {}", stderr.trim());
+        }
+
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut summary = format!("installed (task: {})", TASK_NAME);
+        for line in text.lines() {
+            let lower = line.to_ascii_lowercase();
+            if lower.starts_with("status:") || lower.starts_with("last run time:") {
+                summary.push('\n');
+                summary.push_str("  ");
+                summary.push_str(line.trim());
+            }
+        }
+        Ok(summary)
+    }
 }
