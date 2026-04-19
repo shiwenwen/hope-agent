@@ -229,6 +229,18 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_steps TEXT;")?;
         }
 
+        // Migration: per-session tool_permission_mode so the chat input's
+        // toggle (auto / ask_every_time / full_approve) is restored when the
+        // user switches back to a historical session. See `SessionMeta`.
+        let has_tool_perm_mode = conn
+            .prepare("SELECT tool_permission_mode FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_tool_perm_mode {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN tool_permission_mode TEXT NOT NULL DEFAULT 'auto';",
+            )?;
+        }
+
         // Migration: add project_id column for Project feature.
         let has_project_id = conn
             .prepare("SELECT project_id FROM sessions LIMIT 1")
@@ -688,6 +700,7 @@ impl SessionDB {
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: "off".to_string(),
+            tool_permission_mode: "auto".to_string(),
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
         })
@@ -755,6 +768,7 @@ impl SessionDB {
                         s.parent_session_id,
                         s.plan_mode,
                         s.project_id,
+                        s.tool_permission_mode,
                         cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
                  FROM sessions s
                  LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
@@ -762,13 +776,13 @@ impl SessionDB {
         let count_base = "SELECT COUNT(*) FROM sessions s";
 
         let row_mapper = |row: &rusqlite::Row| {
-            let cc_channel_id: Option<String> = row.get(14)?;
+            let cc_channel_id: Option<String> = row.get(15)?;
             let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
                 channel_id: ch_id,
-                account_id: row.get::<_, String>(15).unwrap_or_default(),
-                chat_id: row.get::<_, String>(16).unwrap_or_default(),
-                chat_type: row.get::<_, String>(17).unwrap_or_default(),
-                sender_name: row.get(18).ok().flatten(),
+                account_id: row.get::<_, String>(16).unwrap_or_default(),
+                chat_id: row.get::<_, String>(17).unwrap_or_default(),
+                chat_type: row.get::<_, String>(18).unwrap_or_default(),
+                sender_name: row.get(19).ok().flatten(),
             });
             Ok(SessionMeta {
                 id: row.get(0)?,
@@ -788,6 +802,9 @@ impl SessionDB {
                     .get::<_, String>(12)
                     .unwrap_or_else(|_| "off".to_string()),
                 project_id: row.get(13)?,
+                tool_permission_mode: row
+                    .get::<_, String>(14)
+                    .unwrap_or_else(|_| "auto".to_string()),
                 channel_info,
             })
         };
@@ -1287,6 +1304,24 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Persist the tool permission mode (`auto` / `ask_every_time` / `full_approve`)
+    /// for a session so the chat input's toggle is restored on revisit.
+    pub fn update_session_tool_permission_mode(
+        &self,
+        session_id: &str,
+        tool_permission_mode: &str,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET tool_permission_mode = ?1 WHERE id = ?2",
+            params![tool_permission_mode, session_id],
+        )?;
+        Ok(())
+    }
+
     /// Persist plan step statuses to DB for crash recovery.
     pub fn save_plan_steps(&self, session_id: &str, steps_json: &str) -> Result<()> {
         let conn = self
@@ -1443,6 +1478,7 @@ impl SessionDB {
                     s.parent_session_id,
                     s.plan_mode,
                     s.project_id,
+                    s.tool_permission_mode,
                     cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
              FROM sessions s
              LEFT JOIN channel_conversations cc ON cc.session_id = s.id
@@ -1450,13 +1486,13 @@ impl SessionDB {
         )?;
 
         let mut rows = stmt.query_map(params![session_id], |row| {
-            let cc_channel_id: Option<String> = row.get(14)?;
+            let cc_channel_id: Option<String> = row.get(15)?;
             let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
                 channel_id: ch_id,
-                account_id: row.get::<_, String>(15).unwrap_or_default(),
-                chat_id: row.get::<_, String>(16).unwrap_or_default(),
-                chat_type: row.get::<_, String>(17).unwrap_or_default(),
-                sender_name: row.get(18).ok().flatten(),
+                account_id: row.get::<_, String>(16).unwrap_or_default(),
+                chat_id: row.get::<_, String>(17).unwrap_or_default(),
+                chat_type: row.get::<_, String>(18).unwrap_or_default(),
+                sender_name: row.get(19).ok().flatten(),
             });
             Ok(SessionMeta {
                 id: row.get(0)?,
@@ -1476,6 +1512,9 @@ impl SessionDB {
                     .get::<_, String>(12)
                     .unwrap_or_else(|_| "off".to_string()),
                 project_id: row.get(13)?,
+                tool_permission_mode: row
+                    .get::<_, String>(14)
+                    .unwrap_or_else(|_| "auto".to_string()),
                 channel_info,
             })
         })?;

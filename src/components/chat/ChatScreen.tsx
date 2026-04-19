@@ -4,7 +4,7 @@ import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Brain } from "lucide-react"
-import type { Message } from "@/types/chat"
+import type { Message, ToolPermissionMode } from "@/types/chat"
 import type { CommandResult } from "./slash-commands/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
@@ -350,6 +350,25 @@ export default function ChatScreen({
     planMode: planModeState,
     temperatureOverride: sessionTemperature,
   })
+
+  // Restore the per-session tool permission toggle on session switch. The ref
+  // guards against re-applying when `sessions` later reloads with the same
+  // sid — that would clobber the user's in-session edits.
+  const restoredTpmForSidRef = useRef<string | null>(null)
+  useEffect(() => {
+    const sid = session.currentSessionId
+    if (!sid) {
+      restoredTpmForSidRef.current = null
+      return
+    }
+    if (restoredTpmForSidRef.current === sid) return
+    const meta = session.sessions.find((s) => s.id === sid)
+    if (!meta) return // wait until the sessions list has the meta
+    const mode: ToolPermissionMode =
+      (meta.toolPermissionMode as ToolPermissionMode | undefined) ?? "auto"
+    restoredTpmForSidRef.current = sid
+    stream.setToolPermissionMode(mode)
+  }, [session.currentSessionId, session.sessions, stream.setToolPermissionMode])
 
   // ── Stream Reattach Hook ────────────────────────────────────
   // Rehydrates chat streaming after frontend reload / window reopen / browser

@@ -239,6 +239,7 @@ mod tests {
             is_cron: false,
             parent_session_id: None,
             plan_mode: "off".into(),
+            tool_permission_mode: "auto".into(),
             channel_info: None,
             project_id: None,
         }

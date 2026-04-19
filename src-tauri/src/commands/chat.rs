@@ -637,14 +637,24 @@ pub async fn stop_chat(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
-/// Set session-level tool permission mode immediately.
-///
-/// The `chat` command applies the mode at entry only, so toggling mid-loop
-/// or triggering a subagent / cron / IM-channel path would otherwise keep
-/// the previous mode until the next `chat` call.
+/// Set the current tool permission mode immediately and, when `session_id`
+/// is provided, persist it to the session row so the chat input's toggle is
+/// restored on revisit. The global singleton is always updated so in-flight
+/// tool loops and non-chat paths (subagent / cron / IM channels) see the new
+/// value without waiting for the next `chat` call.
 #[tauri::command]
-pub async fn set_tool_permission_mode(mode: tools::ToolPermissionMode) -> Result<(), String> {
+pub async fn set_tool_permission_mode(
+    session_id: Option<String>,
+    mode: tools::ToolPermissionMode,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     tools::set_tool_permission_mode(mode).await;
+    if let Some(sid) = session_id.as_deref() {
+        state
+            .session_db
+            .update_session_tool_permission_mode(sid, mode.as_str())
+            .map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 

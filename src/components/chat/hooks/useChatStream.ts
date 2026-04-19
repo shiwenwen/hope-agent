@@ -98,6 +98,10 @@ export function useChatStream({
   // Sync toggle changes to backend immediately — the `chat` command only
   // snapshots the mode on entry, so without this the toggle has no effect on
   // in-flight tool loops or non-chat paths (subagent / cron / IM channels).
+  //
+  // Also ships the current `sessionId` so the backend persists the choice to
+  // the session row; switching back to the same session later restores the
+  // toggle instead of snapping to the global singleton's value.
   const setToolPermissionMode = useCallback<
     React.Dispatch<React.SetStateAction<ToolPermissionMode>>
   >((value) => {
@@ -107,8 +111,12 @@ export function useChatStream({
           ? (value as (p: ToolPermissionMode) => ToolPermissionMode)(prev)
           : value
       if (next !== prev) {
+        const sid = currentSessionIdRef.current
         getTransport()
-          .call("set_tool_permission_mode", { mode: next })
+          .call("set_tool_permission_mode", {
+            mode: next,
+            ...(sid ? { sessionId: sid } : {}),
+          })
           .catch((e) => {
             logger.error(
               "chat",
@@ -120,7 +128,7 @@ export function useChatStream({
       }
       return next
     })
-  }, [])
+  }, [currentSessionIdRef])
 
   // Auto-send pending messages setting
   const autoSendPendingRef = useRef(true)

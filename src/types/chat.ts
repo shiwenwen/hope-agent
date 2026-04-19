@@ -150,6 +150,12 @@ export interface SessionMeta {
   isCron: boolean
   parentSessionId?: string | null
   /**
+   * Per-session tool approval mode. Persisted so the chat input's toggle
+   * (auto / ask_every_time / full_approve) is restored when switching back
+   * to a historical session.
+   */
+  toolPermissionMode?: ToolPermissionMode
+  /**
    * When set, this session belongs to a Project — project-scoped memories
    * and shared files are automatically injected into its system prompt.
    */

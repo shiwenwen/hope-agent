@@ -30,6 +30,18 @@ pub enum ToolPermissionMode {
     FullApprove,
 }
 
+impl ToolPermissionMode {
+    /// Matches the `#[serde(rename_all = "snake_case")]` encoding used when
+    /// the enum is serialized, so DB rows and JSON payloads agree.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::AskEveryTime => "ask_every_time",
+            Self::FullApprove => "full_approve",
+        }
+    }
+}
+
 /// Global session-level tool permission mode
 static TOOL_PERMISSION_MODE: OnceLock<TokioMutex<ToolPermissionMode>> = OnceLock::new();
 
@@ -337,5 +349,31 @@ pub(crate) async fn check_and_request_approval(
             Err(ApprovalCheckError::TimedOut { timeout_secs })
         }
         Err(_) => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tool_permission_mode_as_str_matches_serde() {
+        for mode in [
+            ToolPermissionMode::Auto,
+            ToolPermissionMode::AskEveryTime,
+            ToolPermissionMode::FullApprove,
+        ] {
+            let via_serde = serde_json::to_value(mode)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string();
+            assert_eq!(
+                mode.as_str(),
+                via_serde,
+                "as_str() drifted from #[serde(rename_all = \"snake_case\")] for {:?}",
+                mode
+            );
+        }
     }
 }

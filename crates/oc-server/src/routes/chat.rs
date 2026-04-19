@@ -322,16 +322,23 @@ pub async fn stop_chat(
 #[serde(rename_all = "camelCase")]
 pub struct ToolPermissionModeBody {
     pub mode: tools::ToolPermissionMode,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
-/// `POST /api/chat/tool-permission-mode` — set the global tool permission mode.
-///
-/// Frontend calls this on every toggle click so the mode applies immediately
-/// to in-flight tool loops and non-chat paths (subagent / cron / IM channels).
+/// `POST /api/chat/tool-permission-mode` — set the tool permission mode.
+/// When `sessionId` is provided the choice is persisted to the session row
+/// so switching away and back restores the toggle; the global singleton is
+/// always updated so in-flight tool loops see the new value immediately.
 pub async fn set_tool_permission_mode(
+    State(ctx): State<Arc<AppContext>>,
     Json(body): Json<ToolPermissionModeBody>,
 ) -> Result<Json<Value>, AppError> {
     tools::set_tool_permission_mode(body.mode).await;
+    if let Some(sid) = body.session_id.as_deref() {
+        ctx.session_db
+            .update_session_tool_permission_mode(sid, body.mode.as_str())?;
+    }
     Ok(Json(json!({ "ok": true })))
 }
 

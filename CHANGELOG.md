@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **工具权限模式按会话持久化**：聊天输入框的 `ToolPermissionToggle`（`auto` / `ask_every_time` / `full_approve`）原本只落在 `crates/oc-core/src/tools/approval.rs` 的进程级 `OnceLock<Mutex<ToolPermissionMode>>` 单例里，切换到另一个历史会话再切回来时全部被抹成默认 `auto`。现在把选择持久化到 `sessions.tool_permission_mode` 列（idempotent migration，默认 `'auto'`），`SessionMeta` 带上字段，`set_tool_permission_mode` Tauri 命令和 `POST /api/chat/tool-permission-mode` HTTP 路由同时接收可选 `sessionId`，收到就顺手 `update_session_tool_permission_mode` 写 DB。前端 `useChatStream.setToolPermissionMode` 每次切换把 `currentSessionIdRef.current` 塞进请求；`ChatScreen` 新增以 sid 为键的 "已恢复" ref guard（`restoredTpmForSidRef`），首次拿到 `sessions` 里该会话 meta 时把 UI state 拨回 DB 存的值，后续 `sessions` 列表 reload 不再回卷用户的在会话内修改。进程级单例仍在（主对话 tool loop 执行层当前读的是它），切会话路径同步重写一次保证执行层与 UI 一致；无 sid 场景（如 QuickChat 外壳未绑定会话时）退回旧行为，只更新单例不写 DB
+
 ### Docs
 
 - **新增 Project 项目系统架构文档**：在 [`docs/architecture/project.md`](docs/architecture/project.md) 下落地 Project 子系统完整技术文档，覆盖数据模型（`Project` / `ProjectMeta` / `ProjectFile` + `CreateProjectInput` / `UpdateProjectInput`）、SQLite schema（`projects` + `project_files` + `sessions.project_id` 迁移）、磁盘布局（`~/.opencomputer/projects/{id}/{files,extracted}/`）、上传管道 8 步（含 `scopeguard` 失败清理与 20MB 上限）、System Prompt 三层注入（目录清单 / 8KB 预算小文件内联 / on-demand `project_read_file`）、记忆系统三级优先级（Project → Agent → Global）、跨 DB 孤儿清理 reconciler、14 个 Tauri 命令、14 个 HTTP 端点、5 个 EventBus 事件、前端四 Tab 概览对话与侧边栏 ProjectSection。`docs/README.md` 索引同步登记，放在 Session / Memory 之间
