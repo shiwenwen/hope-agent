@@ -25,7 +25,7 @@ const SKIPPED_CATEGORIES: Array<{ key: string; fallback: string }> = [
   { key: "settings.dangerousSkipsChannel", fallback: "所有 IM 渠道触发的工具调用" },
 ]
 
-export default function SecuritySection() {
+export default function DangerousModeSection() {
   const { t } = useTranslation()
   const status = useDangerousModeStatus()
 
@@ -79,11 +79,11 @@ export default function SecuritySection() {
   }, [ackChecked, applyChange])
 
   return (
-    <div className="w-full pt-4">
-      <h3 className="text-sm font-semibold text-foreground mb-1">
+    <div className="space-y-4">
+      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
         {t("settings.dangerousTitle", "危险模式")}
       </h3>
-      <p className="text-xs text-muted-foreground mb-4">
+      <p className="text-xs text-muted-foreground">
         {t(
           "settings.dangerousIntro",
           "一键跳过全部工具审批。极高风险，仅在完全信任的本地环境使用。",

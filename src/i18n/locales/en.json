@@ -363,7 +363,6 @@
     "tabAppearance": "Appearance & Language",
     "tabSystem": "System & Shortcuts",
     "tabNetwork": "Network Proxy",
-    "tabSecurity": "Security",
     "dangerousTitle": "Dangerous Mode",
     "dangerousIntro": "One-click switch to bypass every tool approval. Extreme risk — enable only on fully trusted local machines.",
     "dangerousSwitchLabel": "Skip all tool approvals",

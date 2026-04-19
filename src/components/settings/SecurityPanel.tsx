@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import DangerousModeSection from "./DangerousModeSection"
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -174,7 +175,11 @@ export default function SecurityPanel() {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
-        <div className="space-y-6">
+        <div className="space-y-8">
+          <DangerousModeSection />
+
+          <div className="border-t border-border/30" />
+
           <div>
             <p className="text-xs text-muted-foreground">{t("settings.ssrfDesc")}</p>
           </div>

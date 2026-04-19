@@ -5,7 +5,6 @@ import LanguageSection from "./LanguageSection"
 import { AutostartToggle, UiEffectsToggle } from "./SystemSection"
 import ShortcutSection from "./ShortcutSection"
 import ProxySection from "./ProxySection"
-import SecuritySection from "./SecuritySection"
 
 export default function GeneralPanel() {
   const { t } = useTranslation()
@@ -18,7 +17,6 @@ export default function GeneralPanel() {
             <TabsTrigger value="appearance">{t("settings.tabAppearance")}</TabsTrigger>
             <TabsTrigger value="system">{t("settings.tabSystem")}</TabsTrigger>
             <TabsTrigger value="network">{t("settings.tabNetwork")}</TabsTrigger>
-            <TabsTrigger value="security">{t("settings.tabSecurity", "安全")}</TabsTrigger>
           </TabsList>
         </div>
 
@@ -42,11 +40,6 @@ export default function GeneralPanel() {
         {/* Network / Proxy */}
         <TabsContent value="network" className="flex-1 overflow-y-auto px-6 pb-6">
           <ProxySection />
-        </TabsContent>
-
-        {/* Security / Dangerous Mode */}
-        <TabsContent value="security" className="flex-1 overflow-y-auto px-6 pb-6">
-          <SecuritySection />
         </TabsContent>
       </Tabs>
     </div>
