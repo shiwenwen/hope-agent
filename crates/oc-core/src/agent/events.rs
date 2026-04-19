@@ -260,10 +260,7 @@ pub(super) fn build_max_rounds_notice(max_rounds: u32) -> String {
 
 /// Emit the max-rounds notice as a text_delta AND return it so the caller can
 /// append it to `collected_text` for persistence.
-pub(super) fn emit_max_rounds_notice(
-    on_delta: &(impl Fn(&str) + Send),
-    max_rounds: u32,
-) -> String {
+pub(super) fn emit_max_rounds_notice(on_delta: &(impl Fn(&str) + Send), max_rounds: u32) -> String {
     let notice = build_max_rounds_notice(max_rounds);
     emit_text_delta(on_delta, &notice);
     notice

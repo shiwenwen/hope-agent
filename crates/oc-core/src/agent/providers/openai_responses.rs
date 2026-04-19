@@ -57,8 +57,7 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "OpenAIResponses");
-        let system_prompt_for_budget =
-            self.build_merged_system_prompt(model, "OpenAIResponses");
+        let system_prompt_for_budget = self.build_merged_system_prompt(model, "OpenAIResponses");
 
         // Run context compaction (Tier 1-3) before API call
         self.run_compaction(&mut input, &system_prompt_for_budget, 16384, on_delta)
@@ -113,10 +112,13 @@ impl AssistantAgent {
             // → suffix churn doesn't invalidate the instruction cache.
             if let Some(suffix) = self.current_awareness_suffix() {
                 if !suffix.is_empty() {
-                    api_input.insert(0, json!({
-                        "role": "system",
-                        "content": suffix.as_str()
-                    }));
+                    api_input.insert(
+                        0,
+                        json!({
+                            "role": "system",
+                            "content": suffix.as_str()
+                        }),
+                    );
                 }
             }
             // Active Memory (Phase B1) — inject after the awareness suffix

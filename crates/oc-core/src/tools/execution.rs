@@ -2,6 +2,9 @@ use serde_json::Value;
 use std::time::Duration;
 use tokio::time::timeout;
 
+use super::project_read_file;
+use super::send_attachment;
+use super::skill;
 use super::{
     acp_spawn, browser, cron, memory, notification, settings, subagent, team, weather, web_fetch,
     web_search,
@@ -10,21 +13,18 @@ use super::{
     agents, amend_plan, ask_user_question, canvas, image, image_generate, job_status, pdf,
     plan_step, sessions, submit_plan, task,
 };
-use super::project_read_file;
-use super::send_attachment;
-use super::skill;
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
     approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
     TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
-    TOOL_FIND, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE, TOOL_JOB_STATUS,
-    TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET, TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE,
-    TOOL_READ, TOOL_RECALL_MEMORY, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION,
+    TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
+    TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
+    TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
+    TOOL_RESTORE_SETTINGS_BACKUP, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT, TOOL_SEND_NOTIFICATION,
     TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS,
-    TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE,
-    TOOL_UPDATE_CORE_MEMORY, TOOL_TEAM, TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP,
-    TOOL_GET_SETTINGS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_RESTORE_SETTINGS_BACKUP,
-    TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE, TOOL_TEAM,
+    TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_PLAN_STEP, TOOL_UPDATE_SETTINGS,
+    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -415,13 +415,15 @@ pub async fn execute_tool_with_context(
     // dispatch on an OS thread, and either returns the inline result or
     // detaches into a job and returns a synthetic.
     if matches!(async_decision, AsyncDecision::AutoBackgroundEligible) {
-        let auto_bg_secs = crate::config::cached_config().async_tools.auto_background_secs;
+        let auto_bg_secs = crate::config::cached_config()
+            .async_tools
+            .auto_background_secs;
         let mut inner_ctx = ctx.clone();
         inner_ctx.bypass_async_dispatch = true;
         // Approval already ran at this outer layer — silence the inner re-entry.
         inner_ctx.auto_approve_tools = true;
-        let raw = async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs)
-            .await?;
+        let raw =
+            async_jobs::dispatch_with_auto_background(name, args, &inner_ctx, auto_bg_secs).await?;
         // The auto-bg helper already routed the result through this function
         // recursively (inner_ctx.bypass_async_dispatch=true) so disk-persist
         // and logging fired inside that nested call. Return as-is.
@@ -442,9 +444,7 @@ pub async fn execute_tool_with_context(
             TOOL_EXEC => exec::tool_exec(args, ctx).await,
             TOOL_PROCESS => process::tool_process(args).await,
             TOOL_READ | "read_file" => read::tool_read_file(args, ctx).await,
-            TOOL_PROJECT_READ_FILE => {
-                project_read_file::tool_project_read_file(args, ctx).await
-            }
+            TOOL_PROJECT_READ_FILE => project_read_file::tool_project_read_file(args, ctx).await,
             TOOL_WRITE | "write_file" => write::tool_write_file(args).await,
             TOOL_EDIT | "patch_file" => edit::tool_edit(args).await,
             TOOL_LS | "list_dir" => ls::tool_ls(args, ctx).await,
@@ -484,12 +484,8 @@ pub async fn execute_tool_with_context(
             }
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
             TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
-            TOOL_TASK_CREATE => {
-                Ok(task::tool_task_create(args, ctx.session_id.as_deref()).await)
-            }
-            TOOL_TASK_UPDATE => {
-                Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await)
-            }
+            TOOL_TASK_CREATE => Ok(task::tool_task_create(args, ctx.session_id.as_deref()).await),
+            TOOL_TASK_UPDATE => Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),
             TOOL_JOB_STATUS => job_status::tool_job_status(args).await,
             super::TOOL_TOOL_SEARCH => super::tool_search::tool_search(args, ctx).await,
@@ -652,11 +648,7 @@ fn extract_touched_paths(tool_name: &str, args: &Value) -> Vec<String> {
             let mut out = Vec::new();
             for line in patch.lines() {
                 let trimmed = line.trim_start();
-                for marker in [
-                    "*** Update File: ",
-                    "*** Add File: ",
-                    "*** Delete File: ",
-                ] {
+                for marker in ["*** Update File: ", "*** Add File: ", "*** Delete File: "] {
                     if let Some(path) = trimmed.strip_prefix(marker) {
                         out.push(path.trim().to_string());
                     }
@@ -687,10 +679,7 @@ fn any_paths_skills(cfg: &crate::config::AppConfig) -> bool {
         }
     }
 
-    let catalog = crate::skills::get_invocable_skills(
-        &cfg.extra_skills_dirs,
-        &cfg.disabled_skills,
-    );
+    let catalog = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     let has_any = catalog
         .iter()
         .any(|s| s.paths.as_ref().map(|p| !p.is_empty()).unwrap_or(false));
@@ -720,12 +709,8 @@ fn maybe_activate_conditional_skills(name: &str, args: &Value, ctx: &ToolExecCon
         return;
     }
     let cwd = ctx.home_dir.as_deref().unwrap_or(".");
-    let catalog = crate::skills::get_invocable_skills(
-        &cfg.extra_skills_dirs,
-        &cfg.disabled_skills,
-    );
-    let activated =
-        crate::skills::activate_skills_for_paths(session_id, &paths, cwd, &catalog);
+    let catalog = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let activated = crate::skills::activate_skills_for_paths(session_id, &paths, cwd, &catalog);
     if !activated.is_empty() {
         crate::skills::bump_skill_version();
         crate::app_info!(

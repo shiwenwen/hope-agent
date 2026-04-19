@@ -23,9 +23,8 @@ pub struct AsyncJobsDB {
 
 impl AsyncJobsDB {
     pub fn open(db_path: &std::path::Path) -> Result<Self> {
-        let conn = Connection::open(db_path).with_context(|| {
-            format!("Failed to open async_jobs DB at {}", db_path.display())
-        })?;
+        let conn = Connection::open(db_path)
+            .with_context(|| format!("Failed to open async_jobs DB at {}", db_path.display()))?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         conn.execute_batch("PRAGMA synchronous=NORMAL;")?;
         conn.execute_batch(
@@ -127,7 +126,9 @@ impl AsyncJobsDB {
                     created_at, completed_at, injected, origin
              FROM async_tool_jobs WHERE job_id=?1",
         )?;
-        stmt.query_row(params![job_id], row_to_job).optional().map_err(Into::into)
+        stmt.query_row(params![job_id], row_to_job)
+            .optional()
+            .map_err(Into::into)
     }
 
     /// All jobs whose status is still `running` — used by startup replay.
@@ -152,9 +153,8 @@ impl AsyncJobsDB {
     /// still "owned" by a row.
     pub fn list_all_spool_paths(&self) -> Result<HashSet<String>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        let mut stmt = conn.prepare(
-            "SELECT result_path FROM async_tool_jobs WHERE result_path IS NOT NULL",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT result_path FROM async_tool_jobs WHERE result_path IS NOT NULL")?;
         let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
         let mut out = HashSet::new();
         for r in rows {

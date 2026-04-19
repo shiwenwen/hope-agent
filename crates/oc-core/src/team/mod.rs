@@ -1,11 +1,11 @@
-pub mod types;
-pub mod db;
+pub mod cleanup;
 pub mod coordinator;
+pub mod db;
+pub mod events;
 pub mod messaging;
 pub mod tasks;
 pub mod templates;
-pub mod events;
-pub mod cleanup;
+pub mod types;
 
 pub use types::*;
 

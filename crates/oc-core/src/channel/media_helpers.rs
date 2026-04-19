@@ -46,7 +46,11 @@ pub async fn materialize_to_bytes(
                 .map(str::to_string)
                 .unwrap_or_else(|| fallback_filename(media_type));
             let mime = guess_mime_from_filename(&filename).to_string();
-            Ok(MaterializedMedia { bytes, filename, mime })
+            Ok(MaterializedMedia {
+                bytes,
+                filename,
+                mime,
+            })
         }
         MediaData::Url(url) => {
             let ssrf_cfg = &crate::config::cached_config().ssrf;
@@ -93,18 +97,30 @@ pub async fn materialize_to_bytes(
                     .as_deref()
                     .map(extension_for_mime)
                     .unwrap_or_else(|| default_extension_for_media(media_type));
-                format!("{}.{}", Uuid::new_v4().simple(), ext.trim_start_matches('.'))
+                format!(
+                    "{}.{}",
+                    Uuid::new_v4().simple(),
+                    ext.trim_start_matches('.')
+                )
             });
             // 优先采用 server 给的 Content-Type（保留 image/heic 等本地 table 没收的类型），
             // 缺失时按文件名扩展名兜底。
-            let mime = header_mime
-                .unwrap_or_else(|| guess_mime_from_filename(&filename).to_string());
-            Ok(MaterializedMedia { bytes, filename, mime })
+            let mime =
+                header_mime.unwrap_or_else(|| guess_mime_from_filename(&filename).to_string());
+            Ok(MaterializedMedia {
+                bytes,
+                filename,
+                mime,
+            })
         }
         MediaData::Bytes(bytes) => {
             enforce_size(bytes.len(), max_bytes, "inline bytes")?;
             let ext = default_extension_for_media(media_type);
-            let filename = format!("{}.{}", Uuid::new_v4().simple(), ext.trim_start_matches('.'));
+            let filename = format!(
+                "{}.{}",
+                Uuid::new_v4().simple(),
+                ext.trim_start_matches('.')
+            );
             let mime = guess_mime_from_filename(&filename).to_string();
             Ok(MaterializedMedia {
                 bytes: bytes.clone(),
@@ -225,8 +241,14 @@ mod tests {
 
     #[test]
     fn guess_mime_unknown_falls_back() {
-        assert_eq!(guess_mime_from_filename("blob.xyz"), "application/octet-stream");
-        assert_eq!(guess_mime_from_filename("noext"), "application/octet-stream");
+        assert_eq!(
+            guess_mime_from_filename("blob.xyz"),
+            "application/octet-stream"
+        );
+        assert_eq!(
+            guess_mime_from_filename("noext"),
+            "application/octet-stream"
+        );
     }
 
     #[tokio::test]
@@ -252,7 +274,9 @@ mod tests {
 
     #[tokio::test]
     async fn materialize_filepath_reads_disk_and_infers_mime() {
-        let dir = TempDir(std::env::temp_dir().join(format!("oc-media-test-{}", Uuid::new_v4().simple())));
+        let dir = TempDir(
+            std::env::temp_dir().join(format!("oc-media-test-{}", Uuid::new_v4().simple())),
+        );
         std::fs::create_dir_all(&dir.0).unwrap();
         let path = dir.0.join("hello.png");
         std::fs::write(&path, b"PNGFAKE").unwrap();

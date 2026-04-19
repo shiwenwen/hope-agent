@@ -49,9 +49,7 @@ fn resolve_bundled_skills_dir() -> Option<PathBuf> {
     #[cfg(debug_assertions)]
     {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let workspace_root = Path::new(manifest_dir)
-            .parent()
-            .and_then(|p| p.parent());
+        let workspace_root = Path::new(manifest_dir).parent().and_then(|p| p.parent());
         if let Some(root) = workspace_root {
             if let Some(found) = try_skills_dir(root.join("skills")) {
                 return Some(found);

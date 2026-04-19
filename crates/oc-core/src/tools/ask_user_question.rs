@@ -139,7 +139,14 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     // so the `source` tag can reuse it without a second DB round-trip.
     let plan_owner = crate::plan::get_plan_owner_session_id(sid).await;
     let effective_sid = plan_owner.clone().unwrap_or_else(|| sid.to_string());
-    let source = Some(if plan_owner.is_some() { "plan" } else { "normal" }.to_string());
+    let source = Some(
+        if plan_owner.is_some() {
+            "plan"
+        } else {
+            "normal"
+        }
+        .to_string(),
+    );
 
     // Resolve effective group timeout: max(per-question timeouts, global default).
     let global_default = crate::config::cached_config().ask_user_question_timeout_secs;

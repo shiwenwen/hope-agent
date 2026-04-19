@@ -3,8 +3,7 @@ use std::sync::atomic::Ordering;
 use tokio::process::Command;
 
 use super::{
-    helpers::*, DeployProgress, CONTAINER_NAME, DEPLOYING, DEPLOY_PROGRESS, IMAGE,
-    STATUS_LOCK,
+    helpers::*, DeployProgress, CONTAINER_NAME, DEPLOYING, DEPLOY_PROGRESS, IMAGE, STATUS_LOCK,
 };
 
 /// Pull image, start container, inject config, health-check.

@@ -10,10 +10,10 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
 
+use crate::ask_user::{self as ask_user_mod, AskUserQuestionAnswer, AskUserQuestionGroup};
 use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{InlineButton, ReplyPayload};
-use crate::ask_user::{self as ask_user_mod, AskUserQuestionAnswer, AskUserQuestionGroup};
 
 /// Callback data prefix for ask_user buttons across all channels.
 pub(crate) const ASK_USER_PREFIX: &str = "ask_user:";
@@ -251,10 +251,7 @@ fn build_buttons(group: &AskUserQuestionGroup) -> Vec<Vec<InlineButton>> {
 /// Spawn a background task that forwards `ask_user_request` events to
 /// whichever IM channel the owning session belongs to. Idempotent — callers
 /// should only invoke once at startup.
-pub fn spawn_channel_ask_user_listener(
-    channel_db: Arc<ChannelDB>,
-    registry: Arc<ChannelRegistry>,
-) {
+pub fn spawn_channel_ask_user_listener(channel_db: Arc<ChannelDB>, registry: Arc<ChannelRegistry>) {
     let Some(bus) = crate::globals::get_event_bus() else {
         return;
     };
@@ -315,13 +312,12 @@ pub fn spawn_channel_ask_user_listener(
                 None => continue,
             };
 
-            let channel_id: crate::channel::types::ChannelId =
-                match serde_json::from_value(serde_json::Value::String(
-                    conversation.channel_id.clone(),
-                )) {
-                    Ok(id) => id,
-                    Err(_) => continue,
-                };
+            let channel_id: crate::channel::types::ChannelId = match serde_json::from_value(
+                serde_json::Value::String(conversation.channel_id.clone()),
+            ) {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
 
             let supports_buttons = registry
                 .get_plugin(&channel_id)
@@ -334,10 +330,7 @@ pub fn spawn_channel_ask_user_listener(
                 // Register pending state keyed by request_id.
                 {
                     let mut pending = get_button_pending().lock().await;
-                    pending.insert(
-                        group.request_id.clone(),
-                        PendingAskUser::new(group.clone()),
-                    );
+                    pending.insert(group.request_id.clone(), PendingAskUser::new(group.clone()));
                 }
                 ReplyPayload {
                     text: Some(prompt_text),
@@ -392,9 +385,7 @@ pub fn spawn_channel_ask_user_listener(
 /// - `done`       finalise all answers (multi-select)
 /// - `cancel`     abort the group
 /// - `<text>`     free-form custom input for the first unanswered question
-pub async fn try_handle_ask_user_reply(
-    msg: &crate::channel::types::MsgContext,
-) -> bool {
+pub async fn try_handle_ask_user_reply(msg: &crate::channel::types::MsgContext) -> bool {
     let text = match msg.text.as_deref() {
         Some(t) => t.trim().to_string(),
         None => return false,
@@ -434,7 +425,8 @@ pub async fn try_handle_ask_user_reply(
         return true;
     }
 
-    let should_finish = lowered == "done" || !current.group.questions.iter().any(|q| q.multi_select);
+    let should_finish =
+        lowered == "done" || !current.group.questions.iter().any(|q| q.multi_select);
 
     // Try to parse option markers. A reply like "1a,1c" splits into markers.
     let mut parsed_any = false;
@@ -449,10 +441,7 @@ pub async fn try_handle_ask_user_reply(
                 let q = &current.group.questions[qi];
                 if oi < q.options.len() {
                     let value = q.options[oi].value.clone();
-                    let prog = current
-                        .progress
-                        .entry(q.question_id.clone())
-                        .or_default();
+                    let prog = current.progress.entry(q.question_id.clone()).or_default();
                     if q.multi_select {
                         if !prog.selected.contains(&value) {
                             prog.selected.push(value);
@@ -498,7 +487,8 @@ pub async fn try_handle_ask_user_reply(
         }
         drop(pending_map);
         let answers = pending.into_answers();
-        if let Err(e) = ask_user_mod::submit_ask_user_question_response(&request_id, answers).await {
+        if let Err(e) = ask_user_mod::submit_ask_user_question_response(&request_id, answers).await
+        {
             app_warn!(
                 "channel",
                 "ask_user",
@@ -582,7 +572,10 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
             let (should_submit, pending_for_submit) = {
                 let mut map = get_button_pending().lock().await;
                 let Some(pending) = map.get_mut(&request_id) else {
-                    return Err(anyhow::anyhow!("No pending ask_user with id {}", request_id));
+                    return Err(anyhow::anyhow!(
+                        "No pending ask_user with id {}",
+                        request_id
+                    ));
                 };
                 let q = pending
                     .group
@@ -624,7 +617,10 @@ pub async fn handle_ask_user_callback(callback_data: &str) -> anyhow::Result<&'s
         "done" => {
             let mut map = get_button_pending().lock().await;
             let Some(pending) = map.remove(&request_id) else {
-                return Err(anyhow::anyhow!("No pending ask_user with id {}", request_id));
+                return Err(anyhow::anyhow!(
+                    "No pending ask_user with id {}",
+                    request_id
+                ));
             };
             drop(map);
             let answers = pending.into_answers();

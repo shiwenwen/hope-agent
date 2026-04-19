@@ -249,12 +249,8 @@ pub async fn fetch_preview(url_str: &str) -> Result<UrlPreviewMeta> {
 
     let parsed_url = {
         let ssrf_cfg = &crate::config::cached_config().ssrf;
-        crate::security::ssrf::check_url(
-            url_str,
-            ssrf_cfg.url_preview(),
-            &ssrf_cfg.trusted_hosts,
-        )
-        .await?
+        crate::security::ssrf::check_url(url_str, ssrf_cfg.url_preview(), &ssrf_cfg.trusted_hosts)
+            .await?
     };
 
     // Build HTTP client

@@ -4,10 +4,7 @@ use futures_util::StreamExt;
 /// Drain `resp` into a `Vec<u8>`, truncating at `max_bytes`. Silent on cap —
 /// never errors so callers decide whether a truncated body is fatal. Bounds
 /// memory against hostile / misbehaving upstreams that ignore `Content-Length`.
-pub async fn read_bytes_capped(
-    resp: reqwest::Response,
-    max_bytes: usize,
-) -> Result<Vec<u8>> {
+pub async fn read_bytes_capped(resp: reqwest::Response, max_bytes: usize) -> Result<Vec<u8>> {
     let mut buf = Vec::new();
     let mut stream = resp.bytes_stream();
     while let Some(chunk) = stream.next().await {

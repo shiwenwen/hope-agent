@@ -1,8 +1,8 @@
 use anyhow::Result;
 use rusqlite::params;
 
-use crate::session::SessionDB;
 use super::types::*;
+use crate::session::SessionDB;
 
 impl SessionDB {
     // ── Teams CRUD ──────────────────────────────────────────────
@@ -173,11 +173,7 @@ impl SessionDB {
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 
-    pub fn update_team_member_status(
-        &self,
-        member_id: &str,
-        status: &MemberStatus,
-    ) -> Result<()> {
+    pub fn update_team_member_status(&self, member_id: &str, status: &MemberStatus) -> Result<()> {
         let conn = self
             .conn
             .lock()
@@ -225,11 +221,7 @@ impl SessionDB {
         Ok(())
     }
 
-    pub fn update_team_member_task(
-        &self,
-        member_id: &str,
-        task_id: Option<i64>,
-    ) -> Result<()> {
+    pub fn update_team_member_task(&self, member_id: &str, task_id: Option<i64>) -> Result<()> {
         let conn = self
             .conn
             .lock()
@@ -246,7 +238,10 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute("DELETE FROM team_members WHERE member_id = ?1", params![member_id])?;
+        conn.execute(
+            "DELETE FROM team_members WHERE member_id = ?1",
+            params![member_id],
+        )?;
         Ok(())
     }
 
@@ -357,11 +352,7 @@ impl SessionDB {
         Ok(())
     }
 
-    pub fn list_team_messages(
-        &self,
-        team_id: &str,
-        limit: usize,
-    ) -> Result<Vec<TeamMessage>> {
+    pub fn list_team_messages(&self, team_id: &str, limit: usize) -> Result<Vec<TeamMessage>> {
         let conn = self
             .conn
             .lock()
@@ -383,8 +374,9 @@ impl SessionDB {
                 timestamp: row.get(6)?,
             })
         })?;
-        let mut messages: Vec<TeamMessage> =
-            rows.collect::<Result<Vec<_>, _>>().map_err(|e| anyhow::anyhow!("{}", e))?;
+        let mut messages: Vec<TeamMessage> = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
         messages.reverse(); // oldest first
         Ok(messages)
     }
@@ -491,7 +483,8 @@ impl SessionDB {
         );
         values.push(Box::new(task_id));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|b| b.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            values.iter().map(|b| b.as_ref()).collect();
         conn.execute(&sql, param_refs.as_slice())?;
         Ok(())
     }

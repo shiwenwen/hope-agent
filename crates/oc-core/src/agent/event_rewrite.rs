@@ -76,12 +76,7 @@ fn maybe_append_token(url: &str, api_key: Option<&str>) -> Option<String> {
         return None;
     }
     let sep = if url.contains('?') { '&' } else { '?' };
-    Some(format!(
-        "{}{}token={}",
-        url,
-        sep,
-        urlencoding::encode(key)
-    ))
+    Some(format!("{}{}token={}", url, sep, urlencoding::encode(key)))
 }
 
 /// For `chat:stream_delta` / `channel:stream_delta` envelopes forwarded on

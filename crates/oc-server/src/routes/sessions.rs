@@ -153,18 +153,19 @@ pub async fn search_sessions(
 ) -> Result<Json<Vec<oc_core::session::SessionSearchResult>>, AppError> {
     let limit = q.limit.unwrap_or(80) as usize;
 
-    let parsed_types: Option<Vec<oc_core::session::SessionTypeFilter>> = q.types.as_ref().map(|s| {
-        s.split(',')
-            .map(|t| t.trim())
-            .filter(|t| !t.is_empty())
-            .filter_map(oc_core::session::SessionTypeFilter::parse)
-            .collect()
-    });
+    let parsed_types: Option<Vec<oc_core::session::SessionTypeFilter>> =
+        q.types.as_ref().map(|s| {
+            s.split(',')
+                .map(|t| t.trim())
+                .filter(|t| !t.is_empty())
+                .filter_map(oc_core::session::SessionTypeFilter::parse)
+                .collect()
+        });
     let type_slice = parsed_types.as_deref();
 
-    let results = ctx
-        .session_db
-        .search_messages(&q.query, q.agent_id.as_deref(), None, type_slice, limit)?;
+    let results =
+        ctx.session_db
+            .search_messages(&q.query, q.agent_id.as_deref(), None, type_slice, limit)?;
     Ok(Json(results))
 }
 
@@ -195,10 +196,15 @@ pub async fn get_session_messages_around(
 ) -> Result<Json<Value>, AppError> {
     let before = q.before.unwrap_or(40);
     let after = q.after.unwrap_or(20);
-    let (messages, total, has_more_before, has_more_after) =
-        ctx.session_db
-            .load_session_messages_around(&id, q.target_message_id, before, after)?;
-    Ok(Json(json!([messages, total, has_more_before, has_more_after])))
+    let (messages, total, has_more_before, has_more_after) = ctx
+        .session_db
+        .load_session_messages_around(&id, q.target_message_id, before, after)?;
+    Ok(Json(json!([
+        messages,
+        total,
+        has_more_before,
+        has_more_after
+    ])))
 }
 
 /// `GET /api/sessions/:id/messages?limit=N` — load latest messages for a session.

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use crate::session::SessionDB;
 use super::types::*;
+use crate::session::SessionDB;
 
 /// Clean up orphaned teams on startup.
 /// - Members with status=working whose subagent runs are gone → mark Error
@@ -33,7 +33,9 @@ pub fn cleanup_orphan_teams(db: &Arc<SessionDB>) {
                         if run.status.is_terminal() {
                             // Subagent finished but member not updated — sync status
                             let new_status = match run.status {
-                                crate::subagent::SubagentStatus::Completed => MemberStatus::Completed,
+                                crate::subagent::SubagentStatus::Completed => {
+                                    MemberStatus::Completed
+                                }
                                 crate::subagent::SubagentStatus::Killed => MemberStatus::Killed,
                                 _ => MemberStatus::Error,
                             };
@@ -50,7 +52,8 @@ pub fn cleanup_orphan_teams(db: &Arc<SessionDB>) {
                     }
                     Ok(None) => {
                         // Run record gone — mark member as error
-                        let _ = db.update_team_member_status(&member.member_id, &MemberStatus::Error);
+                        let _ =
+                            db.update_team_member_status(&member.member_id, &MemberStatus::Error);
                         app_warn!(
                             "team",
                             "cleanup",

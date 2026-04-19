@@ -169,9 +169,7 @@ pub async fn get_memory_budget_config() -> Result<memory::MemoryBudgetConfig, St
 }
 
 #[tauri::command]
-pub async fn save_memory_budget_config(
-    config: memory::MemoryBudgetConfig,
-) -> Result<(), String> {
+pub async fn save_memory_budget_config(config: memory::MemoryBudgetConfig) -> Result<(), String> {
     let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     let _reason = oc_core::backup::scope_save_reason("memory_budget", "ui");
     store.memory_budget = config;

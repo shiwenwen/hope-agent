@@ -115,9 +115,8 @@ mod tests {
 
     #[test]
     fn parses_fenced_code_block() {
-        let out = parse_nominations(
-            "Here's my answer:\n```json\n[{\"id\":\"7\",\"score\":0.8}]\n```",
-        );
+        let out =
+            parse_nominations("Here's my answer:\n```json\n[{\"id\":\"7\",\"score\":0.8}]\n```");
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].memory_id, 7);
     }

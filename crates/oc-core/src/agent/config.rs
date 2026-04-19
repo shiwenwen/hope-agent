@@ -239,9 +239,7 @@ pub fn build_system_prompt_with_session(
         // Load project files if we have a project.
         let project_files: Vec<crate::project::ProjectFile> = project
             .as_ref()
-            .and_then(|p| {
-                crate::get_project_db().and_then(|db| db.list_files(&p.id).ok())
-            })
+            .and_then(|p| crate::get_project_db().and_then(|db| db.list_files(&p.id).ok()))
             .unwrap_or_default();
 
         // Load candidate memory entries (unscoped raw list). Budget-based

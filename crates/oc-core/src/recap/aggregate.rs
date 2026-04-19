@@ -295,7 +295,11 @@ mod tests {
             },
         ];
         let s = roll_up(&facets);
-        let scores: Vec<u8> = s.satisfaction_distribution.iter().map(|(k, _)| *k).collect();
+        let scores: Vec<u8> = s
+            .satisfaction_distribution
+            .iter()
+            .map(|(k, _)| *k)
+            .collect();
         assert_eq!(scores, vec![2, 5]);
         assert_eq!(s.satisfaction_distribution[1].1, 2);
     }

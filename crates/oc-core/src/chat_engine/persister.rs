@@ -111,8 +111,7 @@ impl StreamPersister {
                             pt.clear();
                         }
                     }
-                    let call_id =
-                        event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
                     let name = event.get("name").and_then(|v| v.as_str()).unwrap_or("");
                     let arguments = event
                         .get("arguments")
@@ -122,22 +121,15 @@ impl StreamPersister {
                     let _ = db.append_message(&session_id, &tool_msg);
                 }
                 Some("tool_result") => {
-                    let call_id =
-                        event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
-                    let result =
-                        event.get("result").and_then(|v| v.as_str()).unwrap_or("");
+                    let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");
+                    let result = event.get("result").and_then(|v| v.as_str()).unwrap_or("");
                     let duration_ms = event.get("duration_ms").and_then(|v| v.as_i64());
                     let is_error = event
                         .get("is_error")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    let _ = db.update_tool_result(
-                        &session_id,
-                        call_id,
-                        result,
-                        duration_ms,
-                        is_error,
-                    );
+                    let _ =
+                        db.update_tool_result(&session_id, call_id, result, duration_ms, is_error);
                 }
                 _ => {}
             }
@@ -163,11 +155,7 @@ impl StreamPersister {
     /// assistant row, so `had_thinking_blocks()` is accurate when the
     /// caller decides whether to duplicate thinking into the assistant
     /// row's `thinking` column.
-    pub(crate) fn flush_remaining_thinking(
-        &self,
-        db: &Arc<SessionDB>,
-        session_id: &str,
-    ) {
+    pub(crate) fn flush_remaining_thinking(&self, db: &Arc<SessionDB>, session_id: &str) {
         let mut pk = match self.pending_thinking.lock() {
             Ok(g) => g,
             Err(p) => p.into_inner(),

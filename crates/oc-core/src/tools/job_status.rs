@@ -39,14 +39,11 @@ pub async fn tool_job_status(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("job_status: missing required `job_id` parameter"))?;
 
-    let block = args
-        .get("block")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let block = args.get("block").and_then(|v| v.as_bool()).unwrap_or(false);
     let requested_timeout_ms = args.get("timeout_ms").and_then(|v| v.as_u64());
 
-    let db = async_jobs::get_async_jobs_db()
-        .ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
+    let db =
+        async_jobs::get_async_jobs_db().ok_or_else(|| anyhow!("Async jobs DB not initialized"))?;
 
     let initial = db
         .load(job_id)?

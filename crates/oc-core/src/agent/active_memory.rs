@@ -174,11 +174,7 @@ User's latest message:\n\
 {user_msg}\n";
 
 /// Build the recall prompt from user text and a shortlist of candidates.
-pub fn build_recall_prompt(
-    user_msg: &str,
-    candidates: &[MemoryEntry],
-    max_chars: usize,
-) -> String {
+pub fn build_recall_prompt(user_msg: &str, candidates: &[MemoryEntry], max_chars: usize) -> String {
     let rendered_candidates = if candidates.is_empty() {
         "(none)".to_string()
     } else {
@@ -195,13 +191,7 @@ pub fn build_recall_prompt(
                 } else {
                     format!(" [tags: {}]", m.tags.join(","))
                 };
-                format!(
-                    "{:>2}. ({:?}) {}{}",
-                    i + 1,
-                    m.memory_type,
-                    content,
-                    tags
-                )
+                format!("{:>2}. ({:?}) {}{}", i + 1, m.memory_type, content, tags)
             })
             .collect::<Vec<_>>()
             .join("\n")
@@ -219,7 +209,11 @@ pub fn build_recall_prompt(
 ///
 /// Returns the union **Project → Agent → Global** (when project is set),
 /// or just Agent → Global otherwise.
-pub fn scopes_for_session(session_id: &str, agent_id: &str, shared_global: bool) -> Vec<MemoryScope> {
+pub fn scopes_for_session(
+    session_id: &str,
+    agent_id: &str,
+    shared_global: bool,
+) -> Vec<MemoryScope> {
     let mut scopes = Vec::new();
 
     // Project scope (if session belongs to one).
@@ -251,11 +245,7 @@ pub fn scopes_for_session(session_id: &str, agent_id: &str, shared_global: bool)
 ///
 /// This is a synchronous call; the caller wraps it in `spawn_blocking`
 /// so it doesn't stall the async runtime on slow disks.
-pub fn shortlist_candidates(
-    query: &str,
-    scopes: &[MemoryScope],
-    limit: usize,
-) -> Vec<MemoryEntry> {
+pub fn shortlist_candidates(query: &str, scopes: &[MemoryScope], limit: usize) -> Vec<MemoryEntry> {
     let Some(backend) = crate::get_memory_backend() else {
         return Vec::new();
     };

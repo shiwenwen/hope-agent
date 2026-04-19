@@ -7,13 +7,13 @@ pub async fn browser_get_status() -> Result<browser_ui::BrowserStatus, String> {
 
 #[tauri::command]
 pub async fn browser_list_profiles() -> Result<Vec<browser_ui::BrowserProfileInfo>, String> {
-    browser_ui::list_profiles()
-        .await
-        .map_err(|e| e.to_string())
+    browser_ui::list_profiles().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn browser_create_profile(name: String) -> Result<browser_ui::BrowserProfileInfo, String> {
+pub async fn browser_create_profile(
+    name: String,
+) -> Result<browser_ui::BrowserProfileInfo, String> {
     browser_ui::create_profile(&name)
         .await
         .map_err(|e| e.to_string())

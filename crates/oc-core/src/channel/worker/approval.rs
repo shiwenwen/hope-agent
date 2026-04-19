@@ -33,8 +33,7 @@ struct PendingTextApproval {
 static TEXT_PENDING: OnceLock<Mutex<HashMap<(String, String), Vec<PendingTextApproval>>>> =
     OnceLock::new();
 
-fn get_text_pending(
-) -> &'static Mutex<HashMap<(String, String), Vec<PendingTextApproval>>> {
+fn get_text_pending() -> &'static Mutex<HashMap<(String, String), Vec<PendingTextApproval>>> {
     TEXT_PENDING.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -105,10 +104,7 @@ pub fn spawn_callback_handler(data: &str, source: &'static str) {
 
 /// Spawn a background task that listens for `"approval_required"` events on
 /// the EventBus and forwards them to the appropriate IM channel.
-pub fn spawn_channel_approval_listener(
-    channel_db: Arc<ChannelDB>,
-    registry: Arc<ChannelRegistry>,
-) {
+pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc<ChannelRegistry>) {
     let Some(bus) = crate::globals::get_event_bus() else {
         return;
     };
@@ -178,13 +174,12 @@ pub fn spawn_channel_approval_listener(
                 None => continue,
             };
 
-            let channel_id: crate::channel::types::ChannelId =
-                match serde_json::from_value(serde_json::Value::String(
-                    conversation.channel_id.clone(),
-                )) {
-                    Ok(id) => id,
-                    Err(_) => continue,
-                };
+            let channel_id: crate::channel::types::ChannelId = match serde_json::from_value(
+                serde_json::Value::String(conversation.channel_id.clone()),
+            ) {
+                Ok(id) => id,
+                Err(_) => continue,
+            };
 
             let supports_buttons = registry
                 .get_plugin(&channel_id)
@@ -207,12 +202,9 @@ pub fn spawn_channel_approval_listener(
                         conversation.chat_id.clone(),
                     );
                     let mut pending = get_text_pending().lock().await;
-                    pending
-                        .entry(key)
-                        .or_default()
-                        .push(PendingTextApproval {
-                            request_id: request.request_id.clone(),
-                        });
+                    pending.entry(key).or_default().push(PendingTextApproval {
+                        request_id: request.request_id.clone(),
+                    });
                 }
 
                 ReplyPayload {
@@ -243,9 +235,7 @@ pub fn spawn_channel_approval_listener(
 ///
 /// Returns `true` if the message was consumed as an approval reply,
 /// `false` if it should proceed through normal message processing.
-pub async fn try_handle_approval_reply(
-    msg: &crate::channel::types::MsgContext,
-) -> bool {
+pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) -> bool {
     let text = match msg.text.as_deref() {
         Some(t) => t.trim(),
         None => return false,

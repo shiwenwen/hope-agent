@@ -111,10 +111,7 @@ fn parse_loose_date(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
         return Some(dt.with_timezone(&chrono::Utc));
     }
     if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
-        return Some(chrono::DateTime::from_naive_utc_and_offset(
-            dt,
-            chrono::Utc,
-        ));
+        return Some(chrono::DateTime::from_naive_utc_and_offset(dt, chrono::Utc));
     }
     if let Ok(dt) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
         let datetime = dt.and_hms_opt(0, 0, 0)?;
@@ -164,11 +161,9 @@ where
                 anyhow::bail!("cancelled");
             }
             // Cache hit: return immediately without an LLM call.
-            if let Ok(Some(facet)) = cache.get_cached_facet(
-                &cand.session_id,
-                &cand.last_message_ts,
-                &analysis_model,
-            ) {
+            if let Ok(Some(facet)) =
+                cache.get_cached_facet(&cand.session_id, &cand.last_message_ts, &analysis_model)
+            {
                 return Ok(facet);
             }
             let messages = session_db.load_session_messages(&cand.session_id)?;
@@ -202,10 +197,7 @@ where
                 );
             }
         }
-        progress(RecapProgress::ExtractingFacets {
-            completed,
-            total,
-        });
+        progress(RecapProgress::ExtractingFacets { completed, total });
         if cancel.is_cancelled() {
             anyhow::bail!("cancelled");
         }

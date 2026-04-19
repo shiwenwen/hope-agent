@@ -148,7 +148,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                     Ok(event) => {
                         // Hot-reload shortcuts when config:changed with category=shortcuts
                         if event.name == "config:changed" {
-                            if let Some(cat) = event.payload.get("category").and_then(|v| v.as_str())
+                            if let Some(cat) =
+                                event.payload.get("category").and_then(|v| v.as_str())
                             {
                                 if cat == "shortcuts" {
                                     use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -165,7 +166,9 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                                             } else {
                                                 binding.keys.clone()
                                             };
-                                            if let Ok(sc) = key.parse::<tauri_plugin_global_shortcut::Shortcut>() {
+                                            if let Ok(sc) = key
+                                                .parse::<tauri_plugin_global_shortcut::Shortcut>(
+                                            ) {
                                                 let _ = manager.register(sc);
                                             }
                                         }
@@ -182,10 +185,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                             "Tauri bridge lagged {} events — some UI updates may be missed",
                             n
                         );
-                        let _ = app_handle.emit(
-                            "_event_bus_lagged",
-                            serde_json::json!({ "missed": n }),
-                        );
+                        let _ = app_handle
+                            .emit("_event_bus_lagged", serde_json::json!({ "missed": n }));
                         continue;
                     }
                     Err(RecvError::Closed) => break,

@@ -61,10 +61,7 @@ pub async fn handle_context(
     let (active_model, active_provider) = {
         let store = state.config.lock().await;
         if let Some(ref active) = store.active_model {
-            let prov = store
-                .providers
-                .iter()
-                .find(|p| p.id == active.provider_id);
+            let prov = store.providers.iter().find(|p| p.id == active.provider_id);
             let model_label = prov
                 .and_then(|p| p.models.iter().find(|m| m.id == active.model_id))
                 .map(|m| m.name.clone())
@@ -246,9 +243,7 @@ fn render_markdown_fallback(b: &ContextBreakdown) -> String {
         "Agent: `{}` · Model: `{}` · Messages: {}",
         b.active_agent, b.active_model, b.message_count
     ));
-    lines.push(
-        "_Estimated (char÷4); may differ from billed usage by ~10–20%._".to_string(),
-    );
+    lines.push("_Estimated (char÷4); may differ from billed usage by ~10–20%._".to_string());
 
     lines.join("\n")
 }

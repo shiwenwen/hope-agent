@@ -79,7 +79,6 @@ pub struct ApprovalBodyRequest {
     pub response: String,
 }
 
-
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SystemPromptQuery {
@@ -151,8 +150,7 @@ pub async fn chat(
     };
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
-    let persisted_content =
-        oc_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
+    let persisted_content = oc_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
 
     // Save user message to DB
     let user_msg = session::NewMessage::user(persisted_content);
@@ -315,7 +313,9 @@ pub async fn stop_chat(
         cancel.store(true, Ordering::SeqCst);
         count += 1;
     }
-    Ok(Json(json!({ "stopped": true, "scope": "all", "count": count })))
+    Ok(Json(
+        json!({ "stopped": true, "scope": "all", "count": count }),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -412,9 +412,12 @@ pub async fn save_attachment(multipart: Multipart) -> Result<Json<Value>, AppErr
     let upload = parse_file_upload(multipart).await?;
     let session_id = upload.extra_fields.get("sessionId").map(|s| s.as_str());
 
-    let path =
-        oc_core::attachments::save_attachment_bytes(session_id, &upload.file_name, &upload.file_data)
-            .map_err(|e| AppError::internal(e.to_string()))?;
+    let path = oc_core::attachments::save_attachment_bytes(
+        session_id,
+        &upload.file_name,
+        &upload.file_data,
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(Json(json!({ "path": path })))
 }

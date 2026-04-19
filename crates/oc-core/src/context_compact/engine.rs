@@ -31,18 +31,12 @@ pub trait ContextEngine: Send + Sync {
     /// If the returned `CompactResult.description` equals
     /// `"summarization_needed"`, the caller is responsible for
     /// executing Tier 3 (async LLM summarization) separately.
-    fn compact_sync(
-        &self,
-        messages: &mut Vec<Value>,
-        ctx: &CompactionContext<'_>,
-    ) -> CompactResult;
+    fn compact_sync(&self, messages: &mut Vec<Value>, ctx: &CompactionContext<'_>)
+        -> CompactResult;
 
     /// Emergency compaction (Tier 4): called on ContextOverflow.
-    fn emergency_compact(
-        &self,
-        messages: &mut Vec<Value>,
-        config: &CompactConfig,
-    ) -> CompactResult;
+    fn emergency_compact(&self, messages: &mut Vec<Value>, config: &CompactConfig)
+        -> CompactResult;
 
     /// Optional system-prompt addition injected by the engine.
     /// A future Active Memory engine would return recall context here.

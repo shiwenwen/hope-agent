@@ -12,9 +12,9 @@ use std::sync::Arc;
 
 use oc_core::memory::{MemoryEntry, MemoryScope};
 use oc_core::project::{
-    delete_project_cascade, delete_project_file as delete_file_pipeline,
-    upload_project_file, CreateProjectInput, Project, ProjectFile, ProjectMeta,
-    UpdateProjectInput, UploadInput, MAX_PROJECT_FILE_BYTES,
+    delete_project_cascade, delete_project_file as delete_file_pipeline, upload_project_file,
+    CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput, UploadInput,
+    MAX_PROJECT_FILE_BYTES,
 };
 use oc_core::session::{ProjectFilter, SessionMeta};
 
@@ -58,8 +58,6 @@ pub struct MoveSessionBody {
     #[serde(default)]
     pub project_id: Option<String>,
 }
-
-
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -134,10 +132,8 @@ pub async fn create_project(
 ) -> Result<Json<Project>, AppError> {
     let project = ctx.project_db.create(body.input)?;
 
-    ctx.event_bus.emit(
-        "project:created",
-        json!({ "projectId": project.id }),
-    );
+    ctx.event_bus
+        .emit("project:created", json!({ "projectId": project.id }));
     Ok(Json(project))
 }
 
@@ -148,10 +144,8 @@ pub async fn update_project(
     Json(body): Json<UpdateProjectBody>,
 ) -> Result<Json<Project>, AppError> {
     let project = ctx.project_db.update(&id, body.patch)?;
-    ctx.event_bus.emit(
-        "project:updated",
-        json!({ "projectId": project.id }),
-    );
+    ctx.event_bus
+        .emit("project:updated", json!({ "projectId": project.id }));
     Ok(Json(project))
 }
 
@@ -162,8 +156,7 @@ pub async fn delete_project(
 ) -> Result<Json<Value>, AppError> {
     let deleted = delete_project_cascade(&id, &ctx.project_db)?;
     if deleted {
-        ctx
-            .event_bus
+        ctx.event_bus
             .emit("project:deleted", json!({ "projectId": id }));
     }
     Ok(Json(json!({ "deleted": deleted })))
@@ -180,10 +173,8 @@ pub async fn archive_project(
         ..Default::default()
     };
     let project = ctx.project_db.update(&id, patch)?;
-    ctx.event_bus.emit(
-        "project:updated",
-        json!({ "projectId": project.id }),
-    );
+    ctx.event_bus
+        .emit("project:updated", json!({ "projectId": project.id }));
     Ok(Json(project))
 }
 
@@ -282,10 +273,9 @@ pub async fn delete_project_file_route(
 ) -> Result<Json<Value>, AppError> {
     let project_db = ctx.project_db.clone();
     let file_id = fid.clone();
-    let deleted =
-        tokio::task::spawn_blocking(move || delete_file_pipeline(&file_id, &project_db))
-            .await
-            .map_err(|e| anyhow::anyhow!("delete task join error: {}", e))??;
+    let deleted = tokio::task::spawn_blocking(move || delete_file_pipeline(&file_id, &project_db))
+        .await
+        .map_err(|e| anyhow::anyhow!("delete task join error: {}", e))??;
 
     if deleted {
         ctx.event_bus.emit(

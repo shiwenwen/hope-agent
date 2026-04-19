@@ -18,7 +18,8 @@ pub fn peek_sessions_schema() -> ToolDefinition {
         description: "Inspect what the user is doing in other sessions right now. \
 Returns a compact markdown list of peer sessions (title, agent, kind, relative time, \
 goal/summary). Use this when the user references \"the other thing\", \"last time\", \
-or you suspect context from other sessions matters. Always read-only.".into(),
+or you suspect context from other sessions matters. Always read-only."
+            .into(),
         internal: true,
         deferred: true,
         always_load: false,
@@ -44,10 +45,7 @@ or you suspect context from other sessions matters. Always read-only.".into(),
 
 /// Execute the tool. `current_session_id` is pulled from the tool execution
 /// context so we can exclude the caller's own session.
-pub fn run_peek_sessions(
-    args: &Value,
-    current_session_id: Option<&str>,
-) -> Result<String, String> {
+pub fn run_peek_sessions(args: &Value, current_session_id: Option<&str>) -> Result<String, String> {
     let query = args
         .get("query")
         .and_then(|v| v.as_str())

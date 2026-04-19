@@ -74,7 +74,9 @@ impl MediaItem {
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or(display_name);
-        let sid = session_id.filter(|s| !s.is_empty()).unwrap_or(TEMP_SESSION_ID);
+        let sid = session_id
+            .filter(|s| !s.is_empty())
+            .unwrap_or(TEMP_SESSION_ID);
         let url = format!("/api/attachments/{}/{}", sid, urlencoding::encode(basename));
         Self {
             url,
@@ -235,17 +237,26 @@ mod tests {
 
     #[test]
     fn sniff_png_magic() {
-        assert_eq!(sniff_mime(b"\x89PNG\r\n\x1a\nrest", Path::new("x")), "image/png");
+        assert_eq!(
+            sniff_mime(b"\x89PNG\r\n\x1a\nrest", Path::new("x")),
+            "image/png"
+        );
     }
 
     #[test]
     fn sniff_pdf_magic() {
-        assert_eq!(sniff_mime(b"%PDF-1.4\n...", Path::new("x.bin")), "application/pdf");
+        assert_eq!(
+            sniff_mime(b"%PDF-1.4\n...", Path::new("x.bin")),
+            "application/pdf"
+        );
     }
 
     #[test]
     fn sniff_fallback_ext() {
-        assert_eq!(sniff_mime(b"plain text body", Path::new("/tmp/foo.txt")), "text/plain");
+        assert_eq!(
+            sniff_mime(b"plain text body", Path::new("/tmp/foo.txt")),
+            "text/plain"
+        );
     }
 
     #[test]

@@ -72,7 +72,9 @@ fn validate_profile_name(name: &str) -> Result<()> {
         return Err(anyhow!("Profile name too long (max 64 chars)"));
     }
     if trimmed != name {
-        return Err(anyhow!("Profile name cannot have leading/trailing whitespace"));
+        return Err(anyhow!(
+            "Profile name cannot have leading/trailing whitespace"
+        ));
     }
     let ok = name
         .chars()

@@ -27,12 +27,16 @@ pub async fn send_outbound_media(
     let m = materialize_to_bytes(&media.data, &media.media_type, MAX_FEISHU_FILE_BYTES).await?;
     match media.media_type {
         MediaType::Photo => {
-            let key = api.upload_image(m.bytes, &m.filename, &m.mime, "message").await?;
+            let key = api
+                .upload_image(m.bytes, &m.filename, &m.mime, "message")
+                .await?;
             api.send_image_message(receive_id, &key, reply_to).await
         }
         _ => {
             let file_type = feishu_file_type(&media.media_type, &m.filename);
-            let key = api.upload_file(m.bytes, &m.filename, &m.mime, file_type).await?;
+            let key = api
+                .upload_file(m.bytes, &m.filename, &m.mime, file_type)
+                .await?;
             api.send_file_message(receive_id, &key, reply_to).await
         }
     }

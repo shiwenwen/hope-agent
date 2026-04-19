@@ -16,7 +16,10 @@ pub const SECTION_ORDER: &[(&str, &str)] = &[
     ("what_works", "What's working well"),
     ("friction_analysis", "Where things get stuck"),
     ("agent_tool_optimization", "Agent & tool optimization"),
-    ("memory_skill_recommendations", "Memory & skill recommendations"),
+    (
+        "memory_skill_recommendations",
+        "Memory & skill recommendations",
+    ),
     ("cost_optimization", "Cost optimization"),
     ("suggestions", "Suggestions"),
     ("on_the_horizon", "On the horizon"),
@@ -84,10 +87,7 @@ where
                 });
             }
         }
-        progress(RecapProgress::GeneratingSections {
-            completed,
-            total,
-        });
+        progress(RecapProgress::GeneratingSections { completed, total });
     }
 
     // ── At a glance: built from the other sections' outputs ──

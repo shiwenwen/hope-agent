@@ -99,8 +99,7 @@ pub fn create_skill(
             bail!("skill directory already exists: {}", dir.display());
         }
     }
-    std::fs::create_dir_all(&dir)
-        .with_context(|| format!("create skill dir {}", dir.display()))?;
+    std::fs::create_dir_all(&dir).with_context(|| format!("create skill dir {}", dir.display()))?;
 
     let file_path = dir.join("SKILL.md");
     let rendered = ensure_frontmatter(body_md, skill_id, description, &opts)?;
@@ -177,10 +176,12 @@ pub fn delete_skill(skill_id: &str) -> Result<()> {
     let canon_dir = dir.canonicalize().unwrap_or(dir.clone());
     let canon_root = managed_root.canonicalize().unwrap_or(managed_root.clone());
     if !canon_dir.starts_with(&canon_root) {
-        bail!("refusing to delete outside managed skills root: {}", dir.display());
+        bail!(
+            "refusing to delete outside managed skills root: {}",
+            dir.display()
+        );
     }
-    std::fs::remove_dir_all(&dir)
-        .with_context(|| format!("remove {}", dir.display()))?;
+    std::fs::remove_dir_all(&dir).with_context(|| format!("remove {}", dir.display()))?;
 
     super::types::bump_skill_version();
     crate::dashboard::emit_learning_event(
@@ -201,7 +202,9 @@ pub struct FuzzyOpts {
 
 impl Default for FuzzyOpts {
     fn default() -> Self {
-        Self { min_similarity: 0.80 }
+        Self {
+            min_similarity: 0.80,
+        }
     }
 }
 
@@ -222,10 +225,14 @@ pub fn patch_skill_fuzzy(
         .with_context(|| format!("read {}", file_path.display()))?;
 
     // Fast path: exact match wins without scoring.
-    if let Some(updated) = original
-        .find(old_approx)
-        .map(|idx| [&original[..idx], new_text, &original[idx + old_approx.len()..]].concat())
-    {
+    if let Some(updated) = original.find(old_approx).map(|idx| {
+        [
+            &original[..idx],
+            new_text,
+            &original[idx + old_approx.len()..],
+        ]
+        .concat()
+    }) {
         std::fs::write(&file_path, updated)
             .with_context(|| format!("write {}", file_path.display()))?;
         super::types::bump_skill_version();
@@ -249,7 +256,9 @@ pub fn patch_skill_fuzzy(
         .unwrap_or((0, 0.0));
 
     if best_sim < opts.min_similarity {
-        return Ok(PatchResult::NotFound { best_similarity: best_sim });
+        return Ok(PatchResult::NotFound {
+            best_similarity: best_sim,
+        });
     }
 
     let (offset, seg) = segments[best_idx];
@@ -270,7 +279,9 @@ pub fn patch_skill_fuzzy(
             "similarity": best_sim,
         })),
     );
-    Ok(PatchResult::Fuzzy { similarity: best_sim })
+    Ok(PatchResult::Fuzzy {
+        similarity: best_sim,
+    })
 }
 
 /// Return all skills currently in `Draft` status, across all discovery sources
@@ -555,10 +566,7 @@ fn word_bag(s: &str) -> std::collections::HashSet<String> {
         .collect()
 }
 
-fn jaccard(
-    a: &std::collections::HashSet<String>,
-    b: &std::collections::HashSet<String>,
-) -> f32 {
+fn jaccard(a: &std::collections::HashSet<String>, b: &std::collections::HashSet<String>) -> f32 {
     if a.is_empty() && b.is_empty() {
         return 0.0;
     }

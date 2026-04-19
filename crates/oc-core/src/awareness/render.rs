@@ -188,7 +188,14 @@ mod tests {
     fn max_chars_is_respected() {
         let snap = AwarenessSnapshot {
             entries: (0..10)
-                .map(|i| mk_entry(&format!("{}", i), "Very long title that repeats A A A A A A A A A A", ActivityState::Active, i * 10))
+                .map(|i| {
+                    mk_entry(
+                        &format!("{}", i),
+                        "Very long title that repeats A A A A A A A A A A",
+                        ActivityState::Active,
+                        i * 10,
+                    )
+                })
                 .collect(),
             active_count: 10,
             generated_at: "now".into(),

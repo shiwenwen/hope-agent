@@ -25,10 +25,7 @@ pub async fn list_projects_cmd(
     state: State<'_, AppState>,
 ) -> Result<Vec<ProjectMeta>, String> {
     let include_archived = include_archived.unwrap_or(false);
-    let mut projects = state
-        .project_db
-        .list(include_archived)
-        .map_err(map_err)?;
+    let mut projects = state.project_db.list(include_archived).map_err(map_err)?;
 
     // Cross-DB enrichment: fetch project-scoped memory counts.
     if let Some(backend) = oc_core::get_memory_backend() {
@@ -84,18 +81,12 @@ pub async fn update_project_cmd(
 }
 
 #[tauri::command]
-pub async fn delete_project_cmd(
-    id: String,
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
+pub async fn delete_project_cmd(id: String, state: State<'_, AppState>) -> Result<bool, String> {
     let deleted = delete_project_cascade(&id, &state.project_db).map_err(map_err)?;
 
     if deleted {
         if let Some(bus) = oc_core::get_event_bus() {
-            let _ = bus.emit(
-                "project:deleted",
-                serde_json::json!({ "projectId": id }),
-            );
+            let _ = bus.emit("project:deleted", serde_json::json!({ "projectId": id }));
         }
     }
     Ok(deleted)
@@ -210,12 +201,11 @@ pub async fn delete_project_file_cmd(
 ) -> Result<bool, String> {
     let project_db = state.project_db.clone();
     let file_id_for_pipe = file_id.clone();
-    let deleted = tokio::task::spawn_blocking(move || {
-        delete_file_pipeline(&file_id_for_pipe, &project_db)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(map_err)?;
+    let deleted =
+        tokio::task::spawn_blocking(move || delete_file_pipeline(&file_id_for_pipe, &project_db))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(map_err)?;
 
     if deleted {
         if let Some(bus) = oc_core::get_event_bus() {
@@ -297,8 +287,8 @@ pub async fn list_project_memories_cmd(
     limit: Option<u32>,
     offset: Option<u32>,
 ) -> Result<Vec<oc_core::memory::MemoryEntry>, String> {
-    let backend =
-        oc_core::get_memory_backend().ok_or_else(|| "memory backend not initialized".to_string())?;
+    let backend = oc_core::get_memory_backend()
+        .ok_or_else(|| "memory backend not initialized".to_string())?;
     let scope = oc_core::memory::MemoryScope::Project { id };
     backend
         .list(

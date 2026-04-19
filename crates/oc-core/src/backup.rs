@@ -266,7 +266,10 @@ impl Drop for SaveReasonGuard {
 /// let _g = backup::scope_save_reason("theme", "skill");
 /// config::save_config(&store)?; // snapshot tagged "theme/skill"
 /// ```
-pub fn scope_save_reason(category: impl Into<String>, source: impl Into<String>) -> SaveReasonGuard {
+pub fn scope_save_reason(
+    category: impl Into<String>,
+    source: impl Into<String>,
+) -> SaveReasonGuard {
     NEXT_SAVE_REASON.with(|slot| {
         *slot.borrow_mut() = Some(SaveReason {
             category: category.into(),
@@ -298,28 +301,20 @@ pub fn snapshot_before_write(src: &Path, kind: &str) {
     let dir = match paths::autosave_dir() {
         Ok(d) => d,
         Err(e) => {
-            app_warn!(
-                "backup",
-                "autosave",
-                "Cannot resolve autosave dir: {}",
-                e
-            );
+            app_warn!("backup", "autosave", "Cannot resolve autosave dir: {}", e);
             let _ = take_save_reason();
             return;
         }
     };
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        app_warn!(
-            "backup",
-            "autosave",
-            "Cannot create autosave dir: {}",
-            e
-        );
+        app_warn!("backup", "autosave", "Cannot create autosave dir: {}", e);
         let _ = take_save_reason();
         return;
     }
     let reason = take_save_reason();
-    let ts = chrono::Utc::now().format("%Y-%m-%dT%H-%M-%S-%3f").to_string();
+    let ts = chrono::Utc::now()
+        .format("%Y-%m-%dT%H-%M-%S-%3f")
+        .to_string();
     let safe_cat = sanitize_slug(&reason.category);
     let safe_src = sanitize_slug(&reason.source);
     let filename = format!("{}__{}__{}__{}.json", ts, kind, safe_cat, safe_src);
@@ -336,12 +331,7 @@ pub fn snapshot_before_write(src: &Path, kind: &str) {
         return;
     }
     if let Err(e) = rotate_autosaves(&dir, MAX_AUTOSAVES) {
-        app_warn!(
-            "backup",
-            "autosave",
-            "Rotation failed: {}",
-            e
-        );
+        app_warn!("backup", "autosave", "Rotation failed: {}", e);
     }
 }
 
@@ -489,10 +479,7 @@ pub fn restore_autosave(id: &str) -> Result<AutosaveEntry, String> {
         }
         "user" => {
             if let Some(bus) = crate::get_event_bus() {
-                bus.emit(
-                    "config:changed",
-                    serde_json::json!({ "category": "user" }),
-                );
+                bus.emit("config:changed", serde_json::json!({ "category": "user" }));
             }
         }
         _ => {}

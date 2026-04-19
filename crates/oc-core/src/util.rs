@@ -25,7 +25,9 @@ pub fn epoch_cutoff_secs(window_days: u32) -> i64 {
 /// an optional override ("display text", "override title", ...) should win over
 /// a mandatory default only when the caller actually supplied meaningful text.
 pub fn non_empty_trim_or<'a>(opt: Option<&'a str>, fallback: &'a str) -> &'a str {
-    opt.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(fallback)
+    opt.map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(fallback)
 }
 
 /// Produce a comma-separated list of `?` placeholders for a SQL `IN` clause.

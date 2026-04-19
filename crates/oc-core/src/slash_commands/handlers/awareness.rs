@@ -28,9 +28,7 @@ pub fn handle_awareness(args: &str) -> Result<CommandResult, String> {
         "mode" => match arg1.as_deref() {
             Some("off") => set_mode(AwarenessMode::Off),
             Some("structured") => set_mode(AwarenessMode::Structured),
-            Some("llm") | Some("llm_digest") | Some("digest") => {
-                set_mode(AwarenessMode::LlmDigest)
-            }
+            Some("llm") | Some("llm_digest") | Some("digest") => set_mode(AwarenessMode::LlmDigest),
             _ => Err("Usage: /awareness mode [off|structured|llm|llm_digest|digest]".to_string()),
         },
         "status" => Ok(status_result()),

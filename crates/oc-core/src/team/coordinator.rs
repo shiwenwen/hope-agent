@@ -1,12 +1,12 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::globals::get_subagent_cancels;
-use crate::session::SessionDB;
-use crate::subagent::{self, SpawnParams, SubagentCancelRegistry};
 use super::events::emit_team_event;
 use super::types::*;
 use super::{pick_member_color, MAX_ACTIVE_TEAMS};
+use crate::globals::get_subagent_cancels;
+use crate::session::SessionDB;
+use crate::subagent::{self, SpawnParams, SubagentCancelRegistry};
 
 /// Create a new team with initial members.
 pub async fn create_team(
@@ -170,11 +170,14 @@ pub async fn spawn_member(
     updated.session_id = Some(session_id);
     updated.status = MemberStatus::Working;
 
-    emit_team_event("member_status", &serde_json::json!({
-        "teamId": team.team_id,
-        "memberId": member_id,
-        "status": "working",
-    }));
+    emit_team_event(
+        "member_status",
+        &serde_json::json!({
+            "teamId": team.team_id,
+            "memberId": member_id,
+            "status": "working",
+        }),
+    );
 
     Ok(updated)
 }
@@ -225,11 +228,8 @@ pub async fn add_member(
     )
     .await?;
 
-    let _ = super::messaging::post_system_message(
-        db,
-        team_id,
-        &format!("{} joined the team", name),
-    );
+    let _ =
+        super::messaging::post_system_message(db, team_id, &format!("{} joined the team", name));
 
     Ok(member)
 }
@@ -255,11 +255,14 @@ pub fn remove_member(db: &Arc<SessionDB>, team_id: &str, member_id: &str) -> Res
 
     db.update_team_member_status(member_id, &MemberStatus::Killed)?;
 
-    emit_team_event("member_status", &serde_json::json!({
-        "teamId": team_id,
-        "memberId": member_id,
-        "status": "killed",
-    }));
+    emit_team_event(
+        "member_status",
+        &serde_json::json!({
+            "teamId": team_id,
+            "memberId": member_id,
+            "status": "killed",
+        }),
+    );
 
     let _ = super::messaging::post_system_message(
         db,
@@ -292,10 +295,13 @@ pub fn dissolve_team(db: &Arc<SessionDB>, team_id: &str) -> Result<()> {
 
     db.update_team_status(team_id, &TeamStatus::Dissolved)?;
 
-    emit_team_event("dissolved", &serde_json::json!({
-        "teamId": team_id,
-        "name": team.name,
-    }));
+    emit_team_event(
+        "dissolved",
+        &serde_json::json!({
+            "teamId": team_id,
+            "name": team.name,
+        }),
+    );
 
     app_info!("team", "coordinator", "Team '{}' dissolved", team.name);
     Ok(())
@@ -426,10 +432,8 @@ fn build_member_context(
     let members = db.list_team_members(&team.team_id)?;
     // Batch-fetch all tasks to avoid N+1 queries
     let tasks = db.list_team_tasks(&team.team_id)?;
-    let task_map: std::collections::HashMap<i64, &str> = tasks
-        .iter()
-        .map(|t| (t.id, t.content.as_str()))
-        .collect();
+    let task_map: std::collections::HashMap<i64, &str> =
+        tasks.iter().map(|t| (t.id, t.content.as_str())).collect();
 
     let teammates: Vec<String> = members
         .iter()
@@ -443,11 +447,7 @@ fn build_member_context(
         })
         .collect();
 
-    let shared_ctx = team
-        .config
-        .shared_context
-        .as_deref()
-        .unwrap_or("");
+    let shared_ctx = team.config.shared_context.as_deref().unwrap_or("");
 
     let role_identity_block = member
         .role_description

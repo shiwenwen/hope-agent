@@ -33,11 +33,7 @@ impl Drop for StreamLifecycle {
 
 /// Emit one stream event through the per-call sink and the EventBus broadcast,
 /// injecting a monotonic `_oc_seq` shared by both paths.
-fn emit_stream_event(
-    event_sink: &std::sync::Arc<dyn EventSink>,
-    session_id: &str,
-    event: &str,
-) {
+fn emit_stream_event(event_sink: &std::sync::Arc<dyn EventSink>, session_id: &str, event: &str) {
     let (enveloped, seq) = stream_broadcast::inject_seq(session_id, event);
     event_sink.send(&enveloped);
     stream_broadcast::broadcast_delta(session_id, &enveloped, seq);
@@ -106,34 +102,31 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     for (idx, model_ref) in model_chain.iter().enumerate() {
         // ── Auth profile selection ──────────────────────────────
-        let current_provider = providers
-            .iter()
-            .find(|p| p.id == model_ref.provider_id);
-        let mut current_profile: Option<AuthProfile> = current_provider
-            .and_then(|prov| failover::select_profile(prov, &session_id));
+        let current_provider = providers.iter().find(|p| p.id == model_ref.provider_id);
+        let mut current_profile: Option<AuthProfile> =
+            current_provider.and_then(|prov| failover::select_profile(prov, &session_id));
         let mut profile_rotated = false;
         let mut tried_profiles: Vec<String> = Vec::new();
         if let Some(ref p) = current_profile {
             tried_profiles.push(p.id.clone());
         }
 
-        let mut agent =
-            match build_agent_from_snapshot(
-                model_ref,
-                &providers,
-                &codex_token,
-                &compact_config,
-                current_profile.as_ref(),
-            ) {
-                Some(a) => a,
-                None => {
-                    last_error = Some(format!(
-                        "Cannot build agent for {}::{}",
-                        model_ref.provider_id, model_ref.model_id
-                    ));
-                    continue;
-                }
-            };
+        let mut agent = match build_agent_from_snapshot(
+            model_ref,
+            &providers,
+            &codex_token,
+            &compact_config,
+            current_profile.as_ref(),
+        ) {
+            Some(a) => a,
+            None => {
+                last_error = Some(format!(
+                    "Cannot build agent for {}::{}",
+                    model_ref.provider_id, model_ref.model_id
+                ));
+                continue;
+            }
+        };
         configure_agent(
             &mut agent,
             &agent_id,
@@ -251,11 +244,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                     persister.flush_remaining_thinking(&db, &session_id);
                     let trailing_text = persister.take_trailing_text();
-                    let assistant_msg = persister.build_assistant_message(
-                        &trailing_text,
-                        thinking,
-                        duration_ms,
-                    );
+                    let assistant_msg =
+                        persister.build_assistant_message(&trailing_text, thinking, duration_ms);
                     let _ = db.append_message(&session_id, &assistant_msg);
 
                     // Persist conversation context
@@ -387,8 +377,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             model_ref.model_id
                         );
                         let mut history = agent.get_conversation_history();
-                        let compact_result =
-                            agent.context_engine().emergency_compact(&mut history, &compact_config);
+                        let compact_result = agent
+                            .context_engine()
+                            .emergency_compact(&mut history, &compact_config);
                         agent.set_conversation_history(history);
                         save_agent_context(&db, &session_id, &agent);
 
@@ -427,7 +418,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                     "Rotating auth profile for {}::{}: {} -> {} (reason: {:?})",
                                     model_ref.provider_id,
                                     model_ref.model_id,
-                                    current_profile.as_ref().map(|p| p.label.as_str()).unwrap_or("?"),
+                                    current_profile
+                                        .as_ref()
+                                        .map(|p| p.label.as_str())
+                                        .unwrap_or("?"),
                                     next.label,
                                     reason
                                 );

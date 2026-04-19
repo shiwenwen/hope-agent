@@ -189,9 +189,7 @@ impl SessionDB {
             .prepare("SELECT tokens_cache_creation FROM messages LIMIT 1")
             .is_ok();
         if !has_tokens_cache_creation {
-            conn.execute_batch(
-                "ALTER TABLE messages ADD COLUMN tokens_cache_creation INTEGER;",
-            )?;
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN tokens_cache_creation INTEGER;")?;
         }
         let has_tokens_cache_read = conn
             .prepare("SELECT tokens_cache_read FROM messages LIMIT 1")
@@ -248,9 +246,7 @@ impl SessionDB {
             .prepare("SELECT awareness_config_json FROM sessions LIMIT 1")
             .is_ok();
         if !has_awareness_cfg {
-            conn.execute_batch(
-                "ALTER TABLE sessions ADD COLUMN awareness_config_json TEXT;",
-            )?;
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN awareness_config_json TEXT;")?;
         }
 
         // Migration: pending ask_user_question groups for resume-after-restart.
@@ -401,9 +397,7 @@ impl SessionDB {
             .prepare("SELECT role_description FROM team_members LIMIT 1")
             .is_ok();
         if !has_role_description {
-            conn.execute_batch(
-                "ALTER TABLE team_members ADD COLUMN role_description TEXT;",
-            )?;
+            conn.execute_batch("ALTER TABLE team_members ADD COLUMN role_description TEXT;")?;
         }
 
         // team_templates.updated_at (for ORDER BY)
@@ -616,7 +610,9 @@ impl SessionDB {
         let mut out = Vec::new();
         for row in rows {
             let payload = row?;
-            if let Ok(group) = serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload) {
+            if let Ok(group) =
+                serde_json::from_str::<crate::ask_user::AskUserQuestionGroup>(&payload)
+            {
                 out.push(group);
             }
         }
@@ -698,11 +694,7 @@ impl SessionDB {
     }
 
     /// Move a session to a project (or remove it from the current project when `project_id` is `None`).
-    pub fn set_session_project(
-        &self,
-        session_id: &str,
-        project_id: Option<&str>,
-    ) -> Result<()> {
+    pub fn set_session_project(&self, session_id: &str, project_id: Option<&str>) -> Result<()> {
         let conn = self
             .conn
             .lock()
@@ -1398,9 +1390,8 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT skill_name FROM session_skill_activation WHERE session_id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT skill_name FROM session_skill_activation WHERE session_id = ?1")?;
         let rows = stmt.query_map(params![session_id], |row| row.get::<_, String>(0))?;
         let mut out = Vec::new();
         for row in rows {
@@ -1703,10 +1694,10 @@ impl SessionDB {
              ORDER BY id DESC
              LIMIT ?3",
         )?;
-        let before_rows = before_stmt.query_map(
-            params![session_id, target_message_id, before],
-            |row| Self::row_to_session_message(row),
-        )?;
+        let before_rows = before_stmt
+            .query_map(params![session_id, target_message_id, before], |row| {
+                Self::row_to_session_message(row)
+            })?;
         let mut before_msgs = Vec::new();
         for row in before_rows {
             before_msgs.push(row?);
@@ -1727,10 +1718,10 @@ impl SessionDB {
              ORDER BY id ASC
              LIMIT ?3",
         )?;
-        let after_rows = after_stmt.query_map(
-            params![session_id, target_message_id, after],
-            |row| Self::row_to_session_message(row),
-        )?;
+        let after_rows = after_stmt
+            .query_map(params![session_id, target_message_id, after], |row| {
+                Self::row_to_session_message(row)
+            })?;
         let mut after_msgs = Vec::new();
         for row in after_rows {
             after_msgs.push(row?);
@@ -1753,16 +1744,12 @@ impl SessionDB {
     // ── Behavior awareness helpers ──────────────────────────────
 
     /// Read the per-session override JSON for behavior awareness, if any.
-    pub fn get_session_awareness_config_json(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<String>> {
+    pub fn get_session_awareness_config_json(&self, session_id: &str) -> Result<Option<String>> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt =
-            conn.prepare("SELECT awareness_config_json FROM sessions WHERE id = ?1")?;
+        let mut stmt = conn.prepare("SELECT awareness_config_json FROM sessions WHERE id = ?1")?;
         let mut rows = stmt.query(params![session_id])?;
         if let Some(row) = rows.next()? {
             let val: Option<String> = row.get(0)?;
@@ -1838,10 +1825,9 @@ impl SessionDB {
                AND timestamp >= ?2
              ORDER BY id DESC LIMIT ?3",
         )?;
-        let rows = stmt.query_map(
-            params![session_id, since_rfc3339, limit as i64],
-            |row| row.get::<_, String>(0),
-        )?;
+        let rows = stmt.query_map(params![session_id, since_rfc3339, limit as i64], |row| {
+            row.get::<_, String>(0)
+        })?;
         let mut out = Vec::new();
         for row in rows {
             let content = row?;

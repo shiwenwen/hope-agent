@@ -541,8 +541,16 @@ mod tests {
     fn blocked_host_detection_covers_local_targets() {
         // Default policy blocks private / link-local / metadata but allows loopback.
         // Strict also blocks loopback. We test Strict here to match the original intent.
-        assert!(check_host_blocking_sync("localhost", SsrfPolicy::Strict, &[]));
-        assert!(check_host_blocking_sync("127.0.0.1", SsrfPolicy::Strict, &[]));
+        assert!(check_host_blocking_sync(
+            "localhost",
+            SsrfPolicy::Strict,
+            &[]
+        ));
+        assert!(check_host_blocking_sync(
+            "127.0.0.1",
+            SsrfPolicy::Strict,
+            &[]
+        ));
         assert!(check_host_blocking_sync("::1", SsrfPolicy::Strict, &[]));
         assert!(!check_host_blocking_sync(
             "example.com",

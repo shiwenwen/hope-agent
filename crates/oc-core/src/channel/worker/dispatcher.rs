@@ -531,12 +531,10 @@ async fn handle_inbound_message(
     // to a future turn — intentional; we don't want a stale attachment
     // from turn N leaking into turn N+1.
     let media_snapshot: Vec<crate::attachments::MediaItem> = {
-        let mut guard = pending_media
-            .lock()
-            .unwrap_or_else(|e| {
-                app_warn!("channel", "worker", "pending_media poisoned: {}", e);
-                e.into_inner()
-            });
+        let mut guard = pending_media.lock().unwrap_or_else(|e| {
+            app_warn!("channel", "worker", "pending_media poisoned: {}", e);
+            e.into_inner()
+        });
         std::mem::take(&mut *guard)
     };
 
@@ -676,7 +674,10 @@ fn classify_media_type(it: &crate::attachments::MediaItem) -> MediaType {
 pub(super) fn partition_media_by_channel<'a>(
     items: &'a [crate::attachments::MediaItem],
     caps: &ChannelCapabilities,
-) -> (Vec<(&'a crate::attachments::MediaItem, MediaType)>, Vec<&'a crate::attachments::MediaItem>) {
+) -> (
+    Vec<(&'a crate::attachments::MediaItem, MediaType)>,
+    Vec<&'a crate::attachments::MediaItem>,
+) {
     let mut native = Vec::new();
     let mut fallback = Vec::new();
     for it in items.iter().take(MAX_MEDIA_PER_TURN) {
@@ -706,10 +707,7 @@ pub(super) fn partition_media_by_channel<'a>(
 /// `local_path` (zero-copy for local-disk delivery). Falls back to the
 /// logical URL as a last resort so callers still get a reasonable payload
 /// when `local_path` is missing (e.g. re-sent from persisted state).
-fn to_outbound_media(
-    it: &crate::attachments::MediaItem,
-    media_type: MediaType,
-) -> OutboundMedia {
+fn to_outbound_media(it: &crate::attachments::MediaItem, media_type: MediaType) -> OutboundMedia {
     let data = match it.local_path.as_deref() {
         Some(p) if !p.is_empty() => MediaData::FilePath(p.to_string()),
         _ => MediaData::Url(it.url.clone()),
@@ -927,8 +925,7 @@ mod tests {
             mk_item("a.pdf", "application/pdf", MediaKind::File),
         ];
         // Channel supports only Photo.
-        let (native, fallback) =
-            partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
+        let (native, fallback) = partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
         assert_eq!(native.len(), 1);
         assert_eq!(native[0].1, MediaType::Photo);
         assert_eq!(fallback.len(), 2);
@@ -937,8 +934,7 @@ mod tests {
     #[test]
     fn animation_falls_back_to_photo_when_channel_lacks_animation() {
         let items = vec![mk_item("a.gif", "image/gif", MediaKind::Image)];
-        let (native, fallback) =
-            partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
+        let (native, fallback) = partition_media_by_channel(&items, &caps(vec![MediaType::Photo]));
         assert_eq!(native.len(), 1);
         assert_eq!(native[0].1, MediaType::Photo);
         assert!(fallback.is_empty());

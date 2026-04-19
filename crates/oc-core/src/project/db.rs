@@ -109,10 +109,8 @@ impl ProjectDB {
         Ok(Project {
             id,
             name,
-            description: normalize_optional(input.description.as_deref())
-                .map(str::to_string),
-            instructions: normalize_optional(input.instructions.as_deref())
-                .map(str::to_string),
+            description: normalize_optional(input.description.as_deref()).map(str::to_string),
+            instructions: normalize_optional(input.instructions.as_deref()).map(str::to_string),
             emoji: normalize_optional(input.emoji.as_deref()).map(str::to_string),
             color: normalize_optional(input.color.as_deref()).map(str::to_string),
             default_agent_id: normalize_optional(input.default_agent_id.as_deref())
@@ -185,7 +183,12 @@ impl ProjectDB {
             sets.push(format!("name = ?{}", idx));
             params_vec.push(Box::new(trimmed.to_string()));
         }
-        push_str_field(&mut sets, &mut params_vec, "description", &patch.description);
+        push_str_field(
+            &mut sets,
+            &mut params_vec,
+            "description",
+            &patch.description,
+        );
         push_str_field(
             &mut sets,
             &mut params_vec,
@@ -440,11 +443,7 @@ impl ProjectDB {
     /// Look up a file by its displayed name within a project. Used by the
     /// `project_read_file` tool when the model passes a human-friendly name
     /// instead of a UUID.
-    pub fn find_file_by_name(
-        &self,
-        project_id: &str,
-        name: &str,
-    ) -> Result<Option<ProjectFile>> {
+    pub fn find_file_by_name(&self, project_id: &str, name: &str) -> Result<Option<ProjectFile>> {
         let conn = self
             .session_db
             .conn

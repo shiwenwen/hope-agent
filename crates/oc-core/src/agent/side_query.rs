@@ -14,9 +14,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::llm_adapter::{OneShotMode, OneShotRequest};
-use super::types::{
-    AssistantAgent, CacheSafeParams, ProviderFormat, SideQueryResult,
-};
+use super::types::{AssistantAgent, CacheSafeParams, ProviderFormat, SideQueryResult};
 
 impl AssistantAgent {
     /// Save cache-safe params after building the main chat request.

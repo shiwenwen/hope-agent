@@ -143,22 +143,19 @@ pub(super) fn build_success_result(
             "png"
         };
         let display_filename = format!("{}_{}.{}", timestamp, i, ext);
-        let saved_path = match attachments::save_attachment_bytes(
-            session_id,
-            &display_filename,
-            &img.data,
-        ) {
-            Ok(p) => p,
-            Err(e) => {
-                app_warn!(
-                    "tool",
-                    "image_generate",
-                    "Failed to save generated image: {}",
-                    e
-                );
-                continue;
-            }
-        };
+        let saved_path =
+            match attachments::save_attachment_bytes(session_id, &display_filename, &img.data) {
+                Ok(p) => p,
+                Err(e) => {
+                    app_warn!(
+                        "tool",
+                        "image_generate",
+                        "Failed to save generated image: {}",
+                        e
+                    );
+                    continue;
+                }
+            };
         media_items.push(MediaItem::from_saved_path(
             session_id,
             &saved_path,

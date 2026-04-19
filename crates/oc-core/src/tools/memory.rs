@@ -10,10 +10,7 @@ use crate::memory::{self, AddResult, MemoryScope, MemorySearchQuery, MemoryType,
 /// scope so it stays inside that project. This mirrors the behavior of
 /// `memory_extract::resolve_extract_scope` so manual and auto-extracted
 /// memories land in the same place for project sessions.
-pub(crate) async fn tool_save_memory(
-    args: &Value,
-    ctx: &super::ToolExecContext,
-) -> Result<String> {
+pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let content = args
         .get("content")
         .and_then(|v| v.as_str())
@@ -77,14 +74,17 @@ pub(crate) async fn tool_save_memory(
                 .or_else(|| {
                     let sid = args.get("session_id").and_then(|v| v.as_str())?;
                     let db = crate::get_session_db()?;
-                    db.get_session(sid).ok().flatten().and_then(|s| s.project_id)
+                    db.get_session(sid)
+                        .ok()
+                        .flatten()
+                        .and_then(|s| s.project_id)
                 });
             match pid {
                 Some(id) => MemoryScope::Project { id },
                 None => {
                     return Err(anyhow::anyhow!(
-                        "scope=project requires 'project_id' (or a session_id belonging to a project)"
-                    ))
+                    "scope=project requires 'project_id' (or a session_id belonging to a project)"
+                ))
                 }
             }
         }
@@ -171,87 +171,97 @@ pub(crate) async fn tool_recall_memory(args: &Value) -> Result<String> {
     let query_text_for_search = query_text.clone();
     let agent_id_clone = agent_id.clone();
 
-    let (raw_output, total_hits) = tokio::task::spawn_blocking(move || -> Result<(String, usize)> {
-        let backend = crate::get_memory_backend()
-            .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
+    let (raw_output, total_hits) =
+        tokio::task::spawn_blocking(move || -> Result<(String, usize)> {
+            let backend = crate::get_memory_backend()
+                .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
-        let query = MemorySearchQuery {
-            query: query_text_for_blocking,
-            types: type_filter,
-            scope: None,
-            agent_id,
-            limit: Some(limit),
-        };
+            let query = MemorySearchQuery {
+                query: query_text_for_blocking,
+                types: type_filter,
+                scope: None,
+                agent_id,
+                limit: Some(limit),
+            };
 
-        let results = backend.search(&query)?;
+            let results = backend.search(&query)?;
 
-        let mut output = String::new();
-        let mem_count = results.len();
-        let mut hist_count = 0usize;
+            let mut output = String::new();
+            let mem_count = results.len();
+            let mut hist_count = 0usize;
 
-        if !results.is_empty() {
-            output.push_str(&format!("Found {} memories:\n\n", results.len()));
-            for (i, mem) in results.iter().enumerate() {
-                let scope_label = match &mem.scope {
-                    MemoryScope::Global => "global".to_string(),
-                    MemoryScope::Agent { id } => format!("agent:{}", id),
-                    MemoryScope::Project { id } => format!("project:{}", id),
-                };
-                let pin_marker = if mem.pinned { "★ " } else { "" };
-                let tags_str = if mem.tags.is_empty() {
-                    String::new()
-                } else {
-                    format!(" [{}]", mem.tags.join(", "))
-                };
-                output.push_str(&format!(
-                    "{}. {}(id: {}) [{}|{}]{}\n{}\n\n",
-                    i + 1,
-                    pin_marker,
-                    mem.id,
-                    mem.memory_type.as_str(),
-                    scope_label,
-                    tags_str,
-                    mem.content,
-                ));
-            }
-        }
-
-        // Search conversation history if requested
-        if include_history {
-            if let Some(session_db) = crate::get_session_db() {
-                let history_results = session_db
-                    .search_messages(&query_text_for_search, agent_id_clone.as_deref(), None, None, 5)
-                    .unwrap_or_default();
-
-                if !history_results.is_empty() {
-                    hist_count = history_results.len();
+            if !results.is_empty() {
+                output.push_str(&format!("Found {} memories:\n\n", results.len()));
+                for (i, mem) in results.iter().enumerate() {
+                    let scope_label = match &mem.scope {
+                        MemoryScope::Global => "global".to_string(),
+                        MemoryScope::Agent { id } => format!("agent:{}", id),
+                        MemoryScope::Project { id } => format!("project:{}", id),
+                    };
+                    let pin_marker = if mem.pinned { "★ " } else { "" };
+                    let tags_str = if mem.tags.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" [{}]", mem.tags.join(", "))
+                    };
                     output.push_str(&format!(
-                        "\n--- Conversation History ({} matches) ---\n\n",
-                        history_results.len()
+                        "{}. {}(id: {}) [{}|{}]{}\n{}\n\n",
+                        i + 1,
+                        pin_marker,
+                        mem.id,
+                        mem.memory_type.as_str(),
+                        scope_label,
+                        tags_str,
+                        mem.content,
                     ));
-                    for (i, hit) in history_results.iter().enumerate() {
-                        let session_label = hit.session_title.as_deref().unwrap_or("Untitled");
+                }
+            }
+
+            // Search conversation history if requested
+            if include_history {
+                if let Some(session_db) = crate::get_session_db() {
+                    let history_results = session_db
+                        .search_messages(
+                            &query_text_for_search,
+                            agent_id_clone.as_deref(),
+                            None,
+                            None,
+                            5,
+                        )
+                        .unwrap_or_default();
+
+                    if !history_results.is_empty() {
+                        hist_count = history_results.len();
                         output.push_str(&format!(
-                            "{}. [{}] {} (session: {}, {})\n{}\n\n",
-                            i + 1,
-                            hit.message_role,
-                            hit.timestamp,
-                            session_label,
-                            hit.session_id,
-                            hit.content_snippet,
+                            "\n--- Conversation History ({} matches) ---\n\n",
+                            history_results.len()
                         ));
+                        for (i, hit) in history_results.iter().enumerate() {
+                            let session_label = hit.session_title.as_deref().unwrap_or("Untitled");
+                            output.push_str(&format!(
+                                "{}. [{}] {} (session: {}, {})\n{}\n\n",
+                                i + 1,
+                                hit.message_role,
+                                hit.timestamp,
+                                session_label,
+                                hit.session_id,
+                                hit.content_snippet,
+                            ));
+                        }
                     }
                 }
             }
-        }
 
-        if output.is_empty() {
-            return Ok(("No memories or history found matching the query.".to_string(), 0));
-        }
+            if output.is_empty() {
+                return Ok((
+                    "No memories or history found matching the query.".to_string(),
+                    0,
+                ));
+            }
 
-        Ok((output, mem_count + hist_count))
-    })
-    .await??;
+            Ok((output, mem_count + hist_count))
+        })
+        .await??;
 
     // Phase B'4 learning event: count every non-empty recall as a hit.
     if total_hits > 0 {

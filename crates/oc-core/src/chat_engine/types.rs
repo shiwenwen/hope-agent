@@ -120,9 +120,7 @@ impl EventSink for ChannelStreamSink {
         // Cheap short-circuit: only tool_result events carry media_items, and
         // only they start with {"type":"tool_result"...}. Avoids a full JSON
         // parse on every text_delta / tool_call frame.
-        if event.starts_with("{\"type\":\"tool_result\"")
-            && event.contains("\"media_items\"")
-        {
+        if event.starts_with("{\"type\":\"tool_result\"") && event.contains("\"media_items\"") {
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
                 if let Some(arr) = val.get("media_items").and_then(|v| v.as_array()) {
                     let items: Vec<MediaItem> = arr

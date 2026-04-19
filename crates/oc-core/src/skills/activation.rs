@@ -74,7 +74,9 @@ pub fn activate_skills_for_paths(
     let mut newly: Vec<String> = Vec::new();
 
     for skill in skills {
-        let Some(ref patterns) = skill.paths else { continue };
+        let Some(ref patterns) = skill.paths else {
+            continue;
+        };
         if patterns.is_empty() {
             continue;
         }
@@ -87,10 +89,7 @@ pub fn activate_skills_for_paths(
             None => continue,
         };
 
-        if touched
-            .iter()
-            .any(|p| match_path(&matcher, &cwd_path, p))
-        {
+        if touched.iter().any(|p| match_path(&matcher, &cwd_path, p)) {
             newly.push(skill.name.clone());
         }
     }
@@ -101,7 +100,9 @@ pub fn activate_skills_for_paths(
 
     // Persist and update cache; DB is source of truth, cache is hot copy.
     let persisted = match crate::globals::get_session_db() {
-        Some(db) => db.insert_skill_activations(session_id, &newly).unwrap_or_default(),
+        Some(db) => db
+            .insert_skill_activations(session_id, &newly)
+            .unwrap_or_default(),
         None => newly.clone(),
     };
 

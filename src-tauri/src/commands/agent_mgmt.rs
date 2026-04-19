@@ -48,8 +48,7 @@ pub async fn get_agent_template(name: String, locale: String) -> Result<String, 
 }
 
 #[tauri::command]
-pub async fn scan_openclaw_agents(
-) -> Result<Vec<openclaw_import::OpenClawAgentPreview>, String> {
+pub async fn scan_openclaw_agents() -> Result<Vec<openclaw_import::OpenClawAgentPreview>, String> {
     openclaw_import::scan_openclaw_agents().map_err(|e| e.to_string())
 }
 

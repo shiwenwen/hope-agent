@@ -37,45 +37,41 @@ impl AssistantAgent {
         const CACHE_TTL_EMERGENCY_RATIO: f64 = 0.95;
 
         // Pre-compute cache-TTL throttle state as two booleans for CompactionContext.
-        let (cache_ttl_throttled, cache_ttl_emergency) =
-            if self.compact_config.cache_ttl_secs > 0 {
-                let within_ttl = {
-                    let guard = self
-                        .last_tier2_compaction_at
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner());
-                    matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
-                };
-                if within_ttl {
-                    let tokens_now = context_compact::estimate_request_tokens(
-                        system_prompt,
-                        messages,
-                        max_tokens,
+        let (cache_ttl_throttled, cache_ttl_emergency) = if self.compact_config.cache_ttl_secs > 0 {
+            let within_ttl = {
+                let guard = self
+                    .last_tier2_compaction_at
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
+            };
+            if within_ttl {
+                let tokens_now =
+                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
+                let usage_now = tokens_now as f64 / self.context_window as f64;
+                let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
+                if emergency {
+                    app_debug!(
+                        "context",
+                        "compact",
+                        "Cache-TTL throttle overridden: usage {:.1}% >= {:.0}%, forcing Tier 2+",
+                        usage_now * 100.0,
+                        CACHE_TTL_EMERGENCY_RATIO * 100.0
                     );
-                    let usage_now = tokens_now as f64 / self.context_window as f64;
-                    let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
-                    if emergency {
-                        app_debug!(
-                            "context",
-                            "compact",
-                            "Cache-TTL throttle overridden: usage {:.1}% >= {:.0}%, forcing Tier 2+",
-                            usage_now * 100.0,
-                            CACHE_TTL_EMERGENCY_RATIO * 100.0
-                        );
-                    } else {
-                        app_debug!(
-                            "context",
-                            "compact",
-                            "Cache-TTL throttle: skipping Tier 2+ (cache still hot)"
-                        );
-                    }
-                    (true, emergency)
                 } else {
-                    (false, false)
+                    app_debug!(
+                        "context",
+                        "compact",
+                        "Cache-TTL throttle: skipping Tier 2+ (cache still hot)"
+                    );
                 }
+                (true, emergency)
             } else {
                 (false, false)
-            };
+            }
+        } else {
+            (false, false)
+        };
 
         let ctx = context_compact::CompactionContext {
             system_prompt,
@@ -285,8 +281,8 @@ impl AssistantAgent {
                             // preserved slot. Compute from `len()` so that if the summary
                             // layout ever changes we fail loudly instead of silently
                             // misplacing the recovery content.
-                            let insert_at = context_compact::POST_SUMMARY_INSERT_INDEX
-                                .min(messages.len());
+                            let insert_at =
+                                context_compact::POST_SUMMARY_INSERT_INDEX.min(messages.len());
                             messages.insert(insert_at, recovery_msg);
                             app_info!(
                                 "context",
@@ -428,11 +424,20 @@ impl AssistantAgent {
         }
 
         // Fallback: direct HTTP call (no cache sharing, used before first chat turn)
-        summarize_direct(&self.provider, &self.user_agent, prompt, self.compact_config.summary_max_tokens).await
+        summarize_direct(
+            &self.provider,
+            &self.user_agent,
+            prompt,
+            self.compact_config.summary_max_tokens,
+        )
+        .await
     }
 
     /// Build an LlmProvider from a ProviderConfig and model ID.
-    pub(crate) fn build_llm_provider(config: &crate::provider::ProviderConfig, model_id: &str) -> LlmProvider {
+    pub(crate) fn build_llm_provider(
+        config: &crate::provider::ProviderConfig,
+        model_id: &str,
+    ) -> LlmProvider {
         use crate::provider::ApiType;
         match config.api_type {
             ApiType::Anthropic => LlmProvider::Anthropic {

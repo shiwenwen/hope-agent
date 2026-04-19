@@ -104,12 +104,7 @@ fn persist_channel_media_to_session(
     let channels_root = match crate::paths::channels_dir() {
         Ok(root) => root,
         Err(err) => {
-            app_warn!(
-                "channel",
-                "worker",
-                "Cannot resolve channels root: {}",
-                err
-            );
+            app_warn!("channel", "worker", "Cannot resolve channels root: {}", err);
             return None;
         }
     };

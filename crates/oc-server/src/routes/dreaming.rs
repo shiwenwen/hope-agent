@@ -36,9 +36,7 @@ pub async fn list_diaries(
 
 /// `GET /api/dreaming/diaries/{filename}` — fetch the markdown of a
 /// single diary file.
-pub async fn read_diary(
-    Path(filename): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn read_diary(Path(filename): Path<String>) -> Result<Json<Value>, AppError> {
     let content = dreaming::read_diary(&filename)?;
     Ok(Json(json!({ "filename": filename, "content": content })))
 }

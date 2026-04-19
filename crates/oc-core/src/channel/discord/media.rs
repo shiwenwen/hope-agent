@@ -27,7 +27,12 @@ pub fn merge_captions(text: Option<&str>, media: &[OutboundMedia]) -> Option<Str
         parts.push(t.to_string());
     }
     for m in media {
-        if let Some(cap) = m.caption.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some(cap) = m
+            .caption
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
             parts.push(cap.to_string());
         }
     }
@@ -89,7 +94,11 @@ mod tests {
         let parts = build_discord_files(&[ok]).await.expect("under limit");
         assert_eq!(parts.len(), 1);
         assert_eq!(parts[0].bytes.len(), 32);
-        assert!(parts[0].filename.ends_with(".jpg"), "filename={}", parts[0].filename);
+        assert!(
+            parts[0].filename.ends_with(".jpg"),
+            "filename={}",
+            parts[0].filename
+        );
         assert_eq!(parts[0].mime, "image/jpeg");
     }
 }

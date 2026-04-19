@@ -1,9 +1,9 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::session::SessionDB;
 use super::events::emit_team_event;
 use super::types::*;
+use crate::session::SessionDB;
 
 /// Create a new team task.
 pub fn create_task(
@@ -46,7 +46,10 @@ pub fn create_task(
 
     // Post system message
     let msg = if let Some(owner) = &task.owner_member_id {
-        format!("Task #{} created and assigned to {}: {}", id, owner, content)
+        format!(
+            "Task #{} created and assigned to {}: {}",
+            id, owner, content
+        )
     } else {
         format!("Task #{} created: {}", id, content)
     };
@@ -85,7 +88,10 @@ pub fn update_task(
             let _ = super::messaging::post_system_message(
                 db,
                 team_id,
-                &format!("Task #{} completed by {}: {}", task_id, owner_name, task.content),
+                &format!(
+                    "Task #{} completed by {}: {}",
+                    task_id, owner_name, task.content
+                ),
             );
         }
     }

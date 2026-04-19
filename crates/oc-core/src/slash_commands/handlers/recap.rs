@@ -80,10 +80,7 @@ fn parse_mode_from_args(args: &str) -> (GenerateMode, String) {
                 provider_id: None,
                 model_id: None,
             };
-            (
-                GenerateMode::Full { filters },
-                format!("last {} days", n),
-            )
+            (GenerateMode::Full { filters }, format!("last {} days", n))
         }
         None => (GenerateMode::Incremental, "since last report".into()),
     }

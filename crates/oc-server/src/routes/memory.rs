@@ -88,9 +88,7 @@ fn parse_types(types: &Option<String>) -> Option<Vec<oc_core::memory::MemoryType
 // ── Handlers ────────────────────────────────────────────────────
 
 /// `POST /api/memory` -- add a new memory entry.
-pub async fn add_memory(
-    Json(body): Json<AddMemoryBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn add_memory(Json(body): Json<AddMemoryBody>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
     let id = backend.add(body.entry)?;
     Ok(Json(json!({ "id": id })))
@@ -199,9 +197,7 @@ pub struct DeleteBatchBody {
 }
 
 /// `POST /api/memory/delete-batch` — delete multiple memories at once.
-pub async fn delete_batch(
-    Json(body): Json<DeleteBatchBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn delete_batch(Json(body): Json<DeleteBatchBody>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
     let deleted = backend.delete_batch(&body.ids)?;
     Ok(Json(json!({ "deleted": deleted })))
@@ -228,10 +224,7 @@ pub async fn reembed(Json(body): Json<ReembedBody>) -> Result<Json<Value>, AppEr
 pub async fn get_global_memory_md() -> Result<Json<Value>, AppError> {
     let path = oc_core::paths::root_dir()?.join("memory.md");
     let content = if path.exists() {
-        Some(
-            std::fs::read_to_string(&path)
-                .map_err(|e| AppError::internal(e.to_string()))?,
-        )
+        Some(std::fs::read_to_string(&path).map_err(|e| AppError::internal(e.to_string()))?)
     } else {
         None
     };

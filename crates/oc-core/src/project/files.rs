@@ -54,10 +54,7 @@ pub fn upload_project_file(input: UploadInput<'_>, db: &ProjectDB) -> Result<Pro
 
     // Ensure the project exists. Upload into a dangling project is a bug;
     // fail loudly so the caller can surface a 404.
-    if db
-        .get(input.project_id)?
-        .is_none()
-    {
+    if db.get(input.project_id)?.is_none() {
         anyhow::bail!("project not found: {}", input.project_id);
     }
 
@@ -72,10 +69,7 @@ pub fn upload_project_file(input: UploadInput<'_>, db: &ProjectDB) -> Result<Pro
     // Generate file id + safe disk name.
     let id = uuid::Uuid::new_v4().to_string();
     let safe_name = sanitize_filename(input.original_filename);
-    let short_prefix = id
-        .chars()
-        .take(8)
-        .collect::<String>();
+    let short_prefix = id.chars().take(8).collect::<String>();
     let disk_name = format!("{}_{}", short_prefix, safe_name);
     let file_path = files_dir.join(&disk_name);
 

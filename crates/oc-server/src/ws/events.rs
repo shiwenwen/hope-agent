@@ -3,9 +3,7 @@ use axum::extract::{State, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use std::sync::Arc;
 
-use oc_core::chat_engine::stream_broadcast::{
-    EVENT_CHANNEL_STREAM_DELTA, EVENT_CHAT_STREAM_DELTA,
-};
+use oc_core::chat_engine::stream_broadcast::{EVENT_CHANNEL_STREAM_DELTA, EVENT_CHAT_STREAM_DELTA};
 
 use crate::AppContext;
 

@@ -43,9 +43,7 @@ pub async fn get_ssrf_config() -> Result<oc_core::security::ssrf::SsrfConfig, St
 }
 
 #[tauri::command]
-pub async fn save_ssrf_config(
-    config: oc_core::security::ssrf::SsrfConfig,
-) -> Result<(), String> {
+pub async fn save_ssrf_config(config: oc_core::security::ssrf::SsrfConfig) -> Result<(), String> {
     let _guard = oc_core::backup::scope_save_reason("security.ssrf", "settings-ui");
     let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     store.ssrf = config;
@@ -739,8 +737,7 @@ pub async fn detect_location() -> Result<crate::weather::DetectedLocation, Strin
 // ── Behavior Awareness ────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_awareness_config(
-) -> Result<oc_core::awareness::AwarenessConfig, String> {
+pub async fn get_awareness_config() -> Result<oc_core::awareness::AwarenessConfig, String> {
     let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.awareness)
 }
@@ -755,9 +752,7 @@ pub async fn save_awareness_config(
 }
 
 #[tauri::command]
-pub async fn get_session_awareness_override(
-    session_id: String,
-) -> Result<Option<String>, String> {
+pub async fn get_session_awareness_override(session_id: String) -> Result<Option<String>, String> {
     let db = oc_core::get_session_db().ok_or("Session DB not initialized")?;
     db.get_session_awareness_config_json(&session_id)
         .map_err(|e| e.to_string())

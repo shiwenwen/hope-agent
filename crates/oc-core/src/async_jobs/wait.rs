@@ -70,9 +70,7 @@ pub fn cleanup_if_last_waiter(job_id: &str, my_arc: &Arc<Notify>) {
     let mut map = WAITERS.lock().unwrap_or_else(|p| p.into_inner());
     let should_remove = match map.get(job_id) {
         // One ref in the map + one ref held by the caller => we are the last.
-        Some(existing) if Arc::strong_count(existing) <= 2 => {
-            Arc::ptr_eq(existing, my_arc)
-        }
+        Some(existing) if Arc::strong_count(existing) <= 2 => Arc::ptr_eq(existing, my_arc),
         _ => false,
     };
     if should_remove {
@@ -83,9 +81,7 @@ pub fn cleanup_if_last_waiter(job_id: &str, my_arc: &Arc<Notify>) {
 #[cfg(test)]
 pub fn waiter_count(job_id: &str) -> usize {
     let map = WAITERS.lock().unwrap_or_else(|p| p.into_inner());
-    map.get(job_id)
-        .map(|n| Arc::strong_count(n))
-        .unwrap_or(0)
+    map.get(job_id).map(|n| Arc::strong_count(n)).unwrap_or(0)
 }
 
 #[cfg(test)]

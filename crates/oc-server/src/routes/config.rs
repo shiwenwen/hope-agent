@@ -103,8 +103,7 @@ pub async fn save_compact_config(
 // ── Async Tools Config ──────────────────────────────────────────
 
 /// `GET /api/config/async-tools` -- get async tool execution config.
-pub async fn get_async_tools_config(
-) -> Result<Json<oc_core::config::AsyncToolsConfig>, AppError> {
+pub async fn get_async_tools_config() -> Result<Json<oc_core::config::AsyncToolsConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.async_tools))
 }
@@ -384,8 +383,7 @@ pub async fn save_server_config(
 // ── Memory / Embedding Configs ──────────────────────────────────
 
 /// `GET /api/config/embedding` -- get embedding provider config.
-pub async fn get_embedding_config(
-) -> Result<Json<oc_core::memory::EmbeddingConfig>, AppError> {
+pub async fn get_embedding_config() -> Result<Json<oc_core::memory::EmbeddingConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.embedding))
 }
@@ -401,8 +399,8 @@ pub async fn save_embedding_config(
 }
 
 /// `GET /api/config/embedding/presets` -- list built-in embedding presets.
-pub async fn get_embedding_presets(
-) -> Result<Json<Vec<oc_core::memory::EmbeddingPreset>>, AppError> {
+pub async fn get_embedding_presets() -> Result<Json<Vec<oc_core::memory::EmbeddingPreset>>, AppError>
+{
     Ok(Json(oc_core::memory::embedding_presets()))
 }
 
@@ -473,8 +471,7 @@ pub async fn save_mmr_config(
 }
 
 /// `GET /api/config/multimodal` -- get multimodal embedding config.
-pub async fn get_multimodal_config(
-) -> Result<Json<oc_core::memory::MultimodalConfig>, AppError> {
+pub async fn get_multimodal_config() -> Result<Json<oc_core::memory::MultimodalConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.multimodal))
 }
@@ -507,8 +504,7 @@ pub async fn save_temporal_decay_config(
 }
 
 /// `GET /api/config/extract` -- get memory auto-extract config.
-pub async fn get_extract_config(
-) -> Result<Json<oc_core::memory::MemoryExtractConfig>, AppError> {
+pub async fn get_extract_config() -> Result<Json<oc_core::memory::MemoryExtractConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.memory_extract))
 }
@@ -543,8 +539,7 @@ pub async fn save_web_fetch_config(
 }
 
 /// `GET /api/config/ssrf` -- get SSRF policy config.
-pub async fn get_ssrf_config(
-) -> Result<Json<oc_core::security::ssrf::SsrfConfig>, AppError> {
+pub async fn get_ssrf_config() -> Result<Json<oc_core::security::ssrf::SsrfConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.ssrf))
 }
@@ -580,8 +575,7 @@ pub async fn save_image_generate_config(
 }
 
 /// `GET /api/config/canvas` -- get canvas tool config.
-pub async fn get_canvas_config(
-) -> Result<Json<oc_core::tools::canvas::CanvasConfig>, AppError> {
+pub async fn get_canvas_config() -> Result<Json<oc_core::tools::canvas::CanvasConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.canvas))
 }
@@ -615,7 +609,9 @@ pub async fn save_shortcut_config(
     let mut store = load_config()?;
     store.shortcuts = body.config;
     save_config(&store)?;
-    Ok(Json(json!({ "saved": true, "note": "desktop-only registration" })))
+    Ok(Json(
+        json!({ "saved": true, "note": "desktop-only registration" }),
+    ))
 }
 
 /// `POST /api/config/shortcuts/pause` -- temporarily pause shortcut capture.
@@ -737,8 +733,7 @@ pub async fn set_sandbox_config(
 // ── Behavior Awareness ──────────────────────────────────────────
 
 /// `GET /api/config/awareness` -- global behavior awareness config.
-pub async fn get_awareness_config(
-) -> Result<Json<oc_core::awareness::AwarenessConfig>, AppError> {
+pub async fn get_awareness_config() -> Result<Json<oc_core::awareness::AwarenessConfig>, AppError> {
     let store = load_config()?;
     Ok(Json(store.awareness))
 }

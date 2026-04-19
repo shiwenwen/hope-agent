@@ -62,7 +62,10 @@ pub async fn cancel_pending_ask_user_question(request_id: &str) {
 /// (in-memory oneshot registered). Used to filter out zombie rows left over
 /// from a previous process that can no longer receive answers.
 pub async fn is_ask_user_question_live(request_id: &str) -> bool {
-    get_pending_questions().lock().await.contains_key(request_id)
+    get_pending_questions()
+        .lock()
+        .await
+        .contains_key(request_id)
 }
 
 /// Return the most recent still-pending question group for the given session

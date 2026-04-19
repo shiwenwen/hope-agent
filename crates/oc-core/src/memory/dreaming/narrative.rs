@@ -34,7 +34,7 @@ pub fn build_prompt(candidates: &[MemoryEntry], cfg: &DreamingConfig) -> String 
     let max_promote = cfg.promotion.max_promote;
 
     format!(
-"You are the agent's offline memory-consolidation process (\"dreaming\"). \
+        "You are the agent's offline memory-consolidation process (\"dreaming\"). \
 Review the candidate memories below and decide which are worth promoting \
 into pinned core memory. Pinned memories are always injected into the \
 system prompt, so be conservative — only promote items that will remain \
@@ -97,7 +97,11 @@ pub async fn run_side_query(
 /// Pull out (promotions_json, diary_markdown) from the LLM response.
 /// Defensive: if the envelope doesn't parse, returns (full_response, "").
 fn split_envelope(raw: &str) -> (String, String) {
-    let trimmed = raw.trim().trim_start_matches("```json").trim_start_matches("```").trim();
+    let trimmed = raw
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim();
     let trimmed = trimmed.trim_end_matches("```").trim();
     match serde_json::from_str::<serde_json::Value>(trimmed) {
         Ok(serde_json::Value::Object(map)) => {

@@ -85,10 +85,10 @@ impl SsrfConfig {
 
 /// Cloud metadata IPs that are blocked regardless of policy.
 const METADATA_IPS: &[&str] = &[
-    "169.254.169.254",   // AWS / GCP / Azure IMDS
-    "169.254.170.2",     // ECS Task Metadata
-    "100.100.100.200",   // Aliyun
-    "fd00:ec2::254",     // EC2 IMDSv6
+    "169.254.169.254", // AWS / GCP / Azure IMDS
+    "169.254.170.2",   // ECS Task Metadata
+    "100.100.100.200", // Aliyun
+    "fd00:ec2::254",   // EC2 IMDSv6
 ];
 
 fn is_metadata_ip(ip: &IpAddr) -> bool {
@@ -184,9 +184,7 @@ pub fn is_in_allowlist(host: &str, allowlist: &[String]) -> bool {
             return true;
         }
         if let Some(suffix) = entry_lower.strip_prefix("*.") {
-            if host_lower == suffix
-                || host_lower.ends_with(&format!(".{}", suffix))
-            {
+            if host_lower == suffix || host_lower.ends_with(&format!(".{}", suffix)) {
                 return true;
             }
         }
@@ -198,10 +196,9 @@ pub fn is_in_allowlist(host: &str, allowlist: &[String]) -> bool {
 
 fn policy_allows(policy: SsrfPolicy, kind: HostKind) -> bool {
     match kind {
-        HostKind::Metadata
-        | HostKind::Unspecified
-        | HostKind::Broadcast
-        | HostKind::LinkLocal => false,
+        HostKind::Metadata | HostKind::Unspecified | HostKind::Broadcast | HostKind::LinkLocal => {
+            false
+        }
         HostKind::Public => true,
         HostKind::Loopback => matches!(policy, SsrfPolicy::Default | SsrfPolicy::AllowPrivate),
         HostKind::Private => matches!(policy, SsrfPolicy::AllowPrivate),
@@ -351,10 +348,19 @@ mod tests {
         assert!(policy_allows(SsrfPolicy::AllowPrivate, HostKind::Public));
         assert!(policy_allows(SsrfPolicy::AllowPrivate, HostKind::Loopback));
         assert!(policy_allows(SsrfPolicy::AllowPrivate, HostKind::Private));
-        assert!(!policy_allows(SsrfPolicy::AllowPrivate, HostKind::LinkLocal));
+        assert!(!policy_allows(
+            SsrfPolicy::AllowPrivate,
+            HostKind::LinkLocal
+        ));
         assert!(!policy_allows(SsrfPolicy::AllowPrivate, HostKind::Metadata));
-        assert!(!policy_allows(SsrfPolicy::AllowPrivate, HostKind::Unspecified));
-        assert!(!policy_allows(SsrfPolicy::AllowPrivate, HostKind::Broadcast));
+        assert!(!policy_allows(
+            SsrfPolicy::AllowPrivate,
+            HostKind::Unspecified
+        ));
+        assert!(!policy_allows(
+            SsrfPolicy::AllowPrivate,
+            HostKind::Broadcast
+        ));
     }
 
     #[test]
@@ -411,12 +417,7 @@ mod tests {
 
     #[tokio::test]
     async fn check_url_allows_private_with_policy() {
-        let ok = check_url(
-            "http://192.168.1.100:11434/",
-            SsrfPolicy::AllowPrivate,
-            &[],
-        )
-        .await;
+        let ok = check_url("http://192.168.1.100:11434/", SsrfPolicy::AllowPrivate, &[]).await;
         assert!(ok.is_ok(), "expected private allowed, got {:?}", ok);
     }
 

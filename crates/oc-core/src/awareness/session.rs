@@ -47,7 +47,11 @@ pub struct SessionAwareness {
 
 impl SessionAwareness {
     /// Create and register a new awareness instance.
-    pub fn new(session_id: impl Into<String>, agent_id: impl Into<String>, cfg: AwarenessConfig) -> Arc<Self> {
+    pub fn new(
+        session_id: impl Into<String>,
+        agent_id: impl Into<String>,
+        cfg: AwarenessConfig,
+    ) -> Arc<Self> {
         let session_id = session_id.into();
         super::dirty::register_observer(&session_id);
         Arc::new(Self {
@@ -110,20 +114,26 @@ impl SessionAwareness {
         }
 
         // Rebuild.
-        let agent_filter = if cfg.same_agent_only { Some(self.agent_id.as_str()) } else { None };
-        let snap = match super::collect::collect_entries(session_db, &cfg, &self.session_id, agent_filter) {
-            Ok(s) => s,
-            Err(e) => {
-                app_warn!(
-                    "awareness",
-                    "awareness::prepare_dynamic_suffix",
-                    "collect_entries failed for {}: {}",
-                    self.session_id,
-                    e
-                );
-                return self.reuse_or_none();
-            }
+        let agent_filter = if cfg.same_agent_only {
+            Some(self.agent_id.as_str())
+        } else {
+            None
         };
+        let snap =
+            match super::collect::collect_entries(session_db, &cfg, &self.session_id, agent_filter)
+            {
+                Ok(s) => s,
+                Err(e) => {
+                    app_warn!(
+                        "awareness",
+                        "awareness::prepare_dynamic_suffix",
+                        "collect_entries failed for {}: {}",
+                        self.session_id,
+                        e
+                    );
+                    return self.reuse_or_none();
+                }
+            };
 
         let digest_text = self
             .last_digest
@@ -131,14 +141,13 @@ impl SessionAwareness {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
 
-        let suffix_str = super::render::render_markdown(&snap, cfg.max_chars)
-            .map(|mut s| {
-                if let Some(digest) = digest_text.as_ref() {
-                    s.push_str("\n\n## AI Digest\n");
-                    s.push_str(digest);
-                }
-                s
-            });
+        let suffix_str = super::render::render_markdown(&snap, cfg.max_chars).map(|mut s| {
+            if let Some(digest) = digest_text.as_ref() {
+                s.push_str("\n\n## AI Digest\n");
+                s.push_str(digest);
+            }
+            s
+        });
 
         // Persist snapshot for peek_tool.
         *self.last_snapshot.lock().unwrap_or_else(|e| e.into_inner()) = Some(snap.clone());
@@ -213,7 +222,10 @@ impl SessionAwareness {
     /// Write a fresh LLM digest (called from llm_digest.rs background task).
     pub fn set_last_digest(&self, text: Arc<String>) {
         *self.last_digest.lock().unwrap_or_else(|e| e.into_inner()) = Some(text);
-        *self.last_digest_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        *self
+            .last_digest_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
         self.digest_inflight.store(false, Ordering::Release);
         self.digest_consecutive_failures.store(0, Ordering::Release);
         // Trigger a rebuild next turn so the new digest lands in the suffix.
@@ -224,9 +236,14 @@ impl SessionAwareness {
     /// failures, clear the stale `last_digest` so we don't keep injecting
     /// outdated information.
     pub fn record_digest_failure(&self) {
-        *self.last_digest_at.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
+        *self
+            .last_digest_at
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(Instant::now());
         self.digest_inflight.store(false, Ordering::Release);
-        let prev = self.digest_consecutive_failures.fetch_add(1, Ordering::AcqRel);
+        let prev = self
+            .digest_consecutive_failures
+            .fetch_add(1, Ordering::AcqRel);
         if prev >= 2 {
             // 3rd+ failure: evict the stale digest.
             *self.last_digest.lock().unwrap_or_else(|e| e.into_inner()) = None;
@@ -340,7 +357,9 @@ impl Drop for SessionAwareness {
 static SEMANTIC_HINT_CACHE: Lazy<Mutex<Option<(String, Regex)>>> = Lazy::new(|| Mutex::new(None));
 
 fn matches_semantic_hint(pattern: &str, text: &str) -> bool {
-    let mut guard = SEMANTIC_HINT_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let mut guard = SEMANTIC_HINT_CACHE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let hit = match guard.as_ref() {
         Some((p, re)) if p == pattern => Some(re.clone()),
         _ => None,

@@ -8,9 +8,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use super::config::AwarenessConfig;
-use super::types::{
-    ActivityState, AwarenessEntry, AwarenessSnapshot, SessionKind,
-};
+use super::types::{ActivityState, AwarenessEntry, AwarenessSnapshot, SessionKind};
 use crate::recap::types::SessionFacet;
 use crate::session::{SessionDB, SessionMeta};
 
@@ -32,8 +30,12 @@ pub fn collect_entries(
         None
     };
     let pull_limit = (cfg.max_sessions as u32).saturating_mul(4).max(20);
-    let (all_sessions, _total): (Vec<SessionMeta>, u32) =
-        db.list_sessions_paged(agent_filter, crate::session::ProjectFilter::All, Some(pull_limit), Some(0))?;
+    let (all_sessions, _total): (Vec<SessionMeta>, u32) = db.list_sessions_paged(
+        agent_filter,
+        crate::session::ProjectFilter::All,
+        Some(pull_limit),
+        Some(0),
+    )?;
 
     // Time cutoff for the lookback window.
     let now = Utc::now();
@@ -134,7 +136,9 @@ pub fn collect_entries(
 
         let brief_summary = facet.as_ref().map(|f| f.brief_summary.clone());
         let underlying_goal = facet.as_ref().map(|f| f.underlying_goal.clone());
-        let outcome = facet.as_ref().map(|f| format!("{:?}", f.outcome).to_lowercase());
+        let outcome = facet
+            .as_ref()
+            .map(|f| format!("{:?}", f.outcome).to_lowercase());
         let goal_categories = facet
             .as_ref()
             .map(|f| f.goal_categories.clone())

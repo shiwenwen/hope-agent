@@ -1,10 +1,10 @@
 use anyhow::Result;
 use std::sync::Arc;
 
-use crate::session::SessionDB;
-use crate::subagent::SUBAGENT_MAILBOX;
 use super::events::emit_team_event;
 use super::types::*;
+use crate::session::SessionDB;
+use crate::subagent::SUBAGENT_MAILBOX;
 
 /// Send a message from one team member to another (or broadcast).
 pub fn send_message(
@@ -40,7 +40,10 @@ pub fn send_message(
     match &msg.to_member_id {
         Some(target_id) => {
             // Direct message — find the target member
-            if let Some(target) = members.iter().find(|m| m.member_id == *target_id || m.name == *target_id) {
+            if let Some(target) = members
+                .iter()
+                .find(|m| m.member_id == *target_id || m.name == *target_id)
+            {
                 if target.status.is_active() {
                     if let Some(ref run_id) = target.run_id {
                         SUBAGENT_MAILBOX.push(run_id, formatted);

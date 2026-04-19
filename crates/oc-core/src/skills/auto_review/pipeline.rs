@@ -59,7 +59,7 @@ pub struct ReviewDecision {
 pub struct ReviewReport {
     pub trigger: ReviewTrigger,
     pub session_id: String,
-    pub outcome: String,   // "created" | "patched" | "skipped" | "error"
+    pub outcome: String, // "created" | "patched" | "skipped" | "error"
     pub skill_id: Option<String>,
     pub similarity: Option<f32>,
     pub rationale: Option<String>,
@@ -158,8 +158,7 @@ async fn run_inner(
     let response_text = query_review_agent(&instruction, cfg, main_agent).await?;
 
     // 4. Parse.
-    let decision = parse_review_response(&response_text)
-        .context("parse review decision JSON")?;
+    let decision = parse_review_response(&response_text).context("parse review decision JSON")?;
 
     // 5. Route.
     match decision.decision.as_str() {
@@ -189,7 +188,12 @@ async fn query_review_agent(
     // > recap's analysis agent fallback. The override path intentionally
     // skips main_agent so users pinning a cheap model for review aren't
     // double-charged via the main chat's cache.
-    if let Some(model_ref) = cfg.review_model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+    if let Some(model_ref) = cfg
+        .review_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
         if let Some(agent) = build_review_agent_from_model_ref(model_ref) {
             let fut = agent.side_query(instruction, 4096);
             let res = tokio::time::timeout(timeout, fut)
@@ -236,8 +240,7 @@ fn build_review_agent_from_model_ref(model_ref: &str) -> Option<AssistantAgent> 
 fn parse_review_response(text: &str) -> Result<ReviewDecision> {
     let span = crate::extract_json_span(text, Some('{'))
         .ok_or_else(|| anyhow::anyhow!("no JSON object found in review response"))?;
-    let value: ReviewDecision =
-        serde_json::from_str(span).context("decode review decision")?;
+    let value: ReviewDecision = serde_json::from_str(span).context("decode review decision")?;
     Ok(value)
 }
 
@@ -252,19 +255,18 @@ fn apply_create(
         .filter(|s| !s.is_empty())
         .map(sanitize_id)
         .ok_or_else(|| anyhow::anyhow!("create decision missing skill_id"))?;
-    let name = d.name.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or(&skill_id);
+    let name = d
+        .name
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or(&skill_id);
     let description = d
         .description
         .as_deref()
         .map(str::trim)
         .unwrap_or("")
         .to_string();
-    let body = d
-        .body
-        .as_deref()
-        .map(str::trim)
-        .unwrap_or("")
-        .to_string();
+    let body = d.body.as_deref().map(str::trim).unwrap_or("").to_string();
     if body.is_empty() {
         return Err(anyhow::anyhow!("create decision missing body"));
     }
@@ -381,15 +383,22 @@ fn sanitize_id(raw: &str) -> String {
 /// plain-text transcript for the prompt. Role-preserving but tool-call heavy
 /// turns are compacted to short stubs to keep the prompt bounded.
 fn collect_recent_messages(session_id: &str, limit: usize) -> Result<String> {
-    let db = crate::get_session_db()
-        .ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
+    let db =
+        crate::get_session_db().ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
     let raw = match db.load_context(session_id)? {
         Some(s) => s,
         None => return Ok(String::new()),
     };
     let messages: Vec<Value> = serde_json::from_str(&raw).unwrap_or_default();
     let mut lines: Vec<String> = Vec::new();
-    for msg in messages.iter().rev().take(limit).collect::<Vec<_>>().into_iter().rev() {
+    for msg in messages
+        .iter()
+        .rev()
+        .take(limit)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
         let role = msg.get("role").and_then(|v| v.as_str()).unwrap_or("?");
         let content = extract_text(msg);
         let trimmed = content.trim();

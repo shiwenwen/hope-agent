@@ -362,7 +362,12 @@ pub async fn ensure_fresh_codex_token(current_access_token: &str) -> Option<(Str
             Some((new_token.access_token, account_id))
         }
         Err(e) => {
-            app_warn!("auth", "codex", "Proactive Codex token refresh failed: {}", e);
+            app_warn!(
+                "auth",
+                "codex",
+                "Proactive Codex token refresh failed: {}",
+                e
+            );
             None
         }
     }

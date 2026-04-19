@@ -130,7 +130,8 @@ pub struct AssistantAgent {
     pub(super) context_engine: std::sync::Arc<dyn crate::context_compact::ContextEngine>,
     /// Optional dedicated summarization provider (Tier 3).
     /// When Some, tried first for summarization; falls back to side_query on failure.
-    pub(super) compaction_provider: Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
+    pub(super) compaction_provider:
+        Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>>,
     /// Token estimate calibrator (updated with actual API usage)
     #[allow(dead_code)]
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
@@ -196,8 +197,7 @@ pub struct AssistantAgent {
     pub(crate) awareness_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
     /// Active Memory per-agent runtime state (cache + inflight flags).
     /// Initialized once on construction and reused across all chat() turns.
-    pub(crate) active_memory_state:
-        std::sync::Arc<super::active_memory::ActiveMemoryState>,
+    pub(crate) active_memory_state: std::sync::Arc<super::active_memory::ActiveMemoryState>,
     /// Latest Active Memory recall suffix to append to the system prompt as
     /// yet another independent cache breakpoint. Rebuilt every user turn by
     /// `refresh_active_memory_suffix` when the side_query completes in time.

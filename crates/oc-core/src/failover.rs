@@ -645,7 +645,10 @@ mod tests {
         );
         assert_eq!(
             sticky
-                .get("prov1", &format!("sess{}", STICKY_MAX_SESSIONS_PER_PROVIDER))
+                .get(
+                    "prov1",
+                    &format!("sess{}", STICKY_MAX_SESSIONS_PER_PROVIDER)
+                )
                 .as_deref(),
             Some("profile-a"),
             "newest entry must be present"

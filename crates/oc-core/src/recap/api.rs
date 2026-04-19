@@ -9,9 +9,7 @@ use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
 use crate::globals::{get_app_state, AppState};
-use crate::recap::types::{
-    GenerateMode, RecapProgress, RecapReport, RecapReportSummary,
-};
+use crate::recap::types::{GenerateMode, RecapProgress, RecapReport, RecapReportSummary};
 use crate::recap::{generate_report, render_html, RecapContext, RecapDb};
 
 fn get_state() -> Result<Arc<AppState>> {

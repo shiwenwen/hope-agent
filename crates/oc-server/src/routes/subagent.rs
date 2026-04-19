@@ -36,9 +36,7 @@ pub struct BatchBody {
 
 /// `POST /api/subagent/runs/batch` — fetch multiple runs by id in one
 /// round-trip. Body: `{"runIds": ["run_a", "run_b", ...]}`.
-pub async fn get_subagent_runs_batch(
-    Json(body): Json<BatchBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_subagent_runs_batch(Json(body): Json<BatchBody>) -> Result<Json<Value>, AppError> {
     Ok(Json(serde_json::to_value(
         state()?.session_db.get_subagent_runs_batch(&body.run_ids)?,
     )?))

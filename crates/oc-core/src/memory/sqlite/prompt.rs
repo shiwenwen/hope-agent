@@ -89,8 +89,12 @@ pub fn format_prompt_summary_v2(
             })
             .collect();
         let heading = format!("## {}\n", mem_type.heading());
-        let section =
-            render_section(&heading, &mut typed_entries, *section_budget, entry_max_chars);
+        let section = render_section(
+            &heading,
+            &mut typed_entries,
+            *section_budget,
+            entry_max_chars,
+        );
         if let Some(s) = push_section_if_fits(&mut result, &mut total_used, total_cap, &section) {
             has_content |= section.had_entries;
             any_exhausted |= s;
@@ -272,7 +276,11 @@ mod tests {
         let s = budgets.scaled_to(5000);
         // Integer division with a 0.5 ratio over exact multiples — no rounding loss.
         assert!(s.total() <= 5000);
-        assert!(s.total() >= 4997, "within ±3 of requested cap: {}", s.total());
+        assert!(
+            s.total() >= 4997,
+            "within ±3 of requested cap: {}",
+            s.total()
+        );
         assert_eq!(s.user_profile, 750);
         assert_eq!(s.about_user, 1000);
         assert_eq!(s.preferences, 1000);
@@ -298,7 +306,14 @@ mod tests {
     fn per_section_budget_isolates_project_overflow() {
         // 6 project entries of ~40 chars each = ~240 chars total.
         let project_entries: Vec<MemoryEntry> = (0..6)
-            .map(|i| entry(i, MemoryType::Project, &format!("project fact {i} — with padding"), &[]))
+            .map(|i| {
+                entry(
+                    i,
+                    MemoryType::Project,
+                    &format!("project fact {i} — with padding"),
+                    &[],
+                )
+            })
             .collect();
         let user_entry = entry(100, MemoryType::User, "user loves ramen", &[]);
         let mut all = project_entries;

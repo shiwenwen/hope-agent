@@ -227,9 +227,7 @@ pub struct TestEmbeddingBody {
 /// On error returns 200 with the failure payload (the frontend reads
 /// `success: bool` from the body) so behaviour matches the Tauri command,
 /// which always returns the JSON string.
-pub async fn test_embedding(
-    Json(body): Json<TestEmbeddingBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn test_embedding(Json(body): Json<TestEmbeddingBody>) -> Result<Json<Value>, AppError> {
     let payload = oc_core::provider::test::test_embedding(body.config)
         .await
         .unwrap_or_else(|e| e);
@@ -247,16 +245,11 @@ pub struct TestImageBody {
 }
 
 /// `POST /api/providers/test-image` — ping an image-generation provider.
-pub async fn test_image_generate(
-    Json(body): Json<TestImageBody>,
-) -> Result<Json<Value>, AppError> {
-    let payload = oc_core::provider::test::test_image_generate(
-        body.provider_id,
-        body.api_key,
-        body.base_url,
-    )
-    .await
-    .unwrap_or_else(|e| e);
+pub async fn test_image_generate(Json(body): Json<TestImageBody>) -> Result<Json<Value>, AppError> {
+    let payload =
+        oc_core::provider::test::test_image_generate(body.provider_id, body.api_key, body.base_url)
+            .await
+            .unwrap_or_else(|e| e);
     let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
     Ok(Json(v))
 }

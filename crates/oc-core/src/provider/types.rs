@@ -147,7 +147,14 @@ impl AuthProfile {
 fn mask_key(key: &str) -> String {
     if key.chars().count() > 8 {
         let prefix: String = key.chars().take(4).collect();
-        let suffix: String = key.chars().rev().take(4).collect::<String>().chars().rev().collect();
+        let suffix: String = key
+            .chars()
+            .rev()
+            .take(4)
+            .collect::<String>()
+            .chars()
+            .rev()
+            .collect();
         format!("{}...{}", prefix, suffix)
     } else if !key.is_empty() {
         "****".to_string()
@@ -240,7 +247,12 @@ impl ProviderConfig {
             return Vec::new();
         }
         if !self.auth_profiles.is_empty() {
-            return self.auth_profiles.iter().filter(|p| p.enabled).cloned().collect();
+            return self
+                .auth_profiles
+                .iter()
+                .filter(|p| p.enabled)
+                .cloned()
+                .collect();
         }
         if !self.api_key.is_empty() {
             return vec![AuthProfile {
@@ -302,12 +314,19 @@ mod tests {
         );
         cfg.auth_profiles = vec![
             AuthProfile::new("Org A".to_string(), "key-a".to_string(), None),
-            AuthProfile::new("Org B".to_string(), "key-b".to_string(), Some("https://custom.api.com".to_string())),
+            AuthProfile::new(
+                "Org B".to_string(),
+                "key-b".to_string(),
+                Some("https://custom.api.com".to_string()),
+            ),
         ];
         let profiles = cfg.effective_profiles();
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0].api_key, "key-a");
-        assert_eq!(profiles[1].base_url.as_deref(), Some("https://custom.api.com"));
+        assert_eq!(
+            profiles[1].base_url.as_deref(),
+            Some("https://custom.api.com")
+        );
     }
 
     #[test]
@@ -349,10 +368,20 @@ mod tests {
             String::new(),
         );
         let profile_no_override = AuthProfile::new("A".to_string(), "k".to_string(), None);
-        assert_eq!(cfg.resolve_base_url(&profile_no_override), "https://api.anthropic.com");
+        assert_eq!(
+            cfg.resolve_base_url(&profile_no_override),
+            "https://api.anthropic.com"
+        );
 
-        let profile_with_override = AuthProfile::new("B".to_string(), "k".to_string(), Some("https://custom.api.com".to_string()));
-        assert_eq!(cfg.resolve_base_url(&profile_with_override), "https://custom.api.com");
+        let profile_with_override = AuthProfile::new(
+            "B".to_string(),
+            "k".to_string(),
+            Some("https://custom.api.com".to_string()),
+        );
+        assert_eq!(
+            cfg.resolve_base_url(&profile_with_override),
+            "https://custom.api.com"
+        );
     }
 
     #[test]
@@ -363,9 +392,11 @@ mod tests {
             "https://api.anthropic.com".to_string(),
             "sk-ant-main-key-1234".to_string(),
         );
-        cfg.auth_profiles = vec![
-            AuthProfile::new("A".to_string(), "sk-ant-profile-key-5678".to_string(), None),
-        ];
+        cfg.auth_profiles = vec![AuthProfile::new(
+            "A".to_string(),
+            "sk-ant-profile-key-5678".to_string(),
+            None,
+        )];
         let masked = cfg.masked();
         assert!(masked.api_key.contains("..."));
         assert!(masked.auth_profiles[0].api_key.contains("..."));

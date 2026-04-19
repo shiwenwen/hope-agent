@@ -8,8 +8,7 @@ use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::Instant;
 
-static REGISTRY: Lazy<RwLock<HashMap<String, Instant>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+static REGISTRY: Lazy<RwLock<HashMap<String, Instant>>> = Lazy::new(|| RwLock::new(HashMap::new()));
 
 /// Mark `session_id` as active now.
 pub fn touch_active_session(session_id: &str) {

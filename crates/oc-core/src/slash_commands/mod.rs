@@ -46,14 +46,20 @@ pub fn resolve_skill_command_names<'a>(
             counter += 1;
         }
         used.insert(display.clone());
-        out.push(ResolvedSkillCommand { typed_name: display, skill });
+        out.push(ResolvedSkillCommand {
+            typed_name: display,
+            skill,
+        });
 
         for alias in names_iter {
             if used.contains(&alias) {
                 continue;
             }
             used.insert(alias.clone());
-            out.push(ResolvedSkillCommand { typed_name: alias, skill });
+            out.push(ResolvedSkillCommand {
+                typed_name: alias,
+                skill,
+            });
         }
     }
 

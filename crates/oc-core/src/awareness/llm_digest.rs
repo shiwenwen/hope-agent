@@ -61,13 +61,12 @@ pub(crate) fn build_extraction_prompt(
             block.push_str(&format!("   summary: {}\n", summary));
         }
         // Recent user messages.
-        let msgs_result: anyhow::Result<Vec<String>> = session_db
-            .recent_user_messages_for_preview(
-                &entry.session_id,
-                &since_rfc,
-                3,
-                (cfg.llm_extraction.per_session_input_chars / 3).max(120),
-            );
+        let msgs_result: anyhow::Result<Vec<String>> = session_db.recent_user_messages_for_preview(
+            &entry.session_id,
+            &since_rfc,
+            3,
+            (cfg.llm_extraction.per_session_input_chars / 3).max(120),
+        );
         if let Ok(msgs) = msgs_result {
             if !msgs.is_empty() {
                 block.push_str("   recent user messages:\n");
@@ -79,8 +78,8 @@ pub(crate) fn build_extraction_prompt(
             }
         }
         // Enforce single-block budget.
-        let truncated = crate::truncate_utf8(&block, cfg.llm_extraction.per_session_input_chars)
-            .to_string();
+        let truncated =
+            crate::truncate_utf8(&block, cfg.llm_extraction.per_session_input_chars).to_string();
         out.push_str(&truncated);
         out.push('\n');
     }
@@ -113,4 +112,3 @@ mod tests {
         assert!(EXTRACTION_INSTRUCTIONS.contains("insufficient info"));
     }
 }
-

@@ -35,9 +35,7 @@ pub async fn list_reports(
     Ok(Json(api::list_reports(body.limit.unwrap_or(50))?))
 }
 
-pub async fn get_report(
-    Path(id): Path<String>,
-) -> Result<Json<Option<RecapReport>>, AppError> {
+pub async fn get_report(Path(id): Path<String>) -> Result<Json<Option<RecapReport>>, AppError> {
     Ok(Json(api::get_report(&id)?))
 }
 

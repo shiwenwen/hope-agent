@@ -378,11 +378,10 @@ async fn handle_ask_user_callback_query(api: &TelegramBotApi, cb: &teloxide::typ
         None => return,
     };
 
-    let result_text =
-        match crate::channel::worker::ask_user::handle_ask_user_callback(data).await {
-            Ok(label) => label.to_string(),
-            Err(e) => format!("Error: {}", e),
-        };
+    let result_text = match crate::channel::worker::ask_user::handle_ask_user_callback(data).await {
+        Ok(label) => label.to_string(),
+        Err(e) => format!("Error: {}", e),
+    };
 
     if let Err(e) = api
         .answer_callback_query(&cb.id.0, Some(&result_text))

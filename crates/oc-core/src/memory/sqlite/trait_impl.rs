@@ -712,10 +712,7 @@ impl MemoryBackend for SqliteMemoryBackend {
             .embedding_dims
             .load(std::sync::atomic::Ordering::Relaxed);
         if dims > 0 {
-            let vec_sql = format!(
-                "DELETE FROM memories_vec WHERE rowid IN ({})",
-                placeholders
-            );
+            let vec_sql = format!("DELETE FROM memories_vec WHERE rowid IN ({})", placeholders);
             let _ = conn.execute(&vec_sql, param_refs.as_slice());
         }
 

@@ -55,9 +55,7 @@ pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) ->
 
     let home = dirs::home_dir()
         .ok_or_else(|| anyhow!("send_attachment: cannot determine user home directory"))?;
-    let canonical_home = home
-        .canonicalize()
-        .unwrap_or_else(|_| home.clone());
+    let canonical_home = home.canonicalize().unwrap_or_else(|_| home.clone());
     if !canonical.starts_with(&canonical_home) {
         return Err(anyhow!(
             "send_attachment: refusing to send a file outside the user home directory ({})",
@@ -111,12 +109,9 @@ pub(crate) async fn tool_send_attachment(args: &Value, ctx: &ToolExecContext) ->
     };
 
     // ── Persist into attachments dir ─────────────────────────────
-    let saved_path = crate::attachments::save_attachment_bytes(
-        Some(session_id.as_str()),
-        &display_name,
-        &data,
-    )
-    .with_context(|| "send_attachment: failed to persist attachment")?;
+    let saved_path =
+        crate::attachments::save_attachment_bytes(Some(session_id.as_str()), &display_name, &data)
+            .with_context(|| "send_attachment: failed to persist attachment")?;
 
     let item = MediaItem::from_saved_path(
         Some(&session_id),

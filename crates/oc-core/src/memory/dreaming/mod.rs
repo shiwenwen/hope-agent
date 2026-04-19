@@ -113,6 +113,5 @@ pub fn read_diary(filename: &str) -> Result<String> {
     }
     let dir = crate::paths::dreams_dir()?;
     let path = dir.join(filename);
-    std::fs::read_to_string(&path)
-        .with_context(|| format!("reading {}", path.display()))
+    std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))
 }

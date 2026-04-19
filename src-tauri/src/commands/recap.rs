@@ -22,9 +22,6 @@ pub async fn recap_delete_report(id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn recap_export_html(
-    id: String,
-    output_path: Option<String>,
-) -> Result<String, String> {
+pub async fn recap_export_html(id: String, output_path: Option<String>) -> Result<String, String> {
     api::export_html(&id, output_path).map_err(|e| e.to_string())
 }

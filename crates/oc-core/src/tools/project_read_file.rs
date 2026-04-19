@@ -11,10 +11,7 @@ use super::ToolExecContext;
 const DEFAULT_LIMIT_LINES: usize = 2000;
 const MAX_LIMIT_LINES: usize = 10_000;
 
-pub(crate) async fn tool_project_read_file(
-    args: &Value,
-    ctx: &ToolExecContext,
-) -> Result<String> {
+pub(crate) async fn tool_project_read_file(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     // 1. Resolve the current session → project.
     let session_id = ctx
         .session_id
@@ -108,8 +105,7 @@ pub(crate) async fn tool_project_read_file(
         .unwrap_or(DEFAULT_LIMIT_LINES);
 
     let lines: Vec<&str> = content.lines().collect();
-    let (body, lines_read, truncated, total_lines) =
-        read_text_page(&lines, offset - 1, limit);
+    let (body, lines_read, truncated, total_lines) = read_text_page(&lines, offset - 1, limit);
 
     let header = format!(
         "Project file: {} (project: {}, {} total lines, reading from line {})\n\

@@ -43,10 +43,7 @@ pub fn reconcile_orphan_project_memories() -> Result<usize> {
 /// Pure-function core of [`reconcile_orphan_project_memories`]. Takes the
 /// alive project id set explicitly so unit tests can drive it without
 /// reaching into the global registries.
-pub fn reconcile_against(
-    backend: &dyn MemoryBackend,
-    alive: &HashSet<String>,
-) -> Result<usize> {
+pub fn reconcile_against(backend: &dyn MemoryBackend, alive: &HashSet<String>) -> Result<usize> {
     let referenced = backend.list_distinct_project_scope_ids()?;
     let orphans: Vec<String> = referenced
         .into_iter()
@@ -118,4 +115,3 @@ pub fn spawn_startup_reconciler() {
         }
     });
 }
-

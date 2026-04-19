@@ -105,13 +105,8 @@ pub async fn dashboard_overview_delta(
     filter: DashboardFilter,
     state: State<'_, AppState>,
 ) -> Result<dashboard::OverviewStatsWithDelta, String> {
-    dashboard::query_overview_with_delta(
-        &state.session_db,
-        &state.log_db,
-        &state.cron_db,
-        &filter,
-    )
-    .map_err(|e| e.to_string())
+    dashboard::query_overview_with_delta(&state.session_db, &state.log_db, &state.cron_db, &filter)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -119,13 +114,8 @@ pub async fn dashboard_insights(
     filter: DashboardFilter,
     state: State<'_, AppState>,
 ) -> Result<dashboard::DashboardInsights, String> {
-    dashboard::query_insights(
-        &state.session_db,
-        &state.log_db,
-        &state.cron_db,
-        &filter,
-    )
-    .map_err(|e| e.to_string())
+    dashboard::query_insights(&state.session_db, &state.log_db, &state.cron_db, &filter)
+        .map_err(|e| e.to_string())
 }
 
 // ── Phase B'4: Learning Dashboard ──────────────────────────────
@@ -135,8 +125,7 @@ pub async fn dashboard_learning_overview(
     window_days: u32,
     state: State<'_, AppState>,
 ) -> Result<dashboard::LearningOverview, String> {
-    dashboard::query_learning_overview(&state.session_db, window_days)
-        .map_err(|e| e.to_string())
+    dashboard::query_learning_overview(&state.session_db, window_days).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -144,8 +133,7 @@ pub async fn dashboard_learning_timeline(
     window_days: u32,
     state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::TimelinePoint>, String> {
-    dashboard::query_skill_timeline(&state.session_db, window_days)
-        .map_err(|e| e.to_string())
+    dashboard::query_skill_timeline(&state.session_db, window_days).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -154,8 +142,7 @@ pub async fn dashboard_top_skills(
     limit: usize,
     state: State<'_, AppState>,
 ) -> Result<Vec<dashboard::SkillUsage>, String> {
-    dashboard::query_top_skills(&state.session_db, window_days, limit)
-        .map_err(|e| e.to_string())
+    dashboard::query_top_skills(&state.session_db, window_days, limit).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -163,6 +150,5 @@ pub async fn dashboard_recall_stats(
     window_days: u32,
     state: State<'_, AppState>,
 ) -> Result<dashboard::RecallStats, String> {
-    dashboard::query_recall_stats(&state.session_db, window_days)
-        .map_err(|e| e.to_string())
+    dashboard::query_recall_stats(&state.session_db, window_days).map_err(|e| e.to_string())
 }

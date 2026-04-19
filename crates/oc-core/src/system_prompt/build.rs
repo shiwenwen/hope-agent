@@ -219,8 +219,7 @@ pub fn build(
 
     // ⑥c² Tool-call budget reminder — always injected when rounds are bounded,
     // so the model can produce a graceful handoff instead of a cut-off mid-call.
-    if let Some(budget) =
-        build_tool_budget_guidance(definition.config.capabilities.max_tool_rounds)
+    if let Some(budget) = build_tool_budget_guidance(definition.config.capabilities.max_tool_rounds)
     {
         sections.push(budget);
     }

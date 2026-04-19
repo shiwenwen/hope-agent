@@ -14,9 +14,7 @@ pub struct FilterBody {
     pub filter: DashboardFilter,
 }
 
-pub async fn overview(
-    Json(body): Json<FilterBody>,
-) -> Result<Json<OverviewStats>, AppError> {
+pub async fn overview(Json(body): Json<FilterBody>) -> Result<Json<OverviewStats>, AppError> {
     let s = app_state()?;
     Ok(Json(query_overview(
         &s.session_db,
@@ -29,30 +27,35 @@ pub async fn overview(
 pub async fn token_usage(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<DashboardTokenData>, AppError> {
-    Ok(Json(query_token_usage(&app_state()?.session_db, &body.filter)?))
+    Ok(Json(query_token_usage(
+        &app_state()?.session_db,
+        &body.filter,
+    )?))
 }
 
 pub async fn tool_usage(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<Vec<ToolUsageStats>>, AppError> {
-    Ok(Json(query_tool_usage(&app_state()?.session_db, &body.filter)?))
+    Ok(Json(query_tool_usage(
+        &app_state()?.session_db,
+        &body.filter,
+    )?))
 }
 
 pub async fn sessions(
     Json(body): Json<FilterBody>,
 ) -> Result<Json<DashboardSessionData>, AppError> {
-    Ok(Json(query_sessions(&app_state()?.session_db, &body.filter)?))
+    Ok(Json(query_sessions(
+        &app_state()?.session_db,
+        &body.filter,
+    )?))
 }
 
-pub async fn errors(
-    Json(body): Json<FilterBody>,
-) -> Result<Json<DashboardErrorData>, AppError> {
+pub async fn errors(Json(body): Json<FilterBody>) -> Result<Json<DashboardErrorData>, AppError> {
     Ok(Json(query_errors(&app_state()?.log_db, &body.filter)?))
 }
 
-pub async fn tasks(
-    Json(body): Json<FilterBody>,
-) -> Result<Json<DashboardTaskData>, AppError> {
+pub async fn tasks(Json(body): Json<FilterBody>) -> Result<Json<DashboardTaskData>, AppError> {
     let s = app_state()?;
     Ok(Json(query_tasks(&s.session_db, &s.cron_db, &body.filter)?))
 }
@@ -121,9 +124,7 @@ pub async fn overview_delta(
     )?))
 }
 
-pub async fn insights(
-    Json(body): Json<FilterBody>,
-) -> Result<Json<DashboardInsights>, AppError> {
+pub async fn insights(Json(body): Json<FilterBody>) -> Result<Json<DashboardInsights>, AppError> {
     let s = app_state()?;
     Ok(Json(dashboard::query_insights(
         &s.session_db,
@@ -137,7 +138,11 @@ pub async fn insights(
 
 #[derive(Debug, Deserialize)]
 pub struct WindowBody {
-    #[serde(rename = "windowDays", alias = "window_days", default = "default_window")]
+    #[serde(
+        rename = "windowDays",
+        alias = "window_days",
+        default = "default_window"
+    )]
     pub window_days: u32,
     #[serde(default = "default_limit")]
     pub limit: Option<usize>,

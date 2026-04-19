@@ -150,10 +150,7 @@ fn openclaw_default_workspace() -> Result<PathBuf> {
 fn parse_openclaw_config() -> Result<OpenClawConfig> {
     let path = openclaw_config_path()?;
     if !path.exists() {
-        anyhow::bail!(
-            "OpenClaw config not found at {}",
-            path.display()
-        );
+        anyhow::bail!("OpenClaw config not found at {}", path.display());
     }
     let data = std::fs::read_to_string(&path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
@@ -211,9 +208,7 @@ fn list_available_files(agent: &OpenClawAgent) -> Vec<String> {
 /// Extract sandbox mode from OpenClaw agent config.
 fn extract_sandbox(agent: &OpenClawAgent) -> bool {
     match &agent.sandbox {
-        Some(OpenClawSandbox::Object(obj)) => {
-            obj.mode.as_deref() == Some("all")
-        }
+        Some(OpenClawSandbox::Object(obj)) => obj.mode.as_deref() == Some("all"),
         _ => false,
     }
 }
@@ -327,7 +322,11 @@ fn import_single_agent(source: &OpenClawAgent, req: &ImportAgentRequest) -> Resu
     let target_id = &req.target_id;
 
     // Validate target ID
-    if target_id.is_empty() || !target_id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+    if target_id.is_empty()
+        || !target_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
         anyhow::bail!("Invalid agent ID: '{}'", target_id);
     }
 
@@ -405,9 +404,8 @@ fn import_single_agent(source: &OpenClawAgent, req: &ImportAgentRequest) -> Resu
             .find(|p| p.exists());
 
         if let Some(src_path) = src_path {
-            let content = std::fs::read_to_string(&src_path).with_context(|| {
-                format!("Failed to read workspace file {}", src_path.display())
-            })?;
+            let content = std::fs::read_to_string(&src_path)
+                .with_context(|| format!("Failed to read workspace file {}", src_path.display()))?;
             if !content.is_empty() {
                 agent_loader::save_agent_markdown(target_id, file_name, &content)?;
             }

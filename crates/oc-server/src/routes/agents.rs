@@ -80,9 +80,7 @@ pub async fn save_agent_markdown(
 /// UI when the user switches the persona authoring surface to SoulMd for
 /// the first time. Does not write to disk — caller persists via
 /// save_agent_markdown when ready.
-pub async fn render_persona_to_soul_md(
-    Path(id): Path<String>,
-) -> Result<Json<Value>, AppError> {
+pub async fn render_persona_to_soul_md(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     let content = oc_core::agent_loader::render_persona_to_soul_md(&id)?;
     Ok(Json(json!({ "content": content })))
 }
@@ -93,10 +91,7 @@ pub async fn render_persona_to_soul_md(
 pub async fn get_agent_memory_md(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     let path = oc_core::paths::agent_dir(&id)?.join("memory.md");
     let content = if path.exists() {
-        Some(
-            std::fs::read_to_string(&path)
-                .map_err(|e| AppError::internal(e.to_string()))?,
-        )
+        Some(std::fs::read_to_string(&path).map_err(|e| AppError::internal(e.to_string()))?)
     } else {
         None
     };
@@ -154,9 +149,7 @@ pub struct TemplateQuery {
 /// `GET /api/agents/template?name=...&locale=...` — fetch a built-in agent
 /// markdown template (agent / persona / tools / ...). Returns an empty
 /// string when no template matches, mirroring the Tauri behaviour.
-pub async fn get_agent_template(
-    Query(q): Query<TemplateQuery>,
-) -> Result<Json<Value>, AppError> {
+pub async fn get_agent_template(Query(q): Query<TemplateQuery>) -> Result<Json<Value>, AppError> {
     let locale = q.locale.as_deref().unwrap_or("en");
     let content = oc_core::agent_loader::get_template(&q.name, locale).unwrap_or_default();
     Ok(Json(json!({ "content": content })))

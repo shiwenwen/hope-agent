@@ -286,9 +286,8 @@ impl RecapDb {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT range_end FROM recap_reports ORDER BY generated_at DESC LIMIT 1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT range_end FROM recap_reports ORDER BY generated_at DESC LIMIT 1")?;
         let mut rows = stmt.query([])?;
         if let Some(row) = rows.next()? {
             let s: String = row.get(0)?;

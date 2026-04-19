@@ -50,7 +50,11 @@ pub async fn run_cycle(trigger: DreamTrigger) -> DreamReport {
 
     // 2. Claim the running flag — refuse overlap.
     let Some(_guard) = try_claim() else {
-        return skipped(trigger, started, "another dreaming cycle is already running");
+        return skipped(
+            trigger,
+            started,
+            "another dreaming cycle is already running",
+        );
     };
 
     app_info!(

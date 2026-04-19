@@ -640,11 +640,12 @@ impl AcpAgent {
         let mut last_error = String::new();
 
         // Build CompactionProvider once, reuse across retries
-        let compaction_provider: Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>> =
-            store.compact.summarization_model.as_ref().and_then(|mr| {
-                crate::agent::build_compaction_provider(mr, &store.providers)
-                    .map(|cp| std::sync::Arc::new(cp) as _)
-            });
+        let compaction_provider: Option<
+            std::sync::Arc<dyn crate::context_compact::CompactionProvider>,
+        > = store.compact.summarization_model.as_ref().and_then(|mr| {
+            crate::agent::build_compaction_provider(mr, &store.providers)
+                .map(|cp| std::sync::Arc::new(cp) as _)
+        });
 
         for model_ref in &model_chain {
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {

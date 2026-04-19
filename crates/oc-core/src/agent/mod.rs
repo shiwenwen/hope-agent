@@ -7,18 +7,18 @@ mod errors;
 mod event_rewrite;
 mod events;
 
-pub(crate) use events::MEDIA_ITEMS_PREFIX;
 pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
+pub(crate) use events::MEDIA_ITEMS_PREFIX;
 mod llm_adapter;
 mod providers;
 mod side_query;
 mod types;
 
 // Re-export public API
-pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub use config::{build_api_url, get_codex_models, live_reasoning_effort, USER_AGENT};
-pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
+pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub(crate) use context::build_compaction_provider;
+pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -96,9 +96,7 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
             awareness_suffix: std::sync::Mutex::new(None),
-            active_memory_state: std::sync::Arc::new(
-                active_memory::ActiveMemoryState::new(),
-            ),
+            active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
         }
     }
@@ -148,9 +146,7 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
             awareness_suffix: std::sync::Mutex::new(None),
-            active_memory_state: std::sync::Arc::new(
-                active_memory::ActiveMemoryState::new(),
-            ),
+            active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
         }
     }
@@ -259,9 +255,7 @@ impl AssistantAgent {
             agent_caps_cache: std::sync::Mutex::new(None),
             awareness: std::sync::Mutex::new(None),
             awareness_suffix: std::sync::Mutex::new(None),
-            active_memory_state: std::sync::Arc::new(
-                active_memory::ActiveMemoryState::new(),
-            ),
+            active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
         }
     }
@@ -388,11 +382,9 @@ impl AssistantAgent {
             return;
         };
         let cfg = crate::awareness::resolve_for_session(sid, &db);
-        let aware = crate::awareness::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
-        let mut slot = self
-            .awareness
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let aware =
+            crate::awareness::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
+        let mut slot = self.awareness.lock().unwrap_or_else(|e| e.into_inner());
         *slot = Some(aware);
     }
 
@@ -424,18 +416,19 @@ impl AssistantAgent {
         // 1. Resolve per-agent memory config. Cached on ActiveMemoryState
         //    so the per-turn hot path doesn't re-read agent.json from
         //    disk; invalidated by `set_agent_id`.
-        let snapshot = self.active_memory_state.agent_config_or_load(|| {
-            match crate::agent_loader::load_agent(&self.agent_id) {
-                Ok(def) => active_memory::CachedAgentConfig {
-                    active_memory: def.config.memory.active_memory.clone(),
-                    shared_global: def.config.memory.shared,
+        let snapshot =
+            self.active_memory_state.agent_config_or_load(
+                || match crate::agent_loader::load_agent(&self.agent_id) {
+                    Ok(def) => active_memory::CachedAgentConfig {
+                        active_memory: def.config.memory.active_memory.clone(),
+                        shared_global: def.config.memory.shared,
+                    },
+                    Err(_) => active_memory::CachedAgentConfig {
+                        active_memory: crate::agent_config::ActiveMemoryConfig::default(),
+                        shared_global: true,
+                    },
                 },
-                Err(_) => active_memory::CachedAgentConfig {
-                    active_memory: crate::agent_config::ActiveMemoryConfig::default(),
-                    shared_global: true,
-                },
-            }
-        });
+            );
         let cfg = snapshot.active_memory;
         let shared_global = snapshot.shared_global;
         if !cfg.enabled {
@@ -543,8 +536,7 @@ impl AssistantAgent {
         };
 
         // 5. Cache the outcome (including None) and update the suffix slot.
-        self.active_memory_state
-            .put_cached(hash, recalled.clone());
+        self.active_memory_state.put_cached(hash, recalled.clone());
 
         let suffix_arc = recalled
             .as_deref()
@@ -687,17 +679,14 @@ impl AssistantAgent {
             return;
         }
         // Build prompt.
-        let prompt = match crate::awareness::llm_digest::build_extraction_prompt(
-            &snap.entries,
-            &cfg,
-            &db,
-        ) {
-            Ok(p) if !p.is_empty() => p,
-            _ => {
-                aware.record_digest_failure();
-                return;
-            }
-        };
+        let prompt =
+            match crate::awareness::llm_digest::build_extraction_prompt(&snap.entries, &cfg, &db) {
+                Ok(p) if !p.is_empty() => p,
+                _ => {
+                    aware.record_digest_failure();
+                    return;
+                }
+            };
         // Append the current user message so the model can compare topics.
         let prompt = if !user_text.is_empty() {
             format!(
@@ -709,8 +698,7 @@ impl AssistantAgent {
             prompt
         };
         // Fire side_query with a hard timeout.
-        let max_tokens =
-            ((cfg.llm_extraction.digest_max_chars / 3) as u32).clamp(256, 2048);
+        let max_tokens = ((cfg.llm_extraction.digest_max_chars / 3) as u32).clamp(256, 2048);
         let fut = self.side_query(&prompt, max_tokens);
         match tokio::time::timeout(EXTRACTION_TIMEOUT, fut).await {
             Ok(Ok(res)) => {
@@ -719,8 +707,8 @@ impl AssistantAgent {
                     aware.record_digest_failure();
                     return;
                 }
-                let truncated = crate::truncate_utf8(trimmed, cfg.llm_extraction.digest_max_chars)
-                    .to_string();
+                let truncated =
+                    crate::truncate_utf8(trimmed, cfg.llm_extraction.digest_max_chars).to_string();
                 aware.set_last_digest(std::sync::Arc::new(truncated));
             }
             Ok(Err(e)) => {
@@ -758,9 +746,7 @@ impl AssistantAgent {
     }
 
     /// Return the currently held `SessionAwareness` for this agent, if any.
-    fn awareness_arc(
-        &self,
-    ) -> Option<std::sync::Arc<crate::awareness::SessionAwareness>> {
+    fn awareness_arc(&self) -> Option<std::sync::Arc<crate::awareness::SessionAwareness>> {
         self.awareness
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -943,9 +929,7 @@ impl AssistantAgent {
         // job_status is always loaded so the model can poll backgrounded tool jobs
         // regardless of deferred-loading settings.
         if crate::config::cached_config().async_tools.enabled {
-            schemas.push(
-                tools::job_status::get_job_status_tool().to_provider_schema(provider),
-            );
+            schemas.push(tools::job_status::get_job_status_tool().to_provider_schema(provider));
         }
 
         // Plan Agent / Executing Agent tool injection

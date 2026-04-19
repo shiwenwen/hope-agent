@@ -4,9 +4,7 @@ use serde_json::{json, Value};
 
 use crate::session::{SessionDB, Task, TaskStatus};
 
-fn resolve_ctx(
-    session_id: Option<&str>,
-) -> Result<(String, Arc<SessionDB>), String> {
+fn resolve_ctx(session_id: Option<&str>) -> Result<(String, Arc<SessionDB>), String> {
     let sid = session_id
         .ok_or_else(|| "Error: no session context available".to_string())?
         .to_string();
@@ -29,14 +27,12 @@ fn render_snapshot(tasks: &[Task]) -> String {
     serde_json::to_string(tasks).unwrap_or_else(|_| "[]".to_string())
 }
 
-fn collect_task_items(
-    tasks_arr: &[Value],
-) -> Result<Vec<(String, Option<String>)>, String> {
+fn collect_task_items(tasks_arr: &[Value]) -> Result<Vec<(String, Option<String>)>, String> {
     let mut items: Vec<(String, Option<String>)> = Vec::with_capacity(tasks_arr.len());
     for (idx, entry) in tasks_arr.iter().enumerate() {
-        let obj = entry.as_object().ok_or_else(|| {
-            format!("Error: tasks[{}] must be an object with 'content'", idx)
-        })?;
+        let obj = entry
+            .as_object()
+            .ok_or_else(|| format!("Error: tasks[{}] must be an object with 'content'", idx))?;
         let content = obj
             .get("content")
             .and_then(|v| v.as_str())
@@ -70,8 +66,7 @@ pub(crate) async fn tool_task_create(args: &Value, session_id: Option<&str>) -> 
         Err(e) => return e,
     };
     if items.is_empty() {
-        return "Error: no valid tasks — every entry had empty content after trimming"
-            .to_string();
+        return "Error: no valid tasks — every entry had empty content after trimming".to_string();
     }
 
     let (sid, db) = match resolve_ctx(session_id) {

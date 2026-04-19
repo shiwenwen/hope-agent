@@ -129,21 +129,9 @@ fn render_kpis(out: &mut String, q: &QuantitativeStats) {
     push_kpi(out, "Messages", &cur.total_messages.to_string());
     push_kpi(out, "Tool calls", &cur.total_tool_calls.to_string());
     push_kpi(out, "Errors", &cur.total_errors.to_string());
-    push_kpi(
-        out,
-        "Cost",
-        &format!("${:.2}", cur.estimated_cost_usd),
-    );
-    push_kpi(
-        out,
-        "In-tokens",
-        &short_count(cur.total_input_tokens),
-    );
-    push_kpi(
-        out,
-        "Out-tokens",
-        &short_count(cur.total_output_tokens),
-    );
+    push_kpi(out, "Cost", &format!("${:.2}", cur.estimated_cost_usd));
+    push_kpi(out, "In-tokens", &short_count(cur.total_input_tokens));
+    push_kpi(out, "Out-tokens", &short_count(cur.total_output_tokens));
     if let Some(ttft) = cur.avg_ttft_ms {
         push_kpi(out, "Avg TTFT", &format!("{:.0} ms", ttft));
     }
@@ -160,16 +148,17 @@ fn render_health(out: &mut String, q: &QuantitativeStats) {
         _ => "health-good",
     };
     out.push_str("<section class=\"card\"><h2>Health</h2><p>Score: <strong>");
-    let _ = write!(out, "{}/100</strong> <span class=\"health-pill {}\">{}</span></p>", h.score, cls, escape(&h.status));
+    let _ = write!(
+        out,
+        "{}/100</strong> <span class=\"health-pill {}\">{}</span></p>",
+        h.score,
+        cls,
+        escape(&h.status)
+    );
     out.push_str("<div class=\"bars\">");
     push_bar(out, "Log error rate", h.log_error_rate_percent, 100.0);
     push_bar(out, "Tool error rate", h.tool_error_rate_percent, 100.0);
-    push_bar(
-        out,
-        "Cron success rate",
-        h.cron_success_rate_percent,
-        100.0,
-    );
+    push_bar(out, "Cron success rate", h.cron_success_rate_percent, 100.0);
     push_bar(
         out,
         "Subagent success rate",
@@ -220,9 +209,7 @@ fn render_heatmap(out: &mut String, q: &QuantitativeStats) {
     if q.heatmap.cells.is_empty() {
         return;
     }
-    out.push_str(
-        "<section class=\"card\"><h2>Activity heatmap</h2><div class=\"heatmap\">",
-    );
+    out.push_str("<section class=\"card\"><h2>Activity heatmap</h2><div class=\"heatmap\">");
     let max = q.heatmap.max_value.max(1) as f64;
     let days = ["S", "M", "T", "W", "T", "F", "S"];
     let mut grid = [[0u64; 24]; 7];
@@ -341,7 +328,10 @@ fn render_markdown(md: &str) -> String {
             out.push_str("</h3>");
             continue;
         }
-        if let Some(rest) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+        if let Some(rest) = trimmed
+            .strip_prefix("- ")
+            .or_else(|| trimmed.strip_prefix("* "))
+        {
             flush_paragraph(&mut out, &mut paragraph);
             if !in_list {
                 out.push_str("<ul>");

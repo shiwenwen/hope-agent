@@ -71,10 +71,7 @@ pub fn build_skills_prompt(
     let full_lines: Vec<String> = active
         .iter()
         .map(|s| {
-            let when = s
-                .when_to_use
-                .as_deref()
-                .filter(|w| !w.is_empty());
+            let when = s.when_to_use.as_deref().filter(|w| !w.is_empty());
             match when {
                 Some(w) if !s.description.is_empty() => {
                     format!("- {}: {} — when: {}", s.name, s.description, w)
@@ -91,10 +88,7 @@ pub fn build_skills_prompt(
     }
 
     // Fall back to compact format (no descriptions)
-    let compact_lines: Vec<String> = active
-        .iter()
-        .map(|s| format!("- {}", s.name))
-        .collect();
+    let compact_lines: Vec<String> = active.iter().map(|s| format!("- {}", s.name)).collect();
 
     let compact_text = format!("{}\n{}", header, compact_lines.join("\n"));
 

@@ -163,29 +163,18 @@ pub async fn delete_team_template(
 }
 
 #[tauri::command]
-pub async fn pause_team(
-    team_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    team::coordinator::pause_team(&state.session_db, &team_id)
-        .map_err(|e| e.to_string())
+pub async fn pause_team(team_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    team::coordinator::pause_team(&state.session_db, &team_id).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn resume_team(
-    team_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
+pub async fn resume_team(team_id: String, state: State<'_, AppState>) -> Result<(), String> {
     team::coordinator::resume_team(&state.session_db, &team_id)
         .await
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn dissolve_team(
-    team_id: String,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    team::coordinator::dissolve_team(&state.session_db, &team_id)
-        .map_err(|e| e.to_string())
+pub async fn dissolve_team(team_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    team::coordinator::dissolve_team(&state.session_db, &team_id).map_err(|e| e.to_string())
 }

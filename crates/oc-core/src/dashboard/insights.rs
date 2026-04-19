@@ -252,8 +252,7 @@ pub fn query_top_sessions(
 
     let mut f = build_session_filter(filter, "s", None);
     // Append the limit as a bound parameter so we avoid string interpolation.
-    let limit_box: Box<dyn rusqlite::types::ToSql> =
-        Box::new(limit.max(1).min(1000) as i64);
+    let limit_box: Box<dyn rusqlite::types::ToSql> = Box::new(limit.max(1).min(1000) as i64);
     f.params.push(limit_box);
     let sql = format!(
         "SELECT s.id,
@@ -442,8 +441,8 @@ pub fn query_health_score(
          FROM cron_run_logs {}",
         where_sql
     );
-    let (cron_total, cron_success): (u64, u64) = cron_conn
-        .query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
+    let (cron_total, cron_success): (u64, u64) =
+        cron_conn.query_row(&sql, params_ref(&cron_params).as_slice(), |r| {
             Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
         })?;
     drop(cron_conn);
@@ -483,8 +482,8 @@ pub fn query_health_score(
          FROM subagent_runs {}",
         where_sql
     );
-    let (sub_total, sub_completed): (u64, u64) = sess_conn
-        .query_row(&sql, params_ref(&sub_params).as_slice(), |r| {
+    let (sub_total, sub_completed): (u64, u64) =
+        sess_conn.query_row(&sql, params_ref(&sub_params).as_slice(), |r| {
             Ok((crate::sql_u64(r, 0)?, crate::sql_u64(r, 1)?))
         })?;
     drop(sess_conn);

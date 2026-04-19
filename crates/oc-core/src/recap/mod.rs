@@ -50,12 +50,7 @@ fn run_facet_retention_once(retention_days: u32) {
             n,
             retention_days
         ),
-        Err(e) => crate::app_warn!(
-            "recap",
-            "retention",
-            "Facet retention sweep failed: {}",
-            e
-        ),
+        Err(e) => crate::app_warn!("recap", "retention", "Facet retention sweep failed: {}", e),
     }
 }
 
@@ -71,8 +66,7 @@ pub fn spawn_facet_retention_loop() {
     tokio::spawn(async move {
         tokio::task::spawn_blocking(move || run_facet_retention_once(retention_days));
 
-        let mut ticker =
-            tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
         ticker.tick().await; // interval fires immediately on first tick; consume it
         loop {
             ticker.tick().await;

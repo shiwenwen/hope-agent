@@ -58,8 +58,7 @@ impl AssistantAgent {
         let mut total_usage = ChatUsage::default();
         let mut first_ttft_ms: Option<u64> = None;
         let system_prompt = self.build_full_system_prompt(model, "OpenAIChat");
-        let system_prompt_for_budget =
-            self.build_merged_system_prompt(model, "OpenAIChat");
+        let system_prompt_for_budget = self.build_merged_system_prompt(model, "OpenAIChat");
 
         // Run context compaction (Tier 1-3) before API call
         self.run_compaction(&mut messages, &system_prompt_for_budget, 16384, on_delta)
@@ -620,9 +619,8 @@ impl AssistantAgent {
                             }
                             // Anthropic-style at top level (OpenRouter / LiteLLM gateways
                             // can forward Anthropic-shape fields through Chat Completions).
-                            if let Some(cr) = u
-                                .get("cache_read_input_tokens")
-                                .and_then(|v| v.as_u64())
+                            if let Some(cr) =
+                                u.get("cache_read_input_tokens").and_then(|v| v.as_u64())
                             {
                                 usage.cache_read_input_tokens = cr;
                             }
@@ -639,9 +637,7 @@ impl AssistantAgent {
                                     .get("prompt_tokens_details")
                                     .and_then(|d| d.get("cached_tokens"))
                                     .and_then(|v| v.as_u64())
-                                    .or_else(|| {
-                                        u.get("cached_tokens").and_then(|v| v.as_u64())
-                                    })
+                                    .or_else(|| u.get("cached_tokens").and_then(|v| v.as_u64()))
                                     .unwrap_or(0);
                             }
                         }

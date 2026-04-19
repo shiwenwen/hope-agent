@@ -33,9 +33,7 @@ pub struct UpdateJobBody {
 }
 
 /// `POST /api/cron/jobs`
-pub async fn create_job(
-    Json(body): Json<CreateJobBody>,
-) -> Result<Json<cron::CronJob>, AppError> {
+pub async fn create_job(Json(body): Json<CreateJobBody>) -> Result<Json<cron::CronJob>, AppError> {
     Ok(Json(db()?.add_job(&body.job)?))
 }
 

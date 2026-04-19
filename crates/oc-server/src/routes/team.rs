@@ -147,7 +147,10 @@ pub async fn create_team(Json(body): Json<CreateTeamBody>) -> Result<Json<team::
                     .clone()
                     .filter(|s| !s.trim().is_empty())
                     .unwrap_or_else(|| {
-                        format!("Work on your role '{}' as part of team '{}'.", m.name, team_name)
+                        format!(
+                            "Work on your role '{}' as part of team '{}'.",
+                            m.name, team_name
+                        )
                     }),
                 model: m.model_override.clone(),
                 description: Some(m.description.clone()).filter(|s| !s.trim().is_empty()),
@@ -155,7 +158,9 @@ pub async fn create_team(Json(body): Json<CreateTeamBody>) -> Result<Json<team::
             .collect();
         (specs, Some(tpl.template_id.clone()))
     } else {
-        return Err(AppError::bad_request("Either 'members' or 'template' required"));
+        return Err(AppError::bad_request(
+            "Either 'members' or 'template' required",
+        ));
     };
 
     let created = team::coordinator::create_team(
@@ -192,5 +197,7 @@ pub async fn delete_team_template(
     Path(template_id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     team::templates::delete_template(&state()?.session_db, &template_id)?;
-    Ok(Json(json!({ "status": "deleted", "templateId": template_id })))
+    Ok(Json(
+        json!({ "status": "deleted", "templateId": template_id }),
+    ))
 }

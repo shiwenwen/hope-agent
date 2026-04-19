@@ -1,6 +1,8 @@
 use serde_json::json;
 
-use super::super::{TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH};
+use super::super::{
+    TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH,
+};
 use super::types::ToolDefinition;
 
 /// Returns the subagent tool definition (conditionally injected when enabled).

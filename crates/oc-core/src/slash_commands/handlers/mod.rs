@@ -1,6 +1,6 @@
 pub mod agent;
-pub mod context;
 pub mod awareness;
+pub mod context;
 pub mod memory;
 pub mod model;
 pub mod plan;
@@ -217,7 +217,9 @@ async fn handle_skill_command(
                 // that the old "Read the skill file at <path>" prompt forced when
                 // deferred tools were enabled.
                 match crate::tools::skill::render_inline(&matched, args).await {
-                    Ok(skill_content) => build_skill_activation_prompt(&matched.name, args, &skill_content),
+                    Ok(skill_content) => {
+                        build_skill_activation_prompt(&matched.name, args, &skill_content)
+                    }
                     Err(e) => {
                         crate::app_warn!(
                             "slash_cmd",
@@ -282,15 +284,9 @@ async fn dispatch_skill_fork(
     // injection UX (result posted back as a user message) is preserved.
     // The `skill` tool path sets skip_parent_injection=true and synthesizes
     // its own tool_result.
-    let run_id = crate::skills::spawn_skill_fork(
-        skill,
-        args,
-        parent_session_id,
-        agent_id,
-        false,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let run_id = crate::skills::spawn_skill_fork(skill, args, parent_session_id, agent_id, false)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(CommandResult {
         content: format!(

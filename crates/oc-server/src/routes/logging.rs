@@ -64,9 +64,7 @@ pub struct LogConfigBody {
 }
 
 /// `PUT /api/logs/config`
-pub async fn save_log_config(
-    Json(body): Json<LogConfigBody>,
-) -> Result<Json<Value>, AppError> {
+pub async fn save_log_config(Json(body): Json<LogConfigBody>) -> Result<Json<Value>, AppError> {
     logging::save_log_config(&body.config)?;
     app_state()?.logger.update_config(body.config);
     Ok(Json(json!({ "saved": true })))

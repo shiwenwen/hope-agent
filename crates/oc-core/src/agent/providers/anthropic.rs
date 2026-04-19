@@ -70,8 +70,13 @@ impl AssistantAgent {
 
         // Run context compaction (Tier 1-3) before API call
         let max_tokens: u32 = 16384;
-        self.run_compaction(&mut messages, &system_prompt_for_budget, max_tokens, on_delta)
-            .await;
+        self.run_compaction(
+            &mut messages,
+            &system_prompt_for_budget,
+            max_tokens,
+            on_delta,
+        )
+        .await;
 
         // LLM memory selection: filter to most relevant memories
         let mut system_prompt = system_prompt;
@@ -512,7 +517,11 @@ impl AssistantAgent {
 
             // Reactive microcompact: when usage crosses the threshold mid-loop,
             // clear ephemeral tool_results (Tier 0) to head off emergency compaction.
-            self.reactive_microcompact_in_loop(&mut messages, &system_prompt_for_budget, max_tokens);
+            self.reactive_microcompact_in_loop(
+                &mut messages,
+                &system_prompt_for_budget,
+                max_tokens,
+            );
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);

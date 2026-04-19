@@ -114,9 +114,7 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
     let _ = CRON_DB.set(cron_db.clone());
 
     // Failure here is non-fatal — async tools degrade to sync mode if the DB cannot be opened.
-    match paths::async_jobs_db_path()
-        .and_then(|p| crate::async_jobs::AsyncJobsDB::open(&p))
-    {
+    match paths::async_jobs_db_path().and_then(|p| crate::async_jobs::AsyncJobsDB::open(&p)) {
         Ok(db) => crate::async_jobs::set_async_jobs_db(Arc::new(db)),
         Err(e) => crate::app_warn!(
             "async_jobs",
@@ -290,19 +288,13 @@ pub async fn start_background_tasks() {
     // server/launchd/systemd deployments where start_background_tasks only
     // runs once at boot.
     tokio::spawn(async move {
-        let mut ticker =
-            tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
         ticker.tick().await; // skip immediate tick (startup path already purged)
         loop {
             ticker.tick().await;
             if let Some(db) = crate::get_session_db() {
                 if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
-                    app_warn!(
-                        "ask_user",
-                        "purge",
-                        "Daily ask_user purge failed: {}",
-                        e
-                    );
+                    app_warn!("ask_user", "purge", "Daily ask_user purge failed: {}", e);
                 }
             }
         }

@@ -101,10 +101,7 @@ pub struct SkillUsage {
 
 pub fn query_learning_overview(db: &SessionDB, window_days: u32) -> Result<LearningOverview> {
     let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
 
     let mut overview = LearningOverview {
         window_days,
@@ -168,10 +165,7 @@ pub fn query_learning_overview(db: &SessionDB, window_days: u32) -> Result<Learn
 /// charting.
 pub fn query_skill_timeline(db: &SessionDB, window_days: u32) -> Result<Vec<TimelinePoint>> {
     let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
     let mut stmt = conn.prepare(
         "SELECT ts, kind, ref_id, meta_json FROM learning_events
          WHERE ts >= ?1 AND kind IN (
@@ -203,16 +197,9 @@ pub fn query_skill_timeline(db: &SessionDB, window_days: u32) -> Result<Vec<Time
 }
 
 /// Top skills by `skill_used` count within the window.
-pub fn query_top_skills(
-    db: &SessionDB,
-    window_days: u32,
-    limit: usize,
-) -> Result<Vec<SkillUsage>> {
+pub fn query_top_skills(db: &SessionDB, window_days: u32, limit: usize) -> Result<Vec<SkillUsage>> {
     let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
     let mut stmt = conn.prepare(
         "SELECT ref_id, COUNT(*) AS c, MAX(ts) AS last_ts
          FROM learning_events
@@ -221,16 +208,13 @@ pub fn query_top_skills(
          ORDER BY c DESC
          LIMIT ?3",
     )?;
-    let rows = stmt.query_map(
-        params![cutoff, EVT_SKILL_USED, limit as i64],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)? as u64,
-                row.get::<_, Option<i64>>(2)?,
-            ))
-        },
-    )?;
+    let rows = stmt.query_map(params![cutoff, EVT_SKILL_USED, limit as i64], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, i64>(1)? as u64,
+            row.get::<_, Option<i64>>(2)?,
+        ))
+    })?;
     let mut out = Vec::new();
     for row in rows {
         let (skill_id, used_count, last_used_ts) = row?;
@@ -255,10 +239,7 @@ pub struct RecallStats {
 
 pub fn query_recall_stats(db: &SessionDB, window_days: u32) -> Result<RecallStats> {
     let cutoff = crate::util::epoch_cutoff_secs(window_days);
-    let conn = db
-        .conn
-        .lock()
-        .map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
+    let conn = db.conn.lock().map_err(|e| anyhow::anyhow!("Lock: {}", e))?;
     let hits: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM learning_events WHERE ts >= ?1 AND kind = ?2",

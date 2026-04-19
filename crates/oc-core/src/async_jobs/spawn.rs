@@ -205,10 +205,11 @@ pub async fn dispatch_with_auto_background(
             }
         };
         rt.block_on(async move {
-            let result: Result<String, String> =
-                Box::pin(crate::tools::execute_tool_with_context(&name_w, &args_w, &ctx_w))
-                    .await
-                    .map_err(|e| e.to_string());
+            let result: Result<String, String> = Box::pin(crate::tools::execute_tool_with_context(
+                &name_w, &args_w, &ctx_w,
+            ))
+            .await
+            .map_err(|e| e.to_string());
 
             let mut p = phase_w.lock().unwrap_or_else(|p| p.into_inner());
             let next = match std::mem::replace(&mut *p, Phase::Pending) {
@@ -259,9 +260,7 @@ pub async fn dispatch_with_auto_background(
         {
             let mut p = phase.lock().unwrap_or_else(|p| p.into_inner());
             if matches!(*p, Phase::ResultReady(_)) {
-                if let Phase::ResultReady(r) =
-                    std::mem::replace(&mut *p, Phase::Consumed)
-                {
+                if let Phase::ResultReady(r) = std::mem::replace(&mut *p, Phase::Consumed) {
                     return r.map_err(|e| anyhow::anyhow!(e));
                 }
             }
@@ -343,7 +342,6 @@ enum Phase {
     Consumed,
 }
 
-
 async fn run_job_to_completion(
     db: Arc<AsyncJobsDB>,
     job_id: String,
@@ -356,7 +354,9 @@ async fn run_job_to_completion(
     let session_id = ctx.session_id.clone();
     let agent_id = ctx.agent_id.clone();
 
-    let dispatch = Box::pin(crate::tools::execute_tool_with_context(&tool_name, &args, &ctx));
+    let dispatch = Box::pin(crate::tools::execute_tool_with_context(
+        &tool_name, &args, &ctx,
+    ));
     let result: Result<String, String> = if max_secs == 0 {
         dispatch.await.map_err(|e| e.to_string())
     } else {

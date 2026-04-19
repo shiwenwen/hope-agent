@@ -69,10 +69,7 @@ pub fn run_once() {
     }
 }
 
-fn sweep_orphans(
-    db: &super::AsyncJobsDB,
-    orphan_grace_secs: u64,
-) -> anyhow::Result<()> {
+fn sweep_orphans(db: &super::AsyncJobsDB, orphan_grace_secs: u64) -> anyhow::Result<()> {
     let spool_dir = paths::async_jobs_dir()?;
     if !spool_dir.exists() {
         return Ok(());

@@ -40,8 +40,7 @@ pub(crate) async fn tool_skill(args: &Value, ctx: &ToolExecContext) -> Result<St
         .trim();
 
     let cfg = crate::config::cached_config();
-    let skills =
-        crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
 
     let entry = skills
         .iter()

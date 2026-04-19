@@ -43,8 +43,8 @@ fn risk_level(category: &str) -> &'static str {
         | "teams" => "medium",
 
         // ── HIGH ───────────────────────────────────────────────
-        "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control"
-        | "skill_env" | "security.ssrf" => "high",
+        "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
+        | "security.ssrf" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
         "active_model" | "fallback_models" | "all" => "low",
@@ -298,10 +298,7 @@ fn update_user_config(values: &Value) -> Result<String> {
 
     // Notify frontend about user config change
     if let Some(bus) = crate::get_event_bus() {
-        bus.emit(
-            "config:changed",
-            serde_json::json!({ "category": "user" }),
-        );
+        bus.emit("config:changed", serde_json::json!({ "category": "user" }));
     }
 
     // Hot-reload: refresh weather cache if weather-related fields changed
@@ -443,7 +440,10 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
             }
         }
         "ask_user_question_timeout" => {
-            if let Some(v) = values.get("askUserQuestionTimeoutSecs").and_then(|v| v.as_u64()) {
+            if let Some(v) = values
+                .get("askUserQuestionTimeoutSecs")
+                .and_then(|v| v.as_u64())
+            {
                 store.ask_user_question_timeout_secs = v;
             }
         }
@@ -529,8 +529,7 @@ fn update_team_templates(values: &Value) -> Result<String> {
             let payload = values
                 .get("template")
                 .ok_or_else(|| anyhow::anyhow!("teams.save: missing 'template' payload"))?;
-            let template: crate::team::TeamTemplate =
-                serde_json::from_value(payload.clone())?;
+            let template: crate::team::TeamTemplate = serde_json::from_value(payload.clone())?;
             if template.template_id.trim().is_empty() {
                 bail!("teams.save: template.templateId must not be empty");
             }
@@ -558,9 +557,7 @@ fn update_team_templates(values: &Value) -> Result<String> {
                 "templateId": template_id,
             }))?)
         }
-        other => bail!(
-            "teams: unknown action '{other}'. Expected 'save' or 'delete'."
-        ),
+        other => bail!("teams: unknown action '{other}'. Expected 'save' or 'delete'."),
     }
 }
 

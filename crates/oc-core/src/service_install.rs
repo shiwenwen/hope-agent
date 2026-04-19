@@ -396,7 +396,8 @@ fn install_systemd(
 fn enable_linger_for_current_user() -> String {
     let user = std::env::var("USER").unwrap_or_default();
     if user.is_empty() {
-        return "Linger: skipped (USER env not set; run `loginctl enable-linger <user>` manually)".to_string();
+        return "Linger: skipped (USER env not set; run `loginctl enable-linger <user>` manually)"
+            .to_string();
     }
 
     let output = std::process::Command::new("loginctl")

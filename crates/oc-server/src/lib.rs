@@ -178,8 +178,7 @@ fn build_router_with_cors(
         )
         .route(
             "/chat/attachment",
-            post(routes::chat::save_attachment)
-                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+            post(routes::chat::save_attachment).layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
         )
         // Attachment download (serves session-scoped files under
         // ~/.opencomputer/attachments/{session_id}/) — the logical URL
@@ -221,12 +220,18 @@ fn build_router_with_cors(
         .route("/models/active", get(routes::models::get_active_model))
         .route("/models/active", post(routes::models::set_active_model))
         .route("/models/fallback", get(routes::models::get_fallback_models))
-        .route("/models/fallback", post(routes::models::set_fallback_models))
+        .route(
+            "/models/fallback",
+            post(routes::models::set_fallback_models),
+        )
         .route(
             "/models/reasoning-effort",
             post(routes::models::set_reasoning_effort),
         )
-        .route("/models/settings", get(routes::models::get_current_settings))
+        .route(
+            "/models/settings",
+            get(routes::models::get_current_settings),
+        )
         .route(
             "/models/temperature",
             get(routes::models::get_global_temperature),
@@ -466,7 +471,10 @@ fn build_router_with_cors(
         // Config — theme / language / UI
         .route("/config/theme", get(routes::config::get_theme))
         .route("/config/theme", post(routes::config::set_theme))
-        .route("/config/window-theme", post(routes::config::set_window_theme))
+        .route(
+            "/config/window-theme",
+            post(routes::config::set_window_theme),
+        )
         .route("/config/language", get(routes::config::get_language))
         .route("/config/language", post(routes::config::set_language))
         .route(
@@ -808,10 +816,16 @@ fn build_router_with_cors(
             post(routes::subagent::kill_subagent),
         )
         // Agent Team
-        .route("/teams", get(routes::team::list_teams).post(routes::team::create_team))
+        .route(
+            "/teams",
+            get(routes::team::list_teams).post(routes::team::create_team),
+        )
         .route("/teams/{id}", get(routes::team::get_team))
         .route("/teams/{id}/members", get(routes::team::get_team_members))
-        .route("/teams/{id}/messages", get(routes::team::get_team_messages).post(routes::team::send_user_team_message))
+        .route(
+            "/teams/{id}/messages",
+            get(routes::team::get_team_messages).post(routes::team::send_user_team_message),
+        )
         .route("/teams/{id}/tasks", get(routes::team::get_team_tasks))
         .route("/teams/{id}/pause", post(routes::team::pause_team))
         .route("/teams/{id}/resume", post(routes::team::resume_team))
@@ -889,19 +903,13 @@ fn build_router_with_cors(
         .route("/searxng/stop", post(routes::searxng::stop))
         .route("/searxng", delete(routes::searxng::remove))
         // Auth
-        .route(
-            "/auth/codex/start",
-            post(routes::auth::start_codex_auth),
-        )
+        .route("/auth/codex/start", post(routes::auth::start_codex_auth))
         .route(
             "/auth/codex/finalize",
             post(routes::auth::finalize_codex_auth),
         )
         // System (desktop-only stubs)
-        .route(
-            "/system/restart",
-            post(routes::system::request_app_restart),
-        )
+        .route("/system/restart", post(routes::system::request_app_restart))
         // Desktop (desktop-only stubs)
         .route("/desktop/open-url", post(routes::desktop::open_url))
         .route(

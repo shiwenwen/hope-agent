@@ -314,7 +314,12 @@ pub(super) fn validate_capabilities(
 mod tests {
     use super::*;
 
-    fn entry(id: &str, enabled: bool, key: Option<&str>, model: Option<&str>) -> ImageGenProviderEntry {
+    fn entry(
+        id: &str,
+        enabled: bool,
+        key: Option<&str>,
+        model: Option<&str>,
+    ) -> ImageGenProviderEntry {
         ImageGenProviderEntry {
             id: id.to_string(),
             enabled,
@@ -337,7 +342,10 @@ mod tests {
     fn has_configured_provider_rejects_disabled_or_empty_key() {
         assert!(!has_configured_provider_from_config(&cfg(vec![])));
         assert!(!has_configured_provider_from_config(&cfg(vec![entry(
-            "openai", false, Some("sk-x"), None
+            "openai",
+            false,
+            Some("sk-x"),
+            None
         )])));
         assert!(!has_configured_provider_from_config(&cfg(vec![entry(
             "openai",

@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
-use tokio_util::sync::CancellationToken;
 use crate::agent::AssistantAgent;
 use crate::config::AppConfig;
+use crate::cron;
 use crate::dashboard::{
     query_activity_heatmap, query_cost_trend, query_health_score, query_hourly_distribution,
     query_model_efficiency, query_overview_with_delta, query_top_sessions,
@@ -12,7 +11,8 @@ use crate::globals::AppState;
 use crate::logging::LogDB;
 use crate::provider::find_provider;
 use crate::session::SessionDB;
-use crate::cron;
+use anyhow::{anyhow, Result};
+use tokio_util::sync::CancellationToken;
 
 use super::aggregate::roll_up;
 use super::db::RecapDb;
@@ -38,10 +38,7 @@ pub struct RecapContext {
 impl RecapContext {
     /// Build a context using the configured analysis agent (or a sensible
     /// fallback when none is configured).
-    pub async fn from_app_state(
-        state: &AppState,
-        cancel: CancellationToken,
-    ) -> Result<Self> {
+    pub async fn from_app_state(state: &AppState, cancel: CancellationToken) -> Result<Self> {
         let config = state.config.lock().await.clone();
         let recap_db = super::api::recap_db()?;
         let (agent, analysis_model) = build_analysis_agent(&config)?;

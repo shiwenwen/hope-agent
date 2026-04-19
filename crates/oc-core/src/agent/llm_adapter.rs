@@ -229,8 +229,7 @@ fn build_openai_chat_body(model: &str, req: &OneShotRequest<'_>) -> Value {
     }
 
     if let Some(params) = req.mode.cached_for(ProviderFormat::OpenAIChat) {
-        let mut api_messages =
-            vec![json!({ "role": "system", "content": &params.system_prompt })];
+        let mut api_messages = vec![json!({ "role": "system", "content": &params.system_prompt })];
         api_messages.extend(params.conversation_history.iter().cloned());
         api_messages.push(json!({ "role": "user", "content": req.instruction }));
 
@@ -574,7 +573,9 @@ mod tests {
         let req = OneShotRequest {
             instruction: "PROMPT",
             max_tokens: 4096,
-            mode: OneShotMode::Independent { system: "SUMMARIZER" },
+            mode: OneShotMode::Independent {
+                system: "SUMMARIZER",
+            },
         };
         let body = build_anthropic_body("claude-test", &req);
         assert_eq!(
@@ -661,7 +662,9 @@ mod tests {
         let req = OneShotRequest {
             instruction: "PROMPT",
             max_tokens: 4096,
-            mode: OneShotMode::Independent { system: "SUMMARIZER" },
+            mode: OneShotMode::Independent {
+                system: "SUMMARIZER",
+            },
         };
         let body = build_openai_chat_body("gpt-test", &req);
         assert_eq!(
@@ -717,7 +720,9 @@ mod tests {
         let req = OneShotRequest {
             instruction: "PROMPT",
             max_tokens: 4096,
-            mode: OneShotMode::Independent { system: "SUMMARIZER" },
+            mode: OneShotMode::Independent {
+                system: "SUMMARIZER",
+            },
         };
         let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
         assert_eq!(

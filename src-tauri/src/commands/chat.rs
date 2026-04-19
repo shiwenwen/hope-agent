@@ -180,8 +180,7 @@ pub async fn chat(
     };
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
-    let persisted_content =
-        oc_core::non_empty_trim_or(display_text.as_deref(), &message);
+    let persisted_content = oc_core::non_empty_trim_or(display_text.as_deref(), &message);
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);

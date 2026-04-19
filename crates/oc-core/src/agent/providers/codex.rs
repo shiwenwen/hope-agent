@@ -7,9 +7,7 @@ use serde_json::json;
 use futures_util::future::join_all;
 
 use super::super::api_types::ResponsesRequest;
-use super::super::config::{
-    get_max_tool_rounds, BASE_DELAY_MS, CODEX_API_URL, MAX_RETRIES,
-};
+use super::super::config::{get_max_tool_rounds, BASE_DELAY_MS, CODEX_API_URL, MAX_RETRIES};
 use super::super::content::build_user_content_responses;
 use super::super::errors::{is_retryable_error, os_version, parse_error_response};
 use super::super::events::{
@@ -116,10 +114,13 @@ impl AssistantAgent {
             // message so that the static `instructions` stays cache-friendly.
             if let Some(suffix) = self.current_awareness_suffix() {
                 if !suffix.is_empty() {
-                    api_input.insert(0, json!({
-                        "role": "system",
-                        "content": suffix.as_str()
-                    }));
+                    api_input.insert(
+                        0,
+                        json!({
+                            "role": "system",
+                            "content": suffix.as_str()
+                        }),
+                    );
                 }
             }
             // Active Memory (Phase B1) — same rationale as openai_responses.

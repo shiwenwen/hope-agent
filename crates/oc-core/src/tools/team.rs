@@ -208,7 +208,14 @@ async fn action_add_member(args: &Value) -> Result<String> {
     let description = args.get("description").and_then(|v| v.as_str());
 
     let member = team::coordinator::add_member(
-        &db, &team_id, name, agent_id, role, task, model, description,
+        &db,
+        &team_id,
+        name,
+        agent_id,
+        role,
+        task,
+        model,
+        description,
     )
     .await?;
 
@@ -265,7 +272,11 @@ async fn action_send_message(args: &Value, ctx: &ToolExecContext) -> Result<Stri
         } else {
             // Try to find member by name
             let member = db.find_team_member_by_name(&team_id, name)?;
-            Some(member.map(|m| m.member_id).unwrap_or_else(|| name.to_string()))
+            Some(
+                member
+                    .map(|m| m.member_id)
+                    .unwrap_or_else(|| name.to_string()),
+            )
         }
     } else {
         None
@@ -295,15 +306,14 @@ async fn action_create_task(args: &Value) -> Result<String> {
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("'content' is required"))?;
     let owner = args.get("owner").and_then(|v| v.as_str());
-    let priority = args.get("priority").and_then(|v| v.as_u64()).map(|p| p as u32);
+    let priority = args
+        .get("priority")
+        .and_then(|v| v.as_u64())
+        .map(|p| p as u32);
     let blocked_by: Vec<i64> = args
         .get("blocked_by")
         .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_i64())
-                .collect()
-        })
+        .map(|arr| arr.iter().filter_map(|v| v.as_i64()).collect())
         .unwrap_or_default();
 
     // Resolve owner name to member_id
