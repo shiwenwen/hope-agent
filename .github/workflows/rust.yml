@@ -45,9 +45,9 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/setup-nasm@v1
 
-      # xcap (via libwayshot-xcap → wayland-sys) requires wayland client /
-      # xkbcommon / gbm / drm headers on Linux. Ubuntu runners don't ship
-      # these by default.
+      # xcap pulls in wayland-sys (via libwayshot-xcap) and libspa-sys
+      # (via its pipewire screen-capture path) on Linux. Ubuntu runners
+      # don't ship any of these -dev packages by default.
       - name: Install Linux system deps
         if: runner.os == 'Linux'
         run: |
@@ -56,7 +56,8 @@ jobs:
             libwayland-dev \
             libxkbcommon-dev \
             libgbm-dev \
-            libdrm-dev
+            libdrm-dev \
+            libpipewire-0.3-dev
 
       # Matches the local invariant the workspace maintains: all clippy
       # warnings are handled (either fixed at the source or allowed in
@@ -90,7 +91,8 @@ jobs:
             libwayland-dev \
             libxkbcommon-dev \
             libgbm-dev \
-            libdrm-dev
+            libdrm-dev \
+            libpipewire-0.3-dev
 
       # Only oc-core and oc-server are pure Rust and host tests. The Tauri
       # shell crate (open-computer) pulls glib/webkit system libs that are
