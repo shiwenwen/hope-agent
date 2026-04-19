@@ -21,6 +21,7 @@ base64 = { workspace = true }
 dirs = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
+fancy-regex = { workspace = true }
 url = { workspace = true }
 once_cell = { workspace = true }
 signal-hook = { workspace = true }

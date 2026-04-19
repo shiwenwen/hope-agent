@@ -1,0 +1,31 @@
+name: Rust
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: cargo test (oc-core + oc-server)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Only oc-core and oc-server are pure Rust and host tests. The Tauri
+      # shell crate (open-computer) pulls glib/webkit system libs that are
+      # expensive to install on Linux runners and carries no tests.
+      - name: Build tests
+        run: cargo test -p oc-core -p oc-server --no-run --locked
+
+      - name: Run tests
+        run: cargo test -p oc-core -p oc-server --no-fail-fast

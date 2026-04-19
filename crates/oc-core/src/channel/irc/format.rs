@@ -32,8 +32,9 @@ pub fn markdown_to_irc(markdown: &str) -> String {
     let re_italic_star = Regex::new(r"\*(.+?)\*").unwrap();
     result = re_italic_star.replace_all(&result, "$1").to_string();
 
-    // Only strip _italic_ at word boundaries to avoid mangling snake_case
-    let re_italic_under = Regex::new(r"(?<!\w)_(.+?)_(?!\w)").unwrap();
+    // Only strip _italic_ at word boundaries to avoid mangling snake_case.
+    // Uses fancy_regex because the `regex` crate doesn't support lookaround.
+    let re_italic_under = fancy_regex::Regex::new(r"(?<!\w)_(.+?)_(?!\w)").unwrap();
     result = re_italic_under.replace_all(&result, "$1").to_string();
 
     // Strip strikethrough: ~~text~~

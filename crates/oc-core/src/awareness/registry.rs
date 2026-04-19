@@ -55,10 +55,23 @@ pub fn active_snapshot() -> Vec<(String, Instant)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
     use std::time::Duration;
+
+    // Serialize against the process-wide REGISTRY so concurrent tests in this
+    // module don't see each other's touches (mirrors awareness::dirty tests).
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset_state() {
+        if let Ok(mut g) = REGISTRY.write() {
+            g.clear();
+        }
+    }
 
     #[test]
     fn touch_and_query_within_window() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_state();
         touch_active_session("sess-regtest-1");
         let cutoff = Instant::now()
             .checked_sub(Duration::from_secs(60))
@@ -69,6 +82,8 @@ mod tests {
 
     #[test]
     fn empty_id_is_ignored() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_state();
         touch_active_session("");
         let snap = active_snapshot();
         assert!(!snap.iter().any(|(k, _)| k.is_empty()));

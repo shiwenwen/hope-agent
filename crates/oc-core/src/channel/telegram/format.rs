@@ -19,8 +19,7 @@ pub fn markdown_to_telegram_html(md: &str) -> String {
                 chars.next(); // consume third `
 
                 if in_code_block {
-                    // Closing code block
-                    result.push_str("</code></pre>");
+                    close_code_block(&mut result);
                     in_code_block = false;
                     code_block_lang.clear();
                 } else {
@@ -221,12 +220,20 @@ pub fn markdown_to_telegram_html(md: &str) -> String {
         result.push_str(&escape_html_char(ch));
     }
 
-    // Close any unclosed code block
     if in_code_block {
-        result.push_str("</code></pre>");
+        close_code_block(&mut result);
     }
 
     result
+}
+
+/// Drop the trailing `\n` that belongs to the fence delimiter before writing
+/// `</code></pre>`, so Telegram's `<pre>` doesn't render an extra blank line.
+fn close_code_block(result: &mut String) {
+    if result.ends_with('\n') {
+        result.pop();
+    }
+    result.push_str("</code></pre>");
 }
 
 /// Escape a single character for HTML.

@@ -83,9 +83,26 @@ pub fn on_other_session_activity(source_session_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Serialize tests in this module: both DIRTY and OBSERVERS are process-wide
+    // singletons, and parallel `cargo test` runs otherwise see each other's
+    // writes. Paired with a reset-on-entry to wipe state from any prior run.
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    fn reset_state() {
+        if let Ok(mut g) = DIRTY.write() {
+            g.clear();
+        }
+        if let Ok(mut g) = OBSERVERS.write() {
+            g.clear();
+        }
+    }
 
     #[test]
     fn mark_all_except_skips_source() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_state();
         register_observer("sess-dirty-a");
         register_observer("sess-dirty-b");
         mark_all_except("sess-dirty-a");
@@ -97,6 +114,8 @@ mod tests {
 
     #[test]
     fn take_dirty_is_consuming() {
+        let _guard = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        reset_state();
         register_observer("sess-dirty-c");
         register_observer("sess-dirty-d");
         mark_all_except("sess-dirty-c");
