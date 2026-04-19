@@ -20,9 +20,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use super::llm_adapter::{OneShotMode, OneShotRequest};
-use super::types::{
-    AssistantAgent, CacheSafeParams, ProviderFormat, SideQueryResult,
-};
+use super::types::{AssistantAgent, CacheSafeParams, ProviderFormat, SideQueryResult};
 use crate::failover::executor::{execute_with_failover, FailoverPolicy};
 
 impl AssistantAgent {
@@ -90,11 +88,8 @@ impl AssistantAgent {
             // Low-frequency background path — no UI rotation event needed.
             None,
             |profile| {
-                let provider = AssistantAgent::build_llm_provider(
-                    provider_config.as_ref(),
-                    model_id,
-                    profile,
-                );
+                let provider =
+                    AssistantAgent::build_llm_provider(provider_config.as_ref(), model_id, profile);
                 let cached_for_call = cached.clone();
                 let client_ref = &client;
                 async move {

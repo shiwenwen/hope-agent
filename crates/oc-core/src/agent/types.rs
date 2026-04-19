@@ -240,7 +240,7 @@ pub(super) struct CacheSafeParams {
 
 /// Provider format tag for CacheSafeParams, derived from LlmProvider variant.
 #[derive(Debug, PartialEq)]
-pub(super) enum ProviderFormat {
+pub(crate) enum ProviderFormat {
     Anthropic,
     OpenAIChat,
     OpenAIResponses,

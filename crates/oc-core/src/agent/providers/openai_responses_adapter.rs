@@ -18,9 +18,7 @@ use serde_json::{json, Value};
 
 use super::super::api_types::{FunctionCallItem, ResponsesRequest, SseEvent};
 use super::super::config::build_api_url;
-use super::super::events::{
-    build_responses_tool_result, emit_text_delta, emit_thinking_delta,
-};
+use super::super::events::{build_responses_tool_result, emit_text_delta, emit_thinking_delta};
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
@@ -419,8 +417,7 @@ pub(super) async fn parse_openai_sse(
                     "response.reasoning_summary_text.delta" => {
                         if let Some(delta) = &event.delta {
                             if first_token_time.is_none() {
-                                first_token_time =
-                                    Some(request_start.elapsed().as_millis() as u64);
+                                first_token_time = Some(request_start.elapsed().as_millis() as u64);
                             }
                             emit_thinking_delta(&on_delta, delta);
                             collected_thinking.push_str(delta);
@@ -437,8 +434,7 @@ pub(super) async fn parse_openai_sse(
                     "response.output_text.delta" => {
                         if let Some(delta) = &event.delta {
                             if first_token_time.is_none() {
-                                first_token_time =
-                                    Some(request_start.elapsed().as_millis() as u64);
+                                first_token_time = Some(request_start.elapsed().as_millis() as u64);
                             }
                             emit_text_delta(&on_delta, delta);
                             collected_text.push_str(delta);

@@ -64,8 +64,7 @@ pub fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, Strin
         if let Some(prov) = find_provider(&config.providers, target) {
             if let Some(model) = prov.models.first() {
                 return Ok((
-                    AssistantAgent::new_from_provider(prov, &model.id)
-                        .with_failover_context(prov),
+                    AssistantAgent::new_from_provider(prov, &model.id).with_failover_context(prov),
                     model.id.clone(),
                 ));
             }
@@ -86,8 +85,7 @@ pub fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, Strin
         }
         if let Some(model) = prov.models.first() {
             return Ok((
-                AssistantAgent::new_from_provider(prov, &model.id)
-                    .with_failover_context(prov),
+                AssistantAgent::new_from_provider(prov, &model.id).with_failover_context(prov),
                 model.id.clone(),
             ));
         }

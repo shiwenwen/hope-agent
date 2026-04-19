@@ -49,11 +49,7 @@ impl Drop for StreamLifecycle {
 
 /// Emit one stream event through the per-call sink and the EventBus broadcast,
 /// injecting a monotonic `_oc_seq` shared by both paths.
-fn emit_stream_event(
-    event_sink: &std::sync::Arc<dyn EventSink>,
-    session_id: &str,
-    event: &str,
-) {
+fn emit_stream_event(event_sink: &std::sync::Arc<dyn EventSink>, session_id: &str, event: &str) {
     let (enveloped, seq) = stream_broadcast::inject_seq(session_id, event);
     event_sink.send(&enveloped);
     stream_broadcast::broadcast_delta(session_id, &enveloped, seq);
@@ -95,8 +91,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     // Wrap attachments in Arc<[T]> so the failover-executor closure's per-
     // retry capture is a pointer bump instead of a deep clone of base64
     // image data (Attachment.data may carry MB-sized strings).
-    let attachments: std::sync::Arc<[crate::agent::Attachment]> =
-        std::sync::Arc::from(attachments);
+    let attachments: std::sync::Arc<[crate::agent::Attachment]> = std::sync::Arc::from(attachments);
 
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string());
@@ -195,30 +190,29 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             // Build the on-rotation callback that emits profile_rotation
             // events. Borrows event_sink + session_id + provider/model ids;
             // executor calls it inline so no Send/Sync gymnastics needed.
-            let on_rotate = |from: &AuthProfile,
-                             to: &AuthProfile,
-                             reason: &failover::FailoverReason| {
-                app_info!(
-                    "provider",
-                    "failover",
-                    "Rotating auth profile for {}::{}: {} -> {} (reason: {:?})",
-                    model_provider_id,
-                    model_id,
-                    from.label,
-                    to.label,
-                    reason
-                );
-                if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
-                    "type": "profile_rotation",
-                    "provider_id": model_provider_id,
-                    "model_id": model_id,
-                    "from_profile": from.label,
-                    "to_profile": to.label,
-                    "reason": reason,
-                })) {
-                    emit_stream_event(&event_sink, &session_id, &json_str);
-                }
-            };
+            let on_rotate =
+                |from: &AuthProfile, to: &AuthProfile, reason: &failover::FailoverReason| {
+                    app_info!(
+                        "provider",
+                        "failover",
+                        "Rotating auth profile for {}::{}: {} -> {} (reason: {:?})",
+                        model_provider_id,
+                        model_id,
+                        from.label,
+                        to.label,
+                        reason
+                    );
+                    if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
+                        "type": "profile_rotation",
+                        "provider_id": model_provider_id,
+                        "model_id": model_id,
+                        "from_profile": from.label,
+                        "to_profile": to.label,
+                        "reason": reason,
+                    })) {
+                        emit_stream_event(&event_sink, &session_id, &json_str);
+                    }
+                };
 
             // Capture refs / clones the closure needs. `move` consumes per-
             // call clones; the original chat_engine values stay borrowable
@@ -307,7 +301,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         let history_len_before = agent.get_conversation_history().len();
                         let chat_start = std::time::Instant::now();
                         let persister = StreamPersister::new();
-                        let persist_cb = persister.build_callback(&db_owned, session_id_owned.clone());
+                        let persist_cb =
+                            persister.build_callback(&db_owned, session_id_owned.clone());
 
                         let chat_result = agent
                             .chat(
