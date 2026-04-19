@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 use std::path::PathBuf;
 
-#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[cfg(target_os = "macos")]
 const SERVICE_LABEL: &str = "com.opencomputer.server";
 
 /// Minimal XML-text escape for plist `<string>` bodies. launchd parses
