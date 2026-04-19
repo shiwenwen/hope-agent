@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 
-> OpenComputer 原生 ACP 实现 — 零桥接、高性能的 IDE 直连方案
+> Hope Agent 原生 ACP 实现 — 零桥接、高性能的 IDE 直连方案
 
 ## 目录
 
@@ -24,12 +24,12 @@
 
 ## 概述
 
-ACP（Agent Client Protocol）是一个标准化的 IDE-Agent 通信协议，允许代码编辑器（如 Zed、VS Code）直接与 AI Agent 通信。OpenComputer 实现了原生的 Rust ACP 服务器，具有以下核心优势：
+ACP（Agent Client Protocol）是一个标准化的 IDE-Agent 通信协议，允许代码编辑器（如 Zed、VS Code）直接与 AI Agent 通信。Hope Agent 实现了原生的 Rust ACP 服务器，具有以下核心优势：
 
 - **零桥接**：纯 Rust 实现，不经过 Node.js 中间层，直接驱动 `AssistantAgent`
 - **会话互通**：共享 `SessionDB`（SQLite），IDE 创建的会话在桌面端可见，反之亦然
 - **完整 Failover**：复用桌面端的模型链降级策略（RateLimit 重试 + 多模型降级）
-- **29 个内置工具**：IDE 端可使用 OpenComputer 全部工具能力（exec、read、write、browser 等）
+- **29 个内置工具**：IDE 端可使用 Hope Agent 全部工具能力（exec、read、write、browser 等）
 
 ---
 
@@ -41,7 +41,7 @@ graph TB
         ZED["Zed / VS Code"]
     end
 
-    subgraph "ACP Server (opencomputer acp)"
+    subgraph "ACP Server (hope-agent acp)"
         STDIN["stdin"]
         STDOUT["stdout"]
         TRANSPORT["NdJsonTransport<br/>protocol.rs"]
@@ -51,7 +51,7 @@ graph TB
         TYPES["ACP Types<br/>types.rs"]
     end
 
-    subgraph "OpenComputer Core"
+    subgraph "Hope Agent Core"
         ASSISTANT["AssistantAgent<br/>agent/mod.rs"]
         TOOLS["29 内置工具<br/>tools/"]
         PROVIDERS["4 种 LLM Provider<br/>agent/providers/"]
@@ -59,9 +59,9 @@ graph TB
     end
 
     subgraph "持久化层"
-        SESSION_DB["SessionDB<br/>~/.opencomputer/sessions.db"]
-        CONFIG["AppConfig<br/>~/.opencomputer/config.json"]
-        AGENTS_DIR["Agent 配置<br/>~/.opencomputer/agents/"]
+        SESSION_DB["SessionDB<br/>~/.hope-agent/sessions.db"]
+        CONFIG["AppConfig<br/>~/.hope-agent/config.json"]
+        AGENTS_DIR["Agent 配置<br/>~/.hope-agent/agents/"]
     end
 
     ZED -- "NDJSON (JSON-RPC 2.0)" --> STDIN
@@ -417,7 +417,7 @@ fetch, http         → "fetch"
 
 ## Failover 降级策略
 
-ACP 完整复用 OpenComputer 桌面端的 failover 模块 (`failover.rs`)：
+ACP 完整复用 Hope Agent 桌面端的 failover 模块 (`failover.rs`)：
 
 ```mermaid
 flowchart TB
@@ -524,9 +524,9 @@ graph TB
     end
 
     subgraph "共享存储"
-        SQLITE[("~/.opencomputer/sessions.db<br/>SQLite (WAL 模式)")]
-        CONFIG_JSON[("~/.opencomputer/config.json")]
-        AGENTS_FS[("~/.opencomputer/agents/")]
+        SQLITE[("~/.hope-agent/sessions.db<br/>SQLite (WAL 模式)")]
+        CONFIG_JSON[("~/.hope-agent/config.json")]
+        AGENTS_FS[("~/.hope-agent/agents/")]
     end
 
     TAURI_DB --> SQLITE
@@ -545,10 +545,10 @@ graph TB
 
 | 数据 | 路径 | 读/写方 |
 |------|------|---------|
-| 会话 & 消息 | `~/.opencomputer/sessions.db` | 桌面端 ↔ ACP |
+| 会话 & 消息 | `~/.hope-agent/sessions.db` | 桌面端 ↔ ACP |
 | 对话上下文 | `sessions.context_json` 列 | 桌面端 ↔ ACP |
-| Provider 配置 | `~/.opencomputer/config.json` | 桌面端写 → ACP 读 |
-| Agent 定义 | `~/.opencomputer/agents/{id}/` | 桌面端写 → ACP 读 |
+| Provider 配置 | `~/.hope-agent/config.json` | 桌面端写 → ACP 读 |
+| Agent 定义 | `~/.hope-agent/agents/{id}/` | 桌面端写 → ACP 读 |
 | 模型降级链 | `config.json` 的 `fallbackModels` | 桌面端写 → ACP 读 |
 
 ---
@@ -579,22 +579,22 @@ graph TB
 
 ```bash
 # 基本启动
-opencomputer acp
+hope-agent acp
 
 # 带详细日志
-opencomputer acp --verbose
+hope-agent acp --verbose
 
 # 指定 Agent
-opencomputer acp --agent-id coder
+hope-agent acp --agent-id coder
 
 # 组合使用
-opencomputer acp -v -a my-agent
+hope-agent acp -v -a my-agent
 
 # 查看版本
-opencomputer acp --version
+hope-agent acp --version
 
 # 查看帮助
-opencomputer acp --help
+hope-agent acp --help
 ```
 
 ### 方法列表
@@ -647,7 +647,7 @@ opencomputer acp --help
 
 ## 与 OpenClaw 的对比
 
-| 维度 | OpenClaw | OpenComputer |
+| 维度 | OpenClaw | Hope Agent |
 |------|----------|-------------|
 | 实现语言 | TypeScript (Node.js) | **Rust (原生)** |
 | 架构 | Agent → Bridge → Node.js → SSE | **Agent → stdio 直连** |
@@ -667,14 +667,14 @@ opencomputer acp --help
 1. **桌面端 ↔ IDE 会话无缝切换**：在 macOS 桌面端创建的会话可在 Zed 中继续，反之亦然
 2. **零部署成本**：同一个二进制，无需额外安装 Node.js 或配置 bridge
 3. **工具能力更强**：29 个内置工具 vs OpenClaw 的 ~15 个，包括 browser、canvas、image_generate 等独特工具
-4. **Agent 系统集成**：ACP Modes 直接映射到 OpenComputer 的多 Agent 系统，每个 Agent 有独立的人设、技能和行为配置
+4. **Agent 系统集成**：ACP Modes 直接映射到 Hope Agent 的多 Agent 系统，每个 Agent 有独立的人设、技能和行为配置
 
 ---
 
 ## 文件索引
 
 ```
-crates/oc-core/src/acp/
+crates/ha-core/src/acp/
 ├── mod.rs              # 模块声明 + pub re-export
 ├── types.rs            # JSON-RPC 2.0 + ACP 全量类型定义
 ├── protocol.rs         # NDJSON stdio 传输层
@@ -684,5 +684,5 @@ crates/oc-core/src/acp/
 └── server.rs           # 启动入口函数
 
 src-tauri/src/main.rs        # acp 子命令入口 (run_acp_server)
-crates/oc-core/src/lib.rs    # pub mod acp 注册
+crates/ha-core/src/lib.rs    # pub mod acp 注册
 ```

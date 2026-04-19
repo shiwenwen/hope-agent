@@ -1,4 +1,4 @@
-# OpenComputer 技术文档索引
+# Hope Agent 技术文档索引
 
 > 项目开发指南见 [AGENTS.md](../AGENTS.md) | 更新日志见 [CHANGELOG.md](../CHANGELOG.md)
 
@@ -93,7 +93,7 @@
 
 | 文档                                          | 说明                                                                               |
 | ------------------------------------------- | -------------------------------------------------------------------------------- |
-| [三项目统一维度对比 v2.1](research/unified-comparison.md) | OpenComputer vs Claude Code vs OpenClaw 全维度对比（16 维度评分 + Actionable 差距清单），基线 2026-04-15 |
+| [三项目统一维度对比 v2.1](research/unified-comparison.md) | Hope Agent vs Claude Code vs OpenClaw 全维度对比（16 维度评分 + Actionable 差距清单），基线 2026-04-15 |
 | [2026 Q2 演进路线图](research/roadmap-2026q2.md) | 四阶段路线图：Phase A 架构补课 → Phase B 记忆升级 → Phase C 多 Agent 与 MCP → Phase D 体验生态补足，总计 20–26 周 |
 
 

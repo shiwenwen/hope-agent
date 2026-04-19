@@ -76,7 +76,7 @@ export interface Transport {
    *  - `data:` URL  → passthrough (works in both modes)
    *  - `http(s)://` URL → passthrough
    *  - Absolute filesystem path (typical for avatars, e.g.
-   *    `~/.opencomputer/avatars/foo.png`):
+   *    `~/.hope-agent/avatars/foo.png`):
    *       - Tauri mode → wrapped via `convertFileSrc`
    *       - HTTP mode  → rewritten to a server route
    *         (`/api/avatars/{basename}?token=...`) when the path's parent

@@ -1,8 +1,8 @@
 use crate::AppState;
-use oc_core::config::AppConfig;
+use ha_core::config::AppConfig;
 
 /// Initialize all databases, subsystems, and construct the `AppState`.
-/// Delegates to oc-core's `init_app_state` which sets up all OnceLocks.
+/// Delegates to ha-core's `init_app_state` which sets up all OnceLocks.
 pub(crate) fn init_tauri_app_state(initial_store: AppConfig) -> AppState {
-    oc_core::init_app_state(initial_store)
+    ha_core::init_app_state(initial_store)
 }

@@ -39,7 +39,7 @@ pub async fn add_extra_skills_dir(dir: String, state: State<'_, AppState>) -> Re
     // Avoid duplicates
     if !store.extra_skills_dirs.contains(&dir) {
         store.extra_skills_dirs.push(dir);
-        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
     skills::bump_skill_version();
     Ok(())
@@ -52,7 +52,7 @@ pub async fn remove_extra_skills_dir(
 ) -> Result<(), String> {
     let mut store = state.config.lock().await;
     store.extra_skills_dirs.retain(|d| d != &dir);
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -69,7 +69,7 @@ pub async fn toggle_skill(
     } else if !store.disabled_skills.contains(&name) {
         store.disabled_skills.push(name);
     }
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -84,7 +84,7 @@ pub async fn get_skill_env_check(state: State<'_, AppState>) -> Result<bool, Str
 pub async fn set_skill_env_check(enabled: bool, state: State<'_, AppState>) -> Result<(), String> {
     let mut store = state.config.lock().await;
     store.skill_env_check = enabled;
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -117,7 +117,7 @@ pub async fn set_skill_env_var(
     }
     let mut store = state.config.lock().await;
     store.skill_env.entry(skill).or_default().insert(key, value);
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }
@@ -136,7 +136,7 @@ pub async fn remove_skill_env_var(
             store.skill_env.remove(&skill);
         }
     }
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     skills::bump_skill_version();
     Ok(())
 }

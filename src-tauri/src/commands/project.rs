@@ -1,14 +1,14 @@
 //! Tauri commands for the Project feature.
 //!
-//! Thin wrappers around [`oc_core::project`] — all business logic lives in
-//! oc-core; this file only handles `Result<T, E>` → `Result<T, String>`
+//! Thin wrappers around [`ha_core::project`] — all business logic lives in
+//! ha-core; this file only handles `Result<T, E>` → `Result<T, String>`
 //! conversion and holds the `AppState` bridge.
 
-use oc_core::project::{
+use ha_core::project::{
     delete_project_cascade, delete_project_file as delete_file_pipeline, upload_project_file,
     CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput, UploadInput,
 };
-use oc_core::session::SessionMeta;
+use ha_core::session::SessionMeta;
 use tauri::State;
 
 use crate::AppState;
@@ -28,7 +28,7 @@ pub async fn list_projects_cmd(
     let mut projects = state.project_db.list(include_archived).map_err(map_err)?;
 
     // Cross-DB enrichment: fetch project-scoped memory counts.
-    if let Some(backend) = oc_core::get_memory_backend() {
+    if let Some(backend) = ha_core::get_memory_backend() {
         for meta in &mut projects {
             if let Ok(n) = backend.count_by_project(&meta.project.id) {
                 meta.memory_count = n as u32;
@@ -54,7 +54,7 @@ pub async fn create_project_cmd(
 ) -> Result<Project, String> {
     let project = state.project_db.create(input).map_err(map_err)?;
 
-    if let Some(bus) = oc_core::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:created",
             serde_json::json!({ "projectId": project.id }),
@@ -71,7 +71,7 @@ pub async fn update_project_cmd(
 ) -> Result<Project, String> {
     let project = state.project_db.update(&id, patch).map_err(map_err)?;
 
-    if let Some(bus) = oc_core::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:updated",
             serde_json::json!({ "projectId": project.id }),
@@ -85,7 +85,7 @@ pub async fn delete_project_cmd(id: String, state: State<'_, AppState>) -> Resul
     let deleted = delete_project_cascade(&id, &state.project_db).map_err(map_err)?;
 
     if deleted {
-        if let Some(bus) = oc_core::get_event_bus() {
+        if let Some(bus) = ha_core::get_event_bus() {
             let _ = bus.emit("project:deleted", serde_json::json!({ "projectId": id }));
         }
     }
@@ -104,7 +104,7 @@ pub async fn archive_project_cmd(
     };
     let project = state.project_db.update(&id, patch).map_err(map_err)?;
 
-    if let Some(bus) = oc_core::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:updated",
             serde_json::json!({ "projectId": project.id }),
@@ -122,12 +122,12 @@ pub async fn list_project_sessions_cmd(
     offset: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<SessionMeta>, u32), String> {
-    use oc_core::session::ProjectFilter;
+    use ha_core::session::ProjectFilter;
     let (mut sessions, total) = state
         .session_db
         .list_sessions_paged(None, ProjectFilter::InProject(&id), limit, offset)
         .map_err(map_err)?;
-    oc_core::session::enrich_pending_interactions(&mut sessions, &state.session_db)
+    ha_core::session::enrich_pending_interactions(&mut sessions, &state.session_db)
         .await
         .map_err(map_err)?;
     Ok((sessions, total))
@@ -181,7 +181,7 @@ pub async fn upload_project_file_cmd(
     .map_err(|e| e.to_string())?
     .map_err(map_err)?;
 
-    if let Some(bus) = oc_core::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
             "project:file_uploaded",
             serde_json::json!({
@@ -208,7 +208,7 @@ pub async fn delete_project_file_cmd(
             .map_err(map_err)?;
 
     if deleted {
-        if let Some(bus) = oc_core::get_event_bus() {
+        if let Some(bus) = ha_core::get_event_bus() {
             let _ = bus.emit(
                 "project:file_deleted",
                 serde_json::json!({
@@ -253,7 +253,7 @@ pub async fn read_project_file_content_cmd(
         .as_ref()
         .ok_or_else(|| "file has no extracted text (binary)".to_string())?;
 
-    let base = oc_core::paths::projects_dir().map_err(map_err)?;
+    let base = ha_core::paths::projects_dir().map_err(map_err)?;
     let full = base.join(ext_rel);
     let content = tokio::fs::read_to_string(&full)
         .await
@@ -286,10 +286,10 @@ pub async fn list_project_memories_cmd(
     id: String,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> Result<Vec<oc_core::memory::MemoryEntry>, String> {
-    let backend = oc_core::get_memory_backend()
+) -> Result<Vec<ha_core::memory::MemoryEntry>, String> {
+    let backend = ha_core::get_memory_backend()
         .ok_or_else(|| "memory backend not initialized".to_string())?;
-    let scope = oc_core::memory::MemoryScope::Project { id };
+    let scope = ha_core::memory::MemoryScope::Project { id };
     backend
         .list(
             Some(&scope),

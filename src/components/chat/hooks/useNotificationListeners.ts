@@ -35,7 +35,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
   useEffect(() => {
     const unlisten = getTransport().listen("agent:send_notification", (raw) => {
       const { title, body } = raw as { title: string; body: string }
-      notify(title || "OpenComputer", body)
+      notify(title || "Hope Agent", body)
     })
     return unlisten
   }, [])

@@ -1,4 +1,4 @@
-# OpenComputer Ask-User Question 架构文档
+# Hope Agent Ask-User Question 架构文档
 
 > 返回 [文档索引](../README.md)
 >
@@ -42,7 +42,7 @@
 
 ## 概述
 
-`ask_user_question` 是 OpenComputer 的**通用结构化问答工具**，允许模型在任意对话中（非仅 Plan Mode）向用户发起 1–4 个带选项的问题，用于澄清需求、对比方案或在关键决策前等待确认。
+`ask_user_question` 是 Hope Agent 的**通用结构化问答工具**，允许模型在任意对话中（非仅 Plan Mode）向用户发起 1–4 个带选项的问题，用于澄清需求、对比方案或在关键决策前等待确认。
 
 **核心能力**：
 
@@ -80,7 +80,7 @@
 
 ### AskUserQuestion / AskUserQuestionOption / AskUserQuestionGroup
 
-定义在 `crates/oc-core/src/ask_user/types.rs`（独立模块，不依赖 plan）。结构体名保留 `AskUserQuestion*` 前缀是为了与已序列化的历史 session 和长期存在的 `ask_user_request` 事件保持二进制兼容。
+定义在 `crates/ha-core/src/ask_user/types.rs`（独立模块，不依赖 plan）。结构体名保留 `AskUserQuestion*` 前缀是为了与已序列化的历史 session 和长期存在的 `ask_user_request` 事件保持二进制兼容。
 
 ```rust
 pub struct AskUserQuestionOption {
@@ -137,13 +137,13 @@ pub struct AskUserQuestionAnswer {
 
 ### 工具注册与描述
 
-**工具常量**：`crates/oc-core/src/tools/mod.rs`
+**工具常量**：`crates/ha-core/src/tools/mod.rs`
 
 ```rust
 pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 ```
 
-**Schema 定义**：`crates/oc-core/src/tools/definitions/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键 flag：
+**Schema 定义**：`crates/ha-core/src/tools/definitions/plan_tools.rs` 中的 `get_ask_user_question_tool()`。关键 flag：
 
 | 字段 | 值 | 含义 |
 |------|-----|------|
@@ -172,13 +172,13 @@ TOOL_ASK_USER_QUESTION => {
    - **Do NOT ask when**：可通过 read/grep/ls 自查的、AGENTS.md / CLAUDE.md 已规定的、低成本可撤销操作（创建测试文件、加日志）、纯风格/命名/格式
    - **How to ask**（节流）：相关问题合并成一次调用（最多 4 题）、每任务 ≤2 次、优先前置（执行前）而非中途打断、若想问第二次先考虑能否自己查
 
-**为什么硬编码而非走 agent.md 模板**：`HUMAN_IN_THE_LOOP_GUIDANCE` 以编译时常量形式嵌入二进制，由 `build.rs` 用 `sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string())` 注入，用户无法通过自定义 `~/.opencomputer/agents/{id}/agent.md` 覆盖。参考已有的 Sandbox Mode、Memory Guidelines 也是同样硬编码范式。这是和 Claude Code 的关键差异 —— Claude Code 在 system prompt 里只有 2 处嵌入式提及（"失败 ≥2 次后升级" + "工具被拒时澄清"），边界模糊靠模型自行理解；OpenComputer 用独立段落 + 触发器 + 反触发器 + 节流三件套，让模型在真正值得问的时候更有信心开口，同时避免滥用。详见 [prompt-system.md](prompt-system.md#human-in-the-loop人机协作硬约束)。
+**为什么硬编码而非走 agent.md 模板**：`HUMAN_IN_THE_LOOP_GUIDANCE` 以编译时常量形式嵌入二进制，由 `build.rs` 用 `sections.push(HUMAN_IN_THE_LOOP_GUIDANCE.to_string())` 注入，用户无法通过自定义 `~/.hope-agent/agents/{id}/agent.md` 覆盖。参考已有的 Sandbox Mode、Memory Guidelines 也是同样硬编码范式。这是和 Claude Code 的关键差异 —— Claude Code 在 system prompt 里只有 2 处嵌入式提及（"失败 ≥2 次后升级" + "工具被拒时澄清"），边界模糊靠模型自行理解；Hope Agent 用独立段落 + 触发器 + 反触发器 + 节流三件套，让模型在真正值得问的时候更有信心开口，同时避免滥用。详见 [prompt-system.md](prompt-system.md#human-in-the-loop人机协作硬约束)。
 
 **并发安全标记**：`tools/definitions/registry.rs` 将 `TOOL_ASK_USER_QUESTION` 加入 `CONCURRENT_SAFE_TOOL_NAMES`。虽然工具本身会阻塞等待用户回答，但从 tool loop 的角度看它无写入副作用，允许与其他 read-only 工具并发调度。
 
 ### tools/ask_user_question.rs 执行流程
 
-文件：`crates/oc-core/src/tools/ask_user_question.rs`
+文件：`crates/ha-core/src/tools/ask_user_question.rs`
 
 ```mermaid
 flowchart TD
@@ -232,7 +232,7 @@ flowchart TD
 
 ### Pending Registry（内存 oneshot 注册表）
 
-文件：`crates/oc-core/src/ask_user/questions.rs`
+文件：`crates/ha-core/src/ask_user/questions.rs`
 
 ```rust
 static PENDING_ASK_USER_QUESTIONS: OnceLock<
@@ -253,7 +253,7 @@ static PENDING_ASK_USER_QUESTIONS: OnceLock<
 
 ### SQLite 持久化（`ask_user_questions` 表）
 
-文件：`crates/oc-core/src/session/db.rs`
+文件：`crates/ha-core/src/session/db.rs`
 
 Schema（作为 session DB migration 创建）：
 
@@ -286,7 +286,7 @@ CREATE INDEX IF NOT EXISTS idx_ask_user_status  ON ask_user_questions(status);
 
 ### 启动期清理与每日 purge
 
-文件：`crates/oc-core/src/app_init.rs` 的 `start_background_tasks()`。
+文件：`crates/ha-core/src/app_init.rs` 的 `start_background_tasks()`。
 
 **启动期（两步）**：
 
@@ -308,11 +308,11 @@ loop {
 }
 ```
 
-长期运行的 `opencomputer server`（launchd / systemd 托管）只在启动时执行一次 `start_background_tasks`，所以这里挂一个 24h 周期任务保证表不会无界增长。
+长期运行的 `hope-agent server`（launchd / systemd 托管）只在启动时执行一次 `start_background_tasks`，所以这里挂一个 24h 周期任务保证表不会无界增长。
 
 ### EventBus 事件发射
 
-文件：`crates/oc-core/src/ask_user/questions.rs`
+文件：`crates/ha-core/src/ask_user/questions.rs`
 
 ```rust
 pub const EVENT_ASK_USER_REQUEST: &str = "ask_user_request";
@@ -524,7 +524,7 @@ Tauri 端注册为 `respond_ask_user_question`，HTTP 端对应 `POST /api/ask_u
 
 Tauri 命令 `get_pending_ask_user_group(session_id)`（`src-tauri/src/commands/plan.rs`）调用 `ask_user::find_live_pending_group_for_session(&session_id)`，返回最近一条仍有内存接收端的 pending group。前端在切换会话时 invoke 该命令以恢复待回答问题的 UI。实现内部通过 `crate::get_session_db()` 拿 DB 句柄，调用方不需要传 `&SessionDB`。
 
-对应的 HTTP API 是 `GET /api/plan/{session_id}/pending-ask-user`（`oc-server/src/routes/plan.rs`）。两者共享同一个 core 实现。
+对应的 HTTP API 是 `GET /api/plan/{session_id}/pending-ask-user`（`ha-server/src/routes/plan.rs`）。两者共享同一个 core 实现。
 
 Server 模式下多客户端连接同一 session 时，已经"live"（内存有 oneshot）的 pending group 就是**跨客户端唯一**的，任何一个客户端先提交答案，其他客户端的同一组 UI 会收到内部 state 的自然失效（oneshot 已被 consume，后续再查 `is_ask_user_question_live` 返回 false）。
 
@@ -532,7 +532,7 @@ Server 模式下多客户端连接同一 session 时，已经"live"（内存有 
 
 ## IM 渠道集成
 
-整个 IM 路径集中在 `crates/oc-core/src/channel/worker/ask_user.rs`，镜像 `approval.rs` 的模式，二者共享统一的 dispatcher。
+整个 IM 路径集中在 `crates/ha-core/src/channel/worker/ask_user.rs`，镜像 `approval.rs` 的模式，二者共享统一的 dispatcher。
 
 ### button 渠道 vs text-fallback 渠道
 
@@ -713,14 +713,14 @@ if super::ask_user::try_handle_ask_user_reply(&msg).await {
 
 委托到 `ask_user::submit_ask_user_question_response`。注册在 `src-tauri/src/lib.rs` 的 `invoke_handler!` 宏。
 
-**HTTP 路由**（`crates/oc-server/src/routes/plan.rs`）：
+**HTTP 路由**（`crates/ha-server/src/routes/plan.rs`）：
 
 | 方法 | 路径 | Handler | 说明 |
 |------|------|---------|------|
 | `POST` | `/api/ask_user/respond` | `respond_ask_user_question` | 提交 Q&A 回答 |
 | `GET` | `/api/plan/{session_id}/pending-ask-user` | `get_pending_ask_user_group` | 查询恢复 |
 
-注册在 `crates/oc-server/src/lib.rs`。
+注册在 `crates/ha-server/src/lib.rs`。
 
 **前端 Transport 映射**（`src/lib/transport-http.ts`）：
 
@@ -739,7 +739,7 @@ get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId
 
 ## 配置项
 
-**全局默认超时**（`crates/oc-core/src/config/mod.rs`）：
+**全局默认超时**（`crates/ha-core/src/config/mod.rs`）：
 
 ```rust
 /// Timeout in seconds for ask_user_question tool waiting for user response.
@@ -792,28 +792,28 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 ask_user_question
 
 **后端核心**：
 
-- `crates/oc-core/src/ask_user/mod.rs` — 独立模块入口、re-export
-- `crates/oc-core/src/ask_user/types.rs` — `AskUserQuestion*` 数据结构
-- `crates/oc-core/src/ask_user/questions.rs` — 内存 pending registry、持久化 helper、事件常量
-- `crates/oc-core/src/tools/ask_user_question.rs` — 工具执行入口、超时处理、结果格式化
-- `crates/oc-core/src/tools/definitions/plan_tools.rs` — 工具 schema 定义
-- `crates/oc-core/src/tools/execution.rs` — dispatch 分派
-- `crates/oc-core/src/tools/definitions/registry.rs` — 并发安全标记
-- `crates/oc-core/src/session/db.rs` — `ask_user_questions` 表 CRUD
-- `crates/oc-core/src/app_init.rs` — listener 启动 + 启动清理 + 每日 purge
-- `crates/oc-core/src/system_prompt/constants.rs` — 系统提示词描述
-- `crates/oc-core/src/config/mod.rs` — `ask_user_question_timeout_secs` 配置项
+- `crates/ha-core/src/ask_user/mod.rs` — 独立模块入口、re-export
+- `crates/ha-core/src/ask_user/types.rs` — `AskUserQuestion*` 数据结构
+- `crates/ha-core/src/ask_user/questions.rs` — 内存 pending registry、持久化 helper、事件常量
+- `crates/ha-core/src/tools/ask_user_question.rs` — 工具执行入口、超时处理、结果格式化
+- `crates/ha-core/src/tools/definitions/plan_tools.rs` — 工具 schema 定义
+- `crates/ha-core/src/tools/execution.rs` — dispatch 分派
+- `crates/ha-core/src/tools/definitions/registry.rs` — 并发安全标记
+- `crates/ha-core/src/session/db.rs` — `ask_user_questions` 表 CRUD
+- `crates/ha-core/src/app_init.rs` — listener 启动 + 启动清理 + 每日 purge
+- `crates/ha-core/src/system_prompt/constants.rs` — 系统提示词描述
+- `crates/ha-core/src/config/mod.rs` — `ask_user_question_timeout_secs` 配置项
 
 **IM 渠道**：
 
-- `crates/oc-core/src/channel/worker/ask_user.rs` — IM listener、button / text fallback、统一 dispatcher
-- `crates/oc-core/src/channel/worker/dispatcher.rs` — 消息路由前置钩子
-- `crates/oc-core/src/channel/worker/mod.rs` — 模块声明
-- `crates/oc-core/src/channel/telegram/polling.rs` — Telegram callback 接入
-- `crates/oc-core/src/channel/discord/gateway.rs` — Discord callback 接入
-- `crates/oc-core/src/channel/slack/socket.rs` — Slack callback 接入
-- `crates/oc-core/src/channel/qqbot/gateway.rs` — QQ Bot callback 接入
-- `crates/oc-core/src/channel/feishu/ws_event.rs` / `line/webhook.rs` / `googlechat/webhook.rs` — 其他渠道接入
+- `crates/ha-core/src/channel/worker/ask_user.rs` — IM listener、button / text fallback、统一 dispatcher
+- `crates/ha-core/src/channel/worker/dispatcher.rs` — 消息路由前置钩子
+- `crates/ha-core/src/channel/worker/mod.rs` — 模块声明
+- `crates/ha-core/src/channel/telegram/polling.rs` — Telegram callback 接入
+- `crates/ha-core/src/channel/discord/gateway.rs` — Discord callback 接入
+- `crates/ha-core/src/channel/slack/socket.rs` — Slack callback 接入
+- `crates/ha-core/src/channel/qqbot/gateway.rs` — QQ Bot callback 接入
+- `crates/ha-core/src/channel/feishu/ws_event.rs` / `line/webhook.rs` / `googlechat/webhook.rs` — 其他渠道接入
 
 **命令层（Tauri）**：
 
@@ -821,11 +821,11 @@ max(所有 per-question timeout_secs) > 0 ? 用该值 : 全局 ask_user_question
 - `src-tauri/src/lib.rs` — invoke_handler 注册
 - `src-tauri/src/commands/config.rs` — 全局超时读写
 
-**HTTP 路由（oc-server）**：
+**HTTP 路由（ha-server）**：
 
-- `crates/oc-server/src/routes/plan.rs` — Q&A 响应 + 获取 pending
-- `crates/oc-server/src/routes/config.rs` — 全局超时读写
-- `crates/oc-server/src/lib.rs` — Router 注册
+- `crates/ha-server/src/routes/plan.rs` — Q&A 响应 + 获取 pending
+- `crates/ha-server/src/routes/config.rs` — 全局超时读写
+- `crates/ha-server/src/lib.rs` — Router 注册
 
 **前端**：
 

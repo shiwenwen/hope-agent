@@ -1,7 +1,7 @@
 # Side Query 缓存侧查询架构
 > 返回 [文档索引](../README.md) | 更新时间：2026-04-19
 >
-> 关联：本文聚焦 one-shot 侧查询路径（`LlmApiAdapter`，Phase 1）。主对话 streaming + tool loop 路径在 Phase 2 也已抽成 `StreamingChatAdapter` trait + `AssistantAgent::run_streaming_chat` 公共编排，`save_cache_safe_params` 现在由公共编排在 compaction 完成后、第一轮发出前统一调用，4 个 Provider 不再各写一份。详见 [`agent/streaming_adapter.rs`](../../crates/oc-core/src/agent/streaming_adapter.rs) 和 [`agent/streaming_loop.rs`](../../crates/oc-core/src/agent/streaming_loop.rs)。
+> 关联：本文聚焦 one-shot 侧查询路径（`LlmApiAdapter`，Phase 1）。主对话 streaming + tool loop 路径在 Phase 2 也已抽成 `StreamingChatAdapter` trait + `AssistantAgent::run_streaming_chat` 公共编排，`save_cache_safe_params` 现在由公共编排在 compaction 完成后、第一轮发出前统一调用，4 个 Provider 不再各写一份。详见 [`agent/streaming_adapter.rs`](../../crates/ha-core/src/agent/streaming_adapter.rs) 和 [`agent/streaming_loop.rs`](../../crates/ha-core/src/agent/streaming_loop.rs)。
 
 ## 核心原理
 
@@ -49,7 +49,7 @@ pub struct CacheSafeParams {
 
 ## side_query() 流程
 
-`side_query()` 自身只做"取快照 + 构 client + 调 adapter"三步——所有 Provider 特异性都在 [`agent/llm_adapter.rs`](../../crates/oc-core/src/agent/llm_adapter.rs) 的 `LlmApiAdapter` trait 实现里。`summarize_direct()` 复用同一组 adapter，仅传不同的 `OneShotRequest`（`system_override` 字段决定走哪条分支）。
+`side_query()` 自身只做"取快照 + 构 client + 调 adapter"三步——所有 Provider 特异性都在 [`agent/llm_adapter.rs`](../../crates/ha-core/src/agent/llm_adapter.rs) 的 `LlmApiAdapter` trait 实现里。`summarize_direct()` 复用同一组 adapter，仅传不同的 `OneShotRequest`（`system_override` 字段决定走哪条分支）。
 
 ```mermaid
 flowchart TD
@@ -192,14 +192,14 @@ pub struct ChatUsage {
 
 | 文件 | 路径 | 职责 |
 |------|------|------|
-| Side Query 入口 | `crates/oc-core/src/agent/side_query.rs` | `save_cache_safe_params()` + `side_query()`（薄壳，委托给 adapter） |
-| LLM Adapter | `crates/oc-core/src/agent/llm_adapter.rs` | `LlmApiAdapter` trait + 4 个 Provider adapter + 共享 helpers（`send_json_request` / 5 个 `extract_*`）；`LlmProvider::as_adapter()` 入口 |
-| 摘要直连 | `crates/oc-core/src/agent/context.rs::summarize_direct()` | Tier 3 fallback 路径，复用同一 adapter 走 `system_override` 分支 |
-| 类型定义 | `crates/oc-core/src/agent/types.rs` | `CacheSafeParams` / `ProviderFormat` / `SideQueryResult` / `ChatUsage` |
-| Provider 配置 | `crates/oc-core/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` / `CODEX_API_URL` |
-| 上下文压缩 | `crates/oc-core/src/context_compact/` | 调用方：Tier 3 摘要通过 side_query / summarize_direct 执行 |
-| 记忆系统 | `crates/oc-core/src/memory/` | 调用方：记忆提取 + 语义选择通过 side_query 执行 |
-| Failover Executor | `crates/oc-core/src/failover/executor.rs` | `execute_with_failover` + `FailoverPolicy::side_query_default` / `summarize_default` —— Phase 3 Step 3-4 让 side_query / DedicatedModelProvider 也享受 profile 轮换 + 退避重试 |
+| Side Query 入口 | `crates/ha-core/src/agent/side_query.rs` | `save_cache_safe_params()` + `side_query()`（薄壳，委托给 adapter） |
+| LLM Adapter | `crates/ha-core/src/agent/llm_adapter.rs` | `LlmApiAdapter` trait + 4 个 Provider adapter + 共享 helpers（`send_json_request` / 5 个 `extract_*`）；`LlmProvider::as_adapter()` 入口 |
+| 摘要直连 | `crates/ha-core/src/agent/context.rs::summarize_direct()` | Tier 3 fallback 路径，复用同一 adapter 走 `system_override` 分支 |
+| 类型定义 | `crates/ha-core/src/agent/types.rs` | `CacheSafeParams` / `ProviderFormat` / `SideQueryResult` / `ChatUsage` |
+| Provider 配置 | `crates/ha-core/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` / `CODEX_API_URL` |
+| 上下文压缩 | `crates/ha-core/src/context_compact/` | 调用方：Tier 3 摘要通过 side_query / summarize_direct 执行 |
+| 记忆系统 | `crates/ha-core/src/memory/` | 调用方：记忆提取 + 语义选择通过 side_query 执行 |
+| Failover Executor | `crates/ha-core/src/failover/executor.rs` | `execute_with_failover` + `FailoverPolicy::side_query_default` / `summarize_default` —— Phase 3 Step 3-4 让 side_query / DedicatedModelProvider 也享受 profile 轮换 + 退避重试 |
 
 ## Failover 行为（Phase 3 Step 3-4）
 

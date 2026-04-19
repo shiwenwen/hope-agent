@@ -38,7 +38,7 @@ pub(crate) fn handle_shortcut(
     use tauri_plugin_global_shortcut::GlobalShortcutExt;
 
     let shortcut_str = shortcut.to_string();
-    let store = oc_core::config::cached_config();
+    let store = ha_core::config::cached_config();
 
     // ── Step 1: Check if this completes a pending chord ──
     {

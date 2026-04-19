@@ -42,8 +42,8 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
 <tr><td width="220"><b>🖥️ Native desktop GUI</b></td><td>Native macOS / Linux / Windows app, ready to run out of the installer. Ships in 12 UI languages (Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, Portuguese, Russian, Arabic, Turkish, Vietnamese, Malay) with a polished dark theme and carefully tuned typography.</td></tr>
 <tr><td><b>🧙 Zero-config providers</b></td><td>36 built-in provider templates covering 166 preset models. Anthropic, OpenAI, Gemini, Codex, OpenRouter, DeepSeek, Kimi, Qwen, Doubao, GLM, MiniMax, xAI, Mistral, Ollama — all in. Each provider supports multi-key rotation, so rate limits and quota exhaustion fail over seamlessly to the next key.</td></tr>
 <tr><td><b>💬 One app, every chat</b></td><td>12 IM channels: Telegram, Discord, Slack, Feishu, Google Chat, LINE, QQ Bot, Signal, iMessage, IRC, WeChat, WhatsApp. Inbound images / voice / files become multimodal context automatically; tool approvals are one tap in the chat window; every group / account can bind a distinct Agent with its own policies.</td></tr>
-<tr><td><b>🌐 Standalone service · remote-accessible</b></td><td><b>Not just a desktop app</b> — Hope Agent can run fully headless as a service. One command <code>opencomputer server start</code> launches an HTTP/WS daemon; <code>server install</code> registers it as a launchd / systemd auto-start unit so it lives 24/7 on your NAS, cloud VM, or spare laptop. <b>Phones, tablets, browsers, or another computer can all remote into the same backend</b>, with Bearer token auth and three-tier SSRF policies keeping public exposure controlled. Sessions, memories, cron jobs, and IM channels all run server-side — the client is just a window.</td></tr>
-<tr><td><b>🔁 Three run modes, one core</b></td><td>Desktop GUI (default), HTTP/WS daemon (above), and ACP stdio (as an agent backend for any ACP-capable IDE). All three share a pure-Rust <code>oc-core</code> library with zero Tauri dependencies — the same code is a desktop app, a server, and an IDE backend.</td></tr>
+<tr><td><b>🌐 Standalone service · remote-accessible</b></td><td><b>Not just a desktop app</b> — Hope Agent can run fully headless as a service. One command <code>hope-agent server start</code> launches an HTTP/WS daemon; <code>server install</code> registers it as a launchd / systemd auto-start unit so it lives 24/7 on your NAS, cloud VM, or spare laptop. <b>Phones, tablets, browsers, or another computer can all remote into the same backend</b>, with Bearer token auth and three-tier SSRF policies keeping public exposure controlled. Sessions, memories, cron jobs, and IM channels all run server-side — the client is just a window.</td></tr>
+<tr><td><b>🔁 Three run modes, one core</b></td><td>Desktop GUI (default), HTTP/WS daemon (above), and ACP stdio (as an agent backend for any ACP-capable IDE). All three share a pure-Rust <code>ha-core</code> library with zero Tauri dependencies — the same code is a desktop app, a server, and an IDE backend.</td></tr>
 </table>
 
 ### 🧠 Memory & learning
@@ -73,7 +73,7 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
 
 <table>
 <tr><td width="220"><b>🔒 Tool approval + Docker sandbox</b></td><td>Sensitive tool calls are gated by an approval flow (with per-category auto deny / proceed timeouts and per-channel auto-approve). High-risk bash / file writes can be routed into an isolated Docker sandbox. Safe to give the Agent high privileges.</td></tr>
-<tr><td><b>🏠 Local-first · zero third-party hops</b></td><td>All data lives under <code>~/.opencomputer/</code>: config, sessions, memories, attachments, skills, logs — all local SQLite / files. API keys hit model providers directly. In daemon mode, Bearer token auth plus three-tier SSRF policies keep remote access controllable.</td></tr>
+<tr><td><b>🏠 Local-first · zero third-party hops</b></td><td>All data lives under <code>~/.hope-agent/</code>: config, sessions, memories, attachments, skills, logs — all local SQLite / files. API keys hit model providers directly. In daemon mode, Bearer token auth plus three-tier SSRF policies keep remote access controllable.</td></tr>
 <tr><td><b>🛟 Automatic config snapshots · one-click rollback</b></td><td>Every config write auto-snapshots to <code>backups/autosave/</code>, keeping the last 50. Even if the model's settings tool garbles your preferences, you can restore to any previous state.</td></tr>
 </table>
 
@@ -115,7 +115,7 @@ npm run tauri build    # production build
 | Server (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Always-on daemon for IM channels and cron jobs |
 | ACP (stdio) | `acp` subcommand | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
 
-All three modes share the same `oc-core` core. Config, sessions, and memories live under `~/.opencomputer/` (to be migrated to `~/.hope-agent/`).
+All three modes share the same `ha-core` core. Config, sessions, and memories live under `~/.hope-agent/`.
 
 ## Ecosystem
 
@@ -141,12 +141,12 @@ All three modes share the same `oc-core` core. Config, sessions, and memories li
 
 ## Project Structure
 
-Cargo workspace, three crates; all business logic lives in `oc-core`:
+Cargo workspace, three crates; all business logic lives in `ha-core`:
 
 ```
 crates/
-  oc-core/       Rust core library (zero Tauri deps) — where the logic lives
-  oc-server/     axum HTTP/WS daemon (thin shell)
+  ha-core/       Rust core library (zero Tauri deps) — where the logic lives
+  ha-server/     axum HTTP/WS daemon (thin shell)
 src-tauri/       Tauri desktop shell (thin shell)
 src/             React 19 + TypeScript frontend
 skills/          Bundled skills (ship with the app)
@@ -169,7 +169,7 @@ Common commands:
 ```bash
 npm run tauri dev                    # desktop dev
 cargo check --workspace              # Rust dep / type check
-cargo test -p oc-core -p oc-server   # core tests
+cargo test -p ha-core -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check
 ```
 

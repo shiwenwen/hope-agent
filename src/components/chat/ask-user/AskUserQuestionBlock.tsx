@@ -22,7 +22,7 @@ import {
   Timer,
 } from "lucide-react"
 
-// ── Types (mirror of oc-core `AskUserQuestion*` types) ──
+// ── Types (mirror of ha-core `AskUserQuestion*` types) ──
 
 export interface AskUserQuestionOption {
   value: string

@@ -293,7 +293,7 @@ calibrated_estimate = raw_estimate × calibration_factor
 
 ## 配置项
 
-所有配置项存储在 `config.json` 的 `compact` 字段中，使用 camelCase 命名。对应 Rust 结构体 `CompactConfig`（`crates/oc-core/src/context_compact/config.rs`）。
+所有配置项存储在 `config.json` 的 `compact` 字段中，使用 camelCase 命名。对应 Rust 结构体 `CompactConfig`（`crates/ha-core/src/context_compact/config.rs`）。
 
 ### 全局
 
@@ -379,13 +379,13 @@ calibrated_estimate = raw_estimate × calibration_factor
 
 | 文件 | 说明 |
 |------|------|
-| `crates/oc-core/src/context_compact/mod.rs` | 模块入口、硬编码常量、摘要 prompt 模板、re-exports |
-| `crates/oc-core/src/context_compact/types.rs` | CompactResult, CompactDetails, PruneResult, SummarizationSplit, TokenEstimateCalibrator |
-| `crates/oc-core/src/context_compact/config.rs` | CompactConfig 结构（全部可配置参数及默认值） |
-| `crates/oc-core/src/context_compact/estimation.rs` | Token 估算（chars/4）、消息字符计数、工具结果提取辅助函数 |
-| `crates/oc-core/src/context_compact/compact.rs` | 主入口 `compact_if_needed()` + Tier 0 `microcompact()` + Tier 4 `emergency_compact()` |
-| `crates/oc-core/src/context_compact/truncation.rs` | Tier 1 `truncate_tool_results()`、head+tail 截断、结构边界检测、智能尾部检测 |
-| `crates/oc-core/src/context_compact/pruning.rs` | Tier 2 `prune_old_context()`、优先级排序、soft-trim + hard-clear 两阶段 |
-| `crates/oc-core/src/context_compact/summarization.rs` | Tier 3 `split_for_summarization()` + `build_summarization_prompt()` + `apply_summary()` |
-| `crates/oc-core/src/context_compact/round_grouping.rs` | API-Round 分组：stamp/strip/prepare、`find_round_safe_boundary()` 双向查找 |
-| `crates/oc-core/src/context_compact/recovery.rs` | 后压缩文件恢复：`build_recovery_message()`、多格式工具调用解析、磁盘读取 |
+| `crates/ha-core/src/context_compact/mod.rs` | 模块入口、硬编码常量、摘要 prompt 模板、re-exports |
+| `crates/ha-core/src/context_compact/types.rs` | CompactResult, CompactDetails, PruneResult, SummarizationSplit, TokenEstimateCalibrator |
+| `crates/ha-core/src/context_compact/config.rs` | CompactConfig 结构（全部可配置参数及默认值） |
+| `crates/ha-core/src/context_compact/estimation.rs` | Token 估算（chars/4）、消息字符计数、工具结果提取辅助函数 |
+| `crates/ha-core/src/context_compact/compact.rs` | 主入口 `compact_if_needed()` + Tier 0 `microcompact()` + Tier 4 `emergency_compact()` |
+| `crates/ha-core/src/context_compact/truncation.rs` | Tier 1 `truncate_tool_results()`、head+tail 截断、结构边界检测、智能尾部检测 |
+| `crates/ha-core/src/context_compact/pruning.rs` | Tier 2 `prune_old_context()`、优先级排序、soft-trim + hard-clear 两阶段 |
+| `crates/ha-core/src/context_compact/summarization.rs` | Tier 3 `split_for_summarization()` + `build_summarization_prompt()` + `apply_summary()` |
+| `crates/ha-core/src/context_compact/round_grouping.rs` | API-Round 分组：stamp/strip/prepare、`find_round_safe_boundary()` 双向查找 |
+| `crates/ha-core/src/context_compact/recovery.rs` | 后压缩文件恢复：`build_recovery_message()`、多格式工具调用解析、磁盘读取 |

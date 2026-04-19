@@ -55,7 +55,7 @@ export function useTheme() {
     applyTheme(mode)
   }, [])
 
-  // Listen for config changes from backend (e.g. oc-settings skill updates theme)
+  // Listen for config changes from backend (e.g. ha-settings skill updates theme)
   useEffect(() => {
     return getTransport().listen("config:changed", (raw) => {
       try {

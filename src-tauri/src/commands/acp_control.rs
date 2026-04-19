@@ -6,7 +6,7 @@ use crate::acp_control::types::{AcpBackendInfo, AcpRun};
 /// List all registered ACP backends with their health status.
 #[tauri::command]
 pub async fn acp_list_backends() -> Result<Vec<AcpBackendInfo>, String> {
-    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    let store = ha_core::config::load_config().map_err(|e| e.to_string())?;
     if !store.acp_control.enabled {
         return Ok(Vec::new());
     }
@@ -57,7 +57,7 @@ pub async fn acp_health_check() -> Result<Vec<AcpBackendInfo>, String> {
 pub async fn acp_refresh_backends() -> Result<(), String> {
     // Re-discovery happens via registry if manager is initialized
     if let Some(manager) = crate::get_acp_manager() {
-        let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+        let store = ha_core::config::load_config().map_err(|e| e.to_string())?;
         let registry = std::sync::Arc::new(crate::acp_control::AcpRuntimeRegistry::new());
         crate::acp_control::registry::auto_discover_and_register(&registry, &store.acp_control)
             .await;
@@ -100,15 +100,15 @@ pub async fn acp_get_run_result(run_id: String) -> Result<String, String> {
 /// Get ACP control config.
 #[tauri::command]
 pub async fn acp_get_config() -> Result<AcpControlConfig, String> {
-    let store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    let store = ha_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.acp_control)
 }
 
 /// Save ACP control config.
 #[tauri::command]
 pub async fn acp_set_config(config: AcpControlConfig) -> Result<(), String> {
-    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
     store.acp_control = config;
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }

@@ -1,8 +1,8 @@
 //! Tauri commands wiring the Dreaming pipeline (Phase B3) to the
-//! frontend. All heavy work happens inside oc-core; these commands are
+//! frontend. All heavy work happens inside ha-core; these commands are
 //! thin error-translating shells.
 
-use oc_core::memory::dreaming;
+use ha_core::memory::dreaming;
 
 /// Run an offline consolidation cycle synchronously and return the report.
 /// Maps to `POST /api/dreaming/run` on the HTTP side.

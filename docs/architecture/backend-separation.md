@@ -1,12 +1,12 @@
 # 前后端分离架构
 
-> 返回 [文档索引](../README.md) | 关联源码：`Cargo.toml`, `crates/oc-core/`, `crates/oc-server/`, `src-tauri/`
+> 返回 [文档索引](../README.md) | 关联源码：`Cargo.toml`, `crates/ha-core/`, `crates/ha-server/`, `src-tauri/`
 
 ## 设计目标
 
-将 OpenComputer 从 Tauri 单体应用重构为三层架构（核心库 / HTTP 服务 / 桌面壳），实现：
+将 Hope Agent 从 Tauri 单体应用重构为三层架构（核心库 / HTTP 服务 / 桌面壳），实现：
 
-1. **核心逻辑框架无关** — `oc-core` 零 Tauri 依赖，可被任何 Rust 程序引用
+1. **核心逻辑框架无关** — `ha-core` 零 Tauri 依赖，可被任何 Rust 程序引用
 2. **多入口运行** — 桌面 GUI、HTTP 守护进程、CLI stdio 三种模式共享同一核心
 3. **前端双模式** — 同一 React 前端可在 Tauri WebView 和独立浏览器中运行
 
@@ -16,8 +16,8 @@
 graph TD
     subgraph Workspace
         OC_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
-        OC_SERVER["oc-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        OC_CORE["oc-core<br/>(核心业务逻辑)<br/>301 个 .rs 文件<br/>零 Tauri 依赖"]
+        OC_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
+        OC_CORE["ha-core<br/>(核心业务逻辑)<br/>301 个 .rs 文件<br/>零 Tauri 依赖"]
     end
 
     OC_TAURI -->|"依赖"| OC_SERVER
@@ -29,11 +29,11 @@ graph TD
     style OC_TAURI fill:#5c3a1a,stroke:#bd7a3a,color:#fff
 ```
 
-**铁律**：`oc-core` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
+**铁律**：`ha-core` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。
 
 ## 各 Crate 职责
 
-### oc-core（核心库）
+### ha-core（核心库）
 
 | 职责 | 说明 |
 |------|------|
@@ -65,12 +65,12 @@ event_bus.rs    EventBus trait + BroadcastEventBus
 globals.rs      10 个 OnceLock 全局 + AppState
 guardian.rs     进程监护 + 指数退避 + 自修复
 service_install.rs  macOS launchd / Linux systemd 注册
-paths.rs        ~/.opencomputer/ 统一路径
+paths.rs        ~/.hope-agent/ 统一路径
 logging/        非阻塞双写 + 脱敏
 ...
 ```
 
-### oc-server（HTTP/WS 服务）
+### ha-server（HTTP/WS 服务）
 
 | 职责 | 说明 |
 |------|------|
@@ -97,18 +97,18 @@ pub struct AppContext {
 |------|------|
 | Tauri IPC | 150+ `#[tauri::command]` 处理函数 |
 | 桌面集成 | 系统托盘、全局快捷键、窗口管理、macOS 菜单 |
-| 薄封装 | `tauri_wrappers.rs` 为 oc-core 无 `#[tauri::command]` 的函数添加属性 |
-| 内嵌服务 | `setup.rs` 中 spawn oc-server，配置从 `config.json` 的 `server` 字段读取 |
+| 薄封装 | `tauri_wrappers.rs` 为 ha-core 无 `#[tauri::command]` 的函数添加属性 |
+| 内嵌服务 | `setup.rs` 中 spawn ha-server，配置从 `config.json` 的 `server` 字段读取 |
 | 入口管理 | Guardian / Child / Server / ACP 四种模式 |
 
 **文件结构（9 个文件）**：
 
 ```
 src-tauri/src/
-  lib.rs              pub use oc_core::*; + Tauri Builder
+  lib.rs              pub use ha_core::*; + Tauri Builder
   main.rs             入口分发（server/acp/guardian/child）
   globals.rs          APP_HANDLE（仅 Tauri 专用）
-  app_init.rs         薄封装 → oc_core::init_app_state()
+  app_init.rs         薄封装 → ha_core::init_app_state()
   setup.rs            app_setup()：内嵌 HTTP 服务 + 快捷键 + 托盘
   commands/           150+ Tauri IPC 命令处理
   tauri_wrappers.rs   22 个薄 #[tauri::command] 封装
@@ -123,7 +123,7 @@ src-tauri/src/
 ```mermaid
 graph LR
     subgraph "入口 (main.rs)"
-        MAIN["opencomputer"]
+        MAIN["hope-agent"]
     end
 
     MAIN -->|"无参数"| GUARDIAN["Guardian<br/>进程监护"]
@@ -140,12 +140,12 @@ graph LR
 ### 1. 桌面模式（默认）
 
 ```
-opencomputer → Guardian → Child (Tauri GUI + 内嵌 HTTP)
+hope-agent → Guardian → Child (Tauri GUI + 内嵌 HTTP)
 ```
 
 - Guardian 监护子进程，崩溃自动重启（指数退避 1s→30s，最多 8 次）
 - 第 5 次崩溃触发 backup + self-diagnosis + auto-fix
-- 子进程启动 Tauri GUI，`setup.rs` 中同时 spawn oc-server
+- 子进程启动 Tauri GUI，`setup.rs` 中同时 spawn ha-server
 - 前端通过 Tauri IPC 调用后端（也可通过内嵌 HTTP 服务）
 - 内嵌服务器配置从 `config.json` 的 `server` 字段读取（`EmbeddedServerConfig`）：
   - `bindAddr`：监听地址（默认 `127.0.0.1:8420`，设为 `0.0.0.0:8420` 可对外暴露）
@@ -155,13 +155,13 @@ opencomputer → Guardian → Child (Tauri GUI + 内嵌 HTTP)
 ### 2. 服务器模式
 
 ```
-opencomputer server [--bind 0.0.0.0:8420] [--api-key KEY]
+hope-agent server [--bind 0.0.0.0:8420] [--api-key KEY]
 ```
 
 - 无 GUI，纯 HTTP/WS 守护进程
 - CLI `--api-key` 参数优先于 config.json 配置
-- 初始化 oc-core 全部子系统（DB、IM 渠道、ACP、Cron）
-- 写 PID 文件到 `~/.opencomputer/server.pid`
+- 初始化 ha-core 全部子系统（DB、IM 渠道、ACP、Cron）
+- 写 PID 文件到 `~/.hope-agent/server.pid`
 - 支持系统服务注册：
 
 | 命令 | 说明 |
@@ -174,7 +174,7 @@ opencomputer server [--bind 0.0.0.0:8420] [--api-key KEY]
 ### 3. ACP 模式
 
 ```
-opencomputer acp [--agent-id default] [--verbose]
+hope-agent acp [--agent-id default] [--verbose]
 ```
 
 - stdio NDJSON JSON-RPC 协议
@@ -186,7 +186,7 @@ opencomputer acp [--agent-id default] [--verbose]
 
 ```mermaid
 sequenceDiagram
-    participant Core as oc-core 模块
+    participant Core as ha-core 模块
     participant Bus as EventBus (broadcast)
     participant Tauri as Tauri Bridge
     participant WS as WS /ws/events
@@ -204,7 +204,7 @@ sequenceDiagram
 
 | 层 | 组件 | 说明 |
 |----|------|------|
-| 定义 | `oc-core::event_bus::EventBus` trait | `emit()` + `subscribe()` |
+| 定义 | `ha-core::event_bus::EventBus` trait | `emit()` + `subscribe()` |
 | 实现 | `BroadcastEventBus` | `tokio::sync::broadcast` channel |
 | 桥接（Tauri） | `setup.rs` → EventBus subscriber → `handle.emit()` | 转发到 Tauri WebView |
 | 桥接（HTTP） | `ws/events.rs` → EventBus subscriber → WS frame | 转发到 WebSocket 客户端 |
@@ -291,7 +291,7 @@ sequenceDiagram
     participant Main as main.rs
     participant Guard as Guardian
     participant Tauri as Tauri Builder
-    participant Init as oc_core::init_app_state()
+    participant Init as ha_core::init_app_state()
     participant Setup as setup.rs::app_setup()
     participant BG as start_background_tasks()
 
@@ -314,8 +314,8 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     participant Main as main.rs::run_server()
-    participant Core as oc_core
-    participant Server as oc_server
+    participant Core as ha_core
+    participant Server as ha_server
 
     Main->>Core: paths::ensure_dirs()
     Main->>Core: agent_loader::ensure_default_agent()
@@ -332,7 +332,7 @@ sequenceDiagram
 
 ## 全局状态管理
 
-### OnceLock 单例（oc-core）
+### OnceLock 单例（ha-core）
 
 | 静态变量 | 类型 | 用途 |
 |---------|------|------|
@@ -375,7 +375,7 @@ sequenceDiagram
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Guardian: opencomputer (release)
+    [*] --> Guardian: hope-agent (release)
     Guardian --> SpawnChild: 启动子进程
 
     SpawnChild --> WaitExit: 等待退出
@@ -415,22 +415,22 @@ stateDiagram-v2
 ### macOS (launchd)
 
 ```
-~/Library/LaunchAgents/com.opencomputer.server.plist
+~/Library/LaunchAgents/com.hopeagent.server.plist
 ```
 
 | 配置项 | 值 |
 |--------|-----|
-| Label | `com.opencomputer.server` |
+| Label | `com.hopeagent.server` |
 | KeepAlive | `true`（进程消失自动拉起） |
 | RunAtLoad | `true`（开机自启） |
 | ProgramArguments | `[exe_path, "server", "--bind", addr]` |
-| StandardOutPath | `~/.opencomputer/logs/server.stdout.log` |
-| StandardErrorPath | `~/.opencomputer/logs/server.stderr.log` |
+| StandardOutPath | `~/.hope-agent/logs/server.stdout.log` |
+| StandardErrorPath | `~/.hope-agent/logs/server.stderr.log` |
 
 ### Linux (systemd)
 
 ```
-~/.config/systemd/user/opencomputer.service
+~/.config/systemd/user/hope-agent.service
 ```
 
 | 配置项 | 值 |
@@ -530,7 +530,7 @@ stateDiagram-v2
 sequenceDiagram
     participant FE as 前端
     participant T as Transport 层
-    participant S as oc-server
+    participant S as ha-server
     participant CE as ChatEngine
     participant Agent as AssistantAgent
     participant LLM as LLM API

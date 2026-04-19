@@ -2,7 +2,7 @@ use crate::agent::{self, AssistantAgent};
 use crate::oauth;
 use crate::provider::{self, ActiveModel, ApiType, ModelConfig, ProviderConfig};
 use crate::AppState;
-use oc_core::{app_info, app_warn};
+use ha_core::{app_info, app_warn};
 use serde::Serialize;
 use tauri::State;
 
@@ -37,7 +37,7 @@ pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Re
         provider_id,
         model_id,
     });
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     *state.agent.lock().await = Some(agent);
     Ok(())
 }
@@ -102,7 +102,7 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
             provider_id: codex_provider_id,
             model_id: default_model_id.clone(),
         });
-        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
 
     let agent = AssistantAgent::new_openai(&token.access_token, &account_id, &default_model_id);
@@ -116,7 +116,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
     // First, load app config from disk
     {
         let mut store = state.config.lock().await;
-        match oc_core::config::load_config() {
+        match ha_core::config::load_config() {
             Ok(loaded) => *store = loaded,
             Err(e) => app_warn!("app", "session", "Failed to load app config: {}", e),
         }
@@ -181,7 +181,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
                                 provider_id: codex_provider_id,
                                 model_id: model_id.clone(),
                             });
-                            oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+                            ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
                         } else {
                             _ = store.active_model.as_ref().unwrap().model_id.clone();
                         }
@@ -271,7 +271,7 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
                 store.active_model = None;
             }
         }
-        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
 
     oauth::clear_token().map_err(|e| e.to_string())?;
@@ -319,7 +319,7 @@ pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Resul
         if let Some(ref mut active) = store.active_model {
             active.model_id = model.clone();
         }
-        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     }
 
     // Rebuild agent with new model if authenticated

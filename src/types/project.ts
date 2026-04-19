@@ -1,7 +1,7 @@
 /**
  * Type definitions for the Project feature.
  *
- * Mirrors `crates/oc-core/src/project/types.rs` with serde camelCase naming.
+ * Mirrors `crates/ha-core/src/project/types.rs` with serde camelCase naming.
  */
 
 export interface Project {
@@ -38,7 +38,7 @@ export interface ProjectFile {
   originalFilename: string
   mimeType?: string | null
   sizeBytes: number
-  /** Storage path relative to `~/.opencomputer/projects/`. */
+  /** Storage path relative to `~/.hope-agent/projects/`. */
   filePath: string
   extractedPath?: string | null
   extractedChars?: number | null

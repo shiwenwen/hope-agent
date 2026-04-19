@@ -1,6 +1,6 @@
 use crate::agent_config;
 use crate::agent_loader;
-use oc_core::openclaw_import;
+use ha_core::openclaw_import;
 
 #[tauri::command]
 pub async fn list_agents() -> Result<Vec<agent_config::AgentSummary>, String> {

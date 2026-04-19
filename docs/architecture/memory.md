@@ -19,7 +19,7 @@
 | `source` | `String` | 来源：`"user"`（手动保存）/ `"auto"`（Agent 自动提取）/ `"import"`（批量导入） |
 | `source_session_id` | `Option<String>` | 来源会话 ID |
 | `pinned` | `bool` | 是否置顶（置顶记忆始终优先注入系统提示，时间衰减豁免） |
-| `attachment_path` | `Option<String>` | 附件文件绝对路径（存储于 `~/.opencomputer/memory_attachments/`） |
+| `attachment_path` | `Option<String>` | 附件文件绝对路径（存储于 `~/.hope-agent/memory_attachments/`） |
 | `attachment_mime` | `Option<String>` | 附件 MIME 类型（如 `image/jpeg`、`audio/mpeg`） |
 | `created_at` | `String` | 创建时间 |
 | `updated_at` | `String` | 更新时间 |
@@ -558,22 +558,22 @@ flowchart TD
 
 | 文件 | 说明 |
 |------|------|
-| `crates/oc-core/src/memory/mod.rs` | 模块入口与 re-exports |
-| `crates/oc-core/src/memory/types.rs` | 数据结构定义（MemoryEntry, MemoryType, MemoryScope, 各配置类型） |
-| `crates/oc-core/src/memory/traits.rs` | MemoryBackend trait + EmbeddingProvider trait |
-| `crates/oc-core/src/memory/sqlite/backend.rs` | SQLite 后端实现（表创建、连接池、WAL） |
-| `crates/oc-core/src/memory/sqlite/trait_impl.rs` | MemoryBackend trait 的 SQLite 实现 |
-| `crates/oc-core/src/memory/sqlite/prompt.rs` | 系统提示注入格式化 + prompt 注入防护 |
-| `crates/oc-core/src/memory/embedding/mod.rs` | Embedding 模块入口 |
-| `crates/oc-core/src/memory/embedding/config.rs` | Embedding 配置、预设模板、本地模型定义 |
-| `crates/oc-core/src/memory/embedding/local_provider.rs` | 本地 ONNX 模型提供者（fastembed-rs） |
-| `crates/oc-core/src/memory/embedding/api_provider.rs` | API embedding 提供者（OpenAI 兼容 + Google） |
-| `crates/oc-core/src/memory/embedding/fallback_provider.rs` | Fallback 提供者（主备切换） |
-| `crates/oc-core/src/memory/embedding/factory.rs` | Embedding 提供者工厂（Auto 模式选择逻辑） |
-| `crates/oc-core/src/memory/mmr.rs` | MMR 多样性重排实现 |
-| `crates/oc-core/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
-| `crates/oc-core/src/memory/import.rs` | 批量导入/导出（JSON + Markdown） |
-| `crates/oc-core/src/memory/helpers.rs` | 辅助函数（加载配置等） |
-| `crates/oc-core/src/memory_extract.rs` | 自动记忆提取逻辑 |
-| `crates/oc-core/src/project/` | 项目系统（types / db / files），提供项目记忆的上层容器 |
-| `crates/oc-core/src/context_compact/engine.rs` | ContextEngine trait，`system_prompt_addition()` 钩子预留 Active Memory 扩展点 |
+| `crates/ha-core/src/memory/mod.rs` | 模块入口与 re-exports |
+| `crates/ha-core/src/memory/types.rs` | 数据结构定义（MemoryEntry, MemoryType, MemoryScope, 各配置类型） |
+| `crates/ha-core/src/memory/traits.rs` | MemoryBackend trait + EmbeddingProvider trait |
+| `crates/ha-core/src/memory/sqlite/backend.rs` | SQLite 后端实现（表创建、连接池、WAL） |
+| `crates/ha-core/src/memory/sqlite/trait_impl.rs` | MemoryBackend trait 的 SQLite 实现 |
+| `crates/ha-core/src/memory/sqlite/prompt.rs` | 系统提示注入格式化 + prompt 注入防护 |
+| `crates/ha-core/src/memory/embedding/mod.rs` | Embedding 模块入口 |
+| `crates/ha-core/src/memory/embedding/config.rs` | Embedding 配置、预设模板、本地模型定义 |
+| `crates/ha-core/src/memory/embedding/local_provider.rs` | 本地 ONNX 模型提供者（fastembed-rs） |
+| `crates/ha-core/src/memory/embedding/api_provider.rs` | API embedding 提供者（OpenAI 兼容 + Google） |
+| `crates/ha-core/src/memory/embedding/fallback_provider.rs` | Fallback 提供者（主备切换） |
+| `crates/ha-core/src/memory/embedding/factory.rs` | Embedding 提供者工厂（Auto 模式选择逻辑） |
+| `crates/ha-core/src/memory/mmr.rs` | MMR 多样性重排实现 |
+| `crates/ha-core/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
+| `crates/ha-core/src/memory/import.rs` | 批量导入/导出（JSON + Markdown） |
+| `crates/ha-core/src/memory/helpers.rs` | 辅助函数（加载配置等） |
+| `crates/ha-core/src/memory_extract.rs` | 自动记忆提取逻辑 |
+| `crates/ha-core/src/project/` | 项目系统（types / db / files），提供项目记忆的上层容器 |
+| `crates/ha-core/src/context_compact/engine.rs` | ContextEngine trait，`system_prompt_addition()` 钩子预留 Active Memory 扩展点 |

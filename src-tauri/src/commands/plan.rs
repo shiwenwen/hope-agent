@@ -1,6 +1,6 @@
 use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo};
-use oc_core::app_info;
-use oc_core::ask_user::AskUserQuestionAnswer;
+use ha_core::app_info;
+use ha_core::ask_user::AskUserQuestionAnswer;
 
 #[tauri::command]
 pub async fn get_plan_mode(
@@ -158,8 +158,8 @@ pub async fn update_plan_step_status(
 #[tauri::command]
 pub async fn get_pending_ask_user_group(
     session_id: String,
-) -> Result<Option<oc_core::ask_user::AskUserQuestionGroup>, String> {
-    oc_core::ask_user::find_live_pending_group_for_session(&session_id)
+) -> Result<Option<ha_core::ask_user::AskUserQuestionGroup>, String> {
+    ha_core::ask_user::find_live_pending_group_for_session(&session_id)
         .await
         .map_err(|e| e.to_string())
 }
@@ -170,7 +170,7 @@ pub async fn respond_ask_user_question(
     request_id: String,
     answers: Vec<AskUserQuestionAnswer>,
 ) -> Result<(), String> {
-    oc_core::ask_user::submit_ask_user_question_response(&request_id, answers)
+    ha_core::ask_user::submit_ask_user_question_response(&request_id, answers)
         .await
         .map_err(|e| e.to_string())
 }

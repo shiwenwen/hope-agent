@@ -1,5 +1,5 @@
-use oc_core::recap::api;
-use oc_core::recap::types::{GenerateMode, RecapReport, RecapReportSummary};
+use ha_core::recap::api;
+use ha_core::recap::types::{GenerateMode, RecapReport, RecapReportSummary};
 
 #[tauri::command]
 pub async fn recap_generate(mode: GenerateMode) -> Result<RecapReport, String> {

@@ -721,7 +721,7 @@ export class HttpTransport implements Transport {
         ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
         : url;
 
-    // Avatars: `~/.opencomputer/avatars/{file}` → `/api/avatars/{file}`
+    // Avatars: `~/.hope-agent/avatars/{file}` → `/api/avatars/{file}`
     const avatarMatch = path.match(/[\\/]avatars[\\/]([^\\/]+)$/);
     if (avatarMatch) {
       return stamped(
@@ -729,7 +729,7 @@ export class HttpTransport implements Transport {
       );
     }
 
-    // Generated images: `~/.opencomputer/image_generate/{file}` → `/api/generated-images/{file}`
+    // Generated images: `~/.hope-agent/image_generate/{file}` → `/api/generated-images/{file}`
     // (Only the last path segment matters — historic `mediaUrls` may encode
     // different working-directory prefixes.)
     const imgMatch = path.match(/[\\/]image_generate[\\/]([^\\/]+)$/);
@@ -739,7 +739,7 @@ export class HttpTransport implements Transport {
       );
     }
 
-    // Canvas projects: `~/.opencomputer/canvas/projects/{id}/{...rest}` →
+    // Canvas projects: `~/.hope-agent/canvas/projects/{id}/{...rest}` →
     // `/api/canvas/projects/{id}/{...rest}`. Preserves sub-paths so the
     // iframe can load index.html plus its relative CSS / JS / images.
     const canvasMatch = path.match(/[\\/]canvas[\\/]projects[\\/]([^\\/]+)[\\/](.+)$/);

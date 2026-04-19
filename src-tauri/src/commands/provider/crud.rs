@@ -29,7 +29,7 @@ pub async fn add_provider(
 
     let masked = provider_with_models.masked();
     store.providers.push(provider_with_models);
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(masked)
 }
 
@@ -54,7 +54,7 @@ pub async fn update_provider(
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;
         existing.thinking_style = config.thinking_style;
-        oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
         Ok(())
     } else {
         Err(format!("Provider not found: {}", config.id))
@@ -80,7 +80,7 @@ pub async fn reorder_providers(
         }
     }
     store.providers = reordered;
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -102,7 +102,7 @@ pub async fn delete_provider(
             *state.agent.lock().await = None;
         }
     }
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 

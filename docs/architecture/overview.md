@@ -1,10 +1,10 @@
-# OpenComputer 系统架构总览
+# Hope Agent 系统架构总览
 
 > 返回 [文档索引](../README.md) | 更新时间：2026-04-05
 
 ## 系统定位
 
-基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**一切复杂逻辑在 oc-core**（零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
+基于 Rust 的本地 AI 助手，支持三种运行模式：桌面 GUI（Tauri）、HTTP/WS 守护进程、ACP stdio。核心设计目标：**一切复杂逻辑在 ha-core**（零 Tauri 依赖），前端只负责展示和交互，Tauri 和 HTTP 服务都是薄壳。
 
 > 三层架构详细设计见 [前后端分离架构](backend-separation.md)
 
@@ -14,9 +14,9 @@
 |---|---|
 | 前端 | React 19 + TypeScript, Vite 8, Tailwind CSS v4, shadcn/ui (Radix UI) |
 | 前端通信 | Transport 抽象层（Tauri IPC 或 HTTP/WebSocket 双模式） |
-| 桌面 | Tauri 2（薄壳，调用 oc-core） |
+| 桌面 | Tauri 2（薄壳，调用 ha-core） |
 | 服务器 | axum 0.8（HTTP REST API + WebSocket 流式） |
-| 核心 | oc-core（Rust, tokio, reqwest，零 Tauri 依赖） |
+| 核心 | ha-core（Rust, tokio, reqwest，零 Tauri 依赖） |
 | 渲染 | Streamdown + Shiki + KaTeX + Mermaid |
 | 存储 | SQLite (WAL) + FTS5 + vec0 向量扩展 |
 | 多语言 | i18next (12 种语言) |
@@ -46,7 +46,7 @@ graph TD
         TauriSetup["setup.rs<br/>内嵌 HTTP 服务"]
     end
 
-    subgraph OcServer["oc-server (HTTP/WS)"]
+    subgraph OcServer["ha-server (HTTP/WS)"]
         Router["axum Router<br/>43 REST 端点"]
         WSHandler["WebSocket<br/>/ws/events<br/>/ws/chat/{session}"]
     end
@@ -55,7 +55,7 @@ graph TD
     Router --> ChatEngine
     TauriSetup -.->|"spawn"| OcServer
 
-    subgraph OcCore["oc-core (核心业务逻辑，零 Tauri 依赖)"]
+    subgraph OcCore["ha-core (核心业务逻辑，零 Tauri 依赖)"]
         ChatEngine["Chat Engine"]
         ChatEngine --> Agent["Agent (4 种 API)"]
         ChatEngine --> Tools["Tools (37 个)"]
@@ -164,14 +164,14 @@ graph LR
 
 | 数据库 | 路径 | 用途 |
 |--------|------|------|
-| sessions.db | `~/.opencomputer/sessions.db` | 会话、消息、Subagent/ACP 运行记录 |
-| memory.db | `~/.opencomputer/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
-| logs.db | `~/.opencomputer/logs.db` | 结构化日志（可查询/过滤） |
-| cron.db | `~/.opencomputer/cron.db` | 定时任务 + 执行日志 |
-| config.json | `~/.opencomputer/config.json` | Provider 配置、模型链、全局设置 |
-| agent.json | `~/.opencomputer/agents/{id}/agent.json` | 每 Agent 独立配置 |
+| sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Subagent/ACP 运行记录 |
+| memory.db | `~/.hope-agent/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
+| logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
+| cron.db | `~/.hope-agent/cron.db` | 定时任务 + 执行日志 |
+| config.json | `~/.hope-agent/config.json` | Provider 配置、模型链、全局设置 |
+| agent.json | `~/.hope-agent/agents/{id}/agent.json` | 每 Agent 独立配置 |
 
-所有路径通过 `paths.rs` 集中管理，统一在 `~/.opencomputer/` 目录下。
+所有路径通过 `paths.rs` 集中管理，统一在 `~/.hope-agent/` 目录下。
 
 ## 文档导航
 

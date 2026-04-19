@@ -14,7 +14,7 @@ pub async fn searxng_docker_deploy(channel: tauri::ipc::Channel<String>) -> Resu
     .await
     .map_err(|e| e.to_string())?;
     // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
-    if let Ok(mut store) = oc_core::config::load_config() {
+    if let Ok(mut store) = ha_core::config::load_config() {
         if let Some(entry) = store
             .web_search
             .providers
@@ -25,7 +25,7 @@ pub async fn searxng_docker_deploy(channel: tauri::ipc::Channel<String>) -> Resu
             entry.enabled = true;
         }
         store.web_search.searxng_docker_managed = Some(true);
-        let _ = oc_core::config::save_config(&store);
+        let _ = ha_core::config::save_config(&store);
     }
     Ok(url)
 }
@@ -44,9 +44,9 @@ pub async fn searxng_docker_stop() -> Result<(), String> {
 pub async fn searxng_docker_remove() -> Result<(), String> {
     docker::remove().await.map_err(|e| e.to_string())?;
     // Clear docker-managed flag
-    if let Ok(mut store) = oc_core::config::load_config() {
+    if let Ok(mut store) = ha_core::config::load_config() {
         store.web_search.searxng_docker_managed = None;
-        let _ = oc_core::config::save_config(&store);
+        let _ = ha_core::config::save_config(&store);
     }
     Ok(())
 }

@@ -3,7 +3,7 @@
 
 ## 概述
 
-Recap 模块基于 `side_query` 对每个会话做 LLM 语义 facet 提取（目标/成果/摩擦/满意度），结合 Dashboard 量化查询生成 11 个并行 AI 章节的深度复盘报告。Facet 与完整报告缓存到独立 `~/.opencomputer/recap/recap.db`（按 `last_message_ts` 失效），避免与热路径 session DB 锁争用。
+Recap 模块基于 `side_query` 对每个会话做 LLM 语义 facet 提取（目标/成果/摩擦/满意度），结合 Dashboard 量化查询生成 11 个并行 AI 章节的深度复盘报告。Facet 与完整报告缓存到独立 `~/.hope-agent/recap/recap.db`（按 `last_message_ts` 失效），避免与热路径 session DB 锁争用。
 
 核心设计原则：
 - **语义 + 量化双线融合**：LLM 逐会话提取定性 facet，Dashboard 提供定量 KPI，两者汇聚形成完整报告
@@ -14,7 +14,7 @@ Recap 模块基于 `side_query` 对每个会话做 LLM 语义 facet 提取（目
 ## 模块结构
 
 ```
-crates/oc-core/src/recap/
+crates/ha-core/src/recap/
 ├── mod.rs          # 模块入口，facet retention 生命周期
 ├── types.rs        # 类型定义与 JSON schema
 ├── db.rs           # SQLite 持久化（session_facets, recap_reports）
@@ -208,7 +208,7 @@ EventBus 流式进度事件，前端实时展示：
 | 5 | `agent_tool_optimization` | Agent/工具配置建议（2–4 条） | 1500 |
 | 6 | `memory_skill_recommendations` | 记忆条目 + 技能推荐 | 1500 |
 | 7 | `cost_optimization` | 成本优化策略 | 1500 |
-| 8 | `suggestions` | 推荐尝试的 OpenComputer 功能 | 1500 |
+| 8 | `suggestions` | 推荐尝试的 Hope Agent 功能 | 1500 |
 | 9 | `on_the_horizon` | 未来可探索的高阶工作流 | 1500 |
 | 10 | `fun_ending` | 回忆亮点（含 1 个 emoji） | 1500 |
 | 11 | `at_a_glance` | 总结概览（依赖前 10 章输出） | 1200 |
@@ -235,7 +235,7 @@ EventBus 流式进度事件，前端实时展示：
 
 ### 数据库
 
-独立文件 `~/.opencomputer/recap/recap.db`，与 session DB 隔离避免锁争用。
+独立文件 `~/.hope-agent/recap/recap.db`，与 session DB 隔离避免锁争用。
 
 ### 表结构
 
@@ -375,6 +375,6 @@ started → extractingFacets(progress%) → aggregatingDashboard
 ## 已知限制
 
 - Cron 定时自动生成尚未接入
-- `opencomputer recap --export` CLI 子命令尚未实现
+- `hope-agent recap --export` CLI 子命令尚未实现
 - HTML 导出的 Markdown 渲染器为极简实现（不支持表格、引用块等）
 - 单次报告最多 200 个会话（可配置）

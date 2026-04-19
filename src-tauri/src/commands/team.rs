@@ -1,5 +1,5 @@
 use crate::AppState;
-use oc_core::team;
+use ha_core::team;
 use tauri::State;
 
 #[tauri::command]

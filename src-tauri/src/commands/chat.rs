@@ -6,7 +6,7 @@ use crate::session::{self, SessionDB};
 use crate::tools;
 use crate::truncate_utf8;
 use crate::AppState;
-use oc_core::{app_error, app_info, app_warn};
+use ha_core::{app_error, app_info, app_warn};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tauri::State;
@@ -31,7 +31,7 @@ pub async fn save_attachment(
     _mime_type: String,
     data: Vec<u8>,
 ) -> Result<String, String> {
-    oc_core::attachments::save_attachment_bytes(session_id.as_deref(), &file_name, &data)
+    ha_core::attachments::save_attachment_bytes(session_id.as_deref(), &file_name, &data)
         .map_err(|e| e.to_string())
 }
 
@@ -180,7 +180,7 @@ pub async fn chat(
     };
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
-    let persisted_content = oc_core::non_empty_trim_or(display_text.as_deref(), &message);
+    let persisted_content = ha_core::non_empty_trim_or(display_text.as_deref(), &message);
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);

@@ -49,7 +49,7 @@ export default function ToolMediaPreview({ tool, className }: Props) {
       {hasLegacyUrls &&
         tool.mediaUrls!.map((url, i) => {
           // Legacy `mediaUrls` store absolute filesystem paths — route through
-          // the transport so HTTP mode rewrites `~/.opencomputer/image_generate/*`
+          // the transport so HTTP mode rewrites `~/.hope-agent/image_generate/*`
           // to `/api/generated-images/*`, and Tauri still wraps them via
           // `convertFileSrc`. Unknown / already-rewritten `/api/*` URLs get
           // normalised to `null` and we skip rendering rather than showing a

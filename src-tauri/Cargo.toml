@@ -1,10 +1,10 @@
 [package]
-name = "open-computer"
+name = "hope-agent"
 version = "0.1.0"
-description = "OpenComputer - Personal AI Assistant with deep system integration"
+description = "Hope Agent - Personal AI Assistant with deep system integration"
 authors = ["shiwenwen"]
 license = "MIT"
-repository = "https://github.com/shiwenwen/OpenComputer"
+repository = "https://github.com/shiwenwen/hope-agent"
 edition = "2021"
 rust-version = "1.77.2"
 
@@ -18,8 +18,8 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2.5.6", features = [] }
 
 [dependencies]
-oc-core = { path = "../crates/oc-core" }
-oc-server = { path = "../crates/oc-server" }
+ha-core = { path = "../crates/ha-core" }
+ha-server = { path = "../crates/ha-server" }
 serde_json = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 log = "0.4"

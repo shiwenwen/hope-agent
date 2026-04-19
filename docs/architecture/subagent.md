@@ -314,11 +314,11 @@ sequenceDiagram
 
 | 文件 | 职责 |
 |------|------|
-| `crates/oc-core/src/subagent/mod.rs` | 模块入口、常量（DEFAULT_MAX_DEPTH/MAX_CONCURRENT_PER_SESSION 等）、7 个全局 LazyLock 静态量、re-exports |
-| `crates/oc-core/src/subagent/types.rs` | SubagentRun / SpawnParams / SubagentStatus / SubagentEvent / ParentAgentStreamEvent 定义 |
-| `crates/oc-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验+派生入口、`execute_subagent()` 含 failover 重试和 plan mode 继承 |
-| `crates/oc-core/src/subagent/injection.rs` | `inject_and_run_parent()` 等待空闲+恢复历史+流式注入、`PendingInjection` 队列、`flush_pending_injections()` 串行重试、`build_subagent_push_message()` 格式化 |
-| `crates/oc-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |
-| `crates/oc-core/src/subagent/mailbox.rs` | `SubagentMailbox`（register / push / drain / remove）、`ChatSessionGuard`（RAII：ACTIVE_CHAT_SESSIONS + INJECTION_CANCELS + flush） |
-| `crates/oc-core/src/subagent/helpers.rs` | `emit_subagent_event` / `emit_parent_stream_event` / `truncate_str` / `CleanupGuard`（RAII：移除 INJECTING_SESSIONS + flush）/ `cleanup_orphan_runs` / `mark_run_fetched` |
-| `crates/oc-core/src/tools/subagent.rs` | 工具接口层：10 种 action（spawn / spawn_and_wait / check / result / list / steer / kill / kill_all / batch_spawn / wait_all）、`do_spawn` 共享逻辑、权限校验 |
+| `crates/ha-core/src/subagent/mod.rs` | 模块入口、常量（DEFAULT_MAX_DEPTH/MAX_CONCURRENT_PER_SESSION 等）、7 个全局 LazyLock 静态量、re-exports |
+| `crates/ha-core/src/subagent/types.rs` | SubagentRun / SpawnParams / SubagentStatus / SubagentEvent / ParentAgentStreamEvent 定义 |
+| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验+派生入口、`execute_subagent()` 含 failover 重试和 plan mode 继承 |
+| `crates/ha-core/src/subagent/injection.rs` | `inject_and_run_parent()` 等待空闲+恢复历史+流式注入、`PendingInjection` 队列、`flush_pending_injections()` 串行重试、`build_subagent_push_message()` 格式化 |
+| `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |
+| `crates/ha-core/src/subagent/mailbox.rs` | `SubagentMailbox`（register / push / drain / remove）、`ChatSessionGuard`（RAII：ACTIVE_CHAT_SESSIONS + INJECTION_CANCELS + flush） |
+| `crates/ha-core/src/subagent/helpers.rs` | `emit_subagent_event` / `emit_parent_stream_event` / `truncate_str` / `CleanupGuard`（RAII：移除 INJECTING_SESSIONS + flush）/ `cleanup_orphan_runs` / `mark_run_fetched` |
+| `crates/ha-core/src/tools/subagent.rs` | 工具接口层：10 种 action（spawn / spawn_and_wait / check / result / list / steer / kill / kill_all / batch_spawn / wait_all）、`do_spawn` 共享逻辑、权限校验 |

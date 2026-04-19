@@ -169,10 +169,10 @@ export default function SkillListView({
           {/* Default directory (clickable) */}
           <button
             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 text-xs w-full text-left hover:bg-secondary/50 transition-colors"
-            onClick={() => onOpenDir("~/.opencomputer/skills/")}
+            onClick={() => onOpenDir("~/.hope-agent/skills/")}
           >
             <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <code className="flex-1 text-foreground/80 truncate">~/.opencomputer/skills/</code>
+            <code className="flex-1 text-foreground/80 truncate">~/.hope-agent/skills/</code>
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
               {t("settings.skillsDirDefault")}
             </span>

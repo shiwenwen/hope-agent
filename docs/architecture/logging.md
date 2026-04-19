@@ -136,10 +136,10 @@ flowchart TD
     B -- Yes --> D["关闭当前文件\ncurrent_file = None"]
     D --> E["open_file(date)"]
     E --> F["create_dir_all(logs_dir)"]
-    F --> G{"基础文件存在?\nopencomputer-YYYY-MM-DD.log"}
+    F --> G{"基础文件存在?\nhope-agent-YYYY-MM-DD.log"}
     G -- "不存在" --> H["创建基础文件\n(append 模式)"]
     G -- "存在且 size < max" --> I["追加打开基础文件"]
-    G -- "存在且 size >= max" --> J["循环查找编号文件\nopencomputer-YYYY-MM-DD.N.log"]
+    G -- "存在且 size >= max" --> J["循环查找编号文件\nhope-agent-YYYY-MM-DD.N.log"]
     J --> K{"找到 size < max\n的编号文件?"}
     K -- Yes --> I2["追加打开该文件"]
     K -- "全部满" --> L["创建下一编号文件"]
@@ -156,9 +156,9 @@ flowchart TD
 
 | 场景 | 文件名 |
 |------|--------|
-| 当日首个文件 | `opencomputer-2026-04-05.log` |
-| 基础文件满后（第 1 个溢出） | `opencomputer-2026-04-05.1.log` |
-| 继续增长 | `opencomputer-2026-04-05.2.log`, `opencomputer-2026-04-05.3.log`, ... |
+| 当日首个文件 | `hope-agent-2026-04-05.log` |
+| 基础文件满后（第 1 个溢出） | `hope-agent-2026-04-05.1.log` |
+| 继续增长 | `hope-agent-2026-04-05.2.log`, `hope-agent-2026-04-05.3.log`, ... |
 
 默认单文件上限 10MB（`file_max_size_mb` 可配置），运行时通过 `update_max_size()` 热更新。
 
@@ -248,7 +248,7 @@ pub struct LogStats {
 | SQLite 按时间 | `LogDB.cleanup_old(max_age_days)` | 计算 `cutoff = now - max_age_days`，删除 `timestamp < cutoff` |
 | SQLite 按日期 | `LogDB.clear(Some(before_date))` | 删除指定日期前的所有记录 |
 | SQLite 全量 | `LogDB.clear(None)` | 清空 logs 表所有记录 |
-| 纯文本文件 | `cleanup_old_log_files(max_age_days)` | 从文件名 `opencomputer-YYYY-MM-DD` 提取日期，与 cutoff 比较后删除 |
+| 纯文本文件 | `cleanup_old_log_files(max_age_days)` | 从文件名 `hope-agent-YYYY-MM-DD` 提取日期，与 cutoff 比较后删除 |
 
 ## LogConfig
 
@@ -263,7 +263,7 @@ pub struct LogConfig {
 }
 ```
 
-持久化路径：`~/.opencomputer/log_config.json`。运行时通过 `AppLogger.update_config()` 热更新（`Arc<RwLock<LogConfig>>`）。
+持久化路径：`~/.hope-agent/log_config.json`。运行时通过 `AppLogger.update_config()` 热更新（`Arc<RwLock<LogConfig>>`）。
 
 ### 级别优先级
 
@@ -291,7 +291,7 @@ pub struct LogConfig {
 |------|------|------|
 | 列出文件 | `list_log_files()` | 返回 `Vec<LogFileInfo>`（name + size_bytes + modified），按文件名倒序 |
 | 读取文件 | `read_log_file(filename, tail_lines)` | 支持 tail 模式（最后 N 行），文件名安全检查防路径遍历 |
-| 当日路径 | `current_log_file_path()` | 返回 `~/.opencomputer/logs/opencomputer-YYYY-MM-DD.log` 路径 |
+| 当日路径 | `current_log_file_path()` | 返回 `~/.hope-agent/logs/hope-agent-YYYY-MM-DD.log` 路径 |
 
 ### 安全防护
 
@@ -302,11 +302,11 @@ pub struct LogConfig {
 
 | 文件 | 路径 | 职责 |
 |------|------|------|
-| 模块入口 | `crates/oc-core/src/logging/mod.rs` | 宏定义、模块 re-export |
-| 数据结构 | `crates/oc-core/src/logging/types.rs` | LogEntry、LogFilter、LogConfig、LogStats、PendingLog |
-| 异步日志器 | `crates/oc-core/src/logging/app_logger.rs` | AppLogger（mpsc channel + writer_loop） |
-| SQLite 管理器 | `crates/oc-core/src/logging/db.rs` | LogDB（insert/batch_insert/query/clear/export/get_stats） |
-| 文件写入器 | `crates/oc-core/src/logging/file_writer.rs` | LogFileWriter（日期 + 大小双轮转） |
-| 文件操作 & 脱敏 | `crates/oc-core/src/logging/file_ops.rs` | list/read/cleanup + redact_sensitive() |
-| 配置持久化 | `crates/oc-core/src/logging/config.rs` | load_log_config / save_log_config / db_path |
+| 模块入口 | `crates/ha-core/src/logging/mod.rs` | 宏定义、模块 re-export |
+| 数据结构 | `crates/ha-core/src/logging/types.rs` | LogEntry、LogFilter、LogConfig、LogStats、PendingLog |
+| 异步日志器 | `crates/ha-core/src/logging/app_logger.rs` | AppLogger（mpsc channel + writer_loop） |
+| SQLite 管理器 | `crates/ha-core/src/logging/db.rs` | LogDB（insert/batch_insert/query/clear/export/get_stats） |
+| 文件写入器 | `crates/ha-core/src/logging/file_writer.rs` | LogFileWriter（日期 + 大小双轮转） |
+| 文件操作 & 脱敏 | `crates/ha-core/src/logging/file_ops.rs` | list/read/cleanup + redact_sensitive() |
+| 配置持久化 | `crates/ha-core/src/logging/config.rs` | load_log_config / save_log_config / db_path |
 | 前端日志工具 | `src/lib/logger.ts` | 前端日志封装 |

@@ -285,7 +285,7 @@ export default function ChatTitleBar({
               <div className="space-y-2 text-xs">
                 {/* App version */}
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground">🖥️ OpenComputer</span>
+                  <span className="text-muted-foreground">🖥️ Hope Agent</span>
                   <span className="font-medium text-foreground tabular-nums">v0.1.0</span>
                 </div>
                 <div className="border-t border-border" />

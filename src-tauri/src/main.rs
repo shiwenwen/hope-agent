@@ -15,26 +15,26 @@ fn main() {
     // NOT persisted). Skips every tool-level approval gate for THIS launch only.
     // Applied before subcommand dispatch so GUI, server, and ACP modes all see it.
     if args.iter().any(|a| a == "--dangerously-skip-all-approvals") {
-        oc_core::security::dangerous::set_cli_flag(true);
+        ha_core::security::dangerous::set_cli_flag(true);
         eprintln!(
             "[!] DANGEROUS MODE: all tool approvals will be skipped (CLI flag, this launch only)"
         );
     }
 
-    // ACP subcommand: `opencomputer acp` — runs the ACP stdio server
+    // ACP subcommand: `hope-agent acp` — runs the ACP stdio server
     if args.len() >= 2 && args[1] == "acp" {
         run_acp_server(&args[2..]);
         return;
     }
 
-    // Server subcommand: `opencomputer server` — runs the HTTP/WS server (no GUI)
+    // Server subcommand: `hope-agent server` — runs the HTTP/WS server (no GUI)
     if args.len() >= 2 && args[1] == "server" {
         run_server(&args[2..]);
         return;
     }
 
-    // Child mode: spawned by Guardian via --child-mode arg or legacy OPENCOMPUTER_CHILD env
-    if (args.len() >= 2 && args[1] == "--child-mode") || env::var("OPENCOMPUTER_CHILD").is_ok() {
+    // Child mode: spawned by Guardian via --child-mode arg or legacy HOPE_AGENT_CHILD env
+    if (args.len() >= 2 && args[1] == "--child-mode") || env::var("HOPE_AGENT_CHILD").is_ok() {
         run_child();
     } else if cfg!(debug_assertions) {
         // Dev mode — skip guardian, run app directly
@@ -73,10 +73,10 @@ fn is_guardian_enabled() -> bool {
 // ── Guardian Mode ──────────────────────────────────────────────────
 
 fn run_guardian() {
-    // Desktop guardian: spawn child with OPENCOMPUTER_CHILD env var
-    oc_core::guardian::run_guardian(
+    // Desktop guardian: spawn child with HOPE_AGENT_CHILD env var
+    ha_core::guardian::run_guardian(
         vec!["--child-mode".to_string()],
-        oc_core::guardian::GuardianConfig::default(),
+        ha_core::guardian::GuardianConfig::default(),
     );
 }
 
@@ -144,13 +144,13 @@ fn run_acp_server(args: &[String]) {
             // Already handled at top-level main() — consume silently here.
             "--dangerously-skip-all-approvals" => {}
             "--version" => {
-                println!("opencomputer-acp {}", env!("CARGO_PKG_VERSION"));
+                println!("hope-agent-acp {}", env!("CARGO_PKG_VERSION"));
                 return;
             }
             "--help" | "-h" => {
-                println!("OpenComputer ACP Server");
+                println!("Hope Agent ACP Server");
                 println!();
-                println!("Usage: opencomputer acp [OPTIONS]");
+                println!("Usage: hope-agent acp [OPTIONS]");
                 println!();
                 println!("Options:");
                 println!("  --verbose, -v                     Enable verbose logging to stderr");
@@ -173,7 +173,7 @@ fn run_acp_server(args: &[String]) {
 
     if verbose {
         eprintln!(
-            "[acp] Starting OpenComputer ACP server v{}",
+            "[acp] Starting Hope Agent ACP server v{}",
             env!("CARGO_PKG_VERSION")
         );
         eprintln!("[acp] Agent ID: {}", agent_id);
@@ -213,7 +213,7 @@ fn run_server(args: &[String]) {
                 return run_server_install(&args[1..]);
             }
             "uninstall" => {
-                match oc_core::service_install::uninstall_service() {
+                match ha_core::service_install::uninstall_service() {
                     Ok(()) => println!("Service uninstalled successfully."),
                     Err(e) => {
                         eprintln!("Failed to uninstall service: {}", e);
@@ -223,7 +223,7 @@ fn run_server(args: &[String]) {
                 return;
             }
             "status" => {
-                match oc_core::service_install::service_status() {
+                match ha_core::service_install::service_status() {
                     Ok(status) => println!("{}", status),
                     Err(e) => {
                         eprintln!("Failed to query service status: {}", e);
@@ -233,7 +233,7 @@ fn run_server(args: &[String]) {
                 return;
             }
             "stop" => {
-                match oc_core::service_install::stop_server() {
+                match ha_core::service_install::stop_server() {
                     Ok(()) => println!("Server stopped."),
                     Err(e) => {
                         eprintln!("Failed to stop server: {}", e);
@@ -247,9 +247,9 @@ fn run_server(args: &[String]) {
     }
 
     let Some((bind_addr, api_key)) = parse_server_args(args, "server") else {
-        println!("OpenComputer HTTP/WebSocket Server");
+        println!("Hope Agent HTTP/WebSocket Server");
         println!();
-        println!("Usage: opencomputer server [COMMAND] [OPTIONS]");
+        println!("Usage: hope-agent server [COMMAND] [OPTIONS]");
         println!();
         println!("Commands:");
         println!(
@@ -269,29 +269,29 @@ fn run_server(args: &[String]) {
     };
 
     eprintln!(
-        "[server] Starting OpenComputer server v{}",
+        "[server] Starting Hope Agent server v{}",
         env!("CARGO_PKG_VERSION")
     );
     eprintln!("[server] Bind address: {}", bind_addr);
 
     // Initialize core subsystems
-    if let Err(e) = oc_core::paths::ensure_dirs() {
+    if let Err(e) = ha_core::paths::ensure_dirs() {
         eprintln!("[server] Failed to initialize data directories: {}", e);
         std::process::exit(1);
     }
-    if let Err(e) = oc_core::agent_loader::ensure_default_agent() {
+    if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
         eprintln!("[server] Warning: failed to ensure default agent: {}", e);
     }
 
-    // Initialize SessionDB (use oc_core types for server mode)
-    let db_path = match oc_core::session::db_path() {
+    // Initialize SessionDB (use ha_core types for server mode)
+    let db_path = match ha_core::session::db_path() {
         Ok(p) => p,
         Err(e) => {
             eprintln!("[server] Fatal: failed to resolve database path: {}", e);
             std::process::exit(1);
         }
     };
-    let session_db = match oc_core::session::SessionDB::open(&db_path) {
+    let session_db = match ha_core::session::SessionDB::open(&db_path) {
         Ok(db) => Arc::new(db),
         Err(e) => {
             eprintln!("[server] Fatal: failed to open session database: {}", e);
@@ -299,40 +299,40 @@ fn run_server(args: &[String]) {
         }
     };
 
-    // Register global SessionDB so oc-core internals (tools, agent, etc.) can access it
-    let _ = oc_core::globals::SESSION_DB.set(session_db.clone());
+    // Register global SessionDB so ha-core internals (tools, agent, etc.) can access it
+    let _ = ha_core::globals::SESSION_DB.set(session_db.clone());
 
     // Initialize ProjectDB (shares SessionDB's SQLite connection) and register globally
-    let project_db = Arc::new(oc_core::project::ProjectDB::new(session_db.clone()));
+    let project_db = Arc::new(ha_core::project::ProjectDB::new(session_db.clone()));
     if let Err(e) = project_db.migrate() {
         eprintln!("[server] Fatal: failed to run project DB migration: {}", e);
         std::process::exit(1);
     }
-    let _ = oc_core::globals::PROJECT_DB.set(project_db.clone());
+    let _ = ha_core::globals::PROJECT_DB.set(project_db.clone());
 
     // Create event bus
-    let event_bus: Arc<dyn oc_core::event_bus::EventBus> =
-        Arc::new(oc_core::event_bus::BroadcastEventBus::new(256));
-    oc_core::set_event_bus(event_bus.clone());
+    let event_bus: Arc<dyn ha_core::event_bus::EventBus> =
+        Arc::new(ha_core::event_bus::BroadcastEventBus::new(256));
+    ha_core::set_event_bus(event_bus.clone());
 
     // Build server context
-    let ctx = Arc::new(oc_server::AppContext {
+    let ctx = Arc::new(ha_server::AppContext {
         session_db,
         project_db,
         event_bus,
-        chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
+        chat_streams: Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new()),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         api_key: api_key.clone(),
     });
 
-    let config = oc_server::ServerConfig {
+    let config = ha_server::ServerConfig {
         bind_addr,
         api_key,
         cors_origins: Vec::new(),
     };
 
     // Write PID file
-    let pid_path = oc_core::paths::root_dir()
+    let pid_path = ha_core::paths::root_dir()
         .map(|d| d.join("server.pid"))
         .ok();
     if let Some(ref p) = pid_path {
@@ -342,7 +342,7 @@ fn run_server(args: &[String]) {
     // Run the tokio runtime
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     rt.block_on(async {
-        if let Err(e) = oc_server::start_server(config, ctx).await {
+        if let Err(e) = ha_server::start_server(config, ctx).await {
             eprintln!("[server] Server error: {}", e);
             std::process::exit(1);
         }
@@ -378,7 +378,7 @@ fn parse_server_args(args: &[String], context: &str) -> Option<(String, Option<S
             // Already handled at top-level main() — consume silently here.
             "--dangerously-skip-all-approvals" => {}
             "--version" => {
-                println!("opencomputer-server {}", env!("CARGO_PKG_VERSION"));
+                println!("hope-agent-server {}", env!("CARGO_PKG_VERSION"));
                 std::process::exit(0);
             }
             "--help" | "-h" => return None,
@@ -391,12 +391,12 @@ fn parse_server_args(args: &[String], context: &str) -> Option<(String, Option<S
     Some((bind_addr, api_key))
 }
 
-/// Handle `opencomputer server install [--bind ADDR] [--api-key KEY]`
+/// Handle `hope-agent server install [--bind ADDR] [--api-key KEY]`
 fn run_server_install(args: &[String]) {
     let Some((bind_addr, api_key)) = parse_server_args(args, "server install") else {
-        println!("Install OpenComputer server as a system service");
+        println!("Install Hope Agent server as a system service");
         println!();
-        println!("Usage: opencomputer server install [OPTIONS]");
+        println!("Usage: hope-agent server install [OPTIONS]");
         println!();
         println!("Options:");
         println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
@@ -406,7 +406,7 @@ fn run_server_install(args: &[String]) {
         return;
     };
 
-    match oc_core::service_install::install_service(&bind_addr, api_key.as_deref()) {
+    match ha_core::service_install::install_service(&bind_addr, api_key.as_deref()) {
         Ok(msg) => println!("{}", msg),
         Err(e) => {
             eprintln!("Failed to install service: {}", e);

@@ -396,11 +396,11 @@ sequenceDiagram
 
 | 文件 | 职责 |
 |------|------|
-| `crates/oc-core/src/dashboard/mod.rs` | 模块入口，re-export 公开 API |
-| `crates/oc-core/src/dashboard/types.rs` | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
-| `crates/oc-core/src/dashboard/filters.rs` | build_session_filter / build_log_filter 筛选器构建 |
-| `crates/oc-core/src/dashboard/queries.rs` | 7 个聚合查询（overview / token / tool / session / error / task / system） |
-| `crates/oc-core/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
-| `crates/oc-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
+| `crates/ha-core/src/dashboard/mod.rs` | 模块入口，re-export 公开 API |
+| `crates/ha-core/src/dashboard/types.rs` | 20 个数据结构（Filter + Stats + Detail Items + SystemMetrics） |
+| `crates/ha-core/src/dashboard/filters.rs` | build_session_filter / build_log_filter 筛选器构建 |
+| `crates/ha-core/src/dashboard/queries.rs` | 7 个聚合查询（overview / token / tool / session / error / task / system） |
+| `crates/ha-core/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
+| `crates/ha-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

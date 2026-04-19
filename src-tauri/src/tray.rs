@@ -1,4 +1,4 @@
-use oc_core::{app_debug, app_info};
+use ha_core::{app_debug, app_info};
 use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
@@ -28,77 +28,77 @@ fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "快捷对话",
             new_session: "新建对话",
             settings: "设置",
-            quit: "退出 OpenComputer",
+            quit: "退出 Hope Agent",
         },
         "zh-TW" => TrayLabels {
             show_main: "顯示主視窗",
             quick_chat: "快捷對話",
             new_session: "新建對話",
             settings: "設定",
-            quit: "退出 OpenComputer",
+            quit: "退出 Hope Agent",
         },
         "ja" => TrayLabels {
             show_main: "メインウィンドウを表示",
             quick_chat: "クイックチャット",
             new_session: "新しいセッション",
             settings: "設定",
-            quit: "OpenComputer を終了",
+            quit: "Hope Agent を終了",
         },
         "ko" => TrayLabels {
             show_main: "메인 창 표시",
             quick_chat: "빠른 채팅",
             new_session: "새 세션",
             settings: "설정",
-            quit: "OpenComputer 종료",
+            quit: "Hope Agent 종료",
         },
         "es" => TrayLabels {
             show_main: "Mostrar ventana principal",
             quick_chat: "Chat rápido",
             new_session: "Nueva sesión",
             settings: "Configuración",
-            quit: "Salir de OpenComputer",
+            quit: "Salir de Hope Agent",
         },
         "pt" => TrayLabels {
             show_main: "Mostrar janela principal",
             quick_chat: "Chat rápido",
             new_session: "Nova sessão",
             settings: "Configurações",
-            quit: "Sair do OpenComputer",
+            quit: "Sair do Hope Agent",
         },
         "ru" => TrayLabels {
             show_main: "Показать главное окно",
             quick_chat: "Быстрый чат",
             new_session: "Новый сеанс",
             settings: "Настройки",
-            quit: "Выход из OpenComputer",
+            quit: "Выход из Hope Agent",
         },
         "ar" => TrayLabels {
             show_main: "إظهار النافذة الرئيسية",
             quick_chat: "محادثة سريعة",
             new_session: "جلسة جديدة",
             settings: "الإعدادات",
-            quit: "إنهاء OpenComputer",
+            quit: "إنهاء Hope Agent",
         },
         "tr" => TrayLabels {
             show_main: "Ana pencereyi göster",
             quick_chat: "Hızlı sohbet",
             new_session: "Yeni oturum",
             settings: "Ayarlar",
-            quit: "OpenComputer'dan çık",
+            quit: "Hope Agent'dan çık",
         },
         "vi" => TrayLabels {
             show_main: "Hiển thị cửa sổ chính",
             quick_chat: "Trò chuyện nhanh",
             new_session: "Phiên mới",
             settings: "Cài đặt",
-            quit: "Thoát OpenComputer",
+            quit: "Thoát Hope Agent",
         },
         "ms" => TrayLabels {
             show_main: "Tunjukkan tetingkap utama",
             quick_chat: "Sembang pantas",
             new_session: "Sesi baharu",
             settings: "Tetapan",
-            quit: "Keluar OpenComputer",
+            quit: "Keluar Hope Agent",
         },
         // English (default)
         _ => TrayLabels {
@@ -106,14 +106,14 @@ fn tray_labels(lang: &str) -> TrayLabels {
             quick_chat: "Quick Chat",
             new_session: "New Session",
             settings: "Settings",
-            quit: "Quit OpenComputer",
+            quit: "Quit Hope Agent",
         },
     }
 }
 
 /// Resolve the effective language code. When `"auto"`, detect from macOS system locale.
 fn resolve_language() -> String {
-    let stored = oc_core::config::cached_config().language.clone();
+    let stored = ha_core::config::cached_config().language.clone();
 
     if stored != "auto" {
         return stored;
@@ -205,7 +205,7 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let show_menu_on_left_click = false;
 
     let tray = TrayIconBuilder::new()
-        .tooltip("OpenComputer")
+        .tooltip("Hope Agent")
         .icon(icon)
         .icon_as_template(icon_as_template)
         .show_menu_on_left_click(show_menu_on_left_click)

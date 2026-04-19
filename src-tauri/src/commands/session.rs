@@ -215,6 +215,6 @@ pub async fn load_session_messages_around_cmd(
 #[tauri::command]
 pub async fn get_session_stream_state(
     session_id: String,
-) -> Result<oc_core::chat_engine::SessionStreamState, String> {
-    Ok(oc_core::chat_engine::session_stream_state(&session_id))
+) -> Result<ha_core::chat_engine::SessionStreamState, String> {
+    Ok(ha_core::chat_engine::session_stream_state(&session_id))
 }

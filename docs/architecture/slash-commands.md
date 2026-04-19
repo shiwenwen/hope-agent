@@ -2,12 +2,12 @@
 
 > 返回 [文档索引](../README.md)
 
-OpenComputer 内置斜杠命令系统，用户在**聊天输入框**或**任意 IM 渠道**（Telegram 等）中输入 `/` 前缀即可触发。命令按类别分组，支持参数、模糊匹配和动态技能扩展。
+Hope Agent 内置斜杠命令系统，用户在**聊天输入框**或**任意 IM 渠道**（Telegram 等）中输入 `/` 前缀即可触发。命令按类别分组，支持参数、模糊匹配和动态技能扩展。
 
 ## 架构概述
 
 ```
-crates/oc-core/src/slash_commands/
+crates/ha-core/src/slash_commands/
 ├── mod.rs          # Tauri 命令入口（list / execute / is_slash_command）
 ├── types.rs        # 数据结构（SlashCommandDef / CommandResult / CommandAction）
 ├── parser.rs       # 解析器（"/" 前缀 → 命令名 + 参数）
@@ -169,7 +169,7 @@ sequenceDiagram
 技能命令不在注册表中硬编码，而是在运行时从技能系统动态加载。通过 `list_slash_commands` 接口合并返回。
 
 - 技能名称通过 `normalize_skill_command_name()` 规范化为命令名
-- **命名冲突处理**：[`slash_commands::resolve_skill_command_names`](../../crates/oc-core/src/slash_commands/mod.rs) 是 listing 与 dispatch 共用的 collision-aware 解析器：
+- **命名冲突处理**：[`slash_commands::resolve_skill_command_names`](../../crates/ha-core/src/slash_commands/mod.rs) 是 listing 与 dispatch 共用的 collision-aware 解析器：
   - 技能 canonical 名与内置命令（`new` / `model` / `plan` / `team` / ...）冲突 → 追加 `_skill` 后缀（skill `new` → `/new_skill`）
   - 进一步与其他已分配名冲突 → 再追加 `_2` / `_3` / ... 直到唯一
   - 冲突的 **alias** 直接丢弃（alias 是补充入口，不允许压过已占用名）
@@ -230,7 +230,7 @@ stateDiagram-v2
 
 | 类别 | 含义 | 计算方式 |
 |---|---|---|
-| System prompt | 基础系统提示词（扣除 memory/skill/tool-descriptions 三段后） | [`system_prompt::compute_breakdown`](../../crates/oc-core/src/system_prompt/breakdown.rs) 的总 char − 其他 3 段 |
+| System prompt | 基础系统提示词（扣除 memory/skill/tool-descriptions 三段后） | [`system_prompt::compute_breakdown`](../../crates/ha-core/src/system_prompt/breakdown.rs) 的总 char − 其他 3 段 |
 | Tool schemas | JSON 工具 schema（API 请求的 `tools:` 数组） | `AssistantAgent::build_tool_schemas(Anthropic)` 序列化后 char 数 |
 | Tool descriptions | system prompt 中的工具说明段（`# Available Tools`） | `build_tools_section(filter)` 产物 char |
 | Memory | 注入的记忆段（Core Memory + SQLite 候选 + Guidelines） | `build(…, memory_ctx, …)` − `build(…, None, …)` 的 diff |
@@ -289,7 +289,7 @@ stateDiagram-v2
 | `SwitchModel` | 切换活跃模型 | `/model <name>` | ✅ 调用 `set_active_model_core` 持久化切换 | `slash:model_switched` |
 | `SetEffort` | 设置推理强度 | `/think <level>` | ✅ 调用 `set_reasoning_effort_core` 写入 AppState | `slash:effort_changed` |
 | `SetToolPermission` | 设置工具权限模式 | `/permission <mode>` | ⚡ 返回"不适用"提示（Channel 固定 auto-approve） | — |
-| `ExportFile` | 下载导出文件 | `/export` | ✅ 自动写入 `~/.opencomputer/exports/` 并回复路径 | — |
+| `ExportFile` | 下载导出文件 | `/export` | ✅ 自动写入 `~/.hope-agent/exports/` 并回复路径 | — |
 | `StopStream` | 停止流式输出 | `/stop` | ✅ 通过 `ChannelCancelRegistry` 取消活跃流 | — |
 | `Compact` | 触发上下文压缩 | `/compact` | ✅ 调用 `compact_context_now_core` 执行压缩 | — |
 | `ViewSystemPrompt` | 查看系统提示词 | `/prompts` | ✅ 构建完整 system prompt 作为回复返回 | — |

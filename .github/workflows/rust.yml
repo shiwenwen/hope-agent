@@ -72,7 +72,7 @@ jobs:
       # warnings are handled (either fixed at the source or allowed in
       # `Cargo.toml`'s `[workspace.lints.clippy]` with a rationale).
       - name: Clippy (deny warnings)
-        run: cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings
+        run: cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
 
   test:
     name: test (${{ matrix.os }})
@@ -109,11 +109,11 @@ jobs:
             libx11-dev \
             libxrandr-dev
 
-      # Only oc-core and oc-server are pure Rust and host tests. The Tauri
+      # Only ha-core and ha-server are pure Rust and host tests. The Tauri
       # shell crate (open-computer) pulls glib/webkit system libs that are
       # expensive to install on Linux runners and carries no tests.
       - name: Build tests
-        run: cargo test -p oc-core -p oc-server --no-run --locked
+        run: cargo test -p ha-core -p ha-server --no-run --locked
 
       - name: Run tests
-        run: cargo test -p oc-core -p oc-server --no-fail-fast
+        run: cargo test -p ha-core -p ha-server --no-fail-fast

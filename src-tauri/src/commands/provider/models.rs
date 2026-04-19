@@ -55,7 +55,7 @@ pub(crate) async fn set_active_model_core(
         provider_id: provider_id.to_string(),
         model_id: model_id.to_string(),
     });
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -81,7 +81,7 @@ pub async fn set_fallback_models(
 ) -> Result<(), String> {
     let mut store = state.config.lock().await;
     store.fallback_models = models;
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 

@@ -1,6 +1,6 @@
 use crate::globals::APP_HANDLE;
 use crate::{cron, docker, get_logger, session, tools, tray, weather, CRON_DB};
-use oc_core::app_warn;
+use ha_core::app_warn;
 use session::SessionDB;
 use std::sync::Arc;
 
@@ -20,10 +20,10 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     #[cfg(target_os = "macos")]
     {
         use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-        let hide_quit = MenuItemBuilder::with_id("hide_quit", "Hide OpenComputer")
+        let hide_quit = MenuItemBuilder::with_id("hide_quit", "Hide Hope Agent")
             .accelerator("CmdOrCtrl+Q")
             .build(app)?;
-        let app_submenu = SubmenuBuilder::new(app, "OpenComputer")
+        let app_submenu = SubmenuBuilder::new(app, "Hope Agent")
             .about(None)
             .separator()
             .item(&hide_quit)
@@ -93,52 +93,52 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
 
     // Start embedded HTTP/WS server for web clients and external tools
     {
-        let session_db = oc_core::get_session_db().cloned().unwrap_or_else(|| {
+        let session_db = ha_core::get_session_db().cloned().unwrap_or_else(|| {
             let db_path = session::db_path().expect("session db path");
             Arc::new(SessionDB::open(&db_path).expect("open session db"))
         });
-        let event_bus = oc_core::get_event_bus().cloned().unwrap_or_else(|| {
-            let bus: Arc<dyn oc_core::event_bus::EventBus> =
-                Arc::new(oc_core::event_bus::BroadcastEventBus::new(256));
-            oc_core::set_event_bus(bus.clone());
+        let event_bus = ha_core::get_event_bus().cloned().unwrap_or_else(|| {
+            let bus: Arc<dyn ha_core::event_bus::EventBus> =
+                Arc::new(ha_core::event_bus::BroadcastEventBus::new(256));
+            ha_core::set_event_bus(bus.clone());
             bus
         });
-        let project_db = oc_core::get_project_db().cloned().unwrap_or_else(|| {
-            let db = Arc::new(oc_core::project::ProjectDB::new(session_db.clone()));
+        let project_db = ha_core::get_project_db().cloned().unwrap_or_else(|| {
+            let db = Arc::new(ha_core::project::ProjectDB::new(session_db.clone()));
             let _ = db.migrate();
             db
         });
         // Read server config from config.json (bind address, API key)
-        let store = oc_core::config::load_config().unwrap_or_default();
+        let store = ha_core::config::load_config().unwrap_or_default();
         let api_key = store.server.api_key.clone();
-        let ctx = Arc::new(oc_server::AppContext {
+        let ctx = Arc::new(ha_server::AppContext {
             session_db,
             project_db,
             event_bus,
-            chat_streams: Arc::new(oc_server::ws::chat_stream::ChatStreamRegistry::new()),
+            chat_streams: Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new()),
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             api_key: api_key.clone(),
         });
-        let config = oc_server::ServerConfig {
+        let config = ha_server::ServerConfig {
             bind_addr: store.server.bind_addr.clone(),
             api_key,
             cors_origins: Vec::new(),
         };
         tauri::async_runtime::spawn(async move {
-            if let Err(e) = oc_server::start_server(config, ctx).await {
+            if let Err(e) = ha_server::start_server(config, ctx).await {
                 eprintln!("[embedded-server] Failed to start: {}", e);
             }
         });
     }
 
-    // Bridge oc-core EventBus → Tauri frontend (app_handle.emit).
+    // Bridge ha-core EventBus → Tauri frontend (app_handle.emit).
     // Without this, events like `ask_user_request` / `plan_amended` emitted
-    // from oc-core never reach the WebView.
+    // from ha-core never reach the WebView.
     {
         use tauri::Emitter;
         use tokio::sync::broadcast::error::RecvError;
         let app_handle = app.handle().clone();
-        let bus = oc_core::get_event_bus()
+        let bus = ha_core::get_event_bus()
             .cloned()
             .expect("EventBus must be initialized before bridge spawn");
         tauri::async_runtime::spawn(async move {
@@ -156,7 +156,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                                     crate::shortcuts::clear_chord_state();
                                     let manager = app_handle.global_shortcut();
                                     let _ = manager.unregister_all();
-                                    if let Ok(store) = oc_core::config::load_config() {
+                                    if let Ok(store) = ha_core::config::load_config() {
                                         for binding in &store.shortcuts.bindings {
                                             if !binding.enabled || binding.keys.is_empty() {
                                                 continue;
@@ -205,7 +205,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
 
     // Start background async tasks (channel auto-start, ACP discovery) — requires async runtime
     tauri::async_runtime::spawn(async {
-        oc_core::start_background_tasks().await;
+        ha_core::start_background_tasks().await;
     });
 
     // Auto-start Docker SearXNG if previously configured
@@ -217,7 +217,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     // Register global shortcuts from config (chord-aware: only first parts for chords)
     {
         use tauri_plugin_global_shortcut::GlobalShortcutExt;
-        let store = oc_core::config::load_config().unwrap_or_default();
+        let store = ha_core::config::load_config().unwrap_or_default();
         for binding in &store.shortcuts.bindings {
             if !binding.enabled || binding.keys.is_empty() {
                 continue;
@@ -245,7 +245,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
 
 /// If SearXNG is docker-managed and enabled, auto-start the container on app launch.
 fn auto_start_searxng_docker() {
-    let store = match oc_core::config::load_config() {
+    let store = match ha_core::config::load_config() {
         Ok(s) => s,
         Err(_) => return,
     };

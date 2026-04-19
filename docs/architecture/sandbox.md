@@ -3,7 +3,7 @@
 
 ## 概述
 
-Docker Sandbox 模块为 OpenComputer 提供本地 SearXNG 搜索引擎的容器化部署与管理能力。该模块负责 Docker 环境检测、SearXNG 镜像拉取与容器部署、配置注入（`settings.yml`）、代理转发、健康检查以及完整的容器生命周期管理（启动/停止/删除）。
+Docker Sandbox 模块为 Hope Agent 提供本地 SearXNG 搜索引擎的容器化部署与管理能力。该模块负责 Docker 环境检测、SearXNG 镜像拉取与容器部署、配置注入（`settings.yml`）、代理转发、健康检查以及完整的容器生命周期管理（启动/停止/删除）。
 
 核心设计原则：
 - **全异步**：所有 Docker CLI 操作通过 `tokio::process::Command` 异步执行，不阻塞 UI
@@ -26,10 +26,10 @@ Docker Sandbox 模块为 OpenComputer 提供本地 SearXNG 搜索引擎的容器
 
 | 常量 | 值 | 说明 |
 |------|----|------|
-| `CONTAINER_NAME` | `"opencomputer-searxng"` | Docker 容器名称 |
+| `CONTAINER_NAME` | `"hope-agent-searxng"` | Docker 容器名称 |
 | `IMAGE` | `"searxng/searxng"` | Docker Hub 镜像 |
 | `DEFAULT_HOST_PORT` | `8080` | 宿主机默认映射端口 |
-| `SEARXNG_DIR_NAME` | `"searxng"` | 配置目录名（`~/.opencomputer/searxng/`） |
+| `SEARXNG_DIR_NAME` | `"searxng"` | 配置目录名（`~/.hope-agent/searxng/`） |
 | `STATUS_CACHE_TTL_SECS` | `5` | 状态缓存有效期（秒） |
 
 ## Docker 可用性检测
@@ -49,7 +49,7 @@ Docker Sandbox 模块为 OpenComputer 提供本地 SearXNG 搜索引擎的容器
 flowchart TD
     A["1. checking_docker<br/>docker info 检测守护进程"] --> B["2. pulling_image<br/>docker pull searxng/searxng<br/>（流式输出拉取进度）"]
     B --> C["3. removing_old<br/>docker rm -f 清理旧容器"]
-    C --> D["4. injecting_config<br/>生成 settings.yml<br/>写入 ~/.opencomputer/searxng/"]
+    C --> D["4. injecting_config<br/>生成 settings.yml<br/>写入 ~/.hope-agent/searxng/"]
     D --> E["5. find_available_port<br/>从 8080 起扫描可用端口<br/>（最多尝试 10 个）"]
     E --> F["6. starting_container<br/>docker run -d --name ... -p PORT:8080<br/>-v settings.yml:/etc/searxng/settings.yml:ro<br/>+ 代理环境变量注入"]
     F --> G["7. health_check<br/>轮询 /search?q=test&format=json<br/>最多 30 次，间隔 1s"]
@@ -65,7 +65,7 @@ flowchart TD
 
 ## 配置注入：settings.yml 生成
 
-`prepare_searxng_config()` 在 `~/.opencomputer/searxng/` 目录下生成 `settings.yml`，通过 Docker volume mount（`:ro`）注入容器：
+`prepare_searxng_config()` 在 `~/.hope-agent/searxng/` 目录下生成 `settings.yml`，通过 Docker volume mount（`:ro`）注入容器：
 
 ```yaml
 use_default_settings: true
@@ -160,9 +160,9 @@ flowchart LR
 
 | 文件路径 | 核心导出 |
 |----------|----------|
-| `crates/oc-core/src/docker/mod.rs` | `CONTAINER_NAME`, `IMAGE`, `DEFAULT_HOST_PORT`, `DEPLOYING`, `DEPLOY_PROGRESS`, `STATUS_LOCK` |
-| `crates/oc-core/src/docker/status.rs` | `SearxngDockerStatus`, `status()` |
-| `crates/oc-core/src/docker/deploy.rs` | `deploy()` |
-| `crates/oc-core/src/docker/lifecycle.rs` | `start()`, `stop()`, `remove()` |
-| `crates/oc-core/src/docker/helpers.rs` | `docker_status()`, `inspect_container()`, `inspect_port()`, `prepare_searxng_config()`, `health_check()`, `search_test()` |
-| `crates/oc-core/src/docker/proxy.rs` | `resolve_proxy_for_container()` |
+| `crates/ha-core/src/docker/mod.rs` | `CONTAINER_NAME`, `IMAGE`, `DEFAULT_HOST_PORT`, `DEPLOYING`, `DEPLOY_PROGRESS`, `STATUS_LOCK` |
+| `crates/ha-core/src/docker/status.rs` | `SearxngDockerStatus`, `status()` |
+| `crates/ha-core/src/docker/deploy.rs` | `deploy()` |
+| `crates/ha-core/src/docker/lifecycle.rs` | `start()`, `stop()`, `remove()` |
+| `crates/ha-core/src/docker/helpers.rs` | `docker_status()`, `inspect_container()`, `inspect_port()`, `prepare_searxng_config()`, `health_check()`, `search_test()` |
+| `crates/ha-core/src/docker/proxy.rs` | `resolve_proxy_for_container()` |

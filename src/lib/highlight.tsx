@@ -5,7 +5,7 @@ import type { ReactNode } from "react"
  * control characters. Returns React elements — never an HTML string — so
  * user-authored content in matched messages cannot escape into the DOM.
  *
- * Backend contract: see [`crates/oc-core/src/session/db.rs`] — the SQL
+ * Backend contract: see [`crates/ha-core/src/session/db.rs`] — the SQL
  * `snippet()` call uses `char(2)`/`char(3)` as start/end delimiters.
  */
 export function renderHighlightedSnippet(raw: string): ReactNode[] {

@@ -1,5 +1,7 @@
 # 项目重命名清单：OpenComputer → Hope Agent
 
+> **Status: DONE（2026-04-19，随 0.1.0 首发一把落地）**。本清单作为改名当时的执行基线保留原文 —— 里面的 file:line 引用和旧名字是改名前的现状描述，不再对齐当前代码。
+>
 > 目标：把项目品牌从 `OpenComputer` 全量替换为 `Hope Agent`。应用尚未发布，**不考虑向后兼容**（老 `~/.opencomputer/` 数据目录直接抛弃、launchd/systemd 老 label 不保留、所有配置默认值直接换新名）。
 >
 > 本文件只列清单，不含代码改动。落地时按「执行顺序」分 3 个 commit 做。
@@ -24,7 +26,7 @@
 | Cargo crate | `oc-core` / `oc-server` | `ha-core` / `ha-server` |
 | Rust 模块路径（`-` → `_`） | `oc_core` / `oc_server` | `ha_core` / `ha_server` |
 | src-tauri crate name | `open-computer` | `hope-agent` |
-| 二进制产物 | `opencomputer` | `hope-agent` |
+| 二进制产物 | `opencomputer` | `hope-agent`（主）+ `hope`（symlink 短别名） |
 | 数据目录 | `~/.opencomputer/` | `~/.hope-agent/` |
 | 环境变量前缀 | `OPENCOMPUTER_` | `HOPE_AGENT_` |
 | Bundle identifier | `com.opencomputer.app` | `com.hopeagent.app` |
@@ -33,7 +35,7 @@
 
 > **决定记录**：
 >
-> 1. CLI 主二进制名采用 `hope-agent`（带连字符，符合 Unix 工具惯例）。是否再加 `ha` 短别名 symlink 留给打包阶段（不阻塞本次改名）。
+> 1. CLI 主二进制名采用 `hope-agent`（带连字符，符合 Unix 工具惯例），同时打 `hope` symlink 作为短别名（Homebrew 安装时由 formula `bin.install_symlink` 创建，`.dmg` / `.pkg` 里由 postinstall 脚本创建，Linux 包同理）。两种入口指向同一个二进制，内部通过 `argv[0]` 无需区分。`ha` 只作为 Rust crate 名前缀和文档简写，不做 CLI 入口。
 > 2. Rust crate 名采用 `ha-core` / `ha-server`，Cargo 允许且不与 workspace 内路径依赖冲突。crate 不发布 crates.io，无名字冲突风险。
 > 3. macOS bundle id 采用 `com.hopeagent.app`（单词合并），与现有 `com.opencomputer.app` 模式一致；不考虑 `com.hope-agent.app`，bundle id 不允许连字符。
 
@@ -405,6 +407,6 @@
 
 - **开发机老数据**：本地 `~/.opencomputer/` 目录手动删（用户已说不考虑兼容）
 - **CI / GitHub repo 名**：`github.com/shiwenwen/OpenComputer` 是否跟随改名到 `hope-agent`？改名会 break 已有 clone 但 GitHub 会做 redirect。**建议本次不改**，等发版后再定。`src-tauri/Cargo.toml` 的 `repository` 字段暂保持原值。
-- **`ha` 短别名 CLI**：Tauri 默认只产一个二进制，如果需要 `ha` 作为 `hope-agent` 短别名，打包时加 symlink（macOS/Linux）或 cmd shim（Windows）。本次不做。
+- **`hope` 短别名 CLI（方向已定，落地在打包阶段）**：Tauri 默认只产一个二进制 `hope-agent`，`hope` 作为 symlink 提供短别名。落地位置因渠道而异：Homebrew formula 里 `bin.install_symlink "hope-agent" => "hope"`；macOS `.dmg` / `.pkg` 在 postinstall 脚本里 `ln -s hope-agent hope`；Linux `.deb` / `.rpm` 在 postinst 里同理；Windows 用 `.cmd` shim 文件（`hope.cmd` 内部 `@"%~dp0hope-agent.exe" %*`）。本次改名（代码层）不涉及，只在打包阶段加，不需要改 Rust 源码。开发期可手动 `ln -s target/debug/hope-agent target/debug/hope` 验证。
 - **crates.io 注册**：crate 不发布时不存在名字冲突风险。未来若发布，需检查 `ha-core` / `ha-server` 是否被占用，占用时回退到 `hope-agent-core` / `hope-agent-server`。
 - **模型侧身份**：`system_prompt` / `agent.*.md` 里如果写了"你是 OpenComputer 助手"，改名后要决定：(a) 同步改 "Hope Agent"；(b) 去掉产品名用通用身份。这是**产品设计决定**，本清单按 (a) 直改处理，如需 (b) 另议。

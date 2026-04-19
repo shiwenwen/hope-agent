@@ -1,8 +1,8 @@
 [workspace]
 members = [
     "src-tauri",
-    "crates/oc-core",
-    "crates/oc-server",
+    "crates/ha-core",
+    "crates/ha-server",
 ]
 resolver = "2"
 

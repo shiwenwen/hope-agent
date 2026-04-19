@@ -89,7 +89,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'OpenComputer ${{ github.ref_name }}'
+          releaseName: 'Hope Agent ${{ github.ref_name }}'
           releaseBody: |
             See CHANGELOG.md for details.
 

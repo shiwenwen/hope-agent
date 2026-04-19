@@ -4,8 +4,8 @@ use crate::paths;
 
 #[tauri::command]
 pub async fn get_crash_recovery_info() -> Result<serde_json::Value, String> {
-    let recovered = std::env::var("OPENCOMPUTER_RECOVERED").is_ok();
-    let crash_count: u32 = std::env::var("OPENCOMPUTER_CRASH_COUNT")
+    let recovered = std::env::var("HOPE_AGENT_RECOVERED").is_ok();
+    let crash_count: u32 = std::env::var("HOPE_AGENT_CRASH_COUNT")
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(0);

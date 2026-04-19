@@ -69,8 +69,8 @@ pub async fn write_export_file(path: String, content: String) -> Result<(), Stri
 /// persistent warning banner and the Settings toggle's read-only state when
 /// the CLI flag is active.
 #[tauri::command]
-pub fn get_dangerous_mode_status() -> oc_core::security::dangerous::DangerousModeStatus {
-    oc_core::security::dangerous::status()
+pub fn get_dangerous_mode_status() -> ha_core::security::dangerous::DangerousModeStatus {
+    ha_core::security::dangerous::status()
 }
 
 /// Toggle the persisted `dangerousSkipAllApprovals` flag in `config.json`.
@@ -81,12 +81,12 @@ pub fn get_dangerous_mode_status() -> oc_core::security::dangerous::DangerousMod
 /// `config:changed` so subscribed UIs refresh immediately.
 #[tauri::command]
 pub fn set_dangerous_skip_all_approvals(enabled: bool) -> Result<(), String> {
-    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
     store.dangerous_skip_all_approvals = enabled;
-    let _reason = oc_core::backup::scope_save_reason("security", "ui");
-    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    let _reason = ha_core::backup::scope_save_reason("security", "ui");
+    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     drop(_reason);
-    if let Some(bus) = oc_core::get_event_bus() {
+    if let Some(bus) = ha_core::get_event_bus() {
         bus.emit(
             "config:changed",
             serde_json::json!({ "category": "security" }),

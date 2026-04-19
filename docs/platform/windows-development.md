@@ -1,14 +1,14 @@
 # Windows 开发指南
 
-这份文档针对想要在 Windows 上开发、打包或运行 OpenComputer 的人。如果你只想用预编译的 `.msi` / `.exe`，跳到[安装预编译版本](#安装预编译版本)即可。
+这份文档针对想要在 Windows 上开发、打包或运行 Hope Agent 的人。如果你只想用预编译的 `.msi` / `.exe`，跳到[安装预编译版本](#安装预编译版本)即可。
 
 ## 平台支持矩阵
 
 | 模式 | macOS | Linux | Windows |
 | --- | :---: | :---: | :---: |
-| 桌面 GUI (`opencomputer`) | ✅ | ✅ | ✅ |
-| 守护进程 (`opencomputer server`) | ✅ (launchd) | ✅ (systemd) | ✅ (Task Scheduler) |
-| ACP stdio (`opencomputer acp`) | ✅ | ✅ | ✅ |
+| 桌面 GUI (`hope-agent`) | ✅ | ✅ | ✅ |
+| 守护进程 (`hope-agent server`) | ✅ (launchd) | ✅ (systemd) | ✅ (Task Scheduler) |
+| ACP stdio (`hope-agent acp`) | ✅ | ✅ | ✅ |
 | 浏览器自动化 | ✅ | ✅ | ✅ (自动探测 Chrome / Edge) |
 | 系统代理自动探测 | ✅ (scutil) | ❌ (读 `HTTPS_PROXY` env) | ✅ (注册表) |
 | 天气本机定位 | ✅ (CoreLocation) | ❌ (IP 定位) | ❌ (IP 定位) |
@@ -76,25 +76,25 @@ npm run tauri dev
 
 ```powershell
 # 前台运行
-opencomputer server start
+hope-agent server start
 
 # 注册为用户级 Task Scheduler 任务（下次登录自动启动，立即 /Run 一次）
-opencomputer server install
+hope-agent server install
 
 # 查看状态（解析 schtasks /Query 输出）
-opencomputer server status
+hope-agent server status
 
 # 停止当前进程（taskkill 走 server.pid）
-opencomputer server stop
+hope-agent server stop
 
 # 卸载任务
-opencomputer server uninstall
+hope-agent server uninstall
 ```
 
 设计说明：Windows 上 `install` 注册的是一个 **Task Scheduler 任务**（不是真正的 Windows Service），和 macOS `launchd` + Linux `systemctl --user` 保持行为一致——都是"用户登录后台自启"，不走 SCM dispatcher，不需要管理员权限。如果你需要真正的 Windows Service（开机即启、无需登录），手动用 [nssm](https://nssm.cc/) 包装：
 
 ```powershell
-nssm install OpenComputer "C:\Program Files\OpenComputer\opencomputer.exe" "server" "--bind" "127.0.0.1:8420"
+nssm install Hope Agent "C:\Program Files\Hope Agent\hope-agent.exe" "server" "--bind" "127.0.0.1:8420"
 ```
 
 ## CI 验证

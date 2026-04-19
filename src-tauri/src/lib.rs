@@ -7,65 +7,65 @@ mod shortcuts;
 mod tauri_wrappers;
 mod tray;
 
-// ── Re-export all business logic from oc-core ────────────────────
-// This makes `crate::agent`, `crate::session`, etc. resolve to oc-core's modules,
+// ── Re-export all business logic from ha-core ────────────────────
+// This makes `crate::agent`, `crate::session`, etc. resolve to ha-core's modules,
 // eliminating the need for duplicate local copies.
 
-pub use oc_core::acp;
-pub use oc_core::acp_control;
-pub use oc_core::agent;
-pub use oc_core::agent_config;
-pub use oc_core::agent_loader;
-pub use oc_core::backup;
-pub use oc_core::browser_state;
-pub use oc_core::browser_ui;
-pub use oc_core::canvas_db;
-pub use oc_core::channel;
-pub use oc_core::chat_engine;
-pub use oc_core::context_compact;
-pub use oc_core::crash_journal;
-pub use oc_core::cron;
-pub use oc_core::dashboard;
-pub use oc_core::dev_tools;
-pub use oc_core::docker;
-pub use oc_core::failover;
-pub use oc_core::file_extract;
-pub use oc_core::guardian;
-pub use oc_core::logging;
-pub use oc_core::memory;
-pub use oc_core::memory_extract;
-pub use oc_core::oauth;
-pub use oc_core::paths;
-pub use oc_core::permissions;
-pub use oc_core::plan;
-pub use oc_core::process_registry;
-pub use oc_core::provider;
-pub use oc_core::sandbox;
-pub use oc_core::self_diagnosis;
-pub use oc_core::service_install;
-pub use oc_core::session;
-pub use oc_core::skills;
-pub use oc_core::slash_commands;
-pub use oc_core::subagent;
-pub use oc_core::system_prompt;
-pub use oc_core::tools;
-pub use oc_core::url_preview;
-pub use oc_core::user_config;
-pub use oc_core::weather;
+pub use ha_core::acp;
+pub use ha_core::acp_control;
+pub use ha_core::agent;
+pub use ha_core::agent_config;
+pub use ha_core::agent_loader;
+pub use ha_core::backup;
+pub use ha_core::browser_state;
+pub use ha_core::browser_ui;
+pub use ha_core::canvas_db;
+pub use ha_core::channel;
+pub use ha_core::chat_engine;
+pub use ha_core::context_compact;
+pub use ha_core::crash_journal;
+pub use ha_core::cron;
+pub use ha_core::dashboard;
+pub use ha_core::dev_tools;
+pub use ha_core::docker;
+pub use ha_core::failover;
+pub use ha_core::file_extract;
+pub use ha_core::guardian;
+pub use ha_core::logging;
+pub use ha_core::memory;
+pub use ha_core::memory_extract;
+pub use ha_core::oauth;
+pub use ha_core::paths;
+pub use ha_core::permissions;
+pub use ha_core::plan;
+pub use ha_core::process_registry;
+pub use ha_core::provider;
+pub use ha_core::sandbox;
+pub use ha_core::self_diagnosis;
+pub use ha_core::service_install;
+pub use ha_core::session;
+pub use ha_core::skills;
+pub use ha_core::slash_commands;
+pub use ha_core::subagent;
+pub use ha_core::system_prompt;
+pub use ha_core::tools;
+pub use ha_core::url_preview;
+pub use ha_core::user_config;
+pub use ha_core::weather;
 #[cfg(target_os = "macos")]
-pub use oc_core::weather_location_macos;
+pub use ha_core::weather_location_macos;
 
-// Re-export oc-core utility functions (truncate_utf8, default_true, etc.)
-pub use oc_core::{default_true, sql_opt_u64, sql_u64, truncate_utf8};
+// Re-export ha-core utility functions (truncate_utf8, default_true, etc.)
+pub use ha_core::{default_true, sql_opt_u64, sql_u64, truncate_utf8};
 
-// Re-export oc-core global accessors and types
-pub use oc_core::event_bus;
-pub use oc_core::init_app_state;
-pub use oc_core::{
+// Re-export ha-core global accessors and types
+pub use ha_core::event_bus;
+pub use ha_core::init_app_state;
+pub use ha_core::{
     get_acp_manager, get_channel_db, get_channel_registry, get_cron_db, get_event_bus, get_logger,
     get_memory_backend, get_session_db, get_subagent_cancels, set_event_bus,
 };
-pub use oc_core::{
+pub use ha_core::{
     AppState, ACP_MANAGER, APP_LOGGER, APP_STATE, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
     MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
 };
@@ -88,7 +88,7 @@ pub fn run() {
     }
 
     // Load app config at startup
-    let initial_store = oc_core::config::load_config().unwrap_or_default();
+    let initial_store = ha_core::config::load_config().unwrap_or_default();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -327,7 +327,7 @@ pub fn run() {
             // Autostart
             commands::config::get_autostart_enabled,
             commands::config::set_autostart_enabled,
-            // Permissions (thin wrappers over oc-core)
+            // Permissions (thin wrappers over ha-core)
             tauri_wrappers::check_all_permissions,
             tauri_wrappers::check_permission,
             tauri_wrappers::request_permission,
@@ -419,15 +419,15 @@ pub fn run() {
             commands::crash::restore_settings_backup_cmd,
             commands::crash::get_guardian_enabled,
             commands::crash::set_guardian_enabled,
-            // Sandbox (thin wrappers over oc-core)
+            // Sandbox (thin wrappers over ha-core)
             tauri_wrappers::get_sandbox_config,
             tauri_wrappers::set_sandbox_config,
             tauri_wrappers::check_sandbox_available,
-            // Slash commands (thin wrappers over oc-core)
+            // Slash commands (thin wrappers over ha-core)
             tauri_wrappers::list_slash_commands,
             tauri_wrappers::execute_slash_command,
             tauri_wrappers::is_slash_command,
-            // Canvas (thin wrappers over oc-core)
+            // Canvas (thin wrappers over ha-core)
             tauri_wrappers::canvas_submit_snapshot,
             tauri_wrappers::canvas_submit_eval_result,
             tauri_wrappers::get_canvas_config,
@@ -462,7 +462,7 @@ pub fn run() {
             commands::recap::recap_get_report,
             commands::recap::recap_delete_report,
             commands::recap::recap_export_html,
-            // Developer tools (thin wrappers over oc-core)
+            // Developer tools (thin wrappers over ha-core)
             tauri_wrappers::dev_clear_sessions,
             tauri_wrappers::dev_clear_cron,
             tauri_wrappers::dev_clear_memory,

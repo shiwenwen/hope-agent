@@ -6,7 +6,7 @@ import { PAGE_SIZE } from "../useChatSession"
 import type { Message } from "@/types/chat"
 import { handleStreamEvent } from "./useStreamEventHandler"
 
-// Backend constants: see `crates/oc-core/src/chat_engine/stream_broadcast.rs`.
+// Backend constants: see `crates/ha-core/src/chat_engine/stream_broadcast.rs`.
 const EVENT_CHAT_STREAM_DELTA = "chat:stream_delta"
 const EVENT_CHAT_STREAM_END = "chat:stream_end"
 

@@ -1,6 +1,6 @@
 # 行为感知（Behavior Awareness）
 
-> 源码：`crates/oc-core/src/awareness/`
+> 源码：`crates/ha-core/src/awareness/`
 > 关联：[Side Query 缓存](side-query.md) · [上下文压缩](context-compact.md) · [斜杠命令](slash-commands.md)
 
 ---
@@ -22,7 +22,7 @@
 ## 架构总览
 
 ```
-crates/oc-core/src/awareness/
+crates/ha-core/src/awareness/
     mod.rs          公开 API 与模块注册
     config.rs       AwarenessConfig + 会话级 merge 解析
     types.rs        Entry / Snapshot / ActivityState / RefreshReason

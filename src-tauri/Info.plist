@@ -3,8 +3,8 @@
 <plist version="1.0">
 <dict>
     <key>NSLocationUsageDescription</key>
-    <string>OpenComputer needs your location to provide local weather information.</string>
+    <string>Hope Agent needs your location to provide local weather information.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
-    <string>OpenComputer needs your location to provide local weather information.</string>
+    <string>Hope Agent needs your location to provide local weather information.</string>
 </dict>
 </plist>

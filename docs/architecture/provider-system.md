@@ -10,7 +10,7 @@
 
 ### 1.1 核心类型
 
-**`crates/oc-core/src/provider/`**
+**`crates/ha-core/src/provider/`**
 
 ```mermaid
 graph LR
@@ -54,7 +54,7 @@ graph LR
 | `reasoning` | bool | 是否支持推理 |
 | `cost_input` / `cost_output` | f64 | 百万 token 定价（USD） |
 
-**`AppConfig`** — 全局配置根，持久化到 `~/.opencomputer/config.json`：
+**`AppConfig`** — 全局配置根，持久化到 `~/.hope-agent/config.json`：
 - `providers`: 已注册的 Provider 列表
 - `active_model`: 当前选中的模型 `{providerId, modelId}`
 - `fallback_models`: 降级模型链
@@ -262,7 +262,7 @@ graph LR
 
 ### 2.1 LlmProvider 枚举
 
-**`crates/oc-core/src/agent/types.rs`**
+**`crates/ha-core/src/agent/types.rs`**
 
 ```rust
 enum LlmProvider {
@@ -275,7 +275,7 @@ enum LlmProvider {
 
 ### 2.2 AssistantAgent 结构体
 
-**`crates/oc-core/src/agent/types.rs`**
+**`crates/ha-core/src/agent/types.rs`**
 
 | 字段 | 说明 |
 |------|------|
@@ -289,7 +289,7 @@ enum LlmProvider {
 
 ### 2.3 Chat 分发器
 
-**`crates/oc-core/src/agent/mod.rs`**
+**`crates/ha-core/src/agent/mod.rs`**
 
 ```mermaid
 flowchart LR
@@ -306,7 +306,7 @@ flowchart LR
 
 ### 3.1 主流程
 
-**入口**：`src-tauri/src/commands/chat.rs`（桌面）/ `crates/oc-server/src/routes/chat.rs`（HTTP）→ 调用 `crates/oc-core/src/chat_engine/`
+**入口**：`src-tauri/src/commands/chat.rs`（桌面）/ `crates/ha-server/src/routes/chat.rs`（HTTP）→ 调用 `crates/ha-core/src/chat_engine/`
 
 ```mermaid
 flowchart TD
@@ -364,7 +364,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 4.1 Anthropic Messages API
 
-**`crates/oc-core/src/agent/providers/anthropic.rs`**
+**`crates/ha-core/src/agent/providers/anthropic.rs`**
 
 **请求格式：**
 ```json
@@ -397,7 +397,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 4.2 OpenAI Chat Completions API
 
-**`crates/oc-core/src/agent/providers/openai_chat.rs`**
+**`crates/ha-core/src/agent/providers/openai_chat.rs`**
 
 **ThinkingStyle 分发（`apply_thinking_to_chat_body`）：**
 
@@ -425,7 +425,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 4.3 OpenAI Responses API
 
-**`crates/oc-core/src/agent/providers/openai_responses.rs`**
+**`crates/ha-core/src/agent/providers/openai_responses.rs`**
 
 **请求格式：**
 ```json
@@ -474,7 +474,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 4.4 Codex OAuth API
 
-**`crates/oc-core/src/agent/providers/codex.rs`**
+**`crates/ha-core/src/agent/providers/codex.rs`**
 
 与 OpenAI Responses API 相同的请求/响应格式，额外特性：
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` header
@@ -487,7 +487,7 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 ### 5.1 推理参数映射
 
-**`crates/oc-core/src/agent/config.rs`**
+**`crates/ha-core/src/agent/config.rs`**
 
 ```mermaid
 flowchart TD
@@ -508,7 +508,7 @@ flowchart TD
 
 ### 5.2 ThinkTagFilter
 
-**`crates/oc-core/src/agent/types.rs`**
+**`crates/ha-core/src/agent/types.rs`**
 
 有状态的流式解析器，用于从 Chat Completions 响应中提取 `<think>` 标签内的内容：
 
@@ -550,7 +550,7 @@ graph TB
 
 ### 6.2 解决方案
 
-**`crates/oc-core/src/agent/context.rs`** 中三个标准化函数，每个 Provider 在读取 history 时调用：
+**`crates/ha-core/src/agent/context.rs`** 中三个标准化函数，每个 Provider 在读取 history 时调用：
 
 ```mermaid
 flowchart LR
@@ -610,7 +610,7 @@ let mut input = Self::normalize_history_for_responses(&self.conversation_history
 
 ### 7.1 错误分类
 
-**`crates/oc-core/src/failover.rs`**
+**`crates/ha-core/src/failover.rs`**
 
 ```mermaid
 flowchart TD
@@ -674,7 +674,7 @@ flowchart TD
 
 ```mermaid
 graph TB
-  subgraph DB["SessionDB (SQLite) ~/.opencomputer/sessions.db"]
+  subgraph DB["SessionDB (SQLite) ~/.hope-agent/sessions.db"]
     direction TB
     subgraph CH1["通道 1: messages 表 — 面向前端展示"]
       M1["每条消息独立一行<br/>user / assistant / tool / event"]
@@ -697,7 +697,7 @@ graph TB
 
 ### 8.1 通道 1：messages 表 — 逐条实时写入
 
-**Schema（`crates/oc-core/src/session/db.rs`）：**
+**Schema（`crates/ha-core/src/session/db.rs`）：**
 
 ```sql
 CREATE TABLE messages (
@@ -729,7 +729,7 @@ CREATE TRIGGER messages_fts_ai AFTER INSERT ON messages
   BEGIN INSERT INTO messages_fts(rowid, content) VALUES (new.id, new.content); END;
 ```
 
-**写入时机（`crates/oc-core/src/chat_engine/context.rs`，由 Tauri 命令层 / HTTP 路由层调用）：**
+**写入时机（`crates/ha-core/src/chat_engine/context.rs`，由 Tauri 命令层 / HTTP 路由层调用）：**
 
 ```mermaid
 flowchart TD
@@ -906,7 +906,7 @@ sequenceDiagram
 ### 8.6 附件存储
 
 ```
-~/.opencomputer/
+~/.hope-agent/
   attachments/
     {session_id}/
       {uuid}.png        ← 图片文件
@@ -925,7 +925,7 @@ sequenceDiagram
 
 ### 9.1 4 层渐进式压缩
 
-**`crates/oc-core/src/context_compact/`**
+**`crates/ha-core/src/context_compact/`**
 
 ```mermaid
 flowchart TD
@@ -948,7 +948,7 @@ flowchart TD
 
 ### 9.2 Summarization 消息格式处理
 
-**`crates/oc-core/src/context_compact/summarization.rs`**
+**`crates/ha-core/src/context_compact/summarization.rs`**
 
 摘要构建时，需要正确处理所有 Provider 格式的消息：
 
@@ -966,7 +966,7 @@ flowchart TD
 
 ### 9.3 Session 持久化
 
-**`crates/oc-core/src/session/db.rs`**
+**`crates/ha-core/src/session/db.rs`**
 
 ```sql
 -- 核心表结构
@@ -1039,22 +1039,22 @@ flowchart TD
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
-| Provider 配置 | `crates/oc-core/src/provider/` | ApiType、ThinkingStyle、ProviderConfig、模型链解析 |
-| Agent 核心 | `crates/oc-core/src/agent/mod.rs` | 构造器、chat 分发、系统提示词组装 |
-| Agent 类型 | `crates/oc-core/src/agent/types.rs` | LlmProvider、AssistantAgent、ThinkTagFilter |
-| Anthropic | `crates/oc-core/src/agent/providers/anthropic.rs` | Messages API + thinking 块回传 |
-| Chat Completions | `crates/oc-core/src/agent/providers/openai_chat.rs` | ThinkingStyle 分发 + reasoning_content 回传 |
-| Responses API | `crates/oc-core/src/agent/providers/openai_responses.rs` | encrypted_content 回传 + reasoning item 捕获 |
-| Codex OAuth | `crates/oc-core/src/agent/providers/codex.rs` | Responses 变体 + 重试逻辑 |
-| 推理参数 | `crates/oc-core/src/agent/config.rs` | 5 种 ThinkingStyle 映射、effort 钳制 |
-| 内容构建 | `crates/oc-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |
-| 事件发射 | `crates/oc-core/src/agent/events.rs` | text_delta、thinking_delta、tool_call 等 |
-| 上下文管理 | `crates/oc-core/src/agent/context.rs` | history 标准化、push_user_message、run_compaction |
-| 上下文压缩 | `crates/oc-core/src/context_compact/` | 4 层压缩 + 摘要构建 |
-| Failover | `crates/oc-core/src/failover.rs` | 错误分类、重试策略 |
-| Session DB | `crates/oc-core/src/session/` | SQLite 持久化、消息 FTS 搜索 |
+| Provider 配置 | `crates/ha-core/src/provider/` | ApiType、ThinkingStyle、ProviderConfig、模型链解析 |
+| Agent 核心 | `crates/ha-core/src/agent/mod.rs` | 构造器、chat 分发、系统提示词组装 |
+| Agent 类型 | `crates/ha-core/src/agent/types.rs` | LlmProvider、AssistantAgent、ThinkTagFilter |
+| Anthropic | `crates/ha-core/src/agent/providers/anthropic.rs` | Messages API + thinking 块回传 |
+| Chat Completions | `crates/ha-core/src/agent/providers/openai_chat.rs` | ThinkingStyle 分发 + reasoning_content 回传 |
+| Responses API | `crates/ha-core/src/agent/providers/openai_responses.rs` | encrypted_content 回传 + reasoning item 捕获 |
+| Codex OAuth | `crates/ha-core/src/agent/providers/codex.rs` | Responses 变体 + 重试逻辑 |
+| 推理参数 | `crates/ha-core/src/agent/config.rs` | 5 种 ThinkingStyle 映射、effort 钳制 |
+| 内容构建 | `crates/ha-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |
+| 事件发射 | `crates/ha-core/src/agent/events.rs` | text_delta、thinking_delta、tool_call 等 |
+| 上下文管理 | `crates/ha-core/src/agent/context.rs` | history 标准化、push_user_message、run_compaction |
+| 上下文压缩 | `crates/ha-core/src/context_compact/` | 4 层压缩 + 摘要构建 |
+| Failover | `crates/ha-core/src/failover.rs` | 错误分类、重试策略 |
+| Session DB | `crates/ha-core/src/session/` | SQLite 持久化、消息 FTS 搜索 |
 | Chat 命令（桌面） | `src-tauri/src/commands/chat.rs` | Tauri 命令层：主流程编排、模型链迭代、上下文保存恢复 |
-| Chat 路由（HTTP） | `crates/oc-server/src/routes/chat.rs` | HTTP/WS 入口：REST API + WebSocket 流式推送 |
+| Chat 路由（HTTP） | `crates/ha-server/src/routes/chat.rs` | HTTP/WS 入口：REST API + WebSocket 流式推送 |
 | 前端模板 | `src/components/settings/provider-setup/templates/` | 36 个 Provider 模板（166 个预设模型） |
 | 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
-| Dashboard 定价 | `crates/oc-core/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |
+| Dashboard 定价 | `crates/ha-core/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |

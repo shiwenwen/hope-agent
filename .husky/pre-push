@@ -3,13 +3,13 @@
 # is caught locally before burning a 10-minute Actions run.
 #
 # Skip flags:
-#   OC_SKIP_PREPUSH=1       — bypass the whole hook (use sparingly, e.g. docs-only)
-#   OC_SKIP_PREPUSH_TEST=1  — run everything except cargo test (when you're
+#   HA_SKIP_PREPUSH=1       — bypass the whole hook (use sparingly, e.g. docs-only)
+#   HA_SKIP_PREPUSH_TEST=1  — run everything except cargo test (when you're
 #                              pushing a WIP branch and don't need the 1–3 min
 #                              test run locally; CI will still catch it)
 
-if [ "${OC_SKIP_PREPUSH:-}" = "1" ]; then
-  echo "[pre-push] OC_SKIP_PREPUSH=1 — skipping all checks"
+if [ "${HA_SKIP_PREPUSH:-}" = "1" ]; then
+  echo "[pre-push] HA_SKIP_PREPUSH=1 — skipping all checks"
   exit 0
 fi
 
@@ -18,8 +18,8 @@ set -e
 echo "[pre-push] cargo fmt --all --check"
 cargo fmt --all --check
 
-echo "[pre-push] cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings"
-cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings
+echo "[pre-push] cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings"
+cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
 
 echo "[pre-push] tsc --noEmit"
 npx tsc --noEmit
@@ -27,11 +27,11 @@ npx tsc --noEmit
 echo "[pre-push] eslint"
 npm run lint --silent
 
-if [ "${OC_SKIP_PREPUSH_TEST:-}" = "1" ]; then
-  echo "[pre-push] OC_SKIP_PREPUSH_TEST=1 — skipping cargo test"
+if [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
+  echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"
 else
-  echo "[pre-push] cargo test -p oc-core -p oc-server --locked"
-  cargo test -p oc-core -p oc-server --locked
+  echo "[pre-push] cargo test -p ha-core -p ha-server --locked"
+  cargo test -p ha-core -p ha-server --locked
 fi
 
 echo "[pre-push] all checks passed"

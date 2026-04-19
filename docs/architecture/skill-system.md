@@ -1,4 +1,4 @@
-# OpenComputer 技能系统架构文档
+# Hope Agent 技能系统架构文档
 
 > 返回 [文档索引](../README.md)
 >
@@ -32,7 +32,7 @@
 
 ## 概述
 
-技能系统（Skills System）是 OpenComputer 的可扩展能力框架。每个技能是一个目录，包含一个 `SKILL.md` 文件，用 YAML frontmatter 声明元数据，用 Markdown body 提供详细指令。
+技能系统（Skills System）是 Hope Agent 的可扩展能力框架。每个技能是一个目录，包含一个 `SKILL.md` 文件，用 YAML frontmatter 声明元数据，用 Markdown body 提供详细指令。
 
 **核心设计原则：**
 
@@ -84,7 +84,7 @@ graph TB
     subgraph 存储层
         CONFIG[(config.json<br/>AppConfig)]
         SESSDB[("session.db<br/>session_skill_activation")]
-        FS[("skills/ (bundled)<br/>~/.opencomputer/skills/<br/>.opencomputer/skills/<br/>extra dirs")]
+        FS[("skills/ (bundled)<br/>~/.hope-agent/skills/<br/>.hope-agent/skills/<br/>extra dirs")]
     end
 
     subgraph LLM 层
@@ -124,15 +124,15 @@ graph TB
 
 | 文件 | 职责 |
 |------|------|
-| `crates/oc-core/src/skills/` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查 |
-| `crates/oc-core/src/skills/fork_helper.rs` | 共享 fork helper：`spawn_skill_fork` + `extract_fork_result`，两个激活入口都走它 |
-| `crates/oc-core/src/skills/activation.rs` | `paths:` 条件激活：内存 cache + SQLite 持久化 + gitignore 匹配 |
-| `crates/oc-core/src/tools/skill/` | `skill` 工具：`mod.rs` 分发 + `inline.rs` 读 SKILL.md + `fork.rs` 子 Agent 执行 |
+| `crates/ha-core/src/skills/` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查 |
+| `crates/ha-core/src/skills/fork_helper.rs` | 共享 fork helper：`spawn_skill_fork` + `extract_fork_result`，两个激活入口都走它 |
+| `crates/ha-core/src/skills/activation.rs` | `paths:` 条件激活：内存 cache + SQLite 持久化 + gitignore 匹配 |
+| `crates/ha-core/src/tools/skill/` | `skill` 工具：`mod.rs` 分发 + `inline.rs` 读 SKILL.md + `fork.rs` 子 Agent 执行 |
 | `src-tauri/src/commands/skills.rs` | 14 个 Tauri 命令：CRUD + 安装 + 健康检查 |
-| `crates/oc-core/src/system_prompt/` | 系统提示词构建，调用 `build_skills_prompt(..., activated_conditional)` 注入技能段落 |
-| `crates/oc-core/src/provider/` | `AppConfig` 持久化技能配置（budget/allowlist/disabled/env） |
-| `crates/oc-core/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令；fork 分支复用 `skills::spawn_skill_fork` |
-| `crates/oc-core/src/subagent/` | 子 Agent spawn + `SubagentEvent.skill_name` 辨别字段 |
+| `crates/ha-core/src/system_prompt/` | 系统提示词构建，调用 `build_skills_prompt(..., activated_conditional)` 注入技能段落 |
+| `crates/ha-core/src/provider/` | `AppConfig` 持久化技能配置（budget/allowlist/disabled/env） |
+| `crates/ha-core/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令；fork 分支复用 `skills::spawn_skill_fork` |
+| `crates/ha-core/src/subagent/` | 子 Agent spawn + `SubagentEvent.skill_name` 辨别字段 |
 | `src/components/settings/SkillsPanel.tsx` | 前端技能管理面板（列表 + 详情 + 安装 + 健康状态） |
 | `src/components/chat/SkillProgressBlock.tsx` | 对话流中 `skill` 工具的专用渲染器（琥珀 🧩 图标，inline/fork 自动区分） |
 
@@ -145,7 +145,7 @@ graph TB
 一个技能是一个目录，至少包含一个 `SKILL.md` 文件：
 
 ```
-~/.opencomputer/skills/
+~/.hope-agent/skills/
 └── github/
     ├── SKILL.md          ← 必需：frontmatter + 指令
     ├── examples.sh       ← 可选：辅助脚本
@@ -158,8 +158,8 @@ graph TB
 |------|------|--------|------|
 | Bundled | 应用内 `skills/` 目录 | 最低 | 随应用发行的内置技能 |
 | Extra dirs | 用户通过 UI 导入的目录 | 低 | `config.json` 的 `extraSkillsDirs` |
-| Managed | `~/.opencomputer/skills/` | 中 | 全局技能目录 |
-| Project | `.opencomputer/skills/`（相对于 cwd） | 最高 | 项目级覆盖 |
+| Managed | `~/.hope-agent/skills/` | 中 | 全局技能目录 |
+| Project | `.hope-agent/skills/`（相对于 cwd） | 最高 | 项目级覆盖 |
 
 高优先级来源的同名技能会覆盖低优先级的。
 
@@ -173,10 +173,10 @@ block-beta
         E["Extra dirs<br/>用户导入"]
     end
     block:mid:1
-        M["Managed<br/>~/.opencomputer/skills/"]
+        M["Managed<br/>~/.hope-agent/skills/"]
     end
     block:high:1
-        P["Project<br/>.opencomputer/skills/"]
+        P["Project<br/>.hope-agent/skills/"]
     end
 
     lowest --> low --> mid --> high
@@ -240,7 +240,7 @@ When the user asks about GitHub operations, use the `gh` CLI.
 | `command-prompt-template` | string | 否 | (body) | `command-dispatch: "prompt"` 时的模板字符串，支持 `$ARGUMENTS` 替换。未设时用 SKILL.md body |
 | `allowed-tools` | string[] | 否 | `[]` | 激活后子 Agent / 主对话可见的工具白名单；空列表 = 全部可用 |
 | `context` | string | 否 | — | 执行模式。`"fork"` 在子 Agent 中跑，结果只回一段摘要；未设则 inline 执行 |
-| `agent` | string | 否 | — | **仅 fork 模式生效**：指定 fork 时使用的 Agent id（`~/.opencomputer/agents/{id}/`）。无效 id 自动 fallback 到父 Agent 并记 warn |
+| `agent` | string | 否 | — | **仅 fork 模式生效**：指定 fork 时使用的 Agent id（`~/.hope-agent/agents/{id}/`）。无效 id 自动 fallback 到父 Agent 并记 warn |
 | `effort` | string | 否 | — | **仅 fork 模式生效**：推理强度 `low` / `medium` / `high` / `xhigh` / `none`，映射到 provider 的 `reasoning_effort` 或 `thinking.budget_tokens` |
 | `paths` | string[] | 否 | — | gitignore 风格模式（`*.py` / `docs/**/*.md`）。声明后技能**默认不进 catalog**，直到本会话触发到匹配文件才激活 |
 | `status` | string | 否 | `"active"` | 生命周期：`active` / `draft` / `archived`；非 active 项对模型完全透明 |
@@ -312,8 +312,8 @@ install:
 flowchart TD
     START([load_all_skills_with_budget]) --> B["0. Bundled<br/>应用内置 skills/"]
     START --> E["1. Extra dirs<br/>用户导入目录"]
-    START --> M["2. Managed<br/>~/.opencomputer/skills/"]
-    START --> P["3. Project<br/>.opencomputer/skills/"]
+    START --> M["2. Managed<br/>~/.hope-agent/skills/"]
+    START --> P["3. Project<br/>.hope-agent/skills/"]
 
     B --> LOAD_B["load_skills_from_dir<br/>source = bundled"]
     E --> LOAD_E["load_skills_from_dir<br/>source = 目录名"]
@@ -432,9 +432,9 @@ check_requirements_detail(req, configured_env) -> RequirementsDetail {
 
 老设计让模型通过 `read SKILL.md` 来激活技能，内容作为 tool_result 堆积在主对话历史。多轮 exec 密集的技能（如 stlc-delivery）会反复 read references + 触发大量 exec tool_result，累加几十 KB 进主 context，`context: fork` 也只在 `/skill-name` 斜杠命令路径生效。
 
-对齐 Claude Code 的 `SkillTool`，OpenComputer 引入**专用 `skill` 工具**作为模型自主激活 skill 的主入口：
+对齐 Claude Code 的 `SkillTool`，Hope Agent 引入**专用 `skill` 工具**作为模型自主激活 skill 的主入口：
 
-- 工具名：`skill`，内置在 [`crates/oc-core/src/tools/skill/`](../../crates/oc-core/src/tools/skill/)
+- 工具名：`skill`，内置在 [`crates/ha-core/src/tools/skill/`](../../crates/ha-core/src/tools/skill/)
 - 入参：`{ name: string, args?: string }`
 - 工具执行层统一分发 **inline / fork**，`context: fork` 在斜杠命令和模型自主两条路径**都生效**
 - 标记 `internal: true + always_load: true`：跳过审批、deferred_tools 场景也恒定可见
@@ -504,7 +504,7 @@ flowchart TD
 `skills::fork_helper::spawn_skill_fork` 是**唯一的 fork 入口点**，保证斜杠命令路径和 `skill` 工具路径零漂移：
 
 ```rust
-// crates/oc-core/src/skills/fork_helper.rs
+// crates/ha-core/src/skills/fork_helper.rs
 pub async fn spawn_skill_fork(
     skill: &SkillEntry,
     args: &str,
@@ -535,7 +535,7 @@ pub async fn extract_fork_result(
 
 ### 斜杠命令的 Inline 内联路径
 
-当用户打 `/skillname [args]` 且 skill 不是 `context: fork` 且没有 `command-prompt-template`，走这条路径：[`slash_commands/handlers/mod.rs`](../../crates/oc-core/src/slash_commands/handlers/mod.rs) 的 `_` 分支调 [`tools::skill::inline::execute(&entry, args)`](../../crates/oc-core/src/tools/skill/inline.rs)（与模型调 `skill` 工具完全同一函数）拿到 SKILL.md 全文 + `$ARGUMENTS` 替换后，包进如下格式的 `PassThrough` 消息：
+当用户打 `/skillname [args]` 且 skill 不是 `context: fork` 且没有 `command-prompt-template`，走这条路径：[`slash_commands/handlers/mod.rs`](../../crates/ha-core/src/slash_commands/handlers/mod.rs) 的 `_` 分支调 [`tools::skill::inline::execute(&entry, args)`](../../crates/ha-core/src/tools/skill/inline.rs)（与模型调 `skill` 工具完全同一函数）拿到 SKILL.md 全文 + `$ARGUMENTS` 替换后，包进如下格式的 `PassThrough` 消息：
 
 ```
 [SYSTEM: The user has invoked the '<name>' skill via slash command with arguments: "<args>".
@@ -553,7 +553,7 @@ pub async fn extract_fork_result(
 - DB `messages.content` 持久化 `displayText`（重载保持原命令显示）
 - Agent `save_agent_context` 的 conversation_history JSON 保留 `expandedMessage`（LLM 上下文连贯）
 
-**设计出发点**：老版本发 `"Read the skill file at /path/SKILL.md"`——deferred tools 场景下 `read` 不在初始 schema，LLM 会先调 `tool_search` 找 `read`，多一轮浪费。参照 Claude Code 的 `SkillTool` 直接返回 SKILL.md 内容 + Hermes Agent 的 `[SYSTEM: skill loaded]` 头部标记，OpenComputer 采用同源做法，同时与模型主动调 `skill` 工具路径字节级等价。
+**设计出发点**：老版本发 `"Read the skill file at /path/SKILL.md"`——deferred tools 场景下 `read` 不在初始 schema，LLM 会先调 `tool_search` 找 `read`，多一轮浪费。参照 Claude Code 的 `SkillTool` 直接返回 SKILL.md 内容 + Hermes Agent 的 `[SYSTEM: skill loaded]` 头部标记，Hope Agent 采用同源做法，同时与模型主动调 `skill` 工具路径字节级等价。
 
 **Fallback**：读 SKILL.md 失败时（权限 / 路径错 / IO 故障）降级回老的路径指针 prompt，不阻断聊天。
 
@@ -712,7 +712,7 @@ flowchart LR
 
 启动时懒加载（首次访问某 session_id 才从 DB 读入内存），写入同时持久化 DB + 更新 hot cache。
 
-**API**（在 [`crates/oc-core/src/skills/activation.rs`](../../crates/oc-core/src/skills/activation.rs)）：
+**API**（在 [`crates/ha-core/src/skills/activation.rs`](../../crates/ha-core/src/skills/activation.rs)）：
 
 ```rust
 pub fn activate_skills_for_paths(
@@ -1310,7 +1310,7 @@ graph TD
     SP["SkillsPanel"]
 
     SP --> DIR["技能目录管理区"]
-    DIR --> DIR1["~/.opencomputer/skills/<br/>(默认，不可删除)"]
+    DIR --> DIR1["~/.hope-agent/skills/<br/>(默认，不可删除)"]
     DIR --> DIR2["Extra dirs<br/>(可删除)"]
     DIR --> DIR3["[导入目录] 按钮"]
 
@@ -1479,7 +1479,7 @@ sequenceDiagram
 
 内置技能（Bundled Skills）随应用发行，位于项目根目录 `skills/`，优先级最低。`discovery.rs` 中的 `resolve_bundled_skills_dir()` 按以下顺序定位内置技能目录：
 
-1. 环境变量 `OPENCOMPUTER_BUNDLED_SKILLS_DIR`
+1. 环境变量 `HOPE_AGENT_BUNDLED_SKILLS_DIR`
 2. 可执行文件同级 / 上级 `skills/` 目录（release 打包）
 3. `CARGO_MANIFEST_DIR` 向上两级的 `skills/`（仅 debug 构建）
 
@@ -1489,7 +1489,7 @@ sequenceDiagram
 
 | 技能 | 说明 | 关联工具 |
 |------|------|----------|
-| `oc-skill-creator` | 创建、编辑、改进或审计 OpenComputer 技能。提供：脚手架脚本 `scripts/init_skill.py`（一键生成目录 + 带所有 frontmatter 字段 stub 的 SKILL.md 模板）、完整评估工作流（`agents/grader` + `comparator` + `analyzer`、`references/schemas`、`scripts/` 聚合脚本、`eval-viewer/` 可视化查看器），以及自检测试 `scripts/test_quick_validate.py` / `test_package_skill.py`（`python -m unittest` 直跑） | — |
+| `oc-skill-creator` | 创建、编辑、改进或审计 Hope Agent 技能。提供：脚手架脚本 `scripts/init_skill.py`（一键生成目录 + 带所有 frontmatter 字段 stub 的 SKILL.md 模板）、完整评估工作流（`agents/grader` + `comparator` + `analyzer`、`references/schemas`、`scripts/` 聚合脚本、`eval-viewer/` 可视化查看器），以及自检测试 `scripts/test_quick_validate.py` / `test_package_skill.py`（`python -m unittest` 直跑） | — |
 | `oc-settings` | 通过自然语言对话调整应用设置。指导模型使用 `get_settings` / `update_settings` 工具读取和修改 30+ 个配置分类（主题、语言、代理、温度、通知、搜索、记忆等），不直接编辑配置文件 | `get_settings`, `update_settings` |
 
 ### settings 技能工具
@@ -1507,7 +1507,7 @@ sequenceDiagram
 
 ## 与 OpenClaw / Claude Code 对比
 
-| 维度 | OpenComputer | Claude Code | OpenClaw |
+| 维度 | Hope Agent | Claude Code | OpenClaw |
 |------|-------------|-------------|----------|
 | **激活入口** | 专用 `skill` 工具（`{name, args?}`）| 专用 `SkillTool`（`{skill, args?}`）| 模型 `read SKILL.md`（无专用工具）|
 | **Inline / Fork 统一分发** | ✓（工具执行层）| ✓（SkillTool.call）| ✗（无 fork 概念）|
@@ -1521,8 +1521,8 @@ sequenceDiagram
 | **`paths:` 条件激活** | ✓（`ignore::GitignoreBuilder` + SQLite 持久化）| ✓（`paths:` frontmatter）| — |
 | **Prompt 注入** | 懒加载：名称+描述，`skill` 工具激活 | 懒加载：名称+描述，SkillTool 激活 | 懒加载：名称+路径，`read` 加载 |
 | **预算管理** | 三层降级 Full → Compact → 二分截断 | 1% context window 硬限 | 三层降级 Full → Compact → 二分截断 |
-| **Requirements** | bins/anyBins/env/os/config/always/primaryEnv | (用户代码限制)| 同 OpenComputer |
-| **调用策略** | user-invocable + disable-model-invocation | user-invocable + disable-model-invocation | 同 OpenComputer |
+| **Requirements** | bins/anyBins/env/os/config/always/primaryEnv | (用户代码限制)| 同 Hope Agent |
+| **调用策略** | user-invocable + disable-model-invocation | user-invocable + disable-model-invocation | 同 Hope Agent |
 | **安装引导** | brew/node/go/uv/download + **GUI 一键安装** | 无内置 | brew/node/go/uv/download + CLI |
 | **健康检查** | `get_skills_status` + **GUI 状态徽章** | 无系统性检查 | `openclaw skills check` CLI |
 | **缓存** | AtomicU64 版本 + 30s TTL + per-session activation | Skill search（实验特性）| chokidar 文件 watcher |
@@ -1533,7 +1533,7 @@ sequenceDiagram
 | **Draft 审核** | ✓（`status: draft` + auto_review 管线）| — | — |
 | **Skill Marketplace** | — | Skill Search（ant 内部实验）| ClawHub 集成 |
 
-**OpenComputer 独有或优于 Claude Code 的点：**
+**Hope Agent 独有或优于 Claude Code 的点：**
 
 1. **GUI 安装引导**（设置面板一键安装 + 实时日志）
 2. **可视化健康检查**（GUI 状态徽章 + hover 详情）
@@ -1545,8 +1545,8 @@ sequenceDiagram
 **Claude Code 领先的点（未来可借鉴）：**
 
 1. **Skill search**（ant 内部实验）—— 基于语义相似度的 skill 推荐，进一步降低 catalog 常驻占用
-2. **Fork 子 Agent UI 内嵌**—— 在 skill 块展开区直接渲染子 Agent 的 tool call 流，OpenComputer 的 `SkillProgressBlock` 当前只显示最终摘要
-3. **`${CLAUDE_SKILL_DIR}` / `${CLAUDE_SESSION_ID}` / 反引号 shell 替换**—— 更强的 SKILL.md 模板能力（涉及注入安全评估，OpenComputer 下一迭代评估）
+2. **Fork 子 Agent UI 内嵌**—— 在 skill 块展开区直接渲染子 Agent 的 tool call 流，Hope Agent 的 `SkillProgressBlock` 当前只显示最终摘要
+3. **`${CLAUDE_SKILL_DIR}` / `${CLAUDE_SESSION_ID}` / 反引号 shell 替换**—— 更强的 SKILL.md 模板能力（涉及注入安全评估，Hope Agent 下一迭代评估）
 
 ---
 
@@ -1557,15 +1557,15 @@ sequenceDiagram
 推荐用脚手架脚本一键生成骨架——带全部 frontmatter 字段 stub + 按需的 `scripts/` / `references/` / `assets/` 子目录：
 
 ```bash
-python ~/Code/OpenComputer/skills/oc-skill-creator/scripts/init_skill.py my-tool \
+python ~/Code/Hope Agent/skills/oc-skill-creator/scripts/init_skill.py my-tool \
   --resources scripts,references \
   --context fork \
   --examples
 ```
 
-`--path` 缺省时：cwd 在 git 仓库内 → `.opencomputer/skills/<name>/`（项目级），否则 `~/.opencomputer/skills/<name>/`（用户级）。
+`--path` 缺省时：cwd 在 git 仓库内 → `.hope-agent/skills/<name>/`（项目级），否则 `~/.hope-agent/skills/<name>/`（用户级）。
 
-也可以手动：`mkdir -p ~/.opencomputer/skills/my-tool`，然后按下节模板写 SKILL.md。
+也可以手动：`mkdir -p ~/.hope-agent/skills/my-tool`，然后按下节模板写 SKILL.md。
 
 ### 2. 编写 SKILL.md
 

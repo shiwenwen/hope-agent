@@ -74,7 +74,7 @@ export function TemplateGrid({
         )}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <h1 className="text-sm font-semibold tracking-tight text-foreground mt-5">
-            OpenComputer
+            Hope Agent
           </h1>
         </div>
       </div>

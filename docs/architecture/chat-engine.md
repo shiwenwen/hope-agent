@@ -23,12 +23,12 @@
 
 ## 概述
 
-Chat Engine 是 OpenComputer 的对话编排入口，统一处理来自四种来源的请求：
+Chat Engine 是 Hope Agent 的对话编排入口，统一处理来自四种来源的请求：
 
 | 来源 | EventSink 实现 | 说明 |
 |---|---|---|
 | UI 聊天（桌面） | `ChannelSink`（Tauri IPC Channel，定义在 src-tauri） | 用户直接交互（桌面模式） |
-| UI 聊天（HTTP） | `WsSink`（WebSocket，定义在 oc-server） | 用户直接交互（HTTP/WS 模式） |
+| UI 聊天（HTTP） | `WsSink`（WebSocket，定义在 ha-server） | 用户直接交互（HTTP/WS 模式） |
 | IM Channel | `ChannelStreamSink`（EventBus + mpsc） | Telegram / WeChat 等渠道 |
 | Cron 定时任务 | `ChannelSink` / `WsSink` | 定时触发的对话 |
 | ACP 协议 | `ChannelSink` / `WsSink` | IDE 直连 |
@@ -38,7 +38,7 @@ Chat Engine 本身不持有状态，所有依赖通过 `ChatEngineParams` 注入
 ## 模块结构
 
 ```
-crates/oc-core/src/chat_engine/
+crates/ha-core/src/chat_engine/
 ├── mod.rs       模块声明和 re-export
 ├── types.rs     EventSink trait + ChatEngineParams/Result + CapturedUsage
 ├── context.rs   Agent 构建 + 上下文恢复/保存 + 工具事件持久化 + Channel 中继 + 记忆提取
@@ -60,8 +60,8 @@ pub trait EventSink: Send + Sync + 'static {
 三种实现：
 
 - **`ChannelSink`**（定义在 `src-tauri/src/commands/chat.rs`）— 包裹 `tauri::ipc::Channel<String>`，用于桌面模式 UI 直连。事件直接推送到 Tauri WebView 前端
-- **`WsSink`**（定义在 `crates/oc-server/src/routes/chat.rs`）— 通过 WebSocket 推送事件，用于 HTTP/WS 模式 UI 直连
-- **`ChannelStreamSink`**（定义在 `crates/oc-core/src/chat_engine/types.rs`）— 双路输出：(1) 通过 `EventBus` 发布 `channel:stream_delta` 事件推送到前端实时展示；(2) 通过 `mpsc::Sender` 转发到后台任务，驱动 IM 渠道的渐进式消息编辑（如 Telegram 消息实时更新）
+- **`WsSink`**（定义在 `crates/ha-server/src/routes/chat.rs`）— 通过 WebSocket 推送事件，用于 HTTP/WS 模式 UI 直连
+- **`ChannelStreamSink`**（定义在 `crates/ha-core/src/chat_engine/types.rs`）— 双路输出：(1) 通过 `EventBus` 发布 `channel:stream_delta` 事件推送到前端实时展示；(2) 通过 `mpsc::Sender` 转发到后台任务，驱动 IM 渠道的渐进式消息编辑（如 Telegram 消息实时更新）
 
 ### ChatEngineParams
 
@@ -295,7 +295,7 @@ graph TB
 
 | 文件 | 职责 |
 |---|---|
-| `crates/oc-core/src/chat_engine/mod.rs` | 模块声明和 re-export |
-| `crates/oc-core/src/chat_engine/types.rs` | EventSink trait、ChatEngineParams、ChatEngineResult、CapturedUsage |
-| `crates/oc-core/src/chat_engine/context.rs` | Agent 构建、上下文恢复/保存、工具事件持久化、Channel 中继、记忆提取 |
-| `crates/oc-core/src/chat_engine/engine.rs` | `run_chat_engine()` 核心引擎：模型链遍历、重试循环、流式处理、failover |
+| `crates/ha-core/src/chat_engine/mod.rs` | 模块声明和 re-export |
+| `crates/ha-core/src/chat_engine/types.rs` | EventSink trait、ChatEngineParams、ChatEngineResult、CapturedUsage |
+| `crates/ha-core/src/chat_engine/context.rs` | Agent 构建、上下文恢复/保存、工具事件持久化、Channel 中继、记忆提取 |
+| `crates/ha-core/src/chat_engine/engine.rs` | `run_chat_engine()` 核心引擎：模型链遍历、重试循环、流式处理、failover |

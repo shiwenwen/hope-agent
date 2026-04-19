@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 
-本文档完整涵盖 OpenComputer 工具系统的定义、执行流程、结果持久化和权限控制。
+本文档完整涵盖 Hope Agent 工具系统的定义、执行流程、结果持久化和权限控制。
 
 ---
 
@@ -44,7 +44,7 @@ pub struct ToolDefinition {
 
 ## 内置工具清单
 
-本节枚举 OpenComputer 当前内置的全部工具（源码：`crates/oc-core/src/tools/definitions/`）。
+本节枚举 Hope Agent 当前内置的全部工具（源码：`crates/ha-core/src/tools/definitions/`）。
 
 标记含义：
 
@@ -73,7 +73,7 @@ pub struct ToolDefinition {
 | `grep` | always_load, concurrent_safe | 正则/字面量内容搜索，尊重 `.gitignore`。支持 `glob` 过滤、`ignore_case`、`literal`、`context`（上下文行数）、`limit`（默认 100）。 |
 | `find` | always_load, concurrent_safe | 按 glob 模式查找文件，尊重 `.gitignore`。`limit` 默认 1000。 |
 | `apply_patch` | always_load | 使用 `*** Begin Patch / *** End Patch` 格式批量创建/修改/删除/移动文件。支持 `Add File` / `Update File`（`@@` 上下文 + `-/+` 行）/ `Delete File` / `Move to` hunk。 |
-| `project_read_file` | always_load, internal | 读取挂在当前会话所属 Project 下的上传文件（`file_id` 或 `name`）。强制沙箱在 `~/.opencomputer/projects/{id}/extracted/` 下，返回行号分页文本。仅当会话绑定 Project 时生效；非项目文件改用 `read`。 |
+| `project_read_file` | always_load, internal | 读取挂在当前会话所属 Project 下的上传文件（`file_id` 或 `name`）。强制沙箱在 `~/.hope-agent/projects/{id}/extracted/` 下，返回行号分页文本。仅当会话绑定 Project 时生效；非项目文件改用 `read`。 |
 
 ### 3. Web
 
@@ -171,7 +171,7 @@ pub struct ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `send_notification` | 条件注入, internal | 发送系统原生桌面通知。参数：`title`、`body`（必填）。用于主动提醒任务完成或需要用户注意的事件。 |
-| `send_attachment` | always_load, internal | 把生成的文件以可下载卡片形式推送到桌面 UI（PDF / 压缩包 / 日志等二进制）。参数：`path`（必填，绝对路径，上限 20 MB）、`display_name`、`description`。自动复制到 `~/.opencomputer/attachments/{session_id}/`，卡片支持打开 / 文件管理器定位。IM 渠道会话不可用（由渠道插件的原生媒体发送代替）。 |
+| `send_attachment` | always_load, internal | 把生成的文件以可下载卡片形式推送到桌面 UI（PDF / 压缩包 / 日志等二进制）。参数：`path`（必填，绝对路径，上限 20 MB）、`display_name`、`description`。自动复制到 `~/.hope-agent/attachments/{session_id}/`，卡片支持打开 / 文件管理器定位。IM 渠道会话不可用（由渠道插件的原生媒体发送代替）。 |
 | `get_weather` | deferred, internal, concurrent_safe | 通过 Open-Meteo 获取天气（免 API key）。`location` 支持城市名或 `latitude,longitude`，省略时使用用户配置位置。`forecast_days` 1–16（默认 1）。 |
 
 ### 15. 元工具
@@ -189,7 +189,7 @@ pub struct ToolDefinition {
 
 ### Core（always_load，始终发送 schema）
 
-共 16 个。常量定义：[`tools/definitions/types.rs::CORE_TOOL_NAMES`](../../crates/oc-core/src/tools/definitions/types.rs#L120-L136)。
+共 16 个。常量定义：[`tools/definitions/types.rs::CORE_TOOL_NAMES`](../../crates/ha-core/src/tools/definitions/types.rs#L120-L136)。
 
 | 类别 | 工具 |
 |------|------|
@@ -204,7 +204,7 @@ pub struct ToolDefinition {
 
 ### Deferred（按需通过 `tool_search` 发现）
 
-启用延迟加载后，[`get_available_tools()`](../../crates/oc-core/src/tools/definitions/core_tools.rs#L1167-L1174) 在循环末尾给非 core 工具打 `deferred = true` 标记。Provider 层 [`build_tool_schemas()`](../../crates/oc-core/src/agent/mod.rs) 在发送 API 请求时剔除这些 schema，但保留它们在执行 dispatch 表里 —— 模型如果凭名字直接调用仍可执行（容错设计）。
+启用延迟加载后，[`get_available_tools()`](../../crates/ha-core/src/tools/definitions/core_tools.rs#L1167-L1174) 在循环末尾给非 core 工具打 `deferred = true` 标记。Provider 层 [`build_tool_schemas()`](../../crates/ha-core/src/agent/mod.rs) 在发送 API 请求时剔除这些 schema，但保留它们在执行 dispatch 表里 —— 模型如果凭名字直接调用仍可执行（容错设计）。
 
 | 子域 | 工具 |
 |------|------|
@@ -219,7 +219,7 @@ pub struct ToolDefinition {
 
 ### 条件能力工具（不受 deferred 影响）
 
-下列工具**不在** `get_available_tools()` 里，不走 deferred 通道；它们由 [`build_tool_schemas()`](../../crates/oc-core/src/agent/mod.rs#L920-L940) 在分支后**统一按各自的能力开关**按需 push，因此 deferred 模式下也能被模型直接调用：
+下列工具**不在** `get_available_tools()` 里，不走 deferred 通道；它们由 [`build_tool_schemas()`](../../crates/ha-core/src/agent/mod.rs#L920-L940) 在分支后**统一按各自的能力开关**按需 push，因此 deferred 模式下也能被模型直接调用：
 
 | 工具 | 开关 |
 |------|------|
@@ -231,7 +231,7 @@ pub struct ToolDefinition {
 | `job_status` | `asyncTools.enabled` |
 | `tool_search` | `deferredTools.enabled`（仅 deferred 模式） |
 
-> **历史教训**：早期把这些工具仅放在非 deferred 分支的 if 里 push，导致 deferred 模式下"用户开了 canvas 却调不到"——`tool_search` 能返回 schema，但 OpenAI / Codex provider 严格只允许调用 API 请求 `tools` 数组里声明的工具。已在 [`build_tool_schemas()`](../../crates/oc-core/src/agent/mod.rs#L920-L940) 把条件 push 提到分支外修复。
+> **历史教训**：早期把这些工具仅放在非 deferred 分支的 if 里 push，导致 deferred 模式下"用户开了 canvas 却调不到"——`tool_search` 能返回 schema，但 OpenAI / Codex provider 严格只允许调用 API 请求 `tools` 数组里声明的工具。已在 [`build_tool_schemas()`](../../crates/ha-core/src/agent/mod.rs#L920-L940) 把条件 push 提到分支外修复。
 
 ### 发现机制
 
@@ -249,7 +249,7 @@ flowchart LR
 
 ### 判定与标记
 
-[`get_available_tools()`](../../crates/oc-core/src/tools/definitions/core_tools.rs#L1167-L1174) 末尾的 for 循环是单一真源：
+[`get_available_tools()`](../../crates/ha-core/src/tools/definitions/core_tools.rs#L1167-L1174) 末尾的 for 循环是单一真源：
 
 ```rust
 for tool in &mut tools {
@@ -278,7 +278,7 @@ UI 入口：设置 → 对话与上下文 → Deferred Tools。`oc-settings` 技
 
 ## Schema 组装流程
 
-每轮 LLM 请求前，[`AssistantAgent::build_tool_schemas(provider)`](../../crates/oc-core/src/agent/mod.rs#L904-L970) 重新组装 `tools[]` 数组。结果直接进 Anthropic / OpenAI / Codex 的 API 请求体，**模型只能调用最终留在数组里的工具**。
+每轮 LLM 请求前，[`AssistantAgent::build_tool_schemas(provider)`](../../crates/ha-core/src/agent/mod.rs#L904-L970) 重新组装 `tools[]` 数组。结果直接进 Anthropic / OpenAI / Codex 的 API 请求体，**模型只能调用最终留在数组里的工具**。
 
 ```mermaid
 flowchart TD
@@ -341,18 +341,18 @@ flowchart TD
 
 ### 与系统提示词的关系
 
-[`system_prompt/sections.rs:24`](../../crates/oc-core/src/system_prompt/sections.rs#L24) 是**独立**的另一条过滤路径，决定"工具描述段落"里哪些工具被描述：
+[`system_prompt/sections.rs:24`](../../crates/ha-core/src/system_prompt/sections.rs#L24) 是**独立**的另一条过滤路径，决定"工具描述段落"里哪些工具被描述：
 
 ```rust
 .filter(|(name, _)| !deferred_enabled || crate::tools::is_core_tool(name))
 ```
 
 - deferred 模式下系统提示词里只列 `CORE_TOOL_NAMES` 的描述，其他工具描述靠 `tool_search` 返回的 schema 现取
-- 但 `canvas` / `image_generate` 这类条件能力工具的"用法说明"是 `build_full_system_prompt` 里[硬编码的 `# Canvas` / `# Image Generation` 段](../../crates/oc-core/src/agent/mod.rs#L979-L987)，不受这条 filter 影响——所以模型在 deferred 模式下依然知道怎么用它们
+- 但 `canvas` / `image_generate` 这类条件能力工具的"用法说明"是 `build_full_system_prompt` 里[硬编码的 `# Canvas` / `# Image Generation` 段](../../crates/ha-core/src/agent/mod.rs#L979-L987)，不受这条 filter 影响——所以模型在 deferred 模式下依然知道怎么用它们
 
 ### 与 tool_search 的关系
 
-`tool_search` 的 [`collect_extra_tools()`](../../crates/oc-core/src/tools/tool_search.rs#L107-L120) 把所有条件能力工具（含 `acp_spawn`）都无条件加进可发现池，这是为模型"探索可用能力"准备的。但**发现 ≠ 可调用**——只有同时出现在 `build_tool_schemas` 输出里的工具，模型才能在下一轮真正发起 tool_call。两者解耦后允许 `acp_spawn` 这种"高级特性"只通过 tool_search 暴露，普通会话不污染 schemas。
+`tool_search` 的 [`collect_extra_tools()`](../../crates/ha-core/src/tools/tool_search.rs#L107-L120) 把所有条件能力工具（含 `acp_spawn`）都无条件加进可发现池，这是为模型"探索可用能力"准备的。但**发现 ≠ 可调用**——只有同时出现在 `build_tool_schemas` 输出里的工具，模型才能在下一轮真正发起 tool_call。两者解耦后允许 `acp_spawn` 这种"高级特性"只通过 tool_search 暴露，普通会话不污染 schemas。
 
 ---
 
@@ -442,7 +442,7 @@ stateDiagram-v2
 
 ### Job 持久化
 
-独立 SQLite 文件 `~/.opencomputer/async_jobs.db`（`async_jobs/db.rs`），不和 session DB 共享锁，避免热路径阻塞：
+独立 SQLite 文件 `~/.hope-agent/async_jobs.db`（`async_jobs/db.rs`），不和 session DB 共享锁，避免热路径阻塞：
 
 ```sql
 CREATE TABLE async_tool_jobs (
@@ -463,7 +463,7 @@ CREATE TABLE async_tool_jobs (
 );
 ```
 
-**大结果 spool**：超过 `asyncTools.inlineResultBytes`（默认 4096）的输出写到 `~/.opencomputer/async_jobs/{job_id}.txt`，DB 只存 head/tail 预览 + 路径。后续 `job_status` / 注入消息引用磁盘路径，模型可以用 `read` 工具拉全文。
+**大结果 spool**：超过 `asyncTools.inlineResultBytes`（默认 4096）的输出写到 `~/.hope-agent/async_jobs/{job_id}.txt`，DB 只存 head/tail 预览 + 路径。后续 `job_status` / 注入消息引用磁盘路径，模型可以用 `read` 工具拉全文。
 
 ### Synthetic 响应格式
 
@@ -557,18 +557,18 @@ sequenceDiagram
 
 | 文件 | 职责 |
 |------|------|
-| `crates/oc-core/src/async_jobs/mod.rs` | `set_async_jobs_db` / `replay_pending_jobs` 入口 |
-| `crates/oc-core/src/async_jobs/types.rs` | `AsyncJob` / `AsyncJobStatus` / `JobOrigin` |
-| `crates/oc-core/src/async_jobs/db.rs` | 独立 SQLite 表 + CRUD |
-| `crates/oc-core/src/async_jobs/spawn.rs` | `spawn_explicit_job`、`dispatch_with_auto_background`、相位机、result spool |
-| `crates/oc-core/src/async_jobs/injection.rs` | 注入消息构造 + 复用 `subagent::injection::inject_and_run_parent` |
-| `crates/oc-core/src/tools/job_status.rs` | `job_status` 工具实现（snapshot / blocking） |
-| `crates/oc-core/src/tools/execution.rs` | `decide_async_path` + 三道闸路由 + `bypass_async_dispatch` 递归保护 |
-| `crates/oc-core/src/tools/definitions/types.rs` | `ToolDefinition.async_capable` + schema 自动注入 `run_in_background` |
-| `crates/oc-core/src/system_prompt/sections.rs` | `build_async_tools_section` 教模型何时使用 / 怎么解析 `<tool-job-result>` |
-| `crates/oc-core/src/config/mod.rs` | `AsyncToolsConfig` |
-| `crates/oc-core/src/agent_config.rs` | `AsyncToolPolicy` 枚举 + `CapabilitiesConfig.async_tool_policy` |
-| `crates/oc-core/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
+| `crates/ha-core/src/async_jobs/mod.rs` | `set_async_jobs_db` / `replay_pending_jobs` 入口 |
+| `crates/ha-core/src/async_jobs/types.rs` | `AsyncJob` / `AsyncJobStatus` / `JobOrigin` |
+| `crates/ha-core/src/async_jobs/db.rs` | 独立 SQLite 表 + CRUD |
+| `crates/ha-core/src/async_jobs/spawn.rs` | `spawn_explicit_job`、`dispatch_with_auto_background`、相位机、result spool |
+| `crates/ha-core/src/async_jobs/injection.rs` | 注入消息构造 + 复用 `subagent::injection::inject_and_run_parent` |
+| `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具实现（snapshot / blocking） |
+| `crates/ha-core/src/tools/execution.rs` | `decide_async_path` + 三道闸路由 + `bypass_async_dispatch` 递归保护 |
+| `crates/ha-core/src/tools/definitions/types.rs` | `ToolDefinition.async_capable` + schema 自动注入 `run_in_background` |
+| `crates/ha-core/src/system_prompt/sections.rs` | `build_async_tools_section` 教模型何时使用 / 怎么解析 `<tool-job-result>` |
+| `crates/ha-core/src/config/mod.rs` | `AsyncToolsConfig` |
+| `crates/ha-core/src/agent_config.rs` | `AsyncToolPolicy` 枚举 + `CapabilitiesConfig.async_tool_policy` |
+| `crates/ha-core/src/paths.rs` | `async_jobs_db_path` / `async_jobs_dir` / `async_job_result_path` |
 
 ---
 
@@ -577,14 +577,14 @@ sequenceDiagram
 当工具返回结果超过阈值时，自动写入磁盘：
 
 - **阈值**：默认 50KB，通过 `config.json` → `toolResultDiskThreshold` 配置（0 = 禁用）
-- **存储路径**：`~/.opencomputer/tool_results/{session_id}/{tool_name}_{timestamp}.txt`
+- **存储路径**：`~/.hope-agent/tool_results/{session_id}/{tool_name}_{timestamp}.txt`
 - **上下文内容**：head 2KB + `[...N bytes omitted...]` + tail 1KB + 路径引用
 - **访问方式**：模型可通过 read 工具读取完整文件
 
 ```mermaid
 flowchart TD
     A["工具返回 200KB 结果"] --> B{"result.len() > threshold (50KB)?"}
-    B -- 是 --> C["写入磁盘:<br/>~/.opencomputer/tool_results/sess_abc/read_1712345678.txt"]
+    B -- 是 --> C["写入磁盘:<br/>~/.hope-agent/tool_results/sess_abc/read_1712345678.txt"]
     C --> D["返回给模型:<br/>[前 2000 字符]<br/>[...197000 bytes omitted...]<br/>[后 1000 字符]<br/>[Full result saved to: ...]<br/>[Use read tool to access full content]"]
     B -- 否 --> E["原文返回给模型"]
 ```
@@ -761,7 +761,7 @@ flowchart TD
     PlanCheck -- 否 --> Execute[🔧 执行工具]
     PlanCheck -- 是 --> IsPathAware{是 write/edit/<br/>apply_patch？}
     IsPathAware -- 否 --> Execute
-    IsPathAware -- 是 --> PathAllowed{is_plan_mode_path_allowed?<br/><small>.opencomputer/plans/*.md</small>}
+    IsPathAware -- 是 --> PathAllowed{is_plan_mode_path_allowed?<br/><small>.hope-agent/plans/*.md</small>}
     PathAllowed -- 是 --> Execute
     PathAllowed -- 否 --> PlanDenied[❌ Plan Mode restriction<br/>cannot modify file]
 
@@ -831,7 +831,7 @@ flowchart TD
     style ExecAskAuto fill:#fff3cd,stroke:#ffc107
 ```
 
-**Allowlist 持久化文件**：`~/.opencomputer/exec-approvals.json`
+**Allowlist 持久化文件**：`~/.hope-agent/exec-approvals.json`
 **匹配规则**：`extract_command_prefix()` 提取命令首个空格前的单词作为 pattern，前缀匹配。
 
 ---
@@ -895,14 +895,14 @@ if !ctx.plan_mode_allow_paths.is_empty() {
 
 ```
 文件扩展名不是 .md → 拒绝
-路径包含 ".opencomputer/plans/" → 允许
+路径包含 ".hope-agent/plans/" → 允许
 路径以 plans_dir()（解析后的绝对路径）开头 → 允许
 其他 → 拒绝
 ```
 
 允许的路径范围：
-- 项目本地：`<project>/.opencomputer/plans/*.md`
-- 全局目录：`~/.opencomputer/plans/*.md`
+- 项目本地：`<project>/.hope-agent/plans/*.md`
+- 全局目录：`~/.hope-agent/plans/*.md`
 - 自定义：`plansDirectory` 配置覆盖的目录下 `*.md`
 
 这是一个**独立于审批的硬限制**，即使审批通过也会被拦截。
@@ -995,22 +995,22 @@ block-beta
 
 | 文件 | 职责 |
 |------|------|
-| `crates/oc-core/src/tools/approval.rs` | ToolPermissionMode 定义、审批请求/响应、Allowlist 管理 |
-| `crates/oc-core/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
-| `crates/oc-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
-| `crates/oc-core/src/tools/definitions/registry.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()` / `is_async_capable()` / `is_concurrent_safe()` |
-| `crates/oc-core/src/async_jobs/` | 异步 Tool 执行（types/db/spawn/injection），独立 `~/.opencomputer/async_jobs.db` |
-| `crates/oc-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 per-job `Notify` + 100ms→×1.5→2s 退避轮询兜底 |
-| `crates/oc-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`CapabilitiesConfig.require_approval`、`SubagentConfig.denied_tools` |
-| `crates/oc-core/src/agent/mod.rs` | `build_tool_schemas()` 统一过滤 schema；`tool_context()` 构建 ToolExecContext，传递 require_approval 与工具限制 |
-| `crates/oc-core/src/agent/providers/*.rs` | 消费已过滤后的 `tool_schemas` 并发送 API 请求 |
-| `crates/oc-core/src/system_prompt/` | `build_tools_section()` 按 FilterConfig 过滤提示词 |
-| `crates/oc-core/src/tools/tool_search.rs` | `tool_search` 按当前 Agent/Skill/Plan 限制过滤可发现工具 |
-| `crates/oc-core/src/tools/execution.rs` | 工具执行前按当前限制做 defense-in-depth 校验 |
+| `crates/ha-core/src/tools/approval.rs` | ToolPermissionMode 定义、审批请求/响应、Allowlist 管理 |
+| `crates/ha-core/src/tools/execution.rs` | 统一审批门（`execute_tool_with_context`）、Plan Mode 路径检查 |
+| `crates/ha-core/src/tools/exec.rs` | exec 独立命令级审批逻辑 |
+| `crates/ha-core/src/tools/definitions/registry.rs` | Internal Tool 集合（`INTERNAL_TOOL_NAMES`）、`is_internal_tool()` / `is_async_capable()` / `is_concurrent_safe()` |
+| `crates/ha-core/src/async_jobs/` | 异步 Tool 执行（types/db/spawn/injection），独立 `~/.hope-agent/async_jobs.db` |
+| `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具：snapshot / 阻塞等待 per-job `Notify` + 100ms→×1.5→2s 退避轮询兜底 |
+| `crates/ha-core/src/agent_config.rs` | `FilterConfig`（allow/deny）、`CapabilitiesConfig.require_approval`、`SubagentConfig.denied_tools` |
+| `crates/ha-core/src/agent/mod.rs` | `build_tool_schemas()` 统一过滤 schema；`tool_context()` 构建 ToolExecContext，传递 require_approval 与工具限制 |
+| `crates/ha-core/src/agent/providers/*.rs` | 消费已过滤后的 `tool_schemas` 并发送 API 请求 |
+| `crates/ha-core/src/system_prompt/` | `build_tools_section()` 按 FilterConfig 过滤提示词 |
+| `crates/ha-core/src/tools/tool_search.rs` | `tool_search` 按当前 Agent/Skill/Plan 限制过滤可发现工具 |
+| `crates/ha-core/src/tools/execution.rs` | 工具执行前按当前限制做 defense-in-depth 校验 |
 | `src-tauri/src/commands/chat.rs` | Tauri 命令层：解析前端 tool_permission_mode 参数并设置全局模式 |
-| `crates/oc-server/src/routes/chat.rs` | HTTP 路由层：REST API + WebSocket 流式推送 |
+| `crates/ha-server/src/routes/chat.rs` | HTTP 路由层：REST API + WebSocket 流式推送 |
 | `src/components/chat/ChatInput.tsx` | 盾牌按钮 UI（三态切换） |
 | `src/components/chat/ApprovalDialog.tsx` | 审批弹窗 UI |
 | `src/components/settings/agent-panel/tabs/CapabilitiesTab.tsx` | Agent 能力配置 UI（工具注入 / 审批 / 技能） |
-| `crates/oc-core/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
+| `crates/ha-core/src/channel/worker/approval.rs` | IM Channel 审批交互（EventBus 监听、按钮/文本发送、回调处理） |
 | `src/components/settings/channel-panel/EditAccountDialog.tsx` | Channel 设置中的 auto_approve_tools 开关 |
