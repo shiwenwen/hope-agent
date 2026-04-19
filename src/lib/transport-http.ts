@@ -253,6 +253,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   canvas_submit_snapshot:          { method: "POST",   path: "/api/canvas/snapshot/{requestId}" },
   canvas_submit_eval_result:       { method: "POST",   path: "/api/canvas/eval/{requestId}" },
   show_canvas_panel:               { method: "POST",   path: "/api/canvas/show" },
+  list_canvas_projects_by_session: { method: "GET",    path: "/api/canvas/by-session/{sessionId}" },
 
   // -- Image generation --
   get_image_generate_config:       { method: "GET",    path: "/api/config/image-generate" },

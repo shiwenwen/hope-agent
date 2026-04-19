@@ -431,6 +431,7 @@ pub fn run() {
             tauri_wrappers::get_canvas_config,
             tauri_wrappers::save_canvas_config,
             tauri_wrappers::list_canvas_projects,
+            tauri_wrappers::list_canvas_projects_by_session,
             tauri_wrappers::get_canvas_project,
             tauri_wrappers::delete_canvas_project,
             tauri_wrappers::show_canvas_panel,

@@ -882,6 +882,10 @@ fn build_router_with_cors(
             post(routes::canvas::canvas_submit_eval_result),
         )
         .route("/canvas/show", post(routes::canvas::show_canvas_panel))
+        .route(
+            "/canvas/by-session/{session_id}",
+            get(routes::canvas::list_canvas_projects_by_session),
+        )
         // Providers extras
         .route(
             "/providers/available-models",

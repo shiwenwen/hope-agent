@@ -1,7 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import {
   ChevronRight,
   SquareTerminal,
@@ -40,8 +39,7 @@ import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
-import { useLightbox } from "@/components/common/ImageLightbox"
-import FileCard from "@/components/chat/message/FileCard"
+import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 
 /** Map tool name → Lucide icon component */
 const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -231,7 +229,6 @@ function formatRawCall(tool: ToolCall): string {
 
 export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimmer?: boolean }) {
   const { t } = useTranslation()
-  const { openLightbox } = useLightbox()
   const [expanded, setExpanded] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -373,55 +370,7 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
           </span>
         </IconTip>
       </button>
-      {tool.mediaItems && tool.mediaItems.length > 0 && (
-        <div className="ml-5 mt-1.5 mb-1 flex flex-wrap gap-2">
-          {tool.mediaItems.map((item, i) => {
-            if (item.kind !== "image") return <FileCard key={i} item={item} />
-            const src = getTransport().resolveMediaUrl(item)
-            if (!src) return <FileCard key={i} item={item} />
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => openLightbox(src, item.name)}
-                className="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/40 transition-colors cursor-zoom-in"
-              >
-                <img
-                  src={src}
-                  alt={item.name}
-                  className="max-w-72 max-h-72 object-contain bg-secondary/30"
-                  loading="lazy"
-                />
-              </button>
-            )
-          })}
-        </div>
-      )}
-      {/* Legacy `mediaUrls` from pre-migration `image_generate`: Tauri-only
-          absolute paths that the HTTP client can't reach. */}
-      {!tool.mediaItems?.length && tool.mediaUrls && tool.mediaUrls.length > 0 && (
-        <div className="ml-5 mt-1.5 mb-1 flex flex-wrap gap-2">
-          {tool.mediaUrls.map((url, i) => {
-            const src = url.startsWith("/") && !url.startsWith("/api/") ? convertFileSrc(url) : ""
-            if (!src) return null
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => openLightbox(src, `Generated image ${i + 1}`)}
-                className="block rounded-lg overflow-hidden border border-border/50 hover:border-primary/40 transition-colors cursor-zoom-in"
-              >
-                <img
-                  src={src}
-                  alt={`Generated image ${i + 1}`}
-                  className="max-w-72 max-h-72 object-contain bg-secondary/30"
-                  loading="lazy"
-                />
-              </button>
-            )
-          })}
-        </div>
-      )}
+      <ToolMediaPreview tool={tool} className="ml-5" />
       {/* ask_user_question answers card */}
       {askUserOutcome && !isRunning && (
         <div className="ml-5 mt-1.5 mb-1 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 space-y-1.5 text-xs">

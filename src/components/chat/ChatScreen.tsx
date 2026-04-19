@@ -923,7 +923,11 @@ export default function ChatScreen({
       )}
 
       {/* Canvas Preview Panel */}
-      <CanvasPanel panelWidth={canvasPanelWidth} onPanelWidthChange={setCanvasPanelWidth} />
+      <CanvasPanel
+        panelWidth={canvasPanelWidth}
+        onPanelWidthChange={setCanvasPanelWidth}
+        currentSessionId={currentSessionId}
+      />
 
       {/* Team Panel */}
       {activeTeamId && showTeamPanel && (

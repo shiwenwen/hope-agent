@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use crate::canvas_db::CanvasDB;
+use crate::canvas_db::{CanvasDB, CanvasProject};
 use crate::paths;
 use crate::tools::browser::IMAGE_BASE64_PREFIX;
 
@@ -86,16 +86,27 @@ fn emit_canvas_event(event_name: &str, payload: &Value) {
     }
 }
 
-/// Build a canvas_show event payload with the project path resolved.
-fn build_show_payload(project_id: &str, title: &str, content_type: &str) -> Value {
-    let project_path = paths::canvas_project_dir(project_id)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_default();
+fn resolve_project_path(project_id: &str) -> String {
+    paths::canvas_project_dir(project_id)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// Build a canvas_show event payload with the project path + owning session
+/// resolved. The frontend uses `sessionId` to ignore events that belong to a
+/// session other than the one the user is currently viewing.
+fn build_show_payload(
+    project_id: &str,
+    title: &str,
+    content_type: &str,
+    session_id: Option<&str>,
+) -> Value {
     serde_json::json!({
         "projectId": project_id,
         "title": title,
         "contentType": content_type,
-        "projectPath": project_path,
+        "projectPath": resolve_project_path(project_id),
+        "sessionId": session_id,
     })
 }
 
@@ -168,7 +179,12 @@ async fn action_create(args: &Value, ctx: &super::execution::ToolExecContext) ->
     if crate::config::cached_config().canvas.auto_show {
         emit_canvas_event(
             "canvas_show",
-            &build_show_payload(&project.id, &project.title, &project.content_type),
+            &build_show_payload(
+                &project.id,
+                &project.title,
+                &project.content_type,
+                project.session_id.as_deref(),
+            ),
         );
     }
 
@@ -253,7 +269,12 @@ async fn action_show(args: &Value) -> Result<String> {
 
     emit_canvas_event(
         "canvas_show",
-        &build_show_payload(&project.id, &project.title, &project.content_type),
+        &build_show_payload(
+            &project.id,
+            &project.title,
+            &project.content_type,
+            project.session_id.as_deref(),
+        ),
     );
 
     Ok(serde_json::json!({
@@ -639,6 +660,33 @@ pub async fn list_canvas_projects() -> Result<String, String> {
     serde_json::to_string(&projects).map_err(|e| e.to_string())
 }
 
+/// Project + resolved on-disk path. Frontend needs the path to render the
+/// canvas iframe without going through a `canvas_show` event roundtrip.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanvasProjectView {
+    #[serde(flatten)]
+    pub project: CanvasProject,
+    pub project_path: String,
+}
+
+pub async fn list_canvas_projects_by_session(
+    session_id: String,
+) -> Result<Vec<CanvasProjectView>, String> {
+    let db = get_canvas_db().map_err(|e| e.to_string())?;
+    let projects = db
+        .list_projects_by_session(&session_id)
+        .map_err(|e| e.to_string())?;
+    let views = projects
+        .into_iter()
+        .map(|p| CanvasProjectView {
+            project_path: resolve_project_path(&p.id),
+            project: p,
+        })
+        .collect();
+    Ok(views)
+}
+
 pub async fn get_canvas_project(project_id: String) -> Result<String, String> {
     let db = get_canvas_db().map_err(|e| e.to_string())?;
     let project = db.get_project(&project_id).map_err(|e| e.to_string())?;
@@ -658,7 +706,12 @@ pub async fn show_canvas_panel(project_id: String) -> Result<(), String> {
         .ok_or_else(|| format!("Canvas project '{}' not found", project_id))?;
     emit_canvas_event(
         "canvas_show",
-        &build_show_payload(&project.id, &project.title, &project.content_type),
+        &build_show_payload(
+            &project.id,
+            &project.title,
+            &project.content_type,
+            project.session_id.as_deref(),
+        ),
     );
     Ok(())
 }

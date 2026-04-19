@@ -46,3 +46,13 @@ pub async fn canvas_submit_eval_result(
 pub async fn show_canvas_panel(Json(_body): Json<Value>) -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "ok": true, "note": "desktop-only" })))
 }
+
+/// `GET /api/canvas/by-session/{session_id}` — list canvas projects bound to a session.
+pub async fn list_canvas_projects_by_session(
+    Path(session_id): Path<String>,
+) -> Result<Json<Vec<oc_core::tools::canvas::CanvasProjectView>>, AppError> {
+    let projects = oc_core::tools::canvas::list_canvas_projects_by_session(session_id)
+        .await
+        .map_err(AppError::internal)?;
+    Ok(Json(projects))
+}

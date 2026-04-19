@@ -44,6 +44,24 @@ pub struct CanvasVersion {
 
 // ── Database ───────────────────────────────────────────────────────
 
+const PROJECT_COLUMNS: &str =
+    "SELECT id, title, content_type, session_id, agent_id, created_at, updated_at, version_count, metadata
+     FROM canvas_projects";
+
+fn map_project_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CanvasProject> {
+    Ok(CanvasProject {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        content_type: row.get(2)?,
+        session_id: row.get(3)?,
+        agent_id: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+        version_count: row.get(7)?,
+        metadata: row.get(8)?,
+    })
+}
+
 pub struct CanvasDB {
     conn: Mutex<Connection>,
 }
@@ -80,7 +98,10 @@ impl CanvasDB {
             );
 
             CREATE INDEX IF NOT EXISTS idx_canvas_versions_project
-                ON canvas_versions(project_id, version_number DESC);",
+                ON canvas_versions(project_id, version_number DESC);
+
+            CREATE INDEX IF NOT EXISTS idx_canvas_projects_session
+                ON canvas_projects(session_id, updated_at DESC);",
         )?;
 
         Ok(Self {
@@ -118,23 +139,8 @@ impl CanvasDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, title, content_type, session_id, agent_id, created_at, updated_at, version_count, metadata
-             FROM canvas_projects WHERE id = ?1",
-        )?;
-        let mut rows = stmt.query_map(rusqlite::params![id], |row| {
-            Ok(CanvasProject {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                content_type: row.get(2)?,
-                session_id: row.get(3)?,
-                agent_id: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-                version_count: row.get(7)?,
-                metadata: row.get(8)?,
-            })
-        })?;
+        let mut stmt = conn.prepare(&format!("{PROJECT_COLUMNS} WHERE id = ?1"))?;
+        let mut rows = stmt.query_map(rusqlite::params![id], map_project_row)?;
         match rows.next() {
             Some(Ok(p)) => Ok(Some(p)),
             Some(Err(e)) => Err(e.into()),
@@ -147,23 +153,20 @@ impl CanvasDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, title, content_type, session_id, agent_id, created_at, updated_at, version_count, metadata
-             FROM canvas_projects ORDER BY updated_at DESC",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            Ok(CanvasProject {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                content_type: row.get(2)?,
-                session_id: row.get(3)?,
-                agent_id: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-                version_count: row.get(7)?,
-                metadata: row.get(8)?,
-            })
-        })?;
+        let mut stmt = conn.prepare(&format!("{PROJECT_COLUMNS} ORDER BY updated_at DESC"))?;
+        let rows = stmt.query_map([], map_project_row)?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    }
+
+    pub fn list_projects_by_session(&self, session_id: &str) -> Result<Vec<CanvasProject>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("CanvasDB lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(&format!(
+            "{PROJECT_COLUMNS} WHERE session_id = ?1 ORDER BY updated_at DESC"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params![session_id], map_project_row)?;
         rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
     }
 

@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
+import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 
 /** Grouping categories */
 type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
@@ -228,6 +229,7 @@ function GroupItem({ tool }: { tool: ToolCall }) {
           </span>
         </IconTip>
       </button>
+      <ToolMediaPreview tool={tool} className="ml-4" />
       {/* Raw tool call */}
       <div
         className={cn(

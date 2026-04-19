@@ -23,6 +23,9 @@ const NO_GROUP_TOOLS = new Set([
   "subagent",
   // skill activations get their own SkillProgressBlock renderer.
   "skill",
+  // canvas has a dedicated reopen-card UI in ToolCallBlock; GroupItem
+  // doesn't render it, so keep canvas out of the group path.
+  "canvas",
 ])
 
 /** Extract zero or more subagent runs from a tool_call block. Handles:

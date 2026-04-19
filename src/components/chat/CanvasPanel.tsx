@@ -23,12 +23,44 @@ interface CanvasInfo {
   projectPath?: string
 }
 
+interface CanvasShowPayload {
+  projectId: string
+  title?: string
+  contentType?: string
+  projectPath?: string
+  sessionId?: string | null
+}
+
+interface CanvasProjectView {
+  id: string
+  title: string
+  contentType: string
+  projectPath?: string
+  sessionId?: string
+}
+
+function toCanvasInfo(
+  src: { id?: string; projectId?: string } & Omit<CanvasShowPayload, "projectId">,
+): CanvasInfo {
+  return {
+    projectId: (src.projectId ?? src.id ?? "") as string,
+    title: src.title || "Canvas",
+    contentType: src.contentType || "html",
+    projectPath: src.projectPath,
+  }
+}
+
 interface CanvasPanelProps {
   panelWidth?: number
   onPanelWidthChange?: (width: number) => void
+  currentSessionId?: string | null
 }
 
-export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: CanvasPanelProps) {
+export default function CanvasPanel({
+  panelWidth = 480,
+  onPanelWidthChange,
+  currentSessionId = null,
+}: CanvasPanelProps) {
   const { t } = useTranslation()
   const [canvas, setCanvas] = useState<CanvasInfo | null>(null)
   const [maximized, setMaximized] = useState(false)
@@ -36,6 +68,13 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [refreshKey, setRefreshKey] = useState(0)
   const detachedWindowRef = useRef<WebviewWindow | null>(null)
+  // Read by canvas_show listener to ignore events fired from other sessions
+  // (e.g. cron/channel/subagent tool calls that emit canvas_show globally).
+  // ref so the listener is not re-subscribed on every session switch.
+  const currentSessionIdRef = useRef<string | null>(currentSessionId)
+  useEffect(() => {
+    currentSessionIdRef.current = currentSessionId
+  }, [currentSessionId])
 
   const handleSnapshotRequest = useCallback((requestId: string) => {
     const iframe = iframeRef.current
@@ -82,24 +121,51 @@ export default function CanvasPanel({ panelWidth = 480, onPanelWidthChange }: Ca
     }
   }, [canvas, detached])
 
+  // Restore canvas when switching sessions: query the session's canvas
+  // projects and adopt the most recent one. Backend `canvas_show` events
+  // only fire when the model actively creates/shows a canvas — entering
+  // a historical session emits no event, so the panel would otherwise
+  // stay empty (or stuck on the previous session's canvas).
+  useEffect(() => {
+    if (!currentSessionId) {
+      queueMicrotask(() => setCanvas(null))
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const projects = await getTransport().call<CanvasProjectView[]>(
+          "list_canvas_projects_by_session",
+          { sessionId: currentSessionId },
+        )
+        if (cancelled) return
+        if (!projects || projects.length === 0) {
+          setCanvas(null)
+          return
+        }
+        setCanvas(toCanvasInfo(projects[0]))
+      } catch {
+        if (!cancelled) setCanvas(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [currentSessionId])
+
   // Listen for canvas events from backend
   useEffect(() => {
     const unlisteners: Array<() => void> = []
 
     unlisteners.push(getTransport().listen("canvas_show", (raw) => {
       try {
-        const data = parsePayload<{
-          projectId: string
-          title?: string
-          contentType?: CanvasInfo["contentType"]
-          projectPath?: string
-        }>(raw)
-        setCanvas({
-          projectId: data.projectId,
-          title: data.title || "Canvas",
-          contentType: data.contentType || "html",
-          projectPath: data.projectPath,
-        })
+        const data = parsePayload<CanvasShowPayload>(raw)
+        // Drop events from other sessions (e.g. cron / IM / subagent tool
+        // calls). Older payloads without sessionId still pass through.
+        if (data.sessionId && data.sessionId !== currentSessionIdRef.current) {
+          return
+        }
+        setCanvas(toCanvasInfo(data))
       } catch {
         /* ignore parse errors */
       }

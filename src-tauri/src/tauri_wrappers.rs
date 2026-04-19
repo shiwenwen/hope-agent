@@ -103,6 +103,13 @@ pub async fn list_canvas_projects() -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn list_canvas_projects_by_session(
+    session_id: String,
+) -> Result<Vec<oc_core::tools::canvas::CanvasProjectView>, String> {
+    oc_core::tools::canvas::list_canvas_projects_by_session(session_id).await
+}
+
+#[tauri::command]
 pub async fn get_canvas_project(project_id: String) -> Result<String, String> {
     oc_core::tools::canvas::get_canvas_project(project_id).await
 }
