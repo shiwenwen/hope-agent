@@ -211,14 +211,27 @@ pub struct ToolDefinition {
 | 记忆 | `save_memory`, `recall_memory`, `update_memory`, `delete_memory`, `memory_get`, `update_core_memory` |
 | 设置 | `get_settings`, `update_settings`, `list_settings_backups`, `restore_settings_backup` |
 | 跨会话 | `sessions_list`, `session_status`, `sessions_history`, `sessions_send`, `peek_sessions` |
-| 子 Agent / Team | `agents_list`, `subagent`, `team`, `acp_spawn` |
+| 子 Agent / Team | `agents_list`, `team`, `acp_spawn` |
 | 浏览器 | `browser` |
-| 网络 | `web_fetch`, `web_search` |
-| 多模态 | `image`, `pdf`, `image_generate` |
-| Canvas | `canvas` |
-| 定时 / 天气 / 通知 | `manage_cron`, `get_weather`, `send_notification` |
+| 网络 | `web_fetch` |
+| 多模态 | `image`, `pdf` |
+| 定时 / 天气 | `manage_cron`, `get_weather` |
 
-> 注：`subagent` / `image_generate` / `web_search` / `canvas` / `acp_spawn` / `send_notification` 本身是**条件注入**（依赖 Agent 能力开关或对应功能启用），开启 deferred loading 后这些条件注入工具同样按 deferred 处理。
+### 条件能力工具（不受 deferred 影响）
+
+下列工具**不在** `get_available_tools()` 里，不走 deferred 通道；它们由 [`build_tool_schemas()`](../../crates/oc-core/src/agent/mod.rs#L920-L940) 在分支后**统一按各自的能力开关**按需 push，因此 deferred 模式下也能被模型直接调用：
+
+| 工具 | 开关 |
+|------|------|
+| `web_search` | `web_search_enabled` |
+| `send_notification` | `notification_enabled` |
+| `image_generate` | `image_gen_config` 已配置 |
+| `canvas` | `canvas_enabled` |
+| `subagent` | `subagent_tool_enabled()` |
+| `job_status` | `asyncTools.enabled` |
+| `tool_search` | `deferredTools.enabled`（仅 deferred 模式） |
+
+> **历史教训**：早期把这些工具仅放在非 deferred 分支的 if 里 push，导致 deferred 模式下"用户开了 canvas 却调不到"——`tool_search` 能返回 schema，但 OpenAI / Codex provider 严格只允许调用 API 请求 `tools` 数组里声明的工具。已在 [`build_tool_schemas()`](../../crates/oc-core/src/agent/mod.rs#L920-L940) 把条件 push 提到分支外修复。
 
 ### 发现机制
 
@@ -260,6 +273,86 @@ for tool in &mut tools {
 | `max_results` | `5` | `tool_search` 单次返回的 schema 数上限（运行时再被参数 clamp 到 ≤20）|
 
 UI 入口：设置 → 对话与上下文 → Deferred Tools。`oc-settings` 技能：`update_settings(category="deferred_tools", values={enabled: true})`。
+
+---
+
+## Schema 组装流程
+
+每轮 LLM 请求前，[`AssistantAgent::build_tool_schemas(provider)`](../../crates/oc-core/src/agent/mod.rs#L904-L970) 重新组装 `tools[]` 数组。结果直接进 Anthropic / OpenAI / Codex 的 API 请求体，**模型只能调用最终留在数组里的工具**。
+
+```mermaid
+flowchart TD
+    Start([build_tool_schemas provider]) --> ReadCfg[读取<br/>deferredTools.enabled<br/>agent_caps]
+
+    ReadCfg --> Branch{deferred_enabled?}
+
+    Branch -- 否 --> Full["get_tools_for_provider<br/><small>get_available_tools 全量<br/>含 team / peek_sessions / browser / save_memory ...</small>"]
+    Branch -- 是 --> Core["get_core_tools_for_provider<br/><small>过滤 deferred=true<br/>仅留 CORE_TOOL_NAMES + skill</small>"]
+    Core --> AddSearch["push tool_search<br/><small>always_load 元工具</small>"]
+
+    Full --> CondGroup
+    AddSearch --> CondGroup
+
+    subgraph CondGroup ["条件能力工具（按开关 push，与 deferred 无关）"]
+        direction TB
+        C1{web_search_enabled?} -- 是 --> P1[push web_search]
+        C2{notification_enabled?} -- 是 --> P2[push send_notification]
+        C3{image_gen_config?} -- 是 --> P3[push image_generate<br/><small>动态 schema 含 provider 能力</small>]
+        C4{canvas_enabled?} -- 是 --> P4[push canvas]
+        C5{subagent_tool_enabled?} -- 是 --> P5[push subagent]
+    end
+
+    CondGroup --> Async{asyncTools.enabled?}
+    Async -- 是 --> AddJob[push job_status<br/><small>异步 job 查询入口</small>]
+    Async -- 否 --> Plan
+    AddJob --> Plan
+
+    Plan["apply_plan_tools<br/><small>按 PlanAgentMode 分支</small>"] --> PlanBranch{PlanAgentMode}
+    PlanBranch -- "Off" --> Filter
+    PlanBranch -- "PlanAgent" --> PA["push submit_plan<br/>retain 仅 plan allowed_tools"]
+    PlanBranch -- "ExecutingAgent" --> EA["按 extra_tools<br/>push update_plan_step / amend_plan"]
+    PA --> Filter
+    EA --> Filter
+
+    Filter["schemas.retain<br/><small>tool_visible_with_filters 多维过滤</small>"] --> FD[依次 AND:<br/>1. agent FilterConfig allow/deny<br/>2. denied_tools 子 Agent 拒绝<br/>3. skill_allowed_tools 技能裁剪<br/>4. plan_allowed_tools Plan 白名单<br/>internal 工具该层始终保留]
+
+    FD --> Done([最终 tool_schemas → API 请求])
+
+    style Start fill:#cfe2ff,stroke:#0d6efd
+    style Branch fill:#fff3cd,stroke:#ffc107
+    style CondGroup fill:#fff3cd,stroke:#ffc107
+    style Filter fill:#fce4ec,stroke:#e91e63
+    style FD fill:#fce4ec,stroke:#e91e63
+    style Done fill:#d4edda,stroke:#28a745
+```
+
+### 三个易混淆的"开关"对比
+
+| 维度 | 控制谁 | 决策位置 |
+|------|--------|----------|
+| `deferred=true / always_load=true` 标记 | 工具是否进入 deferred 池 | `get_available_tools()` 末尾 for 循环按 `CORE_TOOL_NAMES` 自动覆写 |
+| `deferredTools.enabled` 总开关 | base 用 `get_tools_for_provider`（全量）还是 `get_core_tools_for_provider`（裁掉 deferred） | `build_tool_schemas` 顶部 if/else |
+| 条件能力开关（`canvas_enabled` 等） | 该工具是否被 push 进 schemas | `build_tool_schemas` 中部，独立于 deferred 分支 |
+
+**规律**：是否"用户能开关启用"决定它走哪条路径——
+- 工具天生属于平台基线（read / write / save_memory）→ 走 `get_available_tools()`，由 `CORE_TOOL_NAMES` 决定 always_load 还是 deferred
+- 工具是用户主动启用的 capability（canvas / web_search / image_gen / notification）→ 不进 `get_available_tools()`，由对应能力开关条件 push，**不受 deferred 影响**
+- 工具是 meta / 框架级（tool_search / job_status / subagent）→ 由对应总开关条件 push
+
+### 与系统提示词的关系
+
+[`system_prompt/sections.rs:24`](../../crates/oc-core/src/system_prompt/sections.rs#L24) 是**独立**的另一条过滤路径，决定"工具描述段落"里哪些工具被描述：
+
+```rust
+.filter(|(name, _)| !deferred_enabled || crate::tools::is_core_tool(name))
+```
+
+- deferred 模式下系统提示词里只列 `CORE_TOOL_NAMES` 的描述，其他工具描述靠 `tool_search` 返回的 schema 现取
+- 但 `canvas` / `image_generate` 这类条件能力工具的"用法说明"是 `build_full_system_prompt` 里[硬编码的 `# Canvas` / `# Image Generation` 段](../../crates/oc-core/src/agent/mod.rs#L979-L987)，不受这条 filter 影响——所以模型在 deferred 模式下依然知道怎么用它们
+
+### 与 tool_search 的关系
+
+`tool_search` 的 [`collect_extra_tools()`](../../crates/oc-core/src/tools/tool_search.rs#L107-L120) 把所有条件能力工具（含 `acp_spawn`）都无条件加进可发现池，这是为模型"探索可用能力"准备的。但**发现 ≠ 可调用**——只有同时出现在 `build_tool_schemas` 输出里的工具，模型才能在下一轮真正发起 tool_call。两者解耦后允许 `acp_spawn` 这种"高级特性"只通过 tool_search 暴露，普通会话不污染 schemas。
 
 ---
 

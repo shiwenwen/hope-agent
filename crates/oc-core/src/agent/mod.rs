@@ -912,31 +912,32 @@ impl AssistantAgent {
         let mut schemas = if deferred_enabled {
             let mut s = tools::get_core_tools_for_provider(provider);
             s.push(tools::get_tool_search_tool().to_provider_schema(provider));
-            if self.subagent_tool_enabled() {
-                s.push(tools::get_subagent_tool().to_provider_schema(provider));
-            }
             s
         } else {
-            let mut s = tools::get_tools_for_provider(provider);
-            if self.web_search_enabled {
-                s.push(tools::get_web_search_tool().to_provider_schema(provider));
-            }
-            if self.notification_enabled {
-                s.push(tools::get_notification_tool().to_provider_schema(provider));
-            }
-            if let Some(ref img_config) = self.image_gen_config {
-                s.push(
-                    tools::get_image_generate_tool_dynamic(img_config).to_provider_schema(provider),
-                );
-            }
-            if self.canvas_enabled {
-                s.push(tools::get_canvas_tool().to_provider_schema(provider));
-            }
-            if self.subagent_tool_enabled() {
-                s.push(tools::get_subagent_tool().to_provider_schema(provider));
-            }
-            s
+            tools::get_tools_for_provider(provider)
         };
+
+        // Conditional capability tools — user opt-in, must appear in schemas
+        // under both deferred and non-deferred modes. Provider tool-call APIs
+        // only honor tools declared in the request, so deferred-mode discovery
+        // via tool_search alone leaves the model unable to invoke them.
+        if self.web_search_enabled {
+            schemas.push(tools::get_web_search_tool().to_provider_schema(provider));
+        }
+        if self.notification_enabled {
+            schemas.push(tools::get_notification_tool().to_provider_schema(provider));
+        }
+        if let Some(ref img_config) = self.image_gen_config {
+            schemas.push(
+                tools::get_image_generate_tool_dynamic(img_config).to_provider_schema(provider),
+            );
+        }
+        if self.canvas_enabled {
+            schemas.push(tools::get_canvas_tool().to_provider_schema(provider));
+        }
+        if self.subagent_tool_enabled() {
+            schemas.push(tools::get_subagent_tool().to_provider_schema(provider));
+        }
 
         // job_status is always loaded so the model can poll backgrounded tool jobs
         // regardless of deferred-loading settings.
