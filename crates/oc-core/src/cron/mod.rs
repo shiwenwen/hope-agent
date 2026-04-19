@@ -1,11 +1,14 @@
 mod db;
+pub(crate) mod delivery;
 pub(crate) mod executor;
 mod schedule;
 mod scheduler;
 mod types;
 
 // Re-export all public types
-pub use types::{CalendarEvent, CronJob, CronPayload, CronRunLog, CronSchedule, NewCronJob};
+pub use types::{
+    CalendarEvent, CronDeliveryTarget, CronJob, CronPayload, CronRunLog, CronSchedule, NewCronJob,
+};
 
 // Re-export DB layer
 pub use db::CronDB;

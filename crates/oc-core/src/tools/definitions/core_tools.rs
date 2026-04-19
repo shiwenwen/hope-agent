@@ -468,7 +468,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Cron / Scheduled Tasks ──────────────────────────────
         ToolDefinition {
             name: TOOL_MANAGE_CRON.into(),
-            description: "Create, list, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.".into(),
+            description: "Create, list, get, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.\n\nResult delivery: a cron job's final output can be fanned out to one or more IM channel conversations (Telegram / WeChat / Slack / Feishu / Discord / etc.) via `delivery_targets`. Two workflows:\n\n1. When the user is chatting via an IM channel and creates a job without specifying `delivery_targets`, the job's output is delivered back to the same chat by default. Pass `delivery_targets=[]` to explicitly opt out.\n2. To fan out to other channels (or to discover target ids from a desktop chat), first call `action='list_channel_targets'` to enumerate available accounts and conversations, then pass the exact channel_id/account_id/chat_id triples.\n\nFailures are also delivered (as `⚠️ [Cron] {name} failed: {error}`) to the same targets.".into(),
             internal: true,
             deferred: false,
             always_load: false,
@@ -478,25 +478,29 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "action": {
                         "type": "string",
-                        "enum": ["create", "list", "get", "delete", "pause", "resume", "run_now"],
-                        "description": "Action to perform"
+                        "enum": [
+                            "create", "update", "list", "get",
+                            "delete", "pause", "resume", "run_now",
+                            "list_channel_targets"
+                        ],
+                        "description": "Action to perform. 'list_channel_targets' enumerates IM channel conversations you can pass into 'delivery_targets'."
                     },
                     "id": {
                         "type": "string",
-                        "description": "Job ID (required for get/delete/pause/resume/run_now)"
+                        "description": "Job ID (required for get/update/delete/pause/resume/run_now)"
                     },
                     "name": {
                         "type": "string",
-                        "description": "Job name (for create)"
+                        "description": "Job name (required on create; optional on update)"
                     },
                     "description": {
                         "type": "string",
-                        "description": "Job description (for create)"
+                        "description": "Job description (optional on create/update)"
                     },
                     "schedule_type": {
                         "type": "string",
                         "enum": ["at", "every", "cron"],
-                        "description": "Schedule type (for create)"
+                        "description": "Schedule type (required on create; passing any schedule field on update replaces the schedule)"
                     },
                     "timestamp": {
                         "type": "string",
@@ -521,6 +525,29 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     "agent_id": {
                         "type": "string",
                         "description": "Target agent ID (default: current agent)"
+                    },
+                    "max_failures": {
+                        "type": "integer",
+                        "description": "Auto-disable the job after this many consecutive failures (default 5)"
+                    },
+                    "notify_on_complete": {
+                        "type": "boolean",
+                        "description": "Show a desktop notification when this job completes (default true)"
+                    },
+                    "delivery_targets": {
+                        "type": "array",
+                        "description": "IM channel conversations to fan the job's final output out to. If this field is omitted on `create` and the user is currently chatting via an IM channel, the job's output will be delivered back to that same chat by default. Pass `[]` to explicitly opt out. To deliver to other channels, first call `action='list_channel_targets'` to discover the exact channel_id/account_id/chat_id triples.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "channel_id": { "type": "string", "description": "e.g. 'telegram', 'feishu', 'slack'" },
+                                "account_id": { "type": "string", "description": "from list_channel_targets" },
+                                "chat_id":    { "type": "string", "description": "from list_channel_targets" },
+                                "thread_id":  { "type": "string", "description": "optional — threaded chats (feishu topic / slack thread)" },
+                                "label":      { "type": "string", "description": "optional human-readable label cached for UI display" }
+                            },
+                            "required": ["channel_id", "account_id", "chat_id"]
+                        }
                     }
                 },
                 "required": ["action"],

@@ -12,8 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Bot } from "lucide-react"
-import type { CronJob, CronSchedule } from "./CronJobForm.types"
+import { X, Bot, Plus, Send } from "lucide-react"
+import type { CronDeliveryTarget, CronJob, CronSchedule } from "./CronJobForm.types"
 
 import type { CronFrequency } from "./CronJobForm.types"
 import {
@@ -23,6 +23,23 @@ import {
 } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
 import type { AgentInfo } from "@/types/chat"
+import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
+
+// Matches the shape returned by `channel_list_sessions` (see
+// `src-tauri/src/commands/channel.rs::channel_list_sessions`).
+interface ChannelConversationDto {
+  id: number
+  channelId: string
+  accountId: string
+  chatId: string
+  threadId?: string | null
+  sessionId: string
+  senderId?: string | null
+  senderName?: string | null
+  chatType: string
+  createdAt: string
+  updatedAt: string
+}
 
 // ── Form Props ────────────────────────────────────────────────────
 
@@ -89,6 +106,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [agentId, setAgentId] = useState(job?.payload.agentId ?? "default")
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
   const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
+  const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(
+    () => job?.deliveryTargets?.map((t) => ({ ...t })) ?? [],
+  )
+  const [accounts, setAccounts] = useState<ChannelAccountConfig[]>([])
+  const [conversationsByAccount, setConversationsByAccount] = useState<
+    Record<string, ChannelConversationDto[]>
+  >({})
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -97,7 +121,89 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
     getTransport().call<AgentInfo[]>("list_agents")
       .then(setAgents)
       .catch(() => {})
+
+    getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
+      .then((list) => setAccounts(list.filter((a) => a.enabled)))
+      .catch(() => {})
   }, [])
+
+  // Prefetch conversations for accounts already used in existing targets.
+  useEffect(() => {
+    const needed = new Set(deliveryTargets.map((t) => t.accountId).filter(Boolean))
+    needed.forEach((accountId) => {
+      if (conversationsByAccount[accountId]) return
+      const target = deliveryTargets.find((t) => t.accountId === accountId)
+      if (!target) return
+      void loadConversationsFor(target.channelId, accountId)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [deliveryTargets])
+
+  async function loadConversationsFor(channelId: string, accountId: string) {
+    if (!channelId || !accountId) return
+    try {
+      const list = await getTransport().call<ChannelConversationDto[]>(
+        "channel_list_sessions",
+        { channelId, accountId },
+      )
+      setConversationsByAccount((prev) => ({ ...prev, [accountId]: list }))
+    } catch {
+      setConversationsByAccount((prev) => ({ ...prev, [accountId]: [] }))
+    }
+  }
+
+  function addDeliveryTarget() {
+    setDeliveryTargets((prev) => [
+      ...prev,
+      { channelId: "", accountId: "", chatId: "", threadId: null, label: null },
+    ])
+  }
+
+  function removeDeliveryTarget(idx: number) {
+    setDeliveryTargets((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  function handlePickAccount(idx: number, accountId: string) {
+    const account = accounts.find((a) => a.id === accountId)
+    if (!account) return
+    setDeliveryTargets((prev) =>
+      prev.map((t, i) =>
+        i === idx
+          ? {
+              ...t,
+              channelId: account.channelId,
+              accountId: account.id,
+              chatId: "",
+              threadId: null,
+              label: null,
+            }
+          : t,
+      ),
+    )
+    void loadConversationsFor(account.channelId, account.id)
+  }
+
+  function handlePickConversation(idx: number, conversationId: string) {
+    const target = deliveryTargets[idx]
+    if (!target) return
+    const list = conversationsByAccount[target.accountId] ?? []
+    const conv = list.find((c) => String(c.id) === conversationId)
+    if (!conv) return
+    const displayName =
+      conv.senderName && conv.senderName.length > 0 ? conv.senderName : conv.chatId
+    setDeliveryTargets((prev) =>
+      prev.map((t, i) =>
+        i === idx
+          ? {
+              ...t,
+              chatId: conv.chatId,
+              threadId: conv.threadId ?? null,
+              label: `${conv.channelId} / ${displayName}`,
+            }
+          : t,
+      ),
+    )
+  }
 
   function toggleWeekday(idx: number) {
     setCronWeekdays((prev) => {
@@ -120,6 +226,11 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
     setSaving(true)
     setError("")
 
+    // Only persist fully-configured targets (skip rows still awaiting a chat pick).
+    const validTargets = deliveryTargets.filter(
+      (t) => t.channelId && t.accountId && t.chatId,
+    )
+
     try {
       if (isEditing && job) {
         const schedule = buildSchedule()
@@ -131,6 +242,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
           maxFailures: parseInt(maxFailures) || 5,
           notifyOnComplete,
+          deliveryTargets: validTargets,
         }
         await getTransport().call("cron_update_job", { job: updated })
       } else {
@@ -143,6 +255,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
             payload: { type: "agentTurn", prompt: message.trim(), agentId: agentId || null },
             maxFailures: parseInt(maxFailures) || 5,
             notifyOnComplete,
+            deliveryTargets: validTargets,
           },
         })
       }
@@ -355,6 +468,126 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
               value={maxFailures}
               onChange={(e) => setMaxFailures(e.target.value)}
             />
+          </div>
+
+          {/* Delivery targets — fan-out job result to IM channel conversations */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground block flex items-center gap-1.5">
+                  <Send className="h-3 w-3" />
+                  {t("cron.deliveryTargets")}
+                </label>
+                <p className="text-xs text-muted-foreground/70 mt-0.5">
+                  {t("cron.deliveryTargetsDesc")}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                type="button"
+                onClick={addDeliveryTarget}
+                disabled={accounts.length === 0}
+                className="h-7 px-2 text-xs"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                {t("cron.addDeliveryTarget")}
+              </Button>
+            </div>
+
+            {deliveryTargets.length === 0 ? (
+              <p className="text-xs text-muted-foreground/60 py-1.5">
+                {accounts.length === 0
+                  ? t("cron.noDeliveryChannels")
+                  : t("cron.noDeliveryTargets")}
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {deliveryTargets.map((target, idx) => {
+                  const convs = conversationsByAccount[target.accountId] ?? []
+                  const selectedConv = convs.find(
+                    (c) => c.chatId === target.chatId && (c.threadId ?? null) === (target.threadId ?? null),
+                  )
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-start gap-2 p-2 border border-border rounded-md bg-muted/20"
+                    >
+                      <div className="flex-1 space-y-1.5">
+                        <Select
+                          value={target.accountId || undefined}
+                          onValueChange={(v) => handlePickAccount(idx, v)}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue placeholder={t("cron.selectChannelAccount")} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {accounts.map((a) => (
+                              <SelectItem key={a.id} value={a.id}>
+                                <span className="text-xs">
+                                  <span className="font-mono text-muted-foreground">
+                                    {a.channelId}
+                                  </span>
+                                  {" · "}
+                                  {a.label}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+
+                        <Select
+                          value={selectedConv ? String(selectedConv.id) : undefined}
+                          onValueChange={(v) => handlePickConversation(idx, v)}
+                          disabled={!target.accountId}
+                        >
+                          <SelectTrigger className="h-8 text-xs">
+                            <SelectValue
+                              placeholder={
+                                !target.accountId
+                                  ? t("cron.selectAccountFirst")
+                                  : convs.length === 0
+                                    ? t("cron.noConversationsYet")
+                                    : t("cron.selectConversation")
+                              }
+                            />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {convs.map((c) => {
+                              const name =
+                                c.senderName && c.senderName.length > 0
+                                  ? c.senderName
+                                  : c.chatId
+                              return (
+                                <SelectItem key={c.id} value={String(c.id)}>
+                                  <span className="text-xs">
+                                    {name}
+                                    <span className="text-muted-foreground ml-1">
+                                      ({c.chatType})
+                                    </span>
+                                  </span>
+                                </SelectItem>
+                              )
+                            })}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        type="button"
+                        onClick={() => removeDeliveryTarget(idx)}
+                        className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                        aria-label={t("cron.removeTarget")}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
 
           {/* Notify on complete */}

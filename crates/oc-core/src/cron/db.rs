@@ -79,6 +79,16 @@ impl CronDB {
             )?;
         }
 
+        // Migration: add delivery_targets_json column if missing (for existing DBs)
+        let has_delivery_targets: bool = conn
+            .prepare("SELECT delivery_targets_json FROM cron_jobs LIMIT 0")
+            .is_ok();
+        if !has_delivery_targets {
+            conn.execute_batch(
+                "ALTER TABLE cron_jobs ADD COLUMN delivery_targets_json TEXT NOT NULL DEFAULT '[]';",
+            )?;
+        }
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -103,15 +113,17 @@ impl CronDB {
         let next_run = compute_next_run(&input.schedule, &Utc::now()).map(|dt| dt.to_rfc3339());
 
         let notify = input.notify_on_complete.unwrap_or(true);
+        let delivery_targets = input.delivery_targets.clone().unwrap_or_default();
+        let delivery_targets_json = serde_json::to_string(&delivery_targets)?;
 
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "INSERT INTO cron_jobs (id, name, description, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?9)",
-            params![id, input.name, input.description, schedule_json, payload_json, next_run, max_failures, notify as i32, now],
+            "INSERT INTO cron_jobs (id, name, description, schedule_json, payload_json, status, next_run_at, max_failures, notify_on_complete, delivery_targets_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, ?8, ?9, ?10, ?10)",
+            params![id, input.name, input.description, schedule_json, payload_json, next_run, max_failures, notify as i32, delivery_targets_json, now],
         )?;
 
         Ok(CronJob {
@@ -129,6 +141,7 @@ impl CronDB {
             created_at: now.clone(),
             updated_at: now,
             notify_on_complete: notify,
+            delivery_targets,
         })
     }
 
@@ -142,6 +155,7 @@ impl CronDB {
         let now = Utc::now().to_rfc3339();
         let schedule_json = serde_json::to_string(&job.schedule)?;
         let payload_json = serde_json::to_string(&job.payload)?;
+        let delivery_targets_json = serde_json::to_string(&job.delivery_targets)?;
 
         // Recompute next_run_at if schedule changed
         let next_run = if job.status == CronJobStatus::Active {
@@ -155,11 +169,11 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         conn.execute(
-            "UPDATE cron_jobs SET name=?1, description=?2, schedule_json=?3, payload_json=?4, status=?5, next_run_at=?6, max_failures=?7, notify_on_complete=?8, updated_at=?9
-             WHERE id=?10",
+            "UPDATE cron_jobs SET name=?1, description=?2, schedule_json=?3, payload_json=?4, status=?5, next_run_at=?6, max_failures=?7, notify_on_complete=?8, delivery_targets_json=?9, updated_at=?10
+             WHERE id=?11",
             params![
                 job.name, job.description, schedule_json, payload_json,
-                job.status.as_str(), next_run, job.max_failures, job.notify_on_complete as i32, now, job.id
+                job.status.as_str(), next_run, job.max_failures, job.notify_on_complete as i32, delivery_targets_json, now, job.id
             ],
         )?;
         Ok(())
@@ -182,7 +196,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
              FROM cron_jobs WHERE id=?1"
         )?;
         let mut rows = stmt.query(params![id])?;
@@ -200,7 +214,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
              FROM cron_jobs ORDER BY created_at DESC"
         )?;
         let rows = stmt.query_map([], |row| {
@@ -226,7 +240,7 @@ impl CronDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("CronDB lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete
+            "SELECT id, name, description, schedule_json, payload_json, status, next_run_at, last_run_at, running_at, consecutive_failures, max_failures, created_at, updated_at, notify_on_complete, delivery_targets_json
              FROM cron_jobs WHERE status='active' AND running_at IS NULL AND next_run_at IS NOT NULL AND next_run_at <= ?1"
         )?;
         let rows = stmt.query_map(params![now_str], |row| {
@@ -620,6 +634,24 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
     let schedule_json: String = row.get(3)?;
     let payload_json: String = row.get(4)?;
     let status_str: String = row.get(5)?;
+    let delivery_targets_json: Option<String> = row.get(14).ok();
+    let delivery_targets = delivery_targets_json
+        .as_deref()
+        .map(
+            |s| match serde_json::from_str::<Vec<crate::cron::CronDeliveryTarget>>(s) {
+                Ok(v) => v,
+                Err(e) => {
+                    app_warn!(
+                        "cron",
+                        "db",
+                        "failed to decode delivery_targets_json, treating as empty: {}",
+                        e
+                    );
+                    Vec::new()
+                }
+            },
+        )
+        .unwrap_or_default();
 
     Ok(CronJob {
         id: row.get(0)?,
@@ -636,5 +668,6 @@ pub(crate) fn row_to_cron_job(row: &rusqlite::Row) -> Result<CronJob> {
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
         notify_on_complete: row.get::<_, i32>(13).unwrap_or(1) != 0,
+        delivery_targets,
     })
 }
