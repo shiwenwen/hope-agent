@@ -18,10 +18,11 @@ pub(super) fn build_agent_from_snapshot(
     codex_token: &Option<(String, String)>,
     compact_config: &CompactConfig,
     profile: Option<&AuthProfile>,
+    session_id: &str,
 ) -> Option<AssistantAgent> {
     let prov = provider::find_provider(providers, &model.provider_id)?;
 
-    let mut agent = if prov.api_type == ApiType::Codex {
+    let agent = if prov.api_type == ApiType::Codex {
         let (access_token, account_id) = codex_token.as_ref()?;
         AssistantAgent::new_openai(access_token, account_id, &model.model_id)
     } else if let Some(profile) = profile {
@@ -29,10 +30,13 @@ pub(super) fn build_agent_from_snapshot(
     } else {
         AssistantAgent::new_from_provider(prov, &model.model_id)
     };
+
+    let mut agent = agent.with_failover_context(prov);
     agent.set_compact_config(compact_config.clone());
 
     if let Some(ref model_ref) = compact_config.summarization_model {
-        if let Some(cp) = crate::agent::build_compaction_provider(model_ref, providers) {
+        if let Some(cp) = crate::agent::build_compaction_provider(model_ref, providers, session_id)
+        {
             agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
         }
     }

@@ -12,6 +12,8 @@ pub(crate) use events::MEDIA_ITEMS_PREFIX;
 mod llm_adapter;
 mod providers;
 mod side_query;
+mod streaming_adapter;
+mod streaming_loop;
 mod types;
 
 // Re-export public API
@@ -98,6 +100,7 @@ impl AssistantAgent {
             awareness_suffix: std::sync::Mutex::new(None),
             active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
+            provider_config: None,
         }
     }
 
@@ -148,6 +151,7 @@ impl AssistantAgent {
             awareness_suffix: std::sync::Mutex::new(None),
             active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
+            provider_config: None,
         }
     }
 
@@ -257,7 +261,20 @@ impl AssistantAgent {
             awareness_suffix: std::sync::Mutex::new(None),
             active_memory_state: std::sync::Arc::new(active_memory::ActiveMemoryState::new()),
             active_memory_suffix: std::sync::Mutex::new(None),
+            provider_config: None,
         }
+    }
+
+    /// Inject the source `ProviderConfig` so `side_query` and the Tier 3
+    /// `DedicatedModelProvider` can route through `failover::execute_with_failover`
+    /// for profile rotation + retry. Without this, those paths fall back to a
+    /// single direct one-shot call (legacy behavior).
+    ///
+    /// Internally wraps the config in `Arc` so callers don't have to. Pass a
+    /// borrow; the one clone happens here, once per agent build.
+    pub(crate) fn with_failover_context(mut self, provider_config: &ProviderConfig) -> Self {
+        self.provider_config = Some(std::sync::Arc::new(provider_config.clone()));
+        self
     }
 
     /// Reset per-chat-round flags. Called at the start of each chat() dispatch.
@@ -1285,7 +1302,7 @@ impl AssistantAgent {
         attachments: &[Attachment],
         reasoning_effort: Option<&str>,
         cancel: Arc<AtomicBool>,
-        on_delta: impl Fn(&str) + Send + 'static,
+        on_delta: impl Fn(&str) + Send + Sync + 'static,
     ) -> Result<(String, Option<String>)> {
         // Log agent chat dispatch
         if let Some(logger) = crate::get_logger() {

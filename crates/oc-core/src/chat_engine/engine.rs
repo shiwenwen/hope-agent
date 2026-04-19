@@ -1,4 +1,8 @@
-use crate::failover;
+use crate::agent::AssistantAgent;
+use crate::failover::{
+    self,
+    executor::{execute_with_failover, ExecutorError, FailoverPolicy},
+};
 use crate::provider::{ApiType, AuthProfile};
 use crate::session;
 
@@ -8,9 +12,21 @@ use super::stream_broadcast;
 use super::stream_seq;
 use super::types::*;
 
-/// Drop-guarded scope for a session's stream lifecycle. Ensures
-/// `stream_seq::end` + `chat:stream_end` broadcast fire on every
-/// `run_chat_engine` return path (including panics).
+/// Successful chat round payload returned by the executor closure.
+/// Bundles everything the post-success path needs to flush thinking, build
+/// the assistant message, save context, and run extraction follow-ups.
+struct ChatRoundOk {
+    response: String,
+    thinking: Option<String>,
+    agent: AssistantAgent,
+    persister: StreamPersister,
+    history_len_before: usize,
+    chat_start: std::time::Instant,
+}
+
+/// Drop-guarded scope for a session's stream lifecycle. Ensures `stream_seq::end`
+/// + `chat:stream_end` broadcast fire on every `run_chat_engine` return path
+/// (including panics).
 struct StreamLifecycle {
     session_id: String,
 }
@@ -33,7 +49,11 @@ impl Drop for StreamLifecycle {
 
 /// Emit one stream event through the per-call sink and the EventBus broadcast,
 /// injecting a monotonic `_oc_seq` shared by both paths.
-fn emit_stream_event(event_sink: &std::sync::Arc<dyn EventSink>, session_id: &str, event: &str) {
+fn emit_stream_event(
+    event_sink: &std::sync::Arc<dyn EventSink>,
+    session_id: &str,
+    event: &str,
+) {
     let (enveloped, seq) = stream_broadcast::inject_seq(session_id, event);
     event_sink.send(&enveloped);
     stream_broadcast::broadcast_delta(session_id, &enveloped, seq);
@@ -72,6 +92,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         event_sink,
     } = params;
 
+    // Wrap attachments in Arc<[T]> so the failover-executor closure's per-
+    // retry capture is a pointer bump instead of a deep clone of base64
+    // image data (Attachment.data may carry MB-sized strings).
+    let attachments: std::sync::Arc<[crate::agent::Attachment]> =
+        std::sync::Arc::from(attachments);
+
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string());
     }
@@ -101,57 +127,23 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     let effort_str = reasoning_effort.clone();
 
     for (idx, model_ref) in model_chain.iter().enumerate() {
-        // ── Auth profile selection ──────────────────────────────
+        // Look up provider once per model. Skip the model if missing — same
+        // semantics as the pre-Phase-3 build_agent_from_snapshot None path.
         let current_provider = providers.iter().find(|p| p.id == model_ref.provider_id);
-        let mut current_profile: Option<AuthProfile> =
-            current_provider.and_then(|prov| failover::select_profile(prov, &session_id));
-        let mut profile_rotated = false;
-        let mut tried_profiles: Vec<String> = Vec::new();
-        if let Some(ref p) = current_profile {
-            tried_profiles.push(p.id.clone());
-        }
-
-        let mut agent = match build_agent_from_snapshot(
-            model_ref,
-            &providers,
-            &codex_token,
-            &compact_config,
-            current_profile.as_ref(),
-        ) {
-            Some(a) => a,
+        let prov = match current_provider {
+            Some(p) => p,
             None => {
                 last_error = Some(format!(
-                    "Cannot build agent for {}::{}",
+                    "Provider {} not found for model {}",
                     model_ref.provider_id, model_ref.model_id
                 ));
                 continue;
             }
         };
-        configure_agent(
-            &mut agent,
-            &agent_id,
-            &session_id,
-            web_search_enabled,
-            notification_enabled,
-            image_gen_config.clone(),
-            canvas_enabled,
-            resolved_temperature,
-            extra_system_context.as_deref(),
-            &skill_allowed_tools,
-            plan_agent_mode.as_ref(),
-            plan_mode_allow_paths.as_ref(),
-            auto_approve_tools,
-        );
-
-        // Restore conversation history from DB
-        restore_agent_context(&db, &session_id, &agent);
 
         // Update session with current model info
         {
-            let provider_name = providers
-                .iter()
-                .find(|p| p.id == model_ref.provider_id)
-                .map(|p| p.name.as_str());
+            let provider_name = Some(prov.name.as_str());
             let _ = db.update_session_model(
                 &session_id,
                 Some(&model_ref.provider_id),
@@ -160,78 +152,203 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             );
         }
 
-        const MAX_RETRIES: u32 = 2;
-        const RETRY_BASE_MS: u64 = 1000;
-        const RETRY_MAX_MS: u64 = 10000;
-        let mut retry_count: u32 = 0;
+        // Emit fallback event if this is not the first model in the chain.
+        // Only fires once per model (not per executor retry / rotation).
+        if idx > 0 {
+            let display = format!("{} / {}", prov.name, model_ref.model_id);
+            let reason_str = last_error
+                .as_deref()
+                .map(failover::classify_error)
+                .unwrap_or(failover::FailoverReason::Unknown);
+            let event = serde_json::json!({
+                "type": "model_fallback",
+                "model": display,
+                "from_model": primary_display,
+                "provider_id": model_ref.provider_id,
+                "model_id": model_ref.model_id,
+                "reason": reason_str,
+                "attempt": idx + 1,
+                "total": total_models,
+                "error": last_error.as_deref().unwrap_or(""),
+            });
+            if let Ok(json_str) = serde_json::to_string(&event) {
+                emit_stream_event(&event_sink, &session_id, &json_str);
+                let _ = db.append_message(&session_id, &session::NewMessage::event(&json_str));
+            }
+        }
+
+        // ── Outer compaction-retry loop ─────────────────────────
+        // The executor (execute_with_failover) handles profile rotation +
+        // retry-with-backoff in one call. Context overflow is the only
+        // signal that needs to escape and re-enter — emergency_compact
+        // borrows the agent mutably so it can't run inside the closure
+        // while the operation is still holding the agent. After compact,
+        // we write the failed profile back to PROFILE_STICKY so the next
+        // executor call's select_profile picks it (preserves prompt cache
+        // prefix that compaction did NOT invalidate).
+        let mut compaction_attempts: u32 = 0;
+        const MAX_COMPACTION_RETRIES: u32 = 1;
+        let model_provider_id = model_ref.provider_id.clone();
+        let model_id = model_ref.model_id.clone();
 
         loop {
-            // Emit fallback event if this is not the first model
-            if idx > 0 && retry_count == 0 && !profile_rotated {
-                let display = {
-                    let prov_name = providers
-                        .iter()
-                        .find(|p| p.id == model_ref.provider_id)
-                        .map(|p| p.name.as_str())
-                        .unwrap_or(&model_ref.provider_id);
-                    format!("{} / {}", prov_name, model_ref.model_id)
-                };
-                let reason_str = last_error
-                    .as_deref()
-                    .map(|e| failover::classify_error(e))
-                    .unwrap_or(failover::FailoverReason::Unknown);
-                let event = serde_json::json!({
-                    "type": "model_fallback",
-                    "model": display,
-                    "from_model": primary_display,
-                    "provider_id": model_ref.provider_id,
-                    "model_id": model_ref.model_id,
-                    "reason": reason_str,
-                    "attempt": idx + 1,
-                    "total": total_models,
-                    "error": last_error.as_deref().unwrap_or(""),
-                });
-                if let Ok(json_str) = serde_json::to_string(&event) {
+            // Build the on-rotation callback that emits profile_rotation
+            // events. Borrows event_sink + session_id + provider/model ids;
+            // executor calls it inline so no Send/Sync gymnastics needed.
+            let on_rotate = |from: &AuthProfile,
+                             to: &AuthProfile,
+                             reason: &failover::FailoverReason| {
+                app_info!(
+                    "provider",
+                    "failover",
+                    "Rotating auth profile for {}::{}: {} -> {} (reason: {:?})",
+                    model_provider_id,
+                    model_id,
+                    from.label,
+                    to.label,
+                    reason
+                );
+                if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
+                    "type": "profile_rotation",
+                    "provider_id": model_provider_id,
+                    "model_id": model_id,
+                    "from_profile": from.label,
+                    "to_profile": to.label,
+                    "reason": reason,
+                })) {
                     emit_stream_event(&event_sink, &session_id, &json_str);
-                    let _ = db.append_message(&session_id, &session::NewMessage::event(&json_str));
                 }
-            }
+            };
 
-            let effort_ref = effort_str.as_deref();
-            let cancel_clone = cancel.clone();
+            // Capture refs / clones the closure needs. `move` consumes per-
+            // call clones; the original chat_engine values stay borrowable
+            // for the next compaction-retry iteration.
+            let providers_ref = &providers;
+            let codex_token_ref = &codex_token;
+            let compact_config_ref = &compact_config;
+            let agent_id_ref = &agent_id;
+            let session_id_ref = &session_id;
+            let extra_system_context_ref = &extra_system_context;
+            let skill_allowed_tools_ref = &skill_allowed_tools;
+            let plan_agent_mode_ref = &plan_agent_mode;
+            let plan_mode_allow_paths_ref = &plan_mode_allow_paths;
+            let message_ref = &message;
+            let attachments_ref = &attachments;
+            let effort_str_ref = &effort_str;
+            let cancel_ref = &cancel;
+            let event_sink_ref = &event_sink;
+            let db_ref = &db;
+            let model_ref_for_op = model_ref;
 
-            let persister = StreamPersister::new();
-            let persist_cb = persister.build_callback(&db, session_id.clone());
-            let event_sink_clone = event_sink.clone();
-            let session_id_for_cb = session_id.clone();
+            let exec_result = execute_with_failover(
+                prov,
+                &session_id,
+                FailoverPolicy::chat_engine_default(),
+                Some(&on_rotate),
+                |profile| {
+                    // Sync setup: build + configure + restore. If build
+                    // fails (e.g. Codex without token), surface as Unknown
+                    // so the executor exhausts and we move to next model.
+                    let agent_built = build_agent_from_snapshot(
+                        model_ref_for_op,
+                        providers_ref,
+                        codex_token_ref,
+                        compact_config_ref,
+                        profile,
+                        session_id_ref,
+                    );
 
-            let history_len_before = agent.get_conversation_history().len();
-            let chat_start = std::time::Instant::now();
-            match agent
-                .chat(
-                    &message,
-                    &attachments,
-                    effort_ref,
-                    cancel_clone,
-                    move |delta| {
-                        persist_cb(delta);
-                        emit_stream_event(&event_sink_clone, &session_id_for_cb, delta);
-                    },
-                )
-                .await
-            {
-                Ok((result, thinking)) => {
-                    let duration_ms = chat_start.elapsed().as_millis() as u64;
+                    // Per-call clones for the streaming callback's `move ||`.
+                    let event_sink_for_cb = event_sink_ref.clone();
+                    let session_for_cb = session_id_ref.clone();
+                    let cancel_for_op = cancel_ref.clone();
 
-                    // ── Profile rotation: mark success ──────────
-                    if let Some(ref profile) = current_profile {
-                        failover::PROFILE_STICKY.set(
-                            &model_ref.provider_id,
-                            &session_id,
-                            &profile.id,
+                    let agent_id_owned = agent_id_ref.clone();
+                    let session_id_owned = session_id_ref.clone();
+                    let image_gen_owned = image_gen_config.clone();
+                    let extra_ctx_owned = extra_system_context_ref.clone();
+                    let skill_tools_owned = skill_allowed_tools_ref.clone();
+                    let plan_mode_owned = plan_agent_mode_ref.clone();
+                    let plan_paths_owned = plan_mode_allow_paths_ref.clone();
+                    let message_owned = message_ref.clone();
+                    // Arc<[Attachment]> clone is a pointer bump regardless
+                    // of attachment size. See param destructure for the wrap.
+                    let attachments_owned = attachments_ref.clone();
+                    let effort_owned = effort_str_ref.clone();
+                    let db_owned = db_ref.clone();
+                    let provider_id_for_err = model_ref_for_op.provider_id.clone();
+                    let model_id_for_err = model_ref_for_op.model_id.clone();
+
+                    async move {
+                        let mut agent = agent_built.ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "Cannot build agent for {}::{}",
+                                provider_id_for_err,
+                                model_id_for_err
+                            )
+                        })?;
+                        configure_agent(
+                            &mut agent,
+                            &agent_id_owned,
+                            &session_id_owned,
+                            web_search_enabled,
+                            notification_enabled,
+                            image_gen_owned,
+                            canvas_enabled,
+                            resolved_temperature,
+                            extra_ctx_owned.as_deref(),
+                            &skill_tools_owned,
+                            plan_mode_owned.as_ref(),
+                            plan_paths_owned.as_ref(),
+                            auto_approve_tools,
                         );
-                        failover::PROFILE_COOLDOWNS.clear(&profile.id);
+                        restore_agent_context(&db_owned, &session_id_owned, &agent);
+
+                        let history_len_before = agent.get_conversation_history().len();
+                        let chat_start = std::time::Instant::now();
+                        let persister = StreamPersister::new();
+                        let persist_cb = persister.build_callback(&db_owned, session_id_owned.clone());
+
+                        let chat_result = agent
+                            .chat(
+                                &message_owned,
+                                &attachments_owned,
+                                effort_owned.as_deref(),
+                                cancel_for_op,
+                                move |delta| {
+                                    persist_cb(delta);
+                                    emit_stream_event(&event_sink_for_cb, &session_for_cb, delta);
+                                },
+                            )
+                            .await;
+
+                        match chat_result {
+                            Ok((response, thinking)) => Ok(ChatRoundOk {
+                                response,
+                                thinking,
+                                agent,
+                                persister,
+                                history_len_before,
+                                chat_start,
+                            }),
+                            Err(e) => Err(e),
+                        }
                     }
+                },
+            )
+            .await;
+
+            match exec_result {
+                Ok(ok) => {
+                    let ChatRoundOk {
+                        response,
+                        thinking,
+                        agent,
+                        persister,
+                        history_len_before,
+                        chat_start,
+                    } = ok;
+                    let duration_ms = chat_start.elapsed().as_millis() as u64;
 
                     // Emit usage event with duration
                     let usage_event = serde_json::json!({
@@ -270,11 +387,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent)
                             .await;
 
-                    // Phase B'1: skill auto-review — in a single registry
-                    // lock, record this turn's stats AND decide whether to
-                    // fire. Only spawn the background task when the gate is
-                    // actually acquired, so short turns that don't cross the
-                    // threshold don't pay the cost of starting a task at all.
+                    // Phase B'1: skill auto-review — same as pre-Phase-3.
                     {
                         let round_tokens = {
                             let u = persister.usage();
@@ -314,13 +427,11 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                         e
                                     );
                                 }
-                                // Opportunistic sweep (cheap, runs ~once per fired review).
                                 crate::skills::auto_review::sweep_stale(7 * 24 * 3600);
                             });
                         }
                     }
 
-                    // Schedule idle extraction if inline didn't trigger (tracking not reset)
                     if idle_timeout > 0 {
                         let tokens_remain = agent
                             .tokens_since_extraction
@@ -345,183 +456,140 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     }
 
                     return Ok(ChatEngineResult {
-                        response: result,
+                        response,
                         model_used: Some(model_ref.clone()),
                         agent: Some(agent),
                     });
                 }
-                Err(e) => {
-                    let error_msg = e.to_string();
-                    let reason = failover::classify_error(&error_msg);
 
-                    app_warn!(
-                        "provider",
-                        "failover",
-                        "Model {}::{} failed (attempt {}/{}, retry {}, reason {:?}): {}",
-                        model_ref.provider_id,
-                        model_ref.model_id,
-                        idx + 1,
-                        total_models,
-                        retry_count,
-                        reason,
-                        error_msg
-                    );
-
-                    // Context overflow — try emergency compaction, then retry once
-                    if reason.needs_compaction() && retry_count == 0 {
-                        app_info!(
+                Err(ExecutorError::NeedsCompaction { last_profile }) => {
+                    if compaction_attempts >= MAX_COMPACTION_RETRIES {
+                        app_warn!(
                             "context",
                             "compact",
-                            "Context overflow on {}::{}, attempting emergency compaction",
+                            "Context overflow on {}::{} persists after compaction, moving to next model",
                             model_ref.provider_id,
                             model_ref.model_id
                         );
-                        let mut history = agent.get_conversation_history();
-                        let compact_result = agent
-                            .context_engine()
-                            .emergency_compact(&mut history, &compact_config);
-                        agent.set_conversation_history(history);
-                        save_agent_context(&db, &session_id, &agent);
+                        last_error = Some(format!(
+                            "Context overflow on {}::{} after emergency compaction",
+                            model_ref.provider_id, model_ref.model_id
+                        ));
+                        break;
+                    }
+                    compaction_attempts += 1;
 
-                        if let Ok(event_str) = serde_json::to_string(&serde_json::json!({
-                            "type": "context_compacted",
-                            "data": compact_result,
-                        })) {
-                            emit_stream_event(&event_sink, &session_id, &event_str);
+                    app_info!(
+                        "context",
+                        "compact",
+                        "Context overflow on {}::{}, attempting emergency compaction",
+                        model_ref.provider_id,
+                        model_ref.model_id
+                    );
+
+                    // Build a temporary agent to run the compaction. Same
+                    // profile that just hit overflow so the cache prefix is
+                    // identical.
+                    let mut compact_agent = match build_agent_from_snapshot(
+                        model_ref,
+                        &providers,
+                        &codex_token,
+                        &compact_config,
+                        last_profile.as_ref(),
+                        &session_id,
+                    ) {
+                        Some(a) => a,
+                        None => {
+                            last_error = Some(format!(
+                                "Cannot build agent for emergency compaction on {}::{}",
+                                model_ref.provider_id, model_ref.model_id
+                            ));
+                            break;
                         }
+                    };
+                    configure_agent(
+                        &mut compact_agent,
+                        &agent_id,
+                        &session_id,
+                        web_search_enabled,
+                        notification_enabled,
+                        image_gen_config.clone(),
+                        canvas_enabled,
+                        resolved_temperature,
+                        extra_system_context.as_deref(),
+                        &skill_allowed_tools,
+                        plan_agent_mode.as_ref(),
+                        plan_mode_allow_paths.as_ref(),
+                        auto_approve_tools,
+                    );
+                    restore_agent_context(&db, &session_id, &compact_agent);
 
-                        retry_count += 1;
-                        continue;
+                    let mut history = compact_agent.get_conversation_history();
+                    let compact_result = compact_agent
+                        .context_engine()
+                        .emergency_compact(&mut history, &compact_config);
+                    compact_agent.set_conversation_history(history);
+                    save_agent_context(&db, &session_id, &compact_agent);
+
+                    if let Ok(event_str) = serde_json::to_string(&serde_json::json!({
+                        "type": "context_compacted",
+                        "data": compact_result,
+                    })) {
+                        emit_stream_event(&event_sink, &session_id, &event_str);
                     }
 
-                    // Terminal errors — surface immediately
-                    if reason.is_terminal() || reason.needs_compaction() {
-                        save_agent_context(&db, &session_id, &agent);
-                        let _ =
-                            db.append_message(&session_id, &session::NewMessage::event(&error_msg));
-                        return Err(error_msg);
+                    // Write the just-failed profile back to PROFILE_STICKY
+                    // so the next executor call's select_profile picks it
+                    // first (compaction reduces tokens but doesn't change
+                    // the cached prefix → same key avoids a cache miss).
+                    if let Some(ref p) = last_profile {
+                        failover::PROFILE_STICKY.set(&model_ref.provider_id, &session_id, &p.id);
                     }
+                    continue;
+                }
 
-                    // ── Auth profile rotation ───────────────────
-                    // On profile-rotatable errors, try the next auth profile
-                    // within the same provider before falling through to
-                    // model-level retry/failover.
-                    if reason.is_profile_rotatable() {
-                        if let Some(ref profile) = current_profile {
-                            failover::PROFILE_COOLDOWNS.mark_cooldown(&profile.id, &reason);
-                        }
-                        if let Some(prov) = current_provider {
-                            if let Some(next) = failover::next_profile(prov, &tried_profiles) {
-                                app_info!(
-                                    "provider",
-                                    "failover",
-                                    "Rotating auth profile for {}::{}: {} -> {} (reason: {:?})",
-                                    model_ref.provider_id,
-                                    model_ref.model_id,
-                                    current_profile
-                                        .as_ref()
-                                        .map(|p| p.label.as_str())
-                                        .unwrap_or("?"),
-                                    next.label,
-                                    reason
-                                );
-
-                                // Emit profile_rotation event to frontend
-                                if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
-                                    "type": "profile_rotation",
-                                    "provider_id": model_ref.provider_id,
-                                    "model_id": model_ref.model_id,
-                                    "from_profile": current_profile.as_ref().map(|p| p.label.as_str()),
-                                    "to_profile": next.label,
-                                    "reason": reason,
-                                })) {
-                                    emit_stream_event(&event_sink, &session_id, &json_str);
-                                }
-
-                                tried_profiles.push(next.id.clone());
-                                current_profile = Some(next.clone());
-                                profile_rotated = true;
-
-                                // Rebuild agent with the new profile, preserving conversation history
-                                let history = agent.get_conversation_history();
-                                if let Some(new_agent) = build_agent_from_snapshot(
-                                    model_ref,
-                                    &providers,
-                                    &codex_token,
-                                    &compact_config,
-                                    Some(&next),
-                                ) {
-                                    agent = new_agent;
-                                    configure_agent(
-                                        &mut agent,
-                                        &agent_id,
-                                        &session_id,
-                                        web_search_enabled,
-                                        notification_enabled,
-                                        image_gen_config.clone(),
-                                        canvas_enabled,
-                                        resolved_temperature,
-                                        extra_system_context.as_deref(),
-                                        &skill_allowed_tools,
-                                        plan_agent_mode.as_ref(),
-                                        plan_mode_allow_paths.as_ref(),
-                                        auto_approve_tools,
-                                    );
-                                    agent.set_conversation_history(history);
-                                    retry_count = 0; // reset retries for the new profile
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-
-                    // Retryable errors — retry same model with backoff
-                    if reason.is_retryable() && retry_count < MAX_RETRIES {
-                        retry_count += 1;
-                        let delay =
-                            failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                        app_info!(
-                            "provider",
-                            "failover",
-                            "Retrying {}::{} in {}ms (retry {}/{})",
-                            model_ref.provider_id,
-                            model_ref.model_id,
-                            delay,
-                            retry_count,
-                            MAX_RETRIES
-                        );
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                        continue;
-                    }
-
-                    // Emit codex_auth_expired when a Codex provider gets an Auth error
-                    if matches!(reason, failover::FailoverReason::Auth) {
-                        let is_codex = providers
-                            .iter()
-                            .find(|p| p.id == model_ref.provider_id)
-                            .map(|p| p.api_type == ApiType::Codex)
-                            .unwrap_or(false);
-                        if is_codex {
-                            if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
-                                "type": "codex_auth_expired",
-                                "error": &error_msg,
-                            })) {
-                                emit_stream_event(&event_sink, &session_id, &json_str);
-                            }
-                        }
-                    }
-
-                    // Non-retryable or retries exhausted — move to next model
+                Err(ExecutorError::Exhausted {
+                    last_reason,
+                    last_error: err_str,
+                }) => {
                     app_warn!(
                         "provider",
                         "failover",
-                        "Giving up on {}::{} (reason {:?}, retries {}), moving to next model in chain",
+                        "Giving up on {}::{} (reason {:?}), moving to next model in chain",
                         model_ref.provider_id,
                         model_ref.model_id,
-                        reason,
-                        retry_count
+                        last_reason
                     );
-                    last_error = Some(error_msg);
+
+                    // Codex Auth → emit codex_auth_expired so frontend can
+                    // prompt the user to re-authorize.
+                    if matches!(last_reason, failover::FailoverReason::Auth)
+                        && prov.api_type == ApiType::Codex
+                    {
+                        if let Ok(json_str) = serde_json::to_string(&serde_json::json!({
+                            "type": "codex_auth_expired",
+                            "error": &err_str,
+                        })) {
+                            emit_stream_event(&event_sink, &session_id, &json_str);
+                        }
+                    }
+
+                    last_error = Some(err_str);
+                    break;
+                }
+
+                Err(ExecutorError::NoProfileAvailable) => {
+                    app_warn!(
+                        "provider",
+                        "failover",
+                        "No auth profile available for {}::{}",
+                        model_ref.provider_id,
+                        model_ref.model_id
+                    );
+                    last_error = Some(format!(
+                        "No auth profile available for {}::{}",
+                        model_ref.provider_id, model_ref.model_id
+                    ));
                     break;
                 }
             }

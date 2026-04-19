@@ -1,5 +1,7 @@
 # Side Query 缓存侧查询架构
 > 返回 [文档索引](../README.md) | 更新时间：2026-04-19
+>
+> 关联：本文聚焦 one-shot 侧查询路径（`LlmApiAdapter`，Phase 1）。主对话 streaming + tool loop 路径在 Phase 2 也已抽成 `StreamingChatAdapter` trait + `AssistantAgent::run_streaming_chat` 公共编排，`save_cache_safe_params` 现在由公共编排在 compaction 完成后、第一轮发出前统一调用，4 个 Provider 不再各写一份。详见 [`agent/streaming_adapter.rs`](../../crates/oc-core/src/agent/streaming_adapter.rs) 和 [`agent/streaming_loop.rs`](../../crates/oc-core/src/agent/streaming_loop.rs)。
 
 ## 核心原理
 
@@ -41,8 +43,8 @@ pub struct CacheSafeParams {
 ### 存储机制
 
 - 存储在 `AssistantAgent.cache_safe_params: Mutex<Option<Arc<CacheSafeParams>>>`
-- `save_cache_safe_params()` 在每轮主请求 compaction 后、tool loop 前调用（4 个 Provider 统一注入）
-- `Arc::clone()` 只是指针增量（pointer bump），不深拷贝对话数据
+- `save_cache_safe_params()` 在每轮主请求 compaction 后、tool loop 前调用，由 `AssistantAgent::run_streaming_chat`（Phase 2 公共编排）统一注入——4 个 Provider 不再各自调一份
+- `Arc::clone()` 只是指针增量(pointer bump)，不深拷贝对话数据
 - `ProviderFormat::from(&self.provider)` 自动推断格式，确保侧查询与主请求使用同一 Provider 格式
 
 ## side_query() 流程
@@ -197,3 +199,16 @@ pub struct ChatUsage {
 | Provider 配置 | `crates/oc-core/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` / `CODEX_API_URL` |
 | 上下文压缩 | `crates/oc-core/src/context_compact/` | 调用方：Tier 3 摘要通过 side_query / summarize_direct 执行 |
 | 记忆系统 | `crates/oc-core/src/memory/` | 调用方：记忆提取 + 语义选择通过 side_query 执行 |
+| Failover Executor | `crates/oc-core/src/failover/executor.rs` | `execute_with_failover` + `FailoverPolicy::side_query_default` / `summarize_default` —— Phase 3 Step 3-4 让 side_query / DedicatedModelProvider 也享受 profile 轮换 + 退避重试 |
+
+## Failover 行为（Phase 3 Step 3-4）
+
+`AssistantAgent` 通过 builder `with_failover_context(Arc<ProviderConfig>)` 注入源 ProviderConfig 后，`side_query()` 会在 `provider_config + session_id` 都齐备时把 one-shot 调用包到 `failover::execute_with_failover` 里走 `FailoverPolicy::side_query_default`（max_retries=1 + 允许 profile 轮换，低频后台路径不需要长退避）。
+
+每次 retry / 轮换：closure 拿到 `Option<&AuthProfile>` 后用 `AssistantAgent::build_llm_provider_with_profile(config, model_id, profile)` 重建一个临时 `LlmProvider`（owned api_key + base_url），再调 `as_adapter().one_shot(...)`。`cache_safe_params` 在外层 lock 一次 + clone Arc，每次 closure 调用 `Arc::clone` 是 pointer bump 不是 deep copy。Profile 轮换不破坏前缀缓存：单 key 限流时换到下一个 key，新请求按各 provider 的 prompt-cache 规则走（Anthropic 重新创建 cache，OpenAI 重新前缀匹配——这是底层语义，无 workaround）。
+
+未注入 `provider_config` 的旧构造路径（`new_anthropic` 测试 / `new_openai` Codex OAuth）走 fast path —— 单次 direct one_shot，零 failover，行为完全等价改造前。
+
+`DedicatedModelProvider`（Tier 3 dedicated summarize）持自己的 `Arc<ProviderConfig> + model_id + session_id`，走 `FailoverPolicy::summarize_default`（max_retries=2 + **不**允许 profile 轮换）—— 让上层在 Tier 3 真正失败时快速降级到 side_query / emergency_compact，不要在用户等待回复时拖时间换其他 profile 重试。
+
+`ContextOverflow` 在 side_query / summarize 路径不触发 emergency_compact（无主对话上下文可压缩），直接以 error 形式返回让 caller 决定降级策略。Codex defense-in-depth 和 chat_engine 路径一样：`provider.api_type == Codex` 时强制 `allow_profile_rotation=false`，即使 caller 传 `true` 也无效。

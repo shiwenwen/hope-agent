@@ -367,7 +367,8 @@ async fn set_active_model_core(
             *state.agent.lock().await = Some(agent);
         }
     } else {
-        let agent = AssistantAgent::new_from_provider(provider, model_id);
+        let agent = AssistantAgent::new_from_provider(provider, model_id)
+            .with_failover_context(provider);
         *state.agent.lock().await = Some(agent);
     }
 

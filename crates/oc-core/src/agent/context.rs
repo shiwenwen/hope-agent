@@ -37,41 +37,45 @@ impl AssistantAgent {
         const CACHE_TTL_EMERGENCY_RATIO: f64 = 0.95;
 
         // Pre-compute cache-TTL throttle state as two booleans for CompactionContext.
-        let (cache_ttl_throttled, cache_ttl_emergency) = if self.compact_config.cache_ttl_secs > 0 {
-            let within_ttl = {
-                let guard = self
-                    .last_tier2_compaction_at
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
-            };
-            if within_ttl {
-                let tokens_now =
-                    context_compact::estimate_request_tokens(system_prompt, messages, max_tokens);
-                let usage_now = tokens_now as f64 / self.context_window as f64;
-                let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
-                if emergency {
-                    app_debug!(
-                        "context",
-                        "compact",
-                        "Cache-TTL throttle overridden: usage {:.1}% >= {:.0}%, forcing Tier 2+",
-                        usage_now * 100.0,
-                        CACHE_TTL_EMERGENCY_RATIO * 100.0
+        let (cache_ttl_throttled, cache_ttl_emergency) =
+            if self.compact_config.cache_ttl_secs > 0 {
+                let within_ttl = {
+                    let guard = self
+                        .last_tier2_compaction_at
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner());
+                    matches!(*guard, Some(ts) if ts.elapsed().as_secs() < self.compact_config.cache_ttl_secs)
+                };
+                if within_ttl {
+                    let tokens_now = context_compact::estimate_request_tokens(
+                        system_prompt,
+                        messages,
+                        max_tokens,
                     );
+                    let usage_now = tokens_now as f64 / self.context_window as f64;
+                    let emergency = usage_now >= CACHE_TTL_EMERGENCY_RATIO;
+                    if emergency {
+                        app_debug!(
+                            "context",
+                            "compact",
+                            "Cache-TTL throttle overridden: usage {:.1}% >= {:.0}%, forcing Tier 2+",
+                            usage_now * 100.0,
+                            CACHE_TTL_EMERGENCY_RATIO * 100.0
+                        );
+                    } else {
+                        app_debug!(
+                            "context",
+                            "compact",
+                            "Cache-TTL throttle: skipping Tier 2+ (cache still hot)"
+                        );
+                    }
+                    (true, emergency)
                 } else {
-                    app_debug!(
-                        "context",
-                        "compact",
-                        "Cache-TTL throttle: skipping Tier 2+ (cache still hot)"
-                    );
+                    (false, false)
                 }
-                (true, emergency)
             } else {
                 (false, false)
-            }
-        } else {
-            (false, false)
-        };
+            };
 
         let ctx = context_compact::CompactionContext {
             system_prompt,
@@ -281,8 +285,8 @@ impl AssistantAgent {
                             // preserved slot. Compute from `len()` so that if the summary
                             // layout ever changes we fail loudly instead of silently
                             // misplacing the recovery content.
-                            let insert_at =
-                                context_compact::POST_SUMMARY_INSERT_INDEX.min(messages.len());
+                            let insert_at = context_compact::POST_SUMMARY_INSERT_INDEX
+                                .min(messages.len());
                             messages.insert(insert_at, recovery_msg);
                             app_info!(
                                 "context",
@@ -424,39 +428,44 @@ impl AssistantAgent {
         }
 
         // Fallback: direct HTTP call (no cache sharing, used before first chat turn)
-        summarize_direct(
-            &self.provider,
-            &self.user_agent,
-            prompt,
-            self.compact_config.summary_max_tokens,
-        )
-        .await
+        summarize_direct(&self.provider, &self.user_agent, prompt, self.compact_config.summary_max_tokens).await
     }
 
-    /// Build an LlmProvider from a ProviderConfig and model ID.
+    /// Build an `LlmProvider` from a `ProviderConfig` + model ID, optionally
+    /// overriding api_key / base_url with a specific [`AuthProfile`].
+    ///
+    /// `profile = None` falls back to `config.api_key` + `config.base_url`
+    /// (Codex / OAuth path where `effective_profiles()` is empty). Used by
+    /// `side_query` / `DedicatedModelProvider::summarize` to rebuild the
+    /// provider after the failover executor picks a profile.
     pub(crate) fn build_llm_provider(
         config: &crate::provider::ProviderConfig,
         model_id: &str,
+        profile: Option<&crate::provider::AuthProfile>,
     ) -> LlmProvider {
         use crate::provider::ApiType;
+        let (api_key, base_url) = match profile {
+            Some(p) => (p.api_key.clone(), config.resolve_base_url(p).to_string()),
+            None => (config.api_key.clone(), config.base_url.clone()),
+        };
         match config.api_type {
             ApiType::Anthropic => LlmProvider::Anthropic {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
+                api_key,
+                base_url,
                 model: model_id.to_string(),
             },
             ApiType::OpenaiChat => LlmProvider::OpenAIChat {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
+                api_key,
+                base_url,
                 model: model_id.to_string(),
             },
             ApiType::OpenaiResponses => LlmProvider::OpenAIResponses {
-                api_key: config.api_key.clone(),
-                base_url: config.base_url.clone(),
+                api_key,
+                base_url,
                 model: model_id.to_string(),
             },
             ApiType::Codex => LlmProvider::Codex {
-                access_token: config.api_key.clone(),
+                access_token: api_key,
                 account_id: String::new(),
                 model: model_id.to_string(),
             },
@@ -774,16 +783,33 @@ pub(crate) async fn summarize_direct(
 
 /// Dedicated model provider for Tier 3 summarization.
 /// Uses a specific provider/model pair, independent of the main conversation.
+///
+/// Holds an `Arc<ProviderConfig>` + `model_id` + `session_id` so each
+/// `summarize()` call can route through `failover::execute_with_failover`
+/// for retry-with-backoff against the configured `summarization_model`'s
+/// own auth profiles. Profile rotation is intentionally **disabled** by
+/// [`FailoverPolicy::summarize_default`] — Tier 3 must fail fast so the
+/// caller can drop to side_query / emergency_compact.
 pub(crate) struct DedicatedModelProvider {
-    provider: LlmProvider,
+    provider_config: std::sync::Arc<crate::provider::ProviderConfig>,
+    model_id: String,
+    session_id: String,
     user_agent: String,
     display_name: String,
 }
 
 impl DedicatedModelProvider {
-    pub(crate) fn new(provider: LlmProvider, user_agent: String, display_name: String) -> Self {
+    pub(crate) fn new(
+        provider_config: std::sync::Arc<crate::provider::ProviderConfig>,
+        model_id: String,
+        session_id: String,
+        user_agent: String,
+        display_name: String,
+    ) -> Self {
         Self {
-            provider,
+            provider_config,
+            model_id,
+            session_id,
             user_agent,
             display_name,
         }
@@ -793,7 +819,28 @@ impl DedicatedModelProvider {
 #[async_trait::async_trait]
 impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
     async fn summarize(&self, prompt: &str, max_tokens: u32) -> anyhow::Result<String> {
-        summarize_direct(&self.provider, &self.user_agent, prompt, max_tokens).await
+        use crate::failover::executor::{execute_with_failover, FailoverPolicy};
+
+        let provider_config = self.provider_config.as_ref();
+        let model_id = self.model_id.as_str();
+        let user_agent = self.user_agent.as_str();
+
+        execute_with_failover(
+            provider_config,
+            &self.session_id,
+            FailoverPolicy::summarize_default(),
+            None,
+            |profile| {
+                let provider = AssistantAgent::build_llm_provider(
+                    provider_config,
+                    model_id,
+                    profile,
+                );
+                async move { summarize_direct(&provider, user_agent, prompt, max_tokens).await }
+            },
+        )
+        .await
+        .map_err(|e| anyhow::anyhow!("dedicated summarize: {}", e))
     }
 
     fn name(&self) -> &str {
@@ -803,9 +850,14 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
 
 /// Parse `"providerId:modelId"` and construct a `DedicatedModelProvider`.
 /// Returns `None` (with a warning log) if the format is invalid or the provider is not found/disabled.
+///
+/// `session_id` is used as the failover sticky/cooldown key so summarize
+/// cooldowns are scoped to one session (and inherit cross-call sticky
+/// affinity within that session).
 pub(crate) fn build_compaction_provider(
     model_ref: &str,
     providers: &[crate::provider::ProviderConfig],
+    session_id: &str,
 ) -> Option<DedicatedModelProvider> {
     let (provider_id, model_id) = match model_ref.split_once(':') {
         Some(pair) => pair,
@@ -821,11 +873,12 @@ pub(crate) fn build_compaction_provider(
     };
 
     let prov_config = crate::provider::find_provider(providers, provider_id)?;
-    let llm_provider = AssistantAgent::build_llm_provider(prov_config, model_id);
     let display_name = format!("{}:{}", prov_config.name, model_id);
 
     Some(DedicatedModelProvider::new(
-        llm_provider,
+        std::sync::Arc::new(prov_config.clone()),
+        model_id.to_string(),
+        session_id.to_string(),
         prov_config.user_agent.clone(),
         display_name,
     ))

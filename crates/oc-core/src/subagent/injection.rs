@@ -324,7 +324,8 @@ pub(crate) async fn inject_and_run_parent(
                 break 'outer;
             }
 
-            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
+            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
+                .with_failover_context(prov);
             agent.set_agent_id(&parent_agent_id);
             agent.set_session_id(&parent_session_id);
 

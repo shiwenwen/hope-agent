@@ -95,6 +95,20 @@ pub enum LlmProvider {
     },
 }
 
+impl LlmProvider {
+    /// Model id this provider was constructed with — used by failover
+    /// closures to rebuild a sibling `LlmProvider` for a different
+    /// `AuthProfile` while keeping the same model.
+    pub(super) fn model(&self) -> &str {
+        match self {
+            Self::Anthropic { model, .. }
+            | Self::OpenAIChat { model, .. }
+            | Self::OpenAIResponses { model, .. }
+            | Self::Codex { model, .. } => model,
+        }
+    }
+}
+
 /// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Executing Agent (full tools + execution tracking).
 #[derive(Debug, Clone, Default)]
 pub enum PlanAgentMode {
@@ -204,6 +218,13 @@ pub struct AssistantAgent {
     /// `None` means: nothing to inject this turn (empty shortlist, LLM said
     /// NONE, timeout, or feature disabled).
     pub(crate) active_memory_suffix: std::sync::Mutex<Option<std::sync::Arc<String>>>,
+    /// Optional `ProviderConfig` reference, injected via
+    /// [`AssistantAgent::with_failover_context`]. When present **and**
+    /// `session_id` is set, side_query / DedicatedModelProvider routes
+    /// through `failover::execute_with_failover` for profile rotation +
+    /// retry. When `None`, those paths fall back to direct one-shot calls
+    /// (legacy behavior, used by `new_anthropic` / `new_openai` test paths).
+    pub(crate) provider_config: Option<std::sync::Arc<crate::provider::ProviderConfig>>,
 }
 
 /// Cached parameters from the last main chat request.
@@ -233,6 +254,20 @@ impl From<&LlmProvider> for ProviderFormat {
             LlmProvider::OpenAIChat { .. } => ProviderFormat::OpenAIChat,
             LlmProvider::OpenAIResponses { .. } => ProviderFormat::OpenAIResponses,
             LlmProvider::Codex { .. } => ProviderFormat::Codex,
+        }
+    }
+}
+
+impl ProviderFormat {
+    /// Human-readable label used in `build_full_system_prompt(model, provider_label)`,
+    /// log lines, and error messages. Stable string — providers / models
+    /// reference this name in prompts.
+    pub(super) fn label(&self) -> &'static str {
+        match self {
+            Self::Anthropic => "Anthropic",
+            Self::OpenAIChat => "OpenAIChat",
+            Self::OpenAIResponses => "OpenAIResponses",
+            Self::Codex => "Codex",
         }
     }
 }

@@ -546,13 +546,16 @@ impl AcpAgent {
         let prov = provider::find_provider(&store.providers, &first.provider_id)
             .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found", first.provider_id))?;
 
-        let mut agent = AssistantAgent::new_from_provider(prov, &first.model_id);
+        let mut agent = AssistantAgent::new_from_provider(prov, &first.model_id)
+            .with_failover_context(prov);
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
 
         if let Some(ref model_ref) = store.compact.summarization_model {
-            if let Some(cp) = crate::agent::build_compaction_provider(model_ref, &store.providers) {
+            if let Some(cp) =
+                crate::agent::build_compaction_provider(model_ref, &store.providers, session_id)
+            {
                 agent.set_compaction_provider(Some(std::sync::Arc::new(cp)));
             }
         }
@@ -640,12 +643,11 @@ impl AcpAgent {
         let mut last_error = String::new();
 
         // Build CompactionProvider once, reuse across retries
-        let compaction_provider: Option<
-            std::sync::Arc<dyn crate::context_compact::CompactionProvider>,
-        > = store.compact.summarization_model.as_ref().and_then(|mr| {
-            crate::agent::build_compaction_provider(mr, &store.providers)
-                .map(|cp| std::sync::Arc::new(cp) as _)
-        });
+        let compaction_provider: Option<std::sync::Arc<dyn crate::context_compact::CompactionProvider>> =
+            store.compact.summarization_model.as_ref().and_then(|mr| {
+                crate::agent::build_compaction_provider(mr, &store.providers, &session_id_owned)
+                    .map(|cp| std::sync::Arc::new(cp) as _)
+            });
 
         for model_ref in &model_chain {
             let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
@@ -655,7 +657,8 @@ impl AcpAgent {
 
             let mut retry_count: u32 = 0;
             loop {
-                let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
+                let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
+                    .with_failover_context(prov);
                 agent.set_agent_id(&agent_id);
                 agent.set_session_id(&session_id_owned);
                 agent.set_compact_config(store.compact.clone());

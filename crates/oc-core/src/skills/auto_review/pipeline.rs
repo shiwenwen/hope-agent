@@ -234,7 +234,10 @@ fn build_review_agent_from_model_ref(model_ref: &str) -> Option<AssistantAgent> 
     let (provider_id, model_id) = model_ref.split_once(':')?;
     let config = cached_config();
     let prov = crate::provider::find_provider(&config.providers, provider_id.trim())?;
-    Some(AssistantAgent::new_from_provider(prov, model_id.trim()))
+    Some(
+        AssistantAgent::new_from_provider(prov, model_id.trim())
+            .with_failover_context(prov),
+    )
 }
 
 fn parse_review_response(text: &str) -> Result<ReviewDecision> {

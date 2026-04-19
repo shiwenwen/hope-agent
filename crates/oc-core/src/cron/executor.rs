@@ -278,7 +278,8 @@ pub async fn build_and_run_agent_with_context(
         // Per-model retry loop
         let mut retry_count: u32 = 0;
         loop {
-            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
+            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
+                .with_failover_context(prov);
             agent.set_agent_id(agent_id);
             agent.set_session_id(session_id);
             let ctx = extra_system_context.unwrap_or(
