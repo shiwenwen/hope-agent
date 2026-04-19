@@ -21,6 +21,21 @@ opencomputer server status             # 查看服务运行状态
 opencomputer server stop               # 停止服务
 ```
 
+## 提交前检查（强制）
+
+推送（`git push`）前**必须**本地跑一遍以下四条，任一失败都要先修再推——CI 会对同一组检查投红票，红在 CI 上要等 10 分钟反馈。`npm install` 后会自动启用 [`.husky/pre-push`](.husky/pre-push) 钩子，该钩子就按这个顺序跑这四条；裸跑也可以：
+
+```bash
+cargo fmt --all --check                                                   # 对应 CI: rust.yml fmt job
+cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings # 对应 CI: rust.yml clippy job
+npx tsc --noEmit                                                          # 对应 CI: lint.yml 前端类型
+npm run lint                                                              # 对应 CI: lint.yml ESLint
+```
+
+- **clippy 只覆盖 `oc-core` + `oc-server`**（CI 也是如此）—— `src-tauri` 不在本地钩子范围内，tauri-specific 的 lint 问题请用 `cargo clippy --workspace` 主动自查
+- **fmt 用 `--all`**，覆盖整个 workspace；钩子用的是 `cargo fmt --all --check`，裸跑时用不用 `--all` 都能对齐 CI，不过 `--all` 更稳
+- **应急开关**：若确实要跳过钩子（如文档只改了 `.md` 里的错字），用 `OC_SKIP_PREPUSH=1 git push`；禁止用 `--no-verify`，因为它会把 GPG 签名等其它钩子也一并绕过
+
 ## 项目结构
 
 ### Cargo Workspace

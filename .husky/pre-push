@@ -1,0 +1,26 @@
+#!/usr/bin/env sh
+# Mirrors the CI gates (.github/workflows/rust.yml + lint.yml) so red-on-push
+# is caught locally before burning a 10-minute Actions run.
+#
+# Set OC_SKIP_PREPUSH=1 to bypass (e.g. docs-only pushes on weak networks).
+
+if [ "${OC_SKIP_PREPUSH:-}" = "1" ]; then
+  echo "[pre-push] OC_SKIP_PREPUSH=1 — skipping checks"
+  exit 0
+fi
+
+set -e
+
+echo "[pre-push] cargo fmt --all --check"
+cargo fmt --all --check
+
+echo "[pre-push] cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings"
+cargo clippy -p oc-core -p oc-server --all-targets --locked -- -D warnings
+
+echo "[pre-push] tsc --noEmit"
+npx tsc --noEmit
+
+echo "[pre-push] eslint"
+npm run lint --silent
+
+echo "[pre-push] all checks passed"
