@@ -302,7 +302,7 @@ pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
     }
 
     // Sort by version descending (current first)
-    versions.sort_by(|a, b| b.version.cmp(&a.version));
+    versions.sort_by_key(|v| std::cmp::Reverse(v.version));
     Ok(versions)
 }
 

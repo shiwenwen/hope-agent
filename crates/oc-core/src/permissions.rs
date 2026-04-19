@@ -409,8 +409,6 @@ mod platform {
     pub fn request_files_and_folders() -> PermState {
         granted()
     }
-
-    pub fn open_privacy_pane(_: &str) {}
 }
 
 // ── Async helpers ────────────────────────────────────────────────

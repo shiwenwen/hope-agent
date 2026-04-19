@@ -16,3 +16,37 @@ pub async fn write_export_file(Json(body): Json<WriteExportBody>) -> Result<Json
         .map_err(|e| AppError::internal(format!("Failed to write export file: {}", e)))?;
     Ok(Json(json!({ "ok": true })))
 }
+
+/// `GET /api/security/dangerous-status`
+///
+/// Returns whether Dangerous Mode is active and which source(s) activated it.
+/// Consumed by the frontend for the persistent banner and Settings toggle.
+pub async fn dangerous_mode_status() -> Json<oc_core::security::dangerous::DangerousModeStatus> {
+    Json(oc_core::security::dangerous::status())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetDangerousBody {
+    pub enabled: bool,
+}
+
+/// `POST /api/security/dangerous-skip-all-approvals`
+///
+/// Toggles the persisted `AppConfig.dangerousSkipAllApprovals` field. The CLI
+/// flag (the other OR'd source) is process-scoped and unaffected here.
+pub async fn set_dangerous_skip_all_approvals(
+    Json(body): Json<SetDangerousBody>,
+) -> Result<Json<Value>, AppError> {
+    let mut store = oc_core::config::load_config()?;
+    store.dangerous_skip_all_approvals = body.enabled;
+    let _reason = oc_core::backup::scope_save_reason("security", "ui");
+    oc_core::config::save_config(&store)?;
+    drop(_reason);
+    if let Some(bus) = oc_core::get_event_bus() {
+        bus.emit(
+            "config:changed",
+            serde_json::json!({ "category": "security" }),
+        );
+    }
+    Ok(Json(json!({ "saved": true })))
+}

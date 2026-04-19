@@ -17,6 +17,9 @@ pub fn apply_promotions(records: &[PromotionRecord]) -> Result<Vec<i64>> {
     for record in records {
         // Verify the memory still exists before pinning.
         match backend.get(record.memory_id) {
+            // Folding the inner `if` into a guard would fall through to the
+            // `Ok(Some(_))` arm on toggle_pin failure and incorrectly push.
+            #[allow(clippy::collapsible_match)]
             Ok(Some(entry)) if !entry.pinned => {
                 if backend.toggle_pin(record.memory_id, true).is_ok() {
                     pinned.push(record.memory_id);

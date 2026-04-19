@@ -5,7 +5,7 @@
 <h1 align="center">Hope Agent</h1>
 
 <p align="center">
-  <strong>A desktop AI assistant that lives on your computer.</strong><br/>
+  <strong>A desktop-first AI assistant deeply integrated with your OS — also runs headless, on a NAS or in the cloud.</strong><br/>
   Remembers you · Grows over time · Reachable from every chat app you use
 </p>
 
@@ -26,11 +26,11 @@
 
 ---
 
-**Hope Agent** is a desktop AI assistant built for ordinary people. One native installer, GUI templates for the major model providers baked in, paste an API key and you're chatting. It remembers you across sessions, quietly organizes its own memory while idle, turns completed tasks into reusable skills, and is reachable from whatever IM apps you already use.
+**Hope Agent** is an AI assistant built for ordinary people — we put the weight on **a first-class desktop GUI deeply integrated with the OS**, while it also runs as a background service that lives happily on a NAS, home server, or cloud VM, and stays reachable through your IM apps. One native installer, GUI templates for the major model providers baked in, paste an API key and you're chatting. It remembers you across sessions, quietly organizes its own memory while idle, and turns completed tasks into reusable skills.
 
 ## Why Hope Agent
 
-Ordinary people deserve a desktop AI assistant that just **opens and works** — download an installer, double-click, no runtimes to install, no CLI to learn first. There aren't many products that fit this bill, so Hope Agent is what came out of caring about performance, stability, and the small interaction details.
+Ordinary people deserve an AI assistant that just **opens and works** — download an installer, double-click, no runtimes to install, no CLI to learn first, no cryptic config to decipher, no service quietly crashing at 3am with no one to fix it. Hope Agent isn't only a desktop app — it also runs as an HTTP/WS service you can park on a NAS, home server, or cloud VM and leave running 24/7, while it hooks into IM channels and talks to IDEs over ACP — but we believe the door most people walk through is still the desktop, so that's where we put the most effort: **a first-class desktop GUI deeply integrated with the OS**, polished together with performance, stability, and the small interaction details.
 
 Hope Agent was influenced in its early days by [openclaw](https://github.com/openclaw/openclaw) — credit to them for their pioneering work on local AI assistants. We took a different implementation path.
 
@@ -39,7 +39,7 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
 ### 🎯 Everyday use
 
 <table>
-<tr><td width="220"><b>🖥️ Native desktop GUI</b></td><td>Native macOS / Linux / Windows app, ready to run out of the installer. Ships in 12 UI languages (Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, Portuguese, Russian, Arabic, Turkish, Vietnamese, Malay) with typography tuned for CJK text.</td></tr>
+<tr><td width="220"><b>🖥️ Native desktop GUI</b></td><td>Native macOS / Linux / Windows app, ready to run out of the installer. Ships in 12 UI languages (Simplified/Traditional Chinese, English, Japanese, Korean, Spanish, Portuguese, Russian, Arabic, Turkish, Vietnamese, Malay) with a polished dark theme and carefully tuned typography.</td></tr>
 <tr><td><b>🧙 Zero-config providers</b></td><td>36 built-in provider templates covering 166 preset models. Anthropic, OpenAI, Gemini, Codex, OpenRouter, DeepSeek, Kimi, Qwen, Doubao, GLM, MiniMax, xAI, Mistral, Ollama — all in. Each provider supports multi-key rotation, so rate limits and quota exhaustion fail over seamlessly to the next key.</td></tr>
 <tr><td><b>💬 One app, every chat</b></td><td>12 IM channels: Telegram, Discord, Slack, Feishu, Google Chat, LINE, QQ Bot, Signal, iMessage, IRC, WeChat, WhatsApp. Inbound images / voice / files become multimodal context automatically; tool approvals are one tap in the chat window; every group / account can bind a distinct Agent with its own policies.</td></tr>
 <tr><td><b>🌐 Standalone service · remote-accessible</b></td><td><b>Not just a desktop app</b> — Hope Agent can run fully headless as a service. One command <code>opencomputer server start</code> launches an HTTP/WS daemon; <code>server install</code> registers it as a launchd / systemd auto-start unit so it lives 24/7 on your NAS, cloud VM, or spare laptop. <b>Phones, tablets, browsers, or another computer can all remote into the same backend</b>, with Bearer token auth and three-tier SSRF policies keeping public exposure controlled. Sessions, memories, cron jobs, and IM channels all run server-side — the client is just a window.</td></tr>

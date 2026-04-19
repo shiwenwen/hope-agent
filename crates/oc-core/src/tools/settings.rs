@@ -44,7 +44,7 @@ fn risk_level(category: &str) -> &'static str {
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
-        | "security.ssrf" => "high",
+        | "security" | "security.ssrf" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
         "active_model" | "fallback_models" | "all" => "low",
@@ -73,6 +73,14 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
         "memory_budget" => Some(
             "Reducing totalChars may hide parts of memory.md from the system prompt. \
              Full content is still retrievable via recall_memory / memory_get tools."
+        ),
+        "security" => Some(
+            "⚠️ DANGEROUS MODE: when skipAllApprovals=true, every tool call (exec / write / edit / \
+             apply_patch / channel tools / browser / canvas …) runs without any approval gate, \
+             overriding all per-session and per-channel auto-approve settings. Plan Mode tool-type \
+             restrictions still apply. Recommended only for fully-trusted local automation; never \
+             enable on shared machines. Persists to config.json — toggle off in Settings → Security \
+             when done."
         ),
         _ => None,
     }
@@ -116,6 +124,9 @@ fn read_category(category: &str) -> Result<Value> {
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
         "web_search" => Ok(serde_json::to_value(&cfg.web_search)?),
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
+        "security" => Ok(json!({
+            "skipAllApprovals": cfg.dangerous_skip_all_approvals,
+        })),
         "security.ssrf" => Ok(serde_json::to_value(&cfg.ssrf)?),
         "compact" => Ok(serde_json::to_value(&cfg.compact)?),
         "notification" => Ok(serde_json::to_value(&cfg.notification)?),
@@ -212,6 +223,7 @@ fn get_all_overview() -> Result<String> {
         "deferredTools": { "enabled": cfg.deferred_tools.enabled },
         "awareness": { "enabled": cfg.awareness.enabled },
         "security": {
+            "skipAllApprovals": cfg.dangerous_skip_all_approvals,
             "ssrfDefaultPolicy": cfg.ssrf.default_policy,
             "trustedHostsCount": cfg.ssrf.trusted_hosts.len(),
         },
@@ -240,7 +252,7 @@ fn get_all_overview() -> Result<String> {
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
-            "acp_control", "skill_env", "security.ssrf"
+            "acp_control", "skill_env", "security", "security.ssrf"
         ],
     });
 
@@ -361,6 +373,11 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "proxy" => merge_field(&mut store.proxy, values)?,
         "web_search" => merge_field(&mut store.web_search, values)?,
         "web_fetch" => merge_field(&mut store.web_fetch, values)?,
+        "security" => {
+            if let Some(v) = values.get("skipAllApprovals").and_then(|v| v.as_bool()) {
+                store.dangerous_skip_all_approvals = v;
+            }
+        }
         "security.ssrf" => merge_field(&mut store.ssrf, values)?,
         "compact" => merge_field(&mut store.compact, values)?,
         "notification" => merge_field(&mut store.notification, values)?,

@@ -532,6 +532,16 @@ pub struct AppConfig {
     /// narration behavior.
     #[serde(default)]
     pub tool_call_narration_enabled: bool,
+
+    /// ⚠️ DANGEROUS MODE — globally skip ALL tool-level approvals. When true,
+    /// every tool (exec / write / edit / apply_patch / channel tools / browser /
+    /// canvas …) runs without any approval gate. Overrides `ctx.auto_approve_tools`,
+    /// `ToolPermissionMode`, and every other per-session / per-channel auto-approve
+    /// knob by short-circuiting the gate in `tools::execution`. Plan Mode's
+    /// tool-type whitelist remains in effect (the two are orthogonal). Intended
+    /// for fully-trusted local automation; do not enable on shared machines.
+    #[serde(default)]
+    pub dangerous_skip_all_approvals: bool,
 }
 
 impl Default for AppConfig {
@@ -590,6 +600,7 @@ impl Default for AppConfig {
             skills: crate::skills::SkillsConfig::default(),
             recall_summary: crate::memory::RecallSummaryConfig::default(),
             tool_call_narration_enabled: false,
+            dangerous_skip_all_approvals: false,
         }
     }
 }

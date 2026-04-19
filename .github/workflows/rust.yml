@@ -15,7 +15,7 @@ jobs:
     name: cargo fmt --check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -32,7 +32,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -40,11 +40,33 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # Vendored OpenSSL needs NASM to build on Windows MSVC. macOS /
-      # Linux runners ship with the required toolchain out of the box.
+      # Vendored OpenSSL needs NASM to build on Windows MSVC. Chocolatey
+      # is pre-installed on windows-latest runners; this avoids the
+      # Node-20 deprecation on ilammy/setup-nasm (upstream has not
+      # migrated — see ilammy/setup-nasm#45).
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
-        uses: ilammy/setup-nasm@v1
+        shell: pwsh
+        run: |
+          choco install nasm -y --no-progress
+          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      # xcap pulls in wayland-sys (via libwayshot-xcap) and libspa-sys
+      # (via its pipewire screen-capture path) on Linux. Ubuntu runners
+      # don't ship any of these -dev packages by default.
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libgbm-dev \
+            libdrm-dev \
+            libpipewire-0.3-dev \
+            libegl-dev \
+            libx11-dev \
+            libxrandr-dev
 
       # Matches the local invariant the workspace maintains: all clippy
       # warnings are handled (either fixed at the source or allowed in
@@ -60,7 +82,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -68,7 +90,24 @@ jobs:
 
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
-        uses: ilammy/setup-nasm@v1
+        shell: pwsh
+        run: |
+          choco install nasm -y --no-progress
+          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+
+      - name: Install Linux system deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev \
+            libxkbcommon-dev \
+            libgbm-dev \
+            libdrm-dev \
+            libpipewire-0.3-dev \
+            libegl-dev \
+            libx11-dev \
+            libxrandr-dev
 
       # Only oc-core and oc-server are pure Rust and host tests. The Tauri
       # shell crate (open-computer) pulls glib/webkit system libs that are

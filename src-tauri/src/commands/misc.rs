@@ -64,6 +64,37 @@ pub async fn write_export_file(path: String, content: String) -> Result<(), Stri
     std::fs::write(&path, content).map_err(|e| format!("Failed to write export file: {}", e))
 }
 
+/// Query whether Dangerous Mode (skip ALL tool approvals) is active, and the
+/// source(s) that activated it. The frontend consumes this to render the
+/// persistent warning banner and the Settings toggle's read-only state when
+/// the CLI flag is active.
+#[tauri::command]
+pub fn get_dangerous_mode_status() -> oc_core::security::dangerous::DangerousModeStatus {
+    oc_core::security::dangerous::status()
+}
+
+/// Toggle the persisted `dangerousSkipAllApprovals` flag in `config.json`.
+/// This controls one of the two OR'd sources that drive Dangerous Mode; the
+/// CLI flag is independent and cannot be cleared via this command.
+///
+/// Follows the same autosave-backup path as other config writes and emits
+/// `config:changed` so subscribed UIs refresh immediately.
+#[tauri::command]
+pub fn set_dangerous_skip_all_approvals(enabled: bool) -> Result<(), String> {
+    let mut store = oc_core::config::load_config().map_err(|e| e.to_string())?;
+    store.dangerous_skip_all_approvals = enabled;
+    let _reason = oc_core::backup::scope_save_reason("security", "ui");
+    oc_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    drop(_reason);
+    if let Some(bus) = oc_core::get_event_bus() {
+        bus.emit(
+            "config:changed",
+            serde_json::json!({ "category": "security" }),
+        );
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn set_window_theme(is_dark: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]

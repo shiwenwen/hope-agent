@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde_json::Value;
+#[cfg(unix)]
 use std::sync::OnceLock;
 
 use crate::process_registry::{
@@ -25,6 +26,7 @@ pub(crate) const MAX_YIELD_MS: u64 = 120_000;
 
 // ── Shell PATH Resolution ─────────────────────────────────────────
 
+#[cfg(unix)]
 static LOGIN_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
 
 /// Resolve the full PATH from the user's login shell.
@@ -34,41 +36,39 @@ static LOGIN_SHELL_PATH: OnceLock<Option<String>> = OnceLock::new();
 /// On Windows this returns `None` — the inherited process PATH already
 /// reflects the user's HKCU + HKLM PATH; spawning a "login shell" is a
 /// Unix-only concept.
+#[cfg(windows)]
 pub(crate) fn get_login_shell_path() -> Option<&'static str> {
-    #[cfg(windows)]
-    {
-        return None;
-    }
+    None
+}
 
-    #[cfg(unix)]
-    {
-        LOGIN_SHELL_PATH
-            .get_or_init(|| {
-                let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
-                let output = std::process::Command::new(&shell)
-                    .args(["-l", "-c", "echo $PATH"])
-                    .output()
-                    .ok()?;
-                if output.status.success() {
-                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    if !path.is_empty() {
-                        app_info!(
-                            "tool",
-                            "exec",
-                            "Resolved login shell PATH: {}",
-                            &path[..path.len().min(120)]
-                        );
-                        Some(path)
-                    } else {
-                        None
-                    }
+#[cfg(unix)]
+pub(crate) fn get_login_shell_path() -> Option<&'static str> {
+    LOGIN_SHELL_PATH
+        .get_or_init(|| {
+            let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string());
+            let output = std::process::Command::new(&shell)
+                .args(["-l", "-c", "echo $PATH"])
+                .output()
+                .ok()?;
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path.is_empty() {
+                    app_info!(
+                        "tool",
+                        "exec",
+                        "Resolved login shell PATH: {}",
+                        &path[..path.len().min(120)]
+                    );
+                    Some(path)
                 } else {
-                    app_warn!("tool", "exec", "Failed to resolve login shell PATH");
                     None
                 }
-            })
-            .as_deref()
-    }
+            } else {
+                app_warn!("tool", "exec", "Failed to resolve login shell PATH");
+                None
+            }
+        })
+        .as_deref()
 }
 
 /// Compute dynamic max output chars based on model context window.
@@ -255,7 +255,17 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     }
 
     // ── Command approval gate ───────────────────────────────────
-    if !ctx.auto_approve_tools {
+    let dangerous_mode = crate::security::dangerous::is_dangerous_skip_active();
+    if dangerous_mode && !ctx.auto_approve_tools {
+        app_warn!(
+            "tool",
+            "exec",
+            "Command bypassed approval (DANGEROUS MODE active via {}): {}",
+            crate::security::dangerous::active_source(),
+            command
+        );
+    }
+    if !ctx.auto_approve_tools && !dangerous_mode {
         let perm_mode = get_tool_permission_mode().await;
         match perm_mode {
             ToolPermissionMode::FullApprove => {

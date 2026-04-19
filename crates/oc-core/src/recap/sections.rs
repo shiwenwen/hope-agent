@@ -64,7 +64,7 @@ where
 
     let mut sections: Vec<AiSection> = Vec::with_capacity(SECTION_ORDER.len());
     let mut completed = 0u32;
-    for ((key, title), res) in parallel_keys.iter().zip(results.into_iter()) {
+    for ((key, title), res) in parallel_keys.iter().zip(results) {
         completed += 1;
         match res {
             Ok(md) => sections.push(AiSection {

@@ -364,6 +364,8 @@ pub fn run() {
             commands::project::list_project_memories_cmd,
             // Window theme
             commands::misc::set_window_theme,
+            commands::misc::get_dangerous_mode_status,
+            commands::misc::set_dangerous_skip_all_approvals,
             // Logging
             commands::logging::query_logs_cmd,
             commands::logging::get_log_stats_cmd,

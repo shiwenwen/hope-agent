@@ -900,6 +900,15 @@ fn build_router_with_cors(
             "/misc/write-export-file",
             post(routes::misc::write_export_file),
         )
+        // Security
+        .route(
+            "/security/dangerous-status",
+            get(routes::misc::dangerous_mode_status),
+        )
+        .route(
+            "/security/dangerous-skip-all-approvals",
+            post(routes::misc::set_dangerous_skip_all_approvals),
+        )
         // SearXNG Docker
         .route("/searxng/status", get(routes::searxng::status))
         .route("/searxng/deploy", post(routes::searxng::deploy))
