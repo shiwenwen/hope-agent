@@ -14,8 +14,8 @@ __pycache__/
 *.pyc
 *.pyo
 
-# OpenComputer runtime data
-.opencomputer/
+# Hope Agent runtime data
+.hope-agent/
 
 # IDE
 .vscode/
