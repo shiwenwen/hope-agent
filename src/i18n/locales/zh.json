@@ -363,6 +363,8 @@
     "tabAppearance": "外观与语言",
     "tabSystem": "系统与快捷键",
     "tabNetwork": "网络代理",
+    "tabDangerous": "危险模式",
+    "tabSsrf": "SSRF 策略",
     "dangerousTitle": "危险模式",
     "dangerousIntro": "一键跳过全部工具审批。极高风险，仅在完全信任的本地环境使用。",
     "dangerousSwitchLabel": "跳过全部工具审批",

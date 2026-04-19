@@ -80,9 +80,6 @@ export default function DangerousModeSection() {
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-        {t("settings.dangerousTitle", "危险模式")}
-      </h3>
       <p className="text-xs text-muted-foreground">
         {t(
           "settings.dangerousIntro",
