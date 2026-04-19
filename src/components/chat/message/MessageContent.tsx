@@ -41,7 +41,7 @@ function extractSubagentRuns(tool: ToolCall): SubagentGroupRun[] {
     agent_id?: string
     task?: string
     tasks?: Array<{ agent_id?: string; task?: string }>
-  } = {}
+  }
   try {
     args = JSON.parse(tool.arguments)
   } catch {

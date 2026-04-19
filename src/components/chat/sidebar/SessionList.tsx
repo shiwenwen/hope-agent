@@ -142,7 +142,7 @@ export default function SessionList({
           }[filter]
 
           // In search mode, show result counts per type instead of unread counts.
-          let count = 0
+          let count: number
           if (isSearching && searchResults) {
             if (filter === "all") {
               count = searchResults.length

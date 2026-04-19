@@ -2,7 +2,7 @@ import { useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
-import { parseSessionMessages, reloadAndMergeSessionMessages } from "../chatUtils"
+import { reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "../useChatSession"
 import type {
   Message,
@@ -199,5 +199,6 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
     return unlisten
     // reloadSessions is useCallback([setSessions]) — setSessions is a stable
     // useState setter, so this effect subscribes once per mount in practice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadSessions])
 }

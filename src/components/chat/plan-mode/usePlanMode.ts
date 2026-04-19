@@ -160,6 +160,7 @@ export function usePlanMode(
     // Clear stale question UI, then restore any still-pending group for the
     // target session from the backend (handles "switch away before answering"
     // and "reopen a session that had unanswered questions").
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setPendingQuestionGroup(null)
     getTransport()
       .call<AskUserQuestionGroup | null>("get_pending_ask_user_group", {

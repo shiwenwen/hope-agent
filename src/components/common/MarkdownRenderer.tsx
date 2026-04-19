@@ -14,7 +14,7 @@ let cachedMermaid: PluginFn | null = null
 let mathLoading = false
 let mermaidLoading = false
 
-const HAS_MATH = /\$\$|\\[\[\(]|\$[^$\n]+\$/
+const HAS_MATH = /\$\$|\\[[(]|\$[^$\n]+\$/
 const HAS_MERMAID = /```mermaid/
 
 function useHeavyPlugins(content: string) {
@@ -74,6 +74,7 @@ function MarkdownLink({
   href,
   children,
   className,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   node: _node,
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {

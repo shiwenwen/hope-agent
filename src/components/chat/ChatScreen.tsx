@@ -368,6 +368,7 @@ export default function ChatScreen({
       (meta.toolPermissionMode as ToolPermissionMode | undefined) ?? "auto"
     restoredTpmForSidRef.current = sid
     stream.setToolPermissionMode(mode)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.currentSessionId, session.sessions, stream.setToolPermissionMode])
 
   // ── Stream Reattach Hook ────────────────────────────────────

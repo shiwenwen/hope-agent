@@ -41,7 +41,6 @@ function renderPersonaTemplate(name: string, p: PersonalityConfig): string {
 }
 
 interface PersonalityTabProps {
-  agentId: string
   config: AgentConfig
   persona: string
   openclawMode: boolean
@@ -59,7 +58,6 @@ interface PersonalityTabProps {
 }
 
 export default function PersonalityTab({
-  agentId: _agentId,
   config,
   persona,
   openclawMode,

@@ -10,7 +10,7 @@ import {
   TooltipTrigger,
   IconTip,
 } from "@/components/ui/tooltip"
-import { ChevronDown, ChevronRight, Loader2, Check, Info } from "lucide-react"
+import { ChevronDown, ChevronRight, Loader2, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 

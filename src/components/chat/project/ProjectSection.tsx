@@ -6,7 +6,6 @@
  * in create mode.
  */
 
-import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronDown, ChevronRight, FolderKanban, Plus } from "lucide-react"
 

@@ -83,7 +83,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
   }, [fetchEvents, fetchJobs, jobsLoaded])
 
   useEffect(() => {
-    fetchEvents() // eslint-disable-line react-hooks/set-state-in-effect
+    fetchEvents()
   }, [fetchEvents])
 
   // Lazily load jobs on first switch to list mode

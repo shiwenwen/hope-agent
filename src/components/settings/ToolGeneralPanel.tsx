@@ -185,7 +185,7 @@ export default function ToolGeneralPanel() {
     }
   }
 
-  const update = (key: string, value: any) => {
+  const update = (key: string, value: unknown) => {
     setConfig((prev) => ({ ...prev, [key]: value }))
   }
 

@@ -380,7 +380,6 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
 
           {activeTab === "personality" && (
             <PersonalityTab
-              agentId={agentId}
               config={config}
               persona={persona}
               openclawMode={config.openclawMode}

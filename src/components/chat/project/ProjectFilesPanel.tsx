@@ -117,7 +117,6 @@ function FileRow({
   onDelete: () => void
 }) {
   const { t } = useTranslation()
-  const Icon = iconForMime(file.mimeType)
   const sizeKb = (file.sizeBytes / 1024).toFixed(1)
   const extractedLabel =
     file.extractedChars && file.extractedChars > 0
@@ -126,7 +125,7 @@ function FileRow({
 
   return (
     <div className="group flex items-center gap-2 px-2 py-2 rounded-md hover:bg-accent/40 transition-colors">
-      <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+      {renderFileIcon(file.mimeType)}
       <div className="flex-1 min-w-0">
         <div className="text-sm font-medium truncate">{file.name}</div>
         <div className="text-xs text-muted-foreground truncate">
@@ -147,9 +146,10 @@ function FileRow({
   )
 }
 
-function iconForMime(mime: string | null | undefined) {
-  if (!mime) return FileIcon
-  if (mime.startsWith("image/")) return FileImage
+function renderFileIcon(mime: string | null | undefined) {
+  const className = "h-4 w-4 text-muted-foreground shrink-0"
+  if (!mime) return <FileIcon className={className} />
+  if (mime.startsWith("image/")) return <FileImage className={className} />
   if (
     mime.startsWith("text/") ||
     mime.includes("json") ||
@@ -157,8 +157,8 @@ function iconForMime(mime: string | null | undefined) {
     mime.includes("javascript") ||
     mime.includes("typescript")
   )
-    return FileCode
+    return <FileCode className={className} />
   if (mime === "application/pdf" || mime.includes("word") || mime.includes("sheet"))
-    return FileText
-  return FileIcon
+    return <FileText className={className} />
+  return <FileIcon className={className} />
 }

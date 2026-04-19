@@ -140,7 +140,7 @@ export function useAutoScroll({ loading, messages, currentSessionId }: UseAutoSc
       isUserScrolledUpRef.current = false
       scrollToBottom()
     }
-  }, [messages.length, messages, scrollToBottom]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [messages.length, messages, scrollToBottom])
 
   return { scrollContainerRef, bottomRef }
 }

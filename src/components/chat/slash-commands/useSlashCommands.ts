@@ -393,6 +393,7 @@ export function useSlashCommands(
           return false
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, forceOpen, input, expandedCmd, filteredOptions, selectedOptionIndex, executeOption],
   )
 

@@ -156,6 +156,7 @@ export function useActiveTeam(sessionId: string | null) {
 
   useEffect(() => {
     if (!sessionId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActiveTeamId(null)
       return
     }
@@ -171,7 +172,9 @@ export function useActiveTeam(sessionId: string | null) {
 
   // Listen for team create/dissolve events — scoped to current session
   const sessionIdRef = useRef(sessionId)
-  sessionIdRef.current = sessionId
+  useEffect(() => {
+    sessionIdRef.current = sessionId
+  }, [sessionId])
 
   useEffect(() => {
     const unlisten = getTransport().listen("team_event", (raw) => {

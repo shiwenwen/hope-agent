@@ -695,6 +695,7 @@ export class HttpTransport implements Transport {
     document.body.removeChild(a);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async revealMedia(_item: MediaItem): Promise<void> {
     // No-op in HTTP mode — there's no OS file manager on the client side.
   }

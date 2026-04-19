@@ -19,7 +19,7 @@ interface UserConfig {
 
 interface WeatherSectionProps {
   config: UserConfig
-  update: (key: string, value: any) => void
+  update: (key: string, value: unknown) => void
 }
 
 interface GeocodeResult {
@@ -87,6 +87,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
       // Un-set if we don't have coords
       setCurrentWeather(null)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.weatherLatitude, config.weatherLongitude, weatherEnabled])
   
   // Close dropdown on click outside

@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Users, Zap, Clock } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -14,6 +14,12 @@ interface TeamDashboardProps {
 
 export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashboardProps) {
   const { t } = useTranslation()
+  const [now, setNow] = useState(() => Date.now())
+
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [])
 
   const stats = useMemo(() => {
     const activeMembers = members.filter((m) => m.status === "working").length
@@ -23,7 +29,7 @@ export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashb
     const totalTasks = tasks.length
 
     const createdMs = new Date(team.createdAt).getTime()
-    const elapsedMs = Date.now() - createdMs
+    const elapsedMs = now - createdMs
     const elapsedMin = Math.floor(elapsedMs / 60000)
     const elapsedSec = Math.floor((elapsedMs % 60000) / 1000)
     const elapsed =
@@ -38,7 +44,7 @@ export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashb
       totalTasks,
       elapsed,
     }
-  }, [members, tasks, team.createdAt])
+  }, [members, tasks, team.createdAt, now])
 
   const progressPct =
     stats.totalTasks > 0
