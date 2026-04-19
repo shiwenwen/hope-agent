@@ -8,6 +8,15 @@
 //! HTTP transport, body construction, and response parsing live in
 //! [`super::llm_adapter`]; this module is now just the cache-snapshot bookkeeping
 //! and the public `side_query()` entry point.
+//!
+//! ## Failover (Phase 3 Step 3)
+//!
+//! When the agent was constructed with `with_failover_context(provider_config)`
+//! **and** `session_id` is set, side_query routes through
+//! [`crate::failover::execute_with_failover`] so it shares the same
+//! profile rotation + cooldown + sticky bookkeeping as the main chat. Without
+//! both pieces, the call falls back to a single direct one-shot attempt
+//! (legacy behavior, used by `new_anthropic` / `new_openai` test paths).
 
 use std::sync::Arc;
 
@@ -17,6 +26,7 @@ use super::llm_adapter::{OneShotMode, OneShotRequest};
 use super::types::{
     AssistantAgent, CacheSafeParams, ProviderFormat, SideQueryResult,
 };
+use crate::failover::executor::{execute_with_failover, ExecutorError, FailoverPolicy};
 
 impl AssistantAgent {
     /// Save cache-safe params after building the main chat request.
@@ -45,6 +55,11 @@ impl AssistantAgent {
     /// - Non-streaming, single-turn, no tool loop, no compaction
     /// - Falls back to a minimal request if no cache-safe params are available
     /// - Returns response text + usage metrics (including cache hit info)
+    ///
+    /// When `provider_config` and `session_id` are both set on this agent,
+    /// rotation/retry is delegated to [`execute_with_failover`] under
+    /// [`FailoverPolicy::side_query_default`]. Otherwise we issue a single
+    /// direct one-shot call (legacy fast path).
     pub async fn side_query(&self, instruction: &str, max_tokens: u32) -> Result<SideQueryResult> {
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
@@ -58,7 +73,89 @@ impl AssistantAgent {
             .unwrap_or_else(|e| e.into_inner())
             .clone();
 
-        let mode = match cached.as_deref() {
+        // Fast path: legacy constructors (new_anthropic / new_openai / test
+        // paths) don't carry a ProviderConfig, so we issue a single direct
+        // attempt with no failover.
+        let (Some(provider_config), Some(session_id)) =
+            (self.provider_config.as_ref(), self.session_id.as_deref())
+        else {
+            return self
+                .side_query_direct(&client, cached.as_deref(), instruction, max_tokens)
+                .await;
+        };
+
+        let model_id = self.provider.model();
+        let cached_arc = cached;
+
+        let exec_result = execute_with_failover(
+            provider_config.as_ref(),
+            session_id,
+            FailoverPolicy::side_query_default(),
+            // Low-frequency background path — no UI rotation event needed.
+            None,
+            |profile| {
+                let provider = AssistantAgent::build_llm_provider_with_profile(
+                    provider_config.as_ref(),
+                    model_id,
+                    profile,
+                );
+                let cached_for_call = cached_arc.clone();
+                let client_ref = &client;
+                async move {
+                    let mode = match cached_for_call.as_deref() {
+                        Some(p) => OneShotMode::Cached(p),
+                        None => OneShotMode::Bare,
+                    };
+                    let result = provider
+                        .as_adapter()
+                        .one_shot(
+                            client_ref,
+                            OneShotRequest {
+                                instruction,
+                                max_tokens,
+                                mode,
+                            },
+                        )
+                        .await?;
+                    Ok(SideQueryResult {
+                        text: result.text,
+                        usage: result.usage,
+                    })
+                }
+            },
+        )
+        .await;
+
+        match exec_result {
+            Ok(value) => Ok(value),
+            Err(ExecutorError::NeedsCompaction { .. }) => Err(anyhow::anyhow!(
+                "side query: context overflow (no compaction available)"
+            )),
+            Err(ExecutorError::Exhausted {
+                last_reason,
+                last_error,
+            }) => Err(anyhow::anyhow!(
+                "side query exhausted ({:?}): {}",
+                last_reason,
+                last_error
+            )),
+            Err(ExecutorError::NoProfileAvailable) => {
+                Err(anyhow::anyhow!("side query: no auth profile available"))
+            }
+        }
+    }
+
+    /// Legacy fast path: single direct one-shot, no rotation, no retry.
+    /// Used when the agent was built without `with_failover_context` or has
+    /// no `session_id` (test paths, Codex OAuth fallback, etc.).
+    async fn side_query_direct(
+        &self,
+        client: &reqwest::Client,
+        cached: Option<&CacheSafeParams>,
+        instruction: &str,
+        max_tokens: u32,
+    ) -> Result<SideQueryResult> {
+        let mode = match cached {
             Some(params) => OneShotMode::Cached(params),
             None => OneShotMode::Bare,
         };
@@ -66,7 +163,7 @@ impl AssistantAgent {
             .provider
             .as_adapter()
             .one_shot(
-                &client,
+                client,
                 OneShotRequest {
                     instruction,
                     max_tokens,

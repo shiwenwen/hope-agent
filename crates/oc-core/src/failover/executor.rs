@@ -73,9 +73,20 @@ impl FailoverPolicy {
         }
     }
 
-    // `summarize_default` lives at the eventual `summarize_direct` call site
-    // (follow-up PR), not here — encoding caller-specific defaults inside the
-    // executor would invert the dependency direction.
+    /// Tier 3 dedicated summarize default — fail fast (no profile rotation),
+    /// so the upper layer drops to the side_query fallback or emergency
+    /// compaction quickly. The caller's `DedicatedModelProvider` is bound to
+    /// one specific provider:model pair, and rotating through that pair's
+    /// profiles when a budget summary is in progress just adds latency to
+    /// the user's main turn.
+    pub fn summarize_default() -> Self {
+        Self {
+            max_retries: 2,
+            allow_profile_rotation: false,
+            retry_base_ms: 1000,
+            retry_max_ms: 10000,
+        }
+    }
 }
 
 /// Executor outcome on failure. Successful operations return `Ok(T)` directly.

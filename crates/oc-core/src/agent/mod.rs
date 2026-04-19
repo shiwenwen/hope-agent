@@ -102,6 +102,7 @@ impl AssistantAgent {
                 active_memory::ActiveMemoryState::new(),
             ),
             active_memory_suffix: std::sync::Mutex::new(None),
+            provider_config: None,
         }
     }
 
@@ -154,6 +155,7 @@ impl AssistantAgent {
                 active_memory::ActiveMemoryState::new(),
             ),
             active_memory_suffix: std::sync::Mutex::new(None),
+            provider_config: None,
         }
     }
 
@@ -265,7 +267,23 @@ impl AssistantAgent {
                 active_memory::ActiveMemoryState::new(),
             ),
             active_memory_suffix: std::sync::Mutex::new(None),
+            provider_config: None,
         }
+    }
+
+    /// Inject the source `ProviderConfig` so `side_query` and the Tier 3
+    /// `DedicatedModelProvider` can route through `failover::execute_with_failover`
+    /// for profile rotation + retry. Without this, those paths fall back to a
+    /// single direct one-shot call (legacy behavior).
+    ///
+    /// Idempotent — calling twice replaces the previous reference. Cheap to
+    /// chain since we accept `Arc` and don't deep-clone the config.
+    pub fn with_failover_context(
+        mut self,
+        provider_config: std::sync::Arc<ProviderConfig>,
+    ) -> Self {
+        self.provider_config = Some(provider_config);
+        self
     }
 
     /// Reset per-chat-round flags. Called at the start of each chat() dispatch.

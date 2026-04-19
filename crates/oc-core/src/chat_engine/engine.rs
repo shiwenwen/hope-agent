@@ -255,6 +255,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         codex_token_ref,
                         compact_config_ref,
                         profile,
+                        session_id_ref,
                     );
 
                     // Per-call clones for the streaming callback's `move ||`.
@@ -495,6 +496,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         &codex_token,
                         &compact_config,
                         last_profile.as_ref(),
+                        &session_id,
                     ) {
                         Some(a) => a,
                         None => {

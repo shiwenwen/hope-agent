@@ -376,7 +376,8 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
         let mut retry_count: u32 = 0;
 
         loop {
-            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id);
+            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
+                .with_failover_context(std::sync::Arc::new(prov.clone()));
             agent.set_agent_id(agent_id);
             agent.set_session_id(session_id);
             agent.set_extra_system_context(

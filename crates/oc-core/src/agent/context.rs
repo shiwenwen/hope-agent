@@ -458,6 +458,47 @@ impl AssistantAgent {
         }
     }
 
+    /// Build an LlmProvider for a specific auth profile. Used by the
+    /// `execute_with_failover` closure in `side_query` and
+    /// `DedicatedModelProvider::summarize` to rebuild the provider after
+    /// the executor selects a profile to try.
+    ///
+    /// `profile = None` falls back to `config.api_key` + `config.base_url`
+    /// (Codex / OAuth path where `effective_profiles()` is empty).
+    pub(crate) fn build_llm_provider_with_profile(
+        config: &crate::provider::ProviderConfig,
+        model_id: &str,
+        profile: Option<&crate::provider::AuthProfile>,
+    ) -> LlmProvider {
+        use crate::provider::ApiType;
+        let (api_key, base_url) = match profile {
+            Some(p) => (p.api_key.clone(), config.resolve_base_url(p).to_string()),
+            None => (config.api_key.clone(), config.base_url.clone()),
+        };
+        match config.api_type {
+            ApiType::Anthropic => LlmProvider::Anthropic {
+                api_key,
+                base_url,
+                model: model_id.to_string(),
+            },
+            ApiType::OpenaiChat => LlmProvider::OpenAIChat {
+                api_key,
+                base_url,
+                model: model_id.to_string(),
+            },
+            ApiType::OpenaiResponses => LlmProvider::OpenAIResponses {
+                api_key,
+                base_url,
+                model: model_id.to_string(),
+            },
+            ApiType::Codex => LlmProvider::Codex {
+                access_token: api_key,
+                account_id: String::new(),
+                model: model_id.to_string(),
+            },
+        }
+    }
+
     /// Normalize conversation history for Anthropic Messages API.
     /// Converts foreign format items (Responses API / Chat Completions) to Anthropic format.
     pub(super) fn normalize_history_for_anthropic(
@@ -769,16 +810,33 @@ pub(crate) async fn summarize_direct(
 
 /// Dedicated model provider for Tier 3 summarization.
 /// Uses a specific provider/model pair, independent of the main conversation.
+///
+/// Holds an `Arc<ProviderConfig>` + `model_id` + `session_id` so each
+/// `summarize()` call can route through `failover::execute_with_failover`
+/// for retry-with-backoff against the configured `summarization_model`'s
+/// own auth profiles. Profile rotation is intentionally **disabled** by
+/// [`FailoverPolicy::summarize_default`] — Tier 3 must fail fast so the
+/// caller can drop to side_query / emergency_compact.
 pub(crate) struct DedicatedModelProvider {
-    provider: LlmProvider,
+    provider_config: std::sync::Arc<crate::provider::ProviderConfig>,
+    model_id: String,
+    session_id: String,
     user_agent: String,
     display_name: String,
 }
 
 impl DedicatedModelProvider {
-    pub(crate) fn new(provider: LlmProvider, user_agent: String, display_name: String) -> Self {
+    pub(crate) fn new(
+        provider_config: std::sync::Arc<crate::provider::ProviderConfig>,
+        model_id: String,
+        session_id: String,
+        user_agent: String,
+        display_name: String,
+    ) -> Self {
         Self {
-            provider,
+            provider_config,
+            model_id,
+            session_id,
             user_agent,
             display_name,
         }
@@ -788,7 +846,47 @@ impl DedicatedModelProvider {
 #[async_trait::async_trait]
 impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
     async fn summarize(&self, prompt: &str, max_tokens: u32) -> anyhow::Result<String> {
-        summarize_direct(&self.provider, &self.user_agent, prompt, max_tokens).await
+        use crate::failover::executor::{
+            execute_with_failover, ExecutorError, FailoverPolicy,
+        };
+
+        let provider_config = self.provider_config.as_ref();
+        let model_id = self.model_id.as_str();
+        let user_agent = self.user_agent.as_str();
+
+        let exec_result = execute_with_failover(
+            provider_config,
+            &self.session_id,
+            FailoverPolicy::summarize_default(),
+            None,
+            |profile| {
+                let provider = AssistantAgent::build_llm_provider_with_profile(
+                    provider_config,
+                    model_id,
+                    profile,
+                );
+                async move { summarize_direct(&provider, user_agent, prompt, max_tokens).await }
+            },
+        )
+        .await;
+
+        match exec_result {
+            Ok(text) => Ok(text),
+            Err(ExecutorError::NeedsCompaction { .. }) => Err(anyhow::anyhow!(
+                "dedicated summarize: context overflow"
+            )),
+            Err(ExecutorError::Exhausted {
+                last_reason,
+                last_error,
+            }) => Err(anyhow::anyhow!(
+                "dedicated summarize exhausted ({:?}): {}",
+                last_reason,
+                last_error
+            )),
+            Err(ExecutorError::NoProfileAvailable) => Err(anyhow::anyhow!(
+                "dedicated summarize: no auth profile available"
+            )),
+        }
     }
 
     fn name(&self) -> &str {
@@ -798,9 +896,14 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
 
 /// Parse `"providerId:modelId"` and construct a `DedicatedModelProvider`.
 /// Returns `None` (with a warning log) if the format is invalid or the provider is not found/disabled.
+///
+/// `session_id` is used as the failover sticky/cooldown key so summarize
+/// cooldowns are scoped to one session (and inherit cross-call sticky
+/// affinity within that session).
 pub(crate) fn build_compaction_provider(
     model_ref: &str,
     providers: &[crate::provider::ProviderConfig],
+    session_id: &str,
 ) -> Option<DedicatedModelProvider> {
     let (provider_id, model_id) = match model_ref.split_once(':') {
         Some(pair) => pair,
@@ -816,11 +919,12 @@ pub(crate) fn build_compaction_provider(
     };
 
     let prov_config = crate::provider::find_provider(providers, provider_id)?;
-    let llm_provider = AssistantAgent::build_llm_provider(prov_config, model_id);
     let display_name = format!("{}:{}", prov_config.name, model_id);
 
     Some(DedicatedModelProvider::new(
-        llm_provider,
+        std::sync::Arc::new(prov_config.clone()),
+        model_id.to_string(),
+        session_id.to_string(),
         prov_config.user_agent.clone(),
         display_name,
     ))
