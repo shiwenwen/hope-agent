@@ -1,4 +1,4 @@
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
 import { Camera } from "lucide-react"
@@ -30,7 +30,7 @@ export default function AvatarSection({
         <div className="w-16 h-16 rounded-full bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors">
           {avatar ? (
             <img
-              src={avatar.startsWith("/") ? convertFileSrc(avatar) : avatar}
+              src={getTransport().resolveAssetUrl(avatar) ?? avatar}
               className="w-full h-full object-cover"
               alt=""
             />

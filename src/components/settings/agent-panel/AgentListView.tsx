@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -223,7 +222,7 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
               <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 overflow-hidden">
                 {agent.avatar ? (
                   <img
-                    src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar}
+                    src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
                     className="w-full h-full object-cover"
                     alt=""
                   />

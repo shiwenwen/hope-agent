@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -11,6 +10,7 @@ import { type UserConfig, LANGUAGE_OPTIONS, PRESET_STYLES } from "./types"
 import AvatarSection from "./AvatarSection"
 import ProfileForm from "./ProfileForm"
 import PersonalInfoSection from "./PersonalInfoSection"
+import { useAvatarUpload } from "@/hooks/useAvatarUpload"
 
 export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } = {}) {
   const { t, i18n } = useTranslation()
@@ -20,7 +20,13 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
   const [customStyle, setCustomStyle] = useState(false)
   const [customGender, setCustomGender] = useState(false)
   const composingRef = useRef(false)
-  const [cropSrc, setCropSrc] = useState<string | null>(null)
+
+  const { cropSrc, handleAvatarPick, handleCropCancel, handleCropConfirm } =
+    useAvatarUpload({
+      fileName: () => `user_${Date.now()}.png`,
+      logCategory: "UserProfilePanel",
+      onSaved: (path) => update({ avatar: path }),
+    })
 
   useEffect(() => {
     Promise.all([
@@ -84,37 +90,6 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
     },
   })
 
-  const handleAvatarPick = async () => {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog")
-      const selected = await open({
-        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
-        multiple: false,
-      })
-      if (selected) {
-        setCropSrc(convertFileSrc(selected as string))
-      }
-    } catch (e) {
-      logger.error("settings", "UserProfilePanel::pickAvatar", "Failed to pick avatar", e)
-    }
-  }
-
-  const handleCropConfirm = async (blob: Blob) => {
-    setCropSrc(null)
-    try {
-      const buf = await blob.arrayBuffer()
-      const bytes = new Uint8Array(buf)
-      let binary = ""
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-      const base64 = window.btoa(binary)
-      const fileName = `user_${Date.now()}.png`
-      const savedPath = await getTransport().call<string>("save_avatar", { imageData: base64, fileName })
-      update({ avatar: savedPath })
-    } catch (e) {
-      logger.error("settings", "UserProfilePanel::saveAvatar", "Failed to save avatar", e)
-    }
-  }
-
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Scrollable content */}
@@ -129,7 +104,7 @@ export default function UserProfilePanel({ onSaved }: { onSaved?: () => void } =
               cropSrc={cropSrc}
               onAvatarPick={handleAvatarPick}
               onCropConfirm={handleCropConfirm}
-              onCropCancel={() => setCropSrc(null)}
+              onCropCancel={handleCropCancel}
             />
 
             <ProfileForm

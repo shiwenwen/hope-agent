@@ -11,6 +11,8 @@ export interface Project {
   /** Custom instructions appended to the system prompt of every session in the project. */
   instructions?: string | null
   emoji?: string | null
+  /** Optional logo stored as a `data:image/...;base64,...` URL. Takes precedence over `emoji` in the UI. */
+  logo?: string | null
   /** Tailwind-ish color name (e.g. "amber", "violet"). */
   color?: string | null
   defaultAgentId?: string | null
@@ -50,6 +52,8 @@ export interface CreateProjectInput {
   description?: string | null
   instructions?: string | null
   emoji?: string | null
+  /** Data URL (e.g. `data:image/webp;base64,...`). */
+  logo?: string | null
   color?: string | null
   defaultAgentId?: string | null
   defaultModelId?: string | null
@@ -64,6 +68,8 @@ export interface UpdateProjectInput {
   description?: string
   instructions?: string
   emoji?: string
+  /** Data URL, or empty string to clear the existing logo. */
+  logo?: string
   color?: string
   defaultAgentId?: string
   defaultModelId?: string

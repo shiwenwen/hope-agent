@@ -3,7 +3,7 @@
  * Rendered when `?window=quickchat` is in the URL (see main.tsx).
  */
 import React, { useEffect, useCallback, useRef } from "react"
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
 import { initLanguageFromConfig } from "@/i18n/i18n"
@@ -267,7 +267,7 @@ function AgentAvatarIcon({ agent }: { agent?: AgentSummaryForSidebar }) {
     <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
       {agent?.avatar ? (
         <img
-          src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar}
+          src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
           className="w-full h-full object-cover"
           alt=""
         />

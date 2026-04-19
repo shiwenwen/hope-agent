@@ -244,3 +244,12 @@ pub async fn save_global_memory_md(
     std::fs::write(&path, body.content).map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "saved": true })))
 }
+
+/// `GET /api/memory/local-embedding-models` — list the fastembed models
+/// that have been downloaded into the local cache (with their sizes).
+/// Used by Settings → Memory → Embedding provider dropdown. Mirror of the
+/// Tauri `list_local_embedding_models` command.
+pub async fn list_local_embedding_models(
+) -> Result<Json<Vec<oc_core::memory::LocalEmbeddingModel>>, AppError> {
+    Ok(Json(oc_core::memory::list_local_models_with_status()))
+}

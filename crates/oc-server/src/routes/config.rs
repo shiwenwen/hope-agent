@@ -81,6 +81,18 @@ pub async fn save_proxy_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `POST /api/config/proxy/test` -- outbound proxy probe, mirror of the
+/// Tauri `test_proxy` command. Returns the same human-readable status line
+/// on success; body carries the error message on failure.
+pub async fn test_proxy_config(
+    Json(body): Json<ConfigBody<oc_core::provider::ProxyConfig>>,
+) -> Result<Json<Value>, AppError> {
+    match oc_core::provider::test::test_proxy(body.config).await {
+        Ok(msg) => Ok(Json(json!({ "success": true, "message": msg }))),
+        Err(msg) => Ok(Json(json!({ "success": false, "message": msg }))),
+    }
+}
+
 // ── Compact Config ──────────────────────────────────────────────
 
 /// `GET /api/config/compact` -- get context compaction config.

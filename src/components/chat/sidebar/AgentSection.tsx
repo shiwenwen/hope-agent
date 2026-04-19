@@ -1,5 +1,5 @@
 import { useRef } from "react"
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip, Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
@@ -116,11 +116,7 @@ export default function AgentSection({
                       >
                         {agent.avatar ? (
                           <img
-                            src={
-                              agent.avatar.startsWith("/")
-                                ? convertFileSrc(agent.avatar)
-                                : agent.avatar
-                            }
+                            src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
                             className="w-full h-full object-cover"
                             alt=""
                           />

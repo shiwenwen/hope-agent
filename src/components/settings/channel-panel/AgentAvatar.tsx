@@ -1,4 +1,4 @@
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { Bot } from "lucide-react"
 import type { AgentInfo } from "./types"
 
@@ -9,7 +9,7 @@ export default function AgentAvatar({ agent, size = "sm" }: { agent: AgentInfo; 
     <span className={`${cls} rounded-full bg-primary/15 flex items-center justify-center shrink-0 overflow-hidden`}>
       {agent.avatar ? (
         <img
-          src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar}
+          src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
           className="w-full h-full object-cover"
           alt=""
         />

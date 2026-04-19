@@ -1,4 +1,3 @@
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { getTransport } from "@/lib/transport-provider"
 import { useLightbox } from "@/components/common/ImageLightbox"
 import FileCard from "@/components/chat/message/FileCard"
@@ -49,8 +48,16 @@ export default function ToolMediaPreview({ tool, className }: Props) {
         })}
       {hasLegacyUrls &&
         tool.mediaUrls!.map((url, i) => {
+          // Legacy `mediaUrls` store absolute filesystem paths — route through
+          // the transport so HTTP mode rewrites `~/.opencomputer/image_generate/*`
+          // to `/api/generated-images/*`, and Tauri still wraps them via
+          // `convertFileSrc`. Unknown / already-rewritten `/api/*` URLs get
+          // normalised to `null` and we skip rendering rather than showing a
+          // broken `<img>`.
           const src =
-            url.startsWith("/") && !url.startsWith("/api/") ? convertFileSrc(url) : ""
+            url.startsWith("/") && !url.startsWith("/api/")
+              ? (getTransport().resolveAssetUrl(url) ?? "")
+              : ""
           if (!src) return null
           return (
             <button

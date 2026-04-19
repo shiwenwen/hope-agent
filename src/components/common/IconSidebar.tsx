@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -76,7 +75,7 @@ export default function IconSidebar({
                 onClick={onOpenProfile}
               >
                 <img
-                  src={userAvatar.startsWith("/") ? convertFileSrc(userAvatar) : userAvatar}
+                  src={getTransport().resolveAssetUrl(userAvatar) ?? userAvatar}
                   className="w-full h-full object-cover"
                   alt="avatar"
                 />

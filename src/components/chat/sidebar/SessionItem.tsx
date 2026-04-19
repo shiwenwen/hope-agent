@@ -1,6 +1,5 @@
 import { useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -128,11 +127,7 @@ export default function SessionItem({
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
               ) : agent?.avatar ? (
                 <img
-                  src={
-                    agent.avatar.startsWith("/")
-                      ? convertFileSrc(agent.avatar)
-                      : agent.avatar
-                  }
+                  src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
                   className="w-full h-full object-cover"
                   alt=""
                 />

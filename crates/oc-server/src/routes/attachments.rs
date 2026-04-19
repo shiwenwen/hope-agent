@@ -3,9 +3,10 @@
 //!
 //! Access is gated by the usual API-key middleware; here we add path-level
 //! safety: session-id whitelist, filename denylist, canonicalized path
-//! containment, and sniffed `Content-Type` / `Content-Disposition`. Range
-//! requests are handled by `tower_http::services::ServeFile` so large media
-//! (video, big PDFs) stream correctly.
+//! containment (all via [`super::file_serve`]), plus a sniffed
+//! `Content-Type` / `Content-Disposition` so browsers pick inline vs
+//! download correctly. Range requests are handled by
+//! `tower_http::services::ServeFile` so large media streams correctly.
 //!
 //! The `_temp` pseudo-session maps to `~/.opencomputer/attachments/_temp/`
 //! so pre-session uploads remain reachable until promoted to a real session.
@@ -13,15 +14,18 @@
 use std::path::PathBuf;
 
 use axum::extract::{Path, Request};
-use axum::http::{header, HeaderValue};
 use axum::response::{IntoResponse, Response};
 use tower::ServiceExt;
 use tower_http::services::ServeFile;
 
-use oc_core::attachments::{self, TEMP_SESSION_ID};
+use oc_core::attachments::TEMP_SESSION_ID;
 use oc_core::paths;
 
 use crate::error::AppError;
+use crate::routes::file_serve::{
+    apply_inline_media_headers, contained_canonical, resolve_mime_for_path,
+    validate_safe_filename, HeaderOpts, MimeOpts,
+};
 
 /// `GET /api/attachments/{session_id}/{filename}` — binary file download.
 pub async fn download(
@@ -29,30 +33,23 @@ pub async fn download(
     request: Request,
 ) -> Result<Response, AppError> {
     validate_session_id(&session_id)?;
-    validate_filename(&filename)?;
+    validate_safe_filename(&filename)?;
 
     let base_dir = resolve_base_dir(&session_id)?;
     let candidate = base_dir.join(&filename);
+    let file_canon = contained_canonical(&base_dir, &candidate).await?;
 
-    // Canonicalize both sides and verify containment — belt-and-suspenders
-    // against symlink / traversal tricks. `not_found` is the right answer
-    // for missing files; outright containment violation is a 403.
-    let file_canon = match tokio::fs::canonicalize(&candidate).await {
-        Ok(p) => p,
-        Err(_) => return Err(AppError::not_found("attachment not found")),
-    };
-    let dir_canon = match tokio::fs::canonicalize(&base_dir).await {
-        Ok(p) => p,
-        Err(_) => return Err(AppError::not_found("session attachments dir not found")),
-    };
-    if !file_canon.starts_with(&dir_canon) {
-        return Err(AppError::forbidden("path traversal rejected"));
-    }
+    // MIME sniff fallback is needed here because users upload arbitrary
+    // file types (ext-less, mis-named `.bin`, etc.).
+    let mime = resolve_mime_for_path(
+        &file_canon,
+        MimeOpts {
+            html_charset: false,
+            sniff_fallback: true,
+        },
+    )
+    .await;
 
-    // Resolve MIME up-front so we can decide Content-Disposition without a
-    // second pass. When the filename has a known extension we trust it;
-    // only files without a usable extension pay for a 512-byte head read.
-    let mime = resolve_mime_for_path(&file_canon).await;
     let disposition_kind = if mime.starts_with("image/")
         || mime.starts_with("video/")
         || mime.starts_with("audio/")
@@ -65,48 +62,23 @@ pub async fn download(
     let quoted = filename.replace('\\', "\\\\").replace('"', "\\\"");
     let disposition = format!("{}; filename=\"{}\"", disposition_kind, quoted);
 
-    // ServeFile handles Range / If-Modified-Since / body streaming.
-    // `Error = Infallible` in 0.6, so surfacing an error here is defense only.
-    let svc = ServeFile::new(&file_canon);
-    let mut response = svc
+    let mut response = ServeFile::new(&file_canon)
         .oneshot(request)
         .await
         .map_err(|e| AppError::internal(format!("serve attachment: {}", e)))?
         .into_response();
 
-    if let Ok(hv) = HeaderValue::from_str(&mime) {
-        response.headers_mut().insert(header::CONTENT_TYPE, hv);
-    }
-    if let Ok(hv) = HeaderValue::from_str(&disposition) {
-        response
-            .headers_mut()
-            .insert(header::CONTENT_DISPOSITION, hv);
-    }
-    response.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("private, max-age=300"),
+    apply_inline_media_headers(
+        &mut response,
+        HeaderOpts {
+            mime: &mime,
+            cache_secs: 300,
+            disposition: &disposition,
+            no_referrer: false,
+        },
     );
 
     Ok(response)
-}
-
-/// Prefer extension-based MIME; fall back to a 512-byte magic-byte sniff
-/// only when the extension doesn't map to anything (covers ext-less
-/// uploads, mis-named `.bin`, etc.).
-async fn resolve_mime_for_path(path: &std::path::Path) -> String {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|s| s.to_ascii_lowercase());
-    if let Some(ext) = ext.as_deref() {
-        if let Some(m) = attachments::mime_from_extension(ext) {
-            return m.to_string();
-        }
-    }
-    if let Ok(head) = read_head(path, 512).await {
-        return attachments::sniff_mime(&head, path);
-    }
-    "application/octet-stream".to_string()
 }
 
 fn resolve_base_dir(session_id: &str) -> Result<PathBuf, AppError> {
@@ -136,32 +108,6 @@ fn validate_session_id(sid: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-/// Filenames are written by `save_attachment_bytes` which already sanitizes
-/// separators and colons. Reject path separators, leading dots, and empty
-/// strings — anything that could bypass the canonicalized containment check
-/// gets turned into a 400 before we touch the filesystem.
-fn validate_filename(name: &str) -> Result<(), AppError> {
-    if name.is_empty() || name.len() > 256 {
-        return Err(AppError::bad_request("invalid filename"));
-    }
-    if name.starts_with('.') {
-        return Err(AppError::bad_request("invalid filename"));
-    }
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err(AppError::bad_request("invalid filename"));
-    }
-    Ok(())
-}
-
-async fn read_head(path: &std::path::Path, len: usize) -> std::io::Result<Vec<u8>> {
-    use tokio::io::AsyncReadExt;
-    let mut f = tokio::fs::File::open(path).await?;
-    let mut buf = vec![0u8; len];
-    let n = f.read(&mut buf).await?;
-    buf.truncate(n);
-    Ok(buf)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,21 +126,5 @@ mod tests {
         assert!(validate_session_id("a/b").is_err());
         assert!(validate_session_id("a\\b").is_err());
         assert!(validate_session_id(".dotfile").is_err());
-    }
-
-    #[test]
-    fn filename_rejects_traversal_and_dotfiles() {
-        assert!(validate_filename("").is_err());
-        assert!(validate_filename(".hidden").is_err());
-        assert!(validate_filename("..").is_err());
-        assert!(validate_filename("a/b").is_err());
-        assert!(validate_filename("a\\b").is_err());
-        assert!(validate_filename("foo/../bar").is_err());
-    }
-
-    #[test]
-    fn filename_accepts_typical() {
-        assert!(validate_filename("123_image.png").is_ok());
-        assert!(validate_filename("report 2026-04-18.pdf").is_ok());
     }
 }

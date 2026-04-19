@@ -43,7 +43,8 @@ impl ProjectDB {
                 default_model_id  TEXT,
                 created_at        INTEGER NOT NULL,
                 updated_at        INTEGER NOT NULL,
-                archived          INTEGER NOT NULL DEFAULT 0
+                archived          INTEGER NOT NULL DEFAULT 0,
+                logo              TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_projects_archived
                 ON projects(archived, updated_at DESC);
@@ -67,6 +68,12 @@ impl ProjectDB {
                 ON project_files(project_id);",
         )?;
 
+        // Migration: add `logo` column to existing deployments.
+        let has_logo = conn.prepare("SELECT logo FROM projects LIMIT 1").is_ok();
+        if !has_logo {
+            conn.execute_batch("ALTER TABLE projects ADD COLUMN logo TEXT;")?;
+        }
+
         Ok(())
     }
 
@@ -82,6 +89,8 @@ impl ProjectDB {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().timestamp_millis();
 
+        let logo = validate_logo(input.logo.as_deref())?;
+
         let conn = self
             .session_db
             .conn
@@ -90,8 +99,8 @@ impl ProjectDB {
 
         conn.execute(
             "INSERT INTO projects (id, name, description, instructions, emoji, color,
-                default_agent_id, default_model_id, created_at, updated_at, archived)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0)",
+                default_agent_id, default_model_id, created_at, updated_at, archived, logo)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11)",
             params![
                 id,
                 name,
@@ -103,6 +112,7 @@ impl ProjectDB {
                 normalize_optional(input.default_model_id.as_deref()),
                 now,
                 now,
+                logo.as_deref(),
             ],
         )?;
 
@@ -112,6 +122,7 @@ impl ProjectDB {
             description: normalize_optional(input.description.as_deref()).map(str::to_string),
             instructions: normalize_optional(input.instructions.as_deref()).map(str::to_string),
             emoji: normalize_optional(input.emoji.as_deref()).map(str::to_string),
+            logo,
             color: normalize_optional(input.color.as_deref()).map(str::to_string),
             default_agent_id: normalize_optional(input.default_agent_id.as_deref())
                 .map(str::to_string),
@@ -133,7 +144,7 @@ impl ProjectDB {
         let row = conn
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
-                        default_agent_id, default_model_id, created_at, updated_at, archived
+                        default_agent_id, default_model_id, created_at, updated_at, archived, logo
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -196,6 +207,15 @@ impl ProjectDB {
             &patch.instructions,
         );
         push_str_field(&mut sets, &mut params_vec, "emoji", &patch.emoji);
+
+        // Logo: size-validate before reaching the generic pusher.
+        if let Some(raw) = &patch.logo {
+            let validated = validate_logo(Some(raw))?;
+            let idx = params_vec.len() + 1;
+            sets.push(format!("logo = ?{}", idx));
+            params_vec.push(Box::new(validated));
+        }
+
         push_str_field(&mut sets, &mut params_vec, "color", &patch.color);
         push_str_field(
             &mut sets,
@@ -236,7 +256,7 @@ impl ProjectDB {
         let project = conn
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
-                        default_agent_id, default_model_id, created_at, updated_at, archived
+                        default_agent_id, default_model_id, created_at, updated_at, archived, logo
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -337,6 +357,7 @@ impl ProjectDB {
         let sql = format!(
             "SELECT p.id, p.name, p.description, p.instructions, p.emoji, p.color,
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
+                    p.logo,
                     (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
                     (SELECT COUNT(*) FROM project_files f WHERE f.project_id = p.id) AS file_count
              FROM projects p
@@ -350,8 +371,8 @@ impl ProjectDB {
             let project = row_to_project(row)?;
             Ok(ProjectMeta {
                 project,
-                session_count: row.get::<_, i64>(11).unwrap_or(0) as u32,
-                file_count: row.get::<_, i64>(12).unwrap_or(0) as u32,
+                session_count: row.get::<_, i64>(12).unwrap_or(0) as u32,
+                file_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
                 memory_count: 0,
             })
         })?;
@@ -520,7 +541,41 @@ fn row_to_project(row: &rusqlite::Row) -> rusqlite::Result<Project> {
         created_at: row.get(8)?,
         updated_at: row.get(9)?,
         archived: row.get::<_, i64>(10).unwrap_or(0) != 0,
+        logo: row.get::<_, Option<String>>(11).unwrap_or(None),
     })
+}
+
+/// Maximum accepted length of a logo data URL (512 KB). Frontend is expected
+/// to downscale images to ~256px before encoding, so real values are ~20 KB.
+const MAX_LOGO_BYTES: usize = 512 * 1024;
+
+/// Normalize and validate an incoming logo string.
+///
+/// Returns `Ok(None)` for empty / whitespace input (clears the column),
+/// `Ok(Some(s))` for an accepted `data:image/...` URL, or an error when the
+/// payload is too large or not a recognized data URL.
+fn validate_logo(raw: Option<&str>) -> Result<Option<String>> {
+    let Some(s) = raw else {
+        return Ok(None);
+    };
+    let trimmed = s.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > MAX_LOGO_BYTES {
+        anyhow::bail!(
+            "project logo too large: {} bytes (max {})",
+            trimmed.len(),
+            MAX_LOGO_BYTES
+        );
+    }
+    // Must be a data URL to match the inline-render contract. Anything else
+    // (remote http URLs, local file paths) is rejected so we don't ship
+    // SSRF-style surprises into the sidebar.
+    if !trimmed.starts_with("data:image/") {
+        anyhow::bail!("project logo must be a data:image/... URL");
+    }
+    Ok(Some(trimmed.to_string()))
 }
 
 fn row_to_project_file(row: &rusqlite::Row) -> rusqlite::Result<ProjectFile> {

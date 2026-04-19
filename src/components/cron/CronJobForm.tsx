@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -326,7 +325,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                       <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
                         {a.avatar ? (
                           <img
-                            src={a.avatar.startsWith("/") ? convertFileSrc(a.avatar) : a.avatar}
+                            src={getTransport().resolveAssetUrl(a.avatar) ?? a.avatar}
                             className="w-full h-full object-cover"
                             alt=""
                           />

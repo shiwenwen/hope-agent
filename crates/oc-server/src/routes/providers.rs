@@ -25,6 +25,14 @@ pub async fn list_providers() -> Result<Json<Vec<ProviderConfig>>, AppError> {
     Ok(Json(masked))
 }
 
+/// `GET /api/providers/has-any` — whether any provider is configured.
+/// [App.tsx] uses this at startup to decide whether to show the first-run
+/// Provider wizard; missing route made HTTP clients crash on startup.
+pub async fn has_providers() -> Result<Json<bool>, AppError> {
+    let store = oc_core::config::cached_config();
+    Ok(Json(!store.providers.is_empty()))
+}
+
 /// `POST /api/providers` — add a new provider.
 pub async fn add_provider(
     Json(config): Json<ProviderConfig>,
@@ -250,6 +258,26 @@ pub async fn test_image_generate(Json(body): Json<TestImageBody>) -> Result<Json
         oc_core::provider::test::test_image_generate(body.provider_id, body.api_key, body.base_url)
             .await
             .unwrap_or_else(|e| e);
+    let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+    Ok(Json(v))
+}
+
+/// Body for [`test_model`]. Matches Tauri's `test_model(config, modelId)` signature.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TestModelBody {
+    pub config: ProviderConfig,
+    pub model_id: String,
+}
+
+/// `POST /api/providers/test-model` — single-turn chat probe against a
+/// specific model of the given provider. Response shape matches the Tauri
+/// command; on failure returns 200 with the failure payload inlined (the
+/// frontend reads `success: bool` from the body).
+pub async fn test_model(Json(body): Json<TestModelBody>) -> Result<Json<Value>, AppError> {
+    let payload = oc_core::provider::test::test_model(body.config, body.model_id)
+        .await
+        .unwrap_or_else(|e| e);
     let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
     Ok(Json(v))
 }

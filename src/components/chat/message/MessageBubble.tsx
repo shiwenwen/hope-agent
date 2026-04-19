@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react"
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
@@ -168,7 +168,7 @@ function MessageBubbleInner({
           {fromAgent?.avatar ? (
             <img
               src={
-                fromAgent.avatar.startsWith("/") ? convertFileSrc(fromAgent.avatar) : fromAgent.avatar
+                getTransport().resolveAssetUrl(fromAgent.avatar) ?? fromAgent.avatar
               }
               className="w-full h-full object-cover"
               alt=""

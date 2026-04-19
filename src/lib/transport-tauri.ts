@@ -7,7 +7,7 @@
 
 import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
-import type { Transport, ChatStream } from "@/lib/transport";
+import type { Transport, ChatStream, PickedImage } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
 export class TauriTransport implements Transport {
@@ -61,6 +61,22 @@ export class TauriTransport implements Transport {
     return source ? convertFileSrc(source) : null;
   }
 
+  resolveAssetUrl(path: string | null | undefined): string | null {
+    if (!path) return null;
+    if (
+      path.startsWith("data:") ||
+      path.startsWith("http://") ||
+      path.startsWith("https://")
+    ) {
+      return path;
+    }
+    // Absolute path on Unix or Windows — hand to Tauri's asset protocol.
+    if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) {
+      return convertFileSrc(path);
+    }
+    return null;
+  }
+
   async openMedia(item: MediaItem): Promise<void> {
     const path = this.localSourceFor(item);
     if (!path) return;
@@ -75,6 +91,20 @@ export class TauriTransport implements Transport {
 
   supportsLocalFileOps(): boolean {
     return true;
+  }
+
+  async pickLocalImage(): Promise<PickedImage | null> {
+    // Dynamic import so the Tauri-only plugin doesn't show up in the
+    // browser bundle when tree-shaking runs against HttpTransport.
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      multiple: false,
+      filters: [
+        { name: "Image", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] },
+      ],
+    });
+    if (!selected || typeof selected !== "string") return null;
+    return { src: convertFileSrc(selected) };
   }
 
   /** Absolute server-side path for Tauri file ops. Legacy items may carry

@@ -68,6 +68,27 @@ export interface Transport {
   resolveMediaUrl(item: MediaItem): string | null;
 
   /**
+   * Resolve a persisted image reference (avatar path, project-logo data URL,
+   * remote image URL) into something `<img src>` can consume in the current
+   * transport.
+   *
+   * Accepted inputs:
+   *  - `data:` URL  → passthrough (works in both modes)
+   *  - `http(s)://` URL → passthrough
+   *  - Absolute filesystem path (typical for avatars, e.g.
+   *    `~/.opencomputer/avatars/foo.png`):
+   *       - Tauri mode → wrapped via `convertFileSrc`
+   *       - HTTP mode  → rewritten to a server route
+   *         (`/api/avatars/{basename}?token=...`) when the path's parent
+   *         directory matches a known asset category; otherwise `null`
+   *  - `null` / empty string → `null`
+   *
+   * Callers should fall back to their emoji / initials / default-icon
+   * rendering when the result is `null`.
+   */
+  resolveAssetUrl(path: string | null | undefined): string | null;
+
+  /**
    * Trigger the user-facing "open" action for a media item.
    * - Tauri: opens the file with the OS default handler.
    * - HTTP:  downloads via a transient `<a download>`.
@@ -85,6 +106,14 @@ export interface Transport {
    * False in HTTP/Web mode — UIs should hide the "Reveal" action.
    */
   supportsLocalFileOps(): boolean;
+
+  /**
+   * Prompt the user to pick a local image and return a {@link PickedImage}
+   * the caller can feed into a preview / crop dialog. Returns `null` when
+   * the user cancels. See {@link PickLocalImageFn} for transport-specific
+   * behaviour.
+   */
+  pickLocalImage(): Promise<PickedImage | null>;
 }
 
 /**
@@ -101,6 +130,41 @@ export function isTauriMode(): boolean {
     return false;
   }
 }
+
+/**
+ * Outcome of a local image picker interaction.
+ *
+ * - `src`: URL the caller can pass to `<img src>` or into `AvatarCropDialog`.
+ *   In Tauri mode this is a `tauri://` asset URL (safe to display but the
+ *   final Blob comes from the crop dialog's canvas); in HTTP mode this is
+ *   a `blob:` URL created from a `<input type="file">` selection.
+ * - `file`: the underlying `File` in HTTP mode. Absent in Tauri mode (the
+ *   crop dialog re-encodes whatever the canvas produces before upload).
+ * - `revoke`: release the URL when the caller is done previewing. Safe to
+ *   call multiple times. Must be called on crop confirm, cancel, and on
+ *   component unmount to avoid leaking Blob-backed memory in long HTTP
+ *   sessions.
+ */
+export interface PickedImage {
+  src: string;
+  file?: File;
+  revoke?: () => void;
+}
+
+/**
+ * Prompt the user to pick a single local image, returning either an
+ * HTTP-displayable `src` plus the underlying `File`, or `null` when the
+ * user cancels.
+ *
+ * Transport-specific implementations are provided by:
+ *  - [`pickLocalImage`](./transport-tauri.ts) — `@tauri-apps/plugin-dialog.open` + `convertFileSrc`.
+ *  - [`pickLocalImage`](./transport-http.ts) — hidden `<input type="file">`.
+ *
+ * Callers obtain the right one via `getTransport().pickLocalImage()` (this
+ * method is on the Transport interface below; there's also a re-export
+ * here so the type is co-located with `PickedImage`).
+ */
+export type PickLocalImageFn = () => Promise<PickedImage | null>;
 
 /**
  * Normalize a `listen()` payload into its decoded form.

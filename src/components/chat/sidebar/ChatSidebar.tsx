@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useCallback } from "react"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import {
   AlertDialog,
@@ -278,11 +277,7 @@ export default function ChatSidebar({
                       <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
                         {agent.avatar ? (
                           <img
-                            src={
-                              agent.avatar.startsWith("/")
-                                ? convertFileSrc(agent.avatar)
-                                : agent.avatar
-                            }
+                            src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
                             className="w-full h-full object-cover"
                             alt=""
                           />

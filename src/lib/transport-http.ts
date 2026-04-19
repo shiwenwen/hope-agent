@@ -6,7 +6,7 @@
  * streaming chat and backend events.
  */
 
-import type { Transport, ChatStream } from "@/lib/transport";
+import type { Transport, ChatStream, PickedImage } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
 // ---------------------------------------------------------------------------
@@ -80,6 +80,17 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   test_provider:                   { method: "POST",   path: "/api/providers/test" },
   test_embedding:                  { method: "POST",   path: "/api/providers/test-embedding" },
   test_image_generate:             { method: "POST",   path: "/api/providers/test-image" },
+  test_model:                      { method: "POST",   path: "/api/providers/test-model" },
+  test_proxy:                      { method: "POST",   path: "/api/config/proxy/test" },
+  has_providers:                   { method: "GET",    path: "/api/providers/has-any" },
+  get_system_timezone:             { method: "GET",    path: "/api/system/timezone" },
+  list_local_embedding_models:     { method: "GET",    path: "/api/memory/local-embedding-models" },
+  check_auth_status:               { method: "GET",    path: "/api/auth/codex/status" },
+  logout_codex:                    { method: "POST",   path: "/api/auth/codex/logout" },
+  try_restore_session:             { method: "POST",   path: "/api/auth/session/restore" },
+  list_canvas_projects:            { method: "GET",    path: "/api/canvas/projects" },
+  get_canvas_project:              { method: "GET",    path: "/api/canvas/projects/{projectId}" },
+  delete_canvas_project:           { method: "DELETE", path: "/api/canvas/projects/{projectId}" },
 
   // -- Models --
   get_available_models:            { method: "GET",    path: "/api/models" },
@@ -543,6 +554,16 @@ export class HttpTransport implements Transport {
       delete rest.projectId;
       return this.uploadMultipart<T>(`/api/projects/${encodeURIComponent(projectId)}/files`, rest);
     }
+    // Avatar upload — mirrors the Tauri `save_avatar(imageData, fileName)`
+    // contract but ships raw bytes over multipart instead of base64 JSON.
+    // The server returns `{ path }`; unwrap to match Tauri's `-> String`.
+    if (command === "save_avatar" && args) {
+      const resp = await this.uploadMultipart<{ path: string }>(
+        "/api/avatars",
+        args,
+      );
+      return resp.path as unknown as T;
+    }
 
     const def = COMMAND_MAP[command];
     if (!def) {
@@ -682,6 +703,58 @@ export class HttpTransport implements Transport {
     return null;
   }
 
+  resolveAssetUrl(path: string | null | undefined): string | null {
+    if (!path) return null;
+    if (
+      path.startsWith("data:") ||
+      path.startsWith("http://") ||
+      path.startsWith("https://")
+    ) {
+      return path;
+    }
+    // Recognize known asset categories by their parent-directory segment
+    // in the stored absolute path. Each category needs a matching
+    // server-side route. Anything unrecognized returns `null` so callers
+    // fall back gracefully (emoji / default icon / broken state).
+    const stamped = (url: string) =>
+      this.apiKey
+        ? `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.apiKey)}`
+        : url;
+
+    // Avatars: `~/.opencomputer/avatars/{file}` → `/api/avatars/{file}`
+    const avatarMatch = path.match(/[\\/]avatars[\\/]([^\\/]+)$/);
+    if (avatarMatch) {
+      return stamped(
+        `${this.baseUrl}/api/avatars/${encodeURIComponent(avatarMatch[1])}`,
+      );
+    }
+
+    // Generated images: `~/.opencomputer/image_generate/{file}` → `/api/generated-images/{file}`
+    // (Only the last path segment matters — historic `mediaUrls` may encode
+    // different working-directory prefixes.)
+    const imgMatch = path.match(/[\\/]image_generate[\\/]([^\\/]+)$/);
+    if (imgMatch) {
+      return stamped(
+        `${this.baseUrl}/api/generated-images/${encodeURIComponent(imgMatch[1])}`,
+      );
+    }
+
+    // Canvas projects: `~/.opencomputer/canvas/projects/{id}/{...rest}` →
+    // `/api/canvas/projects/{id}/{...rest}`. Preserves sub-paths so the
+    // iframe can load index.html plus its relative CSS / JS / images.
+    const canvasMatch = path.match(/[\\/]canvas[\\/]projects[\\/]([^\\/]+)[\\/](.+)$/);
+    if (canvasMatch) {
+      const pid = encodeURIComponent(canvasMatch[1]);
+      const rest = canvasMatch[2]
+        .split("/")
+        .map((seg) => encodeURIComponent(seg))
+        .join("/");
+      return stamped(`${this.baseUrl}/api/canvas/projects/${pid}/${rest}`);
+    }
+
+    return null;
+  }
+
   async openMedia(item: MediaItem): Promise<void> {
     const href = this.resolveMediaUrl(item);
     if (!href) return;
@@ -704,6 +777,66 @@ export class HttpTransport implements Transport {
 
   supportsLocalFileOps(): boolean {
     return false;
+  }
+
+  async pickLocalImage(): Promise<PickedImage | null> {
+    return new Promise<PickedImage | null>((resolve) => {
+      const input = document.createElement("input");
+      input.type = "file";
+      input.accept = "image/*";
+      input.style.position = "fixed";
+      input.style.left = "-9999px";
+      input.style.top = "-9999px";
+      input.style.opacity = "0";
+      input.style.pointerEvents = "none";
+
+      // Modern browsers fire `cancel` when the picker is dismissed without
+      // a selection. Older Safari/Firefox don't, so we also piggy-back on
+      // the next `focus` event after `click` — any frame in which `files`
+      // hasn't populated is treated as a cancel.
+      let settled = false;
+      const settle = (value: PickedImage | null) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(value);
+      };
+      const cleanup = () => {
+        input.removeEventListener("change", onChange);
+        input.removeEventListener("cancel", onCancel);
+        window.removeEventListener("focus", onFocus);
+        if (input.parentNode) input.parentNode.removeChild(input);
+      };
+
+      const onChange = () => {
+        const file = input.files?.[0] ?? null;
+        if (!file) {
+          settle(null);
+          return;
+        }
+        const url = URL.createObjectURL(file);
+        settle({
+          src: url,
+          file,
+          revoke: () => URL.revokeObjectURL(url),
+        });
+      };
+      const onCancel = () => settle(null);
+      const onFocus = () => {
+        // Give the browser a tick to populate `input.files`. If nothing
+        // came in, treat it as cancel.
+        setTimeout(() => {
+          if (!settled && !input.files?.length) settle(null);
+        }, 300);
+      };
+
+      input.addEventListener("change", onChange);
+      input.addEventListener("cancel", onCancel);
+      window.addEventListener("focus", onFocus, { once: true });
+
+      document.body.appendChild(input);
+      input.click();
+    });
   }
 
   // ----- listen -----

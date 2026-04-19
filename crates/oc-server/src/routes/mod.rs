@@ -1,9 +1,11 @@
+pub mod file_serve;
 pub mod helpers;
 
 pub mod acp;
 pub mod agents;
 pub mod attachments;
 pub mod auth;
+pub mod avatars;
 pub mod browser;
 pub mod canvas;
 pub mod channel;
@@ -15,6 +17,7 @@ pub mod dashboard;
 pub mod desktop;
 pub mod dev;
 pub mod dreaming;
+pub mod generated_images;
 pub mod health;
 pub mod logging;
 pub mod memory;

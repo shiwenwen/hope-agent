@@ -1,4 +1,4 @@
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { renderHighlightedSnippet } from "@/lib/highlight"
@@ -100,11 +100,7 @@ export default function SearchResultItem({
         <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] overflow-hidden">
           {resolvedAgent?.avatar ? (
             <img
-              src={
-                resolvedAgent.avatar.startsWith("/")
-                  ? convertFileSrc(resolvedAgent.avatar)
-                  : resolvedAgent.avatar
-              }
+              src={getTransport().resolveAssetUrl(resolvedAgent.avatar) ?? resolvedAgent.avatar}
               className="w-full h-full object-cover"
               alt=""
             />

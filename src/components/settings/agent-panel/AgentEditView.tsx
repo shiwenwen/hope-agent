@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
+import { useAvatarUpload } from "@/hooks/useAvatarUpload"
 import {
   ArrowLeft,
   Camera,
@@ -158,38 +158,16 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     }
   }
 
-  const [agentCropSrc, setAgentCropSrc] = useState<string | null>(null)
-
-  const handleAvatarPick = async () => {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog")
-      const selected = await open({
-        filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg", "gif", "webp", "svg"] }],
-        multiple: false,
-      })
-      if (selected) {
-        setAgentCropSrc(convertFileSrc(selected as string))
-      }
-    } catch (e) {
-      logger.error("settings", "AgentPanel::pickAvatar", "Failed to pick avatar", e)
-    }
-  }
-
-  const handleAgentCropConfirm = async (blob: Blob) => {
-    setAgentCropSrc(null)
-    try {
-      const buf = await blob.arrayBuffer()
-      const bytes = new Uint8Array(buf)
-      let binary = ""
-      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
-      const base64 = window.btoa(binary)
-      const fileName = `agent_${agentId}_${Date.now()}.png`
-      const savedPath = await getTransport().call<string>("save_avatar", { imageData: base64, fileName })
-      updateConfig({ avatar: savedPath })
-    } catch (e) {
-      logger.error("settings", "AgentPanel::saveAvatar", "Failed to save avatar", e)
-    }
-  }
+  const {
+    cropSrc: agentCropSrc,
+    handleAvatarPick,
+    handleCropCancel: handleAgentCropCancel,
+    handleCropConfirm: handleAgentCropConfirm,
+  } = useAvatarUpload({
+    fileName: () => `agent_${agentId}_${Date.now()}.png`,
+    logCategory: "AgentPanel",
+    onSaved: (path) => updateConfig({ avatar: path }),
+  })
 
   const updateConfig = (patch: Partial<AgentConfig>) => {
     setConfig((prev) => (prev ? { ...prev, ...patch } : prev))
@@ -318,7 +296,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
               {config.avatar ? (
                 <img
                   src={
-                    config.avatar.startsWith("/") ? convertFileSrc(config.avatar) : config.avatar
+                    getTransport().resolveAssetUrl(config.avatar) ?? config.avatar
                   }
                   className="w-full h-full object-cover"
                   alt=""
@@ -342,7 +320,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
               open={!!agentCropSrc}
               imageSrc={agentCropSrc}
               onConfirm={handleAgentCropConfirm}
-              onCancel={() => setAgentCropSrc(null)}
+              onCancel={handleAgentCropCancel}
             />
           )}
 

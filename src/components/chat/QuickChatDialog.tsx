@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react"
 import { createPortal } from "react-dom"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { X, Plus, ChevronDown, Bot } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -292,7 +291,7 @@ function AgentAvatarIcon({
     <div className={cn(dim, "rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden")}>
       {agent?.avatar ? (
         <img
-          src={agent.avatar.startsWith("/") ? convertFileSrc(agent.avatar) : agent.avatar}
+          src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
           className="w-full h-full object-cover"
           alt=""
         />

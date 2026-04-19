@@ -1,13 +1,13 @@
 //! Connectivity / credential test helpers for providers.
 //!
-//! Shared by both the Tauri `test_embedding` / `test_image_generate` commands
-//! and the HTTP routes (`POST /api/providers/test-embedding` /
-//! `POST /api/providers/test-image`).
+//! Shared by both the Tauri `test_embedding` / `test_image_generate` /
+//! `test_model` / `test_proxy` commands and the matching HTTP routes.
 
 use std::time::{Duration, Instant};
 
+use crate::agent::build_api_url;
 use crate::memory;
-use crate::provider::apply_proxy;
+use crate::provider::{apply_proxy, apply_proxy_from_config, ApiType, ProviderConfig, ProxyConfig};
 use crate::truncate_utf8;
 
 /// Ping an embedding provider with a single "test" document and return a JSON
@@ -421,4 +421,224 @@ pub async fn test_image_generate(
             .unwrap_or_default())
         }
     }
+}
+
+// ── Model test (single-turn chat roundtrip) ────────────────────────
+
+/// Issue a minimal chat request against the given provider/model and return
+/// a JSON string describing success, latency, and a preview of the reply.
+///
+/// Shared body behind the Tauri `test_model` command and the HTTP
+/// `POST /api/providers/test-model` route. On failure returns
+/// `Err(json_string)` with the same shape, so callers can surface details
+/// verbatim without re-stringifying.
+pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<String, String> {
+    let client = apply_proxy(
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .user_agent(&config.user_agent),
+    )
+    .build()
+    .map_err(|e| format!("Client error: {}", e))?;
+
+    let base = config.base_url.trim_end_matches('/');
+    let start = Instant::now();
+
+    match config.api_type {
+        ApiType::Anthropic => {
+            let url = build_api_url(base, "/v1/messages");
+            let body = serde_json::json!({
+                "model": model_id,
+                "max_tokens": 32,
+                "messages": [{ "role": "user", "content": "Hi" }]
+            });
+            let request_info = serde_json::json!({
+                "url": &url, "method": "POST",
+                "headers": { "x-api-key": "***", "anthropic-version": "2023-06-01", "content-type": "application/json" },
+                "body": &body,
+            });
+
+            // Try `x-api-key` header first; some Anthropic-compatible gateways
+            // want `Authorization: Bearer` instead, so we fall back on network
+            // errors (not on API errors — the former are the ones that signal
+            // "wrong auth scheme" in practice).
+            let resp = client
+                .post(&url)
+                .header("x-api-key", &config.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await;
+
+            let resp = match resp {
+                Ok(r) => r,
+                Err(_) => client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", config.api_key))
+                    .header("anthropic-version", "2023-06-01")
+                    .header("content-type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        serde_json::to_string(&serde_json::json!({
+                            "success": false, "message": format!("连接失败: {}", e),
+                            "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
+                            "request": request_info,
+                        }))
+                        .unwrap_or_default()
+                    })?,
+            };
+
+            let status = resp.status().as_u16();
+            let body_text = resp.text().await.unwrap_or_default();
+            let latency = start.elapsed().as_millis() as u64;
+            let response_body: serde_json::Value =
+                serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
+
+            if status == 200 {
+                let reply = serde_json::from_str::<serde_json::Value>(&body_text)
+                    .ok()
+                    .and_then(|v| {
+                        v["content"]
+                            .as_array()?
+                            .first()?
+                            .get("text")?
+                            .as_str()
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
+                let preview = if reply.len() > 100 {
+                    format!("{}...", truncate_utf8(&reply, 100))
+                } else {
+                    reply.clone()
+                };
+                Ok(serde_json::to_string(&serde_json::json!({
+                    "success": true, "message": "模型响应正常",
+                    "model": model_id, "status": status, "latencyMs": latency,
+                    "reply": preview,
+                    "request": request_info, "response": response_body,
+                }))
+                .unwrap_or_default())
+            } else {
+                Err(serde_json::to_string(&serde_json::json!({
+                    "success": false, "message": format!("模型测试失败 ({})", status),
+                    "model": model_id, "status": status, "latencyMs": latency,
+                    "request": request_info, "response": response_body,
+                }))
+                .unwrap_or_default())
+            }
+        }
+        ApiType::OpenaiChat | ApiType::OpenaiResponses => {
+            let url = build_api_url(base, "/v1/chat/completions");
+            let body = serde_json::json!({
+                "model": model_id,
+                "max_tokens": 32,
+                "messages": [{ "role": "user", "content": "Hi" }]
+            });
+            let auth_header = if !config.api_key.is_empty() {
+                "Bearer ***"
+            } else {
+                "(none)"
+            };
+            let request_info = serde_json::json!({
+                "url": &url, "method": "POST",
+                "headers": { "Authorization": auth_header, "content-type": "application/json" },
+                "body": &body,
+            });
+
+            let mut req = client
+                .post(&url)
+                .header("content-type", "application/json")
+                .json(&body);
+            if !config.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+            let resp = req.send().await.map_err(|e| {
+                serde_json::to_string(&serde_json::json!({
+                    "success": false, "message": format!("连接失败: {}", e),
+                    "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
+                    "request": request_info,
+                }))
+                .unwrap_or_default()
+            })?;
+
+            let status = resp.status().as_u16();
+            let body_text = resp.text().await.unwrap_or_default();
+            let latency = start.elapsed().as_millis() as u64;
+            let response_body: serde_json::Value =
+                serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
+
+            if status == 200 {
+                let reply = serde_json::from_str::<serde_json::Value>(&body_text)
+                    .ok()
+                    .and_then(|v| {
+                        v["choices"]
+                            .as_array()?
+                            .first()?
+                            .get("message")?
+                            .get("content")?
+                            .as_str()
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
+                let preview = if reply.len() > 100 {
+                    format!("{}...", truncate_utf8(&reply, 100))
+                } else {
+                    reply.clone()
+                };
+                Ok(serde_json::to_string(&serde_json::json!({
+                    "success": true, "message": "模型响应正常",
+                    "model": model_id, "status": status, "latencyMs": latency,
+                    "reply": preview,
+                    "request": request_info, "response": response_body,
+                }))
+                .unwrap_or_default())
+            } else {
+                Err(serde_json::to_string(&serde_json::json!({
+                    "success": false, "message": format!("模型测试失败 ({})", status),
+                    "model": model_id, "status": status, "latencyMs": latency,
+                    "request": request_info, "response": response_body,
+                }))
+                .unwrap_or_default())
+            }
+        }
+        ApiType::Codex => Ok(serde_json::to_string(&serde_json::json!({
+            "success": true, "message": "Codex 模型无需单独测试",
+            "model": model_id, "latencyMs": 0,
+        }))
+        .unwrap_or_default()),
+    }
+}
+
+// ── Proxy test (generic outbound probe) ────────────────────────────
+
+/// Send a single GET against `https://httpbin.org/ip` using the given
+/// proxy configuration, returning the human-readable status line.
+/// Used by both Tauri `test_proxy` and the HTTP `/api/config/proxy/test`
+/// route for the settings-panel "Test proxy" button.
+pub async fn test_proxy(config: ProxyConfig) -> Result<String, String> {
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15));
+    builder = apply_proxy_from_config(builder, &config);
+    let client = builder
+        .build()
+        .map_err(|e| format!("Failed to build client: {}", e))?;
+
+    let start = Instant::now();
+    let resp = client
+        .get("https://httpbin.org/ip")
+        .send()
+        .await
+        .map_err(|e| format!("Connection failed: {}", e))?;
+
+    let elapsed = start.elapsed().as_millis();
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(format!("HTTP {}", status));
+    }
+    let body = resp.text().await.unwrap_or_default();
+    Ok(format!("OK ({}ms)\n{}", elapsed, body))
 }

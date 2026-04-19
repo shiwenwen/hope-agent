@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { parsePayload } from "@/lib/transport"
-import { convertFileSrc } from "@tauri-apps/api/core"
+import { parsePayload, isTauriMode } from "@/lib/transport"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { useTranslation } from "react-i18next"
@@ -288,7 +287,13 @@ export default function CanvasPanel({
   const handleDetach = useCallback(async () => {
     if (!canvas?.projectPath) return
 
-    const url = convertFileSrc(`${canvas.projectPath}/index.html`)
+    // Detached window is Tauri-only (uses `WebviewWindow`). In HTTP mode
+    // the Detach button is hidden, but guard defensively anyway.
+    if (!isTauriMode()) return
+
+    const url =
+      getTransport().resolveAssetUrl(`${canvas.projectPath}/index.html`) ?? ""
+    if (!url) return
 
     try {
       // Close existing detached window if any
@@ -372,11 +377,14 @@ export default function CanvasPanel({
 
   if (!canvas) return null
 
-  // Build the asset URL for the iframe via Tauri asset protocol
+  // Build the iframe URL via the transport — `asset://` scheme in Tauri,
+  // `/api/canvas/projects/{id}/index.html?token=...` in HTTP mode.
   const indexPath = canvas.projectPath
     ? `${canvas.projectPath}/index.html`
     : "" // fallback, shouldn't happen
-  const iframeSrc = indexPath ? convertFileSrc(indexPath) : ""
+  const iframeSrc = indexPath
+    ? (getTransport().resolveAssetUrl(indexPath) ?? "")
+    : ""
 
   // When detached, show a compact placeholder panel
   if (detached) {
@@ -463,14 +471,17 @@ export default function CanvasPanel({
             </button>
           </IconTip>
 
-          <IconTip label={t("canvas.popOut")}>
-            <button
-              onClick={handleDetach}
-              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
+          {/* Detach is desktop-only — spawning a WebviewWindow requires Tauri. */}
+          {isTauriMode() && (
+            <IconTip label={t("canvas.popOut")}>
+              <button
+                onClick={handleDetach}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          )}
 
           <IconTip label={maximized ? t("canvas.minimize") : t("canvas.maximize")}>
             <button

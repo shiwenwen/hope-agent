@@ -112,9 +112,17 @@ function ProjectRow({
       className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent/40 transition-colors text-left"
     >
       <div
-        className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-xs ${colorClass}`}
+        className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-xs overflow-hidden ${
+          project.logo ? "" : colorClass
+        }`}
       >
-        {project.emoji ? (
+        {project.logo ? (
+          <img
+            src={project.logo}
+            alt=""
+            className="w-full h-full object-cover"
+          />
+        ) : project.emoji ? (
           <span className="text-sm">{project.emoji}</span>
         ) : (
           <FolderKanban className="h-3.5 w-3.5" />

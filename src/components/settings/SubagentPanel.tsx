@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { convertFileSrc } from "@tauri-apps/api/core"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
@@ -91,11 +90,7 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
                       <div className="flex items-center justify-center h-6 w-6 rounded-full bg-secondary overflow-hidden shrink-0">
                         {agent.avatar ? (
                           <img
-                            src={
-                              agent.avatar.startsWith("/")
-                                ? convertFileSrc(agent.avatar)
-                                : agent.avatar
-                            }
+                            src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
                             className="w-full h-full object-cover"
                             alt=""
                           />

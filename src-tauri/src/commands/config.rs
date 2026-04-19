@@ -355,30 +355,12 @@ pub async fn save_proxy_config(config: provider::ProxyConfig) -> Result<(), Stri
     oc_core::config::save_config(&store).map_err(|e| e.to_string())
 }
 
+/// Outbound proxy probe used by Settings → Proxy → "Test". Body lives in
+/// [`oc_core::provider::test::test_proxy`] so the Tauri shell and HTTP route
+/// share one source of truth.
 #[tauri::command]
 pub async fn test_proxy(config: provider::ProxyConfig) -> Result<String, String> {
-    let mut builder = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .timeout(std::time::Duration::from_secs(15));
-    builder = provider::apply_proxy_from_config(builder, &config);
-    let client = builder
-        .build()
-        .map_err(|e| format!("Failed to build client: {}", e))?;
-
-    let start = std::time::Instant::now();
-    let resp = client
-        .get("https://httpbin.org/ip")
-        .send()
-        .await
-        .map_err(|e| format!("Connection failed: {}", e))?;
-
-    let elapsed = start.elapsed().as_millis();
-    let status = resp.status();
-    if !status.is_success() {
-        return Err(format!("HTTP {}", status));
-    }
-    let body = resp.text().await.unwrap_or_default();
-    Ok(format!("OK ({}ms)\n{}", elapsed, body))
+    oc_core::provider::test::test_proxy(config).await
 }
 
 // ── Theme & Language ─────────────────────────────────────────────
@@ -467,21 +449,17 @@ pub async fn set_autostart_enabled(app: tauri::AppHandle, enabled: bool) -> Resu
     }
 }
 
-/// Save a cropped avatar image (base64-encoded) to ~/.opencomputer/avatars/
-/// Returns the absolute path to the saved file.
+/// Save a cropped avatar image to `~/.opencomputer/avatars/` and return
+/// the absolute path. Bytes come from `transport.prepareFileData()`
+/// (serialized as `number[]` in the Tauri IPC path, the `data` field of a
+/// multipart form in the HTTP path — see `oc-server/routes/avatars::upload`).
 #[tauri::command]
-pub async fn save_avatar(image_data: String, file_name: String) -> Result<String, String> {
-    use base64::Engine;
-
+pub async fn save_avatar(data: Vec<u8>, file_name: String) -> Result<String, String> {
     let dir = paths::avatars_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
 
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(&image_data)
-        .map_err(|e| format!("Base64 decode error: {}", e))?;
-
     let path = dir.join(&file_name);
-    std::fs::write(&path, &bytes).map_err(|e| format!("Failed to write avatar: {}", e))?;
+    std::fs::write(&path, &data).map_err(|e| format!("Failed to write avatar: {}", e))?;
 
     Ok(path.to_string_lossy().to_string())
 }

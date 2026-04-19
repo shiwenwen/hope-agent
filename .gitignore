@@ -25,3 +25,4 @@ tool_comparison.md
 
 # Private research
 docs/research/
+.claude/scheduled_tasks.lock

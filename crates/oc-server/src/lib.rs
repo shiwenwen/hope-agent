@@ -187,6 +187,22 @@ fn build_router_with_cors(
             "/attachments/{session_id}/{filename}",
             get(routes::attachments::download),
         )
+        // Avatar download + upload — serves and persists files under
+        // `~/.opencomputer/avatars/{filename}`. Used by agent / user-profile
+        // avatar UI in HTTP mode where Tauri's `convertFileSrc` /
+        // `@tauri-apps/plugin-dialog` aren't available.
+        .route("/avatars/{filename}", get(routes::avatars::download))
+        .route(
+            "/avatars",
+            post(routes::avatars::upload).layer(DefaultBodyLimit::max(10 * 1024 * 1024)),
+        )
+        // Generated-image download — serves historic `~/.opencomputer/image_generate/*.png`
+        // referenced by legacy `mediaUrls` absolute-path rows. Used by
+        // `ToolMediaPreview` in HTTP mode.
+        .route(
+            "/generated-images/{filename}",
+            get(routes::generated_images::download),
+        )
         .route("/chat/system-prompt", get(routes::chat::get_system_prompt))
         .route("/system-prompt", post(routes::chat::get_system_prompt_post))
         .route("/chat/tools", get(routes::chat::list_tools))
@@ -206,6 +222,14 @@ fn build_router_with_cors(
         .route(
             "/providers/test-image",
             post(routes::providers::test_image_generate),
+        )
+        .route(
+            "/providers/test-model",
+            post(routes::providers::test_model),
+        )
+        .route(
+            "/providers/has-any",
+            get(routes::providers::has_providers),
         )
         .route(
             "/providers/active-model",
@@ -264,6 +288,10 @@ fn build_router_with_cors(
             "/memory/global-md",
             put(routes::memory::save_global_memory_md),
         )
+        .route(
+            "/memory/local-embedding-models",
+            get(routes::memory::list_local_embedding_models),
+        )
         // Config
         .route("/config/user", get(routes::config::get_user_config))
         .route("/config/user", put(routes::config::save_user_config))
@@ -277,6 +305,10 @@ fn build_router_with_cors(
         )
         .route("/config/proxy", get(routes::config::get_proxy_config))
         .route("/config/proxy", put(routes::config::save_proxy_config))
+        .route(
+            "/config/proxy/test",
+            post(routes::config::test_proxy_config),
+        )
         .route("/config/compact", get(routes::config::get_compact_config))
         .route("/config/compact", put(routes::config::save_compact_config))
         .route(
@@ -886,6 +918,18 @@ fn build_router_with_cors(
             "/canvas/by-session/{session_id}",
             get(routes::canvas::list_canvas_projects_by_session),
         )
+        // Canvas project CRUD (mirror of Tauri commands).
+        .route("/canvas/projects", get(routes::canvas::list_canvas_projects))
+        .route(
+            "/canvas/projects/{project_id}",
+            get(routes::canvas::get_canvas_project).delete(routes::canvas::delete_canvas_project),
+        )
+        // Canvas project static asset tree — serves the iframe's index.html
+        // plus its relative CSS / JS / images.
+        .route(
+            "/canvas/projects/{project_id}/{*rest}",
+            get(routes::canvas::serve_canvas_project_file),
+        )
         // Providers extras
         .route(
             "/providers/available-models",
@@ -921,8 +965,24 @@ fn build_router_with_cors(
             "/auth/codex/finalize",
             post(routes::auth::finalize_codex_auth),
         )
+        .route(
+            "/auth/codex/status",
+            get(routes::auth::check_auth_status),
+        )
+        .route(
+            "/auth/codex/logout",
+            post(routes::auth::logout_codex),
+        )
+        .route(
+            "/auth/session/restore",
+            post(routes::auth::try_restore_session),
+        )
         // System (desktop-only stubs)
         .route("/system/restart", post(routes::system::request_app_restart))
+        .route(
+            "/system/timezone",
+            get(routes::system::get_system_timezone),
+        )
         // Desktop (desktop-only stubs)
         .route("/desktop/open-url", post(routes::desktop::open_url))
         .route(

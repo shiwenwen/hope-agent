@@ -22,6 +22,11 @@ pub struct Project {
     pub instructions: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub emoji: Option<String>,
+    /// Optional project logo stored as a `data:image/...;base64,...` URL.
+    /// Rendered in the sidebar row and overview header when present; takes
+    /// precedence over `emoji` in the UI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub logo: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub color: Option<String>,
     /// When set, new sessions created inside this project default to this agent.
@@ -61,6 +66,8 @@ pub struct CreateProjectInput {
     #[serde(default)]
     pub emoji: Option<String>,
     #[serde(default)]
+    pub logo: Option<String>,
+    #[serde(default)]
     pub color: Option<String>,
     #[serde(default)]
     pub default_agent_id: Option<String>,
@@ -85,6 +92,8 @@ pub struct UpdateProjectInput {
     pub instructions: Option<String>,
     #[serde(default)]
     pub emoji: Option<String>,
+    #[serde(default)]
+    pub logo: Option<String>,
     #[serde(default)]
     pub color: Option<String>,
     #[serde(default)]

@@ -6,9 +6,9 @@
  *  - `mode="edit"` + `initialProject=<Project>` → prefilled form, calls onUpdate
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Check } from "lucide-react"
+import { Loader2, Check, ImagePlus, X, FolderKanban } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -71,8 +71,11 @@ export default function ProjectDialog({
   const [description, setDescription] = useState("")
   const [instructions, setInstructions] = useState("")
   const [emoji, setEmoji] = useState("")
+  const [logo, setLogo] = useState<string>("")
   const [color, setColor] = useState<string>("")
   const [defaultAgentId, setDefaultAgentId] = useState<string>("")
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [logoError, setLogoError] = useState("")
 
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">(
@@ -83,12 +86,14 @@ export default function ProjectDialog({
   useEffect(() => {
     if (!open) return
     setError("")
+    setLogoError("")
     setSaveStatus("idle")
     if (mode === "edit" && initialProject) {
       setName(initialProject.name ?? "")
       setDescription(initialProject.description ?? "")
       setInstructions(initialProject.instructions ?? "")
       setEmoji(initialProject.emoji ?? "")
+      setLogo(initialProject.logo ?? "")
       setColor(initialProject.color ?? "")
       setDefaultAgentId(initialProject.defaultAgentId ?? "")
     } else {
@@ -96,10 +101,32 @@ export default function ProjectDialog({
       setDescription("")
       setInstructions("")
       setEmoji("")
+      setLogo("")
       setColor("")
       setDefaultAgentId("")
     }
   }, [open, mode, initialProject])
+
+  async function handleLogoFileChange(
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = e.target.files?.[0]
+    // Reset the input so re-selecting the same file still fires change.
+    e.target.value = ""
+    if (!file) return
+    setLogoError("")
+    try {
+      const dataUrl = await resizeImageToDataUrl(file, 256, 0.85)
+      setLogo(dataUrl)
+    } catch (err) {
+      setLogoError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  function clearLogo() {
+    setLogo("")
+    setLogoError("")
+  }
 
   async function handleSave() {
     if (!name.trim()) {
@@ -115,6 +142,7 @@ export default function ProjectDialog({
           description: description.trim() || null,
           instructions: instructions.trim() || null,
           emoji: emoji.trim() || null,
+          logo: logo || null,
           color: color || null,
           defaultAgentId: defaultAgentId || null,
         })
@@ -130,6 +158,7 @@ export default function ProjectDialog({
           description: description.trim(),
           instructions: instructions.trim(),
           emoji: emoji.trim(),
+          logo: logo,
           color: color,
           defaultAgentId: defaultAgentId,
         })
@@ -181,6 +210,62 @@ export default function ProjectDialog({
                 autoFocus
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>{t("project.projectLogo")}</Label>
+            <p className="text-xs text-muted-foreground">
+              {t("project.projectLogoHint")}
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-14 h-14 rounded-lg border border-dashed border-border/70 bg-secondary/40 flex items-center justify-center overflow-hidden hover:border-primary/40 hover:bg-secondary/60 transition-colors shrink-0"
+                aria-label={t("project.uploadLogo")}
+              >
+                {logo ? (
+                  <img src={logo} alt="" className="w-full h-full object-cover" />
+                ) : emoji ? (
+                  <span className="text-2xl">{emoji}</span>
+                ) : (
+                  <FolderKanban className="h-5 w-5 text-muted-foreground/50" />
+                )}
+              </button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <ImagePlus className="mr-1.5 h-3.5 w-3.5" />
+                  {logo ? t("project.replaceLogo") : t("project.uploadLogo")}
+                </Button>
+                {logo && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={clearLogo}
+                    className="text-muted-foreground"
+                  >
+                    <X className="mr-1 h-3.5 w-3.5" />
+                    {t("project.removeLogo")}
+                  </Button>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleLogoFileChange}
+              />
+            </div>
+            {logoError && (
+              <p className="text-xs text-destructive">{logoError}</p>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -299,4 +384,55 @@ export default function ProjectDialog({
       </DialogContent>
     </Dialog>
   )
+}
+
+/** Hard cap on raw upload size before decoding — guards against oversized
+ * images crashing the canvas decoder. 8 MB is comfortable for any real logo. */
+const MAX_LOGO_SOURCE_BYTES = 8 * 1024 * 1024
+
+async function resizeImageToDataUrl(
+  file: File,
+  maxSize: number,
+  quality: number,
+): Promise<string> {
+  if (file.size > MAX_LOGO_SOURCE_BYTES) {
+    throw new Error(
+      `Image too large (max ${(MAX_LOGO_SOURCE_BYTES / 1024 / 1024).toFixed(0)}MB)`,
+    )
+  }
+  const img = await loadImageFromFile(file)
+  const srcW = img.naturalWidth || img.width
+  const srcH = img.naturalHeight || img.height
+  const ratio = Math.min(1, maxSize / Math.max(srcW, srcH))
+  const w = Math.max(1, Math.round(srcW * ratio))
+  const h = Math.max(1, Math.round(srcH * ratio))
+  const canvas = document.createElement("canvas")
+  canvas.width = w
+  canvas.height = h
+  const ctx = canvas.getContext("2d")
+  if (!ctx) throw new Error("Canvas context unavailable")
+  ctx.drawImage(img, 0, 0, w, h)
+  // WebP is ~30% smaller than JPEG at equivalent quality and supported by
+  // Tauri's WebView / modern browsers. Fall back to JPEG if encoding fails.
+  let dataUrl = canvas.toDataURL("image/webp", quality)
+  if (!dataUrl.startsWith("data:image/webp")) {
+    dataUrl = canvas.toDataURL("image/jpeg", quality)
+  }
+  return dataUrl
+}
+
+function loadImageFromFile(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      resolve(img)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      reject(new Error("Failed to decode image"))
+    }
+    img.src = url
+  })
 }

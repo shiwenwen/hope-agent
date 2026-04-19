@@ -117,7 +117,15 @@ export default function ProjectOverviewDialog({
       <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <span className="text-2xl">{project.emoji ?? "📁"}</span>
+            {project.logo ? (
+              <img
+                src={project.logo}
+                alt=""
+                className="h-8 w-8 rounded-md object-cover shrink-0"
+              />
+            ) : (
+              <span className="text-2xl">{project.emoji ?? "📁"}</span>
+            )}
             <span className="flex-1 truncate">{project.name}</span>
             <Button
               variant="ghost"
