@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::json;
 
-use super::config::{build_api_url, ANTHROPIC_API_VERSION};
+use super::llm_adapter::{OneShotMode, OneShotRequest};
 use super::types::{AssistantAgent, LlmProvider};
 
 impl AssistantAgent {
@@ -728,156 +728,41 @@ impl AssistantAgent {
 
 // ── Standalone summarization helpers ─────────────────────────────────
 
-/// Direct HTTP summarization call (decoupled from AssistantAgent).
+/// Direct one-shot summarization call (decoupled from AssistantAgent).
 /// Used by both the default fallback path and `DedicatedModelProvider`.
+///
+/// Routes through [`super::llm_adapter::LlmApiAdapter`] so all four providers
+/// share one body builder per protocol — no more 4-branch HTTP duplication.
 pub(crate) async fn summarize_direct(
     provider: &LlmProvider,
     user_agent: &str,
     prompt: &str,
     max_tokens: u32,
-) -> anyhow::Result<String> {
+) -> Result<String> {
     use crate::context_compact::SUMMARIZATION_SYSTEM_PROMPT;
 
     let client = crate::provider::apply_proxy(reqwest::Client::builder().user_agent(user_agent))
         .build()
         .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
-    match provider {
-        LlmProvider::Anthropic {
-            api_key,
-            base_url,
-            model,
-        } => {
-            let api_url = build_api_url(base_url, "/v1/messages");
-            let body = json!({
-                "model": model,
-                "max_tokens": max_tokens,
-                "system": SUMMARIZATION_SYSTEM_PROMPT,
-                "messages": [{ "role": "user", "content": prompt }],
-            });
-            let resp = client
-                .post(&api_url)
-                .header("x-api-key", api_key)
-                .header("anthropic-version", ANTHROPIC_API_VERSION)
-                .header("content-type", "application/json")
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
+    let result = provider
+        .as_adapter()
+        .one_shot(
+            &client,
+            OneShotRequest {
+                instruction: prompt,
+                max_tokens,
+                mode: OneShotMode::Independent {
+                    system: SUMMARIZATION_SYSTEM_PROMPT,
+                },
+            },
+        )
+        .await?;
 
-            if !resp.status().is_success() {
-                let err = resp.text().await.unwrap_or_default();
-                return Err(anyhow::anyhow!("Summarization API error: {}", err));
-            }
-
-            let result: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
-
-            result
-                .get("content")
-                .and_then(|c| c.as_array())
-                .and_then(|arr| {
-                    arr.iter()
-                        .find(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
-                })
-                .and_then(|b| b.get("text"))
-                .and_then(|t| t.as_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
-        }
-        LlmProvider::OpenAIChat {
-            api_key,
-            base_url,
-            model,
-        }
-        | LlmProvider::OpenAIResponses {
-            api_key,
-            base_url,
-            model,
-        } => {
-            let api_url = build_api_url(base_url, "/v1/chat/completions");
-            let body = json!({
-                "model": model,
-                "max_tokens": max_tokens,
-                "messages": [
-                    { "role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT },
-                    { "role": "user", "content": prompt },
-                ],
-            });
-            let resp = client
-                .post(&api_url)
-                .header("Authorization", format!("Bearer {}", api_key))
-                .header("content-type", "application/json")
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
-
-            if !resp.status().is_success() {
-                let err = resp.text().await.unwrap_or_default();
-                return Err(anyhow::anyhow!("Summarization API error: {}", err));
-            }
-
-            let result: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
-
-            result
-                .get("choices")
-                .and_then(|c| c.get(0))
-                .and_then(|c| c.get("message"))
-                .and_then(|m| m.get("content"))
-                .and_then(|t| t.as_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
-        }
-        LlmProvider::Codex {
-            access_token,
-            account_id,
-            model,
-        } => {
-            let api_url = "https://chatgpt.com/backend-api/codex/v1/chat/completions";
-            let body = json!({
-                "model": model,
-                "max_tokens": max_tokens,
-                "messages": [
-                    { "role": "system", "content": SUMMARIZATION_SYSTEM_PROMPT },
-                    { "role": "user", "content": prompt },
-                ],
-            });
-            let resp = client
-                .post(api_url)
-                .header("Authorization", format!("Bearer {}", access_token))
-                .header("X-Account-ID", account_id.as_str())
-                .header("content-type", "application/json")
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| anyhow::anyhow!("Summarization request failed: {}", e))?;
-
-            if !resp.status().is_success() {
-                let err = resp.text().await.unwrap_or_default();
-                return Err(anyhow::anyhow!("Summarization API error: {}", err));
-            }
-
-            let result: serde_json::Value = resp
-                .json()
-                .await
-                .map_err(|e| anyhow::anyhow!("Failed to parse summarization response: {}", e))?;
-
-            result
-                .get("choices")
-                .and_then(|c| c.get(0))
-                .and_then(|c| c.get("message"))
-                .and_then(|m| m.get("content"))
-                .and_then(|t| t.as_str())
-                .map(|s| s.to_string())
-                .ok_or_else(|| anyhow::anyhow!("No text in summarization response"))
-        }
+    if result.text.is_empty() {
+        return Err(anyhow::anyhow!("No text in summarization response"));
     }
+    Ok(result.text)
 }
 
 // ── DedicatedModelProvider ───────────────────────────────────────────

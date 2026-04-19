@@ -110,8 +110,9 @@ crates/oc-core/src/     核心业务逻辑（零 Tauri 依赖）
   backup.rs             备份管理
   memory_extract.rs     记忆自动提取
   agent/                AssistantAgent（多 Provider + Tool Loop + Side Query 缓存侧查询）
-    providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex
-    side_query.rs       缓存友好侧查询（复用 prompt cache，成本降低 ~90%）
+    providers/          Anthropic / OpenAI Chat / OpenAI Responses / Codex（streaming + tool loop）
+    llm_adapter.rs      LlmApiAdapter trait + 4 个 one-shot adapter（side_query + summarize_direct 共用）
+    side_query.rs       缓存友好侧查询入口（薄壳，委托给 llm_adapter）
   agent_config.rs       Agent 配置管理
   agent_loader.rs       Agent 加载器
   channel/              IM 渠道系统（12 个插件，会话映射、分发 worker）
@@ -247,6 +248,7 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 - **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效
 - **SSRF 统一策略**：所有发起出站 HTTP 请求（接受模型 / 用户 URL 输入）的工具必须在发送前调用 `crate::security::ssrf::check_url(url, policy, &trusted_hosts)`（见 [`crates/oc-core/src/security/ssrf.rs`](crates/oc-core/src/security/ssrf.rs)）；redirect 回调用 `check_host_blocking_sync`。三档 policy 从 `AppConfig.ssrf` 读取：`Strict`（拒 loopback + private + link-local + metadata）、`Default`（允许 loopback，拒其他 private + metadata，当前 browser/web_fetch/image_generate/url_preview 默认档）、`AllowPrivate`（允许 loopback + private，仍拒 metadata / link-local）。Metadata IP 黑名单（`169.254.169.254` / `169.254.170.2` / `100.100.100.200` / `fd00:ec2::254`）在任何 policy 下都拒绝。`trustedHosts` allowlist 优先于 policy（支持 `host` / `host:port` / `*.example.com` 通配）。新增出站入口时必须显式接入该模块，不要绕过写自定义 IP 校验。LLM Provider 的 HTTP 出站当前不走此检查（`ProviderConfig.allow_private_network` 仅落字段 + UI 联动），Phase B 再打通
 - **Side Query（缓存侧查询）**：`AssistantAgent.side_query()` 复用主对话的 system_prompt + tool_schemas + conversation_history 前缀，利用 Anthropic 显式 prompt caching / OpenAI 自动前缀缓存，侧查询（Tier 3 摘要、记忆提取）成本降低约 90%。每轮主请求 compaction 后自动快照 `CacheSafeParams`，侧查询构建字节一致的前缀请求。无缓存参数时退化为普通请求
+- **LlmApiAdapter（one-shot 调用统一抽象）**：`crates/oc-core/src/agent/llm_adapter.rs` 把 4 个 Provider 的 one-shot HTTP 调用抽成一个 trait + 4 个 adapter struct（`AnthropicAdapter` / `OpenAIChatAdapter` / `OpenAIResponsesAdapter` / `CodexAdapter`）。`OpenAIResponses` 和 `Codex` 是同一种协议（差异只在端点 + auth header），共享 `build_responses_body` free function。`AssistantAgent.side_query()` 和 `context.rs::summarize_direct()` 都走 `provider.as_adapter().one_shot(req)`：当 `req.system_override.is_some()` 时走"独立 system + 单条 user"分支（用于 Tier 3 摘要），否则走 cache-friendly / bare fallback。adapter 是临时构造的零成本 wrapper（只持借用引用），不进 `AssistantAgent` 字段。**主对话 streaming + tool loop 路径暂未统一**（`agent/providers/`，3145 行，留给后续 Phase）
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
 - **Auth Profile 轮换 failover**：`ProviderConfig.auth_profiles: Vec<AuthProfile>` 支持同 Provider 多 API Key。Chat Engine 遇到 RateLimit/Overloaded/Auth/Billing 时先轮换同 Provider 下一个 profile，全部耗尽后再跳模型。每个 profile 持有独立 `api_key` + 可选 `base_url` 覆盖。纯内存 `ProfileCooldownTracker`（按错误类型 30s–600s 冷却）+ `ProfileStickyMap`（session 级亲和）。`AssistantAgent::new_from_provider_with_profile(config, model_id, profile)` 按 profile 构建 agent，现有 `new_from_provider` 委托到 `effective_profiles()[0]` 保持 15+ 调用点零改动。Codex (OAuth) 不参与 profile 轮换。前端 Provider 编辑面板 `AuthProfileEditor` 支持增删改多个 profile
 - **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求

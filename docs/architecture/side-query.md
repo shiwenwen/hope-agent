@@ -1,5 +1,5 @@
 # Side Query 缓存侧查询架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-19
 
 ## 核心原理
 
@@ -47,39 +47,39 @@ pub struct CacheSafeParams {
 
 ## side_query() 流程
 
+`side_query()` 自身只做"取快照 + 构 client + 调 adapter"三步——所有 Provider 特异性都在 [`agent/llm_adapter.rs`](../../crates/oc-core/src/agent/llm_adapter.rs) 的 `LlmApiAdapter` trait 实现里。`summarize_direct()` 复用同一组 adapter，仅传不同的 `OneShotRequest`（`system_override` 字段决定走哪条分支）。
+
 ```mermaid
 flowchart TD
     A["side_query(instruction, max_tokens)"] --> B["构建 reqwest::Client<br/>apply_proxy() 应用代理配置"]
     B --> C["Arc::clone() 获取<br/>cache_safe_params"]
-    C --> D{"match self.provider"}
+    C --> D["self.provider.as_adapter()"]
+    D --> E["adapter.one_shot(client,<br/>OneShotRequest { instruction, max_tokens,<br/>cached, system_override: None })"]
 
-    D -- "Anthropic" --> E["side_query_anthropic()"]
-    D -- "OpenAIChat" --> F["side_query_openai_chat()"]
-    D -- "OpenAIResponses" --> G["side_query_responses()<br/>format=OpenAIResponses"]
-    D -- "Codex" --> H["side_query_responses()<br/>format=Codex"]
+    E --> F{"system_override?<br/>(summarize_direct 为 Some)"}
+    F -- "Some(sys)" --> G["独立 system 路径<br/>system=sys + 单条 user message<br/>不带 tools / history"]
+    F -- "None" --> H{"cached.filter(format == 匹配)?"}
 
-    E --> I{"cached.filter(format == 匹配)?"}
-    F --> I
-    G --> I
-    H --> I
+    H -- "Some(params)" --> I["Cache-friendly 路径<br/>复用 system + tools + history 前缀<br/>push_user_message(instruction)"]
+    H -- "None" --> J["Bare fallback<br/>仅 instruction 作为 user message"]
 
-    I -- "Some(params)" --> J["Cache-friendly 路径<br/>复用 system + tools + history 前缀<br/>push_user_message(instruction)"]
-    I -- "None" --> K["Fallback 路径<br/>仅发送 instruction 作为 user message<br/>无前缀复用"]
-
-    J --> L["send_json_request()<br/>POST + JSON + 自定义 headers"]
-    K --> L
-    L --> M{"resp.status().is_success()?"}
-    M -- Yes --> N["resp.json() 解析"]
-    M -- No --> O["Err: Side query API error"]
-    N --> P["extract_*_text() 提取响应文本"]
-    P --> Q["extract_*_usage() 提取 token 指标"]
-    Q --> R["返回 SideQueryResult { text, usage }"]
+    G --> K["send_json_request()<br/>POST + JSON + 自定义 headers"]
+    I --> K
+    J --> K
+    K --> L{"resp.status().is_success()?"}
+    L -- Yes --> M["resp.json() 解析"]
+    L -- No --> N["Err: LLM API error"]
+    M --> O["extract_*_text() 提取响应文本"]
+    O --> P["extract_openai_usage() / extract_anthropic_usage()"]
+    P --> Q["返回 OneShotResult { text, usage }"]
+    Q --> R["side_query 包装为 SideQueryResult"]
 
     style A fill:#e1f5fe
-    style J fill:#e8f5e9
-    style K fill:#fff3e0
+    style G fill:#fff8e1
+    style I fill:#e8f5e9
+    style J fill:#fff3e0
     style R fill:#e8f5e9
-    style O fill:#ffcdd2
+    style N fill:#ffcdd2
 ```
 
 ### 关键约束
@@ -121,7 +121,7 @@ flowchart TD
 
 | 特性 | OpenAI Responses | Codex |
 |------|-----------------|-------|
-| API URL | `build_api_url(base_url, "/v1/responses")` | `chatgpt.com/backend-api/codex/v1/responses` |
+| API URL | `build_api_url(base_url, "/v1/responses")` | `chatgpt.com/backend-api/codex/responses`（复用 `CODEX_API_URL`，与主对话同路径） |
 | 认证 | `Authorization: Bearer {api_key}` | `Authorization: Bearer {access_token}` + `X-Account-ID` |
 | system prompt | `instructions` 字段 | 同左 |
 | input | 复用 `conversation_history` + `push_user_message(instruction)` | 同左 |
@@ -190,8 +190,10 @@ pub struct ChatUsage {
 
 | 文件 | 路径 | 职责 |
 |------|------|------|
-| Side Query 核心 | `crates/oc-core/src/agent/side_query.rs` | `save_cache_safe_params()` + `side_query()` + 4 个 Provider 适配 + 共享 helpers |
+| Side Query 入口 | `crates/oc-core/src/agent/side_query.rs` | `save_cache_safe_params()` + `side_query()`（薄壳，委托给 adapter） |
+| LLM Adapter | `crates/oc-core/src/agent/llm_adapter.rs` | `LlmApiAdapter` trait + 4 个 Provider adapter + 共享 helpers（`send_json_request` / 5 个 `extract_*`）；`LlmProvider::as_adapter()` 入口 |
+| 摘要直连 | `crates/oc-core/src/agent/context.rs::summarize_direct()` | Tier 3 fallback 路径，复用同一 adapter 走 `system_override` 分支 |
 | 类型定义 | `crates/oc-core/src/agent/types.rs` | `CacheSafeParams` / `ProviderFormat` / `SideQueryResult` / `ChatUsage` |
-| Provider 配置 | `crates/oc-core/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` |
-| 上下文压缩 | `crates/oc-core/src/context_compact/` | 调用方：Tier 3 摘要通过 side_query 执行 |
+| Provider 配置 | `crates/oc-core/src/agent/config.rs` | `build_api_url()` / `ANTHROPIC_API_VERSION` / `CODEX_API_URL` |
+| 上下文压缩 | `crates/oc-core/src/context_compact/` | 调用方：Tier 3 摘要通过 side_query / summarize_direct 执行 |
 | 记忆系统 | `crates/oc-core/src/memory/` | 调用方：记忆提取 + 语义选择通过 side_query 执行 |

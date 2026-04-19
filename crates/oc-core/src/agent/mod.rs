@@ -9,6 +9,7 @@ mod events;
 
 pub(crate) use events::MEDIA_ITEMS_PREFIX;
 pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
+mod llm_adapter;
 mod providers;
 mod side_query;
 mod types;
