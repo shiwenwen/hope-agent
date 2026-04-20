@@ -1,6 +1,6 @@
 use crate::globals::APP_HANDLE;
 use crate::{cron, docker, get_logger, session, tools, tray, weather, CRON_DB};
-use ha_core::app_warn;
+use ha_core::{app_error, app_warn};
 use session::SessionDB;
 use std::sync::Arc;
 
@@ -111,11 +111,13 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         // Read server config from config.json (bind address, API key)
         let store = ha_core::config::load_config().unwrap_or_default();
         let api_key = store.server.api_key.clone();
+        let chat_streams = Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new());
+        crate::globals::set_chat_stream_registry(chat_streams.clone());
         let ctx = Arc::new(ha_server::AppContext {
             session_db,
             project_db,
             event_bus,
-            chat_streams: Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new()),
+            chat_streams,
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             api_key: api_key.clone(),
         });
@@ -126,7 +128,12 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         };
         tauri::async_runtime::spawn(async move {
             if let Err(e) = ha_server::start_server(config, ctx).await {
+                // Defense-in-depth: start_server already marks failed on bind
+                // and serve errors, but catch any future error path above/
+                // around those calls too.
+                ha_core::server_status::mark_failed(format!("{:#}", e));
                 eprintln!("[embedded-server] Failed to start: {}", e);
+                app_error!("server", "start", "embedded server failed: {:#}", e);
             }
         });
     }

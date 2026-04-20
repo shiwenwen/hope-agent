@@ -1411,7 +1411,15 @@
     "serverDisconnected": "Не подключено",
     "serverTestConnection": "Проверить соединение",
     "serverTestSuccess": "Соединение успешно",
-    "serverTestFailed": "Соединение не удалось"
+    "serverTestFailed": "Соединение не удалось",
+    "serverRuntimeStatus": "Состояние во время работы",
+    "serverBoundAddr": "Привязанный адрес",
+    "serverUptime": "Время работы",
+    "serverActiveWebSockets": "Активные WebSocket",
+    "serverActiveChatStreams": "Активные чат-сессии",
+    "serverStartupError": "Ошибка запуска",
+    "serverNotStarted": "Не запущен",
+    "serverWsSub": "{{events}} событий · {{chat}} чат"
   },
   "tz": {
     "shanghai": "Шанхай (UTC+8)",
@@ -2385,7 +2393,7 @@
   "onboarding": {
     "welcome": {
       "title": "Welcome to Hope Agent",
-      "subtitle": "A local-first AI assistant that learns from your workflow. Let's set it up — every step is optional except picking a model.",
+      "subtitle": "ИИ-ассистент, который узнаёт вас всё лучше с каждым использованием — на рабочем столе, в облаке и в мессенджерах, всегда на связи.\nДалее — краткое знакомство: пропустить можно любой шаг, кроме выбора модели.",
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"

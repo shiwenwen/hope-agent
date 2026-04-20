@@ -1411,7 +1411,15 @@
     "serverDisconnected": "未接続",
     "serverTestConnection": "接続テスト",
     "serverTestSuccess": "接続成功",
-    "serverTestFailed": "接続失敗"
+    "serverTestFailed": "接続失敗",
+    "serverRuntimeStatus": "ランタイムステータス",
+    "serverBoundAddr": "バインドアドレス",
+    "serverUptime": "稼働時間",
+    "serverActiveWebSockets": "アクティブな WebSocket",
+    "serverActiveChatStreams": "アクティブなチャット",
+    "serverStartupError": "起動エラー",
+    "serverNotStarted": "未起動",
+    "serverWsSub": "{{events}} events · {{chat}} chat"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",
@@ -2385,7 +2393,7 @@
   "onboarding": {
     "welcome": {
       "title": "Welcome to Hope Agent",
-      "subtitle": "A local-first AI assistant that learns from your workflow. Let's set it up — every step is optional except picking a model.",
+      "subtitle": "使うほどあなたを理解していく AI アシスタント——デスクトップ、クラウド、IM でいつでも呼び出せます。\n以下は簡単なセットアップです——モデル選択以外はすべてスキップできます。",
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"

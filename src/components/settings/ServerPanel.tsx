@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, type ReactNode } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { switchToRemote, switchToEmbedded } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
@@ -6,7 +6,22 @@ import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { logger } from "@/lib/logger"
-import { MonitorSmartphone, Globe, Check, Loader2, Wifi, CircleDot, RefreshCw } from "lucide-react"
+import {
+  MonitorSmartphone,
+  Globe,
+  Check,
+  Loader2,
+  Wifi,
+  CircleDot,
+  RefreshCw,
+  Network,
+  Clock,
+  Radio,
+  MessageSquare,
+  AlertTriangle,
+} from "lucide-react"
+import MetricCard from "@/components/common/MetricCard"
+import { useServerStatus, formatServerUptime } from "@/hooks/useServerStatus"
 
 type ServerMode = "embedded" | "remote"
 
@@ -230,6 +245,12 @@ export default function ServerPanel() {
             </span>
           )}
         </div>
+
+        {/* Runtime Status — live snapshot of the embedded server. Shown in
+            both embedded and remote modes; the underlying command is routed
+            by the Transport layer so remote servers answer via
+            GET /api/server/status (unauthenticated). */}
+        <RuntimeStatusSection />
 
         {/* Mode Selector */}
         <div className="space-y-3">
@@ -458,5 +479,95 @@ export default function ServerPanel() {
         )}
       </div>
     </div>
+  )
+}
+
+function RuntimeStatusSection() {
+  const { t } = useTranslation()
+  const { status, loading, error } = useServerStatus(3000)
+
+  let body: ReactNode
+  if (loading && !status && !error) {
+    body = (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[0, 1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="h-[58px] rounded-lg bg-muted/50 animate-pulse"
+          />
+        ))}
+      </div>
+    )
+  } else if (!status) {
+    body = (
+      <div className="flex items-center gap-2 text-xs text-muted-foreground px-3 py-2 rounded-md bg-muted/40">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+        <span className="truncate">
+          {error ?? t("settings.serverNotStarted")}
+        </span>
+      </div>
+    )
+  } else if (status.startupError) {
+    body = (
+      <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2.5 space-y-1.5">
+        <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          {t("settings.serverStartupError")}
+        </div>
+        <pre className="text-xs text-destructive/90 whitespace-pre-wrap break-all">
+          {status.startupError}
+        </pre>
+        <p className="text-[11px] text-destructive/80">
+          {t("settings.serverRestartRequired")}
+        </p>
+      </div>
+    )
+  } else {
+    const wsTotal = status.eventsWsCount + status.chatWsCount
+    body = (
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <MetricCard
+          icon={Network}
+          label={t("settings.serverBoundAddr")}
+          value={status.boundAddr ?? t("settings.serverNotStarted")}
+          colorClass="text-indigo-500"
+          bgClass="bg-indigo-500/10"
+        />
+        <MetricCard
+          icon={Clock}
+          label={t("settings.serverUptime")}
+          value={formatServerUptime(status.uptimeSecs)}
+          colorClass="text-green-500"
+          bgClass="bg-green-500/10"
+        />
+        <MetricCard
+          icon={Radio}
+          label={t("settings.serverActiveWebSockets")}
+          value={String(wsTotal)}
+          subValue={t("settings.serverWsSub", {
+            events: status.eventsWsCount,
+            chat: status.chatWsCount,
+          })}
+          colorClass="text-amber-500"
+          bgClass="bg-amber-500/10"
+        />
+        <MetricCard
+          icon={MessageSquare}
+          label={t("settings.serverActiveChatStreams")}
+          value={String(status.activeChatStreams)}
+          colorClass="text-purple-500"
+          bgClass="bg-purple-500/10"
+        />
+      </div>
+    )
+  }
+
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium">
+        {t("settings.serverRuntimeStatus")}
+      </h3>
+      {body}
+    </section>
   )
 }

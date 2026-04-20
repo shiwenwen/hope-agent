@@ -59,11 +59,31 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
     let router = build_router_with_cors(ctx, &config.cors_origins, config.api_key.clone());
 
-    let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
-    eprintln!("[ha-server] listening on {}", config.bind_addr);
-    banner::print_launch_banner(&config.bind_addr, config.api_key.as_deref());
+    let listener = match tokio::net::TcpListener::bind(&config.bind_addr).await {
+        Ok(l) => l,
+        Err(e) => {
+            ha_core::server_status::mark_failed(format!("bind {}: {}", config.bind_addr, e));
+            return Err(e.into());
+        }
+    };
+    let actual_addr = listener.local_addr().unwrap_or_else(|_| {
+        // Fallback to a parsed form of the configured string if the kernel
+        // refuses local_addr() — we still want to mark "started" so the GUI
+        // stops showing "Not started".
+        config
+            .bind_addr
+            .parse()
+            .unwrap_or_else(|_| "0.0.0.0:0".parse().expect("literal parses"))
+    });
+    ha_core::server_status::mark_started(actual_addr);
 
-    axum::serve(listener, router).await?;
+    eprintln!("[ha-server] listening on {}", actual_addr);
+    banner::print_launch_banner(&actual_addr.to_string(), config.api_key.as_deref());
+
+    if let Err(e) = axum::serve(listener, router).await {
+        ha_core::server_status::mark_failed(format!("serve: {}", e));
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -75,8 +95,16 @@ fn build_router_with_cors(
     cors_origins: &[String],
     api_key: Option<String>,
 ) -> Router {
-    // Health endpoint is always public (no auth required)
-    let health = Router::new().route("/api/health", get(routes::health::health_check));
+    // Health + server status are always public (no auth required). The
+    // status payload only contains bound-addr / uptime / WS counts — nothing
+    // secret — and keeping it unauthenticated lets the Transport layer probe
+    // remote servers the same way it probes `/api/health`.
+    let health = Router::new()
+        .route("/api/health", get(routes::health::health_check))
+        .route(
+            "/api/server/status",
+            get(routes::server_status::server_status),
+        );
 
     // Protected API routes
     let api = Router::new()

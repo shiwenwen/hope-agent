@@ -28,6 +28,9 @@ async fn handle_events_socket(mut socket: WebSocket, ctx: Arc<AppContext>) {
     use futures_util::SinkExt;
     use tokio::sync::broadcast::error::RecvError;
 
+    let _conn_guard =
+        ha_core::server_status::WsConnectionGuard::new(ha_core::server_status::events_ws_counter());
+
     let mut rx = ctx.event_bus.subscribe();
     let mut lag_count: u32 = 0;
     let api_key = ctx.api_key.clone();

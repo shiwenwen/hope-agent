@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import ServerStatusIndicator from "@/components/common/ServerStatusIndicator"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -222,6 +223,9 @@ export default function IconSidebar({
         <div className="flex-1" />
 
         <div className="py-3 flex flex-col gap-2">
+          {/* Server runtime health — always visible so users can catch port
+              conflicts, high WS load, etc. without opening Settings. */}
+          <ServerStatusIndicator onOpen={onOpenSettings} />
           {/* Profile */}
           <IconTip label={t("settings.profile")} side="right">
             <Button

@@ -29,6 +29,7 @@ pub mod projects;
 pub mod providers;
 pub mod recap;
 pub mod searxng;
+pub mod server_status;
 pub mod sessions;
 pub mod skills;
 pub mod slash;

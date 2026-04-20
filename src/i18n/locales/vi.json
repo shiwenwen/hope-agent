@@ -1411,7 +1411,15 @@
     "serverDisconnected": "Đã ngắt kết nối",
     "serverTestConnection": "Kiểm tra kết nối",
     "serverTestSuccess": "Kết nối thành công",
-    "serverTestFailed": "Kết nối thất bại"
+    "serverTestFailed": "Kết nối thất bại",
+    "serverRuntimeStatus": "Trạng thái hoạt động",
+    "serverBoundAddr": "Địa chỉ liên kết",
+    "serverUptime": "Thời gian hoạt động",
+    "serverActiveWebSockets": "WebSocket đang hoạt động",
+    "serverActiveChatStreams": "Phiên trò chuyện đang hoạt động",
+    "serverStartupError": "Lỗi khởi động",
+    "serverNotStarted": "Chưa khởi động",
+    "serverWsSub": "{{events}} sự kiện · {{chat}} trò chuyện"
   },
   "tz": {
     "shanghai": "Thượng Hải (UTC+8)",

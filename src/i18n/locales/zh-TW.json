@@ -1411,7 +1411,15 @@
     "serverDisconnected": "未連接",
     "serverTestConnection": "測試連接",
     "serverTestSuccess": "連接成功",
-    "serverTestFailed": "連接失敗"
+    "serverTestFailed": "連接失敗",
+    "serverRuntimeStatus": "執行時狀態",
+    "serverBoundAddr": "綁定地址",
+    "serverUptime": "運行時長",
+    "serverActiveWebSockets": "活躍連接",
+    "serverActiveChatStreams": "活躍對話",
+    "serverStartupError": "啟動錯誤",
+    "serverNotStarted": "未啟動",
+    "serverWsSub": "{{events}} 事件 · {{chat}} 對話"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",
@@ -2385,7 +2393,7 @@
   "onboarding": {
     "welcome": {
       "title": "欢迎使用 Hope Agent",
-      "subtitle": "一款从你的日常工作中学习的本地 AI 助手。下面是一个简短的引导——除了选择模型,其它每一步都可以跳过。",
+      "subtitle": "越用越懂你的 AI 助手——桌面、雲端、IM，隨叫隨到。\n下面是一段簡短的引導——除了選擇模型，其它每一步都可以跳過。",
       "languageLabel": "界面语言",
       "autoLanguage": "跟随系统",
       "languageHint": "当前显示:{{current}}"

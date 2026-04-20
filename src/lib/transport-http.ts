@@ -246,6 +246,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Server --
   get_server_config:               { method: "GET",    path: "/api/config/server" },
   save_server_config:              { method: "PUT",    path: "/api/config/server" },
+  get_server_runtime_status:       { method: "GET",    path: "/api/server/status" },
 
   // -- Proxy --
   get_proxy_config:                { method: "GET",    path: "/api/config/proxy" },

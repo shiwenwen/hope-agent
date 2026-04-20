@@ -1411,7 +1411,15 @@
     "serverDisconnected": "연결 끊김",
     "serverTestConnection": "연결 테스트",
     "serverTestSuccess": "연결 성공",
-    "serverTestFailed": "연결 실패"
+    "serverTestFailed": "연결 실패",
+    "serverRuntimeStatus": "런타임 상태",
+    "serverBoundAddr": "바인딩 주소",
+    "serverUptime": "가동 시간",
+    "serverActiveWebSockets": "활성 WebSocket",
+    "serverActiveChatStreams": "활성 채팅 세션",
+    "serverStartupError": "시작 오류",
+    "serverNotStarted": "시작되지 않음",
+    "serverWsSub": "{{events}} events · {{chat}} chat"
   },
   "tz": {
     "shanghai": "상하이 (UTC+8)",
@@ -2385,7 +2393,7 @@
   "onboarding": {
     "welcome": {
       "title": "Welcome to Hope Agent",
-      "subtitle": "A local-first AI assistant that learns from your workflow. Let's set it up — every step is optional except picking a model.",
+      "subtitle": "사용할수록 당신을 더 잘 이해하는 AI 어시스턴트 — 데스크톱, 클라우드, IM 어디서든 언제든 호출할 수 있습니다.\n아래는 간단한 안내입니다 — 모델 선택을 제외한 모든 단계는 건너뛸 수 있습니다.",
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"

@@ -1411,7 +1411,15 @@
     "serverDisconnected": "Dinyahsambung",
     "serverTestConnection": "Uji sambungan",
     "serverTestSuccess": "Sambungan berjaya",
-    "serverTestFailed": "Sambungan gagal"
+    "serverTestFailed": "Sambungan gagal",
+    "serverRuntimeStatus": "Status Jalanan",
+    "serverBoundAddr": "Alamat Terikat",
+    "serverUptime": "Masa Beroperasi",
+    "serverActiveWebSockets": "WebSocket Aktif",
+    "serverActiveChatStreams": "Sesi Sembang Aktif",
+    "serverStartupError": "Ralat Mula",
+    "serverNotStarted": "Belum Dimulakan",
+    "serverWsSub": "{{events}} peristiwa · {{chat}} sembang"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

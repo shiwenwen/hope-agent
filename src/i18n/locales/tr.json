@@ -1411,7 +1411,15 @@
     "serverDisconnected": "Bağlı değil",
     "serverTestConnection": "Bağlantıyı test et",
     "serverTestSuccess": "Bağlantı başarılı",
-    "serverTestFailed": "Bağlantı başarısız"
+    "serverTestFailed": "Bağlantı başarısız",
+    "serverRuntimeStatus": "Çalışma Durumu",
+    "serverBoundAddr": "Bağlı Adres",
+    "serverUptime": "Çalışma Süresi",
+    "serverActiveWebSockets": "Aktif WebSocket",
+    "serverActiveChatStreams": "Aktif Sohbet Oturumları",
+    "serverStartupError": "Başlangıç Hatası",
+    "serverNotStarted": "Başlatılmadı",
+    "serverWsSub": "{{events}} olay · {{chat}} sohbet"
   },
   "tz": {
     "shanghai": "Şanghay (UTC+8)",

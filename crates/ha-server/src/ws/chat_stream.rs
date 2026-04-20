@@ -61,6 +61,10 @@ impl ChatStreamRegistry {
             }
         }
     }
+
+    pub async fn active_session_count(&self) -> usize {
+        self.sessions.read().await.len()
+    }
 }
 
 // ── WebSocket handler ──────────────────────────────────────────
@@ -79,7 +83,9 @@ pub async fn chat_stream_ws(
 }
 
 async fn handle_chat_socket(mut socket: WebSocket, session_id: String, ctx: Arc<AppContext>) {
-    // Subscribe to the session's broadcast channel
+    let _conn_guard =
+        ha_core::server_status::WsConnectionGuard::new(ha_core::server_status::chat_ws_counter());
+
     let mut rx = ctx.chat_streams.subscribe(&session_id).await;
 
     // Send connection acknowledgement

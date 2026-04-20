@@ -56,6 +56,7 @@ pub mod recap;
 pub mod sandbox;
 pub mod security;
 pub mod self_diagnosis;
+pub mod server_status;
 pub mod service_install;
 pub mod session;
 pub mod skills;
