@@ -137,12 +137,16 @@ pub async fn apply_server(Json(p): Json<ServerPayload>) -> Result<Json<Value>, A
     Ok(Json(json!({ "ok": true })))
 }
 
-pub async fn generate_api_key() -> Result<Json<Value>, AppError> {
-    Ok(Json(json!({ "apiKey": apply::generate_api_key() })))
+/// Returns a fresh API key as a bare JSON string so the Tauri and HTTP
+/// responses share shape — frontend code `call<string>(...)` works across
+/// both transports without branching.
+pub async fn generate_api_key() -> Result<Json<String>, AppError> {
+    Ok(Json(apply::generate_api_key()))
 }
 
-pub async fn list_local_ips() -> Result<Json<Value>, AppError> {
-    Ok(Json(
-        json!({ "ips": crate::banner::local_ipv4_addresses() }),
-    ))
+/// Returns LAN IPs as a bare JSON array (not wrapped in `{ ips: [...] }`)
+/// so the frontend can `call<string[]>("list_local_ips")` uniformly on
+/// Tauri and HTTP. See `generate_api_key` for the same rationale.
+pub async fn list_local_ips() -> Result<Json<Vec<String>>, AppError> {
+    Ok(Json(crate::banner::local_ipv4_addresses()))
 }

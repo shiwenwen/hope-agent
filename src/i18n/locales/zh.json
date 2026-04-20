@@ -2487,7 +2487,8 @@
         "irc": "IRC",
         "imessage": "iMessage",
         "email": "邮箱"
-      }
+      },
+      "configureInSettings": "在设置中配置渠道"
     },
     "summary": {
       "title": "完成 🎉",

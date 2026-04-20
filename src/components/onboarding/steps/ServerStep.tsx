@@ -57,6 +57,23 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
     }
   }
 
+  /**
+   * Toggle the API-key switch.
+   *
+   * When flipping ON for the first time (no key yet), auto-generate one
+   * so the wizard never ends up in the "apiKeyEnabled=true but no key"
+   * state — which previously persisted as "clear the key" in the apply
+   * step, silently dropping the user's intent. Auto-generation lets the
+   * user edit / regenerate the key afterwards before hitting Next.
+   */
+  async function toggleApiKey(enabled: boolean) {
+    if (enabled && !apiKey) {
+      await regenerateKey()
+    } else {
+      update({ apiKeyEnabled: enabled })
+    }
+  }
+
   const previewHost = bindMode === "lan" && localIps[0] ? localIps[0] : "localhost"
   const previewUrl = apiKeyEnabled && apiKey
     ? `http://${previewHost}:8420/?token=${apiKey}`
@@ -120,7 +137,7 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
           <Switch
             id="onb-apikey-toggle"
             checked={apiKeyEnabled}
-            onCheckedChange={(v) => update({ apiKeyEnabled: v })}
+            onCheckedChange={(v) => void toggleApiKey(v)}
           />
         </div>
         {apiKeyEnabled && (

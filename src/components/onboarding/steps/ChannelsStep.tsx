@@ -15,8 +15,12 @@ import {
 } from "lucide-react"
 
 interface ChannelsStepProps {
-  /** Settings panel opener used by the "Configure in Settings" CTA. */
-  onOpenSettings: () => void
+  /**
+   * Called by the "Configure in Settings" CTA. Clicking it finishes the
+   * wizard (writing whatever's been set so far) and lands the user in
+   * Settings → Channels so they can drive the full credential flow.
+   */
+  onJumpToSettings: () => void
 }
 
 interface ChannelMeta {
@@ -57,14 +61,11 @@ function buildChannels(): ChannelMeta[] {
  *
  *   1. Make it obvious that connecting IM is optional and skippable.
  *   2. Show the full roster so users see what's possible.
- *   3. Route any click into the existing Channels settings panel via
- *      `onOpenSettings`, which preserves all current capability.
- *
- * When a user genuinely wants to connect a channel during onboarding,
- * they click any chip → land on the Channels panel → configure it →
- * close Settings → resume the wizard on Step 8 (state was persisted).
+ *   3. Offer a single "Configure in Settings" CTA that cleanly exits
+ *      the wizard — chips are informational only, so a stray click
+ *      doesn't lose wizard progress.
  */
-export function ChannelsStep({ onOpenSettings }: ChannelsStepProps) {
+export function ChannelsStep({ onJumpToSettings }: ChannelsStepProps) {
   const { t } = useTranslation()
   const channels = buildChannels()
 
@@ -77,15 +78,10 @@ export function ChannelsStep({ onOpenSettings }: ChannelsStepProps) {
 
       <div className="grid gap-2 sm:grid-cols-3">
         {channels.map((c) => (
-          <button
+          <div
             key={c.id}
-            type="button"
-            disabled={!c.supported}
-            onClick={onOpenSettings}
-            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
-              c.supported
-                ? "border-border hover:border-primary/40 hover:bg-primary/5"
-                : "border-border/60 opacity-50 cursor-not-allowed"
+            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-sm ${
+              c.supported ? "border-border" : "border-border/60 opacity-50"
             }`}
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-md bg-muted text-muted-foreground">
@@ -97,13 +93,22 @@ export function ChannelsStep({ onOpenSettings }: ChannelsStepProps) {
                 {t("onboarding.channels.macOnly")}
               </span>
             )}
-          </button>
+          </div>
         ))}
       </div>
 
-      <p className="text-xs text-muted-foreground text-center">
-        {t("onboarding.channels.hint")}
-      </p>
+      <div className="flex flex-col items-center gap-2 pt-2">
+        <button
+          type="button"
+          onClick={onJumpToSettings}
+          className="text-xs text-primary hover:underline"
+        >
+          {t("onboarding.channels.configureInSettings")}
+        </button>
+        <p className="text-xs text-muted-foreground text-center">
+          {t("onboarding.channels.hint")}
+        </p>
+      </div>
     </div>
   )
 }

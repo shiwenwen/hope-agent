@@ -2487,7 +2487,8 @@
         "irc": "IRC",
         "imessage": "iMessage",
         "email": "Email"
-      }
+      },
+      "configureInSettings": "Configure channels in Settings"
     },
     "summary": {
       "title": "You're all set",

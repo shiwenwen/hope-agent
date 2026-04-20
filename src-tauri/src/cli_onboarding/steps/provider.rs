@@ -16,8 +16,7 @@ use ha_core::config::{load_config, save_config};
 use ha_core::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
 
 use crate::cli_onboarding::prompt::{
-    print_saved, print_skipped, println_step, prompt_confirm, prompt_input, prompt_password,
-    prompt_select,
+    print_saved, print_skipped, println_step, prompt_input, prompt_password, prompt_select,
 };
 
 struct Template {
@@ -117,6 +116,5 @@ pub fn run(step: u32, total: u32) -> Result<bool> {
     save_config(&config)?;
 
     print_saved("Provider saved and set as active model");
-    let _ = prompt_confirm("Continue", true)?;
     Ok(true)
 }

@@ -51,11 +51,17 @@ pub fn apply_profile(input: ProfileStepInput) -> Result<()> {
     Ok(())
 }
 
+/// Merge a wizard field into a user-config field.
+///
+/// The wizard UI treats an unchanged text field as "" (its initial
+/// React state), indistinguishable from an explicit "clear". We bias
+/// toward preserving existing data: both `None` and empty-string
+/// leave the target untouched. Users who genuinely want to wipe a
+/// profile value do it from Settings → Profile, where the UI
+/// pre-populates with the current value and a clear edit is unambiguous.
 fn merge_optional(target: &mut Option<String>, new_value: Option<String>) {
     if let Some(v) = new_value {
-        if v.is_empty() {
-            *target = None;
-        } else {
+        if !v.is_empty() {
             *target = Some(v);
         }
     }

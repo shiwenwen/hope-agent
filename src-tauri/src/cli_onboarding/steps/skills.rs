@@ -13,9 +13,13 @@ pub fn run(step: u32, total: u32) -> Result<()> {
 
     let extra = load_config()?.extra_skills_dirs.clone();
     let skills = load_all_skills_with_extra(&extra);
+    // Keep only bundled, non-`always:true` skills. Core skills like
+    // `ha-settings` / `ha-skill-creator` set `requires.always = true` so
+    // the model never loses config-management. Filtering by name here
+    // would miss those — frontmatter is the source of truth.
     let bundled: Vec<_> = skills
         .into_iter()
-        .filter(|s| s.source == "bundled" && s.name != "ha-settings")
+        .filter(|s| s.source == "bundled" && !s.requires.always)
         .collect();
 
     if bundled.is_empty() {

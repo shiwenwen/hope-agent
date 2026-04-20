@@ -34,8 +34,12 @@ import { WelcomeStep } from "./steps/WelcomeStep"
 interface OnboardingWizardProps {
   /** Called when the user finishes (or exits mid-flow saving draft). */
   onComplete: () => void
-  /** Lets user pop out to Settings → Channels from Step 8. */
-  onOpenSettings: () => void
+  /**
+   * Called from Step 8's "Configure in Settings" link. The wizard
+   * marks onboarding complete first (so the user doesn't bounce back
+   * on next launch), then routes into the full Channels panel.
+   */
+  onJumpToChannelsSettings: () => void
   /** Shared Codex OAuth flow (same handler App.tsx passes to ProviderSetup). */
   onCodexAuth: () => Promise<void>
   /** Initial language so Step 1 shows the current selection. */
@@ -52,7 +56,7 @@ interface OnboardingWizardProps {
  */
 export function OnboardingWizard({
   onComplete,
-  onOpenSettings,
+  onJumpToChannelsSettings,
   onCodexAuth,
   initialLanguage,
 }: OnboardingWizardProps) {
@@ -118,13 +122,33 @@ export function OnboardingWizard({
             disabled: draft.skills?.disabled ?? [],
           })
           return true
-        case "server":
+        case "server": {
+          // Final safety net: if apiKeyEnabled is true but the text field
+          // is empty (user never triggered auto-gen), mint a key now so
+          // the persisted config matches the user's intent. Empty string
+          // in the apply step means "clear the key" — the opposite of
+          // what the switch suggests.
+          let apiKey = ""
+          if (draft.server?.apiKeyEnabled) {
+            apiKey = draft.server?.apiKey ?? ""
+            if (!apiKey) {
+              apiKey = await t.call<string>("generate_api_key")
+              patchDraft({
+                server: {
+                  bindMode: draft.server?.bindMode ?? "local",
+                  apiKeyEnabled: true,
+                  apiKey,
+                },
+              })
+            }
+          }
           await t.call("apply_onboarding_server", {
             bindAddr:
               draft.server?.bindMode === "lan" ? "0.0.0.0:8420" : "127.0.0.1:8420",
-            apiKey: draft.server?.apiKeyEnabled ? draft.server?.apiKey ?? "" : "",
+            apiKey,
           })
           return true
+        }
         case "channels":
           // No-op: channels persist through the Settings UI when the user
           // clicks a chip. The wizard just "passes through" this step.
@@ -206,7 +230,25 @@ export function OnboardingWizard({
           />
         )
       case "channels":
-        return <ChannelsStep onOpenSettings={onOpenSettings} />
+        return (
+          <ChannelsStep
+            onJumpToSettings={async () => {
+              // Mark onboarding complete so the next launch goes straight
+              // to the chat view, then land the user in Settings → Channels.
+              try {
+                await getTransport().call("mark_onboarding_completed")
+              } catch (e) {
+                logger.warn(
+                  "onboarding",
+                  "jumpToChannels",
+                  "mark_onboarding_completed failed",
+                  e,
+                )
+              }
+              onJumpToChannelsSettings()
+            }}
+          />
+        )
       case "summary":
         return <SummaryStep draft={draft} skipped={skipped} />
     }

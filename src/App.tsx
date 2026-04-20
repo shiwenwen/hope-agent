@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react"
+import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
@@ -20,6 +21,7 @@ const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
 
 export default function App() {
+  const { i18n } = useTranslation()
   const [view, setView] = useState<
     "loading" | "onboarding" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
   >("loading")
@@ -159,9 +161,9 @@ export default function App() {
           <DangerousModeBanner />
           <OnboardingWizard
             onComplete={() => setView("chat")}
-            onOpenSettings={() => setView("channels")}
+            onJumpToChannelsSettings={() => setView("channels")}
             onCodexAuth={handleCodexAuth}
-            initialLanguage={""}
+            initialLanguage={i18n.language || ""}
           />
         </div>
       </TooltipProvider>

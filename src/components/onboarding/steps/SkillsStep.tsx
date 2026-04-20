@@ -5,12 +5,17 @@ import { Package, Loader2 } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
+/**
+ * Subset of `SkillSummary` returned by the `get_skills` Tauri/HTTP command.
+ * We only need name / description / source / always here; everything else
+ * (env status, tool restrictions, lifecycle, etc.) is handled by the full
+ * Settings → Skills panel.
+ */
 interface SkillInfo {
   name: string
   description?: string | null
   source?: string | null
-  is_core?: boolean
-  is_bundled?: boolean
+  always?: boolean
 }
 
 interface SkillsStepProps {
@@ -22,10 +27,14 @@ interface SkillsStepProps {
 /**
  * Step 6 — bundled skills allow-list.
  *
- * Only skills marked `is_bundled` appear: core/always-on skills like
- * `ha-settings` are filtered out so users can't accidentally disable
- * them. Toggling flips whether the skill name sits in
- * `AppConfig.disabled_skills`.
+ * Filter rule:
+ *   - `source === "bundled"` — only skills shipped with the binary.
+ *     Managed / project / shared skills are tuned in the full Settings
+ *     panel, not here.
+ *   - `always !== true` — core skills like `ha-settings` set
+ *     `always: true` in their SKILL.md frontmatter and must never appear
+ *     in a disable list, otherwise the model loses config-management
+ *     access.
  */
 export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
   const { t } = useTranslation()
@@ -37,7 +46,7 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
     void (async () => {
       try {
         const raw = await getTransport().call<SkillInfo[]>("get_skills")
-        setSkills(raw.filter((s) => s.is_bundled && !s.is_core))
+        setSkills(raw.filter((s) => s.source === "bundled" && s.always !== true))
       } catch (e) {
         logger.warn("onboarding", "SkillsStep", "get_skills failed", e)
         setError(String(e))
