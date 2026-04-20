@@ -128,6 +128,13 @@ fn default_providers() -> Vec<WebSearchProviderEntry> {
             base_url: None,
         },
         WebSearchProviderEntry {
+            id: WebSearchProvider::Tavily,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
             id: WebSearchProvider::Brave,
             enabled: false,
             api_key: None,
@@ -157,13 +164,6 @@ fn default_providers() -> Vec<WebSearchProviderEntry> {
         },
         WebSearchProviderEntry {
             id: WebSearchProvider::Kimi,
-            enabled: false,
-            api_key: None,
-            api_key2: None,
-            base_url: None,
-        },
-        WebSearchProviderEntry {
-            id: WebSearchProvider::Tavily,
             enabled: false,
             api_key: None,
             api_key2: None,

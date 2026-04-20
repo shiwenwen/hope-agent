@@ -92,6 +92,11 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.skills",
   },
   {
+    id: "tools",
+    icon: <Wrench className="h-4 w-4" />,
+    labelKey: "settings.tools",
+  },
+  {
     id: "memory",
     icon: <Brain className="h-4 w-4" />,
     labelKey: "settings.memory",
@@ -105,11 +110,6 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "plan",
     icon: <ClipboardList className="h-4 w-4" />,
     labelKey: "settings.plan",
-  },
-  {
-    id: "tools",
-    icon: <Wrench className="h-4 w-4" />,
-    labelKey: "settings.tools",
   },
   {
     id: "recap",
