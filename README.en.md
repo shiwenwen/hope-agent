@@ -86,7 +86,7 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
 1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
    - macOS: `Hope-Agent_*.dmg`
    - Linux: `hope-agent_*.AppImage`
-   - Windows: coming soon (not yet fully tested)
+   - Windows: `Hope-Agent_*.exe` / `Hope-Agent_*.msi` (not yet fully tested)
 2. First launch: **pick a provider template → paste API key → chat.**
 
 <p align="center">
