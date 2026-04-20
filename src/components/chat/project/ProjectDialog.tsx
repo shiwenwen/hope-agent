@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Check, ImagePlus, X, FolderKanban } from "lucide-react"
+import { Loader2, Check, Camera } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -189,6 +189,16 @@ export default function ProjectDialog({
 
         <div className="space-y-4 py-2">
           <div className="grid grid-cols-6 gap-3">
+            <div className="col-span-5 space-y-1.5">
+              <Label htmlFor="project-name">{t("project.projectName")}</Label>
+              <Input
+                id="project-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t("project.projectNamePlaceholder")}
+                autoFocus
+              />
+            </div>
             <div className="col-span-1 space-y-1.5">
               <Label htmlFor="project-emoji">{t("project.projectEmoji")}</Label>
               <Input
@@ -200,16 +210,6 @@ export default function ProjectDialog({
                 className="text-center text-lg"
               />
             </div>
-            <div className="col-span-5 space-y-1.5">
-              <Label htmlFor="project-name">{t("project.projectName")}</Label>
-              <Input
-                id="project-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t("project.projectNamePlaceholder")}
-                autoFocus
-              />
-            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -218,10 +218,10 @@ export default function ProjectDialog({
               {t("project.projectLogoHint")}
             </p>
             <div className="flex items-center gap-3">
-              <button
-                type="button"
+              <div
                 onClick={() => fileInputRef.current?.click()}
-                className="w-14 h-14 rounded-lg border border-dashed border-border/70 bg-secondary/40 flex items-center justify-center overflow-hidden hover:border-primary/40 hover:bg-secondary/60 transition-colors shrink-0"
+                className="w-14 h-14 rounded-xl bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors cursor-pointer shrink-0"
+                role="button"
                 aria-label={t("project.uploadLogo")}
               >
                 {logo ? (
@@ -229,32 +229,18 @@ export default function ProjectDialog({
                 ) : emoji ? (
                   <span className="text-2xl">{emoji}</span>
                 ) : (
-                  <FolderKanban className="h-5 w-5 text-muted-foreground/50" />
-                )}
-              </button>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <ImagePlus className="mr-1.5 h-3.5 w-3.5" />
-                  {logo ? t("project.replaceLogo") : t("project.uploadLogo")}
-                </Button>
-                {logo && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={clearLogo}
-                    className="text-muted-foreground"
-                  >
-                    <X className="mr-1 h-3.5 w-3.5" />
-                    {t("project.removeLogo")}
-                  </Button>
+                  <Camera className="h-5 w-5 text-muted-foreground/40" />
                 )}
               </div>
+              {logo && (
+                <button
+                  type="button"
+                  onClick={clearLogo}
+                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {t("project.removeLogo")}
+                </button>
+              )}
               <input
                 ref={fileInputRef}
                 type="file"
