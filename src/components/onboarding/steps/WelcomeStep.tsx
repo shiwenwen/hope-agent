@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Globe, Sparkles } from "lucide-react"
 
@@ -21,14 +20,9 @@ interface WelcomeStepProps {
  */
 export function WelcomeStep({ initialLanguage, onLanguageChange }: WelcomeStepProps) {
   const { t, i18n } = useTranslation()
-  const [value, setValue] = useState(initialLanguage || "auto")
-
-  useEffect(() => {
-    setValue(initialLanguage || "auto")
-  }, [initialLanguage])
+  const value = initialLanguage || "auto"
 
   async function handleSelect(next: string) {
-    setValue(next)
     onLanguageChange(next)
     if (next === "auto") {
       await setFollowSystemLanguage()
