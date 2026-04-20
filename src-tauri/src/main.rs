@@ -279,6 +279,17 @@ fn run_server(args: &[String]) {
         eprintln!("[server] Failed to initialize data directories: {}", e);
         std::process::exit(1);
     }
+
+    // Onboarding status: if the user has never completed the wizard, tell
+    // them now so they can continue in the Web GUI. PR 3 will add the
+    // full interactive TTY wizard; for now, we always emit the notice
+    // and start with defaults so a headless/systemd launch is not blocked.
+    match ha_core::onboarding::state::get_state() {
+        Ok(state) if state.completed_version < ha_core::onboarding::CURRENT_ONBOARDING_VERSION => {
+            ha_server::banner::print_unconfigured_notice(&bind_addr);
+        }
+        _ => {}
+    }
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
         eprintln!("[server] Warning: failed to ensure default agent: {}", e);
     }

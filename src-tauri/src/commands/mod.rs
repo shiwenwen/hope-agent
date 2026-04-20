@@ -13,6 +13,7 @@ pub mod dreaming;
 pub mod logging;
 pub mod memory;
 pub mod misc;
+pub mod onboarding;
 pub mod plan;
 pub mod project;
 pub mod provider;

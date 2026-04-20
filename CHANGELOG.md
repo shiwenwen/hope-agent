@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **首次启动引导向导 — 后端基础设施(PR 1/3)**：新增 `AppConfig.onboarding` 字段与 `ha-core::onboarding` 模块(state / apply / presets)承载完成版本号、草稿恢复与跨 GUI/CLI 共享的数据写入逻辑;新增 Tauri 命令 `get_onboarding_state` / `save_onboarding_draft` / `mark_onboarding_completed` / `mark_onboarding_skipped` / `reset_onboarding` / `apply_onboarding_language|profile|safety|skills|server` / `apply_personality_preset_cmd` / `generate_api_key` / `list_local_ips`,HTTP 端点 `/api/onboarding/*` + `/api/server/generate-api-key` + `/api/server/local-ips` 对齐相同语义,供桌面端和浏览器端共用。数据写入仍走 `ha-core::config::save_config` / `save_user_config_to_disk`,自动产生 `onboarding/<step>` 打标签的快照,可在设置 → 备份中回滚。存量用户的 "legacy completed" 推断:已有 providers 但无 onboarding 字段时视为已完成 v1(读时推断,不落盘)。
+- **Web GUI 静态资源托管**:`ha-server` 新增 `web_assets.rs` + `rust-embed`,`build_router_with_cors` 附加 `fallback_service` 后可让 `http://host:port/` 在浏览器中直接加载 Vite 构建产物。解析顺序:`HA_WEB_ROOT` 环境变量覆盖(开发模式热更新)→ 二进制内嵌 → 回退诊断页。新增占位 `dist/` 目录(含 `.gitignore` 白名单)让 fresh clone 也能编译,`npm run build` 会覆盖为真正的前端。
+- **启动 Banner**:所有模式(GUI embedded server / `hope-agent server start`)共享 `ha_server::banner::print_launch_banner`,在 `start_server` bind 成功后统一打印 Web GUI URL + API endpoint + API Key(若设置)+ LAN 可达 IP(通过 `local-ip-address` 解析,限 3 条),方便用户跨设备访问。`print_unconfigured_notice` 在 CLI 非 TTY 场景下(systemd / Docker)提示用户用浏览器完成引导。
+- 小改:`ha-core::agent_loader::DEFAULT_AGENT_ID` 从 private 常量改为 `pub`,让 onboarding apply 路径可直接定位默认 Agent 目录写入人格预设,无需额外 helper。
+
 ## [0.1.0] - 2026-04-19
 
 首次公开发布。以下为 0.1.0 对外发布合并进来的全部改动。

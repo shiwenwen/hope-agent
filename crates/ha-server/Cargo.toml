@@ -3,6 +3,10 @@ name = "ha-server"
 version = "0.1.0"
 edition = "2021"
 description = "Hope Agent HTTP/WebSocket server"
+build = "build.rs"
+
+[build-dependencies]
+# build.rs only touches std::fs — no deps needed.
 
 [dependencies]
 ha-core = { path = "../ha-core" }
@@ -20,6 +24,16 @@ uuid = { workspace = true }
 axum = { version = "0.8", features = ["ws", "multipart"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "fs"] }
+
+# Static web GUI assets (SPA fallback). `rust-embed` bakes the Vite `dist/`
+# output into the release binary; in debug builds it reads from disk so
+# front-end changes reload instantly.
+rust-embed = { version = "8", features = ["compression", "mime-guess"] }
+mime_guess = "2"
+
+# Used by the `/api/server/local-ips` endpoint and the CLI launch banner to
+# substitute a LAN-reachable IP when the server binds to 0.0.0.0.
+local-ip-address = "0.6"
 
 [lints]
 workspace = true

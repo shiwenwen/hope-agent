@@ -6,7 +6,7 @@ use crate::paths;
 
 // ── Constants ────────────────────────────────────────────────────
 
-const DEFAULT_AGENT_ID: &str = "default";
+pub const DEFAULT_AGENT_ID: &str = "default";
 
 /// The Markdown files an agent directory may contain.
 const AGENT_MD: &str = "agent.md";
