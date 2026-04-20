@@ -88,11 +88,19 @@ impl AssistantAgent {
             // Low-frequency background path — no UI rotation event needed.
             None,
             |profile| {
-                let provider =
-                    AssistantAgent::build_llm_provider(provider_config.as_ref(), model_id, profile);
                 let cached_for_call = cached.clone();
                 let client_ref = &client;
+                let provider_config_ref = provider_config.as_ref();
+                // profile is `Option<&AuthProfile>`; clone to own it across
+                // the `.await` inside build_llm_provider (Codex branch).
+                let profile_owned = profile.cloned();
                 async move {
+                    let provider = AssistantAgent::build_llm_provider(
+                        provider_config_ref,
+                        model_id,
+                        profile_owned.as_ref(),
+                    )
+                    .await?;
                     let mode = match cached_for_call.as_deref() {
                         Some(p) => OneShotMode::Cached(p),
                         None => OneShotMode::Bare,

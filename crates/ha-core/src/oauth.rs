@@ -324,6 +324,61 @@ fn exchange_code_for_token(code: &str, code_verifier: &str) -> Result<TokenData>
     Ok(token)
 }
 
+/// Load Codex OAuth token from disk, refreshing if expired.
+/// Returns `(access_token, account_id)`.
+///
+/// Error messages embed the literal `authentication` so
+/// [`crate::failover::classify_error`] returns `FailoverReason::Auth`.
+pub async fn load_fresh_codex_token() -> Result<(String, String)> {
+    let disk = load_token()
+        .map_err(|e| {
+            anyhow!(
+                "Codex OAuth token read failed (authentication): {}. Please sign in again.",
+                e
+            )
+        })?
+        .ok_or_else(|| {
+            anyhow!("Codex OAuth token not found (authentication). Please sign in again.")
+        })?;
+
+    if !is_token_expired(&disk) {
+        let account_id = disk
+            .account_id
+            .clone()
+            .or_else(|| extract_account_id(&disk.access_token))
+            .unwrap_or_default();
+        return Ok((disk.access_token, account_id));
+    }
+
+    let refresh = disk.refresh_token.as_ref().ok_or_else(|| {
+        anyhow!(
+            "Codex OAuth token expired and no refresh token on disk (authentication). \
+             Please sign in again."
+        )
+    })?;
+
+    let new_token = refresh_access_token(refresh).await.map_err(|e| {
+        anyhow!(
+            "Codex OAuth token refresh failed (authentication): {}. Please sign in again.",
+            e
+        )
+    })?;
+
+    let account_id = new_token
+        .account_id
+        .clone()
+        .or_else(|| extract_account_id(&new_token.access_token))
+        .unwrap_or_default();
+
+    app_info!(
+        "auth",
+        "codex",
+        "On-demand Codex token refresh via load_fresh_codex_token"
+    );
+
+    Ok((new_token.access_token, account_id))
+}
+
 /// Return a fresh `(access_token, account_id)` pair when the caller's
 /// in-memory `current_access_token` is stale or missing relative to disk:
 /// - `None` — nothing changed; caller keeps what it has.
@@ -415,4 +470,37 @@ pub async fn refresh_access_token(refresh_token: &str) -> Result<TokenData> {
 /// Simple URL encoding for known safe strings
 fn urlencoding(s: &str) -> String {
     s.replace(' ', "+").replace(':', "%3A").replace('/', "%2F")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::failover::{classify_error, FailoverReason};
+
+    // Error messages from load_fresh_codex_token must classify as Auth.
+
+    #[test]
+    fn token_not_found_message_classifies_as_auth() {
+        let err = anyhow!("Codex OAuth token not found (authentication). Please sign in again.");
+        assert_eq!(classify_error(&err.to_string()), FailoverReason::Auth);
+    }
+
+    #[test]
+    fn token_expired_without_refresh_classifies_as_auth() {
+        let err = anyhow!(
+            "Codex OAuth token expired and no refresh token on disk (authentication). \
+             Please sign in again."
+        );
+        assert_eq!(classify_error(&err.to_string()), FailoverReason::Auth);
+    }
+
+    #[test]
+    fn token_refresh_failure_classifies_as_auth() {
+        let inner = "401 Unauthorized from auth.openai.com";
+        let err = anyhow!(
+            "Codex OAuth token refresh failed (authentication): {}. Please sign in again.",
+            inner
+        );
+        assert_eq!(classify_error(&err.to_string()), FailoverReason::Auth);
+    }
 }

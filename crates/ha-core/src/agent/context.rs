@@ -433,24 +433,30 @@ impl AssistantAgent {
         .await
     }
 
-    /// Build an `LlmProvider` from a `ProviderConfig` + model ID, optionally
-    /// overriding api_key / base_url with a specific [`AuthProfile`].
-    ///
-    /// `profile = None` falls back to `config.api_key` + `config.base_url`
-    /// (Codex / OAuth path where `effective_profiles()` is empty). Used by
-    /// `side_query` / `DedicatedModelProvider::summarize` to rebuild the
-    /// provider after the failover executor picks a profile.
-    pub(crate) fn build_llm_provider(
+    /// Build `LlmProvider` from config + optional [`AuthProfile`] override.
+    /// `profile = None` uses `config.api_key` / `config.base_url`.
+    /// Codex ignores `profile` and loads the OAuth token from disk.
+    pub(crate) async fn build_llm_provider(
         config: &crate::provider::ProviderConfig,
         model_id: &str,
         profile: Option<&crate::provider::AuthProfile>,
-    ) -> LlmProvider {
+    ) -> anyhow::Result<LlmProvider> {
         use crate::provider::ApiType;
+
+        if config.api_type == ApiType::Codex {
+            let (access_token, account_id) = crate::oauth::load_fresh_codex_token().await?;
+            return Ok(LlmProvider::Codex {
+                access_token,
+                account_id,
+                model: model_id.to_string(),
+            });
+        }
+
         let (api_key, base_url) = match profile {
             Some(p) => (p.api_key.clone(), config.resolve_base_url(p).to_string()),
             None => (config.api_key.clone(), config.base_url.clone()),
         };
-        match config.api_type {
+        Ok(match config.api_type {
             ApiType::Anthropic => LlmProvider::Anthropic {
                 api_key,
                 base_url,
@@ -466,12 +472,8 @@ impl AssistantAgent {
                 base_url,
                 model: model_id.to_string(),
             },
-            ApiType::Codex => LlmProvider::Codex {
-                access_token: api_key,
-                account_id: String::new(),
-                model: model_id.to_string(),
-            },
-        }
+            ApiType::Codex => unreachable!("Codex handled above"),
+        })
     }
 
     /// Normalize conversation history for Anthropic Messages API.
@@ -833,9 +835,18 @@ impl crate::context_compact::CompactionProvider for DedicatedModelProvider {
             FailoverPolicy::summarize_default(),
             None,
             |profile| {
-                let provider =
-                    AssistantAgent::build_llm_provider(provider_config, model_id, profile);
-                async move { summarize_direct(&provider, user_agent, prompt, max_tokens).await }
+                // profile is `Option<&AuthProfile>`; clone to own it across
+                // the `.await` inside build_llm_provider (Codex branch).
+                let profile_owned = profile.cloned();
+                async move {
+                    let provider = AssistantAgent::build_llm_provider(
+                        provider_config,
+                        model_id,
+                        profile_owned.as_ref(),
+                    )
+                    .await?;
+                    summarize_direct(&provider, user_agent, prompt, max_tokens).await
+                }
             },
         )
         .await
@@ -881,4 +892,67 @@ pub(crate) fn build_compaction_provider(
         prov_config.user_agent.clone(),
         display_name,
     ))
+}
+
+#[cfg(test)]
+mod build_provider_tests {
+    use super::*;
+    use crate::provider::{ApiType, AuthProfile, ProviderConfig};
+
+    #[tokio::test]
+    async fn anthropic_builds_with_profile_overrides() {
+        let mut cfg = ProviderConfig::new(
+            "anthropic-test".into(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com/".into(),
+            "legacy-key".into(),
+        );
+        cfg.auth_profiles = vec![AuthProfile::new(
+            "primary".into(),
+            "profile-key".into(),
+            Some("https://override.example/".into()),
+        )];
+
+        let profile = cfg.auth_profiles[0].clone();
+        let provider = AssistantAgent::build_llm_provider(&cfg, "claude-3", Some(&profile))
+            .await
+            .expect("non-codex build must not touch disk");
+
+        match provider {
+            LlmProvider::Anthropic {
+                api_key,
+                base_url,
+                model,
+            } => {
+                assert_eq!(api_key, "profile-key");
+                assert_eq!(base_url, "https://override.example/");
+                assert_eq!(model, "claude-3");
+            }
+            _ => panic!("expected Anthropic provider"),
+        }
+    }
+
+    #[tokio::test]
+    async fn openai_chat_falls_back_to_config_when_profile_none() {
+        let cfg = ProviderConfig::new(
+            "openai-test".into(),
+            ApiType::OpenaiChat,
+            "https://api.openai.com/".into(),
+            "config-key".into(),
+        );
+
+        let provider = AssistantAgent::build_llm_provider(&cfg, "gpt-4o", None)
+            .await
+            .expect("non-codex build must not touch disk");
+
+        match provider {
+            LlmProvider::OpenAIChat {
+                api_key, base_url, ..
+            } => {
+                assert_eq!(api_key, "config-key");
+                assert_eq!(base_url, "https://api.openai.com/");
+            }
+            _ => panic!("expected OpenAIChat provider"),
+        }
+    }
 }
