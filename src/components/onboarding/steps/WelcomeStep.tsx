@@ -44,7 +44,7 @@ export function WelcomeStep({ initialLanguage, onLanguageChange }: WelcomeStepPr
         <h1 className="text-3xl font-semibold tracking-tight">
           {t("onboarding.welcome.title")}
         </h1>
-        <p className="max-w-lg text-base text-muted-foreground leading-relaxed">
+        <p className="max-w-lg text-base text-muted-foreground leading-relaxed whitespace-pre-line">
           {t("onboarding.welcome.subtitle")}
         </p>
       </div>

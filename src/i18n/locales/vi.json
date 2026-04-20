@@ -2393,7 +2393,7 @@
   "onboarding": {
     "welcome": {
       "title": "Welcome to Hope Agent",
-      "subtitle": "A local-first AI assistant that learns from your workflow. Let's set it up — every step is optional except picking a model.",
+      "subtitle": "Một trợ lý AI càng dùng càng hiểu bạn — trên máy tính, trên đám mây và trong IM, luôn sẵn sàng.\nDưới đây là hướng dẫn nhanh — ngoại trừ chọn mô hình, mọi bước đều có thể bỏ qua.",
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
