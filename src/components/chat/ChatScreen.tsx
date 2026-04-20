@@ -354,10 +354,18 @@ export default function ChatScreen({
   // Restore the per-session tool permission toggle on session switch. The ref
   // guards against re-applying when `sessions` later reloads with the same
   // sid — that would clobber the user's in-session edits.
+  //
+  // When `sid` becomes null (new-chat transition), also reset to "auto" so the
+  // toggle doesn't carry the previous session's `full_approve` / `ask_every_time`
+  // into a fresh chat — otherwise the first tool call would silently fall back
+  // once `session_created` arrives and the DB default ("auto") is restored.
   const restoredTpmForSidRef = useRef<string | null>(null)
   useEffect(() => {
     const sid = session.currentSessionId
     if (!sid) {
+      if (restoredTpmForSidRef.current !== null) {
+        stream.setToolPermissionMode("auto")
+      }
       restoredTpmForSidRef.current = null
       return
     }
