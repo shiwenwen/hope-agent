@@ -126,6 +126,15 @@ export default function CanvasPanel({
   // a historical session emits no event, so the panel would otherwise
   // stay empty (or stuck on the previous session's canvas).
   useEffect(() => {
+    // Reset view state that would otherwise leak from the previous session
+    // (maximize overlay covers the whole chat area; detached window is tied
+    // to the previous project's iframe URL).
+    setMaximized(false)
+    if (detachedWindowRef.current) {
+      detachedWindowRef.current.close().catch(() => {})
+      detachedWindowRef.current = null
+      setDetached(false)
+    }
     if (!currentSessionId) {
       queueMicrotask(() => setCanvas(null))
       return
