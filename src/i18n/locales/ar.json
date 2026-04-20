@@ -1462,6 +1462,7 @@
     "selectChannel": "اختر قناة",
     "noAccounts": "لم يتم تكوين أي حسابات قنوات IM بعد",
     "addFirst": "أضف قناتك الأولى",
+    "duplicateCredential": "تم إضافة هذا البوت بالفعل (الحساب الموجود: {{label}}). لا يُسمح بالإضافات المكررة.",
     "channelType": "نوع القناة",
     "accountLabel": "اسم الحساب",
     "accountLabelPlaceholder": "مثال: مساعد WeChat الخاص بي",
@@ -2442,7 +2443,7 @@
       },
       "point2": {
         "title": "Adjustable later",
-        "desc": "You can change the timeout or enable per-channel auto-approve in Settings → Security."
+        "desc": "يمكنك تغيير المهلة في الإعدادات ← الأمان، أو تفعيل الموافقة التلقائية لقناة مراسلة محددة (Telegram / Slack / Discord، إلخ)."
       },
       "toggle": "Require approvals",
       "toggleHint": "Turning this off means tools run without prompting — not recommended.",
@@ -2451,7 +2452,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "No optional skills detected in this build."
+      "empty": "المهارات المضمَّنة جميعها قدرات أساسية مفعَّلة دائمًا — لا يوجد ما يحتاج إلى إعداد هنا. اضغط «التالي» للمتابعة.",
+      "locked": "مهارة أساسية — مفعَّلة دائمًا ولا يمكن تعطيلها",
+      "lockedBadge": "أساسي"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",
@@ -2536,6 +2539,14 @@
       "desc": "Existing configuration is kept. The wizard will walk you through each category again on next reload.",
       "button": "Re-run setup wizard",
       "confirm": "Re-run"
+    },
+    "mode": {
+      "title": "اختر طريقة التشغيل",
+      "subtitle": "شغّل Hope Agent محلياً على هذا الجهاز أو اتصل بخادم Hope Agent قائم.",
+      "localTitle": "إعداد محلي",
+      "localDesc": "شغّل Hope Agent على هذا الجهاز. بعد ذلك اختر مزود النموذج.",
+      "remoteTitle": "الاتصال بخادم بعيد",
+      "remoteDesc": "لديك خادم Hope Agent يعمل في مكان آخر؟ أدخل عنوانه وتجاوز الإعداد المحلي."
     }
   }
 }

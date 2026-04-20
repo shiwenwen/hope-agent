@@ -14,6 +14,8 @@ interface TemplateGridProps {
   onCodexAuth: () => Promise<void>
   onRemoteConnected?: () => void
   onCancel?: () => void
+  /** Hide the "Connect to remote server" shortcut (onboarding moves it to its own step). */
+  hideRemoteConnect?: boolean
 }
 
 export function TemplateGrid({
@@ -22,6 +24,7 @@ export function TemplateGrid({
   onCodexAuth,
   onRemoteConnected,
   onCancel,
+  hideRemoteConnect = false,
 }: TemplateGridProps) {
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState("")
@@ -106,15 +109,17 @@ export function TemplateGrid({
           </p>
           {codexError && <p className="text-xs text-red-400 text-center mt-2">{codexError}</p>}
 
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setRemoteOpen(true)}
-            className="w-full mt-3 h-9 gap-2 text-xs text-muted-foreground hover:text-foreground"
-          >
-            <Globe className="h-3.5 w-3.5" />
-            {t("provider.connectRemoteServer")}
-          </Button>
+          {!hideRemoteConnect && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setRemoteOpen(true)}
+              className="w-full mt-3 h-9 gap-2 text-xs text-muted-foreground hover:text-foreground"
+            >
+              <Globe className="h-3.5 w-3.5" />
+              {t("provider.connectRemoteServer")}
+            </Button>
+          )}
 
           <div className="flex items-center gap-3 mt-4">
             <div className="flex-1 h-px bg-border" />

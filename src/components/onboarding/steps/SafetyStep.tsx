@@ -19,7 +19,7 @@ interface SafetyStepProps {
 export function SafetyStep({ approvalsEnabled, onChange }: SafetyStepProps) {
   const { t } = useTranslation()
   return (
-    <div className="px-6 py-6 space-y-5 max-w-xl mx-auto">
+    <div className="px-6 py-6 space-y-5 max-w-2xl mx-auto">
       <div className="text-center space-y-1">
         <h2 className="text-xl font-semibold">{t("onboarding.safety.title")}</h2>
         <p className="text-sm text-muted-foreground">{t("onboarding.safety.subtitle")}</p>

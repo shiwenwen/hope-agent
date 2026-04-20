@@ -19,9 +19,10 @@ import { logger } from "@/lib/logger"
 
 import { NavigationFooter } from "./NavigationFooter"
 import { StepIndicator } from "./StepIndicator"
-import { ONBOARDING_STEPS, type OnboardingDraft, type OnboardingStepKey } from "./types"
+import { type OnboardingDraft, type OnboardingStepKey } from "./types"
 import { useOnboarding } from "./useOnboarding"
 import { ChannelsStep } from "./steps/ChannelsStep"
+import { ModeStep } from "./steps/ModeStep"
 import { PersonalityStep } from "./steps/PersonalityStep"
 import { ProfileStep } from "./steps/ProfileStep"
 import { ProviderStep } from "./steps/ProviderStep"
@@ -35,9 +36,11 @@ interface OnboardingWizardProps {
   /** Called when the user finishes (or exits mid-flow saving draft). */
   onComplete: () => void
   /**
-   * Called from Step 8's "Configure in Settings" link. The wizard
-   * marks onboarding complete first (so the user doesn't bounce back
-   * on next launch), then routes into the full Channels panel.
+   * Footer "Configure in Settings" shortcut on the channels step. The
+   * wizard marks onboarding complete first (so the user doesn't bounce
+   * back on next launch), then routes into the full Channels panel.
+   * Channel cards themselves open the Add dialog inline and don't use
+   * this callback.
    */
   onJumpToChannelsSettings: () => void
   /** Shared Codex OAuth flow (same handler App.tsx passes to ProviderSetup). */
@@ -65,6 +68,7 @@ export function OnboardingWizard({
   const {
     step,
     stepKey,
+    steps,
     draft,
     skipped,
     patchDraft,
@@ -93,6 +97,8 @@ export function OnboardingWizard({
         case "welcome":
           if (draft.language)
             await t.call("apply_onboarding_language", { language: draft.language })
+          return true
+        case "mode":
           return true
         case "provider":
           // Provider persistence happens inside <ProviderSetup /> on save.
@@ -123,23 +129,40 @@ export function OnboardingWizard({
           })
           return true
         case "server": {
-          // Final safety net: if apiKeyEnabled is true but the text field
-          // is empty (user never triggered auto-gen), mint a key now so
-          // the persisted config matches the user's intent. Empty string
-          // in the apply step means "clear the key" — the opposite of
-          // what the switch suggests.
-          let apiKey = ""
+          // Decide what to do with the API key:
+          // - enabled + user typed/generated one  → write that value
+          // - enabled + empty (first run, toggle  → mint a key on the fly
+          //   never triggered `toggleApiKey`)
+          // - enabled + empty (rerun, masked key → preserve existing
+          //   on disk and field starts blank)        by sending `null`
+          // - disabled                              → clear ("")
+          let apiKey: string | null = ""
           if (draft.server?.apiKeyEnabled) {
-            apiKey = draft.server?.apiKey ?? ""
-            if (!apiKey) {
-              apiKey = await t.call<string>("generate_api_key")
-              patchDraft({
-                server: {
-                  bindMode: draft.server?.bindMode ?? "local",
-                  apiKeyEnabled: true,
-                  apiKey,
-                },
-              })
+            const typed = draft.server?.apiKey ?? ""
+            if (typed) {
+              apiKey = typed
+            } else {
+              // Check whether there's already a key on disk. Rerun
+              // flow seeds apiKeyEnabled=true with an empty field because
+              // `get_server_config` masks the value; in that case we
+              // preserve the existing key by sending `null`. First-run
+              // fallback: no existing key, so mint one so the persisted
+              // state matches the user's intent.
+              const existing = await t
+                .call<{ hasApiKey?: boolean }>("get_server_config")
+                .catch(() => null)
+              if (existing?.hasApiKey) {
+                apiKey = null
+              } else {
+                apiKey = await t.call<string>("generate_api_key")
+                patchDraft({
+                  server: {
+                    bindMode: draft.server?.bindMode ?? "local",
+                    apiKeyEnabled: true,
+                    apiKey,
+                  },
+                })
+              }
             }
           }
           await t.call("apply_onboarding_server", {
@@ -160,7 +183,6 @@ export function OnboardingWizard({
       logger.error("onboarding", "applyCurrentStep", `${stepKey} apply failed`, e)
       return false
     }
-    return true
   }
 
   async function handleNext() {
@@ -185,6 +207,30 @@ export function OnboardingWizard({
           <WelcomeStep
             initialLanguage={draft.language ?? initialLanguage}
             onLanguageChange={(lang) => patchDraft({ language: lang })}
+          />
+        )
+      case "mode":
+        return (
+          <ModeStep
+            mode={draft.serverMode}
+            remoteUrl={draft.remote?.url ?? ""}
+            remoteApiKey={draft.remote?.apiKey ?? ""}
+            onChange={(patch) => {
+              const next: Partial<OnboardingDraft> = {}
+              if (patch.mode !== undefined) next.serverMode = patch.mode
+              if (patch.remoteUrl !== undefined || patch.remoteApiKey !== undefined) {
+                next.remote = {
+                  url: patch.remoteUrl ?? draft.remote?.url ?? "",
+                  apiKey: patch.remoteApiKey ?? draft.remote?.apiKey ?? "",
+                }
+              }
+              patchDraft(next)
+            }}
+            onRemoteConnected={() => {
+              // Remote connected → mark onboarding complete and exit the
+              // wizard. No further local steps apply.
+              void finish()
+            }}
           />
         )
       case "provider":
@@ -233,8 +279,6 @@ export function OnboardingWizard({
         return (
           <ChannelsStep
             onJumpToSettings={async () => {
-              // Mark onboarding complete so the next launch goes straight
-              // to the chat view, then land the user in Settings → Channels.
               try {
                 await getTransport().call("mark_onboarding_completed")
               } catch (e) {
@@ -256,8 +300,12 @@ export function OnboardingWizard({
 
   const isFinal = stepKey === "summary"
   const isProvider = stepKey === "provider"
+  const isMode = stepKey === "mode"
   const canGoBack = step > 0 && !isFinal
-  const canSkip = !isFinal
+  const canSkip = !isFinal && !isMode
+  // Mode step's "Next" is a no-op for remote (inline Connect drives completion)
+  // and also blocked until the user picks either option.
+  const modeNextDisabled = isMode && (!draft.serverMode || draft.serverMode === "remote")
 
   async function handleExitConfirm() {
     setExitOpen(false)
@@ -266,44 +314,53 @@ export function OnboardingWizard({
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen p-4 bg-gradient-to-br from-background to-muted/40">
-      <div className="w-full max-w-3xl rounded-xl border border-border bg-card shadow-lg overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-2 border-b border-border">
-          <div className="text-xs text-muted-foreground">
-            {t("onboarding.stepIndicator", {
-              current: step + 1,
-              total: ONBOARDING_STEPS.length,
-            })}
-          </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setExitOpen(true)}
-            aria-label={t("onboarding.nav.exit")}
-            disabled={busy}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+    <div className="flex flex-col h-screen bg-gradient-to-br from-background to-muted/40">
+      <div
+        className="relative h-11 flex items-center justify-center px-6 border-b border-border shrink-0"
+        data-tauri-drag-region
+      >
+        <div className="text-xs text-muted-foreground pointer-events-none">
+          {t("onboarding.stepIndicator", {
+            current: step + 1,
+            total: steps.length,
+          })}
         </div>
-
-        <StepIndicator current={step} skipped={skipped} />
-
-        <div className="min-h-[420px]">{renderStep()}</div>
-
-        <NavigationFooter
-          canGoBack={canGoBack}
-          canSkip={canSkip && !isProvider ? true : isProvider}
-          skipVariant={isProvider ? "danger" : "normal"}
-          isFinal={isFinal}
-          busy={saving || busy}
-          hideNext={isProvider}
-          onBack={goBack}
-          onSkip={() => void skipCurrent()}
-          onNext={() => void handleNext()}
-          onFinish={() => void finish()}
-          nextLabel={isFinal ? t("onboarding.summary.startButton") : undefined}
-        />
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setExitOpen(true)}
+          aria-label={t("onboarding.nav.exit")}
+          disabled={busy}
+          className="absolute right-2 top-1/2 -translate-y-1/2"
+        >
+          <X className="h-4 w-4" />
+        </Button>
       </div>
+
+      <StepIndicator current={step} skipped={skipped} steps={steps} />
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="min-h-full flex items-center justify-center py-6">
+          <div className={`w-full ${isProvider ? "max-w-3xl" : "max-w-2xl"}`}>
+            {renderStep()}
+          </div>
+        </div>
+      </div>
+
+      <NavigationFooter
+        canGoBack={canGoBack}
+        canSkip={canSkip}
+        skipVariant={isProvider ? "danger" : "normal"}
+        isFinal={isFinal}
+        busy={saving || busy}
+        nextDisabled={modeNextDisabled}
+        hideNext={isProvider}
+        onBack={goBack}
+        onSkip={() => void skipCurrent()}
+        onNext={() => void handleNext()}
+        onFinish={() => void finish()}
+        nextLabel={isFinal ? t("onboarding.summary.startButton") : undefined}
+      />
 
       <AlertDialog open={exitOpen} onOpenChange={setExitOpen}>
         <AlertDialogContent>

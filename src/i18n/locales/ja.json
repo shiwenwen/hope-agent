@@ -1462,6 +1462,7 @@
     "selectChannel": "チャネルを選択",
     "noAccounts": "IM チャネルアカウントが未設定です",
     "addFirst": "最初のチャネルを追加",
+    "duplicateCredential": "このボットは既に追加されています（既存アカウント：{{label}}）。重複して追加することはできません。",
     "channelType": "チャネルタイプ",
     "accountLabel": "アカウント名",
     "accountLabelPlaceholder": "例: My WeChat Assistant",
@@ -2442,7 +2443,7 @@
       },
       "point2": {
         "title": "Adjustable later",
-        "desc": "You can change the timeout or enable per-channel auto-approve in Settings → Security."
+        "desc": "設定 → セキュリティ でタイムアウト時間を変更したり、特定の IM チャンネル（Telegram / Slack / Discord など）ごとに自動承認を有効にできます。"
       },
       "toggle": "Require approvals",
       "toggleHint": "Turning this off means tools run without prompting — not recommended.",
@@ -2451,7 +2452,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "No optional skills detected in this build."
+      "empty": "同梱されている技能はすべてコア機能で、既定で有効になっています。ここで選択する必要はありません。「次へ」で続行してください。",
+      "locked": "コア技能 — 常に有効、無効化できません",
+      "lockedBadge": "コア"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",
@@ -2536,6 +2539,14 @@
       "desc": "Existing configuration is kept. The wizard will walk you through each category again on next reload.",
       "button": "Re-run setup wizard",
       "confirm": "Re-run"
+    },
+    "mode": {
+      "title": "実行方法を選択",
+      "subtitle": "このマシンで Hope Agent をローカル実行するか、既存の Hope Agent サーバーに接続します。",
+      "localTitle": "ローカル設定",
+      "localDesc": "このデバイスで Hope Agent を実行します。次にモデルプロバイダーを選んで設定を完了します。",
+      "remoteTitle": "リモート接続",
+      "remoteDesc": "別の場所で動いている Hope Agent サーバーがありますか？URL を入力すれば以降のローカル設定はスキップできます。"
     }
   }
 }

@@ -1,5 +1,6 @@
 export type OnboardingStepKey =
   | "welcome"
+  | "mode"
   | "provider"
   | "profile"
   | "personality"
@@ -9,8 +10,10 @@ export type OnboardingStepKey =
   | "channels"
   | "summary"
 
+/** Full ordered step list for the local-configuration flow. */
 export const ONBOARDING_STEPS: OnboardingStepKey[] = [
   "welcome",
+  "mode",
   "provider",
   "profile",
   "personality",
@@ -20,6 +23,17 @@ export const ONBOARDING_STEPS: OnboardingStepKey[] = [
   "channels",
   "summary",
 ]
+
+/**
+ * Step list after the user has chosen a mode. Remote mode short-circuits
+ * the wizard — once the user points at a remote server there is nothing
+ * local to configure (profile / provider / skills / etc. all live on the
+ * server), so we drop straight from the mode step to completion.
+ */
+export function stepsForMode(mode: "local" | "remote" | undefined): OnboardingStepKey[] {
+  if (mode === "remote") return ["welcome", "mode"]
+  return ONBOARDING_STEPS
+}
 
 /** Mirrors `ha-core::config::OnboardingState`. */
 export interface OnboardingState {
@@ -47,6 +61,13 @@ export interface OnboardingDraft {
   safety?: { approvalsEnabled: boolean }
   skills?: { disabled: string[] }
   server?: { bindMode: "local" | "lan"; apiKey?: string; apiKeyEnabled: boolean }
+  /**
+   * Which mode the user picked on the new Step 2. "local" continues the
+   * normal provider / profile / ... flow. "remote" means they connected
+   * to another hope-agent server and the wizard will finish early.
+   */
+  serverMode?: "local" | "remote"
+  remote?: { url: string; apiKey?: string }
 }
 
 export type PersonalityPresetId = NonNullable<OnboardingDraft["personalityPresetId"]>

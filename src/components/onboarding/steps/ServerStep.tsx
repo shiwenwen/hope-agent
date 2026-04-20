@@ -90,7 +90,7 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
   }
 
   return (
-    <div className="px-6 py-6 space-y-5 max-w-xl mx-auto">
+    <div className="px-6 py-6 space-y-5 max-w-2xl mx-auto">
       <div className="text-center space-y-1">
         <h2 className="text-xl font-semibold">{t("onboarding.server.title")}</h2>
         <p className="text-sm text-muted-foreground">{t("onboarding.server.subtitle")}</p>
@@ -141,14 +141,19 @@ export function ServerStep({ bindMode, apiKey, apiKeyEnabled, onChange }: Server
           />
         </div>
         {apiKeyEnabled && (
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
             <Input
               value={apiKey}
               onChange={(e) => update({ apiKey: e.target.value })}
               placeholder="hope_..."
-              className="font-mono text-xs"
+              className="font-mono text-xs flex-1 min-w-0"
             />
-            <Button variant="outline" size="sm" onClick={regenerateKey}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={regenerateKey}
+              className="shrink-0 whitespace-nowrap"
+            >
               {t("onboarding.server.generate")}
             </Button>
           </div>

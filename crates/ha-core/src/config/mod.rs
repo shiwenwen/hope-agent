@@ -361,6 +361,12 @@ pub struct OnboardingState {
     /// Step index (0-based) the user was on when they exited.
     #[serde(default)]
     pub draft_step: u32,
+    /// Sticky flag: true once the wizard has ever completed at any version.
+    /// Survives `reset()` so explicit rerun doesn't get caught by the
+    /// legacy-upgrade heuristic in `infer_legacy_completed`, which would
+    /// otherwise skip the wizard for users who already have providers.
+    #[serde(default)]
+    pub ever_completed: bool,
 }
 
 // ── App Config ──────────────────────────────────────────────────

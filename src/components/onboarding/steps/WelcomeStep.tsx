@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next"
-import { Globe, Sparkles } from "lucide-react"
+import { Globe } from "lucide-react"
 
+import logoUrl from "@/assets/logo.png"
 import { setLanguage, setFollowSystemLanguage, SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 
 interface WelcomeStepProps {
@@ -32,26 +33,31 @@ export function WelcomeStep({ initialLanguage, onLanguageChange }: WelcomeStepPr
   }
 
   return (
-    <div className="px-6 py-8 space-y-6">
-      <div className="flex flex-col items-center text-center gap-3">
-        <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 text-primary">
-          <Sparkles className="h-9 w-9" />
-        </div>
-        <h1 className="text-2xl font-semibold">{t("onboarding.welcome.title")}</h1>
-        <p className="max-w-md text-sm text-muted-foreground leading-relaxed">
+    <div className="px-8 py-10 space-y-8">
+      <div className="flex flex-col items-center text-center gap-4">
+        <img
+          src={logoUrl}
+          alt="Hope Agent"
+          className="h-20 w-20 rounded-2xl shadow-md"
+          draggable={false}
+        />
+        <h1 className="text-3xl font-semibold tracking-tight">
+          {t("onboarding.welcome.title")}
+        </h1>
+        <p className="max-w-lg text-base text-muted-foreground leading-relaxed">
           {t("onboarding.welcome.subtitle")}
         </p>
       </div>
 
-      <div className="space-y-2 max-w-sm mx-auto">
-        <label className="flex items-center gap-1.5 text-sm font-medium">
+      <div className="space-y-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
           <Globe className="h-4 w-4" /> {t("onboarding.welcome.languageLabel")}
         </label>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
           <button
             type="button"
             onClick={() => handleSelect("auto")}
-            className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+            className={`rounded-lg border px-3 py-2.5 text-sm transition-colors ${
               value === "auto"
                 ? "border-primary bg-primary/10 text-primary"
                 : "border-border hover:border-foreground/30"
@@ -64,7 +70,7 @@ export function WelcomeStep({ initialLanguage, onLanguageChange }: WelcomeStepPr
               key={lang.code}
               type="button"
               onClick={() => handleSelect(lang.code)}
-              className={`rounded-md border px-3 py-2 text-sm transition-colors ${
+              className={`rounded-lg border px-3 py-2.5 text-sm transition-colors ${
                 value === lang.code
                   ? "border-primary bg-primary/10 text-primary"
                   : "border-border hover:border-foreground/30"

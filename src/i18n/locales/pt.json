@@ -1462,6 +1462,7 @@
     "selectChannel": "Selecionar canal",
     "noAccounts": "Nenhuma conta de canal IM configurada",
     "addFirst": "Adicione seu primeiro canal",
+    "duplicateCredential": "Este bot já foi adicionado (conta existente: {{label}}). Duplicações não são permitidas.",
     "channelType": "Tipo de canal",
     "accountLabel": "Nome da conta",
     "accountLabelPlaceholder": "ex.: Meu assistente WeChat",
@@ -2442,7 +2443,7 @@
       },
       "point2": {
         "title": "Adjustable later",
-        "desc": "You can change the timeout or enable per-channel auto-approve in Settings → Security."
+        "desc": "Altere o tempo limite em Configurações → Segurança, ou aprove automaticamente chamadas vindas de um canal de mensagens específico (Telegram / Slack / Discord, etc.)."
       },
       "toggle": "Require approvals",
       "toggleHint": "Turning this off means tools run without prompting — not recommended.",
@@ -2451,7 +2452,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "No optional skills detected in this build."
+      "empty": "As habilidades incluídas são recursos essenciais e já estão sempre ativas — não há nada para configurar aqui. Clique em Próximo para continuar.",
+      "locked": "Habilidade essencial — sempre ativa, não pode ser desativada",
+      "lockedBadge": "Essencial"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",
@@ -2536,6 +2539,14 @@
       "desc": "Existing configuration is kept. The wizard will walk you through each category again on next reload.",
       "button": "Re-run setup wizard",
       "confirm": "Re-run"
+    },
+    "mode": {
+      "title": "Escolha como executar",
+      "subtitle": "Execute o Hope Agent localmente neste dispositivo ou conecte-se a um servidor Hope Agent existente.",
+      "localTitle": "Configurar localmente",
+      "localDesc": "Executar o Hope Agent neste dispositivo. A seguir você escolhe um provedor de modelo.",
+      "remoteTitle": "Conectar ao remoto",
+      "remoteDesc": "Já possui um servidor Hope Agent rodando? Aponte este app para ele e pule a configuração local."
     }
   }
 }

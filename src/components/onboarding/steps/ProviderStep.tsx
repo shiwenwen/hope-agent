@@ -18,14 +18,24 @@ interface ProviderStepProps {
  */
 export function ProviderStep({ onProviderSaved, onCodexAuth }: ProviderStepProps) {
   const { t } = useTranslation()
+  // Codex OAuth bypasses ProviderSetup's onComplete, so advance manually.
+  async function handleCodexAuthInOnboarding() {
+    await onCodexAuth()
+    onProviderSaved()
+  }
+
   return (
     <div className="px-4 py-6">
       <div className="max-w-3xl mx-auto mb-4 text-center space-y-1">
         <h2 className="text-xl font-semibold">{t("onboarding.provider.title")}</h2>
         <p className="text-sm text-muted-foreground">{t("onboarding.provider.subtitle")}</p>
       </div>
-      <div className="max-w-3xl mx-auto [&_h1]:hidden">
-        <ProviderSetup onComplete={onProviderSaved} onCodexAuth={onCodexAuth} />
+      <div className="max-w-3xl mx-auto [&_[data-tauri-drag-region]]:hidden">
+        <ProviderSetup
+          onComplete={onProviderSaved}
+          onCodexAuth={handleCodexAuthInOnboarding}
+          hideRemoteConnect
+        />
       </div>
     </div>
   )

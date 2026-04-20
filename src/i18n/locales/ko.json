@@ -1462,6 +1462,7 @@
     "selectChannel": "채널 선택",
     "noAccounts": "구성된 IM 채널 계정이 없습니다",
     "addFirst": "첫 채널 추가",
+    "duplicateCredential": "이 봇은 이미 추가되어 있습니다 (기존 계정: {{label}}). 중복 추가할 수 없습니다.",
     "channelType": "채널 유형",
     "accountLabel": "계정 이름",
     "accountLabelPlaceholder": "예: My WeChat Assistant",
@@ -2442,7 +2443,7 @@
       },
       "point2": {
         "title": "Adjustable later",
-        "desc": "You can change the timeout or enable per-channel auto-approve in Settings → Security."
+        "desc": "설정 → 보안에서 시간 제한을 변경하거나, 특정 IM 채널(Telegram / Slack / Discord 등)에 대해서만 자동 승인을 켤 수 있습니다。"
       },
       "toggle": "Require approvals",
       "toggleHint": "Turning this off means tools run without prompting — not recommended.",
@@ -2451,7 +2452,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "No optional skills detected in this build."
+      "empty": "번들된 기능은 모두 코어 기능이며 기본적으로 활성화되어 있어 여기서 선택할 필요가 없습니다. '다음'을 눌러 계속 진행하세요.",
+      "locked": "코어 기능 — 항상 활성화되며 끌 수 없습니다",
+      "lockedBadge": "코어"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",
@@ -2536,6 +2539,14 @@
       "desc": "Existing configuration is kept. The wizard will walk you through each category again on next reload.",
       "button": "Re-run setup wizard",
       "confirm": "Re-run"
+    },
+    "mode": {
+      "title": "실행 방식 선택",
+      "subtitle": "이 기기에서 Hope Agent를 로컬로 실행하거나 기존 Hope Agent 서버에 연결할 수 있습니다.",
+      "localTitle": "로컬 구성",
+      "localDesc": "이 기기에서 Hope Agent를 실행합니다. 다음 단계에서 모델 공급자를 선택합니다.",
+      "remoteTitle": "원격 서버 연결",
+      "remoteDesc": "다른 곳에서 실행 중인 Hope Agent 서버가 있나요? 주소만 입력하면 이후 로컬 설정을 건너뛸 수 있습니다."
     }
   }
 }

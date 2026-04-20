@@ -20,8 +20,10 @@ interface NavigationFooterProps {
   skipVariant?: "normal" | "danger"
   /** If true, hide the next button and show a finish primary instead. */
   isFinal?: boolean
-  /** Disabled Next/Finish button (e.g. when async save is in flight). */
+  /** Disabled all buttons (e.g. when async save is in flight). */
   busy?: boolean
+  /** Disable just the Next / Finish button (e.g. required input not provided). */
+  nextDisabled?: boolean
   /** Optional override for the Next button label (e.g. "Get Started"). */
   nextLabel?: string
   /** Show a hidden Next button when the step fully owns its own CTA (e.g.
@@ -47,6 +49,7 @@ export function NavigationFooter({
   skipVariant = "normal",
   isFinal = false,
   busy = false,
+  nextDisabled = false,
   nextLabel,
   hideNext = false,
   onBack,
@@ -84,12 +87,12 @@ export function NavigationFooter({
           </Button>
         )}
         {!hideNext && !isFinal && (
-          <Button size="sm" onClick={onNext} disabled={busy}>
+          <Button size="sm" onClick={onNext} disabled={busy || nextDisabled}>
             {nextLabel ?? t("onboarding.nav.next")}
           </Button>
         )}
         {isFinal && onFinish && (
-          <Button size="sm" onClick={onFinish} disabled={busy}>
+          <Button size="sm" onClick={onFinish} disabled={busy || nextDisabled}>
             {nextLabel ?? t("onboarding.nav.finish")}
           </Button>
         )}

@@ -119,29 +119,30 @@ export default function App() {
     })()
   }, [])
 
-  async function handleCodexAuth() {
+  // Codex OAuth — auth only, no view switch. Callers decide what to do
+  // next (setup screen jumps to chat; onboarding advances to the next step).
+  async function runCodexAuth(): Promise<void> {
     await getTransport().call("start_codex_auth")
-
-    const poll = async (): Promise<void> => {
-      for (let i = 0; i < 300; i++) {
-        await new Promise((r) => setTimeout(r, 1000))
-        const status = await getTransport().call<{
-          authenticated: boolean
-          error: string | null
-        }>("check_auth_status")
-        if (status.authenticated) {
-          await getTransport().call("finalize_codex_auth")
-          setView("chat")
-          return
-        }
-        if (status.error) {
-          throw new Error(status.error)
-        }
+    for (let i = 0; i < 300; i++) {
+      await new Promise((r) => setTimeout(r, 1000))
+      const status = await getTransport().call<{
+        authenticated: boolean
+        error: string | null
+      }>("check_auth_status")
+      if (status.authenticated) {
+        await getTransport().call("finalize_codex_auth")
+        return
       }
-      throw new Error("Login timed out")
+      if (status.error) {
+        throw new Error(status.error)
+      }
     }
+    throw new Error("Login timed out")
+  }
 
-    await poll()
+  async function handleCodexAuth() {
+    await runCodexAuth()
+    setView("chat")
   }
 
   if (view === "loading") {
@@ -162,7 +163,7 @@ export default function App() {
           <OnboardingWizard
             onComplete={() => setView("chat")}
             onJumpToChannelsSettings={() => setView("channels")}
-            onCodexAuth={handleCodexAuth}
+            onCodexAuth={runCodexAuth}
             initialLanguage={i18n.language || ""}
           />
         </div>

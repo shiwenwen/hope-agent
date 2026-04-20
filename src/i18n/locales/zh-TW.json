@@ -1462,6 +1462,7 @@
     "selectChannel": "選擇渠道",
     "noAccounts": "尚未配置任何 IM 渠道賬戶",
     "addFirst": "添加第一個渠道",
+    "duplicateCredential": "此 Bot 已新增過（現有帳號：{{label}}），請勿重複新增",
     "channelType": "渠道類型",
     "accountLabel": "賬戶名稱",
     "accountLabelPlaceholder": "例如：我的微信助手",
@@ -2442,7 +2443,7 @@
       },
       "point2": {
         "title": "随时可调",
-        "desc": "可在 设置 → 安全 中修改超时时间或开启 per-channel 自动批准。"
+        "desc": "可在 設定 → 安全 中修改逾時時間，或為某個 IM 頻道（Telegram / 飛書 / Slack / 微信 等）單獨開啟自動批准。"
       },
       "toggle": "需要审批",
       "toggleHint": "关闭后工具调用将不再弹窗——不推荐。",
@@ -2451,7 +2452,9 @@
     "skills": {
       "title": "内置技能",
       "subtitle": "以下是随应用发布的技能。取消勾选你不想让 AI 使用的项。",
-      "empty": "当前构建未发现可选技能。"
+      "empty": "本應用的內建技能都是核心能力，預設自動啟用，不需要在此選擇。點擊「下一步」繼續。",
+      "locked": "核心技能，一律啟用，無法關閉",
+      "lockedBadge": "核心"
     },
     "server": {
       "title": "你想如何使用 Hope Agent?",
@@ -2536,6 +2539,14 @@
       "desc": "当前配置不会丢失。重新加载后会引导你再次走一遍每一步。",
       "button": "重新运行引导向导",
       "confirm": "重新运行"
+    },
+    "mode": {
+      "title": "選擇運行方式",
+      "subtitle": "可以在這台裝置上本地運行 Hope Agent，也可以連線到另一台已有的 Hope Agent 服務。",
+      "localTitle": "本機設定",
+      "localDesc": "在目前裝置運行 Hope Agent，接下來選擇模型供應商並完成後續設定。",
+      "remoteTitle": "連線遠端服務",
+      "remoteDesc": "已有一台運行 Hope Agent 服務的機器？填寫位址連上後即可使用，跳過後續本機設定。"
     }
   }
 }

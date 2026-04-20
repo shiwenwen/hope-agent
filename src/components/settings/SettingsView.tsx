@@ -179,6 +179,7 @@ export default function SettingsView({
   onCodexReauth,
   initialSection,
   initialAgentId,
+  initialChannelId,
   onProfileSaved,
 }: {
   onBack: () => void
@@ -186,6 +187,9 @@ export default function SettingsView({
   onCodexReauth?: () => void
   initialSection?: SettingsSection
   initialAgentId?: string
+  /** When `initialSection === "channels"`, pre-open the Add dialog with
+   *  this channel pre-selected. Used by the onboarding wizard. */
+  initialChannelId?: string
   onProfileSaved?: () => void
 }) {
   const { t } = useTranslation()
@@ -286,7 +290,9 @@ export default function SettingsView({
             {activeSection === "sandbox" && <SandboxPanel />}
             {activeSection === "browser" && <BrowserPanel />}
             {activeSection === "acp" && <AcpControlPanel />}
-            {activeSection === "channels" && <ChannelPanel />}
+            {activeSection === "channels" && (
+              <ChannelPanel initialChannelId={initialChannelId} />
+            )}
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "security" && <SecurityPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}

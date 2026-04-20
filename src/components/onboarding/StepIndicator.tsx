@@ -7,6 +7,8 @@ import { ONBOARDING_STEPS, type OnboardingStepKey } from "./types"
 interface StepIndicatorProps {
   current: number
   skipped: Set<OnboardingStepKey>
+  /** Override the step list — e.g. the short 2-step remote-mode flow. */
+  steps?: OnboardingStepKey[]
 }
 
 /**
@@ -14,10 +16,11 @@ interface StepIndicatorProps {
  * step is a pill: current (solid), past-completed (muted with check),
  * past-skipped (muted with minus), future (outlined).
  */
-export function StepIndicator({ current, skipped }: StepIndicatorProps) {
+export function StepIndicator({ current, skipped, steps }: StepIndicatorProps) {
+  const list = steps ?? ONBOARDING_STEPS
   return (
     <ol className="flex items-center justify-center gap-1.5 px-4 pt-4">
-      {ONBOARDING_STEPS.map((key, idx) => {
+      {list.map((key, idx) => {
         const state: "past-done" | "past-skipped" | "current" | "future" =
           idx < current
             ? skipped.has(key)

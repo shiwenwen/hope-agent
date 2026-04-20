@@ -15,10 +15,13 @@ export default function ProviderSetup({
   onComplete,
   onCodexAuth,
   onCancel,
+  hideRemoteConnect = false,
 }: {
   onComplete: () => void
   onCodexAuth: () => Promise<void>
   onCancel?: () => void
+  /** Hide the "Connect to remote server" shortcut (onboarding moves it to its own step). */
+  hideRemoteConnect?: boolean
 }) {
   const [mode, setMode] = useState<"choose" | "template-config" | "custom">("choose")
   const { t } = useTranslation()
@@ -117,6 +120,7 @@ export default function ProviderSetup({
         onCodexAuth={onCodexAuth}
         onRemoteConnected={onComplete}
         onCancel={onCancel}
+        hideRemoteConnect={hideRemoteConnect}
       />
     )
   }

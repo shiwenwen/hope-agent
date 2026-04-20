@@ -18,13 +18,24 @@ import type {
   AgentInfo,
 } from "./types"
 
-export default function ChannelPanel() {
+interface ChannelPanelProps {
+  /** When set on mount, auto-opens the Add Account dialog with this
+   *  channel pre-selected. Used by the onboarding wizard's channel
+   *  cards to jump directly into the credential flow. */
+  initialChannelId?: string
+}
+
+export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {}) {
   const { t } = useTranslation()
   const [accounts, setAccounts] = useState<ChannelAccountConfig[]>([])
   const [plugins, setPlugins] = useState<ChannelPluginInfo[]>([])
   const [healthMap, setHealthMap] = useState<Record<string, ChannelHealth>>({})
-  const [showAddDialog, setShowAddDialog] = useState(false)
-  const [addInitialChannel, setAddInitialChannel] = useState<string | undefined>()
+  // Seeded from the prop so parent-driven pre-open is a first-render concern,
+  // not a follow-up effect. Closing resets state and never reopens.
+  const [showAddDialog, setShowAddDialog] = useState(!!initialChannelId)
+  const [addInitialChannel, setAddInitialChannel] = useState<string | undefined>(
+    initialChannelId,
+  )
   const [editingAccount, setEditingAccount] = useState<ChannelAccountConfig | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [loading, setLoading] = useState(true)

@@ -1,7 +1,22 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Check, Copy, ExternalLink, Minus, Sparkles } from "lucide-react"
+import {
+  Copy,
+  Cpu,
+  ExternalLink,
+  Globe as GlobeIcon,
+  Key as KeyIcon,
+  Languages,
+  MessageSquare,
+  Puzzle,
+  Server as ServerIcon,
+  Shield,
+  Smile,
+  User as UserIcon,
+  type LucideIcon,
+} from "lucide-react"
 
+import logoUrl from "@/assets/logo.png"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 
@@ -60,21 +75,29 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
     }
   }
 
-  const entries: Array<{ key: OnboardingStepKey; labelKey: string; value: string }> = [
+  const entries: Array<{
+    key: OnboardingStepKey
+    labelKey: string
+    value: string
+    icon: LucideIcon
+  }> = [
     {
       key: "welcome",
       labelKey: "onboarding.summary.items.language",
       value: draft.language || "auto",
+      icon: Languages,
     },
     {
       key: "provider",
       labelKey: "onboarding.summary.items.provider",
       value: skipped.has("provider") ? "" : t("onboarding.summary.providerDone"),
+      icon: Cpu,
     },
     {
       key: "profile",
       labelKey: "onboarding.summary.items.profile",
       value: [draft.profile?.name, draft.profile?.aiExperience].filter(Boolean).join(" · "),
+      icon: UserIcon,
     },
     {
       key: "personality",
@@ -82,6 +105,7 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
       value: draft.personalityPresetId
         ? t(`onboarding.personality.presets.${draft.personalityPresetId}.name`)
         : "",
+      icon: Smile,
     },
     {
       key: "safety",
@@ -91,6 +115,7 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
           ? t("onboarding.summary.approvalsOn")
           : t("onboarding.summary.approvalsOff")
         : "",
+      icon: Shield,
     },
     {
       key: "skills",
@@ -98,84 +123,115 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
       value: draft.skills
         ? t("onboarding.summary.skillsDisabled", { n: draft.skills.disabled.length })
         : "",
+      icon: Puzzle,
     },
     {
       key: "server",
       labelKey: "onboarding.summary.items.server",
       value: bindMode === "lan" ? t("onboarding.server.lan") : t("onboarding.server.local"),
+      icon: ServerIcon,
     },
     {
       key: "channels",
       labelKey: "onboarding.summary.items.channels",
       value: skipped.has("channels") ? "" : t("onboarding.summary.channelsDone"),
+      icon: MessageSquare,
     },
   ]
 
   return (
-    <div className="px-6 py-6 space-y-5 max-w-2xl mx-auto">
-      <div className="flex flex-col items-center text-center gap-2">
-        <div className="flex items-center justify-center h-14 w-14 rounded-2xl bg-primary/10 text-primary">
-          <Sparkles className="h-7 w-7" />
-        </div>
-        <h2 className="text-xl font-semibold">{t("onboarding.summary.title")}</h2>
-        <p className="text-sm text-muted-foreground">{t("onboarding.summary.subtitle")}</p>
+    <div className="px-6 py-6 space-y-6 max-w-2xl mx-auto">
+      {/* Hero */}
+      <div className="flex flex-col items-center text-center gap-3">
+        <img
+          src={logoUrl}
+          alt="Hope Agent"
+          className="h-20 w-20 rounded-2xl shadow-lg ring-1 ring-border/50"
+          draggable={false}
+        />
+        <h2 className="text-2xl font-semibold tracking-tight">
+          {t("onboarding.summary.title")}
+        </h2>
+        <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
+          {t("onboarding.summary.subtitle")}
+        </p>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
-        <ul className="rounded-lg border border-border divide-y divide-border">
-          {entries.map((entry) => {
-            const isSkipped = skipped.has(entry.key) || !entry.value
-            return (
-              <li
-                key={entry.key}
-                className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+      {/* Summary chips — two-column on ≥sm, each chip is self-contained */}
+      <div className="grid gap-2 sm:grid-cols-2">
+        {entries.map((entry) => {
+          const isSkipped = skipped.has(entry.key) || !entry.value
+          const Icon = entry.icon
+          return (
+            <div
+              key={entry.key}
+              className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 text-sm transition-colors ${
+                isSkipped
+                  ? "border-border/60 bg-muted/20"
+                  : "border-border bg-card"
+              }`}
+            >
+              <div
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${
+                  isSkipped
+                    ? "bg-muted text-muted-foreground/60"
+                    : "bg-primary/10 text-primary"
+                }`}
               >
-                <span className="flex items-center gap-2">
-                  {isSkipped ? (
-                    <Minus className="h-4 w-4 text-muted-foreground/60" />
-                  ) : (
-                    <Check className="h-4 w-4 text-primary" />
-                  )}
-                  <span className="text-muted-foreground">{t(entry.labelKey)}</span>
-                </span>
-                <span
-                  className={`text-right font-medium ${
-                    isSkipped ? "text-muted-foreground/60" : ""
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] uppercase tracking-wider text-muted-foreground/80">
+                  {t(entry.labelKey)}
+                </div>
+                <div
+                  className={`text-sm font-medium truncate ${
+                    isSkipped ? "text-muted-foreground/60 italic" : ""
                   }`}
                 >
                   {isSkipped ? t("onboarding.summary.skipped") : entry.value}
-                </span>
-              </li>
-            )
-          })}
-        </ul>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
 
-        <div className="rounded-lg border border-border bg-muted/40 p-4 space-y-3 min-w-[240px]">
-          <div>
-            <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+      {/* Web GUI hero card */}
+      <div className="rounded-xl border border-primary/20 bg-gradient-to-br from-primary/5 to-transparent p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <GlobeIcon className="h-4 w-4" />
+          </div>
+          <div className="flex-1">
+            <div className="text-sm font-semibold">
               {t("onboarding.summary.webUrlLabel")}
             </div>
-            <code className="text-xs break-all block">{fullUrl}</code>
+            <p className="text-xs text-muted-foreground leading-snug">
+              {t("onboarding.summary.webHint")}
+            </p>
           </div>
+        </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={openExternal}>
-              <ExternalLink className="h-3.5 w-3.5 mr-1" />
-              {t("onboarding.summary.openWeb")}
+        <code className="block rounded-md border border-border bg-background/60 px-3 py-2 text-xs break-all font-mono">
+          {fullUrl}
+        </code>
+
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={openExternal}>
+            <ExternalLink className="h-3.5 w-3.5 mr-1" />
+            {t("onboarding.summary.openWeb")}
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => copy(fullUrl, "url")}>
+            <Copy className="h-3.5 w-3.5 mr-1" />
+            {copied === "url" ? t("onboarding.server.copied") : t("onboarding.server.copy")}
+          </Button>
+          {apiKey && (
+            <Button variant="outline" size="sm" onClick={() => copy(apiKey, "key")}>
+              <KeyIcon className="h-3.5 w-3.5 mr-1" />
+              {copied === "key" ? t("onboarding.server.copied") : t("onboarding.summary.copyKey")}
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => copy(fullUrl, "url")}>
-              <Copy className="h-3.5 w-3.5 mr-1" />
-              {copied === "url" ? t("onboarding.server.copied") : t("onboarding.server.copy")}
-            </Button>
-            {apiKey && (
-              <Button variant="ghost" size="sm" onClick={() => copy(apiKey, "key")}>
-                {copied === "key" ? t("onboarding.server.copied") : t("onboarding.summary.copyKey")}
-              </Button>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            {t("onboarding.summary.webHint")}
-          </p>
+          )}
         </div>
       </div>
     </div>

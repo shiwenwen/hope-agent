@@ -1462,6 +1462,7 @@
     "selectChannel": "Chọn kênh",
     "noAccounts": "Chưa có tài khoản kênh IM nào được cấu hình",
     "addFirst": "Thêm kênh đầu tiên của bạn",
+    "duplicateCredential": "Bot này đã được thêm (tài khoản hiện có: {{label}}). Không được phép thêm trùng lặp.",
     "channelType": "Loại kênh",
     "accountLabel": "Tên tài khoản",
     "accountLabelPlaceholder": "ví dụ: Trợ lý WeChat của tôi",
@@ -2442,7 +2443,7 @@
       },
       "point2": {
         "title": "Adjustable later",
-        "desc": "You can change the timeout or enable per-channel auto-approve in Settings → Security."
+        "desc": "Đổi thời gian chờ trong Cài đặt → Bảo mật, hoặc bật tự động phê duyệt cho một kênh IM cụ thể (Telegram / Slack / Discord, v.v.)."
       },
       "toggle": "Require approvals",
       "toggleHint": "Turning this off means tools run without prompting — not recommended.",
@@ -2451,7 +2452,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "No optional skills detected in this build."
+      "empty": "Các kỹ năng đi kèm đều là năng lực cốt lõi và luôn được bật — không có gì cần cấu hình ở đây. Nhấn Tiếp theo để tiếp tục.",
+      "locked": "Kỹ năng cốt lõi — luôn bật, không thể tắt",
+      "lockedBadge": "Cốt lõi"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",
@@ -2536,6 +2539,14 @@
       "desc": "Existing configuration is kept. The wizard will walk you through each category again on next reload.",
       "button": "Re-run setup wizard",
       "confirm": "Re-run"
+    },
+    "mode": {
+      "title": "Chọn cách chạy",
+      "subtitle": "Chạy Hope Agent cục bộ trên máy này hoặc kết nối đến một máy chủ Hope Agent hiện có.",
+      "localTitle": "Cấu hình cục bộ",
+      "localDesc": "Chạy Hope Agent trên thiết bị này. Tiếp theo bạn chọn nhà cung cấp mô hình.",
+      "remoteTitle": "Kết nối từ xa",
+      "remoteDesc": "Đã có máy chủ Hope Agent chạy ở nơi khác? Nhập địa chỉ và bỏ qua cấu hình cục bộ."
     }
   }
 }

@@ -33,13 +33,18 @@ pub fn get_state() -> Result<OnboardingState> {
 /// front-end can share the rule via a dedicated Tauri command without
 /// re-reading config.
 pub fn infer_legacy_completed(raw: &OnboardingState, has_providers: bool) -> OnboardingState {
-    if raw.completed_version == 0 && has_providers && raw.draft.is_none() {
+    // Only infer for users who have NEVER seen the wizard. Once a user
+    // has completed it at least once, `ever_completed` stays true across
+    // `reset()` calls, so an explicit rerun correctly lands back in the
+    // wizard even though providers already exist.
+    if raw.completed_version == 0 && !raw.ever_completed && has_providers && raw.draft.is_none() {
         OnboardingState {
             completed_version: CURRENT_ONBOARDING_VERSION,
             completed_at: raw.completed_at.clone(),
             skipped_steps: raw.skipped_steps.clone(),
             draft: None,
             draft_step: 0,
+            ever_completed: true,
         }
     } else {
         raw.clone()
@@ -63,6 +68,7 @@ pub fn mark_completed() -> Result<()> {
     cfg.onboarding.completed_at = Some(chrono::Utc::now().to_rfc3339());
     cfg.onboarding.draft = None;
     cfg.onboarding.draft_step = 0;
+    cfg.onboarding.ever_completed = true;
     save_config(&cfg)
 }
 
@@ -78,9 +84,16 @@ pub fn mark_skipped(step_key: &str) -> Result<()> {
 
 /// Reset onboarding to "never completed" so the wizard shows again on next
 /// launch. Does not touch providers, user config, or any other step data.
+///
+/// `ever_completed` is pinned true — rerun implies the wizard was seen
+/// before (even if a prior version didn't persist the flag), so the
+/// legacy-upgrade heuristic can't short-circuit it.
 pub fn reset() -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "reset");
     let mut cfg = load_config()?;
-    cfg.onboarding = OnboardingState::default();
+    cfg.onboarding = OnboardingState {
+        ever_completed: true,
+        ..OnboardingState::default()
+    };
     save_config(&cfg)
 }

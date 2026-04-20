@@ -1,8 +1,26 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Monitor } from "lucide-react"
 
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  TIMEZONE_OPTIONS,
+  type UserConfig,
+} from "@/components/settings/profile-panel/types"
+import AvatarSection from "@/components/settings/profile-panel/AvatarSection"
+import { useAvatarUpload } from "@/hooks/useAvatarUpload"
+import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 
 import type { OnboardingDraft } from "../types"
 
@@ -34,6 +52,39 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
   const [timezone, setTimezone] = useState(draft?.timezone ?? "")
   const [experience, setExperience] = useState(draft?.aiExperience ?? "")
   const [style, setStyle] = useState(draft?.responseStyle ?? "")
+  const [avatar, setAvatar] = useState<string | null>(null)
+  const userConfigRef = useRef<UserConfig | null>(null)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const cfg = await getTransport().call<UserConfig>("get_user_config")
+        userConfigRef.current = cfg
+        if (cfg.avatar) setAvatar(cfg.avatar)
+      } catch (e) {
+        logger.warn("onboarding", "ProfileStep::loadAvatar", "get_user_config failed", e)
+      }
+    })()
+  }, [])
+
+  // Avatar writes are side-channel (no "Next" step applies them later):
+  // save_avatar lands bytes on disk, then save_user_config persists the
+  // path so early exits and settings panels stay in sync.
+  const { cropSrc, handleAvatarPick, handleCropCancel, handleCropConfirm } =
+    useAvatarUpload({
+      fileName: () => `user_${Date.now()}.png`,
+      logCategory: "onboarding.ProfileStep",
+      onSaved: async (path) => {
+        setAvatar(path)
+        const next: UserConfig = { ...(userConfigRef.current ?? {}), avatar: path }
+        userConfigRef.current = next
+        try {
+          await getTransport().call("save_user_config", { config: next })
+        } catch (e) {
+          logger.error("onboarding", "ProfileStep::saveAvatar", "save_user_config failed", e)
+        }
+      },
+    })
 
   const systemTimezone = useMemo(() => {
     try {
@@ -42,11 +93,6 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
       return ""
     }
   }, [])
-
-  // Default to system timezone on first render when draft didn't provide one.
-  useEffect(() => {
-    if (!timezone && systemTimezone) setTimezone(systemTimezone)
-  }, [systemTimezone]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     onChange({
@@ -64,6 +110,14 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
         <p className="text-sm text-muted-foreground">{t("onboarding.profile.subtitle")}</p>
       </div>
 
+      <AvatarSection
+        avatar={avatar}
+        cropSrc={cropSrc}
+        onAvatarPick={handleAvatarPick}
+        onCropConfirm={handleCropConfirm}
+        onCropCancel={handleCropCancel}
+      />
+
       <div className="grid gap-4">
         <div className="space-y-1">
           <Label htmlFor="onb-name">{t("onboarding.profile.name")}</Label>
@@ -76,13 +130,43 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
         </div>
 
         <div className="space-y-1">
-          <Label htmlFor="onb-tz">{t("onboarding.profile.timezone")}</Label>
-          <Input
-            id="onb-tz"
-            value={timezone}
-            onChange={(e) => setTimezone(e.target.value)}
-            placeholder={systemTimezone || "Asia/Shanghai"}
-          />
+          <Label>{t("onboarding.profile.timezone")}</Label>
+          <button
+            type="button"
+            onClick={() => setTimezone("")}
+            className={`flex items-center gap-2 w-full px-3 py-2 rounded-md border text-sm transition-colors ${
+              timezone === ""
+                ? "border-primary bg-primary/10 text-primary"
+                : "border-border hover:border-foreground/30"
+            }`}
+          >
+            <Monitor className="h-3.5 w-3.5 opacity-60" />
+            <span className="flex-1 text-left">
+              {t("settings.profileTimezoneSystem")}
+              {systemTimezone && (
+                <span className="text-xs text-muted-foreground ml-1">
+                  ({systemTimezone})
+                </span>
+              )}
+            </span>
+          </button>
+          <Select value={timezone} onValueChange={(v) => setTimezone(v)}>
+            <SelectTrigger className="mt-1">
+              <SelectValue placeholder={t("settings.profileTimezoneSystem")} />
+            </SelectTrigger>
+            <SelectContent>
+              {TIMEZONE_OPTIONS.map((group) => (
+                <SelectGroup key={group.groupKey}>
+                  <SelectLabel>{group.groupKey}</SelectLabel>
+                  {group.zones.map((tz) => (
+                    <SelectItem key={tz.value} value={tz.value}>
+                      {t(tz.labelKey)}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-1">
