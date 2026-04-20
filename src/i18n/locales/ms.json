@@ -2379,5 +2379,162 @@
     "bannerBoth": "Mod Berbahaya aktif (CLI + konfig) — semua kelulusan alat dipintas",
     "bannerCli": "Mod Berbahaya aktif (dimulakan via bendera CLI) — lancar semula tanpa --dangerously-skip-all-approvals untuk matikan",
     "bannerConfig": "Mod Berbahaya aktif — semua kelulusan alat dipintas. Matikan di Tetapan → Keselamatan"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "Welcome to Hope Agent",
+      "subtitle": "A local-first AI assistant that learns from your workflow. Let's set it up — every step is optional except picking a model.",
+      "languageLabel": "Interface language",
+      "autoLanguage": "Follow system",
+      "languageHint": "Currently showing: {{current}}"
+    },
+    "provider": {
+      "title": "Pick a model provider",
+      "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings."
+    },
+    "profile": {
+      "title": "Tell us a little about yourself",
+      "subtitle": "All fields are optional. This personalizes how the AI addresses and responds to you.",
+      "name": "Display name",
+      "namePlaceholder": "e.g. Alex",
+      "timezone": "Timezone",
+      "experience": {
+        "label": "How experienced are you with AI assistants?",
+        "beginner": "Beginner",
+        "intermediate": "Intermediate",
+        "expert": "Expert"
+      },
+      "style": {
+        "label": "Preferred response style",
+        "concise": "Concise",
+        "balanced": "Balanced",
+        "detailed": "Detailed"
+      }
+    },
+    "personality": {
+      "title": "Pick a personality",
+      "subtitle": "Choose a starting vibe for the default agent. You can fine-tune or change it later in Settings → Agents.",
+      "presets": {
+        "default": {
+          "name": "Default assistant",
+          "desc": "Balanced, neutral, clear and concise — a reliable general-purpose helper."
+        },
+        "engineer": {
+          "name": "Professional engineer",
+          "desc": "Rigorous and technical. Prefers precision, evidence, and code-first answers."
+        },
+        "creative": {
+          "name": "Creative partner",
+          "desc": "Exploratory and vivid. Good for writing, brainstorming, and rich examples."
+        },
+        "companion": {
+          "name": "Friendly companion",
+          "desc": "Warm and conversational. Speaks like a friend, not a knowledge base."
+        }
+      }
+    },
+    "safety": {
+      "title": "Tool approvals keep you in control",
+      "subtitle": "By default, Hope Agent asks before running shell commands or editing files.",
+      "point1": {
+        "title": "Approval gate",
+        "desc": "Every tool call that touches your system waits for your 'Approve' click."
+      },
+      "point2": {
+        "title": "Adjustable later",
+        "desc": "You can change the timeout or enable per-channel auto-approve in Settings → Security."
+      },
+      "toggle": "Require approvals",
+      "toggleHint": "Turning this off means tools run without prompting — not recommended.",
+      "dangerousHint": "Dangerous Mode (skip all approvals) lives in Settings → Security and requires explicit confirmation."
+    },
+    "skills": {
+      "title": "Bundled skills",
+      "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
+      "empty": "No optional skills detected in this build."
+    },
+    "server": {
+      "title": "How would you like to access Hope Agent?",
+      "subtitle": "The embedded HTTP server lets you open the same app in any browser.",
+      "local": "This device only",
+      "localHint": "Binds to 127.0.0.1:8420. Safe default.",
+      "lan": "Same local network",
+      "lanHint": "Binds to 0.0.0.0:8420. Enable API key for protection.",
+      "apiKeyLabel": "Require an API key",
+      "apiKeyHint": "When on, the Web GUI URL will include ?token=... so clicks from trusted clients log in automatically.",
+      "generate": "Generate",
+      "previewLabel": "Web GUI URL",
+      "copy": "Copy",
+      "copied": "Copied",
+      "restartHint": "Bind address changes take effect after the next restart."
+    },
+    "channels": {
+      "title": "Connect an IM channel (optional)",
+      "subtitle": "Chat with Hope Agent from Telegram, Slack, WeChat and more. Pick any to jump to the full configuration.",
+      "hint": "You can always connect channels later from Settings → Channels.",
+      "macOnly": "macOS only",
+      "items": {
+        "telegram": "Telegram",
+        "discord": "Discord",
+        "slack": "Slack",
+        "feishu": "Feishu",
+        "googleChat": "Google Chat",
+        "line": "LINE",
+        "qqbot": "QQ Bot",
+        "whatsapp": "WhatsApp",
+        "wechat": "WeChat",
+        "signal": "Signal",
+        "irc": "IRC",
+        "imessage": "iMessage",
+        "email": "Email"
+      }
+    },
+    "summary": {
+      "title": "You're all set",
+      "subtitle": "Here's what's configured. You can revisit any of these in Settings.",
+      "items": {
+        "language": "Language",
+        "provider": "Model provider",
+        "profile": "Profile",
+        "personality": "Personality",
+        "safety": "Tool approvals",
+        "skills": "Skills",
+        "server": "Access mode",
+        "channels": "IM channels"
+      },
+      "skipped": "Skipped",
+      "providerDone": "Configured",
+      "channelsDone": "Configured",
+      "approvalsOn": "Required",
+      "approvalsOff": "Auto-proceed",
+      "skillsDisabled": "{{n}} disabled",
+      "webUrlLabel": "Web GUI",
+      "openWeb": "Open in browser",
+      "copyKey": "Copy key",
+      "webHint": "Open this URL on your phone, tablet, or another computer for the full GUI experience.",
+      "startButton": "Start using"
+    },
+    "stepIndicator": "Step {{current}} of {{total}}",
+    "nav": {
+      "back": "Back",
+      "skip": "Skip",
+      "skipAnyway": "Skip anyway",
+      "skipConfirmTitle": "Skip this step?",
+      "skipDanger": "Without a provider you won't be able to chat. You can finish setup later in Settings.",
+      "next": "Next",
+      "finish": "Finish",
+      "exit": "Exit"
+    },
+    "exit": {
+      "title": "Exit setup?",
+      "desc": "Your progress is saved. The next launch will resume on this step.",
+      "confirm": "Exit and continue later"
+    },
+    "rerun": {
+      "title": "Re-run first-run wizard",
+      "desc": "Existing configuration is kept. The wizard will walk you through each category again on next reload.",
+      "button": "Re-run setup wizard",
+      "confirm": "Re-run"
+    }
   }
 }
