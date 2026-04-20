@@ -2,19 +2,13 @@ use crate::skills;
 use crate::AppState;
 use tauri::State;
 
+use ha_core::skills::commands as core;
+
+const SOURCE: &str = "settings-ui";
+
 #[tauri::command]
 pub async fn get_skills(_state: State<'_, AppState>) -> Result<Vec<skills::SkillSummary>, String> {
-    let store = ha_core::config::cached_config();
-    let entries =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
-    let disabled = &store.disabled_skills;
-    Ok(entries
-        .into_iter()
-        .map(|e| {
-            let enabled = !disabled.contains(&e.name);
-            e.to_summary(enabled)
-        })
-        .collect())
+    Ok(core::list_skills())
 }
 
 #[tauri::command]
@@ -22,27 +16,17 @@ pub async fn get_skill_detail(
     name: String,
     _state: State<'_, AppState>,
 ) -> Result<skills::SkillDetail, String> {
-    let store = ha_core::config::cached_config();
-    skills::get_skill_content(&name, &store.extra_skills_dirs, &store.disabled_skills)
-        .ok_or_else(|| format!("Skill not found: {}", name))
+    core::get_skill_detail(&name).ok_or_else(|| format!("Skill not found: {}", name))
 }
 
 #[tauri::command]
 pub async fn get_extra_skills_dirs(_state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    Ok(ha_core::config::cached_config().extra_skills_dirs.clone())
+    Ok(core::get_extra_skills_dirs())
 }
 
 #[tauri::command]
 pub async fn add_extra_skills_dir(dir: String, _state: State<'_, AppState>) -> Result<(), String> {
-    ha_core::config::mutate_config(("extra_skills_dirs", "settings-ui"), |store| {
-        if !store.extra_skills_dirs.contains(&dir) {
-            store.extra_skills_dirs.push(dir);
-        }
-        Ok(())
-    })
-    .map_err(|e| e.to_string())?;
-    skills::bump_skill_version();
-    Ok(())
+    core::add_extra_skills_dir(dir, SOURCE).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -50,13 +34,7 @@ pub async fn remove_extra_skills_dir(
     dir: String,
     _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    ha_core::config::mutate_config(("extra_skills_dirs", "settings-ui"), |store| {
-        store.extra_skills_dirs.retain(|d| d != &dir);
-        Ok(())
-    })
-    .map_err(|e| e.to_string())?;
-    skills::bump_skill_version();
-    Ok(())
+    core::remove_extra_skills_dir(&dir, SOURCE).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -65,33 +43,17 @@ pub async fn toggle_skill(
     enabled: bool,
     _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    ha_core::config::mutate_config(("disabled_skills", "settings-ui"), |store| {
-        if enabled {
-            store.disabled_skills.retain(|n| n != &name);
-        } else if !store.disabled_skills.contains(&name) {
-            store.disabled_skills.push(name);
-        }
-        Ok(())
-    })
-    .map_err(|e| e.to_string())?;
-    skills::bump_skill_version();
-    Ok(())
+    core::toggle_skill(name, enabled, SOURCE).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn get_skill_env_check(_state: State<'_, AppState>) -> Result<bool, String> {
-    Ok(ha_core::config::cached_config().skill_env_check)
+    Ok(core::get_skill_env_check())
 }
 
 #[tauri::command]
 pub async fn set_skill_env_check(enabled: bool, _state: State<'_, AppState>) -> Result<(), String> {
-    ha_core::config::mutate_config(("skill_env_check", "settings-ui"), |store| {
-        store.skill_env_check = enabled;
-        Ok(())
-    })
-    .map_err(|e| e.to_string())?;
-    skills::bump_skill_version();
-    Ok(())
+    core::set_skill_env_check(enabled, SOURCE).map_err(|e| e.to_string())
 }
 
 /// Get the configured env vars for a specific skill (values masked).
@@ -100,12 +62,7 @@ pub async fn get_skill_env(
     name: String,
     _state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, String>, String> {
-    let cfg = ha_core::config::cached_config();
-    let env_map = cfg.skill_env.get(&name).cloned().unwrap_or_default();
-    Ok(env_map
-        .into_iter()
-        .map(|(k, v)| (k, skills::mask_value(&v)))
-        .collect())
+    Ok(core::get_skill_env_masked(&name))
 }
 
 /// Set a single env var for a skill. Skips masked placeholder values.
@@ -116,17 +73,7 @@ pub async fn set_skill_env_var(
     value: String,
     _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Don't overwrite real value with a masked placeholder
-    if skills::is_masked_value(&value) {
-        return Ok(());
-    }
-    ha_core::config::mutate_config(("skill_env", "settings-ui"), |store| {
-        store.skill_env.entry(skill).or_default().insert(key, value);
-        Ok(())
-    })
-    .map_err(|e| e.to_string())?;
-    skills::bump_skill_version();
-    Ok(())
+    core::set_skill_env_var(skill, key, value, SOURCE).map_err(|e| e.to_string())
 }
 
 /// Remove a configured env var for a skill.
@@ -136,18 +83,7 @@ pub async fn remove_skill_env_var(
     key: String,
     _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    ha_core::config::mutate_config(("skill_env", "settings-ui"), |store| {
-        if let Some(map) = store.skill_env.get_mut(&skill) {
-            map.remove(&key);
-            if map.is_empty() {
-                store.skill_env.remove(&skill);
-            }
-        }
-        Ok(())
-    })
-    .map_err(|e| e.to_string())?;
-    skills::bump_skill_version();
-    Ok(())
+    core::remove_skill_env_var(&skill, &key, SOURCE).map_err(|e| e.to_string())
 }
 
 /// Batch-return env configuration status for all skills.
@@ -156,27 +92,7 @@ pub async fn remove_skill_env_var(
 pub async fn get_skills_env_status(
     _state: State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, std::collections::HashMap<String, bool>>, String> {
-    let store = ha_core::config::cached_config();
-    let entries =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
-    let mut result = std::collections::HashMap::new();
-    for entry in &entries {
-        if entry.requires.env.is_empty() {
-            continue;
-        }
-        let configured = store.skill_env.get(&entry.name);
-        let mut status = std::collections::HashMap::new();
-        for key in &entry.requires.env {
-            let has_configured = configured
-                .and_then(|m| m.get(key))
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            let has_system = std::env::var(key).map(|v| !v.is_empty()).unwrap_or(false);
-            status.insert(key.clone(), has_configured || has_system);
-        }
-        result.insert(entry.name.clone(), status);
-    }
-    Ok(result)
+    Ok(core::get_skills_env_status())
 }
 
 /// Get health status for all skills.
@@ -184,19 +100,11 @@ pub async fn get_skills_env_status(
 pub async fn get_skills_status(
     _state: State<'_, AppState>,
 ) -> Result<Vec<skills::SkillStatusEntry>, String> {
-    let store = ha_core::config::cached_config();
-    let entries =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
-    Ok(skills::check_all_skills_status(
-        &entries,
-        &store.disabled_skills,
-        store.skill_env_check,
-        &store.skill_env,
-        &store.skill_allow_bundled,
-    ))
+    Ok(core::get_skills_status())
 }
 
-/// Install a skill dependency.
+/// Install a skill dependency. (Tauri-only — HTTP surface doesn't expose
+/// process-spawn semantics and no route calls this.)
 #[tauri::command]
 pub async fn install_skill_dependency(
     skill_name: String,
@@ -292,50 +200,28 @@ pub async fn install_skill_dependency(
 
 // ── Phase B' Auto-Review ────────────────────────────────────────
 
-/// List all skills currently in `draft` status (auto-created, awaiting review).
 #[tauri::command]
 pub async fn list_draft_skills(
     _state: State<'_, AppState>,
 ) -> Result<Vec<skills::SkillSummary>, String> {
-    let store = ha_core::config::cached_config();
-    let drafts = skills::author::list_drafts(&store.extra_skills_dirs);
-    let disabled = &store.disabled_skills;
-    Ok(drafts
-        .into_iter()
-        .map(|e| {
-            let enabled = !disabled.contains(&e.name);
-            e.to_summary(enabled)
-        })
-        .collect())
+    Ok(core::list_draft_skills())
 }
 
-/// Flip a draft skill to active. Skill becomes discoverable immediately.
 #[tauri::command]
 pub async fn activate_draft_skill(name: String) -> Result<(), String> {
-    skills::author::set_skill_status(&name, skills::SkillStatus::Active).map_err(|e| e.to_string())
+    core::activate_draft_skill(&name).map_err(|e| e.to_string())
 }
 
-/// Delete a draft skill's directory.
 #[tauri::command]
 pub async fn discard_draft_skill(name: String) -> Result<(), String> {
-    skills::author::delete_skill(&name).map_err(|e| e.to_string())
+    core::discard_draft_skill(&name).map_err(|e| e.to_string())
 }
 
-/// Manually trigger an auto-review cycle for a session, bypassing thresholds.
-/// Returns the `ReviewReport` as JSON.
 #[tauri::command]
 pub async fn trigger_skill_review_now(session_id: String) -> Result<serde_json::Value, String> {
-    let gate = skills::auto_review::acquire_manual(&session_id)
-        .ok_or_else(|| "another review is already running for this session".to_string())?;
-    let report = skills::auto_review::run_review_cycle(
-        &session_id,
-        skills::auto_review::ReviewTrigger::Manual,
-        gate,
-        None,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
-    serde_json::to_value(report).map_err(|e| e.to_string())
+    core::trigger_skill_review_now(&session_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Run an install command and return its output.

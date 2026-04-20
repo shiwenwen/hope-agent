@@ -4,41 +4,29 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 
-use ha_core::skills;
+use ha_core::skills::{self, commands as core};
 
 use crate::error::AppError;
 
+const SOURCE: &str = "http";
+
 /// `GET /api/skills`
 pub async fn list_skills() -> Result<Json<Vec<skills::SkillSummary>>, AppError> {
-    let store = ha_core::config::cached_config();
-    let entries =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
-    let disabled = &store.disabled_skills;
-    let out: Vec<skills::SkillSummary> = entries
-        .into_iter()
-        .map(|e| {
-            let enabled = !disabled.contains(&e.name);
-            e.to_summary(enabled)
-        })
-        .collect();
-    Ok(Json(out))
+    Ok(Json(core::list_skills()))
 }
 
 /// `GET /api/skills/{name}`
 pub async fn get_skill_detail(
     Path(name): Path<String>,
 ) -> Result<Json<skills::SkillDetail>, AppError> {
-    let store = ha_core::config::cached_config();
-    skills::get_skill_content(&name, &store.extra_skills_dirs, &store.disabled_skills)
+    core::get_skill_detail(&name)
         .map(Json)
         .ok_or_else(|| AppError::not_found(format!("Skill not found: {}", name)))
 }
 
 /// `GET /api/skills/extra-dirs`
 pub async fn get_extra_skills_dirs() -> Result<Json<Vec<String>>, AppError> {
-    Ok(Json(
-        ha_core::config::cached_config().extra_skills_dirs.clone(),
-    ))
+    Ok(Json(core::get_extra_skills_dirs()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,23 +36,13 @@ pub struct DirBody {
 
 /// `POST /api/skills/extra-dirs`
 pub async fn add_extra_skills_dir(Json(body): Json<DirBody>) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("extra_skills_dirs", "http"), |store| {
-        if !store.extra_skills_dirs.contains(&body.dir) {
-            store.extra_skills_dirs.push(body.dir);
-        }
-        Ok(())
-    })?;
-    skills::bump_skill_version();
+    core::add_extra_skills_dir(body.dir, SOURCE)?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `DELETE /api/skills/extra-dirs?dir=...`
 pub async fn remove_extra_skills_dir(Query(body): Query<DirBody>) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("extra_skills_dirs", "http"), |store| {
-        store.extra_skills_dirs.retain(|d| d != &body.dir);
-        Ok(())
-    })?;
-    skills::bump_skill_version();
+    core::remove_extra_skills_dir(&body.dir, SOURCE)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -78,32 +56,18 @@ pub async fn toggle_skill(
     Path(name): Path<String>,
     Json(body): Json<ToggleBody>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("disabled_skills", "http"), |store| {
-        if body.enabled {
-            store.disabled_skills.retain(|n| n != &name);
-        } else if !store.disabled_skills.contains(&name) {
-            store.disabled_skills.push(name);
-        }
-        Ok(())
-    })?;
-    skills::bump_skill_version();
+    core::toggle_skill(name, body.enabled, SOURCE)?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/skills/env-check`
 pub async fn get_skill_env_check() -> Result<Json<Value>, AppError> {
-    Ok(Json(
-        json!({ "enabled": ha_core::config::cached_config().skill_env_check }),
-    ))
+    Ok(Json(json!({ "enabled": core::get_skill_env_check() })))
 }
 
 /// `PUT /api/skills/env-check`
 pub async fn set_skill_env_check(Json(body): Json<ToggleBody>) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("skill_env_check", "http"), |store| {
-        store.skill_env_check = body.enabled;
-        Ok(())
-    })?;
-    skills::bump_skill_version();
+    core::set_skill_env_check(body.enabled, SOURCE)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -111,14 +75,7 @@ pub async fn set_skill_env_check(Json(body): Json<ToggleBody>) -> Result<Json<Va
 pub async fn get_skill_env(
     Path(name): Path<String>,
 ) -> Result<Json<HashMap<String, String>>, AppError> {
-    let store = ha_core::config::cached_config();
-    let env_map = store.skill_env.get(&name).cloned().unwrap_or_default();
-    Ok(Json(
-        env_map
-            .into_iter()
-            .map(|(k, v)| (k, skills::mask_value(&v)))
-            .collect(),
-    ))
+    Ok(Json(core::get_skill_env_masked(&name)))
 }
 
 #[derive(Debug, Deserialize)]
@@ -132,18 +89,7 @@ pub async fn set_skill_env_var(
     Path(name): Path<String>,
     Json(body): Json<EnvVarBody>,
 ) -> Result<Json<Value>, AppError> {
-    if skills::is_masked_value(&body.value) {
-        return Ok(Json(json!({ "ok": true })));
-    }
-    ha_core::config::mutate_config(("skill_env", "http"), |store| {
-        store
-            .skill_env
-            .entry(name)
-            .or_default()
-            .insert(body.key, body.value);
-        Ok(())
-    })?;
-    skills::bump_skill_version();
+    core::set_skill_env_var(name, body.key, body.value, SOURCE)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -157,85 +103,37 @@ pub async fn remove_skill_env_var(
     Path(name): Path<String>,
     Query(q): Query<RemoveEnvVarQuery>,
 ) -> Result<Json<Value>, AppError> {
-    ha_core::config::mutate_config(("skill_env", "http"), |store| {
-        if let Some(map) = store.skill_env.get_mut(&name) {
-            map.remove(&q.key);
-            if map.is_empty() {
-                store.skill_env.remove(&name);
-            }
-        }
-        Ok(())
-    })?;
-    skills::bump_skill_version();
+    core::remove_skill_env_var(&name, &q.key, SOURCE)?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `GET /api/skills/env-status`
 pub async fn get_skills_env_status(
 ) -> Result<Json<HashMap<String, HashMap<String, bool>>>, AppError> {
-    let store = ha_core::config::cached_config();
-    let entries =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
-    let mut result: HashMap<String, HashMap<String, bool>> = HashMap::new();
-    for entry in &entries {
-        if entry.requires.env.is_empty() {
-            continue;
-        }
-        let configured = store.skill_env.get(&entry.name);
-        let mut status = HashMap::new();
-        for key in &entry.requires.env {
-            let has_configured = configured
-                .and_then(|m| m.get(key))
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            let has_system = std::env::var(key).map(|v| !v.is_empty()).unwrap_or(false);
-            status.insert(key.clone(), has_configured || has_system);
-        }
-        result.insert(entry.name.clone(), status);
-    }
-    Ok(Json(result))
+    Ok(Json(core::get_skills_env_status()))
 }
 
 /// `GET /api/skills/status`
 pub async fn get_skills_status() -> Result<Json<Vec<skills::SkillStatusEntry>>, AppError> {
-    let store = ha_core::config::cached_config();
-    let entries =
-        skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
-    Ok(Json(skills::check_all_skills_status(
-        &entries,
-        &store.disabled_skills,
-        store.skill_env_check,
-        &store.skill_env,
-        &store.skill_allow_bundled,
-    )))
+    Ok(Json(core::get_skills_status()))
 }
 
 // ── Phase B' Auto-Review ────────────────────────────────────────
 
 /// `GET /api/skills/drafts` — list skills in `status: draft`.
 pub async fn list_draft_skills() -> Result<Json<Vec<skills::SkillSummary>>, AppError> {
-    let store = ha_core::config::cached_config();
-    let drafts = skills::author::list_drafts(&store.extra_skills_dirs);
-    let disabled = &store.disabled_skills;
-    let out: Vec<skills::SkillSummary> = drafts
-        .into_iter()
-        .map(|e| {
-            let enabled = !disabled.contains(&e.name);
-            e.to_summary(enabled)
-        })
-        .collect();
-    Ok(Json(out))
+    Ok(Json(core::list_draft_skills()))
 }
 
 /// `POST /api/skills/{name}/activate` — promote a draft to active.
 pub async fn activate_draft_skill(Path(name): Path<String>) -> Result<Json<Value>, AppError> {
-    skills::author::set_skill_status(&name, skills::SkillStatus::Active)?;
+    core::activate_draft_skill(&name)?;
     Ok(Json(json!({ "ok": true })))
 }
 
 /// `DELETE /api/skills/{name}/draft` — delete a draft skill.
 pub async fn discard_draft_skill(Path(name): Path<String>) -> Result<Json<Value>, AppError> {
-    skills::author::delete_skill(&name)?;
+    core::discard_draft_skill(&name)?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -249,16 +147,8 @@ pub struct TriggerReviewBody {
 pub async fn trigger_skill_review_now(
     Json(body): Json<TriggerReviewBody>,
 ) -> Result<Json<Value>, AppError> {
-    let gate = skills::auto_review::acquire_manual(&body.session_id).ok_or_else(|| {
-        AppError::bad_request("another review is already running for this session")
-    })?;
-    let report = skills::auto_review::run_review_cycle(
-        &body.session_id,
-        skills::auto_review::ReviewTrigger::Manual,
-        gate,
-        None,
-    )
-    .await
-    .map_err(|e| AppError::internal(e.to_string()))?;
-    Ok(Json(serde_json::to_value(report).unwrap_or(Value::Null)))
+    let report = core::trigger_skill_review_now(&body.session_id)
+        .await
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(report))
 }

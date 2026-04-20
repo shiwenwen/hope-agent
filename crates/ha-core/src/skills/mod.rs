@@ -1,6 +1,7 @@
 pub mod activation;
 pub mod author;
 pub mod auto_review;
+pub mod commands;
 mod discovery;
 pub mod fork_helper;
 mod frontmatter;
