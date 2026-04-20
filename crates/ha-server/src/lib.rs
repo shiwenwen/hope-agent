@@ -14,10 +14,12 @@ use ha_core::event_bus::EventBus;
 use ha_core::project::ProjectDB;
 use ha_core::session::SessionDB;
 
+pub mod banner;
 pub mod config;
 pub mod error;
 pub mod middleware;
 pub mod routes;
+pub mod web_assets;
 pub mod ws;
 
 pub use config::ServerConfig;
@@ -48,11 +50,18 @@ pub fn build_router(ctx: Arc<AppContext>) -> Router {
 }
 
 /// Start the HTTP/WebSocket server, binding to the configured address.
+///
+/// Prints the structured `[ha-server] listening on ...` log line for log
+/// aggregators as well as the human-readable launch banner (Web GUI URL,
+/// API endpoint, API key). Both go to stderr so they don't contaminate
+/// the ACP NDJSON stdout when the embedded server runs under
+/// `hope-agent acp`.
 pub async fn start_server(config: ServerConfig, ctx: Arc<AppContext>) -> anyhow::Result<()> {
     let router = build_router_with_cors(ctx, &config.cors_origins, config.api_key.clone());
 
     let listener = tokio::net::TcpListener::bind(&config.bind_addr).await?;
     eprintln!("[ha-server] listening on {}", config.bind_addr);
+    banner::print_launch_banner(&config.bind_addr, config.api_key.as_deref());
 
     axum::serve(listener, router).await?;
     Ok(())
@@ -579,6 +588,35 @@ fn build_router_with_cors(
             get(routes::dreaming::read_diary),
         )
         .route("/dreaming/status", get(routes::dreaming::status))
+        // Onboarding wizard
+        .route("/onboarding/state", get(routes::onboarding::get_state))
+        .route("/onboarding/draft", post(routes::onboarding::save_draft))
+        .route(
+            "/onboarding/complete",
+            post(routes::onboarding::mark_completed),
+        )
+        .route("/onboarding/skip", post(routes::onboarding::mark_skipped))
+        .route("/onboarding/reset", post(routes::onboarding::reset))
+        .route(
+            "/onboarding/language",
+            post(routes::onboarding::apply_language),
+        )
+        .route(
+            "/onboarding/profile",
+            post(routes::onboarding::apply_profile),
+        )
+        .route(
+            "/onboarding/personality-preset",
+            post(routes::onboarding::apply_personality_preset),
+        )
+        .route("/onboarding/safety", post(routes::onboarding::apply_safety))
+        .route("/onboarding/skills", post(routes::onboarding::apply_skills))
+        .route("/onboarding/server", post(routes::onboarding::apply_server))
+        .route(
+            "/server/generate-api-key",
+            post(routes::onboarding::generate_api_key),
+        )
+        .route("/server/local-ips", get(routes::onboarding::list_local_ips))
         // Dashboard
         .route("/dashboard/overview", post(routes::dashboard::overview))
         .route(
@@ -1002,12 +1040,32 @@ fn build_router_with_cors(
             middleware::require_api_key,
         ));
 
-    Router::new()
-        .merge(health)
-        .merge(protected)
+    let base = Router::new().merge(health).merge(protected);
+
+    attach_web_fallback(base)
         .layer(build_cors_layer(cors_origins))
         .layer(axum::middleware::from_fn(middleware::access_log))
         .with_state(ctx)
+}
+
+/// Attach the Web GUI static-file fallback to the given router.
+///
+/// Any request that doesn't match `/api/*`, `/ws/*`, or another
+/// already-registered route falls through to the front-end bundle so
+/// users can open `http://host:port/` in a browser and get the React UI.
+fn attach_web_fallback(router: Router<Arc<AppContext>>) -> Router<Arc<AppContext>> {
+    match web_assets::resolve_strategy() {
+        web_assets::WebAssetStrategy::ServeDir(path) => {
+            let index = path.join("index.html");
+            let serve = tower_http::services::ServeDir::new(&path)
+                .fallback(tower_http::services::ServeFile::new(index));
+            router.fallback_service(serve)
+        }
+        web_assets::WebAssetStrategy::Embedded => router.fallback(web_assets::serve_embedded),
+        web_assets::WebAssetStrategy::Unavailable => {
+            router.fallback(web_assets::serve_unavailable_notice)
+        }
+    }
 }
 
 /// Build a CORS layer. When `origins` is empty, allow all origins (permissive).

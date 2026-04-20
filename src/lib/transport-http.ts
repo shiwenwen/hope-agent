@@ -440,6 +440,21 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   open_directory:                  { method: "POST",   path: "/api/desktop/open-directory" },
   reveal_in_folder:                { method: "POST",   path: "/api/desktop/reveal-in-folder" },
   get_system_prompt:               { method: "POST",   path: "/api/system-prompt" },
+
+  // -- First-run onboarding wizard --
+  get_onboarding_state:            { method: "GET",    path: "/api/onboarding/state" },
+  save_onboarding_draft:           { method: "POST",   path: "/api/onboarding/draft" },
+  mark_onboarding_completed:       { method: "POST",   path: "/api/onboarding/complete" },
+  mark_onboarding_skipped:         { method: "POST",   path: "/api/onboarding/skip" },
+  reset_onboarding:                { method: "POST",   path: "/api/onboarding/reset" },
+  apply_onboarding_language:       { method: "POST",   path: "/api/onboarding/language" },
+  apply_onboarding_profile:        { method: "POST",   path: "/api/onboarding/profile" },
+  apply_personality_preset_cmd:    { method: "POST",   path: "/api/onboarding/personality-preset" },
+  apply_onboarding_safety:         { method: "POST",   path: "/api/onboarding/safety" },
+  apply_onboarding_skills:         { method: "POST",   path: "/api/onboarding/skills" },
+  apply_onboarding_server:         { method: "POST",   path: "/api/onboarding/server" },
+  generate_api_key:                { method: "POST",   path: "/api/server/generate-api-key" },
+  list_local_ips:                  { method: "GET",    path: "/api/server/local-ips" },
 };
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 // ── Local Tauri-specific modules ──────────────────────────────────
 mod app_init;
+mod cli_onboarding;
 mod commands;
 mod globals;
 mod setup;
@@ -35,6 +36,7 @@ pub use ha_core::logging;
 pub use ha_core::memory;
 pub use ha_core::memory_extract;
 pub use ha_core::oauth;
+pub use ha_core::onboarding;
 pub use ha_core::paths;
 pub use ha_core::permissions;
 pub use ha_core::plan;
@@ -221,6 +223,20 @@ pub fn run() {
             commands::dreaming::dreaming_list_diaries,
             commands::dreaming::dreaming_read_diary,
             commands::dreaming::dreaming_is_running,
+            // Onboarding wizard
+            commands::onboarding::get_onboarding_state,
+            commands::onboarding::save_onboarding_draft,
+            commands::onboarding::mark_onboarding_completed,
+            commands::onboarding::mark_onboarding_skipped,
+            commands::onboarding::reset_onboarding,
+            commands::onboarding::apply_onboarding_language,
+            commands::onboarding::apply_onboarding_profile,
+            commands::onboarding::apply_personality_preset_cmd,
+            commands::onboarding::apply_onboarding_safety,
+            commands::onboarding::apply_onboarding_skills,
+            commands::onboarding::apply_onboarding_server,
+            commands::onboarding::generate_api_key,
+            commands::onboarding::list_local_ips,
             commands::config::get_web_search_config,
             commands::config::save_web_search_config,
             commands::config::get_web_fetch_config,
