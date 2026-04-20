@@ -42,194 +42,20 @@ npm run lint                                                               # 对
 
 ## 项目结构
 
-### Cargo Workspace
-
 ```
 Cargo.toml              Workspace 根（members: crates/ha-core, crates/ha-server, src-tauri）
-skills/                 内置技能（bundled skills，随应用发行）
-  oc-skill-creator/     技能创建/编辑/改进工具（含 agents/references/scripts/eval-viewer）
-  oc-settings/          应用设置管理技能（通过 get_settings/update_settings 工具调整配置）
 crates/
   ha-core/              核心业务逻辑（零 Tauri 依赖，纯 Rust 库）
   ha-server/            HTTP/WS 服务器（axum，REST API + WebSocket 流式推送）
 src-tauri/              Tauri 桌面 Shell（薄壳，调用 ha-core）
-```
-
-### 前端
-
-```
 src/                    前端（React + TypeScript）
-  components/
-    chat/               聊天组件
-      hooks/            聊天相关自定义 hooks
-      input/            输入框组件
-      message/          消息渲染组件
-      plan-mode/        Plan Mode 组件
-      sidebar/          侧边栏组件
-      slash-commands/   斜杠命令 UI
-    settings/           设置面板
-      agent-panel/      Agent 管理面板（含 tabs/ 子目录）
-      channel-panel/    渠道管理面板
-      general-panel/    通用设置面板
-      log-panel/        日志面板
-      memory-panel/     记忆管理面板
-      profile-panel/    个人资料面板
-      provider-setup/   Provider 配置（含 templates/ 子目录）
-      skills-panel/     技能面板
-      teams-panel/      Team 模板配置面板（index/TemplateListView/TemplateEditView/MemberRow/AgentSelector）
-      web-search-panel/ 搜索设置面板
-    common/             共享组件（导航栏/Markdown 渲染/Provider 图标）
-    ui/                 shadcn/ui 基础组件
-    dashboard/          数据大盘（recharts 图表 + 综合 Insights 健康度/热力图/Top 会话）
-    cron/               定时任务管理组件
-  hooks/                全局自定义 hooks（useClickOutside/useTheme/useUrlPreview）
-  lib/
-    logger.ts           前端统一日志工具
-    transport.ts        Transport 抽象层（统一 invoke/listen 接口）
-    transport-tauri.ts  Tauri IPC 实现（invoke + Channel 事件）
-    transport-http.ts   HTTP/WS 实现（REST API + WebSocket 流式事件）
-    transport-provider.ts Provider Transport 适配
-    notifications.ts    通知工具
-    urlDetect.ts        URL 检测工具
-    utils.ts            通用工具函数
+  components/           chat/ settings/ dashboard/ cron/ common/ ui/ 等
+  lib/                  Transport 抽象层：transport.ts + transport-tauri.ts + transport-http.ts
   i18n/locales/         12 种语言翻译文件
-  types/
-    chat.ts             聊天相关类型定义
-    tools.ts            工具相关类型定义
+skills/                 内置技能（bundled skills，随应用发行）
 ```
 
-### ha-core（核心库）
-
-```
-crates/ha-core/src/     核心业务逻辑（零 Tauri 依赖）
-  lib.rs                模块导出 & CoreState（替代原 AppState）
-  event_bus.rs          EventBus 事件总线（替代 Tauri APP_HANDLE 事件发射）
-  globals.rs            全局状态管理
-  app_init.rs           应用初始化逻辑
-  user_config.rs        用户配置管理
-  guardian.rs           Guardian 统一心跳管理
-  permissions.rs        权限控制
-  process_registry.rs   进程注册表
-  util.rs               通用工具函数
-  weather.rs            天气缓存系统与 Open-Meteo API
-  weather_location_macos.rs macOS 原生 CoreLocation 定位（objc2 delegate + callback 生命周期）
-  paths.rs              统一路径管理（~/.hope-agent/）
-  failover/             模型降级 & 重试策略 + Auth Profile 轮换（mod.rs 错误分类 + cooldown + sticky；executor.rs 通用 execute_with_failover）
-  sandbox.rs            Docker 沙箱
-  oauth.rs              OAuth 认证
-  url_preview.rs        URL 预览
-  file_extract.rs       文件内容提取
-  browser_state.rs      浏览器状态管理（chromiumoxide / CDP）
-  browser_ui.rs         桌面端浏览器管理面板后端（profile CRUD + launch/connect/disconnect/status）
-  canvas_db.rs          Canvas 数据库
-  crash_journal.rs      崩溃日志
-  dev_tools.rs          开发者工具
-  self_diagnosis.rs     自诊断
-  service_install.rs    系统服务注册（macOS launchd / Linux systemd）
-  backup.rs             备份管理
-  memory_extract.rs     记忆自动提取
-  agent/                AssistantAgent（多 Provider + Tool Loop + Side Query 缓存侧查询）
-    providers/          4 个 Provider（每个一对 thin wrapper + adapter，~50 行 + 200~600 行）
-    llm_adapter.rs      LlmApiAdapter trait + 4 个 one-shot adapter（side_query + summarize_direct 共用）
-    side_query.rs       缓存友好侧查询入口（薄壳，委托给 llm_adapter）
-    streaming_adapter.rs StreamingChatAdapter trait + RoundRequest/Outcome/ExecutedTool（4 provider streaming + tool loop 共用接口）
-    streaming_loop.rs   AssistantAgent::run_streaming_chat 公共编排（compaction / tool dispatch / steer / microcompact / event emit）
-  agent_config.rs       Agent 配置管理
-  agent_loader.rs       Agent 加载器
-  channel/              IM 渠道系统（12 个插件，会话映射、分发 worker）
-    discord/            Discord 渠道
-    feishu/             飞书渠道
-    googlechat/         Google Chat 渠道
-    imessage/           iMessage 渠道
-    irc/                IRC 渠道
-    line/               LINE 渠道
-    qqbot/              QQ Bot 渠道
-    signal/             Signal 渠道
-    slack/              Slack 渠道
-    telegram/           Telegram 渠道
-    wechat/             微信渠道
-    whatsapp/           WhatsApp 渠道
-    worker/             消息分发器（dispatcher/streaming/media/slash/approval 拆分）
-  tools/                内置工具（按子模块拆分）
-    definitions/        工具定义注册（types/core_tools/special_tools/plan_tools/registry 拆分）
-    image_generate/     AI 图片生成（types/helpers/generate/output + 7 个 Provider）
-    browser/            浏览器工具
-    canvas/             Canvas 画布工具
-    web_search/         Web 搜索工具
-  skills/               技能系统（types/frontmatter/requirements/discovery/prompt/slash 拆分）
-  slash_commands/       斜杠命令系统
-    handlers/           各命令处理器
-  async_jobs/           异步 Tool 执行（types/db/spawn/injection/retention 拆分，独立 ~/.hope-agent/async_jobs.db）
-  ask_user/             通用结构化问答（types/questions 独立模块，不依赖 plan）
-  plan/                 Plan Mode 六态状态机（types/constants/store/subagent/file_io/parser/git 拆分）
-  recap/                `/recap` 深度复盘（types/db/facets/aggregate/sections/report/renderer/api 拆分）
-  memory/               记忆系统（SQLite + FTS5 + 向量检索）
-    embedding/          Embedding 提供者（config/utils/api_provider/local_provider/fallback_provider/factory）
-    sqlite/             SQLite 后端（prompt/backend/trait_impl 拆分）
-  context_compact/      上下文压缩（5 层渐进式 + ContextEngine trait 可插拔引擎）
-  awareness/            跨会话行为感知（config/types/registry/dirty/collect/render/session/llm_digest/peek_tool/build）
-  subagent/             子 Agent 系统
-  team/                 Agent Team 多 Agent 协作（coordinator/messaging/tasks/templates/cleanup）
-  cron/                 定时任务调度
-  acp/                  ACP 协议服务器（IDE 直连）
-  acp_control/          ACP 控制面客户端
-  config/               AppConfig 根结构 + 持久化（mod/persistence 拆分）。读走 cached_config()，写走 mutate_config((category,source),|cfg|{...})。save_config emit config:changed EventBus
-  provider/             Provider 数据模型（types/proxy/persistence 拆分，persistence 只保留 provider 专属 helpers）
-  project/              项目（Project）系统（types/db/files 拆分）
-  session/              会话持久化（SQLite）
-  system_prompt/        系统提示词模块化拼装（constants/build/sections/helpers 拆分）
-  chat_engine/          聊天引擎（types/context/engine 拆分）
-  docker/               Docker 服务管理（status/deploy/lifecycle/helpers/proxy 拆分）
-  dashboard/            数据大盘聚合查询（types/cost/filters/queries/detail_queries/insights 拆分）
-  logging/              统一日志（types/db/file_writer/app_logger/file_ops/config 拆分）
-  platform/             跨平台原语（mod/unix/windows 拆分：terminate_process_tree / send_graceful_stop / detect_system_proxy / default_shell_command(_tokio) / find_chrome_executable / os_version_string）
-```
-
-### ha-server（HTTP/WS 服务器）
-
-```
-crates/ha-server/src/   HTTP/WS 守护进程
-  lib.rs                axum Router（路由注册 + 服务启动）
-  config.rs             ServerConfig（bind_addr / api_key / cors_origins）
-  error.rs              统一错误处理
-  middleware.rs          API Key 鉴权中间件（Bearer header + ?token= query param）
-  routes/               REST API 路由处理（sessions/chat/providers/models/config/agents/memory/auth/searxng/system/desktop/dev/acp/canvas/... 共 28 个模块）
-  ws/                   WebSocket（events 事件推送 + chat_stream 流式聊天）
-```
-
-### src-tauri（Tauri 桌面 Shell）
-
-```
-src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
-  lib.rs                Tauri 命令注册 & AppState（委托 ha-core）
-  main.rs               入口（桌面 GUI / server / acp 多模式分发）
-  setup.rs              Tauri 应用 setup 初始化
-  app_init.rs           应用初始化逻辑
-  globals.rs            全局状态
-  shortcuts.rs          全局快捷键
-  tray.rs               系统托盘
-  tauri_wrappers.rs     Tauri API 封装
-  commands/             Tauri 命令层（~19 个模块）
-    provider/           Provider 管理命令（crud/test_provider/test_embedding/test_image/models 拆分）
-    chat.rs             聊天命令
-    session.rs          会话管理命令
-    agent_mgmt.rs       Agent 管理命令
-    channel.rs          渠道管理命令
-    config.rs           配置命令
-    memory.rs           记忆管理命令
-    skills.rs           技能命令
-    plan.rs             Plan Mode 命令
-    subagent.rs         子 Agent 命令
-    cron.rs             定时任务命令
-    docker.rs           Docker 管理命令
-    dashboard.rs        数据大盘命令
-    logging.rs          日志命令
-    auth.rs             认证命令
-    acp_control.rs      ACP 控制命令
-    misc.rs             杂项命令
-    crash.rs            崩溃报告命令
-    url_preview.rs      URL 预览命令
-```
+ha-core 按功能域拆分模块，具体用 `ls crates/ha-core/src/` / `Glob` 查看，无需在此维护清单。主要领域：`agent/`（AssistantAgent + Provider + Tool Loop）、`chat_engine/`、`context_compact/`、`memory/`、`skills/`、`tools/`、`channel/`（IM 渠道）、`subagent/`、`team/`、`cron/`、`acp/`、`dashboard/`、`recap/`、`awareness/`、`config/`、`session/`、`project/`、`plan/`、`ask_user/`、`async_jobs/`、`failover/`、`platform/`、`security/`、`logging/`。
 
 ## 技术栈
 
@@ -244,73 +70,108 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 
 ## 架构约定
 
-- **Cargo Workspace 三 Crate 架构**：`ha-core`（核心业务逻辑，零 Tauri 依赖）、`ha-server`（axum HTTP/WS 守护进程）、`src-tauri`（Tauri 桌面薄壳）。所有业务逻辑在 ha-core，src-tauri 和 ha-server 均为调用方
-- **三种运行模式**：`hope-agent`（桌面 GUI，Tauri）、`hope-agent server`（HTTP/WS 守护进程，支持 install/uninstall/status/stop 子命令）、`hope-agent acp`（stdio ACP 协议）
-- **前后端通信**：前端通过 Transport 抽象层（`src/lib/transport.ts`）统一调用后端。桌面模式走 Tauri IPC（`invoke()` + `Channel<String>`），服务器模式走 HTTP REST API + WebSocket 流式推送。业务代码无需感知底层传输
-- **EventBus 事件总线**：`ha-core` 中的 `EventBus` 替代原 Tauri `APP_HANDLE` 进行事件发射，使核心逻辑脱离 Tauri 依赖。Tauri shell 和 axum server 各自订阅 EventBus 并转发到各自的前端通道
-- **聊天流双写 + seq 去重（重载恢复）**：主 chat 的每个 stream delta 都同时发往 per-call `EventSink`（Tauri Channel / HTTP WebSocket，低延迟主路径）和 EventBus `chat:stream_delta`（`{sessionId, seq, event}`，重载保险）。后端在 [`chat_engine/stream_seq.rs`](crates/ha-core/src/chat_engine/stream_seq.rs) 维护 session 级 atomic `_oc_seq` 计数器，`run_chat_engine` 用 RAII `StreamLifecycle` guard 包住整个生命周期，结束时 emit `chat:stream_end`。前端 [`useChatStream`](src/components/chat/hooks/useChatStream.ts) 主路径 `onmessage` 和 [`useChatStreamReattach`](src/components/chat/hooks/useChatStreamReattach.ts) 总线路径共享 `lastSeqRef: Map<sid, seq>`：Channel 活时主路径先 bump，Bus 路径见到 `seq <= lastSeq` 自动跳过；Channel 死时（前端重载）Bus 路径接管，seq cursor 由 `get_session_stream_state(sessionId)` 命令返回的 `lastSeq` 在 `handleSwitchSession` 触发的 effect 里 seed。IM 渠道用的独立 `ChannelStreamSink` 走 `channel:stream_delta`，不与主 chat 混淆。新增任何"会 spawn tool loop 的 chat 路径"时，走 `chat_engine::run_chat_engine` 即自动获得该能力，不要绕过它自己包 `on_delta`
-- **状态管理**：后端核心状态在 `ha-core::CoreState`（`tokio::sync::Mutex`），Tauri 端通过 `State<AppState>` 持有引用，Server 端通过 axum `Extension` 注入。前端保持轻量 React state
-- **Guardian 统一心跳**：桌面模式和服务器模式共用 Guardian keepalive 机制，确保后台任务（Channel 轮询、Cron 调度等）持续运行
-- **系统服务注册**：`hope-agent server install` 在 macOS 注册 launchd plist（`~/Library/LaunchAgents/`），在 Linux 注册 systemd unit（`~/.config/systemd/user/`），实现开机自启
-- **API Key 鉴权**：`ha-server/middleware.rs` 实现 axum `from_fn_with_state` 中间件。支持 `Authorization: Bearer <key>` 头和 `?token=<key>` 查询参数（浏览器 WebSocket 不支持自定义头）。`/api/health` 免鉴权。`api_key` 为 `None` 时全部放行。CLI 模式通过 `--api-key` 参数传入，桌面模式从 `config.json` 的 `server.apiKey` 读取
-- **内嵌服务器配置**：桌面应用内嵌 HTTP 服务的 bind 地址和 API Key 存储在 `config.json` 的 `server` 字段（`EmbeddedServerConfig`），`setup.rs` 启动时读取。默认 `127.0.0.1:8420` 仅本机访问，设为 `0.0.0.0:8420` 可对外暴露。修改后需重启应用生效
-- **LLM 调用**：集中在 `agent/` 模块，四种 Provider（Anthropic / OpenAIChat / OpenAIResponses / Codex）
-- **温度配置**：三层覆盖架构（会话 > Agent > 全局）。全局存储在 `config.json` 的 `temperature` 字段，Agent 级存储在 `agent.json` 的 `model.temperature` 字段，会话级通过 `chat` 命令的 `temperatureOverride` 参数传递。`AssistantAgent.temperature` 字段在四种 Provider 的 API 请求中统一注入。范围 0.0–2.0，`None` 表示使用 API 默认值
-- **Tool Loop**：请求 → 解析 tool_call → 并发/串行执行 → 回传 → 继续，默认上限 20 轮（`AgentConfig.capabilities.max_tool_rounds`，`0` 表示无限）。最后一轮 API 请求去掉 `tools` 字段强制模型产出文本收尾；system prompt 由 `build_tool_budget_guidance` 注入一段简短引导，提醒模型临近上限时主动交代已完成 / 剩余工作和在新对话中续作的建议，避免被动命中 `⚠️ 已达到工具调用轮次上限` notice。工具按 `concurrent_safe` 标记分组：只读工具（read/grep/ls/find 等）并行执行，写入工具（exec/write/edit 等）串行执行
-- **异步 Tool 执行（async_capable）**：`exec` / `web_search` / `image_generate` 标记 `async_capable = true`，模型可在 args 里设 `run_in_background: true` 把整轮 tool call detach 成后台 job，立即返回 `{job_id, status: "started"}` 作为合法 tool_result，对话继续。三道决策：(1) 模型显式 `run_in_background` (2) `AgentConfig.capabilities.async_tool_policy = "always-background" / "never-background" / "model-decide"` (3) 同步预算自动后台化（默认 30s `asyncTools.autoBackgroundSecs`，超时通过 OS 线程 + Mutex 相位机迁移到后台 job 而不丢结果）。结果通过新模块 [crates/ha-core/src/async_jobs/](crates/ha-core/src/async_jobs/) 持久化到独立的 `~/.hope-agent/async_jobs.db`，大结果 spool 到 `~/.hope-agent/async_jobs/{job_id}.txt`；完成后复用 `subagent::injection::inject_and_run_parent` 在会话空闲时把 `<tool-job-result job-id="..." tool="..." status="...">...</tool-job-result>` 作为 user 消息注入回主对话。新增 deferred 工具 `job_status(job_id, block?, timeout_ms?)` 让模型主动 poll/wait。**等待机制**（[async_jobs/wait.rs](crates/ha-core/src/async_jobs/wait.rs)）：per-job `tokio::sync::Notify` 注册表，`finalize_job` 在 `update_terminal` 之后 `notify_waiters()` 唤醒所有等待者，remove-on-notify 保证后到 waiter 拿到全新 Notify；`job_status` 注册后强制重读 DB 关闭 register/finalize race，循环使用 `tokio::select!(notify.notified(), sleep(backoff))`，退避曲线 100ms → ×1.5 → 2s 上限作为 Notify 失效时的防御兜底。EventBus `async_tool_job:completed` 仍然保留 emit 供未来前端订阅，但 `job_status` 不再依赖它。**timeout 策略**：默认 = `min(max_job_secs, 1800)` 秒；硬上限 = `max_job_secs`（或 `asyncTools.jobStatusMaxWaitSecs`，默认 7200s，当 `max_job_secs = 0` 时生效）；请求值超过上限自动 clamp。重启回放：`start_background_tasks` 把残留 `running` 行标记 `interrupted` + 重新入队所有 `injected=0` 的终态行。**保留期清理**（`async_jobs/retention.rs`）：启动时 + 每 24h 自动扫描，按 `asyncTools.retentionSecs`（默认 30 天）删除 `completed_at` 过期的终态行和对应 spool 文件；额外按 `asyncTools.orphanGraceSecs`（默认 24h）清理 spool 目录里"mtime 够老且无 DB 行引用"的孤儿文件，grace window 避免与刚写入还没提交 DB 行的 spool 文件竞态。两个配置 `0` 均表示禁用对应清理路径
-- **Agent 工具过滤**：`AgentConfig.capabilities.tools` 在 `system_prompt`、Provider `tool_schemas`、`tool_search` 返回和执行层统一生效，作为 Agent 级基线工具权限。internal 系统工具（UI 隐藏不可关闭）在该层始终保留；更强限制由 `denied_tools`、skill allowlist 和 Plan Mode 继续收紧
-- **工具结果磁盘持久化**：工具结果超过阈值（默认 50KB，`config.json` → `toolResultDiskThreshold` 可配置）时写入 `~/.hope-agent/tool_results/{session_id}/`，上下文仅保留 head+tail 预览 + 路径引用
-- **工具审批等待超时**：审批等待时长由 `config.json` 的 `approvalTimeoutSecs` 控制，默认 300 秒，`0` 表示不限时。超时后的动作由 `approvalTimeoutAction` 控制：默认 `deny` 阻止执行，也可设为 `proceed` 在记录 warning 后继续执行工具
-- **最高权限模式（Dangerous Mode / YOLO）**：进程级"核弹按钮"，一键跳过所有工具审批门。两个来源 OR 组合——CLI flag `--dangerously-skip-all-approvals`（[`security::dangerous`](crates/ha-core/src/security/dangerous.rs) 的 `AtomicBool`，进程内生效不持久化）和 `AppConfig.dangerous_skip_all_approvals`（config.json 持久化）。判定入口 `is_dangerous_skip_active()` 在 [`tools/execution.rs`](crates/ha-core/src/tools/execution.rs#L277) 与 `ctx.auto_approve_tools` 并列作为 skip 条件，`tools/exec.rs` 独立的 command-level 审批门也同步接入；每次跳过审批会 `app_warn!("tool", "dangerous_mode", ...)` 带来源（`CLI flag` / `config`）落日志，便于事后审计。**与 Plan Mode 正交**——Plan Mode 限制工具类型/路径白名单，YOLO 跳过审批，Plan Mode 检查继续生效。CLI flag 在 [`src-tauri/src/main.rs`](src-tauri/src/main.rs) 的顶层 `fn main()` 解析一次（子命令 dispatch 之前），子命令 arg parser 安静消费同名 flag 以免 "Unknown argument" 警告。前端 [`DangerousModeBanner`](src/components/common/DangerousModeBanner.tsx) 挂在 `App.tsx` 最外层标题栏位置，[`useDangerousModeStatus`](src/hooks/useDangerousModeStatus.ts) 订阅 `config:changed` 事件实时刷新。GUI 开关在 **Settings → 安全策略** 面板（[`SecurityPanel`](src/components/settings/SecurityPanel.tsx) 顶部的 [`DangerousModeSection`](src/components/settings/DangerousModeSection.tsx)，与 SSRF 策略同面板），CLI 启动时该开关显示只读提示。Tauri 命令 `get_dangerous_mode_status` / `set_dangerous_skip_all_approvals` + HTTP 端点 `GET /api/security/dangerous-status` / `POST /api/security/dangerous-skip-all-approvals`。Settings 技能 `security` 分类，HIGH 风险
-- **工具调用前说明（可选注入）**：`TOOL_CALL_NARRATION_GUIDANCE` 这段系统提示词——要求模型在首次 tool call 前先用一句话说明意图（Claude Code 风格）——由 `AppConfig.tool_call_narration_enabled: bool` 控制，**默认 `false`**。开启后 [`system_prompt/build.rs`](crates/ha-core/src/system_prompt/build.rs) 的 structured / custom / legacy 三条装配路径都会注入该指引，并额外告知模型"连续 tool call 之间不要反复复述同一意图"，避免 GPT-5.x 等话痨模型在一轮 `task_create → task_update → ls` 里三次 preamble 念同一件事。UI 入口在设置→对话与上下文→基础 Tab，CLI 入口 `oc-settings` 技能 MEDIUM 风险分类 `tool_call_narration`
-- **会话列表 pending-interaction 指示器**：`SessionMeta.pendingInteractionCount` 在 `list_sessions_cmd` / `GET /api/sessions` 命令层合并 `tools::approval::pending_approvals_per_session()`（`PendingApprovalEntry` 携带 `session_id`）+ `SessionDB::count_pending_ask_user_groups_per_session()`（按 session 聚合 `ask_user_questions.status='pending'` 行，过滤已超时行）。前端 `SessionItem` 在 `!isActive && !channelInfo && pendingInteractionCount > 0` 时叠加三层视觉提示（琥珀行底色 + 左色条、副标题替换为 `BellRing + 等待回应` 文本、头像左下角 pulse 徽章）。后端在 `submit_approval_response` / `submit_ask_user_question_response` / `cancel_pending_ask_user_question` / approval timeout 路径调用 `emit_pending_interactions_changed()` 广播 EventBus 事件 `session_pending_interactions_changed`，前端 `useChatSession` 同时订阅该事件 + `approval_required` + `ask_user_request` 走 300ms 防抖触发 `reloadSessions()`。`isLoading` 优先级最高，pending 仅在未运行时替换副标题
-- **数据存储**：所有数据统一在 `~/.hope-agent/`，`paths.rs` 集中管理
-- **数据大盘 Insights**：`dashboard/insights.rs` 提供综合分析查询：`query_overview_with_delta`（同环比 delta，按相同时间跨度左移取 previous baseline）、`query_cost_trend`（日度费用累计 + 峰值/日均）、`query_activity_heatmap`（7×24 活跃度网格）、`query_hourly_distribution`（0–23 时消息 + 峰值时段）、`query_top_sessions`（按 token 消耗的 Top N）、`query_model_efficiency`（每模型 tokens/msg、cost/1k、TTFT 对比）、`query_health_score`（四维加权健康度 0–100）和一次性 `query_insights` orchestrator。前端 Dashboard 默认 Tab 为 `InsightsSection`，同时 Header 提供 `autoRefreshMs` 定时轮询（30s/1m/5m）和 CSV 导出能力；System Tab 客户端持有最多 60 个采样点的环形缓冲绘制 CPU/内存实时曲线
-- **IM Channel 架构**：`channel/` 目录统一承载 Telegram / WeChat 等渠道插件；Telegram 走 Bot API 轮询，WeChat 走二维码登录 + iLink HTTP 长轮询协议，渠道状态文件统一落在 `~/.hope-agent/channels/`。入站媒体管道：polling 收集 `InboundMedia`（Telegram/WeChat 入站媒体下载到 channel inbound-temp）→ worker 转为 `Attachment`（图片 base64 / 文件 path）并复制归档到会话目录 `~/.hope-agent/attachments/{session_id}/` → `ChatEngineParams.attachments` → `agent.chat()` 多模态接口。WeChat 通道完整能力：typing 指示器（24h TTL + 5s keepalive + cancel）、入站媒体下载解密（图片/视频/语音/文件）、出站媒体 AES-128-ECB 加密上传 CDN（3 次 5xx 重试）、会话过期暂停 1h、QR 登录自动刷新 3 次。**斜杠命令同步**：Telegram Bot 启动时自动调用 `setMyCommands` 同步内置命令到 Bot 菜单，`SlashCommandDef::description_en()` 提供英文描述
-- **IM Channel 工具审批交互**：工具需要审批时，`channel/worker/approval.rs` 监听 EventBus `"approval_required"` 事件，通过 `ChannelDB.get_conversation_by_session()` 反查 IM 渠道信息，按 `ChannelCapabilities.supports_buttons` 决定发送方式：支持按钮的渠道（Telegram/Discord/Slack/飞书/QQ Bot/LINE/Google Chat）发送平台原生交互按钮，不支持的渠道（WeChat/Signal/iMessage/IRC/WhatsApp）发送文本提示（回复 1/2/3）。按钮回调通过各渠道原生机制路由回 `submit_approval_response()`。`ChannelAccountConfig.auto_approve_tools` 为 `true` 时，该渠道的所有工具调用自动审批，通过 `ChatEngineParams` → `AssistantAgent` → `ToolExecContext.auto_approve_tools` 传递到执行层，跳过审批门控
-- **定时任务结果发到 IM 渠道**：`CronJob.delivery_targets: Vec<CronDeliveryTarget>` 描述"跑完把最终 assistant text fan-out 到哪些 IM 会话"。执行层在 [`crates/ha-core/src/cron/executor.rs`](crates/ha-core/src/cron/executor.rs) 的成功路径（写完 session 后、`clear_running` 之前）和失败路径（`record_failure` 之前）各调一次 [`crate::cron::delivery::deliver_results`](crates/ha-core/src/cron/delivery.rs)，复用 `ChannelRegistry::send_reply` 统一入口。成功发正文（不带前缀），失败发 `⚠️ [Cron] {name} failed: {error}`。每个 target 10s 超时保护避免单 channel hang 卡 `clear_running`。用户账户被删除时孤儿 target 只记 warn 日志跳过，其他 target 正常发。`manage_cron` 工具提供 `action=list_channel_targets` 让模型按需发现"当前有哪些可用账户 + 会话"，以及 `action=update` 支持字段增量修改（delivery_targets / schedule / prompt / 等）。**IM 会话内隐式推断**：用户在 IM 渠道 chat 里通过自然语言建 cron 时，若未显式传 `delivery_targets`，`tool_manage_cron` 反查 `ChannelDB.get_conversation_by_session(ctx.session_id)` 自动推断"发回当前这个 chat"为唯一默认 target；显式传 `delivery_targets=[]` 关闭发送，非空数组精确指定其他目标。Update 路径不做隐式推断，避免覆盖用户手动配置
-- **SearXNG Docker 代理注入**：`web_search.searxng_docker_use_proxy` 控制是否向 Docker SearXNG 写入 `settings.yml` 的 `outgoing.proxies` 和代理环境变量；适用于系统 VPN 场景，修改后在下次启动或重新部署容器时生效
-- **SSRF 统一策略**：所有发起出站 HTTP 请求（接受模型 / 用户 URL 输入）的工具必须在发送前调用 `crate::security::ssrf::check_url(url, policy, &trusted_hosts)`（见 [`crates/ha-core/src/security/ssrf.rs`](crates/ha-core/src/security/ssrf.rs)）；redirect 回调用 `check_host_blocking_sync`。三档 policy 从 `AppConfig.ssrf` 读取：`Strict`（拒 loopback + private + link-local + metadata）、`Default`（允许 loopback，拒其他 private + metadata，当前 browser/web_fetch/image_generate/url_preview 默认档）、`AllowPrivate`（允许 loopback + private，仍拒 metadata / link-local）。Metadata IP 黑名单（`169.254.169.254` / `169.254.170.2` / `100.100.100.200` / `fd00:ec2::254`）在任何 policy 下都拒绝。`trustedHosts` allowlist 优先于 policy（支持 `host` / `host:port` / `*.example.com` 通配）。新增出站入口时必须显式接入该模块，不要绕过写自定义 IP 校验。LLM Provider 的 HTTP 出站当前不走此检查（`ProviderConfig.allow_private_network` 仅落字段 + UI 联动），Phase B 再打通
-- **Side Query（缓存侧查询）**：`AssistantAgent.side_query()` 复用主对话的 system_prompt + tool_schemas + conversation_history 前缀，利用 Anthropic 显式 prompt caching / OpenAI 自动前缀缓存，侧查询（Tier 3 摘要、记忆提取）成本降低约 90%。每轮主请求 compaction 后自动快照 `CacheSafeParams`，侧查询构建字节一致的前缀请求。无缓存参数时退化为普通请求
-- **LlmApiAdapter（one-shot 调用统一抽象）**：`crates/ha-core/src/agent/llm_adapter.rs` 把 4 个 Provider 的 one-shot HTTP 调用抽成一个 trait + 4 个 adapter struct（`AnthropicAdapter` / `OpenAIChatAdapter` / `OpenAIResponsesAdapter` / `CodexAdapter`）。`OpenAIResponses` 和 `Codex` 是同一种协议（差异只在端点 + auth header），共享 `build_responses_body` free function。`AssistantAgent.side_query()` 和 `context.rs::summarize_direct()` 都走 `provider.as_adapter().one_shot(req)`：当 `req.system_override.is_some()` 时走"独立 system + 单条 user"分支（用于 Tier 3 摘要），否则走 cache-friendly / bare fallback。adapter 是临时构造的零成本 wrapper（只持借用引用），不进 `AssistantAgent` 字段
-- **StreamingChatAdapter（主对话 streaming + tool loop 统一抽象）**：`crates/ha-core/src/agent/streaming_adapter.rs` 定义 trait，`crates/ha-core/src/agent/streaming_loop.rs` 提供 `AssistantAgent::run_streaming_chat` 公共编排——compaction、cache snapshot、prepare_messages_for_api、tool 并发/串行 dispatch、emit_*、steer mailbox drain、reactive microcompact、max-rounds notice、final assistant 持久化全在这里。每个 Provider（Anthropic / OpenAI Chat / OpenAI Responses / Codex）只剩两个文件：`providers/{name}.rs`（~50 行 thin wrapper，构造 adapter 并调 `run_streaming_chat`）+ `providers/{name}_adapter.rs`（trait impl，含 body 构造 + SSE 解码 + provider-specific 历史形态）。`OpenAIResponses` 和 `Codex` 共享 `parse_openai_sse` free function。`reasoning_items: Vec<Value>` 在 `RoundOutcome` 跨 trait 边界 byte-perfect 传递，由 `append_reasoning_items` trait method 让 Responses/Codex 把 raw items（含 `encrypted_content`）写回历史，Anthropic / OpenAI Chat 默认空（thinking 走 inline）。`on_delta` 用 `&(dyn for<'s> Fn(&'s str) + Send + Sync)` HRTB 绕过 `async_trait` 的 method-borrowed lifetime；公共 loop 用 generic `&F` 保持 emit_* 零开销。Codex 内部的 5xx + 网络错误 retry 保留在 adapter `chat_round` 内部（瞬态错误就近重试），语义错误（RateLimit / Auth / Billing / Timeout）由 `execute_with_failover` executor 统一接管
-- **execute_with_failover executor（chat_engine + side_query + Tier 3 summarize 全路径接入）**：`crates/ha-core/src/failover/executor.rs` 提供泛型 `execute_with_failover<T, F: FnMut(Option<&AuthProfile>) -> Fut>(provider, session_id, policy, on_profile_rotation, op)` 把"profile 选择 + 调 op + 错误分类 + 决策"四步从 `chat_engine::engine` 内 hand-rolled loop 抽出来。`FailoverPolicy` 三档默认值：`chat_engine_default`（max_retries=2 + 轮换）/ `side_query_default`（max_retries=1 + 轮换，低频后台任务）/ `summarize_default`（max_retries=2 + **不**轮换，让上层快速降级到 side_query / emergency_compact）。`ExecutorError` 三种终态：`NeedsCompaction { last_profile }`（外层接住后做 emergency_compact + 把 last_profile 写回 `PROFILE_STICKY` 让 retry 命中同 key 不破坏 prompt cache）/ `Exhausted { last_reason, last_error }` / `NoProfileAvailable`。Codex defense-in-depth：即使 caller 传 `allow_profile_rotation: true`，`provider.api_type == Codex` 时强制 `false`。chat_engine 接入后内层 hand-rolled loop 完全消失，剩 outer compaction-retry loop + 单次 executor 调用 + ChatRoundOk 中转 struct。**Phase 3 Step 3-4**：`AssistantAgent` 通过 builder `with_failover_context(Arc<ProviderConfig>)` 注入 ProviderConfig（与已有 `session_id` 字段一起为 executor 提供 sticky/cooldown key），`side_query` 走 `side_query_default` policy，per-attempt 用 `build_llm_provider_with_profile` 重建临时 `LlmProvider` + `as_adapter().one_shot()`；`DedicatedModelProvider` 持 `Arc<ProviderConfig> + model_id + session_id` 走 `summarize_default` policy 包裹 `summarize_direct`。`build_compaction_provider(model_ref, providers, session_id)` 签名加 session_id 把 sticky/cooldown 范围绑定到当前会话。未注入 ProviderConfig 的旧构造路径（`new_anthropic` 测试 / `new_openai` Codex OAuth）走 fast path（单次直调，零 failover），保持 backward compatibility。当前所有 13 个 `new_from_provider*` 调用点均已链 `with_failover_context`（recap analysis / memory_extract / dreaming / skills auto_review / IM channel slash / sessions tool / cron / acp / subagent / chat_engine main + emergency_compact）
+### 分层 & 运行模式
+
+- **三 Crate 架构**：`ha-core`（核心业务逻辑，**零 Tauri 依赖**）/ `ha-server`（axum HTTP/WS 薄壳）/ `src-tauri`（Tauri 桌面薄壳）。业务逻辑全进 ha-core，其它两个只做适配
+- **三种运行模式**：`hope-agent`（桌面 GUI）/ `hope-agent server`（HTTP/WS 守护进程，含 install/uninstall/status/stop 子命令）/ `hope-agent acp`（stdio ACP 协议）
+- **前后端通信**：前端走 Transport 抽象层（`src/lib/transport.ts`），桌面走 Tauri IPC，server 走 HTTP + WS。**新 invoke 必须同时补齐两套适配**
+- **EventBus 事件总线**：`ha-core::EventBus` 替代原 Tauri `APP_HANDLE`，让核心逻辑脱离 Tauri 依赖；Tauri shell / axum server 各自订阅并转发到各自前端通道
+- **状态管理**：`ha-core::CoreState`（`tokio::sync::Mutex`），Tauri 走 `State<AppState>`，server 走 axum `Extension`；前端保持轻量 React state
+- **Guardian 心跳**：桌面 + server 共用 keepalive，保证后台任务（Channel 轮询、Cron 调度等）持续运行
+- **系统服务**：`server install` 在 macOS 注册 launchd plist（`~/Library/LaunchAgents/`），Linux 注册 systemd unit（`~/.config/systemd/user/`）
+- **API Key 鉴权**：`ha-server/middleware.rs`，支持 `Authorization: Bearer` 头和 `?token=` 查询参数（浏览器 WS 不支持自定义头）。`/api/health` 免鉴权，`api_key=None` 全放行
+- **内嵌服务器配置**：桌面内嵌 HTTP 的 bind + api_key 存 `config.json` 的 `server` 字段，修改后需重启
+
+### LLM 主对话
+
+- **Provider**：4 种（Anthropic / OpenAIChat / OpenAIResponses / Codex），集中在 `agent/` 模块
+- **Tool Loop**：请求 → 解析 tool_call → 执行 → 回传 → 继续，默认上限 20 轮（`max_tool_rounds=0` 无限）。末轮去 `tools` 字段强制文本收尾。`concurrent_safe` 标只读工具并发、写入工具串行
+- **温度三层覆盖**：会话 > Agent > 全局，`AssistantAgent.temperature` 在四 Provider 请求中统一注入（0.0–2.0，`None` = API 默认）
+- **Side Query（缓存侧查询）**：`side_query()` 复用主对话 system_prompt + history 前缀命中 prompt cache，Tier 3 摘要 / 记忆提取成本降 ~90%
+- **LlmApiAdapter / StreamingChatAdapter trait**：one-shot + streaming 两个抽象（`agent/llm_adapter.rs` + `agent/streaming_adapter.rs`）；各 Provider 实现 trait 避免重复，`streaming_loop.rs` 承担 compaction / cache snapshot / tool dispatch / steer / microcompact / event emit 公共编排。**新"会 spawn tool loop 的 chat 路径"走 `chat_engine::run_chat_engine`，不要绕过自包 `on_delta`**
+- **failover executor**：`failover/executor.rs::execute_with_failover` 统一承担 profile 选择 + 错误分类 + 决策。三档 policy：`chat_engine_default` / `side_query_default` / `summarize_default`。**Codex 强制不参与 profile 轮换**
 - **降级策略**：ContextOverflow 终止 → RateLimit/Overloaded/Timeout 指数退避重试 2 次 → Auth/Billing/ModelNotFound 跳下一模型
-- **Auth Profile 轮换 failover**：`ProviderConfig.auth_profiles: Vec<AuthProfile>` 支持同 Provider 多 API Key。Chat Engine 遇到 RateLimit/Overloaded/Auth/Billing 时先轮换同 Provider 下一个 profile，全部耗尽后再跳模型。每个 profile 持有独立 `api_key` + 可选 `base_url` 覆盖。纯内存 `ProfileCooldownTracker`（按错误类型 30s–600s 冷却）+ `ProfileStickyMap`（session 级亲和）。`AssistantAgent::new_from_provider_with_profile(config, model_id, profile)` 按 profile 构建 agent，现有 `new_from_provider` 委托到 `effective_profiles()[0]` 保持 15+ 调用点零改动。Codex (OAuth) 不参与 profile 轮换。前端 Provider 编辑面板 `AuthProfileEditor` 支持增删改多个 profile
-- **连续消息合并**：`push_user_message()` 自动合并连续 user 消息，兼容 Anthropic role 交替要求
-- **API-Round 消息分组**：Tool loop 中的 assistant + tool_result 消息通过 `_oc_round` 元数据标记为同一 round，压缩切割（Tier 3/4）对齐到 round 边界，确保 tool_use/tool_result 配对不被拆散。元数据在 API 调用前通过 `prepare_messages_for_api()` 剥离。无标记的旧会话退化为原行为
-- **后压缩文件恢复**：Tier 3 摘要后自动扫描被摘要消息中的 write/edit/apply_patch 工具调用，从磁盘读取最近编辑的文件当前内容（最多 5 文件 × 16KB），注入 summary 之后的对话历史，省去额外的 read tool call。预算：释放 token 的 10%，兜底 100K chars
-- **Cache-TTL 节流**：`compact.cacheTtlSecs`（默认 300 秒）控制 Tier 2+（裁剪/摘要）的冷却时间，TTL 内跳过 Tier 2+ 保护 API prompt cache（Anthropic/OpenAI/Google 均有 ~5 分钟缓存 TTL）。Tier 0/1 不受限。紧急阈值保护：usage ≥ 95% 时强制覆盖 TTL。`0` = 禁用
-- **反应式微压缩（Reactive Microcompact, Phase B5）**：tool loop round 末尾在 Tier 1 `truncate_tool_results` 之后调用 `AssistantAgent::reactive_microcompact_in_loop()`，当估算使用率 ≥ `compact.reactiveTriggerRatio`（默认 0.75，可 clamp 到 0.50–0.95）时调 Tier 0 `microcompact`，清理 `tool_policies = eager` 的旧工具结果（ls/grep/find/web_search/process/tool_search 等），避免多轮 tool call 之间 tool_result 积累触发 `emergency_compact`。Tier 0 cache-safe 不改消息顺序。关闭开关 `compact.reactiveMicrocompactEnabled = false` 可完全退出。新字段在 `get_settings("compact")` 同步暴露
-- **Persona 编辑模式（Personality Mode, Phase B2）**：`PersonalityConfig.mode: PersonaMode { Structured, SoulMd }`，默认 `Structured`（行为与旧版一致）。`SoulMd` 模式下 `system_prompt::build` 的结构化分支跳过 `build_personality_section`，改为注入 `~/.hope-agent/agents/{id}/soul.md` 内容 + 共享常量 `SOUL_EMBODIMENT_GUIDANCE`，并在身份行省略 `role_suffix` 避免与 markdown 自述身份双重声明。该 `soul.md` 物理文件与 `openclaw_mode` 兼容模式共用同一份——agent_loader 读取触发条件为 "`openclaw_mode` OR `personality.mode == SoulMd`"。前端 PersonalityTab 顶部提供 `Structured ↔ SOUL.md` segmented 切换；首次切到 SoulMd 且文件为空时调 `render_persona_to_soul_md` 命令 / `POST /api/agents/{id}/persona/render-soul-md` 由后端按结构化字段渲染 markdown 初稿。切回 Structured 不删 `soul.md`，两种模式可来回切换不丢数据
-- **ContextEngine 可插拔引擎**：`context_compact/engine.rs` 定义 `ContextEngine` trait（`compact_sync` / `emergency_compact` / `system_prompt_addition`），`AssistantAgent` 持有 `Arc<dyn ContextEngine>`。默认实现 `DefaultContextEngine` 委托现有 5 层函数，行为不变。`CompactionContext` 参数对象封装 system_prompt / context_window / max_output_tokens / config / cache-TTL 状态。4 个 Provider 通过 `apply_engine_prompt_addition()` 共享方法注入引擎的 system prompt 补丁。Tier 3 异步编排（摘要/flush/恢复）保留在 `agent/context.rs`，不进 trait
-- **CompactionProvider 可插拔摘要**：同文件定义 `CompactionProvider` async trait（`summarize` / `name`），让 Tier 3 摘要策略可插拔。`AssistantAgent` 持有 `Option<Arc<dyn CompactionProvider>>`，`summarize_with_model()` 优先尝试 dedicated provider，失败自动 fallback 到 side_query 路径。内置 `DedicatedModelProvider`（`agent/context.rs`）使用独立 provider:model 对调用 `summarize_direct()`。`summarization_model` 配置驱动 `DedicatedModelProvider` 在 agent 构造时注入（`chat_engine/context.rs` + `acp/agent.rs`）
-- **会话历史搜索**：侧边栏顶部搜索框调用 `search_sessions_cmd` → `SessionDB::search_messages`（FTS5 `messages_fts`，`snippet()` 带 `<mark>` 高亮；`SessionTypeFilter` 支持跨普通/子 Agent/定时/IM 渠道会话筛选）。搜索模式下 filter tabs 在客户端按会话类型二次筛选；结果卡片显示会话类型图标 + Agent 头像/名称 + 高亮 snippet + 相对时间。点击结果触发 `handleSwitchSession(sid, { targetMessageId })` → `load_session_messages_around_cmd` 加载以命中消息为中心的窗口（默认前 40 / 后 20 条）→ `pendingScrollTarget` 驱动 `MessageList` 按 `data-message-id` 滚动定位 + `message-hit-pulse` 脉冲高亮（2 秒）。Snippet 渲染走 HTML escape 再白名单反解 `<mark>` 标签防止 XSS。**会话内搜索（Find in Chat）**：聊天窗口 title bar 的 `Search` 图标 / `Cmd+F` / `Ctrl+F` 唤起非常驻 `SessionSearchBar`（`src/components/chat/SessionSearchBar.tsx`），调用 `search_session_messages_cmd`（HTTP: `GET /api/sessions/:id/messages/search`），后端复用同一个 `SessionDB::search_messages` 加 `session_id: Option<&str>` 过滤参数。结果按 `messageId` 升序重排以对应会话时间轴；`Enter` / `↓` 下一条、`Shift+Enter` / `↑` 上一条、`Escape` 关闭；跳转经 `useChatSession.jumpToMessage(messageId)` —— 目标已在已加载窗口内则直接设 `pendingScrollTarget`，否则 `handleSwitchSession(sid, { targetMessageId })` 重载窗口后再跳。切换会话自动关闭
-- **自动记忆提取**：默认开启，冷却 + 阈值双层触发——冷却时间 ≥ 5 分钟 AND（Token 累积 ≥ 8000 OR 消息条数 ≥ 10），inline 执行（非 tokio::spawn），支持 side_query 缓存共享降低成本。互斥保护：检测 save_memory/update_core_memory 工具调用时跳过自动提取。空闲超时兜底：阈值未满足时调度延迟任务（默认 30 分钟），会话空闲后从 DB 执行最终提取；新建会话时立即 flush 所有待提取会话。所有阈值均可在全局和 Agent 级配置
-- **Memory 注入联合预算（Memory Budget）**：system_prompt 中的 Memory section 按"**Guidelines > Agent memory.md > Global memory.md > SQLite**"优先级消费总字符预算，低优先级层自动让位。数据模型 `AppConfig.memory_budget: MemoryBudgetConfig { totalChars: 10_000, coreMemoryFileChars: 8_000, sqliteEntryMaxChars: 500, sqliteSections: SqliteSectionBudgets { userProfile: 1500, aboutUser: 2000, preferences: 2000, projectContext: 3000, references: 1500 } }`（旧 key `aboutYou` 仍可读，serde alias），Agent 级通过 `AgentConfig.memory.budget: Option<MemoryBudgetConfig>` 整包覆盖（`None` = 继承 global），`effective_memory_budget(agent, global)` 单入口解析。装配流程在 [`system_prompt::build_memory_section`](crates/ha-core/src/system_prompt/build.rs)：(1) 从 `totalChars` 预扣 `MEMORY_GUIDELINES.len()` 保证指南必然注入 (2) Agent `memory.md` 先写（Agent > Global 反转老顺序），`min(coreMemoryFileChars, remaining_total)` 截断 (3) Global `memory.md` 再写，同上 (4) SQLite summary 用剩余预算，`SqliteSectionBudgets::scaled_to(remaining)` 按原比例 15/20/20/30/15 缩放到 5 节独立子预算，`format_prompt_summary_v2` 渲染；节间预算不转移，一节未用完的额度不会被后续节吞掉 (5) Guidelines 常量落袋。SQLite 每条记忆首行走 `truncate_utf8(_, sqliteEntryMaxChars)` 硬截断。`recall_memory` / `memory_get` 工具仍返回完整原文，**预算仅约束 system prompt 注入路径**。`oc-settings` 技能 `memory_budget` 分类（MEDIUM 风险）暴露全字段 partial update，UI 设置 → 记忆 → Memory Budget 为全局默认 + Agent 编辑页同名块带 "Inherit global default" 开关
-- **Dreaming 离线记忆固化（Phase B3 Light）**：`crates/ha-core/src/memory/dreaming/` 在应用空闲 / cron / 手动触发时跑 bounded side_query，把过去 N 天（`dreaming.scopeDays`，默认 1）非 pinned 候选交给 LLM 评估返回 `promotions{id,score,title,rationale}` + 自然语言 diary 段落；`min_score=0.75` + `max_promote=5` 两道过滤后对入选条目 `toggle_pin=true`，diary markdown 落到 `~/.hope-agent/memory/dreams/{YYYY-MM-DD_HHMMSS}.md`。**三触发**：idle（Guardian 风格的 60s ticker + `reset_chat_flags` 打 `touch_activity`，`idleMinutes=30` 默认）+ cron（默认 opt-out，走用户级 cron job 调 `POST /api/dreaming/run` 实现，避免引入 crontab 解析依赖）+ manual（Dashboard "Dream Diary" Tab 按钮 / Tauri `dreaming_run_now` / HTTP `POST /api/dreaming/run`）。并发保护：`DREAMING_RUNNING: AtomicBool` + `RunningGuard` RAII，重叠触发返回 `already_running`。narrative agent 默认复用 `recap::build_analysis_agent`，`narrativeModel="providerId:modelId"` 可指定独立摘要模型。EventBus 事件 `dreaming:cycle_complete` 驱动前端实时刷新。全局配置 `AppConfig.dreaming: DreamingConfig`，Dashboard `dreaming` Tab 提供日记列表 + markdown 渲染 + Run now 按钮 + last cycle 摘要
-- **Active Memory 主动召回（Phase B1）**：每轮 user turn 开始时、compaction 之后、save_cache_safe_params 之前调用 `AssistantAgent::refresh_active_memory_suffix(user_text).await`。流程：(1) 读 `AgentConfig.memory.active_memory`（默认 enabled=true / timeout=3000ms / maxChars=220 / cacheTtlSecs=15 / budgetTokens=512 / candidateLimit=20）(2) 哈希 trim+lower 的 user_text，命中 15s TTL 缓存直接复用，未命中继续 (3) `spawn_blocking` 调 `MemoryBackend::search` 按 Project → Agent → Global scope 顺序取 top N 候选（无候选立即 cache 空值返回）(4) 构造 recall prompt 跑 `tokio::time::timeout(side_query)`，超时/失败/LLM 返回 "NONE" 均 cache 空值 (5) 非空结果格式化为 `## Active Memory\n\n{text}` 存 `active_memory_suffix: Mutex<Option<Arc<String>>>`。Provider 层：Anthropic 作为第三个独立 `cache_control` 系统块；OpenAI Chat 第三个 system 消息；OpenAI Responses / Codex 紧跟 awareness_suffix 之后插入 input[] system 项。与 `awareness_suffix` 并列为"独立 cache block"，suffix 变化不作废静态前缀缓存。模块 [`crates/ha-core/src/agent/active_memory.rs`](crates/ha-core/src/agent/active_memory.rs) 提供 `ActiveMemoryState`（LRU + TTL cache）/ `hash_user_text` / `scopes_for_session` / `shortlist_candidates` / `build_recall_prompt` / `format_suffix`。前端 MemoryTab 顶部新增 Active Memory 卡片（switch + timeout/cacheTtl/maxChars/candidateLimit 4 个数字输入）。配置属 Agent 级 (`agent.json`)，不进 `oc-settings` 技能（agent 级设置由 agent 管理 UI 覆盖）
-- **LLM 记忆语义选择**：当候选记忆数 > 阈值（默认 8）时，通过 side_query 调用 LLM 从候选列表中选择最相关的 ≤5 条注入系统提示。选择在 compaction 后、cache 快照前执行，确保精简后的系统提示被缓存。opt-in 配置（`memorySelection.enabled`），失败时退化为全量注入
-- **反省式记忆 COMBINED_EXTRACT_PROMPT（Phase B'2）**：`memory_extract` 的单次 side_query 同时返回 facts + profile 两个数组（`parse_extraction_response` 优先识别 combined 对象、回退 legacy 纯数组）。profile 项强制 `tags` 含 `"profile"`、`source="auto-reflect"`。`format_prompt_summary` 用 `render_section` helper 在 `About the User` / `Preferences & Feedback` 之前渲染独立的 `## User Profile` 段（标题不用 "About You"，因为在 LLM system prompt 里 "You" 默认指 assistant，会与"用户画像"语义打架；旧 budget key `aboutYou` 仍兼容），把反省学到的沟通风格 / 工作习惯从事实目录里分离（不新增物理文件）。`MemoryExtractConfig.enable_reflection` / `MemoryConfig.enable_reflection`（Agent 级覆盖）默认 true；关闭回退 legacy facts-only prompt
-- **召回 LLM 摘要（Phase B'3）**：`memory::recall_summary` 提供 opt-in 的 `maybe_summarize_recall`——命中数 ≥ `min_hits`（默认 3）时走一次 bounded side_query 把多条 snippet 压成 ≤400 字符的洞察段落；timeout / 失败 / 模型回 NONE 均静默降级到原始 snippet。走 `recap::build_analysis_agent` 选择分析模型（无 prompt cache 共享），hot 路径结果覆盖为 `## Summary of N hits\n\n...`。`AppConfig.recall_summary: RecallSummaryConfig`（默认 `enabled=false`）
-- **自主 Skill 创建 + Draft 审核（Phase B'1）**：`skills::author` 模块提供 create/update/patch_fuzzy/set_status/delete 五个 CRUD 接口，模糊匹配走 Jaccard 词袋分段相似度（默认阈值 0.80），容忍 LLM 轻度漂移。`security_scan` 拦截三类：shell pipe 到 sh/bash、不可见 Unicode（`U+200B..200F` / `U+2060..206F` / `U+FEFF` / tag chars）、凭证特征（`sk-ant-` 90+ / `sk-proj-` 40+ / `AKIA` 16 / `ghp_` / `ghs_` 36+）。SKILL.md frontmatter 新增 `status: "active"|"draft"|"archived"` + `authored-by` + `rationale` 字段（缺省视为 active 保持兼容），`build_skills_prompt` / `get_invocable_skills` 面向模型的路径跳过非 Active 项。`skills::auto_review` 子模块串联 per-session `Mutex<HashMap<SessionId, AtomicBool>>` guard + 触发器（冷却 600s + Token 10000 / 消息 15 条双阈值）+ side_query（走 `recap::build_analysis_agent` 回退，不阻塞主对话）+ JSON 解析路由 create/patch/skip。`chat_engine::engine` 在 `run_memory_extraction_inline` 之后挂钩 `touch_turn_stats` + spawn `run_review_cycle(PostTurn)`。`AppConfig.skills.auto_review: SkillsAutoReviewConfig` 默认 enabled + promotion=draft。前端 `SkillListView` 顶部 `DraftReviewSection` 琥珀色卡片提供 Activate/Discard 按钮，订阅 EventBus `skills:auto_review_complete` 自动刷新。Tauri/HTTP 命令 `list_draft_skills` / `activate_draft_skill` / `discard_draft_skill` / `trigger_skill_review_now`
-- **Learning Tracker Dashboard（Phase B'4）**：`session.db.learning_events` 表 + 索引，`SessionDB::record_learning_event` / `prune_learning_events` helper。`dashboard::learning` 暴露 `emit` + `query_learning_overview` / `query_skill_timeline` / `query_top_skills` / `query_recall_stats`，覆盖 7 类事件（skill_created/patched/activated/discarded/used + recall_hit/recall_summary_used）。`MemoryBackend::count_profile_memories` 按 `tags LIKE '%"profile"%' AND created_at >= cutoff` 高效计数反省式记忆。埋点点：`skills::author` 各 CRUD 方法、`tools::memory::tool_recall_memory` 非空命中和 summarize 分支。Dashboard 新增 "Learning" Tab（概览 + 时间线 + Top N + 召回效果），支持 7/14/30/60/90 天窗口切换
-- **跨会话行为感知（Behavior Awareness）**：`crates/ha-core/src/awareness/` 为每个会话挂 `SessionAwareness`，在每轮 user turn 开始前通过三层触发器（脏位 / 时间节流 / 语义 hint）决定是否重建一段 "其它会话此刻在做什么" 的 markdown suffix。默认 `structured` 模式零 LLM 成本（读 `recap.session_facets` + `sessions` + `messages` + 内存 `ActiveSessionRegistry`），opt-in 切到 `llm_digest` 模式走 `AssistantAgent::side_query` 生成自然语言 digest（bounded 5 秒、5 分钟节流、候选集合 hash 跳过、失败 fallback 到结构化路径）。**两段 cache 模型**：provider 把 suffix 作为第二个独立 `cache_control` 系统块（Anthropic）或在 instructions 末尾追加（OpenAI/Codex），suffix 变化不作废静态前缀缓存；内容未变时通过 `last_suffix_hash` 比对复用旧 `Arc<String>`。全局配置在 `AppConfig.awareness`（设置 → 对话设置面板），会话级覆盖存 `sessions.awareness_config_json` 列（partial merge 到全局默认），全局 `enabled=false` 是硬闸。默认只纳入普通会话，cron/channel/subagent 默认排除，UI 正向勾选纳入。Compaction Tier 2+ 后 `mark_force_refresh()` 搭便车刷新。新增 deferred 工具 `peek_sessions(query?, limit?)`、斜杠命令 `/awareness [on|off|mode <x>|status]`、Tauri/HTTP 命令 `get|save_awareness_config` + `get|set_session_awareness_override`
-- **统一日志**：前后端日志统一写入 `logging.rs`（SQLite + 纯文本双写），API 请求体自动脱敏（`redact_sensitive`）并截断（32KB）
-- **内置技能（Bundled Skills）**：项目根目录 `skills/` 存放随应用发行的内置技能，`discovery.rs` 的 `resolve_bundled_skills_dir()` 按优先级定位：(1) `HOPE_AGENT_BUNDLED_SKILLS_DIR` 环境变量 (2) 可执行文件同级/上级 `skills/` 目录（release 打包）(3) `CARGO_MANIFEST_DIR` 向上两级的 `skills/`（dev 构建）。内置技能优先级最低（bundled < extra < managed < project），同名技能被高优先级来源覆盖。首个内置技能：`skill-creator`（技能创建/编辑/改进工具，含 agents/references/scripts/eval-viewer 子目录）
-- **Skill 工具隔离**：SKILL.md frontmatter 支持 `allowed-tools:` 字段，激活时只保留指定工具 schema。空列表 = 全部工具（向后兼容）。Agent 通过 `skill_allowed_tools` 字段在 Provider 层过滤
-- **Plan 执行层权限强制**：`ToolExecContext.plan_mode_allowed_tools` 在执行层白名单检查，与 schema 级过滤形成双重防护（defense-in-depth）
-- **`skill` 工具（Skill 激活主入口）**：内置 `skill({name, args?})` 取代"模型 `read SKILL.md`"的老路径（read 仍可用于查看原文，不做硬拦截）。执行层 [`tools/skill/`](crates/ha-core/src/tools/skill/) 统一分发 inline / fork；inline 读 SKILL.md + `$ARGUMENTS` 替换后作为 tool_result 返回；fork 复用 [`skills::spawn_skill_fork`](crates/ha-core/src/skills/fork_helper.rs) + `extract_fork_result`，子 Agent 完成后只把最终摘要字符串塞回主对话 tool_result。`SpawnParams { skip_parent_injection: true, skill_name: Some(...), reasoning_effort: Option<String> }` 保证主对话不被子 Agent transcript 污染。工具标记 `internal + always_load`，在 deferred tool 场景也恒定可见。`/skill-name` 斜杠命令路径改走同一 helper（[`slash_commands/handlers/mod.rs`](crates/ha-core/src/slash_commands/handlers/mod.rs#L240)）避免漂移。System prompt catalog 从 `- name: desc (read: path)` 简化为 `- name: desc`
-- **斜杠 Skill 内联路径**：`/skillname args` 的 inline 分支（无 `context: fork`、无 `command-prompt-template`）调 [`tools::skill::inline::execute`](crates/ha-core/src/tools/skill/inline.rs) 读 SKILL.md 全文 + `$ARGUMENTS` 替换，包进 `[SYSTEM: The user has invoked '<name>' skill ... full skill is already loaded]` 头部 + `---` 分隔线的 `PassThrough` 消息。老版本发 `"Read the skill file at /path/SKILL.md"`——开启 deferred tools 时 `read` 不在初始 schema，LLM 会先 `tool_search` 绕一圈；内联后零中转。前端 `handleSend(expandedMessage, { displayText: "/skillname args" })` 发送，`displayText` 通过 `chat` 命令新增的 `display_text` 参数落到 `messages.content`，DB 持久化与 UI 显示均为原始 `/skillname args`，LLM 侧 conversation_history 仍走 `message` 字段保全展开 prompt。**已知 gap**：斜杠内联路径当前没应用 `allowed-tools` 过滤（`skill` 工具路径通过 `ToolExecContext.skill_allowed_tools` 生效），也没跑 `check_requirements` 和 Learning Tracker 埋点——后续可统一迁到 `ChatEngineParams.extra_system_context` + `skill_allowed_tools` 一并解决
-- **Skill Fork 模式**：SKILL.md frontmatter `context: fork` 在"模型调 `skill` 工具"和"用户 `/skill-name`"两条路径都生效（老版本只在斜杠路径生效）。子 Agent 继承 `allowed_tools`。`context: fork` skill 可额外声明 `agent: <agent-id>` 指定使用的 Agent 身份（失败 fallback 到 parent agent + warn 日志），以及 `effort: low|medium|high|xhigh|none` 指定 reasoning / thinking 强度——`SpawnParams.reasoning_effort` 透传到 `AssistantAgent::chat` 第三参数，4 个 provider 现有 effort 消费路径零改动
-- **Skill `paths:` 条件激活**：SKILL.md frontmatter `paths: ["*.py", "docs/**"]` (gitignore-style) 让 Skill 默认**不进 catalog**，直到本会话 read/write/edit/ls/apply_patch 触发匹配文件才动态加入。[`skills::activation`](crates/ha-core/src/skills/activation.rs) 维护进程内缓存（按 session_id）+ SQLite 表 `session_skill_activation(session_id, skill_name, activated_at)` 启动时懒加载 + session 删除时级联清理。`tools/execution.rs::maybe_activate_conditional_skills` 在 dispatch 前扫描路径感知工具 args，命中后 `bump_skill_version()` 刷下一轮 prompt。`build_skills_prompt` 新增 `activated_conditional: &HashSet<String>` 参数，系统提示词装配链 `build_skills_section(... session_id)` → `build(... session_id)` → `build_system_prompt_with_session` 全链路透传。kill switch `AppConfig.conditional_skills_enabled: bool`（默认 true）
-- **Skill 进度 UI**：`SubagentEvent` + `SpawnParams` 新增 `skill_name: Option<String>` 可辨别字段（仅 skill fork 路径 emit），`#[serde(default, skip_serializing_if)]` 零新通道 / 零老事件膨胀。前端 [`src/components/chat/SkillProgressBlock.tsx`](src/components/chat/SkillProgressBlock.tsx) 琥珀色 🧩 Puzzle 图标独立渲染，通过 `tool.name === "skill"` 挂到 [`MessageContent.tsx`](src/components/chat/message/MessageContent.tsx)。fork 模式检测走 tool_result 前缀（`Skill 'name' completed.`）
-- **子 Agent spawn_and_wait**：`subagent(action="spawn_and_wait")` 前台等待 `foreground_timeout`（默认 30s），超时自动转后台。短任务同步返回，长任务无缝衔接后台注入
-- **Agent Team 模板（用户预配 + 模型按需发现）**：内置模板已删除，改为"用户在设置面板 Teams Tab 预配 → 模型通过 `team(action="list_templates")` 按需发现 → 用 `team(action="create", template="<templateId>")` 一键实例化"。`TeamTemplateMember` 支持每成员不同 `agent_id`（绑定具体 Agent）、`model_override`、`default_task_template`、`description`（作为 role identity 注入子 session system prompt 的 `### Your Role Identity` 段）。模板存 `team_templates` 表（`members_json` 单列），`team_members.role_description` 列存模板的角色描述以便 resume 时重建 context 不依赖模板仍存在。系统提示词 `build_team_section()` 精简为"调 list_templates 发现预设"的简介，不再硬编码模板名。CRUD 三条通道：GUI（`TeamsPanel`）、Tauri 命令 `save_team_template` / `delete_team_template`、oc-settings 技能 `update_settings(category="teams", values={action:"save"|"delete", ...})`（**不走 `AppConfig` 流程，直接 DB CRUD + EventBus `template_saved` / `template_deleted`**）。删除模板只影响未来 `list_templates` 返回结果，已从该模板创建的运行中 team 不受影响（`teams.template_id` 悬空保留）
-- **延迟工具加载**：opt-in 配置（`deferredTools.enabled`），开启后只发送核心工具 schema（exec/read/write/edit 等 ~10 个），其余通过 `tool_search` 元工具按需发现。execution dispatch 不变，直接调用 deferred 工具仍正常执行（容错）
-- **通用 `ask_user_question` 工具**：任意对话中让模型向用户提出 1–4 个结构化问题（单选/多选/自定义输入）。每个选项支持 `preview`（markdown / image URL / mermaid 三种 `previewKind`）用于方案并排对比；每题支持 `header` chip 标签、`timeout_secs` 单题超时和 `default_values` 默认值，到点自动回退答案。Pending 组持久化到 session SQLite `ask_user_questions` 表（`request_id / session_id / payload / status / timeout_at`），App 重启后 `start_background_tasks` 重放未完成的 `ask_user_request` 事件实现断点续答。IM 渠道通过 `channel/worker/ask_user.rs` 监听事件，按 `ChannelCapabilities.supports_buttons` 发送原生按钮（每题一行 option + `Done` 按钮 + `Cancel`）或文本 fallback（回复 `1a` / `2b` / `done` / `cancel`）。各渠道插件调用统一 helper `channel::worker::ask_user::try_dispatch_interactive_callback(data, source)` 同时路由 approval 和 ask_user 两类回调。前端 `AskUserQuestionBlock`（`src/components/chat/ask-user/`）复用 Streamdown（仅 `code` + `cjk` 基础插件，不走 MarkdownRenderer 的流式/rAF 包装层）做轻量 preview 渲染，支持倒计时、header chip、default badge
-- **`/recap` 深度复盘**：`crates/ha-core/src/recap/` 模块基于 `side_query` 对每个 session 做 LLM 语义 facet 提取（目标/成果/摩擦/满意度），结合 Dashboard 量化查询生成 11 个并行 AI 章节（含 `agent_tool_optimization` / `memory_skill_recommendations` / `cost_optimization` 三个 Hope Agent 特有章节）。Facet + 完整报告缓存到独立 `~/.hope-agent/recap/recap.db`（按 `last_message_ts` 失效），避免与热路径 session DB 锁争用。触发方式三选一：Dashboard "Recap" Tab（`src/components/dashboard/recap/RecapTab.tsx`）、聊天 `/recap`（Incremental 默认，`--range=7d` / `--full` 切换）、Tauri `recap_export_html` / HTTP `POST /api/recap/reports/{id}/export` 导出独立 HTML（inline SVG 图表，零 JS 依赖，self-contained）。Analysis agent 通过 `config.recap.analysisAgent` 与主对话 Agent 解耦，未配置时回退 `active_model`；`recap.facetConcurrency` 限流 `side_query` 并发（默认 4）避免 rate limit。EventBus `recap_progress` 事件实时推送 `started/extractingFacets/aggregatingDashboard/generatingSections/persisting/done/failed` 阶段。已知限制：cron 定时自动生成和 `hope-agent recap --export` CLI 子命令尚未接入
-- **项目（Project）容器**：可选的会话分组，承载项目记忆（`MemoryScope::Project { id }`）、项目指令、共享文件。Session 通过 `sessions.project_id` 挂到项目下，NULL 表示未分配（保持 pre-project 行为）。数据模型 `projects` / `project_files` 两张表落在 `session.db`，`ProjectDB` 复用 `SessionDB` 的连接（参考 `ChannelDB` 模式）。项目文件存储在 `~/.hope-agent/projects/{id}/files/`，通过 `file_extract::extract` 提取的文本写入同目录 `extracted/`，三层注入 system prompt：Layer 1 目录清单永远注入，Layer 2 小文件（<4KB）在 8KB 字节预算内自动内联，Layer 3 新工具 `project_read_file(file_id|name, offset?, limit?)` 按需读取并强制只能访问 `project_extracted_dir`。记忆注入优先级 Project → Agent → Global（`load_prompt_candidates_with_project`），budget 裁剪时项目记忆最先保留；自动记忆提取在 session 属于某个项目时默认写到 Project scope。删除项目的级联顺序：unassign 会话（保留历史）→ 删项目行 + `project_files`（FK 级联）→ `rm -rf projects/{id}/` → 删项目记忆（跨 `memory.db` 单独执行，失败只留不可达孤儿）。上传走 `spawn_blocking` 避免阻塞 runtime，20 MB 大小上限，沿用 `save_attachment` 的 JSON bytes 数组而非引入 multipart。前端侧边栏 `ProjectSection`（位于 `AgentSection` 上方）+ `ProjectOverviewDialog`（四 Tab：Overview / Sessions / Files / Instructions），EventBus 事件 `project:created` / `project:updated` / `project:deleted` / `project:file_uploaded` / `project:file_deleted` 驱动跨窗口实时刷新
+- **Auth Profile 轮换**：`ProviderConfig.auth_profiles` 同 Provider 多 API Key，失败先轮换同 Provider profile 再跳模型；纯内存 cooldown + session 级 sticky。Codex OAuth 不参与
+- **连续消息合并**：`push_user_message()` 合并连续 user 消息兼容 Anthropic role 交替
+
+### Chat Engine & Streaming
+
+- **聊天流双写 + seq 去重（重载恢复）**：每个 stream delta 同时发 per-call `EventSink`（主路径）和 EventBus `chat:stream_delta`（带 `{sessionId, seq}`，重载保险）。主路径 + Bus 路径共享 `lastSeqRef` cursor 去重，Channel 死时 Bus 路径接管。IM 渠道独立 `ChannelStreamSink` 走 `channel:stream_delta` 不与主 chat 混淆
+- **API-Round 消息分组**：tool loop 中 assistant + tool_result 通过 `_oc_round` 元数据分组，压缩切割（Tier 3/4）对齐 round 边界避免拆散 tool_use/tool_result 配对；API 调用前 `prepare_messages_for_api()` 剥离元数据
+
+### 上下文压缩
+
+- **5 层渐进式 + ContextEngine trait**：`context_compact/` 可插拔引擎，默认 `DefaultContextEngine` 行为不变
+- **CompactionProvider trait**：Tier 3 摘要策略可插拔，`summarization_model` 配置驱动 `DedicatedModelProvider`
+- **Cache-TTL 节流**：`compact.cacheTtlSecs`（默认 300s）Tier 2+ 冷却保护 API prompt cache；usage ≥ 95% 强制覆盖，`0` 禁用
+- **反应式微压缩**：tool loop 每轮末尾使用率 ≥ `reactiveTriggerRatio`（默认 0.75）触发 Tier 0 清 `tool_policies=eager` 旧工具结果，cache-safe 不改消息顺序
+- **后压缩文件恢复**：Tier 3 摘要后扫描 write/edit/apply_patch 自动注入最近文件当前内容（最多 5 × 16KB），省额外 read
+
+### Memory
+
+- **自动提取**：冷却 ≥ 5 min AND（Token ≥ 8000 OR 消息 ≥ 10），inline 执行共享 side_query cache；检测到 save_memory/update_core_memory 跳过互斥；空闲超时（默认 30 min）兜底 flush
+- **Memory Budget**：system_prompt Memory section 按 `Guidelines > Agent memory.md > Global memory.md > SQLite` 优先级消费总字符预算，`effective_memory_budget(agent, global)` 单入口解析。**`recall_memory` / `memory_get` 工具返回完整原文，预算仅约束 system prompt 注入路径**
+- **Active Memory 主动召回**：每轮 user turn 前调 `refresh_active_memory_suffix(user_text)`，带 15s TTL 缓存，按 Project → Agent → Global scope 取候选 + bounded side_query 生成 `## Active Memory` suffix。作为独立 cache block 注入不作废静态前缀缓存
+- **反省式记忆（COMBINED_EXTRACT_PROMPT）**：`memory_extract` 单次 side_query 同时返回 facts + profile；profile 渲染为独立 `## User Profile` 段（不用 "About You"——"You" 在 LLM system prompt 里默认指 assistant）
+- **LLM 语义选择**：候选 > 阈值（默认 8）时 side_query 选最相关 ≤5 条，opt-in `memorySelection.enabled`
+- **召回摘要**：命中 ≥ `min_hits`（默认 3）时 bounded side_query 压成 ≤400 字符洞察段落，opt-in
+- **Dreaming 离线固化**：idle / cron / manual 三触发 bounded side_query 把候选交 LLM 评估，打分高的 pin，diary markdown 落 `~/.hope-agent/memory/dreams/`；`DREAMING_RUNNING` AtomicBool + RAII 保证并发
+
+### 工具 & 审批
+
+- **Agent 工具过滤**：`AgentConfig.capabilities.tools` 在 system_prompt / tool_schemas / tool_search / 执行层统一生效。internal 系统工具始终保留，`denied_tools` / skill allowlist / Plan Mode 继续收紧
+- **工具结果磁盘持久化**：超过阈值（默认 50KB，`toolResultDiskThreshold`）写 `~/.hope-agent/tool_results/{session_id}/`，上下文仅留 head+tail 预览 + 路径引用
+- **审批等待超时**：`approvalTimeoutSecs`（默认 300s，`0` 不限时）；超时动作由 `approvalTimeoutAction` 控制（`deny` / `proceed`）
+- **Dangerous Mode / YOLO**：进程级跳过所有工具审批。CLI flag `--dangerously-skip-all-approvals`（进程内不持久化）和 `AppConfig.dangerous_skip_all_approvals`（config.json 持久化）OR 组合。判定入口 `security::dangerous::is_dangerous_skip_active()`，跳过会落 `app_warn!` 审计。**与 Plan Mode 正交**（Plan Mode 限制工具/路径，YOLO 只跳审批）
+- **工具调用前说明**：`AppConfig.tool_call_narration_enabled`（默认 `false`）开启后注入 `TOOL_CALL_NARRATION_GUIDANCE`
+- **异步 Tool 执行**：`exec` / `web_search` / `image_generate` 标 `async_capable=true`。三道决策：模型显式 `run_in_background` / Agent `async_tool_policy` / 同步预算超时自动后台化。结果落独立 `async_jobs.db` + spool 到 `~/.hope-agent/async_jobs/`，完成后经 `subagent::injection` 注入主对话。`job_status` deferred 工具主动 poll/wait，用 per-job `tokio::sync::Notify` + DB 重读关闭 race；重启回放残留 running → interrupted
+- **SSRF 统一策略**：出站 HTTP **必须**走 `security::ssrf::check_url(url, policy, &trusted_hosts)`，redirect 用 `check_host_blocking_sync`。三档 policy：`Strict` / `Default` / `AllowPrivate`，metadata IP 任何 policy 都拒；`trustedHosts` 优先于 policy。**新出站入口严禁自写 IP 校验**。LLM Provider 出站当前不走此检查（`allow_private_network` 仅落字段）
+- **会话列表 pending-interaction 指示器**：`SessionMeta.pendingInteractionCount` 合并工具审批 + ask_user 两类。前端按 `!isActive && !channelInfo && pendingInteractionCount > 0` 叠加视觉提示；后端相关路径调 `emit_pending_interactions_changed()` 让前端 300ms 防抖刷新
+
+### Skill 系统
+
+- **Bundled Skills**：`skills/` 随应用发行，`discovery.rs::resolve_bundled_skills_dir()` 按"环境变量 → exe 同级/上级 → CARGO_MANIFEST_DIR"优先级定位。优先级 bundled < extra < managed < project
+- **`skill` 工具（激活主入口）**：`skill({name, args?})` 取代"模型 read SKILL.md"老路径；inline / fork 两种分发路径复用同一 helper。工具标 `internal + always_load` 保证 deferred tool 场景恒可见
+- **斜杠 Skill 内联**：`/skillname args` 内联模式包进 `[SYSTEM: ...]` 消息 + `---` 分隔线；`chat` 命令 `display_text` 让 DB / UI 显示原始斜杠、LLM history 存展开 prompt。**已知 gap**：斜杠内联当前未应用 `allowed-tools` 过滤和 `check_requirements`
+- **Skill Fork**：SKILL.md `context: fork` 在 tool 调和斜杠两条路径都生效；`agent:` 指定身份（失败 fallback + warn），`effort:` 透传 `SpawnParams.reasoning_effort`
+- **Skill 工具隔离**：SKILL.md `allowed-tools:` 激活时只保留白名单 schema，空列表 = 全部
+- **Skill `paths:` 条件激活**：`paths:` 的 Skill 默认不进 catalog，命中路径感知工具时 `bump_skill_version()` 刷下一轮 prompt；kill switch `AppConfig.conditional_skills_enabled`
+- **Skill Draft 审核**：`skills::author` 提供 CRUD + Jaccard 0.80 模糊 patch；`security_scan` 拦截 shell pipe / 不可见 Unicode / 凭证特征。SKILL.md `status: active|draft|archived`，面向模型路径跳过非 Active；`auto_review` 默认 promotion=draft 等用户确认
+- **Plan 执行层权限强制**：`ToolExecContext.plan_mode_allowed_tools` 执行层白名单检查，与 schema 级过滤 defense-in-depth
+
+### Subagent / Team / 定时任务
+
+- **spawn_and_wait**：`subagent(action="spawn_and_wait")` 前台等待 `foreground_timeout`（默认 30s），超时自动转后台
+- **Agent Team 模板**：GUI 预配 + 模型按需发现（`team(action="list_templates" / "create")`）。`TeamTemplateMember.description` 注入子 session 的 `### Your Role Identity` 段；删除模板不影响已实例化运行中 team（`teams.template_id` 悬空保留）
+- **定时任务 delivery_targets**：`CronJob.delivery_targets` 把 final assistant text fan-out 到 IM 会话，每 target 10s 超时保护。IM 会话内隐式推断：未显式传时自动取当前 IM 会话；显式 `[]` 关闭发送
+
+### IM Channel
+
+- **架构**：`channel/` 下 12 个插件，状态文件统一落 `~/.hope-agent/channels/`。入站媒体管道：plug 下载 → worker 转 `Attachment` → 归档到 `~/.hope-agent/attachments/{session_id}/` → `agent.chat()` 多模态
+- **工具审批交互**：`channel/worker/approval.rs` 监听 EventBus `approval_required`，按 `ChannelCapabilities.supports_buttons` 发原生按钮或文本 fallback；`ChannelAccountConfig.auto_approve_tools=true` 跳审批门控
+
+### Dashboard / Recap / Learning
+
+- **Insights**：`dashboard/insights.rs`——overview delta / cost trend / activity heatmap / hourly / top sessions / model efficiency / health score + orchestrator `query_insights`
+- **Learning Tracker**：`session.db.learning_events` 表 + `dashboard::learning` 查询。埋点：`skills::author` CRUD + `tool_recall_memory` 命中；Dashboard Learning Tab 支持 7/14/30/60/90 天窗口
+- **/recap 深度复盘**：`recap/` 模块 side_query 提取 facet + 11 个并行 AI 章节。独立 `~/.hope-agent/recap/recap.db` 缓存按 `last_message_ts` 失效；`recap.analysisAgent` 与主对话 Agent 解耦，`facetConcurrency` 限流
+
+### 跨会话 / 全局
+
+- **数据存储**：所有数据在 `~/.hope-agent/`，`paths.rs` 集中管理
+- **统一日志**：前后端都进 `logging.rs`（SQLite + 文本双写），API 请求体 `redact_sensitive` 脱敏 + 32KB 截断
+- **跨会话行为感知**：每会话 `SessionAwareness` 在 user turn 前按"脏位 / 时间节流 / 语义 hint"决定是否重建"其它会话在做什么" markdown suffix。默认 `structured`（零 LLM 成本），opt-in `llm_digest`（bounded 5s + 5min 节流）。作为独立 cache block 注入不作废静态前缀缓存
+- **会话搜索**：侧边栏 FTS5 `messages_fts` + `<mark>` snippet 高亮 + `SessionTypeFilter` 跨会话类型筛选。结果命中 `load_session_messages_around_cmd` 加载窗口（40/20）+ 滚动定位 + pulse 高亮。**XSS 防御**：HTML escape → 白名单反解 `<mark>`。Find in Chat（`Cmd+F`）复用同一 `SessionDB::search_messages` + session_id 过滤
+- **ask_user_question 工具**：1–4 题结构化问答（单选/多选/输入），选项支持 markdown/image/mermaid preview；pending 组持久化到 session SQLite，App 重启 replay 断点续答；IM 渠道按 `supports_buttons` 走按钮或文本
+- **延迟工具加载**：opt-in `deferredTools.enabled`，只发核心 ~10 个 schema，其余通过 `tool_search` 元工具按需发现；execution dispatch 不变
+- **Persona SoulMd 模式**：`PersonalityConfig.mode: Structured | SoulMd`。SoulMd 跳过结构化 personality section，注入 `~/.hope-agent/agents/{id}/soul.md` + `SOUL_EMBODIMENT_GUIDANCE`，身份行省略 `role_suffix` 避免与 markdown 自述身份双重声明
+- **SearXNG Docker 代理**：`web_search.searxng_docker_use_proxy` 控制是否向容器 `settings.yml` 注入 proxies 和环境变量，下次启动生效
+
+### 项目（Project）容器
+
+- **三层 system prompt 注入**：目录清单永远注入 → 小文件（<4KB）8KB 预算内内联 → `project_read_file` 工具按需（强制 `project_extracted_dir` 内）
+- **记忆优先级**：Project > Agent > Global，budget 裁剪时项目记忆最先保留；session 属项目时自动记忆提取默认写 Project scope
+- **删除级联顺序**：unassign 会话 → 删项目行 + `project_files`（FK）→ `rm -rf projects/{id}/` → 删项目记忆（跨 `memory.db` 单独执行，失败留不可达孤儿）
 
 ## 编码规范
 
@@ -360,40 +221,31 @@ src-tauri/src/          Tauri 薄壳（命令层 + 桌面集成）
 
 ## 设置（Settings）约定
 
-所有用户可操作的配置必须同时具备 **GUI 入口** 和 **`oc-settings` 技能对应能力**，两者零偏差。新增/修改任何进入 `AppConfig` 或 `UserConfig` 且用户需要调整的字段时，**必须在同一 PR 里完成以下三件事**：
+所有用户可操作的配置必须同时具备 **GUI 入口** 和 **`oc-settings` 技能对应能力**，两者零偏差。新增/修改进入 `AppConfig` / `UserConfig` 且用户需要调整的字段时，**同一 PR 内三件事缺一不可**：
 
-1. **前端 GUI**：在 [`src/components/settings/`](src/components/settings/) 对应面板加入控件（shadcn/ui 组件），带即时反馈和三态保存按钮
-2. **Settings 技能能力**：
-   - 在 [`crates/ha-core/src/tools/settings.rs`](crates/ha-core/src/tools/settings.rs) 的 `read_category` / `update_app_config` 加读写分支
-   - 在 `risk_level()`（LOW/MEDIUM/HIGH）和 `get_all_overview()` 的 `riskLevels` map 里显式分级
-   - 如涉及重启/网络暴露/凭据等副作用，在 `side_effect_note()` 补一句提示
-   - 同步更新 [`crates/ha-core/src/tools/definitions/core_tools.rs`](crates/ha-core/src/tools/definitions/core_tools.rs) 里 `get_settings` / `update_settings` 两个 tool 的 `category` enum
-3. **技能文档**：在 [`skills/oc-settings/SKILL.md`](skills/oc-settings/SKILL.md) 的风险等级表里加该分类和字段说明
+1. **GUI 控件**：[`src/components/settings/`](src/components/settings/) 对应面板，shadcn/ui + 三态保存按钮
+2. **技能能力**：[`crates/ha-core/src/tools/settings.rs`](crates/ha-core/src/tools/settings.rs) 加读写分支 + 风险分级 + 必要的副作用提示；同步更新 [`core_tools.rs`](crates/ha-core/src/tools/definitions/core_tools.rs) 里 `get_settings` / `update_settings` 的 `category` enum
+3. **技能文档**：在 [`skills/oc-settings/SKILL.md`](skills/oc-settings/SKILL.md) 风险等级表里登记
 
 ### 风险等级判定
 
-- **LOW**：UI 偏好、显示配额、不影响成本/安全（theme / language / notification / canvas 等）
+- **LOW**：UI 偏好、显示配额，不影响成本/安全（theme / language / notification / canvas 等）
 - **MEDIUM**：行为调整，影响上下文、成本或输出质量（compact / memory_* / web_search / approval 等）
-- **HIGH**：安全、网络暴露、全局键位、凭据、需要重启（proxy / embedding / shortcuts / server / skill_env / acp_control 等）
-
-HIGH 级别的分类，Settings 技能在调用 `update_settings` 前必须向用户二次确认。
+- **HIGH**：安全、网络暴露、全局键位、凭据、需要重启（proxy / embedding / shortcuts / server / skill_env / acp_control 等）——技能在 `update_settings` 前必须向用户二次确认
 
 ### 强制留在 GUI 的例外
 
-以下三类继续只走 GUI，不进 `update_settings` 工具：**Provider 列表与 API Key**、**IM Channel 配置**、**`active_model` / `fallback_models` 的写入**。原因是凭据安全和运行时稳定性。这些在技能里以只读形式出现或完全排除。
+**Provider 列表与 API Key**、**IM Channel 配置**、**`active_model` / `fallback_models` 的写入**三类不进 `update_settings` 工具（凭据安全 + 运行时稳定性），技能里只读或完全排除。
 
 ### 配置读写 contract（强制）
 
-详见 [`docs/architecture/config-system.md`](docs/architecture/config-system.md)。所有 `AppConfig` 访问遵守**单一真相源**原则：
+详见 [`docs/architecture/config-system.md`](docs/architecture/config-system.md)。硬规则：
 
-- **读**：`ha_core::config::cached_config()` — 返回 `Arc<AppConfig>`，lock-free ArcSwap 快照，hot path 零成本。绝对不要再引入 `Mutex<AppConfig>` 或任何"本地克隆"。
-- **写**：`ha_core::config::mutate_config((category, source), |cfg| { ... })` — 进程级全局写锁串行化"读最新快照 → mutate → 持久化 → 原子 swap → emit `config:changed`"。严格禁止 `let mut store = load_config()?; ... save_config(&store)?;` 这种手动克隆-改-存模式，它无法保护并发 lost-update（这是历史 image_generate stale bug 的根因）。
+- **读** 走 `ha_core::config::cached_config()`（`Arc<AppConfig>` 快照），禁止重新引入 `Mutex<AppConfig>` 或本地克隆
+- **写** 走 `ha_core::config::mutate_config((category, source), |cfg| {...})`，禁止 `load_config()` + `save_config()` 手动克隆-改-存模式——无法防并发 lost-update（历史 image_generate stale bug 的根因）
+- 写路径自动 emit `config:changed` 事件并落 autosave 备份，不要手动模拟
 
-`reason: (category, source)` 二元组会作为 autosave 备份 tag 写入 `~/.hope-agent/backups/autosave/`（最多保留 50 份），`category` 常用值：`image_generate` / `memory_budget` / `shortcuts` / `security.ssrf` / `active_model` / `providers.update` 等；`source` 常用值：`settings-ui` / `http` / `oauth-finalize` / `slash-channel` 等。技能通过 `list_settings_backups` / `restore_settings_backup` 两个内置工具暴露给模型；UI 如需暴露同样功能，应调用 `backup::list_autosaves()` / `backup::restore_autosave(id)`，不要重复实现快照逻辑。
-
-`save_config` 内部会 emit EventBus 事件 `config:changed`（payload 含 category），前端 `i18n` / `useTheme` / `useDangerousModeStatus` / `useNotifications` 等 hooks 已订阅该事件做热更新；写新的 save 命令默认就享有这个能力，不必手动 emit。
-
-旧的 `AppState::config: Mutex<AppConfig>` 字段已删除（2026-04-20），若 PR 里看到任何 `state.config.lock()` 使用必须拒绝合并——编译器目前也已经无法让这种代码过 check，但 reviewer 仍需看住 intent。
+旧的 `AppState::config: Mutex<AppConfig>` 字段已于 2026-04-20 删除，PR 里出现 `state.config.lock()` 一律 reject。
 
 ## 文档维护
 
