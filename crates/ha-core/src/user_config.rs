@@ -159,7 +159,17 @@ pub fn build_user_context(config: &UserConfig) -> Option<String> {
     }
     push_if(&mut lines, "Role", &config.role);
     push_if(&mut lines, "AI experience level", &config.ai_experience);
-    push_if(&mut lines, "Preferred language", &config.language);
+    if let Some(code) = config
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let name = language_display_name(code);
+        lines.push(format!(
+            "- Preferred language: {name} ({code}) — reply in this language unless the user explicitly switches"
+        ));
+    }
     push_if(&mut lines, "Timezone", &config.timezone);
     push_if(&mut lines, "Response style", &config.response_style);
 
@@ -173,5 +183,24 @@ pub fn build_user_context(config: &UserConfig) -> Option<String> {
         None
     } else {
         Some(format!("# User\n\n{}", lines.join("\n")))
+    }
+}
+
+/// Map a language code (e.g. "zh-CN") to its native display name.
+fn language_display_name(code: &str) -> &str {
+    match code {
+        "zh-CN" => "简体中文",
+        "zh-TW" => "繁體中文",
+        "en" => "English",
+        "ja" => "日本語",
+        "ko" => "한국어",
+        "es" => "Español",
+        "pt" => "Português",
+        "ru" => "Русский",
+        "ar" => "العربية",
+        "tr" => "Türkçe",
+        "vi" => "Tiếng Việt",
+        "ms" => "Bahasa Melayu",
+        other => other,
     }
 }
