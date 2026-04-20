@@ -34,18 +34,11 @@ pub struct SkillsConfig {
     #[serde(default)]
     pub auto_review: auto_review::SkillsAutoReviewConfig,
 
-    /// When `hope-agent server` is running, allow the HTTP `POST
-    /// /api/skills/{name}/install` route to spawn package-manager processes
-    /// (`brew install`, `npm install -g`, `go install`, `uv tool install`).
-    ///
-    /// Disabled by default: the feature is effectively a remote command
-    /// execution primitive if API Key leaks, and in headless server
-    /// environments package managers are often not on PATH anyway. Enable
-    /// only on trusted deployments where the operator wants UI-driven
-    /// dependency install.
-    ///
-    /// Has no effect on the Tauri desktop shell — clicking "Install" in the
-    /// native GUI is always allowed (the button itself is the user consent).
+    /// Gate for remote-initiated dependency installs (spawning
+    /// `brew`/`npm -g`/`go install`/`uv tool install`). Off by default —
+    /// with a valid caller key this would be a full RCE primitive. The
+    /// specific transport / UX coupling lives at each caller; ha-core only
+    /// exposes the flag.
     #[serde(default)]
     pub allow_remote_install: bool,
 }
