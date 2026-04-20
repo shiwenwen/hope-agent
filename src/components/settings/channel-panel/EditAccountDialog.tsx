@@ -26,7 +26,8 @@ import AgentAvatar from "./AgentAvatar"
 import AllowlistTagInput from "./AllowlistTagInput"
 import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
-import { getWeChatConnectionFromAccount } from "./utils"
+import SaveErrorBanner from "./SaveErrorBanner"
+import { getWeChatConnectionFromAccount, parseChannelSaveError } from "./utils"
 import type {
   AgentInfo,
   ChannelAccountConfig,
@@ -63,6 +64,7 @@ export default function EditAccountDialog({
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -83,6 +85,7 @@ export default function EditAccountDialog({
       setAutoApproveTools(account.autoApproveTools ?? false)
       setValidationResult(null)
       setValidationError(null)
+      setSaveError(null)
       setWeChatConnection(getWeChatConnectionFromAccount(account))
     }
   }, [account])
@@ -108,6 +111,7 @@ export default function EditAccountDialog({
   const handleSave = async () => {
     if (!account || !label.trim()) return
     setSaving(true)
+    setSaveError(null)
     try {
       const params: Record<string, unknown> = {
         accountId: account.id,
@@ -146,6 +150,7 @@ export default function EditAccountDialog({
       onSaved()
     } catch (e) {
       logger.error("channel", "ChannelPanel", "Failed to update channel account", e)
+      setSaveError(parseChannelSaveError(e, t))
     } finally {
       setSaving(false)
     }
@@ -154,7 +159,10 @@ export default function EditAccountDialog({
   if (!account) return null
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(v) => {
+      if (!v) setSaveError(null)
+      onOpenChange(v)
+    }}>
       <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t("channels.editAccount")}</DialogTitle>
@@ -313,6 +321,8 @@ export default function EditAccountDialog({
             />
           </div>
         </div>
+
+        <SaveErrorBanner message={saveError} />
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

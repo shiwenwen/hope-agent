@@ -27,7 +27,8 @@ import AgentAvatar from "./AgentAvatar"
 import AllowlistTagInput from "./AllowlistTagInput"
 import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
-import { defaultWeChatLabel } from "./utils"
+import SaveErrorBanner from "./SaveErrorBanner"
+import { defaultWeChatLabel, parseChannelSaveError } from "./utils"
 import type {
   AgentInfo,
   ChannelPluginInfo,
@@ -99,6 +100,7 @@ export default function AddAccountDialog({
   const [userAllowlist, setUserAllowlist] = useState<string[]>([])
   const [allowlistInput, setAllowlistInput] = useState("")
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [validating, setValidating] = useState(false)
   const [validationResult, setValidationResult] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
@@ -220,6 +222,7 @@ export default function AddAccountDialog({
     if (!canSave()) return
 
     setSaving(true)
+    setSaveError(null)
     try {
       const credentials = buildCredentials()
 
@@ -267,10 +270,12 @@ export default function AddAccountDialog({
       setChannels({})
       setValidationResult(null)
       setValidationError(null)
+      setSaveError(null)
       setWeChatConnection(null)
       onAdded()
     } catch (e) {
       logger.error("channel", "ChannelPanel", "Failed to add channel account", e)
+      setSaveError(parseChannelSaveError(e, t))
     } finally {
       setSaving(false)
     }
@@ -281,6 +286,7 @@ export default function AddAccountDialog({
       if (!v) {
         setStep("select")
         setChannelId("")
+        setSaveError(null)
       }
       onOpenChange(v)
     }}>
@@ -793,6 +799,8 @@ export default function AddAccountDialog({
                 />
               )}
             </div>
+
+            <SaveErrorBanner message={saveError} />
 
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>

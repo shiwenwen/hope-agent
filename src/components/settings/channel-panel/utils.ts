@@ -1,4 +1,18 @@
+import type { TFunction } from "i18next"
 import type { ChannelAccountConfig, WeChatConnection } from "./types"
+
+// Must match DUPLICATE_CREDENTIAL_ERROR_PREFIX in
+// crates/ha-core/src/channel/accounts.rs.
+export const DUPLICATE_CREDENTIAL_ERROR_PREFIX = "DUPLICATE_CREDENTIAL"
+
+export function parseChannelSaveError(e: unknown, t: TFunction): string {
+  const raw = String(e)
+  const marker = `${DUPLICATE_CREDENTIAL_ERROR_PREFIX}:`
+  const idx = raw.indexOf(marker)
+  if (idx === -1) return raw
+  const label = raw.slice(idx + marker.length).trim()
+  return t("channels.duplicateCredential", { label })
+}
 
 export function formatUptime(secs: number): string {
   if (secs < 60) return `${secs}s`

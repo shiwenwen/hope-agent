@@ -9,6 +9,82 @@ use uuid::Uuid;
 
 use super::types::{ChannelAccountConfig, ChannelId, SecurityConfig};
 
+/// Extract a stable identity string from a channel account's credential blob
+/// so we can detect "same bot added twice". Returns `None` when credentials
+/// don't carry a meaningful identifier yet (e.g. WeChat before QR login,
+/// iMessage which has no credentials at all) — in that case duplicate
+/// detection is skipped rather than false-positive on empty strings.
+fn credential_fingerprint(channel_id: &ChannelId, credentials: &Value) -> Option<String> {
+    let str_field = |key: &str| -> Option<String> {
+        credentials
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+    };
+
+    match channel_id {
+        ChannelId::Telegram | ChannelId::Discord | ChannelId::WhatsApp => str_field("token"),
+        ChannelId::Slack => str_field("botToken"),
+        ChannelId::Feishu | ChannelId::QqBot => str_field("appId"),
+        ChannelId::Line => str_field("channelAccessToken"),
+        ChannelId::WeChat => str_field("userId")
+            .or_else(|| str_field("remoteAccountId"))
+            .or_else(|| str_field("token")),
+        ChannelId::Signal => str_field("account"),
+        ChannelId::Irc => {
+            let server = str_field("server")?;
+            let port = credentials
+                .get("port")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(6697);
+            let nick = str_field("nick")?;
+            Some(format!("{}:{}|{}", server, port, nick))
+        }
+        ChannelId::GoogleChat => {
+            let raw = str_field("credentialsJson")?;
+            if let Ok(parsed) = serde_json::from_str::<Value>(&raw) {
+                if let Some(email) = parsed.get("client_email").and_then(|v| v.as_str()) {
+                    let trimmed = email.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+            Some(raw)
+        }
+        ChannelId::IMessage => None,
+        ChannelId::Custom(_) => str_field("token"),
+    }
+}
+
+/// Find an existing account whose credentials resolve to the same
+/// fingerprint, optionally excluding the account being updated. Only accounts
+/// on the same `channel_id` are compared — sharing a token string across
+/// different platforms would be a coincidence, not a duplicate bot.
+fn find_duplicate_account<'a>(
+    accounts: &'a [ChannelAccountConfig],
+    channel_id: &ChannelId,
+    fingerprint: &str,
+    exclude_id: Option<&str>,
+) -> Option<&'a ChannelAccountConfig> {
+    accounts.iter().find(|a| {
+        if exclude_id.is_some_and(|eid| eid == a.id) {
+            return false;
+        }
+        if &a.channel_id != channel_id {
+            return false;
+        }
+        credential_fingerprint(&a.channel_id, &a.credentials).as_deref() == Some(fingerprint)
+    })
+}
+
+/// Error prefix used by `add_account` / `update_account` when duplicate
+/// credentials are detected. The frontend matches on this prefix to show a
+/// localized "this bot is already added" hint. Kept as a prefix (not a bare
+/// code) so CLI / HTTP consumers still get a readable message.
+pub const DUPLICATE_CREDENTIAL_ERROR_PREFIX: &str = "DUPLICATE_CREDENTIAL";
+
 /// Patch for [`update_account`]. `None` fields are left untouched; an empty
 /// `agent_id` string clears the account's override back to the default.
 #[derive(Debug, Default)]
@@ -44,6 +120,20 @@ pub async fn add_account(
     let parsed_channel_id: ChannelId = serde_json::from_value(Value::String(channel_id.clone()))
         .map_err(|e| anyhow!("Invalid channel_id '{}': {}", channel_id, e))?;
 
+    let mut store = crate::config::load_config()?;
+
+    if let Some(fp) = credential_fingerprint(&parsed_channel_id, &credentials) {
+        if let Some(existing) =
+            find_duplicate_account(&store.channels.accounts, &parsed_channel_id, &fp, None)
+        {
+            return Err(anyhow!(
+                "{}: {}",
+                DUPLICATE_CREDENTIAL_ERROR_PREFIX,
+                existing.label
+            ));
+        }
+    }
+
     let account = ChannelAccountConfig {
         id: id.clone(),
         channel_id: parsed_channel_id,
@@ -56,7 +146,6 @@ pub async fn add_account(
         auto_approve_tools: false,
     };
 
-    let mut store = crate::config::load_config()?;
     store.channels.accounts.push(account.clone());
     crate::config::save_config(&store)?;
 
@@ -81,10 +170,30 @@ pub async fn add_account(
 /// transitions (start/stop/restart) based on the before/after enabled state.
 pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Result<()> {
     let mut store = crate::config::load_config()?;
-    let account = store
+
+    let idx = store
         .channels
-        .find_account_mut(account_id)
+        .accounts
+        .iter()
+        .position(|a| a.id == account_id)
         .ok_or_else(|| anyhow!("Account '{}' not found", account_id))?;
+    let channel_id = store.channels.accounts[idx].channel_id.clone();
+
+    if let Some(new_credentials) = params.credentials.as_ref() {
+        if let Some(fp) = credential_fingerprint(&channel_id, new_credentials) {
+            if let Some(existing) =
+                find_duplicate_account(&store.channels.accounts, &channel_id, &fp, Some(account_id))
+            {
+                return Err(anyhow!(
+                    "{}: {}",
+                    DUPLICATE_CREDENTIAL_ERROR_PREFIX,
+                    existing.label
+                ));
+            }
+        }
+    }
+
+    let account = &mut store.channels.accounts[idx];
     let was_enabled = account.enabled;
 
     if let Some(l) = params.label {
