@@ -772,6 +772,10 @@ fn build_router_with_cors(
         )
         .route("/skills/{name}", get(routes::skills::get_skill_detail))
         .route("/skills/{name}/toggle", post(routes::skills::toggle_skill))
+        .route(
+            "/skills/{name}/install",
+            post(routes::skills::install_skill_dependency),
+        )
         .route("/skills/{name}/env", get(routes::skills::get_skill_env))
         .route(
             "/skills/{name}/env",

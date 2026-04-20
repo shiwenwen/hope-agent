@@ -82,6 +82,12 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              enable on shared machines. Persists to config.json — toggle off in Settings → Security \
              when done."
         ),
+        "skills" => Some(
+            "⚠️ `allowRemoteInstall` gates the HTTP `POST /api/skills/{name}/install` route that \
+             spawns `brew` / `npm -g` / `go install` / `uv tool install`. Enabling it turns any \
+             valid API Key into a remote package-install primitive — only enable on trusted \
+             deployments. Has no effect on the Tauri desktop shell."
+        ),
         _ => None,
     }
 }
@@ -160,6 +166,7 @@ fn read_category(category: &str) -> Result<Value> {
             "extraSkillsDirs": cfg.extra_skills_dirs,
             "disabledSkills": cfg.disabled_skills,
             "skillEnvCheck": cfg.skill_env_check,
+            "allowRemoteInstall": cfg.skills.allow_remote_install,
         })),
         "server" => Ok(serde_json::to_value(&cfg.server)?),
         "acp_control" => Ok(serde_json::to_value(&cfg.acp_control)?),
@@ -232,6 +239,7 @@ fn get_all_overview() -> Result<String> {
         "skills": {
             "extraDirs": cfg.extra_skills_dirs.len(),
             "disabled": cfg.disabled_skills,
+            "allowRemoteInstall": cfg.skills.allow_remote_install,
         },
     });
 
@@ -408,6 +416,9 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
             }
             if let Some(v) = values.get("skillEnvCheck").and_then(|v| v.as_bool()) {
                 store.skill_env_check = v;
+            }
+            if let Some(v) = values.get("allowRemoteInstall").and_then(|v| v.as_bool()) {
+                store.skills.allow_remote_install = v;
             }
         }
         "server" => merge_field(&mut store.server, values)?,

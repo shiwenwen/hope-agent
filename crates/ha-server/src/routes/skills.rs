@@ -118,6 +118,39 @@ pub async fn get_skills_status() -> Result<Json<Vec<skills::SkillStatusEntry>>, 
     Ok(Json(core::get_skills_status()))
 }
 
+// ── Dependency install ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstallDepBody {
+    pub spec_index: usize,
+}
+
+/// `POST /api/skills/{name}/install` — run the install spec at `specIndex`.
+///
+/// Gated on `AppConfig.skills.allow_remote_install` — returns 403 with a
+/// clear error when disabled, so the frontend can surface actionable guidance
+/// instead of a silent 404. The spawn core lives in
+/// [`ha_core::skills::commands::install_skill_dependency`]; the Tauri handler
+/// calls the same function without the gate (local user consent = clicking
+/// the button in the desktop GUI).
+pub async fn install_skill_dependency(
+    Path(name): Path<String>,
+    Json(body): Json<InstallDepBody>,
+) -> Result<Json<Value>, AppError> {
+    if !ha_core::config::cached_config().skills.allow_remote_install {
+        return Err(AppError::forbidden(
+            "Remote skill dependency install is disabled. Set \
+             `skills.allowRemoteInstall = true` in config (or run the \
+             install manually on the server) before retrying.",
+        ));
+    }
+    let output = core::install_skill_dependency(&name, body.spec_index)
+        .await
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "ok": true, "output": output })))
+}
+
 // ── Phase B' Auto-Review ────────────────────────────────────────
 
 /// `GET /api/skills/drafts` — list skills in `status: draft`.

@@ -10,12 +10,12 @@
 
 use std::collections::HashMap;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 
 use super::{
-    author, auto_review, bump_skill_version, check_all_skills_status, get_skill_content,
-    is_masked_value, load_all_skills_with_budget, mask_value, SkillDetail, SkillStatus,
-    SkillStatusEntry, SkillSummary,
+    author, auto_review, binary_in_path_public, bump_skill_version, check_all_skills_status,
+    get_skill_content, is_masked_value, load_all_skills_with_budget, mask_value, SkillDetail,
+    SkillStatus, SkillStatusEntry, SkillSummary,
 };
 
 // ── Catalog / detail ──────────────────────────────────────────────
@@ -194,6 +194,159 @@ pub fn activate_draft_skill(name: &str) -> Result<()> {
 
 pub fn discard_draft_skill(name: &str) -> Result<()> {
     author::delete_skill(name)
+}
+
+// ── Install dependency ────────────────────────────────────────────
+//
+// Spawns a package-manager process (`brew install …`, `npm install -g …`,
+// `go install …`, `uv tool install …`) based on the skill's `install:` spec.
+//
+// SECURITY: the core function itself performs no authorization — callers
+// decide whether the request is trusted:
+//   * Tauri desktop: unconditional (user clicked in their own GUI = intent).
+//   * HTTP surface: gate on `AppConfig.skills.allow_remote_install` — an
+//     opt-in flag that must be flipped manually in settings. Without it,
+//     anyone with the API key could pivot to arbitrary package installs.
+
+/// Run the install spec at `spec_index` for `skill_name`. Returns combined
+/// `stdout + stderr + binary verification` log on success, or an error with
+/// the same format when the process exits non-zero.
+pub async fn install_skill_dependency(skill_name: &str, spec_index: usize) -> Result<String> {
+    let (cmd_program, cmd_args, bins) = {
+        let store = crate::config::cached_config();
+        let entries =
+            load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
+        let skill = entries
+            .into_iter()
+            .find(|s| s.name == skill_name)
+            .ok_or_else(|| anyhow!("Skill not found: {}", skill_name))?;
+
+        let spec = skill
+            .install
+            .get(spec_index)
+            .ok_or_else(|| anyhow!("Install spec index {} out of range", spec_index))?
+            .clone();
+
+        // OS guard — refuse to spawn platform-mismatched installers so the
+        // user doesn't hit a cryptic process-spawn failure.
+        if !spec.os.is_empty() {
+            let current = std::env::consts::OS;
+            let ok = spec.os.iter().any(|os| {
+                os == current
+                    || (os == "darwin" && current == "macos")
+                    || (os == "mac" && current == "macos")
+            });
+            if !ok {
+                return Err(anyhow!(
+                    "Install spec is not available on this platform ({}), requires: {:?}",
+                    current,
+                    spec.os
+                ));
+            }
+        }
+
+        match spec.kind.as_str() {
+            "brew" => {
+                let formula = spec
+                    .formula
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("Brew install spec missing 'formula' field"))?;
+                // Reject flag-looking / traversal args so we never feed the
+                // spec into brew as an option flag.
+                if formula.contains("..") || formula.contains('\\') || formula.starts_with('-') {
+                    return Err(anyhow!("Invalid brew formula name"));
+                }
+                (
+                    "brew".to_string(),
+                    vec!["install".to_string(), formula.to_string()],
+                    spec.bins,
+                )
+            }
+            "node" => {
+                let package = spec
+                    .package
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("Node install spec missing 'package' field"))?;
+                if package.contains("..") || package.contains('\\') {
+                    return Err(anyhow!("Invalid npm package name"));
+                }
+                (
+                    "npm".to_string(),
+                    vec!["install".to_string(), "-g".to_string(), package.to_string()],
+                    spec.bins,
+                )
+            }
+            "go" => {
+                let module = spec
+                    .go_module
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("Go install spec missing 'module' field"))?;
+                if module.contains("..") || module.contains('\\') {
+                    return Err(anyhow!("Invalid go module path"));
+                }
+                (
+                    "go".to_string(),
+                    vec!["install".to_string(), module.to_string()],
+                    spec.bins,
+                )
+            }
+            "uv" => {
+                let package = spec
+                    .package
+                    .as_deref()
+                    .ok_or_else(|| anyhow!("UV install spec missing 'package' field"))?;
+                (
+                    "uv".to_string(),
+                    vec![
+                        "tool".to_string(),
+                        "install".to_string(),
+                        package.to_string(),
+                    ],
+                    spec.bins,
+                )
+            }
+            other => return Err(anyhow!("Unsupported install kind: {}", other)),
+        }
+    };
+
+    let args_ref: Vec<&str> = cmd_args.iter().map(String::as_str).collect();
+    let output = run_install_command(&cmd_program, &args_ref).await?;
+
+    let mut verification = String::new();
+    for bin in &bins {
+        if binary_in_path_public(bin) {
+            verification.push_str(&format!("\n✓ {} found in PATH", bin));
+        } else {
+            verification.push_str(&format!("\n✗ {} not found in PATH", bin));
+        }
+    }
+
+    bump_skill_version();
+    Ok(format!("{}{}", output, verification))
+}
+
+async fn run_install_command(program: &str, args: &[&str]) -> Result<String> {
+    let output = tokio::process::Command::new(program)
+        .args(args)
+        .output()
+        .await
+        .map_err(|e| anyhow!("Failed to run {} {}: {}", program, args.join(" "), e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if output.status.success() {
+        Ok(format!("{}{}", stdout, stderr))
+    } else {
+        Err(anyhow!(
+            "{} {} failed (exit code {:?}):\n{}\n{}",
+            program,
+            args.join(" "),
+            output.status.code(),
+            stdout,
+            stderr
+        ))
+    }
 }
 
 pub async fn trigger_skill_review_now(session_id: &str) -> Result<serde_json::Value> {

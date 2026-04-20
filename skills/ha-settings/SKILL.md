@@ -100,7 +100,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `proxy` | `mode`, `url` | Affects ALL outgoing HTTP |
 | `embedding` | `provider`, `model`, `dimensions` | May invalidate existing vector indexes |
 | `shortcuts` | `bindings` (array) | Global OS keybindings, can collide |
-| `skills` | `extraSkillsDirs`, `disabledSkills`, `skillEnvCheck` | Disabling skills removes tools |
+| `skills` | `extraSkillsDirs`, `disabledSkills`, `skillEnvCheck`, `allowRemoteInstall` | Disabling skills removes tools; `allowRemoteInstall` opens the HTTP `/api/skills/{name}/install` route that spawns `brew`/`npm -g`/`go install`/`uv tool install` — effectively RCE over the API Key |
 | `server` | `bindAddr` (e.g. `127.0.0.1:8420` vs `0.0.0.0:8420`), `apiKey` | Network exposure, requires app restart |
 | `acp_control` | `enabled`, `backends`, `maxConcurrentSessions`, `defaultTimeoutSecs`, `runtimeTtlSecs`, `autoDiscover` | Controls external agent delegation |
 | `skill_env` | Per-skill env vars (may contain secrets) | Stored plaintext in `config.json` |

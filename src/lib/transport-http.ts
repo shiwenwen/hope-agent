@@ -305,6 +305,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_skills_status:               { method: "GET",    path: "/api/skills/status" },
   get_skill_env_check:             { method: "GET",    path: "/api/skills/env-check" },
   set_skill_env_check:             { method: "PUT",    path: "/api/skills/env-check" },
+  install_skill_dependency:        { method: "POST",   path: "/api/skills/{skillName}/install" },
   list_draft_skills:               { method: "GET",    path: "/api/skills/drafts" },
   activate_draft_skill:            { method: "POST",   path: "/api/skills/{name}/activate" },
   discard_draft_skill:             { method: "DELETE", path: "/api/skills/{name}/draft" },

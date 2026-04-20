@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **HTTP `POST /api/skills/{name}/install` + `skills.allowRemoteInstall` 门控**：桌面端"技能详情 → 依赖"的一键安装按钮走 `getTransport().call("install_skill_dependency", ...)`，Transport 抽象层假设桌面/HTTP 双端对等，但历史上 HTTP 一直没实现这个路由——Web GUI 模式点这个按钮会撞 404。现把 spawn 核心（brew/npm/go/uv）下沉到 [`ha_core::skills::commands::install_skill_dependency`](crates/ha-core/src/skills/commands.rs)，Tauri/HTTP 两端共享；HTTP 侧新增路由但默认 **403 Forbidden**，错误信息提示用户"Remote skill dependency install is disabled. Set `skills.allowRemoteInstall = true` in config"。新增配置 [`SkillsConfig.allow_remote_install: bool`](crates/ha-core/src/skills/mod.rs) 默认 `false`，需要显式 opt-in 才能开启——理由：该能力在 API Key 视角下就是远程 RCE（`brew install <任意>` / `npm install -g <任意>`），且 headless 服务器场景常没安装包管理器。桌面 Tauri shell 不受开关影响（本机 GUI 点按钮 = 用户授权）。`ha-settings` 技能 `skills` 分类（HIGH 风险）新增 `allowRemoteInstall` 字段读写能力，附带强警告 side_effect note。
+
 ### Fixed
 
 - **Canvas 面板切换会话时 ESLint 报 `react-hooks/set-state-in-effect`**：[CanvasPanel.tsx](src/components/chat/CanvasPanel.tsx) 原写法在 useEffect body 里直接 `setMaximized(false)` / `setDetached(false)` 重置 UI 状态 —— React 19 的 `react-hooks/set-state-in-effect` 规则禁止（会在 paint 前触发级联 re-render）。改用 React 官方推荐的 "store prev prop in state + compare during render" pattern：新增 `prevSessionId` state，在 render 期间检测 `currentSessionId !== prevSessionId` 时同步重置两个开关；真正的副作用（关闭 detached 窗口、拉取新会话 canvas）留在 useEffect 里。行为不变，lint 归零。

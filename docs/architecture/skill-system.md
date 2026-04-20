@@ -1272,7 +1272,7 @@ SkillsPanel 列表中每个技能显示状态标签：
 | `remove_skill_env_var` | `skill, key` | — | 移除技能环境变量 |
 | `get_skills_env_status` | — | `HashMap<String, HashMap<String, bool>>` | 批量获取所有技能的环境变量配置状态 |
 | `get_skills_status` | — | `Vec<SkillStatusEntry>` | 获取所有技能的健康状态 |
-| `install_skill_dependency` | `skill_name, spec_index` | `String` | 安装技能依赖（返回日志） |
+| `install_skill_dependency` | `skill_name, spec_index` | `String` | 安装技能依赖（返回日志）。Spawn 核心在 [`ha_core::skills::commands::install_skill_dependency`](../../crates/ha-core/src/skills/commands.rs)，两端共享。HTTP 等价路由 `POST /api/skills/{name}/install` 需要 `skills.allowRemoteInstall = true` 才不会返 403 —— 该开关默认关闭，因为它在 API Key 视角下等价于远程 RCE。Tauri 桌面不受开关限制 |
 
 ---
 
