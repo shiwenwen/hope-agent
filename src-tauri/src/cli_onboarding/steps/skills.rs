@@ -4,7 +4,7 @@ use anyhow::Result;
 
 use ha_core::config::load_config;
 use ha_core::onboarding::apply::apply_skills;
-use ha_core::skills::discovery::load_all_skills_with_extra;
+use ha_core::skills::load_all_skills_with_extra;
 
 use crate::cli_onboarding::prompt::{print_saved, print_skipped, println_step, prompt_multiselect};
 

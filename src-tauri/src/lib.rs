@@ -1,6 +1,6 @@
 // ── Local Tauri-specific modules ──────────────────────────────────
 mod app_init;
-mod cli_onboarding;
+pub mod cli_onboarding;
 mod commands;
 mod globals;
 mod setup;
