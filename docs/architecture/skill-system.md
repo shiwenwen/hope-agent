@@ -181,10 +181,6 @@ block-beta
 
     lowest --> low --> mid --> high
 
-    style B fill:#f3e8ff,stroke:#a855f7
-    style E fill:#fef3c7,stroke:#f59e0b
-    style M fill:#dbeafe,stroke:#3b82f6
-    style P fill:#dcfce7,stroke:#22c55e
 ```
 
 ### 技能标识（Skill Key）
@@ -335,10 +331,6 @@ flowchart TD
     DEDUP --> SORT["按 name 字母排序"]
     SORT --> RESULT(["返回 Vec SkillEntry"])
 
-    style B fill:#f3e8ff,stroke:#a855f7
-    style E fill:#fef3c7,stroke:#f59e0b
-    style M fill:#dbeafe,stroke:#3b82f6
-    style P fill:#dcfce7,stroke:#22c55e
 ```
 
 **优先级覆盖规则**：Project > Managed > Extra dirs > Bundled，高优先级的同名技能覆盖低优先级的。
@@ -402,8 +394,6 @@ flowchart TD
 
     ENV -.-> ENV_CHECK
 
-    style PASS fill:#dcfce7,stroke:#22c55e
-    style FAIL fill:#fee2e2,stroke:#ef4444
 ```
 
 ### `primaryEnv` 机制
@@ -493,10 +483,6 @@ flowchart TD
     INLINE --> OUT_IN(["主对话收到 SKILL.md 正文 + $ARGUMENTS 替换"])
     FORK --> OUT_FK(["主对话只看到一条摘要 tool_result"])
 
-    style INLINE fill:#fef3c7,stroke:#f59e0b
-    style FORK fill:#dcfce7,stroke:#22c55e
-    style ERR fill:#fee2e2,stroke:#ef4444
-    style ERR2 fill:#fee2e2,stroke:#ef4444
 ```
 
 ### 两条入口共享 helper
@@ -672,8 +658,6 @@ flowchart LR
         B3 --> B4[后续轮次模型只看到摘要]
     end
 
-    style A3 fill:#fee2e2,stroke:#ef4444
-    style B3 fill:#dcfce7,stroke:#22c55e
 ```
 
 这是 Phase 1 改造的**核心价值**：把 fork skill 从"隔离执行但结果回灌主对话"升级为"隔离执行 + 隔离结果"，让主对话 context 真正只长 1 条 tool_use + 1 条摘要 tool_result。
@@ -753,8 +737,6 @@ flowchart TD
     LOG --> DISPATCH(["继续工具 dispatch"])
     SKIP --> DISPATCH
 
-    style SKIP fill:#f3f4f6,stroke:#9ca3af
-    style BUMP fill:#dcfce7,stroke:#22c55e
 ```
 
 **关键点：**
@@ -888,9 +870,6 @@ flowchart TD
     CHECK2 -->|是| BSEARCH["二分搜索最大前缀<br/>找到最多 N 条 compact<br/>使总字符 ≤ max_chars"]
     BSEARCH --> OUT_TRUNC(["输出前 N 条 Compact<br/>+ ⚠️ truncated: N of M 提示"])
 
-    style OUT_FULL fill:#dcfce7,stroke:#22c55e
-    style OUT_COMPACT fill:#fef3c7,stroke:#f59e0b
-    style OUT_TRUNC fill:#fee2e2,stroke:#ef4444
 ```
 
 **路径不再注入：**`compact_path()` 辅助函数仍保留（日志 / 调试 / 测试用，标记 `#[allow(dead_code)]`），但 catalog 条目已改为 `- name: description`（full）或 `- name`（compact），不含 `(read: path)` 后缀。
@@ -911,10 +890,6 @@ flowchart LR
     F55 --> F6["8. max_count<br/>数量上限"]
     F6 --> OUT(["注入 Prompt"])
 
-    style ALL fill:#e0e7ff,stroke:#6366f1
-    style F0 fill:#fef3c7,stroke:#f59e0b
-    style F55 fill:#dcfce7,stroke:#22c55e
-    style OUT fill:#dcfce7,stroke:#22c55e
 ```
 
 **每层语义：**
@@ -1331,9 +1306,6 @@ graph TD
     DETAIL --> D5["文件列表"]
     DETAIL --> D6["SKILL.md 预览"]
 
-    style SP fill:#e0e7ff,stroke:#6366f1
-    style LIST fill:#dbeafe,stroke:#3b82f6
-    style DETAIL fill:#fef3c7,stroke:#f59e0b
 ```
 
 ### InstallSpecRow 组件

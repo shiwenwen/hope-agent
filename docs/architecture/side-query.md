@@ -76,12 +76,6 @@ flowchart TD
     P --> Q["返回 OneShotResult { text, usage }"]
     Q --> R["side_query 包装为 SideQueryResult"]
 
-    style A fill:#e1f5fe
-    style G fill:#fff8e1
-    style I fill:#e8f5e9
-    style J fill:#fff3e0
-    style R fill:#e8f5e9
-    style N fill:#ffcdd2
 ```
 
 ### 关键约束

@@ -23,9 +23,6 @@ graph TD
     TRAIT --> P6["ZhipuAI"]
     TRAIT --> P7["Tongyi"]
 
-    style LLM fill:#e0e7ff,stroke:#4f46e5
-    style ENTRY fill:#fef3c7,stroke:#d97706
-    style TRAIT fill:#d1fae5,stroke:#059669
 ```
 
 ---
@@ -199,12 +196,6 @@ flowchart TD
     CLASSIFY -- "否" --> LOG_ERR["记入 failover_log"]
     LOG_ERR --> NEXT_P
 
-    style START fill:#e0e7ff,stroke:#4f46e5
-    style LIST fill:#d1fae5,stroke:#059669
-    style SUCCESS fill:#d1fae5,stroke:#059669
-    style FAIL fill:#fee2e2,stroke:#dc2626
-    style RETURN_LIST fill:#d1fae5,stroke:#059669
-    style RETURN_OK fill:#d1fae5,stroke:#059669
 ```
 
 ### 参考图加载流程
@@ -220,8 +211,6 @@ flowchart LR
     DL --> IMG
     READ --> IMG
 
-    style INPUT fill:#e0e7ff,stroke:#4f46e5
-    style IMG fill:#d1fae5,stroke:#059669
 ```
 
 ### Resolution 自动推断
@@ -236,9 +225,6 @@ flowchart LR
     C2 -- "是" --> R2K["2K"]
     C2 -- "否" --> R1K["1K"]
 
-    style R4K fill:#fecaca,stroke:#dc2626
-    style R2K fill:#fef3c7,stroke:#d97706
-    style R1K fill:#d1fae5,stroke:#059669
 ```
 
 ---
@@ -270,8 +256,6 @@ flowchart LR
     DESC --> D5["resolution: 支持的 Provider"]
     DESC --> D6["n.maximum: 动态上限"]
 
-    style CONFIG fill:#e0e7ff,stroke:#4f46e5
-    style DESC fill:#fef3c7,stroke:#d97706
 ```
 
 新增或移除 Provider 时，工具描述自动更新，无需手动维护。
@@ -298,9 +282,6 @@ flowchart TD
     HAS -- "是" --> LOOP(["尝试下一个"])
     HAS -- "否" --> FAIL(["返回聚合错误<br/>failover_log 透明展示"])
 
-    style ERR fill:#fee2e2,stroke:#dc2626
-    style BACKOFF fill:#fef3c7,stroke:#d97706
-    style FAIL fill:#fee2e2,stroke:#dc2626
 ```
 
 ---
@@ -470,9 +451,6 @@ block-beta
         end
     end
 
-    style header fill:#e0e7ff,stroke:#4f46e5
-    style providers fill:#f0fdf4,stroke:#22c55e
-    style global fill:#fefce8,stroke:#ca8a04
 ```
 
 - **优先级排序**：上下箭头调整顺序，顺序即 failover 优先级
@@ -521,9 +499,6 @@ graph LR
     PANEL -.-> CFG
     PANEL -.-> PRO
 
-    style backend fill:#f0fdf4,stroke:#22c55e
-    style infra fill:#fef3c7,stroke:#d97706
-    style frontend fill:#e0e7ff,stroke:#4f46e5
 ```
 
 ---

@@ -53,7 +53,6 @@ graph TD
     S6 --> S7
     S8 --> S9
     S11 --> S12
-    style SP fill:#f5f5f5
 ```
 
 **三种组装模式**：
@@ -68,9 +67,6 @@ graph LR
     OC --> REST["④~⑬ 共享段 (User/Tools/Skills/Memory/Runtime...)"]
     CP --> REST
     ST --> REST
-    style OC fill:#e3f2fd
-    style CP fill:#fff3cd
-    style ST fill:#d4edda
 ```
 
 **核心设计原则**：
@@ -112,10 +108,6 @@ graph LR
     AD --> S11["⑪ Sandbox (conditional)"]
     AD --> S13["⑬ ACP (conditional)"]
 
-    style S8 fill:#fff3cd
-    style S10 fill:#e3f2fd
-    style S11 fill:#e3f2fd
-    style S13 fill:#e3f2fd
 ```
 
 **代码位置**：`crates/ha-core/src/system_prompt/build.rs` — `pub fn build()`
@@ -394,11 +386,6 @@ flowchart TD
     C3 -- Yes --> T4["Tier 4: Emergency Compaction — 清空所有工具结果 + 只保留最近 N 轮对话"]
     C3 -- No --> Done
 
-    style T1 fill:#d4edda
-    style T2 fill:#fff3cd
-    style T3 fill:#fce4ec
-    style T4 fill:#f8d7da
-    style Done fill:#e8f5e9
 ```
 
 **代码位置**：`crates/ha-core/src/context_compact/mod.rs`

@@ -56,9 +56,6 @@ flowchart TD
     G -->|通过| H["done<br/>返回 http://127.0.0.1:PORT"]
     G -->|超时| I["失败<br/>抓取容器日志<br/>docker logs --tail 50"]
 
-    style A fill:#e3f2fd
-    style H fill:#c8e6c9
-    style I fill:#ffcdd2
 ```
 
 部署通过 `AtomicBool::compare_exchange` 实现互斥，防止并发部署。部署进度通过 `DEPLOY_PROGRESS`（`LazyLock<Mutex<DeployProgress>>`）共享给 UI，保留最近 100 行日志。部署完成后自动清除进度并失效状态缓存。
@@ -112,9 +109,6 @@ flowchart LR
     J --> K["环境变量注入<br/>-e HTTP_PROXY=...<br/>-e HTTPS_PROXY=...<br/>（大小写各一份）"]
     J --> L["settings.yml 注入<br/>outgoing.proxies.all://:<br/>（SearXNG 不读环境变量）"]
 
-    style A fill:#fff3e0
-    style B fill:#e8f5e9
-    style C fill:#f3e5f5
 ```
 
 代理注入受 `web_search.searxng_docker_use_proxy` 配置项控制（默认开启）。SearXNG 使用自有网络模块，不读取标准 `HTTP_PROXY` 环境变量，因此必须通过 `settings.yml` 的 `outgoing.proxies` 配置。环境变量注入作为补充，覆盖其他可能的网络请求。

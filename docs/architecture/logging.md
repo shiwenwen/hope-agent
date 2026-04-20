@@ -39,10 +39,6 @@ flowchart TD
     P --> Q
     Q --> I
 
-    style A fill:#e1f5fe
-    style G fill:#fff3e0
-    style M fill:#e8f5e9
-    style O fill:#e8f5e9
 ```
 
 ### 关键设计
@@ -148,8 +144,6 @@ flowchart TD
     I2 --> C
     L --> C
 
-    style A fill:#e1f5fe
-    style C fill:#e8f5e9
 ```
 
 ### 文件命名规则

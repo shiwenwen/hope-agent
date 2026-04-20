@@ -22,8 +22,6 @@ flowchart TD
     H --> I["后压缩文件恢复"]
     I --> Done
     J["ContextOverflow 错误"] --> K["Tier 4: 紧急<br/>清除所有 + 只保留最近 N 轮"]
-    style Done fill:#e8f5e9
-    style K fill:#ffcdd2
 ```
 
 ## 模块结构
@@ -103,8 +101,6 @@ flowchart TD
     Filter2 -- No --> Done
     Filter2 -- Yes --> Clear["内容替换为<br/>[Old tool result content cleared]"]
     Clear --> Done
-    style Done fill:#e8f5e9
-    style Skip fill:#fff9c4
 ```
 
 **优先级排序**：
@@ -216,8 +212,6 @@ flowchart TD
     Inject --> CheckMore
     FinalCheck{"有可恢复文件?"} -- Yes --> Return["注入 user 角色消息"]
     FinalCheck -- No --> None
-    style Return fill:#e8f5e9
-    style None fill:#fff9c4
 ```
 
 1. **扫描被摘要消息**：提取 `write`, `write_file`, `edit`, `patch_file`, `apply_patch` 工具调用中的文件路径
