@@ -176,25 +176,60 @@ pub fn get_template(name: &str, locale: &str) -> Option<String> {
     }
 }
 
-fn default_agent_json(locale: &str) -> AgentConfig {
+fn default_agent_json(locale: &str, avatar: Option<String>) -> AgentConfig {
     let meta = default_meta(locale);
     AgentConfig {
         name: meta.name.to_string(),
         description: Some(meta.description.to_string()),
-        emoji: Some("🤖".to_string()),
+        emoji: Some("🦭".to_string()),
+        avatar,
         ..AgentConfig::default()
     }
+}
+
+// ── Default Avatar (bundled logo) ───────────────────────────────
+
+/// Brand logo embedded at compile time, written to the avatars dir so it can
+/// flow through the same asset-resolution path as user-uploaded avatars.
+const DEFAULT_AGENT_LOGO_BYTES: &[u8] = include_bytes!("../../../src/assets/logo.png");
+const DEFAULT_AGENT_AVATAR_FILE: &str = "default-agent-logo.png";
+
+/// Ensure the brand logo exists at `~/.hope-agent/avatars/default-agent-logo.png`
+/// and return its absolute path. Idempotent: subsequent calls only stat the file.
+fn ensure_default_avatar() -> Result<std::path::PathBuf> {
+    let dir = paths::avatars_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(DEFAULT_AGENT_AVATAR_FILE);
+    if !path.exists() {
+        std::fs::write(&path, DEFAULT_AGENT_LOGO_BYTES)
+            .with_context(|| format!("Failed to write default agent logo to {}", path.display()))?;
+    }
+    Ok(path)
 }
 
 // ── Ensure Default Agent ─────────────────────────────────────────
 
 /// Create the default agent directory and files if they don't exist.
-/// Called on app startup.
+/// Called on app startup. Also backfills the avatar field for existing
+/// pre-brand installs whose agent.json still has `avatar: null`.
 pub fn ensure_default_agent() -> Result<()> {
     let dir = paths::agent_dir(DEFAULT_AGENT_ID)?;
     let config_path = dir.join("agent.json");
 
+    let avatar_path = ensure_default_avatar()?;
+    let avatar_str = avatar_path.to_string_lossy().to_string();
+
     if config_path.exists() {
+        // Backfill avatar for existing installs that predate the logo default.
+        if let Ok(data) = std::fs::read_to_string(&config_path) {
+            if let Ok(mut config) = serde_json::from_str::<AgentConfig>(&data) {
+                if config.avatar.is_none() {
+                    config.avatar = Some(avatar_str);
+                    let json = serde_json::to_string_pretty(&config)?;
+                    std::fs::write(&config_path, json)?;
+                }
+            }
+        }
         return Ok(());
     }
 
@@ -203,7 +238,7 @@ pub fn ensure_default_agent() -> Result<()> {
     let locale = detect_system_locale();
 
     // Write agent.json
-    let config = default_agent_json(&locale);
+    let config = default_agent_json(&locale, Some(avatar_str));
     let json = serde_json::to_string_pretty(&config)?;
     std::fs::write(&config_path, json)?;
 
