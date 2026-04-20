@@ -180,6 +180,23 @@ fn run_acp_server(args: &[String]) {
         eprintln!("[acp] Protocol: NDJSON over stdio");
     }
 
+    // Hard-fail early if onboarding hasn't happened yet. ACP stdio IS the
+    // protocol channel — we can't prompt here, so direct the user to the
+    // Web GUI / desktop / `server setup` instead of silently running with
+    // no provider and producing opaque failures later.
+    match ha_core::onboarding::state::get_state() {
+        Ok(s) if s.completed_version < ha_core::onboarding::CURRENT_ONBOARDING_VERSION => {
+            eprintln!("ERROR: Hope Agent is not configured yet.");
+            eprintln!("       Run 'hope-agent server setup' interactively,");
+            eprintln!("       or launch the desktop app to finish first-run setup.");
+            std::process::exit(2);
+        }
+        Err(e) => {
+            eprintln!("[acp] Warning: failed to read onboarding state: {}", e);
+        }
+        _ => {}
+    }
+
     // Initialize SessionDB
     let db_path = match app_lib::session::db_path() {
         Ok(p) => p,
@@ -242,6 +259,9 @@ fn run_server(args: &[String]) {
                 }
                 return;
             }
+            "setup" => {
+                return run_server_setup(&args[1..]);
+            }
             _ => {} // Fall through to normal arg parsing
         }
     }
@@ -258,6 +278,7 @@ fn run_server(args: &[String]) {
         println!("  uninstall                         Uninstall the system service");
         println!("  status                            Show service status");
         println!("  stop                              Stop the running server");
+        println!("  setup [--reset]                   Run the interactive first-run wizard");
         println!();
         println!("Options:");
         println!("  --bind, -b ADDR                   Bind address (default: 127.0.0.1:8420)");
@@ -278,6 +299,28 @@ fn run_server(args: &[String]) {
     if let Err(e) = ha_core::paths::ensure_dirs() {
         eprintln!("[server] Failed to initialize data directories: {}", e);
         std::process::exit(1);
+    }
+
+    // Onboarding status: when the wizard hasn't run yet, walk the user
+    // through it interactively on a real TTY. Headless launches (systemd,
+    // Docker, piped stdin) fall back to printing a notice that points at
+    // the Web GUI — the service still starts with defaults so ops-style
+    // deployments aren't blocked on human input.
+    match ha_core::onboarding::state::get_state() {
+        Ok(state) if state.completed_version < ha_core::onboarding::CURRENT_ONBOARDING_VERSION => {
+            use std::io::IsTerminal;
+            if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
+                if let Err(e) = app_lib::cli_onboarding::run_wizard() {
+                    eprintln!("[server] Wizard aborted: {}. Continuing with defaults.", e);
+                }
+            } else {
+                ha_server::banner::print_unconfigured_notice(&bind_addr);
+            }
+        }
+        Err(e) => {
+            eprintln!("[server] Warning: failed to read onboarding state: {}", e);
+        }
+        _ => {}
     }
     if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
         eprintln!("[server] Warning: failed to ensure default agent: {}", e);
@@ -412,5 +455,51 @@ fn run_server_install(args: &[String]) {
             eprintln!("Failed to install service: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+/// Handle `hope-agent server setup [--reset]` — runs the interactive
+/// first-run wizard without starting the HTTP server afterwards. Useful
+/// for admins preparing a fresh install before flipping on `server start`.
+fn run_server_setup(args: &[String]) {
+    let mut reset = false;
+    for a in args {
+        match a.as_str() {
+            "--reset" => reset = true,
+            "--help" | "-h" => {
+                println!("Run the first-run onboarding wizard interactively.");
+                println!();
+                println!("Usage: hope-agent server setup [--reset]");
+                println!();
+                println!("Options:");
+                println!("  --reset    Clear the existing onboarding state first");
+                println!("             (providers / user config are NOT deleted).");
+                return;
+            }
+            _ => {
+                eprintln!("[server setup] Unknown argument: {}", a);
+            }
+        }
+    }
+
+    if let Err(e) = ha_core::paths::ensure_dirs() {
+        eprintln!(
+            "[server setup] Failed to initialize data directories: {}",
+            e
+        );
+        std::process::exit(1);
+    }
+
+    if reset {
+        if let Err(e) = ha_core::onboarding::state::reset() {
+            eprintln!("[server setup] Failed to reset onboarding state: {}", e);
+            std::process::exit(1);
+        }
+        println!("  Onboarding state cleared — running the wizard again.");
+    }
+
+    if let Err(e) = app_lib::cli_onboarding::run_wizard() {
+        eprintln!("[server setup] Wizard failed: {}", e);
+        std::process::exit(1);
     }
 }

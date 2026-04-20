@@ -81,6 +81,7 @@ openssl = "0.10"
 axum = "0.8"
 hmac = "0.12"
 jsonwebtoken = "9"
+rpassword = "7"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", features = ["std"] }

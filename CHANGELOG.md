@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **首次启动引导向导 — 后端基础设施(PR 1/3)**：新增 `AppConfig.onboarding` 字段与 `ha-core::onboarding` 模块(state / apply / presets)承载完成版本号、草稿恢复与跨 GUI/CLI 共享的数据写入逻辑;新增 Tauri 命令 `get_onboarding_state` / `save_onboarding_draft` / `mark_onboarding_completed` / `mark_onboarding_skipped` / `reset_onboarding` / `apply_onboarding_language|profile|safety|skills|server` / `apply_personality_preset_cmd` / `generate_api_key` / `list_local_ips`,HTTP 端点 `/api/onboarding/*` + `/api/server/generate-api-key` + `/api/server/local-ips` 对齐相同语义,供桌面端和浏览器端共用。数据写入仍走 `ha-core::config::save_config` / `save_user_config_to_disk`,自动产生 `onboarding/<step>` 打标签的快照,可在设置 → 备份中回滚。存量用户的 "legacy completed" 推断:已有 providers 但无 onboarding 字段时视为已完成 v1(读时推断,不落盘)。
+- **Web GUI 静态资源托管**:`ha-server` 新增 `web_assets.rs` + `rust-embed`,`build_router_with_cors` 附加 `fallback_service` 后可让 `http://host:port/` 在浏览器中直接加载 Vite 构建产物。解析顺序:`HA_WEB_ROOT` 环境变量覆盖(开发模式热更新)→ 二进制内嵌 → 回退诊断页。新增占位 `dist/` 目录(含 `.gitignore` 白名单)让 fresh clone 也能编译,`npm run build` 会覆盖为真正的前端。
+- **启动 Banner**:所有模式(GUI embedded server / `hope-agent server start`)共享 `ha_server::banner::print_launch_banner`,在 `start_server` bind 成功后统一打印 Web GUI URL + API endpoint + API Key(若设置)+ LAN 可达 IP(通过 `local-ip-address` 解析,限 3 条),方便用户跨设备访问。`print_unconfigured_notice` 在 CLI 非 TTY 场景下(systemd / Docker)提示用户用浏览器完成引导。
+- 小改:`ha-core::agent_loader::DEFAULT_AGENT_ID` 从 private 常量改为 `pub`,让 onboarding apply 路径可直接定位默认 Agent 目录写入人格预设,无需额外 helper。
+- **首次启动引导向导 — GUI Wizard(PR 2/3)**:`src/components/onboarding/` 新增完整 9 步 React 向导(Welcome+语言 / Provider / Profile / Personality / Safety / Skills / Server / Channels / Summary),StepIndicator 进度条区分"已完成/已跳过/当前/未来",NavigationFooter 统一 Back/Skip/Next 按钮,Provider 步 Skip 按钮标红 + AlertDialog 二次确认。中途退出顶部 X 持久化 draft + step,下次启动自动恢复。Summary 页聚合 Web GUI URL(自动带 `?token=`)+ LAN IP + QR 方便手机访问。App.tsx 入口改读 `get_onboarding_state()` 路由到 `onboarding` view;存量用户被 `infer_legacy_completed` 推断为已完成 v1 不打扰。设置 → 通用 → 系统 Tab 新增"重新运行引导向导"按钮,12 种语言补齐 `onboarding.*` 命名空间(en/zh 原生 + 其余 placeholder),`sync-i18n --check` 全绿。
+- **首次启动引导向导 — CLI Wizard(PR 3/3)**:`src-tauri/src/cli_onboarding/` 新增 9 步 TTY wizard,`prompt.rs` 手搓 input / select / multiselect / confirm / password(rpassword)helpers 避免引入重量级 TUI 依赖。`hope-agent server start` 首次启动检测 `std::io::IsTerminal`:是 TTY 就运行完整交互 wizard,非 TTY(systemd / Docker / pipe)打印 "unconfigured notice" 并带默认配置启动,引导用户在 Web GUI 完成。新增 `hope-agent server setup [--reset]` 子命令让管理员在装服务前单独跑 wizard。`hope-agent acp` 模式下 onboarding 未完成时 hard-fail + 非零退出码,保护 NDJSON 协议流不被人类提示污染。每个 step 通过 `ha_core::onboarding::apply::*` 复用 GUI wizard 的持久化路径,行为严格一致。
+
 ## [0.1.0] - 2026-04-19
 
 首次公开发布。以下为 0.1.0 对外发布合并进来的全部改动。

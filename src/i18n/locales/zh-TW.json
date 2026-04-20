@@ -2379,5 +2379,163 @@
     "bannerBoth": "危險模式已啟用（CLI + 設定）—— 所有工具呼叫跳過審批",
     "bannerCli": "危險模式已啟用（CLI 啟動）—— 重新啟動應用且不帶 --dangerously-skip-all-approvals 即可關閉",
     "bannerConfig": "危險模式已啟用 —— 所有工具呼叫跳過審批。請至 設定 → 安全 關閉"
+  },
+  "onboarding": {
+    "welcome": {
+      "title": "欢迎使用 Hope Agent",
+      "subtitle": "一款从你的日常工作中学习的本地 AI 助手。下面是一个简短的引导——除了选择模型,其它每一步都可以跳过。",
+      "languageLabel": "界面语言",
+      "autoLanguage": "跟随系统",
+      "languageHint": "当前显示:{{current}}"
+    },
+    "provider": {
+      "title": "选择模型服务商",
+      "subtitle": "接入已有 API Key(OpenAI / Anthropic / DeepSeek 等)或运行本地模型。之后可以在设置中修改或添加。"
+    },
+    "profile": {
+      "title": "告诉 AI 一些关于你的基础信息",
+      "subtitle": "所有字段可选。填写后 AI 会用更合适的方式称呼和回应你。",
+      "name": "昵称",
+      "namePlaceholder": "例如:小明",
+      "timezone": "时区",
+      "experience": {
+        "label": "你使用 AI 助手的熟练程度",
+        "beginner": "初学者",
+        "intermediate": "一般",
+        "expert": "熟练"
+      },
+      "style": {
+        "label": "偏好的回复风格",
+        "concise": "简洁",
+        "balanced": "均衡",
+        "detailed": "详细"
+      }
+    },
+    "personality": {
+      "title": "选择一个默认人格",
+      "subtitle": "为默认 Agent 挑一个起点。日后可在 设置 → Agent 面板精调或更换。",
+      "presets": {
+        "default": {
+          "name": "默认助手",
+          "desc": "平衡、中性、清晰简洁——可靠的通用型助手。"
+        },
+        "engineer": {
+          "name": "专业工程师",
+          "desc": "严谨、技术化,偏好精确的证据和代码优先的回答。"
+        },
+        "creative": {
+          "name": "创意伙伴",
+          "desc": "发散、生动,适合写作、头脑风暴和丰富的示例。"
+        },
+        "companion": {
+          "name": "友好陪伴",
+          "desc": "温暖自然的口语化表达,像朋友而不是知识库。"
+        }
+      }
+    },
+    "safety": {
+      "title": "工具审批保障你的控制权",
+      "subtitle": "默认情况下,Hope Agent 在执行命令或修改文件前会先征求你的同意。",
+      "point1": {
+        "title": "审批闸门",
+        "desc": "任何可能触及系统的工具调用都会等待你的 \"同意\" 确认。"
+      },
+      "point2": {
+        "title": "随时可调",
+        "desc": "可在 设置 → 安全 中修改超时时间或开启 per-channel 自动批准。"
+      },
+      "toggle": "需要审批",
+      "toggleHint": "关闭后工具调用将不再弹窗——不推荐。",
+      "dangerousHint": "最高权限模式(跳过所有审批)在 设置 → 安全 中提供,需要显式确认才能开启。"
+    },
+    "skills": {
+      "title": "内置技能",
+      "subtitle": "以下是随应用发布的技能。取消勾选你不想让 AI 使用的项。",
+      "empty": "当前构建未发现可选技能。"
+    },
+    "server": {
+      "title": "你想如何使用 Hope Agent?",
+      "subtitle": "内嵌 HTTP 服务让你在任意浏览器里打开同一个 App。",
+      "local": "仅本机",
+      "localHint": "绑定 127.0.0.1:8420,默认且安全。",
+      "lan": "同一局域网",
+      "lanHint": "绑定 0.0.0.0:8420,建议开启 API Key。",
+      "apiKeyLabel": "启用 API Key 保护",
+      "apiKeyHint": "开启后 Web GUI URL 会带 ?token=...,在受信客户端点击即可自动登录。",
+      "generate": "生成",
+      "previewLabel": "Web GUI 地址",
+      "copy": "复制",
+      "copied": "已复制",
+      "restartHint": "绑定地址的变更将在下次重启生效。"
+    },
+    "channels": {
+      "title": "接入 IM 渠道(可选)",
+      "subtitle": "从 Telegram / Slack / 微信 等聊天软件和 Hope Agent 对话。点击任意一个跳转到完整配置。",
+      "hint": "日后可在 设置 → 渠道 里随时接入。",
+      "macOnly": "仅 macOS",
+      "items": {
+        "telegram": "Telegram",
+        "discord": "Discord",
+        "slack": "Slack",
+        "feishu": "飞书",
+        "googleChat": "Google Chat",
+        "line": "LINE",
+        "qqbot": "QQ Bot",
+        "whatsapp": "WhatsApp",
+        "wechat": "微信",
+        "signal": "Signal",
+        "irc": "IRC",
+        "imessage": "iMessage",
+        "email": "邮箱"
+      },
+      "configureInSettings": "在设置中配置渠道"
+    },
+    "summary": {
+      "title": "完成 🎉",
+      "subtitle": "下面是你刚配置的内容概览,可以随时在设置中回看和修改。",
+      "items": {
+        "language": "语言",
+        "provider": "模型服务商",
+        "profile": "个人资料",
+        "personality": "人格",
+        "safety": "工具审批",
+        "skills": "技能",
+        "server": "访问模式",
+        "channels": "IM 渠道"
+      },
+      "skipped": "已跳过",
+      "providerDone": "已配置",
+      "channelsDone": "已配置",
+      "approvalsOn": "需要审批",
+      "approvalsOff": "自动放行",
+      "skillsDisabled": "已禁用 {{n}} 项",
+      "webUrlLabel": "Web 地址",
+      "openWeb": "在浏览器中打开",
+      "copyKey": "复制 Key",
+      "webHint": "在手机、平板或其他电脑的浏览器中打开该 URL 即可获得完整 GUI 体验。",
+      "startButton": "开始使用"
+    },
+    "stepIndicator": "第 {{current}} / {{total}} 步",
+    "nav": {
+      "back": "上一步",
+      "skip": "跳过",
+      "skipAnyway": "确认跳过",
+      "skipConfirmTitle": "跳过此步?",
+      "skipDanger": "未配置模型将无法对话。你仍可以稍后在设置中完成。",
+      "next": "下一步",
+      "finish": "完成",
+      "exit": "退出"
+    },
+    "exit": {
+      "title": "退出引导?",
+      "desc": "已填写的内容会保留,下次启动从当前步骤继续。",
+      "confirm": "稍后再配置"
+    },
+    "rerun": {
+      "title": "重新运行首次启动引导",
+      "desc": "当前配置不会丢失。重新加载后会引导你再次走一遍每一步。",
+      "button": "重新运行引导向导",
+      "confirm": "重新运行"
+    }
   }
 }

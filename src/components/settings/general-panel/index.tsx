@@ -5,6 +5,7 @@ import LanguageSection from "./LanguageSection"
 import { AutostartToggle, UiEffectsToggle } from "./SystemSection"
 import ShortcutSection from "./ShortcutSection"
 import ProxySection from "./ProxySection"
+import OnboardingResetSection from "./OnboardingResetSection"
 
 export default function GeneralPanel() {
   const { t } = useTranslation()
@@ -34,6 +35,7 @@ export default function GeneralPanel() {
           <div className="w-full space-y-8 pt-4">
             <AutostartToggle />
             <ShortcutSection />
+            <OnboardingResetSection />
           </div>
         </TabsContent>
 

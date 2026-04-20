@@ -326,6 +326,43 @@ impl Default for EmbeddedServerConfig {
     }
 }
 
+// ── Onboarding State ────────────────────────────────────────────
+
+/// Current onboarding wizard version. Bump this to force existing users
+/// through the wizard again after meaningful additions (new steps, new
+/// required fields, etc.).
+pub const CURRENT_ONBOARDING_VERSION: u32 = 1;
+
+/// First-run onboarding wizard state. Drives both the GUI wizard
+/// (`src/components/onboarding`) and the CLI wizard
+/// (`src-tauri/src/cli_onboarding`).
+///
+/// A user is considered "onboarded" when `completed_version >=
+/// CURRENT_ONBOARDING_VERSION`. `0` (the default) means never completed, so
+/// new installs land in the wizard. When a user quits mid-wizard, the
+/// front-end writes `draft` + `draft_step` so the next launch can resume.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OnboardingState {
+    /// Highest wizard version the user has finished. `0` = never completed.
+    #[serde(default)]
+    pub completed_version: u32,
+    /// ISO 8601 timestamp of the most recent completion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
+    /// Step keys the user explicitly skipped in the most recent run.
+    #[serde(default)]
+    pub skipped_steps: Vec<String>,
+    /// Partially-filled draft captured when the user exits mid-wizard.
+    /// The shape is an opaque JSON object owned by the front-end; the
+    /// backend only persists and returns it verbatim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub draft: Option<serde_json::Value>,
+    /// Step index (0-based) the user was on when they exited.
+    #[serde(default)]
+    pub draft_step: u32,
+}
+
 // ── App Config ──────────────────────────────────────────────────
 
 /// Root structure for the application's persisted configuration (`config.json`).
@@ -542,6 +579,10 @@ pub struct AppConfig {
     /// for fully-trusted local automation; do not enable on shared machines.
     #[serde(default)]
     pub dangerous_skip_all_approvals: bool,
+
+    /// First-run onboarding wizard state. See [`OnboardingState`].
+    #[serde(default)]
+    pub onboarding: OnboardingState,
 }
 
 impl Default for AppConfig {
@@ -601,6 +642,7 @@ impl Default for AppConfig {
             recall_summary: crate::memory::RecallSummaryConfig::default(),
             tool_call_narration_enabled: false,
             dangerous_skip_all_approvals: false,
+            onboarding: OnboardingState::default(),
         }
     }
 }

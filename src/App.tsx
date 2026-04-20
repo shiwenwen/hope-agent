@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react"
+import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
@@ -8,6 +9,8 @@ import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
+import OnboardingWizard from "@/components/onboarding"
+import { CURRENT_ONBOARDING_VERSION } from "@/components/onboarding/version"
 import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
 import StarrySky from "@/components/common/StarrySky"
@@ -18,8 +21,9 @@ const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
 
 export default function App() {
+  const { i18n } = useTranslation()
   const [view, setView] = useState<
-    "loading" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
+    "loading" | "onboarding" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
@@ -89,6 +93,18 @@ export default function App() {
         await initLanguageFromConfig()
         const avatar = await fetchUserAvatar()
         setUserAvatar(avatar)
+        // Decide initial view in this order:
+        //   1. Onboarding wizard outstanding → "onboarding"
+        //   2. Prior session restorable → "chat"
+        //   3. Has a provider configured (legacy users) → "chat"
+        //   4. Otherwise → "setup" (the old provider-only fallback)
+        const onboarding = await getTransport()
+          .call<{ completedVersion?: number }>("get_onboarding_state")
+          .catch(() => ({ completedVersion: 0 }))
+        if ((onboarding.completedVersion ?? 0) < CURRENT_ONBOARDING_VERSION) {
+          setView("onboarding")
+          return
+        }
         const restored = await getTransport().call<boolean>("try_restore_session")
         if (restored) {
           setView("chat")
@@ -134,6 +150,23 @@ export default function App() {
         <StarrySky />
         <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
       </div>
+    )
+  }
+
+  if (view === "onboarding") {
+    return (
+      <TooltipProvider>
+        <div className="flex flex-col h-screen overflow-y-auto">
+          <StarrySky />
+          <DangerousModeBanner />
+          <OnboardingWizard
+            onComplete={() => setView("chat")}
+            onJumpToChannelsSettings={() => setView("channels")}
+            onCodexAuth={handleCodexAuth}
+            initialLanguage={i18n.language || ""}
+          />
+        </div>
+      </TooltipProvider>
     )
   }
 
