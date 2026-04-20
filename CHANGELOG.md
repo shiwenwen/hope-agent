@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Agent 人格面板"语气风格"按钮点完变英文 + 改为多选追加**：[PersonalityTab.tsx](src/components/settings/agent-panel/tabs/PersonalityTab.tsx) 的 TONE_PRESETS 按钮原先把英文 `preset.value`（`"formal"` / `"casual"` / `"playful"` …）直接写入 `personality.tone`，中文用户点完"活泼"后下方 textarea 显示 `playful`，视觉不一致；且每次点击替换整个字段，无法组合多个标签。现在改为：(1) 点击写入按钮的本地化 label（`t(preset.labelKey)`）；(2) `tone` 字段按逗号（英文 `,` 或中文 `，`）切分成标签列表，点击即在列表里 toggle 该标签（已在就移除、不在就追加，重新以 `", "` 拼接）；(3) 选中态同时兼容"当前本地化值"和"旧英文值"，存量配置的选中态不丢；(4) 空列表回落为 `null`。用户现在可以叠选"活泼 + 温暖"成 `活泼, 温暖`，自由在 textarea 继续追加自定义形容词。
+- **引导向导 Default 人格预设残留英文**：[presets.rs](crates/ha-core/src/onboarding/presets.rs) 的 `PersonalityPreset::Default` 原本往 `role/vibe/tone/communication_style` 硬写英文字面量（`"General AI assistant"` / `"balanced"` / `"neutral"` / `"clear and concise"`），中文用户完成引导后在设置 → Agent → 人格中就看到一串英文 textarea。现在 Default 预设只保留 `PersonaMode::Structured`，其余字段全部留空——身份信息已由 Agent 的 name/description/agent.md 模板承载，这里强行塞字面量只会噪声化系统提示词并让 UI 看起来像未翻译。Engineer / Creative / Companion 三个更有主张的预设保留英文描述（在英语系统提示词里精度最高），用户可在引导后任意编辑。存量用户要清空英文字段请在设置 → Agent → 人格里手动删除。
+
 ### Removed
 
 - **移除 `AgentConfig.use_custom_prompt` 字段**：该"自定义模式"在前端从未暴露开关，代码里唯一会被置 `true` 的路径是 OpenClaw 导入，而 `openclaw_mode: true` 的优先级又高于它，所以分支实际永远不走。相应去掉 `system_prompt::build` 里的自定义模式分支（Identity + APP_INTRO + agent.md + persona.md）、`openclaw_import.rs` 死赋值、前端 `AgentConfig.useCustomPrompt` 类型与两处 `: false` 初始化。结构化模式下 agent.md 继续作为"补充说明"注入。旧 `agent.json` 里残留的 `useCustomPrompt` 字段 serde 静默忽略。同步更新 `docs/architecture/prompt-system.md` 从"三种组装模式"收敛为"两种"。

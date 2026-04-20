@@ -28,12 +28,12 @@ impl PersonalityPreset {
 
     pub fn to_config(self) -> PersonalityConfig {
         match self {
+            // Default 预设有意留空所有描述字段：身份信息已经由
+            // Agent 的 name / description / agent.md 模板承载，不再让引导向导
+            // 往 personality 里写死英文字面量，避免被注入系统提示词和设置 UI
+            // 的 textarea 里显示给 Chinese / 其他非英语用户时显得突兀。
             PersonalityPreset::Default => PersonalityConfig {
                 mode: PersonaMode::Structured,
-                role: Some("General AI assistant".into()),
-                vibe: Some("balanced".into()),
-                tone: Some("neutral".into()),
-                communication_style: Some("clear and concise".into()),
                 ..PersonalityConfig::default()
             },
             PersonalityPreset::Engineer => PersonalityConfig {

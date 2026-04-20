@@ -176,25 +176,47 @@ export default function PersonalityTab({
             {t("settings.agentTone")}
           </div>
           <div className="flex flex-wrap gap-1.5 mb-2">
-            {TONE_PRESETS.map((preset) => (
-              <button
-                key={preset.value}
-    
-                className={cn(
-                  "px-2.5 py-1.5 text-xs rounded-md transition-colors",
-                  config.personality.tone === preset.value
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "bg-secondary/30 text-foreground hover:bg-secondary/60",
-                )}
-                onClick={() =>
-                  updatePersonality({
-                    tone: config.personality.tone === preset.value ? null : preset.value,
-                  })
-                }
-              >
-                {t(preset.labelKey)}
-              </button>
-            ))}
+            {TONE_PRESETS.map((preset) => {
+              const label = t(preset.labelKey)
+              // Tone is stored as a comma-joined free-form string so users can
+              // combine presets + custom adjectives. Parse on both English and
+              // Chinese commas for robustness; split/join is the same separator
+              // we use when writing back ("preset-A, preset-B").
+              const parts = (config.personality.tone ?? "")
+                .split(/[,，]/)
+                .map((s) => s.trim())
+                .filter(Boolean)
+              // Match localized label OR legacy English `preset.value`, so
+              // existing configs authored before localization still light up.
+              const matchIdx = parts.findIndex(
+                (p) => p === label || p === preset.value,
+              )
+              const isSelected = matchIdx >= 0
+              return (
+                <button
+                  key={preset.value}
+                  className={cn(
+                    "px-2.5 py-1.5 text-xs rounded-md transition-colors",
+                    isSelected
+                      ? "bg-primary/10 text-primary font-medium"
+                      : "bg-secondary/30 text-foreground hover:bg-secondary/60",
+                  )}
+                  onClick={() => {
+                    const next = [...parts]
+                    if (isSelected) {
+                      next.splice(matchIdx, 1)
+                    } else {
+                      next.push(label)
+                    }
+                    updatePersonality({
+                      tone: next.length > 0 ? next.join(", ") : null,
+                    })
+                  }}
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
           <Textarea
             className="bg-secondary/40 rounded-lg resize-y leading-relaxed min-h-[60px]"
