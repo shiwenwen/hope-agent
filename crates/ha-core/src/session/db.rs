@@ -760,10 +760,13 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
+        // Unread only counts final `assistant` rows — tool / text_block /
+        // thinking_block / event rows are artifacts of the same turn and would
+        // inflate the badge (one question with N tool calls would read as 2N+).
         let base_sql = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                         s.created_at, s.updated_at,
                         (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role != 'user') as unread_count,
+                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
                         s.is_cron,
                         s.parent_session_id,
                         s.plan_mode,
@@ -1473,7 +1476,7 @@ impl SessionDB {
             "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
                     s.created_at, s.updated_at,
                     (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role != 'user') as unread_count,
+                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
                     s.is_cron,
                     s.parent_session_id,
                     s.plan_mode,
