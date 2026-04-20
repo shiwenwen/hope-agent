@@ -44,12 +44,14 @@ jobs:
       # is pre-installed on windows-latest runners; this avoids the
       # Node-20 deprecation on ilammy/setup-nasm (upstream has not
       # migrated — see ilammy/setup-nasm#45).
+      #
+      # community.chocolatey.org occasionally returns HTTP 499 on the V2
+      # feed, so retry with backoff and fall back to the official NASM
+      # Windows archive before giving up.
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          choco install nasm -y --no-progress
-          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: ./.github/scripts/install-nasm-windows.ps1
 
       # xcap pulls in wayland-sys (via libwayshot-xcap) and libspa-sys
       # (via its pipewire screen-capture path) on Linux. Ubuntu runners
@@ -91,9 +93,7 @@ jobs:
       - name: Install NASM (Windows only)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          choco install nasm -y --no-progress
-          "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        run: ./.github/scripts/install-nasm-windows.ps1
 
       - name: Install Linux system deps
         if: runner.os == 'Linux'
