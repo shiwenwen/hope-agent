@@ -201,7 +201,6 @@ export interface AgentConfig {
     tools: { allow: string[]; deny: string[] }
     skills: { allow: string[]; deny: string[] }
   }
-  useCustomPrompt: boolean
   openclawMode: boolean
   notifyOnComplete?: boolean | null
   memory?: AgentMemoryConfig

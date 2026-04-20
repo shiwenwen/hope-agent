@@ -262,7 +262,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
         }
       }),
     )
-    updateConfig({ openclawMode: true, useCustomPrompt: false })
+    updateConfig({ openclawMode: true })
   }
 
   if (!config) {

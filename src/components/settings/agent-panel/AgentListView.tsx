@@ -53,7 +53,6 @@ function AgentCreateView({
           tools: { allow: [], deny: [] },
           skills: { allow: [], deny: [] },
         },
-        useCustomPrompt: false,
         openclawMode: false,
         subagents: {
           enabled: true,

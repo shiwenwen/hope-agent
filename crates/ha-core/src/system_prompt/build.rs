@@ -91,33 +91,6 @@ pub fn build(
         if has_soul {
             sections.push(SOUL_EMBODIMENT_GUIDANCE.to_string());
         }
-    } else if definition.config.use_custom_prompt {
-        // ── Custom prompt mode: use markdown files directly, skip structured config ──
-
-        // Minimal identity line
-        sections.push(format!(
-            "You are {}, running in Hope Agent on {} {}.",
-            definition.config.name, os, arch
-        ));
-        sections.push(APP_INTRO.to_string());
-
-        // agent.md — custom identity / instructions
-        if let Some(md) = definition
-            .agent_md
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            sections.push(truncate(md, MAX_FILE_CHARS));
-        }
-
-        // persona.md — custom personality
-        if let Some(persona) = definition
-            .persona
-            .as_deref()
-            .filter(|s| !s.trim().is_empty())
-        {
-            sections.push(truncate(persona, MAX_FILE_CHARS));
-        }
     } else {
         // ── Structured mode: assemble from config fields + optional supplements ──
 
@@ -352,7 +325,6 @@ pub fn build(
                     "section_count": section_lengths.len(),
                     "section_lengths": section_lengths,
                     "agent_name": &definition.config.name,
-                    "custom_prompt_mode": definition.config.use_custom_prompt,
                     "openclaw_mode": definition.config.openclaw_mode,
                 })
                 .to_string(),

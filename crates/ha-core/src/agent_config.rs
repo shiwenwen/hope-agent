@@ -40,10 +40,6 @@ pub struct AgentConfig {
     #[serde(default)]
     pub memory: MemoryConfig,
 
-    /// If true, use custom markdown prompts instead of structured config
-    #[serde(default)]
-    pub use_custom_prompt: bool,
-
     /// If true, use the 4-file markdown prompt mode
     /// (AGENTS.md, IDENTITY.md, SOUL.md, TOOLS.md)
     #[serde(default)]
@@ -81,7 +77,6 @@ impl Default for AgentConfig {
             personality: PersonalityConfig::default(),
             capabilities: CapabilitiesConfig::default(),
             memory: MemoryConfig::default(),
-            use_custom_prompt: false,
             openclaw_mode: false,
             notify_on_complete: None,
             subagents: SubagentConfig::default(),

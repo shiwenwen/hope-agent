@@ -376,7 +376,6 @@ fn import_single_agent(source: &OpenClawAgent, req: &ImportAgentRequest) -> Resu
             skills,
             ..Default::default()
         },
-        use_custom_prompt: source.system_prompt_override.is_some(),
         openclaw_mode: true,
         subagents: crate::agent_config::SubagentConfig {
             enabled: has_subagents,

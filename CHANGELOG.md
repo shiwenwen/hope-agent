@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **移除 `AgentConfig.use_custom_prompt` 字段**：该"自定义模式"在前端从未暴露开关，代码里唯一会被置 `true` 的路径是 OpenClaw 导入，而 `openclaw_mode: true` 的优先级又高于它，所以分支实际永远不走。相应去掉 `system_prompt::build` 里的自定义模式分支（Identity + APP_INTRO + agent.md + persona.md）、`openclaw_import.rs` 死赋值、前端 `AgentConfig.useCustomPrompt` 类型与两处 `: false` 初始化。结构化模式下 agent.md 继续作为"补充说明"注入。旧 `agent.json` 里残留的 `useCustomPrompt` 字段 serde 静默忽略。同步更新 `docs/architecture/prompt-system.md` 从"三种组装模式"收敛为"两种"。
+
 ### Added
 
 - **首次启动引导向导 — 后端基础设施(PR 1/3)**：新增 `AppConfig.onboarding` 字段与 `ha-core::onboarding` 模块(state / apply / presets)承载完成版本号、草稿恢复与跨 GUI/CLI 共享的数据写入逻辑;新增 Tauri 命令 `get_onboarding_state` / `save_onboarding_draft` / `mark_onboarding_completed` / `mark_onboarding_skipped` / `reset_onboarding` / `apply_onboarding_language|profile|safety|skills|server` / `apply_personality_preset_cmd` / `generate_api_key` / `list_local_ips`,HTTP 端点 `/api/onboarding/*` + `/api/server/generate-api-key` + `/api/server/local-ips` 对齐相同语义,供桌面端和浏览器端共用。数据写入仍走 `ha-core::config::save_config` / `save_user_config_to_disk`,自动产生 `onboarding/<step>` 打标签的快照,可在设置 → 备份中回滚。存量用户的 "legacy completed" 推断:已有 providers 但无 onboarding 字段时视为已完成 v1(读时推断,不落盘)。

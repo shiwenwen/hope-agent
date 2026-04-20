@@ -35,7 +35,7 @@
 
 ## 概述
 
-Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。支持三种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**自定义模式**（自由 Markdown）、**OpenClaw 兼容模式**（4 文件配置）。
+Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。支持两种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**OpenClaw 兼容模式**（4 文件配置）。
 
 ```mermaid
 graph TD
@@ -55,17 +55,14 @@ graph TD
     S11 --> S12
 ```
 
-**三种组装模式**：
+**两种组装模式**：
 
 ```mermaid
 graph LR
     CFG["AgentConfig"] --> C1{"openclaw_mode?"}
     C1 -- Yes --> OC["OpenClaw 模式: # Project Context AGENTS.md → SOUL.md → IDENTITY.md → TOOLS.md"]
-    C1 -- No --> C2{"use_custom_prompt?"}
-    C2 -- Yes --> CP["自定义模式: agent.md + persona.md"]
-    C2 -- No --> ST["结构化模式: PersonalityConfig 字段组装"]
+    C1 -- No --> ST["结构化模式: PersonalityConfig 字段组装 + agent.md/persona.md 补充"]
     OC --> REST["④~⑬ 共享段 (User/Tools/Skills/Memory/Runtime...)"]
-    CP --> REST
     ST --> REST
 ```
 
@@ -112,18 +109,18 @@ graph LR
 
 **代码位置**：`crates/ha-core/src/system_prompt/build.rs` — `pub fn build()`
 
-### 三种组装模式
+### 两种组装模式
 
-`build()` 函数根据 `config.openclaw_mode` 和 `config.use_custom_prompt` 选择组装模式，三者互斥，优先级：OpenClaw > 自定义 > 结构化。
+`build()` 函数根据 `config.openclaw_mode` 选择组装模式，二者互斥，优先级：OpenClaw > 结构化。
 
-|               | 结构化模式（默认）                          | 自定义模式                        | OpenClaw 兼容模式                 |
-| ------------- | ------------------------------------------- | --------------------------------- | --------------------------------- |
-| 触发条件      | 默认                                        | `use_custom_prompt: true`         | `openclaw_mode: true`             |
-| Identity 行   | `"You are {name}, a {role}, running on..."` | `"You are {name}, running on..."` | `"You are {name}, running on..."` |
-| Personality   | `PersonalityConfig` 字段组装                | 跳过                              | 跳过                              |
-| agent.md      | 补充说明                                    | 主要 identity                     | 不使用                            |
-| persona.md    | 补充个性                                    | 主要个性                          | 不使用                            |
-| OpenClaw 文件 | —                                           | —                                 | `# Project Context` 段注入        |
+|               | 结构化模式（默认）                          | OpenClaw 兼容模式                 |
+| ------------- | ------------------------------------------- | --------------------------------- |
+| 触发条件      | 默认                                        | `openclaw_mode: true`             |
+| Identity 行   | `"You are {name}, a {role}, running on..."` | `"You are {name}, running on..."` |
+| Personality   | `PersonalityConfig` 字段组装                | 跳过                              |
+| agent.md      | 补充说明                                    | 不使用                            |
+| persona.md    | 补充个性                                    | 不使用                            |
+| OpenClaw 文件 | —                                           | `# Project Context` 段注入        |
 
 #### OpenClaw 兼容模式
 
