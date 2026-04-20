@@ -64,51 +64,51 @@ struct DefaultMeta {
 fn default_meta(locale: &str) -> DefaultMeta {
     match locale {
         "zh" => DefaultMeta {
-            name: "助手",
+            name: "Hope",
             description: "通用 AI 助手",
         },
         "zh-TW" => DefaultMeta {
-            name: "助手",
+            name: "Hope",
             description: "通用 AI 助手",
         },
         "ja" => DefaultMeta {
-            name: "アシスタント",
+            name: "Hope",
             description: "汎用 AI アシスタント",
         },
         "ko" => DefaultMeta {
-            name: "어시스턴트",
+            name: "Hope",
             description: "범용 AI 어시스턴트",
         },
         "es" => DefaultMeta {
-            name: "Asistente",
+            name: "Hope",
             description: "Asistente de IA de propósito general",
         },
         "pt" => DefaultMeta {
-            name: "Assistente",
+            name: "Hope",
             description: "Assistente de IA de propósito geral",
         },
         "ru" => DefaultMeta {
-            name: "Ассистент",
+            name: "Hope",
             description: "Универсальный ИИ-ассистент",
         },
         "ar" => DefaultMeta {
-            name: "المساعد",
+            name: "Hope",
             description: "مساعد ذكاء اصطناعي متعدد الأغراض",
         },
         "tr" => DefaultMeta {
-            name: "Asistan",
+            name: "Hope",
             description: "Genel amaçlı yapay zeka asistanı",
         },
         "vi" => DefaultMeta {
-            name: "Trợ lý",
+            name: "Hope",
             description: "Trợ lý AI đa năng",
         },
         "ms" => DefaultMeta {
-            name: "Pembantu",
+            name: "Hope",
             description: "Pembantu AI pelbagai guna",
         },
         _ => DefaultMeta {
-            name: "Assistant",
+            name: "Hope",
             description: "General-purpose AI assistant",
         },
     }
