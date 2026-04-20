@@ -18,9 +18,11 @@ pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfi
 pub async fn save_web_search_config(
     config: tools::web_search::WebSearchConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.web_search = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("web_search", "settings-ui"), |store| {
+        store.web_search = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -31,9 +33,11 @@ pub async fn get_web_fetch_config() -> Result<tools::web_fetch::WebFetchConfig, 
 
 #[tauri::command]
 pub async fn save_web_fetch_config(config: tools::web_fetch::WebFetchConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.web_fetch = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("web_fetch", "settings-ui"), |store| {
+        store.web_fetch = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -44,10 +48,11 @@ pub async fn get_ssrf_config() -> Result<ha_core::security::ssrf::SsrfConfig, St
 
 #[tauri::command]
 pub async fn save_ssrf_config(config: ha_core::security::ssrf::SsrfConfig) -> Result<(), String> {
-    let _guard = ha_core::backup::scope_save_reason("security.ssrf", "settings-ui");
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.ssrf = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("security.ssrf", "settings-ui"), |store| {
+        store.ssrf = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -58,9 +63,11 @@ pub async fn get_compact_config() -> Result<context_compact::CompactConfig, Stri
 
 #[tauri::command]
 pub async fn save_compact_config(config: context_compact::CompactConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.compact = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("compact", "settings-ui"), |store| {
+        store.compact = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -73,9 +80,11 @@ pub async fn get_notification_config() -> Result<ha_core::config::NotificationCo
 pub async fn save_notification_config(
     config: ha_core::config::NotificationConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.notification = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("notification", "settings-ui"), |store| {
+        store.notification = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -90,9 +99,11 @@ pub async fn get_image_generate_config() -> Result<tools::image_generate::ImageG
 pub async fn save_image_generate_config(
     config: tools::image_generate::ImageGenConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.image_generate = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("image_generate", "settings-ui"), |store| {
+        store.image_generate = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// Core logic for manual context compaction. Usable from both Tauri commands
@@ -264,9 +275,11 @@ pub async fn save_shortcut_config(
         }
     }
 
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.shortcuts = config.clone();
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::mutate_config(("shortcuts", "settings-ui"), |store| {
+        store.shortcuts = config.clone();
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     // Clear any pending chord state
     crate::shortcuts::clear_chord_state();
@@ -335,9 +348,11 @@ pub async fn get_server_config() -> Result<serde_json::Value, String> {
 pub async fn save_server_config(
     config: ha_core::config::EmbeddedServerConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.server = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("server", "settings-ui"), |store| {
+        store.server = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Proxy ────────────────────────────────────────────────────────
@@ -350,9 +365,11 @@ pub async fn get_proxy_config() -> Result<provider::ProxyConfig, String> {
 
 #[tauri::command]
 pub async fn save_proxy_config(config: provider::ProxyConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.proxy = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("proxy", "settings-ui"), |store| {
+        store.proxy = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// Outbound proxy probe used by Settings → Proxy → "Test". Body lives in
@@ -373,9 +390,11 @@ pub async fn get_theme() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn set_theme(theme: String) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.theme = theme;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("theme", "settings-ui"), |store| {
+        store.theme = theme;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -386,9 +405,11 @@ pub async fn get_language() -> Result<String, String> {
 
 #[tauri::command]
 pub async fn set_language(language: String) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.language = language;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("language", "settings-ui"), |store| {
+        store.language = language;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -399,9 +420,11 @@ pub async fn get_ui_effects_enabled() -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn set_ui_effects_enabled(enabled: bool) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.ui_effects_enabled = enabled;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("ui_effects", "settings-ui"), |store| {
+        store.ui_effects_enabled = enabled;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -412,10 +435,11 @@ pub async fn get_tool_call_narration_enabled() -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn set_tool_call_narration_enabled(enabled: bool) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.tool_call_narration_enabled = enabled;
-    let _reason = ha_core::backup::scope_save_reason("tool_call_narration", "ui");
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("tool_call_narration", "settings-ui"), |store| {
+        store.tool_call_narration_enabled = enabled;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── User Config Commands ─────────────────────────────────────────
@@ -492,9 +516,11 @@ pub async fn get_tool_timeout() -> Result<u64, String> {
 
 #[tauri::command]
 pub async fn set_tool_timeout(seconds: u64) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.tool_timeout = seconds;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("tool_timeout", "settings-ui"), |store| {
+        store.tool_timeout = seconds;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -505,9 +531,11 @@ pub async fn get_approval_timeout() -> Result<u64, String> {
 
 #[tauri::command]
 pub async fn set_approval_timeout(seconds: u64) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.approval_timeout_secs = seconds;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("approval_timeout", "settings-ui"), |store| {
+        store.approval_timeout_secs = seconds;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -521,9 +549,11 @@ pub async fn get_approval_timeout_action() -> Result<ha_core::config::ApprovalTi
 pub async fn set_approval_timeout_action(
     action: ha_core::config::ApprovalTimeoutAction,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.approval_timeout_action = action;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("approval_timeout_action", "settings-ui"), |store| {
+        store.approval_timeout_action = action;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -534,9 +564,11 @@ pub async fn get_tool_result_disk_threshold() -> Result<usize, String> {
 
 #[tauri::command]
 pub async fn set_tool_result_disk_threshold(bytes: usize) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.tool_result_disk_threshold = if bytes == 0 { Some(0) } else { Some(bytes) };
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("tool_result_disk_threshold", "settings-ui"), |store| {
+        store.tool_result_disk_threshold = if bytes == 0 { Some(0) } else { Some(bytes) };
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Tool Limits ────────────────────────────────────────────────
@@ -561,11 +593,13 @@ pub async fn get_tool_limits() -> Result<ToolLimitsConfig, String> {
 
 #[tauri::command]
 pub async fn set_tool_limits(config: ToolLimitsConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.image.max_images = config.max_images;
-    store.pdf.max_pdfs = config.max_pdfs;
-    store.pdf.max_vision_pages = config.max_vision_pages;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("tool_limits", "settings-ui"), |store| {
+        store.image.max_images = config.max_images;
+        store.pdf.max_pdfs = config.max_pdfs;
+        store.pdf.max_vision_pages = config.max_vision_pages;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Temperature ─────────────────────────────────────────────────
@@ -583,9 +617,11 @@ pub async fn set_global_temperature(temperature: Option<f64>) -> Result<(), Stri
             return Err("Temperature must be between 0.0 and 2.0".to_string());
         }
     }
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.temperature = temperature;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("temperature", "settings-ui"), |store| {
+        store.temperature = temperature;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -596,9 +632,11 @@ pub async fn get_plan_subagent() -> Result<bool, String> {
 
 #[tauri::command]
 pub async fn set_plan_subagent(enabled: bool) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.plan_subagent = enabled;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("plan_subagent", "settings-ui"), |store| {
+        store.plan_subagent = enabled;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -609,9 +647,11 @@ pub async fn get_ask_user_question_timeout() -> Result<u64, String> {
 
 #[tauri::command]
 pub async fn set_ask_user_question_timeout(secs: u64) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.ask_user_question_timeout_secs = secs;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("ask_user_question_timeout", "settings-ui"), |store| {
+        store.ask_user_question_timeout_secs = secs;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Recap Config ────────────────────────────────────────────────
@@ -624,9 +664,11 @@ pub async fn get_recap_config() -> Result<ha_core::config::RecapConfig, String> 
 
 #[tauri::command]
 pub async fn save_recap_config(config: ha_core::config::RecapConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.recap = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("recap", "settings-ui"), |store| {
+        store.recap = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Weather ─────────────────────────────────────────────────────
@@ -682,9 +724,11 @@ pub async fn get_async_tools_config() -> Result<ha_core::config::AsyncToolsConfi
 pub async fn save_async_tools_config(
     config: ha_core::config::AsyncToolsConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.async_tools = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("async_tools", "settings-ui"), |store| {
+        store.async_tools = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Deferred Tool Loading ─────────────────────────────────────────
@@ -699,9 +743,11 @@ pub async fn get_deferred_tools_config() -> Result<ha_core::config::DeferredTool
 pub async fn save_deferred_tools_config(
     config: ha_core::config::DeferredToolsConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.deferred_tools = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("deferred_tools", "settings-ui"), |store| {
+        store.deferred_tools = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// Detect user location automatically (CoreLocation → IP fallback).
@@ -724,9 +770,11 @@ pub async fn get_awareness_config() -> Result<ha_core::awareness::AwarenessConfi
 pub async fn save_awareness_config(
     config: ha_core::awareness::AwarenessConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.awareness = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("awareness", "settings-ui"), |store| {
+        store.awareness = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

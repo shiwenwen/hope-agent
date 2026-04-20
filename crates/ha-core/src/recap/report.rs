@@ -39,7 +39,7 @@ impl RecapContext {
     /// Build a context using the configured analysis agent (or a sensible
     /// fallback when none is configured).
     pub async fn from_app_state(state: &AppState, cancel: CancellationToken) -> Result<Self> {
-        let config = state.config.lock().await.clone();
+        let config = (*crate::config::cached_config()).clone();
         let recap_db = super::api::recap_db()?;
         let (agent, analysis_model) = build_analysis_agent(&config)?;
         Ok(Self {

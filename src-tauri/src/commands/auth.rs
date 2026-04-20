@@ -8,8 +8,6 @@ use tauri::State;
 
 #[tauri::command]
 pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), String> {
-    let mut store = state.config.lock().await;
-
     // Create an Anthropic provider
     let mut provider = ProviderConfig::new(
         "Anthropic".to_string(),
@@ -30,14 +28,17 @@ pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Re
 
     let provider_id = provider.id.clone();
     let model_id = "claude-sonnet-4-6".to_string();
-
     let agent = AssistantAgent::new_from_provider(&provider, &model_id);
-    store.providers.push(provider);
-    store.active_model = Some(ActiveModel {
-        provider_id,
-        model_id,
-    });
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
+
+    ha_core::config::mutate_config(("initialize_agent", "onboarding"), |store| {
+        store.providers.push(provider);
+        store.active_model = Some(ActiveModel {
+            provider_id,
+            model_id,
+        });
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
     *state.agent.lock().await = Some(agent);
     Ok(())
 }
@@ -93,17 +94,17 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
         .ok_or_else(|| "Failed to extract account ID from token".to_string())?;
 
     // Ensure Codex provider exists in store
-    let default_model_id;
-    {
-        let mut store = state.config.lock().await;
-        let codex_provider_id = provider::ensure_codex_provider(&mut store);
-        default_model_id = "gpt-5.4".to_string();
+    let default_model_id = "gpt-5.4".to_string();
+    let model_for_agent = default_model_id.clone();
+    ha_core::config::mutate_config(("codex_auth", "oauth-finalize"), |store| {
+        let codex_provider_id = provider::ensure_codex_provider(store);
         store.active_model = Some(ActiveModel {
             provider_id: codex_provider_id,
-            model_id: default_model_id.clone(),
+            model_id: model_for_agent.clone(),
         });
-        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
-    }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     let agent = AssistantAgent::new_openai(&token.access_token, &account_id, &default_model_id);
     *state.agent.lock().await = Some(agent);
@@ -113,15 +114,6 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
 
 #[tauri::command]
 pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, String> {
-    // First, load app config from disk
-    {
-        let mut store = state.config.lock().await;
-        match ha_core::config::load_config() {
-            Ok(loaded) => *store = loaded,
-            Err(e) => app_warn!("app", "session", "Failed to load app config: {}", e),
-        }
-    }
-
     // Try to restore Codex OAuth session
     match oauth::load_token() {
         Ok(Some(mut token)) => {
@@ -166,26 +158,24 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
 
             match account_id {
                 Some(id) => {
-                    // Ensure Codex provider exists
-                    {
-                        let mut store = state.config.lock().await;
-                        let codex_provider_id = provider::ensure_codex_provider(&mut store);
-
-                        // Determine which model to activate:
-                        // - If user already has a saved active_model (even non-Codex), respect it.
-                        // - Only default to Codex gpt-5.4 if no active_model is set at all.
+                    // Ensure Codex provider exists and fall back to Codex
+                    // `gpt-5.4` only when no active_model is set. Respect any
+                    // already-chosen active model (including non-Codex).
+                    ha_core::config::mutate_config(("codex_auth", "session-restore"), |store| {
+                        let codex_provider_id = provider::ensure_codex_provider(store);
                         if store.active_model.is_none() {
                             store.active_model = Some(ActiveModel {
                                 provider_id: codex_provider_id,
                                 model_id: "gpt-5.4".to_string(),
                             });
-                            ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
                         }
-                    }
+                        Ok(())
+                    })
+                    .map_err(|e| e.to_string())?;
 
                     // Create agent based on the active model's provider type
                     {
-                        let store = state.config.lock().await;
+                        let store = ha_core::config::cached_config();
                         if let Some(ref active) = store.active_model {
                             let active_provider =
                                 store.providers.iter().find(|p| p.id == active.provider_id);
@@ -231,7 +221,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
 
 /// Try to restore from a non-Codex provider (API key providers)
 pub(crate) async fn try_restore_non_codex_session(state: &State<'_, AppState>) -> bool {
-    let store = state.config.lock().await;
+    let store = ha_core::config::cached_config();
     if let Some(ref active) = store.active_model {
         if let Some(provider) = store
             .providers
@@ -239,7 +229,6 @@ pub(crate) async fn try_restore_non_codex_session(state: &State<'_, AppState>) -
             .find(|p| p.id == active.provider_id && p.enabled)
         {
             if provider.api_type != ApiType::Codex {
-                // Need to drop store lock before acquiring agent lock
                 let provider_clone = provider.clone();
                 let model_id = active.model_id.clone();
                 drop(store);
@@ -258,8 +247,7 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
     *state.codex_token.lock().await = None;
 
     // Remove Codex provider from store
-    {
-        let mut store = state.config.lock().await;
+    ha_core::config::mutate_config(("codex_logout", "ui"), |store| {
         store.providers.retain(|p| p.api_type != ApiType::Codex);
         if let Some(ref active) = store.active_model {
             // If active model was from a Codex provider, clear it
@@ -267,8 +255,9 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
                 store.active_model = None;
             }
         }
-        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
-    }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     oauth::clear_token().map_err(|e| e.to_string())?;
     Ok(())
@@ -289,8 +278,7 @@ pub async fn get_codex_models() -> Result<Vec<agent::CodexModel>, String> {
 
 #[tauri::command]
 pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentSettings, String> {
-    let store = state.config.lock().await;
-    let model = store
+    let model = ha_core::config::cached_config()
         .active_model
         .as_ref()
         .map(|am| am.model_id.clone())
@@ -310,13 +298,14 @@ pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Resul
     }
 
     // Update active model in store
-    {
-        let mut store = state.config.lock().await;
+    let model_for_mut = model.clone();
+    ha_core::config::mutate_config(("active_model", "set-codex-model"), |store| {
         if let Some(ref mut active) = store.active_model {
-            active.model_id = model.clone();
+            active.model_id = model_for_mut;
         }
-        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
-    }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     // Rebuild agent with new model if authenticated
     let token_info = state.codex_token.lock().await.clone();

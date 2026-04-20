@@ -5,17 +5,15 @@ use tauri::State;
 // ── Provider Management Commands ──────────────────────────────────
 
 #[tauri::command]
-pub async fn get_providers(state: State<'_, AppState>) -> Result<Vec<ProviderConfig>, String> {
-    let store = state.config.lock().await;
-    Ok(store.providers.clone())
+pub async fn get_providers(_state: State<'_, AppState>) -> Result<Vec<ProviderConfig>, String> {
+    Ok(ha_core::config::cached_config().providers.clone())
 }
 
 #[tauri::command]
 pub async fn add_provider(
     config: ProviderConfig,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<ProviderConfig, String> {
-    let mut store = state.config.lock().await;
     let new_provider = ProviderConfig::new(
         config.name,
         config.api_type,
@@ -28,18 +26,23 @@ pub async fn add_provider(
     provider_with_models.auth_profiles = config.auth_profiles;
 
     let masked = provider_with_models.masked();
-    store.providers.push(provider_with_models);
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    ha_core::config::mutate_config(("providers.add", "ui"), |store| {
+        store.providers.push(provider_with_models);
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
     Ok(masked)
 }
 
 #[tauri::command]
 pub async fn update_provider(
     config: ProviderConfig,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut store = state.config.lock().await;
-    if let Some(existing) = store.providers.iter_mut().find(|p| p.id == config.id) {
+    ha_core::config::mutate_config(("providers.update", "ui"), |store| {
+        let Some(existing) = store.providers.iter_mut().find(|p| p.id == config.id) else {
+            return Err(anyhow::anyhow!("Provider not found: {}", config.id));
+        };
         existing.name = config.name;
         existing.api_type = config.api_type;
         existing.base_url = config.base_url;
@@ -54,34 +57,33 @@ pub async fn update_provider(
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;
         existing.thinking_style = config.thinking_style;
-        ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
         Ok(())
-    } else {
-        Err(format!("Provider not found: {}", config.id))
-    }
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn reorder_providers(
     provider_ids: Vec<String>,
-    state: State<'_, AppState>,
+    _state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut store = state.config.lock().await;
-    let mut reordered = Vec::with_capacity(provider_ids.len());
-    for id in &provider_ids {
-        if let Some(p) = store.providers.iter().find(|p| &p.id == id) {
-            reordered.push(p.clone());
+    ha_core::config::mutate_config(("providers.reorder", "ui"), |store| {
+        let mut reordered = Vec::with_capacity(provider_ids.len());
+        for id in &provider_ids {
+            if let Some(p) = store.providers.iter().find(|p| &p.id == id) {
+                reordered.push(p.clone());
+            }
         }
-    }
-    // Append any providers not in the list (safety)
-    for p in &store.providers {
-        if !provider_ids.contains(&p.id) {
-            reordered.push(p.clone());
+        // Append any providers not in the list (safety)
+        for p in &store.providers {
+            if !provider_ids.contains(&p.id) {
+                reordered.push(p.clone());
+            }
         }
-    }
-    store.providers = reordered;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
-    Ok(())
+        store.providers = reordered;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -89,25 +91,32 @@ pub async fn delete_provider(
     provider_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut store = state.config.lock().await;
-    let len_before = store.providers.len();
-    store.providers.retain(|p| p.id != provider_id);
-    if store.providers.len() == len_before {
-        return Err(format!("Provider not found: {}", provider_id));
-    }
-    // Clear active model if it was from the deleted provider
-    if let Some(ref active) = store.active_model {
-        if active.provider_id == provider_id {
-            store.active_model = None;
-            *state.agent.lock().await = None;
+    // Capture whether the active agent needs to be torn down, then persist.
+    let active_was_removed = ha_core::config::mutate_config(("providers.delete", "ui"), |store| {
+        let len_before = store.providers.len();
+        store.providers.retain(|p| p.id != provider_id);
+        if store.providers.len() == len_before {
+            return Err(anyhow::anyhow!("Provider not found: {}", provider_id));
         }
+        let removed_active = store
+            .active_model
+            .as_ref()
+            .map(|am| am.provider_id == provider_id)
+            .unwrap_or(false);
+        if removed_active {
+            store.active_model = None;
+        }
+        Ok(removed_active)
+    })
+    .map_err(|e| e.to_string())?;
+
+    if active_was_removed {
+        *state.agent.lock().await = None;
     }
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn has_providers(state: State<'_, AppState>) -> Result<bool, String> {
-    let store = state.config.lock().await;
-    Ok(!store.providers.is_empty())
+pub async fn has_providers(_state: State<'_, AppState>) -> Result<bool, String> {
+    Ok(!ha_core::config::cached_config().providers.is_empty())
 }

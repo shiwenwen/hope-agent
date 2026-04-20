@@ -9,7 +9,9 @@
 
 mod persistence;
 
-pub use persistence::{cached_config, load_config, reload_cache_from_disk, save_config};
+pub use persistence::{
+    cached_config, load_config, mutate_config, reload_cache_from_disk, save_config,
+};
 
 use serde::{Deserialize, Serialize};
 

@@ -59,7 +59,7 @@ pub async fn handle_context(
 
     // ── Model / provider resolution ──────────────────────────────
     let (active_model, active_provider) = {
-        let store = state.config.lock().await;
+        let store = crate::config::cached_config();
         if let Some(ref active) = store.active_model {
             let prov = store.providers.iter().find(|p| p.id == active.provider_id);
             let model_label = prov

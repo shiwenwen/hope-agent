@@ -1,7 +1,7 @@
 use anyhow::Result;
 use arc_swap::ArcSwap;
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::paths;
 
@@ -86,7 +86,53 @@ pub fn save_config(config: &AppConfig) -> Result<()> {
     // Atomically publish the new snapshot so subsequent cached_config() calls
     // see the refreshed state without touching disk.
     cache().store(Arc::new(config.clone()));
+
+    // Notify subscribers (frontend hot-reload hooks, in-process listeners).
+    // Best-effort: the bus may not be initialized in tests or CLI-only modes.
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit("config:changed", serde_json::json!({ "category": "app" }));
+    }
     Ok(())
+}
+
+/// Serialize all "read-modify-write" config edits process-wide. Reads stay
+/// lock-free via [`cached_config`]; writers take this lock for the duration of
+/// the clone → mutate → persist → publish cycle to prevent lost updates when
+/// two save handlers race.
+fn write_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
+
+/// Single entry-point for every config mutation. Takes the global write lock,
+/// clones the latest cached snapshot, applies `f`, persists to disk, and
+/// atomically publishes the new snapshot so any `cached_config()` call made
+/// after `mutate_config` returns sees the change.
+///
+/// `reason` is a `(category, source)` pair recorded in the autosave snapshot
+/// and `config:changed` event so user-visible rollbacks and frontend hot-reload
+/// hooks can tell *what* changed.
+///
+/// # Example
+/// ```ignore
+/// use ha_core::config::mutate_config;
+/// mutate_config(("image_generate", "settings-ui"), |cfg| {
+///     cfg.image_generate = new_image_config;
+///     Ok(())
+/// })?;
+/// ```
+pub fn mutate_config<F, T>(reason: (&str, &str), f: F) -> Result<T>
+where
+    F: FnOnce(&mut AppConfig) -> Result<T>,
+{
+    let _write_guard = write_lock()
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let _reason_guard = crate::backup::scope_save_reason(reason.0, reason.1);
+    let mut snapshot = (*cached_config()).clone();
+    let result = f(&mut snapshot)?;
+    save_config(&snapshot)?;
+    Ok(result)
 }
 
 /// Force a fresh disk read into the cache. Use after an out-of-band write
@@ -95,5 +141,12 @@ pub fn save_config(config: &AppConfig) -> Result<()> {
 pub fn reload_cache_from_disk() -> Result<()> {
     let fresh = read_from_disk()?;
     cache().store(Arc::new(fresh));
+    // Notify subscribers that the cache was force-reloaded (e.g. rollback).
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "config:changed",
+            serde_json::json!({ "category": "app", "source": "reload" }),
+        );
+    }
     Ok(())
 }

@@ -1,7 +1,6 @@
 use crate::acp_control;
 use crate::agent::AssistantAgent;
 use crate::channel;
-use crate::config::AppConfig;
 use crate::cron;
 use crate::event_bus::EventBus;
 use crate::logging::{AppLogger, LogDB};
@@ -120,8 +119,6 @@ pub fn set_app_state(state: Arc<AppState>) {
 pub struct AppState {
     pub agent: Mutex<Option<AssistantAgent>>,
     pub auth_result: Arc<Mutex<Option<anyhow::Result<TokenData>>>>,
-    /// Application configuration (persisted to ~/.hope-agent/config.json)
-    pub config: Mutex<AppConfig>,
     /// Reasoning effort for Codex models
     pub reasoning_effort: Mutex<String>,
     /// Store token info so we can rebuild agent when model changes

@@ -1,6 +1,5 @@
 use crate::acp_control;
 use crate::channel;
-use crate::config::AppConfig;
 use crate::cron;
 use crate::globals::AppState;
 use crate::globals::{
@@ -19,7 +18,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Initialize all databases, subsystems, and construct the `AppState`.
-pub fn init_app_state(initial_store: AppConfig) -> AppState {
+pub fn init_app_state() -> AppState {
     /// Unwrap a Result or print a fatal error to stderr and panic.
     fn fatal<T>(result: anyhow::Result<T>, msg: &str) -> T {
         result.unwrap_or_else(|e| {
@@ -227,7 +226,6 @@ pub fn init_app_state(initial_store: AppConfig) -> AppState {
     AppState {
         agent: Mutex::new(None),
         auth_result: Arc::new(Mutex::new(None)),
-        config: Mutex::new(initial_store),
         reasoning_effort: Mutex::new("medium".to_string()),
         codex_token: Mutex::new(None),
         current_agent_id: Mutex::new("default".to_string()),

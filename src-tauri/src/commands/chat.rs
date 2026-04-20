@@ -233,38 +233,28 @@ pub async fn chat(
         .as_ref()
         .and_then(|def| def.config.notify_on_complete);
 
-    // Determine if notification tool should be available for this agent
-    let notification_enabled = {
-        let store = state.config.lock().await;
-        let global_enabled = store.notification.enabled;
-        global_enabled && agent_notify_on_complete != Some(false)
-    };
+    // One lock-free config snapshot for the whole request.
+    let cfg = ha_core::config::cached_config();
 
-    let image_gen_config = {
-        let store = state.config.lock().await;
-        if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
-        {
-            let mut cfg = store.image_generate.clone();
+    // Determine if notification tool should be available for this agent
+    let notification_enabled = cfg.notification.enabled && agent_notify_on_complete != Some(false);
+
+    let image_gen_config =
+        if crate::tools::image_generate::has_configured_provider_from_config(&cfg.image_generate) {
+            let mut cfg = cfg.image_generate.clone();
             crate::tools::image_generate::backfill_providers(&mut cfg);
             Some(cfg)
         } else {
             None
-        }
-    };
+        };
 
-    let canvas_enabled = {
-        let store = state.config.lock().await;
-        store.canvas.enabled
-    };
+    let canvas_enabled = cfg.canvas.enabled;
 
-    let web_search_enabled = {
-        let store = state.config.lock().await;
-        crate::tools::web_search::has_enabled_provider(&store.web_search)
-    };
+    let web_search_enabled = crate::tools::web_search::has_enabled_provider(&cfg.web_search);
 
     // Resolve temperature: session > agent > global
     let resolved_temperature: Option<f64> = {
-        let global_temp = state.config.lock().await.temperature;
+        let global_temp = cfg.temperature;
         let agent_temp = agent_def
             .as_ref()
             .and_then(|def| def.config.model.temperature);
@@ -288,10 +278,7 @@ pub async fn chat(
     // When plan_subagent=true, keeps the main agent's context clean for execution.
     // When plan_subagent=false (default), planning runs inline in the main agent.
     if early_plan_state == crate::plan::PlanModeState::Planning {
-        let use_subagent = {
-            let store = state.config.lock().await;
-            store.plan_subagent
-        };
+        let use_subagent = cfg.plan_subagent;
 
         if use_subagent {
             // Check if a plan sub-agent is already active for this session
@@ -344,7 +331,6 @@ pub async fn chat(
     }
 
     let (primary, fallbacks) = {
-        let store = state.config.lock().await;
         // Plan Mode model override: use cheaper/faster model during Planning phase
         let plan_model_override = if early_plan_state == crate::plan::PlanModeState::Planning {
             agent_model_config.plan_model.clone()
@@ -354,19 +340,19 @@ pub async fn chat(
 
         if let Some(ref plan_model_str) = plan_model_override {
             // Planning phase: use plan_model as primary, keep fallbacks
-            let mut cfg = agent_model_config.clone();
-            cfg.primary = Some(plan_model_str.clone());
-            provider::resolve_model_chain(&cfg, &store)
+            let mut model_cfg = agent_model_config.clone();
+            model_cfg.primary = Some(plan_model_str.clone());
+            provider::resolve_model_chain(&model_cfg, &cfg)
         } else if let Some(ref override_str) = model_override {
             // User explicitly selected a model in the input box
             let override_model = provider::parse_model_ref(override_str);
-            let mut cfg = agent_model_config.clone();
+            let mut model_cfg = agent_model_config.clone();
             if override_model.is_some() {
-                cfg.primary = Some(override_str.clone());
+                model_cfg.primary = Some(override_str.clone());
             }
-            provider::resolve_model_chain(&cfg, &store)
+            provider::resolve_model_chain(&model_cfg, &cfg)
         } else {
-            provider::resolve_model_chain(&agent_model_config, &store)
+            provider::resolve_model_chain(&agent_model_config, &cfg)
         }
     };
 
@@ -556,10 +542,7 @@ pub async fn chat(
     };
 
     // ── Build ChatEngineParams and delegate to shared engine ──
-    let (providers_snapshot, compact_config) = {
-        let store = state.config.lock().await;
-        (store.providers.clone(), store.compact.clone())
-    };
+    let (providers_snapshot, compact_config) = (cfg.providers.clone(), cfg.compact.clone());
     let codex_token_snapshot = state.codex_token.lock().await.clone();
 
     let engine_params = crate::chat_engine::ChatEngineParams {
@@ -729,7 +712,7 @@ pub async fn get_system_prompt(
 
     // Resolve model and provider name from active model
     let (model, provider) = {
-        let store = state.config.lock().await;
+        let store = ha_core::config::cached_config();
         if let Some(ref active) = store.active_model {
             let prov = store.providers.iter().find(|p| p.id == active.provider_id);
             let model_id = active.model_id.clone();

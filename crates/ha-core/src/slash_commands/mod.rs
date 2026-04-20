@@ -80,10 +80,10 @@ pub fn builtin_command_names() -> &'static HashSet<String> {
 
 /// List all available slash commands (for UI menu rendering).
 /// Includes both built-in commands and user-invocable skill commands.
-pub async fn list_slash_commands(state: &AppState) -> Result<Vec<SlashCommandDef>, String> {
+pub async fn list_slash_commands(_state: &AppState) -> Result<Vec<SlashCommandDef>, String> {
     let mut commands = registry::all_commands();
 
-    let store = state.config.lock().await;
+    let store = crate::config::cached_config();
     let skill_entries =
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);

@@ -143,9 +143,11 @@ pub async fn get_extract_config() -> Result<memory::MemoryExtractConfig, String>
 
 #[tauri::command]
 pub async fn save_extract_config(config: memory::MemoryExtractConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.memory_extract = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("memory_extract", "settings-ui"), |store| {
+        store.memory_extract = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -158,9 +160,11 @@ pub async fn get_memory_selection_config() -> Result<memory::MemorySelectionConf
 pub async fn save_memory_selection_config(
     config: memory::MemorySelectionConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.memory_selection = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("memory_selection", "settings-ui"), |store| {
+        store.memory_selection = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -170,10 +174,11 @@ pub async fn get_memory_budget_config() -> Result<memory::MemoryBudgetConfig, St
 
 #[tauri::command]
 pub async fn save_memory_budget_config(config: memory::MemoryBudgetConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    let _reason = ha_core::backup::scope_save_reason("memory_budget", "ui");
-    store.memory_budget = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("memory_budget", "settings-ui"), |store| {
+        store.memory_budget = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -184,9 +189,11 @@ pub async fn get_dedup_config() -> Result<memory::DedupConfig, String> {
 
 #[tauri::command]
 pub async fn save_dedup_config(config: memory::DedupConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.dedup = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("memory_dedup", "settings-ui"), |store| {
+        store.dedup = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 // ── Search Tuning Configs ──────────────────────────────────────
@@ -199,9 +206,11 @@ pub async fn get_hybrid_search_config() -> Result<memory::HybridSearchConfig, St
 
 #[tauri::command]
 pub async fn save_hybrid_search_config(config: memory::HybridSearchConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.hybrid_search = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("hybrid_search", "settings-ui"), |store| {
+        store.hybrid_search = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -212,9 +221,11 @@ pub async fn get_temporal_decay_config() -> Result<memory::TemporalDecayConfig, 
 
 #[tauri::command]
 pub async fn save_temporal_decay_config(config: memory::TemporalDecayConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.temporal_decay = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("temporal_decay", "settings-ui"), |store| {
+        store.temporal_decay = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -225,9 +236,11 @@ pub async fn get_mmr_config() -> Result<memory::MmrConfig, String> {
 
 #[tauri::command]
 pub async fn save_mmr_config(config: memory::MmrConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.mmr = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("memory_mmr", "settings-ui"), |store| {
+        store.mmr = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -240,9 +253,11 @@ pub async fn get_embedding_cache_config() -> Result<memory::EmbeddingCacheConfig
 pub async fn save_embedding_cache_config(
     config: memory::EmbeddingCacheConfig,
 ) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.embedding_cache = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("embedding_cache", "settings-ui"), |store| {
+        store.embedding_cache = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -253,9 +268,11 @@ pub async fn get_multimodal_config() -> Result<memory::MultimodalConfig, String>
 
 #[tauri::command]
 pub async fn save_multimodal_config(config: memory::MultimodalConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.multimodal = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())
+    ha_core::config::mutate_config(("multimodal", "settings-ui"), |store| {
+        store.multimodal = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -266,10 +283,13 @@ pub async fn get_embedding_config() -> Result<memory::EmbeddingConfig, String> {
 
 #[tauri::command]
 pub async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
     let should_enable = config.enabled;
-    store.embedding = config.clone();
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
+    let applied = config.clone();
+    ha_core::config::mutate_config(("embedding", "settings-ui"), |store| {
+        store.embedding = applied;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
 
     // Apply embedder in background to avoid blocking the command response
     tokio::task::spawn_blocking(move || {

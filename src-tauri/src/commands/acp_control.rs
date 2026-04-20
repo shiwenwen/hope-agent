@@ -107,8 +107,9 @@ pub async fn acp_get_config() -> Result<AcpControlConfig, String> {
 /// Save ACP control config.
 #[tauri::command]
 pub async fn acp_set_config(config: AcpControlConfig) -> Result<(), String> {
-    let mut store = ha_core::config::load_config().map_err(|e| e.to_string())?;
-    store.acp_control = config;
-    ha_core::config::save_config(&store).map_err(|e| e.to_string())?;
-    Ok(())
+    ha_core::config::mutate_config(("acp_control", "settings-ui"), |store| {
+        store.acp_control = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }

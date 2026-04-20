@@ -89,9 +89,6 @@ pub fn run() {
         log::error!("Failed to ensure default agent: {}", e);
     }
 
-    // Load app config at startup
-    let initial_store = ha_core::config::load_config().unwrap_or_default();
-
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -125,7 +122,7 @@ pub fn run() {
             }
         })
         .setup(setup::app_setup)
-        .manage(app_init::init_tauri_app_state(initial_store))
+        .manage(app_init::init_tauri_app_state())
         .invoke_handler(tauri::generate_handler![
             // Provider management
             commands::provider::get_providers,

@@ -55,12 +55,11 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // If not found in built-in, check dynamic skill commands
         if options_found.is_none() {
-            let store = app_state.config.lock().await;
+            let store = crate::config::cached_config();
             let skills = crate::skills::get_invocable_skills(
                 &store.extra_skills_dirs,
                 &store.disabled_skills,
             );
-            drop(store);
             options_found = skills
                 .into_iter()
                 .find(|s| crate::skills::normalize_skill_command_name(&s.name) == name)
@@ -143,7 +142,7 @@ pub(super) async fn dispatch_slash_for_channel(
         // ViewSystemPrompt — build and return the system prompt text directly.
         Some(CommandAction::ViewSystemPrompt) => {
             let (model, provider) = {
-                let store = app_state.config.lock().await;
+                let store = crate::config::cached_config();
                 if let Some(ref active) = store.active_model {
                     let prov = store.providers.iter().find(|p| p.id == active.provider_id);
                     let model_id = active.model_id.clone();
@@ -348,17 +347,21 @@ async fn set_active_model_core(
     use crate::agent::AssistantAgent;
     use crate::provider::{ActiveModel, ApiType};
 
-    let mut store = state.config.lock().await;
-
-    let provider = store
-        .providers
-        .iter()
-        .find(|p| p.id == provider_id)
-        .ok_or_else(|| format!("Provider not found: {}", provider_id))?;
-
-    if !provider.models.iter().any(|m| m.id == model_id) {
-        return Err(format!("Model not found: {}", model_id));
-    }
+    // Clone the provider before awaiting on agent/codex_token locks —
+    // the Arc from `cached_config()` must be dropped first to avoid deadlock.
+    let provider = {
+        let store = crate::config::cached_config();
+        let found = store
+            .providers
+            .iter()
+            .find(|p| p.id == provider_id)
+            .cloned()
+            .ok_or_else(|| format!("Provider not found: {}", provider_id))?;
+        if !found.models.iter().any(|m| m.id == model_id) {
+            return Err(format!("Model not found: {}", model_id));
+        }
+        found
+    };
 
     if provider.api_type == ApiType::Codex {
         let token_info = state.codex_token.lock().await.clone();
@@ -368,16 +371,20 @@ async fn set_active_model_core(
         }
     } else {
         let agent =
-            AssistantAgent::new_from_provider(provider, model_id).with_failover_context(provider);
+            AssistantAgent::new_from_provider(&provider, model_id).with_failover_context(&provider);
         *state.agent.lock().await = Some(agent);
     }
 
-    store.active_model = Some(ActiveModel {
-        provider_id: provider_id.to_string(),
-        model_id: model_id.to_string(),
-    });
-    crate::config::save_config(&store).map_err(|e| e.to_string())?;
-    Ok(())
+    let provider_id = provider_id.to_string();
+    let model_id = model_id.to_string();
+    crate::config::mutate_config(("active_model", "slash-channel"), |store| {
+        store.active_model = Some(ActiveModel {
+            provider_id,
+            model_id,
+        });
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
 }
 
 /// Set reasoning effort. Equivalent to the old `commands::auth::set_reasoning_effort_core`.
