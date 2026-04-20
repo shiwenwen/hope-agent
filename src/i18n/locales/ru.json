@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "Следовать системе",
     "profileLanguage": "Предпочитаемый язык",
     "profileLanguageSystem": "Следовать системе",
+    "profileLanguageHint": "Модель будет отвечать на этом языке.",
     "profileAiExperience": "Опыт работы с ИИ",
     "profileAiExpExpert": "Эксперт — глубокий пользователь ИИ",
     "profileAiExpIntermediate": "Средний — есть опыт работы с ИИ",

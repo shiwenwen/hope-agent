@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "Theo hệ thống",
     "profileLanguage": "Ngôn ngữ ưa thích",
     "profileLanguageSystem": "Theo hệ thống",
+    "profileLanguageHint": "Mô hình sẽ trả lời bằng ngôn ngữ này.",
     "profileAiExperience": "Kinh nghiệm AI",
     "profileAiExpExpert": "Chuyên gia — sử dụng AI chuyên sâu",
     "profileAiExpIntermediate": "Trung cấp — có kinh nghiệm AI",

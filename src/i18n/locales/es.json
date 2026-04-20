@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "Seguir sistema",
     "profileLanguage": "Idioma preferido",
     "profileLanguageSystem": "Seguir sistema",
+    "profileLanguageHint": "El modelo responderá en este idioma.",
     "profileAiExperience": "Experiencia con IA",
     "profileAiExpExpert": "Experto — uso avanzado de herramientas IA",
     "profileAiExpIntermediate": "Intermedio — algo de experiencia con IA",

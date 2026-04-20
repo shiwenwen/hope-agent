@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "Ikut sistem",
     "profileLanguage": "Bahasa Pilihan",
     "profileLanguageSystem": "Ikut sistem",
+    "profileLanguageHint": "Model akan membalas dalam bahasa ini.",
     "profileAiExperience": "Pengalaman AI",
     "profileAiExpExpert": "Pakar — pengguna AI yang mendalam",
     "profileAiExpIntermediate": "Pertengahan — ada pengalaman AI",

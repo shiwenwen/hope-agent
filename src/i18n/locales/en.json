@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "Follow system",
     "profileLanguage": "Preferred Language",
     "profileLanguageSystem": "Follow system",
+    "profileLanguageHint": "The model will reply in this language.",
     "profileAiExperience": "AI Experience",
     "profileAiExpExpert": "Expert — deep user of AI tools",
     "profileAiExpIntermediate": "Intermediate — some AI experience",

@@ -140,6 +140,9 @@ export default function ProfileForm({
             ))}
           </SelectContent>
         </Select>
+        <p className="text-[11px] text-muted-foreground mt-1.5 px-1">
+          {t("settings.profileLanguageHint")}
+        </p>
       </div>
 
       <div className="border-t border-border/50" />

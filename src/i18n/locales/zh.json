@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "跟随系统",
     "profileLanguage": "首选语言",
     "profileLanguageSystem": "跟随系统",
+    "profileLanguageHint": "模型会按照此语言回复你",
     "profileAiExperience": "AI 使用经验",
     "profileAiExpExpert": "熟练 — 深度使用各类 AI 工具",
     "profileAiExpIntermediate": "了解 — 有一定 AI 使用经验",

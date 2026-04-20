@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "システムに従う",
     "profileLanguage": "優先言語",
     "profileLanguageSystem": "システムに従う",
+    "profileLanguageHint": "モデルはこの言語で返答します。",
     "profileAiExperience": "AI使用経験",
     "profileAiExpExpert": "上級 — AIツールの深い利用者",
     "profileAiExpIntermediate": "中級 — AIの使用経験あり",

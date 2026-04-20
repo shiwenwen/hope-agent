@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "Sistemi takip et",
     "profileLanguage": "Tercih Dili",
     "profileLanguageSystem": "Sistemi takip et",
+    "profileLanguageHint": "Model bu dilde yanıt verecek.",
     "profileAiExperience": "AI Deneyimi",
     "profileAiExpExpert": "Uzman — AI araçlarının yoğun kullanıcısı",
     "profileAiExpIntermediate": "Orta — biraz AI deneyimi var",

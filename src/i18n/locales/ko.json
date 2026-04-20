@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "시스템 설정 따르기",
     "profileLanguage": "선호 언어",
     "profileLanguageSystem": "시스템 설정 따르기",
+    "profileLanguageHint": "모델이 이 언어로 응답합니다.",
     "profileAiExperience": "AI 사용 경험",
     "profileAiExpExpert": "전문가 — AI 도구 심층 사용자",
     "profileAiExpIntermediate": "중급 — AI 사용 경험 있음",

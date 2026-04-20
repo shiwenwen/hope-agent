@@ -1061,6 +1061,7 @@
     "profileTimezoneSystem": "اتباع النظام",
     "profileLanguage": "اللغة المفضلة",
     "profileLanguageSystem": "اتباع النظام",
+    "profileLanguageHint": "سيرد النموذج بهذه اللغة.",
     "profileAiExperience": "خبرة الذكاء الاصطناعي",
     "profileAiExpExpert": "خبير — مستخدم متعمق لأدوات الذكاء الاصطناعي",
     "profileAiExpIntermediate": "متوسط — لديه بعض الخبرة",
