@@ -44,7 +44,11 @@ fn main() {
     let dist = manifest.join("..").join("..").join("dist");
 
     if let Err(e) = fs::create_dir_all(&dist) {
-        println!("cargo:warning=ha-server build.rs: failed to create {}: {}", dist.display(), e);
+        println!(
+            "cargo:warning=ha-server build.rs: failed to create {}: {}",
+            dist.display(),
+            e
+        );
         return;
     }
 
