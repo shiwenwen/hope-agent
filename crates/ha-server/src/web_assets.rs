@@ -28,7 +28,7 @@ use std::path::PathBuf;
 /// front-end can be iterated on without rebuilding `ha-server`. In
 /// release builds the files are compiled into the binary.
 #[derive(RustEmbed)]
-#[folder = "$CARGO_MANIFEST_DIR/../../dist"]
+#[folder = "../../dist"]
 #[prefix = ""]
 struct FrontendAssets;
 
