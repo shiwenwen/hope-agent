@@ -89,10 +89,6 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
    - Windows: `Hope-Agent_*.exe` / `Hope-Agent_*.msi` (not yet fully tested)
 2. First launch: **pick a provider template → paste API key → chat.**
 
-<p align="center">
-  <img src="docs/assets/screenshot-desktop.png" alt="Desktop GUI screenshot" width="720">
-</p>
-
 ### For developers
 
 ```bash
@@ -183,6 +179,16 @@ node scripts/sync-i18n.mjs --check   # i18n completeness check
 - [openclaw](https://github.com/openclaw/openclaw) — inspiration in the local AI assistant space
 - [Tauri](https://tauri.app/), [axum](https://github.com/tokio-rs/axum), [React](https://react.dev/), [shadcn/ui](https://ui.shadcn.com/), [Streamdown](https://github.com/streamdown/streamdown), [Radix UI](https://www.radix-ui.com/), and the rest of the open source stack Hope Agent stands on
 - Everyone who has filed issues, tested builds, and given feedback along the way
+
+## Star History
+
+<a href="https://www.star-history.com/#shiwenwen/hope-agent&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=shiwenwen/hope-agent&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=shiwenwen/hope-agent&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=shiwenwen/hope-agent&type=Date" />
+  </picture>
+</a>
 
 ## License
 
