@@ -230,8 +230,6 @@ flowchart TD
     B -->|Auth + Codex| J[emit codex_auth_expired]
     J --> I
 
-    style D fill:#f9f,stroke:#333
-    style E fill:#f66,stroke:#333
 ```
 
 **退避参数：**

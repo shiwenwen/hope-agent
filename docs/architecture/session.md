@@ -375,9 +375,6 @@ flowchart TD
     E --> G["前端刷新 unread_count:<br/>messages.id > last_read_message_id"]
     F --> G
 
-    style A fill:#e3f2fd,stroke:#1976d2
-    style E fill:#fff3cd,stroke:#ffc107
-    style G fill:#d4edda,stroke:#28a745
 ```
 
 ### 消息顺序保持（TextBlock / ThinkingBlock）

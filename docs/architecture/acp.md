@@ -82,10 +82,6 @@ graph TB
     AGENT --> CONFIG
     AGENT --> AGENTS_DIR
 
-    style ZED fill:#4a9eff,color:#fff
-    style AGENT fill:#ff6b6b,color:#fff
-    style SESSION_DB fill:#51cf66,color:#fff
-    style ASSISTANT fill:#ffd43b,color:#333
 ```
 
 ---
@@ -184,8 +180,6 @@ graph LR
     MOD --> AGENT
     MOD --> SERVER
 
-    style AGENT fill:#ff6b6b,color:#fff
-    style TYPES fill:#4a9eff,color:#fff
 ```
 
 ### 各模块职责
@@ -321,9 +315,6 @@ flowchart TB
     NEXT_MODEL -- 是 --> TRY_MODEL
     NEXT_MODEL -- 否 --> ERROR
 
-    style START fill:#4a9eff,color:#fff
-    style SUCCESS fill:#51cf66,color:#fff
-    style ERROR fill:#ff6b6b,color:#fff
 ```
 
 ### 事件传递架构（异步到同步桥接）
@@ -348,8 +339,6 @@ graph LR
     RX --> FORMAT
     FORMAT --> WRITE
 
-    style CHAT fill:#ffd43b,color:#333
-    style WRITE fill:#4a9eff,color:#fff
 ```
 
 > **为什么用 `std::sync::mpsc` 而非 `tokio::sync::mpsc`？**
@@ -387,8 +376,6 @@ graph LR
     TR --> TCU
     US --> UU
 
-    style TD fill:#ffd43b,color:#333
-    style AMC fill:#4a9eff,color:#fff
 ```
 
 ### 映射详情表
@@ -458,9 +445,6 @@ flowchart TB
     NEXT -- "有下一模型" --> TRY["尝试下一模型"]
     NEXT -- "全部耗尽" --> FAIL["返回错误"]
 
-    style ERROR fill:#ff6b6b,color:#fff
-    style OK fill:#51cf66,color:#fff
-    style FAIL fill:#ff6b6b,color:#fff
 ```
 
 **退避参数**：
@@ -501,7 +485,6 @@ flowchart LR
     TC --> TCU
     EVT --> SKIP
 
-    style SKIP fill:#ccc,color:#666
 ```
 
 > **截断策略**：工具结果超过 8192 字节时，使用 `truncate_utf8()` 安全截断后追加 `...(truncated)` 标记。
@@ -536,7 +519,6 @@ graph TB
     CHAT_CMD --> AGENTS_FS
     ACP_SERVER --> AGENTS_FS
 
-    style SQLITE fill:#51cf66,color:#fff
 ```
 
 **WAL 模式**确保桌面端和 ACP 端可以同时读写 `sessions.db`，不会互相阻塞。

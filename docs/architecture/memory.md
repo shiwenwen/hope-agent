@@ -143,9 +143,6 @@ flowchart TD
     Embed -- No --> FTS["更新 FTS5 索引"]
     GenVec --> FTS
     FTS --> Done["完成"]
-    style Skip fill:#ffcdd2
-    style Update fill:#fff9c4
-    style Insert fill:#e8f5e9
 ```
 
 ### 1. save_memory 工具 → `add_with_dedup()`
@@ -200,9 +197,6 @@ flowchart TD
 
     NewSession["用户新建会话"] --> Flush["flush_all_idle_extractions<br/>立即执行所有待提取"]
 
-    style Extract fill:#4CAF50,color:#fff
-    style IdleExtract fill:#FF9800,color:#fff
-    style Flush fill:#2196F3,color:#fff
 ```
 
 ### 3. 导入
@@ -235,8 +229,6 @@ flowchart TD
     Select -- Yes --> LLM["LLM 语义选择<br/>side_query 选 ≤5 条"]
     Select -- No --> Inject["注入系统提示<br/>Section 8: Memory"]
     LLM --> Inject
-    style Query fill:#e3f2fd
-    style Inject fill:#e8f5e9
 ```
 
 ### 双路并行检索
@@ -302,8 +294,6 @@ flowchart TD
     Google --> Use
     Voyage --> Use
     Mistral --> Use
-    style Local fill:#e8f5e9
-    style None fill:#ffcdd2
 ```
 
 ### 自动选择优先级
@@ -412,11 +402,6 @@ flowchart TD
 
     Replace --> Done
 
-    style Skip fill:#ffcdd2
-    style Done fill:#e8f5e9
-    style Section8 fill:#e3f2fd,stroke:#90caf9
-    style SQLite fill:#fff3e0,stroke:#ffb74d
-    style LLMSelect fill:#f3e5f5,stroke:#ce93d8
 ```
 
 ### 输出格式

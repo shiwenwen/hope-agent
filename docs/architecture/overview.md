@@ -71,10 +71,6 @@ graph TD
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler
 
-    style Frontend fill:#e3f2fd
-    style OcCore fill:#e8f5e9
-    style OcServer fill:#e3f2fd
-    style TauriShell fill:#fff8e1
 ```
 
 ## 核心数据流
@@ -104,8 +100,6 @@ flowchart TD
     O --> P["6. 保存 context_json<br/>到 SessionDB (会话恢复)"]
     P --> Q["7. 自动记忆提取<br/>(inline, 复用 prompt cache)"]
 
-    style A fill:#e1f5fe
-    style Q fill:#e8f5e9
 ```
 
 ### Failover 降级链
@@ -126,8 +120,6 @@ flowchart TD
     J -- Yes --> A
     J -- "全部失败" --> K["返回错误"]
 
-    style C fill:#e8f5e9
-    style K fill:#ffcdd2
 ```
 
 ## 模块依赖关系
@@ -156,8 +148,6 @@ graph LR
     Dashboard --> CronDB["Cron DB"]
     Logging["Logging"] -.->|"非阻塞双写"| AllModules["全模块"]
 
-    style ChatEngine fill:#c8e6c9
-    style Logging fill:#fff9c4
 ```
 
 ## 存储架构

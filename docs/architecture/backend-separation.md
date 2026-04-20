@@ -24,9 +24,6 @@ graph TD
     OC_TAURI -->|"依赖"| OC_CORE
     OC_SERVER -->|"依赖"| OC_CORE
 
-    style OC_CORE fill:#2d5a27,stroke:#4a9e3f,color:#fff
-    style OC_SERVER fill:#1a3a5c,stroke:#3a7abd,color:#fff
-    style OC_TAURI fill:#5c3a1a,stroke:#bd7a3a,color:#fff
 ```
 
 **铁律**：`ha-core` 的 `Cargo.toml` 禁止出现 `tauri` 或 Tauri 插件依赖。

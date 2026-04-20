@@ -318,12 +318,6 @@ flowchart TD
 
     FD --> Done([最终 tool_schemas → API 请求])
 
-    style Start fill:#cfe2ff,stroke:#0d6efd
-    style Branch fill:#fff3cd,stroke:#ffc107
-    style CondGroup fill:#fff3cd,stroke:#ffc107
-    style Filter fill:#fce4ec,stroke:#e91e63
-    style FD fill:#fce4ec,stroke:#e91e63
-    style Done fill:#d4edda,stroke:#28a745
 ```
 
 ### 三个易混淆的"开关"对比
@@ -406,13 +400,6 @@ flowchart TD
     Race -- 是 --> InlineResult[把真实结果作为 tool_result 返回]
     Race -- 否 --> AutoBgDetach[原地 detach 成 job<br/>返回 synthetic auto_backgrounded]
 
-    style Tier1 fill:#fff3cd,stroke:#ffc107
-    style Tier2 fill:#fff3cd,stroke:#ffc107
-    style Tier3 fill:#d4edda,stroke:#28a745
-    style ExplicitSpawn fill:#cfe2ff,stroke:#0d6efd
-    style AutoBgDetach fill:#cfe2ff,stroke:#0d6efd
-    style InlineResult fill:#d4edda,stroke:#28a745
-    style SyncPath fill:#e2e3e5,stroke:#6c757d
 ```
 
 | Tier | 触发 | 行为 |
@@ -602,11 +589,6 @@ flowchart LR
     T2 --> T3["Tier 3<br/>LLM 摘要<br/>调用模型压缩旧消息"]
     T3 --> T4["Tier 4<br/>紧急<br/>清除所有工具结果 + 只保留最近 N 轮"]
 
-    style T0 fill:#d4edda,stroke:#28a745
-    style T1 fill:#d4edda,stroke:#28a745
-    style T2 fill:#fff3cd,stroke:#ffc107
-    style T3 fill:#fce4ec,stroke:#e91e63
-    style T4 fill:#f8d7da,stroke:#dc3545
 ```
 
 ---
@@ -765,12 +747,6 @@ flowchart TD
     PathAllowed -- 是 --> Execute
     PathAllowed -- 否 --> PlanDenied[❌ Plan Mode restriction<br/>cannot modify file]
 
-    style DirectExec fill:#d4edda,stroke:#28a745
-    style Execute fill:#d4edda,stroke:#28a745
-    style Blocked fill:#e2e3e5,stroke:#6c757d
-    style Denied fill:#f8d7da,stroke:#dc3545
-    style PlanDenied fill:#f8d7da,stroke:#dc3545
-    style ShowApproval fill:#fff3cd,stroke:#ffc107
 ```
 
 ### 审批对话框交互
@@ -825,10 +801,6 @@ flowchart TD
     ExecChoice2 -- 始终允许 --> WriteExecAllowlist[写入 exec-approvals.json<br/><small>下次同命令自动放行</small>] --> ExecRun
     ExecChoice2 -- 拒绝 --> ExecDenied
 
-    style ExecRun fill:#d4edda,stroke:#28a745
-    style ExecDenied fill:#f8d7da,stroke:#dc3545
-    style ExecAsk fill:#fff3cd,stroke:#ffc107
-    style ExecAskAuto fill:#fff3cd,stroke:#ffc107
 ```
 
 **Allowlist 持久化文件**：`~/.hope-agent/exec-approvals.json`
@@ -981,10 +953,6 @@ block-beta
     L2 --> L3
     L3 --> L4
 
-    style L1 fill:#dc3545,color:#fff
-    style L2 fill:#fd7e14,color:#fff
-    style L3 fill:#ffc107,color:#000
-    style L4 fill:#28a745,color:#fff
 ```
 
 > **关键理解**：输入框的盾牌（ToolPermissionMode）是全局最高优先级开关，它能完全覆盖 Agent 设置中的 `require_approval` 配置。Agent 设置中的审批配置只在盾牌为 Auto（默认）时才参与决策。
