@@ -27,6 +27,12 @@ impl AssistantAgent {
     /// Save cache-safe params after building the main chat request.
     /// Called from each provider's chat method after compaction, before the tool loop.
     /// Uses Arc to avoid deep-cloning conversation data on every chat turn.
+    ///
+    /// Captures only the cache-safe prefix. Awareness + active-memory
+    /// suffixes are appended per-request inside `chat_round` (separate
+    /// `cache_control` blocks for Anthropic, leading `system`/input items
+    /// for OpenAI-family) — including them here would churn the snapshot
+    /// every user turn and defeat the invariant this snapshot upholds.
     pub(super) fn save_cache_safe_params(
         &self,
         system_prompt: String,

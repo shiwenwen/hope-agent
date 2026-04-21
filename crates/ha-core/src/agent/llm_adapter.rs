@@ -20,7 +20,12 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+use std::sync::atomic::AtomicBool;
+
 use super::config::{build_api_url, ANTHROPIC_API_VERSION, CODEX_API_URL};
+use super::errors::parse_error_response;
+use super::providers::codex_adapter::{apply_codex_headers, codex_user_agent};
+use super::providers::openai_responses_adapter::parse_openai_sse;
 use super::types::{AssistantAgent, CacheSafeParams, ChatUsage, LlmProvider, ProviderFormat};
 
 // ── Public types ─────────────────────────────────────────────────────
@@ -297,61 +302,93 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
         let body = build_responses_body(self.model, &req, ProviderFormat::Codex);
-        let bearer = format!("Bearer {}", self.token);
-        let mut headers: Vec<(&str, &str)> = vec![("Authorization", bearer.as_str())];
-        if !self.account_id.is_empty() {
-            headers.push(("X-Account-ID", self.account_id));
+        let request_start = std::time::Instant::now();
+        let resp = apply_codex_headers(
+            client.post(CODEX_API_URL),
+            self.token,
+            self.account_id,
+            codex_user_agent(),
+        )
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("Codex one-shot request failed: {}", e))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let err_text = resp.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!(
+                "{}",
+                parse_error_response(status, &err_text)
+            ));
         }
-        let result = send_json_request(client, CODEX_API_URL, &body, &headers).await?;
-        Ok(OneShotResult {
-            text: extract_responses_text(&result),
-            usage: extract_openai_usage(&result),
-        })
+
+        let cancel = AtomicBool::new(false);
+        let noop = |_: &str| {};
+        let (text, _tool_calls, mut usage, _thinking, _ttft, _reasoning) =
+            parse_openai_sse(resp, request_start, &cancel, &noop).await?;
+        // One-shot is single-round: last == only input.
+        usage.last_input_tokens = usage.input_tokens;
+
+        Ok(OneShotResult { text, usage })
     }
 }
 
 // ── Shared Responses-protocol body builder ───────────────────────────
 
-/// Build the request body for OpenAI Responses or Codex (same protocol,
-/// different auth/endpoint handled by the caller). `expected_format`
-/// gates whether `cached` is honored.
+/// Build a Responses-protocol body for OpenAI Responses or Codex.
+///
+/// Codex diverges from OpenAI Responses on two fields only:
+/// - `stream: true` (Codex backend rejects `stream: false` with
+///   `{"detail":"Stream must be set to true"}`).
+/// - no `max_output_tokens` (Codex rejects it as unsupported).
+///
+/// Side queries deliberately don't forward temperature / reasoning /
+/// awareness suffixes — see [`OneShotRequest`].
 fn build_responses_body(
     model: &str,
     req: &OneShotRequest<'_>,
     expected_format: ProviderFormat,
 ) -> Value {
-    if let OneShotMode::Independent { system } = req.mode {
-        return json!({
+    let is_codex = matches!(expected_format, ProviderFormat::Codex);
+    let stream = is_codex;
+
+    let mut body = match req.mode {
+        OneShotMode::Independent { system } => json!({
             "model": model,
             "store": false,
-            "stream": false,
+            "stream": stream,
             "instructions": system,
             "input": [{ "role": "user", "content": req.instruction }],
-            "max_output_tokens": req.max_tokens,
-        });
+        }),
+        _ => {
+            if let Some(params) = req.mode.cached_for(expected_format) {
+                let mut input = params.conversation_history.clone();
+                AssistantAgent::push_user_message(&mut input, json!(req.instruction));
+                json!({
+                    "model": model,
+                    "store": false,
+                    "stream": stream,
+                    "instructions": &params.system_prompt,
+                    "input": input,
+                    "tools": &params.tool_schemas,
+                })
+            } else {
+                json!({
+                    "model": model,
+                    "store": false,
+                    "stream": stream,
+                    "input": [{ "role": "user", "content": req.instruction }],
+                })
+            }
+        }
+    };
+    if !is_codex {
+        body.as_object_mut()
+            .expect("json! always produces object")
+            .insert("max_output_tokens".into(), json!(req.max_tokens));
     }
-
-    if let Some(params) = req.mode.cached_for(expected_format) {
-        let mut input = params.conversation_history.clone();
-        AssistantAgent::push_user_message(&mut input, json!(req.instruction));
-        return json!({
-            "model": model,
-            "store": false,
-            "stream": false,
-            "instructions": &params.system_prompt,
-            "input": input,
-            "tools": &params.tool_schemas,
-            "max_output_tokens": req.max_tokens,
-        });
-    }
-
-    json!({
-        "model": model,
-        "store": false,
-        "stream": false,
-        "input": [{ "role": "user", "content": req.instruction }],
-        "max_output_tokens": req.max_tokens,
-    })
+    body
 }
 
 // ── Shared HTTP + response-extraction helpers ───────────────────────
@@ -739,9 +776,13 @@ mod tests {
     }
 
     #[test]
-    fn codex_shares_responses_body_builder() {
-        // Codex and OpenAIResponses must produce byte-identical bodies for
-        // equivalent inputs — only URL and auth header differ between adapters.
+    fn codex_body_diverges_from_openai_responses_on_dialect_only() {
+        // Codex and OpenAIResponses speak the same Responses protocol but
+        // diverge in exactly two places:
+        //   - Codex demands `stream: true` (the backend rejects `false`).
+        //   - Codex rejects `max_output_tokens` as unsupported.
+        // Anything else MUST stay identical, so downstream prompt-cache
+        // invariants and tool-call dispatch keep working uniformly.
         let params = cached_codex();
         let req = OneShotRequest {
             instruction: "do X",
@@ -749,15 +790,38 @@ mod tests {
             mode: OneShotMode::Cached(&params),
         };
         let codex_body = build_responses_body("gpt-5", &req, ProviderFormat::Codex);
+        assert_eq!(
+            codex_body,
+            json!({
+                "model": "gpt-5",
+                "store": false,
+                "stream": true,
+                "instructions": "SYS",
+                "input": [
+                    {"role": "user", "content": "hello"},
+                    {"role": "assistant", "content": "hi"},
+                    {"role": "user", "content": "do X"},
+                ],
+                "tools": [
+                    {"name": "tool_a", "input_schema": {}},
+                    {"name": "tool_b", "input_schema": {}},
+                ],
+            })
+        );
 
+        // Cross-check the two dialects against each other: strip the known
+        // diffs from the OpenAI body and the remainder must match Codex.
         let params2 = cached_responses();
         let req2 = OneShotRequest {
             instruction: "do X",
             max_tokens: 100,
             mode: OneShotMode::Cached(&params2),
         };
-        let responses_body = build_responses_body("gpt-5", &req2, ProviderFormat::OpenAIResponses);
-
+        let mut responses_body =
+            build_responses_body("gpt-5", &req2, ProviderFormat::OpenAIResponses);
+        let responses_obj = responses_body.as_object_mut().unwrap();
+        responses_obj.insert("stream".to_string(), Value::Bool(true));
+        responses_obj.remove("max_output_tokens");
         assert_eq!(codex_body, responses_body);
     }
 

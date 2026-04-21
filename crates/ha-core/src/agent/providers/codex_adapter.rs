@@ -13,7 +13,7 @@
 //! all providers (no double-retry).
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -29,6 +29,37 @@ use super::super::streaming_adapter::{
 use super::super::types::{AssistantAgent, ProviderFormat};
 use super::openai_responses_adapter::parse_openai_sse;
 use crate::tools::ToolProvider;
+
+/// Process-stable User-Agent for Codex requests.
+pub(in crate::agent) fn codex_user_agent() -> &'static str {
+    static UA: OnceLock<String> = OnceLock::new();
+    UA.get_or_init(|| {
+        format!(
+            "Hope Agent ({} {}; {})",
+            std::env::consts::OS,
+            os_version(),
+            std::env::consts::ARCH,
+        )
+    })
+}
+
+/// Apply Codex's OAuth + SSE headers to a [`reqwest::RequestBuilder`].
+/// Shared by streaming chat_round and one-shot side_query.
+pub(in crate::agent) fn apply_codex_headers(
+    builder: reqwest::RequestBuilder,
+    access_token: &str,
+    account_id: &str,
+    user_agent: &str,
+) -> reqwest::RequestBuilder {
+    builder
+        .header("Authorization", format!("Bearer {}", access_token))
+        .header("Content-Type", "application/json")
+        .header("chatgpt-account-id", account_id)
+        .header("OpenAI-Beta", "responses=experimental")
+        .header("originator", "hope-agent")
+        .header("User-Agent", user_agent)
+        .header("accept", "text/event-stream")
+}
 
 pub(crate) struct CodexStreamingAdapter<'a> {
     pub access_token: &'a str,
@@ -93,12 +124,6 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         };
 
         let body_json = serde_json::to_string(&request)?;
-        let user_agent = format!(
-            "Hope Agent ({} {}; {})",
-            std::env::consts::OS,
-            os_version(),
-            std::env::consts::ARCH,
-        );
 
         if let Some(logger) = crate::get_logger() {
             let body_size = body_json.len();
@@ -147,18 +172,13 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         let request_start = std::time::Instant::now();
 
         for attempt in 0..=MAX_RETRIES {
-            let response = client
-                .post(CODEX_API_URL)
-                .header("Authorization", format!("Bearer {}", self.access_token))
-                .header("Content-Type", "application/json")
-                .header("chatgpt-account-id", self.account_id)
-                .header("OpenAI-Beta", "responses=experimental")
-                .header("originator", "hope-agent")
-                .header("User-Agent", &user_agent)
-                .header("accept", "text/event-stream")
-                .body(body_json.clone())
-                .send()
-                .await;
+            let builder = apply_codex_headers(
+                client.post(CODEX_API_URL),
+                self.access_token,
+                self.account_id,
+                codex_user_agent(),
+            );
+            let response = builder.body(body_json.clone()).send().await;
 
             match response {
                 Ok(resp) => {
@@ -292,7 +312,7 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         }
 
         let (text, tool_calls, usage, thinking_text, ttft_ms, reasoning_items) =
-            parse_openai_sse(resp, request_start, cancel, on_delta).await?;
+            parse_openai_sse(resp, request_start, cancel.as_ref(), on_delta).await?;
 
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();

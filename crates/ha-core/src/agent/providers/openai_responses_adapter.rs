@@ -239,7 +239,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         }
 
         let (text, tool_calls, usage, thinking_text, ttft_ms, reasoning_items) =
-            parse_openai_sse(resp, request_start, cancel, on_delta).await?;
+            parse_openai_sse(resp, request_start, cancel.as_ref(), on_delta).await?;
 
         if let Some(logger) = crate::get_logger() {
             let tool_names: Vec<&str> = tool_calls.iter().map(|tc| tc.name.as_str()).collect();
@@ -354,12 +354,10 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
 
 /// Parse OpenAI SSE stream (Responses API + Codex share this).
 /// Returns `(collected_text, tool_calls, usage, thinking, ttft_ms, reasoning_items)`.
-///
-/// `pub(super)` so [`super::codex_adapter`] can reuse it without duplication.
-pub(super) async fn parse_openai_sse(
+pub(in crate::agent) async fn parse_openai_sse(
     resp: reqwest::Response,
     request_start: std::time::Instant,
-    cancel: &Arc<AtomicBool>,
+    cancel: &AtomicBool,
     on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
 ) -> Result<(
     String,
