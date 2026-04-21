@@ -3,7 +3,6 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use super::ToolExecContext;
-use crate::globals::get_session_db;
 use crate::session::SessionDB;
 use crate::team;
 
@@ -35,9 +34,7 @@ pub(crate) async fn tool_team(args: &Value, ctx: &ToolExecContext) -> Result<Str
 }
 
 fn require_db() -> Result<Arc<SessionDB>> {
-    get_session_db()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("SessionDB not available"))
+    crate::require_session_db().map(Arc::clone)
 }
 
 fn require_team_id(args: &Value) -> Result<String> {

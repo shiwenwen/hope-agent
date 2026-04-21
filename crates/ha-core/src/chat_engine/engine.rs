@@ -98,8 +98,18 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         return Err("No model configured for chat execution".to_string());
     }
 
-    if let Some((ref access_token, _)) = codex_token {
-        if let Some(pair) = crate::oauth::ensure_fresh_codex_token(access_token).await {
+    // Codex OAuth token lives on disk; it's the single source of truth for
+    // desktop / HTTP / IM channel entry points. Callers may pass None — when
+    // the chain actually needs Codex we hydrate from disk here so all three
+    // runtimes behave identically without threading AppState through.
+    let chain_needs_codex = model_chain.iter().any(|m| {
+        providers
+            .iter()
+            .any(|p| p.id == m.provider_id && p.api_type == ApiType::Codex)
+    });
+    if chain_needs_codex {
+        let current = codex_token.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
+        if let Some(pair) = crate::oauth::ensure_fresh_codex_token(current).await {
             codex_token = Some(pair);
         }
     }

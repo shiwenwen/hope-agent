@@ -103,8 +103,8 @@ pub fn get_codex_models() -> Vec<CodexModel> {
 /// user-side toggle (UI picker, `/think` slash, channel command) applies to
 /// the very next API request instead of only to the next user message.
 pub async fn live_reasoning_effort(fallback: Option<&str>) -> Option<String> {
-    if let Some(st) = crate::globals::get_app_state() {
-        let eff = st.reasoning_effort.lock().await.clone();
+    if let Some(cell) = crate::globals::get_reasoning_effort_cell() {
+        let eff = cell.lock().await.clone();
         if eff == "none" {
             return None;
         }

@@ -8,8 +8,9 @@ use std::sync::Arc;
 use axum::extract::Multipart;
 use ha_core::channel::{ChannelDB, ChannelRegistry};
 use ha_core::cron::CronDB;
+use ha_core::logging::{AppLogger, LogDB};
 use ha_core::session::SessionDB;
-use ha_core::AppState;
+use ha_core::subagent::SubagentCancelRegistry;
 
 use crate::error::AppError;
 
@@ -91,16 +92,24 @@ pub async fn parse_file_upload(mut multipart: Multipart) -> Result<ParsedUpload,
     })
 }
 
-pub fn app_state() -> Result<&'static Arc<AppState>, AppError> {
-    ha_core::get_app_state().ok_or_else(|| AppError::internal("AppState not initialized"))
-}
-
 pub fn session_db() -> Result<&'static Arc<SessionDB>, AppError> {
-    ha_core::get_session_db().ok_or_else(|| AppError::internal("Session DB not initialized"))
+    Ok(ha_core::require_session_db()?)
 }
 
 pub fn cron_db() -> Result<&'static Arc<CronDB>, AppError> {
-    ha_core::get_cron_db().ok_or_else(|| AppError::internal("Cron DB not initialized"))
+    Ok(ha_core::require_cron_db()?)
+}
+
+pub fn log_db() -> Result<&'static Arc<LogDB>, AppError> {
+    Ok(ha_core::require_log_db()?)
+}
+
+pub fn logger() -> Result<&'static AppLogger, AppError> {
+    Ok(ha_core::require_logger()?)
+}
+
+pub fn subagent_cancels() -> Result<&'static Arc<SubagentCancelRegistry>, AppError> {
+    Ok(ha_core::require_subagent_cancels()?)
 }
 
 pub fn channel_registry() -> Result<&'static Arc<ChannelRegistry>, AppError> {

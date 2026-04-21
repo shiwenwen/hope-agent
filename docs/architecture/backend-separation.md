@@ -338,27 +338,36 @@ sequenceDiagram
 | `SESSION_DB` | `Arc<SessionDB>` | 会话数据库 |
 | `MEMORY_BACKEND` | `Arc<dyn MemoryBackend>` | 记忆存储 |
 | `CRON_DB` | `Arc<CronDB>` | 定时任务 |
+| `LOG_DB` | `Arc<LogDB>` | 日志持久化（与 `APP_LOGGER` 异步 writer 分离） |
 | `SUBAGENT_CANCELS` | `Arc<SubagentCancelRegistry>` | 子 Agent 取消 |
+| `CHANNEL_CANCELS` | `Arc<ChannelCancelRegistry>` | IM 渠道取消（写桌面／HTTP／Channel 共读同一 Arc） |
 | `CHANNEL_REGISTRY` | `Arc<ChannelRegistry>` | IM 插件注册表 |
 | `CHANNEL_DB` | `Arc<ChannelDB>` | IM 会话映射 |
 | `ACP_MANAGER` | `Arc<AcpSessionManager>` | ACP 控制面 |
-| `APP_STATE` | `Arc<AppState>` | 完整应用状态 |
+| `CODEX_TOKEN_CACHE` | `Arc<tokio::Mutex<Option<(String, String)>>>` | Codex OAuth in-memory 快照 |
+| `REASONING_EFFORT` | `Arc<tokio::Mutex<String>>` | 运行时推理强度 |
+| `CACHED_AGENT` | `Arc<tokio::Mutex<Option<AssistantAgent>>>` | 兼容缓存 Agent（fallback 路径 + `/compact` / `/model` 操作对象） |
 
 ### AppState 字段
 
+`AppState` 是 Tauri `State<'_, AppState>` 注入载体，ha-core 内部路径**不**通过它读写跨运行时状态——所有有对应 OnceLock 的字段都是 `Arc<…>.clone()`，Tauri 命令和 OnceLock 访问器看到的是同一份数据。`init_app_state()` 用 `debug_assert!` 强制这个不变量。
+
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `agent` | `Mutex<Option<AssistantAgent>>` | 当前 Agent 实例 |
-| `config` | `Mutex<AppConfig>` | Provider 配置 |
-| `session_db` | `Arc<SessionDB>` | 会话 DB |
-| `chat_cancel` | `Arc<AtomicBool>` | 桌面模式取消标记 |
-| `reasoning_effort` | `Mutex<String>` | 推理强度 |
-| `codex_token` | `Mutex<Option<(String, String)>>` | Codex OAuth |
-| `current_agent_id` | `Mutex<String>` | 当前 Agent ID |
-| `log_db` / `logger` | LogDB / AppLogger | 日志 |
-| `cron_db` | `Arc<CronDB>` | Cron |
-| `subagent_cancels` | SubagentCancelRegistry | 子 Agent |
-| `channel_cancels` | ChannelCancelRegistry | IM 渠道 |
+| `agent` | `Arc<tokio::Mutex<Option<AssistantAgent>>>` | 与 [`CACHED_AGENT`] 共享 |
+| `auth_result` | `Arc<tokio::Mutex<Option<anyhow::Result<TokenData>>>>` | 桌面 OAuth 登录 rendezvous，无跨运行时需求 |
+| `reasoning_effort` | `Arc<tokio::Mutex<String>>` | 与 [`REASONING_EFFORT`] 共享 |
+| `codex_token` | `Arc<tokio::Mutex<Option<(String, String)>>>` | 与 [`CODEX_TOKEN_CACHE`] 共享 |
+| `current_agent_id` | `Mutex<String>` | 桌面专属 |
+| `session_db` / `project_db` / `log_db` / `cron_db` | `Arc<…>` | 与对应 OnceLock 共享 |
+| `chat_cancel` | `Arc<AtomicBool>` | 桌面专属 |
+| `logger` | `AppLogger` | 与 `APP_LOGGER` 共享 |
+| `subagent_cancels` | `Arc<SubagentCancelRegistry>` | 与 [`SUBAGENT_CANCELS`] 共享 |
+| `channel_cancels` | `Arc<ChannelCancelRegistry>` | 与 [`CHANNEL_CANCELS`] 共享 |
+
+### 跨模式能力 gap
+
+`hope-agent server start` / `hope-agent acp` 目前**不**调用 `init_app_state()`（process-model.md 有登记）。所有 OnceLock 都没被 populate，依赖它们的能力在这两个模式下表现为：IM channel 取消、slash 命令、`/compact`、`/model`、`/effort`、`/recap`、`/context` 这类要读跨运行时状态的路径返回 `XXX not initialized` 错误。桌面模式不受影响。彻底修需要把 `init_app_state()` + `start_background_tasks()` 下沉到 server/acp 的入口路径，这是该 gap 的后续动作。
 
 ### Tauri 专属全局（src-tauri）
 

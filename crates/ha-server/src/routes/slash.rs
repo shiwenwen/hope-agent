@@ -4,13 +4,11 @@ use serde::Deserialize;
 use ha_core::slash_commands;
 
 use crate::error::AppError;
-use crate::routes::helpers::app_state as state;
 
 /// `GET /api/slash-commands`
 pub async fn list_slash_commands(
 ) -> Result<Json<Vec<slash_commands::types::SlashCommandDef>>, AppError> {
-    let s = state()?;
-    slash_commands::list_slash_commands(s.as_ref())
+    slash_commands::list_slash_commands()
         .await
         .map(Json)
         .map_err(AppError::internal)
@@ -28,16 +26,10 @@ pub struct ExecuteBody {
 pub async fn execute_slash_command(
     Json(body): Json<ExecuteBody>,
 ) -> Result<Json<slash_commands::types::CommandResult>, AppError> {
-    let s = state()?;
-    slash_commands::execute_slash_command(
-        s.as_ref(),
-        body.session_id,
-        body.agent_id,
-        body.command_text,
-    )
-    .await
-    .map(Json)
-    .map_err(AppError::internal)
+    slash_commands::execute_slash_command(body.session_id, body.agent_id, body.command_text)
+        .await
+        .map(Json)
+        .map_err(AppError::internal)
 }
 
 #[derive(Debug, Deserialize)]

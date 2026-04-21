@@ -3,9 +3,6 @@
 //! ha-core's business logic functions don't have `#[tauri::command]` attributes
 //! (to stay Tauri-independent). This module provides the thin Tauri command layer.
 
-use crate::AppState;
-use tauri::State;
-
 // ── Permissions ──────────────────────────────────────────────────
 
 #[tauri::command]
@@ -41,23 +38,23 @@ pub async fn check_sandbox_available() -> ha_core::sandbox::DockerStatus {
 }
 
 // ── Slash Commands ───────────────────────────────────────────────
-// ha-core's slash_commands take `&AppState`, but Tauri commands receive `State<'_, AppState>`.
+// ha-core's slash_commands read cross-runtime singletons (SessionDB,
+// cached agent, etc.) via OnceLock accessors, so these wrappers are
+// pure Tauri-surface adapters with no `State<AppState>` dependency.
 
 #[tauri::command]
 pub async fn list_slash_commands(
-    state: State<'_, AppState>,
 ) -> Result<Vec<ha_core::slash_commands::types::SlashCommandDef>, String> {
-    ha_core::slash_commands::list_slash_commands(&state).await
+    ha_core::slash_commands::list_slash_commands().await
 }
 
 #[tauri::command]
 pub async fn execute_slash_command(
-    state: State<'_, AppState>,
     session_id: Option<String>,
     agent_id: String,
     command_text: String,
 ) -> Result<ha_core::slash_commands::types::CommandResult, String> {
-    ha_core::slash_commands::execute_slash_command(&state, session_id, agent_id, command_text).await
+    ha_core::slash_commands::execute_slash_command(session_id, agent_id, command_text).await
 }
 
 #[tauri::command]

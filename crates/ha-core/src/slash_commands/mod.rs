@@ -6,7 +6,6 @@ pub mod types;
 use std::collections::HashSet;
 use std::sync::OnceLock;
 
-use crate::globals::AppState;
 use crate::skills::SkillEntry;
 use types::{CommandCategory, CommandResult, SlashCommandDef};
 
@@ -80,7 +79,7 @@ pub fn builtin_command_names() -> &'static HashSet<String> {
 
 /// List all available slash commands (for UI menu rendering).
 /// Includes both built-in commands and user-invocable skill commands.
-pub async fn list_slash_commands(_state: &AppState) -> Result<Vec<SlashCommandDef>, String> {
+pub async fn list_slash_commands() -> Result<Vec<SlashCommandDef>, String> {
     let mut commands = registry::all_commands();
 
     let store = crate::config::cached_config();
@@ -121,7 +120,6 @@ pub async fn list_slash_commands(_state: &AppState) -> Result<Vec<SlashCommandDe
 /// - `agent_id`: Current agent ID
 /// - `command_text`: Full text including "/" prefix, e.g. "/model gpt-4o"
 pub async fn execute_slash_command(
-    state: &AppState,
     session_id: Option<String>,
     agent_id: String,
     command_text: String,
@@ -139,7 +137,7 @@ pub async fn execute_slash_command(
         args
     );
 
-    let result = handlers::dispatch(state, session_id.as_deref(), &agent_id, &name, &args).await?;
+    let result = handlers::dispatch(session_id.as_deref(), &agent_id, &name, &args).await?;
 
     app_info!(
         "slash_cmd",

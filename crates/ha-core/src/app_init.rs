@@ -3,8 +3,9 @@ use crate::channel;
 use crate::cron;
 use crate::globals::AppState;
 use crate::globals::{
-    ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
-    IDLE_EXTRACT_HANDLES, MEMORY_BACKEND, PROJECT_DB, SESSION_DB, SUBAGENT_CANCELS,
+    ACP_MANAGER, APP_LOGGER, CACHED_AGENT, CHANNEL_CANCELS, CHANNEL_DB, CHANNEL_REGISTRY,
+    CODEX_TOKEN_CACHE, CRON_DB, EVENT_BUS, IDLE_EXTRACT_HANDLES, LOG_DB, MEMORY_BACKEND,
+    PROJECT_DB, REASONING_EFFORT, SESSION_DB, SUBAGENT_CANCELS,
 };
 use crate::logging::{self, AppLogger, LogDB};
 use crate::memory;
@@ -48,6 +49,7 @@ pub fn init_app_state() -> AppState {
     // internally so we don't need to keep it around in this scope.
     let log_db_path = fatal(logging::db_path(), "Cannot resolve log database path");
     let log_db = Arc::new(fatal(LogDB::open(&log_db_path), "Cannot open log database"));
+    let _ = LOG_DB.set(log_db.clone());
 
     // Retention cleanup (by age + by DB size) is owned entirely by
     // `AppLogger::cleanup_loop`; its interval fires immediately after the
@@ -151,8 +153,17 @@ pub fn init_app_state() -> AppState {
     let _ = SESSION_DB.set(session_db.clone());
     let _ = IDLE_EXTRACT_HANDLES.set(std::sync::Mutex::new(std::collections::HashMap::new()));
 
-    // Initialize channel cancel registry
+    // Published to OnceLocks here, shared into AppState below. The two
+    // access styles must see the same Arc — `debug_assert!` at the bottom
+    // of this function enforces it.
     let channel_cancels = Arc::new(channel::ChannelCancelRegistry::new());
+    let codex_token = Arc::new(Mutex::new(None::<(String, String)>));
+    let reasoning_effort = Arc::new(Mutex::new("medium".to_string()));
+    let cached_agent = Arc::new(Mutex::new(None::<crate::agent::AssistantAgent>));
+    let _ = CHANNEL_CANCELS.set(channel_cancels.clone());
+    let _ = CODEX_TOKEN_CACHE.set(codex_token.clone());
+    let _ = REASONING_EFFORT.set(reasoning_effort.clone());
+    let _ = CACHED_AGENT.set(cached_agent.clone());
 
     // Clean up orphan sub-agent runs from previous app session
     subagent::cleanup_orphan_runs(&session_db);
@@ -224,11 +235,11 @@ pub fn init_app_state() -> AppState {
         }
     }
 
-    AppState {
-        agent: Mutex::new(None),
+    let state = AppState {
+        agent: cached_agent,
         auth_result: Arc::new(Mutex::new(None)),
-        reasoning_effort: Mutex::new("medium".to_string()),
-        codex_token: Mutex::new(None),
+        reasoning_effort,
+        codex_token,
         current_agent_id: Mutex::new("default".to_string()),
         session_db,
         project_db,
@@ -238,7 +249,35 @@ pub fn init_app_state() -> AppState {
         cron_db,
         subagent_cancels,
         channel_cancels,
-    }
+    };
+
+    // Guardrail: every OnceLock-backed AppState field must share the
+    // same Arc. A drift silently breaks cross-runtime reads — this
+    // exact bug class motivated removing the dead `APP_STATE`.
+    debug_assert!(
+        ptr_eq_lock(&CHANNEL_CANCELS, &state.channel_cancels),
+        "CHANNEL_CANCELS OnceLock and AppState.channel_cancels must share the same Arc"
+    );
+    debug_assert!(
+        ptr_eq_lock(&CODEX_TOKEN_CACHE, &state.codex_token),
+        "CODEX_TOKEN_CACHE OnceLock and AppState.codex_token must share the same Arc"
+    );
+    debug_assert!(
+        ptr_eq_lock(&REASONING_EFFORT, &state.reasoning_effort),
+        "REASONING_EFFORT OnceLock and AppState.reasoning_effort must share the same Arc"
+    );
+    debug_assert!(
+        ptr_eq_lock(&CACHED_AGENT, &state.agent),
+        "CACHED_AGENT OnceLock and AppState.agent must share the same Arc"
+    );
+
+    state
+}
+
+fn ptr_eq_lock<T>(lock: &std::sync::OnceLock<Arc<T>>, field: &Arc<T>) -> bool {
+    lock.get()
+        .map(|arc| Arc::ptr_eq(arc, field))
+        .unwrap_or(false)
 }
 
 /// Start background async tasks that require a tokio runtime.

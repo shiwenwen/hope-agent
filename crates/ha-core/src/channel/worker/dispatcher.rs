@@ -479,7 +479,7 @@ async fn handle_inbound_message(
         session_db: session_db.clone(),
         model_chain,
         providers: store.providers.clone(),
-        codex_token: None, // Channel doesn't support Codex OAuth
+        codex_token: None,
         resolved_temperature,
         web_search_enabled,
         notification_enabled,
@@ -488,12 +488,9 @@ async fn handle_inbound_message(
         compact_config: store.compact.clone(),
         extra_system_context: Some(channel_context),
         reasoning_effort: crate::agent::live_reasoning_effort(None).await,
-        cancel: {
-            if let Some(st) = crate::globals::get_app_state() {
-                st.channel_cancels.register(&session_id)
-            } else {
-                Arc::new(AtomicBool::new(false))
-            }
+        cancel: match crate::globals::get_channel_cancels() {
+            Some(reg) => reg.register(&session_id),
+            None => Arc::new(AtomicBool::new(false)),
         },
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
@@ -514,8 +511,8 @@ async fn handle_inbound_message(
     let result = crate::chat_engine::run_chat_engine(engine_params).await;
 
     // Remove cancel handle now that engine is done
-    if let Some(st) = crate::globals::get_app_state() {
-        st.channel_cancels.remove(&session_id);
+    if let Some(reg) = crate::globals::get_channel_cancels() {
+        reg.remove(&session_id);
     }
 
     // Drop the sink's sender is implicit — engine_params is consumed.

@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::globals::AppState;
 use crate::recap::types::{GenerateMode, RecapFilters, RecapProgress};
 use crate::recap::{generate_report, RecapContext};
 use crate::slash_commands::types::{CommandAction, CommandResult};
@@ -15,11 +14,7 @@ use crate::slash_commands::types::{CommandAction, CommandResult};
 ///   generation in the background and returns a `RecapCard { report_id }`
 ///   placeholder. The frontend subscribes to WS `recap_progress` events,
 ///   keyed by `report_id`, and renders a streaming card.
-pub async fn handle_recap(
-    state: &Arc<AppState>,
-    _session_id: Option<&str>,
-    args: &str,
-) -> Result<CommandResult, String> {
+pub async fn handle_recap(args: &str) -> Result<CommandResult, String> {
     let args = args.trim();
     if args.contains("--full") {
         return Ok(CommandResult {
@@ -34,7 +29,7 @@ pub async fn handle_recap(
     let event_bus = crate::get_event_bus().cloned();
 
     let cancel = CancellationToken::new();
-    let ctx = RecapContext::from_app_state(state, cancel)
+    let ctx = RecapContext::from_globals(cancel)
         .await
         .map_err(|e| format!("recap init failed: {}", e))?;
 

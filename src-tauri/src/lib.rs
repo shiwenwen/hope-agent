@@ -68,7 +68,7 @@ pub use ha_core::{
     get_memory_backend, get_session_db, get_subagent_cancels, set_event_bus,
 };
 pub use ha_core::{
-    AppState, ACP_MANAGER, APP_LOGGER, APP_STATE, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
+    AppState, ACP_MANAGER, APP_LOGGER, CHANNEL_DB, CHANNEL_REGISTRY, CRON_DB, EVENT_BUS,
     MEMORY_BACKEND, SESSION_DB, SUBAGENT_CANCELS,
 };
 

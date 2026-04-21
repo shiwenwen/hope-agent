@@ -10,12 +10,15 @@ pub mod team;
 pub mod utility;
 
 use crate::get_memory_backend;
-use crate::globals::AppState;
+use crate::require_session_db;
 use crate::slash_commands::types::CommandResult;
+
+fn session_db() -> Result<&'static std::sync::Arc<crate::session::SessionDB>, String> {
+    require_session_db().map_err(|e| e.to_string())
+}
 
 /// Dispatch a parsed command to the appropriate handler.
 pub async fn dispatch(
-    state: &AppState,
     session_id: Option<&str>,
     agent_id: &str,
     command: &str,
@@ -23,10 +26,10 @@ pub async fn dispatch(
 ) -> Result<CommandResult, String> {
     match command {
         // ── Session ──
-        "new" => session::handle_new(&state.session_db, agent_id),
-        "clear" => session::handle_clear(&state.session_db, session_id),
+        "new" => session::handle_new(session_db()?, agent_id),
+        "clear" => session::handle_clear(session_db()?, session_id),
         "stop" => Ok(session::handle_stop()),
-        "rename" => session::handle_rename(&state.session_db, session_id, args),
+        "rename" => session::handle_rename(session_db()?, session_id, args),
         "compact" => {
             // Return Compact action — frontend delegates to existing compact_context_now
             Ok(CommandResult {
@@ -61,11 +64,11 @@ pub async fn dispatch(
         }
 
         // ── Agent ──
-        "agent" => agent::handle_agent(&state.session_db, args),
+        "agent" => agent::handle_agent(session_db()?, args),
         "agents" => agent::handle_agents(),
 
         // ── Plan ──
-        "plan" => plan::handle_plan(&state.session_db, session_id, args).await,
+        "plan" => plan::handle_plan(session_db()?, session_id, args).await,
 
         // ── Team ──
         "team" => team::handle_team(args),
@@ -75,26 +78,19 @@ pub async fn dispatch(
         "help" => Ok(utility::handle_help()),
         "status" => {
             let store = crate::config::cached_config();
-            utility::handle_status(&state.session_db, &store, session_id, agent_id)
+            utility::handle_status(session_db()?, &store, session_id, agent_id)
         }
-        "export" => utility::handle_export(&state.session_db, session_id),
-        "usage" => utility::handle_usage(&state.session_db, session_id),
-        "recap" => {
-            let state_arc = crate::globals::get_app_state()
-                .ok_or_else(|| "AppState not initialized".to_string())?
-                .clone();
-            recap::handle_recap(&state_arc, session_id, args).await
-        }
+        "export" => utility::handle_export(session_db()?, session_id),
+        "usage" => utility::handle_usage(session_db()?, session_id),
+        "recap" => recap::handle_recap(args).await,
         "search" => utility::handle_search(args),
         "prompts" => Ok(utility::handle_prompts()),
-        "context" => context::handle_context(state, session_id, agent_id, args).await,
+        "context" => context::handle_context(session_id, agent_id, args).await,
         "awareness" => awareness::handle_awareness(args),
 
         _ => {
             // Check if it matches a user-invocable skill command
-            if let Some(result) =
-                handle_skill_command(state, command, args, session_id, agent_id).await
-            {
+            if let Some(result) = handle_skill_command(command, args, session_id, agent_id).await {
                 result
             } else {
                 Err(format!("Unknown command: /{}", command))
@@ -125,7 +121,6 @@ fn expand_prompt_template(template: &str, args: &str) -> String {
 /// - `"prompt"`: Expand a prompt template and pass through to LLM.
 /// - Default: Pass skill context to LLM, or use prompt template if available.
 async fn handle_skill_command(
-    _state: &AppState,
     command: &str,
     args: &str,
     session_id: Option<&str>,

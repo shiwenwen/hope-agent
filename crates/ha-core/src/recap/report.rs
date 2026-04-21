@@ -7,7 +7,6 @@ use crate::dashboard::{
     query_activity_heatmap, query_cost_trend, query_health_score, query_hourly_distribution,
     query_model_efficiency, query_overview_with_delta, query_top_sessions,
 };
-use crate::globals::AppState;
 use crate::logging::LogDB;
 use crate::provider::find_provider;
 use crate::session::SessionDB;
@@ -37,15 +36,20 @@ pub struct RecapContext {
 
 impl RecapContext {
     /// Build a context using the configured analysis agent (or a sensible
-    /// fallback when none is configured).
-    pub async fn from_app_state(state: &AppState, cancel: CancellationToken) -> Result<Self> {
+    /// fallback when none is configured). Pulls DB handles from the global
+    /// OnceLock singletons — recap is driven from slash commands / HTTP
+    /// routes that all share the same process-level state.
+    pub async fn from_globals(cancel: CancellationToken) -> Result<Self> {
         let config = (*crate::config::cached_config()).clone();
         let recap_db = super::api::recap_db()?;
         let (agent, analysis_model) = build_analysis_agent(&config)?;
+        let session_db = crate::require_session_db()?.clone();
+        let log_db = crate::require_log_db()?.clone();
+        let cron_db = crate::require_cron_db()?.clone();
         Ok(Self {
-            session_db: state.session_db.clone(),
-            log_db: state.log_db.clone(),
-            cron_db: state.cron_db.clone(),
+            session_db,
+            log_db,
+            cron_db,
             recap_db,
             agent,
             analysis_model,

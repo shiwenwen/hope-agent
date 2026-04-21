@@ -15,6 +15,11 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // ── Global statics (OnceLock) ──────────────────────────────────
+//
+// Every cross-runtime singleton — anything ha-core modules might need from
+// desktop / HTTP / IM-channel / ACP / cron paths — lives here as a
+// `OnceLock<Arc<…>>`. `AppState` below is a Tauri convenience aggregate
+// that shares the same Arcs via `init_app_state()`.
 
 pub static EVENT_BUS: std::sync::OnceLock<Arc<dyn EventBus>> = std::sync::OnceLock::new();
 pub static APP_LOGGER: std::sync::OnceLock<AppLogger> = std::sync::OnceLock::new();
@@ -30,7 +35,24 @@ pub static ACP_MANAGER: std::sync::OnceLock<Arc<acp_control::AcpSessionManager>>
 pub static CHANNEL_REGISTRY: std::sync::OnceLock<Arc<channel::ChannelRegistry>> =
     std::sync::OnceLock::new();
 pub static CHANNEL_DB: std::sync::OnceLock<Arc<channel::ChannelDB>> = std::sync::OnceLock::new();
-pub static APP_STATE: std::sync::OnceLock<Arc<AppState>> = std::sync::OnceLock::new();
+pub static LOG_DB: std::sync::OnceLock<Arc<LogDB>> = std::sync::OnceLock::new();
+
+pub static CHANNEL_CANCELS: std::sync::OnceLock<Arc<channel::ChannelCancelRegistry>> =
+    std::sync::OnceLock::new();
+
+/// Disk (`crate::oauth::load_token()`) is the source of truth; this cache
+/// lets hot paths avoid a disk read and gives the login flow a publish
+/// point for freshly-minted pairs.
+pub static CODEX_TOKEN_CACHE: std::sync::OnceLock<Arc<Mutex<Option<(String, String)>>>> =
+    std::sync::OnceLock::new();
+
+pub static REASONING_EFFORT: std::sync::OnceLock<Arc<Mutex<String>>> = std::sync::OnceLock::new();
+
+/// Best-effort convenience: the primary chat path rebuilds agents per
+/// request from config + DB history, so a stale or empty cache is a
+/// missed optimization, not a correctness bug.
+pub static CACHED_AGENT: std::sync::OnceLock<Arc<Mutex<Option<AssistantAgent>>>> =
+    std::sync::OnceLock::new();
 
 /// Registry for idle extraction delayed tasks, keyed by session_id.
 /// Each entry holds (AbortHandle, agent_id, updated_at_snapshot) for deferred extraction.
@@ -104,41 +126,116 @@ pub fn get_channel_db() -> Option<&'static Arc<channel::ChannelDB>> {
     CHANNEL_DB.get()
 }
 
-/// Get stored AppState for global application state access
-pub fn get_app_state() -> Option<&'static Arc<AppState>> {
-    APP_STATE.get()
+/// Get stored LogDB for log persistence (separate from the [`AppLogger`]
+/// async writer — routes that page logs need the DB handle directly).
+pub fn get_log_db() -> Option<&'static Arc<LogDB>> {
+    LOG_DB.get()
 }
 
-/// Set the global AppState instance (called once during app initialization)
-pub fn set_app_state(state: Arc<AppState>) {
-    let _ = APP_STATE.set(state);
+/// Get stored ChannelCancelRegistry for IM-channel stream cancellation
+pub fn get_channel_cancels() -> Option<&'static Arc<channel::ChannelCancelRegistry>> {
+    CHANNEL_CANCELS.get()
 }
+
+/// Get stored in-memory Codex OAuth token cache.
+/// Disk is the source of truth — use this only as a fast-path snapshot.
+pub fn get_codex_token_cache() -> Option<&'static Arc<Mutex<Option<(String, String)>>>> {
+    CODEX_TOKEN_CACHE.get()
+}
+
+/// Get stored runtime reasoning-effort preference cell.
+pub fn get_reasoning_effort_cell() -> Option<&'static Arc<Mutex<String>>> {
+    REASONING_EFFORT.get()
+}
+
+/// Get stored cached AssistantAgent (best-effort; may be stale or empty).
+pub fn get_cached_agent() -> Option<&'static Arc<Mutex<Option<AssistantAgent>>>> {
+    CACHED_AGENT.get()
+}
+
+// ── Canonical `require_*` accessors ────────────────────────────
+//
+// Each returns `anyhow::Result<&'static Arc<T>>` with a stable "<X> not
+// initialized" message so call sites share one error shape. `.cloned()`
+// at the callsite when you need ownership; `.map_err(...)` at the HTTP
+// boundary to turn anyhow into AppError / String.
+
+macro_rules! require_accessor {
+    ($name:ident, $getter:ident, $ret:ty, $label:literal) => {
+        pub fn $name() -> anyhow::Result<&'static $ret> {
+            $getter().ok_or_else(|| anyhow::anyhow!(concat!($label, " not initialized")))
+        }
+    };
+}
+
+require_accessor!(require_logger, get_logger, AppLogger, "AppLogger");
+require_accessor!(
+    require_session_db,
+    get_session_db,
+    Arc<SessionDB>,
+    "Session DB"
+);
+require_accessor!(
+    require_project_db,
+    get_project_db,
+    Arc<ProjectDB>,
+    "Project DB"
+);
+require_accessor!(require_cron_db, get_cron_db, Arc<cron::CronDB>, "Cron DB");
+require_accessor!(require_log_db, get_log_db, Arc<LogDB>, "Log DB");
+require_accessor!(
+    require_subagent_cancels,
+    get_subagent_cancels,
+    Arc<subagent::SubagentCancelRegistry>,
+    "Sub-agent cancel registry"
+);
+require_accessor!(
+    require_channel_cancels,
+    get_channel_cancels,
+    Arc<channel::ChannelCancelRegistry>,
+    "Channel cancel registry"
+);
+require_accessor!(
+    require_codex_token_cache,
+    get_codex_token_cache,
+    Arc<Mutex<Option<(String, String)>>>,
+    "Codex token cache"
+);
+require_accessor!(
+    require_reasoning_effort_cell,
+    get_reasoning_effort_cell,
+    Arc<Mutex<String>>,
+    "Reasoning effort cell"
+);
+require_accessor!(
+    require_cached_agent,
+    get_cached_agent,
+    Arc<Mutex<Option<AssistantAgent>>>,
+    "Cached agent cell"
+);
 
 // ── Application state ──────────────────────────────────────────
+//
+// Tauri convenience aggregate served to commands via `State<'_, AppState>`.
+// Every `Arc<…>` field that has a matching OnceLock above shares the same
+// allocation — `init_app_state()` enforces this with a `debug_assert!`
+// so a drift between the two access styles becomes an immediate panic.
 
 pub struct AppState {
-    pub agent: Mutex<Option<AssistantAgent>>,
+    pub agent: Arc<Mutex<Option<AssistantAgent>>>,
+    /// Desktop OAuth login rendezvous (no cross-runtime consumer).
     pub auth_result: Arc<Mutex<Option<anyhow::Result<TokenData>>>>,
-    /// Reasoning effort for Codex models
-    pub reasoning_effort: Mutex<String>,
-    /// Store token info so we can rebuild agent when model changes
-    pub codex_token: Mutex<Option<(String, String)>>, // (access_token, account_id)
-    /// Currently active agent ID
+    pub reasoning_effort: Arc<Mutex<String>>,
+    pub codex_token: Arc<Mutex<Option<(String, String)>>>,
+    /// Desktop-only.
     pub current_agent_id: Mutex<String>,
-    /// Session database
     pub session_db: Arc<SessionDB>,
-    /// Project database (shares the same SQLite file as `session_db`)
     pub project_db: Arc<ProjectDB>,
-    /// Cancel flag for stopping ongoing chat
+    /// Desktop chat turn cancel. IM-channel cancels live in [`CHANNEL_CANCELS`].
     pub chat_cancel: Arc<AtomicBool>,
-    /// Log database
     pub log_db: Arc<LogDB>,
-    /// Async logger
     pub logger: AppLogger,
-    /// Cron database
     pub cron_db: Arc<cron::CronDB>,
-    /// Sub-agent cancel registry
     pub subagent_cancels: Arc<subagent::SubagentCancelRegistry>,
-    /// Channel stream cancel registry
     pub channel_cancels: Arc<channel::ChannelCancelRegistry>,
 }

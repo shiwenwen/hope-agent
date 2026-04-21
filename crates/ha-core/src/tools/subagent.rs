@@ -599,13 +599,9 @@ fn truncate(s: &str, max: usize) -> String {
 }
 
 fn get_session_db() -> Result<Arc<crate::session::SessionDB>> {
-    crate::get_session_db()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Session DB not initialized"))
+    crate::require_session_db().map(Arc::clone)
 }
 
 fn get_cancel_registry() -> Result<Arc<subagent::SubagentCancelRegistry>> {
-    crate::get_subagent_cancels()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("Sub-agent cancel registry not initialized"))
+    crate::require_subagent_cancels().map(Arc::clone)
 }

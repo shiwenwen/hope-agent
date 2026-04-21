@@ -8,15 +8,8 @@ use std::sync::{Arc, OnceLock};
 use anyhow::{anyhow, Result};
 use tokio_util::sync::CancellationToken;
 
-use crate::globals::{get_app_state, AppState};
 use crate::recap::types::{GenerateMode, RecapProgress, RecapReport, RecapReportSummary};
 use crate::recap::{generate_report, render_html, RecapContext, RecapDb};
-
-fn get_state() -> Result<Arc<AppState>> {
-    get_app_state()
-        .cloned()
-        .ok_or_else(|| anyhow!("AppState not initialized"))
-}
 
 /// Process-wide RecapDb handle. Opens once on first access and runs
 /// `CREATE TABLE IF NOT EXISTS` only that first time; subsequent calls reuse
@@ -35,9 +28,8 @@ pub fn recap_db() -> Result<Arc<RecapDb>> {
 /// Generate a new report synchronously. Emits `recap_progress` events via the
 /// global EventBus (if initialised) so clients can stream progress.
 pub async fn generate(mode: GenerateMode) -> Result<RecapReport> {
-    let state = get_state()?;
     let cancel = CancellationToken::new();
-    let ctx = RecapContext::from_app_state(&state, cancel).await?;
+    let ctx = RecapContext::from_globals(cancel).await?;
     let event_bus = crate::get_event_bus().cloned();
     let report_id = uuid::Uuid::new_v4().to_string();
     let report_id_for_events = report_id.clone();

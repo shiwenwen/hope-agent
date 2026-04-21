@@ -76,7 +76,7 @@ pub trait EventSink: Send + Sync + 'static {
 | | `session_db` | `Arc<SessionDB>` | 会话数据库 |
 | 模型链 | `model_chain` | `Vec<ActiveModel>` | 预解析的模型降级链 |
 | | `providers` | `Vec<ProviderConfig>` | Provider 配置快照 |
-| | `codex_token` | `Option<(String, String)>` | Codex OAuth (access_token, account_id) |
+| | `codex_token` | `Option<(String, String)>` | Codex OAuth (access_token, account_id)；允许传 `None`，引擎侧在 `model_chain` 真的命中 Codex 时从磁盘 hydrate + refresh，三个入口（桌面 / HTTP / Channel）行为一致 |
 | Agent 配置 | `resolved_temperature` | `Option<f64>` | 三层覆盖后的温度值 |
 | | `web_search_enabled` | `bool` | 是否启用网络搜索 |
 | | `notification_enabled` | `bool` | 是否启用通知 |

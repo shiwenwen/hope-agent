@@ -7,7 +7,6 @@
 // plus a Unicode-bar markdown fallback in `content` for IM channels.
 
 use crate::context_compact::CHARS_PER_TOKEN;
-use crate::globals::AppState;
 use crate::slash_commands::types::{CommandAction, CommandResult, ContextBreakdown};
 
 fn chars_to_tokens(chars: usize) -> u32 {
@@ -15,13 +14,16 @@ fn chars_to_tokens(chars: usize) -> u32 {
 }
 
 pub async fn handle_context(
-    state: &AppState,
     session_id: Option<&str>,
     agent_id: &str,
     _args: &str,
 ) -> Result<CommandResult, String> {
     // ── Active agent snapshot ─────────────────────────────────────
-    let agent_guard = state.agent.lock().await;
+    // `/context` reports against whichever agent was last built (set via
+    // `/model`, desktop login, etc.). No cached agent → nothing to
+    // measure against, fail loudly.
+    let cached = crate::require_cached_agent().map_err(|e| e.to_string())?;
+    let agent_guard = cached.lock().await;
     let agent = agent_guard
         .as_ref()
         .ok_or_else(|| "No active agent".to_string())?;

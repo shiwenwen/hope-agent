@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use ha_core::logging;
 
 use crate::error::AppError;
-use crate::routes::helpers::app_state;
+use crate::routes::helpers::{log_db, logger};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -28,12 +28,12 @@ pub async fn query_logs(
         body.page_size.min(500)
     };
     let pg = if body.page == 0 { 1 } else { body.page };
-    Ok(Json(app_state()?.log_db.query(&body.filter, pg, ps)?))
+    Ok(Json(log_db()?.query(&body.filter, pg, ps)?))
 }
 
 /// `GET /api/logs/stats`
 pub async fn get_log_stats() -> Result<Json<logging::LogStats>, AppError> {
-    Ok(Json(app_state()?.log_db.get_stats()?))
+    Ok(Json(log_db()?.get_stats()?))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -48,13 +48,13 @@ pub struct ClearLogsBody {
 /// we extract via `Json` rather than `Query`. Default impl lets empty /
 /// missing body deserialize to "clear everything".
 pub async fn clear_logs(Json(body): Json<ClearLogsBody>) -> Result<Json<Value>, AppError> {
-    let n = app_state()?.log_db.clear(body.before_date.as_deref())?;
+    let n = log_db()?.clear(body.before_date.as_deref())?;
     Ok(Json(json!({ "removed": n })))
 }
 
 /// `GET /api/logs/config`
 pub async fn get_log_config() -> Result<Json<logging::LogConfig>, AppError> {
-    Ok(Json(app_state()?.logger.get_config()))
+    Ok(Json(logger()?.get_config()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -65,7 +65,7 @@ pub struct LogConfigBody {
 /// `PUT /api/logs/config`
 pub async fn save_log_config(Json(body): Json<LogConfigBody>) -> Result<Json<Value>, AppError> {
     logging::save_log_config(&body.config)?;
-    app_state()?.logger.update_config(body.config);
+    logger()?.update_config(body.config);
     Ok(Json(json!({ "saved": true })))
 }
 
@@ -111,7 +111,7 @@ pub async fn frontend_log(Json(body): Json<FrontendLogBody>) -> Result<Json<Valu
     } else {
         "info".to_string()
     };
-    app_state()?.logger.log(
+    logger()?.log(
         &level,
         &body.category,
         &body.source,
@@ -133,7 +133,7 @@ pub async fn frontend_log_batch(
     Json(body): Json<FrontendLogBatchBody>,
 ) -> Result<Json<Value>, AppError> {
     let valid = ["error", "warn", "info", "debug"];
-    let lg = &app_state()?.logger;
+    let lg = logger()?;
     for entry in body.entries {
         let level = entry
             .get("level")
@@ -174,7 +174,7 @@ pub struct ExportLogsBody {
 
 /// `POST /api/logs/export`
 pub async fn export_logs(Json(body): Json<ExportLogsBody>) -> Result<Json<Value>, AppError> {
-    let logs = app_state()?.log_db.export(&body.filter)?;
+    let logs = log_db()?.export(&body.filter)?;
     let out = match body.format.as_str() {
         "csv" => {
             let mut csv =

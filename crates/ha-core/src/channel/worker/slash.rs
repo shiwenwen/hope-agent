@@ -35,11 +35,6 @@ pub(super) async fn dispatch_slash_for_channel(
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
 
-    // Obtain a reference to the global AppState so we can reuse the shared handlers.
-    let app_state_arc = crate::globals::get_app_state()
-        .ok_or_else(|| anyhow::anyhow!("AppState not initialized"))?;
-    let app_state: &crate::globals::AppState = app_state_arc;
-
     // For commands with fixed arg_options and no args provided, return inline buttons
     // so IM channel users (e.g. Telegram) can tap to select an option.
     // Checks both built-in commands AND dynamic skill commands.
@@ -85,7 +80,7 @@ pub(super) async fn dispatch_slash_for_channel(
         }
     }
 
-    let result = handlers::dispatch(app_state, Some(session_id), agent_id, &name, &args)
+    let result = handlers::dispatch(Some(session_id), agent_id, &name, &args)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
 
@@ -172,7 +167,7 @@ pub(super) async fn dispatch_slash_for_channel(
             provider_id,
             model_id,
         }) => {
-            if let Err(e) = set_active_model_core(&provider_id, &model_id, app_state).await {
+            if let Err(e) = set_active_model_core(&provider_id, &model_id).await {
                 app_warn!("channel", "worker", "Failed to switch model: {}", e);
             } else if let Some(bus) = crate::get_event_bus() {
                 bus.emit(
@@ -192,7 +187,7 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // ── Reasoning effort — persist + notify frontend ──
         Some(CommandAction::SetEffort { effort }) => {
-            if let Err(e) = set_reasoning_effort_core(&effort, app_state).await {
+            if let Err(e) = set_reasoning_effort_core(&effort).await {
                 app_warn!("channel", "worker", "Failed to set effort: {}", e);
             } else if let Some(bus) = crate::get_event_bus() {
                 bus.emit("slash:effort_changed", serde_json::json!(effort));
@@ -206,7 +201,9 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // ── Stop stream — cancel via registry ──
         Some(CommandAction::StopStream) => {
-            let cancelled = app_state.channel_cancels.cancel(session_id);
+            let cancelled = crate::globals::get_channel_cancels()
+                .map(|reg| reg.cancel(session_id))
+                .unwrap_or(false);
             let msg = if cancelled {
                 "Stopping current stream...".to_string()
             } else {
@@ -220,26 +217,24 @@ pub(super) async fn dispatch_slash_for_channel(
         }
 
         // ── Compact — run compaction ──
-        Some(CommandAction::Compact) => {
-            match compact_context_now_core(session_id, app_state).await {
-                Ok(r) => {
-                    let msg = format!(
-                        "Compacted: {} → {} tokens ({} messages affected)",
-                        r.tokens_before, r.tokens_after, r.messages_affected
-                    );
-                    Ok(ChannelSlashOutcome::Reply {
-                        content: msg,
-                        new_session_id: None,
-                        buttons: vec![],
-                    })
-                }
-                Err(e) => Ok(ChannelSlashOutcome::Reply {
-                    content: format!("Compaction failed: {}", e),
+        Some(CommandAction::Compact) => match compact_context_now_core(session_id).await {
+            Ok(r) => {
+                let msg = format!(
+                    "Compacted: {} → {} tokens ({} messages affected)",
+                    r.tokens_before, r.tokens_after, r.messages_affected
+                );
+                Ok(ChannelSlashOutcome::Reply {
+                    content: msg,
                     new_session_id: None,
                     buttons: vec![],
-                }),
+                })
             }
-        }
+            Err(e) => Ok(ChannelSlashOutcome::Reply {
+                content: format!("Compaction failed: {}", e),
+                new_session_id: None,
+                buttons: vec![],
+            }),
+        },
 
         // ── Session cleared — notify frontend ──
         Some(CommandAction::SessionCleared) => {
@@ -339,11 +334,7 @@ pub(super) async fn dispatch_slash_for_channel(
 // ── Core helpers (migrated from src-tauri/src/commands/) ──────────
 
 /// Switch the active model. Equivalent to the old `commands::provider::set_active_model_core`.
-async fn set_active_model_core(
-    provider_id: &str,
-    model_id: &str,
-    state: &crate::globals::AppState,
-) -> Result<(), String> {
+async fn set_active_model_core(provider_id: &str, model_id: &str) -> Result<(), String> {
     use crate::agent::AssistantAgent;
     use crate::provider::{ActiveModel, ApiType};
 
@@ -363,16 +354,21 @@ async fn set_active_model_core(
         found
     };
 
+    let cached_agent = crate::require_cached_agent().map_err(|e| e.to_string())?;
+
     if provider.api_type == ApiType::Codex {
-        let token_info = state.codex_token.lock().await.clone();
+        let token_info = match crate::get_codex_token_cache() {
+            Some(cell) => cell.lock().await.clone(),
+            None => None,
+        };
         if let Some((access_token, account_id)) = token_info {
             let agent = AssistantAgent::new_openai(&access_token, &account_id, model_id);
-            *state.agent.lock().await = Some(agent);
+            *cached_agent.lock().await = Some(agent);
         }
     } else {
         let agent =
             AssistantAgent::new_from_provider(&provider, model_id).with_failover_context(&provider);
-        *state.agent.lock().await = Some(agent);
+        *cached_agent.lock().await = Some(agent);
     }
 
     let provider_id = provider_id.to_string();
@@ -388,10 +384,7 @@ async fn set_active_model_core(
 }
 
 /// Set reasoning effort. Equivalent to the old `commands::auth::set_reasoning_effort_core`.
-async fn set_reasoning_effort_core(
-    effort: &str,
-    state: &crate::globals::AppState,
-) -> Result<(), String> {
+async fn set_reasoning_effort_core(effort: &str) -> Result<(), String> {
     let valid = ["none", "low", "medium", "high", "xhigh"];
     if !valid.contains(&effort) {
         return Err(format!(
@@ -399,19 +392,21 @@ async fn set_reasoning_effort_core(
             effort, valid
         ));
     }
-    *state.reasoning_effort.lock().await = effort.to_string();
+    let cell = crate::require_reasoning_effort_cell().map_err(|e| e.to_string())?;
+    *cell.lock().await = effort.to_string();
     Ok(())
 }
 
 /// Manual context compaction. Equivalent to the old `commands::config::compact_context_now_core`.
 async fn compact_context_now_core(
     session_id: &str,
-    state: &crate::globals::AppState,
 ) -> Result<crate::context_compact::CompactResult, String> {
     use crate::chat_engine::save_agent_context;
     use crate::context_compact;
 
-    let agent = state.agent.lock().await;
+    let session_db = crate::require_session_db().map_err(|e| e.to_string())?;
+    let cached_agent = crate::require_cached_agent().map_err(|e| e.to_string())?;
+    let agent = cached_agent.lock().await;
     let agent = agent.as_ref().ok_or("No active agent")?;
 
     let mut history = agent.get_conversation_history();
@@ -454,7 +449,7 @@ async fn compact_context_now_core(
 
         if forced_result.messages_affected > 0 {
             agent.set_conversation_history(history);
-            save_agent_context(&state.session_db, session_id, agent);
+            save_agent_context(session_db, session_id, agent);
             app_info!(
                 "context",
                 "compact::manual",
@@ -468,7 +463,7 @@ async fn compact_context_now_core(
     }
 
     agent.set_conversation_history(history);
-    save_agent_context(&state.session_db, session_id, agent);
+    save_agent_context(session_db, session_id, agent);
     app_info!(
         "context",
         "compact::manual",
