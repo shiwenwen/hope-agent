@@ -23,8 +23,7 @@ pub async fn query_logs_cmd(
 
 #[tauri::command]
 pub async fn get_log_stats_cmd(state: State<'_, AppState>) -> Result<logging::LogStats, String> {
-    let db_path = logging::db_path().map_err(|e| e.to_string())?;
-    state.log_db.get_stats(&db_path).map_err(|e| e.to_string())
+    state.log_db.get_stats().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

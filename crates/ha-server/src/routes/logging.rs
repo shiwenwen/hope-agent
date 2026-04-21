@@ -33,8 +33,7 @@ pub async fn query_logs(
 
 /// `GET /api/logs/stats`
 pub async fn get_log_stats() -> Result<Json<logging::LogStats>, AppError> {
-    let db_path = logging::db_path()?;
-    Ok(Json(app_state()?.log_db.get_stats(&db_path)?))
+    Ok(Json(app_state()?.log_db.get_stats()?))
 }
 
 #[derive(Debug, Default, Deserialize)]

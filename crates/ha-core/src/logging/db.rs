@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use super::types::*;
@@ -26,10 +26,11 @@ pub(crate) fn should_log(entry_level: &str, config_level: &str) -> bool {
 
 pub struct LogDB {
     pub(crate) conn: Mutex<Connection>,
+    path: PathBuf,
 }
 
 impl LogDB {
-    pub fn open(db_path: &PathBuf) -> Result<Self> {
+    pub fn open(db_path: &Path) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -60,6 +61,7 @@ impl LogDB {
 
         Ok(Self {
             conn: Mutex::new(conn),
+            path: db_path.to_path_buf(),
         })
     }
 
@@ -226,7 +228,7 @@ impl LogDB {
         Ok(LogQueryResult { logs, total })
     }
 
-    pub fn get_stats(&self, db_path: &PathBuf) -> Result<LogStats> {
+    pub fn get_stats(&self) -> Result<LogStats> {
         let conn = self
             .conn
             .lock()
@@ -260,7 +262,7 @@ impl LogDB {
             }
         }
 
-        let db_size_bytes = std::fs::metadata(db_path).map(|m| m.len()).unwrap_or(0);
+        let db_size_bytes = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
 
         Ok(LogStats {
             total,
@@ -287,6 +289,54 @@ impl LogDB {
         let cutoff = chrono::Utc::now() - chrono::Duration::days(max_age_days as i64);
         let cutoff_str = cutoff.to_rfc3339();
         self.clear(Some(&cutoff_str))
+    }
+
+    /// Enforce an on-disk size ceiling for the logs database.
+    ///
+    /// When the DB file exceeds `max_size_mb`, the oldest rows are deleted in
+    /// a single batch (targeting ~80% of the ceiling for headroom) and a
+    /// `VACUUM` is issued so the file actually shrinks — plain `DELETE` in
+    /// WAL mode does not reclaim space, which is why raising the GUI
+    /// "max DB size" slider had no observable effect before this path
+    /// existed.
+    pub fn cleanup_by_size(&self, max_size_mb: u32) -> Result<u64> {
+        if max_size_mb == 0 {
+            return Ok(0);
+        }
+        let max_bytes = (max_size_mb as u64).saturating_mul(1024 * 1024);
+        let current_size = std::fs::metadata(&self.path).map(|m| m.len()).unwrap_or(0);
+        if current_size <= max_bytes {
+            return Ok(0);
+        }
+
+        let target_bytes = (max_bytes as f64 * 0.8) as u64;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let total: u64 = conn.query_row("SELECT COUNT(*) FROM logs", [], |row| {
+            crate::sql_u64(row, 0)
+        })?;
+        if total == 0 {
+            return Ok(0);
+        }
+
+        let avg_row_bytes = (current_size / total).max(1);
+        let overflow = current_size.saturating_sub(target_bytes);
+        // +1 to ensure we cross the boundary when avg_row_bytes over-estimates.
+        let rows_to_delete = (overflow / avg_row_bytes + 1).min(total);
+
+        let deleted = conn.execute(
+            "DELETE FROM logs WHERE id IN (SELECT id FROM logs ORDER BY timestamp ASC LIMIT ?1)",
+            params![rows_to_delete as i64],
+        )?;
+
+        // VACUUM can't run inside a transaction, and batch_insert only opens
+        // short-lived txs behind the same Mutex, so this is safe.
+        conn.execute("VACUUM", [])?;
+
+        Ok(deleted as u64)
     }
 
     pub fn export(&self, filter: &LogFilter) -> Result<Vec<LogEntry>> {

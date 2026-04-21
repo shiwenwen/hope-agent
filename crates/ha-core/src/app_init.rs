@@ -44,14 +44,15 @@ pub fn init_app_state() -> AppState {
     }
     let _ = PROJECT_DB.set(project_db.clone());
 
-    // Initialize the LogDB and AppLogger
+    // Initialize the LogDB and AppLogger. `LogDB` captures the db path
+    // internally so we don't need to keep it around in this scope.
     let log_db_path = fatal(logging::db_path(), "Cannot resolve log database path");
     let log_db = Arc::new(fatal(LogDB::open(&log_db_path), "Cannot open log database"));
 
-    // Load log config and cleanup old logs
+    // Retention cleanup (by age + by DB size) is owned entirely by
+    // `AppLogger::cleanup_loop`; its interval fires immediately after the
+    // logger starts so startup stays off the VACUUM hot path.
     let log_config = logging::load_log_config().unwrap_or_default();
-    let _ = log_db.cleanup_old(log_config.max_age_days);
-    let _ = logging::cleanup_old_log_files(log_config.max_age_days);
     let logs_dir = fatal(paths::logs_dir(), "Cannot resolve logs directory");
     let logger = AppLogger::new(log_db.clone(), logs_dir);
     logger.update_config(log_config);
