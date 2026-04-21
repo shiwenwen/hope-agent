@@ -6,7 +6,7 @@ import { test } from "node:test"
 import {
   getConfiguredTemplateKeys,
   hasConfiguredCodexProvider,
-} from "./configured-provider.js"
+} from "./configured-provider.ts"
 import type { ProviderConfig, ProviderTemplate } from "./types"
 
 function makeTemplate(
