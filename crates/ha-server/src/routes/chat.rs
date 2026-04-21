@@ -268,6 +268,7 @@ pub async fn chat(
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
         auto_approve_tools: false,
+        source: ha_core::chat_engine::stream_seq::ChatSource::Http,
         event_sink,
     };
 

@@ -1,6 +1,13 @@
 import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 
+export interface ActiveChatCounts {
+  desktop: number
+  http: number
+  channel: number
+  total: number
+}
+
 export interface ServerRuntimeStatus {
   boundAddr: string | null
   startedAt: number | null
@@ -8,7 +15,13 @@ export interface ServerRuntimeStatus {
   startupError: string | null
   eventsWsCount: number
   chatWsCount: number
+  /**
+   * Back-compat alias for `activeChatCounts.total`. Meaning changed:
+   * now counts in-flight chat engines (desktop + HTTP + channel), not
+   * WebSocket subscribers like the original field did.
+   */
   activeChatStreams: number
+  activeChatCounts: ActiveChatCounts
 }
 
 interface UseServerStatusResult {
@@ -40,7 +53,11 @@ function statusUnchanged(a: ServerRuntimeStatus, b: ServerRuntimeStatus): boolea
     a.startupError === b.startupError &&
     a.eventsWsCount === b.eventsWsCount &&
     a.chatWsCount === b.chatWsCount &&
-    a.activeChatStreams === b.activeChatStreams
+    a.activeChatStreams === b.activeChatStreams &&
+    a.activeChatCounts.desktop === b.activeChatCounts.desktop &&
+    a.activeChatCounts.http === b.activeChatCounts.http &&
+    a.activeChatCounts.channel === b.activeChatCounts.channel &&
+    a.activeChatCounts.total === b.activeChatCounts.total
   )
 }
 

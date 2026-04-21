@@ -32,8 +32,8 @@ struct StreamLifecycle {
 }
 
 impl StreamLifecycle {
-    fn begin(session_id: &str) -> Self {
-        stream_seq::begin(session_id);
+    fn begin(session_id: &str, source: stream_seq::ChatSource) -> Self {
+        stream_seq::begin(session_id, source);
         Self {
             session_id: session_id.to_string(),
         }
@@ -85,6 +85,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         plan_mode_allow_paths,
         skill_allowed_tools,
         auto_approve_tools,
+        source,
         event_sink,
     } = params;
 
@@ -103,7 +104,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         }
     }
 
-    let _stream_lifecycle = StreamLifecycle::begin(&session_id);
+    let _stream_lifecycle = StreamLifecycle::begin(&session_id, source);
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;

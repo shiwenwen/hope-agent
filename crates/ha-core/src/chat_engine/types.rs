@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use crate::agent::{AssistantAgent, PlanAgentMode};
 use crate::attachments::MediaItem;
 use crate::chat_engine::stream_broadcast::EVENT_CHANNEL_STREAM_DELTA;
+use crate::chat_engine::stream_seq::ChatSource;
 use crate::context_compact::CompactConfig;
 use crate::provider::{ActiveModel, ProviderConfig};
 use crate::session::SessionDB;
@@ -178,6 +179,10 @@ pub struct ChatEngineParams {
 
     /// When true, all tool calls are auto-approved (IM channel auto-approve mode).
     pub auto_approve_tools: bool,
+
+    /// Which caller opened this stream. Drives the `activeChatCounts`
+    /// breakdown surfaced in `/api/server/status`.
+    pub source: ChatSource,
 
     // Output
     pub event_sink: Arc<dyn EventSink>,

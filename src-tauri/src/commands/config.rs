@@ -361,10 +361,7 @@ pub async fn save_server_config(
 #[tauri::command]
 pub async fn get_server_runtime_status() -> Result<serde_json::Value, String> {
     let snap = ha_core::server_status::snapshot();
-    let active_chat_streams = match crate::globals::chat_stream_registry() {
-        Some(r) => r.active_session_count().await,
-        None => 0,
-    };
+    let counts = ha_core::chat_engine::stream_seq::active_counts();
 
     Ok(serde_json::json!({
         "boundAddr": snap.bound_addr,
@@ -373,7 +370,11 @@ pub async fn get_server_runtime_status() -> Result<serde_json::Value, String> {
         "startupError": snap.startup_error,
         "eventsWsCount": snap.events_ws_count,
         "chatWsCount": snap.chat_ws_count,
-        "activeChatStreams": active_chat_streams,
+        // Legacy field kept for payload compatibility. Meaning changed:
+        // now reflects in-flight chat engines across desktop / HTTP / channel,
+        // not WebSocket subscribers.
+        "activeChatStreams": counts.total,
+        "activeChatCounts": counts,
     }))
 }
 

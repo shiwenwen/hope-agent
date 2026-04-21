@@ -554,7 +554,16 @@ function RuntimeStatusSection() {
         <MetricCard
           icon={MessageSquare}
           label={t("settings.serverActiveChatStreams")}
-          value={String(status.activeChatStreams)}
+          value={String(status.activeChatCounts.total)}
+          subValue={
+            status.activeChatCounts.total > 0
+              ? `${status.activeChatCounts.desktop} desktop · ${status.activeChatCounts.http} http${
+                  status.activeChatCounts.channel > 0
+                    ? ` · ${status.activeChatCounts.channel} channel`
+                    : ""
+                }`
+              : undefined
+          }
           colorClass="text-purple-500"
           bgClass="bg-purple-500/10"
         />

@@ -112,7 +112,6 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         let store = ha_core::config::load_config().unwrap_or_default();
         let api_key = store.server.api_key.clone();
         let chat_streams = Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new());
-        crate::globals::set_chat_stream_registry(chat_streams.clone());
         let ctx = Arc::new(ha_server::AppContext {
             session_db,
             project_db,

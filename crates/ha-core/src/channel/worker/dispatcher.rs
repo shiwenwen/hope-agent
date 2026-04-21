@@ -499,6 +499,7 @@ async fn handle_inbound_message(
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
         auto_approve_tools: account.auto_approve_tools,
+        source: crate::chat_engine::stream_seq::ChatSource::Channel,
         event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(
             session_id.clone(),
             event_tx,

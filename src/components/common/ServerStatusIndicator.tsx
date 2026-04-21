@@ -64,7 +64,20 @@ export default function ServerStatusIndicator({
           </div>
           <div className="text-muted-foreground">
             {t("settings.serverActiveChatStreams")}:{" "}
-            <span className="text-foreground">{status.activeChatStreams}</span>
+            <span className="text-foreground">
+              {status.activeChatCounts.total}
+            </span>
+            {status.activeChatCounts.total > 0 && (
+              <span className="opacity-70">
+                {" "}
+                ({status.activeChatCounts.desktop} desktop ·{" "}
+                {status.activeChatCounts.http} http
+                {status.activeChatCounts.channel > 0
+                  ? ` · ${status.activeChatCounts.channel} channel`
+                  : ""}
+                )
+              </span>
+            )}
           </div>
         </>
       ) : (

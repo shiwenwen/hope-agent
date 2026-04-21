@@ -567,6 +567,7 @@ pub async fn chat(
         plan_mode_allow_paths: plan_allow_paths,
         skill_allowed_tools: Vec::new(),
         auto_approve_tools: false,
+        source: crate::chat_engine::stream_seq::ChatSource::Desktop,
         event_sink: Arc::new(ChannelSink {
             channel: on_event.clone(),
         }),

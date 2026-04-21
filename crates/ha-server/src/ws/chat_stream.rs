@@ -61,10 +61,6 @@ impl ChatStreamRegistry {
             }
         }
     }
-
-    pub async fn active_session_count(&self) -> usize {
-        self.sessions.read().await.len()
-    }
 }
 
 // ── WebSocket handler ──────────────────────────────────────────

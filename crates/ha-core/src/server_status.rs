@@ -91,9 +91,9 @@ pub struct StatusSnapshot {
     pub chat_ws_count: u32,
 }
 
-/// Snapshot the current state. `ChatStreamRegistry::active_session_count()`
-/// lives in ha-server and is merged in by the caller to avoid a reverse
-/// dependency from ha-core back into ha-server.
+/// Snapshot the current state. In-flight chat session counts live in
+/// `chat_engine::stream_seq::active_counts()` and are queried separately by
+/// status endpoints to keep this module free of chat-engine concerns.
 pub fn snapshot() -> StatusSnapshot {
     let handle = get_or_init();
     let (bound, started_at, error) = match handle.read().ok() {
