@@ -11,6 +11,7 @@
 | --------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [系统架构总览](architecture/overview.md)            | 技术栈、架构全景图、核心数据流、模块依赖、存储架构                                                              |
 | [前后端分离架构](architecture/backend-separation.md) | 三层架构设计（核心库/HTTP 服务/桌面壳）、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
+| [API 参考](architecture/api-reference.md) | Tauri 命令 ↔ HTTP/WS 完整对照（366 / 361 / 338）、EventBus 事件清单、Transport 方法对照、已知不对齐项（14 必修 + 9 待评估 + 4 桌面专属）、新增接口 checklist |
 
 
 ---
