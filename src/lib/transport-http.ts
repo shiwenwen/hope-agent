@@ -51,7 +51,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Sessions --
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
   create_session_cmd:              { method: "POST",   path: "/api/sessions" },
-  get_session_cmd:                 { method: "GET",    path: "/api/sessions/{id}" },
+  get_session_cmd:                 { method: "GET",    path: "/api/sessions/{sessionId}" },
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },

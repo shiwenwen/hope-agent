@@ -172,25 +172,9 @@ pub struct InitializeAgentBody {
 pub async fn initialize_agent(
     Json(body): Json<InitializeAgentBody>,
 ) -> Result<Json<Value>, AppError> {
-    let mut provider = ha_core::provider::ProviderConfig::new(
-        "Anthropic".to_string(),
-        ha_core::provider::ApiType::Anthropic,
-        "https://api.anthropic.com".to_string(),
-        body.api_key,
-    );
-    provider.models.push(ha_core::provider::ModelConfig {
-        id: "claude-sonnet-4-6".to_string(),
-        name: "Claude Sonnet 4.6".to_string(),
-        input_types: vec!["text".to_string(), "image".to_string()],
-        context_window: 200_000,
-        max_tokens: 8192,
-        reasoning: false,
-        cost_input: 3.0,
-        cost_output: 15.0,
-    });
-
+    let provider = ha_core::provider::ProviderConfig::new_default_anthropic(body.api_key);
     let provider_id = provider.id.clone();
-    let model_id = "claude-sonnet-4-6".to_string();
+    let model_id = provider.models[0].id.clone();
 
     ha_core::config::mutate_config(("initialize_agent", "onboarding-http"), |store| {
         store.providers.push(provider);

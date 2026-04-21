@@ -50,6 +50,14 @@ pub(super) fn get_max_tool_rounds() -> u32 {
         .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS)
 }
 
+/// Whether `id` matches one of the well-known Codex OAuth model IDs.
+/// Cheap linear scan over the fixed list returned by [`get_codex_models`];
+/// shared by the Tauri `set_codex_model` command and the HTTP handler so
+/// validation stays in sync when the list changes.
+pub fn is_valid_codex_model(id: &str) -> bool {
+    get_codex_models().iter().any(|m| m.id == id)
+}
+
 pub fn get_codex_models() -> Vec<CodexModel> {
     vec![
         CodexModel {

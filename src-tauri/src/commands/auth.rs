@@ -1,6 +1,6 @@
 use crate::agent::{self, AssistantAgent};
 use crate::oauth;
-use crate::provider::{self, ActiveModel, ApiType, ModelConfig, ProviderConfig};
+use crate::provider::{self, ActiveModel, ApiType, ProviderConfig};
 use crate::AppState;
 use ha_core::{app_info, app_warn};
 use serde::Serialize;
@@ -8,26 +8,9 @@ use tauri::State;
 
 #[tauri::command]
 pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), String> {
-    // Create an Anthropic provider
-    let mut provider = ProviderConfig::new(
-        "Anthropic".to_string(),
-        ApiType::Anthropic,
-        "https://api.anthropic.com".to_string(),
-        api_key.clone(),
-    );
-    provider.models.push(ModelConfig {
-        id: "claude-sonnet-4-6".to_string(),
-        name: "Claude Sonnet 4.6".to_string(),
-        input_types: vec!["text".to_string(), "image".to_string()],
-        context_window: 200_000,
-        max_tokens: 8192,
-        reasoning: false,
-        cost_input: 3.0,
-        cost_output: 15.0,
-    });
-
+    let provider = ProviderConfig::new_default_anthropic(api_key);
     let provider_id = provider.id.clone();
-    let model_id = "claude-sonnet-4-6".to_string();
+    let model_id = provider.models[0].id.clone();
     let agent = AssistantAgent::new_from_provider(&provider, &model_id);
 
     ha_core::config::mutate_config(("initialize_agent", "onboarding"), |store| {
@@ -292,8 +275,7 @@ pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentS
 
 #[tauri::command]
 pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Result<(), String> {
-    let valid = agent::get_codex_models().iter().any(|m| m.id == model);
-    if !valid {
+    if !agent::is_valid_codex_model(&model) {
         return Err(format!("Unknown model: {}", model));
     }
 

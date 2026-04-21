@@ -4,6 +4,17 @@ use super::types::*;
 
 // ── Import Parsers ──────────────────────────────────────────────
 
+/// Dispatch parse to the right format handler. Accepted values for `format`:
+/// `json`, `markdown`, `md`. Unknown formats return an error whose message is
+/// stable across callers so CLI / REST / Tauri layers surface the same text.
+pub fn parse_import(content: &str, format: &str) -> Result<Vec<NewMemory>> {
+    match format {
+        "json" => parse_import_json(content),
+        "markdown" | "md" => parse_import_markdown(content),
+        other => Err(anyhow::anyhow!("Unsupported format: {}", other)),
+    }
+}
+
 /// Parse JSON import format: array of { content, type?, scope?, tags? }
 pub fn parse_import_json(json_str: &str) -> Result<Vec<NewMemory>> {
     let items: Vec<serde_json::Value> = serde_json::from_str(json_str)

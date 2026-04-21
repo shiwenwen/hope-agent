@@ -107,11 +107,7 @@ pub async fn memory_import(
     format: String,
     dedup: bool,
 ) -> Result<memory::ImportResult, String> {
-    let entries = match format.as_str() {
-        "json" => memory::parse_import_json(&content).map_err(|e| e.to_string())?,
-        "markdown" | "md" => memory::parse_import_markdown(&content).map_err(|e| e.to_string())?,
-        _ => return Err(format!("Unsupported format: {}", format)),
-    };
+    let entries = memory::parse_import(&content, &format).map_err(|e| e.to_string())?;
     let backend = get_memory_backend().ok_or("Memory backend not initialized")?;
     backend
         .import_entries(entries, dedup)

@@ -228,6 +228,30 @@ impl ProviderConfig {
         }
     }
 
+    /// First-run onboarding shortcut: construct an Anthropic provider
+    /// pre-populated with Claude Sonnet 4.6 metadata. Shared between the
+    /// Tauri `initialize_agent` command and the HTTP `POST /api/agents/initialize`
+    /// handler so model defaults (context / cost / input types) live in one place.
+    pub fn new_default_anthropic(api_key: String) -> Self {
+        let mut provider = Self::new(
+            "Anthropic".to_string(),
+            ApiType::Anthropic,
+            "https://api.anthropic.com".to_string(),
+            api_key,
+        );
+        provider.models.push(ModelConfig {
+            id: "claude-sonnet-4-6".to_string(),
+            name: "Claude Sonnet 4.6".to_string(),
+            input_types: vec!["text".to_string(), "image".to_string()],
+            context_window: 200_000,
+            max_tokens: 8192,
+            reasoning: false,
+            cost_input: 3.0,
+            cost_output: 15.0,
+        });
+        provider
+    }
+
     /// Return a copy with the API key and all profile keys masked for frontend display.
     pub fn masked(&self) -> Self {
         Self {

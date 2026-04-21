@@ -226,8 +226,7 @@ pub struct SetCodexModelBody {
 /// agent to rebuild; we only persist the selection to config so subsequent
 /// `POST /api/chat` calls pick it up.
 pub async fn set_codex_model(Json(body): Json<SetCodexModelBody>) -> Result<Json<Value>, AppError> {
-    let valid = agent::get_codex_models().iter().any(|m| m.id == body.model);
-    if !valid {
+    if !agent::is_valid_codex_model(&body.model) {
         return Err(AppError::bad_request(format!(
             "Unknown model: {}",
             body.model

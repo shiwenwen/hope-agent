@@ -271,20 +271,14 @@ pub struct ImportMemoryBody {
 }
 
 /// `POST /api/memory/import` — import memories from JSON or Markdown.
-/// Mirrors the Tauri `memory_import` command.
+/// Mirrors the Tauri `memory_import` command. Unsupported-format errors are
+/// surfaced as 400 so operator tooling can distinguish bad input from backend
+/// failures.
 pub async fn import_memory(
     Json(body): Json<ImportMemoryBody>,
 ) -> Result<Json<ha_core::memory::ImportResult>, AppError> {
-    let entries = match body.format.as_str() {
-        "json" => ha_core::memory::parse_import_json(&body.content)?,
-        "markdown" | "md" => ha_core::memory::parse_import_markdown(&body.content)?,
-        other => {
-            return Err(AppError::bad_request(format!(
-                "Unsupported format: {}",
-                other
-            )))
-        }
-    };
+    let entries = ha_core::memory::parse_import(&body.content, &body.format)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
     let backend = get_backend()?;
     let result = backend.import_entries(entries, body.dedup)?;
     Ok(Json(result))

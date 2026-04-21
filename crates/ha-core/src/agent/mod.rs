@@ -17,7 +17,9 @@ mod streaming_loop;
 mod types;
 
 // Re-export public API
-pub use config::{build_api_url, get_codex_models, live_reasoning_effort, USER_AGENT};
+pub use config::{
+    build_api_url, get_codex_models, is_valid_codex_model, live_reasoning_effort, USER_AGENT,
+};
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub(crate) use context::build_compaction_provider;
 pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};

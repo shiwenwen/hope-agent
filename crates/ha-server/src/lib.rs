@@ -316,7 +316,10 @@ fn build_router_with_cors(
         .route("/memory/delete-batch", post(routes::memory::delete_batch))
         .route("/memory/reembed", post(routes::memory::reembed))
         .route("/memory/export", post(routes::memory::export_memory))
-        .route("/memory/import", post(routes::memory::import_memory))
+        .route(
+            "/memory/import",
+            post(routes::memory::import_memory).layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
         .route("/memory/find-similar", post(routes::memory::find_similar))
         .route(
             "/memory/global-md",
