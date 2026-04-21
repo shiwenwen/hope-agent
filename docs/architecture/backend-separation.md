@@ -71,7 +71,7 @@ logging/        非阻塞双写 + 脱敏
 
 | 职责 | 说明 |
 |------|------|
-| REST API | 43 个端点（sessions/chat/providers/memory/config/agents） |
+| REST API | 361 个端点（完整清单与 Tauri 命令对照见 [api-reference.md](api-reference.md)） |
 | WebSocket | `/ws/events`（全局事件广播）+ `/ws/chat/{session_id}`（流式输出） |
 | 路由框架 | axum 0.8 + tower-http CORS |
 | API Key 鉴权 | `middleware.rs` — `Authorization: Bearer` 头 + `?token=` 查询参数，`/api/health` 免鉴权 |
@@ -92,7 +92,7 @@ pub struct AppContext {
 
 | 职责 | 说明 |
 |------|------|
-| Tauri IPC | 150+ `#[tauri::command]` 处理函数 |
+| Tauri IPC | 366 个 `#[tauri::command]` 处理函数（完整清单与 HTTP 对照见 [api-reference.md](api-reference.md)） |
 | 桌面集成 | 系统托盘、全局快捷键、窗口管理、macOS 菜单 |
 | 薄封装 | `tauri_wrappers.rs` 为 ha-core 无 `#[tauri::command]` 的函数添加属性 |
 | 内嵌服务 | `setup.rs` 中 spawn ha-server，配置从 `config.json` 的 `server` 字段读取 |
@@ -266,7 +266,7 @@ switchToEmbedded()                        // 切回本地
 
 ### HttpTransport 命令映射
 
-`transport-http.ts` 内部维护 143 个命令到 REST 端点的映射表：
+`transport-http.ts` 内部维护 338 个命令到 REST 端点的映射表（完整对照表见 [api-reference.md](api-reference.md)）：
 
 ```typescript
 const COMMAND_MAP = {
@@ -440,84 +440,24 @@ stateDiagram-v2
 
 ## HTTP API 端点一览
 
-### Sessions
+完整清单（361 个 REST 端点 + 2 个 WebSocket 端点）与对应 Tauri 命令对照见 **[api-reference.md](api-reference.md)**，本节只保留顶层结构索引：
 
-| Method | Path | 说明 |
-|--------|------|------|
-| POST | `/api/sessions` | 创建会话 |
-| GET | `/api/sessions` | 列表（?agent_id=&limit=&offset=） |
-| GET | `/api/sessions/{id}` | 获取会话 |
-| DELETE | `/api/sessions/{id}` | 删除会话 |
-| PATCH | `/api/sessions/{id}` | 重命名 |
-| GET | `/api/sessions/{id}/messages` | 加载消息（?limit=50） |
-
-### Chat
-
-| Method | Path | 说明 |
-|--------|------|------|
-| POST | `/api/chat` | 发起对话（事件通过 WS 推送） |
-| POST | `/api/chat/stop` | 停止指定 session 的对话 |
-| POST | `/api/chat/approval/{request_id}` | 工具审批响应 |
-| GET | `/api/chat/system-prompt` | 当前系统提示词 |
-| GET | `/api/chat/tools` | 可用工具列表 |
-
-### Providers
-
-| Method | Path | 说明 |
-|--------|------|------|
-| GET | `/api/providers` | 列表 |
-| POST | `/api/providers` | 添加 |
-| PUT | `/api/providers/{id}` | 更新 |
-| DELETE | `/api/providers/{id}` | 删除 |
-| POST | `/api/providers/test` | 测试连接 |
-| GET | `/api/providers/active-model` | 当前模型 |
-| PUT | `/api/providers/active-model` | 切换模型 |
-
-### Memory
-
-| Method | Path | 说明 |
-|--------|------|------|
-| POST | `/api/memory` | 添加记忆 |
-| GET | `/api/memory` | 列表（?limit=&offset=&scope=） |
-| GET | `/api/memory/{id}` | 获取 |
-| PUT | `/api/memory/{id}` | 更新 |
-| DELETE | `/api/memory/{id}` | 删除 |
-| POST | `/api/memory/search` | 语义搜索 |
-| GET | `/api/memory/count` | 计数 |
-| GET | `/api/memory/stats` | 统计 |
-
-### Config
-
-| Method | Path | 说明 |
-|--------|------|------|
-| GET/PUT | `/api/config/user` | 用户配置 |
-| GET/PUT | `/api/config/web-search` | 搜索引擎配置 |
-| GET/PUT | `/api/config/proxy` | 代理配置 |
-| GET/PUT | `/api/config/compact` | 压缩配置 |
-| GET/PUT | `/api/config/notification` | 通知配置 |
-| GET/PUT | `/api/config/server` | 内嵌服务器配置（bind 地址 + API Key） |
-
-### Agents
-
-| Method | Path | 说明 |
-|--------|------|------|
-| GET | `/api/agents` | 列表 |
-| GET | `/api/agents/{id}` | 获取配置 |
-| PUT | `/api/agents/{id}` | 保存配置 |
-| DELETE | `/api/agents/{id}` | 删除 |
-
-### WebSocket
-
-| Path | 说明 |
-|------|------|
-| `/ws/events` | 全局事件广播（多客户端同步） |
-| `/ws/chat/{session_id}` | 对话流式输出（per-session broadcast） |
-
-### Health
-
-| Method | Path | 说明 |
-|--------|------|------|
-| GET | `/api/health` | `{"status":"ok","version":"0.1.0"}`（免鉴权） |
+| 功能域 | HTTP 前缀 | WebSocket |
+|---|---|---|
+| Sessions / Chat | `/api/sessions/*`、`/api/chat/*` | `/ws/chat/{session_id}` 流式聊天 |
+| Providers / Models / Agents | `/api/providers/*`、`/api/models/*`、`/api/agents/*` | — |
+| Memory（4 域 + 13 配置） | `/api/memory/*`、`/api/config/{embedding,dedup,mmr,...}` | — |
+| Config（40+ 配置分项） | `/api/config/*` | — |
+| Plan / Ask User | `/api/plan/*`、`/api/ask_user/respond` | — |
+| Dashboard / Recap / Logging | `/api/dashboard/*`、`/api/recap/*`、`/api/logs/*` | — |
+| Cron / Subagent / Team | `/api/cron/*`、`/api/subagent/*`、`/api/teams/*`、`/api/team-templates/*` | — |
+| Channels (IM) | `/api/channel/*` | — |
+| Canvas / Browser / Weather | `/api/canvas/*`、`/api/browser/*`、`/api/weather/*` | — |
+| Skills / Slash | `/api/skills/*`、`/api/slash-commands/*` | — |
+| Auth / ACP | `/api/auth/*`、`/api/acp/*` | — |
+| Onboarding | `/api/onboarding/*` | — |
+| 全局事件推送 | — | `/ws/events`（EventBus → 文本帧，带 `{name,payload}`） |
+| 免鉴权 | `/api/health`、`/api/server/status` | — |
 
 ---
 

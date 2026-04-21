@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **新增 API 参考文档 + backend-separation.md 回归**：新建 [`docs/architecture/api-reference.md`](docs/architecture/api-reference.md) 把 Tauri IPC 命令（366 个）、HTTP REST 路由（361 个）、前端 `COMMAND_MAP`（338 条）三方按功能域列成一一对应的三列表格，附 WebSocket 端点、EventBus 事件清单、Transport 抽象层方法对照、已知不对齐项与新增接口 checklist。配套修订 [`backend-separation.md`](docs/architecture/backend-separation.md) 的过时数字（"43 端点 / 143 命令映射 / 150+ 命令"回归为真实计数并指向 api-reference），`docs/README.md` 索引登记新文档。审计结果：14 条 `HTTP 路由存在但 COMMAND_MAP 漏写` 必修项（`get_agent_markdown` 前端引用 7 次为最热）、9 条 `HTTP 路由完全缺失`（遗留分页 / 记忆运维 / codex 模型 / 开发视图）待评估、4 条 `tauri-plugin-permissions` Desktop-only 合法缺失。文档含可执行验证脚本，未来新增接口时用来做对账。
+
 ### Added
 
 - **内嵌服务运行时状态可视化**：桌面模式下 [`src-tauri/src/setup.rs`](src-tauri/src/setup.rs) 无条件 spawn 的 `ha_server::start_server` 现在把真实 `listener.local_addr()` / 启动错误 / 启动时间写入新模块 [`ha_core::server_status`](crates/ha-core/src/server_status.rs)，WS handler ([events.rs](crates/ha-server/src/ws/events.rs) / [chat_stream.rs](crates/ha-server/src/ws/chat_stream.rs)) 入口挂 `WsConnectionGuard` RAII 计数器，`ChatStreamRegistry::active_session_count()` 暴露活跃 session 数。新 Tauri 命令 `get_server_runtime_status` + 免鉴权 HTTP `GET /api/server/status` 返回同构 `{boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, activeChatStreams}`——Transport 层路由后前端透明。GUI 三处展示：**(1) Settings → Server 顶部 Runtime Status section** 四张 MetricCard（bound addr / uptime / active WS / active chat streams），启动失败时整块切红显示完整错误；**(2) IconSidebar 底部 ServerStatusIndicator 徽章** 常驻圆点 + WS 总数，悬停 Tooltip 列详情，点击跳 Settings；**(3) 系统托盘 tooltip** 每 5s 自动刷新 `Hope Agent\n<addr> · N WS · up Xm Ys`，失败态 `(server failed)`。新增 [`useServerStatus`](src/hooks/useServerStatus.ts) hook（3s 面板 / 5s 徽章差异化，visibilitychange 感知暂停），把 Dashboard 的 `MetricCard` 提升为公用 [`src/components/common/MetricCard.tsx`](src/components/common/MetricCard.tsx)。解决的三个痛点：用户写 `0.0.0.0:8420` 时 GUI 只能回显配置字符串看不到真实 bound socket、启动错误仅走 `eprintln!` GUI 无感知、活跃 WS / chat streams 全无可见性。
