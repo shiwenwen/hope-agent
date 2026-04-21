@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **新增 API 参考文档 + backend-separation.md 回归**：新建 [`docs/architecture/api-reference.md`](docs/architecture/api-reference.md) 把 Tauri IPC 命令（366 个）、HTTP REST 路由（361 个）、前端 `COMMAND_MAP`（338 条）三方按功能域列成一一对应的三列表格，附 WebSocket 端点、EventBus 事件清单、Transport 抽象层方法对照、已知不对齐项与新增接口 checklist。配套修订 [`backend-separation.md`](docs/architecture/backend-separation.md) 的过时数字（"43 端点 / 143 命令映射 / 150+ 命令"回归为真实计数并指向 api-reference），`docs/README.md` 索引登记新文档。审计结果：14 条 `HTTP 路由存在但 COMMAND_MAP 漏写` 必修项（`get_agent_markdown` 前端引用 7 次为最热）、9 条 `HTTP 路由完全缺失`（遗留分页 / 记忆运维 / codex 模型 / 开发视图）待评估、4 条 `tauri-plugin-permissions` Desktop-only 合法缺失。文档含可执行验证脚本，未来新增接口时用来做对账。
+
 ### Added
 
 - **新增架构文档《进程与并发模型》**：[`docs/architecture/process-model.md`](docs/architecture/process-model.md) 把项目里「独立进程 / 独立 OS 线程 / 长驻 tokio 任务 / 动态子进程」四层骨架一次讲清。Layer A 三种二进制运行模式（`hope-agent` GUI + Guardian 父子 / `server` daemon / `acp` stdio），含 `EXIT_CODE_RESTART = 42` 协议与 `HOPE_AGENT_RECOVERED` 恢复标记；Guardian 阈值细节（`max_crashes = 8` / `diagnosis_threshold = 5`）cross-link 到 `backend-separation.md` 不复述。Layer B 独立 OS 线程（AppLogger writer / Cron 调度器 / Weather refresh / subagent + async_jobs 的 Send 豁免线程），讲清 `std::thread::spawn(|| Runtime::new().block_on(...))` 模式的两个动机（Tauri reactor 时序 + Send 豁免）。Layer C 复用主 runtime 的 tokio 任务（ask_user 清理 / Channel auto-start / async_jobs retention / Recap facet retention / Dreaming idle / ACP health / AppLogger cleanup），含新增**《跨模式能力不对等》**小节——披露「`start_background_tasks()` / `cron::start_scheduler()` / AppLogger **当前仅桌面模式启用**，`hope-agent server` 和 `hope-agent acp` 只做最小 init (SessionDB + ProjectDB + EventBus)」这一长期被忽略的结构性 gap；相应修正 `docs/architecture/ask-user.md` 里误把 server 模式当长驻入口的旧说法。Layer D 动态子进程按「长驻 / 单次 / 系统服务注册」三类列出（ACP runtime / exec / sandbox / Docker / Skill 依赖安装 / launchd 的 `com.hopeagent.server.plist` / systemd 的 `hope-agent.service` 等）。补齐多进程数据共享约束（SQLite WAL、`cached_config` 快照、EventBus 进程内）、启动 / 退出顺序、排查指引。`docs/README.md` 索引登记。
