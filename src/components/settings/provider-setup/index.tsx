@@ -1,7 +1,8 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import type { TestResult } from "@/components/settings/TestResultDisplay"
+import { logger } from "@/lib/logger"
 import type { ApiType, ModelConfig, ProviderConfig, ProviderTemplate, ThinkingStyleType } from "./types"
 import { TemplateGrid } from "./TemplateGrid"
 import { TemplateConfig } from "./TemplateConfig"
@@ -28,6 +29,7 @@ export default function ProviderSetup({
 
   // Template selection
   const [selectedTemplate, setSelectedTemplate] = useState<ProviderTemplate | null>(null)
+  const [configuredProviders, setConfiguredProviders] = useState<ProviderConfig[]>([])
 
   // Config form (for both template & custom)
   const [customStep, setCustomStep] = useState(0) // 0=type, 1=connection, 2=models
@@ -43,6 +45,32 @@ export default function ProviderSetup({
   const [modelsExpanded, setModelsExpanded] = useState(false)
   const [thinkingStyle, setThinkingStyle] = useState<ThinkingStyleType>("openai")
   const [showApiKey, setShowApiKey] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadConfiguredProviders() {
+      try {
+        const providers = await getTransport().call<ProviderConfig[]>("get_providers")
+        if (!cancelled) {
+          setConfiguredProviders(providers)
+        }
+      } catch (e) {
+        logger.warn(
+          "provider-setup",
+          "ProviderSetup::loadConfiguredProviders",
+          "Failed to load configured providers",
+          e,
+        )
+      }
+    }
+
+    void loadConfiguredProviders()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // ── Actions ─────────────────────────────────────────────────────
 
@@ -121,6 +149,7 @@ export default function ProviderSetup({
         onRemoteConnected={onComplete}
         onCancel={onCancel}
         hideRemoteConnect={hideRemoteConnect}
+        configuredProviders={configuredProviders}
       />
     )
   }

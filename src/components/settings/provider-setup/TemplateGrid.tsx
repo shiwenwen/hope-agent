@@ -1,17 +1,28 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import ProviderIcon from "@/components/common/ProviderIcon"
-import { ArrowLeft, Globe, Loader2, Search, Settings2 } from "lucide-react"
+import { ArrowLeft, CheckCircle2, Globe, Loader2, Search, Settings2 } from "lucide-react"
 import { PROVIDER_TEMPLATES } from "./templates"
 import { RemoteConnectDialog } from "./RemoteConnectDialog"
-import type { ProviderTemplate } from "./types"
+import { getConfiguredTemplateKeys, hasConfiguredCodexProvider } from "./configured-provider"
+import type { ProviderConfig, ProviderTemplate } from "./types"
+
+function ConfiguredBadge({ label }: { label: string }) {
+  return (
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-300">
+      <CheckCircle2 className="h-3 w-3" />
+      {label}
+    </span>
+  )
+}
 
 interface TemplateGridProps {
   onSelectTemplate: (template: ProviderTemplate) => void
   onStartCustom: () => void
   onCodexAuth: () => Promise<void>
+  configuredProviders: ProviderConfig[]
   onRemoteConnected?: () => void
   onCancel?: () => void
   /** Hide the "Connect to remote server" shortcut (onboarding moves it to its own step). */
@@ -22,6 +33,7 @@ export function TemplateGrid({
   onSelectTemplate,
   onStartCustom,
   onCodexAuth,
+  configuredProviders,
   onRemoteConnected,
   onCancel,
   hideRemoteConnect = false,
@@ -31,6 +43,16 @@ export function TemplateGrid({
   const [codexLoading, setCodexLoading] = useState(false)
   const [codexError, setCodexError] = useState("")
   const [remoteOpen, setRemoteOpen] = useState(false)
+  const configuredLabel = t("onboarding.summary.providerDone")
+
+  const configuredTemplateKeys = useMemo(
+    () => getConfiguredTemplateKeys(PROVIDER_TEMPLATES, configuredProviders),
+    [configuredProviders],
+  )
+  const codexConfigured = useMemo(
+    () => hasConfiguredCodexProvider(configuredProviders),
+    [configuredProviders],
+  )
 
   async function handleCodexAuth() {
     setCodexLoading(true)
@@ -101,7 +123,10 @@ export function TemplateGrid({
                 {t("provider.waitingBrowserLogin")}
               </span>
             ) : (
-              t("provider.codexSignIn")
+              <span className="flex items-center gap-2">
+                <span>{t("provider.codexSignIn")}</span>
+                {codexConfigured && <ConfiguredBadge label={configuredLabel} />}
+              </span>
             )}
           </Button>
           <p className="text-xs text-amber-500 text-center mt-2">
@@ -154,10 +179,15 @@ export function TemplateGrid({
               >
                 <ProviderIcon providerKey={template.key} size={24} className="shrink-0" color />
                 <div className="min-w-0">
-                  <div className="text-xs font-medium text-foreground truncate">
-                    {t(`provider_templates.${template.key}.name`, {
-                      defaultValue: template.name,
-                    })}
+                  <div className="flex items-center gap-1.5">
+                    <div className="min-w-0 flex-1 text-xs font-medium text-foreground truncate">
+                      {t(`provider_templates.${template.key}.name`, {
+                        defaultValue: template.name,
+                      })}
+                    </div>
+                    {configuredTemplateKeys.has(template.key) && (
+                      <ConfiguredBadge label={configuredLabel} />
+                    )}
                   </div>
                   <div className="text-[10px] text-muted-foreground truncate">
                     {t(`provider_templates.${template.key}.description`, {
