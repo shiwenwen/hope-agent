@@ -245,6 +245,73 @@ pub async fn save_global_memory_md(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Export / Import / Find similar ─────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportMemoryBody {
+    #[serde(default)]
+    pub scope: Option<ha_core::memory::MemoryScope>,
+}
+
+/// `POST /api/memory/export` — export memories as a Markdown string.
+/// Mirrors the Tauri `memory_export` command.
+pub async fn export_memory(Json(body): Json<ExportMemoryBody>) -> Result<Json<String>, AppError> {
+    let backend = get_backend()?;
+    let md = backend.export_markdown(body.scope.as_ref())?;
+    Ok(Json(md))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportMemoryBody {
+    pub content: String,
+    pub format: String,
+    #[serde(default)]
+    pub dedup: bool,
+}
+
+/// `POST /api/memory/import` — import memories from JSON or Markdown.
+/// Mirrors the Tauri `memory_import` command.
+pub async fn import_memory(
+    Json(body): Json<ImportMemoryBody>,
+) -> Result<Json<ha_core::memory::ImportResult>, AppError> {
+    let entries = match body.format.as_str() {
+        "json" => ha_core::memory::parse_import_json(&body.content)?,
+        "markdown" | "md" => ha_core::memory::parse_import_markdown(&body.content)?,
+        other => {
+            return Err(AppError::bad_request(format!(
+                "Unsupported format: {}",
+                other
+            )))
+        }
+    };
+    let backend = get_backend()?;
+    let result = backend.import_entries(entries, body.dedup)?;
+    Ok(Json(result))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct FindSimilarBody {
+    pub content: String,
+    #[serde(default)]
+    pub threshold: Option<f32>,
+    #[serde(default)]
+    pub limit: Option<usize>,
+}
+
+/// `POST /api/memory/find-similar` — locate memories close to a seed string.
+/// Mirrors the Tauri `memory_find_similar` command.
+pub async fn find_similar(
+    Json(body): Json<FindSimilarBody>,
+) -> Result<Json<Vec<ha_core::memory::MemoryEntry>>, AppError> {
+    let backend = get_backend()?;
+    let dedup_cfg = ha_core::memory::load_dedup_config();
+    let threshold = body.threshold.unwrap_or(dedup_cfg.threshold_merge);
+    let limit = body.limit.unwrap_or(5);
+    let results = backend.find_similar(&body.content, None, None, threshold, limit)?;
+    Ok(Json(results))
+}
+
 /// `GET /api/memory/local-embedding-models` — list the fastembed models
 /// that have been downloaded into the local cache (with their sizes).
 /// Used by Settings → Memory → Embedding provider dropdown. Mirror of the

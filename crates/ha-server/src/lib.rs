@@ -191,6 +191,10 @@ fn build_router_with_cors(
             get(routes::sessions::get_session_messages_around),
         )
         .route(
+            "/sessions/{id}/messages/before",
+            get(routes::sessions::get_session_messages_before),
+        )
+        .route(
             "/sessions/{id}/messages/search",
             get(routes::sessions::search_session_messages),
         )
@@ -311,6 +315,9 @@ fn build_router_with_cors(
         .route("/memory/{id}/pin", post(routes::memory::toggle_pin))
         .route("/memory/delete-batch", post(routes::memory::delete_batch))
         .route("/memory/reembed", post(routes::memory::reembed))
+        .route("/memory/export", post(routes::memory::export_memory))
+        .route("/memory/import", post(routes::memory::import_memory))
+        .route("/memory/find-similar", post(routes::memory::find_similar))
         .route(
             "/memory/global-md",
             get(routes::memory::get_global_memory_md),
@@ -567,6 +574,7 @@ fn build_router_with_cors(
         // Agents
         .route("/agents", get(routes::agents::list_agents))
         .route("/agents/template", get(routes::agents::get_agent_template))
+        .route("/agents/initialize", post(routes::agents::initialize_agent))
         .route(
             "/agents/openclaw/scan",
             get(routes::agents::scan_openclaw_agents),
@@ -1034,6 +1042,8 @@ fn build_router_with_cors(
         )
         .route("/auth/codex/status", get(routes::auth::check_auth_status))
         .route("/auth/codex/logout", post(routes::auth::logout_codex))
+        .route("/auth/codex/models", get(routes::auth::get_codex_models))
+        .route("/auth/codex/models", post(routes::auth::set_codex_model))
         .route(
             "/auth/session/restore",
             post(routes::auth::try_restore_session),

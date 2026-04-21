@@ -348,7 +348,6 @@ pub fn run() {
             // Session management
             commands::session::create_session_cmd,
             commands::session::list_sessions_cmd,
-            commands::session::load_session_messages_cmd,
             commands::session::load_session_messages_latest_cmd,
             commands::session::load_session_messages_before_cmd,
             commands::session::load_session_messages_around_cmd,

@@ -50,9 +50,13 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
 
   // -- Sessions --
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
+  create_session_cmd:              { method: "POST",   path: "/api/sessions" },
+  get_session_cmd:                 { method: "GET",    path: "/api/sessions/{id}" },
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
+  search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },
   load_session_messages_around_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/around" },
+  load_session_messages_before_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages/before" },
   get_session_stream_state:        { method: "GET",    path: "/api/sessions/{sessionId}/stream-state" },
   delete_session_cmd:              { method: "DELETE", path: "/api/sessions/{sessionId}" },
   rename_session_cmd:              { method: "PATCH",  path: "/api/sessions/{sessionId}" },
@@ -70,6 +74,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   set_tool_permission_mode:        { method: "POST",   path: "/api/chat/tool-permission-mode" },
   respond_to_approval:             { method: "POST",   path: "/api/chat/approval" },
   save_attachment:                  { method: "POST",   path: "/api/chat/attachment" },
+  list_builtin_tools:              { method: "GET",    path: "/api/chat/tools" },
 
   // -- Providers --
   get_providers:                   { method: "GET",    path: "/api/providers" },
@@ -96,18 +101,24 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_available_models:            { method: "GET",    path: "/api/models" },
   get_active_model:                { method: "GET",    path: "/api/models/active" },
   set_active_model:                { method: "POST",   path: "/api/models/active" },
+  get_fallback_models:             { method: "GET",    path: "/api/models/fallback" },
   set_fallback_models:             { method: "POST",   path: "/api/models/fallback" },
   set_reasoning_effort:            { method: "POST",   path: "/api/models/reasoning-effort" },
   get_current_settings:            { method: "GET",    path: "/api/models/settings" },
+  get_global_temperature:          { method: "GET",    path: "/api/models/temperature" },
   set_global_temperature:          { method: "POST",   path: "/api/models/temperature" },
 
   // -- Agents --
   list_agents:                     { method: "GET",    path: "/api/agents" },
+  get_agent_template:              { method: "GET",    path: "/api/agents/template" },
+  initialize_agent:                { method: "POST",   path: "/api/agents/initialize" },
   get_agent_config:                { method: "GET",    path: "/api/agents/{id}" },
   save_agent_config_cmd:           { method: "PUT",    path: "/api/agents/{id}" },
   delete_agent:                    { method: "DELETE", path: "/api/agents/{id}" },
+  get_agent_markdown:              { method: "GET",    path: "/api/agents/{id}/markdown" },
   save_agent_markdown:             { method: "PUT",    path: "/api/agents/{id}/markdown" },
   render_persona_to_soul_md:       { method: "POST",   path: "/api/agents/{id}/persona/render-soul-md" },
+  get_agent_memory_md:             { method: "GET",    path: "/api/agents/{id}/memory-md" },
   save_agent_memory_md:            { method: "PUT",    path: "/api/agents/{id}/memory-md" },
   dreaming_run_now:                { method: "POST",   path: "/api/dreaming/run" },
   dreaming_list_diaries:           { method: "GET",    path: "/api/dreaming/diaries" },
@@ -123,13 +134,20 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Memory --
   memory_search:                   { method: "POST",   path: "/api/memory/search" },
   memory_list:                     { method: "GET",    path: "/api/memory" },
+  memory_count:                    { method: "GET",    path: "/api/memory/count" },
+  memory_stats:                    { method: "GET",    path: "/api/memory/stats" },
   memory_add:                      { method: "POST",   path: "/api/memory" },
+  memory_get:                      { method: "GET",    path: "/api/memory/{id}" },
   memory_update:                   { method: "PUT",    path: "/api/memory/{id}" },
   memory_delete:                   { method: "DELETE", path: "/api/memory/{id}" },
   memory_toggle_pin:               { method: "POST",   path: "/api/memory/{id}/pin" },
   memory_delete_batch:             { method: "POST",   path: "/api/memory/delete-batch" },
   memory_reembed:                  { method: "POST",   path: "/api/memory/reembed" },
+  memory_export:                   { method: "POST",   path: "/api/memory/export" },
+  memory_import:                   { method: "POST",   path: "/api/memory/import" },
+  memory_find_similar:             { method: "POST",   path: "/api/memory/find-similar" },
   memory_get_import_from_ai_prompt:{ method: "GET",    path: "/api/memory/import-from-ai-prompt" },
+  get_global_memory_md:            { method: "GET",    path: "/api/memory/global-md" },
   save_global_memory_md:           { method: "PUT",    path: "/api/memory/global-md" },
 
   // -- Memory config --
@@ -206,6 +224,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_tool_call_list:        { method: "POST",   path: "/api/dashboard/tool-call-list" },
   dashboard_error_list:            { method: "POST",   path: "/api/dashboard/error-list" },
   dashboard_agent_list:            { method: "POST",   path: "/api/dashboard/agent-list" },
+  dashboard_overview_delta:        { method: "POST",   path: "/api/dashboard/overview-delta" },
+  dashboard_insights:              { method: "POST",   path: "/api/dashboard/insights" },
 
   // -- Async / Deferred tools + Memory selection --
   get_async_tools_config:          { method: "GET",    path: "/api/config/async-tools" },
@@ -436,6 +456,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Auth --
   start_codex_auth:                { method: "POST",   path: "/api/auth/codex/start" },
   finalize_codex_auth:             { method: "POST",   path: "/api/auth/codex/finalize" },
+  get_codex_models:                { method: "GET",    path: "/api/auth/codex/models" },
+  set_codex_model:                 { method: "POST",   path: "/api/auth/codex/models" },
 
   // -- Desktop-only (no-op in web mode) --
   open_url:                        { method: "POST",   path: "/api/desktop/open-url" },

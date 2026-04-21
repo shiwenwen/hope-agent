@@ -47,17 +47,6 @@ pub async fn list_sessions_cmd(
 }
 
 #[tauri::command]
-pub async fn load_session_messages_cmd(
-    session_id: String,
-    state: State<'_, AppState>,
-) -> Result<Vec<session::SessionMessage>, String> {
-    state
-        .session_db
-        .load_session_messages(&session_id)
-        .map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn load_session_messages_latest_cmd(
     session_id: String,
     limit: u32,

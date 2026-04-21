@@ -7,10 +7,12 @@
 //! `OnceLock` so it outlives individual request handlers.
 
 use axum::Json;
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex as TokioMutex;
 
+use ha_core::agent;
 use ha_core::oauth::{self, AuthStatus, TokenData};
 
 use crate::error::AppError;
@@ -206,4 +208,39 @@ pub async fn try_restore_session() -> Result<Json<Value>, AppError> {
     }
 
     Ok(Json(json!({ "restored": true })))
+}
+
+/// `GET /api/auth/codex/models` — list the Codex OAuth models the UI may
+/// switch between. Mirrors the Tauri `get_codex_models` command.
+pub async fn get_codex_models() -> Result<Json<Vec<agent::CodexModel>>, AppError> {
+    Ok(Json(agent::get_codex_models()))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetCodexModelBody {
+    pub model: String,
+}
+
+/// `POST /api/auth/codex/models` — switch the active Codex model. Mirrors
+/// the Tauri `set_codex_model` command. In HTTP mode there is no in-memory
+/// agent to rebuild; we only persist the selection to config so subsequent
+/// `POST /api/chat` calls pick it up.
+pub async fn set_codex_model(Json(body): Json<SetCodexModelBody>) -> Result<Json<Value>, AppError> {
+    let valid = agent::get_codex_models().iter().any(|m| m.id == body.model);
+    if !valid {
+        return Err(AppError::bad_request(format!(
+            "Unknown model: {}",
+            body.model
+        )));
+    }
+
+    let model = body.model;
+    ha_core::config::mutate_config(("active_model", "set-codex-model"), |store| {
+        if let Some(ref mut active) = store.active_model {
+            active.model_id = model.clone();
+        }
+        Ok(())
+    })?;
+
+    Ok(Json(json!({ "ok": true })))
 }
