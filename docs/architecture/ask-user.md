@@ -308,7 +308,7 @@ loop {
 }
 ```
 
-长期运行的 `hope-agent server`（launchd / systemd 托管）只在启动时执行一次 `start_background_tasks`，所以这里挂一个 24h 周期任务保证表不会无界增长。
+桌面 GUI 长驻时靠这个 24h 周期任务保证表不会无界增长；`hope-agent server` 当前**不**调用 `start_background_tasks`（见 [process-model.md §跨模式能力不对等](process-model.md)），所以 server 模式的 ask_user 清理依赖下次桌面启动。
 
 ### EventBus 事件发射
 

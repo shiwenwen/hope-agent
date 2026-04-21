@@ -1,0 +1,239 @@
+# 进程与并发模型
+
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-21 | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)、[`guardian.rs`](../../crates/ha-core/src/guardian.rs)、[`app_init.rs`](../../crates/ha-core/src/app_init.rs)、[`logging/app_logger.rs`](../../crates/ha-core/src/logging/app_logger.rs)、[`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs)
+
+Hope Agent 的后台工作单元分四层。工程排查常见问题（"为什么重启才生效"、"哪个任务挂了但日志看不出来"）多半落在某一层。
+
+| 层级 | 载体 | 谁创建 | 典型代表 |
+|------|------|--------|----------|
+| A · 二进制运行模式 | 真·独立 OS 进程 | `main()` 按 argv 分派 | `hope-agent` GUI / `hope-agent server` / `hope-agent acp` |
+| B · 独立 OS 线程 | `std::thread::spawn` + 独立 tokio Runtime | 需要 Send 豁免或绕开 Tauri reactor 时序 | AppLogger writer、Cron 调度器、Weather 后台刷新 |
+| C · 长驻 tokio 任务 | `tokio::spawn` 复用主 runtime | `start_background_tasks()` + 子系统 spawn | Channel worker、ask_user 清理、async_jobs retention |
+| D · 动态子进程 | `Command::spawn` / `tokio::process` | 工具 / ACP / Docker / 系统服务安装 | `exec` 工具、Codex CLI、launchd plist |
+
+**关键事实**：当前 Layer B + Layer C 的后台驱动（AppLogger / Cron / Channel / Memory / Dreaming / async_jobs / Weather 等）**只有桌面 GUI 模式完整启用**。`hope-agent server` 与 `hope-agent acp` 只做最小 init（SessionDB + ProjectDB + EventBus），**不跑**这些驱动——这是已知空白，见下文「跨模式能力不对等」。
+
+---
+
+## Layer A · 二进制运行模式
+
+`hope-agent` 是单一可执行文件，入口在 [`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)。按首个 argv 分派：
+
+| argv 模式 | 处理入口 | 含义 |
+|-----------|----------|------|
+| `hope-agent acp [...]` | `run_acp_server` | stdio ACP 子进程（被 IDE / Claude Code 等拉起） |
+| `hope-agent server [...]` | `run_server` | 前台 HTTP/WS 守护进程；`server install/uninstall/status/stop/setup` 走同入口分派子命令 |
+| `hope-agent --child-mode` 或 `HOPE_AGENT_CHILD=1` | `run_child` | Guardian 派生的子进程，真正加载 Tauri GUI |
+| 其它（含无参） | `run_guardian` / `run_child` | Release 默认走 Guardian 父子；Dev / `config.guardian.enabled=false` 直接 `run_child` |
+
+三种模式共享同一个 `ha-core` 库——Provider / Tool Loop / Memory 等**业务代码**复用；但是否启动 Layer B/C 的后台驱动由各模式的 `fn run_*` 自行决定，详见下文「跨模式能力不对等」。
+
+### Guardian 父子模式（Release GUI）
+
+Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-core/src/guardian.rs)，父进程不跑 Tauri 只做监工，child 以 `--child-mode` 加载 GUI。崩溃计数超 `GuardianConfig.diagnosis_threshold`（默认 5）触发备份 + 自诊断，再超 `max_crashes`（默认 8）放弃。child 自身还有一层 `catch_unwind` + `MAX_CHILD_PANICS = 3`（定义在 [`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)）兜底非 fatal panic，不必走到父 Guardian 层。
+
+两条关键协议（并发视角必须知道的）：
+
+- **`exit(42)` = 立即重启**：child 主动 `std::process::exit(EXIT_CODE_RESTART)` 请求无冷却重启（crash_count 不累加），用于 auto-fix / 配置热切换等场景
+- **恢复标记传递**：崩溃恢复重启前父 `Command` 注入 `HOPE_AGENT_RECOVERED=1` + `HOPE_AGENT_CRASH_COUNT=N`，child 可据此做「上次是崩溃恢复」UI 提示
+
+其余参数表（指数退避、备份路径、crash_journal 等）见 [backend-separation.md §Guardian 保活机制](backend-separation.md)，本文不复述。
+
+**不适用范围**：`hope-agent server` 由 launchd / systemd 托管重启，`hope-agent acp` 由 IDE 控制生命周期，两者都绕开 Guardian；`config.guardian.enabled = false` 或 Debug 构建也跳过父子分离。
+
+### 多进程数据共享
+
+三种模式同时运行时共用 `~/.hope-agent/` 下的文件：
+
+- **`config.json`**：进程**内**用 [`cached_config()`](../../crates/ha-core/src/config/) ArcSwap 快照 + [`mutate_config()`](../../crates/ha-core/src/config/persistence.rs) 写锁串行，跨进程无锁——A 进程改了 B 进程要等文件级事件或重启才能感知
+- **SQLite**（`session.db` / `logs.db` / `memory.db` / `cron.db` / `channels.db` 等）：全部 `PRAGMA journal_mode=WAL`，多进程并发读、单 writer 串行
+- **EventBus**：进程**内**事件总线；跨进程必须走 HTTP/WS 或 stdio
+- **OAuth 凭据**（`credentials/auth.json`）：读时按需 refresh，写时 best-effort。多进程同时 refresh 可能互相覆盖，token 有效期长容忍这种竞态
+
+**跨进程互斥空白**：GUI 和 server 两种模式**不要**同时起同一套 Channel worker——IM 长轮询在两边都跑会对上游 double-poll，当前靠部署习惯规避（server 模式独立起 worker，GUI 内嵌 server 共进程），无代码级互斥锁。Cron 同理。
+
+---
+
+## Layer B · 独立 OS 线程（各带独立 tokio Runtime）
+
+固定模式：`std::thread::spawn(|| Runtime::new().block_on(...))`。走这条路径的动机只有两个：
+
+1. **Tauri `.manage()` 时机**：桌面 GUI 启动时，`init_app_state()` 在 Tauri reactor 就绪前就要建 `AppLogger` 等全局单例，此时 `tokio::spawn` 会 panic "no reactor"——必须自带 runtime 的线程
+2. **`Send` 豁免**：有些内层持有非 `Send` 借用（典型：跨 `.await` 的 `MutexGuard`），用独立 current-thread runtime 包住整段 future，父 async 上下文只 `join()` 线程句柄
+
+### 长驻型
+
+| 线程 | 位置 | 职责 |
+|------|------|------|
+| **AppLogger writer** | [`logging/app_logger.rs`](../../crates/ha-core/src/logging/app_logger.rs) | mpsc channel 收 `PendingLog` → 批量写 SQLite + 纯文本文件。cleanup_loop 作为同 runtime 内 `tokio::spawn` 任务附着 |
+| **Cron 调度器** | [`cron/scheduler.rs`](../../crates/ha-core/src/cron/scheduler.rs) | 独立线程 `cron-scheduler` + `new_multi_thread` runtime（2 worker threads）跑 tick 循环 |
+| **Weather 后台刷新** | [`weather.rs::start_background_refresh`](../../crates/ha-core/src/weather.rs) | 定时拉取天气 API 注入 system prompt |
+| **Guardian Windows 信号监听** | [`guardian.rs`](../../crates/ha-core/src/guardian.rs) | Windows 无 POSIX 信号，用一条迷你线程跑 current-thread runtime 接 `ctrl_c` / `ctrl_break`（仅 `#[cfg(windows)]`） |
+
+### 每次调用 spawn 一次（任务完成线程即回收）
+
+在业务路径里按需创建，线程寿命 = 目标任务寿命，不是后台守护，只是 runtime 豁免门票：
+
+| 入口 | 位置 | 触发时机 |
+|------|------|----------|
+| Subagent spawn | [`subagent/spawn.rs`](../../crates/ha-core/src/subagent/spawn.rs) | 模型调 `subagent(action="spawn_and_wait" / "spawn")`，子会话独立跑 |
+| Subagent injection | [`subagent/injection.rs`](../../crates/ha-core/src/subagent/injection.rs) | 子会话结果注入回父会话 |
+| Async Jobs spawn | [`async_jobs/spawn.rs`](../../crates/ha-core/src/async_jobs/spawn.rs) | `exec` / `web_search` / `image_generate` 异步化执行 |
+| Async Jobs injection | [`async_jobs/injection.rs`](../../crates/ha-core/src/async_jobs/injection.rs) | 异步 job 完成后结果注入主对话 |
+| Agent context 构造 | [`agent/context.rs`](../../crates/ha-core/src/agent/context.rs) | 特定跨 `.await` 借用路径用独立线程规避 Send 问题 |
+
+> **识别技巧**：grep `tokio::runtime::Builder::new_current_thread()` 能一眼看出谁在走这条路。一共 ~8 处，全集中在 subagent / async_jobs / agent_context / channel 少数几个渠道实现里。
+
+---
+
+## Layer C · 长驻 tokio 任务（复用主 runtime）
+
+相对 Layer B，这里直接 `tokio::spawn` 挂到所在模式的主 runtime，不再开新线程。
+
+### 启动入口（桌面独占）
+
+[`ha_core::app_init::start_background_tasks()`](../../crates/ha-core/src/app_init.rs) 集中拉起绝大多数 Layer C 任务，**当前仅在桌面 Tauri `.setup()` 里 await**（见 [`src-tauri/src/setup.rs`](../../src-tauri/src/setup.rs) `L215`）。`hope-agent server` / `hope-agent acp` 不调用——见下节「跨模式能力不对等」。
+
+### 清单（均为桌面模式）
+
+| 任务 | 周期 | 位置 |
+|------|------|------|
+| ask_user 启动清理 + 每日定时清理 | 启动一次 + `SECS_PER_DAY` | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) `start_background_tasks` 内 |
+| Channel 自动启动已启用账户 | 启动一次 | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) |
+| Async Jobs 残留回放 | 启动一次 | [`async_jobs::replay_pending_jobs`](../../crates/ha-core/src/async_jobs/) |
+| Async Jobs retention 轮询 | 启动一次 + 每日 | [`async_jobs::spawn_retention_loop`](../../crates/ha-core/src/async_jobs/retention.rs) |
+| Recap facet retention 轮询 | 启动一次 + 每日 | [`recap::spawn_facet_retention_loop`](../../crates/ha-core/src/recap/) |
+| Dreaming 空闲触发 | 每 60s 检查（`MissedTickBehavior::Skip`） | [`app_init.rs`](../../crates/ha-core/src/app_init.rs) → [`memory::dreaming`](../../crates/ha-core/src/memory/dreaming/) |
+| **Channel worker 主循环**（每账户一条） | 轮询 / 长连接取决于渠道协议 | [`channel/worker/`](../../crates/ha-core/src/channel/worker/) |
+| **ACP 健康检查**（仅内嵌 ACP runtime） | 周期 ping | [`acp_control/health.rs`](../../crates/ha-core/src/acp_control/health.rs) |
+
+模式无关的两类：
+
+| 任务 | 模式 | 位置 |
+|------|------|------|
+| Server HTTP listener | 桌面内嵌 + `hope-agent server` 独立 | [`ha_server::start_server`](../../crates/ha-server/src/lib.rs) |
+| AppLogger cleanup（挂在 logger runtime，不是主 runtime） | 桌面（server/acp 不初始化 AppLogger） | [`logging/app_logger.rs::cleanup_loop`](../../crates/ha-core/src/logging/app_logger.rs) |
+
+### 设计约定
+
+- **一律用 `tokio::time::interval(...)`** 而不是 `loop { sleep }`——可以精确控制首 tick 是否立即 fire、是否 `MissedTickBehavior::Skip` 跳过堆积 tick
+- **幂等**：任何任务都可能因为 Guardian 重启而重跑；启动一次性的清理（如 ask_user 过期）都要写成「重复跑 no-op」，不假设前一次残留
+- **失败不 panic**：tokio 任务 panic 只杀自身不杀 runtime，但依旧要用 `match` + `app_warn!` 记录而非 `unwrap()`——否则日志静默消失
+- **共享 AtomicBool 串行化**：Dreaming 等「可能被多路触发」的任务在入口拿全局 `AtomicBool` 做互斥，防 idle-trigger 和手动触发叠跑
+
+### 跨模式能力不对等（已知空白）
+
+当前三种运行模式的初始化差异很大：
+
+| 子系统 | 桌面 GUI | `hope-agent server` | `hope-agent acp` |
+|--------|:-------:|:-------------------:|:----------------:|
+| SessionDB / ProjectDB / EventBus | ✓ | ✓ | ✓ |
+| AppLogger（双写日志） | ✓ | ✗（仅 `eprintln!` 到 stderr） | ✗ |
+| Cron 调度器（Layer B） | ✓ | ✗ | ✗ |
+| `start_background_tasks()` 整套（Channel / async_jobs retention / Dreaming / ask_user 清理 / ...） | ✓ | ✗ | ✗ |
+| MemoryDB / Embedding provider | ✓ | 按需（首次 tool 调用时惰性） | 按需 |
+| ChannelRegistry auto-start | ✓ | ✗ | ✗ |
+
+**后果**：`hope-agent server start` 作为长驻守护时**不会**自动跑 Cron / Channel / Dreaming / async_jobs retention——这些定时/长驻能力当前是"桌面 GUI 专属"。如果用户只开 server 不开桌面，配置里的 Cron job 不会触发、IM Channel 不会上线、内存清理不会运行。
+
+这是结构性 gap，短期靠"桌面 GUI 常开"规避；彻底修需要把 `init_app_state()` + `start_background_tasks()` + `cron::start_scheduler()` 下沉到 server/acp 的入口路径。
+
+---
+
+## Layer D · 动态子进程（`Command::spawn`）
+
+按需拉起的外部二进制，分三类：
+
+### D1 · 长驻式子进程（生命周期跟上层状态绑定）
+
+| 场景 | 位置 | 生命周期 |
+|------|------|----------|
+| **ACP 运行时**（Codex CLI / Claude Code 等） | [`acp_control/runtime_stdio.rs`](../../crates/ha-core/src/acp_control/runtime_stdio.rs) | 会话存活期间，配 [`acp_control/health.rs`](../../crates/ha-core/src/acp_control/health.rs) 健康检查 |
+| **IM Channel 子进程**（部分协议实现） | [`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs) | 账户启用期间 |
+| **Docker 容器**（SearXNG / 部署目标） | [`docker/lifecycle.rs`](../../crates/ha-core/src/docker/lifecycle.rs), [`docker/deploy.rs`](../../crates/ha-core/src/docker/deploy.rs) | 容器自身生命周期；Hope Agent 退出不一定 kill |
+
+### D2 · 单次调用型（短命，完成即回收）
+
+| 场景 | 位置 |
+|------|------|
+| `exec` 工具（用户命令执行 + PTY） | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) |
+| Sandbox 隔离执行 | [`sandbox.rs`](../../crates/ha-core/src/sandbox.rs) |
+| Plan Mode git 调用 | [`plan/git.rs`](../../crates/ha-core/src/plan/git.rs) |
+| Skill 依赖安装（brew / npm / go / uv） | [`skills/commands.rs`](../../crates/ha-core/src/skills/commands.rs) |
+| Provider / Docker 代理探测 | [`provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs), [`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs) |
+| 跨平台原语（打开终端 / 检测环境） | [`platform/mod.rs`](../../crates/ha-core/src/platform/) |
+| Agent loader 初始化（git clone 默认模板） | [`agent_loader.rs`](../../crates/ha-core/src/agent_loader.rs) |
+| 托盘（macOS 打开 URL / 通知） | [`src-tauri/src/tray.rs`](../../src-tauri/src/tray.rs) |
+
+### D3 · 一次性系统注册（不拉起进程，只落配置）
+
+`hope-agent server install` 把 [`service_install.rs`](../../crates/ha-core/src/service_install.rs) 的 plist / unit 写入系统，由 launchd / systemd 真正去执行 `hope-agent server start`：
+
+- macOS：`~/Library/LaunchAgents/com.hopeagent.server.plist`（label = `SERVICE_LABEL` 常量，无连字符）
+- Linux：`~/.config/systemd/user/hope-agent.service`
+- Windows：暂不支持 `server install`，走 Task Scheduler 手动方案，见 [`windows-development.md`](../platform/windows-development.md)
+
+文件格式与参数细节见 [backend-separation.md §系统服务集成](backend-separation.md)。
+
+安装后 `hope-agent server` 作为 Layer A 的独立进程被 launchd / systemd 守护，和 Guardian 无关——**不要给 server 再套 Guardian**，两层重启语义会打架。
+
+---
+
+## 生命周期与清理
+
+### 启动顺序
+
+桌面 GUI（child 模式）：
+
+```
+Guardian parent ─ spawn ─▶ Child
+                             ├─ paths::ensure_dirs()            建数据目录
+                             ├─ app_init::init_app_state()      建全部 SQLite + AppLogger + ChannelRegistry
+                             │   └─ AppLogger 线程 spawn writer + cleanup_loop（首 tick 即刻 fire）
+                             ├─ Tauri .setup()
+                             │   ├─ cron::start_scheduler()     独立 OS 线程
+                             │   └─ start_background_tasks()    挂 Layer C 全部 tokio 任务
+                             └─ 进入 Tauri 事件循环
+```
+
+`hope-agent server` / `hope-agent acp`：仅 `paths::ensure_dirs` + SessionDB/ProjectDB + EventBus + HTTP 或 stdio loop；上述 Layer B/C 驱动全部**不启动**（见「跨模式能力不对等」）。
+
+### 退出路径
+
+| 退出源 | 行为 |
+|--------|------|
+| Guardian 收到 SIGTERM/SIGINT/CTRL_BREAK | 不再重启 child，父子一起退 |
+| Child 正常 `exit(0)` | Guardian 认为是用户主动退出，父进程也退 |
+| Child `exit(42)` | Guardian 视为「请求立即重启」（如自诊断 auto-fix 后），crash_count 不累加 |
+| Child 非 0 非 42 退出 | 崩溃计数 +1，指数退避后重启；达阈值跑备份 + 自诊断 |
+| tokio 任务 panic | 只杀任务自身，不杀进程；靠 `app_warn!` 记录 |
+| 独立线程 panic | 只杀该线程；AppLogger writer 若 panic，消息积压到 mpsc 满后 `eprintln!` 兜底 |
+
+### 已知空白
+
+- **Layer B 长驻线程无统一 join**：AppLogger / Cron / Weather 在进程退出时被 OS 回收，没显式 `shutdown()`。正常退出靠 mpsc channel 关闭 → loop 自然退出；`std::process::exit()` 强退不走这条路
+- **ACP / Docker / Channel 子进程无统一终止钩子**：各自实现 `Drop` / `shutdown()`，退出时是否 kill 子进程取决于模块；Guardian 强杀 child 可能留 orphan 子进程——已知代价
+- **Cron / Channel 跨进程重复触发**：见 Layer A 多进程数据共享章节
+- **server / acp 模式缺 Layer B/C**：见 Layer C §跨模式能力不对等，server 当前不跑 Cron / Channel / Dreaming / retention
+
+---
+
+## 排查指引
+
+| 症状 | 先看 |
+|------|------|
+| UI 保存配置没生效 | `cached_config()` vs `mutate_config()` —— 见 [config-system.md](config-system.md) |
+| Cron / Channel 任务停了 | 当前模式是不是桌面 GUI？server 模式不跑这些（Layer C §跨模式能力不对等）。或 Guardian 反复重启看 `~/.hope-agent/crash_journal.json` |
+| 日志 DB 不缩 / 膨胀 | AppLogger cleanup_loop 是否存活（grep `logging / cleanup` 日志）；`max_size_mb` 是否设了 0；**server / acp 模式根本不初始化 AppLogger** |
+| server install 后 "No such service" | 检查 `~/Library/LaunchAgents/com.hopeagent.server.plist`（macOS）或 `~/.config/systemd/user/hope-agent.service`（Linux）；`hope-agent server status` 能否拿到真实 PID |
+| ACP 连接后无响应 | `acp_control/health.rs` ping 是否超时；Codex CLI 子进程是否僵死 |
+| 关 GUI 窗口进程不退 | 正常——桌面 GUI 默认「关闭 = 隐藏到托盘」，走 `Quit` 菜单项才真正退出 |
+
+## 关联文档
+
+- [前后端分离架构](backend-separation.md)——三 crate 职责切分、Guardian 保活参数表、系统服务安装细节
+- [Cron 调度](cron.md)——Layer B 独立线程 + 2 worker threads runtime
+- [IM 渠道系统](im-channel.md)——Layer C worker + Layer D 子进程混合
+- [ACP 协议](acp.md)——Layer A `acp` 模式 + Layer D ACP runtime 上下游
+- [配置系统](config-system.md)——多进程共享的 `config.json` 读写 contract
+- [日志系统](logging.md)——AppLogger 独立线程 + cleanup_loop 细节
