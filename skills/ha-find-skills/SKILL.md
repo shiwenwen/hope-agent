@@ -1,7 +1,7 @@
 ---
 name: ha-find-skills
 description: "Discover and install third-party skills from external registries when the user needs a capability that no currently-active skill covers. Trigger when: (1) the user explicitly asks 'find a skill for X', 'is there a skill that does X', 'install a skill to X', (2) the user requests a well-known integration (Slack, Notion, Trello, GitHub, Hue, Sonos, iMessage, weather, TTS, transcription …) that isn't in the active skill catalog, (3) you are about to hand-write ad-hoc shell / API code for a domain that almost certainly has a published skill. Do NOT trigger if an active skill already covers the need — scan the visible skill catalog first."
-always: false
+always: true
 ---
 
 # Find Skills

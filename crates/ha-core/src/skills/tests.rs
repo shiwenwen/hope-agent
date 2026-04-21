@@ -1,10 +1,12 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::path::PathBuf;
 
     use crate::skills::discovery::compact_path;
     use crate::skills::frontmatter::{
-        parse_bool_value, parse_frontmatter, parse_install_specs, parse_requires, unquote,
+        parse_bool_value, parse_frontmatter, parse_install_specs, parse_requires,
+        ParsedFrontmatter, unquote,
     };
     use crate::skills::prompt::build_skills_prompt;
     use crate::skills::requirements::{
@@ -73,6 +75,18 @@ mod tests {
             authored_by: None,
             rationale: None,
         }
+    }
+
+    fn parse_bundled_skill_frontmatter(name: &str) -> ParsedFrontmatter {
+        let skill_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join("skills")
+            .join(name)
+            .join("SKILL.md");
+        let content = std::fs::read_to_string(&skill_path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {}", skill_path.display(), e));
+        parse_frontmatter(&content)
+            .unwrap_or_else(|| panic!("failed to parse frontmatter for {}", skill_path.display()))
     }
 
     #[test]
@@ -220,6 +234,18 @@ Body
     fn test_parse_frontmatter_no_frontmatter() {
         let content = "Just regular markdown";
         assert!(parse_frontmatter(content).is_none());
+    }
+
+    #[test]
+    fn test_bundled_core_skills_are_always_available() {
+        for name in ["ha-settings", "ha-skill-creator", "ha-find-skills"] {
+            let parsed = parse_bundled_skill_frontmatter(name);
+            assert!(
+                parsed.requires.always,
+                "{} should declare always: true in its bundled SKILL.md",
+                name
+            );
+        }
     }
 
     #[test]
