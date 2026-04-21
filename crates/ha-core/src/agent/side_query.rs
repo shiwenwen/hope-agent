@@ -39,6 +39,8 @@ impl AssistantAgent {
         tool_schemas: Vec<serde_json::Value>,
         conversation_history: Vec<serde_json::Value>,
     ) {
+        let mut conversation_history = conversation_history;
+        crate::context_compact::round_grouping::strip_rounds(&mut conversation_history);
         let format = ProviderFormat::from(&self.provider);
         *self
             .cache_safe_params
@@ -165,5 +167,34 @@ impl AssistantAgent {
             text: result.text,
             usage: result.usage,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+    use crate::context_compact::round_grouping::{stamp_round, ROUND_KEY};
+
+    #[test]
+    fn save_cache_safe_params_strips_round_metadata() {
+        let agent = AssistantAgent::new_openai("token", "account", "gpt-5.4");
+        let mut history = vec![
+            json!({ "role": "user", "content": "hello" }),
+            json!({ "role": "assistant", "content": "hi" }),
+        ];
+        stamp_round(&mut history[1], "r0");
+
+        agent.save_cache_safe_params("SYS".to_string(), Vec::new(), history);
+
+        let cached = agent
+            .cache_safe_params
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+            .expect("cache snapshot");
+
+        assert!(cached.conversation_history[1].get(ROUND_KEY).is_none());
     }
 }

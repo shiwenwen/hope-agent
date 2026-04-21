@@ -110,41 +110,7 @@ impl BrowserState {
         headless: bool,
         profile: Option<&str>,
     ) -> anyhow::Result<()> {
-        let mut config = BrowserConfig::builder();
-
-        if let Some(path) = executable_path {
-            config = config.chrome_executable(path);
-        } else if let Some(probed) = crate::platform::find_chrome_executable() {
-            app_debug!(
-                "browser",
-                "cdp",
-                "Using probed Chrome executable: {}",
-                probed.display()
-            );
-            config = config.chrome_executable(probed);
-        }
-
-        if headless {
-            config = config.arg("--headless=new");
-        }
-
-        // Profile support: use a dedicated user-data-dir per profile
-        if let Some(profile_name) = profile {
-            let profile_dir = crate::paths::browser_profile_dir(profile_name)?;
-            std::fs::create_dir_all(&profile_dir)?;
-            config = config.user_data_dir(profile_dir);
-            app_info!("browser", "cdp", "Launching with profile: {}", profile_name);
-        }
-
-        // Common args for stability
-        config = config
-            .arg("--no-first-run")
-            .arg("--no-default-browser-check")
-            .arg("--disable-background-networking");
-
-        let config = config
-            .build()
-            .map_err(|e| anyhow::anyhow!("Failed to build browser config: {}", e))?;
+        let config = build_launch_config(executable_path, headless, profile)?;
 
         let (browser, mut handler) = Browser::launch(config).await.map_err(|e| {
             anyhow::anyhow!(
@@ -252,7 +218,8 @@ impl BrowserState {
 
     /// Find an element ref by ref_id
     pub fn find_ref(&self, ref_id: u32) -> anyhow::Result<&ElementRef> {
-        self.element_refs.iter()
+        self.element_refs
+            .iter()
             .find(|r| r.ref_id == ref_id)
             .ok_or_else(|| {
                 let available: Vec<u32> = self.element_refs.iter().map(|r| r.ref_id).collect();
@@ -264,6 +231,51 @@ impl BrowserState {
                 )
             })
     }
+}
+
+fn build_launch_config(
+    executable_path: Option<&str>,
+    headless: bool,
+    profile: Option<&str>,
+) -> anyhow::Result<BrowserConfig> {
+    let mut config = BrowserConfig::builder();
+
+    if let Some(path) = executable_path {
+        config = config.chrome_executable(path);
+    } else if let Some(probed) = crate::platform::find_chrome_executable() {
+        app_debug!(
+            "browser",
+            "cdp",
+            "Using probed Chrome executable: {}",
+            probed.display()
+        );
+        config = config.chrome_executable(probed);
+    }
+
+    // chromiumoxide defaults to old headless mode unless we opt out.
+    config = if headless {
+        config.new_headless_mode()
+    } else {
+        config.with_head()
+    };
+
+    // Profile support: use a dedicated user-data-dir per profile
+    if let Some(profile_name) = profile {
+        let profile_dir = crate::paths::browser_profile_dir(profile_name)?;
+        std::fs::create_dir_all(&profile_dir)?;
+        config = config.user_data_dir(profile_dir);
+        app_info!("browser", "cdp", "Launching with profile: {}", profile_name);
+    }
+
+    // Common args for stability
+    config = config
+        .arg("--no-first-run")
+        .arg("--no-default-browser-check")
+        .arg("--disable-background-networking");
+
+    config
+        .build()
+        .map_err(|e| anyhow::anyhow!("Failed to build browser config: {}", e))
 }
 
 // ── Global Singleton ─────────────────────────────────────────────
@@ -335,4 +347,32 @@ async fn discover_ws_url(base_url: &str) -> anyhow::Result<String> {
                 body
             )
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_launch_config;
+
+    fn test_executable_path() -> String {
+        std::env::current_exe()
+            .expect("current test executable")
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn build_launch_config_uses_headful_mode_when_requested() {
+        let executable = test_executable_path();
+        let config = build_launch_config(Some(&executable), false, None).expect("build config");
+        let dbg = format!("{config:?}");
+        assert!(dbg.contains("headless: False"), "unexpected config: {dbg}");
+    }
+
+    #[test]
+    fn build_launch_config_uses_new_headless_mode_when_requested() {
+        let executable = test_executable_path();
+        let config = build_launch_config(Some(&executable), true, None).expect("build config");
+        let dbg = format!("{config:?}");
+        assert!(dbg.contains("headless: New"), "unexpected config: {dbg}");
+    }
 }
