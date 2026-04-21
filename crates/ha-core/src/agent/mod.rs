@@ -49,6 +49,20 @@ fn extract_tool_name(t: &serde_json::Value) -> &str {
         .unwrap_or("")
 }
 
+fn backdate_instant_safely(
+    now: std::time::Instant,
+    duration: std::time::Duration,
+) -> std::time::Instant {
+    now.checked_sub(duration).unwrap_or(now)
+}
+
+fn initial_last_extraction_at() -> std::time::Instant {
+    backdate_instant_safely(
+        std::time::Instant::now(),
+        std::time::Duration::from_secs(3600),
+    )
+}
+
 // ── AssistantAgent constructors, setters, and chat dispatcher ─────
 
 impl AssistantAgent {
@@ -88,9 +102,7 @@ impl AssistantAgent {
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
-            last_extraction_at: std::sync::Mutex::new(
-                std::time::Instant::now() - std::time::Duration::from_secs(3600),
-            ),
+            last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
             tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
@@ -139,9 +151,7 @@ impl AssistantAgent {
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
-            last_extraction_at: std::sync::Mutex::new(
-                std::time::Instant::now() - std::time::Duration::from_secs(3600),
-            ),
+            last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
             tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
@@ -249,9 +259,7 @@ impl AssistantAgent {
             plan_mode_allow_paths: Vec::new(),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
-            last_extraction_at: std::sync::Mutex::new(
-                std::time::Instant::now() - std::time::Duration::from_secs(3600),
-            ),
+            last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
             tokens_since_extraction: std::sync::atomic::AtomicU32::new(0),
             messages_since_extraction: std::sync::atomic::AtomicU32::new(0),
             manual_memory_saved: std::sync::atomic::AtomicBool::new(false),
@@ -1418,5 +1426,27 @@ impl AssistantAgent {
                 .await
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::{Duration, Instant};
+
+    use super::backdate_instant_safely;
+
+    #[test]
+    fn backdate_instant_safely_subtracts_when_duration_fits() {
+        let now = Instant::now();
+        let earlier = backdate_instant_safely(now, Duration::from_millis(1));
+
+        assert!(now.duration_since(earlier) >= Duration::from_millis(1));
+    }
+
+    #[test]
+    fn backdate_instant_safely_saturates_when_duration_underflows() {
+        let now = Instant::now();
+
+        assert_eq!(backdate_instant_safely(now, Duration::MAX), now);
     }
 }
