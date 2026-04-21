@@ -7,7 +7,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
-import { useServerStatus, formatServerUptime } from "@/hooks/useServerStatus"
+import {
+  useServerStatus,
+  formatServerUptime,
+  formatActiveChatCounts,
+  formatActiveConnectionsSub,
+  totalActiveConnections,
+} from "@/hooks/useServerStatus"
 
 interface ServerStatusIndicatorProps {
   onOpen?: () => void
@@ -22,7 +28,11 @@ export default function ServerStatusIndicator({
   const { status, loading, error } = useServerStatus(5000)
 
   const isFailed = Boolean(status?.startupError) || (!status && !loading)
-  const wsTotal = status ? status.eventsWsCount + status.chatWsCount : 0
+  const wsTotal = status ? totalActiveConnections(status) : 0
+  const wsSub = status ? formatActiveConnectionsSub(status, t) : ""
+  const chatCountsSub = status
+    ? formatActiveChatCounts(status.activeChatCounts, t)
+    : null
 
   const dotColor = isFailed
     ? "bg-destructive"
@@ -58,25 +68,15 @@ export default function ServerStatusIndicator({
           <div className="text-muted-foreground">
             {t("settings.serverActiveWebSockets")}:{" "}
             <span className="text-foreground">{wsTotal}</span>{" "}
-            <span className="opacity-70">
-              ({status.eventsWsCount} events · {status.chatWsCount} chat)
-            </span>
+            <span className="opacity-70">({wsSub})</span>
           </div>
           <div className="text-muted-foreground">
             {t("settings.serverActiveChatStreams")}:{" "}
             <span className="text-foreground">
               {status.activeChatCounts.total}
             </span>
-            {status.activeChatCounts.total > 0 && (
-              <span className="opacity-70">
-                {" "}
-                ({status.activeChatCounts.desktop} desktop ·{" "}
-                {status.activeChatCounts.http} http
-                {status.activeChatCounts.channel > 0
-                  ? ` · ${status.activeChatCounts.channel} channel`
-                  : ""}
-                )
-              </span>
+            {chatCountsSub && (
+              <span className="opacity-70"> ({chatCountsSub})</span>
             )}
           </div>
         </>

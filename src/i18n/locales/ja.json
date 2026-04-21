@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "アクティブなチャット",
     "serverStartupError": "起動エラー",
     "serverNotStarted": "未起動",
-    "serverWsSub": "{{events}} events · {{chat}} chat"
+    "serverWsSub": "{{events}} events · {{chat}} chat",
+    "serverConnSubLocal": "{{count}} ローカル",
+    "serverChatSourceDesktop": "{{count}} デスクトップ",
+    "serverChatSourceHttp": "{{count}} HTTP",
+    "serverChatSourceChannel": "{{count}} チャンネル"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

@@ -360,22 +360,7 @@ pub async fn save_server_config(
 /// in either mode.
 #[tauri::command]
 pub async fn get_server_runtime_status() -> Result<serde_json::Value, String> {
-    let snap = ha_core::server_status::snapshot();
-    let counts = ha_core::chat_engine::stream_seq::active_counts();
-
-    Ok(serde_json::json!({
-        "boundAddr": snap.bound_addr,
-        "startedAt": snap.started_at_unix_secs,
-        "uptimeSecs": snap.uptime_secs,
-        "startupError": snap.startup_error,
-        "eventsWsCount": snap.events_ws_count,
-        "chatWsCount": snap.chat_ws_count,
-        // Legacy field kept for payload compatibility. Meaning changed:
-        // now reflects in-flight chat engines across desktop / HTTP / channel,
-        // not WebSocket subscribers.
-        "activeChatStreams": counts.total,
-        "activeChatCounts": counts,
-    }))
+    Ok(ha_core::server_status::runtime_status_json(true))
 }
 
 // ── Proxy ────────────────────────────────────────────────────────

@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "Aktif Sohbet Oturumları",
     "serverStartupError": "Başlangıç Hatası",
     "serverNotStarted": "Başlatılmadı",
-    "serverWsSub": "{{events}} olay · {{chat}} sohbet"
+    "serverWsSub": "{{events}} olay · {{chat}} sohbet",
+    "serverConnSubLocal": "{{count}} yerel",
+    "serverChatSourceDesktop": "{{count}} masaüstü",
+    "serverChatSourceHttp": "{{count}} http",
+    "serverChatSourceChannel": "{{count}} kanal"
   },
   "tz": {
     "shanghai": "Şanghay (UTC+8)",

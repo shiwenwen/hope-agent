@@ -21,7 +21,13 @@ import {
   AlertTriangle,
 } from "lucide-react"
 import MetricCard from "@/components/common/MetricCard"
-import { useServerStatus, formatServerUptime } from "@/hooks/useServerStatus"
+import {
+  useServerStatus,
+  formatServerUptime,
+  formatActiveChatCounts,
+  formatActiveConnectionsSub,
+  totalActiveConnections,
+} from "@/hooks/useServerStatus"
 
 type ServerMode = "embedded" | "remote"
 
@@ -523,7 +529,8 @@ function RuntimeStatusSection() {
       </div>
     )
   } else {
-    const wsTotal = status.eventsWsCount + status.chatWsCount
+    const wsTotal = totalActiveConnections(status)
+    const wsSub = formatActiveConnectionsSub(status, t)
     body = (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard
@@ -544,10 +551,7 @@ function RuntimeStatusSection() {
           icon={Radio}
           label={t("settings.serverActiveWebSockets")}
           value={String(wsTotal)}
-          subValue={t("settings.serverWsSub", {
-            events: status.eventsWsCount,
-            chat: status.chatWsCount,
-          })}
+          subValue={wsSub}
           colorClass="text-amber-500"
           bgClass="bg-amber-500/10"
         />
@@ -555,15 +559,7 @@ function RuntimeStatusSection() {
           icon={MessageSquare}
           label={t("settings.serverActiveChatStreams")}
           value={String(status.activeChatCounts.total)}
-          subValue={
-            status.activeChatCounts.total > 0
-              ? `${status.activeChatCounts.desktop} desktop · ${status.activeChatCounts.http} http${
-                  status.activeChatCounts.channel > 0
-                    ? ` · ${status.activeChatCounts.channel} channel`
-                    : ""
-                }`
-              : undefined
-          }
+          subValue={formatActiveChatCounts(status.activeChatCounts, t) ?? undefined}
           colorClass="text-purple-500"
           bgClass="bg-purple-500/10"
         />

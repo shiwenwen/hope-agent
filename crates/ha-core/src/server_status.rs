@@ -91,9 +91,8 @@ pub struct StatusSnapshot {
     pub chat_ws_count: u32,
 }
 
-/// Snapshot the current state. In-flight chat session counts live in
-/// `chat_engine::stream_seq::active_counts()` and are queried separately by
-/// status endpoints to keep this module free of chat-engine concerns.
+/// Snapshot the current state. Server-level metrics only; in-flight chat
+/// session counts are merged in by [`runtime_status_json`] for endpoints.
 pub fn snapshot() -> StatusSnapshot {
     let handle = get_or_init();
     let (bound, started_at, error) = match handle.read().ok() {
@@ -127,6 +126,33 @@ pub fn snapshot() -> StatusSnapshot {
         events_ws_count: events_ws_counter().load(Ordering::Relaxed),
         chat_ws_count: chat_ws_counter().load(Ordering::Relaxed),
     }
+}
+
+/// Composed runtime-status JSON shared by `GET /api/server/status` and the
+/// `get_server_runtime_status` Tauri command. Both transports serialize the
+/// same shape so front-end `Transport` calls route identically.
+///
+/// `local_desktop_client` is `true` when the caller is the embedded Tauri
+/// shell (whose webview talks to the backend via IPC + EventBus, not
+/// WebSocket) — it's surfaced so the UI can add this app itself to the
+/// "active connections" tally. HTTP callers pass `false`.
+///
+/// `activeChatStreams` is a back-compat alias for `activeChatCounts.total`
+/// (meaning changed from "WS subscribers" to "in-flight chat engines").
+pub fn runtime_status_json(local_desktop_client: bool) -> serde_json::Value {
+    let snap = snapshot();
+    let counts = crate::chat_engine::stream_seq::active_counts();
+    serde_json::json!({
+        "boundAddr": snap.bound_addr,
+        "startedAt": snap.started_at_unix_secs,
+        "uptimeSecs": snap.uptime_secs,
+        "startupError": snap.startup_error,
+        "eventsWsCount": snap.events_ws_count,
+        "chatWsCount": snap.chat_ws_count,
+        "localDesktopClient": local_desktop_client,
+        "activeChatStreams": counts.total,
+        "activeChatCounts": counts,
+    })
 }
 
 /// Increments the given counter on construction, decrements on drop —

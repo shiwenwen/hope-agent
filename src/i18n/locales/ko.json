@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "활성 채팅 세션",
     "serverStartupError": "시작 오류",
     "serverNotStarted": "시작되지 않음",
-    "serverWsSub": "{{events}} events · {{chat}} chat"
+    "serverWsSub": "{{events}} events · {{chat}} chat",
+    "serverConnSubLocal": "{{count}} 로컬",
+    "serverChatSourceDesktop": "{{count}} 데스크톱",
+    "serverChatSourceHttp": "{{count}} HTTP",
+    "serverChatSourceChannel": "{{count}} 채널"
   },
   "tz": {
     "shanghai": "상하이 (UTC+8)",

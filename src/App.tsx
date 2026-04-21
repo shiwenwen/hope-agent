@@ -9,6 +9,7 @@ import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
+import type { SettingsSection } from "@/components/settings/types"
 import OnboardingWizard from "@/components/onboarding"
 import { CURRENT_ONBOARDING_VERSION } from "@/components/onboarding/version"
 import IconSidebar from "@/components/common/IconSidebar"
@@ -26,6 +27,9 @@ export default function App() {
     "loading" | "onboarding" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
+  const [settingsInitialSection, setSettingsInitialSection] = useState<
+    SettingsSection | undefined
+  >(undefined)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
@@ -55,7 +59,10 @@ export default function App() {
   }, [view])
 
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
-  const handleOpenSettings = useCallback(() => setView("settings"), [])
+  const handleOpenSettings = useCallback((section?: SettingsSection) => {
+    setSettingsInitialSection(section)
+    setView("settings")
+  }, [])
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
@@ -195,7 +202,7 @@ export default function App() {
       <div className="flex flex-1 min-h-0 overflow-hidden">
       <IconSidebar
         view={view === "loading" || view === "setup" ? "chat" : view}
-        onOpenSettings={() => setView("settings")}
+        onOpenSettings={handleOpenSettings}
         onOpenChat={() => setView("chat")}
         onOpenAgents={() => {
           setAgentIdForSettings(undefined)
@@ -217,6 +224,7 @@ export default function App() {
           onBack={() => setView("chat")}
           onCodexAuth={handleCodexAuth}
           onCodexReauth={handleCodexAuth}
+          initialSection={settingsInitialSection}
         />
       )}
       {view === "skills" && (

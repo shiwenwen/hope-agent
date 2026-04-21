@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "Активные чат-сессии",
     "serverStartupError": "Ошибка запуска",
     "serverNotStarted": "Не запущен",
-    "serverWsSub": "{{events}} событий · {{chat}} чат"
+    "serverWsSub": "{{events}} событий · {{chat}} чат",
+    "serverConnSubLocal": "{{count}} локально",
+    "serverChatSourceDesktop": "{{count}} десктоп",
+    "serverChatSourceHttp": "{{count}} http",
+    "serverChatSourceChannel": "{{count}} канал"
   },
   "tz": {
     "shanghai": "Шанхай (UTC+8)",

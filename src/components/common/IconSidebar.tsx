@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerStatusIndicator from "@/components/common/ServerStatusIndicator"
+import type { SettingsSection } from "@/components/settings/types"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -33,7 +34,7 @@ import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLan
 
 interface IconSidebarProps {
   view: "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
-  onOpenSettings: () => void
+  onOpenSettings: (section?: SettingsSection) => void
   onOpenChat: () => void
   onOpenAgents: () => void
   onOpenChannels: () => void
@@ -225,7 +226,7 @@ export default function IconSidebar({
         <div className="py-3 flex flex-col gap-2">
           {/* Server runtime health — always visible so users can catch port
               conflicts, high WS load, etc. without opening Settings. */}
-          <ServerStatusIndicator onOpen={onOpenSettings} />
+          <ServerStatusIndicator onOpen={() => onOpenSettings("server")} />
           {/* Profile */}
           <IconTip label={t("settings.profile")} side="right">
             <Button

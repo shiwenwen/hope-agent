@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import type { TFunction } from "i18next"
 import { getTransport } from "@/lib/transport-provider"
 
 export interface ActiveChatCounts {
@@ -16,6 +17,13 @@ export interface ServerRuntimeStatus {
   eventsWsCount: number
   chatWsCount: number
   /**
+   * True when this status was fetched through the Tauri shell — whose
+   * webview talks to the backend via IPC, not WebSocket. UIs count the
+   * desktop app itself as one "active connection" even though it doesn't
+   * show up in the WS counters.
+   */
+  localDesktopClient: boolean
+  /**
    * Back-compat alias for `activeChatCounts.total`. Meaning changed:
    * now counts in-flight chat engines (desktop + HTTP + channel), not
    * WebSocket subscribers like the original field did.
@@ -24,10 +32,57 @@ export interface ServerRuntimeStatus {
   activeChatCounts: ActiveChatCounts
 }
 
+/** Total "active connections" including the desktop shell when applicable. */
+export function totalActiveConnections(status: ServerRuntimeStatus): number {
+  return (
+    status.eventsWsCount +
+    status.chatWsCount +
+    (status.localDesktopClient ? 1 : 0)
+  )
+}
+
 interface UseServerStatusResult {
   status: ServerRuntimeStatus | null
   loading: boolean
   error: string | null
+}
+
+/**
+ * Render the per-source breakdown as `X desktop · Y http[ · Z channel]`,
+ * translated. Channel segment is omitted at 0 to keep the common (no-IM)
+ * case tight. Returns `null` when `total === 0` so callers can hide the
+ * parenthetical.
+ */
+export function formatActiveChatCounts(
+  counts: ActiveChatCounts,
+  t: TFunction,
+): string | null {
+  if (counts.total === 0) return null
+  const parts = [
+    t("settings.serverChatSourceDesktop", { count: counts.desktop }),
+    t("settings.serverChatSourceHttp", { count: counts.http }),
+  ]
+  if (counts.channel > 0) {
+    parts.push(t("settings.serverChatSourceChannel", { count: counts.channel }))
+  }
+  return parts.join(" · ")
+}
+
+/**
+ * Render the WS breakdown `X events · Y chat[ · 1 local]`, translated.
+ * `local` segment appears only when the desktop shell is the caller.
+ */
+export function formatActiveConnectionsSub(
+  status: ServerRuntimeStatus,
+  t: TFunction,
+): string {
+  const base = t("settings.serverWsSub", {
+    events: status.eventsWsCount,
+    chat: status.chatWsCount,
+  })
+  return status.localDesktopClient
+    ? `${base} · ${t("settings.serverConnSubLocal", { count: 1 })}`
+    : base
 }
 
 /**
@@ -53,7 +108,7 @@ function statusUnchanged(a: ServerRuntimeStatus, b: ServerRuntimeStatus): boolea
     a.startupError === b.startupError &&
     a.eventsWsCount === b.eventsWsCount &&
     a.chatWsCount === b.chatWsCount &&
-    a.activeChatStreams === b.activeChatStreams &&
+    a.localDesktopClient === b.localDesktopClient &&
     a.activeChatCounts.desktop === b.activeChatCounts.desktop &&
     a.activeChatCounts.http === b.activeChatCounts.http &&
     a.activeChatCounts.channel === b.activeChatCounts.channel &&

@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "Active Chat Streams",
     "serverStartupError": "Startup Error",
     "serverNotStarted": "Not started",
-    "serverWsSub": "{{events}} events · {{chat}} chat"
+    "serverWsSub": "{{events}} events · {{chat}} chat",
+    "serverConnSubLocal": "{{count}} local",
+    "serverChatSourceDesktop": "{{count}} desktop",
+    "serverChatSourceHttp": "{{count}} http",
+    "serverChatSourceChannel": "{{count}} channel"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

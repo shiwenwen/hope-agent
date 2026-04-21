@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "Sesi Sembang Aktif",
     "serverStartupError": "Ralat Mula",
     "serverNotStarted": "Belum Dimulakan",
-    "serverWsSub": "{{events}} peristiwa · {{chat}} sembang"
+    "serverWsSub": "{{events}} peristiwa · {{chat}} sembang",
+    "serverConnSubLocal": "{{count}} tempatan",
+    "serverChatSourceDesktop": "{{count}} desktop",
+    "serverChatSourceHttp": "{{count}} http",
+    "serverChatSourceChannel": "{{count}} saluran"
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

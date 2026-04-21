@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "Phiên trò chuyện đang hoạt động",
     "serverStartupError": "Lỗi khởi động",
     "serverNotStarted": "Chưa khởi động",
-    "serverWsSub": "{{events}} sự kiện · {{chat}} trò chuyện"
+    "serverWsSub": "{{events}} sự kiện · {{chat}} trò chuyện",
+    "serverConnSubLocal": "{{count}} cục bộ",
+    "serverChatSourceDesktop": "{{count}} máy tính",
+    "serverChatSourceHttp": "{{count}} http",
+    "serverChatSourceChannel": "{{count}} kênh"
   },
   "tz": {
     "shanghai": "Thượng Hải (UTC+8)",

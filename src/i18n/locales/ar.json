@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "جلسات المحادثة النشطة",
     "serverStartupError": "خطأ في بدء التشغيل",
     "serverNotStarted": "لم يبدأ",
-    "serverWsSub": "{{events}} أحداث · {{chat}} محادثة"
+    "serverWsSub": "{{events}} أحداث · {{chat}} محادثة",
+    "serverConnSubLocal": "{{count}} محلي",
+    "serverChatSourceDesktop": "{{count}} سطح المكتب",
+    "serverChatSourceHttp": "{{count}} HTTP",
+    "serverChatSourceChannel": "{{count}} قناة"
   },
   "tz": {
     "shanghai": "شنغهاي (UTC+8)",

@@ -1420,7 +1420,11 @@
     "serverActiveChatStreams": "活跃会话",
     "serverStartupError": "启动错误",
     "serverNotStarted": "未启动",
-    "serverWsSub": "{{events}} 事件 · {{chat}} 会话"
+    "serverWsSub": "{{events}} 事件 · {{chat}} 会话",
+    "serverConnSubLocal": "{{count}} 本机",
+    "serverChatSourceDesktop": "{{count}} 桌面",
+    "serverChatSourceHttp": "{{count}} HTTP",
+    "serverChatSourceChannel": "{{count}} 渠道"
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",
