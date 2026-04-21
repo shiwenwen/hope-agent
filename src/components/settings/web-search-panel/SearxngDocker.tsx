@@ -236,6 +236,13 @@ export function SearxngDockerSection({
   if (!status) return null
 
   if (!status.dockerInstalled) {
+    const openExt = (url: string) => getTransport().call("open_url", { url })
+    const alternatives: Array<{ label: string; url: string }> = [
+      { label: "colima", url: "https://github.com/abiosoft/colima" },
+      { label: "OrbStack", url: "https://orbstack.dev" },
+      { label: "Rancher Desktop", url: "https://rancherdesktop.io" },
+      { label: "Linux dockerd", url: "https://docs.docker.com/engine/install/" },
+    ]
     return (
       <div className="rounded-md border border-border/50 p-3 mt-1 space-y-2">
         <div className="text-xs font-medium">{t("settings.webSearchDockerTitle")}</div>
@@ -244,13 +251,26 @@ export function SearxngDockerSection({
           size="sm"
           variant="outline"
           className="h-7 text-xs"
-          onClick={() =>
-            getTransport().call("open_url", { url: "https://www.docker.com/products/docker-desktop/" })
-          }
+          onClick={() => openExt("https://www.docker.com/products/docker-desktop/")}
         >
           <ExternalLink className="h-3 w-3 mr-1" />
           {t("settings.webSearchDockerInstall")}
         </Button>
+        <div className="text-[11px] text-muted-foreground leading-relaxed pt-0.5">
+          {t("settings.webSearchDockerAlternatives")}{" "}
+          {alternatives.map((item, idx) => (
+            <span key={item.label}>
+              {idx > 0 && <span className="mx-1 opacity-60">·</span>}
+              <button
+                type="button"
+                className="underline decoration-dotted underline-offset-2 hover:text-primary transition-colors"
+                onClick={() => openExt(item.url)}
+              >
+                {item.label}
+              </button>
+            </span>
+          ))}
+        </div>
       </div>
     )
   }
