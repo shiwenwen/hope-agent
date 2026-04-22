@@ -105,6 +105,8 @@ pub async fn test_provider(Json(config): Json<ProviderConfig>) -> Result<Json<Va
     // We reimplement a lightweight version here — ping the models endpoint.
     use std::time::{Duration, Instant};
 
+    use ha_core::agent::{build_api_url, is_complete_endpoint_url};
+
     let client = ha_core::provider::apply_proxy(
         reqwest::Client::builder()
             .timeout(Duration::from_secs(10))
@@ -114,19 +116,23 @@ pub async fn test_provider(Json(config): Json<ProviderConfig>) -> Result<Json<Va
     .map_err(|e| AppError::internal(format!("Client error: {}", e)))?;
 
     let base = config.base_url.trim_end_matches('/');
-    let has_version_suffix =
-        base.ends_with("/v1") || base.ends_with("/v2") || base.ends_with("/v3");
+    // If base_url already points at a chat endpoint, probing GET /models
+    // returns 405. Hit the chat endpoint directly.
+    let base_is_chat_endpoint = is_complete_endpoint_url(base);
+    // Prefer the first real model ID to avoid a spurious 400 from the server
+    // rejecting a placeholder model name.
+    let probe_model = config
+        .models
+        .first()
+        .map(|m| m.id.clone())
+        .unwrap_or_else(|| "test".to_string());
     let start = Instant::now();
 
     match config.api_type {
         ha_core::provider::ApiType::Anthropic => {
-            let url = if has_version_suffix {
-                format!("{}/messages", base)
-            } else {
-                format!("{}/v1/messages", base)
-            };
+            let url = build_api_url(base, "/v1/messages");
             let body = serde_json::json!({
-                "model": "test-model",
+                "model": probe_model,
                 "max_tokens": 1,
                 "messages": [{ "role": "user", "content": "Hi" }]
             });
@@ -151,12 +157,23 @@ pub async fn test_provider(Json(config): Json<ProviderConfig>) -> Result<Json<Va
             })))
         }
         ha_core::provider::ApiType::OpenaiChat | ha_core::provider::ApiType::OpenaiResponses => {
-            let url = if has_version_suffix {
-                format!("{}/models", base)
+            let url = if base_is_chat_endpoint {
+                build_api_url(base, "/v1/chat/completions")
             } else {
-                format!("{}/v1/models", base)
+                build_api_url(base, "/v1/models")
             };
-            let mut req = client.get(&url);
+            let mut req = if base_is_chat_endpoint {
+                client
+                    .post(&url)
+                    .header("content-type", "application/json")
+                    .json(&serde_json::json!({
+                        "model": probe_model,
+                        "max_tokens": 1,
+                        "messages": [{ "role": "user", "content": "Hi" }],
+                    }))
+            } else {
+                client.get(&url)
+            };
             if !config.api_key.is_empty() {
                 req = req.header("Authorization", format!("Bearer {}", config.api_key));
             }
@@ -167,7 +184,10 @@ pub async fn test_provider(Json(config): Json<ProviderConfig>) -> Result<Json<Va
 
             let status = resp.status().as_u16();
             let latency = start.elapsed().as_millis() as u64;
-            let success = resp.status().is_success();
+            // POST chat probe: 400/404 means the endpoint is reachable and
+            // auth worked — the server is just rejecting our model name.
+            let success = resp.status().is_success()
+                || (base_is_chat_endpoint && (status == 400 || status == 404));
             Ok(Json(json!({
                 "success": success,
                 "status": status,

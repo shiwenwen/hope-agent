@@ -13,18 +13,40 @@ pub(super) const ANTHROPIC_API_URL: &str = "https://api.anthropic.com/v1/message
 /// ensures compatibility with these services.
 pub const USER_AGENT: &str = "Hope Agent/1.0";
 
-/// Smart URL builder: if base_url already ends with a version suffix
-/// (e.g. /v1, /v2, /v3), strip the version prefix from path to avoid
-/// double-prefixing like /v3/v1/chat/completions.
+/// Smart URL builder.
+///
+/// Rules, in order:
+/// 1. Passthrough: if `base_url` already ends with a known endpoint suffix
+///    (`/chat/completions`, `/responses`, `/messages`), treat it as the full
+///    URL the user wants to hit and return it unchanged. Escape hatch for
+///    non-standard gateways (e.g. `host/v1/openai/native/chat/completions`).
+/// 2. Version strip: if `base_url` ends with `/v1`, `/v2`, `/v3`, strip the
+///    version prefix from `path` to avoid double-prefixing like
+///    `/v3/v1/chat/completions`.
+/// 3. Otherwise concatenate base + path verbatim.
+/// Endpoint suffixes that indicate `base_url` is already a complete API URL.
+/// Used by [`build_api_url`] for passthrough and by provider connectivity
+/// tests to pick the right probe strategy.
+pub const COMPLETE_ENDPOINT_SUFFIXES: &[&str] = &["/chat/completions", "/responses", "/messages"];
+
+/// Returns true if `base_url` already points at a complete chat / responses /
+/// messages endpoint (trailing slash tolerated).
+pub fn is_complete_endpoint_url(base_url: &str) -> bool {
+    let base = base_url.trim_end_matches('/');
+    COMPLETE_ENDPOINT_SUFFIXES.iter().any(|s| base.ends_with(s))
+}
+
 pub fn build_api_url(base_url: &str, path: &str) -> String {
     let base = base_url.trim_end_matches('/');
-    let version_prefixes = ["/v1", "/v2", "/v3"];
 
-    // Check if base already has any version suffix
+    if is_complete_endpoint_url(base) {
+        return base.to_string();
+    }
+
+    let version_prefixes = ["/v1", "/v2", "/v3"];
     let base_has_version = version_prefixes.iter().any(|p| base.ends_with(p));
 
     if base_has_version {
-        // Strip version prefix from path if present
         for prefix in &version_prefixes {
             if path.starts_with(prefix) {
                 return format!("{}{}", base, &path[prefix.len()..]);
@@ -303,4 +325,53 @@ pub fn build_system_prompt_with_session(
         Some(provider),
         crate::session::is_session_incognito(session_id),
     )
+}
+
+#[cfg(test)]
+mod build_api_url_tests {
+    use super::build_api_url;
+
+    #[test]
+    fn plain_host_appends_full_path() {
+        assert_eq!(
+            build_api_url("https://api.openai.com", "/v1/chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn v1_suffix_strips_from_path() {
+        assert_eq!(
+            build_api_url("https://api.openai.com/v1", "/v1/chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn trailing_slash_is_trimmed() {
+        assert_eq!(
+            build_api_url("https://api.openai.com/v1/", "/v1/chat/completions"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn full_endpoint_is_passthrough() {
+        // Custom gateway: user supplies the complete endpoint URL.
+        assert_eq!(
+            build_api_url(
+                "https://aigc.sankuai.com/v1/openai/native/chat/completions",
+                "/v1/chat/completions"
+            ),
+            "https://aigc.sankuai.com/v1/openai/native/chat/completions"
+        );
+        assert_eq!(
+            build_api_url("https://host/custom/responses", "/v1/responses"),
+            "https://host/custom/responses"
+        );
+        assert_eq!(
+            build_api_url("https://host/proxy/messages", "/v1/messages"),
+            "https://host/proxy/messages"
+        );
+    }
 }
