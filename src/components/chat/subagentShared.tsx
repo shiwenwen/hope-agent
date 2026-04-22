@@ -41,8 +41,8 @@ export interface StatusDisplay {
   color: string
 }
 
-// Status label text lives in i18n (subagent.status.*), not here — call
-// t(`subagent.status.${status}`) at the use site.
+// Status label text lives in i18n (executionStatus.subagent.status.*), not
+// here — call t(`executionStatus.subagent.status.${status}`) at the use site.
 export const statusConfig: Record<string, StatusDisplay> = {
   spawning: {
     icon: <Loader2 className="h-3 w-3 animate-spin" />,

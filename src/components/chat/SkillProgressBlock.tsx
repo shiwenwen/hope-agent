@@ -1,8 +1,10 @@
 import { memo, useMemo, useState } from "react"
 import { ChevronRight, Puzzle, Loader2 } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { getToolExecutionState } from "@/components/chat/message/executionStatus"
 
 interface SkillProgressBlockProps {
   tool: ToolCall
@@ -28,11 +30,17 @@ function isForkResult(result: string | undefined, skillName: string): boolean {
 }
 
 function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const { name: skillName, args } = useMemo(() => parseSkillArgs(tool.arguments), [tool.arguments])
-  const running = !tool.result
+  const state = getToolExecutionState(tool)
+  const running = state === "running"
+  const failed = state === "failed"
   const forkMode = isForkResult(tool.result, skillName)
   const body = tool.result || ""
+  const title = t(`executionStatus.skill.${state}`, {
+    name: skillName || "skill",
+  })
 
   // Strip the "Skill 'xxx' completed.\n\nResult:\n" envelope for nicer fork display.
   const displayBody = useMemo(() => {
@@ -46,12 +54,19 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
   }, [body, forkMode])
 
   return (
-    <div className="my-1.5 rounded-lg border border-amber-500/30 bg-amber-500/5 text-xs">
+    <div
+      className={cn(
+        "my-1.5 rounded-lg border text-xs",
+        failed
+          ? "border-red-500/30 bg-red-500/5"
+          : "border-amber-500/30 bg-amber-500/5",
+      )}
+    >
       <button
         type="button"
         className={cn(
           "flex w-full items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-left transition-colors",
-          !running && "hover:bg-amber-500/10",
+          !running && (failed ? "hover:bg-red-500/10" : "hover:bg-amber-500/10"),
           shimmer && "animate-pulse",
         )}
         onClick={() => !running && setExpanded(!expanded)}
@@ -69,11 +84,23 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
           />
         )}
         <Puzzle className="h-3 w-3 shrink-0 text-amber-600" />
-        <span className="font-medium text-foreground truncate max-w-[40%]">
-          {skillName || "skill"}
+        <span
+          className={cn(
+            "font-medium truncate max-w-[55%]",
+            failed ? "text-red-500" : "text-foreground",
+          )}
+        >
+          {title}
         </span>
-        <span className="hidden sm:inline-flex items-center rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground shrink-0">
-          {forkMode ? "skill · fork" : "skill · inline"}
+        <span
+          className={cn(
+            "hidden sm:inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] leading-none shrink-0",
+            failed
+              ? "bg-red-500/10 text-red-500"
+              : "bg-amber-500/10 text-muted-foreground",
+          )}
+        >
+          {t(`executionStatus.skill.mode.${forkMode ? "fork" : "inline"}`)}
         </span>
         {args && (
           <span className="text-muted-foreground truncate flex-1 min-w-0" title={args}>

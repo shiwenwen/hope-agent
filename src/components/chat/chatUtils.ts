@@ -7,6 +7,7 @@ import type {
   MessageUsage,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
+import { hasToolError } from "./message/executionStatus"
 
 /** Parse `__MEDIA_ITEMS__<json>\n<text>` header from a tool result, if present.
  *  Returns the structured items; falls back to undefined on malformed JSON. */
@@ -220,6 +221,9 @@ export function parseSessionMessages(
         name: msg.toolName || "",
         arguments: msg.toolArguments || "",
         result: msg.toolResult || undefined,
+        isError: msg.isError != null ? msg.isError : hasToolError({
+          result: msg.toolResult || undefined,
+        }),
         mediaUrls,
         mediaItems,
         durationMs: msg.toolDurationMs || undefined,
@@ -228,6 +232,11 @@ export function parseSessionMessages(
       const existing = pendingTools.find((c) => c.callId === msg.toolCallId)
       if (existing) {
         if (msg.toolResult) existing.result = msg.toolResult
+        if (msg.isError != null || msg.toolResult != null) {
+          existing.isError = msg.isError != null
+            ? msg.isError
+            : hasToolError({ result: msg.toolResult || undefined })
+        }
         if (msg.toolName && !existing.name) existing.name = msg.toolName
         if (msg.toolArguments && !existing.arguments) existing.arguments = msg.toolArguments
         if (msg.toolDurationMs != null) existing.durationMs = msg.toolDurationMs

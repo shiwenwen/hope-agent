@@ -33,6 +33,7 @@ export interface ToolCall {
   name: string
   arguments: string
   result?: string
+  isError?: boolean
   mediaUrls?: string[]
   mediaItems?: MediaItem[]
   durationMs?: number
