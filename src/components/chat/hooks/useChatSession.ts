@@ -76,11 +76,19 @@ export interface UseChatSessionReturn {
    * is wired in immediately — the subsequent first message reuses the
    * existing sessionId instead of auto-creating an unassigned one.
    */
-  handleNewChatInProject: (projectId: string, defaultAgentId?: string | null) => Promise<void>
+  handleNewChatInProject: (
+    projectId: string,
+    defaultAgentId?: string | null,
+    incognito?: boolean,
+  ) => Promise<void>
   handleDeleteSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
   handleLoadMoreSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
+  updateSessionMeta: (
+    sessionId: string,
+    updater: (prev: SessionMeta) => SessionMeta,
+  ) => void
 }
 
 interface UseChatSessionOptions {
@@ -125,6 +133,13 @@ export function useChatSession({
   // Mirror of `messages` so `jumpToMessage` can synchronously check whether
   // a target message is already loaded without stale-closure hazards.
   const messagesRef = useRef<Message[]>([])
+  // Mirror of `sessions` so callbacks reading session metadata don't have to
+  // list `sessions` in their deps (which would invalidate them on every
+  // streaming meta tick and cascade re-renders into the sidebar tree).
+  const sessionsRef = useRef<SessionMeta[]>([])
+  // Tracks the previous `currentSessionId` so the effect below can fire
+  // `purge_session_if_incognito` exactly once per swap.
+  const previousSessionIdRef = useRef<string | null>(null)
 
   // Keep ref in sync with state
   useEffect(() => {
@@ -134,6 +149,10 @@ export function useChatSession({
   useEffect(() => {
     messagesRef.current = messages
   }, [messages])
+
+  useEffect(() => {
+    sessionsRef.current = sessions
+  }, [sessions])
 
   // --- Session pagination sub-hook ---
   const {
@@ -179,6 +198,78 @@ export function useChatSession({
     },
     [],
   )
+
+  const updateSessionMeta = useCallback(
+    (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => {
+      setSessions((prev) => {
+        let changed = false
+        const next = prev.map((session) => {
+          if (session.id !== sessionId) return session
+          const updated = updater(session)
+          if (updated !== session) changed = true
+          return updated
+        })
+        return changed ? next : prev
+      })
+    },
+    [],
+  )
+
+  // Drop every locally-cached trace of a session — used both by explicit
+  // delete and by the incognito close-on-leave purge so the two paths stay
+  // in lockstep and we don't leak entries in any of the per-session refs.
+  const evictSessionLocal = useCallback(
+    (sessionId: string) => {
+      sessionCacheRef.current.delete(sessionId)
+      loadingSessionsRef.current.delete(sessionId)
+      hasMoreRef.current.delete(sessionId)
+      oldestDbIdRef.current.delete(sessionId)
+      setLoadingSessionIds((prev) => {
+        if (!prev.has(sessionId)) return prev
+        const next = new Set(prev)
+        next.delete(sessionId)
+        return next
+      })
+      setSessions((prev) => {
+        const next = prev.filter((s) => s.id !== sessionId)
+        return next.length === prev.length ? prev : next
+      })
+    },
+    [],
+  )
+
+  const purgeIncognitoSession = useCallback(
+    (sessionIdToLeave: string | null) => {
+      if (!sessionIdToLeave) return
+      const previousMeta = sessionsRef.current.find((s) => s.id === sessionIdToLeave)
+      if (!previousMeta?.incognito) return
+      evictSessionLocal(sessionIdToLeave)
+      void getTransport()
+        .call("purge_session_if_incognito", { sessionId: sessionIdToLeave })
+        .catch((err) => {
+          logger.warn(
+            "chat",
+            "useChatSession::purgeIncognito",
+            `purge failed for ${sessionIdToLeave}`,
+            err,
+          )
+        })
+    },
+    [evictSessionLocal],
+  )
+
+  // Centralized close-on-leave: any path that mutates `currentSessionId`
+  // (sidebar click, new chat, project new chat, deep-link nav, jumpToMessage,
+  // delete-session-while-active) reaches this effect and the previous session
+  // is purged exactly once. Beats open-coding the call at every navigation
+  // entry point.
+  useEffect(() => {
+    const previous = previousSessionIdRef.current
+    previousSessionIdRef.current = currentSessionId
+    if (previous && previous !== currentSessionId) {
+      purgeIncognitoSession(previous)
+    }
+  }, [currentSessionId, purgeIncognitoSession])
 
   // Load agent list
   const reloadAgents = useCallback(async () => {
@@ -493,18 +584,31 @@ export function useChatSession({
         setActiveModel(globalActiveModelRef.current)
       }
     },
-    [availableModels, applyModelForDisplay, globalActiveModelRef, setActiveModel, setHasMore],
+    [
+      availableModels,
+      applyModelForDisplay,
+      globalActiveModelRef,
+      setActiveModel,
+      setHasMore,
+    ],
   )
 
   // Create a new session inside a Project and materialize it immediately
   // so project context is active for the first message.
   const handleNewChatInProject = useCallback(
-    async (projectId: string, defaultAgentId?: string | null) => {
+    async (
+      projectId: string,
+      defaultAgentId?: string | null,
+      incognito = false,
+    ) => {
       try {
         const agentId = defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : currentAgentId
         const created = await getTransport().call<SessionMeta>("create_session_cmd", {
           agentId,
           projectId,
+          // Project + incognito are mutually exclusive; backend coerces but
+          // we strip here too so the optimistic UI stays consistent.
+          incognito: projectId ? false : incognito,
         })
         setMessages([])
         setCurrentSessionId(created.id)
@@ -558,11 +662,7 @@ export function useChatSession({
     async (sessionId: string) => {
       try {
         await getTransport().call("delete_session_cmd", { sessionId })
-        sessionCacheRef.current.delete(sessionId)
-        loadingSessionsRef.current.delete(sessionId)
-        hasMoreRef.current.delete(sessionId)
-        oldestDbIdRef.current.delete(sessionId)
-        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        evictSessionLocal(sessionId)
         if (currentSessionIdRef.current === sessionId) {
           setMessages([])
           setCurrentSessionId(null)
@@ -574,7 +674,7 @@ export function useChatSession({
         logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
       }
     },
-    [reloadSessions, setHasMore],
+    [reloadSessions, setHasMore, evictSessionLocal],
   )
 
   return {
@@ -613,5 +713,6 @@ export function useChatSession({
     handleLoadMore,
     handleLoadMoreSessions,
     updateSessionMessages,
+    updateSessionMeta,
   }
 }

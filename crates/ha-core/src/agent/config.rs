@@ -238,10 +238,13 @@ pub fn build_system_prompt_with_session(
 ) -> String {
     // Try loading the agent definition
     if let Ok(definition) = crate::agent_loader::load_agent(agent_id) {
+        let session_meta = crate::session::lookup_session_meta(session_id);
+        let incognito = session_meta.as_ref().map(|s| s.incognito).unwrap_or(false);
+
         // Resolve the current project (if any) via session → session.project_id.
-        let project = session_id
-            .and_then(|sid| crate::get_session_db()?.get_session(sid).ok().flatten())
-            .and_then(|s| s.project_id)
+        let project = session_meta
+            .as_ref()
+            .and_then(|s| s.project_id.clone())
             .and_then(|pid| crate::get_project_db()?.get(&pid).ok().flatten());
 
         // Load project files if we have a project.
@@ -254,20 +257,21 @@ pub fn build_system_prompt_with_session(
         // filtering and per-section sub-budgets are applied downstream by
         // `system_prompt::build` so that Layer 1/2 (core memory.md files) can
         // consume the total budget first and Layer 3 picks up only the residual.
-        let memory_entries: Vec<crate::memory::MemoryEntry> = if definition.config.memory.enabled {
-            crate::get_memory_backend()
-                .and_then(|b| {
-                    b.load_prompt_candidates_with_project(
-                        agent_id,
-                        project.as_ref().map(|p| p.id.as_str()),
-                        definition.config.memory.shared,
-                    )
-                    .ok()
-                })
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        };
+        let memory_entries: Vec<crate::memory::MemoryEntry> =
+            if definition.config.memory.enabled && !incognito {
+                crate::get_memory_backend()
+                    .and_then(|b| {
+                        b.load_prompt_candidates_with_project(
+                            agent_id,
+                            project.as_ref().map(|p| p.id.as_str()),
+                            definition.config.memory.shared,
+                        )
+                        .ok()
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
 
         // Resolve the effective memory budget (agent override wins over global).
         let app_cfg = crate::config::cached_config();
@@ -290,8 +294,13 @@ pub fn build_system_prompt_with_session(
             project.as_ref(),
             &project_files,
             session_id,
+            incognito,
         );
     }
     // Fallback: legacy prompt
-    crate::system_prompt::build_legacy(Some(model), Some(provider))
+    crate::system_prompt::build_legacy(
+        Some(model),
+        Some(provider),
+        crate::session::is_session_incognito(session_id),
+    )
 }

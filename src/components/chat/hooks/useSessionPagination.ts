@@ -46,13 +46,14 @@ export function useSessionPagination({
       const [list, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         limit: SESSION_PAGE_SIZE,
         offset: 0,
+        activeSessionId: currentSessionIdRef.current ?? undefined,
       })
       setSessions(list)
       setHasMoreSessions(list.length < total)
     } catch (e) {
       logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
     }
-  }, [setSessions])
+  }, [setSessions, currentSessionIdRef])
 
   const handleLoadMoreSessions = useCallback(async () => {
     if (loadingMoreSessions || !hasMoreSessions) return
@@ -61,6 +62,7 @@ export function useSessionPagination({
       const [more, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         limit: SESSION_PAGE_SIZE,
         offset: sessionsLength,
+        activeSessionId: currentSessionIdRef.current ?? undefined,
       })
       if (more.length === 0) {
         setHasMoreSessions(false)
@@ -78,7 +80,7 @@ export function useSessionPagination({
     } finally {
       setLoadingMoreSessions(false)
     }
-  }, [loadingMoreSessions, hasMoreSessions, sessionsLength, setSessions])
+  }, [loadingMoreSessions, hasMoreSessions, sessionsLength, setSessions, currentSessionIdRef])
 
   const handleLoadMore = useCallback(async () => {
     const curSid = currentSessionIdRef.current

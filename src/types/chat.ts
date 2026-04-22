@@ -160,6 +160,8 @@ export interface SessionMeta {
    * and shared files are automatically injected into its system prompt.
    */
   projectId?: string | null
+  /** Session-scoped incognito mode: no passive memory/awareness injection or auto-extract. */
+  incognito: boolean
   channelInfo?: {
     channelId: string
     accountId: string

@@ -3,9 +3,10 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Settings, Copy, BarChart3, Pencil, Zap, Check, X, FileText, Loader2, Search } from "lucide-react"
+import { Settings, Copy, BarChart3, Pencil, Zap, Check, X, FileText, Loader2, Search, Ghost } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
+import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
 import { logger } from "@/lib/logger"
 import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
 
@@ -184,6 +185,12 @@ export default function ChatTitleBar({
                 {currentSession.channelInfo.senderName && (
                   <span className="text-blue-400">· {currentSession.channelInfo.senderName}</span>
                 )}
+              </span>
+            )}
+            {currentSession?.incognito && (
+              <span className={INCOGNITO_BADGE_LABEL_CLASSES}>
+                <Ghost className="h-3 w-3" />
+                {t("chat.incognito")}
               </span>
             )}
           </>

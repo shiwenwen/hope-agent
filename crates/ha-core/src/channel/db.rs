@@ -151,6 +151,12 @@ impl ChannelDB {
             "INSERT INTO channel_conversations (channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, chat_type, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, chat_type_str, now, now],
         )?;
+        // Channel sessions are driven by an external counterparty whose
+        // messages must persist — incognito and channel are mutually exclusive.
+        conn.execute(
+            "UPDATE sessions SET incognito = 0 WHERE id = ?1 AND incognito = 1",
+            params![session_id],
+        )?;
 
         Ok(session_id)
     }

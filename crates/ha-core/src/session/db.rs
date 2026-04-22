@@ -48,7 +48,8 @@ impl SessionDB {
                 context_json TEXT,
                 last_read_message_id INTEGER DEFAULT 0,
                 is_cron INTEGER NOT NULL DEFAULT 0,
-                parent_session_id TEXT
+                parent_session_id TEXT,
+                incognito INTEGER NOT NULL DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -259,6 +260,17 @@ impl SessionDB {
             .is_ok();
         if !has_awareness_cfg {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN awareness_config_json TEXT;")?;
+        }
+
+        // Migration: per-session incognito mode for disabling passive memory /
+        // awareness features and automatic memory extraction.
+        let has_incognito = conn
+            .prepare("SELECT incognito FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_incognito {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;",
+            )?;
         }
 
         // Migration: pending ask_user_question groups for resume-after-restart.
@@ -646,21 +658,24 @@ impl SessionDB {
         agent_id: &str,
         parent_session_id: Option<&str>,
     ) -> Result<SessionMeta> {
-        self.create_session_full(agent_id, parent_session_id, None)
+        self.create_session_full(agent_id, parent_session_id, None, false)
     }
 
-    /// Create a new session attached to a project.
+    /// Create a new session, optionally bound to a project and/or marked incognito.
     ///
     /// When `project_id` is `Some`, the session is bound to that project and
     /// project-scoped memories / files will be automatically injected into its
-    /// system prompt.
+    /// system prompt. Project + incognito are mutually exclusive — if both are
+    /// requested, project wins and incognito is silently coerced to `false`.
     pub fn create_session_with_project(
         &self,
         agent_id: &str,
         project_id: Option<&str>,
+        incognito: Option<bool>,
     ) -> Result<SessionMeta> {
         crate::memory_extract::flush_all_idle_extractions();
-        self.create_session_full(agent_id, None, project_id)
+        let incognito = incognito.unwrap_or(false) && project_id.is_none();
+        self.create_session_full(agent_id, None, project_id, incognito)
     }
 
     /// Fully-parameterized session creator. Private helper called by the other
@@ -671,6 +686,7 @@ impl SessionDB {
         agent_id: &str,
         parent_session_id: Option<&str>,
         project_id: Option<&str>,
+        incognito: bool,
     ) -> Result<SessionMeta> {
         let id = uuid::Uuid::new_v4().to_string();
         let now = chrono::Utc::now().to_rfc3339();
@@ -680,9 +696,9 @@ impl SessionDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, agent_id, now, now, parent_session_id, project_id],
+            "INSERT INTO sessions (id, agent_id, created_at, updated_at, parent_session_id, project_id, incognito)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![id, agent_id, now, now, parent_session_id, project_id, incognito],
         )?;
 
         Ok(SessionMeta {
@@ -703,6 +719,7 @@ impl SessionDB {
             tool_permission_mode: "auto".to_string(),
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
+            incognito,
         })
     }
 
@@ -737,7 +754,8 @@ impl SessionDB {
     /// List all sessions, ordered by most recently updated.
     /// Optionally filter by agent_id.
     pub fn list_sessions(&self, agent_id: Option<&str>) -> Result<Vec<SessionMeta>> {
-        let (sessions, _) = self.list_sessions_paged(agent_id, ProjectFilter::All, None, None)?;
+        let (sessions, _) =
+            self.list_sessions_paged(agent_id, ProjectFilter::All, None, None, None)?;
         Ok(sessions)
     }
 
@@ -754,6 +772,7 @@ impl SessionDB {
         project_filter: ProjectFilter<'_>,
         limit: Option<u32>,
         offset: Option<u32>,
+        active_session_id: Option<&str>,
     ) -> Result<(Vec<SessionMeta>, u32)> {
         let conn = self
             .conn
@@ -772,6 +791,7 @@ impl SessionDB {
                         s.plan_mode,
                         s.project_id,
                         s.tool_permission_mode,
+                        s.incognito,
                         cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
                  FROM sessions s
                  LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
@@ -779,13 +799,13 @@ impl SessionDB {
         let count_base = "SELECT COUNT(*) FROM sessions s";
 
         let row_mapper = |row: &rusqlite::Row| {
-            let cc_channel_id: Option<String> = row.get(15)?;
+            let cc_channel_id: Option<String> = row.get(16)?;
             let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
                 channel_id: ch_id,
-                account_id: row.get::<_, String>(16).unwrap_or_default(),
-                chat_id: row.get::<_, String>(17).unwrap_or_default(),
-                chat_type: row.get::<_, String>(18).unwrap_or_default(),
-                sender_name: row.get(19).ok().flatten(),
+                account_id: row.get::<_, String>(17).unwrap_or_default(),
+                chat_id: row.get::<_, String>(18).unwrap_or_default(),
+                chat_type: row.get::<_, String>(19).unwrap_or_default(),
+                sender_name: row.get(20).ok().flatten(),
             });
             Ok(SessionMeta {
                 id: row.get(0)?,
@@ -808,6 +828,7 @@ impl SessionDB {
                 tool_permission_mode: row
                     .get::<_, String>(14)
                     .unwrap_or_else(|_| "auto".to_string()),
+                incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
                 channel_info,
             })
         };
@@ -831,6 +852,20 @@ impl SessionDB {
                 let idx = params_vec.len() + 1;
                 where_clauses.push(format!("s.project_id = ?{}", idx));
                 params_vec.push(Box::new(pid.to_string()));
+            }
+        }
+
+        // Hide incognito sessions from listings (the whole point of "no
+        // trace"); the currently-open session is the lone exception so the
+        // sidebar still shows it while the user is in it.
+        match active_session_id {
+            Some(sid) => {
+                let idx = params_vec.len() + 1;
+                where_clauses.push(format!("(s.incognito = 0 OR s.id = ?{})", idx));
+                params_vec.push(Box::new(sid.to_string()));
+            }
+            None => {
+                where_clauses.push("s.incognito = 0".to_string());
             }
         }
 
@@ -1325,6 +1360,42 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Persist the session-scoped incognito mode flag.
+    ///
+    /// Refuses to enable incognito on Project / IM Channel sessions: project
+    /// sessions need durable history (memory + file injection across runs);
+    /// IM channel sessions are driven by an external counterparty whose
+    /// messages must not vanish on close.
+    pub fn update_session_incognito(&self, session_id: &str, incognito: bool) -> Result<()> {
+        if incognito {
+            let meta = self
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow::anyhow!("Session not found: {}", session_id))?;
+            if meta.project_id.is_some() {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito on a Project session"
+                ));
+            }
+            if meta.channel_info.is_some() {
+                return Err(anyhow::anyhow!(
+                    "Cannot enable incognito on an IM Channel session"
+                ));
+            }
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET incognito = ?1 WHERE id = ?2",
+            params![incognito, session_id],
+        )?;
+        if incognito {
+            crate::memory_extract::cancel_idle_extraction(session_id);
+        }
+        Ok(())
+    }
+
     /// Persist plan step statuses to DB for crash recovery.
     pub fn save_plan_steps(&self, session_id: &str, steps_json: &str) -> Result<()> {
         let conn = self
@@ -1349,46 +1420,145 @@ impl SessionDB {
         Ok(result)
     }
 
-    /// Delete a session and all its messages (CASCADE) and attachments.
-    pub fn delete_session(&self, session_id: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-
-        // Try direct delete (CASCADE will handle messages + FTS trigger)
-        match conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
-            Ok(_) => {}
-            Err(e) => {
-                // FTS index corrupted — rebuild and retry
-                app_warn!(
-                    "session",
-                    "db",
-                    "delete_session failed ({}), rebuilding FTS and retrying",
-                    e
-                );
-                let _ =
-                    conn.execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
-                conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
-            }
+    /// Hard-delete the session if (and only if) it is currently flagged
+    /// incognito. Returns `true` when a delete occurred. No-op when the
+    /// session does not exist or is not incognito — both are safe outcomes
+    /// for the "user navigated away from this session" caller.
+    pub fn purge_session_if_incognito(&self, session_id: &str) -> Result<bool> {
+        let was_incognito = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            conn.execute(
+                "DELETE FROM sessions WHERE id = ?1 AND incognito = 1",
+                params![session_id],
+            )? > 0
+        };
+        if !was_incognito {
+            return Ok(false);
         }
-
-        // Clean up plan file
+        // Mirror the on-disk + orphan-table cleanup that `delete_session`
+        // performs. The session row itself is already gone, so we only need
+        // the side-effect cleanup (skipping the FTS-rebuild fallback path).
         if let Ok(plans_dir) = crate::paths::plans_dir() {
             let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
         }
-
-        // Clean up attachments directory
         if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
             let _ = std::fs::remove_dir_all(att_dir);
         }
-
-        // Clean up conditional skill activations (no FK cascade set up for
-        // this table — it's keyed by session_id but lives independently).
-        let _ = conn.execute(
-            "DELETE FROM session_skill_activation WHERE session_id = ?1",
-            params![session_id],
+        self.cleanup_session_orphan_tables(session_id);
+        app_info!(
+            "session",
+            "purge_incognito",
+            "purged incognito session {}",
+            session_id
         );
+        Ok(true)
+    }
+
+    /// Drain rows that reference `session_id` in tables without FK cascade
+    /// (`session_skill_activation`, `learning_events`, `subagent_runs`,
+    /// `acp_runs`). Bundled in a single transaction to amortize fsync.
+    /// Best-effort: failures are logged via `app_warn!` so a corrupted side
+    /// table never blocks the primary delete.
+    fn cleanup_session_orphan_tables(&self, session_id: &str) {
+        let Ok(conn) = self.conn.lock() else {
+            return;
+        };
+        let run = || -> rusqlite::Result<()> {
+            conn.execute_batch("BEGIN")?;
+            for sql in [
+                "DELETE FROM session_skill_activation WHERE session_id = ?1",
+                "DELETE FROM learning_events WHERE session_id = ?1",
+                "DELETE FROM subagent_runs WHERE parent_session_id = ?1",
+                "DELETE FROM acp_runs WHERE parent_session_id = ?1",
+            ] {
+                conn.execute(sql, params![session_id])?;
+            }
+            conn.execute_batch("COMMIT")?;
+            Ok(())
+        };
+        if let Err(e) = run() {
+            let _ = conn.execute_batch("ROLLBACK");
+            app_warn!(
+                "session",
+                "db",
+                "orphan-table cleanup failed for {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
+
+    /// Drain every incognito session left behind from a previous run (crash,
+    /// SIGKILL, power loss). Called once during app startup before the
+    /// sidebar reads the session list. Returns the number of sessions
+    /// purged.
+    pub fn purge_orphan_incognito_sessions(&self) -> Result<usize> {
+        let ids: Vec<String> = {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            let mut stmt = conn.prepare("SELECT id FROM sessions WHERE incognito = 1")?;
+            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            rows.filter_map(|r| r.ok()).collect()
+        };
+        for id in &ids {
+            if let Err(e) = self.delete_session(id) {
+                app_warn!(
+                    "session",
+                    "purge_orphan_incognito",
+                    "failed to delete orphan incognito session {}: {}",
+                    id,
+                    e
+                );
+            }
+        }
+        if !ids.is_empty() {
+            app_info!(
+                "session",
+                "purge_orphan_incognito",
+                "swept {} orphan incognito session(s) at startup",
+                ids.len()
+            );
+        }
+        Ok(ids.len())
+    }
+
+    /// Delete a session and all its messages (CASCADE) and attachments.
+    pub fn delete_session(&self, session_id: &str) -> Result<()> {
+        {
+            let conn = self
+                .conn
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            // Try direct delete (CASCADE handles messages + fires FTS trigger).
+            match conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id]) {
+                Ok(_) => {}
+                Err(e) => {
+                    // FTS index corrupted — rebuild and retry.
+                    app_warn!(
+                        "session",
+                        "db",
+                        "delete_session failed ({}), rebuilding FTS and retrying",
+                        e
+                    );
+                    let _ = conn
+                        .execute_batch("INSERT INTO messages_fts(messages_fts) VALUES('rebuild');");
+                    conn.execute("DELETE FROM sessions WHERE id = ?1", params![session_id])?;
+                }
+            }
+        }
+
+        if let Ok(plans_dir) = crate::paths::plans_dir() {
+            let _ = std::fs::remove_file(plans_dir.join(format!("{}.md", session_id)));
+        }
+        if let Ok(att_dir) = crate::paths::attachments_dir(session_id) {
+            let _ = std::fs::remove_dir_all(att_dir);
+        }
+        self.cleanup_session_orphan_tables(session_id);
 
         Ok(())
     }
@@ -1482,6 +1652,7 @@ impl SessionDB {
                     s.plan_mode,
                     s.project_id,
                     s.tool_permission_mode,
+                    s.incognito,
                     cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
              FROM sessions s
              LEFT JOIN channel_conversations cc ON cc.session_id = s.id
@@ -1489,13 +1660,13 @@ impl SessionDB {
         )?;
 
         let mut rows = stmt.query_map(params![session_id], |row| {
-            let cc_channel_id: Option<String> = row.get(15)?;
+            let cc_channel_id: Option<String> = row.get(16)?;
             let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
                 channel_id: ch_id,
-                account_id: row.get::<_, String>(16).unwrap_or_default(),
-                chat_id: row.get::<_, String>(17).unwrap_or_default(),
-                chat_type: row.get::<_, String>(18).unwrap_or_default(),
-                sender_name: row.get(19).ok().flatten(),
+                account_id: row.get::<_, String>(17).unwrap_or_default(),
+                chat_id: row.get::<_, String>(18).unwrap_or_default(),
+                chat_type: row.get::<_, String>(19).unwrap_or_default(),
+                sender_name: row.get(20).ok().flatten(),
             });
             Ok(SessionMeta {
                 id: row.get(0)?,
@@ -1518,6 +1689,7 @@ impl SessionDB {
                 tool_permission_mode: row
                     .get::<_, String>(14)
                     .unwrap_or_else(|_| "auto".to_string()),
+                incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
                 channel_info,
             })
         })?;
@@ -1619,6 +1791,11 @@ impl SessionDB {
             let idx = params_vec.len() + 1;
             where_clauses.push(format!("m.session_id = ?{}", idx));
             params_vec.push(Box::new(sid.to_string()));
+        } else {
+            // Global FTS path: hide incognito sessions. The in-session search
+            // path (Some(sid)) already scopes to one session and is allowed to
+            // search incognito content while it is open.
+            where_clauses.push("s.incognito = 0".to_string());
         }
 
         // Session type filter — channel presence is detected via LEFT JOIN.
@@ -1876,6 +2053,106 @@ impl SessionDB {
             out.push(crate::truncate_utf8(content.trim(), max_chars_per_msg).to_string());
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SessionDB;
+
+    fn ensure_channel_conversations_table(db: &SessionDB) {
+        let conn = db.conn.lock().expect("lock connection");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS channel_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                thread_id TEXT,
+                session_id TEXT NOT NULL,
+                sender_id TEXT,
+                sender_name TEXT,
+                chat_type TEXT NOT NULL DEFAULT 'dm',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                UNIQUE (channel_id, account_id, chat_id, thread_id, session_id)
+            );",
+        )
+        .expect("create channel conversations table");
+    }
+
+    fn temp_db_path(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "{}-{}-{}.sqlite3",
+            name,
+            std::process::id(),
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    #[test]
+    fn sessions_table_includes_incognito_column() {
+        let db_path = temp_db_path("session-incognito-schema");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        let conn = db.conn.lock().expect("lock connection");
+
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(sessions)")
+            .expect("prepare table info");
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .expect("query table info")
+            .collect::<Result<Vec<_>, _>>()
+            .expect("collect columns");
+
+        assert!(
+            columns.iter().any(|c| c == "incognito"),
+            "expected incognito column in sessions table, got {:?}",
+            columns
+        );
+
+        drop(stmt);
+        drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn create_and_update_session_roundtrip_incognito() {
+        let db_path = temp_db_path("session-incognito-roundtrip");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let created = db
+            .create_session_with_project("default", None, Some(true))
+            .expect("create session");
+        assert!(
+            created.incognito,
+            "created meta should reflect incognito=true"
+        );
+
+        let loaded = db
+            .get_session(&created.id)
+            .expect("get session")
+            .expect("session exists");
+        assert!(
+            loaded.incognito,
+            "stored session should persist incognito=true"
+        );
+
+        db.update_session_incognito(&created.id, false)
+            .expect("update session incognito");
+        let updated = db
+            .get_session(&created.id)
+            .expect("get updated session")
+            .expect("updated session exists");
+        assert!(
+            !updated.incognito,
+            "updated session should persist incognito=false"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
     }
 }
 

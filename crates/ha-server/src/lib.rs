@@ -115,6 +115,14 @@ fn build_router_with_cors(
         .route("/sessions/{id}", delete(routes::sessions::delete_session))
         .route("/sessions/{id}", patch(routes::sessions::rename_session))
         .route(
+            "/sessions/{id}/incognito",
+            patch(routes::sessions::set_session_incognito),
+        )
+        .route(
+            "/sessions/{id}/purge-if-incognito",
+            post(routes::sessions::purge_session_if_incognito),
+        )
+        .route(
             "/sessions/{id}/messages",
             get(routes::sessions::get_session_messages),
         )

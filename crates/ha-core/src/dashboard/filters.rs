@@ -23,6 +23,9 @@ pub(super) fn build_session_filter(
     // Exclude cron sessions and sub-agent sessions from dashboard stats
     clauses.push(format!("{}.is_cron = 0", session_alias));
     clauses.push(format!("{}.parent_session_id IS NULL", session_alias));
+    // Incognito sessions never surface in Dashboard stats — by definition
+    // they leave no audit trail.
+    clauses.push(format!("{}.incognito = 0", session_alias));
 
     if let Some(ref start) = filter.start_date {
         if !start.is_empty() {

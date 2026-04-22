@@ -32,6 +32,8 @@ pub struct ChatRequest {
     #[serde(default)]
     pub session_id: Option<String>,
     #[serde(default)]
+    pub incognito: Option<bool>,
+    #[serde(default)]
     pub agent_id: Option<String>,
     #[serde(default)]
     pub model_override: Option<String>,
@@ -144,7 +146,7 @@ pub async fn chat(
     let sid = match body.session_id {
         Some(id) if !id.is_empty() => id,
         _ => {
-            let meta = db.create_session(&agent_id)?;
+            let meta = db.create_session_with_project(&agent_id, None, body.incognito)?;
             meta.id
         }
     };

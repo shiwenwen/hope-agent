@@ -169,6 +169,9 @@ pub(super) async fn run_memory_extraction_inline(
     model_ref: &ActiveModel,
     agent: &AssistantAgent,
 ) -> u64 {
+    if crate::session::is_session_incognito(Some(session_id)) {
+        return 0;
+    }
     let global_extract = crate::memory::load_extract_config();
     let agent_def = crate::agent_loader::load_agent(agent_id);
     let agent_mem = agent_def.as_ref().ok().map(|d| &d.config.memory);
