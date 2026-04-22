@@ -9,6 +9,7 @@ import type { CommandResult } from "./slash-commands/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
+import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
 import MessageList from "@/components/chat/MessageList"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
@@ -125,6 +126,12 @@ export default function ChatScreen({
   const incognitoEnabled = session.currentSessionId
     ? currentSessionMeta?.incognito ?? false
     : draftIncognito
+  const incognitoDisabledReason: IncognitoDisabledReason | undefined =
+    currentSessionMeta?.projectId
+      ? "project"
+      : currentSessionMeta?.channelInfo
+        ? "channel"
+        : undefined
   const reloadSessions = session.reloadSessions
   const currentAgentId = session.currentAgentId
   const handleNewChat = session.handleNewChat
@@ -229,6 +236,11 @@ export default function ChatScreen({
         return
       }
 
+      // Project / Channel sessions can never be incognito; the toggle is
+      // disabled in the UI but a stale prop or external trigger could still
+      // call us. Reject before hitting the backend.
+      if (enabled && incognitoDisabledReason !== undefined) return
+
       const previous = currentSessionMeta?.incognito ?? false
       if (previous === enabled) return
       session.updateSessionMeta(sid, (prev) =>
@@ -249,7 +261,7 @@ export default function ChatScreen({
         setIncognitoSaving(false)
       }
     },
-    [session, currentSessionMeta?.incognito],
+    [session, currentSessionMeta?.incognito, incognitoDisabledReason],
   )
 
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
@@ -921,6 +933,7 @@ export default function ChatScreen({
               onSessionTemperatureChange={setSessionTemperature}
               incognitoEnabled={incognitoEnabled}
               incognitoSaving={incognitoSaving}
+              incognitoDisabledReason={incognitoDisabledReason}
               onIncognitoChange={handleIncognitoChange}
               planState={planMode.planState}
               planProgress={planMode.progress}

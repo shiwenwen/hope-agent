@@ -356,6 +356,7 @@ pub fn run() {
             commands::session::search_session_messages_cmd,
             commands::session::get_session_cmd,
             commands::session::set_session_incognito,
+            commands::session::purge_session_if_incognito,
             commands::session::delete_session_cmd,
             commands::session::rename_session_cmd,
             commands::session::mark_session_read_cmd,

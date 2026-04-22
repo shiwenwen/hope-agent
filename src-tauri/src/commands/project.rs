@@ -120,12 +120,19 @@ pub async fn list_project_sessions_cmd(
     id: String,
     limit: Option<u32>,
     offset: Option<u32>,
+    active_session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<SessionMeta>, u32), String> {
     use ha_core::session::ProjectFilter;
     let (mut sessions, total) = state
         .session_db
-        .list_sessions_paged(None, ProjectFilter::InProject(&id), limit, offset)
+        .list_sessions_paged(
+            None,
+            ProjectFilter::InProject(&id),
+            limit,
+            offset,
+            active_session_id.as_deref(),
+        )
         .map_err(map_err)?;
     ha_core::session::enrich_pending_interactions(&mut sessions, &state.session_db)
         .await

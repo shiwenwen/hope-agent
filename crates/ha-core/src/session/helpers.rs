@@ -49,3 +49,20 @@ pub fn is_session_incognito(session_id: Option<&str>) -> bool {
         .map(|meta| meta.incognito)
         .unwrap_or(false)
 }
+
+// ── Startup recovery ────────────────────────────────────────────
+
+/// Sweep incognito sessions left behind from a previous run (crash, SIGKILL,
+/// power loss). Same shape as `subagent::cleanup_orphan_runs` and
+/// `team::cleanup::cleanup_orphan_teams` — `app_init` calls all three back to
+/// back. Failures are warned, never propagated.
+pub fn cleanup_orphan_incognito(session_db: &super::SessionDB) {
+    if let Err(e) = session_db.purge_orphan_incognito_sessions() {
+        crate::app_warn!(
+            "session",
+            "purge_orphan_incognito",
+            "startup sweep failed: {}",
+            e
+        );
+    }
+}

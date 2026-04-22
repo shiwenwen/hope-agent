@@ -35,6 +35,7 @@ pub fn collect_entries(
         crate::session::ProjectFilter::All,
         Some(pull_limit),
         Some(0),
+        None,
     )?;
 
     // Time cutoff for the lookback window.

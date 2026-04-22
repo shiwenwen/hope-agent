@@ -17,7 +17,7 @@ import ModelPicker from "./ModelPicker"
 import ToolPermissionToggle from "./ToolPermissionToggle"
 import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
-import IncognitoToggle from "./IncognitoToggle"
+import IncognitoToggle, { type IncognitoDisabledReason } from "./IncognitoToggle"
 
 interface ChatInputProps {
   input: string
@@ -49,6 +49,7 @@ interface ChatInputProps {
   // Incognito
   incognitoEnabled?: boolean
   incognitoSaving?: boolean
+  incognitoDisabledReason?: IncognitoDisabledReason
   onIncognitoChange?: (enabled: boolean) => void
   // Plan mode
   planState?: "off" | "planning" | "review" | "executing" | "paused" | "completed"
@@ -84,6 +85,7 @@ export default function ChatInput({
   onSessionTemperatureChange,
   incognitoEnabled = false,
   incognitoSaving = false,
+  incognitoDisabledReason,
   onIncognitoChange,
   planState = "off",
   planProgress = 0,
@@ -303,6 +305,7 @@ export default function ChatInput({
                 sessionId={currentSessionId ?? null}
                 enabled={incognitoEnabled}
                 saving={incognitoSaving}
+                disabledReason={incognitoDisabledReason}
                 onChange={onIncognitoChange}
               />
             )}
