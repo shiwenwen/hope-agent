@@ -1723,7 +1723,18 @@
     "featureReachDesc": "Dùng như ứng dụng desktop cục bộ, giữ chạy như một dịch vụ, hoặc kết nối vào các kênh và lịch trình định kỳ.",
     "releases": "Bản phát hành",
     "feedback": "Phản hồi và lỗi",
-    "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài."
+    "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài.",
+    "updateCheck": "Kiểm tra cập nhật",
+    "updateChecking": "Đang kiểm tra cập nhật...",
+    "updateReady": "Bạn có thể xem bản desktop mới trên GitHub Releases hoặc để Hope Agent tự cài đặt cho bạn.",
+    "updateUpToDate": "Bạn đang ở phiên bản mới nhất v{{version}}.",
+    "updateAvailable": "Phiên bản v{{version}} đã sẵn sàng để cài đặt.",
+    "updateInstall": "Cài đặt v{{version}}",
+    "updateInstalling": "Đang cài đặt v{{version}}...",
+    "updateInstalled": "Đã cài đặt bản cập nhật. Đang khởi động lại Hope Agent...",
+    "updateCheckFailed": "Không thể kiểm tra cập nhật lúc này.",
+    "updateInstallFailed": "Tải xuống hoặc cài đặt bản cập nhật thất bại.",
+    "updateDownloadProgress": "Tiến độ tải xuống: {{percent}}%"
   },
   "health": {
     "refresh": "Làm mới",

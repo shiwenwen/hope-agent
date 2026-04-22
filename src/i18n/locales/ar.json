@@ -1723,7 +1723,18 @@
     "featureReachDesc": "استخدمه كتطبيق مكتبي محلي، أو أبقه يعمل كخدمة، أو وصله بالقنوات والمهام المجدولة.",
     "releases": "الإصدارات",
     "feedback": "الملاحظات والمشكلات",
-    "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل."
+    "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل.",
+    "updateCheck": "التحقق من التحديثات",
+    "updateChecking": "جارٍ التحقق من التحديثات...",
+    "updateReady": "يمكنك مراجعة GitHub Releases لإصدار سطح مكتب أحدث أو ترك Hope Agent يثبّت التحديث لك.",
+    "updateUpToDate": "أنت تستخدم أحدث إصدار v{{version}}.",
+    "updateAvailable": "الإصدار v{{version}} جاهز للتثبيت.",
+    "updateInstall": "تثبيت v{{version}}",
+    "updateInstalling": "جارٍ تثبيت v{{version}}...",
+    "updateInstalled": "تم تثبيت التحديث. جارٍ إعادة تشغيل Hope Agent...",
+    "updateCheckFailed": "تعذر التحقق من التحديثات الآن.",
+    "updateInstallFailed": "فشل تنزيل التحديث أو تثبيته.",
+    "updateDownloadProgress": "تقدم التنزيل: {{percent}}%"
   },
   "health": {
     "refresh": "تحديث",

@@ -1723,7 +1723,18 @@
     "featureReachDesc": "ローカルのデスクトップアプリとして使うことも、常駐サービスとして動かすことも、チャネルや定期ルーチンに組み込むこともできます。",
     "releases": "リリース",
     "feedback": "フィードバックと課題",
-    "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。"
+    "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。",
+    "updateCheck": "更新を確認",
+    "updateChecking": "更新を確認しています...",
+    "updateReady": "GitHub Releases で新しいデスクトップ版を確認するか、Hope Agent に直接更新をインストールさせることができます。",
+    "updateUpToDate": "現在の v{{version}} は最新です。",
+    "updateAvailable": "v{{version}} をインストールできます。",
+    "updateInstall": "v{{version}} をインストール",
+    "updateInstalling": "v{{version}} をインストール中...",
+    "updateInstalled": "更新をインストールしました。Hope Agent を再起動しています...",
+    "updateCheckFailed": "今は更新を確認できません。",
+    "updateInstallFailed": "更新のダウンロードまたはインストールに失敗しました。",
+    "updateDownloadProgress": "ダウンロード進捗: {{percent}}%"
   },
   "health": {
     "refresh": "更新",

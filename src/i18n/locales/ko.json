@@ -1723,7 +1723,18 @@
     "featureReachDesc": "로컬 데스크톱 앱으로 쓰거나, 서비스처럼 계속 실행하거나, 채널과 예약된 루틴에 연결할 수 있습니다.",
     "releases": "릴리스",
     "feedback": "피드백 및 이슈",
-    "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다."
+    "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다.",
+    "updateCheck": "업데이트 확인",
+    "updateChecking": "업데이트 확인 중...",
+    "updateReady": "GitHub Releases에서 새 데스크톱 빌드를 확인하거나 Hope Agent가 직접 업데이트를 설치하게 할 수 있습니다.",
+    "updateUpToDate": "현재 v{{version}}이 최신 버전입니다.",
+    "updateAvailable": "v{{version}}을(를) 설치할 수 있습니다.",
+    "updateInstall": "v{{version}} 설치",
+    "updateInstalling": "v{{version}} 설치 중...",
+    "updateInstalled": "업데이트가 설치되었습니다. Hope Agent를 다시 시작하는 중입니다...",
+    "updateCheckFailed": "지금은 업데이트를 확인할 수 없습니다.",
+    "updateInstallFailed": "업데이트 다운로드 또는 설치에 실패했습니다.",
+    "updateDownloadProgress": "다운로드 진행률: {{percent}}%"
   },
   "health": {
     "refresh": "새로 고침",

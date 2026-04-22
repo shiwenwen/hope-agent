@@ -1,9 +1,17 @@
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { LucideIcon } from "lucide-react"
-import { Brain, ExternalLink, Globe, Monitor } from "lucide-react"
+import { Brain, Download, ExternalLink, Globe, Loader2, Monitor, RefreshCw } from "lucide-react"
 import logoUrl from "@/assets/logo.png"
 import { Button } from "@/components/ui/button"
-import { APP_VERSION, HOPE_AGENT_URLS } from "@/lib/appMeta"
+import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
+import {
+  checkForDesktopUpdate,
+  disposeDesktopUpdate,
+  isDesktopUpdaterAvailable,
+  relaunchDesktopApp,
+  type DesktopUpdate,
+} from "@/lib/desktopUpdater"
 import { getTransport } from "@/lib/transport-provider"
 
 interface HighlightItem {
@@ -16,6 +24,14 @@ interface HighlightItem {
 
 export default function AboutPanel() {
   const { t } = useTranslation()
+  const appVersion = useAppVersion()
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
+  const [installingUpdate, setInstallingUpdate] = useState(false)
+  const [pendingUpdate, setPendingUpdate] = useState<DesktopUpdate | null>(null)
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+  const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
+  const pendingUpdateRef = useRef<DesktopUpdate | null>(null)
+  const desktopUpdaterAvailable = isDesktopUpdaterAvailable()
 
   const highlights: HighlightItem[] = [
     {
@@ -50,6 +66,84 @@ export default function AboutPanel() {
     }
   }
 
+  useEffect(() => {
+    pendingUpdateRef.current = pendingUpdate
+  }, [pendingUpdate])
+
+  useEffect(() => {
+    return () => {
+      void disposeDesktopUpdate(pendingUpdateRef.current)
+    }
+  }, [])
+
+  async function replacePendingUpdate(nextUpdate: DesktopUpdate | null) {
+    await disposeDesktopUpdate(pendingUpdateRef.current)
+    pendingUpdateRef.current = nextUpdate
+    setPendingUpdate(nextUpdate)
+  }
+
+  async function handleCheckForUpdates() {
+    setCheckingUpdate(true)
+    setUpdateStatus(t("about.updateChecking"))
+    setDownloadPercent(null)
+
+    try {
+      const update = await checkForDesktopUpdate()
+      if (!update) {
+        await replacePendingUpdate(null)
+        setUpdateStatus(t("about.updateUpToDate", { version: appVersion }))
+        return
+      }
+
+      await replacePendingUpdate(update)
+      setUpdateStatus(t("about.updateAvailable", { version: update.version }))
+    } catch {
+      await replacePendingUpdate(null)
+      setUpdateStatus(t("about.updateCheckFailed"))
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
+  async function handleInstallUpdate() {
+    if (!pendingUpdate) return
+
+    setInstallingUpdate(true)
+    setDownloadPercent(0)
+    setUpdateStatus(t("about.updateInstalling", { version: pendingUpdate.version }))
+
+    let downloaded = 0
+    let contentLength = 0
+
+    try {
+      await pendingUpdate.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength
+            setDownloadPercent(0)
+            break
+          case "Progress":
+            downloaded += event.data.chunkLength
+            if (contentLength > 0) {
+              setDownloadPercent(Math.min(100, Math.round((downloaded / contentLength) * 100)))
+            }
+            break
+          case "Finished":
+            setDownloadPercent(100)
+            break
+        }
+      })
+
+      await replacePendingUpdate(null)
+      setUpdateStatus(t("about.updateInstalled"))
+      await relaunchDesktopApp()
+    } catch {
+      setUpdateStatus(t("about.updateInstallFailed"))
+    } finally {
+      setInstallingUpdate(false)
+    }
+  }
+
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-6">
@@ -74,7 +168,7 @@ export default function AboutPanel() {
                   Hope Agent
                 </h2>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {t("about.version")} v{APP_VERSION}
+                  {t("about.version")} v{appVersion}
                 </p>
               </div>
             </div>
@@ -100,6 +194,53 @@ export default function AboutPanel() {
                 <ExternalLink className="ml-1.5 h-4 w-4" />
               </Button>
             </div>
+
+            {desktopUpdaterAvailable && (
+              <div className="mt-6 rounded-[24px] border border-border/70 bg-secondary/20 p-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    variant="outline"
+                    onClick={handleCheckForUpdates}
+                    disabled={checkingUpdate || installingUpdate}
+                  >
+                    {checkingUpdate ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-4 w-4" />
+                    )}
+                    {checkingUpdate ? t("about.updateChecking") : t("about.updateCheck")}
+                  </Button>
+                  {pendingUpdate && (
+                    <Button
+                      onClick={handleInstallUpdate}
+                      disabled={installingUpdate || checkingUpdate}
+                    >
+                      {installingUpdate ? (
+                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                      ) : (
+                        <Download className="mr-1.5 h-4 w-4" />
+                      )}
+                      {installingUpdate
+                        ? t("about.updateInstalling", { version: pendingUpdate.version })
+                        : t("about.updateInstall", { version: pendingUpdate.version })}
+                    </Button>
+                  )}
+                </div>
+                <p className="mt-3 text-sm text-muted-foreground">
+                  {updateStatus ?? t("about.updateReady")}
+                </p>
+                {installingUpdate && downloadPercent !== null && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {t("about.updateDownloadProgress", { percent: downloadPercent })}
+                  </p>
+                )}
+                {pendingUpdate?.body && (
+                  <p className="mt-2 whitespace-pre-wrap text-xs leading-6 text-muted-foreground">
+                    {pendingUpdate.body}
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </section>
 

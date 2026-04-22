@@ -91,6 +91,7 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
    - Linux: `hope-agent_*.AppImage`
    - Windows: `Hope-Agent_*.exe` / `Hope-Agent_*.msi` (not yet fully tested)
 2. First launch: **pick a provider template → paste API key → chat.**
+3. Desktop installers ship with GitHub Releases auto-update; inside the app you can go to **Settings → About** to check and install updates
 
 ### For developers
 
@@ -106,13 +107,22 @@ npm run lint           # lint
 npm run tauri build    # production build
 ```
 
+Recommended release flow:
+
+```bash
+npm version patch      # or minor / major; auto-syncs package.json -> src-tauri versions
+git push --follow-tags # push the commit + vX.Y.Z tag and trigger the Release workflow
+```
+
+Before the first updater-enabled release, store the private key from `~/.tauri/hope-agent-updater.key` in the GitHub secret `TAURI_SIGNING_PRIVATE_KEY`. If your private key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
 ## Run Modes
 
-| Mode | How to start | When to use |
-|---|---|---|
-| Desktop GUI | Double-click the app / `npm run tauri dev` | Default, single user |
-| Server (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Always-on daemon for IM channels and cron jobs |
-| ACP (stdio) | `acp` subcommand | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
+| Mode             | How to start                                                                      | When to use                                                                       |
+| ---------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| Desktop GUI      | Double-click the app / `npm run tauri dev`                                        | Default, single user                                                              |
+| Server (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Always-on daemon for IM channels and cron jobs                                    |
+| ACP (stdio)      | `acp` subcommand                                                                  | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
 
 All three modes share the same `ha-core` core. Config, sessions, and memories live under `~/.hope-agent/`.
 

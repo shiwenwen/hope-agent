@@ -1723,7 +1723,18 @@
     "featureReachDesc": "Úsalo como app local de escritorio, mantenlo como servicio o intégralo en canales y rutinas programadas.",
     "releases": "Lanzamientos",
     "feedback": "Comentarios y problemas",
-    "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo."
+    "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo.",
+    "updateCheck": "Buscar actualizaciones",
+    "updateChecking": "Buscando actualizaciones...",
+    "updateReady": "Puedes revisar GitHub Releases para una versión nueva de escritorio o dejar que Hope Agent la instale por ti.",
+    "updateUpToDate": "Ya tienes la versión más reciente: v{{version}}.",
+    "updateAvailable": "La versión v{{version}} está lista para instalarse.",
+    "updateInstall": "Instalar v{{version}}",
+    "updateInstalling": "Instalando v{{version}}...",
+    "updateInstalled": "Actualización instalada. Reiniciando Hope Agent...",
+    "updateCheckFailed": "No se pudo buscar actualizaciones ahora mismo.",
+    "updateInstallFailed": "La descarga o instalación de la actualización falló.",
+    "updateDownloadProgress": "Progreso de descarga: {{percent}}%"
   },
   "health": {
     "refresh": "Actualizar",

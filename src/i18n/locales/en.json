@@ -1723,7 +1723,18 @@
     "featureReachDesc": "Use it as a local desktop app, keep it running as a service, or plug it into channels and scheduled routines.",
     "releases": "Releases",
     "feedback": "Feedback",
-    "closing": "It is not designed as a feature checklist. It is designed to stay useful, reliable, and unobtrusive over long-term use."
+    "closing": "It is not designed as a feature checklist. It is designed to stay useful, reliable, and unobtrusive over long-term use.",
+    "updateCheck": "Check for Updates",
+    "updateChecking": "Checking for updates...",
+    "updateReady": "Check GitHub Releases for a newer desktop build or let Hope Agent install one for you.",
+    "updateUpToDate": "You're up to date on v{{version}}.",
+    "updateAvailable": "Version v{{version}} is ready to install.",
+    "updateInstall": "Install v{{version}}",
+    "updateInstalling": "Installing v{{version}}...",
+    "updateInstalled": "Update installed. Relaunching Hope Agent...",
+    "updateCheckFailed": "Couldn't check for updates right now.",
+    "updateInstallFailed": "Update download or install failed.",
+    "updateDownloadProgress": "Download progress: {{percent}}%"
   },
   "health": {
     "refresh": "Refresh",

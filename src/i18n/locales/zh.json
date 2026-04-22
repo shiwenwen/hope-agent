@@ -1723,7 +1723,18 @@
     "featureReachDesc": "可以是本地桌面应用，也可以常驻为服务，接入聊天渠道和定时任务。",
     "releases": "发布版本",
     "feedback": "反馈与问题",
-    "closing": "它不是为了堆功能清单而设计，而是为了在长时间使用里依然顺手、可靠、不过度打扰。"
+    "closing": "它不是为了堆功能清单而设计，而是为了在长时间使用里依然顺手、可靠、不过度打扰。",
+    "updateCheck": "检查更新",
+    "updateChecking": "正在检查更新...",
+    "updateReady": "可以在 GitHub Releases 查看新版本，也可以让 Hope Agent 直接安装桌面更新。",
+    "updateUpToDate": "当前已是最新版本 v{{version}}。",
+    "updateAvailable": "发现可安装的新版本 v{{version}}。",
+    "updateInstall": "安装 v{{version}}",
+    "updateInstalling": "正在安装 v{{version}}...",
+    "updateInstalled": "更新已安装，正在重新启动 Hope Agent...",
+    "updateCheckFailed": "暂时无法检查更新。",
+    "updateInstallFailed": "下载或安装更新失败。",
+    "updateDownloadProgress": "下载进度：{{percent}}%"
   },
   "health": {
     "refresh": "刷新",

@@ -1723,7 +1723,18 @@
     "featureReachDesc": "Yerel masaüstü uygulaması olarak kullanın, hizmet olarak sürekli çalıştırın ya da kanallara ve zamanlanmış rutinlere bağlayın.",
     "releases": "Sürümler",
     "feedback": "Geri bildirim ve sorunlar",
-    "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı."
+    "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı.",
+    "updateCheck": "Güncellemeleri denetle",
+    "updateChecking": "Güncellemeler denetleniyor...",
+    "updateReady": "Yeni bir masaüstü sürümünü GitHub Releases'ten kontrol edebilir veya Hope Agent'ın güncellemeyi senin için kurmasına izin verebilirsin.",
+    "updateUpToDate": "v{{version}} sürümünde güncelsin.",
+    "updateAvailable": "v{{version}} sürümü kurulmaya hazır.",
+    "updateInstall": "v{{version}} sürümünü yükle",
+    "updateInstalling": "v{{version}} sürümü yükleniyor...",
+    "updateInstalled": "Güncelleme yüklendi. Hope Agent yeniden başlatılıyor...",
+    "updateCheckFailed": "Şu anda güncellemeler denetlenemedi.",
+    "updateInstallFailed": "Güncelleme indirilemedi veya kurulamadı.",
+    "updateDownloadProgress": "İndirme ilerlemesi: %{{percent}}"
   },
   "health": {
     "refresh": "Yenile",

@@ -16,6 +16,13 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         )?;
     }
 
+    #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
+    app.handle().plugin(
+        tauri_plugin_updater::Builder::new()
+            .pubkey(include_str!("../updater.pub.pem").trim())
+            .build(),
+    )?;
+
     // macOS: custom app menu — Cmd+Q hides window instead of quitting
     #[cfg(target_os = "macos")]
     {

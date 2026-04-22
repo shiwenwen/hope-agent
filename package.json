@@ -12,7 +12,10 @@
     "i18n:apply": "node scripts/sync-i18n.mjs --apply",
     "format:check": "prettier --check 'src/**/*.{ts,tsx,js,jsx,json,css}'",
     "preview": "vite preview",
+    "sync:version": "node scripts/sync-version.mjs",
+    "release:verify": "node scripts/verify-release-version.mjs",
     "tauri": "tauri",
+    "version": "node scripts/sync-version.mjs",
     "prepare": "husky"
   },
   "dependencies": {
@@ -41,6 +44,8 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-notification": "^2.3.3",
+    "@tauri-apps/plugin-process": "^2.3.1",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "antd": "^6.3.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

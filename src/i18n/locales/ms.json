@@ -1723,7 +1723,18 @@
     "featureReachDesc": "Gunakannya sebagai aplikasi desktop tempatan, kekalkan ia berjalan sebagai perkhidmatan, atau sambungkan ke saluran dan rutin berjadual.",
     "releases": "Keluaran",
     "feedback": "Maklum balas dan isu",
-    "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang."
+    "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang.",
+    "updateCheck": "Semak kemas kini",
+    "updateChecking": "Sedang menyemak kemas kini...",
+    "updateReady": "Anda boleh melihat binaan desktop baharu di GitHub Releases atau biarkan Hope Agent memasang kemas kini itu untuk anda.",
+    "updateUpToDate": "Anda sudah menggunakan versi terkini v{{version}}.",
+    "updateAvailable": "Versi v{{version}} sedia untuk dipasang.",
+    "updateInstall": "Pasang v{{version}}",
+    "updateInstalling": "Sedang memasang v{{version}}...",
+    "updateInstalled": "Kemas kini telah dipasang. Sedang memulakan semula Hope Agent...",
+    "updateCheckFailed": "Tidak dapat menyemak kemas kini sekarang.",
+    "updateInstallFailed": "Muat turun atau pemasangan kemas kini gagal.",
+    "updateDownloadProgress": "Kemajuan muat turun: {{percent}}%"
   },
   "health": {
     "refresh": "Muat semula",

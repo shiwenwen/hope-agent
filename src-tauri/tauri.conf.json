@@ -36,6 +36,7 @@
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -55,6 +56,14 @@
       "nsis": {
         "installMode": "perMachine",
         "languages": ["English", "SimplifiedChinese"]
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/shiwenwen/hope-agent/releases/latest/download/latest.json"],
+      "windows": {
+        "installMode": "passive"
       }
     }
   }
