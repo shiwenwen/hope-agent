@@ -167,7 +167,9 @@ const TOOL_DESC_MANAGE_CRON: &str = "\
 
 const TOOL_DESC_BROWSER: &str = "\
 - browser: Interact with web pages via a headless browser.\n\
-  - Supports navigation, screenshots, clicking, typing, and JavaScript execution\n\
+  - Supports navigation, screenshots, clicking, typing, JavaScript execution, and page snapshots\n\
+  - `new_page` is the usual entry point: it first tries an existing Chrome at `127.0.0.1:9222`, then auto-launches a managed Chrome if needed\n\
+  - Managed launches start with a large responsive window instead of a fixed 800x600 viewport; use `resize` only when you need a specific viewport\n\
   - Use for dynamic web pages that web_fetch cannot handle";
 
 const TOOL_DESC_SEND_NOTIFICATION: &str = "\

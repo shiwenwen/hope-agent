@@ -557,7 +557,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         // ── Browser Control ──────────────────────────────────────
         ToolDefinition {
             name: TOOL_BROWSER.into(),
-            description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. Chrome must be running with --remote-debugging-port=9222, or use action='launch' to start a managed instance. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
+            description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. `new_page` is the usual entry point: it first tries an existing Chrome at --remote-debugging-port=9222, then auto-launches a managed instance if needed. Managed launches use a large responsive window instead of chromiumoxide's default 800x600 viewport emulation. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
             internal: false,
             deferred: false,
             always_load: false,

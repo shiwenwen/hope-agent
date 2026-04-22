@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **新增 API 参考文档 + backend-separation.md 回归**：新建 [`docs/architecture/api-reference.md`](docs/architecture/api-reference.md) 把 Tauri IPC 命令、HTTP REST 路由、前端 `COMMAND_MAP` 三方按功能域列成一一对应的三列表格，附 WebSocket 端点、EventBus 事件清单、Transport 抽象层方法对照、已知不对齐项与新增接口 checklist。配套修订 [`backend-separation.md`](docs/architecture/backend-separation.md) 的过时数字（"43 端点 / 143 命令映射 / 150+ 命令"回归为真实计数并指向 api-reference），`docs/README.md` 索引登记新文档。首次审计发现 14 条 `HTTP 路由存在但 COMMAND_MAP 漏写`（`get_agent_markdown` 前端 7 处引用为最热）、9 条 `HTTP 路由完全缺失`（遗留分页 / 记忆运维 / codex 模型 / 开发视图）、4 条 `tauri-plugin-permissions` Desktop-only 合法缺失；前两类已在本 Unreleased 的 Fixed 段一次性修完，文档更新为当前真实计数（Tauri 365 / HTTP 368 / COMMAND_MAP 360）。文档含可执行验证脚本，未来新增接口时用来做对账。
+- **浏览器工具首开路径改顺手**：`browser.new_page` 不再先报"Browser not connected"再让模型补一轮 `launch`。现在它会先尝试连接默认 `127.0.0.1:9222`，连不上就自动托管启动 Chrome 后直接开页，少一轮错误和一次额外审批。同时托管启动关闭 chromiumoxide 默认固定 `800x600` viewport 仿真，改为 `1440x960` 大窗口起步，让首次打开页面更接近真实浏览器，用户后续手动拖拽窗口时页面也能自然跟随，而不是一直卡在一小块固定视口。
 
 ### Added
 

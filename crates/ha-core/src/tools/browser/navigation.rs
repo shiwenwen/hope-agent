@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::{get_str, require_browser};
-use crate::browser_state::get_browser_state;
+use crate::browser_state::{get_browser_state, BrowserReadyMode};
 
 pub(super) async fn action_navigate(args: &Value) -> Result<String> {
     require_browser().await?;
@@ -125,13 +125,14 @@ pub(super) async fn action_list_pages() -> Result<String> {
 }
 
 pub(super) async fn action_new_page(args: &Value) -> Result<String> {
-    require_browser().await?;
     let url = get_str(args, "url").unwrap_or("about:blank");
 
     if url != "about:blank" {
         let ssrf_cfg = &crate::config::cached_config().ssrf;
         crate::security::ssrf::check_url(url, ssrf_cfg.browser(), &ssrf_cfg.trusted_hosts).await?;
     }
+
+    let ready_mode = crate::browser_state::ensure_connected_or_launch_managed().await?;
 
     let mut state = get_browser_state().lock().await;
     let browser = state
@@ -150,7 +151,15 @@ pub(super) async fn action_new_page(args: &Value) -> Result<String> {
     state.element_refs.clear();
     state.snapshot_url = None;
 
-    Ok(format!("New page created: {} (url: {})", target_id, url))
+    Ok(match ready_mode {
+        BrowserReadyMode::ExistingConnection => {
+            format!("New page created: {} (url: {})", target_id, url)
+        }
+        BrowserReadyMode::ManagedLaunch => format!(
+            "Managed Chrome launched automatically. New page created: {} (url: {})",
+            target_id, url
+        ),
+    })
 }
 
 pub(super) async fn action_select_page(args: &Value) -> Result<String> {

@@ -105,7 +105,7 @@ pub struct ToolDefinition {
 
 | 工具 | 标记 | 说明 |
 |------|------|------|
-| `browser` | deferred | 通过 Chrome DevTools Protocol 驱动浏览器。`action` 覆盖：`connect` / `launch`（可指定 `executable_path` / `headless` / `profile`）/ `disconnect`，页面管理（`list_pages` / `new_page` / `select_page` / `close_page`）、导航（`navigate` / `go_back` / `go_forward`）、快照（`take_snapshot` 返回元素 ref、`take_screenshot` 支持 `full_page`）、交互（`click`/`double_click`/`fill`/`fill_form`/`hover`/`drag`/`press_key`/`upload_file`）、脚本（`evaluate` / `wait_for`）、对话框（`handle_dialog`）、视口（`resize` / `scroll`）、Profile 隔离（`list_profiles`）、`save_pdf`（含 paper_format / landscape / print_background）。需 Chrome 开启 `--remote-debugging-port=9222` 或走 `launch` 托管启动。 |
+| `browser` | deferred | 通过 Chrome DevTools Protocol 驱动浏览器。`action` 覆盖：`connect` / `launch`（可指定 `executable_path` / `headless` / `profile`）/ `disconnect`，页面管理（`list_pages` / `new_page` / `select_page` / `close_page`）、导航（`navigate` / `go_back` / `go_forward`）、快照（`take_snapshot` 返回元素 ref、`take_screenshot` 支持 `full_page`）、交互（`click`/`double_click`/`fill`/`fill_form`/`hover`/`drag`/`press_key`/`upload_file`）、脚本（`evaluate` / `wait_for`）、对话框（`handle_dialog`）、视口（`resize` / `scroll`）、Profile 隔离（`list_profiles`）、`save_pdf`（含 paper_format / landscape / print_background）。`new_page` 现在是默认入口：会先尝试连接 `127.0.0.1:9222`，失败后自动托管启动 Chrome。托管启动默认关闭 chromiumoxide 固定 `800x600` viewport 仿真，并以 `1440x960` 大窗口起步，所以首次开页更接近真实浏览器，用户手动拖拽窗口时页面也能自然自适应；`resize` 只在需要固定 viewport 时使用。 |
 
 ### 7. 多模态（分析/生成）
 

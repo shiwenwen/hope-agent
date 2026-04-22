@@ -47,6 +47,15 @@ pub struct BrowserState {
     pub profile: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserReadyMode {
+    ExistingConnection,
+    ManagedLaunch,
+}
+
+const MANAGED_BROWSER_WINDOW_WIDTH: u32 = 1440;
+const MANAGED_BROWSER_WINDOW_HEIGHT: u32 = 960;
+
 impl BrowserState {
     fn new() -> Self {
         Self {
@@ -259,6 +268,12 @@ fn build_launch_config(
         config.with_head()
     };
 
+    // Avoid chromiumoxide's default 800x600 emulated viewport so pages follow
+    // the real browser window size, then start with a comfortably large window.
+    config = config
+        .viewport(Option::<chromiumoxide::handler::viewport::Viewport>::None)
+        .window_size(MANAGED_BROWSER_WINDOW_WIDTH, MANAGED_BROWSER_WINDOW_HEIGHT);
+
     // Profile support: use a dedicated user-data-dir per profile
     if let Some(profile_name) = profile {
         let profile_dir = crate::paths::browser_profile_dir(profile_name)?;
@@ -311,6 +326,45 @@ pub async fn ensure_connected() -> anyhow::Result<()> {
              3. Use action=\"connect\" with a custom URL"
         )
     })
+}
+
+/// Like `ensure_connected`, but falls back to launching a managed Chrome
+/// instance for workflows that can safely open one on demand.
+pub async fn ensure_connected_or_launch_managed() -> anyhow::Result<BrowserReadyMode> {
+    let mut state = get_browser_state().lock().await;
+    if state.is_connected() {
+        return Ok(BrowserReadyMode::ExistingConnection);
+    }
+
+    if state.browser.is_some() {
+        app_info!(
+            "browser",
+            "cdp",
+            "Cleaning up stale browser connection before reconnect/launch fallback"
+        );
+        state.disconnect().await;
+    }
+
+    match state.connect("http://127.0.0.1:9222").await {
+        Ok(()) => {
+            app_info!(
+                "browser",
+                "cdp",
+                "Connected to existing Chrome at default debug port for browser action"
+            );
+            Ok(BrowserReadyMode::ExistingConnection)
+        }
+        Err(err) => {
+            app_info!(
+                "browser",
+                "cdp",
+                "Default debug port unavailable ({}); launching managed Chrome",
+                err
+            );
+            state.launch(None, false, None).await?;
+            Ok(BrowserReadyMode::ManagedLaunch)
+        }
+    }
 }
 
 // ── Helper: Discover WebSocket URL ───────────────────────────────
@@ -374,5 +428,17 @@ mod tests {
         let config = build_launch_config(Some(&executable), true, None).expect("build config");
         let dbg = format!("{config:?}");
         assert!(dbg.contains("headless: New"), "unexpected config: {dbg}");
+    }
+
+    #[test]
+    fn build_launch_config_disables_default_viewport_emulation() {
+        let executable = test_executable_path();
+        let config = build_launch_config(Some(&executable), false, None).expect("build config");
+        let dbg = format!("{config:?}");
+        assert!(dbg.contains("viewport: None"), "unexpected config: {dbg}");
+        assert!(
+            dbg.contains("window_size: Some((1440, 960))"),
+            "unexpected config: {dbg}"
+        );
     }
 }
