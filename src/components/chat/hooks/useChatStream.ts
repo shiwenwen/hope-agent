@@ -42,6 +42,8 @@ export interface UseChatStreamOptions {
   planMode?: string
   /** Session-level temperature override (0.0–2.0). Overrides agent and global settings. */
   temperatureOverride?: number | null
+  /** New-chat preset; only applied when the backend auto-creates a session. */
+  incognitoEnabled?: boolean
 }
 
 export interface UseChatStreamReturn {
@@ -85,6 +87,7 @@ export function useChatStream({
   lastSeqRef,
   planMode,
   temperatureOverride,
+  incognitoEnabled = false,
 }: UseChatStreamOptions): UseChatStreamReturn {
   const { t } = useTranslation()
   const [input, setInput] = useState("")
@@ -336,6 +339,7 @@ export function useChatStream({
         message: text,
         attachments,
         sessionId: currentSessionId,
+        incognito: currentSessionId ? undefined : incognitoEnabled,
         modelOverride,
         agentId: currentAgentId,
         toolPermissionMode: toolPermissionModeRef.current,

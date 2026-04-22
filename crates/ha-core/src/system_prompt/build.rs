@@ -47,6 +47,7 @@ pub fn build(
     project: Option<&Project>,
     project_files: &[ProjectFile],
     session_id: Option<&str>,
+    incognito: bool,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -237,7 +238,7 @@ pub fn build(
     }
 
     // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
-    if definition.config.memory.enabled {
+    if definition.config.memory.enabled && !incognito {
         let section = build_memory_section(
             definition.memory_md.as_deref(),
             definition.global_memory_md.as_deref(),
@@ -247,6 +248,10 @@ pub fn build(
         if !section.is_empty() {
             sections.push(section);
         }
+    }
+
+    if incognito {
+        sections.push(build_incognito_section());
     }
 
     // ⑨ Runtime info
@@ -420,9 +425,19 @@ fn push_core_memory_layer(
     *remaining = remaining.saturating_sub(chunk.len() + overhead);
 }
 
+fn build_incognito_section() -> String {
+    "# Incognito Session\n\n\
+     This session is running in incognito mode.\n\
+     - Do not use memory or awareness automatically.\n\
+     - Do not infer or store new long-term memory unless the user explicitly asks you to remember something.\n\
+     - Only call memory tools when the user explicitly asks to remember, recall, search, update, or delete memory.\n\
+     - Treat this as a forward-looking rule for the current session only."
+        .to_string()
+}
+
 /// Build a system prompt using the legacy path (no AgentDefinition).
 /// This preserves backward compatibility during the transition.
-pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
+pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool) -> String {
     let store = crate::config::cached_config();
     let available_skills =
         skills::load_all_skills_with_budget(&store.extra_skills_dirs, &store.skill_prompt_budget);
@@ -489,13 +504,35 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>) -> String {
     // Runtime (legacy mode has no agent home)
     sections.push(build_runtime_section(model, provider, None));
 
+    if incognito {
+        sections.push(build_incognito_section());
+    }
+
     sections.join("\n\n")
 }
 
 #[cfg(test)]
 mod memory_section_tests {
     use super::*;
+    use crate::agent_config::{AgentConfig, AgentDefinition};
     use crate::memory::{MemoryEntry, MemoryScope, MemoryType, SqliteSectionBudgets};
+    use std::path::PathBuf;
+
+    fn mk_definition() -> AgentDefinition {
+        AgentDefinition {
+            id: "default".into(),
+            dir: PathBuf::from("/tmp/default"),
+            config: AgentConfig::default(),
+            agent_md: None,
+            persona: None,
+            tools_guide: None,
+            agents_md: None,
+            identity_md: None,
+            soul_md: None,
+            global_memory_md: Some("Global memory".into()),
+            memory_md: Some("Agent memory".into()),
+        }
+    }
 
     fn mk_entry(id: i64, ty: MemoryType, content: &str) -> MemoryEntry {
         MemoryEntry {
@@ -611,6 +648,37 @@ mod memory_section_tests {
         assert!(
             out.contains("## Memory Guidelines"),
             "Guidelines must survive under budget pressure"
+        );
+    }
+
+    #[test]
+    fn incognito_prompt_omits_memory_and_includes_policy() {
+        let definition = mk_definition();
+        let budget = MemoryBudgetConfig::default();
+        let entries = vec![mk_entry(1, MemoryType::User, "Prefers concise responses")];
+
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &entries,
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            true,
+        );
+
+        assert!(out.contains("# Incognito Session"));
+        assert!(out.contains("Only call memory tools"));
+        assert!(
+            !out.contains("# Memory\n"),
+            "incognito prompt should omit the memory section: {out}"
+        );
+        assert!(
+            !out.contains("## Memory Guidelines"),
+            "incognito prompt should omit memory guidelines: {out}"
         );
     }
 }

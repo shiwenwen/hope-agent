@@ -40,6 +40,7 @@ pub async fn chat(
     message: String,
     mut attachments: Vec<Attachment>,
     session_id: Option<String>,
+    incognito: Option<bool>,
     model_override: Option<String>,
     agent_id: Option<String>,
     tool_permission_mode: Option<tools::ToolPermissionMode>,
@@ -78,7 +79,7 @@ pub async fn chat(
         _ => {
             // Auto-create a new session; emit session_created after auto_title is set
             let meta = db
-                .create_session(&current_agent_id)
+                .create_session_with_project(&current_agent_id, None, incognito)
                 .map_err(|e| e.to_string())?;
             new_session_created = Some(meta.id.clone());
             meta.id

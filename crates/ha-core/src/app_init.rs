@@ -171,6 +171,10 @@ pub fn init_app_state() -> AppState {
     // Clean up orphan team members from previous app session
     crate::team::cleanup::cleanup_orphan_teams(&session_db);
 
+    // Backstop the live close-on-leave path: incognito sessions left from a
+    // crash / SIGKILL / power loss never reach the frontend purge call.
+    crate::session::cleanup_orphan_incognito(&session_db);
+
     // Initialize IM Channel system
     {
         let (mut registry, inbound_rx) = channel::ChannelRegistry::new(256);

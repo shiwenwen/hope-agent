@@ -17,6 +17,7 @@ import ModelPicker from "./ModelPicker"
 import ToolPermissionToggle from "./ToolPermissionToggle"
 import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
+import IncognitoToggle, { type IncognitoDisabledReason } from "./IncognitoToggle"
 
 interface ChatInputProps {
   input: string
@@ -45,6 +46,11 @@ interface ChatInputProps {
   // Temperature
   sessionTemperature?: number | null
   onSessionTemperatureChange?: (temp: number | null) => void
+  // Incognito
+  incognitoEnabled?: boolean
+  incognitoSaving?: boolean
+  incognitoDisabledReason?: IncognitoDisabledReason
+  onIncognitoChange?: (enabled: boolean) => void
   // Plan mode
   planState?: "off" | "planning" | "review" | "executing" | "paused" | "completed"
   planProgress?: number
@@ -77,6 +83,10 @@ export default function ChatInput({
   onToolPermissionChange,
   sessionTemperature,
   onSessionTemperatureChange,
+  incognitoEnabled = false,
+  incognitoSaving = false,
+  incognitoDisabledReason,
+  onIncognitoChange,
   planState = "off",
   planProgress = 0,
   onEnterPlanMode,
@@ -290,7 +300,20 @@ export default function ChatInput({
               onSessionTemperatureChange={onSessionTemperatureChange}
             />
 
-            <AwarenessToggle sessionId={currentSessionId ?? null} />
+            {onIncognitoChange && (
+              <IncognitoToggle
+                sessionId={currentSessionId ?? null}
+                enabled={incognitoEnabled}
+                saving={incognitoSaving}
+                disabledReason={incognitoDisabledReason}
+                onChange={onIncognitoChange}
+              />
+            )}
+
+            <AwarenessToggle
+              sessionId={currentSessionId ?? null}
+              disabled={incognitoEnabled}
+            />
 
             {/* Plan Mode Toggle */}
             <IconTip label={planState === "off" ? t("planMode.enter") : t("planMode.indicator")}>

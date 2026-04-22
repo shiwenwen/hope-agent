@@ -7,12 +7,13 @@ use tauri::State;
 pub async fn create_session_cmd(
     agent_id: Option<String>,
     project_id: Option<String>,
+    incognito: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<session::SessionMeta, String> {
     let agent_id = agent_id.unwrap_or_else(|| "default".to_string());
     state
         .session_db
-        .create_session_with_project(&agent_id, project_id.as_deref())
+        .create_session_with_project(&agent_id, project_id.as_deref(), incognito)
         .map_err(|e| e.to_string())
 }
 
@@ -23,6 +24,7 @@ pub async fn list_sessions_cmd(
     unassigned: Option<bool>,
     limit: Option<u32>,
     offset: Option<u32>,
+    active_session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(Vec<session::SessionMeta>, u32), String> {
     // Precedence: explicit `unassigned=true` wins; then `project_id`; else All.
@@ -36,7 +38,13 @@ pub async fn list_sessions_cmd(
 
     let (mut sessions, total) = state
         .session_db
-        .list_sessions_paged(agent_id.as_deref(), project_filter, limit, offset)
+        .list_sessions_paged(
+            agent_id.as_deref(),
+            project_filter,
+            limit,
+            offset,
+            active_session_id.as_deref(),
+        )
         .map_err(|e| e.to_string())?;
 
     session::enrich_pending_interactions(&mut sessions, &state.session_db)
@@ -83,6 +91,18 @@ pub async fn get_session_cmd(
 }
 
 #[tauri::command]
+pub async fn set_session_incognito(
+    session_id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .session_db
+        .update_session_incognito(&session_id, enabled)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_session_cmd(
     session_id: String,
     state: State<'_, AppState>,
@@ -90,6 +110,17 @@ pub async fn delete_session_cmd(
     state
         .session_db
         .delete_session(&session_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn purge_session_if_incognito(
+    session_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    state
+        .session_db
+        .purge_session_if_incognito(&session_id)
         .map_err(|e| e.to_string())
 }
 

@@ -94,6 +94,7 @@ impl AssistantAgent {
             image_gen_config: None,
             canvas_enabled: false,
             session_id: None,
+            incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -143,6 +144,7 @@ impl AssistantAgent {
             image_gen_config: None,
             canvas_enabled: false,
             session_id: None,
+            incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -251,6 +253,7 @@ impl AssistantAgent {
             image_gen_config: None,
             canvas_enabled: false,
             session_id: None,
+            incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
             steer_run_id: None,
             denied_tools: Vec::new(),
@@ -291,9 +294,20 @@ impl AssistantAgent {
     pub(crate) fn reset_chat_flags(&self) {
         self.manual_memory_saved
             .store(false, std::sync::atomic::Ordering::SeqCst);
+        self.refresh_incognito_cache();
         // Record user activity so the Dreaming idle trigger has a fresh
         // "last activity" timestamp. Must be cheap — it's just an atomic store.
         crate::memory::dreaming::touch_activity();
+    }
+
+    /// Reload `sessions.incognito` once and store it in the agent-local atomic
+    /// so per-turn hot paths (awareness / active memory / memory selection)
+    /// can read the flag without hitting SQLite every time. Safe no-op when
+    /// `session_id` is `None`.
+    fn refresh_incognito_cache(&self) {
+        let incognito = crate::session::is_session_incognito(self.session_id.as_deref());
+        self.incognito_cached
+            .store(incognito, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Check if any tool call in this round was a manual memory write
@@ -395,6 +409,7 @@ impl AssistantAgent {
     /// Set the current session ID (for sub-agent context propagation).
     pub fn set_session_id(&mut self, id: &str) {
         self.session_id = Some(id.to_string());
+        self.refresh_incognito_cache();
         self.init_awareness();
     }
 
@@ -405,6 +420,11 @@ impl AssistantAgent {
         let Some(sid) = self.session_id.as_deref() else {
             return;
         };
+        if self.session_is_incognito() {
+            let mut slot = self.awareness.lock().unwrap_or_else(|e| e.into_inner());
+            *slot = None;
+            return;
+        }
         let Some(db) = crate::get_session_db() else {
             return;
         };
@@ -413,6 +433,11 @@ impl AssistantAgent {
             crate::awareness::SessionAwareness::new(sid.to_string(), self.agent_id.clone(), cfg);
         let mut slot = self.awareness.lock().unwrap_or_else(|e| e.into_inner());
         *slot = Some(aware);
+    }
+
+    fn session_is_incognito(&self) -> bool {
+        self.incognito_cached
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Return the currently-held Active Memory suffix (if any). Provider
@@ -439,6 +464,14 @@ impl AssistantAgent {
     /// Never blocks the chat loop longer than `active_memory.timeout_ms`.
     pub(crate) async fn refresh_active_memory_suffix(&self, user_text: &str) {
         use std::time::Duration;
+
+        if self.session_is_incognito() {
+            *self
+                .active_memory_suffix
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
 
         // 1. Resolve per-agent memory config. Cached on ActiveMemoryState
         //    so the per-turn hot path doesn't re-read agent.json from
@@ -600,6 +633,13 @@ impl AssistantAgent {
     /// prompt. Cheap when nothing changed; runs bounded LLM extraction inline
     /// when `mode == LlmDigest` and throttle allows.
     pub(crate) async fn refresh_awareness_suffix(&self, user_text: &str) {
+        if self.session_is_incognito() {
+            *self
+                .awareness_suffix
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = None;
+            return;
+        }
         let Some(sid) = self.session_id.clone() else {
             return;
         };
@@ -1212,6 +1252,9 @@ impl AssistantAgent {
         system_prompt: &mut String,
         user_message: &str,
     ) {
+        if self.session_is_incognito() {
+            return;
+        }
         let config = crate::memory::helpers::load_memory_selection_config();
         if !config.enabled {
             return;

@@ -35,6 +35,7 @@ pub fn collect_entries(
         crate::session::ProjectFilter::All,
         Some(pull_limit),
         Some(0),
+        None,
     )?;
 
     // Time cutoff for the lookback window.
@@ -242,6 +243,7 @@ mod tests {
             tool_permission_mode: "auto".into(),
             channel_info: None,
             project_id: None,
+            incognito: false,
         }
     }
 

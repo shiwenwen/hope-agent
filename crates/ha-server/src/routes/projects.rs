@@ -90,6 +90,9 @@ pub struct ListProjectSessionsQuery {
     pub limit: Option<u32>,
     #[serde(default)]
     pub offset: Option<u32>,
+    /// Currently-open session id; allowed in results even if incognito.
+    #[serde(default)]
+    pub active_session_id: Option<String>,
 }
 
 // ── Project CRUD ────────────────────────────────────────────────
@@ -191,6 +194,7 @@ pub async fn list_project_sessions(
         ProjectFilter::InProject(&id),
         q.limit,
         q.offset,
+        q.active_session_id.as_deref(),
     )?;
     ha_core::session::enrich_pending_interactions(&mut sessions, &ctx.session_db).await?;
     Ok(Json(PaginatedSessions { sessions, total }))

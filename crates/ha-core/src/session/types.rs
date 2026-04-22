@@ -41,6 +41,10 @@ pub struct SessionMeta {
     /// If this session is linked to an IM channel conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub channel_info: Option<ChannelSessionInfo>,
+    /// When true, this session runs in incognito mode: no passive memory or
+    /// awareness injection, and no automatic memory extraction.
+    #[serde(default)]
+    pub incognito: bool,
 }
 
 /// Lightweight channel info attached to a session for UI display.
