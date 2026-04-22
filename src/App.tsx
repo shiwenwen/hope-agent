@@ -4,7 +4,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
 import { listenNotificationConfigChange, notify } from "@/lib/notifications"
-import { autoCheckForUpdate, relaunchDesktopApp, setPendingUpdate as setGlobalPendingUpdate } from "@/lib/desktopUpdater"
+import { autoCheckForUpdate, relaunchDesktopApp, setPendingUpdate as setGlobalPendingUpdate, startPeriodicUpdateCheck } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
@@ -157,6 +157,13 @@ export default function App() {
         }
       })
       .catch(() => {})
+
+    // Start background periodic check (e.g., every 12 hours)
+    const cleanupPeriodic = startPeriodicUpdateCheck()
+
+    return () => {
+      cleanupPeriodic()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view])
 

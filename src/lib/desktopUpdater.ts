@@ -82,9 +82,9 @@ export async function setPendingUpdate(update: DesktopUpdate | null): Promise<vo
  */
 let _autoCheckPromise: Promise<DesktopUpdate | null> | null = null
 
-export function autoCheckForUpdate(): Promise<DesktopUpdate | null> {
+export function autoCheckForUpdate(force = false): Promise<DesktopUpdate | null> {
   if (!isDesktopUpdaterAvailable()) return Promise.resolve(null)
-  if (_autoCheckPromise) return _autoCheckPromise
+  if (_autoCheckPromise && !force) return _autoCheckPromise
 
   _autoCheckPromise = checkForDesktopUpdate()
     .then(async (update) => {
@@ -102,4 +102,24 @@ export function autoCheckForUpdate(): Promise<DesktopUpdate | null> {
     })
 
   return _autoCheckPromise
+}
+
+/** 
+ * Starts a background interval to check for updates every 12 hours. 
+ * Returns a cleanup function.
+ */
+export function startPeriodicUpdateCheck(): () => void {
+  if (!isDesktopUpdaterAvailable()) return () => {}
+  
+  // 12 hours in milliseconds
+  const CHECK_INTERVAL = 12 * 60 * 60 * 1000
+  
+  const timerId = setInterval(() => {
+    // Only fetch if there's no pending update currently shown to the user
+    if (!_pendingUpdate) {
+      autoCheckForUpdate(true).catch(() => {})
+    }
+  }, CHECK_INTERVAL)
+  
+  return () => clearInterval(timerId)
 }
