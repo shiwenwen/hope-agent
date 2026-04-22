@@ -167,8 +167,8 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
 
   const anyRunning = agg.running > 0
   const headerLabel = anyRunning
-    ? t("subagent.group.running", { count: agg.total })
-    : t("subagent.group.finished", { count: agg.total })
+    ? t("executionStatus.subagent.group.running", { count: agg.total })
+    : t("executionStatus.subagent.group.finished", { count: agg.total })
 
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
@@ -332,7 +332,10 @@ function SubagentRow({
         </button>
         {/* Right action area — sibling of main button to avoid nested interactive elements. */}
         <div className="flex items-center gap-1.5 pr-2 shrink-0">
-          <span className={cn("flex items-center gap-0.5", config.color)}>{config.icon}</span>
+          <span className={cn("flex items-center gap-0.5", config.color)}>
+            {config.icon}
+            <span>{t(`executionStatus.subagent.status.${status}`, status)}</span>
+          </span>
           {state?.durationMs !== undefined && (
             <span className="text-muted-foreground/60 tabular-nums text-[10px]">
               {(state.durationMs / 1000).toFixed(1)}s

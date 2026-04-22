@@ -157,7 +157,7 @@ export default function SubagentBlock({
             className={cn("flex items-center gap-1 transition-colors duration-200", config.color)}
           >
             {config.icon}
-            <span>{t(`subagent.status.${status}`, status)}</span>
+            <span>{t(`executionStatus.subagent.status.${status}`, status)}</span>
           </span>
           {durationMs !== undefined && (
             <span className="text-muted-foreground tabular-nums">

@@ -31,14 +31,39 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
   const summary = useMemo(() => {
     const total = tasks.length
     const completed = tasks.filter((tk) => tk.status === "completed").length
-    return { total, completed }
+    const inProgress = tasks.some((tk) => tk.status === "in_progress")
+    const remaining = total - completed
+    return { total, completed, remaining, inProgress }
   }, [tasks])
+
+  const summaryText = useMemo(() => {
+    if (tasks.length === 0) return t("executionStatus.task.empty")
+    if (summary.inProgress) {
+      return t("executionStatus.task.running", {
+        completed: summary.completed,
+        total: summary.total,
+        remaining: summary.remaining,
+      })
+    }
+    if (summary.completed === summary.total) {
+      return t("executionStatus.task.completed", {
+        completed: summary.completed,
+        total: summary.total,
+        remaining: summary.remaining,
+      })
+    }
+    return t("executionStatus.task.pending", {
+      completed: summary.completed,
+      total: summary.total,
+      remaining: summary.remaining,
+    })
+  }, [summary, t, tasks.length])
 
   if (tasks.length === 0) {
     return (
       <div className="my-1.5 flex items-center gap-1.5 rounded-lg border border-border bg-secondary/40 px-2.5 py-1.5 text-xs text-muted-foreground">
         <ListChecks className="h-3.5 w-3.5 shrink-0" />
-        <span>{t("chat.taskNoneYet", "No tasks yet")}</span>
+        <span>{summaryText}</span>
       </div>
     )
   }
@@ -56,13 +81,7 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
           )}
         />
         <ListChecks className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-        <span className="font-medium">{t("chat.tasks", "Tasks")}</span>
-        <span className="text-muted-foreground">
-          {t("chat.taskProgress", "{{completed}}/{{total}} completed", {
-            completed: summary.completed,
-            total: summary.total,
-          })}
-        </span>
+        <span className="font-medium text-foreground">{summaryText}</span>
       </button>
 
       {expanded && (

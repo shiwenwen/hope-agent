@@ -1,6 +1,7 @@
 import type React from "react"
 import type { ContentBlock, MediaItem, Message } from "@/types/chat"
 import { mergeUsageFromEvent } from "../chatUtils"
+import { hasToolError } from "../message/executionStatus"
 
 export interface StreamEventHandlerDeps {
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
@@ -175,9 +176,13 @@ export function handleStreamEvent(
           idx >= 0 && calls[idx].startedAtMs ? Date.now() - calls[idx].startedAtMs! : undefined
         )
         if (idx >= 0) {
+          const isError = typeof event.is_error === "boolean"
+            ? event.is_error as boolean
+            : hasToolError({ result: event.result as string | undefined })
           calls[idx] = {
             ...calls[idx],
             result: event.result as string,
+            isError,
             ...(mediaItems && { mediaItems }),
             ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
           }
@@ -196,6 +201,9 @@ export function handleStreamEvent(
             tool: {
               ...block.tool,
               result: event.result as string,
+              isError: typeof event.is_error === "boolean"
+                ? event.is_error as boolean
+                : hasToolError({ result: event.result as string | undefined }),
               ...(mediaItems && { mediaItems }),
               ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
             },

@@ -510,6 +510,10 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                         "type": "integer",
                         "description": "Interval in milliseconds for 'every' schedule (min 60000)"
                     },
+                    "start_at": {
+                        "type": "string",
+                        "description": "Optional ISO8601 first-fire timestamp for 'every' schedules. When omitted, the backend anchors the first run at create/update time + interval."
+                    },
                     "cron_expression": {
                         "type": "string",
                         "description": "Cron expression for 'cron' schedule (e.g. '0 0 9 * * 1-5 *' = weekdays 9am)"

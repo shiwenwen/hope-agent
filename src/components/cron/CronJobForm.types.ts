@@ -4,6 +4,9 @@ export interface CronSchedule {
   type: "at" | "every" | "cron"
   timestamp?: string
   intervalMs?: number
+  interval_ms?: number
+  startAt?: string | null
+  start_at?: string | null
   expression?: string
   timezone?: string | null
 }

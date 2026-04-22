@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
 import { reloadAndMergeSessionMessages } from "../chatUtils"
+import { hasToolError } from "../message/executionStatus"
 import { PAGE_SIZE } from "../useChatSession"
 import type {
   Message,
@@ -124,11 +125,15 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                 const resolvedDurationMs = ev.duration_ms ?? (
                   current?.startedAtMs ? Date.now() - current.startedAtMs : undefined
                 )
+                const isError = typeof ev.is_error === "boolean"
+                  ? ev.is_error
+                  : hasToolError({ result: ev.result })
                 const toolCalls = last.toolCalls.map((tc) =>
                   tc.callId === ev.call_id
                     ? {
                         ...tc,
                         result: ev.result,
+                        isError,
                         ...(mediaItems && { mediaItems }),
                         ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
                       }
@@ -141,6 +146,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                         tool: {
                           ...b.tool!,
                           result: ev.result,
+                          isError,
                           ...(mediaItems && { mediaItems }),
                           ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
                         },

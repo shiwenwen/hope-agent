@@ -138,7 +138,7 @@ export function formatSchedule(schedule: CronSchedule, t: (key: string) => strin
     case "at":
       return `${t("cron.scheduleAt")}: ${schedule.timestamp ? new Date(schedule.timestamp).toLocaleString() : ""}`
     case "every": {
-      const ms = schedule.intervalMs ?? 0
+      const ms = schedule.intervalMs ?? schedule.interval_ms ?? 0
       const secs = ms / 1000
       if (secs < 3600)
         return `${t("cron.scheduleEvery")} ${Math.round(secs / 60)} ${t("cron.unitMinutes")}`

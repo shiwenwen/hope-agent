@@ -367,6 +367,301 @@
       "killed": "تم إنهاؤه"
     }
   },
+  "executionStatus": {
+    "tool": {
+      "single": {
+        "exec": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "process": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "read": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "write": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "edit": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ls": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "grep": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "find": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "apply_patch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_fetch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "save_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "recall_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "delete_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "manage_cron": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "browser": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_notification": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "subagent": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "memory_get": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "agents_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "session_status": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_history": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_send": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image_generate": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "pdf": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "canvas": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_create": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_update": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "get_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_attachment": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ask_user_question": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "tool_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "acp_spawn": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "submit_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "amend_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_plan_step": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "skill_read": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}",
+          "failed": "Skill failed: {{name}}"
+        },
+        "fallback": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        }
+      },
+      "group": {
+        "browse": {
+          "running": "Browsing {{count}} files",
+          "completed": "تم تصفح {{count}} ملفاً"
+        },
+        "edit": {
+          "running": "Editing {{count}} files",
+          "completed": "تم تعديل {{count}} ملفاً"
+        },
+        "search": {
+          "running": "Searching {{count}} times",
+          "completed": "عمليات بحث: {{count}}"
+        },
+        "web": {
+          "running": "Searching the web {{count}} times",
+          "completed": "بحث ويب: {{count}} مرة"
+        },
+        "memory": {
+          "running": "Updating memory {{count}} times",
+          "completed": "عمليات الذاكرة: {{count}}"
+        },
+        "other": {
+          "running": "Running {{count}} tools",
+          "completed": "استدعاءات الأدوات: {{count}}"
+        },
+        "skill": {
+          "running": "Loading {{count}} skills",
+          "completed": "تم تحميل {{count}} skill"
+        },
+        "skill_single": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}"
+        },
+        "failedCount": "{{count}} failed"
+      }
+    },
+    "skill": {
+      "running": "Loading skill: {{name}}",
+      "completed": "Loaded skill: {{name}}",
+      "failed": "Skill failed: {{name}}",
+      "mode": {
+        "inline": "skill · inline",
+        "fork": "skill · fork"
+      }
+    },
+    "task": {
+      "running": "Running {{completed}}/{{total}} tasks",
+      "completed": "Completed {{completed}}/{{total}} tasks",
+      "pending": "{{remaining}}/{{total}} tasks pending",
+      "empty": "No tasks yet"
+    },
+    "subagent": {
+      "group": {
+        "running": "تشغيل {{count}} عملاء",
+        "finished": "اكتمل {{count}} عملاء"
+      },
+      "status": {
+        "spawning": "قيد البدء",
+        "running": "قيد التشغيل",
+        "completed": "مكتمل",
+        "error": "خطأ",
+        "timeout": "انتهت المهلة",
+        "killed": "تم إنهاؤه"
+      }
+    },
+    "acp": {
+      "status": {
+        "starting": "قيد البدء",
+        "running": "قيد التشغيل",
+        "completed": "مكتمل",
+        "error": "خطأ",
+        "timeout": "انتهت المهلة",
+        "killed": "تم إنهاؤه"
+      }
+    }
+  },
   "settings": {
     "title": "الإعدادات",
     "general": "عام",

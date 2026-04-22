@@ -290,7 +290,14 @@ fn parse_schedule(args: &Value) -> Result<CronSchedule> {
                     "Interval must be at least 60000ms (1 minute)"
                 ));
             }
-            Ok(CronSchedule::Every { interval_ms })
+            let start_at = args
+                .get("start_at")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            Ok(CronSchedule::Every {
+                interval_ms,
+                start_at,
+            })
         }
         "cron" => {
             let expression = args
@@ -318,7 +325,7 @@ fn parse_schedule(args: &Value) -> Result<CronSchedule> {
 fn schedule_summary(schedule: &CronSchedule) -> String {
     match schedule {
         CronSchedule::At { timestamp } => format!("once at {}", timestamp),
-        CronSchedule::Every { interval_ms } => {
+        CronSchedule::Every { interval_ms, .. } => {
             let secs = interval_ms / 1000;
             if secs < 60 {
                 format!("every {}s", secs)
