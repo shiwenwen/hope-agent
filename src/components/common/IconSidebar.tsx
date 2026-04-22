@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import ServerStatusIndicator from "@/components/common/ServerStatusIndicator"
 import type { SettingsSection } from "@/components/settings/types"
+import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -64,6 +65,7 @@ export default function IconSidebar({
   const { t, i18n } = useTranslation()
   const { theme, cycleTheme } = useTheme()
   const [showLangMenu, setShowLangMenu] = useState(false)
+  const { pendingUpdate } = useDesktopUpdateStore()
 
   return (
     <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
@@ -324,21 +326,29 @@ export default function IconSidebar({
             )}
           </div>
           {/* Settings */}
-          <IconTip label={t("chat.settings")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "settings"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenSettings}
-            >
-              <Settings className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <div className="relative flex justify-center mt-1">
+            <IconTip label={t("chat.settings")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "settings"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => onOpenSettings()}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </IconTip>
+            {pendingUpdate && (
+              <span className="absolute -top-0.5 -right-0.5 z-10 flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" />
+              </span>
+            )}
+          </div>
         </div>
       </div>
   )

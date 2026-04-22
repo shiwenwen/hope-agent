@@ -36,3 +36,70 @@ export async function relaunchDesktopApp(): Promise<void> {
   const { relaunch } = await import("@tauri-apps/plugin-process")
   await relaunch()
 }
+
+// ─── Global update store ────────────────────────────────────
+// Module-level singleton so every component sees the same state.
+
+type Listener = () => void
+
+let _pendingUpdate: DesktopUpdate | null = null
+let _checked = false
+const _listeners = new Set<Listener>()
+
+function _notify() {
+  _listeners.forEach((fn) => fn())
+}
+
+/** Subscribe to update-store changes. Returns unsubscribe function. */
+export function subscribeUpdateStore(listener: Listener): () => void {
+  _listeners.add(listener)
+  return () => _listeners.delete(listener)
+}
+
+/** Read current pending update (may be null). */
+export function getPendingUpdate(): DesktopUpdate | null {
+  return _pendingUpdate
+}
+
+/** Whether the initial auto-check has completed. */
+export function hasChecked(): boolean {
+  return _checked
+}
+
+/** Set the pending update (called by AboutPanel after manual check too). */
+export async function setPendingUpdate(update: DesktopUpdate | null): Promise<void> {
+  if (_pendingUpdate && _pendingUpdate !== update) {
+    await disposeDesktopUpdate(_pendingUpdate)
+  }
+  _pendingUpdate = update
+  _notify()
+}
+
+/**
+ * Auto-check for updates silently in the background.
+ * Returns the update if found, null otherwise.
+ * Safe to call multiple times — subsequent calls are no-ops.
+ */
+let _autoCheckPromise: Promise<DesktopUpdate | null> | null = null
+
+export function autoCheckForUpdate(): Promise<DesktopUpdate | null> {
+  if (!isDesktopUpdaterAvailable()) return Promise.resolve(null)
+  if (_autoCheckPromise) return _autoCheckPromise
+
+  _autoCheckPromise = checkForDesktopUpdate()
+    .then(async (update) => {
+      _checked = true
+      if (update) {
+        await setPendingUpdate(update)
+      }
+      _notify()
+      return update
+    })
+    .catch(() => {
+      _checked = true
+      _notify()
+      return null
+    })
+
+  return _autoCheckPromise
+}

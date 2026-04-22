@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
 import {
   checkForDesktopUpdate,
-  disposeDesktopUpdate,
   isDesktopUpdaterAvailable,
   relaunchDesktopApp,
+  setPendingUpdate as setGlobalPendingUpdate,
   type DesktopUpdate,
 } from "@/lib/desktopUpdater"
+import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { getTransport } from "@/lib/transport-provider"
 
 interface HighlightItem {
@@ -25,13 +26,23 @@ interface HighlightItem {
 export default function AboutPanel() {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
+  const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
   const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [installingUpdate, setInstallingUpdate] = useState(false)
   const [pendingUpdate, setPendingUpdate] = useState<DesktopUpdate | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
-  const pendingUpdateRef = useRef<DesktopUpdate | null>(null)
   const desktopUpdaterAvailable = isDesktopUpdaterAvailable()
+
+  // Sync from global store: if auto-check found an update, reflect it here
+  const syncedRef = useRef(false)
+  useEffect(() => {
+    if (globalPendingUpdate && !syncedRef.current) {
+      syncedRef.current = true
+      setPendingUpdate(globalPendingUpdate)
+      setUpdateStatus(t("about.updateAvailable", { version: globalPendingUpdate.version }))
+    }
+  }, [globalPendingUpdate, t])
 
   const highlights: HighlightItem[] = [
     {
@@ -66,22 +77,6 @@ export default function AboutPanel() {
     }
   }
 
-  useEffect(() => {
-    pendingUpdateRef.current = pendingUpdate
-  }, [pendingUpdate])
-
-  useEffect(() => {
-    return () => {
-      void disposeDesktopUpdate(pendingUpdateRef.current)
-    }
-  }, [])
-
-  async function replacePendingUpdate(nextUpdate: DesktopUpdate | null) {
-    await disposeDesktopUpdate(pendingUpdateRef.current)
-    pendingUpdateRef.current = nextUpdate
-    setPendingUpdate(nextUpdate)
-  }
-
   async function handleCheckForUpdates() {
     setCheckingUpdate(true)
     setUpdateStatus(t("about.updateChecking"))
@@ -90,15 +85,18 @@ export default function AboutPanel() {
     try {
       const update = await checkForDesktopUpdate()
       if (!update) {
-        await replacePendingUpdate(null)
+        setPendingUpdate(null)
+        void setGlobalPendingUpdate(null)
         setUpdateStatus(t("about.updateUpToDate", { version: appVersion }))
         return
       }
 
-      await replacePendingUpdate(update)
+      setPendingUpdate(update)
+      void setGlobalPendingUpdate(update)
       setUpdateStatus(t("about.updateAvailable", { version: update.version }))
     } catch {
-      await replacePendingUpdate(null)
+      setPendingUpdate(null)
+      void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateCheckFailed"))
     } finally {
       setCheckingUpdate(false)
@@ -134,7 +132,8 @@ export default function AboutPanel() {
         }
       })
 
-      await replacePendingUpdate(null)
+      await setPendingUpdate(null)
+      void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateInstalled"))
       await relaunchDesktopApp()
     } catch {
@@ -163,15 +162,83 @@ export default function AboutPanel() {
                   draggable={false}
                 />
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h2 className="text-3xl font-semibold tracking-tight text-foreground lg:text-4xl">
                   Hope Agent
                 </h2>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {t("about.version")} v{appVersion}
-                </p>
+                <div className="mt-2 flex flex-wrap items-center gap-2.5">
+                  <span className="inline-flex items-center rounded-full border border-border/70 bg-secondary/40 px-3 py-1 text-sm font-medium text-muted-foreground">
+                    v{appVersion}
+                  </span>
+                  {desktopUpdaterAvailable && !pendingUpdate && (
+                    <button
+                      className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 hover:border-primary/30 hover:bg-primary/8 hover:text-foreground active:scale-[0.97] disabled:opacity-50"
+                      onClick={handleCheckForUpdates}
+                      disabled={checkingUpdate || installingUpdate}
+                    >
+                      {checkingUpdate ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      {checkingUpdate ? t("about.updateChecking") : t("about.updateCheck")}
+                    </button>
+                  )}
+                  {updateStatus && !pendingUpdate && (
+                    <span className="text-xs text-muted-foreground/70">{updateStatus}</span>
+                  )}
+                </div>
               </div>
             </div>
+
+            {pendingUpdate && (
+              <div className="mt-5 overflow-hidden rounded-2xl border border-emerald-500/20 bg-gradient-to-r from-emerald-500/8 via-emerald-500/5 to-transparent">
+                <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-500/12">
+                    <Download className="h-4.5 w-4.5 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-foreground">
+                      {updateStatus}
+                    </p>
+                    {pendingUpdate.body && (
+                      <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+                        {pendingUpdate.body}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    className="shrink-0 gap-1.5 rounded-full bg-emerald-600 px-4 text-white shadow-sm transition-all hover:bg-emerald-700 hover:shadow-md active:scale-[0.97] dark:bg-emerald-500 dark:hover:bg-emerald-600"
+                    onClick={handleInstallUpdate}
+                    disabled={installingUpdate || checkingUpdate}
+                  >
+                    {installingUpdate ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Download className="h-3.5 w-3.5" />
+                    )}
+                    {installingUpdate
+                      ? t("about.updateInstalling", { version: pendingUpdate.version })
+                      : t("about.updateInstall", { version: pendingUpdate.version })}
+                  </Button>
+                </div>
+                {installingUpdate && downloadPercent !== null && (
+                  <div className="px-5 pb-4">
+                    <div className="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>{t("about.updateDownloadProgress", { percent: downloadPercent })}</span>
+                      <span className="tabular-nums">{downloadPercent}%</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-emerald-500/15">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-emerald-400 transition-all duration-300 ease-out"
+                        style={{ width: `${downloadPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <p className="mt-6 max-w-4xl text-2xl font-semibold leading-tight tracking-tight text-foreground lg:text-4xl">
               {t("about.tagline")}
@@ -194,53 +261,6 @@ export default function AboutPanel() {
                 <ExternalLink className="ml-1.5 h-4 w-4" />
               </Button>
             </div>
-
-            {desktopUpdaterAvailable && (
-              <div className="mt-6 rounded-[24px] border border-border/70 bg-secondary/20 p-4">
-                <div className="flex flex-wrap items-center gap-3">
-                  <Button
-                    variant="outline"
-                    onClick={handleCheckForUpdates}
-                    disabled={checkingUpdate || installingUpdate}
-                  >
-                    {checkingUpdate ? (
-                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                    ) : (
-                      <RefreshCw className="mr-1.5 h-4 w-4" />
-                    )}
-                    {checkingUpdate ? t("about.updateChecking") : t("about.updateCheck")}
-                  </Button>
-                  {pendingUpdate && (
-                    <Button
-                      onClick={handleInstallUpdate}
-                      disabled={installingUpdate || checkingUpdate}
-                    >
-                      {installingUpdate ? (
-                        <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
-                      ) : (
-                        <Download className="mr-1.5 h-4 w-4" />
-                      )}
-                      {installingUpdate
-                        ? t("about.updateInstalling", { version: pendingUpdate.version })
-                        : t("about.updateInstall", { version: pendingUpdate.version })}
-                    </Button>
-                  )}
-                </div>
-                <p className="mt-3 text-sm text-muted-foreground">
-                  {updateStatus ?? t("about.updateReady")}
-                </p>
-                {installingUpdate && downloadPercent !== null && (
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {t("about.updateDownloadProgress", { percent: downloadPercent })}
-                  </p>
-                )}
-                {pendingUpdate?.body && (
-                  <p className="mt-2 whitespace-pre-wrap text-xs leading-6 text-muted-foreground">
-                    {pendingUpdate.body}
-                  </p>
-                )}
-              </div>
-            )}
           </div>
         </section>
 

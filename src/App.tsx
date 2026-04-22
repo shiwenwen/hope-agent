@@ -1,9 +1,11 @@
-import { useState, useEffect, useCallback, lazy, Suspense } from "react"
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
-import { listenNotificationConfigChange } from "@/lib/notifications"
+import { listenNotificationConfigChange, notify } from "@/lib/notifications"
+import { autoCheckForUpdate, relaunchDesktopApp, setPendingUpdate as setGlobalPendingUpdate } from "@/lib/desktopUpdater"
+import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { LightboxProvider } from "@/components/common/ImageLightbox"
 import ErrorBoundary from "@/components/common/ErrorBoundary"
@@ -22,7 +24,7 @@ const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
 
 export default function App() {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [view, setView] = useState<
     "loading" | "onboarding" | "setup" | "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
   >("loading")
@@ -34,6 +36,52 @@ export default function App() {
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
+  const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
+  const [toastDismissed, setToastDismissed] = useState(false)
+  const [showIgnoreOptions, setShowIgnoreOptions] = useState(false)
+
+  const ignoredVersion = localStorage.getItem("ignored_update_version")
+  const shouldShowToast = globalPendingUpdate && !toastDismissed && globalPendingUpdate.version !== ignoredVersion
+
+  const [installingUpdate, setInstallingUpdate] = useState(false)
+  const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
+
+  async function handleInstallUpdate() {
+    if (!globalPendingUpdate) return
+
+    setInstallingUpdate(true)
+    setDownloadPercent(0)
+
+    let downloaded = 0
+    let contentLength = 0
+
+    try {
+      await globalPendingUpdate.downloadAndInstall((event) => {
+        switch (event.event) {
+          case "Started":
+            contentLength = event.data.contentLength
+            setDownloadPercent(0)
+            break
+          case "Progress":
+            downloaded += event.data.chunkLength
+            if (contentLength > 0) {
+              setDownloadPercent(Math.min(100, Math.round((downloaded / contentLength) * 100)))
+            }
+            break
+          case "Finished":
+            setDownloadPercent(100)
+            break
+        }
+      })
+
+      void setGlobalPendingUpdate(null)
+      await relaunchDesktopApp()
+    } catch (e) {
+      logger.error("update", "App::handleInstallUpdate", "Failed to install update via toast", e)
+      setInstallingUpdate(false)
+      setToastDismissed(true)
+    }
+  }
 
   // Load user avatar
   async function fetchUserAvatar() {
@@ -91,6 +139,26 @@ export default function App() {
       unlistenNotification()
     }
   }, [])
+
+  // Auto-check for desktop updates on startup
+  const updateCheckRef = useRef(false)
+  useEffect(() => {
+    if (updateCheckRef.current) return
+    if (view === "loading" || view === "onboarding" || view === "setup") return
+    updateCheckRef.current = true
+
+    autoCheckForUpdate()
+      .then((update) => {
+        if (update) {
+          void notify(
+            "Hope Agent",
+            t("about.updateAvailable", { version: update.version }),
+          )
+        }
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view])
 
   // Try to restore previous session on mount
   useEffect(() => {
@@ -293,6 +361,101 @@ export default function App() {
           sessionsRefreshTrigger={sessionsRefreshTrigger}
         />
       </div>
+      
+      {/* In-app update toast */}
+      {shouldShowToast && (
+        <div className="fixed top-6 right-6 z-50 animate-in slide-in-from-top-5 fade-in duration-300">
+          <div className="relative flex flex-col gap-3 rounded-2xl border border-emerald-500/20 bg-card p-4 shadow-xl dark:bg-zinc-900/90 w-[380px]">
+            {/* Close / Ignore button */}
+            {!showIgnoreOptions && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowIgnoreOptions(true)
+                }}
+                className="absolute top-3 right-3 p-1.5 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors z-10"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
+            )}
+
+            {showIgnoreOptions ? (
+              <div className="flex flex-col gap-3 animate-in fade-in zoom-in-95 duration-200">
+                <p className="text-sm font-medium text-foreground text-center">
+                  不再提醒 {globalPendingUpdate.version} 版本？
+                </p>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    className="flex-1 text-xs font-medium text-muted-foreground bg-secondary hover:bg-secondary/80 px-3 py-2 rounded-lg transition-colors"
+                    onClick={() => {
+                      setToastDismissed(true)
+                      setShowIgnoreOptions(false)
+                    }}
+                  >
+                    仅本次忽略
+                  </button>
+                  <button
+                    className="flex-1 text-xs font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 px-3 py-2 rounded-lg transition-colors"
+                    onClick={() => {
+                      localStorage.setItem("ignored_update_version", globalPendingUpdate.version)
+                      setToastDismissed(true)
+                      setShowIgnoreOptions(false)
+                    }}
+                  >
+                    该版本不再提醒
+                  </button>
+                </div>
+              </div>
+            ) : installingUpdate ? (
+              <div className="flex flex-col gap-2 mt-1">
+                <div className="flex items-center justify-between pr-6">
+                  <p className="text-sm font-medium text-foreground">正在下载更新...</p>
+                  <p className="text-sm font-medium text-emerald-500">{downloadPercent ?? 0}%</p>
+                </div>
+                <div className="h-1.5 w-full bg-secondary overflow-hidden rounded-full mt-1">
+                  <div
+                    className="h-full bg-emerald-500 transition-all duration-300 rounded-full"
+                    style={{ width: `${downloadPercent ?? 0}%` }}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div 
+                className="flex items-start gap-4 cursor-pointer group"
+                onClick={() => {
+                  setToastDismissed(true)
+                  handleOpenSettings("about")
+                }}
+              >
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 group-hover:bg-emerald-500 group-hover:text-white transition-colors duration-300 mt-1">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+                </div>
+                <div className="flex-1 min-w-0 pr-5">
+                  <p className="text-sm font-semibold text-foreground group-hover:text-emerald-500 transition-colors truncate">
+                    {i18n.language.startsWith("zh") ? `发现新版本 v${globalPendingUpdate.version}` : `Update v${globalPendingUpdate.version}`}
+                  </p>
+                  <div className="mt-2.5 max-h-[180px] overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-muted-foreground/20 hover:scrollbar-thumb-muted-foreground/40 scrollbar-track-transparent">
+                    <p className="text-xs text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                      {globalPendingUpdate.body || t("about.updateAvailable", { version: globalPendingUpdate.version })}
+                    </p>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleInstallUpdate()
+                      }}
+                      className="px-4 py-2 text-xs font-semibold bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500 hover:text-white rounded-lg transition-colors duration-200 dark:text-emerald-400 dark:hover:text-white"
+                    >
+                      {i18n.language.startsWith("zh") ? "立即更新" : "Update"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       </div>
     </div>
     </LightboxProvider>

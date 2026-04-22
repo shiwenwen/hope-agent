@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import {
   ArrowLeft,
   Bot,
@@ -193,6 +194,7 @@ export default function SettingsView({
   onProfileSaved?: () => void
 }) {
   const { t } = useTranslation()
+  const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
   const [activeSection, setActiveSection] = useState<SettingsSection>(
     initialSection ?? "modelConfig",
   )
@@ -237,7 +239,13 @@ export default function SettingsView({
               >
                 {section.icon}
               </span>
-              {t(section.labelKey)}
+              <span className="flex-1 truncate text-left">{t(section.labelKey)}</span>
+              {section.id === "about" && globalPendingUpdate && (
+                <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                </span>
+              )}
             </button>
           ))}
         </div>
