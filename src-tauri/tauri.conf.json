@@ -61,6 +61,7 @@
   },
   "plugins": {
     "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEVGOThDNDVDQ0M1MjRCQzkKUldUSlMxTE1YTVNZNzNtSldyYmt1cEE1TFdqYXpyREZXbFFyUDFWYlIyTHUxaVhWdm9PTG1lQW8K",
       "endpoints": ["https://github.com/shiwenwen/hope-agent/releases/latest/download/latest.json"],
       "windows": {
         "installMode": "passive"
