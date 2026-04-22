@@ -440,7 +440,7 @@ impl CronDB {
             )?;
             let matched_logs = match_run_logs_to_occurrences(&occurrences, &run_logs)?;
 
-            for (occ, run_log) in occurrences.into_iter().zip(matched_logs.into_iter()) {
+            for (occ, run_log) in occurrences.into_iter().zip(matched_logs) {
                 let occ_str = occ.to_rfc3339();
 
                 events.push(CalendarEvent {
