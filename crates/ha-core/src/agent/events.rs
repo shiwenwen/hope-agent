@@ -105,17 +105,18 @@ fn parse_all_image_markers(result: &str) -> (String, Vec<ImageMarker<'_>>) {
 
     for part in &parts[1..] {
         // Each part looks like: "<mime>__<base64>__\n<text_description>\n\n..."
-        if let Some(sep_idx) = part.find("__") {
-            let mime = &part[..sep_idx];
-            let after = &part[sep_idx + 2..];
-            // Base64 data ends at next newline (or end of this segment)
-            let (b64, text) = after.split_once('\n').unwrap_or((after, ""));
-            markers.push(ImageMarker {
-                mime,
-                b64,
-                text: text.trim(),
-            });
-        }
+        let Some((mime, rest)) = part.split_once("__") else {
+            continue;
+        };
+        let Some((b64, text)) = rest.split_once("__") else {
+            continue;
+        };
+        let text = text.strip_prefix('\n').unwrap_or(text).trim();
+        markers.push(ImageMarker {
+            mime: mime.trim(),
+            b64: b64.trim(),
+            text,
+        });
     }
 
     (leading_text, markers)
@@ -309,5 +310,57 @@ pub(super) fn emit_usage(
             None,
             None,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_responses_tool_result;
+    use crate::tools::browser::IMAGE_BASE64_PREFIX;
+
+    #[test]
+    fn responses_tool_result_strips_marker_trailer_from_base64() {
+        let result = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+
+        let (text_output, image_items) = build_responses_tool_result(&result);
+
+        assert_eq!(text_output, "Screenshot captured.");
+        assert_eq!(image_items.len(), 1);
+        assert_eq!(
+            image_items[0]["content"][0]["image_url"],
+            "data:image/png;base64,aGVsbG8="
+        );
+    }
+
+    #[test]
+    fn responses_tool_result_handles_read_tool_line_numbers() {
+        let result = format!(
+            "     3\t{}image/jpeg__/9j/AA==__\n     4\tscreenshot (monitor 0)\n",
+            IMAGE_BASE64_PREFIX
+        );
+
+        let (_, image_items) = build_responses_tool_result(&result);
+
+        assert_eq!(image_items.len(), 1);
+        assert_eq!(
+            image_items[0]["content"][0]["image_url"],
+            "data:image/jpeg;base64,/9j/AA=="
+        );
+    }
+
+    #[test]
+    fn responses_tool_result_leaves_malformed_markers_as_plain_text() {
+        let result = format!(
+            "{}image/png__aGVsbG8=\nmissing closing delimiter",
+            IMAGE_BASE64_PREFIX
+        );
+
+        let (text_output, image_items) = build_responses_tool_result(&result);
+
+        assert_eq!(text_output, result);
+        assert!(image_items.is_empty());
     }
 }
