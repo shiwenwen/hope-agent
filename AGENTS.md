@@ -37,6 +37,7 @@ npm run lint                                                               # 对
 
 - **clippy / test 只覆盖 `ha-core` + `ha-server`**（CI 也是如此）—— `src-tauri` 不在本地钩子范围内，tauri-specific 的 lint / test 问题请用 `cargo {clippy,test} --workspace` 主动自查
 - **fmt 用 `--all`**，覆盖整个 workspace；钩子用的是 `cargo fmt --all --check`，裸跑时用不用 `--all` 都能对齐 CI，不过 `--all` 更稳
+- **Rust 版本由仓库根目录 [`rust-toolchain.toml`](rust-toolchain.toml) 固定**，本地与 CI 共用同一版本和组件集合；升级 Rust 时优先改这个文件，再验证 pre-push 五项检查全部通过
 - **应急开关**：
   - `HA_SKIP_PREPUSH=1 git push` — 整段钩子跳过（仅限文档 / 纯 `.md` 改动 / 弱网紧急场合）
   - `HA_SKIP_PREPUSH_TEST=1 git push` — 只跳过 `cargo test`（WIP 分支快速推送，test 让 CI 兜底；fmt/clippy/tsc/eslint 仍然跑）
