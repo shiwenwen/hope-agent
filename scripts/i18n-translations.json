@@ -555,6 +555,20 @@
       "noMessages": "メッセージはまだありません",
       "indicator": "チーム",
       "indicatorMembers": "{{count}} 名のメンバー"
+    },
+    "about": {
+      "description": "デスクトップ、本地サーバー、IMチャネルで動作し、日常の会話だけでなく、文脈保持、ツール利用、継続的な稼働にも対応します。",
+      "badge": "日々の仕事のためのデスクトップAI",
+      "tagline": "記憶し、成長し、システムに深く統合されるパーソナルAIアシスタント。",
+      "featureDailyTitle": "毎日開きたくなる設計",
+      "featureDailyDesc": "分かりやすいUI、落ち着いた初期設定、そして最初に大量のコマンドを覚える前提を置かない低摩擦なセットアップ。",
+      "featureMemoryTitle": "文脈と一緒に育つ",
+      "featureMemoryDesc": "セッション、メモリ、スキル、プロジェクトがつながり、アシスタントが毎回ゼロからやり直さなくて済みます。",
+      "featureReachTitle": "実際に仕事が起きる場所にいる",
+      "featureReachDesc": "ローカルのデスクトップアプリとして使うことも、常駐サービスとして動かすことも、チャネルや定期ルーチンに組み込むこともできます。",
+      "releases": "リリース",
+      "feedback": "フィードバックと課題",
+      "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。"
     }
   },
   "ko": {
@@ -1113,6 +1127,20 @@
       "noMessages": "아직 메시지가 없습니다",
       "indicator": "팀",
       "indicatorMembers": "멤버 {{count}}명"
+    },
+    "about": {
+      "description": "데스크톱, 로컬 서버, IM 채널에서 실행되며, 일상적인 대화뿐 아니라 문맥 유지, 도구 호출, 지속적인 동작까지 지원합니다.",
+      "badge": "일상 업무를 위한 데스크톱 AI",
+      "tagline": "기억하고 성장하며 시스템에 깊게 통합되는 개인 AI 어시스턴트.",
+      "featureDailyTitle": "매일 열기 좋게 설계됨",
+      "featureDailyDesc": "명확한 UI, 차분한 기본값, 그리고 먼저 수많은 명령을 배워야 한다고 가정하지 않는 낮은 진입 장벽의 설정.",
+      "featureMemoryTitle": "맥락과 함께 성장함",
+      "featureMemoryDesc": "세션, 메모리, 스킬, 프로젝트가 연결되어, 도우미가 매번 처음부터 다시 시작하지 않습니다.",
+      "featureReachTitle": "실제 일이 일어나는 곳에 머묾",
+      "featureReachDesc": "로컬 데스크톱 앱으로 쓰거나, 서비스처럼 계속 실행하거나, 채널과 예약된 루틴에 연결할 수 있습니다.",
+      "releases": "릴리스",
+      "feedback": "피드백 및 이슈",
+      "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다."
     }
   },
   "zh-TW": {
@@ -1671,6 +1699,20 @@
       "noMessages": "尚無訊息",
       "indicator": "團隊",
       "indicatorMembers": "{{count}} 名成員"
+    },
+    "about": {
+      "description": "它可以運行在桌面、本地伺服器和 IM 渠道裡，既能日常聊天，也能保留上下文、調用工具並持續工作。",
+      "badge": "面向日常使用的桌面 AI 助手",
+      "tagline": "會記憶、能成長、深度融合系統的隨身 AI 助手。",
+      "featureDailyTitle": "為每天打開而設計",
+      "featureDailyDesc": "介面清晰、預設克制、首次上手成本低，不要求你先學會一整套命令和設定。",
+      "featureMemoryTitle": "會隨著上下文一起成長",
+      "featureMemoryDesc": "會話、記憶、技能和專案彼此銜接，讓助手不是每次都從零開始。",
+      "featureReachTitle": "留在你真正工作的地方",
+      "featureReachDesc": "可以是本地桌面應用，也可以常駐為服務，接入聊天渠道和定時任務。",
+      "releases": "發行版本",
+      "feedback": "回饋與問題",
+      "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。"
     }
   },
   "tr": {
@@ -2229,6 +2271,20 @@
       "noMessages": "Henüz mesaj yok",
       "indicator": "Ekip",
       "indicatorMembers": "{{count}} üye"
+    },
+    "about": {
+      "description": "Masaüstünde, yerel bir sunucuda ve IM kanallarında çalışabilir; günlük sohbetin yanında bağlamı korur, araçları kullanır ve zaman içinde çalışmaya devam eder.",
+      "badge": "Günlük iş için masaüstü yapay zeka",
+      "tagline": "Hatırlayan, gelişen ve sistemle derinlemesine bütünleşen kişisel bir yapay zeka asistanı.",
+      "featureDailyTitle": "Her gün açılmak için tasarlandı",
+      "featureDailyDesc": "Açık bir arayüz, sakin varsayılanlar ve önce bir komut yığını öğrenmenizi beklemeyen düşük sürtünmeli kurulum.",
+      "featureMemoryTitle": "Bağlamla birlikte büyür",
+      "featureMemoryDesc": "Oturumlar, bellek, beceriler ve projeler birbirine bağlanır; böylece asistan her seferinde sıfırdan başlamaz.",
+      "featureReachTitle": "İşin gerçekten olduğu yerde görünür",
+      "featureReachDesc": "Yerel masaüstü uygulaması olarak kullanın, hizmet olarak sürekli çalıştırın ya da kanallara ve zamanlanmış rutinlere bağlayın.",
+      "releases": "Sürümler",
+      "feedback": "Geri bildirim ve sorunlar",
+      "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı."
     }
   },
   "vi": {
@@ -2787,6 +2843,20 @@
       "noMessages": "Chưa có tin nhắn",
       "indicator": "Đội",
       "indicatorMembers": "{{count}} thành viên"
+    },
+    "about": {
+      "description": "Nó có thể chạy trên desktop, máy chủ cục bộ và các kênh IM, không chỉ để trò chuyện hằng ngày mà còn để giữ ngữ cảnh, dùng công cụ và hoạt động liên tục theo thời gian.",
+      "badge": "AI desktop cho công việc hằng ngày",
+      "tagline": "Một trợ lý AI cá nhân biết ghi nhớ, phát triển và tích hợp sâu với hệ thống.",
+      "featureDailyTitle": "Được thiết kế để mở mỗi ngày",
+      "featureDailyDesc": "Giao diện rõ ràng, mặc định điềm tĩnh và thiết lập ít ma sát, không mặc định rằng bạn muốn học cả một chồng lệnh trước.",
+      "featureMemoryTitle": "Lớn lên cùng ngữ cảnh",
+      "featureMemoryDesc": "Phiên làm việc, bộ nhớ, kỹ năng và dự án được kết nối để trợ lý luôn hữu ích thay vì lần nào cũng bắt đầu lại từ đầu.",
+      "featureReachTitle": "Xuất hiện đúng nơi công việc diễn ra",
+      "featureReachDesc": "Dùng như ứng dụng desktop cục bộ, giữ chạy như một dịch vụ, hoặc kết nối vào các kênh và lịch trình định kỳ.",
+      "releases": "Bản phát hành",
+      "feedback": "Phản hồi và lỗi",
+      "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài."
     }
   },
   "pt": {
@@ -3345,6 +3415,20 @@
       "noMessages": "Ainda não há mensagens",
       "indicator": "Equipe",
       "indicatorMembers": "{{count}} membros"
+    },
+    "about": {
+      "description": "Ele pode rodar no desktop, em um servidor local e em canais de IM, fazendo conversas do dia a dia enquanto mantém contexto, usa ferramentas e continua disponível ao longo do tempo.",
+      "badge": "IA de desktop para o trabalho diário",
+      "tagline": "Um assistente pessoal de IA que lembra, evolui e se integra profundamente ao seu sistema.",
+      "featureDailyTitle": "Feito para ser aberto todos os dias",
+      "featureDailyDesc": "Interface clara, padrões tranquilos e configuração sem atrito, sem presumir que você queira aprender uma pilha de comandos primeiro.",
+      "featureMemoryTitle": "Cresce com o contexto",
+      "featureMemoryDesc": "Sessões, memória, habilidades e projetos se conectam para que o assistente continue útil, em vez de recomeçar do zero.",
+      "featureReachTitle": "Aparece onde o trabalho realmente acontece",
+      "featureReachDesc": "Use como app local de desktop, mantenha rodando como serviço ou conecte a canais e rotinas agendadas.",
+      "releases": "Lançamentos",
+      "feedback": "Feedback e problemas",
+      "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo."
     }
   },
   "ru": {
@@ -3903,6 +3987,20 @@
       "noMessages": "Сообщений пока нет",
       "indicator": "Команда",
       "indicatorMembers": "{{count}} участников"
+    },
+    "about": {
+      "description": "Он может работать на рабочем столе, на локальном сервере и в IM-каналах: не только вести диалог, но и сохранять контекст, использовать инструменты и оставаться доступным постоянно.",
+      "badge": "Настольный ИИ для повседневной работы",
+      "tagline": "Персональный ИИ-помощник, который помнит, развивается и глубоко интегрируется с системой.",
+      "featureDailyTitle": "Сделан для ежедневного использования",
+      "featureDailyDesc": "Понятный интерфейс, спокойные настройки по умолчанию и простой старт без предположения, что вы сначала захотите изучать набор команд.",
+      "featureMemoryTitle": "Растет вместе с контекстом",
+      "featureMemoryDesc": "Сессии, память, навыки и проекты связаны между собой, поэтому ассистент не начинает каждый раз с нуля.",
+      "featureReachTitle": "Остается там, где действительно идет работа",
+      "featureReachDesc": "Используйте его как локальное настольное приложение, держите как сервис или подключайте к каналам и расписаниям.",
+      "releases": "Релизы",
+      "feedback": "Отзывы и проблемы",
+      "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании."
     }
   },
   "ar": {
@@ -4461,6 +4559,20 @@
       "noMessages": "لا توجد رسائل بعد",
       "indicator": "الفريق",
       "indicatorMembers": "{{count}} عضو"
+    },
+    "about": {
+      "description": "يمكنه العمل على سطح المكتب، وعلى خادم محلي، وعبر قنوات المراسلة، ليس فقط للدردشة اليومية بل أيضًا للاحتفاظ بالسياق واستخدام الأدوات والاستمرار في العمل مع الوقت.",
+      "badge": "ذكاء اصطناعي مكتبي للعمل اليومي",
+      "tagline": "مساعد ذكاء اصطناعي شخصي يتذكر وينمو ويندمج بعمق مع نظامك.",
+      "featureDailyTitle": "مصمم ليُفتح كل يوم",
+      "featureDailyDesc": "واجهة واضحة، إعدادات افتراضية هادئة، وتهيئة منخفضة الاحتكاك لا تفترض أنك تريد تعلم مجموعة من الأوامر أولًا.",
+      "featureMemoryTitle": "ينمو مع السياق",
+      "featureMemoryDesc": "تتصل الجلسات والذاكرة والمهارات والمشاريع معًا، بحيث يظل المساعد مفيدًا بدلًا من البدء من الصفر كل مرة.",
+      "featureReachTitle": "يظهر حيث يحدث العمل فعلاً",
+      "featureReachDesc": "استخدمه كتطبيق مكتبي محلي، أو أبقه يعمل كخدمة، أو وصله بالقنوات والمهام المجدولة.",
+      "releases": "الإصدارات",
+      "feedback": "الملاحظات والمشكلات",
+      "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل."
     }
   },
   "es": {
@@ -5019,6 +5131,20 @@
       "noMessages": "Aún no hay mensajes",
       "indicator": "Equipo",
       "indicatorMembers": "{{count}} miembros"
+    },
+    "about": {
+      "description": "Puede ejecutarse en el escritorio, en un servidor local y en canales de mensajería, no solo para chatear, sino también para conservar contexto, usar herramientas y seguir trabajando con el tiempo.",
+      "badge": "IA de escritorio para el trabajo diario",
+      "tagline": "Un asistente de IA personal que recuerda, crece y se integra profundamente con tu sistema.",
+      "featureDailyTitle": "Diseñado para abrirse todos los días",
+      "featureDailyDesc": "Interfaz clara, ajustes tranquilos por defecto y una configuración de baja fricción que no asume que primero quieras aprender una pila de comandos.",
+      "featureMemoryTitle": "Crece con el contexto",
+      "featureMemoryDesc": "Sesiones, memoria, habilidades y proyectos se conectan para que el asistente siga siendo útil en lugar de empezar de cero cada vez.",
+      "featureReachTitle": "Aparece donde realmente ocurre el trabajo",
+      "featureReachDesc": "Úsalo como app local de escritorio, mantenlo como servicio o intégralo en canales y rutinas programadas.",
+      "releases": "Lanzamientos",
+      "feedback": "Comentarios y problemas",
+      "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo."
     }
   },
   "ms": {
@@ -5577,6 +5703,20 @@
       "noMessages": "Tiada mesej lagi",
       "indicator": "Pasukan",
       "indicatorMembers": "{{count}} ahli"
+    },
+    "about": {
+      "description": "Ia boleh berjalan di desktop, pelayan tempatan dan saluran IM, bukan sekadar bersembang harian tetapi juga mengekalkan konteks, menggunakan alat dan terus bekerja dari semasa ke semasa.",
+      "badge": "AI desktop untuk kerja harian",
+      "tagline": "Pembantu AI peribadi yang mengingati, berkembang, dan terintegrasi mendalam dengan sistem anda.",
+      "featureDailyTitle": "Direka untuk dibuka setiap hari",
+      "featureDailyDesc": "Antara muka yang jelas, tetapan lalai yang tenang, dan persediaan yang rendah geseran tanpa mengandaikan anda mahu belajar set arahan terlebih dahulu.",
+      "featureMemoryTitle": "Membesar bersama konteks",
+      "featureMemoryDesc": "Sesi, memori, kemahiran dan projek saling terhubung supaya pembantu kekal berguna dan tidak bermula dari kosong setiap kali.",
+      "featureReachTitle": "Hadir di tempat kerja benar-benar berlaku",
+      "featureReachDesc": "Gunakannya sebagai aplikasi desktop tempatan, kekalkan ia berjalan sebagai perkhidmatan, atau sambungkan ke saluran dan rutin berjadual.",
+      "releases": "Keluaran",
+      "feedback": "Maklum balas dan isu",
+      "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang."
     }
   }
 }

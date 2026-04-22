@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { APP_VERSION } from "@/lib/appMeta"
 import { IconTip } from "@/components/ui/tooltip"
 import { Settings, Copy, BarChart3, Pencil, Zap, Check, X, FileText, Loader2, Search, Ghost } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -293,7 +294,7 @@ export default function ChatTitleBar({
                 {/* App version */}
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-muted-foreground">🖥️ Hope Agent</span>
-                  <span className="font-medium text-foreground tabular-nums">v0.1.0</span>
+                  <span className="font-medium text-foreground tabular-nums">v{APP_VERSION}</span>
                 </div>
                 <div className="border-t border-border" />
                 {/* Model + Auth */}

@@ -1710,9 +1710,20 @@
   "about": {
     "title": "About",
     "version": "Version",
-    "description": "A local AI assistant desktop app built with Tauri 2 + React 19 + Rust",
+    "description": "It can run on your desktop, on a local server, and across IM channels, handling everyday chat while retaining context, using tools, and staying available over time.",
     "github": "GitHub",
-    "techStack": "Tech Stack"
+    "techStack": "Tech Stack",
+    "badge": "Desktop AI for everyday work",
+    "tagline": "A personal AI assistant that remembers, grows, and integrates deeply with your system.",
+    "featureDailyTitle": "Designed to be opened every day",
+    "featureDailyDesc": "Clear UI, calm defaults, and a low-friction setup that does not assume you want to learn a stack of commands first.",
+    "featureMemoryTitle": "Grows with context",
+    "featureMemoryDesc": "Sessions, memory, skills, and projects connect so the assistant stays useful instead of restarting from zero.",
+    "featureReachTitle": "Shows up where work actually happens",
+    "featureReachDesc": "Use it as a local desktop app, keep it running as a service, or plug it into channels and scheduled routines.",
+    "releases": "Releases",
+    "feedback": "Feedback",
+    "closing": "It is not designed as a feature checklist. It is designed to stay useful, reliable, and unobtrusive over long-term use."
   },
   "health": {
     "refresh": "Refresh",

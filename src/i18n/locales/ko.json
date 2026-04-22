@@ -1710,9 +1710,20 @@
   "about": {
     "title": "정보",
     "version": "버전",
-    "description": "Tauri 2 + React 19 + Rust 기반 로컬 AI 어시스턴트",
+    "description": "데스크톱, 로컬 서버, IM 채널에서 실행되며, 일상적인 대화뿐 아니라 문맥 유지, 도구 호출, 지속적인 동작까지 지원합니다.",
     "github": "GitHub",
-    "techStack": "기술 스택"
+    "techStack": "기술 스택",
+    "badge": "일상 업무를 위한 데스크톱 AI",
+    "tagline": "기억하고 성장하며 시스템에 깊게 통합되는 개인 AI 어시스턴트.",
+    "featureDailyTitle": "매일 열기 좋게 설계됨",
+    "featureDailyDesc": "명확한 UI, 차분한 기본값, 그리고 먼저 수많은 명령을 배워야 한다고 가정하지 않는 낮은 진입 장벽의 설정.",
+    "featureMemoryTitle": "맥락과 함께 성장함",
+    "featureMemoryDesc": "세션, 메모리, 스킬, 프로젝트가 연결되어, 도우미가 매번 처음부터 다시 시작하지 않습니다.",
+    "featureReachTitle": "실제 일이 일어나는 곳에 머묾",
+    "featureReachDesc": "로컬 데스크톱 앱으로 쓰거나, 서비스처럼 계속 실행하거나, 채널과 예약된 루틴에 연결할 수 있습니다.",
+    "releases": "릴리스",
+    "feedback": "피드백 및 이슈",
+    "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다."
   },
   "health": {
     "refresh": "새로 고침",

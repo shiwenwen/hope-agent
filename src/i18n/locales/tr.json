@@ -1710,9 +1710,20 @@
   "about": {
     "title": "Hakkında",
     "version": "Sürüm",
-    "description": "Tauri 2 + React 19 + Rust ile oluşturulmuş yerel AI asistanı",
+    "description": "Masaüstünde, yerel bir sunucuda ve IM kanallarında çalışabilir; günlük sohbetin yanında bağlamı korur, araçları kullanır ve zaman içinde çalışmaya devam eder.",
     "github": "GitHub",
-    "techStack": "Teknoloji"
+    "techStack": "Teknoloji",
+    "badge": "Günlük iş için masaüstü yapay zeka",
+    "tagline": "Hatırlayan, gelişen ve sistemle derinlemesine bütünleşen kişisel bir yapay zeka asistanı.",
+    "featureDailyTitle": "Her gün açılmak için tasarlandı",
+    "featureDailyDesc": "Açık bir arayüz, sakin varsayılanlar ve önce bir komut yığını öğrenmenizi beklemeyen düşük sürtünmeli kurulum.",
+    "featureMemoryTitle": "Bağlamla birlikte büyür",
+    "featureMemoryDesc": "Oturumlar, bellek, beceriler ve projeler birbirine bağlanır; böylece asistan her seferinde sıfırdan başlamaz.",
+    "featureReachTitle": "İşin gerçekten olduğu yerde görünür",
+    "featureReachDesc": "Yerel masaüstü uygulaması olarak kullanın, hizmet olarak sürekli çalıştırın ya da kanallara ve zamanlanmış rutinlere bağlayın.",
+    "releases": "Sürümler",
+    "feedback": "Geri bildirim ve sorunlar",
+    "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı."
   },
   "health": {
     "refresh": "Yenile",

@@ -1710,9 +1710,20 @@
   "about": {
     "title": "Acerca de",
     "version": "Versión",
-    "description": "Asistente de IA local con Tauri 2 + React 19 + Rust",
+    "description": "Puede ejecutarse en el escritorio, en un servidor local y en canales de mensajería, no solo para chatear, sino también para conservar contexto, usar herramientas y seguir trabajando con el tiempo.",
     "github": "GitHub",
-    "techStack": "Stack Tecnológico"
+    "techStack": "Stack Tecnológico",
+    "badge": "IA de escritorio para el trabajo diario",
+    "tagline": "Un asistente de IA personal que recuerda, crece y se integra profundamente con tu sistema.",
+    "featureDailyTitle": "Diseñado para abrirse todos los días",
+    "featureDailyDesc": "Interfaz clara, ajustes tranquilos por defecto y una configuración de baja fricción que no asume que primero quieras aprender una pila de comandos.",
+    "featureMemoryTitle": "Crece con el contexto",
+    "featureMemoryDesc": "Sesiones, memoria, habilidades y proyectos se conectan para que el asistente siga siendo útil en lugar de empezar de cero cada vez.",
+    "featureReachTitle": "Aparece donde realmente ocurre el trabajo",
+    "featureReachDesc": "Úsalo como app local de escritorio, mantenlo como servicio o intégralo en canales y rutinas programadas.",
+    "releases": "Lanzamientos",
+    "feedback": "Comentarios y problemas",
+    "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo."
   },
   "health": {
     "refresh": "Actualizar",

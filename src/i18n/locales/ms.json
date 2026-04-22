@@ -1710,9 +1710,20 @@
   "about": {
     "title": "Tentang",
     "version": "Versi",
-    "description": "Pembantu AI tempatan dibina dengan Tauri 2 + React 19 + Rust",
+    "description": "Ia boleh berjalan di desktop, pelayan tempatan dan saluran IM, bukan sekadar bersembang harian tetapi juga mengekalkan konteks, menggunakan alat dan terus bekerja dari semasa ke semasa.",
     "github": "GitHub",
-    "techStack": "Tumpukan Teknologi"
+    "techStack": "Tumpukan Teknologi",
+    "badge": "AI desktop untuk kerja harian",
+    "tagline": "Pembantu AI peribadi yang mengingati, berkembang, dan terintegrasi mendalam dengan sistem anda.",
+    "featureDailyTitle": "Direka untuk dibuka setiap hari",
+    "featureDailyDesc": "Antara muka yang jelas, tetapan lalai yang tenang, dan persediaan yang rendah geseran tanpa mengandaikan anda mahu belajar set arahan terlebih dahulu.",
+    "featureMemoryTitle": "Membesar bersama konteks",
+    "featureMemoryDesc": "Sesi, memori, kemahiran dan projek saling terhubung supaya pembantu kekal berguna dan tidak bermula dari kosong setiap kali.",
+    "featureReachTitle": "Hadir di tempat kerja benar-benar berlaku",
+    "featureReachDesc": "Gunakannya sebagai aplikasi desktop tempatan, kekalkan ia berjalan sebagai perkhidmatan, atau sambungkan ke saluran dan rutin berjadual.",
+    "releases": "Keluaran",
+    "feedback": "Maklum balas dan isu",
+    "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang."
   },
   "health": {
     "refresh": "Muat semula",

@@ -1710,9 +1710,20 @@
   "about": {
     "title": "关于",
     "version": "版本",
-    "description": "基于 Tauri 2 + React 19 + Rust 的本地 AI 助手桌面应用",
+    "description": "它可以运行在桌面、本地服务器和 IM 渠道里，既能日常聊天，也能保留上下文、调用工具并持续工作。",
     "github": "GitHub",
-    "techStack": "技术栈"
+    "techStack": "技术栈",
+    "badge": "面向日常使用的桌面 AI 助手",
+    "tagline": "会记忆、能成长、深度融合系统的随身 AI 助手。",
+    "featureDailyTitle": "为每天打开而设计",
+    "featureDailyDesc": "界面清晰、默认克制、首次上手成本低，不要求你先学会一整套命令和配置。",
+    "featureMemoryTitle": "会随着上下文一起成长",
+    "featureMemoryDesc": "会话、记忆、技能和项目彼此衔接，让助手不是每次都从零开始。",
+    "featureReachTitle": "留在你真正工作的地方",
+    "featureReachDesc": "可以是本地桌面应用，也可以常驻为服务，接入聊天渠道和定时任务。",
+    "releases": "发布版本",
+    "feedback": "反馈与问题",
+    "closing": "它不是为了堆功能清单而设计，而是为了在长时间使用里依然顺手、可靠、不过度打扰。"
   },
   "health": {
     "refresh": "刷新",

@@ -1710,9 +1710,20 @@
   "about": {
     "title": "Giới thiệu",
     "version": "Phiên bản",
-    "description": "Trợ lý AI cục bộ xây dựng trên Tauri 2 + React 19 + Rust",
+    "description": "Nó có thể chạy trên desktop, máy chủ cục bộ và các kênh IM, không chỉ để trò chuyện hằng ngày mà còn để giữ ngữ cảnh, dùng công cụ và hoạt động liên tục theo thời gian.",
     "github": "GitHub",
-    "techStack": "Công nghệ"
+    "techStack": "Công nghệ",
+    "badge": "AI desktop cho công việc hằng ngày",
+    "tagline": "Một trợ lý AI cá nhân biết ghi nhớ, phát triển và tích hợp sâu với hệ thống.",
+    "featureDailyTitle": "Được thiết kế để mở mỗi ngày",
+    "featureDailyDesc": "Giao diện rõ ràng, mặc định điềm tĩnh và thiết lập ít ma sát, không mặc định rằng bạn muốn học cả một chồng lệnh trước.",
+    "featureMemoryTitle": "Lớn lên cùng ngữ cảnh",
+    "featureMemoryDesc": "Phiên làm việc, bộ nhớ, kỹ năng và dự án được kết nối để trợ lý luôn hữu ích thay vì lần nào cũng bắt đầu lại từ đầu.",
+    "featureReachTitle": "Xuất hiện đúng nơi công việc diễn ra",
+    "featureReachDesc": "Dùng như ứng dụng desktop cục bộ, giữ chạy như một dịch vụ, hoặc kết nối vào các kênh và lịch trình định kỳ.",
+    "releases": "Bản phát hành",
+    "feedback": "Phản hồi và lỗi",
+    "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài."
   },
   "health": {
     "refresh": "Làm mới",
