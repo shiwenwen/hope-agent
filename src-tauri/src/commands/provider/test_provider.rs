@@ -1,4 +1,5 @@
 use crate::provider::{ApiType, ProviderConfig};
+use ha_core::agent::{build_api_url, is_complete_endpoint_url};
 
 #[tauri::command]
 pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
@@ -13,8 +14,17 @@ pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
     .map_err(|e| format!("Client error: {}", e))?;
 
     let base = config.base_url.trim_end_matches('/');
-    let has_version_suffix =
-        base.ends_with("/v1") || base.ends_with("/v2") || base.ends_with("/v3");
+    // If base_url already points at a chat endpoint, probing GET /models
+    // returns 405 and misleads the user. Hit the chat endpoint directly.
+    let base_is_chat_endpoint = is_complete_endpoint_url(base);
+    // Use the first real model ID the user configured so the server returns
+    // 200 instead of 400 "model not found"; fall back to a placeholder only
+    // when the Provider has no models yet (e.g. mid-wizard).
+    let probe_model = config
+        .models
+        .first()
+        .map(|m| m.id.clone())
+        .unwrap_or_else(|| "test".to_string());
     let mut steps: Vec<serde_json::Value> = Vec::new();
     let total_start = Instant::now();
 
@@ -35,13 +45,9 @@ pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
 
     match config.api_type {
         ApiType::Anthropic => {
-            let url = if has_version_suffix {
-                format!("{}/messages", base)
-            } else {
-                format!("{}/v1/messages", base)
-            };
+            let url = build_api_url(base, "/v1/messages");
             let body = serde_json::json!({
-                "model": "test-model", "max_tokens": 1,
+                "model": probe_model, "max_tokens": 1,
                 "messages": [{ "role": "user", "content": "Hi" }]
             });
 
@@ -115,49 +121,48 @@ pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
             })).unwrap_or_default())
         }
         ApiType::OpenaiChat | ApiType::OpenaiResponses => {
-            let models_url = if has_version_suffix {
-                format!("{}/models", base)
-            } else {
-                format!("{}/v1/models", base)
-            };
-            let t = Instant::now();
-            let mut req = client.get(&models_url);
-            if !config.api_key.is_empty() {
-                req = req.header("Authorization", format!("Bearer {}", config.api_key));
-            }
-            let resp = req.send().await.map_err(|e| {
-                build_result!(false, format!("连接失败: {}", e), &models_url, 0, "Bearer")
-            })?;
-            let status = resp.status().as_u16();
-            steps.push(serde_json::json!({"endpoint": &models_url, "method": "GET", "status": status, "latencyMs": t.elapsed().as_millis() as u64}));
+            let chat_url = build_api_url(base, "/v1/chat/completions");
 
-            if resp.status().is_success() {
-                return Ok(build_result!(
-                    true,
-                    "连接成功",
-                    &models_url,
-                    status,
-                    "Bearer"
-                ));
-            }
-            if status == 401 || status == 403 {
-                let detail = resp.text().await.unwrap_or_default();
-                return Err(serde_json::to_string(&serde_json::json!({
-                    "success": false, "message": format!("认证失败 ({})", status), "detail": detail,
-                    "url": &models_url, "status": status, "latencyMs": total_start.elapsed().as_millis() as u64, "steps": steps,
-                })).unwrap_or_default());
+            // If the user supplied a complete chat/responses endpoint, skip
+            // the GET /models probe (which would 405) and go straight to the
+            // chat POST.
+            if !base_is_chat_endpoint {
+                let models_url = build_api_url(base, "/v1/models");
+                let t = Instant::now();
+                let mut req = client.get(&models_url);
+                if !config.api_key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", config.api_key));
+                }
+                let resp = req.send().await.map_err(|e| {
+                    build_result!(false, format!("连接失败: {}", e), &models_url, 0, "Bearer")
+                })?;
+                let status = resp.status().as_u16();
+                steps.push(serde_json::json!({"endpoint": &models_url, "method": "GET", "status": status, "latencyMs": t.elapsed().as_millis() as u64}));
+
+                if resp.status().is_success() {
+                    return Ok(build_result!(
+                        true,
+                        "连接成功",
+                        &models_url,
+                        status,
+                        "Bearer"
+                    ));
+                }
+                if status == 401 || status == 403 {
+                    let detail = resp.text().await.unwrap_or_default();
+                    return Err(serde_json::to_string(&serde_json::json!({
+                        "success": false, "message": format!("认证失败 ({})", status), "detail": detail,
+                        "url": &models_url, "status": status, "latencyMs": total_start.elapsed().as_millis() as u64, "steps": steps,
+                    })).unwrap_or_default());
+                }
             }
 
-            // Fallback: chat/completions
-            let chat_url = if has_version_suffix {
-                format!("{}/chat/completions", base)
-            } else {
-                format!("{}/v1/chat/completions", base)
-            };
+            // Fallback (or primary, when base is a full chat endpoint):
+            // POST /chat/completions
             let t2 = Instant::now();
             let mut chat_req = client.post(&chat_url)
                 .header("content-type", "application/json")
-                .json(&serde_json::json!({"model": "test", "max_tokens": 1, "messages": [{"role": "user", "content": "Hi"}]}));
+                .json(&serde_json::json!({"model": probe_model, "max_tokens": 1, "messages": [{"role": "user", "content": "Hi"}]}));
             if !config.api_key.is_empty() {
                 chat_req = chat_req.header("Authorization", format!("Bearer {}", config.api_key));
             }
