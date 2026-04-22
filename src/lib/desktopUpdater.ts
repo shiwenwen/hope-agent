@@ -115,10 +115,7 @@ export function startPeriodicUpdateCheck(): () => void {
   const CHECK_INTERVAL = 12 * 60 * 60 * 1000
   
   const timerId = setInterval(() => {
-    // Only fetch if there's no pending update currently shown to the user
-    if (!_pendingUpdate) {
-      autoCheckForUpdate(true).catch(() => {})
-    }
+    autoCheckForUpdate(true).catch(() => {})
   }, CHECK_INTERVAL)
   
   return () => clearInterval(timerId)

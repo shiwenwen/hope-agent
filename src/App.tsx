@@ -37,11 +37,13 @@ export default function App() {
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
-  const [toastDismissed, setToastDismissed] = useState(false)
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null)
   const [showIgnoreOptions, setShowIgnoreOptions] = useState(false)
 
   const ignoredVersion = localStorage.getItem("ignored_update_version")
-  const shouldShowToast = globalPendingUpdate && !toastDismissed && globalPendingUpdate.version !== ignoredVersion
+  const shouldShowToast = globalPendingUpdate && 
+                          globalPendingUpdate.version !== dismissedVersion && 
+                          globalPendingUpdate.version !== ignoredVersion
 
   const [installingUpdate, setInstallingUpdate] = useState(false)
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
@@ -79,7 +81,9 @@ export default function App() {
     } catch (e) {
       logger.error("update", "App::handleInstallUpdate", "Failed to install update via toast", e)
       setInstallingUpdate(false)
-      setToastDismissed(true)
+      if (globalPendingUpdate?.version) {
+        setDismissedVersion(globalPendingUpdate.version)
+      }
     }
   }
 
@@ -395,7 +399,7 @@ export default function App() {
                   <button
                     className="flex-1 text-xs font-medium text-muted-foreground bg-secondary hover:bg-secondary/80 px-3 py-2 rounded-lg transition-colors"
                     onClick={() => {
-                      setToastDismissed(true)
+                      setDismissedVersion(globalPendingUpdate.version)
                       setShowIgnoreOptions(false)
                     }}
                   >
@@ -405,7 +409,7 @@ export default function App() {
                     className="flex-1 text-xs font-medium text-destructive bg-destructive/10 hover:bg-destructive/20 px-3 py-2 rounded-lg transition-colors"
                     onClick={() => {
                       localStorage.setItem("ignored_update_version", globalPendingUpdate.version)
-                      setToastDismissed(true)
+                      setDismissedVersion(globalPendingUpdate.version)
                       setShowIgnoreOptions(false)
                     }}
                   >
@@ -430,7 +434,7 @@ export default function App() {
               <div 
                 className="flex items-start gap-4 cursor-pointer group"
                 onClick={() => {
-                  setToastDismissed(true)
+                  setDismissedVersion(globalPendingUpdate.version)
                   handleOpenSettings("about")
                 }}
               >
