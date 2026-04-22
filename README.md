@@ -179,6 +179,7 @@ node scripts/sync-i18n.mjs --check   # 检查翻译缺失
 ## 致谢
 
 - [openclaw](https://github.com/openclaw/openclaw)：在本地 AI 助手方向上的启发
+- [ClawHub](https://www.clawhub.com/) / [SkillHub](https://skillhub.cn/)：为 Hope Agent 提供公开的 skill 搜索与发现来源
 - [Tauri](https://tauri.app/)、[axum](https://github.com/tokio-rs/axum)、[React](https://react.dev/)、[shadcn/ui](https://ui.shadcn.com/)、[Streamdown](https://github.com/streamdown/streamdown)、[Radix UI](https://www.radix-ui.com/) 等开源基础设施
 - 所有为这个项目做过反馈、测试、提交 issue 的朋友
 
