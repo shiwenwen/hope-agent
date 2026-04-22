@@ -24,6 +24,7 @@ interface SessionAwarenessOverride {
 
 interface Props {
   sessionId: string | null
+  disabled?: boolean
 }
 
 /**
@@ -34,7 +35,7 @@ interface Props {
  * When visible, it shows an eye icon that opens a small popover with
  * enable/disable toggle + mode selector for this session only.
  */
-export default function AwarenessToggle({ sessionId }: Props) {
+export default function AwarenessToggle({ sessionId, disabled = false }: Props) {
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [globalEnabled, setGlobalEnabled] = useState(false)
@@ -46,6 +47,12 @@ export default function AwarenessToggle({ sessionId }: Props) {
   const ref = useRef<HTMLDivElement>(null)
 
   useClickOutside(ref, useCallback(() => setOpen(false), []))
+
+  useEffect(() => {
+    if (disabled && open) {
+      setOpen(false)
+    }
+  }, [disabled, open])
 
   // Load global config to check if feature is enabled at all.
   useEffect(() => {
@@ -106,11 +113,19 @@ export default function AwarenessToggle({ sessionId }: Props) {
 
   return (
     <div className="relative" ref={ref}>
-      <IconTip label={t("settings.awareness.title", "Behavior Awareness")}>
+      <IconTip
+        label={
+          disabled
+            ? t("chat.incognitoAwarenessDisabled")
+            : t("settings.awareness.title", "Behavior Awareness")
+        }
+      >
         <button
+          type="button"
+          disabled={disabled}
           onClick={() => setOpen(!open)}
           className={cn(
-            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0",
+            "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 disabled:cursor-not-allowed disabled:opacity-50",
             isDisabledLocally
               ? "text-orange-500"
               : isOverridden
@@ -126,7 +141,7 @@ export default function AwarenessToggle({ sessionId }: Props) {
         </button>
       </IconTip>
 
-      {open && (
+      {open && !disabled && (
         <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 w-[220px] p-3 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
           {/* Header */}
           <div className="flex items-center justify-between mb-2">

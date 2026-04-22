@@ -7,12 +7,13 @@ use tauri::State;
 pub async fn create_session_cmd(
     agent_id: Option<String>,
     project_id: Option<String>,
+    incognito: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<session::SessionMeta, String> {
     let agent_id = agent_id.unwrap_or_else(|| "default".to_string());
     state
         .session_db
-        .create_session_with_project(&agent_id, project_id.as_deref())
+        .create_session_with_project(&agent_id, project_id.as_deref(), incognito)
         .map_err(|e| e.to_string())
 }
 
@@ -79,6 +80,18 @@ pub async fn get_session_cmd(
     state
         .session_db
         .get_session(&session_id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_session_incognito(
+    session_id: String,
+    enabled: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .session_db
+        .update_session_incognito(&session_id, enabled)
         .map_err(|e| e.to_string())
 }
 

@@ -27,10 +27,12 @@ import {
   FolderMinus,
   FolderKanban,
   Check,
+  Ghost,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import ChannelIcon from "@/components/common/ChannelIcon"
+import { INCOGNITO_BADGE_ICON_CLASSES } from "@/components/chat/input/incognitoStyles"
 
 interface SessionItemProps {
   session: SessionMeta
@@ -201,6 +203,13 @@ export default function SessionItem({
                 >
                   <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-blue-500/15 text-blue-500">
                     <ChannelIcon channelId={session.channelInfo.channelId} className="w-2.5 h-2.5" />
+                  </span>
+                </IconTip>
+              )}
+              {session.incognito && (
+                <IconTip label={t("chat.incognito")}>
+                  <span className={INCOGNITO_BADGE_ICON_CLASSES}>
+                    <Ghost className="w-2.5 h-2.5" />
                   </span>
                 </IconTip>
               )}

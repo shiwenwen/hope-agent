@@ -159,6 +159,10 @@ pub struct AssistantAgent {
     pub(super) canvas_enabled: bool,
     /// Current session ID (for sub-agent context)
     pub(super) session_id: Option<String>,
+    /// Cached `sessions.incognito` flag for the current session. Refreshed at
+    /// each turn boundary (`reset_chat_flags`) and on `set_session_id`; allows
+    /// hot-path guards to avoid a SQLite round-trip per call.
+    pub(crate) incognito_cached: std::sync::atomic::AtomicBool,
     /// Sub-agent nesting depth (0 = top-level)
     pub(super) subagent_depth: u32,
     /// Run ID for steer mailbox (set only when running as a sub-agent)

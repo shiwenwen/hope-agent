@@ -146,7 +146,7 @@ impl AssistantAgent {
                             .ok()
                             .and_then(|d| d.config.memory.flush_before_compact);
                         agent_flush.unwrap_or(global.flush_before_compact)
-                    };
+                    } && !self.session_is_incognito();
 
                     if flush_enabled {
                         // Resolve provider config on the current thread before spawning

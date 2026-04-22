@@ -60,6 +60,7 @@ pub struct CreateSessionBody {
     pub agent_id: Option<String>,
     /// When set, attaches the new session to this project.
     pub project_id: Option<String>,
+    pub incognito: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -72,6 +73,12 @@ pub struct RenameSessionBody {
 pub struct AwarenessOverrideBody {
     /// JSON string. `None` or empty clears the override.
     pub json: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionIncognitoBody {
+    pub enabled: bool,
 }
 
 // ── Response wrapper for paginated lists ────────────────────────
@@ -90,9 +97,11 @@ pub async fn create_session(
     Json(body): Json<CreateSessionBody>,
 ) -> Result<Json<ha_core::session::SessionMeta>, AppError> {
     let agent_id = body.agent_id.as_deref().unwrap_or("default");
-    let meta = ctx
-        .session_db
-        .create_session_with_project(agent_id, body.project_id.as_deref())?;
+    let meta = ctx.session_db.create_session_with_project(
+        agent_id,
+        body.project_id.as_deref(),
+        body.incognito,
+    )?;
     Ok(Json(meta))
 }
 
@@ -150,6 +159,16 @@ pub async fn rename_session(
     Json(body): Json<RenameSessionBody>,
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db.update_session_title(&id, &body.title)?;
+    Ok(Json(json!({ "updated": true })))
+}
+
+/// `PATCH /api/sessions/:id/incognito` — toggle per-session incognito mode.
+pub async fn set_session_incognito(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionIncognitoBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db.update_session_incognito(&id, body.enabled)?;
     Ok(Json(json!({ "updated": true })))
 }
 

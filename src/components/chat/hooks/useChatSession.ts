@@ -76,11 +76,19 @@ export interface UseChatSessionReturn {
    * is wired in immediately — the subsequent first message reuses the
    * existing sessionId instead of auto-creating an unassigned one.
    */
-  handleNewChatInProject: (projectId: string, defaultAgentId?: string | null) => Promise<void>
+  handleNewChatInProject: (
+    projectId: string,
+    defaultAgentId?: string | null,
+    incognito?: boolean,
+  ) => Promise<void>
   handleDeleteSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
   handleLoadMoreSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
+  updateSessionMeta: (
+    sessionId: string,
+    updater: (prev: SessionMeta) => SessionMeta,
+  ) => void
 }
 
 interface UseChatSessionOptions {
@@ -176,6 +184,22 @@ export function useChatSession({
       if (currentSessionIdRef.current === sessionId) {
         setMessages(next)
       }
+    },
+    [],
+  )
+
+  const updateSessionMeta = useCallback(
+    (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => {
+      setSessions((prev) => {
+        let changed = false
+        const next = prev.map((session) => {
+          if (session.id !== sessionId) return session
+          const updated = updater(session)
+          if (updated !== session) changed = true
+          return updated
+        })
+        return changed ? next : prev
+      })
     },
     [],
   )
@@ -499,12 +523,17 @@ export function useChatSession({
   // Create a new session inside a Project and materialize it immediately
   // so project context is active for the first message.
   const handleNewChatInProject = useCallback(
-    async (projectId: string, defaultAgentId?: string | null) => {
+    async (
+      projectId: string,
+      defaultAgentId?: string | null,
+      incognito = false,
+    ) => {
       try {
         const agentId = defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : currentAgentId
         const created = await getTransport().call<SessionMeta>("create_session_cmd", {
           agentId,
           projectId,
+          incognito,
         })
         setMessages([])
         setCurrentSessionId(created.id)
@@ -613,5 +642,6 @@ export function useChatSession({
     handleLoadMore,
     handleLoadMoreSessions,
     updateSessionMessages,
+    updateSessionMeta,
   }
 }

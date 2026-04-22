@@ -87,6 +87,8 @@ export default function ChatScreen({
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [systemPromptContent, setSystemPromptContent] = useState("")
   const [systemPromptLoading, setSystemPromptLoading] = useState(false)
+  const [draftIncognito, setDraftIncognito] = useState(false)
+  const [incognitoSaving, setIncognitoSaving] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<"off" | "planning" | "review" | "executing" | "paused" | "completed">("off")
@@ -113,6 +115,16 @@ export default function ChatScreen({
     () => session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false,
     [session.sessions, session.currentSessionId],
   )
+  const currentSessionMeta = useMemo(
+    () =>
+      session.currentSessionId
+        ? session.sessions.find((s) => s.id === session.currentSessionId) ?? null
+        : null,
+    [session.sessions, session.currentSessionId],
+  )
+  const incognitoEnabled = session.currentSessionId
+    ? currentSessionMeta?.incognito ?? false
+    : draftIncognito
   const reloadSessions = session.reloadSessions
   const currentAgentId = session.currentAgentId
   const handleNewChat = session.handleNewChat
@@ -208,6 +220,37 @@ export default function ChatScreen({
       logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
     }
   }, [reloadSessions])
+
+  const handleIncognitoChange = useCallback(
+    async (enabled: boolean) => {
+      const sid = session.currentSessionId
+      if (!sid) {
+        setDraftIncognito(enabled)
+        return
+      }
+
+      const previous = currentSessionMeta?.incognito ?? false
+      if (previous === enabled) return
+      session.updateSessionMeta(sid, (prev) =>
+        prev.incognito === enabled ? prev : { ...prev, incognito: enabled },
+      )
+      setIncognitoSaving(true)
+      try {
+        await getTransport().call("set_session_incognito", {
+          sessionId: sid,
+          enabled,
+        })
+      } catch (err) {
+        session.updateSessionMeta(sid, (prev) =>
+          prev.incognito === previous ? prev : { ...prev, incognito: previous },
+        )
+        logger.error("chat", "ChatScreen::setIncognito", "Failed to update incognito mode", err)
+      } finally {
+        setIncognitoSaving(false)
+      }
+    },
+    [session, currentSessionMeta?.incognito],
+  )
 
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
   useEffect(() => {
@@ -349,6 +392,7 @@ export default function ChatScreen({
     lastSeqRef: streamSeqRef,
     planMode: planModeState,
     temperatureOverride: sessionTemperature,
+    incognitoEnabled,
   })
 
   // Restore the per-session tool permission toggle on session switch. The ref
@@ -681,7 +725,7 @@ export default function ChatScreen({
           if (archived) setProjectOverviewOpen(false)
         }}
         onNewSessionInProject={(projectId, defaultAgentId) => {
-          void handleNewChatInProject(projectId, defaultAgentId)
+          void handleNewChatInProject(projectId, defaultAgentId, draftIncognito)
         }}
         onOpenSession={(sid) => session.handleSwitchSession(sid)}
         onUpdateProject={updateProject}
@@ -875,6 +919,9 @@ export default function ChatScreen({
               onToolPermissionChange={stream.setToolPermissionMode}
               sessionTemperature={sessionTemperature}
               onSessionTemperatureChange={setSessionTemperature}
+              incognitoEnabled={incognitoEnabled}
+              incognitoSaving={incognitoSaving}
+              onIncognitoChange={handleIncognitoChange}
               planState={planMode.planState}
               planProgress={planMode.progress}
               onEnterPlanMode={planMode.enterPlanMode}

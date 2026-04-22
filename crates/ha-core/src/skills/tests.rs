@@ -5,8 +5,8 @@ mod tests {
 
     use crate::skills::discovery::compact_path;
     use crate::skills::frontmatter::{
-        parse_bool_value, parse_frontmatter, parse_install_specs, parse_requires,
-        ParsedFrontmatter, unquote,
+        parse_bool_value, parse_frontmatter, parse_install_specs, parse_requires, unquote,
+        ParsedFrontmatter,
     };
     use crate::skills::prompt::build_skills_prompt;
     use crate::skills::requirements::{

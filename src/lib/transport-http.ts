@@ -52,6 +52,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   list_sessions_cmd:               { method: "GET",    path: "/api/sessions" },
   create_session_cmd:              { method: "POST",   path: "/api/sessions" },
   get_session_cmd:                 { method: "GET",    path: "/api/sessions/{sessionId}" },
+  set_session_incognito:           { method: "PATCH",  path: "/api/sessions/{sessionId}/incognito" },
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
   load_session_messages_latest_cmd:{ method: "GET",    path: "/api/sessions/{sessionId}/messages" },

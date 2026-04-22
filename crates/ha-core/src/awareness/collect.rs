@@ -242,6 +242,7 @@ mod tests {
             tool_permission_mode: "auto".into(),
             channel_info: None,
             project_id: None,
+            incognito: false,
         }
     }
 

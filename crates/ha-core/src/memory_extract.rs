@@ -104,6 +104,15 @@ pub async fn run_extraction(
     model_id: &str,
     main_agent: Option<&AssistantAgent>,
 ) {
+    if crate::session::is_session_incognito(Some(session_id)) {
+        app_info!(
+            "memory",
+            "auto_extract",
+            "Skipping extraction for incognito session {}",
+            session_id
+        );
+        return;
+    }
     if let Err(e) = do_extraction(
         messages,
         agent_id,
@@ -335,6 +344,15 @@ pub async fn flush_before_compact(
     provider_config: &crate::provider::ProviderConfig,
     model_id: &str,
 ) -> Result<usize> {
+    if crate::session::is_session_incognito(Some(session_id)) {
+        app_info!(
+            "memory",
+            "flush",
+            "Skipping flush_before_compact for incognito session {}",
+            session_id
+        );
+        return Ok(0);
+    }
     let backend = crate::get_memory_backend()
         .ok_or_else(|| anyhow::anyhow!("Memory backend not initialized"))?;
 
@@ -494,7 +512,7 @@ fn decode_items(items: &[Value], force_profile_tag: bool, limit: usize) -> Vec<E
 // ── Idle Extraction ────────────────────────────────────────────
 
 /// Cancel a pending idle extraction for a session.
-fn cancel_idle_extract(session_id: &str) {
+pub fn cancel_idle_extraction(session_id: &str) {
     if let Some(handles) = crate::globals::IDLE_EXTRACT_HANDLES.get() {
         if let Ok(mut map) = handles.lock() {
             if let Some((abort_handle, _, _)) = map.remove(session_id) {
@@ -533,7 +551,17 @@ pub fn schedule_idle_extraction(
         return;
     }
 
-    cancel_idle_extract(&session_id);
+    if crate::session::is_session_incognito(Some(&session_id)) {
+        app_info!(
+            "memory",
+            "idle_extract",
+            "Not scheduling idle extraction for incognito session {}",
+            session_id
+        );
+        return;
+    }
+
+    cancel_idle_extraction(&session_id);
 
     let sid = session_id.clone();
     let aid = agent_id.clone();
@@ -600,6 +628,15 @@ async fn run_idle_extraction(agent_id: &str, session_id: &str, expected_updated_
         Ok(Some(s)) => s,
         _ => return,
     };
+    if session_meta.incognito {
+        app_info!(
+            "memory",
+            "idle_extract",
+            "Skipping idle extraction for incognito session {}",
+            session_id
+        );
+        return;
+    }
     if session_meta.updated_at != expected_updated_at {
         return; // New messages arrived, skip
     }
