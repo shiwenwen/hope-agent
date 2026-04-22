@@ -194,7 +194,13 @@ export interface DashboardAgentItem {
 
 export type CronSchedule =
   | { type: "at"; timestamp: string }
-  | { type: "every"; intervalMs: number }
+  | {
+      type: "every"
+      intervalMs?: number
+      interval_ms?: number
+      startAt?: string | null
+      start_at?: string | null
+    }
   | { type: "cron"; expression: string; timezone?: string }
 
 export interface CronJob {

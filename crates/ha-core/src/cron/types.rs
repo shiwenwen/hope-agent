@@ -9,7 +9,14 @@ pub enum CronSchedule {
     /// Fire once at a specific timestamp
     At { timestamp: String },
     /// Fire every N milliseconds
-    Every { interval_ms: u64 },
+    Every {
+        interval_ms: u64,
+        /// The first scheduled fire time for this interval job.
+        /// Backfilled for legacy rows so calendar expansion does not start at
+        /// the query window boundary.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        start_at: Option<String>,
+    },
     /// Cron expression with optional timezone (default UTC)
     Cron {
         expression: String,

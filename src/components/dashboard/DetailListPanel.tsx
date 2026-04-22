@@ -238,7 +238,7 @@ function AgentList({ filter, agentNameMap }: { filter: DashboardFilter; agentNam
 function formatSchedule(s: CronSchedule): string {
   switch (s.type) {
     case "at": return s.timestamp
-    case "every": return `${formatDuration(s.intervalMs)}`
+    case "every": return `${formatDuration(s.intervalMs ?? s.interval_ms ?? 0)}`
     case "cron": return s.expression
   }
 }

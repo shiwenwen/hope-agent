@@ -70,8 +70,10 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
     return ""
   })
   const [intervalValue, setIntervalValue] = useState(() => {
-    if (job?.schedule.type === "every" && job.schedule.intervalMs) {
-      return String(job.schedule.intervalMs / 60000)
+    const intervalMs =
+      job?.schedule.type === "every" ? (job.schedule.intervalMs ?? job.schedule.interval_ms) : null
+    if (intervalMs) {
+      return String(intervalMs / 60000)
     }
     return "60"
   })
@@ -275,7 +277,17 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
         const num = parseFloat(intervalValue) || 60
         const multiplier =
           intervalUnit === "day" ? 86400000 : intervalUnit === "hour" ? 3600000 : 60000
-        return { type: "every", intervalMs: Math.max(60000, num * multiplier) }
+        const intervalMs = Math.max(60000, num * multiplier)
+        const preserveStartAt =
+          job?.schedule.type === "every" &&
+          (job.schedule.intervalMs ?? job.schedule.interval_ms) === intervalMs
+        return {
+          type: "every",
+          intervalMs,
+          startAt: preserveStartAt
+            ? ((job.schedule.startAt ?? job.schedule.start_at) ?? null)
+            : undefined,
+        }
       }
       case "cron":
         return { type: "cron", expression: cronExpression, timezone: null }
