@@ -84,7 +84,7 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
 
 ### For users
 
-> 🛠 **Release status**: 0.1.0 is usable but we haven't shipped binaries yet — we want one more polish pass on the first-run experience before we do. The code is ready whenever you are; if you're curious, `npm run tauri build` produces the exact same artifact the Release will. See **For developers** below.
+> 🛠 **Release status**: 0.1.0 is usable but we haven't shipped binaries yet — we want one more polish pass on the first-run experience before we do. The code is ready whenever you are; if you're curious, `pnpm tauri build` produces the exact same artifact the Release will. See **For developers** below.
 
 1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
    - macOS: `Hope-Agent_*.dmg`
@@ -98,19 +98,19 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
 ```bash
 git clone https://github.com/shiwenwen/hope-agent.git
 cd hope-agent
-npm install
-npm run tauri dev      # desktop dev (frontend + Rust hot reload)
+pnpm install
+pnpm tauri dev         # desktop dev (frontend + Rust hot reload)
 
 # Other useful commands
-npx tsc --noEmit       # frontend typecheck
-npm run lint           # lint
-npm run tauri build    # production build
+pnpm tsc --noEmit      # frontend typecheck
+pnpm lint              # lint
+pnpm tauri build       # production build
 ```
 
 Recommended release flow:
 
 ```bash
-npm version patch      # or minor / major; auto-syncs package.json -> src-tauri versions
+pnpm version patch      # or minor / major; auto-syncs package.json -> src-tauri versions
 git push --follow-tags # push the commit + vX.Y.Z tag and trigger the Release workflow
 ```
 
@@ -120,7 +120,7 @@ Before the first updater-enabled release, store the private key from `~/.tauri/h
 
 | Mode             | How to start                                                                      | When to use                                                                       |
 | ---------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Desktop GUI      | Double-click the app / `npm run tauri dev`                                        | Default, single user                                                              |
+| Desktop GUI      | Double-click the app / `pnpm tauri dev`                                        | Default, single user                                                              |
 | Server (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Always-on daemon for IM channels and cron jobs                                    |
 | ACP (stdio)      | `acp` subcommand                                                                  | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
 
@@ -174,7 +174,7 @@ The main branch is under active development — issues and PRs are welcome. Plea
 Common commands:
 
 ```bash
-npm run tauri dev                    # desktop dev
+pnpm tauri dev                    # desktop dev
 cargo check --workspace              # Rust dep / type check
 cargo test -p ha-core -p ha-server   # core tests
 node scripts/sync-i18n.mjs --check   # i18n completeness check

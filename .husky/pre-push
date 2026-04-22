@@ -22,10 +22,10 @@ echo "[pre-push] cargo clippy -p ha-core -p ha-server --all-targets --locked -- 
 cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
 
 echo "[pre-push] tsc --noEmit"
-npx tsc --noEmit
+pnpm tsc --noEmit
 
 echo "[pre-push] eslint"
-npm run lint --silent
+pnpm lint --silent
 
 if [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"

@@ -175,7 +175,7 @@ if (doApply) console.log(`总计写入: ${totalApplied} 条`)
 // 能拦截忘记跑 sync-i18n 的 PR。--apply 不影响退出码。
 if (doCheck && totalMissing > 0) {
   console.error(
-    `\n❌ 检测到 ${totalMissing} 个缺失 key。请运行 \`npm run i18n:apply\` 补齐后重新提交。`,
+    `\n❌ 检测到 ${totalMissing} 个缺失 key。请运行 \`pnpm i18n:apply\` 补齐后重新提交。`,
   )
   process.exit(1)
 }
