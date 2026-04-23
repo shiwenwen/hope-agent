@@ -163,6 +163,8 @@ const TOOL_DESC_UPDATE_CORE_MEMORY: &str = "\
 const TOOL_DESC_MANAGE_CRON: &str = "\
 - manage_cron: Create, list, update, or delete scheduled tasks.\n\
   - Actions: create, list, get, update, delete, run_now\n\
+  - Use for reminders, scheduled follow-ups, and recurring nudges over time\n\
+  - For requests like \"remind me in 10 minutes\" or \"every 10 minutes for an hour\", create a scheduled task instead of simulating time with exec/date\n\
   - Cron expressions follow standard format (minute hour day month weekday)";
 
 const TOOL_DESC_BROWSER: &str = "\

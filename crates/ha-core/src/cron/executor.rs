@@ -7,6 +7,12 @@ use super::db::CronDB;
 use super::delivery::{deliver_results, DeliveryOutcome};
 use super::types::*;
 
+struct CronNoopSink;
+
+impl crate::chat_engine::EventSink for CronNoopSink {
+    fn send(&self, _event: &str) {}
+}
+
 /// Public wrapper for execute_job, callable from Tauri commands.
 pub async fn execute_job_public(
     cron_db: &Arc<CronDB>,
@@ -94,6 +100,20 @@ pub(crate) async fn execute_job(
         }
     };
 
+    // Persist the cron prompt before execution so `run_chat_engine` can reuse
+    // the same DB contract as interactive chat without duplicating user rows.
+    let mut user_msg = crate::session::NewMessage::user(&prompt);
+    user_msg.attachments_meta = Some(
+        serde_json::json!({
+            "cron_trigger": {
+                "job_id": &job.id,
+                "job_name": &job.name,
+            }
+        })
+        .to_string(),
+    );
+    let _ = session_db.append_message(&session_id, &user_msg);
+
     // Build agent from app config (with 5-minute timeout to prevent blocking scheduler)
     const CRON_JOB_TIMEOUT_SECS: u64 = 300;
     let result = match tokio::time::timeout(
@@ -131,23 +151,6 @@ pub(crate) async fn execute_job(
                 duration_ms
             );
 
-            // Save user prompt and assistant response into the session
-            let mut user_msg = crate::session::NewMessage::user(&prompt);
-            user_msg.attachments_meta = Some(
-                serde_json::json!({
-                    "cron_trigger": {
-                        "job_id": &job.id,
-                        "job_name": &job.name,
-                    }
-                })
-                .to_string(),
-            );
-            let _ = session_db.append_message(&session_id, &user_msg);
-            let _ = session_db.append_message(
-                &session_id,
-                &crate::session::NewMessage::assistant(&response),
-            );
-
             // Record success run log
             let preview = if response.len() > 500 {
                 Some(crate::truncate_utf8(&response, 500).to_string())
@@ -177,23 +180,8 @@ pub(crate) async fn execute_job(
         }
         Err(e) => {
             app_error!("cron", "executor", "Job '{}' failed: {}", job.name, e);
-
-            // Write the prompt + error message into the session so the user can see what happened
-            let mut user_msg = crate::session::NewMessage::user(&prompt);
-            user_msg.attachments_meta = Some(
-                serde_json::json!({
-                    "cron_trigger": {
-                        "job_id": &job.id,
-                        "job_name": &job.name,
-                    }
-                })
-                .to_string(),
-            );
-            let _ = session_db.append_message(&session_id, &user_msg);
             let err_text = e.to_string();
-            let mut err_msg = crate::session::NewMessage::assistant(&err_text);
-            err_msg.is_error = Some(true);
-            let _ = session_db.append_message(&session_id, &err_msg);
+            persist_failure_message_if_missing(session_db, &session_id, &err_text);
 
             // Notify IM channel targets of the failure before bookkeeping.
             deliver_results(job, DeliveryOutcome::Failure { error: &err_text }).await;
@@ -213,35 +201,27 @@ pub(crate) async fn execute_job(
 
 /// Build an AssistantAgent and run a chat message with full failover logic.
 ///
-/// Uses the same error classification and retry strategy as the regular chat flow:
-/// - Retryable errors (RateLimit/Overloaded/Timeout): retry same model up to MAX_RETRIES
-///   with exponential backoff before falling back to the next model.
-/// - Terminal errors (ContextOverflow): surface immediately, no fallback.
-/// - Non-retryable errors (Auth/Billing/ModelNotFound/Unknown): skip to next model.
+/// Cron now delegates to the shared chat engine so provider auth, Codex OAuth,
+/// failover, compaction, and persistence stay aligned with interactive chat.
 pub async fn build_and_run_agent(
     agent_id: &str,
     message: &str,
     session_id: &str,
-    _session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<crate::session::SessionDB>,
 ) -> Result<String> {
-    build_and_run_agent_with_context(agent_id, message, session_id, _session_db, None).await
+    build_and_run_agent_with_context(agent_id, message, session_id, session_db, None).await
 }
 
-/// Build an AssistantAgent and run a chat message with full failover logic and optional custom system context.
+/// Build an AssistantAgent and run a chat message via the shared chat engine
+/// with optional extra system context.
 pub async fn build_and_run_agent_with_context(
     agent_id: &str,
     message: &str,
     session_id: &str,
-    _session_db: &Arc<crate::session::SessionDB>,
+    session_db: &Arc<crate::session::SessionDB>,
     extra_system_context: Option<&str>,
 ) -> Result<String> {
-    use crate::agent::AssistantAgent;
-    use crate::failover;
     use crate::provider;
-
-    const MAX_RETRIES: u32 = 2;
-    const RETRY_BASE_MS: u64 = 1000;
-    const RETRY_MAX_MS: u64 = 10_000;
 
     // Load app config from disk
     let store = crate::config::cached_config();
@@ -273,101 +253,90 @@ pub async fn build_and_run_agent_with_context(
         ));
     }
 
-    // Try each model in the chain with proper failover
-    let mut last_error = String::new();
-    for (idx, model_ref) in model_chain.iter().enumerate() {
-        let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
-            Some(p) => p,
-            None => continue,
+    let agent_def = crate::agent_loader::load_agent(agent_id).ok();
+    let agent_notify_on_complete = agent_def
+        .as_ref()
+        .and_then(|def| def.config.notify_on_complete);
+
+    let notification_enabled =
+        store.notification.enabled && agent_notify_on_complete != Some(false);
+
+    let image_gen_config =
+        if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
+        {
+            let mut cfg = store.image_generate.clone();
+            crate::tools::image_generate::backfill_providers(&mut cfg);
+            Some(cfg)
+        } else {
+            None
         };
 
-        let model_label = format!("{}::{}", model_ref.provider_id, model_ref.model_id);
-
-        // Per-model retry loop
-        let mut retry_count: u32 = 0;
-        loop {
-            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
-                .with_failover_context(prov);
-            agent.set_agent_id(agent_id);
-            agent.set_session_id(session_id);
-            let ctx = extra_system_context.unwrap_or(
-                "## Execution Context\n\
+    let engine_params = crate::chat_engine::ChatEngineParams {
+        session_id: session_id.to_string(),
+        agent_id: agent_id.to_string(),
+        message: message.to_string(),
+        attachments: Vec::new(),
+        session_db: session_db.clone(),
+        model_chain,
+        providers: store.providers.clone(),
+        codex_token: None,
+        resolved_temperature: agent_def
+            .as_ref()
+            .and_then(|def| def.config.model.temperature)
+            .or(store.temperature),
+        web_search_enabled: crate::tools::web_search::has_enabled_provider(&store.web_search),
+        notification_enabled,
+        image_gen_config,
+        canvas_enabled: store.canvas.enabled,
+        compact_config: store.compact.clone(),
+        extra_system_context: Some(
+            extra_system_context
+                .unwrap_or(
+                    "## Execution Context\n\
                  You are running as a **scheduled task** (cron job), not an interactive chat.\n\
                  - No user is actively waiting — execute the prompt directly and concisely.\n\
                  - This is an isolated session with no prior conversation history.\n\
                  - Focus on completing the task described in the user message.",
-            );
-            agent.set_extra_system_context(ctx.to_string());
+                )
+                .to_string(),
+        ),
+        reasoning_effort: crate::agent::live_reasoning_effort(None).await,
+        cancel: Arc::new(AtomicBool::new(false)),
+        plan_agent_mode: None,
+        plan_mode_allow_paths: None,
+        skill_allowed_tools: Vec::new(),
+        auto_approve_tools: false,
+        // Cron is a background/non-interactive runner. Reuse the channel bucket
+        // until the status UI grows a dedicated cron source.
+        source: crate::chat_engine::stream_seq::ChatSource::Channel,
+        event_sink: Arc::new(CronNoopSink),
+    };
 
-            let cancel = Arc::new(AtomicBool::new(false));
-            match agent.chat(message, &[], None, cancel, |_delta| {}).await {
-                Ok((response, _thinking)) => {
-                    if idx > 0 {
-                        app_info!(
-                            "cron",
-                            "failover",
-                            "Fallback model {} succeeded",
-                            model_label
-                        );
-                    }
-                    return Ok(response);
-                }
-                Err(e) => {
-                    last_error = e.to_string();
-                    let reason = failover::classify_error(&last_error);
+    match crate::chat_engine::run_chat_engine(engine_params).await {
+        Ok(result) => Ok(result.response),
+        Err(e) => Err(anyhow::anyhow!("{}", e)),
+    }
+}
 
-                    // Terminal error — surface immediately, no point trying other models
-                    if reason.is_terminal() {
-                        app_error!(
-                            "cron",
-                            "failover",
-                            "Model {} hit terminal error ({:?}): {}",
-                            model_label,
-                            reason,
-                            last_error
-                        );
-                        return Err(anyhow::anyhow!("{}", last_error));
-                    }
+fn persist_failure_message_if_missing(
+    session_db: &Arc<crate::session::SessionDB>,
+    session_id: &str,
+    err_text: &str,
+) {
+    let already_persisted = session_db
+        .load_session_messages_latest(session_id, 1)
+        .ok()
+        .and_then(|(msgs, _, _)| msgs.last().cloned())
+        .map(|msg| msg.content == err_text)
+        .unwrap_or(false);
 
-                    // Retryable error — retry same model with backoff
-                    if reason.is_retryable() && retry_count < MAX_RETRIES {
-                        retry_count += 1;
-                        let delay =
-                            failover::retry_delay_ms(retry_count - 1, RETRY_BASE_MS, RETRY_MAX_MS);
-                        app_warn!(
-                            "cron",
-                            "failover",
-                            "Model {} retryable error ({:?}), attempt {}/{}, retrying in {}ms: {}",
-                            model_label,
-                            reason,
-                            retry_count,
-                            MAX_RETRIES,
-                            delay,
-                            last_error
-                        );
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                        continue;
-                    }
-
-                    // Non-retryable or retries exhausted — skip to next model
-                    app_warn!(
-                        "cron",
-                        "failover",
-                        "Model {} failed ({:?}), skipping to next model: {}",
-                        model_label,
-                        reason,
-                        last_error
-                    );
-                    break;
-                }
-            }
-        }
+    if already_persisted {
+        return;
     }
 
-    Err(anyhow::anyhow!(
-        "All models failed. Last error: {}",
-        last_error
-    ))
+    let mut err_msg = crate::session::NewMessage::assistant(err_text);
+    err_msg.is_error = Some(true);
+    let _ = session_db.append_message(session_id, &err_msg);
 }
 
 /// Record a failure run log and update job state.
