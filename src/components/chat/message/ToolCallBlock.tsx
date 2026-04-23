@@ -34,12 +34,14 @@ import {
   Settings,
   Wrench,
   Paperclip,
+  Cable,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
+import { getExecutionToolLabel, getToolExecutionState } from "./executionStatus"
 
 /** Map tool name → Lucide icon component */
 const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -78,6 +80,7 @@ const TOOL_ICONS: Record<string, React.ComponentType<{ className?: string }>> = 
   get_settings: Settings,
   update_settings: Settings,
   send_attachment: Paperclip,
+  acp_spawn: Cable,
 }
 
 /** Check if a read tool call targets a SKILL.md file, return skill name if so */
@@ -232,7 +235,9 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
   const [expanded, setExpanded] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const isRunning = tool.result === undefined
+  const state = getToolExecutionState(tool)
+  const isRunning = state === "running"
+  const isFailed = state === "failed"
   const startedAtMs = tool.startedAtMs || 0
   const elapsedMs = tool.durationMs ?? (isRunning && startedAtMs ? now - startedAtMs : undefined)
   const elapsedText = useMemo(() => {
@@ -273,9 +278,7 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
 
   const skillName = getSkillName(tool.name, tool.arguments)
   const Icon = skillName ? FileCode : (TOOL_ICONS[tool.name] || Wrench)
-  const toolLabel = skillName
-    ? t("tools.loadingSkill", { name: skillName })
-    : t(`tools.${tool.name}`, tool.name)
+  const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
 
   const askUserOutcome = useMemo(
@@ -347,7 +350,15 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
           />
         )}
         <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className={cn("text-muted-foreground font-medium shrink-0 whitespace-nowrap", (isRunning || shimmer) && "animate-text-shimmer")}>{toolLabel}</span>
+        <span
+          className={cn(
+            "font-medium shrink-0 whitespace-nowrap",
+            isFailed ? "text-red-500" : "text-muted-foreground",
+            (isRunning || shimmer) && "animate-text-shimmer",
+          )}
+        >
+          {toolLabel}
+        </span>
         <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
           {displayArgs}
         </span>

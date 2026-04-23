@@ -131,7 +131,7 @@ export default function ProviderEditPage({
           apiKey: editApiKey,
           userAgent: editUserAgent,
           thinkingStyle: editThinkingStyle,
-          models: [],
+          models: editModels,
           enabled: true,
         },
       })

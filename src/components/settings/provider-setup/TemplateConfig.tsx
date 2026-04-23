@@ -129,7 +129,7 @@ export function TemplateConfig({
           apiKey,
           userAgent: "claude-code/0.1.0",
           thinkingStyle,
-          models: [],
+          models,
           enabled: true,
         },
       })

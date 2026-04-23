@@ -5,10 +5,11 @@
 
 use std::time::{Duration, Instant};
 
-use crate::agent::build_api_url;
+use crate::agent::{build_api_url, is_complete_endpoint_url};
 use crate::memory;
 use crate::provider::{apply_proxy, apply_proxy_from_config, ApiType, ProviderConfig, ProxyConfig};
 use crate::truncate_utf8;
+use serde_json::{json, Value};
 
 /// Ping an embedding provider with a single "test" document and return a JSON
 /// string describing success/dimensions/latency. Never panics — on transport
@@ -423,6 +424,446 @@ pub async fn test_image_generate(
     }
 }
 
+fn probe_model_id(config: &ProviderConfig) -> String {
+    config
+        .models
+        .first()
+        .map(|model| model.id.clone())
+        .unwrap_or_else(|| "test".to_string())
+}
+
+fn build_chat_probe_body(model_id: &str, max_tokens: u32) -> Value {
+    json!({
+        "model": model_id,
+        "max_tokens": max_tokens,
+        "messages": [{ "role": "user", "content": "Hi" }]
+    })
+}
+
+fn build_responses_probe_body(model_id: &str, max_output_tokens: u32) -> Value {
+    json!({
+        "model": model_id,
+        "store": false,
+        "stream": false,
+        "instructions": "Reply briefly.",
+        "input": [{ "role": "user", "content": "Hi" }],
+        "max_output_tokens": max_output_tokens,
+    })
+}
+
+fn extract_chat_reply(response_body: &Value) -> String {
+    response_body
+        .get("choices")
+        .and_then(|choices| choices.as_array())
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("message"))
+        .and_then(|message| message.get("content"))
+        .and_then(|content| content.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+fn extract_responses_reply(response_body: &Value) -> String {
+    response_body
+        .get("output")
+        .and_then(|output| output.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| item.get("type").and_then(|t| t.as_str()) == Some("message"))
+                .filter_map(|item| item.get("content").and_then(|content| content.as_array()))
+                .flat_map(|content| content.iter())
+                .filter(|block| block.get("type").and_then(|t| t.as_str()) == Some("output_text"))
+                .filter_map(|block| block.get("text").and_then(|text| text.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default()
+}
+
+fn preview_reply(reply: String) -> String {
+    if reply.len() > 100 {
+        format!("{}...", truncate_utf8(&reply, 100))
+    } else {
+        reply
+    }
+}
+
+fn should_skip_models_preflight(base_url: &str) -> bool {
+    is_complete_endpoint_url(base_url)
+}
+
+/// Probe the provider's configured endpoint/auth combination and return a JSON
+/// string with the same shape consumed by the Settings page.
+///
+/// Shared by both the Tauri `test_provider` command and the HTTP
+/// `POST /api/providers/test` route. On failure returns `Err(json_string)` so
+/// callers can surface the payload verbatim.
+pub async fn test_provider(config: ProviderConfig) -> Result<String, String> {
+    let client = apply_proxy(
+        reqwest::Client::builder()
+            .timeout(Duration::from_secs(10))
+            .user_agent(&config.user_agent),
+    )
+    .build()
+    .map_err(|e| format!("Client error: {}", e))?;
+
+    let base = config.base_url.trim_end_matches('/');
+    let probe_model = probe_model_id(&config);
+    let mut steps: Vec<Value> = Vec::new();
+    let total_start = Instant::now();
+
+    macro_rules! build_result {
+        ($success:expr, $msg:expr, $url:expr, $status:expr, $auth:expr) => {
+            serde_json::to_string(&json!({
+                "success": $success,
+                "message": $msg,
+                "url": $url,
+                "status": $status,
+                "latencyMs": total_start.elapsed().as_millis() as u64,
+                "auth": $auth,
+                "steps": steps,
+            }))
+            .unwrap_or_default()
+        };
+    }
+
+    match config.api_type {
+        ApiType::Anthropic => {
+            let url = build_api_url(base, "/v1/messages");
+            let body = build_chat_probe_body(&probe_model, 1);
+
+            let t = Instant::now();
+            let resp = client
+                .post(&url)
+                .header("x-api-key", &config.api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| {
+                    build_result!(false, format!("连接失败: {}", e), &url, 0, "x-api-key")
+                })?;
+            let status = resp.status().as_u16();
+            steps.push(json!({
+                "endpoint": &url,
+                "method": "POST",
+                "auth": "x-api-key",
+                "status": status,
+                "latencyMs": t.elapsed().as_millis() as u64
+            }));
+
+            if resp.status().is_success() || status == 400 || status == 404 {
+                return Ok(build_result!(
+                    true,
+                    if status == 200 {
+                        "连接成功"
+                    } else {
+                        "认证成功（模型名需调整）"
+                    },
+                    &url,
+                    status,
+                    "x-api-key"
+                ));
+            }
+
+            if status == 401 || status == 403 {
+                let t2 = Instant::now();
+                let resp2 = client
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", config.api_key))
+                    .header("anthropic-version", "2023-06-01")
+                    .header("content-type", "application/json")
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        build_result!(false, format!("连接失败: {}", e), &url, 0, "Bearer")
+                    })?;
+                let status2 = resp2.status().as_u16();
+                steps.push(json!({
+                    "endpoint": &url,
+                    "method": "POST",
+                    "auth": "Bearer",
+                    "status": status2,
+                    "latencyMs": t2.elapsed().as_millis() as u64
+                }));
+
+                if resp2.status().is_success() || status2 == 400 || status2 == 404 {
+                    return Ok(build_result!(
+                        true,
+                        "连接成功（Bearer 认证）",
+                        &url,
+                        status2,
+                        "Bearer"
+                    ));
+                }
+
+                let detail = resp2.text().await.unwrap_or_default();
+                return Err(serde_json::to_string(&json!({
+                    "success": false,
+                    "message": format!("认证失败 ({})", status2),
+                    "detail": detail,
+                    "url": &url,
+                    "status": status2,
+                    "latencyMs": total_start.elapsed().as_millis() as u64,
+                    "steps": steps,
+                }))
+                .unwrap_or_default());
+            }
+
+            let detail = resp.text().await.unwrap_or_default();
+            Err(serde_json::to_string(&json!({
+                "success": false,
+                "message": format!("API 错误 ({})", status),
+                "detail": detail,
+                "url": &url,
+                "status": status,
+                "latencyMs": total_start.elapsed().as_millis() as u64,
+                "steps": steps,
+            }))
+            .unwrap_or_default())
+        }
+        ApiType::OpenaiChat => {
+            if !should_skip_models_preflight(base) {
+                let models_url = build_api_url(base, "/v1/models");
+                let t = Instant::now();
+                let mut req = client.get(&models_url);
+                if !config.api_key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", config.api_key));
+                }
+                let resp = req.send().await.map_err(|e| {
+                    build_result!(false, format!("连接失败: {}", e), &models_url, 0, "Bearer")
+                })?;
+                let status = resp.status().as_u16();
+                steps.push(json!({
+                    "endpoint": &models_url,
+                    "method": "GET",
+                    "status": status,
+                    "latencyMs": t.elapsed().as_millis() as u64
+                }));
+
+                if resp.status().is_success() {
+                    return Ok(build_result!(
+                        true,
+                        "连接成功",
+                        &models_url,
+                        status,
+                        "Bearer"
+                    ));
+                }
+                if status == 401 || status == 403 {
+                    let detail = resp.text().await.unwrap_or_default();
+                    return Err(serde_json::to_string(&json!({
+                        "success": false,
+                        "message": format!("认证失败 ({})", status),
+                        "detail": detail,
+                        "url": &models_url,
+                        "status": status,
+                        "latencyMs": total_start.elapsed().as_millis() as u64,
+                        "steps": steps,
+                    }))
+                    .unwrap_or_default());
+                }
+            }
+
+            let chat_url = build_api_url(base, "/v1/chat/completions");
+            let body = build_chat_probe_body(&probe_model, 1);
+            let t2 = Instant::now();
+            let mut chat_req = client
+                .post(&chat_url)
+                .header("content-type", "application/json")
+                .json(&body);
+            if !config.api_key.is_empty() {
+                chat_req = chat_req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+
+            match chat_req.send().await {
+                Ok(chat_resp) => {
+                    let status = chat_resp.status().as_u16();
+                    steps.push(json!({
+                        "endpoint": &chat_url,
+                        "method": "POST",
+                        "status": status,
+                        "latencyMs": t2.elapsed().as_millis() as u64
+                    }));
+                    if chat_resp.status().is_success() || status == 400 || status == 404 {
+                        Ok(build_result!(
+                            true,
+                            if status == 200 {
+                                "连接成功"
+                            } else {
+                                "认证成功（模型名需调整）"
+                            },
+                            &chat_url,
+                            status,
+                            "Bearer"
+                        ))
+                    } else if status == 401 || status == 403 {
+                        let detail = chat_resp.text().await.unwrap_or_default();
+                        Err(serde_json::to_string(&json!({
+                            "success": false,
+                            "message": format!("认证失败 ({})", status),
+                            "detail": detail,
+                            "url": &chat_url,
+                            "status": status,
+                            "latencyMs": total_start.elapsed().as_millis() as u64,
+                            "steps": steps,
+                        }))
+                        .unwrap_or_default())
+                    } else {
+                        Ok(build_result!(
+                            true,
+                            "连接成功（不支持模型列表查询）",
+                            &chat_url,
+                            status,
+                            "Bearer"
+                        ))
+                    }
+                }
+                Err(e) => {
+                    steps.push(json!({
+                        "endpoint": &chat_url,
+                        "method": "POST",
+                        "error": format!("{}", e),
+                        "latencyMs": t2.elapsed().as_millis() as u64
+                    }));
+                    Err(build_result!(
+                        false,
+                        format!("连接失败: {}", e),
+                        &chat_url,
+                        0,
+                        ""
+                    ))
+                }
+            }
+        }
+        ApiType::OpenaiResponses => {
+            if !should_skip_models_preflight(base) {
+                let models_url = build_api_url(base, "/v1/models");
+                let t = Instant::now();
+                let mut req = client.get(&models_url);
+                if !config.api_key.is_empty() {
+                    req = req.header("Authorization", format!("Bearer {}", config.api_key));
+                }
+                let resp = req.send().await.map_err(|e| {
+                    build_result!(false, format!("连接失败: {}", e), &models_url, 0, "Bearer")
+                })?;
+                let status = resp.status().as_u16();
+                steps.push(json!({
+                    "endpoint": &models_url,
+                    "method": "GET",
+                    "status": status,
+                    "latencyMs": t.elapsed().as_millis() as u64
+                }));
+
+                if resp.status().is_success() {
+                    return Ok(build_result!(
+                        true,
+                        "连接成功",
+                        &models_url,
+                        status,
+                        "Bearer"
+                    ));
+                }
+                if status == 401 || status == 403 {
+                    let detail = resp.text().await.unwrap_or_default();
+                    return Err(serde_json::to_string(&json!({
+                        "success": false,
+                        "message": format!("认证失败 ({})", status),
+                        "detail": detail,
+                        "url": &models_url,
+                        "status": status,
+                        "latencyMs": total_start.elapsed().as_millis() as u64,
+                        "steps": steps,
+                    }))
+                    .unwrap_or_default());
+                }
+            }
+
+            let responses_url = build_api_url(base, "/v1/responses");
+            let body = build_responses_probe_body(&probe_model, 1);
+            let t2 = Instant::now();
+            let mut responses_req = client
+                .post(&responses_url)
+                .header("content-type", "application/json")
+                .json(&body);
+            if !config.api_key.is_empty() {
+                responses_req =
+                    responses_req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+
+            match responses_req.send().await {
+                Ok(responses_resp) => {
+                    let status = responses_resp.status().as_u16();
+                    steps.push(json!({
+                        "endpoint": &responses_url,
+                        "method": "POST",
+                        "status": status,
+                        "latencyMs": t2.elapsed().as_millis() as u64
+                    }));
+                    if responses_resp.status().is_success() || status == 400 || status == 404 {
+                        Ok(build_result!(
+                            true,
+                            if status == 200 {
+                                "连接成功"
+                            } else {
+                                "认证成功（模型名需调整）"
+                            },
+                            &responses_url,
+                            status,
+                            "Bearer"
+                        ))
+                    } else if status == 401 || status == 403 {
+                        let detail = responses_resp.text().await.unwrap_or_default();
+                        Err(serde_json::to_string(&json!({
+                            "success": false,
+                            "message": format!("认证失败 ({})", status),
+                            "detail": detail,
+                            "url": &responses_url,
+                            "status": status,
+                            "latencyMs": total_start.elapsed().as_millis() as u64,
+                            "steps": steps,
+                        }))
+                        .unwrap_or_default())
+                    } else {
+                        Ok(build_result!(
+                            true,
+                            "连接成功（不支持模型列表查询）",
+                            &responses_url,
+                            status,
+                            "Bearer"
+                        ))
+                    }
+                }
+                Err(e) => {
+                    steps.push(json!({
+                        "endpoint": &responses_url,
+                        "method": "POST",
+                        "error": format!("{}", e),
+                        "latencyMs": t2.elapsed().as_millis() as u64
+                    }));
+                    Err(build_result!(
+                        false,
+                        format!("连接失败: {}", e),
+                        &responses_url,
+                        0,
+                        ""
+                    ))
+                }
+            }
+        }
+        ApiType::Codex => Ok(build_result!(
+            true,
+            "Codex 使用 OAuth 认证，无需测试",
+            "",
+            0,
+            "OAuth"
+        )),
+    }
+}
+
 // ── Model test (single-turn chat roundtrip) ────────────────────────
 
 /// Issue a minimal chat request against the given provider/model and return
@@ -447,12 +888,8 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
     match config.api_type {
         ApiType::Anthropic => {
             let url = build_api_url(base, "/v1/messages");
-            let body = serde_json::json!({
-                "model": model_id,
-                "max_tokens": 32,
-                "messages": [{ "role": "user", "content": "Hi" }]
-            });
-            let request_info = serde_json::json!({
+            let body = build_chat_probe_body(&model_id, 32);
+            let request_info = json!({
                 "url": &url, "method": "POST",
                 "headers": { "x-api-key": "***", "anthropic-version": "2023-06-01", "content-type": "application/json" },
                 "body": &body,
@@ -494,27 +931,20 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
             let status = resp.status().as_u16();
             let body_text = resp.text().await.unwrap_or_default();
             let latency = start.elapsed().as_millis() as u64;
-            let response_body: serde_json::Value =
-                serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
+            let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
-                let reply = serde_json::from_str::<serde_json::Value>(&body_text)
-                    .ok()
-                    .and_then(|v| {
-                        v["content"]
-                            .as_array()?
-                            .first()?
-                            .get("text")?
-                            .as_str()
-                            .map(|s| s.to_string())
-                    })
-                    .unwrap_or_default();
-                let preview = if reply.len() > 100 {
-                    format!("{}...", truncate_utf8(&reply, 100))
-                } else {
-                    reply.clone()
-                };
-                Ok(serde_json::to_string(&serde_json::json!({
+                let preview = preview_reply(
+                    response_body
+                        .get("content")
+                        .and_then(|content| content.as_array())
+                        .and_then(|content| content.first())
+                        .and_then(|block| block.get("text"))
+                        .and_then(|text| text.as_str())
+                        .unwrap_or_default()
+                        .to_string(),
+                );
+                Ok(serde_json::to_string(&json!({
                     "success": true, "message": "模型响应正常",
                     "model": model_id, "status": status, "latencyMs": latency,
                     "reply": preview,
@@ -522,7 +952,7 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
                 }))
                 .unwrap_or_default())
             } else {
-                Err(serde_json::to_string(&serde_json::json!({
+                Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
                     "model": model_id, "status": status, "latencyMs": latency,
                     "request": request_info, "response": response_body,
@@ -530,19 +960,15 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
                 .unwrap_or_default())
             }
         }
-        ApiType::OpenaiChat | ApiType::OpenaiResponses => {
+        ApiType::OpenaiChat => {
             let url = build_api_url(base, "/v1/chat/completions");
-            let body = serde_json::json!({
-                "model": model_id,
-                "max_tokens": 32,
-                "messages": [{ "role": "user", "content": "Hi" }]
-            });
+            let body = build_chat_probe_body(&model_id, 32);
             let auth_header = if !config.api_key.is_empty() {
                 "Bearer ***"
             } else {
                 "(none)"
             };
-            let request_info = serde_json::json!({
+            let request_info = json!({
                 "url": &url, "method": "POST",
                 "headers": { "Authorization": auth_header, "content-type": "application/json" },
                 "body": &body,
@@ -567,28 +993,11 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
             let status = resp.status().as_u16();
             let body_text = resp.text().await.unwrap_or_default();
             let latency = start.elapsed().as_millis() as u64;
-            let response_body: serde_json::Value =
-                serde_json::from_str(&body_text).unwrap_or(serde_json::json!(body_text));
+            let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
 
             if status == 200 {
-                let reply = serde_json::from_str::<serde_json::Value>(&body_text)
-                    .ok()
-                    .and_then(|v| {
-                        v["choices"]
-                            .as_array()?
-                            .first()?
-                            .get("message")?
-                            .get("content")?
-                            .as_str()
-                            .map(|s| s.to_string())
-                    })
-                    .unwrap_or_default();
-                let preview = if reply.len() > 100 {
-                    format!("{}...", truncate_utf8(&reply, 100))
-                } else {
-                    reply.clone()
-                };
-                Ok(serde_json::to_string(&serde_json::json!({
+                let preview = preview_reply(extract_chat_reply(&response_body));
+                Ok(serde_json::to_string(&json!({
                     "success": true, "message": "模型响应正常",
                     "model": model_id, "status": status, "latencyMs": latency,
                     "reply": preview,
@@ -596,7 +1005,60 @@ pub async fn test_model(config: ProviderConfig, model_id: String) -> Result<Stri
                 }))
                 .unwrap_or_default())
             } else {
-                Err(serde_json::to_string(&serde_json::json!({
+                Err(serde_json::to_string(&json!({
+                    "success": false, "message": format!("模型测试失败 ({})", status),
+                    "model": model_id, "status": status, "latencyMs": latency,
+                    "request": request_info, "response": response_body,
+                }))
+                .unwrap_or_default())
+            }
+        }
+        ApiType::OpenaiResponses => {
+            let url = build_api_url(base, "/v1/responses");
+            let body = build_responses_probe_body(&model_id, 32);
+            let auth_header = if !config.api_key.is_empty() {
+                "Bearer ***"
+            } else {
+                "(none)"
+            };
+            let request_info = json!({
+                "url": &url, "method": "POST",
+                "headers": { "Authorization": auth_header, "content-type": "application/json" },
+                "body": &body,
+            });
+
+            let mut req = client
+                .post(&url)
+                .header("content-type", "application/json")
+                .json(&body);
+            if !config.api_key.is_empty() {
+                req = req.header("Authorization", format!("Bearer {}", config.api_key));
+            }
+            let resp = req.send().await.map_err(|e| {
+                serde_json::to_string(&json!({
+                    "success": false, "message": format!("连接失败: {}", e),
+                    "model": model_id, "latencyMs": start.elapsed().as_millis() as u64,
+                    "request": request_info,
+                }))
+                .unwrap_or_default()
+            })?;
+
+            let status = resp.status().as_u16();
+            let body_text = resp.text().await.unwrap_or_default();
+            let latency = start.elapsed().as_millis() as u64;
+            let response_body: Value = serde_json::from_str(&body_text).unwrap_or(json!(body_text));
+
+            if status == 200 {
+                let preview = preview_reply(extract_responses_reply(&response_body));
+                Ok(serde_json::to_string(&json!({
+                    "success": true, "message": "模型响应正常",
+                    "model": model_id, "status": status, "latencyMs": latency,
+                    "reply": preview,
+                    "request": request_info, "response": response_body,
+                }))
+                .unwrap_or_default())
+            } else {
+                Err(serde_json::to_string(&json!({
                     "success": false, "message": format!("模型测试失败 ({})", status),
                     "model": model_id, "status": status, "latencyMs": latency,
                     "request": request_info, "response": response_body,
@@ -641,4 +1103,52 @@ pub async fn test_proxy(config: ProxyConfig) -> Result<String, String> {
     }
     let body = resp.text().await.unwrap_or_default();
     Ok(format!("OK ({}ms)\n{}", elapsed, body))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_responses_probe_body, extract_responses_reply, should_skip_models_preflight,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn responses_probe_body_uses_responses_fields() {
+        let body = build_responses_probe_body("gpt-5.4", 32);
+
+        assert_eq!(body.get("model").and_then(|v| v.as_str()), Some("gpt-5.4"));
+        assert_eq!(
+            body.get("max_output_tokens").and_then(|v| v.as_u64()),
+            Some(32)
+        );
+        assert!(body.get("input").is_some());
+        assert!(body.get("messages").is_none());
+        assert!(body.get("max_tokens").is_none());
+    }
+
+    #[test]
+    fn extract_responses_reply_concatenates_output_text_blocks() {
+        let response = json!({
+            "output": [{
+                "type": "message",
+                "content": [
+                    { "type": "output_text", "text": "hello" },
+                    { "type": "output_text", "text": " world" }
+                ]
+            }]
+        });
+
+        assert_eq!(extract_responses_reply(&response), "hello world");
+    }
+
+    #[test]
+    fn complete_endpoint_urls_skip_models_preflight() {
+        assert!(should_skip_models_preflight(
+            "https://gateway/v1/openai/native/chat/completions"
+        ));
+        assert!(should_skip_models_preflight(
+            "https://gateway/v1/openai/native/responses"
+        ));
+        assert!(!should_skip_models_preflight("https://gateway/v1"));
+    }
 }

@@ -6,6 +6,13 @@ import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   CheckCircle2,
   Clock,
   GripVertical,
@@ -19,7 +26,7 @@ import {
   X,
   XCircle,
 } from "lucide-react"
-import type { ModelConfig } from "./types"
+import type { ModelConfig, ThinkingStyleType } from "./types"
 
 interface ModelTestData {
   success?: boolean
@@ -223,6 +230,31 @@ export function ModelEditor({
             }`}
           />
         </button>
+      </div>
+
+      <div className="space-y-1">
+        <label className="text-[10px] text-muted-foreground">{t("provider.thinkingStyle")}</label>
+        <Select
+          value={model.thinkingStyle ?? "inherit"}
+          onValueChange={(value) =>
+            onChange({
+              ...model,
+              thinkingStyle: value === "inherit" ? null : (value as ThinkingStyleType),
+            })
+          }
+        >
+          <SelectTrigger className="bg-background text-xs h-8">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="inherit">{t("model.inheritProviderThinkingStyle")}</SelectItem>
+            <SelectItem value="openai">OpenAI (reasoning_effort)</SelectItem>
+            <SelectItem value="anthropic">Anthropic (thinking budget)</SelectItem>
+            <SelectItem value="zai">Z.AI (thinking budget)</SelectItem>
+            <SelectItem value="qwen">Qwen (enable_thinking)</SelectItem>
+            <SelectItem value="none">{t("provider.thinkingStyleNone")}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-2.5">

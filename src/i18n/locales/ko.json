@@ -164,6 +164,8 @@
     "totalTokens": "합계",
     "cronTrigger": "예약 작업",
     "cronTaskStarted": "예약 작업이 트리거되었습니다",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "unknownProvider": "Unknown provider",
     "sessionStatus": "세션 상태",
     "statusModel": "모델",
     "statusAgent": "Agent",
@@ -277,6 +279,7 @@
     "image": "이미지",
     "video": "비디오",
     "reasoning": "추론/사고",
+    "inheritProviderThinkingStyle": "Inherit Provider Default",
     "inputCost": "입력 비용 ($/1M tokens)",
     "outputCost": "출력 비용 ($/1M tokens)",
     "modelList": "모델 목록",
@@ -367,6 +370,301 @@
       "killed": "종료됨"
     }
   },
+  "executionStatus": {
+    "tool": {
+      "single": {
+        "exec": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "process": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "read": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "write": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "edit": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ls": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "grep": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "find": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "apply_patch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_fetch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "save_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "recall_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "delete_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "manage_cron": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "browser": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_notification": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "subagent": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "memory_get": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "agents_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "session_status": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_history": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_send": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image_generate": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "pdf": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "canvas": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_create": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_update": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "get_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_attachment": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ask_user_question": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "tool_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "acp_spawn": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "submit_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "amend_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_plan_step": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "skill_read": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}",
+          "failed": "Skill failed: {{name}}"
+        },
+        "fallback": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        }
+      },
+      "group": {
+        "browse": {
+          "running": "Browsing {{count}} files",
+          "completed": "{{count}} 개 파일 탐색"
+        },
+        "edit": {
+          "running": "Editing {{count}} files",
+          "completed": "{{count}} 개 파일 편집"
+        },
+        "search": {
+          "running": "Searching {{count}} times",
+          "completed": "{{count}} 회 검색"
+        },
+        "web": {
+          "running": "Searching the web {{count}} times",
+          "completed": "웹 {{count}} 회 검색"
+        },
+        "memory": {
+          "running": "Updating memory {{count}} times",
+          "completed": "기억 작업 {{count}} 회"
+        },
+        "other": {
+          "running": "Running {{count}} tools",
+          "completed": "도구 호출 {{count}} 회"
+        },
+        "skill": {
+          "running": "Loading {{count}} skills",
+          "completed": "{{count}} 개 스킬 로드"
+        },
+        "skill_single": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}"
+        },
+        "failedCount": "{{count}} failed"
+      }
+    },
+    "skill": {
+      "running": "Loading skill: {{name}}",
+      "completed": "Loaded skill: {{name}}",
+      "failed": "Skill failed: {{name}}",
+      "mode": {
+        "inline": "skill · inline",
+        "fork": "skill · fork"
+      }
+    },
+    "task": {
+      "running": "Running {{completed}}/{{total}} tasks",
+      "completed": "Completed {{completed}}/{{total}} tasks",
+      "pending": "{{remaining}}/{{total}} tasks pending",
+      "empty": "No tasks yet"
+    },
+    "subagent": {
+      "group": {
+        "running": "에이전트 {{count}}개 실행 중",
+        "finished": "에이전트 {{count}}개 완료"
+      },
+      "status": {
+        "spawning": "시작 중",
+        "running": "실행 중",
+        "completed": "완료됨",
+        "error": "오류",
+        "timeout": "시간 초과",
+        "killed": "종료됨"
+      }
+    },
+    "acp": {
+      "status": {
+        "starting": "시작 중",
+        "running": "실행 중",
+        "completed": "완료됨",
+        "error": "오류",
+        "timeout": "시간 초과",
+        "killed": "종료됨"
+      }
+    }
+  },
   "settings": {
     "title": "설정",
     "general": "일반",
@@ -414,6 +712,8 @@
     "skillsListBundled": "내장 Skills",
     "skillsListUser": "사용자 Skills",
     "skillFiles": "파일 목록",
+    "skillContentRaw": "원본 내용",
+    "skillContentPreview": "Markdown 미리보기",
     "skillEnabled": "활성화됨",
     "skillDisabled": "비활성화됨",
     "noSkills": "설치된 스킬이 없습니다",
@@ -1652,6 +1952,10 @@
     "runNow": "지금 실행",
     "pause": "일시 정지",
     "resume": "재개",
+    "deleteConfirmTitle": "\"{{name}}\"을 삭제할까요?",
+    "deleteConfirmDesc": "이 작업은 예약 작업과 실행 기록을 영구적으로 삭제합니다.",
+    "deleteSuccess": "\"{{name}}\"을 삭제했습니다",
+    "deleteFailed": "\"{{name}}\" 삭제에 실패했습니다",
     "noJobs": "아직 예약된 작업이 없습니다",
     "noResults": "일치하는 작업이 없습니다",
     "noRuns": "실행 기록이 없습니다",

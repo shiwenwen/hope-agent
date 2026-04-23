@@ -27,6 +27,7 @@ impl AssistantAgent {
             base_url,
             model,
             thinking_style: &self.thinking_style,
+            provider_config: self.provider_config.as_deref(),
         };
         let user_content = build_user_content_openai_chat(message, attachments);
         self.run_streaming_chat(

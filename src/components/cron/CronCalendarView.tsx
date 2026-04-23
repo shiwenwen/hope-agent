@@ -1,15 +1,26 @@
 import { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { IconTip } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import {
   ChevronLeft,
   ChevronRight,
   Plus,
   CalendarDays,
   List as ListIcon,
+  Loader2,
   Search,
   Play,
   Pause,
@@ -46,6 +57,8 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
   const [listLoading, setListLoading] = useState(false)
   const [search, setSearch] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
+  const [pendingDeleteJob, setPendingDeleteJob] = useState<CronJob | null>(null)
+  const [deletingJobId, setDeletingJobId] = useState<string | null>(null)
 
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
@@ -191,9 +204,29 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
     refreshAll()
   }
 
-  async function handleDelete(job: CronJob) {
-    await getTransport().call("cron_delete_job", { id: job.id })
-    refreshAll()
+  function handleDelete(job: CronJob) {
+    setPendingDeleteJob(job)
+  }
+
+  async function confirmDeleteJob() {
+    if (!pendingDeleteJob) return
+
+    const job = pendingDeleteJob
+    setDeletingJobId(job.id)
+
+    try {
+      await getTransport().call("cron_delete_job", { id: job.id })
+      setPendingDeleteJob(null)
+      if (detailJobId === job.id) {
+        setDetailJobId(null)
+      }
+      refreshAll()
+      toast.success(t("cron.deleteSuccess", { name: job.name }))
+    } catch {
+      toast.error(t("cron.deleteFailed", { name: job.name }))
+    } finally {
+      setDeletingJobId(null)
+    }
   }
 
   async function handleRunNow(job: CronJob) {
@@ -201,28 +234,62 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
     setTimeout(refreshAll, 2000)
   }
 
+  const deleteUi = (
+    <>
+      <AlertDialog
+        open={!!pendingDeleteJob}
+        onOpenChange={(open) => {
+          if (!open && !deletingJobId) setPendingDeleteJob(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("cron.deleteConfirmTitle", { name: pendingDeleteJob?.name ?? "" })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>{t("cron.deleteConfirmDesc")}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingJobId}>{t("common.cancel")}</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() => void confirmDeleteJob()}
+              disabled={!pendingDeleteJob || !!deletingJobId}
+            >
+              {deletingJobId ? <Loader2 className="h-4 w-4 animate-spin" /> : t("common.delete")}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  )
+
   if (detailJobId) {
     return (
-      <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
-        <CronJobDetail
-          jobId={detailJobId}
-          onBack={() => setDetailJobId(null)}
-          onEdit={handleEditJob}
-          onRefresh={refreshAll}
-          onViewSession={onNavigateToSession}
-        />
-        {showForm && (
-          <CronJobForm
-            job={editingJob}
-            defaultDate={mode === "calendar" ? selectedDate : null}
-            onSave={handleFormClose}
-            onCancel={() => {
-              setShowForm(false)
-              setEditingJob(null)
-            }}
+      <>
+        <div className="flex flex-col flex-1 min-w-0 h-full bg-background">
+          <CronJobDetail
+            jobId={detailJobId}
+            onBack={() => setDetailJobId(null)}
+            onEdit={handleEditJob}
+            onDelete={handleDelete}
+            onRefresh={refreshAll}
+            onViewSession={onNavigateToSession}
           />
-        )}
-      </div>
+          {showForm && (
+            <CronJobForm
+              job={editingJob}
+              defaultDate={mode === "calendar" ? selectedDate : null}
+              onSave={handleFormClose}
+              onCancel={() => {
+                setShowForm(false)
+                setEditingJob(null)
+              }}
+            />
+          )}
+        </div>
+        {deleteUi}
+      </>
     )
   }
 
@@ -565,6 +632,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
           }}
         />
       )}
+      {deleteUi}
     </div>
   )
 }

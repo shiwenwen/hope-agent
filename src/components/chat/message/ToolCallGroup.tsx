@@ -10,37 +10,20 @@ import {
   Brain,
   Wrench,
   Info,
+  AlertCircle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
-
-/** Grouping categories */
-type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
-
-const CATEGORY_MAP: Record<string, ToolCategory> = {
-  read: "browse",
-  ls: "browse",
-  write: "edit",
-  edit: "edit",
-  apply_patch: "edit",
-  grep: "search",
-  find: "search",
-  web_search: "web",
-  web_fetch: "web",
-  save_memory: "memory",
-  recall_memory: "memory",
-  update_memory: "memory",
-  delete_memory: "memory",
-  memory_get: "memory",
-  image: "browse",
-  pdf: "browse",
-}
-
-function getToolCategory(name: string): ToolCategory {
-  return CATEGORY_MAP[name] || "other"
-}
+import {
+  getExecutionToolGroupLabel,
+  getExecutionToolLabel,
+  getFailedToolCount,
+  getToolCategory,
+  getToolExecutionState,
+  type ToolCategory,
+} from "./executionStatus"
 
 function formatElapsed(ms: number): string {
   if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`
@@ -104,42 +87,6 @@ function formatRawCall(tool: ToolCall): string {
   }
 }
 
-/** Build a comma-separated summary label from mixed tool categories */
-function buildSummaryLabel(
-  tools: ToolCall[],
-  t: (key: string, opts?: Record<string, unknown>) => string,
-): string {
-  // Count tools per category, preserving first-seen order
-  // Skill reads get their own "skill" pseudo-category
-  type LabelKey = ToolCategory | "skill"
-  const order: LabelKey[] = []
-  const counts = new Map<LabelKey, number>()
-  const skillNames: string[] = []
-
-  for (const tool of tools) {
-    const sn = getSkillName(tool)
-    const key: LabelKey = sn ? "skill" : getToolCategory(tool.name)
-    if (sn) skillNames.push(sn)
-    if (!counts.has(key)) {
-      order.push(key)
-    }
-    counts.set(key, (counts.get(key) || 0) + 1)
-  }
-
-  return order
-    .map((key) => {
-      if (key === "skill") {
-        const count = counts.get(key)!
-        if (count === 1 && skillNames.length === 1) {
-          return t("tools.loadingSkill", { name: skillNames[0] })
-        }
-        return t("toolGroup.skill", { count })
-      }
-      return t(`toolGroup.${key}`, { count: counts.get(key)! })
-    })
-    .join(", ")
-}
-
 /** Get the icon for the most frequent category in a mixed group */
 function getPrimaryCategory(tools: ToolCall[]): ToolCategory {
   const counts = new Map<ToolCategory, number>()
@@ -164,12 +111,12 @@ function GroupItem({ tool }: { tool: ToolCall }) {
   const [showResult, setShowResult] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const isRunning = tool.result === undefined
+  const state = getToolExecutionState(tool)
+  const isRunning = state === "running"
+  const isFailed = state === "failed"
   const skillName = getSkillName(tool)
   const fullTarget = skillName ? "" : getFullTarget(tool)
-  const toolLabel = skillName
-    ? t("tools.loadingSkill", { name: skillName })
-    : t(`tools.${tool.name}`, tool.name)
+  const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const preview = skillName ? null : getResultPreview(tool.result)
   const cat = getToolCategory(tool.name)
   const CatIcon = CATEGORY_ICONS[cat]
@@ -203,7 +150,14 @@ function GroupItem({ tool }: { tool: ToolCall }) {
           />
         )}
         <CatIcon className="h-3 w-3 shrink-0 text-muted-foreground/40" />
-        <span className="text-muted-foreground/80 font-medium shrink-0">{toolLabel}</span>
+        <span
+          className={cn(
+            "font-medium shrink-0",
+            isFailed ? "text-red-500" : "text-muted-foreground/80",
+          )}
+        >
+          {toolLabel}
+        </span>
         <span className="text-muted-foreground/60 truncate font-mono">{fullTarget}</span>
         {/* Inline result preview when collapsed */}
         {!showResult && preview && (
@@ -269,11 +223,12 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(() => Date.now())
-  const anyRunning = tools.some((tc) => tc.result === undefined)
+  const anyRunning = tools.some((tool) => getToolExecutionState(tool) === "running")
+  const failedCount = getFailedToolCount(tools)
 
   const primaryCategory = getPrimaryCategory(tools)
   const HeaderIcon = CATEGORY_ICONS[primaryCategory]
-  const label = buildSummaryLabel(tools, t)
+  const label = getExecutionToolGroupLabel(tools, t, getSkillName)
 
   // Calculate total elapsed time across all tools in the group
   const totalElapsedMs = useMemo(() => {
@@ -318,6 +273,14 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
         )}
         <HeaderIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         <span className={cn("text-muted-foreground font-medium", (anyRunning || shimmer) && "animate-text-shimmer")}>{label}</span>
+        {failedCount > 0 && (
+          <span className="shrink-0 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-500">
+            <span className="inline-flex items-center gap-0.5">
+              <AlertCircle className="h-3 w-3" />
+              {t("executionStatus.tool.group.failedCount", { count: failedCount })}
+            </span>
+          </span>
+        )}
         {totalElapsedText && (
           <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
             {t("tools.elapsed", { time: totalElapsedText })}

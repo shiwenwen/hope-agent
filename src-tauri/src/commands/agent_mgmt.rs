@@ -1,6 +1,7 @@
 use crate::agent_config;
 use crate::agent_loader;
 use ha_core::openclaw_import;
+use serde_json::json;
 
 #[tauri::command]
 pub async fn list_agents() -> Result<Vec<agent_config::AgentSummary>, String> {
@@ -23,7 +24,11 @@ pub async fn save_agent_config_cmd(
     id: String,
     config: agent_config::AgentConfig,
 ) -> Result<(), String> {
-    agent_loader::save_agent_config(&id, &config).map_err(|e| e.to_string())
+    agent_loader::save_agent_config(&id, &config).map_err(|e| e.to_string())?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "id": id, "kind": "saved" }));
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -33,7 +38,11 @@ pub async fn save_agent_markdown(id: String, file: String, content: String) -> R
 
 #[tauri::command]
 pub async fn delete_agent(id: String) -> Result<(), String> {
-    agent_loader::delete_agent(&id).map_err(|e| e.to_string())
+    agent_loader::delete_agent(&id).map_err(|e| e.to_string())?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "id": id, "kind": "deleted" }));
+    }
+    Ok(())
 }
 
 #[tauri::command]

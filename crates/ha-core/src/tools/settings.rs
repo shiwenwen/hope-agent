@@ -44,7 +44,7 @@ fn risk_level(category: &str) -> &'static str {
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
-        | "security" | "security.ssrf" => "high",
+        | "security" | "security.ssrf" | "channels" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
         "active_model" | "fallback_models" | "all" => "low",
@@ -87,6 +87,9 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              spawns `brew` / `npm -g` / `go install` / `uv tool install`. Enabling it turns any \
              valid API Key into a remote package-install primitive — only enable on trusted \
              deployments. Has no effect on the Tauri desktop shell."
+        ),
+        "channels" => Some(
+            "Modifying channel configurations will require a restart or re-initialization of the affected IM channel listeners."
         ),
         _ => None,
     }
@@ -186,6 +189,7 @@ fn read_category(category: &str) -> Result<Value> {
         "tool_call_narration" => Ok(json!({
             "toolCallNarrationEnabled": cfg.tool_call_narration_enabled,
         })),
+        "channels" => Ok(serde_json::to_value(&cfg.channels)?),
         "teams" => {
             let db = crate::globals::get_session_db()
                 .ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
@@ -260,7 +264,7 @@ fn get_all_overview() -> Result<String> {
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
-            "acp_control", "skill_env", "security", "security.ssrf"
+            "acp_control", "skill_env", "security", "security.ssrf", "channels"
         ],
     });
 
@@ -499,6 +503,9 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.tool_call_narration_enabled = v;
             }
         }
+        "channels" => {
+            merge_field(&mut store.channels, values)?;
+        }
         "teams" => {
             // Teams are DB rows, not AppConfig fields. Perform CRUD directly on the
             // team_templates table and return early (skip save_config / hot reload).
@@ -627,6 +634,33 @@ fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) {
         "web_search" => {
             // SearXNG config may affect Docker container — no cached state to invalidate,
             // but weather system may use web search indirectly. No action needed.
+        }
+        "channels" => {
+            // Hot reload channel listeners: restart all enabled channels, stop disabled ones.
+            if let Some(registry) = crate::get_channel_registry() {
+                let enabled_accounts = store
+                    .channels
+                    .enabled_accounts()
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                tokio::spawn(async move {
+                    let running = registry.list_running().await;
+                    for (acc_id, _) in running {
+                        let _ = registry.stop_account(&acc_id).await;
+                    }
+                    for account in enabled_accounts {
+                        if let Err(e) = registry.start_account(&account).await {
+                            crate::app_warn!(
+                                "settings",
+                                "hot_reload",
+                                "Failed to auto-restart channel account: {}",
+                                e
+                            );
+                        }
+                    }
+                });
+            }
         }
         _ => {} // Other categories: config cache (ArcSwap) already updated by save_config
     }

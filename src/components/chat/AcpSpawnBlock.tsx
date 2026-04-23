@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react"
 import { ChevronRight, Cable, CheckCircle, XCircle, Clock, Loader2, Skull, StopCircle } from "lucide-react"
+import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
@@ -22,25 +23,22 @@ interface AcpControlEvent {
   data: Record<string, unknown>
 }
 
-const statusConfig: Record<string, { icon: React.ReactNode; label: string; color: string }> = {
+const statusConfig: Record<string, { icon: React.ReactNode; color: string }> = {
   starting: {
     icon: <Loader2 className="h-3 w-3 animate-spin" />,
-    label: "Starting",
     color: "text-blue-500",
   },
   running: {
     icon: <Loader2 className="h-3 w-3 animate-spin" />,
-    label: "Running",
     color: "text-blue-500",
   },
   completed: {
     icon: <CheckCircle className="h-3 w-3" />,
-    label: "Completed",
     color: "text-green-500",
   },
-  error: { icon: <XCircle className="h-3 w-3" />, label: "Error", color: "text-red-500" },
-  timeout: { icon: <Clock className="h-3 w-3" />, label: "Timeout", color: "text-orange-500" },
-  killed: { icon: <Skull className="h-3 w-3" />, label: "Killed", color: "text-gray-500" },
+  error: { icon: <XCircle className="h-3 w-3" />, color: "text-red-500" },
+  timeout: { icon: <Clock className="h-3 w-3" />, color: "text-orange-500" },
+  killed: { icon: <Skull className="h-3 w-3" />, color: "text-gray-500" },
 }
 
 export default function AcpSpawnBlock({
@@ -50,6 +48,7 @@ export default function AcpSpawnBlock({
   initialStatus,
   label: initialLabel,
 }: AcpSpawnBlockProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [status, setStatus] = useState(initialStatus || "starting")
   const [streamText, setStreamText] = useState("")
@@ -145,7 +144,7 @@ export default function AcpSpawnBlock({
           )}
           <span className={cn("flex items-center gap-1", config.color)}>
             {config.icon}
-            {config.label}
+            {t(`executionStatus.acp.status.${status}`, status)}
           </span>
           {!isTerminal && (
             <Button

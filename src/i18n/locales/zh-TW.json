@@ -164,6 +164,8 @@
     "totalTokens": "總計",
     "cronTrigger": "定時任務",
     "cronTaskStarted": "定時器觸發了一個任務",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} 不支援目前的 Think 模式，已自動關閉思考並重試本次請求。",
+    "unknownProvider": "未知 Provider",
     "sessionStatus": "會話狀態",
     "statusModel": "模型",
     "statusAgent": "Agent",
@@ -277,6 +279,7 @@
     "image": "圖片",
     "video": "視頻",
     "reasoning": "支持推理/思考",
+    "inheritProviderThinkingStyle": "繼承 Provider 預設設定",
     "inputCost": "輸入成本 ($/1M tokens)",
     "outputCost": "輸出成本 ($/1M tokens)",
     "modelList": "模型列表",
@@ -367,6 +370,301 @@
       "killed": "已終止"
     }
   },
+  "executionStatus": {
+    "tool": {
+      "single": {
+        "exec": {
+          "running": "正在執行命令",
+          "completed": "已執行命令",
+          "failed": "命令執行出錯"
+        },
+        "process": {
+          "running": "正在查看进程",
+          "completed": "已查看进程",
+          "failed": "进程查询出錯"
+        },
+        "read": {
+          "running": "正在讀取檔案",
+          "completed": "已讀取檔案",
+          "failed": "檔案讀取出錯"
+        },
+        "write": {
+          "running": "正在寫入檔案",
+          "completed": "已寫入檔案",
+          "failed": "檔案寫入出錯"
+        },
+        "edit": {
+          "running": "正在編輯檔案",
+          "completed": "已編輯檔案",
+          "failed": "檔案編輯出錯"
+        },
+        "ls": {
+          "running": "正在瀏覽檔案",
+          "completed": "已瀏覽檔案",
+          "failed": "檔案瀏覽出錯"
+        },
+        "grep": {
+          "running": "正在搜尋文字",
+          "completed": "已搜尋文字",
+          "failed": "文字搜尋出錯"
+        },
+        "find": {
+          "running": "正在查找檔案",
+          "completed": "已查找檔案",
+          "failed": "檔案查找出錯"
+        },
+        "apply_patch": {
+          "running": "正在应用补丁",
+          "completed": "已应用补丁",
+          "failed": "补丁应用出錯"
+        },
+        "web_search": {
+          "running": "正在搜尋網頁",
+          "completed": "已搜尋網頁",
+          "failed": "網頁搜尋出錯"
+        },
+        "web_fetch": {
+          "running": "正在取得網頁",
+          "completed": "已取得網頁",
+          "failed": "網頁取得出錯"
+        },
+        "save_memory": {
+          "running": "正在儲存記憶",
+          "completed": "已儲存記憶",
+          "failed": "記憶儲存出錯"
+        },
+        "recall_memory": {
+          "running": "正在回憶記憶",
+          "completed": "已回憶記憶",
+          "failed": "記憶回憶出錯"
+        },
+        "update_memory": {
+          "running": "正在更新記憶",
+          "completed": "已更新記憶",
+          "failed": "記憶更新出錯"
+        },
+        "delete_memory": {
+          "running": "正在刪除記憶",
+          "completed": "已刪除記憶",
+          "failed": "記憶刪除出錯"
+        },
+        "manage_cron": {
+          "running": "正在更新定時任務",
+          "completed": "已更新定時任務",
+          "failed": "定時任務更新出錯"
+        },
+        "browser": {
+          "running": "正在瀏覽頁面",
+          "completed": "已瀏覽頁面",
+          "failed": "瀏覽器操作出錯"
+        },
+        "send_notification": {
+          "running": "正在發送通知",
+          "completed": "已發送通知",
+          "failed": "通知發送出錯"
+        },
+        "subagent": {
+          "running": "正在啟動子 Agent",
+          "completed": "已啟動子 Agent",
+          "failed": "子 Agent 啟動出錯"
+        },
+        "memory_get": {
+          "running": "正在讀取記憶",
+          "completed": "已讀取記憶",
+          "failed": "記憶讀取出錯"
+        },
+        "agents_list": {
+          "running": "正在查看 Agent 列表",
+          "completed": "已查看 Agent 列表",
+          "failed": "Agent 列表取得出錯"
+        },
+        "sessions_list": {
+          "running": "正在查看會話列表",
+          "completed": "已查看會話列表",
+          "failed": "會話列表取得出錯"
+        },
+        "session_status": {
+          "running": "正在查看會話狀態",
+          "completed": "已查看會話狀態",
+          "failed": "會話狀態取得出錯"
+        },
+        "sessions_history": {
+          "running": "正在查看會話歷史",
+          "completed": "已查看會話歷史",
+          "failed": "會話歷史取得出錯"
+        },
+        "sessions_send": {
+          "running": "正在發送至會話",
+          "completed": "已發送至會話",
+          "failed": "發送至會話出錯"
+        },
+        "image": {
+          "running": "正在分析圖像",
+          "completed": "已分析圖像",
+          "failed": "圖像分析出錯"
+        },
+        "image_generate": {
+          "running": "正在生成圖片",
+          "completed": "已生成圖片",
+          "failed": "圖片生成出錯"
+        },
+        "pdf": {
+          "running": "正在讀取 PDF",
+          "completed": "已讀取 PDF",
+          "failed": "PDF 讀取出錯"
+        },
+        "canvas": {
+          "running": "正在更新畫布",
+          "completed": "已更新畫布",
+          "failed": "畫布更新出錯"
+        },
+        "task_create": {
+          "running": "正在建立任務",
+          "completed": "已建立任務",
+          "failed": "任務建立出錯"
+        },
+        "task_update": {
+          "running": "正在更新任務",
+          "completed": "已更新任務",
+          "failed": "任務更新出錯"
+        },
+        "task_list": {
+          "running": "正在查看任務",
+          "completed": "已查看任務",
+          "failed": "任務取得出錯"
+        },
+        "get_settings": {
+          "running": "正在讀取設定",
+          "completed": "已讀取設定",
+          "failed": "設定讀取出錯"
+        },
+        "update_settings": {
+          "running": "正在更新設定",
+          "completed": "已更新設定",
+          "failed": "設定更新出錯"
+        },
+        "send_attachment": {
+          "running": "正在發送附件",
+          "completed": "已發送附件",
+          "failed": "附件發送出錯"
+        },
+        "ask_user_question": {
+          "running": "正在等待你的回答",
+          "completed": "已收到你的回答",
+          "failed": "提问出錯"
+        },
+        "tool_search": {
+          "running": "正在查找工具",
+          "completed": "已查找工具",
+          "failed": "工具查找出錯"
+        },
+        "acp_spawn": {
+          "running": "正在啟動 ACP Agent",
+          "completed": "已啟動 ACP Agent",
+          "failed": "ACP Agent 啟動出錯"
+        },
+        "submit_plan": {
+          "running": "正在提交計畫",
+          "completed": "已提交計畫",
+          "failed": "計畫提交出錯"
+        },
+        "amend_plan": {
+          "running": "正在修改計畫",
+          "completed": "已修改計畫",
+          "failed": "計畫修改出錯"
+        },
+        "update_plan_step": {
+          "running": "正在更新計畫步驟",
+          "completed": "已更新計畫步驟",
+          "failed": "計畫步驟更新出錯"
+        },
+        "skill_read": {
+          "running": "正在載入技能：{{name}}",
+          "completed": "已載入技能：{{name}}",
+          "failed": "技能載入出錯：{{name}}"
+        },
+        "fallback": {
+          "running": "正在執行 {{name}}",
+          "completed": "已完成 {{name}}",
+          "failed": "{{name}} 出錯"
+        }
+      },
+      "group": {
+        "browse": {
+          "running": "正在瀏覽 {{count}} 個檔案",
+          "completed": "已瀏覽 {{count}} 個文件"
+        },
+        "edit": {
+          "running": "正在編輯 {{count}} 個檔案",
+          "completed": "已編輯 {{count}} 個文件"
+        },
+        "search": {
+          "running": "正在搜尋 {{count}} 次",
+          "completed": "已搜索 {{count}} 次"
+        },
+        "web": {
+          "running": "正在搜尋網頁 {{count}} 次",
+          "completed": "已搜索網頁 {{count}} 次"
+        },
+        "memory": {
+          "running": "正在處理記憶 {{count}} 次",
+          "completed": "記憶操作 {{count}} 次"
+        },
+        "other": {
+          "running": "正在執行 {{count}} 個工具",
+          "completed": "工具調用 {{count}} 次"
+        },
+        "skill": {
+          "running": "正在載入 {{count}} 個技能",
+          "completed": "加載了 {{count}} 個技能"
+        },
+        "skill_single": {
+          "running": "正在載入技能：{{name}}",
+          "completed": "已載入技能：{{name}}"
+        },
+        "failedCount": "{{count}} 個失敗"
+      }
+    },
+    "skill": {
+      "running": "正在載入技能：{{name}}",
+      "completed": "已載入技能：{{name}}",
+      "failed": "技能執行出錯：{{name}}",
+      "mode": {
+        "inline": "技能 · 內聯",
+        "fork": "技能 · Fork"
+      }
+    },
+    "task": {
+      "running": "正在執行 {{completed}}/{{total}} 個任務",
+      "completed": "已完成 {{completed}}/{{total}} 個任務",
+      "pending": "還有 {{remaining}}/{{total}} 個任務待處理",
+      "empty": "暫無任務"
+    },
+    "subagent": {
+      "group": {
+        "running": "正在執行 {{count}} 個 Agent",
+        "finished": "已完成 {{count}} 個 Agent"
+      },
+      "status": {
+        "spawning": "啟動中",
+        "running": "執行中",
+        "completed": "已完成",
+        "error": "發生錯誤",
+        "timeout": "逾時",
+        "killed": "已終止"
+      }
+    },
+    "acp": {
+      "status": {
+        "starting": "啟動中",
+        "running": "執行中",
+        "completed": "已完成",
+        "error": "發生錯誤",
+        "timeout": "逾時",
+        "killed": "已終止"
+      }
+    }
+  },
   "settings": {
     "title": "設置",
     "general": "通用",
@@ -414,6 +712,8 @@
     "skillsListBundled": "內建技能",
     "skillsListUser": "使用者技能",
     "skillFiles": "文件列表",
+    "skillContentRaw": "原始內容",
+    "skillContentPreview": "Markdown 預覽",
     "skillEnabled": "已啟用",
     "skillDisabled": "已禁用",
     "noSkills": "暫無已安裝的技能",
@@ -1652,6 +1952,10 @@
     "runNow": "立即運行",
     "pause": "暫停",
     "resume": "恢複",
+    "deleteConfirmTitle": "刪除「{{name}}」？",
+    "deleteConfirmDesc": "這會永久刪除此定時任務及其執行記錄。",
+    "deleteSuccess": "已刪除「{{name}}」",
+    "deleteFailed": "刪除「{{name}}」失敗",
     "noJobs": "暫無定時任務",
     "noResults": "没有匹配的任務",
     "noRuns": "暫無運行記錄",

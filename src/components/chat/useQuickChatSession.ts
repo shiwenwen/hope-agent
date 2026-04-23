@@ -9,6 +9,7 @@ import type {
   SessionMeta,
   AgentSummaryForSidebar,
 } from "@/types/chat"
+import { normalizeEffortForModel } from "@/types/chat"
 import type { AgentConfig } from "@/components/settings/types"
 
 const STORAGE_PREFIX = "quickchat:lastSession:"
@@ -79,6 +80,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
 
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
+  const manualModelOverrideRef = useRef<ActiveModel | null>(null)
 
   // Model state
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -105,18 +107,46 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   // Load models and settings
   const loadModels = useCallback(async () => {
     try {
-      const [models, active, settings] = await Promise.all([
+      const [models, active, settings, agentConfig] = await Promise.all([
         getTransport().call<AvailableModel[]>("get_available_models"),
         getTransport().call<ActiveModel | null>("get_active_model"),
         getTransport().call<{ reasoning_effort: string }>("get_current_settings"),
+        getTransport()
+          .call<AgentConfig>("get_agent_config", { id: currentAgentId })
+          .catch(() => null),
       ])
       setAvailableModels(models)
-      setActiveModel(active)
-      setReasoningEffort(settings.reasoning_effort)
+      let displayModel = active
+      const manualOverride = manualModelOverrideRef.current
+      const manualModel = manualOverride
+        ? models.find(
+            (m) =>
+              m.providerId === manualOverride.providerId && m.modelId === manualOverride.modelId,
+          )
+        : undefined
+      if (manualOverride && !manualModel) {
+        manualModelOverrideRef.current = null
+      }
+      if (manualModel && manualOverride) {
+        displayModel = manualOverride
+      } else if (agentConfig?.model.primary) {
+        const [providerId, modelId] = agentConfig.model.primary.split("::")
+        const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
+        if (agentModel) {
+          displayModel = { providerId, modelId }
+        }
+      }
+      setActiveModel(displayModel)
+      const currentModel = displayModel
+        ? models.find(
+            (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
+          )
+        : undefined
+      setReasoningEffort(normalizeEffortForModel(currentModel, settings.reasoning_effort, (key) => key))
     } catch (e) {
       logger.error("ui", "QuickChat::loadModels", "Failed to load models", e)
     }
-  }, [])
+  }, [currentAgentId])
 
   // Load session messages
   const loadSessionMessages = useCallback(async (sessionId: string) => {
@@ -206,6 +236,30 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     }
   }, [open, initSession])
 
+  useEffect(() => {
+    manualModelOverrideRef.current = null
+  }, [currentAgentId])
+
+  useEffect(() => {
+    const offConfig = getTransport().listen("config:changed", () => {
+      void loadModels()
+    })
+    const offAgents = getTransport().listen("agents:changed", () => {
+      void loadAgents()
+      void loadModels()
+    })
+    const onWindowAgentsChanged = () => {
+      void loadAgents()
+      void loadModels()
+    }
+    window.addEventListener("agents-changed", onWindowAgentsChanged)
+    return () => {
+      offConfig()
+      offAgents()
+      window.removeEventListener("agents-changed", onWindowAgentsChanged)
+    }
+  }, [loadAgents, loadModels])
+
   // Create new chat session
   const handleNewChat = useCallback(async () => {
     setCurrentSessionId(null)
@@ -262,14 +316,21 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     async (key: string) => {
       const [providerId, modelId] = key.split("::")
       if (!providerId || !modelId) return
+      manualModelOverrideRef.current = { providerId, modelId }
       setActiveModel({ providerId, modelId })
+      const newModel = availableModels.find(
+        (m) => m.providerId === providerId && m.modelId === modelId,
+      )
+      if (newModel) {
+        setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, (k) => k))
+      }
       try {
         await getTransport().call("set_active_model", { providerId, modelId })
       } catch (e) {
         logger.error("ui", "QuickChat::modelChange", "Failed to set model", e)
       }
     },
-    [],
+    [availableModels],
   )
 
   // Effort change

@@ -1,9 +1,11 @@
 # Cron 定时任务架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-22
 
 ## 概述
 
 Cron 系统提供定时调度能力，支持一次性（At）、固定间隔（Every）和 cron 表达式（Cron）三种调度模式。任务触发后在隔离会话中执行 Agent 对话，具备完整的 failover 模型链重试、任务级指数退避、连续失败自动禁用、启动恢复和日历视图。
+
+`Every` 调度在 2026-04-22 起补齐了持久化 `start_at`（首个计划触发时间）语义。这样日历展开不再从查询窗口起点“硬铺”，旧数据库里的 `Every` 任务也会在 `CronDB::open` 时自动按 `created_at + interval_ms` 回填 `start_at`，修复“4 月 22 日刚创建的喝水提醒在 4 月 1 日开始出现”的错位问题。
 
 调度器运行在独立 OS 线程 + 独立 tokio runtime（2 worker threads）中，每 15 秒 tick 一次查询到期任务。任务 claim 使用原子 SQL UPDATE（`WHERE status='active' AND running_at IS NULL AND next_run_at <= now`）防止重复执行。
 
@@ -27,7 +29,7 @@ serde tag 区分，`rename_all = "camelCase"`：
 | 类型 | 字段 | 说明 |
 |------|------|------|
 | `At` | `timestamp: String` | 一次性触发。支持 RFC 3339（`2026-04-05T10:00:00+08:00`）和紧凑时区偏移（`+0800`），通过 `parse_flexible_timestamp` + `normalize_tz_offset` 自动转换 |
-| `Every` | `interval_ms: u64` | 固定间隔触发，每 N 毫秒。`compute_next_run` 返回 `after + interval_ms` |
+| `Every` | `interval_ms: u64`, `start_at: Option<String>` | 固定间隔触发，每 N 毫秒。`start_at` 表示**首个计划触发时间**；`compute_next_run` 返回“严格晚于 `after` 的下一个锚定时间点” |
 | `Cron` | `expression: String`, `timezone: Option<String>` | 标准 cron 表达式，通过 `cron` crate 的 `Schedule::from_str` 解析。`compute_next_cron` 调用 `schedule.after(after).next()` |
 
 ### CronPayload（任务载荷）
@@ -200,7 +202,7 @@ flowchart TD
 | 类型 | 算法 | 完成后行为 |
 |------|------|------------|
 | `At` | 若 `timestamp > after` 则返回 `timestamp`，否则 `None` | 成功后 `status = Completed`，`next_run_at = None` |
-| `Every` | `after + Duration::milliseconds(interval_ms)` | 每次执行后基于当前时间重算 |
+| `Every` | 基于 `start_at` 计算 `> after` 的下一个锚定时间点 | 固定相位；若执行耗时超过一个周期，会跳过错过的槽位而不是把后续触发整体漂移 |
 | `Cron` | `CronExpression::from_str(expression).after(after).next()` | 每次执行后基于当前时间重算 |
 
 **时间戳解析**：`parse_flexible_timestamp` 先尝试 RFC 3339，失败后通过 `normalize_tz_offset` 将紧凑偏移（如 `+0800`）转为标准格式（`+08:00`）再解析。
@@ -276,7 +278,7 @@ CREATE INDEX idx_cron_runs_job
     ON cron_run_logs(job_id, started_at DESC);
 ```
 
-**Schema 迁移**：`CronDB::open` 中检测 `running_at` 和 `notify_on_complete` 列是否存在，不存在则 `ALTER TABLE ADD COLUMN`，兼容旧数据库。
+**Schema 迁移**：`CronDB::open` 中检测 `running_at`、`notify_on_complete` 和 `delivery_targets_json` 列是否存在，不存在则 `ALTER TABLE ADD COLUMN`，兼容旧数据库。另有一条 JSON 级兼容迁移：对老版本 `schedule_json = {"type":"every","interval_ms":...}` 的任务，启动时自动写回 `start_at = created_at + interval_ms`。
 
 ## 前端事件
 
@@ -319,7 +321,7 @@ stateDiagram-v2
 - **启用**（`enabled=true`）：`status='active'`，`consecutive_failures=0` 重置，`compute_next_run` 重算下次执行时间
 - **禁用**（`enabled=false`）：`status='paused'`，保留当前 `next_run_at` 和 `consecutive_failures`
 
-**日历查询**：`get_calendar_events(start, end)` 展开所有任务在时间范围内的执行时间点（Every/Cron 最多 1000 个事件），并通过 `find_run_log_near` 在 +-2 分钟窗口内匹配已有的执行日志。
+**日历查询**：`get_calendar_events(start, end)` 展开所有任务在时间范围内的执行时间点。`Every` 任务从自己的 `start_at`（或旧任务回填出的锚点）开始展开，不再从月份查询起点硬铺。为避免高频任务日历错位，执行日志改为按 job 一次性批量读取，并按“离哪个计划时间最近”在 ±2 分钟窗口内唯一匹配；Every/Cron 单任务最多展开 10,000 个事件。
 
 ## 关键源文件索引
 

@@ -18,7 +18,8 @@ mod types;
 
 // Re-export public API
 pub use config::{
-    build_api_url, get_codex_models, is_valid_codex_model, live_reasoning_effort, USER_AGENT,
+    build_api_url, get_codex_models, is_complete_endpoint_url, is_valid_codex_model,
+    live_reasoning_effort, USER_AGENT,
 };
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub(crate) use context::build_compaction_provider;
@@ -228,16 +229,15 @@ impl AssistantAgent {
         };
         // Look up context_window from the provider's model config
         let context_window = config
-            .models
-            .iter()
-            .find(|m| m.id == model_id)
+            .model_config(model_id)
             .map(|m| m.context_window)
             .unwrap_or(200_000);
+        let effective_thinking_style = config.effective_thinking_style_for_model(model_id);
 
         Self {
             provider,
             user_agent: config.user_agent.clone(),
-            thinking_style: config.thinking_style.clone(),
+            thinking_style: effective_thinking_style,
             conversation_history: std::sync::Mutex::new(Vec::new()),
             agent_id: "default".to_string(),
             extra_system_context: None,
@@ -897,6 +897,9 @@ impl AssistantAgent {
         model: &str,
         fallback: Option<&str>,
     ) -> Option<api_types::ReasoningConfig> {
+        if self.thinking_style == ThinkingStyle::None {
+            return None;
+        }
         self.effective_reasoning_effort(fallback)
             .await
             .and_then(|e| config::clamp_reasoning_effort(model, &e))

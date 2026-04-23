@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { mergeUsageFromEvent, parseSessionMessages, reloadAndMergeSessionMessages } from "../chatUtils"
+import { hasToolError } from "../message/executionStatus"
 import { PAGE_SIZE } from "./constants"
 import type { Message, ContentBlock, MediaItem, SessionMessage } from "@/types/chat"
 
@@ -252,10 +253,14 @@ export function useChannelStreaming({
             const resolvedDurationMs = ev.duration_ms ?? (
               idx >= 0 && calls[idx].startedAtMs ? Date.now() - calls[idx].startedAtMs! : undefined
             )
+            const isError = typeof ev.is_error === "boolean"
+              ? ev.is_error
+              : hasToolError({ result: ev.result })
             if (idx >= 0) {
               calls[idx] = {
                 ...calls[idx],
                 result: ev.result,
+                isError,
                 ...(mediaItems && { mediaItems }),
                 ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
               }
@@ -274,6 +279,7 @@ export function useChannelStreaming({
                 tool: {
                   ...block.tool,
                   result: ev.result,
+                  isError,
                   ...(mediaItems && { mediaItems }),
                   ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
                 },

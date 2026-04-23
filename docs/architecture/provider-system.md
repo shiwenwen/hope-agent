@@ -52,7 +52,16 @@ graph LR
 | `context_window` | u32 | 上下文窗口（tokens） |
 | `max_tokens` | u32 | 最大输出 tokens |
 | `reasoning` | bool | 是否支持推理 |
+| `thinking_style` | Option\<ThinkingStyle\> | 模型级 think 模式覆盖；`None` = 继承 Provider |
 | `cost_input` / `cost_output` | f64 | 百万 token 定价（USD） |
+
+**实际生效顺序**
+
+1. `reasoning == false` → 强制 `ThinkingStyle::None`
+2. 模型级 `thinking_style`
+3. Provider 级 `thinking_style`
+
+因此“模型支持推理”与“当前是否真正发送 thinking 参数”是两个层次：前者由 `reasoning` 声明能力，后者由上述三段式解析决定。
 
 **`AppConfig`** — 全局配置根，持久化到 `~/.hope-agent/config.json`：
 - `providers`: 已注册的 Provider 列表

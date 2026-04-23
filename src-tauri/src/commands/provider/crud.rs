@@ -24,6 +24,8 @@ pub async fn add_provider(
     let mut provider_with_models = new_provider;
     provider_with_models.models = config.models;
     provider_with_models.auth_profiles = config.auth_profiles;
+    provider_with_models.thinking_style = config.thinking_style;
+    provider_with_models.allow_private_network = config.allow_private_network;
 
     let masked = provider_with_models.masked();
     ha_core::config::mutate_config(("providers.add", "ui"), |store| {
@@ -57,6 +59,7 @@ pub async fn update_provider(
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;
         existing.thinking_style = config.thinking_style;
+        existing.allow_private_network = config.allow_private_network;
         Ok(())
     })
     .map_err(|e| e.to_string())

@@ -164,6 +164,8 @@
     "totalTokens": "Total",
     "cronTrigger": "Scheduled Task",
     "cronTaskStarted": "A scheduled task was triggered",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "unknownProvider": "Unknown provider",
     "sessionStatus": "Session Status",
     "statusModel": "Model",
     "statusAgent": "Agent",
@@ -277,6 +279,7 @@
     "image": "Image",
     "video": "Video",
     "reasoning": "Reasoning / Thinking",
+    "inheritProviderThinkingStyle": "Inherit Provider Default",
     "inputCost": "Input Cost ($/1M tokens)",
     "outputCost": "Output Cost ($/1M tokens)",
     "modelList": "Models",
@@ -367,6 +370,301 @@
       "killed": "Killed"
     }
   },
+  "executionStatus": {
+    "tool": {
+      "single": {
+        "exec": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "process": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "read": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "write": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "edit": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ls": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "grep": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "find": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "apply_patch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_fetch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "save_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "recall_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "delete_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "manage_cron": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "browser": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_notification": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "subagent": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "memory_get": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "agents_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "session_status": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_history": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_send": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image_generate": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "pdf": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "canvas": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_create": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_update": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "get_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_attachment": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ask_user_question": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "tool_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "acp_spawn": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "submit_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "amend_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_plan_step": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "skill_read": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}",
+          "failed": "Skill failed: {{name}}"
+        },
+        "fallback": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        }
+      },
+      "group": {
+        "browse": {
+          "running": "Browsing {{count}} files",
+          "completed": "Browsed {{count}} files"
+        },
+        "edit": {
+          "running": "Editing {{count}} files",
+          "completed": "Edited {{count}} files"
+        },
+        "search": {
+          "running": "Searching {{count}} times",
+          "completed": "Searched {{count}} times"
+        },
+        "web": {
+          "running": "Searching the web {{count}} times",
+          "completed": "Web searched {{count}} times"
+        },
+        "memory": {
+          "running": "Updating memory {{count}} times",
+          "completed": "Memory operations: {{count}}"
+        },
+        "other": {
+          "running": "Running {{count}} tools",
+          "completed": "Tool calls: {{count}}"
+        },
+        "skill": {
+          "running": "Loading {{count}} skills",
+          "completed": "Loaded {{count}} skills"
+        },
+        "skill_single": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}"
+        },
+        "failedCount": "{{count}} failed"
+      }
+    },
+    "skill": {
+      "running": "Loading skill: {{name}}",
+      "completed": "Loaded skill: {{name}}",
+      "failed": "Skill failed: {{name}}",
+      "mode": {
+        "inline": "skill · inline",
+        "fork": "skill · fork"
+      }
+    },
+    "task": {
+      "running": "Running {{completed}}/{{total}} tasks",
+      "completed": "Completed {{completed}}/{{total}} tasks",
+      "pending": "{{remaining}}/{{total}} tasks pending",
+      "empty": "No tasks yet"
+    },
+    "subagent": {
+      "group": {
+        "running": "Running {{count}} agents",
+        "finished": "{{count}} agents finished"
+      },
+      "status": {
+        "spawning": "Spawning",
+        "running": "Running",
+        "completed": "Completed",
+        "error": "Error",
+        "timeout": "Timeout",
+        "killed": "Killed"
+      }
+    },
+    "acp": {
+      "status": {
+        "starting": "Spawning",
+        "running": "Running",
+        "completed": "Completed",
+        "error": "Error",
+        "timeout": "Timeout",
+        "killed": "Killed"
+      }
+    }
+  },
   "settings": {
     "title": "Settings",
     "general": "General",
@@ -414,6 +712,8 @@
     "skillsListBundled": "Built-in Skills",
     "skillsListUser": "User Skills",
     "skillFiles": "Files",
+    "skillContentRaw": "Raw Content",
+    "skillContentPreview": "Markdown Preview",
     "skillEnabled": "Enabled",
     "skillDisabled": "Disabled",
     "noSkills": "No skills installed",
@@ -1652,6 +1952,10 @@
     "runNow": "Run Now",
     "pause": "Pause",
     "resume": "Resume",
+    "deleteConfirmTitle": "Delete \"{{name}}\"?",
+    "deleteConfirmDesc": "This will permanently remove the scheduled task and its run history.",
+    "deleteSuccess": "Deleted \"{{name}}\"",
+    "deleteFailed": "Failed to delete \"{{name}}\"",
     "noJobs": "No scheduled tasks yet",
     "noResults": "No matching tasks",
     "noRuns": "No run history yet",

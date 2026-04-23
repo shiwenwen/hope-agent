@@ -1,0 +1,162 @@
+import type { TFunction } from "i18next"
+import type { ToolCall } from "@/types/chat"
+
+export type ExecutionState = "running" | "completed" | "failed"
+export type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
+
+const TOOL_CATEGORY_MAP: Record<string, ToolCategory> = {
+  read: "browse",
+  ls: "browse",
+  write: "edit",
+  edit: "edit",
+  apply_patch: "edit",
+  grep: "search",
+  find: "search",
+  web_search: "web",
+  web_fetch: "web",
+  save_memory: "memory",
+  recall_memory: "memory",
+  update_memory: "memory",
+  delete_memory: "memory",
+  memory_get: "memory",
+  image: "browse",
+  pdf: "browse",
+}
+
+const KNOWN_TOOL_STATUS_NAMES = new Set([
+  "exec",
+  "process",
+  "read",
+  "write",
+  "edit",
+  "ls",
+  "grep",
+  "find",
+  "apply_patch",
+  "web_search",
+  "web_fetch",
+  "save_memory",
+  "recall_memory",
+  "update_memory",
+  "delete_memory",
+  "manage_cron",
+  "browser",
+  "send_notification",
+  "subagent",
+  "memory_get",
+  "agents_list",
+  "sessions_list",
+  "session_status",
+  "sessions_history",
+  "sessions_send",
+  "image",
+  "image_generate",
+  "pdf",
+  "canvas",
+  "task_create",
+  "task_update",
+  "task_list",
+  "get_settings",
+  "update_settings",
+  "send_attachment",
+  "ask_user_question",
+  "tool_search",
+  "acp_spawn",
+  "submit_plan",
+  "amend_plan",
+  "update_plan_step",
+])
+
+export function hasToolError(
+  tool: Pick<ToolCall, "isError" | "result">,
+): boolean {
+  if (tool.isError === true) return true
+  if (tool.isError === false) return false
+  return typeof tool.result === "string" && tool.result.startsWith("Tool error:")
+}
+
+export function getToolExecutionState(
+  tool: Pick<ToolCall, "isError" | "result">,
+): ExecutionState {
+  if (tool.result === undefined) return "running"
+  return hasToolError(tool) ? "failed" : "completed"
+}
+
+export function getFailedToolCount(tools: ToolCall[]): number {
+  return tools.filter((tool) => getToolExecutionState(tool) === "failed").length
+}
+
+export function getToolCategory(name: string): ToolCategory {
+  return TOOL_CATEGORY_MAP[name] || "other"
+}
+
+export function getToolDisplayName(t: TFunction, toolName: string): string {
+  return String(t(`tools.${toolName}`, { defaultValue: toolName }))
+}
+
+export function getExecutionToolLabel(params: {
+  t: TFunction
+  tool: ToolCall
+  skillName?: string | null
+}): string {
+  const { t, tool, skillName } = params
+  const state = getToolExecutionState(tool)
+
+  if (skillName) {
+    return String(t(`executionStatus.tool.single.skill_read.${state}`, { name: skillName }))
+  }
+
+  const keyBase = KNOWN_TOOL_STATUS_NAMES.has(tool.name)
+    ? `executionStatus.tool.single.${tool.name}`
+    : "executionStatus.tool.single.fallback"
+
+  return String(
+    t(`${keyBase}.${state}`, {
+      name: getToolDisplayName(t, tool.name),
+    }),
+  )
+}
+
+export function getExecutionToolGroupLabel(
+  tools: ToolCall[],
+  t: TFunction,
+  getSkillName: (tool: ToolCall) => string | null,
+): string {
+  type LabelKey = ToolCategory | "skill"
+
+  const state: Exclude<ExecutionState, "failed"> = tools.some(
+    (tool) => getToolExecutionState(tool) === "running",
+  )
+    ? "running"
+    : "completed"
+
+  const order: LabelKey[] = []
+  const counts = new Map<LabelKey, number>()
+  const skillNames: string[] = []
+
+  for (const tool of tools) {
+    const skillName = getSkillName(tool)
+    const key: LabelKey = skillName ? "skill" : getToolCategory(tool.name)
+    if (skillName) skillNames.push(skillName)
+    if (!counts.has(key)) order.push(key)
+    counts.set(key, (counts.get(key) || 0) + 1)
+  }
+
+  return order
+    .map((key) => {
+      if (key === "skill") {
+        const count = counts.get(key) || 0
+        if (count === 1 && skillNames.length === 1) {
+          return String(
+            t(`executionStatus.tool.group.skill_single.${state}`, {
+              count,
+              name: skillNames[0],
+            }),
+          )
+        }
+        return String(t(`executionStatus.tool.group.skill.${state}`, { count }))
+      }
+      return String(t(`executionStatus.tool.group.${key}.${state}`, { count: counts.get(key) || 0 }))
+    })
+    .join(", ")
+}

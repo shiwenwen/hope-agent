@@ -164,6 +164,8 @@
     "totalTokens": "Всего",
     "cronTrigger": "Запланированная задача",
     "cronTaskStarted": "Запущена запланированная задача",
+    "thinkingAutoDisabled": "{{provider}} / {{model}} does not support the current thinking mode. Thinking was disabled automatically and the request was retried.",
+    "unknownProvider": "Unknown provider",
     "sessionStatus": "Статус сессии",
     "statusModel": "Модель",
     "statusAgent": "Агент",
@@ -277,6 +279,7 @@
     "image": "Изображение",
     "video": "Видео",
     "reasoning": "Рассуждение / Мышление",
+    "inheritProviderThinkingStyle": "Inherit Provider Default",
     "inputCost": "Стоимость ввода ($/1M tokens)",
     "outputCost": "Стоимость вывода ($/1M tokens)",
     "modelList": "Список моделей",
@@ -367,6 +370,301 @@
       "killed": "Прервано"
     }
   },
+  "executionStatus": {
+    "tool": {
+      "single": {
+        "exec": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "process": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "read": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "write": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "edit": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ls": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "grep": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "find": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "apply_patch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "web_fetch": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "save_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "recall_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "delete_memory": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "manage_cron": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "browser": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_notification": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "subagent": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "memory_get": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "agents_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "session_status": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_history": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "sessions_send": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "image_generate": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "pdf": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "canvas": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_create": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_update": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "task_list": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "get_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_settings": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "send_attachment": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "ask_user_question": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "tool_search": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "acp_spawn": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "submit_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "amend_plan": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "update_plan_step": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        },
+        "skill_read": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}",
+          "failed": "Skill failed: {{name}}"
+        },
+        "fallback": {
+          "running": "Running {{name}}",
+          "completed": "Completed {{name}}",
+          "failed": "{{name}} failed"
+        }
+      },
+      "group": {
+        "browse": {
+          "running": "Browsing {{count}} files",
+          "completed": "Просмотрено {{count}} файлов"
+        },
+        "edit": {
+          "running": "Editing {{count}} files",
+          "completed": "Отредактировано {{count}} файлов"
+        },
+        "search": {
+          "running": "Searching {{count}} times",
+          "completed": "Выполнено {{count}} поисков"
+        },
+        "web": {
+          "running": "Searching the web {{count}} times",
+          "completed": "Веб-поисков: {{count}}"
+        },
+        "memory": {
+          "running": "Updating memory {{count}} times",
+          "completed": "Операций с памятью: {{count}}"
+        },
+        "other": {
+          "running": "Running {{count}} tools",
+          "completed": "Вызовов инструментов: {{count}}"
+        },
+        "skill": {
+          "running": "Loading {{count}} skills",
+          "completed": "Загружено {{count}} skills"
+        },
+        "skill_single": {
+          "running": "Loading skill: {{name}}",
+          "completed": "Loaded skill: {{name}}"
+        },
+        "failedCount": "{{count}} failed"
+      }
+    },
+    "skill": {
+      "running": "Loading skill: {{name}}",
+      "completed": "Loaded skill: {{name}}",
+      "failed": "Skill failed: {{name}}",
+      "mode": {
+        "inline": "skill · inline",
+        "fork": "skill · fork"
+      }
+    },
+    "task": {
+      "running": "Running {{completed}}/{{total}} tasks",
+      "completed": "Completed {{completed}}/{{total}} tasks",
+      "pending": "{{remaining}}/{{total}} tasks pending",
+      "empty": "No tasks yet"
+    },
+    "subagent": {
+      "group": {
+        "running": "Выполняется {{count}} агентов",
+        "finished": "{{count}} агентов завершено"
+      },
+      "status": {
+        "spawning": "Запуск",
+        "running": "Выполняется",
+        "completed": "Завершено",
+        "error": "Ошибка",
+        "timeout": "Таймаут",
+        "killed": "Прервано"
+      }
+    },
+    "acp": {
+      "status": {
+        "starting": "Запуск",
+        "running": "Выполняется",
+        "completed": "Завершено",
+        "error": "Ошибка",
+        "timeout": "Таймаут",
+        "killed": "Прервано"
+      }
+    }
+  },
   "settings": {
     "title": "Настройки",
     "general": "Общие",
@@ -414,6 +712,8 @@
     "skillsListBundled": "Встроенные Skills",
     "skillsListUser": "Пользовательские Skills",
     "skillFiles": "Файлы",
+    "skillContentRaw": "Исходное содержимое",
+    "skillContentPreview": "Предпросмотр Markdown",
     "skillEnabled": "Включено",
     "skillDisabled": "Отключено",
     "noSkills": "Навыки не установлены",
@@ -1652,6 +1952,10 @@
     "runNow": "Запустить сейчас",
     "pause": "Пауза",
     "resume": "Возобновить",
+    "deleteConfirmTitle": "Удалить \"{{name}}\"?",
+    "deleteConfirmDesc": "Это навсегда удалит задачу cron и историю её запусков.",
+    "deleteSuccess": "\"{{name}}\" удалена",
+    "deleteFailed": "Не удалось удалить \"{{name}}\"",
     "noJobs": "Запланированных задач пока нет",
     "noResults": "Подходящих задач нет",
     "noRuns": "История запусков пуста",

@@ -22,6 +22,7 @@ interface CronJobDetailProps {
   jobId: string
   onBack: () => void
   onEdit: (job: CronJob) => void
+  onDelete: (job: CronJob) => void
   onRefresh: () => void
   onViewSession?: (sessionId: string) => void
 }
@@ -30,6 +31,7 @@ export default function CronJobDetail({
   jobId,
   onBack,
   onEdit,
+  onDelete,
   onRefresh,
   onViewSession,
 }: CronJobDetailProps) {
@@ -63,13 +65,6 @@ export default function CronJobDetail({
     const enabled = job.status !== "active"
     await getTransport().call("cron_toggle_job", { id: job.id, enabled })
     fetchData()
-    onRefresh()
-  }
-
-  async function handleDelete() {
-    if (!job) return
-    await getTransport().call("cron_delete_job", { id: job.id })
-    onBack()
     onRefresh()
   }
 
@@ -110,34 +105,34 @@ export default function CronJobDetail({
         </div>
         <div className="flex gap-1">
           <IconTip label={t("cron.runNow")}>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRunNow}>
-                <Zap className="h-3.5 w-3.5" />
-              </Button>
-            </IconTip>
-            <IconTip label={t("common.edit")}>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(job)}>
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-            </IconTip>
-            <IconTip label={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
-              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggle}>
-                {job.status === "active" ? (
-                  <Pause className="h-3.5 w-3.5" />
-                ) : (
-                  <Play className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </IconTip>
-            <IconTip label={t("common.delete")}>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-red-500 hover:text-red-600"
-                onClick={handleDelete}
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </IconTip>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleRunNow}>
+              <Zap className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+          <IconTip label={t("common.edit")}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(job)}>
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
+          <IconTip label={job.status === "active" ? t("cron.pause") : t("cron.resume")}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleToggle}>
+              {job.status === "active" ? (
+                <Pause className="h-3.5 w-3.5" />
+              ) : (
+                <Play className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </IconTip>
+          <IconTip label={t("common.delete")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-red-500 hover:text-red-600"
+              onClick={() => onDelete(job)}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
         </div>
       </div>
 

@@ -10,6 +10,7 @@ export interface ModelConfig {
   contextWindow: number
   maxTokens: number
   reasoning: boolean
+  thinkingStyle?: ThinkingStyleType | null
   costInput: number
   costOutput: number
 }
