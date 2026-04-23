@@ -25,6 +25,184 @@ use super::super::streaming_adapter::{
 use super::super::types::{AssistantAgent, ChatUsage, ProviderFormat};
 use crate::tools::ToolProvider;
 
+fn sse_request_id(resp: &reqwest::Response) -> String {
+    resp.headers()
+        .get("x-request-id")
+        .or_else(|| resp.headers().get("request-id"))
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("-")
+        .to_string()
+}
+
+fn sse_event_error_message(event: &SseEvent) -> Option<&str> {
+    event
+        .message
+        .as_deref()
+        .or_else(|| event.error.as_ref().and_then(|e| e.message.as_deref()))
+        .or_else(|| {
+            event
+                .response
+                .as_ref()
+                .and_then(|r| r.error.as_ref())
+                .and_then(|e| e.message.as_deref())
+        })
+        .or(event.code.as_deref())
+        .or_else(|| event.error.as_ref().and_then(|e| e.code.as_deref()))
+        .or_else(|| {
+            event
+                .response
+                .as_ref()
+                .and_then(|r| r.error.as_ref())
+                .and_then(|e| e.code.as_deref())
+        })
+}
+
+fn sse_event_error_code(event: &SseEvent) -> Option<&str> {
+    event
+        .code
+        .as_deref()
+        .or_else(|| event.error.as_ref().and_then(|e| e.code.as_deref()))
+        .or_else(|| {
+            event
+                .response
+                .as_ref()
+                .and_then(|r| r.error.as_ref())
+                .and_then(|e| e.code.as_deref())
+        })
+}
+
+fn sse_event_error_type(event: &SseEvent) -> Option<&str> {
+    event
+        .error
+        .as_ref()
+        .and_then(|e| e.error_type.as_deref())
+        .or_else(|| {
+            event
+                .response
+                .as_ref()
+                .and_then(|r| r.error.as_ref())
+                .and_then(|e| e.error_type.as_deref())
+        })
+}
+
+fn extract_request_id_from_message(message: &str) -> Option<&str> {
+    let marker = "request ID ";
+    let start = message.find(marker)? + marker.len();
+    let tail = &message[start..];
+    let end = tail
+        .find(|c: char| c.is_whitespace() || c == '.' || c == ',' || c == ')' || c == '"')
+        .unwrap_or(tail.len());
+    let candidate = &tail[..end];
+    if candidate.is_empty() {
+        None
+    } else {
+        Some(candidate)
+    }
+}
+
+fn redact_and_truncate_log_payload(raw: &str, max_bytes: usize) -> String {
+    let redacted = crate::logging::redact_sensitive(raw);
+    if redacted.len() > max_bytes {
+        format!(
+            "{}...(truncated, total {}B)",
+            crate::truncate_utf8(&redacted, max_bytes),
+            redacted.len()
+        )
+    } else {
+        redacted
+    }
+}
+
+fn log_sse_error_event(
+    request_id: &str,
+    event_type: &str,
+    event: &SseEvent,
+    raw_data: &str,
+    source: &str,
+) {
+    let Some(logger) = crate::get_logger() else {
+        return;
+    };
+
+    let message = sse_event_error_message(event).unwrap_or("Unknown error");
+    let effective_request_id = if request_id != "-" {
+        request_id.to_string()
+    } else {
+        extract_request_id_from_message(message)
+            .unwrap_or(request_id)
+            .to_string()
+    };
+    logger.log(
+        "error",
+        "agent",
+        source,
+        &format!(
+            "Responses SSE error event: request_id={}, type={}, message={}",
+            effective_request_id,
+            event_type,
+            crate::truncate_utf8(message, 300)
+        ),
+        Some(
+            json!({
+                "request_id": effective_request_id,
+                "header_request_id": request_id,
+                "event_type": event_type,
+                "message": message,
+                "error_code": sse_event_error_code(event),
+                "error_type": sse_event_error_type(event),
+                "top_level_message": event.message.as_deref(),
+                "top_level_code": event.code.as_deref(),
+                "top_level_error": event.error.as_ref().map(|e| {
+                    json!({
+                        "message": e.message.as_deref(),
+                        "code": e.code.as_deref(),
+                        "type": e.error_type.as_deref(),
+                    })
+                }),
+                "response_error": event.response.as_ref().and_then(|r| {
+                    r.error.as_ref().map(|e| {
+                        json!({
+                            "message": e.message.as_deref(),
+                            "code": e.code.as_deref(),
+                            "type": e.error_type.as_deref(),
+                        })
+                    })
+                }),
+                "raw_event": redact_and_truncate_log_payload(raw_data, 8192),
+            })
+            .to_string(),
+        ),
+        None,
+        None,
+    );
+}
+
+fn log_sse_decode_error(request_id: &str, raw_data: &str, err: &serde_json::Error) {
+    let Some(logger) = crate::get_logger() else {
+        return;
+    };
+
+    logger.log(
+        "warn",
+        "agent",
+        "agent::parse_openai_sse::decode_error",
+        &format!(
+            "Responses SSE decode error: request_id={}, error={}",
+            request_id, err
+        ),
+        Some(
+            json!({
+                "request_id": request_id,
+                "error": err.to_string(),
+                "raw_event": redact_and_truncate_log_payload(raw_data, 8192),
+            })
+            .to_string(),
+        ),
+        None,
+        None,
+    );
+}
+
 pub(crate) struct OpenAIResponsesStreamingAdapter<'a> {
     pub api_key: &'a str,
     pub base_url: &'a str,
@@ -369,6 +547,7 @@ pub(in crate::agent) async fn parse_openai_sse(
 )> {
     use futures_util::StreamExt;
 
+    let request_id = sse_request_id(&resp);
     let mut collected_text = String::new();
     let mut collected_thinking = String::new();
     let mut tool_calls: Vec<FunctionCallItem> = Vec::new();
@@ -385,7 +564,32 @@ pub(in crate::agent) async fn parse_openai_sse(
         if cancel.load(Ordering::SeqCst) {
             break;
         }
-        let chunk = chunk?;
+        let chunk = match chunk {
+            Ok(chunk) => chunk,
+            Err(err) => {
+                if let Some(logger) = crate::get_logger() {
+                    logger.log(
+                        "error",
+                        "agent",
+                        "agent::parse_openai_sse::stream_error",
+                        &format!(
+                            "Responses SSE stream read error: request_id={}, error={}",
+                            request_id, err
+                        ),
+                        Some(
+                            json!({
+                                "request_id": request_id,
+                                "error": err.to_string(),
+                            })
+                            .to_string(),
+                        ),
+                        None,
+                        None,
+                    );
+                }
+                return Err(err.into());
+            }
+        };
         buffer.push_str(&String::from_utf8_lossy(&chunk));
 
         while let Some(idx) = buffer.find("\n\n") {
@@ -407,202 +611,215 @@ pub(in crate::agent) async fn parse_openai_sse(
                 continue;
             }
 
-            if let Ok(event) = serde_json::from_str::<SseEvent>(&data) {
-                let event_type = event.event_type.as_deref().unwrap_or("");
+            match serde_json::from_str::<SseEvent>(&data) {
+                Ok(event) => {
+                    let event_type = event.event_type.as_deref().unwrap_or("");
 
-                match event_type {
-                    // Reasoning summary deltas
-                    "response.reasoning_summary_text.delta" => {
-                        if let Some(delta) = &event.delta {
-                            if first_token_time.is_none() {
-                                first_token_time = Some(request_start.elapsed().as_millis() as u64);
-                            }
-                            emit_thinking_delta(&on_delta, delta);
-                            collected_thinking.push_str(delta);
-                        }
-                    }
-
-                    // Reasoning summary part done — paragraph separator between parts.
-                    "response.reasoning_summary_part.done" => {
-                        collected_thinking.push_str("\n\n");
-                        emit_thinking_delta(&on_delta, "\n\n");
-                    }
-
-                    // Text deltas
-                    "response.output_text.delta" => {
-                        if let Some(delta) = &event.delta {
-                            if first_token_time.is_none() {
-                                first_token_time = Some(request_start.elapsed().as_millis() as u64);
-                            }
-                            emit_text_delta(&on_delta, delta);
-                            collected_text.push_str(delta);
-                        }
-                    }
-
-                    // Function call started
-                    "response.output_item.added" => {
-                        if let Some(item) = &event.item {
-                            if item.item_type.as_deref() == Some("function_call") {
-                                let call_id = item
-                                    .id
-                                    .clone()
-                                    .or_else(|| item.call_id.clone())
-                                    .unwrap_or_default();
-                                let name = item.name.clone().unwrap_or_default();
-                                pending_calls.insert(
-                                    call_id.clone(),
-                                    FunctionCallItem {
-                                        call_id,
-                                        name,
-                                        arguments: item.arguments.clone().unwrap_or_default(),
-                                    },
-                                );
+                    match event_type {
+                        // Reasoning summary deltas
+                        "response.reasoning_summary_text.delta" => {
+                            if let Some(delta) = &event.delta {
+                                if first_token_time.is_none() {
+                                    first_token_time =
+                                        Some(request_start.elapsed().as_millis() as u64);
+                                }
+                                emit_thinking_delta(&on_delta, delta);
+                                collected_thinking.push_str(delta);
                             }
                         }
-                    }
 
-                    // Function call arguments delta
-                    "response.function_call_arguments.delta" => {
-                        if let Some(delta) = &event.delta {
+                        // Reasoning summary part done — paragraph separator between parts.
+                        "response.reasoning_summary_part.done" => {
+                            collected_thinking.push_str("\n\n");
+                            emit_thinking_delta(&on_delta, "\n\n");
+                        }
+
+                        // Text deltas
+                        "response.output_text.delta" => {
+                            if let Some(delta) = &event.delta {
+                                if first_token_time.is_none() {
+                                    first_token_time =
+                                        Some(request_start.elapsed().as_millis() as u64);
+                                }
+                                emit_text_delta(&on_delta, delta);
+                                collected_text.push_str(delta);
+                            }
+                        }
+
+                        // Function call started
+                        "response.output_item.added" => {
                             if let Some(item) = &event.item {
-                                let call_id = item
-                                    .id
-                                    .clone()
-                                    .or_else(|| item.call_id.clone())
-                                    .unwrap_or_default();
-                                if let Some(tc) = pending_calls.get_mut(&call_id) {
-                                    tc.arguments.push_str(delta);
-                                }
-                            } else {
-                                // Fallback: append to last pending call
-                                if let Some(tc) = pending_calls.values_mut().last() {
-                                    tc.arguments.push_str(delta);
+                                if item.item_type.as_deref() == Some("function_call") {
+                                    let call_id = item
+                                        .id
+                                        .clone()
+                                        .or_else(|| item.call_id.clone())
+                                        .unwrap_or_default();
+                                    let name = item.name.clone().unwrap_or_default();
+                                    pending_calls.insert(
+                                        call_id.clone(),
+                                        FunctionCallItem {
+                                            call_id,
+                                            name,
+                                            arguments: item.arguments.clone().unwrap_or_default(),
+                                        },
+                                    );
                                 }
                             }
                         }
-                    }
 
-                    // Function call done or output item done
-                    "response.function_call_arguments.done" | "response.output_item.done" => {
-                        if let Some(item) = &event.item {
-                            if item.item_type.as_deref() == Some("function_call") {
-                                let call_id = item
-                                    .id
-                                    .clone()
-                                    .or_else(|| item.call_id.clone())
-                                    .unwrap_or_default();
-                                if let Some(mut tc) = pending_calls.remove(&call_id) {
-                                    if let Some(args) = &item.arguments {
-                                        if !args.is_empty() {
-                                            tc.arguments = args.clone();
+                        // Function call arguments delta
+                        "response.function_call_arguments.delta" => {
+                            if let Some(delta) = &event.delta {
+                                if let Some(item) = &event.item {
+                                    let call_id = item
+                                        .id
+                                        .clone()
+                                        .or_else(|| item.call_id.clone())
+                                        .unwrap_or_default();
+                                    if let Some(tc) = pending_calls.get_mut(&call_id) {
+                                        tc.arguments.push_str(delta);
+                                    }
+                                } else {
+                                    // Fallback: append to last pending call
+                                    if let Some(tc) = pending_calls.values_mut().last() {
+                                        tc.arguments.push_str(delta);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Function call done or output item done
+                        "response.function_call_arguments.done" | "response.output_item.done" => {
+                            if let Some(item) = &event.item {
+                                if item.item_type.as_deref() == Some("function_call") {
+                                    let call_id = item
+                                        .id
+                                        .clone()
+                                        .or_else(|| item.call_id.clone())
+                                        .unwrap_or_default();
+                                    if let Some(mut tc) = pending_calls.remove(&call_id) {
+                                        if let Some(args) = &item.arguments {
+                                            if !args.is_empty() {
+                                                tc.arguments = args.clone();
+                                            }
+                                        }
+                                        if item.name.is_some() {
+                                            tc.name = item.name.clone().unwrap_or_default();
+                                        }
+                                        tool_calls.push(tc);
+                                    }
+                                }
+                                // Capture reasoning items raw (preserves encrypted_content).
+                                if item.item_type.as_deref() == Some("reasoning") {
+                                    if let Ok(raw) = serde_json::from_str::<Value>(&data) {
+                                        if let Some(raw_item) = raw.get("item") {
+                                            reasoning_items.push(raw_item.clone());
                                         }
                                     }
-                                    if item.name.is_some() {
-                                        tc.name = item.name.clone().unwrap_or_default();
-                                    }
-                                    tool_calls.push(tc);
-                                }
-                            }
-                            // Capture reasoning items raw (preserves encrypted_content).
-                            if item.item_type.as_deref() == Some("reasoning") {
-                                if let Ok(raw) = serde_json::from_str::<Value>(&data) {
-                                    if let Some(raw_item) = raw.get("item") {
-                                        reasoning_items.push(raw_item.clone());
-                                    }
                                 }
                             }
                         }
-                    }
 
-                    "error" => {
-                        let msg = event
-                            .message
-                            .as_deref()
-                            .or(event.code.as_deref())
-                            .unwrap_or("Unknown error");
-                        return Err(anyhow::anyhow!("Codex error: {}", msg));
-                    }
-                    "response.failed" => {
-                        let msg = event
-                            .response
-                            .as_ref()
-                            .and_then(|r| r.error.as_ref())
-                            .and_then(|e| e.message.as_deref())
-                            .unwrap_or("Codex response failed");
-                        return Err(anyhow::anyhow!("{}", msg));
-                    }
-
-                    // Response completed — extract from full response if no deltas collected.
-                    "response.completed" | "response.done" => {
-                        if let Some(resp_obj) = &event.response {
-                            if let Some(u) = &resp_obj.usage {
-                                if let Some(it) = u.input_tokens {
-                                    usage.input_tokens = it;
-                                }
-                                if let Some(ot) = u.output_tokens {
-                                    usage.output_tokens = ot;
-                                }
-                                // Anthropic-style cache token fields.
-                                if let Some(cr) = u.cache_read_input_tokens {
-                                    usage.cache_read_input_tokens = cr;
-                                }
-                                if let Some(cc) = u.cache_creation_input_tokens {
-                                    usage.cache_creation_input_tokens = cc;
-                                }
-                                // OpenAI-style fallback.
-                                if usage.cache_read_input_tokens == 0 {
-                                    usage.cache_read_input_tokens = u
-                                        .input_tokens_details
-                                        .as_ref()
-                                        .and_then(|d| d.cached_tokens)
-                                        .or_else(|| {
-                                            u.prompt_tokens_details
-                                                .as_ref()
-                                                .and_then(|d| d.cached_tokens)
-                                        })
-                                        .unwrap_or(0);
-                                }
-                            }
+                        "error" => {
+                            log_sse_error_event(
+                                &request_id,
+                                event_type,
+                                &event,
+                                &data,
+                                "agent::parse_openai_sse::event_error",
+                            );
+                            let msg = sse_event_error_message(&event).unwrap_or("Unknown error");
+                            return Err(anyhow::anyhow!("Codex error: {}", msg));
                         }
-                        if collected_text.is_empty() && tool_calls.is_empty() {
+                        "response.failed" => {
+                            log_sse_error_event(
+                                &request_id,
+                                event_type,
+                                &event,
+                                &data,
+                                "agent::parse_openai_sse::response_failed",
+                            );
+                            let msg =
+                                sse_event_error_message(&event).unwrap_or("Codex response failed");
+                            return Err(anyhow::anyhow!("{}", msg));
+                        }
+
+                        // Response completed — extract from full response if no deltas collected.
+                        "response.completed" | "response.done" => {
                             if let Some(resp_obj) = &event.response {
-                                if let Some(outputs) = &resp_obj.output {
-                                    for item in outputs {
-                                        if item.item_type.as_deref() == Some("message") {
-                                            if let Some(parts) = &item.content {
-                                                for part in parts {
-                                                    if part.part_type.as_deref()
-                                                        == Some("output_text")
-                                                    {
-                                                        if let Some(text) = &part.text {
-                                                            collected_text.push_str(text);
+                                if let Some(u) = &resp_obj.usage {
+                                    if let Some(it) = u.input_tokens {
+                                        usage.input_tokens = it;
+                                    }
+                                    if let Some(ot) = u.output_tokens {
+                                        usage.output_tokens = ot;
+                                    }
+                                    // Anthropic-style cache token fields.
+                                    if let Some(cr) = u.cache_read_input_tokens {
+                                        usage.cache_read_input_tokens = cr;
+                                    }
+                                    if let Some(cc) = u.cache_creation_input_tokens {
+                                        usage.cache_creation_input_tokens = cc;
+                                    }
+                                    // OpenAI-style fallback.
+                                    if usage.cache_read_input_tokens == 0 {
+                                        usage.cache_read_input_tokens = u
+                                            .input_tokens_details
+                                            .as_ref()
+                                            .and_then(|d| d.cached_tokens)
+                                            .or_else(|| {
+                                                u.prompt_tokens_details
+                                                    .as_ref()
+                                                    .and_then(|d| d.cached_tokens)
+                                            })
+                                            .unwrap_or(0);
+                                    }
+                                }
+                            }
+                            if collected_text.is_empty() && tool_calls.is_empty() {
+                                if let Some(resp_obj) = &event.response {
+                                    if let Some(outputs) = &resp_obj.output {
+                                        for item in outputs {
+                                            if item.item_type.as_deref() == Some("message") {
+                                                if let Some(parts) = &item.content {
+                                                    for part in parts {
+                                                        if part.part_type.as_deref()
+                                                            == Some("output_text")
+                                                        {
+                                                            if let Some(text) = &part.text {
+                                                                collected_text.push_str(text);
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
-                                        }
-                                        if item.item_type.as_deref() == Some("function_call") {
-                                            let call_id = item
-                                                .id
-                                                .clone()
-                                                .or_else(|| item.call_id.clone())
-                                                .unwrap_or_default();
-                                            tool_calls.push(FunctionCallItem {
-                                                call_id,
-                                                name: item.name.clone().unwrap_or_default(),
-                                                arguments: item
-                                                    .arguments
+                                            if item.item_type.as_deref() == Some("function_call") {
+                                                let call_id = item
+                                                    .id
                                                     .clone()
-                                                    .unwrap_or_default(),
-                                            });
+                                                    .or_else(|| item.call_id.clone())
+                                                    .unwrap_or_default();
+                                                tool_calls.push(FunctionCallItem {
+                                                    call_id,
+                                                    name: item.name.clone().unwrap_or_default(),
+                                                    arguments: item
+                                                        .arguments
+                                                        .clone()
+                                                        .unwrap_or_default(),
+                                                });
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-                    }
 
-                    _ => {}
+                        _ => {}
+                    }
+                }
+                Err(err) => {
+                    log_sse_decode_error(&request_id, &data, &err);
                 }
             }
         }
@@ -626,6 +843,7 @@ pub(in crate::agent) async fn parse_openai_sse(
             ),
             Some(
                 json!({
+                    "request_id": request_id,
                     "text_length": collected_text.len(),
                     "tool_calls": tool_names,
                     "tool_call_count": tool_calls.len(),
@@ -651,4 +869,60 @@ pub(in crate::agent) async fn parse_openai_sse(
         first_token_time,
         reasoning_items,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        extract_request_id_from_message, sse_event_error_code, sse_event_error_message,
+        sse_event_error_type, SseEvent,
+    };
+
+    #[test]
+    fn nested_error_fields_are_extracted_from_event_error() {
+        let event: SseEvent = serde_json::from_value(serde_json::json!({
+            "type": "error",
+            "error": {
+                "message": "session invalid",
+                "code": "invalid_session",
+                "type": "invalid_request_error"
+            }
+        }))
+        .expect("parse nested error event");
+
+        assert_eq!(sse_event_error_message(&event), Some("session invalid"));
+        assert_eq!(sse_event_error_code(&event), Some("invalid_session"));
+        assert_eq!(sse_event_error_type(&event), Some("invalid_request_error"));
+    }
+
+    #[test]
+    fn response_failed_uses_nested_response_error_fields() {
+        let event: SseEvent = serde_json::from_value(serde_json::json!({
+            "type": "response.failed",
+            "response": {
+                "error": {
+                    "message": "tool schema rejected",
+                    "code": "invalid_tool_schema",
+                    "type": "invalid_request_error"
+                }
+            }
+        }))
+        .expect("parse response.failed event");
+
+        assert_eq!(
+            sse_event_error_message(&event),
+            Some("tool schema rejected")
+        );
+        assert_eq!(sse_event_error_code(&event), Some("invalid_tool_schema"));
+        assert_eq!(sse_event_error_type(&event), Some("invalid_request_error"));
+    }
+
+    #[test]
+    fn request_id_is_extracted_from_error_message() {
+        let message = "An error occurred while processing your request. Please include the request ID 8d46da73-d9c2-44d5-af24-707fb7680aad in your message.";
+        assert_eq!(
+            extract_request_id_from_message(message),
+            Some("8d46da73-d9c2-44d5-af24-707fb7680aad")
+        );
+    }
 }

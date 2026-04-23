@@ -51,6 +51,8 @@ pub(super) struct SseEvent {
     pub code: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    #[serde(default)]
+    pub error: Option<SseResponseError>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -90,6 +92,10 @@ pub(super) struct SseUsage {
 
 #[derive(Deserialize, Debug)]
 pub(super) struct SseResponseError {
+    #[serde(default)]
+    pub code: Option<String>,
+    #[serde(rename = "type", default)]
+    pub error_type: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
 }

@@ -118,6 +118,9 @@ pub fn classify_error(error_msg: &str) -> FailoverReason {
         || lower.contains("overloaded")
         || lower.contains("service unavailable")
         || lower.contains("temporarily unavailable")
+        || lower.contains("server_error")
+        || lower.contains("internal server error")
+        || lower.contains("an error occurred while processing your request")
         || lower.contains("502")  // Bad Gateway
         || lower.contains("521")  // Cloudflare origin down
         || lower.contains("522")  // Cloudflare connection timed out
@@ -468,6 +471,11 @@ mod tests {
         );
         assert_eq!(
             classify_error("502 Bad Gateway"),
+            FailoverReason::Overloaded
+        );
+        assert_eq!(classify_error("server_error"), FailoverReason::Overloaded);
+        assert_eq!(
+            classify_error("An error occurred while processing your request. Please include the request ID 8d46da73-d9c2-44d5-af24-707fb7680aad in your message."),
             FailoverReason::Overloaded
         );
     }
