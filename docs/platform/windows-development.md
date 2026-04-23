@@ -49,11 +49,11 @@ Release 产物由 [`.github/workflows/release.yml`](../../.github/workflows/rele
 git clone https://github.com/shiwenwen/hope-agent.git
 cd hope-agent
 
-npm install
+pnpm install
 cargo check --workspace    # 建议先跑一次，第一次编译 vendored openssl 会慢 2-3 分钟
 
 # 开发模式（前端热重载 + Tauri 窗口）
-npm run tauri dev
+pnpm tauri dev
 ```
 
 ### 常见坑

@@ -13,7 +13,7 @@
 //! 2. `rust-embed` bundle baked into the binary — the release default.
 //! 3. `Unavailable` — the front-end was never built. The fallback still
 //!    renders a small placeholder HTML page pointing the user at the
-//!    `npm run build` command, so the API continues to work while the
+//!    `pnpm build` command, so the API continues to work while the
 //!    Web GUI self-diagnoses.
 
 use axum::{
@@ -91,7 +91,7 @@ display:flex;min-height:100vh;align-items:center;justify-content:center;margin:0
 main{max-width:560px;padding:2rem;border:1px solid #2a2d33;border-radius:12px;background:#14171c}
 code{background:#1f232a;padding:.15rem .35rem;border-radius:4px}</style></head>
 <body><main><h1>Web GUI not available</h1>
-<p>The front-end was not bundled with this build. Run <code>npm run build</code>
+<p>The front-end was not bundled with this build. Run <code>pnpm build</code>
 in the project root and restart <code>hope-agent server</code>, or set the
 <code>HA_WEB_ROOT</code> environment variable to a directory containing the
 Vite <code>dist/</code> output.</p>

@@ -25,7 +25,7 @@ echo "[pre-push] tsc --noEmit"
 pnpm tsc --noEmit
 
 echo "[pre-push] eslint"
-pnpm lint --silent
+pnpm lint
 
 if [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"

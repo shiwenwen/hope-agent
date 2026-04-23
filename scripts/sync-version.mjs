@@ -37,7 +37,7 @@ if (process.env.npm_lifecycle_event === "version") {
       stdio: "ignore",
     })
     execSync(
-      "git add package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json",
+      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json",
       {
         cwd: rootDir,
         stdio: "ignore",
