@@ -1,6 +1,6 @@
 //! Pre-compile hook: ensure `dist/index.html` exists before `rust-embed`
 //! scans the folder, so a fresh `cargo build` on a clone without a prior
-//! `npm run build` still produces a working binary.
+//! `pnpm build` still produces a working binary.
 //!
 //! When the real Vite output already exists we leave it alone — this
 //! script only fills in placeholders when the directory is empty.
@@ -21,7 +21,7 @@ const PLACEHOLDER_INDEX_HTML: &str = r#"<!doctype html>
     <h1>Hope Agent is running</h1>
     <p>
       The Web GUI has not been built yet. Run
-      <code>npm run build</code> in the project root and restart
+      <code>pnpm build</code> in the project root and restart
       <code>hope-agent server</code> to load the real interface.
     </p>
     <p>The backend API remains fully functional at <code>/api/*</code>.</p>
@@ -72,7 +72,7 @@ fn main() {
         }
     }
 
-    // Rerun when the dist folder changes so a `npm run build` that
+    // Rerun when the dist folder changes so a `pnpm build` that
     // refreshes assets triggers a rebuild of the embed bundle.
     println!("cargo:rerun-if-changed={}", dist.display());
 }

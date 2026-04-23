@@ -54,7 +54,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 20
-          cache: npm
+
+      - uses: pnpm/action-setup@v4
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -87,11 +88,11 @@ jobs:
             librsvg2-dev \
             patchelf
 
-      - name: Install npm dependencies
-        run: npm ci
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
       - name: Verify tag matches app version
-        run: npm run release:verify -- --tag "${{ env.RELEASE_TAG }}"
+        run: pnpm release:verify -- --tag "${{ env.RELEASE_TAG }}"
 
       - name: Build & draft release
         uses: tauri-apps/tauri-action@v0.5.14
