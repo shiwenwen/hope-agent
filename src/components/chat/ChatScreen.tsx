@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
@@ -63,12 +64,18 @@ export default function ChatScreen({
 
   // ── Model State ─────────────────────────────────────────────
   const {
-    availableModels, setAvailableModels,
-    activeModel, setActiveModel,
-    reasoningEffort, setReasoningEffort,
-    sessionTemperature, setSessionTemperature,
+    availableModels,
+    setAvailableModels,
+    activeModel,
+    setActiveModel,
+    reasoningEffort,
+    setReasoningEffort,
+    sessionTemperature,
+    setSessionTemperature,
     globalActiveModelRef,
-    applyModelForDisplay, handleModelChange, handleEffortChange,
+    applyModelForDisplay,
+    handleModelChange,
+    handleEffortChange,
   } = useModelState()
 
   // Sidebar panel width
@@ -93,7 +100,9 @@ export default function ChatScreen({
   const [incognitoSaving, setIncognitoSaving] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
-  const [planModeState, setPlanModeState] = useState<"off" | "planning" | "review" | "executing" | "paused" | "completed">("off")
+  const [planModeState, setPlanModeState] = useState<
+    "off" | "planning" | "review" | "executing" | "paused" | "completed"
+  >("off")
 
   // Shared per-session seq cursor for chat stream dedup across the primary
   // per-call Channel/WS path (useChatStream) and the EventBus reattach path
@@ -121,19 +130,18 @@ export default function ChatScreen({
   const currentSessionMeta = useMemo(
     () =>
       session.currentSessionId
-        ? session.sessions.find((s) => s.id === session.currentSessionId) ?? null
+        ? (session.sessions.find((s) => s.id === session.currentSessionId) ?? null)
         : null,
     [session.sessions, session.currentSessionId],
   )
   const incognitoEnabled = session.currentSessionId
-    ? currentSessionMeta?.incognito ?? false
+    ? (currentSessionMeta?.incognito ?? false)
     : draftIncognito
-  const incognitoDisabledReason: IncognitoDisabledReason | undefined =
-    currentSessionMeta?.projectId
-      ? "project"
-      : currentSessionMeta?.channelInfo
-        ? "channel"
-        : undefined
+  const incognitoDisabledReason: IncognitoDisabledReason | undefined = currentSessionMeta?.projectId
+    ? "project"
+    : currentSessionMeta?.channelInfo
+      ? "channel"
+      : undefined
   const reloadSessions = session.reloadSessions
   const currentAgentId = session.currentAgentId
   const handleNewChat = session.handleNewChat
@@ -181,7 +189,8 @@ export default function ChatScreen({
       } else if (currentSessionMeta?.providerId && currentSessionMeta?.modelId) {
         const sessionModel = models.find(
           (m) =>
-            m.providerId === currentSessionMeta.providerId && m.modelId === currentSessionMeta.modelId,
+            m.providerId === currentSessionMeta.providerId &&
+            m.modelId === currentSessionMeta.modelId,
         )
         if (sessionModel) {
           displayModel = {
@@ -200,8 +209,7 @@ export default function ChatScreen({
       setActiveModel(displayModel)
       const displayModelInfo = displayModel
         ? models.find(
-            (m) =>
-              m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
+            (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
           )
         : undefined
       setReasoningEffort(normalizeEffortForModel(displayModelInfo, settings.reasoning_effort, t))
@@ -272,7 +280,10 @@ export default function ChatScreen({
   // Derive the live target from the projects list so mutations (rename,
   // archive, file upload) are reflected immediately in the open dialog.
   const projectOverviewTarget = useMemo(
-    () => (projectOverviewTargetId ? projects.find((p) => p.id === projectOverviewTargetId) ?? null : null),
+    () =>
+      projectOverviewTargetId
+        ? (projects.find((p) => p.id === projectOverviewTargetId) ?? null)
+        : null,
     [projects, projectOverviewTargetId],
   )
 
@@ -299,6 +310,7 @@ export default function ChatScreen({
 
   const confirmDeleteProject = useCallback(async () => {
     if (!projectDeleteTarget || deletingProject) return
+    const projectName = projectDeleteTarget.name
     setDeletingProject(true)
     try {
       const ok = await deleteProject(projectDeleteTarget.id)
@@ -306,21 +318,35 @@ export default function ChatScreen({
       if (ok) {
         setProjectOverviewOpen(false)
         reloadSessions()
+        toast.success(t("common.deleted"), {
+          description: projectName,
+        })
+      } else {
+        toast.error(t("common.deleteFailed"), {
+          description: projectName,
+        })
       }
+    } catch {
+      toast.error(t("common.deleteFailed"), {
+        description: projectName,
+      })
     } finally {
       setDeletingProject(false)
     }
-  }, [deleteProject, projectDeleteTarget, deletingProject, reloadSessions])
+  }, [deleteProject, projectDeleteTarget, deletingProject, reloadSessions, t])
 
   // Rename session handler
-  const handleRenameSession = useCallback(async (sessionId: string, title: string) => {
-    try {
-      await getTransport().call("rename_session_cmd", { sessionId, title })
-      reloadSessions()
-    } catch (err) {
-      logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
-    }
-  }, [reloadSessions])
+  const handleRenameSession = useCallback(
+    async (sessionId: string, title: string) => {
+      try {
+        await getTransport().call("rename_session_cmd", { sessionId, title })
+        reloadSessions()
+      } catch (err) {
+        logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
+      }
+    },
+    [reloadSessions],
+  )
 
   const handleIncognitoChange = useCallback(
     async (enabled: boolean) => {
@@ -610,11 +636,7 @@ export default function ChatScreen({
 
       // Skip the event chip for newSession (we clear anyway) and skill passThrough
       // (the user bubble already shows "/skillname args", the chip would duplicate).
-      if (
-        result.content &&
-        action?.type !== "newSession" &&
-        !result._isSkillPassThrough
-      ) {
+      if (result.content && action?.type !== "newSession" && !result._isSkillPassThrough) {
         const eventMsg: Message = {
           role: "event",
           content: result.content,
@@ -631,7 +653,8 @@ export default function ChatScreen({
           // in the sidebar. The backend-created session is deleted to avoid DB clutter.
           session.handleNewChat(session.currentAgentId)
           if (action.sessionId) {
-            getTransport().call("delete_session_cmd", { sessionId: action.sessionId })
+            getTransport()
+              .call("delete_session_cmd", { sessionId: action.sessionId })
               .then(() => session.reloadSessions())
               .catch(() => {})
           }
@@ -720,7 +743,8 @@ export default function ChatScreen({
           planMode.exitPlanMode()
           break
         case "approvePlan":
-          handlePlanApprove()
+          await planMode.approvePlan()
+          stream.handleSend(t("planMode.executeCommand"))
           break
         case "showPlan":
           planMode.setPlanContent(action.planContent)
@@ -748,18 +772,15 @@ export default function ChatScreen({
         }
       }
     },
-    [session, stream, handleManualModelChange, handleEffortChange, compacting, planMode, loadSystemPrompt], // eslint-disable-line react-hooks/exhaustive-deps
+    [session, stream, handleManualModelChange, handleEffortChange, planMode, loadSystemPrompt, t],
   )
 
   // ── Plan Approve Handler ───────────────────────────────────────
-  const handlePlanApprove = useCallback(
-    async () => {
-      await planMode.approvePlan()
-      // Send a short trigger — the full plan is already in the system prompt (Executing state)
-      stream.handleSend(t("planMode.executeCommand"))
-    },
-    [planMode, stream, t]
-  )
+  const handlePlanApprove = useCallback(async () => {
+    await planMode.approvePlan()
+    // Send a short trigger — the full plan is already in the system prompt (Executing state)
+    stream.handleSend(t("planMode.executeCommand"))
+  }, [planMode, stream, t])
 
   // ── Plan Request Changes Handler ──────────────────────────────
   const handleRequestChanges = useCallback(
@@ -767,11 +788,13 @@ export default function ChatScreen({
       // Send feedback back to LLM, which will revise the plan
       setPlanState("planning")
       if (currentSessionId) {
-        getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "planning" }).catch(() => {})
+        getTransport()
+          .call("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
+          .catch(() => {})
       }
       sendMessage(feedback)
     },
-    [setPlanState, sendMessage, currentSessionId]
+    [setPlanState, sendMessage, currentSessionId],
   )
 
   return (
@@ -840,9 +863,7 @@ export default function ChatScreen({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("project.deleteConfirm.title")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("project.deleteConfirm.body")}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{t("project.deleteConfirm.body")}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
@@ -864,10 +885,7 @@ export default function ChatScreen({
       />
 
       {/* Codex Auth Expired Dialog */}
-      <AlertDialog
-        open={stream.showCodexAuthExpired}
-        onOpenChange={stream.setShowCodexAuthExpired}
-      >
+      <AlertDialog open={stream.showCodexAuthExpired} onOpenChange={stream.setShowCodexAuthExpired}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("codexAuth.expiredTitle")}</AlertDialogTitle>
@@ -924,10 +942,7 @@ export default function ChatScreen({
 
         {activeTeamId && !showTeamPanel && (
           <div className="px-3 py-1 border-b border-border">
-            <TeamMiniIndicator
-              teamId={activeTeamId}
-              onClick={() => setShowTeamPanel(true)}
-            />
+            <TeamMiniIndicator teamId={activeTeamId} onClick={() => setShowTeamPanel(true)} />
           </div>
         )}
 
@@ -956,11 +971,15 @@ export default function ChatScreen({
           onScrollTargetHandled={session.clearPendingScrollTarget}
           pendingQuestionGroup={planMode.pendingQuestionGroup}
           onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
-          planCardData={planMode.planCardInfo ? {
-            title: planMode.planCardInfo.title,
-            steps: planMode.planSteps,
-            sessionId: session.currentSessionId || "",
-          } : null}
+          planCardData={
+            planMode.planCardInfo
+              ? {
+                  title: planMode.planCardInfo.title,
+                  steps: planMode.planSteps,
+                  sessionId: session.currentSessionId || "",
+                }
+              : null
+          }
           planState={planMode.planState}
           planSteps={planMode.planSteps}
           onOpenPlanPanel={() => planMode.setShowPanel(true)}
@@ -969,7 +988,9 @@ export default function ChatScreen({
           onPausePlan={planMode.pauseExecution}
           onResumePlan={planMode.resumeExecution}
           planSubagentRunning={planMode.planSubagentRunning}
-          onSwitchModel={(providerId, modelId) => handleManualModelChange(`${providerId}::${modelId}`)}
+          onSwitchModel={(providerId, modelId) =>
+            handleManualModelChange(`${providerId}::${modelId}`)
+          }
           onViewSystemPrompt={loadSystemPrompt}
           onSwitchSession={(sid) => {
             void session.handleSwitchSession(sid)
@@ -983,7 +1004,10 @@ export default function ChatScreen({
               <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">
                 <Brain className="h-3.5 w-3.5 shrink-0" />
                 <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
-                <button onClick={() => setMemoryToast(null)} className="ml-auto text-muted-foreground/60 hover:text-muted-foreground">
+                <button
+                  onClick={() => setMemoryToast(null)}
+                  className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                >
                   ×
                 </button>
               </div>

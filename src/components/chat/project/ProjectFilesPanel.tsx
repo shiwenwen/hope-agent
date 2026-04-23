@@ -7,9 +7,19 @@
 
 import { useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { FileText, FileCode, FileImage, File as FileIcon, Trash2, Upload } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { IconTip } from "@/components/ui/tooltip"
 import { useProjectFiles } from "./hooks/useProjectFiles"
 import type { ProjectFile } from "@/types/project"
@@ -20,11 +30,10 @@ interface ProjectFilesPanelProps {
 
 export default function ProjectFilesPanel({ projectId }: ProjectFilesPanelProps) {
   const { t } = useTranslation()
-  const { files, loading, error, uploadFile, deleteFile } = useProjectFiles(
-    projectId,
-  )
+  const { files, loading, error, uploadFile, deleteFile } = useProjectFiles(projectId)
   const [dragOver, setDragOver] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [pendingDelete, setPendingDelete] = useState<ProjectFile | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   async function handleFiles(list: FileList | File[]) {
@@ -35,6 +44,22 @@ export default function ProjectFilesPanel({ projectId }: ProjectFilesPanelProps)
       }
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function confirmDeleteFile() {
+    if (!pendingDelete) return
+    const file = pendingDelete
+    const ok = await deleteFile(file.id)
+    setPendingDelete(null)
+    if (ok) {
+      toast.success(t("common.deleted"), {
+        description: file.name,
+      })
+    } else {
+      toast.error(t("common.deleteFailed"), {
+        description: file.name,
+      })
     }
   }
 
@@ -79,9 +104,7 @@ export default function ProjectFilesPanel({ projectId }: ProjectFilesPanelProps)
         />
       </div>
 
-      {error && (
-        <p className="text-sm text-destructive px-1">{error}</p>
-      )}
+      {error && <p className="text-sm text-destructive px-1">{error}</p>}
 
       {/* File list */}
       <div className="flex-1 overflow-y-auto space-y-1 -mx-1 px-1">
@@ -93,29 +116,32 @@ export default function ProjectFilesPanel({ projectId }: ProjectFilesPanelProps)
           </p>
         ) : (
           files.map((file) => (
-            <FileRow
-              key={file.id}
-              file={file}
-              onDelete={() => {
-                if (confirm(t("project.files.confirmDelete"))) {
-                  void deleteFile(file.id)
-                }
-              }}
-            />
+            <FileRow key={file.id} file={file} onDelete={() => setPendingDelete(file)} />
           ))
         )}
       </div>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("project.files.confirmDelete")}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDeleteFile()}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
 
-function FileRow({
-  file,
-  onDelete,
-}: {
-  file: ProjectFile
-  onDelete: () => void
-}) {
+function FileRow({ file, onDelete }: { file: ProjectFile; onDelete: () => void }) {
   const { t } = useTranslation()
   const sizeKb = (file.sizeBytes / 1024).toFixed(1)
   const extractedLabel =

@@ -16,6 +16,8 @@
     "dragToSort": "拖拽可排序",
     "saved": "已保存",
     "saveFailed": "保存失败",
+    "deleted": "已删除",
+    "deleteFailed": "删除失败",
     "custom": "自定义",
     "select": "选择",
     "settings": "设置"

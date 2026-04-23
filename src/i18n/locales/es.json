@@ -16,6 +16,8 @@
     "dragToSort": "Arrastra para reordenar",
     "saved": "Guardado",
     "saveFailed": "Error al guardar",
+    "deleted": "Eliminado",
+    "deleteFailed": "Error al eliminar",
     "custom": "Personalizado",
     "select": "Seleccionar",
     "settings": "Ajustes"

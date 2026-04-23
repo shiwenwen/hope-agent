@@ -16,6 +16,8 @@
     "dragToSort": "ドラッグで並べ替え",
     "saved": "保存済み",
     "saveFailed": "保存に失敗しました",
+    "deleted": "削除しました",
+    "deleteFailed": "削除に失敗しました",
     "custom": "カスタム",
     "select": "選択",
     "settings": "設定"

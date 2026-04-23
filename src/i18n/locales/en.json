@@ -16,6 +16,8 @@
     "dragToSort": "Drag to reorder",
     "saved": "Saved",
     "saveFailed": "Save failed",
+    "deleted": "Deleted",
+    "deleteFailed": "Delete failed",
     "custom": "Custom",
     "select": "Select",
     "settings": "Settings"

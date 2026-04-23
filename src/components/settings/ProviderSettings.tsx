@@ -1,8 +1,18 @@
 import { useState, useEffect } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import type { ModelConfig } from "@/components/settings/provider-setup"
 import ProviderIcon from "@/components/common/ProviderIcon"
 import {
@@ -234,6 +244,7 @@ export default function ProviderSettings({
   const [providers, setProviders] = useState<ProviderConfig[]>([])
   const [loading, setLoading] = useState(true)
   const [menuId, setMenuId] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<ProviderConfig | null>(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
@@ -253,15 +264,22 @@ export default function ProviderSettings({
     }
   }
 
-  async function deleteProvider(id: string) {
-    if (!confirm(t("provider.confirmDelete"))) return
+  async function confirmDeleteProvider() {
+    if (!pendingDelete) return
     try {
-      await getTransport().call("delete_provider", { providerId: id })
+      await getTransport().call("delete_provider", { providerId: pendingDelete.id })
       await loadProviders()
+      toast.success(t("common.deleted"), {
+        description: pendingDelete.name,
+      })
     } catch (e) {
       logger.error("settings", "ProviderSettings::delete", "Failed to delete provider", e)
+      toast.error(t("common.deleteFailed"), {
+        description: pendingDelete.name,
+      })
     }
     setMenuId(null)
+    setPendingDelete(null)
   }
 
   async function toggleProvider(provider: ProviderConfig) {
@@ -283,11 +301,13 @@ export default function ProviderSettings({
     const newIndex = providers.findIndex((p) => p.id === over.id)
     const updated = arrayMove(providers, oldIndex, newIndex)
     setProviders(updated)
-    getTransport().call("reorder_providers", {
-      providerIds: updated.map((p) => p.id),
-    }).catch((e) =>
-      logger.error("settings", "ProviderSettings::reorder", "Failed to reorder providers", e),
-    )
+    getTransport()
+      .call("reorder_providers", {
+        providerIds: updated.map((p) => p.id),
+      })
+      .catch((e) =>
+        logger.error("settings", "ProviderSettings::reorder", "Failed to reorder providers", e),
+      )
   }
 
   return (
@@ -338,7 +358,10 @@ export default function ProviderSettings({
                   setMenuId={setMenuId}
                   onEditProvider={onEditProvider}
                   onToggle={toggleProvider}
-                  onDelete={deleteProvider}
+                  onDelete={(id) => {
+                    const provider = providers.find((p) => p.id === id)
+                    if (provider) setPendingDelete(provider)
+                  }}
                   onCodexReauth={onCodexReauth}
                   t={t}
                 />
@@ -347,6 +370,23 @@ export default function ProviderSettings({
           </DndContext>
         )}
       </div>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("provider.confirmDelete")}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDeleteProvider()}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
