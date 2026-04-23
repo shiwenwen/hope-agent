@@ -712,6 +712,8 @@
     "skillsListBundled": "المهارات المدمجة",
     "skillsListUser": "مهارات المستخدم",
     "skillFiles": "الملفات",
+    "skillContentRaw": "المحتوى الخام",
+    "skillContentPreview": "معاينة Markdown",
     "skillEnabled": "مفعّل",
     "skillDisabled": "معطّل",
     "noSkills": "لا توجد مهارات مثبتة",

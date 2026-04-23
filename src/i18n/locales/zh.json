@@ -712,6 +712,8 @@
     "skillsListBundled": "内置技能",
     "skillsListUser": "用户技能",
     "skillFiles": "文件列表",
+    "skillContentRaw": "原始内容",
+    "skillContentPreview": "Markdown 预览",
     "skillEnabled": "已启用",
     "skillDisabled": "已禁用",
     "noSkills": "暂无已安装的技能",

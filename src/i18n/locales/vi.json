@@ -712,6 +712,8 @@
     "skillsListBundled": "Skills tích hợp",
     "skillsListUser": "Skills người dùng",
     "skillFiles": "Tệp tin",
+    "skillContentRaw": "Nội dung gốc",
+    "skillContentPreview": "Xem trước Markdown",
     "skillEnabled": "Đã bật",
     "skillDisabled": "Đã tắt",
     "noSkills": "Chưa có kỹ năng nào được cài đặt",

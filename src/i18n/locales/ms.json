@@ -712,6 +712,8 @@
     "skillsListBundled": "Skill Terbina",
     "skillsListUser": "Skill Pengguna",
     "skillFiles": "Fail",
+    "skillContentRaw": "Kandungan mentah",
+    "skillContentPreview": "Pratonton Markdown",
     "skillEnabled": "Didayakan",
     "skillDisabled": "Dilumpuhkan",
     "noSkills": "Tiada kemahiran dipasang",

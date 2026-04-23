@@ -712,6 +712,8 @@
     "skillsListBundled": "内蔵スキル",
     "skillsListUser": "ユーザースキル",
     "skillFiles": "ファイル一覧",
+    "skillContentRaw": "生の内容",
+    "skillContentPreview": "Markdownプレビュー",
     "skillEnabled": "有効",
     "skillDisabled": "無効",
     "noSkills": "インストール済みのスキルはありません",

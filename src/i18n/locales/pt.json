@@ -712,6 +712,8 @@
     "skillsListBundled": "Skills embutidas",
     "skillsListUser": "Skills do usuário",
     "skillFiles": "Arquivos",
+    "skillContentRaw": "Conteúdo bruto",
+    "skillContentPreview": "Pré-visualização Markdown",
     "skillEnabled": "Ativado",
     "skillDisabled": "Desativado",
     "noSkills": "Nenhuma habilidade instalada",

@@ -712,6 +712,8 @@
     "skillsListBundled": "Yerleşik Skills",
     "skillsListUser": "Kullanıcı Skills",
     "skillFiles": "Dosyalar",
+    "skillContentRaw": "Ham içerik",
+    "skillContentPreview": "Markdown önizlemesi",
     "skillEnabled": "Etkin",
     "skillDisabled": "Devre Dışı",
     "noSkills": "Yüklü beceri yok",

@@ -712,6 +712,8 @@
     "skillsListBundled": "Встроенные Skills",
     "skillsListUser": "Пользовательские Skills",
     "skillFiles": "Файлы",
+    "skillContentRaw": "Исходное содержимое",
+    "skillContentPreview": "Предпросмотр Markdown",
     "skillEnabled": "Включено",
     "skillDisabled": "Отключено",
     "noSkills": "Навыки не установлены",

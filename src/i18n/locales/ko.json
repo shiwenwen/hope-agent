@@ -712,6 +712,8 @@
     "skillsListBundled": "내장 Skills",
     "skillsListUser": "사용자 Skills",
     "skillFiles": "파일 목록",
+    "skillContentRaw": "원본 내용",
+    "skillContentPreview": "Markdown 미리보기",
     "skillEnabled": "활성화됨",
     "skillDisabled": "비활성화됨",
     "noSkills": "설치된 스킬이 없습니다",

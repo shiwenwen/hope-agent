@@ -712,6 +712,8 @@
     "skillsListBundled": "Built-in Skills",
     "skillsListUser": "User Skills",
     "skillFiles": "Files",
+    "skillContentRaw": "Raw Content",
+    "skillContentPreview": "Markdown Preview",
     "skillEnabled": "Enabled",
     "skillDisabled": "Disabled",
     "noSkills": "No skills installed",

@@ -1,4 +1,6 @@
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -14,6 +16,8 @@ import {
   Trash2,
 } from "lucide-react"
 import type { SkillDetail, SkillInstallSpec } from "./types"
+
+const CONTENT_SPLIT_MIN_WIDTH = 1100
 
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
@@ -114,6 +118,58 @@ export default function SkillDetailView({
 }: SkillDetailViewProps) {
   const { t } = useTranslation()
   const requiresEnv = skill.requires?.env ?? []
+  const [contentView, setContentView] = useState<"preview" | "raw">("preview")
+  const contentLayoutRef = useRef<HTMLDivElement>(null)
+  const [isSplitView, setIsSplitView] = useState(false)
+
+  useEffect(() => {
+    const node = contentLayoutRef.current
+    if (!node || typeof ResizeObserver === "undefined") return
+
+    const updateSplitView = (width: number) => {
+      const next = width >= CONTENT_SPLIT_MIN_WIDTH
+      setIsSplitView((prev) => (prev === next ? prev : next))
+    }
+
+    updateSplitView(node.getBoundingClientRect().width)
+
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0]
+      if (!entry) return
+      updateSplitView(entry.contentRect.width)
+    })
+    observer.observe(node)
+
+    return () => observer.disconnect()
+  }, [])
+
+  const rawContentPanel = (
+    <section className="min-h-0 rounded-xl border border-border bg-secondary/20">
+      {isSplitView && (
+        <div className="border-b border-border/60 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {t("settings.skillContentRaw")}
+        </div>
+      )}
+      <div className="min-h-[20rem] max-h-[70vh] overflow-auto p-4">
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-foreground/80">
+          {skill.content}
+        </pre>
+      </div>
+    </section>
+  )
+
+  const markdownPreviewPanel = (
+    <section className="min-h-0 rounded-xl border border-border bg-background/80">
+      {isSplitView && (
+        <div className="border-b border-border/60 px-4 py-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {t("settings.skillContentPreview")}
+        </div>
+      )}
+      <div className="min-h-[20rem] max-h-[70vh] overflow-auto p-4 text-sm">
+        <MarkdownRenderer content={skill.content} />
+      </div>
+    </section>
+  )
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
@@ -330,13 +386,46 @@ export default function SkillDetailView({
         )}
 
         {/* SKILL.md content */}
-        <div className="border-t border-border pt-4">
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            SKILL.md
-          </h3>
-          <pre className="text-xs text-foreground/80 whitespace-pre-wrap leading-relaxed bg-secondary/30 rounded-lg p-4">
-            {skill.content}
-          </pre>
+        <div ref={contentLayoutRef} className="border-t border-border pt-4">
+          {isSplitView ? (
+            <>
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  SKILL.md
+                </h3>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                {rawContentPanel}
+                {markdownPreviewPanel}
+              </div>
+            </>
+          ) : (
+            <Tabs
+              value={contentView}
+              onValueChange={(value) => setContentView(value as "preview" | "raw")}
+              className="w-full"
+            >
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  SKILL.md
+                </h3>
+                <TabsList className="grid w-full grid-cols-2 sm:w-auto">
+                  <TabsTrigger value="preview" className="text-xs">
+                    {t("settings.skillContentPreview")}
+                  </TabsTrigger>
+                  <TabsTrigger value="raw" className="text-xs">
+                    {t("settings.skillContentRaw")}
+                  </TabsTrigger>
+                </TabsList>
+              </div>
+              <TabsContent value="preview" className="mt-0">
+                {markdownPreviewPanel}
+              </TabsContent>
+              <TabsContent value="raw" className="mt-0">
+                {rawContentPanel}
+              </TabsContent>
+            </Tabs>
+          )}
         </div>
       </div>
     </div>
