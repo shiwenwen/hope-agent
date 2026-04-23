@@ -288,7 +288,8 @@ export function useChatStream({
           const seqRaw = event._oc_seq
           if (typeof seqRaw === "number" && sid !== "__pending__") {
             const prev = lastSeqRef.current.get(sid) ?? 0
-            if (seqRaw > prev) lastSeqRef.current.set(sid, seqRaw)
+            if (seqRaw <= prev) return
+            lastSeqRef.current.set(sid, seqRaw)
           }
 
           const handled = handleStreamEvent(event, sid, {
