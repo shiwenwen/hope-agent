@@ -89,7 +89,7 @@ export default function ProjectOverviewDialog({
         setSessions(r.sessions ?? [])
       }
     } catch (e) {
-      logger.warn("ProjectOverviewDialog", "loadSessions failed", e)
+      logger.warn("chat", "ProjectOverviewDialog", "loadSessions failed", e)
       setSessions([])
     } finally {
       setLoadingSessions(false)

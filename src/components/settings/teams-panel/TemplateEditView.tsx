@@ -82,7 +82,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
         const list = (await getTransport().call("list_agents", {})) as AgentSummary[]
         if (!cancelled) setAgents(list)
       } catch (e) {
-        logger.error("TemplateEditView", "Failed to load agents", e)
+        logger.error("settings", "TemplateEditView", "Failed to load agents", e)
       } finally {
         if (!cancelled) setAgentsLoading(false)
       }
@@ -117,7 +117,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
           setSavedSnapshot(JSON.stringify(found))
         }
       } catch (e) {
-        logger.error("TemplateEditView", "Failed to load template", e)
+        logger.error("settings", "TemplateEditView", "Failed to load template", e)
         if (!cancelled) setError(String(e))
       } finally {
         if (!cancelled) setLoading(false)
@@ -193,7 +193,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
       setSaveStatus("saved")
       setTimeout(() => setSaveStatus("idle"), 2000)
     } catch (e) {
-      logger.error("TemplateEditView", "Failed to save template", e)
+      logger.error("settings", "TemplateEditView", "Failed to save template", e)
       setError(String(e))
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
@@ -213,7 +213,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
       })
       onBack()
     } catch (e) {
-      logger.error("TemplateEditView", "Failed to delete template", e)
+      logger.error("settings", "TemplateEditView", "Failed to delete template", e)
       setError(String(e))
       toast.error(t("common.deleteFailed"), {
         description: template.name,

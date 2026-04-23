@@ -46,7 +46,7 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
       setFiles(Array.isArray(data) ? data : [])
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      logger.warn("useProjectFiles", "reloadFiles failed", msg)
+      logger.warn("chat", "useProjectFiles", "reloadFiles failed", msg)
       setError(msg)
     } finally {
       setLoading(false)
@@ -101,7 +101,7 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
         return result
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
-        logger.warn("useProjectFiles", "uploadFile failed", msg)
+        logger.warn("chat", "useProjectFiles", "uploadFile failed", msg)
         setError(msg)
         return null
       }
@@ -121,7 +121,7 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
         setFiles((prev) => prev.filter((f) => f.id !== fileId))
         return true
       } catch (e) {
-        logger.warn("useProjectFiles", "deleteFile failed", e)
+        logger.warn("chat", "useProjectFiles", "deleteFile failed", e)
         return false
       }
     },
@@ -143,7 +143,7 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
         )
         return true
       } catch (e) {
-        logger.warn("useProjectFiles", "renameFile failed", e)
+        logger.warn("chat", "useProjectFiles", "renameFile failed", e)
         return false
       }
     },

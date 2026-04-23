@@ -631,7 +631,7 @@ export function useChatSession({
           setActiveModel(globalActiveModelRef.current)
         }
       } catch (e) {
-        logger.warn("useChatSession", "handleNewChatInProject failed", e)
+        logger.warn("chat", "useChatSession", "handleNewChatInProject failed", e)
         notify({ title: t("common.saveFailed"), body: String(e) })
       }
     },

@@ -54,7 +54,7 @@ export function useProjects(
       setProjects(Array.isArray(data) ? data : [])
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
-      logger.warn("useProjects", "reloadProjects failed", msg)
+      logger.warn("chat", "useProjects", "reloadProjects failed", msg)
       setError(msg)
     } finally {
       setLoading(false)
@@ -95,7 +95,7 @@ export function useProjects(
         await reloadProjects()
         return created
       } catch (e) {
-        logger.warn("useProjects", "createProject failed", e)
+        logger.warn("chat", "useProjects", "createProject failed", e)
         return null
       }
     },
@@ -112,7 +112,7 @@ export function useProjects(
         await reloadProjects()
         return updated
       } catch (e) {
-        logger.warn("useProjects", "updateProject failed", e)
+        logger.warn("chat", "useProjects", "updateProject failed", e)
         return null
       }
     },
@@ -131,7 +131,7 @@ export function useProjects(
         await reloadProjects()
         return ok
       } catch (e) {
-        logger.warn("useProjects", "deleteProject failed", e)
+        logger.warn("chat", "useProjects", "deleteProject failed", e)
         return false
       }
     },
@@ -148,7 +148,7 @@ export function useProjects(
         await reloadProjects()
         return updated
       } catch (e) {
-        logger.warn("useProjects", "archiveProject failed", e)
+        logger.warn("chat", "useProjects", "archiveProject failed", e)
         return null
       }
     },
@@ -164,7 +164,7 @@ export function useProjects(
         })
         await reloadProjects()
       } catch (e) {
-        logger.warn("useProjects", "moveSessionToProject failed", e)
+        logger.warn("chat", "useProjects", "moveSessionToProject failed", e)
       }
     },
     [reloadProjects],

@@ -25,7 +25,7 @@ export default function TemplateListView({ onEdit }: TemplateListViewProps) {
       const list = (await getTransport().call("list_team_templates", {})) as TeamTemplate[]
       setTemplates(list)
     } catch (e) {
-      logger.error("TemplateListView", "Failed to load templates", e)
+      logger.error("settings", "TemplateListView", "Failed to load templates", e)
     } finally {
       setLoading(false)
     }
@@ -61,7 +61,7 @@ export default function TemplateListView({ onEdit }: TemplateListViewProps) {
       })) as TeamTemplate
       onEdit(saved.templateId)
     } catch (e) {
-      logger.error("TemplateListView", "Clone failed", e)
+      logger.error("settings", "TemplateListView", "Clone failed", e)
     } finally {
       setCloning(null)
     }
