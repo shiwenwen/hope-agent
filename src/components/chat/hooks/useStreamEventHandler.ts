@@ -141,6 +141,21 @@ export function handleStreamEvent(
   }
 
   // Handle tool_call, tool_result, model_fallback, codex_auth_expired via updateSessionMessages
+  if (event.type === "thinking_auto_disabled") {
+    updateSessionMessages(sid, (prev) => {
+      const notice: Message = {
+        role: "event",
+        content: JSON.stringify(event),
+      }
+      const last = prev[prev.length - 1]
+      if (last?.role === "assistant") {
+        return [...prev.slice(0, -1), notice, last]
+      }
+      return [...prev, notice]
+    })
+    return true
+  }
+
   updateSessionMessages(sid, (prev) => {
     const updated = [...prev]
     const last = updated[updated.length - 1]

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Brain, ChevronRight } from "lucide-react"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
-import { getEffortOptionsForType } from "@/types/chat"
+import { getEffortOptionsForModel, modelSupportsThinking } from "@/types/chat"
 
 interface ModelPickerProps {
   availableModels: AvailableModel[]
@@ -134,7 +134,7 @@ export default function ModelPicker({
       )}
 
 
-      {(currentModelInfo?.reasoning ?? true) && (
+      {modelSupportsThinking(currentModelInfo) && (
         <div className="relative" ref={thinkMenuRef}>
           <button
             onClick={() => setShowThinkMenu(!showThinkMenu)}
@@ -142,7 +142,7 @@ export default function ModelPicker({
           >
             <Brain className="h-3.5 w-3.5 shrink-0" />
             <span>
-              {getEffortOptionsForType(currentModelInfo?.apiType, t).find(
+              {getEffortOptionsForModel(currentModelInfo, t).find(
                 (o) => o.value === reasoningEffort,
               )?.label ?? reasoningEffort}
             </span>
@@ -151,7 +151,7 @@ export default function ModelPicker({
           {showThinkMenu && (
             <div className="absolute bottom-full left-0 mb-2 bg-popover/95 backdrop-blur-xl border border-border/60 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] z-50 min-w-[120px] p-1.5 animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150">
               <div className="flex flex-col gap-0.5">
-                {getEffortOptionsForType(currentModelInfo?.apiType, t).map((opt) => (
+                {getEffortOptionsForModel(currentModelInfo, t).map((opt) => (
                   <button
                     key={opt.value}
                     className={cn(

@@ -106,6 +106,14 @@ function MessageBubbleInner({
   )
 
   const fromAgent = msg.fromAgentId ? agents.find((a) => a.id === msg.fromAgentId) : undefined
+  const eventPayload = useMemo(() => {
+    if (msg.role !== "event") return null
+    try {
+      return JSON.parse(msg.content) as Record<string, unknown>
+    } catch {
+      return null
+    }
+  }, [msg.content, msg.role])
 
   if (msg.role === "event") {
     // Interactive model picker card
@@ -124,6 +132,16 @@ function MessageBubbleInner({
           data={msg.contextBreakdownData}
           onViewSystemPrompt={onViewSystemPrompt}
         />
+      )
+    }
+    if (eventPayload?.type === "thinking_auto_disabled") {
+      return (
+        <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center">
+          {t("chat.thinkingAutoDisabled", {
+            provider: String(eventPayload.provider_name || t("chat.unknownProvider")),
+            model: String(eventPayload.model_id || ""),
+          })}
+        </div>
       )
     }
     return (

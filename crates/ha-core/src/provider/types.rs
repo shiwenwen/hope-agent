@@ -81,6 +81,10 @@ pub struct ModelConfig {
     /// Whether the model supports reasoning/thinking
     #[serde(default)]
     pub reasoning: bool,
+    /// Optional per-model thinking parameter format override.
+    /// `None` = inherit provider-level `thinking_style`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_style: Option<ThinkingStyle>,
     /// Input cost per million tokens (USD)
     #[serde(default)]
     pub cost_input: f64,
@@ -246,6 +250,7 @@ impl ProviderConfig {
             context_window: 200_000,
             max_tokens: 8192,
             reasoning: false,
+            thinking_style: None,
             cost_input: 3.0,
             cost_output: 15.0,
         });
@@ -295,11 +300,33 @@ impl ProviderConfig {
     pub fn resolve_base_url<'a>(&'a self, profile: &'a AuthProfile) -> &'a str {
         profile.base_url.as_deref().unwrap_or(&self.base_url)
     }
+
+    /// Return the configured model entry, if present.
+    pub fn model_config(&self, model_id: &str) -> Option<&ModelConfig> {
+        self.models.iter().find(|m| m.id == model_id)
+    }
+
+    /// Resolve the effective thinking style for a model.
+    ///
+    /// Precedence:
+    /// 1. `reasoning = false` on the model hard-disables thinking
+    /// 2. model-level `thinking_style` override
+    /// 3. provider-level `thinking_style`
+    pub fn effective_thinking_style_for_model(&self, model_id: &str) -> ThinkingStyle {
+        match self.model_config(model_id) {
+            Some(model) if !model.reasoning => ThinkingStyle::None,
+            Some(model) => model
+                .thinking_style
+                .clone()
+                .unwrap_or_else(|| self.thinking_style.clone()),
+            None => self.thinking_style.clone(),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ApiType, AuthProfile, ProviderConfig};
+    use super::{ApiType, AuthProfile, ModelConfig, ProviderConfig, ThinkingStyle};
 
     #[test]
     fn masked_api_key_keeps_utf8_boundaries() {
@@ -428,6 +455,60 @@ mod tests {
     }
 
     #[test]
+    fn model_override_beats_provider_thinking_style() {
+        let mut cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.openai.com".to_string(),
+            String::new(),
+        );
+        cfg.thinking_style = ThinkingStyle::Openai;
+        cfg.models.push(ModelConfig {
+            id: "m1".to_string(),
+            name: "Model 1".to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: true,
+            thinking_style: Some(ThinkingStyle::Qwen),
+            cost_input: 0.0,
+            cost_output: 0.0,
+        });
+
+        assert_eq!(
+            cfg.effective_thinking_style_for_model("m1"),
+            ThinkingStyle::Qwen
+        );
+    }
+
+    #[test]
+    fn reasoning_false_forces_none_thinking_style() {
+        let mut cfg = ProviderConfig::new(
+            "t".to_string(),
+            ApiType::OpenaiChat,
+            "https://api.openai.com".to_string(),
+            String::new(),
+        );
+        cfg.thinking_style = ThinkingStyle::Openai;
+        cfg.models.push(ModelConfig {
+            id: "m1".to_string(),
+            name: "Model 1".to_string(),
+            input_types: vec!["text".to_string()],
+            context_window: 128_000,
+            max_tokens: 8192,
+            reasoning: false,
+            thinking_style: Some(ThinkingStyle::Anthropic),
+            cost_input: 0.0,
+            cost_output: 0.0,
+        });
+
+        assert_eq!(
+            cfg.effective_thinking_style_for_model("m1"),
+            ThinkingStyle::None
+        );
+    }
+
+    #[test]
     fn serde_backward_compat_no_auth_profiles() {
         let json = r#"{
             "id": "test-id",
@@ -471,6 +552,7 @@ pub struct AvailableModel {
     pub context_window: u32,
     pub max_tokens: u32,
     pub reasoning: bool,
+    pub thinking_style: ThinkingStyle,
 }
 
 // ── Proxy Types ─────────────────────────────────────────────────

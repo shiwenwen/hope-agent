@@ -104,6 +104,7 @@ pub fn run(step: u32, total: u32) -> Result<bool> {
         context_window: 200_000,
         max_tokens: 8192,
         reasoning: false,
+        thinking_style: None,
         cost_input: 0.0,
         cost_output: 0.0,
     }];

@@ -122,6 +122,7 @@ export interface AvailableModel {
   contextWindow: number
   maxTokens: number
   reasoning: boolean
+  thinkingStyle?: "openai" | "anthropic" | "zai" | "qwen" | "none"
 }
 
 export interface ActiveModel {
@@ -305,6 +306,13 @@ export interface SubagentConfig {
   announceTimeoutSecs?: number
 }
 
+export function modelSupportsThinking(
+  model?: Pick<AvailableModel, "reasoning" | "thinkingStyle">,
+): boolean {
+  if (!model) return true
+  return model.reasoning && model.thinkingStyle !== "none"
+}
+
 export function getEffortOptionsForType(apiType: string | undefined, t: (key: string) => string) {
   const off = t("effort.off")
   const on = t("effort.on")
@@ -338,4 +346,26 @@ export function getEffortOptionsForType(apiType: string | undefined, t: (key: st
         { value: "medium", label: on },
       ]
   }
+}
+
+export function getEffortOptionsForModel(
+  model: Pick<AvailableModel, "apiType" | "reasoning" | "thinkingStyle"> | undefined,
+  t: (key: string) => string,
+) {
+  if (!modelSupportsThinking(model)) {
+    return [{ value: "none", label: t("effort.off") }]
+  }
+  return getEffortOptionsForType(model?.apiType, t)
+}
+
+export function normalizeEffortForModel(
+  model: Pick<AvailableModel, "apiType" | "reasoning" | "thinkingStyle"> | undefined,
+  effort: string,
+  t: (key: string) => string,
+): string {
+  const validOptions = getEffortOptionsForModel(model, t)
+  if (validOptions.some((opt) => opt.value === effort)) {
+    return effort
+  }
+  return validOptions.some((opt) => opt.value === "medium") ? "medium" : "none"
 }

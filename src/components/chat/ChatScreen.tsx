@@ -4,7 +4,8 @@ import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Brain } from "lucide-react"
-import type { Message, ToolPermissionMode } from "@/types/chat"
+import type { ActiveModel, AvailableModel, Message, ToolPermissionMode } from "@/types/chat"
+import { normalizeEffortForModel } from "@/types/chat"
 import type { CommandResult } from "./slash-commands/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
 import ChatSidebar from "@/components/chat/ChatSidebar"
@@ -99,6 +100,7 @@ export default function ChatScreen({
   // (useChatStreamReattach). Owned at this level to break the two-way
   // dependency between the two hooks.
   const streamSeqRef = useRef<Map<string, number>>(new Map())
+  const manualModelOverrideRef = useRef<ActiveModel | null>(null)
 
   // ── Session Hook ────────────────────────────────────────────
   const session = useChatSession({
@@ -143,10 +145,102 @@ export default function ChatScreen({
   const [showTeamPanel, setShowTeamPanel] = useState(false)
   const [teamPanelWidth, setTeamPanelWidth] = useState(420)
 
+  const refreshRuntimeModelState = useCallback(async () => {
+    try {
+      const [models, active, settings, agentConfig] = await Promise.all([
+        getTransport().call<AvailableModel[]>("get_available_models"),
+        getTransport().call<ActiveModel | null>("get_active_model"),
+        getTransport().call<{ model: string; reasoning_effort: string }>("get_current_settings"),
+        getTransport()
+          .call<{
+            name: string
+            model?: { primary?: string | null }
+            emoji?: string | null
+            avatar?: string | null
+          }>("get_agent_config", { id: session.currentAgentId })
+          .catch(() => null),
+      ])
+
+      setAvailableModels(models)
+      globalActiveModelRef.current = active
+
+      let displayModel = active
+      const manualOverride = manualModelOverrideRef.current
+      const manualModel = manualOverride
+        ? models.find(
+            (m) =>
+              m.providerId === manualOverride.providerId && m.modelId === manualOverride.modelId,
+          )
+        : undefined
+      if (manualOverride && !manualModel) {
+        manualModelOverrideRef.current = null
+      }
+
+      if (manualModel && manualOverride) {
+        displayModel = manualOverride
+      } else if (currentSessionMeta?.providerId && currentSessionMeta?.modelId) {
+        const sessionModel = models.find(
+          (m) =>
+            m.providerId === currentSessionMeta.providerId && m.modelId === currentSessionMeta.modelId,
+        )
+        if (sessionModel) {
+          displayModel = {
+            providerId: sessionModel.providerId,
+            modelId: sessionModel.modelId,
+          }
+        }
+      } else if (agentConfig?.model?.primary) {
+        const [providerId, modelId] = agentConfig.model.primary.split("::")
+        const agentModel = models.find((m) => m.providerId === providerId && m.modelId === modelId)
+        if (agentModel) {
+          displayModel = { providerId, modelId }
+        }
+      }
+
+      setActiveModel(displayModel)
+      const displayModelInfo = displayModel
+        ? models.find(
+            (m) =>
+              m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
+          )
+        : undefined
+      setReasoningEffort(normalizeEffortForModel(displayModelInfo, settings.reasoning_effort, t))
+
+      if (agentConfig?.name) {
+        session.setAgentName(agentConfig.name)
+      }
+    } catch (e) {
+      logger.error("ui", "ChatScreen::refreshRuntimeModelState", "Failed to refresh model state", e)
+    }
+  }, [
+    currentSessionMeta?.modelId,
+    currentSessionMeta?.providerId,
+    globalActiveModelRef,
+    session,
+    setActiveModel,
+    setAvailableModels,
+    setReasoningEffort,
+    t,
+  ])
+
+  const handleManualModelChange = useCallback(
+    async (key: string) => {
+      const [providerId, modelId] = key.split("::")
+      if (!providerId || !modelId) return
+      manualModelOverrideRef.current = { providerId, modelId }
+      await handleModelChange(key)
+    },
+    [handleModelChange],
+  )
+
   // Auto-show team panel when a team is created
   useEffect(() => {
     if (activeTeamId) setShowTeamPanel(true)
   }, [activeTeamId])
+
+  useEffect(() => {
+    manualModelOverrideRef.current = null
+  }, [currentSessionId, currentAgentId])
 
   // ── Projects ────────────────────────────────────────────────
   const {
@@ -319,7 +413,7 @@ export default function ChatScreen({
           providerId: string
           modelId: string
         }
-        setActiveModel({ providerId, modelId })
+        manualModelOverrideRef.current = { providerId, modelId }
         applyModelForDisplay(`${providerId}::${modelId}`)
       }),
     )
@@ -356,31 +450,26 @@ export default function ChatScreen({
 
   // Fetch models and current settings on mount
   useEffect(() => {
-    ;(async () => {
-      try {
-        const [models, active, settings, agentConfig] = await Promise.all([
-          getTransport().call<AvailableModel[]>("get_available_models"),
-          getTransport().call<ActiveModel | null>("get_active_model"),
-          getTransport().call<{ model: string; reasoning_effort: string }>("get_current_settings"),
-          getTransport().call<{
-            name: string
-            emoji?: string | null
-            avatar?: string | null
-          }>("get_agent_config", { id: "default" }).catch(() => null),
-        ])
-        setAvailableModels(models)
-        setActiveModel(active)
-        globalActiveModelRef.current = active
-        setReasoningEffort(settings.reasoning_effort)
-        if (agentConfig) {
-          session.setAgentName(agentConfig.name)
-        }
-      } catch (e) {
-        logger.error("ui", "ChatScreen::loadSettings", "Failed to load settings", e)
-      }
-    })()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    void refreshRuntimeModelState()
+  }, [refreshRuntimeModelState])
+
+  useEffect(() => {
+    const offConfig = getTransport().listen("config:changed", () => {
+      void refreshRuntimeModelState()
+    })
+    const offAgents = getTransport().listen("agents:changed", () => {
+      void refreshRuntimeModelState()
+    })
+    const onWindowAgentsChanged = () => {
+      void refreshRuntimeModelState()
+    }
+    window.addEventListener("agents-changed", onWindowAgentsChanged)
+    return () => {
+      offConfig()
+      offAgents()
+      window.removeEventListener("agents-changed", onWindowAgentsChanged)
+    }
+  }, [refreshRuntimeModelState])
 
   // ── Stream Hook ─────────────────────────────────────────────
   const stream = useChatStream({
@@ -548,7 +637,7 @@ export default function ChatScreen({
           }
           break
         case "switchModel":
-          handleModelChange(`${action.providerId}::${action.modelId}`)
+          handleManualModelChange(`${action.providerId}::${action.modelId}`)
           break
         case "setEffort":
           handleEffortChange(action.effort)
@@ -659,7 +748,7 @@ export default function ChatScreen({
         }
       }
     },
-    [session, stream, handleModelChange, handleEffortChange, compacting, planMode, loadSystemPrompt], // eslint-disable-line react-hooks/exhaustive-deps
+    [session, stream, handleManualModelChange, handleEffortChange, compacting, planMode, loadSystemPrompt], // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   // ── Plan Approve Handler ───────────────────────────────────────
@@ -880,7 +969,7 @@ export default function ChatScreen({
           onPausePlan={planMode.pauseExecution}
           onResumePlan={planMode.resumeExecution}
           planSubagentRunning={planMode.planSubagentRunning}
-          onSwitchModel={(providerId, modelId) => handleModelChange(`${providerId}::${modelId}`)}
+          onSwitchModel={(providerId, modelId) => handleManualModelChange(`${providerId}::${modelId}`)}
           onViewSystemPrompt={loadSystemPrompt}
           onSwitchSession={(sid) => {
             void session.handleSwitchSession(sid)

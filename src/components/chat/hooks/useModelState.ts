@@ -3,7 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import type { AvailableModel, ActiveModel } from "@/types/chat"
-import { getEffortOptionsForType } from "@/types/chat"
+import { normalizeEffortForModel } from "@/types/chat"
 
 export interface UseModelStateReturn {
   availableModels: AvailableModel[]
@@ -39,12 +39,7 @@ export function useModelState(): UseModelStateReturn {
         (m) => m.providerId === providerId && m.modelId === modelId,
       )
       if (newModel) {
-        const validOptions = getEffortOptionsForType(newModel.apiType, t)
-        const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
-        if (!isValid) {
-          const fallback = validOptions.some((o) => o.value === "medium") ? "medium" : "none"
-          setReasoningEffort(fallback)
-        }
+        setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, t))
       }
     },
     [availableModels, reasoningEffort, t],
@@ -73,11 +68,9 @@ export function useModelState(): UseModelStateReturn {
         (m) => m.providerId === providerId && m.modelId === modelId,
       )
       if (newModel) {
-        const validOptions = getEffortOptionsForType(newModel.apiType, t)
-        const isValid = validOptions.some((opt) => opt.value === reasoningEffort)
-        if (!isValid) {
-          const fallback = validOptions.some((o) => o.value === "medium") ? "medium" : "none"
-          handleEffortChange(fallback)
+        const normalized = normalizeEffortForModel(newModel, reasoningEffort, t)
+        if (normalized !== reasoningEffort) {
+          handleEffortChange(normalized)
         }
       }
     },

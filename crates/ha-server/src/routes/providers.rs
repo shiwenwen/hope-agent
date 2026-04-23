@@ -46,6 +46,8 @@ pub async fn add_provider(
     );
     new_provider.models = config.models;
     new_provider.auth_profiles = config.auth_profiles;
+    new_provider.thinking_style = config.thinking_style;
+    new_provider.allow_private_network = config.allow_private_network;
 
     let masked = new_provider.masked();
     store.providers.push(new_provider);
@@ -74,6 +76,7 @@ pub async fn update_provider(
         existing.enabled = config.enabled;
         existing.user_agent = config.user_agent;
         existing.thinking_style = config.thinking_style;
+        existing.allow_private_network = config.allow_private_network;
         ha_core::config::save_config(&store)?;
         Ok(Json(json!({ "updated": true })))
     } else {

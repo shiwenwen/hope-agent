@@ -29,6 +29,304 @@ pub(crate) struct OpenAIChatStreamingAdapter<'a> {
     pub base_url: &'a str,
     pub model: &'a str,
     pub thinking_style: &'a ThinkingStyle,
+    pub provider_config: Option<&'a crate::provider::ProviderConfig>,
+}
+
+#[derive(Debug, Clone)]
+struct ThinkingAutoDisable {
+    payload: serde_json::Value,
+}
+
+fn build_chat_body(
+    model: &str,
+    thinking_style: &ThinkingStyle,
+    req: &RoundRequest<'_>,
+) -> (
+    serde_json::Value,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+) {
+    let mut api_messages: Vec<Value> =
+        vec![json!({ "role": "system", "content": req.system_prompt })];
+    if let Some(suffix) = req.awareness_suffix {
+        if !suffix.is_empty() {
+            api_messages.push(json!({ "role": "system", "content": suffix }));
+        }
+    }
+    if let Some(active_suffix) = req.active_memory_suffix {
+        if !active_suffix.is_empty() {
+            api_messages.push(json!({ "role": "system", "content": active_suffix }));
+        }
+    }
+    api_messages.extend_from_slice(req.history_for_api);
+
+    let tools_array: Vec<Value> = req
+        .tool_schemas
+        .iter()
+        .map(|t| json!({ "type": "function", "function": t }))
+        .collect();
+
+    let mut body = json!({
+        "model": model,
+        "messages": api_messages,
+        "stream": true,
+        "stream_options": { "include_usage": true },
+    });
+    if !req.is_final_round {
+        body["tools"] = json!(tools_array);
+    }
+    apply_thinking_to_chat_body(
+        &mut body,
+        thinking_style,
+        req.reasoning_effort,
+        req.max_tokens,
+    );
+    if let Some(temp) = req.temperature {
+        body["temperature"] = json!(temp);
+    }
+
+    (body, api_messages, tools_array)
+}
+
+fn log_openai_chat_request(
+    api_url: &str,
+    model: &str,
+    req: &RoundRequest<'_>,
+    api_messages: &[Value],
+    tools_array: &[Value],
+    body: &Value,
+) {
+    let body_str = serde_json::to_string(body).unwrap_or_default();
+    if let Some(logger) = crate::get_logger() {
+        let body_size = body_str.len();
+        let raw_body = if body_size > 32768 {
+            format!(
+                "{}...(truncated, total {}B)",
+                crate::truncate_utf8(&body_str, 32768),
+                body_size
+            )
+        } else {
+            body_str
+        };
+        let raw_body = crate::logging::redact_sensitive(&raw_body);
+        logger.log(
+            "debug",
+            "agent",
+            "agent::chat_openai_chat::request",
+            &format!(
+                "OpenAI Chat API request round {}: {} messages, {} tools, body {}B",
+                req.round,
+                api_messages.len(),
+                tools_array.len(),
+                body_size
+            ),
+            Some(
+                json!({
+                    "round": req.round,
+                    "api_url": api_url,
+                    "model": model,
+                    "message_count": api_messages.len(),
+                    "tool_count": tools_array.len(),
+                    "body_size_bytes": body_size,
+                    "request_body": raw_body,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
+    }
+}
+
+fn log_openai_chat_response(
+    resp: &reqwest::Response,
+    request_start: std::time::Instant,
+    round: u32,
+) {
+    if let Some(logger) = crate::get_logger() {
+        let status = resp.status().as_u16();
+        let headers = resp.headers();
+        let request_id = headers
+            .get("x-request-id")
+            .or_else(|| headers.get("request-id"))
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("-")
+            .to_string();
+        let ttfb_ms = request_start.elapsed().as_millis() as u64;
+        let response_headers = json!({
+            "x-request-id": request_id,
+            "x-ratelimit-limit-requests": headers.get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()),
+            "x-ratelimit-limit-tokens": headers.get("x-ratelimit-limit-tokens").and_then(|v| v.to_str().ok()),
+            "x-ratelimit-remaining-requests": headers.get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()),
+            "x-ratelimit-remaining-tokens": headers.get("x-ratelimit-remaining-tokens").and_then(|v| v.to_str().ok()),
+            "x-ratelimit-reset-requests": headers.get("x-ratelimit-reset-requests").and_then(|v| v.to_str().ok()),
+            "x-ratelimit-reset-tokens": headers.get("x-ratelimit-reset-tokens").and_then(|v| v.to_str().ok()),
+            "openai-model": headers.get("openai-model").and_then(|v| v.to_str().ok()),
+            "openai-organization": headers.get("openai-organization").and_then(|v| v.to_str().ok()),
+            "openai-version": headers.get("openai-version").and_then(|v| v.to_str().ok()),
+            "retry-after": headers.get("retry-after").and_then(|v| v.to_str().ok()),
+        });
+        logger.log(
+            "debug",
+            "agent",
+            "agent::chat_openai_chat::response",
+            &format!(
+                "OpenAI Chat API response: status={}, request_id={}, ttfb={}ms",
+                status, request_id, ttfb_ms
+            ),
+            Some(
+                json!({
+                    "status": status,
+                    "request_id": request_id,
+                    "ttfb_ms": ttfb_ms,
+                    "round": round,
+                    "response_headers": response_headers,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
+    }
+}
+
+fn log_openai_chat_error(status: u16, error_text: &str, round: u32) {
+    if let Some(logger) = crate::get_logger() {
+        let error_preview = if error_text.len() > 500 {
+            format!("{}...", crate::truncate_utf8(error_text, 500))
+        } else {
+            error_text.to_string()
+        };
+        logger.log(
+            "error",
+            "agent",
+            "agent::chat_openai_chat::error",
+            &format!("OpenAI Chat API error ({}): {}", status, error_preview),
+            Some(json!({"status": status, "error": error_text, "round": round}).to_string()),
+            None,
+            None,
+        );
+    }
+}
+
+fn is_unsupported_thinking_error(style: &ThinkingStyle, status: u16, error_text: &str) -> bool {
+    if status != 400 || *style == ThinkingStyle::None {
+        return false;
+    }
+    let lower = error_text.to_lowercase();
+    let param = match style {
+        ThinkingStyle::Openai => "reasoning_effort",
+        ThinkingStyle::Anthropic | ThinkingStyle::Zai => "\"thinking\"",
+        ThinkingStyle::Qwen => "enable_thinking",
+        ThinkingStyle::None => return false,
+    };
+    let signal = [
+        "unrecognized",
+        "unsupported",
+        "unknown",
+        "invalid",
+        "not support",
+        "not supported",
+    ];
+    lower.contains(param) && signal.iter().any(|needle| lower.contains(needle))
+}
+
+fn persist_model_thinking_disabled(
+    provider_config: &crate::provider::ProviderConfig,
+    model_id: &str,
+) -> Result<(), String> {
+    let provider_id = provider_config.id.clone();
+    let model_id = model_id.to_string();
+    crate::config::mutate_config(("providers.update", "thinking-autofix"), |store| {
+        let provider = store
+            .providers
+            .iter_mut()
+            .find(|p| p.id == provider_id)
+            .ok_or_else(|| anyhow::anyhow!("Provider not found: {}", provider_id))?;
+        let model = provider
+            .models
+            .iter_mut()
+            .find(|m| m.id == model_id)
+            .ok_or_else(|| anyhow::anyhow!("Model not found: {}", model_id))?;
+        model.thinking_style = Some(ThinkingStyle::None);
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
+}
+
+fn maybe_auto_disable_thinking(
+    provider_config: Option<&crate::provider::ProviderConfig>,
+    model: &str,
+    style: &ThinkingStyle,
+    status: u16,
+    error_text: &str,
+) -> Option<ThinkingAutoDisable> {
+    if !is_unsupported_thinking_error(style, status, error_text) {
+        return None;
+    }
+
+    let (provider_id, provider_name) = if let Some(provider) = provider_config {
+        let _ = persist_model_thinking_disabled(provider, model);
+        (Some(provider.id.clone()), provider.name.clone())
+    } else {
+        (None, "Unknown Provider".to_string())
+    };
+
+    if let Some(logger) = crate::get_logger() {
+        logger.log(
+            "warn",
+            "agent",
+            "agent::chat_openai_chat::thinking_autofix",
+            &format!(
+                "Auto-disabled thinking for {} / {} after unsupported parameter error",
+                provider_name, model
+            ),
+            Some(
+                json!({
+                    "provider_id": provider_id,
+                    "provider_name": provider_name,
+                    "model": model,
+                    "status": status,
+                    "error": error_text,
+                })
+                .to_string(),
+            ),
+            None,
+            None,
+        );
+    }
+
+    Some(ThinkingAutoDisable {
+        payload: json!({
+            "type": "thinking_auto_disabled",
+            "provider_id": provider_id,
+            "provider_name": provider_name,
+            "model_id": model,
+        }),
+    })
+}
+
+async fn send_chat_request(
+    client: &reqwest::Client,
+    api_url: &str,
+    api_key: &str,
+    body: &Value,
+    round: u32,
+) -> Result<reqwest::Response> {
+    let mut http_req = client
+        .post(api_url)
+        .header("Content-Type", "application/json");
+    if !api_key.is_empty() {
+        http_req = http_req.header("Authorization", format!("Bearer {}", api_key));
+    }
+    let request_start = std::time::Instant::now();
+    let resp = http_req
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| anyhow::anyhow!("OpenAI Chat API request failed: {}", e))?;
+    log_openai_chat_response(&resp, request_start, round);
+    Ok(resp)
 }
 
 #[async_trait]
@@ -52,184 +350,64 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
         cancel: &Arc<AtomicBool>,
         on_delta: &(dyn for<'s> Fn(&'s str) + Send + Sync),
     ) -> Result<RoundOutcome> {
-        // Build messages array: system (static) + system (awareness) + system
-        // (active memory) + history. OpenAI's automatic prefix caching still
-        // hits the static prefix when later system messages change between turns.
-        let mut api_messages: Vec<Value> =
-            vec![json!({ "role": "system", "content": req.system_prompt })];
-        if let Some(suffix) = req.awareness_suffix {
-            if !suffix.is_empty() {
-                api_messages.push(json!({ "role": "system", "content": suffix }));
-            }
-        }
-        if let Some(active_suffix) = req.active_memory_suffix {
-            if !active_suffix.is_empty() {
-                api_messages.push(json!({ "role": "system", "content": active_suffix }));
-            }
-        }
-        api_messages.extend_from_slice(req.history_for_api);
-
-        // Wrap tool schemas in Chat Completions' `{type, function}` shape.
-        let tools_array: Vec<Value> = req
-            .tool_schemas
-            .iter()
-            .map(|t| json!({ "type": "function", "function": t }))
-            .collect();
-
-        // Body field order: model, messages, stream, stream_options
-        // (then conditional tools / thinking via apply_thinking / temperature).
-        // Must match the pre-Phase-2 chat_openai_chat byte-level for prefix cache.
-        let mut body = json!({
-            "model": self.model,
-            "messages": api_messages,
-            "stream": true,
-            "stream_options": { "include_usage": true },
-        });
-        if !req.is_final_round {
-            body["tools"] = json!(tools_array);
-        }
-        apply_thinking_to_chat_body(
-            &mut body,
-            self.thinking_style,
-            req.reasoning_effort,
-            req.max_tokens,
-        );
-        if let Some(temp) = req.temperature {
-            body["temperature"] = json!(temp);
-        }
-
         let api_url = build_api_url(self.base_url, "/v1/chat/completions");
-
-        // ── Log API request.
-        let body_str = serde_json::to_string(&body).unwrap_or_default();
-        if let Some(logger) = crate::get_logger() {
-            let body_size = body_str.len();
-            let raw_body = if body_size > 32768 {
-                format!(
-                    "{}...(truncated, total {}B)",
-                    crate::truncate_utf8(&body_str, 32768),
-                    body_size
-                )
-            } else {
-                body_str.clone()
-            };
-            let raw_body = crate::logging::redact_sensitive(&raw_body);
-            logger.log(
-                "debug",
-                "agent",
-                "agent::chat_openai_chat::request",
-                &format!(
-                    "OpenAI Chat API request round {}: {} messages, {} tools, body {}B",
-                    req.round,
-                    api_messages.len(),
-                    tools_array.len(),
-                    body_size
-                ),
-                Some(
-                    json!({
-                        "round": req.round,
-                        "api_url": &api_url,
-                        "model": self.model,
-                        "message_count": api_messages.len(),
-                        "tool_count": tools_array.len(),
-                        "body_size_bytes": body_size,
-                        "request_body": raw_body,
-                    })
-                    .to_string(),
-                ),
-                None,
-                None,
-            );
-        }
-
-        // ── Send.
-        let mut http_req = client
-            .post(&api_url)
-            .header("Content-Type", "application/json");
-        if !self.api_key.is_empty() {
-            http_req = http_req.header("Authorization", format!("Bearer {}", self.api_key));
-        }
-        let request_start = std::time::Instant::now();
-        let resp = http_req
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("OpenAI Chat API request failed: {}", e))?;
-
-        // ── Log response status.
-        if let Some(logger) = crate::get_logger() {
-            let status = resp.status().as_u16();
-            let headers = resp.headers();
-            let request_id = headers
-                .get("x-request-id")
-                .or_else(|| headers.get("request-id"))
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("-")
-                .to_string();
-            let ttfb_ms = request_start.elapsed().as_millis() as u64;
-            let response_headers = json!({
-                "x-request-id": request_id,
-                "x-ratelimit-limit-requests": headers.get("x-ratelimit-limit-requests").and_then(|v| v.to_str().ok()),
-                "x-ratelimit-limit-tokens": headers.get("x-ratelimit-limit-tokens").and_then(|v| v.to_str().ok()),
-                "x-ratelimit-remaining-requests": headers.get("x-ratelimit-remaining-requests").and_then(|v| v.to_str().ok()),
-                "x-ratelimit-remaining-tokens": headers.get("x-ratelimit-remaining-tokens").and_then(|v| v.to_str().ok()),
-                "x-ratelimit-reset-requests": headers.get("x-ratelimit-reset-requests").and_then(|v| v.to_str().ok()),
-                "x-ratelimit-reset-tokens": headers.get("x-ratelimit-reset-tokens").and_then(|v| v.to_str().ok()),
-                "openai-model": headers.get("openai-model").and_then(|v| v.to_str().ok()),
-                "openai-organization": headers.get("openai-organization").and_then(|v| v.to_str().ok()),
-                "openai-version": headers.get("openai-version").and_then(|v| v.to_str().ok()),
-                "retry-after": headers.get("retry-after").and_then(|v| v.to_str().ok()),
-            });
-            logger.log(
-                "debug",
-                "agent",
-                "agent::chat_openai_chat::response",
-                &format!(
-                    "OpenAI Chat API response: status={}, request_id={}, ttfb={}ms",
-                    status, request_id, ttfb_ms
-                ),
-                Some(
-                    json!({
-                        "status": status,
-                        "request_id": request_id,
-                        "ttfb_ms": ttfb_ms,
-                        "round": req.round,
-                        "response_headers": response_headers,
-                    })
-                    .to_string(),
-                ),
-                None,
-                None,
-            );
-        }
+        let (body, api_messages, tools_array) =
+            build_chat_body(self.model, self.thinking_style, &req);
+        log_openai_chat_request(
+            &api_url,
+            self.model,
+            &req,
+            &api_messages,
+            &tools_array,
+            &body,
+        );
+        let mut request_start = std::time::Instant::now();
+        let mut resp = send_chat_request(client, &api_url, self.api_key, &body, req.round).await?;
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let error_text = resp.text().await.unwrap_or_default();
-            if let Some(logger) = crate::get_logger() {
-                let error_preview = if error_text.len() > 500 {
-                    format!("{}...", crate::truncate_utf8(&error_text, 500))
-                } else {
-                    error_text.clone()
-                };
-                logger.log(
-                    "error",
-                    "agent",
-                    "agent::chat_openai_chat::error",
-                    &format!("OpenAI Chat API error ({}): {}", status, error_preview),
-                    Some(
-                        json!({"status": status, "error": error_text, "round": req.round})
-                            .to_string(),
-                    ),
-                    None,
-                    None,
-                );
-            }
-            return Err(anyhow::anyhow!(
-                "OpenAI Chat API error ({}): {}",
+            log_openai_chat_error(status, &error_text, req.round);
+
+            if let Some(autofix) = maybe_auto_disable_thinking(
+                self.provider_config,
+                self.model,
+                self.thinking_style,
                 status,
-                error_text
-            ));
+                &error_text,
+            ) {
+                on_delta(&autofix.payload.to_string());
+                let retry_style = ThinkingStyle::None;
+                let (retry_body, retry_messages, retry_tools) =
+                    build_chat_body(self.model, &retry_style, &req);
+                log_openai_chat_request(
+                    &api_url,
+                    self.model,
+                    &req,
+                    &retry_messages,
+                    &retry_tools,
+                    &retry_body,
+                );
+                request_start = std::time::Instant::now();
+                resp = send_chat_request(client, &api_url, self.api_key, &retry_body, req.round)
+                    .await?;
+                if !resp.status().is_success() {
+                    let retry_status = resp.status().as_u16();
+                    let retry_error = resp.text().await.unwrap_or_default();
+                    log_openai_chat_error(retry_status, &retry_error, req.round);
+                    return Err(anyhow::anyhow!(
+                        "OpenAI Chat API error ({}): {}",
+                        retry_status,
+                        retry_error
+                    ));
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "OpenAI Chat API error ({}): {}",
+                    status,
+                    error_text
+                ));
+            }
         }
 
         // ── Parse SSE.

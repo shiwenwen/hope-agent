@@ -39,6 +39,7 @@ export interface AvailableModel {
   contextWindow: number
   maxTokens: number
   reasoning: boolean
+  thinkingStyle?: "openai" | "anthropic" | "zai" | "qwen" | "none"
 }
 
 export interface ActiveModelRef {

@@ -34,12 +34,18 @@ pub async fn save_agent(
     Json(body): Json<SaveAgentBody>,
 ) -> Result<Json<Value>, AppError> {
     ha_core::agent_loader::save_agent_config(&id, &body.config)?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "id": id, "kind": "saved" }));
+    }
     Ok(Json(json!({ "saved": true })))
 }
 
 /// `DELETE /api/agents/{id}` -- delete an agent and all its files.
 pub async fn delete_agent(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
     ha_core::agent_loader::delete_agent(&id)?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        bus.emit("agents:changed", json!({ "id": id, "kind": "deleted" }));
+    }
     Ok(Json(json!({ "deleted": true })))
 }
 
