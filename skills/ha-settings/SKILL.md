@@ -6,7 +6,7 @@ always: true
 
 # Settings — Application Configuration Management
 
-Use `get_settings` and `update_settings` to read and modify settings. **Never edit config files directly.** Coverage matches the desktop Settings UI one-to-one (except Providers / Channels / API Keys, which stay UI-only for security).
+Use `get_settings` and `update_settings` to read and modify settings. **Never edit config files directly.** Coverage matches the desktop Settings UI one-to-one (except Providers / API Keys, which stay UI-only for security).
 
 ## Risk Levels & Dual-Confirmation
 
@@ -106,6 +106,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `skill_env` | Per-skill env vars (may contain secrets) | Stored plaintext in `config.json` |
 | `security.ssrf` | `defaultPolicy` (`strict`/`default`/`allowPrivate`), `trustedHosts` (array), per-tool overrides `browserPolicy` / `webFetchPolicy` / `imageGeneratePolicy` / `urlPreviewPolicy` | Controls whether tools can reach private networks / cloud metadata. Relaxing policy or adding untrusted hosts enables SSRF attack paths |
 | `security` | `skipAllApprovals` (bool) | ⚠️ **DANGEROUS MODE** — globally bypasses every tool approval gate (exec / write / edit / apply_patch / channel tools / browser / canvas). Overrides all per-session and per-channel auto-approve settings. Plan Mode restrictions still apply. A CLI flag `--dangerously-skip-all-approvals` can set this ephemerally without touching config; this field is the *persisted* switch. Treat with extreme caution and confirm twice |
+| `channels` | `accounts`, `defaultAgentId`, `defaultModel` | Contains IM Channel Bot configurations (e.g., Telegram, WeChat tokens). Modifying this drops/reconnects listeners and handles sensitive bot credentials |
 
 ### Read-only (cannot be modified via this tool)
 
@@ -208,7 +209,7 @@ Returns `{id, timestamp, kind, category, source}` newest first.
 - **Read before write** — always `get_settings` first so you can show a diff.
 - **Confirm before write** — especially HIGH risk. Include the risk level in your confirmation prompt.
 - **Field names are camelCase** (e.g. `softRatio`, `toolTimeout`, `askUserQuestionTimeoutSecs`).
-- **Security restrictions** — cannot modify Providers, Channels, or API Keys through this tool; guide the user to the Settings UI.
+- **Security restrictions** — cannot modify Providers or API Keys through this tool; guide the user to the Settings UI.
 - **Surface side effects** — if the response has `sideEffect` (e.g. "requires restart"), tell the user.
 - **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks.
 - **Rollback is built-in** — if a change goes wrong, offer `restore_settings_backup` instead of trying to reconstruct the old values manually.
