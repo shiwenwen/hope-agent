@@ -42,7 +42,7 @@ export function useModelState(): UseModelStateReturn {
         setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, t))
       }
     },
-    [availableModels, reasoningEffort, t],
+    [availableModels, t],
   )
 
   const handleEffortChange = useCallback(async (effort: string) => {
