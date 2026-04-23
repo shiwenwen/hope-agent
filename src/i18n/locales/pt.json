@@ -16,6 +16,8 @@
     "dragToSort": "Arraste para reordenar",
     "saved": "Salvo",
     "saveFailed": "Falha ao salvar",
+    "deleted": "Excluído",
+    "deleteFailed": "Falha ao excluir",
     "custom": "Personalizado",
     "select": "Selecionar",
     "settings": "Configurações"

@@ -1,19 +1,29 @@
 import { useState, useEffect, useRef } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { AvatarCropDialog } from "@/components/settings/AvatarCropDialog"
 import { useAvatarUpload } from "@/hooks/useAvatarUpload"
-import {
-  ArrowLeft,
-  Camera,
-  Check,
-  Loader2,
-  Trash2,
-} from "lucide-react"
-import type { AgentConfig, PersonalityConfig, AvailableModel, SkillSummary, AgentTab } from "./types"
+import { ArrowLeft, Camera, Check, Loader2, Trash2 } from "lucide-react"
+import type {
+  AgentConfig,
+  PersonalityConfig,
+  AvailableModel,
+  SkillSummary,
+  AgentTab,
+} from "./types"
 import { DEFAULT_PERSONALITY, TABS } from "./types"
 import IdentityTab from "./tabs/IdentityTab"
 import PersonalityTab from "./tabs/PersonalityTab"
@@ -41,9 +51,12 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
-  const [builtinTools, setBuiltinTools] = useState<{ name: string; description: string; internal?: boolean }[]>([])
+  const [builtinTools, setBuiltinTools] = useState<
+    { name: string; description: string; internal?: boolean }[]
+  >([])
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const composingRef = useRef(false)
 
   useEffect(() => {
@@ -51,29 +64,51 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
       try {
         const [cfg, md, per, tg, skills, tools, models] = await Promise.all([
           getTransport().call<AgentConfig>("get_agent_config", { id: agentId }),
-          getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "agent.md" }),
-          getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "persona.md" }),
-          getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "tools.md" }),
+          getTransport().call<string | null>("get_agent_markdown", {
+            id: agentId,
+            file: "agent.md",
+          }),
+          getTransport().call<string | null>("get_agent_markdown", {
+            id: agentId,
+            file: "persona.md",
+          }),
+          getTransport().call<string | null>("get_agent_markdown", {
+            id: agentId,
+            file: "tools.md",
+          }),
           getTransport().call<SkillSummary[]>("get_skills"),
-          getTransport().call<{ name: string; description: string; internal?: boolean }[]>("list_builtin_tools"),
+          getTransport().call<{ name: string; description: string; internal?: boolean }[]>(
+            "list_builtin_tools",
+          ),
           getTransport().call<AvailableModel[]>("get_available_models"),
         ])
         // Fetch OpenClaw files only when mode is enabled.
         // SOUL.md is additionally loaded when the persona authoring surface is
         // SoulMd (non-openclaw users can still edit it via the Personality tab).
-        let ocAgents: string | null = null, ocIdentity: string | null = null, ocSoul: string | null = null
+        let ocAgents: string | null = null,
+          ocIdentity: string | null = null,
+          ocSoul: string | null = null
         const personaSoulMode = cfg.personality?.mode === "soulMd"
         if (cfg.openclawMode) {
           ;[ocAgents, ocIdentity, ocSoul] = await Promise.all([
-            getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "agents.md" }),
-            getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "identity.md" }),
-            getTransport().call<string | null>("get_agent_markdown", { id: agentId, file: "soul.md" }),
+            getTransport().call<string | null>("get_agent_markdown", {
+              id: agentId,
+              file: "agents.md",
+            }),
+            getTransport().call<string | null>("get_agent_markdown", {
+              id: agentId,
+              file: "identity.md",
+            }),
+            getTransport().call<string | null>("get_agent_markdown", {
+              id: agentId,
+              file: "soul.md",
+            }),
           ])
         } else if (personaSoulMode) {
-          ocSoul = await getTransport().call<string | null>(
-            "get_agent_markdown",
-            { id: agentId, file: "soul.md" },
-          )
+          ocSoul = await getTransport().call<string | null>("get_agent_markdown", {
+            id: agentId,
+            file: "soul.md",
+          })
         }
         setAvailableModels(models)
         setAvailableSkills(skills.filter((s) => s.enabled))
@@ -115,22 +150,50 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
     try {
       await getTransport().call("save_agent_config_cmd", { id: agentId, config })
       const mdSaves = [
-        getTransport().call("save_agent_markdown", { id: agentId, file: "agent.md", content: agentMd }),
-        getTransport().call("save_agent_markdown", { id: agentId, file: "persona.md", content: persona }),
-        getTransport().call("save_agent_markdown", { id: agentId, file: "tools.md", content: toolsGuide }),
+        getTransport().call("save_agent_markdown", {
+          id: agentId,
+          file: "agent.md",
+          content: agentMd,
+        }),
+        getTransport().call("save_agent_markdown", {
+          id: agentId,
+          file: "persona.md",
+          content: persona,
+        }),
+        getTransport().call("save_agent_markdown", {
+          id: agentId,
+          file: "tools.md",
+          content: toolsGuide,
+        }),
       ]
       // Only save OpenClaw files when mode is enabled. SOUL.md is saved
       // additionally in non-openclaw mode when the persona authoring surface
       // is set to SoulMd — the two surfaces share the same physical soul.md.
       if (config.openclawMode) {
         mdSaves.push(
-          getTransport().call("save_agent_markdown", { id: agentId, file: "agents.md", content: agentsMd }),
-          getTransport().call("save_agent_markdown", { id: agentId, file: "identity.md", content: identityMd }),
-          getTransport().call("save_agent_markdown", { id: agentId, file: "soul.md", content: soulMd }),
+          getTransport().call("save_agent_markdown", {
+            id: agentId,
+            file: "agents.md",
+            content: agentsMd,
+          }),
+          getTransport().call("save_agent_markdown", {
+            id: agentId,
+            file: "identity.md",
+            content: identityMd,
+          }),
+          getTransport().call("save_agent_markdown", {
+            id: agentId,
+            file: "soul.md",
+            content: soulMd,
+          }),
         )
       } else if (config.personality?.mode === "soulMd") {
         mdSaves.push(
-          getTransport().call("save_agent_markdown", { id: agentId, file: "soul.md", content: soulMd }),
+          getTransport().call("save_agent_markdown", {
+            id: agentId,
+            file: "soul.md",
+            content: soulMd,
+          }),
         )
       }
       await Promise.all(mdSaves)
@@ -148,14 +211,21 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
 
   const handleDelete = async () => {
     if (agentId === "default") return
-    if (!confirm(t("settings.agentDeleteConfirm"))) return
+    if (!config) return
     try {
       await getTransport().call("delete_agent", { id: agentId })
       window.dispatchEvent(new Event("agents-changed"))
+      toast.success(t("common.deleted"), {
+        description: config.name,
+      })
       onBack()
     } catch (e) {
       logger.error("settings", "AgentPanel::deleteAgent", "Failed to delete agent", e)
+      toast.error(t("common.deleteFailed"), {
+        description: config.name,
+      })
     }
+    setConfirmDeleteOpen(false)
   }
 
   const {
@@ -295,9 +365,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
             >
               {config.avatar ? (
                 <img
-                  src={
-                    getTransport().resolveAssetUrl(config.avatar) ?? config.avatar
-                  }
+                  src={getTransport().resolveAssetUrl(config.avatar) ?? config.avatar}
                   className="w-full h-full object-cover"
                   alt=""
                 />
@@ -402,11 +470,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           )}
 
           {activeTab === "subagent" && (
-            <SubagentTab
-              config={config}
-              agentId={agentId}
-              updateConfig={updateConfig}
-            />
+            <SubagentTab config={config} agentId={agentId} updateConfig={updateConfig} />
           )}
 
           {activeTab === "custom" && (
@@ -437,7 +501,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
               variant="ghost"
               size="sm"
               className="gap-1.5 text-muted-foreground hover:text-destructive"
-              onClick={handleDelete}
+              onClick={() => setConfirmDeleteOpen(true)}
             >
               <Trash2 className="h-3.5 w-3.5" />
               <span>{t("common.delete")}</span>
@@ -469,6 +533,23 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           )}
         </Button>
       </div>
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.agentDeleteConfirm")}</AlertDialogTitle>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void handleDelete()}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

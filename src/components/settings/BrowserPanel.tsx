@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -180,9 +181,7 @@ export default function BrowserPanel() {
   }
 
   const onDisconnect = () => {
-    void runAction("disconnect", () =>
-      getTransport().call<BrowserStatus>("browser_disconnect"),
-    )
+    void runAction("disconnect", () => getTransport().call<BrowserStatus>("browser_disconnect"))
   }
 
   const onCreateProfile = async () => {
@@ -205,16 +204,23 @@ export default function BrowserPanel() {
 
   const onDeleteProfile = async () => {
     if (!pendingDelete) return
+    const profileName = pendingDelete.name
     setError(null)
     try {
-      await getTransport().call("browser_delete_profile", { name: pendingDelete.name })
-      if (selectedProfile === pendingDelete.name) setSelectedProfile("")
+      await getTransport().call("browser_delete_profile", { name: profileName })
+      if (selectedProfile === profileName) setSelectedProfile("")
       setPendingDelete(null)
       await refresh()
+      toast.success(t("common.deleted"), {
+        description: profileName,
+      })
     } catch (e) {
       logger.error("settings", "BrowserPanel", `Delete profile failed: ${e}`)
       setError(String(e))
       setPendingDelete(null)
+      toast.error(t("common.deleteFailed"), {
+        description: profileName,
+      })
     }
   }
 
@@ -269,12 +275,7 @@ export default function BrowserPanel() {
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
             </Button>
             {connected && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onDisconnect}
-                disabled={busy !== null}
-              >
+              <Button size="sm" variant="outline" onClick={onDisconnect} disabled={busy !== null}>
                 {busy === "disconnect" ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
@@ -299,10 +300,7 @@ export default function BrowserPanel() {
               </h3>
               <div className="rounded-md border border-border divide-y divide-border">
                 {status.tabs.map((tab) => (
-                  <div
-                    key={tab.targetId}
-                    className="px-3 py-2 flex items-center gap-2 text-sm"
-                  >
+                  <div key={tab.targetId} className="px-3 py-2 flex items-center gap-2 text-sm">
                     {tab.isActive ? (
                       <CircleDot className="h-3 w-3 text-primary shrink-0" />
                     ) : (
@@ -335,9 +333,7 @@ export default function BrowserPanel() {
 
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <label className="text-sm font-medium">
-                  {t("settings.browser.profileLabel")}
-                </label>
+                <label className="text-sm font-medium">{t("settings.browser.profileLabel")}</label>
                 <Select
                   value={selectedProfile || "__none__"}
                   onValueChange={(v) => setSelectedProfile(v === "__none__" ? "" : v)}
@@ -346,9 +342,7 @@ export default function BrowserPanel() {
                     <SelectValue placeholder={t("settings.browser.profilePlaceholder")} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">
-                      {t("settings.browser.profileNone")}
-                    </SelectItem>
+                    <SelectItem value="__none__">{t("settings.browser.profileNone")}</SelectItem>
                     {profiles.map((p) => (
                       <SelectItem key={p.name} value={p.name}>
                         {p.name}
@@ -450,10 +444,7 @@ export default function BrowserPanel() {
             ) : (
               <div className="rounded-md border border-border divide-y divide-border">
                 {profiles.map((p) => (
-                  <div
-                    key={p.name}
-                    className="px-3 py-2.5 flex items-center gap-3 text-sm"
-                  >
+                  <div key={p.name} className="px-3 py-2.5 flex items-center gap-3 text-sm">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium truncate">{p.name}</span>

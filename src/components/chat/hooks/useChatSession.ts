@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -65,10 +66,7 @@ export interface UseChatSessionReturn {
   // Handlers
   reloadSessions: () => Promise<void>
   reloadAgents: () => Promise<void>
-  handleSwitchSession: (
-    sessionId: string,
-    opts?: { targetMessageId?: number },
-  ) => Promise<void>
+  handleSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => Promise<void>
   handleNewChat: (agentId: string) => Promise<void>
   /**
    * Create a new session inside a Project. Pre-materializes the session via
@@ -85,10 +83,7 @@ export interface UseChatSessionReturn {
   handleLoadMore: () => Promise<void>
   handleLoadMoreSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
-  updateSessionMeta: (
-    sessionId: string,
-    updater: (prev: SessionMeta) => SessionMeta,
-  ) => void
+  updateSessionMeta: (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => void
 }
 
 interface UseChatSessionOptions {
@@ -218,25 +213,22 @@ export function useChatSession({
   // Drop every locally-cached trace of a session — used both by explicit
   // delete and by the incognito close-on-leave purge so the two paths stay
   // in lockstep and we don't leak entries in any of the per-session refs.
-  const evictSessionLocal = useCallback(
-    (sessionId: string) => {
-      sessionCacheRef.current.delete(sessionId)
-      loadingSessionsRef.current.delete(sessionId)
-      hasMoreRef.current.delete(sessionId)
-      oldestDbIdRef.current.delete(sessionId)
-      setLoadingSessionIds((prev) => {
-        if (!prev.has(sessionId)) return prev
-        const next = new Set(prev)
-        next.delete(sessionId)
-        return next
-      })
-      setSessions((prev) => {
-        const next = prev.filter((s) => s.id !== sessionId)
-        return next.length === prev.length ? prev : next
-      })
-    },
-    [],
-  )
+  const evictSessionLocal = useCallback((sessionId: string) => {
+    sessionCacheRef.current.delete(sessionId)
+    loadingSessionsRef.current.delete(sessionId)
+    hasMoreRef.current.delete(sessionId)
+    oldestDbIdRef.current.delete(sessionId)
+    setLoadingSessionIds((prev) => {
+      if (!prev.has(sessionId)) return prev
+      const next = new Set(prev)
+      next.delete(sessionId)
+      return next
+    })
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== sessionId)
+      return next.length === prev.length ? prev : next
+    })
+  }, [])
 
   const purgeIncognitoSession = useCallback(
     (sessionIdToLeave: string | null) => {
@@ -328,10 +320,7 @@ export function useChatSession({
     }
     const offApproval = getTransport().listen("approval_required", schedule)
     const offAskUser = getTransport().listen("ask_user_request", schedule)
-    const offChanged = getTransport().listen(
-      "session_pending_interactions_changed",
-      schedule,
-    )
+    const offChanged = getTransport().listen("session_pending_interactions_changed", schedule)
     return () => {
       if (timer) clearTimeout(timer)
       offApproval()
@@ -362,10 +351,11 @@ export function useChatSession({
 
   // Compute total unread count — exclude channel sessions (IM messages don't count as unread)
   const totalUnreadCount = useMemo(
-    () => sessions.reduce((sum, s) => {
-      if (s.channelInfo || s.id === currentSessionId) return sum
-      return sum + s.unreadCount
-    }, 0),
+    () =>
+      sessions.reduce((sum, s) => {
+        if (s.channelInfo || s.id === currentSessionId) return sum
+        return sum + s.unreadCount
+      }, 0),
     [sessions, currentSessionId],
   )
 
@@ -413,13 +403,17 @@ export function useChatSession({
           } else {
             // hasMore is authoritative from DB; don't infer from msgs.length
             // since user-boundary alignment may extend beyond the requested limit.
-            const [m, , hasMore] = await getTransport().call<
-              [SessionMessage[], number, boolean]
-            >("load_session_messages_latest_cmd", { sessionId, limit: PAGE_SIZE })
+            const [m, , hasMore] = await getTransport().call<[SessionMessage[], number, boolean]>(
+              "load_session_messages_latest_cmd",
+              { sessionId, limit: PAGE_SIZE },
+            )
             msgs = m
             hasMoreBefore = hasMore
           }
-          const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {})
+          const [currentSessions] = await getTransport().call<[SessionMeta[], number]>(
+            "list_sessions_cmd",
+            {},
+          )
           const sessionMeta = currentSessions.find((s) => s.id === sessionId)
           const parentSession = sessionMeta?.parentSessionId
             ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
@@ -451,12 +445,12 @@ export function useChatSession({
       if (switchVersionRef.current !== version) return // stale switch
 
       // Use fresh sessions list for session lookup
-      const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
-        () => [[] as SessionMeta[], 0] as [SessionMeta[], number],
-      )
-      const currentAgents = await getTransport().call<AgentSummaryForSidebar[]>("list_agents").catch(
-        () => [] as AgentSummaryForSidebar[],
-      )
+      const [currentSessions] = await getTransport()
+        .call<[SessionMeta[], number]>("list_sessions_cmd", {})
+        .catch(() => [[] as SessionMeta[], 0] as [SessionMeta[], number])
+      const currentAgents = await getTransport()
+        .call<AgentSummaryForSidebar[]>("list_agents")
+        .catch(() => [] as AgentSummaryForSidebar[])
       const session = currentSessions.find((s) => s.id === sessionId)
       if (session) {
         setCurrentAgentId(session.agentId)
@@ -484,7 +478,9 @@ export function useChatSession({
               if (modelExists) {
                 applyModelForDisplay(agentConfig.model.primary)
                 // Mark session as read and refresh
-                getTransport().call("mark_session_read_cmd", { sessionId }).catch(() => {})
+                getTransport()
+                  .call("mark_session_read_cmd", { sessionId })
+                  .catch(() => {})
                 reloadSessions()
                 return
               }
@@ -500,7 +496,9 @@ export function useChatSession({
       }
 
       // Mark session as read and refresh unread counts
-      getTransport().call("mark_session_read_cmd", { sessionId }).catch(() => {})
+      getTransport()
+        .call("mark_session_read_cmd", { sessionId })
+        .catch(() => {})
       reloadSessions()
     },
     [
@@ -549,9 +547,9 @@ export function useChatSession({
       // Save current session to cache
       // (cache is already maintained by updateSessionMessages)
 
-      const currentAgents = await getTransport().call<AgentSummaryForSidebar[]>("list_agents").catch(
-        () => [] as AgentSummaryForSidebar[],
-      )
+      const currentAgents = await getTransport()
+        .call<AgentSummaryForSidebar[]>("list_agents")
+        .catch(() => [] as AgentSummaryForSidebar[])
       const agent = currentAgents.find((a) => a.id === agentId)
       setMessages([])
       setCurrentSessionId(null)
@@ -584,25 +582,16 @@ export function useChatSession({
         setActiveModel(globalActiveModelRef.current)
       }
     },
-    [
-      availableModels,
-      applyModelForDisplay,
-      globalActiveModelRef,
-      setActiveModel,
-      setHasMore,
-    ],
+    [availableModels, applyModelForDisplay, globalActiveModelRef, setActiveModel, setHasMore],
   )
 
   // Create a new session inside a Project and materialize it immediately
   // so project context is active for the first message.
   const handleNewChatInProject = useCallback(
-    async (
-      projectId: string,
-      defaultAgentId?: string | null,
-      incognito = false,
-    ) => {
+    async (projectId: string, defaultAgentId?: string | null, incognito = false) => {
       try {
-        const agentId = defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : currentAgentId
+        const agentId =
+          defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : currentAgentId
         const created = await getTransport().call<SessionMeta>("create_session_cmd", {
           agentId,
           projectId,
@@ -660,6 +649,8 @@ export function useChatSession({
   // Delete a session
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
+      const sessionTitle =
+        sessions.find((s) => s.id === sessionId)?.title || t("chat.untitledSession")
       try {
         await getTransport().call("delete_session_cmd", { sessionId })
         evictSessionLocal(sessionId)
@@ -670,11 +661,17 @@ export function useChatSession({
           setHasMore(false)
         }
         reloadSessions()
+        toast.success(t("common.deleted"), {
+          description: sessionTitle,
+        })
       } catch (err) {
         logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
+        toast.error(t("common.deleteFailed"), {
+          description: sessionTitle,
+        })
       }
     },
-    [reloadSessions, setHasMore, evictSessionLocal],
+    [reloadSessions, setHasMore, evictSessionLocal, sessions, t],
   )
 
   return {

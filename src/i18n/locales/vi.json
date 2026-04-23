@@ -16,6 +16,8 @@
     "dragToSort": "Kéo để sắp xếp",
     "saved": "Đã lưu",
     "saveFailed": "Lưu thất bại",
+    "deleted": "Đã xóa",
+    "deleteFailed": "Xóa thất bại",
     "custom": "Tùy chỉnh",
     "select": "Chọn",
     "settings": "Cài đặt"

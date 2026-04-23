@@ -1,13 +1,9 @@
 import { useState, useEffect, useCallback } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type {
-  MemoryEntry,
-  MemorySearchQuery,
-  NewMemory,
-  AgentInfo,
-  MemoryView,
-} from "./types"
+import { useTranslation } from "react-i18next"
+import type { MemoryEntry, MemorySearchQuery, NewMemory, AgentInfo, MemoryView } from "./types"
 import { useMemoryExtract } from "./useMemoryExtract"
 import { useMemoryStats } from "./useMemoryStats"
 
@@ -17,6 +13,7 @@ interface UseMemoryDataParams {
 }
 
 export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
+  const { t } = useTranslation()
   // ── Sub-hooks ──
   const extract = useMemoryExtract({ agentId, isAgentMode })
   const statsHook = useMemoryStats()
@@ -53,7 +50,8 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   // ── Load agents for scope picker (standalone mode) ──
   useEffect(() => {
     if (!isAgentMode) {
-      getTransport().call<AgentInfo[]>("list_agents")
+      getTransport()
+        .call<AgentInfo[]>("list_agents")
         .then(setAgents)
         .catch(() => {})
     }
@@ -99,7 +97,9 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       }
       const [count, statsData] = await Promise.all([
         getTransport().call<number>("memory_count", { scope }),
-        getTransport().call<import("./types").MemoryStats>("memory_stats", { scope }).catch(() => null),
+        getTransport()
+          .call<import("./types").MemoryStats>("memory_stats", { scope })
+          .catch(() => null),
       ])
       setTotalCount(count)
       statsHook.updateStats(statsData)
@@ -181,7 +181,11 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       if (!existing) return
       const mergedContent = existing.content + "\n" + dedupPendingEntry.content
       const mergedTags = [...new Set([...existing.tags, ...dedupPendingEntry.tags])]
-      await getTransport().call("memory_update", { id: existingId, content: mergedContent, tags: mergedTags })
+      await getTransport().call("memory_update", {
+        id: existingId,
+        content: mergedContent,
+        tags: mergedTags,
+      })
       setView("list")
       setFormContent("")
       setFormTags("")
@@ -214,20 +218,25 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   }
 
   async function handleDelete(id: number) {
+    const memoryLabel = memories.find((m) => m.id === id)?.content || t("settings.memory")
     try {
       await getTransport().call("memory_delete", { id })
       loadMemories()
+      toast.success(t("common.deleted"), {
+        description: memoryLabel,
+      })
     } catch (e) {
       logger.error("settings", "MemoryPanel::delete", "Failed to delete memory", e)
+      toast.error(t("common.deleteFailed"), {
+        description: memoryLabel,
+      })
     }
   }
 
   async function handleTogglePin(id: number, pinned: boolean) {
     try {
       // Optimistic update
-      setMemories((prev) =>
-        prev.map((m) => (m.id === id ? { ...m, pinned } : m))
-      )
+      setMemories((prev) => prev.map((m) => (m.id === id ? { ...m, pinned } : m)))
       await getTransport().call("memory_toggle_pin", { id, pinned })
       loadMemories()
     } catch (e) {
@@ -267,12 +276,19 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   async function handleDeleteBatch() {
     if (selectedIds.size === 0) return
     setBatchLoading(true)
+    const selectedCount = selectedIds.size
     try {
       await getTransport().call("memory_delete_batch", { ids: [...selectedIds] })
       setSelectedIds(new Set())
       loadMemories()
+      toast.success(t("common.deleted"), {
+        description: t("settings.memoryDeleteBatch", { count: selectedCount }),
+      })
     } catch (e) {
       logger.error("settings", "MemoryPanel::deleteBatch", "Failed to batch delete", e)
+      toast.error(t("common.deleteFailed"), {
+        description: t("settings.memoryDeleteBatch", { count: selectedCount }),
+      })
     } finally {
       setBatchLoading(false)
     }
@@ -313,10 +329,11 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         const text = await file.text()
         const format = file.name.endsWith(".json") ? "json" : "markdown"
         try {
-          const result = await getTransport().call<{ created: number; skippedDuplicate: number; failed: number }>(
-            "memory_import",
-            { content: text, format, dedup: true },
-          )
+          const result = await getTransport().call<{
+            created: number
+            skippedDuplicate: number
+            failed: number
+          }>("memory_import", { content: text, format, dedup: true })
           logger.info(
             "settings",
             "MemoryPanel::import",
@@ -351,22 +368,32 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
   return {
     // Core state
-    view, setView,
+    view,
+    setView,
     memories,
     totalCount,
     loading,
-    searchQuery, setSearchQuery,
-    filterType, setFilterType,
-    filterScope, setFilterScope,
+    searchQuery,
+    setSearchQuery,
+    filterType,
+    setFilterType,
+    filterScope,
+    setFilterScope,
     agents,
-    selectedAgentId, setSelectedAgentId,
+    selectedAgentId,
+    setSelectedAgentId,
 
     // Edit/Add state
-    editingMemory, setEditingMemory,
-    formContent, setFormContent,
-    formType, setFormType,
-    formTags, setFormTags,
-    formScope, setFormScope,
+    editingMemory,
+    setEditingMemory,
+    formContent,
+    setFormContent,
+    formType,
+    setFormType,
+    formTags,
+    setFormTags,
+    formScope,
+    setFormScope,
 
     // Auto-extract state (from sub-hook)
     globalExtract: extract.globalExtract,
@@ -395,18 +422,24 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     dedupPendingEntry,
 
     // Embedding config state (from sub-hook)
-    embeddingConfig: statsHook.embeddingConfig, setEmbeddingConfig: statsHook.setEmbeddingConfig,
+    embeddingConfig: statsHook.embeddingConfig,
+    setEmbeddingConfig: statsHook.setEmbeddingConfig,
     presets: statsHook.presets,
     localModels: statsHook.localModels,
-    embeddingDirty: statsHook.embeddingDirty, setEmbeddingDirty: statsHook.setEmbeddingDirty,
-    embeddingTestLoading: statsHook.embeddingTestLoading, setEmbeddingTestLoading: statsHook.setEmbeddingTestLoading,
-    embeddingTestResult: statsHook.embeddingTestResult, setEmbeddingTestResult: statsHook.setEmbeddingTestResult,
+    embeddingDirty: statsHook.embeddingDirty,
+    setEmbeddingDirty: statsHook.setEmbeddingDirty,
+    embeddingTestLoading: statsHook.embeddingTestLoading,
+    setEmbeddingTestLoading: statsHook.setEmbeddingTestLoading,
+    embeddingTestResult: statsHook.embeddingTestResult,
+    setEmbeddingTestResult: statsHook.setEmbeddingTestResult,
     embeddingSaving: statsHook.embeddingSaving,
     embeddingSaveStatus: statsHook.embeddingSaveStatus,
 
     // Dedup config state (from sub-hook)
-    dedupConfig: statsHook.dedupConfig, setDedupConfig: statsHook.setDedupConfig,
-    dedupExpanded: statsHook.dedupExpanded, setDedupExpanded: statsHook.setDedupExpanded,
+    dedupConfig: statsHook.dedupConfig,
+    setDedupConfig: statsHook.setDedupConfig,
+    dedupExpanded: statsHook.dedupExpanded,
+    setDedupExpanded: statsHook.setDedupExpanded,
 
     // Stats state (from sub-hook)
     stats: statsHook.stats,

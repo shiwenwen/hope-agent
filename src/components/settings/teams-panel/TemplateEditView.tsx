@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
+import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -105,10 +106,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
     let cancelled = false
     ;(async () => {
       try {
-        const list = (await getTransport().call(
-          "list_team_templates",
-          {},
-        )) as TeamTemplate[]
+        const list = (await getTransport().call("list_team_templates", {})) as TeamTemplate[]
         const found = list.find((t) => t.templateId === templateId)
         if (!found) {
           if (!cancelled) setError(`Template "${templateId}" not found`)
@@ -185,8 +183,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
     try {
       const finalTemplate: TeamTemplate = {
         ...template,
-        templateId:
-          template.templateId.trim() || slugify(template.name) || `team-${Date.now()}`,
+        templateId: template.templateId.trim() || slugify(template.name) || `team-${Date.now()}`,
       }
       const saved = (await getTransport().call("save_team_template", {
         template: finalTemplate,
@@ -211,10 +208,16 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
       await getTransport().call("delete_team_template", {
         templateId: template.templateId,
       })
+      toast.success(t("common.deleted"), {
+        description: template.name,
+      })
       onBack()
     } catch (e) {
       logger.error("TemplateEditView", "Failed to delete template", e)
       setError(String(e))
+      toast.error(t("common.deleteFailed"), {
+        description: template.name,
+      })
     }
   }
 
@@ -271,9 +274,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
               <Input
                 className="mt-1.5 bg-background"
                 value={template.name}
-                onChange={(e) =>
-                  setTemplate((prev) => ({ ...prev, name: e.target.value }))
-                }
+                onChange={(e) => setTemplate((prev) => ({ ...prev, name: e.target.value }))}
                 placeholder="Full-Stack Feature"
               />
             </div>
@@ -301,9 +302,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
               <Textarea
                 className="mt-1.5 min-h-[70px] bg-background text-xs"
                 value={template.description}
-                onChange={(e) =>
-                  setTemplate((prev) => ({ ...prev, description: e.target.value }))
-                }
+                onChange={(e) => setTemplate((prev) => ({ ...prev, description: e.target.value }))}
                 placeholder={t("settings.teamTemplateDescHint")}
               />
             </div>
@@ -376,19 +375,14 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("settings.teamDeleteConfirmTitle")}
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t("settings.teamDeleteConfirmTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("settings.teamDeleteConfirmDesc", { name: template.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              className="bg-red-500 hover:bg-red-600"
-            >
+            <AlertDialogAction onClick={handleDelete} className="bg-red-500 hover:bg-red-600">
               {t("settings.teamDelete")}
             </AlertDialogAction>
           </AlertDialogFooter>

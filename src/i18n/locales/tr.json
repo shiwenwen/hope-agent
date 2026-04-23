@@ -16,6 +16,8 @@
     "dragToSort": "Sıralamak için sürükleyin",
     "saved": "Kaydedildi",
     "saveFailed": "Kaydedilemedi",
+    "deleted": "Silindi",
+    "deleteFailed": "Silinemedi",
     "custom": "Özel",
     "select": "Seç",
     "settings": "Ayarlar"

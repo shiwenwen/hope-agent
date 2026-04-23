@@ -16,6 +16,8 @@
     "dragToSort": "اسحب لإعادة الترتيب",
     "saved": "تم الحفظ",
     "saveFailed": "فشل الحفظ",
+    "deleted": "تم الحذف",
+    "deleteFailed": "فشل الحذف",
     "custom": "مخصص",
     "select": "اختر",
     "settings": "الإعدادات"
