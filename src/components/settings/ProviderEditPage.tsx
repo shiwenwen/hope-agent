@@ -131,8 +131,6 @@ export default function ProviderEditPage({
           apiKey: editApiKey,
           userAgent: editUserAgent,
           thinkingStyle: editThinkingStyle,
-          // Pass the user's real models so the backend can POST with a valid
-          // model ID instead of a placeholder (which would return 400).
           models: editModels,
           enabled: true,
         },

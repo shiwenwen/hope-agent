@@ -101,106 +101,11 @@ pub async fn delete_provider(Path(id): Path<String>) -> Result<Json<Value>, AppE
 
 /// `POST /api/providers/test` — test provider connection.
 pub async fn test_provider(Json(config): Json<ProviderConfig>) -> Result<Json<Value>, AppError> {
-    // Delegate to the same test logic used by the Tauri command.
-    // We reimplement a lightweight version here — ping the models endpoint.
-    use std::time::{Duration, Instant};
-
-    use ha_core::agent::{build_api_url, is_complete_endpoint_url};
-
-    let client = ha_core::provider::apply_proxy(
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .user_agent(&config.user_agent),
-    )
-    .build()
-    .map_err(|e| AppError::internal(format!("Client error: {}", e)))?;
-
-    let base = config.base_url.trim_end_matches('/');
-    // If base_url already points at a chat endpoint, probing GET /models
-    // returns 405. Hit the chat endpoint directly.
-    let base_is_chat_endpoint = is_complete_endpoint_url(base);
-    // Prefer the first real model ID to avoid a spurious 400 from the server
-    // rejecting a placeholder model name.
-    let probe_model = config
-        .models
-        .first()
-        .map(|m| m.id.clone())
-        .unwrap_or_else(|| "test".to_string());
-    let start = Instant::now();
-
-    match config.api_type {
-        ha_core::provider::ApiType::Anthropic => {
-            let url = build_api_url(base, "/v1/messages");
-            let body = serde_json::json!({
-                "model": probe_model,
-                "max_tokens": 1,
-                "messages": [{ "role": "user", "content": "Hi" }]
-            });
-            let resp = client
-                .post(&url)
-                .header("x-api-key", &config.api_key)
-                .header("anthropic-version", "2023-06-01")
-                .header("content-type", "application/json")
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| AppError::internal(format!("Connection failed: {}", e)))?;
-
-            let status = resp.status().as_u16();
-            let latency = start.elapsed().as_millis() as u64;
-            let success = resp.status().is_success() || status == 400 || status == 404;
-            Ok(Json(json!({
-                "success": success,
-                "status": status,
-                "latencyMs": latency,
-                "url": url,
-            })))
-        }
-        ha_core::provider::ApiType::OpenaiChat | ha_core::provider::ApiType::OpenaiResponses => {
-            let url = if base_is_chat_endpoint {
-                build_api_url(base, "/v1/chat/completions")
-            } else {
-                build_api_url(base, "/v1/models")
-            };
-            let mut req = if base_is_chat_endpoint {
-                client
-                    .post(&url)
-                    .header("content-type", "application/json")
-                    .json(&serde_json::json!({
-                        "model": probe_model,
-                        "max_tokens": 1,
-                        "messages": [{ "role": "user", "content": "Hi" }],
-                    }))
-            } else {
-                client.get(&url)
-            };
-            if !config.api_key.is_empty() {
-                req = req.header("Authorization", format!("Bearer {}", config.api_key));
-            }
-            let resp = req
-                .send()
-                .await
-                .map_err(|e| AppError::internal(format!("Connection failed: {}", e)))?;
-
-            let status = resp.status().as_u16();
-            let latency = start.elapsed().as_millis() as u64;
-            // POST chat probe: 400/404 means the endpoint is reachable and
-            // auth worked — the server is just rejecting our model name.
-            let success = resp.status().is_success()
-                || (base_is_chat_endpoint && (status == 400 || status == 404));
-            Ok(Json(json!({
-                "success": success,
-                "status": status,
-                "latencyMs": latency,
-                "url": url,
-            })))
-        }
-        ha_core::provider::ApiType::Codex => Ok(Json(json!({
-            "success": true,
-            "message": "Codex uses OAuth, no test needed",
-            "latencyMs": 0,
-        }))),
-    }
+    let payload = ha_core::provider::test::test_provider(config)
+        .await
+        .unwrap_or_else(|e| e);
+    let v: Value = serde_json::from_str(&payload).unwrap_or(Value::String(payload));
+    Ok(Json(v))
 }
 
 /// `GET /api/providers/active-model` — get the currently active model.
