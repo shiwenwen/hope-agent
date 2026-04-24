@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
+import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import {
   getExecutionToolGroupLabel,
   getExecutionToolLabel,
@@ -137,7 +138,7 @@ function GroupItem({ tool }: { tool: ToolCall }) {
     <div className="text-[11px]">
       <button
         className="flex items-center gap-1.5 w-full px-1.5 py-0.5 text-left hover:bg-secondary/60 rounded transition-colors group/item"
-        onClick={() => !isRunning && tool.result && setShowResult(!showResult)}
+        onClick={() => (tool.name === "exec" || (!isRunning && tool.result)) && setShowResult(!showResult)}
       >
         {isRunning ? (
           <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0 text-muted-foreground/60" />
@@ -201,13 +202,17 @@ function GroupItem({ tool }: { tool: ToolCall }) {
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          showResult && tool.result ? "max-h-[400px] opacity-100" : "max-h-0 opacity-0",
+          showResult && (tool.name === "exec" || tool.result) ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0",
         )}
       >
         <div className="ml-4 mt-0.5 mb-1">
-          <pre className="whitespace-pre-wrap text-muted-foreground/70 bg-secondary/40 rounded-md p-2 max-h-56 overflow-y-auto text-[11px] leading-relaxed border border-border/40">
-            {tool.result}
-          </pre>
+          {tool.name === "exec" ? (
+            <ExecToolResultCard tool={tool} isRunning={isRunning} />
+          ) : (
+            <pre className="whitespace-pre-wrap text-muted-foreground/70 bg-secondary/40 rounded-md p-2 max-h-56 overflow-y-auto text-[11px] leading-relaxed border border-border/40">
+              {tool.result}
+            </pre>
+          )}
         </div>
       </div>
     </div>
