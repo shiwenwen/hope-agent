@@ -17,6 +17,7 @@ pub mod dashboard;
 pub mod desktop;
 pub mod dev;
 pub mod dreaming;
+pub mod filesystem;
 pub mod generated_images;
 pub mod health;
 pub mod logging;

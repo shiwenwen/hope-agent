@@ -36,6 +36,7 @@ const DEFAULT_PROJECT_FILES_INLINE_BUDGET: usize = 8 * 1024;
 /// ⑪ Sandbox mode (conditional)
 /// ⑦b Current Project (conditional — when session belongs to a project)
 /// ⑦c Project Files catalog + small-file inlining (conditional)
+/// ⑦d Session working directory (conditional — when user selected one)
 /// ⑬ ACP external agents (conditional)
 pub fn build(
     definition: &AgentDefinition,
@@ -48,6 +49,7 @@ pub fn build(
     project_files: &[ProjectFile],
     session_id: Option<&str>,
     incognito: bool,
+    session_working_dir: Option<&str>,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -235,6 +237,13 @@ pub fn build(
                 }
             }
         }
+    }
+
+    // ⑦d User-selected working directory for this session. Injected after
+    //     project context so the model treats it as the operational focus
+    //     before it reads memory / runtime info.
+    if let Some(wd) = session_working_dir.map(str::trim).filter(|s| !s.is_empty()) {
+        sections.push(build_session_working_dir_section(wd));
     }
 
     // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
@@ -652,6 +661,73 @@ mod memory_section_tests {
     }
 
     #[test]
+    fn working_dir_section_injected_when_path_provided() {
+        let definition = mk_definition();
+        let budget = MemoryBudgetConfig::default();
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            Some("/srv/projects/demo"),
+        );
+        assert!(
+            out.contains("# Working Directory"),
+            "expected working directory heading to appear: {out}"
+        );
+        assert!(
+            out.contains("/srv/projects/demo"),
+            "expected selected path to appear in prompt: {out}"
+        );
+    }
+
+    #[test]
+    fn working_dir_section_omitted_when_missing_or_blank() {
+        let definition = mk_definition();
+        let budget = MemoryBudgetConfig::default();
+        let out_none = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+        );
+        let out_blank = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            Some("   "),
+        );
+        assert!(
+            !out_none.contains("# Working Directory"),
+            "no working_dir should omit section"
+        );
+        assert!(
+            !out_blank.contains("# Working Directory"),
+            "blank working_dir should omit section"
+        );
+    }
+
+    #[test]
     fn incognito_prompt_omits_memory_and_includes_policy() {
         let definition = mk_definition();
         let budget = MemoryBudgetConfig::default();
@@ -668,6 +744,7 @@ mod memory_section_tests {
             &[],
             None,
             true,
+            None,
         );
 
         assert!(out.contains("# Incognito Session"));

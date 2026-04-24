@@ -33,7 +33,6 @@ import {
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
-import { useAutoScroll } from "./useAutoScroll"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
@@ -98,6 +97,7 @@ export default function ChatScreen({
   const [systemPromptLoading, setSystemPromptLoading] = useState(false)
   const [draftIncognito, setDraftIncognito] = useState(false)
   const [incognitoSaving, setIncognitoSaving] = useState(false)
+  const [workingDirSaving, setWorkingDirSaving] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<
@@ -384,6 +384,41 @@ export default function ChatScreen({
     [session, currentSessionMeta?.incognito, incognitoDisabledReason],
   )
 
+  const handleWorkingDirChange = useCallback(
+    async (workingDir: string | null) => {
+      const sid = session.currentSessionId
+      if (!sid) return
+      const previous = currentSessionMeta?.workingDir ?? null
+      if (previous === workingDir) return
+      session.updateSessionMeta(sid, (prev) =>
+        prev.workingDir === workingDir ? prev : { ...prev, workingDir },
+      )
+      setWorkingDirSaving(true)
+      try {
+        await getTransport().call("set_session_working_dir", {
+          sessionId: sid,
+          workingDir,
+        })
+      } catch (err) {
+        session.updateSessionMeta(sid, (prev) =>
+          prev.workingDir === previous ? prev : { ...prev, workingDir: previous },
+        )
+        logger.error(
+          "chat",
+          "ChatScreen::setWorkingDir",
+          "Failed to update working directory",
+          err,
+        )
+        toast.error(t("chat.workingDir.invalid"), {
+          description: err instanceof Error ? err.message : String(err),
+        })
+      } finally {
+        setWorkingDirSaving(false)
+      }
+    },
+    [session, currentSessionMeta?.workingDir, t],
+  )
+
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
   useEffect(() => {
     if (sessionsRefreshTrigger) {
@@ -573,13 +608,6 @@ export default function ChatScreen({
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
-  // ── Auto-scroll Hook ───────────────────────────────────────
-  const { scrollContainerRef, bottomRef } = useAutoScroll({
-    loading: session.loading,
-    messages: session.messages,
-    currentSessionId: session.currentSessionId,
-  })
-
   // ── Memory extraction toast ────────────────────────────────
   const [memoryToast, setMemoryToast] = useState<{ count: number } | null>(null)
   const memoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -599,19 +627,6 @@ export default function ChatScreen({
       if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
     }
   }, [session.currentSessionId])
-
-  // ── Scroll-to-top: load older messages ─────────────────────
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const onScroll = () => {
-      if (el.scrollTop < 50) {
-        session.handleLoadMore()
-      }
-    }
-    el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
-  }, [session.handleLoadMore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load system prompt ──────────────────────────────────────────
   const loadSystemPrompt = useCallback(async () => {
@@ -781,6 +796,13 @@ export default function ChatScreen({
     // Send a short trigger — the full plan is already in the system prompt (Executing state)
     stream.handleSend(t("planMode.executeCommand"))
   }, [planMode, stream, t])
+
+  const handleMessageSwitchModel = useCallback(
+    (providerId: string, modelId: string) => {
+      void handleManualModelChange(`${providerId}::${modelId}`)
+    },
+    [handleManualModelChange],
+  )
 
   // ── Plan Request Changes Handler ──────────────────────────────
   const handleRequestChanges = useCallback(
@@ -964,8 +986,6 @@ export default function ChatScreen({
           hasMore={session.hasMore}
           loadingMore={session.loadingMore}
           onLoadMore={session.handleLoadMore}
-          scrollContainerRef={scrollContainerRef}
-          bottomRef={bottomRef}
           sessionId={session.currentSessionId}
           pendingScrollTarget={session.pendingScrollTarget}
           onScrollTargetHandled={session.clearPendingScrollTarget}
@@ -988,9 +1008,7 @@ export default function ChatScreen({
           onPausePlan={planMode.pauseExecution}
           onResumePlan={planMode.resumeExecution}
           planSubagentRunning={planMode.planSubagentRunning}
-          onSwitchModel={(providerId, modelId) =>
-            handleManualModelChange(`${providerId}::${modelId}`)
-          }
+          onSwitchModel={handleMessageSwitchModel}
           onViewSystemPrompt={loadSystemPrompt}
           onSwitchSession={(sid) => {
             void session.handleSwitchSession(sid)
@@ -1048,6 +1066,11 @@ export default function ChatScreen({
               incognitoSaving={incognitoSaving}
               incognitoDisabledReason={incognitoDisabledReason}
               onIncognitoChange={handleIncognitoChange}
+              workingDir={currentSessionMeta?.workingDir ?? null}
+              workingDirSaving={workingDirSaving}
+              onWorkingDirChange={
+                session.currentSessionId ? handleWorkingDirChange : undefined
+              }
               planState={planMode.planState}
               planProgress={planMode.progress}
               onEnterPlanMode={planMode.enterPlanMode}

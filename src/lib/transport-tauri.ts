@@ -7,7 +7,7 @@
 
 import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
-import type { Transport, ChatStream, PickedImage } from "@/lib/transport";
+import type { Transport, ChatStream, PickedImage, DirListing } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
 export class TauriTransport implements Transport {
@@ -105,6 +105,18 @@ export class TauriTransport implements Transport {
     });
     if (!selected || typeof selected !== "string") return null;
     return { src: convertFileSrc(selected) };
+  }
+
+  async pickLocalDirectory(): Promise<string | null> {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({ directory: true, multiple: false });
+    if (!selected || typeof selected !== "string") return null;
+    return selected;
+  }
+
+  async listServerDirectory(): Promise<DirListing> {
+    // Desktop uses the native picker — no server-side listing in this mode.
+    throw new Error("listServerDirectory is not available in Tauri mode");
   }
 
   /** Absolute server-side path for Tauri file ops. Legacy items may carry

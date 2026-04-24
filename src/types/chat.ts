@@ -164,6 +164,13 @@ export interface SessionMeta {
   projectId?: string | null
   /** Session-scoped incognito mode: no passive memory/awareness injection or auto-extract. */
   incognito: boolean
+  /**
+   * User-selected working directory for this conversation. Injected into the
+   * system prompt so the model defaults file operations to this path. In
+   * server mode the path refers to the server machine's filesystem, not the
+   * browser client.
+   */
+  workingDir?: string | null
   channelInfo?: {
     channelId: string
     accountId: string

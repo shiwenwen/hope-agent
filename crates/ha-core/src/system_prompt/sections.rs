@@ -471,6 +471,23 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
     out
 }
 
+/// Build the session-scoped "Working Directory" section.
+///
+/// Injected when the user has explicitly selected a directory for this
+/// conversation (desktop picker or server-mode directory browser). The path
+/// is the canonicalized absolute path on whichever machine the ha-core
+/// process is running — for server mode that's the server host, not the
+/// browser client.
+pub(super) fn build_session_working_dir_section(path: &str) -> String {
+    format!(
+        "# Working Directory\n\n\
+         The user has selected `{}` as the working directory for this conversation. \
+         When you need to operate on files, default to this directory unless the user \
+         or an explicit tool argument specifies otherwise.",
+        path
+    )
+}
+
 /// Build a "Project Files" section listing uploaded project files (Layer 1:
 /// directory catalog), plus optionally inlining small files whose full
 /// content fits inside the inline byte budget (Layer 2).

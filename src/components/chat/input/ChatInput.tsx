@@ -18,6 +18,7 @@ import ToolPermissionToggle from "./ToolPermissionToggle"
 import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./IncognitoToggle"
+import WorkingDirectoryButton from "./WorkingDirectoryButton"
 
 interface ChatInputProps {
   input: string
@@ -51,6 +52,10 @@ interface ChatInputProps {
   incognitoSaving?: boolean
   incognitoDisabledReason?: IncognitoDisabledReason
   onIncognitoChange?: (enabled: boolean) => void
+  // Working directory
+  workingDir?: string | null
+  workingDirSaving?: boolean
+  onWorkingDirChange?: (workingDir: string | null) => void
   // Plan mode
   planState?: "off" | "planning" | "review" | "executing" | "paused" | "completed"
   planProgress?: number
@@ -87,6 +92,9 @@ export default function ChatInput({
   incognitoSaving = false,
   incognitoDisabledReason,
   onIncognitoChange,
+  workingDir,
+  workingDirSaving = false,
+  onWorkingDirChange,
   planState = "off",
   planProgress = 0,
   onEnterPlanMode,
@@ -307,6 +315,15 @@ export default function ChatInput({
                 saving={incognitoSaving}
                 disabledReason={incognitoDisabledReason}
                 onChange={onIncognitoChange}
+              />
+            )}
+
+            {onWorkingDirChange && (
+              <WorkingDirectoryButton
+                sessionId={currentSessionId ?? null}
+                workingDir={workingDir ?? null}
+                saving={workingDirSaving}
+                onChange={onWorkingDirChange}
               />
             )}
 

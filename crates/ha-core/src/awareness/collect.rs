@@ -244,6 +244,7 @@ mod tests {
             channel_info: None,
             project_id: None,
             incognito: false,
+            working_dir: None,
         }
     }
 
