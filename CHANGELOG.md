@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Documentation
+
+- **新增架构文档《Failover 系统》与《安全子系统》**：补齐 `crates/ha-core/src/failover/` 与 `crates/ha-core/src/security/` 两个跨子系统 contract 层的独立文档，长期散落在 [`provider-system.md`](docs/architecture/provider-system.md) / [`chat-engine.md`](docs/architecture/chat-engine.md) / [`mcp.md`](docs/architecture/mcp.md) / [`im-channel.md`](docs/architecture/im-channel.md) 各处的描述现在有单一参考页。[`docs/architecture/failover.md`](docs/architecture/failover.md) 覆盖三档 `FailoverPolicy`（`chat_engine_default` / `side_query_default` / `summarize_default`）、8 类 `FailoverReason` 错误分类决策矩阵、三种 `ExecutorError` 出口语义、`PROFILE_COOLDOWNS` per-reason 时长表、`PROFILE_STICKY` LRU 防 stickiness 全擦回归、Codex 强制不轮换 defense-in-depth、chat_engine 的 compaction-retry 闭环以及调用方清单。[`docs/architecture/security.md`](docs/architecture/security.md) 覆盖 SSRF 三档 policy × 七类 `HostKind` 决策矩阵、Metadata IP 任何 policy 都拒、IPv4-mapped IPv6 双重防御、`trusted_hosts` 白名单语法、`check_url` / `check_host_blocking_sync` 异步与 reqwest redirect callback 同步入口区分、Dangerous Mode CLI flag + config OR 合并语义与 Plan Mode 正交关系、`http_stream` 出站响应封顶清单、所有 SSRF 调用方对照表（含 `web_fetch` / `browser` / `image_generate` / `url_preview` / `web_search` / MCP transport / MCP OAuth）以及 API Key 红线。[`docs/README.md`](docs/README.md) 索引登记新文档（Failover 入「Agent 能力」、Security 入「基础设施」）。
+
 ### Changed
 
 - **聊天相关消息流改用虚拟列表渲染**：主聊天窗口、Quick Chat 弹窗和 Team Feed 统一接入 `@tanstack/react-virtual`，只渲染可见行和 overscan 行。保留现有分页、搜索跳转、流式输出底部跟随、Plan / ask_user / tool / thinking 等富内容展示，同时在向上加载旧消息时按可见锚点恢复滚动位置，长会话滚动和团队消息流不再随已加载消息数线性堆 DOM。
