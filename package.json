@@ -42,6 +42,7 @@
     "@streamdown/math": "^1.0.2",
     "@streamdown/mermaid": "^1.0.2",
     "@tailwindcss/vite": "^4.2.1",
+    "@tanstack/react-virtual": "^3.13.24",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.7.0",
     "@tauri-apps/plugin-notification": "^2.3.3",

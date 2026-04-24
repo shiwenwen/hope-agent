@@ -22,11 +22,11 @@ export interface MessageBubbleProps {
   loading: boolean
   agents: AgentSummaryForSidebar[]
   // Hover & interaction state
-  hoveredMsgIndex: number | null
+  isHovered: boolean
   onHover: (index: number | null) => void
   onContextMenu: (e: React.MouseEvent, index: number) => void
   // Copy
-  copiedIndex: number | null
+  isCopied: boolean
   onCopy: (content: string, index: number) => void
   // Plan mode
   sessionId?: string | null
@@ -83,10 +83,10 @@ function MessageBubbleInner({
   isLast,
   loading,
   agents,
-  hoveredMsgIndex,
+  isHovered,
   onHover,
   onContextMenu,
-  copiedIndex,
+  isCopied,
   onCopy,
   sessionId,
   onOpenPlanPanel,
@@ -269,8 +269,7 @@ function MessageBubbleInner({
               className={cn(
                 "flex items-center gap-0.5 mt-0.5 h-6",
                 msg.role === "user" ? "justify-end" : "justify-start",
-                !(hoveredMsgIndex === index || copiedIndex === index || detailsIndex === index) &&
-                  "invisible",
+                !(isHovered || isCopied || detailsIndex === index) && "invisible",
               )}
             >
               <IconTip label={t("chat.copy")}>
@@ -278,7 +277,7 @@ function MessageBubbleInner({
                   onClick={() => onCopy(msg.content, index)}
                   className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
                 >
-                  {copiedIndex === index ? (
+                  {isCopied ? (
                     <Check className="h-3.5 w-3.5 text-green-500" />
                   ) : (
                     <Copy className="h-3.5 w-3.5" />

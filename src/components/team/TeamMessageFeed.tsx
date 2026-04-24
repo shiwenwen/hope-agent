@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { Send } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import type { TeamMessage, TeamMember } from "./teamTypes"
 import { TeamMessageBubble } from "./TeamMessageBubble"
 
@@ -12,6 +13,10 @@ interface TeamMessageFeedProps {
   onSendMessage: (to: string | null, content: string) => void
 }
 
+type TeamFeedRow =
+  | { type: "empty"; key: "empty" }
+  | { type: "message"; key: string; message: TeamMessage }
+
 export function TeamMessageFeed({
   messages,
   members,
@@ -19,13 +24,36 @@ export function TeamMessageFeed({
 }: TeamMessageFeedProps) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
-  const scrollRef = useRef<HTMLDivElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to bottom on new messages
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages.length])
+  const rows = useMemo<TeamFeedRow[]>(() => {
+    if (messages.length === 0) return [{ type: "empty", key: "empty" }]
+    return messages.map((message) => ({
+      type: "message",
+      key: `team-message:${message.messageId}`,
+      message,
+    }))
+  }, [messages])
+
+  const getRowKey = useCallback((row: TeamFeedRow) => row.key, [])
+  const estimateSize = useCallback((index: number) => {
+    const row = rows[index]
+    if (!row) return 56
+    if (row.type === "empty") return 160
+    if (row.message.messageType === "system") return 28
+    return 56
+  }, [rows])
+
+  const lastMessage = messages[messages.length - 1]
+  const followKey = `${messages.length}:${lastMessage?.messageId ?? ""}:${lastMessage?.content.length ?? 0}`
+  const { scrollRef, virtualizer, virtualItems, totalSize } = useVirtualFeed({
+    rows,
+    getRowKey,
+    estimateSize,
+    overscan: 8,
+    gap: 2,
+    followKey,
+    resetKey: lastMessage?.teamId ?? "team-feed",
+  })
 
   const handleSend = useCallback(() => {
     const text = draft.trim()
@@ -61,32 +89,48 @@ export function TeamMessageFeed({
     [handleSend],
   )
 
+  const renderRow = (row: TeamFeedRow) => {
+    if (row.type === "empty") {
+      return (
+        <div className="flex min-h-[40vh] items-center justify-center text-sm text-muted-foreground/50">
+          {t("team.noMessages", "No messages yet")}
+        </div>
+      )
+    }
+
+    return (
+      <TeamMessageBubble
+        message={row.message}
+        members={members}
+      />
+    )
+  }
+
   return (
     <div className="flex flex-col h-full">
-      {/* Message list */}
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto min-h-0"
       >
-        {messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground/50">
-            {t("team.noMessages", "No messages yet")}
-          </div>
-        ) : (
-          <div className="flex flex-col gap-0.5 py-2">
-            {messages.map((msg) => (
-              <TeamMessageBubble
-                key={msg.messageId}
-                message={msg}
-                members={members}
-              />
-            ))}
-            <div ref={bottomRef} />
-          </div>
-        )}
+        <div className="relative w-full py-2" style={{ height: totalSize }}>
+          {virtualItems.map((virtualRow) => {
+            const row = rows[virtualRow.index]
+            if (!row) return null
+            return (
+              <div
+                key={virtualRow.key}
+                ref={virtualizer.measureElement}
+                data-index={virtualRow.index}
+                className="absolute left-0 top-0 w-full"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {renderRow(row)}
+              </div>
+            )
+          })}
+        </div>
       </div>
 
-      {/* Input area */}
       <div className="flex items-center gap-2 border-t border-border p-2">
         <Input
           value={draft}

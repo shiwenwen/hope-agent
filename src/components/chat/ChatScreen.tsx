@@ -33,7 +33,6 @@ import {
 import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
-import { useAutoScroll } from "./useAutoScroll"
 import { usePlanMode } from "./plan-mode/usePlanMode"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
@@ -609,13 +608,6 @@ export default function ChatScreen({
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
-  // ── Auto-scroll Hook ───────────────────────────────────────
-  const { scrollContainerRef, bottomRef } = useAutoScroll({
-    loading: session.loading,
-    messages: session.messages,
-    currentSessionId: session.currentSessionId,
-  })
-
   // ── Memory extraction toast ────────────────────────────────
   const [memoryToast, setMemoryToast] = useState<{ count: number } | null>(null)
   const memoryToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -635,19 +627,6 @@ export default function ChatScreen({
       if (memoryToastTimer.current) clearTimeout(memoryToastTimer.current)
     }
   }, [session.currentSessionId])
-
-  // ── Scroll-to-top: load older messages ─────────────────────
-  useEffect(() => {
-    const el = scrollContainerRef.current
-    if (!el) return
-    const onScroll = () => {
-      if (el.scrollTop < 50) {
-        session.handleLoadMore()
-      }
-    }
-    el.addEventListener("scroll", onScroll, { passive: true })
-    return () => el.removeEventListener("scroll", onScroll)
-  }, [session.handleLoadMore]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Load system prompt ──────────────────────────────────────────
   const loadSystemPrompt = useCallback(async () => {
@@ -817,6 +796,13 @@ export default function ChatScreen({
     // Send a short trigger — the full plan is already in the system prompt (Executing state)
     stream.handleSend(t("planMode.executeCommand"))
   }, [planMode, stream, t])
+
+  const handleMessageSwitchModel = useCallback(
+    (providerId: string, modelId: string) => {
+      void handleManualModelChange(`${providerId}::${modelId}`)
+    },
+    [handleManualModelChange],
+  )
 
   // ── Plan Request Changes Handler ──────────────────────────────
   const handleRequestChanges = useCallback(
@@ -1000,8 +986,6 @@ export default function ChatScreen({
           hasMore={session.hasMore}
           loadingMore={session.loadingMore}
           onLoadMore={session.handleLoadMore}
-          scrollContainerRef={scrollContainerRef}
-          bottomRef={bottomRef}
           sessionId={session.currentSessionId}
           pendingScrollTarget={session.pendingScrollTarget}
           onScrollTargetHandled={session.clearPendingScrollTarget}
@@ -1024,9 +1008,7 @@ export default function ChatScreen({
           onPausePlan={planMode.pauseExecution}
           onResumePlan={planMode.resumeExecution}
           planSubagentRunning={planMode.planSubagentRunning}
-          onSwitchModel={(providerId, modelId) =>
-            handleManualModelChange(`${providerId}::${modelId}`)
-          }
+          onSwitchModel={handleMessageSwitchModel}
           onViewSystemPrompt={loadSystemPrompt}
           onSwitchSession={(sid) => {
             void session.handleSwitchSession(sid)
