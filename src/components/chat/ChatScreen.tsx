@@ -98,6 +98,7 @@ export default function ChatScreen({
   const [systemPromptLoading, setSystemPromptLoading] = useState(false)
   const [draftIncognito, setDraftIncognito] = useState(false)
   const [incognitoSaving, setIncognitoSaving] = useState(false)
+  const [workingDirSaving, setWorkingDirSaving] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<
@@ -382,6 +383,52 @@ export default function ChatScreen({
       }
     },
     [session, currentSessionMeta?.incognito, incognitoDisabledReason],
+  )
+
+  const handleWorkingDirChange = useCallback(
+    async (workingDir: string | null) => {
+      const sid = session.currentSessionId
+      if (!sid) return
+      const previous = currentSessionMeta?.workingDir ?? null
+      if (previous === workingDir) return
+      session.updateSessionMeta(sid, (prev) =>
+        prev.workingDir === workingDir ? prev : { ...prev, workingDir },
+      )
+      setWorkingDirSaving(true)
+      try {
+        const result = await getTransport().call<{
+          updated: boolean
+          workingDir: string | null
+        } | null>("set_session_working_dir", {
+          sessionId: sid,
+          workingDir,
+        })
+        // Backend returns the canonical path; sync if it differs from the
+        // user-typed form (e.g. trailing slash stripped, symlinks resolved).
+        const canonical = result?.workingDir ?? null
+        if (canonical !== workingDir) {
+          session.updateSessionMeta(sid, (prev) =>
+            prev.workingDir === canonical ? prev : { ...prev, workingDir: canonical },
+          )
+        }
+      } catch (err) {
+        session.updateSessionMeta(sid, (prev) =>
+          prev.workingDir === previous ? prev : { ...prev, workingDir: previous },
+        )
+        logger.error(
+          "chat",
+          "ChatScreen::setWorkingDir",
+          "Failed to update working directory",
+          err,
+        )
+        toast.error(t("chat.workingDir.invalid"), {
+          description: err instanceof Error ? err.message : String(err),
+        })
+      } finally {
+        setWorkingDirSaving(false)
+      }
+    },
+    [session, currentSessionMeta?.workingDir, t],
   )
 
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
@@ -1048,6 +1095,11 @@ export default function ChatScreen({
               incognitoSaving={incognitoSaving}
               incognitoDisabledReason={incognitoDisabledReason}
               onIncognitoChange={handleIncognitoChange}
+              workingDir={currentSessionMeta?.workingDir ?? null}
+              workingDirSaving={workingDirSaving}
+              onWorkingDirChange={
+                session.currentSessionId ? handleWorkingDirChange : undefined
+              }
               planState={planMode.planState}
               planProgress={planMode.progress}
               onEnterPlanMode={planMode.enterPlanMode}

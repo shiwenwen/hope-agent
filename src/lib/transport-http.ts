@@ -6,7 +6,7 @@
  * streaming chat and backend events.
  */
 
-import type { Transport, ChatStream, PickedImage } from "@/lib/transport";
+import type { Transport, ChatStream, PickedImage, DirListing, DirEntry } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
 // ---------------------------------------------------------------------------
@@ -53,6 +53,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   create_session_cmd:              { method: "POST",   path: "/api/sessions" },
   get_session_cmd:                 { method: "GET",    path: "/api/sessions/{sessionId}" },
   set_session_incognito:           { method: "PATCH",  path: "/api/sessions/{sessionId}/incognito" },
+  set_session_working_dir:         { method: "PATCH",  path: "/api/sessions/{sessionId}/working-dir" },
   purge_session_if_incognito:      { method: "POST",   path: "/api/sessions/{sessionId}/purge-if-incognito" },
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
@@ -878,6 +879,53 @@ export class HttpTransport implements Transport {
       document.body.appendChild(input);
       input.click();
     });
+  }
+
+  async pickLocalDirectory(): Promise<string | null> {
+    // In HTTP mode the browser has no access to the server's filesystem —
+    // the directory picker is a React modal that calls listServerDirectory.
+    // WorkingDirectoryButton branches on isTauriMode() before calling here.
+    throw new Error(
+      "pickLocalDirectory is not available in HTTP mode; render ServerDirectoryBrowser instead",
+    );
+  }
+
+  async listServerDirectory(path?: string): Promise<DirListing> {
+    const url = new URL(`${this.baseUrl}/api/filesystem/list-dir`);
+    if (path) url.searchParams.set("path", path);
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+    const res = await fetch(url.toString(), { method: "GET", headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let message = text || `list-dir failed: ${res.status}`;
+      try {
+        const parsed = JSON.parse(text) as { error?: string };
+        if (parsed?.error) message = parsed.error;
+      } catch {
+        /* text was not JSON */
+      }
+      throw new Error(message);
+    }
+    const body = (await res.json()) as {
+      path: string;
+      parent: string | null;
+      entries: Array<{
+        name: string;
+        isDir: boolean;
+        isSymlink: boolean;
+        size: number | null;
+        modifiedMs: number | null;
+      }>;
+    };
+    const entries: DirEntry[] = body.entries.map((e) => ({
+      name: e.name,
+      isDir: e.isDir,
+      isSymlink: e.isSymlink,
+      size: e.size,
+      modifiedMs: e.modifiedMs,
+    }));
+    return { path: body.path, parent: body.parent, entries };
   }
 
   // ----- listen -----

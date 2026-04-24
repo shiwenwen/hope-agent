@@ -114,6 +114,48 @@ export interface Transport {
    * behaviour.
    */
   pickLocalImage(): Promise<PickedImage | null>;
+
+  /**
+   * Prompt the user to pick a directory and return its absolute path.
+   * Returns `null` when the user cancels.
+   *
+   * - Tauri mode: opens the native directory picker via
+   *   `@tauri-apps/plugin-dialog`. The returned path is on the user's local
+   *   filesystem.
+   * - HTTP mode: the implementation is expected to surface a server-side
+   *   directory browser (see {@link listServerDirectory}); the returned path
+   *   is on the server machine, not the browser client.
+   */
+  pickLocalDirectory(): Promise<string | null>;
+
+  /**
+   * List a single directory level on the server machine. Only implemented in
+   * HTTP mode — the directory-browser modal uses this to let the user drill
+   * into the server's filesystem. Tauri mode can throw or return a rejected
+   * promise because the native picker covers that path.
+   *
+   * @param path Absolute path to list. When omitted, the server returns a
+   *             platform default root (`/` on Unix, user profile on Windows).
+   */
+  listServerDirectory(path?: string): Promise<DirListing>;
+}
+
+/**
+ * One level of a server-side directory listing. Shape mirrors the
+ * `/api/filesystem/list-dir` response.
+ */
+export interface DirListing {
+  path: string;
+  parent: string | null;
+  entries: DirEntry[];
+}
+
+export interface DirEntry {
+  name: string;
+  isDir: boolean;
+  isSymlink: boolean;
+  size: number | null;
+  modifiedMs: number | null;
 }
 
 /**

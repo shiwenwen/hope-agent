@@ -84,6 +84,14 @@ pub struct SessionIncognitoBody {
     pub enabled: bool,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionWorkingDirBody {
+    /// Absolute path on the server machine. `None` or empty string clears
+    /// the selection. The core layer canonicalizes + validates the path.
+    pub working_dir: Option<String>,
+}
+
 // ── Response wrapper for paginated lists ────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -174,6 +182,23 @@ pub async fn set_session_incognito(
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db.update_session_incognito(&id, body.enabled)?;
     Ok(Json(json!({ "updated": true })))
+}
+
+/// `PATCH /api/sessions/:id/working-dir` — persist the per-session working
+/// directory. The core layer canonicalizes the path and rejects anything that
+/// does not resolve to an existing directory on the server machine. Returns
+/// the canonical absolute path (or `null` when cleared) so the UI can display
+/// the exact path that was stored.
+pub async fn set_session_working_dir(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionWorkingDirBody>,
+) -> Result<Json<Value>, AppError> {
+    let canonical = ctx
+        .session_db
+        .update_session_working_dir(&id, body.working_dir)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "updated": true, "workingDir": canonical })))
 }
 
 /// `POST /api/sessions/:id/purge-if-incognito` — hard-delete the session if

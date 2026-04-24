@@ -273,6 +273,15 @@ impl SessionDB {
             )?;
         }
 
+        // Migration: per-session working directory for directing the model's
+        // file operations. On server mode the path lives on the server's FS.
+        let has_working_dir = conn
+            .prepare("SELECT working_dir FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_working_dir {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN working_dir TEXT;")?;
+        }
+
         // Migration: pending ask_user_question groups for resume-after-restart.
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS ask_user_questions (
@@ -720,6 +729,7 @@ impl SessionDB {
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
             incognito,
+            working_dir: None,
         })
     }
 
@@ -792,7 +802,8 @@ impl SessionDB {
                         s.project_id,
                         s.tool_permission_mode,
                         s.incognito,
-                        cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
+                        cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
+                        s.working_dir
                  FROM sessions s
                  LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -830,6 +841,7 @@ impl SessionDB {
                     .unwrap_or_else(|_| "auto".to_string()),
                 incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
                 channel_info,
+                working_dir: row.get(21).ok().flatten(),
             })
         };
 
@@ -1396,6 +1408,54 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Persist the session-scoped working directory.
+    ///
+    /// When `working_dir` is `Some(path)`, the path is canonicalized and must
+    /// resolve to an existing directory; the canonical form is stored so the
+    /// model sees a stable absolute path. `None` clears the selection.
+    ///
+    /// Project / Incognito sessions may set a working directory — the two
+    /// concepts are orthogonal (Project = curated knowledge container,
+    /// working directory = where file ops default to).
+    pub fn update_session_working_dir(
+        &self,
+        session_id: &str,
+        working_dir: Option<String>,
+    ) -> Result<Option<String>> {
+        let canonical = match working_dir.as_deref().map(str::trim) {
+            Some(p) if !p.is_empty() => {
+                let path = std::path::Path::new(p);
+                let canon = path.canonicalize().map_err(|e| {
+                    anyhow::anyhow!("Cannot resolve working directory '{}': {}", p, e)
+                })?;
+                if !canon.is_dir() {
+                    return Err(anyhow::anyhow!(
+                        "Working directory '{}' is not a directory",
+                        canon.display()
+                    ));
+                }
+                Some(canon.to_string_lossy().to_string())
+            }
+            _ => None,
+        };
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET working_dir = ?1 WHERE id = ?2",
+            params![canonical, session_id],
+        )?;
+        app_info!(
+            "session",
+            "update_session_working_dir",
+            "session={} working_dir={}",
+            session_id,
+            canonical.as_deref().unwrap_or("<none>")
+        );
+        Ok(canonical)
+    }
+
     /// Persist plan step statuses to DB for crash recovery.
     pub fn save_plan_steps(&self, session_id: &str, steps_json: &str) -> Result<()> {
         let conn = self
@@ -1653,7 +1713,8 @@ impl SessionDB {
                     s.project_id,
                     s.tool_permission_mode,
                     s.incognito,
-                    cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name
+                    cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
+                    s.working_dir
              FROM sessions s
              LEFT JOIN channel_conversations cc ON cc.session_id = s.id
              WHERE s.id = ?1"
@@ -1691,6 +1752,7 @@ impl SessionDB {
                     .unwrap_or_else(|_| "auto".to_string()),
                 incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
                 channel_info,
+                working_dir: row.get(21).ok().flatten(),
             })
         })?;
 
@@ -2150,6 +2212,71 @@ mod tests {
         assert!(
             !updated.incognito,
             "updated session should persist incognito=false"
+        );
+
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn update_session_working_dir_roundtrip_and_validation() {
+        let db_path = temp_db_path("session-working-dir-roundtrip");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let created = db.create_session("default").expect("create session");
+        assert!(
+            created.working_dir.is_none(),
+            "fresh session should have no working_dir"
+        );
+
+        // Valid existing directory — use the temp dir itself for portability.
+        let tmp = std::env::temp_dir();
+        let tmp_str = tmp.to_string_lossy().to_string();
+        let canon = db
+            .update_session_working_dir(&created.id, Some(tmp_str.clone()))
+            .expect("set working_dir");
+        assert!(
+            canon.is_some(),
+            "valid directory should return canonical path"
+        );
+
+        let loaded = db
+            .get_session(&created.id)
+            .expect("get session")
+            .expect("session exists");
+        assert!(
+            loaded.working_dir.is_some(),
+            "stored session should persist working_dir"
+        );
+
+        // Non-existent path should error without mutating the row.
+        let bad = db.update_session_working_dir(
+            &created.id,
+            Some("/definitely/not/a/real/path/xyz-42".to_string()),
+        );
+        assert!(bad.is_err(), "non-existent path should error");
+        let still_set = db
+            .get_session(&created.id)
+            .expect("get session again")
+            .expect("session exists")
+            .working_dir;
+        assert!(
+            still_set.is_some(),
+            "previous value should remain after failed update"
+        );
+
+        // Clearing with None / empty string.
+        let cleared = db
+            .update_session_working_dir(&created.id, None)
+            .expect("clear working_dir");
+        assert!(cleared.is_none(), "clearing should return None");
+        let after_clear = db
+            .get_session(&created.id)
+            .expect("get session after clear")
+            .expect("session exists");
+        assert!(
+            after_clear.working_dir.is_none(),
+            "working_dir should be None after clear"
         );
 
         let _ = std::fs::remove_file(&db_path);

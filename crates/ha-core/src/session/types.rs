@@ -45,6 +45,12 @@ pub struct SessionMeta {
     /// awareness injection, and no automatic memory extraction.
     #[serde(default)]
     pub incognito: bool,
+    /// User-selected working directory for this session. When set, the path
+    /// is injected into the system prompt so the model treats it as the
+    /// default directory for file operations. On server mode the path refers
+    /// to the server machine's filesystem.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
 }
 
 /// Lightweight channel info attached to a session for UI display.
