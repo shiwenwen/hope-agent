@@ -27,6 +27,7 @@ once_cell = { workspace = true }
 signal-hook = { workspace = true }
 arc-swap = { workspace = true }
 rmcp = { workspace = true }
+http = "1"
 
 # Non-workspace dependencies (core-specific)
 sqlite-vec = "0.1"

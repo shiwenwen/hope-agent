@@ -1,21 +1,32 @@
 //! Transport factories — wire an [`McpTransportSpec`] up to an rmcp client.
 //!
-//! Phase 2 only wires stdio. Phase 4 extends this with Streamable HTTP,
-//! SSE, and the `tokio-tungstenite` WebSocket wrapper. Each transport
-//! returns something that implements `rmcp::transport::Transport<RoleClient>`.
+//! Phase 2 shipped stdio only. Phase 4 adds Streamable HTTP (the spec's
+//! preferred remote transport) plus a best-effort SSE fallback routed
+//! through the same client (rmcp 1.5 retired the standalone SSE client
+//! in favor of Streamable HTTP's SSE sub-protocol).
 //!
-//! Env placeholder expansion happens here (not in `client.rs`) so the
-//! narrow "how to spawn" knowledge stays isolated; the rest of the
-//! subsystem sees only a ready-to-hand transport.
+//! WebSocket still returns `NotReady` — implementing `rmcp::Transport`
+//! over `tokio-tungstenite` is a bigger undertaking scheduled for a
+//! follow-up pass.
+//!
+//! Every networked transport goes through the project SSRF policy
+//! (`security::ssrf::check_url`) BEFORE we touch the network, so a
+//! misconfigured private-network URL cannot exfiltrate through a rogue
+//! `Authorization` header.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
+use std::str::FromStr;
 
+use http::{HeaderName, HeaderValue};
+use rmcp::service::RunningService;
 use rmcp::transport::child_process::ConfigureCommandExt;
-use rmcp::transport::TokioChildProcess;
+use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use rmcp::transport::{StreamableHttpClientTransport, TokioChildProcess};
+use rmcp::{RoleClient, ServiceExt};
 use tokio::process::{ChildStderr, Command};
 
-use super::config::{expand_placeholders, McpServerConfig, McpTransportSpec};
+use super::config::{expand_placeholders, McpServerConfig, McpTransportSpec, McpTrustLevel};
 use super::errors::{McpError, McpResult};
 
 /// Minimal list of env vars inherited from the parent process when we
@@ -104,25 +115,24 @@ fn build_stdio_command(cfg: &McpServerConfig) -> McpResult<Command> {
     Ok(cmd)
 }
 
-/// Output of a successful transport build: the rmcp transport plus any
-/// side-channel handles the caller needs to drive (e.g. the stdio
-/// `ChildStderr` handle, owned by `client.rs` so it can spawn a tailer
-/// task with the right server-name prefix).
-pub struct BuiltTransport {
-    pub inner: TokioChildProcess,
+/// A fully-served MCP client plus any side-channel handles the caller
+/// needs to drive after the fact. `stderr` is `Some` only for stdio.
+///
+/// We construct the rmcp transport **and** call `.serve()` internally
+/// here so the concrete reqwest-0.13 `Client` type rmcp uses for
+/// Streamable HTTP never escapes this module (ha-core itself depends
+/// on reqwest 0.12 through other call sites; mixing the two at the
+/// type level causes a trait-resolution conflict).
+pub struct ConnectedClient {
+    pub running: RunningService<RoleClient, ()>,
     pub stderr: Option<ChildStderr>,
 }
 
-/// Spawn the subprocess described by `cfg.transport` (stdio only for
-/// Phase 2) and return the rmcp child-process transport along with a
-/// captured `stderr` handle for log tailing. The transport stores the
-/// child handle internally and cleans up on drop.
-///
-/// The caller is responsible for feeding the returned transport to
-/// `rmcp::ServiceExt::serve()` with a `ClientHandler` (we use `()`), and
-/// for draining `stderr` — otherwise a verbose server can fill its
-/// stderr pipe and block.
-pub fn build_stdio_transport(cfg: &McpServerConfig) -> McpResult<BuiltTransport> {
+/// Spawn the subprocess described by a stdio transport spec and return
+/// the connected rmcp client + stderr pipe. Caller must drain the
+/// stderr pipe — otherwise a verbose server can fill its buffer and
+/// block.
+pub async fn build_stdio_client(cfg: &McpServerConfig) -> McpResult<ConnectedClient> {
     let cmd = build_stdio_command(cfg)?;
     let (proc, stderr) = TokioChildProcess::builder(cmd.configure(|_| {}))
         .stderr(Stdio::piped())
@@ -131,27 +141,100 @@ pub fn build_stdio_transport(cfg: &McpServerConfig) -> McpResult<BuiltTransport>
             server: cfg.name.clone(),
             source: format!("spawn failed: {e}"),
         })?;
-    Ok(BuiltTransport {
-        inner: proc,
-        stderr,
+    let running = ().serve(proc).await.map_err(|e| McpError::Transport {
+        server: cfg.name.clone(),
+        source: format!("handshake failed: {e}"),
+    })?;
+    Ok(ConnectedClient { running, stderr })
+}
+
+/// Build a Streamable HTTP (or SSE → Streamable HTTP fallback) client
+/// transport and complete the initial handshake. Runs the SSRF policy
+/// check before constructing the underlying reqwest client so a
+/// misconfigured private-network URL never dials out.
+pub async fn build_http_client(
+    cfg: &McpServerConfig,
+    url: &str,
+    transport_label: &str,
+) -> McpResult<ConnectedClient> {
+    // Expand `${VAR}` in user-provided header values + resolve URL
+    // placeholders so the SSRF check sees the real destination.
+    let expanded_url = expand_placeholders(url, |name| std::env::var(name).ok());
+
+    // SSRF gate — trusted servers use the default policy, untrusted
+    // servers get the strict policy. Any block lands on `McpError::Blocked`
+    // which the GUI surfaces as "blocked by security policy".
+    let app_cfg = crate::config::cached_config();
+    let trusted_hosts = app_cfg.ssrf.trusted_hosts.clone();
+    let policy = match cfg.trust_level {
+        McpTrustLevel::Trusted => app_cfg.ssrf.default_policy,
+        McpTrustLevel::Untrusted => crate::security::ssrf::SsrfPolicy::Strict,
+    };
+    crate::security::ssrf::check_url(&expanded_url, policy, &trusted_hosts)
+        .await
+        .map_err(|e| McpError::Blocked {
+            server: cfg.name.clone(),
+            reason: format!("SSRF policy blocked {transport_label} URL: {e}"),
+        })?;
+
+    let mut headers: HashMap<HeaderName, HeaderValue> = HashMap::new();
+    for (k, v) in &cfg.headers {
+        let expanded = expand_placeholders(v, |name| std::env::var(name).ok());
+        let name = HeaderName::from_str(k).map_err(|e| {
+            McpError::Config(format!(
+                "invalid header name '{k}' for server '{srv}': {e}",
+                srv = cfg.name
+            ))
+        })?;
+        let value = HeaderValue::from_str(&expanded).map_err(|e| {
+            McpError::Config(format!(
+                "invalid header value for '{k}' on server '{srv}': {e}",
+                srv = cfg.name
+            ))
+        })?;
+        headers.insert(name, value);
+    }
+
+    let http_cfg =
+        StreamableHttpClientTransportConfig::with_uri(expanded_url).custom_headers(headers);
+    let transport = StreamableHttpClientTransport::from_config(http_cfg);
+    let running = ().serve(transport).await.map_err(|e| McpError::Transport {
+        server: cfg.name.clone(),
+        source: format!("handshake failed: {e}"),
+    })?;
+    Ok(ConnectedClient {
+        running,
+        stderr: None,
     })
 }
 
-/// Convenience entry: dispatch on the transport kind and build whatever
-/// transport the spec calls for. In Phase 2 anything non-stdio returns
-/// an explicit `NotReady` with a helpful message so the GUI can render
-/// "not implemented yet" instead of a generic failure.
-///
-/// Phase 4 replaces the non-stdio branches with real implementations.
-pub fn build_transport_for(cfg: &McpServerConfig) -> McpResult<BuiltTransport> {
+/// Entry point used by `client::do_connect`. Dispatches on the transport
+/// kind, runs any gating policy (SSRF), constructs the appropriate
+/// rmcp transport, and returns a connected client ready for
+/// `list_tools` / `call_tool` round-trips.
+pub async fn build_transport_for(cfg: &McpServerConfig) -> McpResult<ConnectedClient> {
     match &cfg.transport {
-        McpTransportSpec::Stdio { .. } => build_stdio_transport(cfg),
-        other => Err(McpError::NotReady {
+        McpTransportSpec::Stdio { .. } => build_stdio_client(cfg).await,
+        McpTransportSpec::StreamableHttp { url } => {
+            build_http_client(cfg, url, "streamable-http").await
+        }
+        McpTransportSpec::Sse { url } => {
+            // rmcp 1.5 retired the standalone SSE client; Streamable HTTP
+            // speaks the same SSE sub-protocol on its GET channel, so we
+            // route legacy `Sse` entries through that. Servers that
+            // strictly require the old SSE-only transport need a rebuild
+            // or a newer server version.
+            crate::app_warn!(
+                "mcp",
+                &format!("{}:transport", cfg.name),
+                "Legacy SSE transport routed through Streamable HTTP; \
+                 update the server to the 2025-03-26 spec if behavior differs"
+            );
+            build_http_client(cfg, url, "sse").await
+        }
+        McpTransportSpec::WebSocket { .. } => Err(McpError::NotReady {
             server: cfg.name.clone(),
-            reason: format!(
-                "{} transport is not implemented in this build (phase 2 is stdio-only)",
-                other.kind_label()
-            ),
+            reason: "WebSocket transport is not yet implemented in this build".into(),
         }),
     }
 }
@@ -229,18 +312,32 @@ mod tests {
         assert!(!envs.contains_key("PWD"));
     }
 
-    #[test]
-    fn non_stdio_not_implemented_in_phase_2() {
+    #[tokio::test]
+    async fn websocket_still_not_implemented() {
         let mut cfg = stdio_cfg("echo");
-        cfg.transport = McpTransportSpec::StreamableHttp {
-            url: "https://example.com/mcp".into(),
+        cfg.transport = McpTransportSpec::WebSocket {
+            url: "wss://example.com/mcp".into(),
         };
-        // `TokioChildProcess` doesn't impl `Debug`, so `unwrap_err()` won't
-        // compile — match the Result explicitly.
-        match build_transport_for(&cfg) {
+        match build_transport_for(&cfg).await {
             Err(McpError::NotReady { .. }) => {}
             Err(other) => panic!("unexpected error variant: {other:?}"),
-            Ok(_) => panic!("expected NotReady, got a transport"),
+            Ok(_) => panic!("expected NotReady for websocket"),
+        }
+    }
+
+    #[tokio::test]
+    async fn http_transport_honors_ssrf_policy() {
+        // Untrusted + private-network URL → Blocked. This guards the
+        // regression where the SSRF gate was skipped on MCP dial-out.
+        let mut cfg = stdio_cfg("echo");
+        cfg.transport = McpTransportSpec::StreamableHttp {
+            url: "http://127.0.0.1:9999/mcp".into(),
+        };
+        cfg.trust_level = McpTrustLevel::Untrusted;
+        match build_transport_for(&cfg).await {
+            Err(McpError::Blocked { .. }) => {}
+            Err(other) => panic!("expected Blocked, got: {other:?}"),
+            Ok(_) => panic!("expected Blocked for private URL under Strict policy"),
         }
     }
 }

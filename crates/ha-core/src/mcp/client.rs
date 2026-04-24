@@ -11,9 +11,7 @@
 
 use std::sync::Arc;
 
-use rmcp::service::RunningService;
-use rmcp::ServiceExt;
-use rmcp::{model, RoleClient};
+use rmcp::model;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::MutexGuard;
 use tokio::time::{timeout, Duration};
@@ -21,7 +19,7 @@ use tokio::time::{timeout, Duration};
 use super::errors::{McpError, McpResult};
 use super::events::{emit_catalog_refreshed, emit_server_status};
 use super::registry::{McpManager, ServerHandle, ServerState, ToolIndexEntry};
-use super::transport::{build_transport_for, BuiltTransport};
+use super::transport::{build_transport_for, ConnectedClient};
 
 /// Idempotent "make sure this server is connected and has a catalog".
 /// Returns quickly when already `Ready`; otherwise performs a full
@@ -187,23 +185,19 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
 // ── Internals ────────────────────────────────────────────────────
 
 async fn do_connect(cfg: &super::config::McpServerConfig, handle: &ServerHandle) -> McpResult<()> {
-    let built = build_transport_for(cfg)?;
-    let BuiltTransport { inner, stderr } = built;
+    // `build_transport_for` runs the SSRF gate (for HTTP/SSE/WS) and
+    // completes the rmcp handshake internally — isolating the concrete
+    // reqwest-0.13 client type from the rest of the subsystem, which
+    // would otherwise conflict with ha-core's reqwest-0.12 dep.
+    let ConnectedClient { running, stderr } = build_transport_for(cfg).await?;
 
-    // Spawn the stderr tailer before the rmcp service so we don't miss
-    // the first few frames of server startup output.
     if let Some(err_stream) = stderr {
+        // Spawn the stderr tailer AFTER the handshake — prior to this
+        // the child hasn't produced output yet, and doing it post-serve
+        // keeps the flow simpler.
         spawn_stderr_tailer(cfg.name.clone(), err_stream);
     }
 
-    // `()` is the unit ClientHandler — we don't respond to server-initiated
-    // sampling / roots / elicitation in Phase 2. Phase 5 will plug real
-    // handlers in.
-    let running: RunningService<RoleClient, ()> =
-        ().serve(inner).await.map_err(|e| McpError::Transport {
-            server: cfg.name.clone(),
-            source: format!("handshake failed: {e}"),
-        })?;
     let mut client = handle.client.lock().await;
     *client = Some(running);
     Ok(())
