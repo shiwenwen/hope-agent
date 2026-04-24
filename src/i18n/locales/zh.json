@@ -161,7 +161,8 @@
       "loadError": "无法列出目录",
       "empty": "此目录为空",
       "fileLabel": "文件",
-      "selectCurrent": "选择此目录"
+      "selectCurrent": "选择此目录",
+      "truncated": "仅显示前若干条——该目录条目过多，浏览器无法全部展示。"
     },
     "modelsCount": "{{count}} 个模型",
     "attachImage": "添加图片",

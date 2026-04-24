@@ -11,11 +11,16 @@
 use axum::extract::Query;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use std::path::PathBuf;
+use serde_json::Value;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::error::AppError;
+
+/// Cap so huge directories (`/nix/store`, populated `node_modules`, …) don't
+/// balloon memory or serialize into a multi-MB JSON response the picker can't
+/// render anyway.
+const MAX_ENTRIES: usize = 5000;
 
 #[derive(Debug, Deserialize)]
 pub struct ListDirQuery {
@@ -29,6 +34,9 @@ pub struct ListDirQuery {
 #[serde(rename_all = "camelCase")]
 pub struct DirEntryDto {
     pub name: String,
+    /// Absolute path of this entry — lets the client navigate without having
+    /// to re-join name onto the parent (avoids separator-guessing bugs).
+    pub path: String,
     pub is_dir: bool,
     pub is_symlink: bool,
     pub size: Option<u64>,
@@ -36,20 +44,40 @@ pub struct DirEntryDto {
     pub modified_ms: Option<i64>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListDirResponse {
+    path: String,
+    parent: Option<String>,
+    entries: Vec<DirEntryDto>,
+    /// `true` when the directory held more than `MAX_ENTRIES` children; the
+    /// UI can surface a "results truncated" hint.
+    truncated: bool,
+}
+
 /// `GET /api/filesystem/list-dir?path=<abs>` — list one level of a directory
-/// on the server machine. Returns `{ path, parent, entries: [...] }`.
+/// on the server machine.
 ///
 /// - `path` MUST be an absolute path; relative paths are rejected so a buggy
 ///   client can't accidentally walk the server's current-working-directory.
 /// - `canonicalize` is applied so the returned `path` is symlink-free and the
 ///   UI sees a stable identity across subsequent navigations.
-/// - Entries are sorted `directories-first, then name ascending (case-insensitive)`.
+/// - Entries are sorted directories-first, then name ascending (case-insensitive).
+/// - Results are capped at `MAX_ENTRIES`; `truncated=true` signals overflow.
 pub async fn list_dir(Query(q): Query<ListDirQuery>) -> Result<Json<Value>, AppError> {
     let requested = q.path.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let requested = requested.map(|s| s.to_string());
 
+    let result = tokio::task::spawn_blocking(move || list_dir_blocking(requested.as_deref()))
+        .await
+        .map_err(|e| AppError::internal(format!("list-dir task failed: {}", e)))??;
+    Ok(Json(serde_json::to_value(result)?))
+}
+
+fn list_dir_blocking(requested: Option<&str>) -> Result<ListDirResponse, AppError> {
     let target: PathBuf = match requested {
         Some(p) => {
-            let path = PathBuf::from(p);
+            let path = Path::new(p);
             if !path.is_absolute() {
                 return Err(AppError::bad_request(format!(
                     "path must be absolute: {}",
@@ -70,23 +98,27 @@ pub async fn list_dir(Query(q): Query<ListDirQuery>) -> Result<Json<Value>, AppE
         )));
     }
 
+    let read_dir = std::fs::read_dir(&target).map_err(|e| {
+        AppError::bad_request(format!(
+            "cannot read directory '{}': {}",
+            target.display(),
+            e
+        ))
+    })?;
+
+    let target_str = target.to_string_lossy().to_string();
     let parent = target
         .parent()
         .map(|p| p.to_string_lossy().to_string())
-        .filter(|s| !s.is_empty() && *s != target.to_string_lossy());
+        .filter(|s| !s.is_empty() && *s != target_str);
 
     let mut entries: Vec<DirEntryDto> = Vec::new();
-    let read_dir = match std::fs::read_dir(&target) {
-        Ok(rd) => rd,
-        Err(e) => {
-            return Err(AppError::bad_request(format!(
-                "cannot read directory '{}': {}",
-                target.display(),
-                e
-            )));
-        }
-    };
+    let mut truncated = false;
     for entry in read_dir {
+        if entries.len() >= MAX_ENTRIES {
+            truncated = true;
+            break;
+        }
         let Ok(entry) = entry else {
             ha_core::app_warn!(
                 "filesystem",
@@ -100,8 +132,8 @@ pub async fn list_dir(Query(q): Query<ListDirQuery>) -> Result<Json<Value>, AppE
             continue;
         };
         let file_type = meta.file_type();
-        // Resolve `is_dir` through the symlink so a symlink pointing at a
-        // directory shows up as browsable.
+        // Resolve `is_dir` through the symlink so a symlink to a directory
+        // shows up as browsable.
         let is_dir = if file_type.is_symlink() {
             std::fs::metadata(entry.path())
                 .map(|m| m.is_dir())
@@ -117,6 +149,7 @@ pub async fn list_dir(Query(q): Query<ListDirQuery>) -> Result<Json<Value>, AppE
             .map(|d| d.as_millis() as i64);
         entries.push(DirEntryDto {
             name: entry.file_name().to_string_lossy().to_string(),
+            path: entry.path().to_string_lossy().to_string(),
             is_dir,
             is_symlink: file_type.is_symlink(),
             size,
@@ -132,16 +165,18 @@ pub async fn list_dir(Query(q): Query<ListDirQuery>) -> Result<Json<Value>, AppE
     ha_core::app_info!(
         "filesystem",
         "list_dir",
-        "path={} entries={}",
+        "path={} entries={} truncated={}",
         target.display(),
-        entries.len()
+        entries.len(),
+        truncated
     );
 
-    Ok(Json(json!({
-        "path": target.to_string_lossy(),
-        "parent": parent,
-        "entries": entries,
-    })))
+    Ok(ListDirResponse {
+        path: target_str,
+        parent,
+        entries,
+        truncated,
+    })
 }
 
 #[cfg(unix)]

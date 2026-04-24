@@ -332,7 +332,7 @@ pub fn build_system_prompt_with_session(
         let agent_home = crate::paths::agent_home_dir(agent_id)
             .ok()
             .map(|p| p.to_string_lossy().to_string());
-        let session_working_dir = session_meta.as_ref().and_then(|s| s.working_dir.clone());
+        let session_working_dir = session_meta.as_ref().and_then(|s| s.working_dir.as_deref());
         return crate::system_prompt::build(
             &definition,
             Some(model),
@@ -344,7 +344,7 @@ pub fn build_system_prompt_with_session(
             &project_files,
             session_id,
             incognito,
-            session_working_dir.as_deref(),
+            session_working_dir,
         );
     }
     // Fallback: legacy prompt

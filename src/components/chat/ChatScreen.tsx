@@ -396,21 +396,10 @@ export default function ChatScreen({
       )
       setWorkingDirSaving(true)
       try {
-        const result = await getTransport().call<{
-          updated: boolean
-          workingDir: string | null
-        } | null>("set_session_working_dir", {
+        await getTransport().call("set_session_working_dir", {
           sessionId: sid,
           workingDir,
         })
-        // Backend returns the canonical path; sync if it differs from the
-        // user-typed form (e.g. trailing slash stripped, symlinks resolved).
-        const canonical = result?.workingDir ?? null
-        if (canonical !== workingDir) {
-          session.updateSessionMeta(sid, (prev) =>
-            prev.workingDir === canonical ? prev : { ...prev, workingDir: canonical },
-          )
-        }
       } catch (err) {
         session.updateSessionMeta(sid, (prev) =>
           prev.workingDir === previous ? prev : { ...prev, workingDir: previous },

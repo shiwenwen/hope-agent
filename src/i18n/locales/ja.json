@@ -161,7 +161,8 @@
       "loadError": "ディレクトリを一覧できません",
       "empty": "このディレクトリは空です",
       "fileLabel": "ファイル",
-      "selectCurrent": "このディレクトリを選択"
+      "selectCurrent": "このディレクトリを選択",
+      "truncated": "先頭のエントリのみ表示しています — このディレクトリは大きすぎて全件を表示できません。"
     },
     "modelsCount": "{{count}} モデル",
     "attachImage": "画像を追加",

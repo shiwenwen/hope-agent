@@ -161,7 +161,8 @@
       "loadError": "디렉터리를 읽을 수 없습니다",
       "empty": "이 디렉터리는 비어 있습니다",
       "fileLabel": "파일",
-      "selectCurrent": "이 디렉터리 선택"
+      "selectCurrent": "이 디렉터리 선택",
+      "truncated": "첫 항목만 표시합니다 — 이 디렉터리는 브라우저에 모두 표시하기에 너무 큽니다."
     },
     "modelsCount": "모델 {{count}}개",
     "attachImage": "이미지 추가",

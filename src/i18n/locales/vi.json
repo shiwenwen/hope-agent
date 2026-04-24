@@ -161,7 +161,8 @@
       "loadError": "Không thể liệt kê thư mục",
       "empty": "Thư mục này trống",
       "fileLabel": "tệp",
-      "selectCurrent": "Chọn thư mục này"
+      "selectCurrent": "Chọn thư mục này",
+      "truncated": "Chỉ hiển thị các mục đầu tiên — thư mục này quá lớn để trình duyệt hiển thị hết."
     },
     "modelsCount": "{{count}} mô hình",
     "attachImage": "Thêm ảnh",

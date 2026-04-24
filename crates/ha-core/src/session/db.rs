@@ -18,6 +18,19 @@ pub struct SessionDB {
 /// deciding when virtual scrolling becomes necessary.
 const LARGE_TURN_EXTENSION_LOG_THRESHOLD: usize = 200;
 
+/// Shared SELECT for every query that hydrates a full `SessionMeta`. Column
+/// positions are locked to the parser in `SessionDB::row_to_session_meta`;
+/// when adding a column, append it and update both the mapper and tests.
+const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
+           s.created_at, s.updated_at,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
+           s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.tool_permission_mode, s.incognito,
+           cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
+           s.working_dir
+     FROM sessions s
+     LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
+
 impl SessionDB {
     /// Open (or create) the database at the given path, enable WAL mode,
     /// and ensure tables exist.
@@ -792,58 +805,9 @@ impl SessionDB {
         // Unread only counts final `assistant` rows — tool / text_block /
         // thinking_block / event rows are artifacts of the same turn and would
         // inflate the badge (one question with N tool calls would read as 2N+).
-        let base_sql = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
-                        s.created_at, s.updated_at,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-                        (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
-                        s.is_cron,
-                        s.parent_session_id,
-                        s.plan_mode,
-                        s.project_id,
-                        s.tool_permission_mode,
-                        s.incognito,
-                        cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-                        s.working_dir
-                 FROM sessions s
-                 LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
-
+        let base_sql = SESSION_META_SELECT;
         let count_base = "SELECT COUNT(*) FROM sessions s";
-
-        let row_mapper = |row: &rusqlite::Row| {
-            let cc_channel_id: Option<String> = row.get(16)?;
-            let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
-                channel_id: ch_id,
-                account_id: row.get::<_, String>(17).unwrap_or_default(),
-                chat_id: row.get::<_, String>(18).unwrap_or_default(),
-                chat_type: row.get::<_, String>(19).unwrap_or_default(),
-                sender_name: row.get(20).ok().flatten(),
-            });
-            Ok(SessionMeta {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                agent_id: row.get(2)?,
-                provider_id: row.get(3)?,
-                provider_name: row.get(4)?,
-                model_id: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-                message_count: row.get(8)?,
-                unread_count: row.get(9)?,
-                pending_interaction_count: 0,
-                is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
-                parent_session_id: row.get(11)?,
-                plan_mode: row
-                    .get::<_, String>(12)
-                    .unwrap_or_else(|_| "off".to_string()),
-                project_id: row.get(13)?,
-                tool_permission_mode: row
-                    .get::<_, String>(14)
-                    .unwrap_or_else(|_| "auto".to_string()),
-                incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
-                channel_info,
-                working_dir: row.get(21).ok().flatten(),
-            })
-        };
+        let row_mapper = Self::row_to_session_meta;
 
         // Build dynamic WHERE / params.
         let mut where_clauses: Vec<String> = Vec::new();
@@ -1159,6 +1123,45 @@ impl SessionDB {
         )
         .map(|v| v != 0)
         .unwrap_or(false)
+    }
+
+    /// Parse a row produced by `SESSION_META_SELECT` (or that SELECT +
+    /// `WHERE ...`) into a `SessionMeta`. Column indices are tied to the
+    /// column order declared in the constant — keep them in sync.
+    fn row_to_session_meta(row: &rusqlite::Row) -> rusqlite::Result<SessionMeta> {
+        let cc_channel_id: Option<String> = row.get(16)?;
+        let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
+            channel_id: ch_id,
+            account_id: row.get::<_, String>(17).unwrap_or_default(),
+            chat_id: row.get::<_, String>(18).unwrap_or_default(),
+            chat_type: row.get::<_, String>(19).unwrap_or_default(),
+            sender_name: row.get(20).ok().flatten(),
+        });
+        Ok(SessionMeta {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            agent_id: row.get(2)?,
+            provider_id: row.get(3)?,
+            provider_name: row.get(4)?,
+            model_id: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+            message_count: row.get(8)?,
+            unread_count: row.get(9)?,
+            pending_interaction_count: 0,
+            is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
+            parent_session_id: row.get(11)?,
+            plan_mode: row
+                .get::<_, String>(12)
+                .unwrap_or_else(|_| "off".to_string()),
+            project_id: row.get(13)?,
+            tool_permission_mode: row
+                .get::<_, String>(14)
+                .unwrap_or_else(|_| "auto".to_string()),
+            incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
+            channel_info,
+            working_dir: row.get(21).ok().flatten(),
+        })
     }
 
     pub(crate) fn row_to_session_message(row: &rusqlite::Row) -> rusqlite::Result<SessionMessage> {
@@ -1702,59 +1705,9 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let mut stmt = conn.prepare(
-            "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
-                    s.created_at, s.updated_at,
-                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-                    (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
-                    s.is_cron,
-                    s.parent_session_id,
-                    s.plan_mode,
-                    s.project_id,
-                    s.tool_permission_mode,
-                    s.incognito,
-                    cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-                    s.working_dir
-             FROM sessions s
-             LEFT JOIN channel_conversations cc ON cc.session_id = s.id
-             WHERE s.id = ?1"
-        )?;
-
-        let mut rows = stmt.query_map(params![session_id], |row| {
-            let cc_channel_id: Option<String> = row.get(16)?;
-            let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
-                channel_id: ch_id,
-                account_id: row.get::<_, String>(17).unwrap_or_default(),
-                chat_id: row.get::<_, String>(18).unwrap_or_default(),
-                chat_type: row.get::<_, String>(19).unwrap_or_default(),
-                sender_name: row.get(20).ok().flatten(),
-            });
-            Ok(SessionMeta {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                agent_id: row.get(2)?,
-                provider_id: row.get(3)?,
-                provider_name: row.get(4)?,
-                model_id: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-                message_count: row.get(8)?,
-                unread_count: row.get(9)?,
-                pending_interaction_count: 0,
-                is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
-                parent_session_id: row.get(11)?,
-                plan_mode: row
-                    .get::<_, String>(12)
-                    .unwrap_or_else(|_| "off".to_string()),
-                project_id: row.get(13)?,
-                tool_permission_mode: row
-                    .get::<_, String>(14)
-                    .unwrap_or_else(|_| "auto".to_string()),
-                incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
-                channel_info,
-                working_dir: row.get(21).ok().flatten(),
-            })
-        })?;
+        let sql = format!("{} WHERE s.id = ?1", SESSION_META_SELECT);
+        let mut stmt = conn.prepare(&sql)?;
+        let mut rows = stmt.query_map(params![session_id], Self::row_to_session_meta)?;
 
         match rows.next() {
             Some(Ok(meta)) => Ok(Some(meta)),

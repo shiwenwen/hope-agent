@@ -161,7 +161,8 @@
       "loadError": "Dizin listelenemiyor",
       "empty": "Bu dizin boş",
       "fileLabel": "dosya",
-      "selectCurrent": "Bu dizini seç"
+      "selectCurrent": "Bu dizini seç",
+      "truncated": "Yalnızca ilk girdiler gösteriliyor — bu dizin tarayıcının tamamını göstermesi için çok büyük."
     },
     "modelsCount": "{{count}} model",
     "attachImage": "Resim Ekle",

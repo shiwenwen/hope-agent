@@ -6,7 +6,7 @@
  * streaming chat and backend events.
  */
 
-import type { Transport, ChatStream, PickedImage, DirListing, DirEntry } from "@/lib/transport";
+import type { Transport, ChatStream, PickedImage, DirListing } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
 // ---------------------------------------------------------------------------
@@ -907,25 +907,9 @@ export class HttpTransport implements Transport {
       }
       throw new Error(message);
     }
-    const body = (await res.json()) as {
-      path: string;
-      parent: string | null;
-      entries: Array<{
-        name: string;
-        isDir: boolean;
-        isSymlink: boolean;
-        size: number | null;
-        modifiedMs: number | null;
-      }>;
-    };
-    const entries: DirEntry[] = body.entries.map((e) => ({
-      name: e.name,
-      isDir: e.isDir,
-      isSymlink: e.isSymlink,
-      size: e.size,
-      modifiedMs: e.modifiedMs,
-    }));
-    return { path: body.path, parent: body.parent, entries };
+    // Response already has camelCase keys and matches `DirListing` exactly;
+    // assert the shape and return without a per-entry remap.
+    return (await res.json()) as DirListing;
   }
 
   // ----- listen -----

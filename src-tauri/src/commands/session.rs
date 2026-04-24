@@ -104,17 +104,17 @@ pub async fn set_session_incognito(
 
 /// Persist the user-selected working directory for a chat session. The core
 /// layer canonicalizes the path and validates that it resolves to an existing
-/// directory; returning `None` clears the selection. The canonical absolute
-/// path is returned to the caller so the UI can display it consistently.
+/// directory; `None` clears the selection.
 #[tauri::command]
 pub async fn set_session_working_dir(
     session_id: String,
     working_dir: Option<String>,
     state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
+) -> Result<(), String> {
     state
         .session_db
         .update_session_working_dir(&session_id, working_dir)
+        .map(|_| ())
         .map_err(|e| e.to_string())
 }
 

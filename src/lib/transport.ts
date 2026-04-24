@@ -148,10 +148,14 @@ export interface DirListing {
   path: string;
   parent: string | null;
   entries: DirEntry[];
+  /** `true` when the server capped results; show a "results truncated" hint. */
+  truncated: boolean;
 }
 
 export interface DirEntry {
   name: string;
+  /** Absolute path of this entry, pre-joined by the server. */
+  path: string;
   isDir: boolean;
   isSymlink: boolean;
   size: number | null;

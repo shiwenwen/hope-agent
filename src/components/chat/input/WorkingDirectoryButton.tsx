@@ -75,7 +75,7 @@ export default function WorkingDirectoryButton({
   const label = hasSelection ? basename(workingDir!) : t("chat.workingDir.select")
 
   return (
-    <>
+    <div className="flex items-center shrink-0">
       <IconTip label={tooltipLabel}>
         <button
           type="button"
@@ -87,6 +87,7 @@ export default function WorkingDirectoryButton({
             hasSelection
               ? "text-primary hover:text-primary"
               : "text-muted-foreground hover:text-foreground",
+            hasSelection && !saving && "rounded-r-none",
           )}
         >
           {saving ? (
@@ -97,25 +98,23 @@ export default function WorkingDirectoryButton({
             <FolderPlus className="h-3.5 w-3.5 shrink-0" />
           )}
           <span className="truncate">{label}</span>
-          {hasSelection && !saving && (
-            <span
-              role="button"
-              tabIndex={0}
-              aria-label={t("chat.workingDir.clear")}
-              onClick={handleClear}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault()
-                  handleClear(e as unknown as React.MouseEvent)
-                }
-              }}
-              className="ml-0.5 rounded hover:bg-muted p-0.5"
-            >
-              <X className="h-3 w-3" />
-            </span>
-          )}
         </button>
       </IconTip>
+      {hasSelection && !saving && (
+        <IconTip label={t("chat.workingDir.clear")}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={handleClear}
+            aria-label={t("chat.workingDir.clear")}
+            className={cn(
+              "flex items-center bg-transparent px-1 py-1 rounded-r-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 text-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-50",
+            )}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </IconTip>
+      )}
       {!isTauriMode() && (
         <ServerDirectoryBrowser
           open={browserOpen}
@@ -127,6 +126,6 @@ export default function WorkingDirectoryButton({
           }}
         />
       )}
-    </>
+    </div>
   )
 }

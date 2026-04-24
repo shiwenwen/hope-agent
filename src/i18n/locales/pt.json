@@ -161,7 +161,8 @@
       "loadError": "Não é possível listar o diretório",
       "empty": "Este diretório está vazio",
       "fileLabel": "arquivo",
-      "selectCurrent": "Selecionar este diretório"
+      "selectCurrent": "Selecionar este diretório",
+      "truncated": "Apenas as primeiras entradas são exibidas — este diretório é grande demais para o navegador."
     },
     "modelsCount": "{{count}} modelos",
     "attachImage": "Adicionar Imagem",

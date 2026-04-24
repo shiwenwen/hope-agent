@@ -161,7 +161,8 @@
       "loadError": "Cannot list directory",
       "empty": "This directory is empty",
       "fileLabel": "file",
-      "selectCurrent": "Select this directory"
+      "selectCurrent": "Select this directory",
+      "truncated": "Only the first entries are shown — this directory is larger than the browser can display."
     },
     "modelsCount": "{{count}} models",
     "attachImage": "Add Image",

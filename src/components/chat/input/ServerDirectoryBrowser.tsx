@@ -134,35 +134,37 @@ export default function ServerDirectoryBrowser({
           )}
           {!loading && !error && listing && listing.entries.length > 0 && (
             <ul className="divide-y divide-border">
-              {listing.entries.map((entry) => {
-                const fullPath = joinPath(listing.path, entry.name)
-                return (
-                  <li key={entry.name}>
-                    <button
-                      type="button"
-                      disabled={!entry.isDir}
-                      onClick={() => entry.isDir && handleEnter(fullPath)}
-                      className={cn(
-                        "w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left",
-                        !entry.isDir && "opacity-50 cursor-default",
-                      )}
-                    >
-                      {entry.isDir ? (
-                        <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
-                      ) : (
-                        <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 invisible" />
-                      )}
-                      <span className="truncate font-mono">{entry.name}</span>
-                      {!entry.isDir && (
-                        <span className="ml-auto text-muted-foreground">
-                          {t("chat.workingDir.fileLabel")}
-                        </span>
-                      )}
-                    </button>
-                  </li>
-                )
-              })}
+              {listing.entries.map((entry) => (
+                <li key={entry.path}>
+                  <button
+                    type="button"
+                    disabled={!entry.isDir}
+                    onClick={() => entry.isDir && handleEnter(entry.path)}
+                    className={cn(
+                      "w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted transition-colors text-left",
+                      !entry.isDir && "opacity-50 cursor-default",
+                    )}
+                  >
+                    {entry.isDir ? (
+                      <Folder className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    ) : (
+                      <FolderOpen className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60 invisible" />
+                    )}
+                    <span className="truncate font-mono">{entry.name}</span>
+                    {!entry.isDir && (
+                      <span className="ml-auto text-muted-foreground">
+                        {t("chat.workingDir.fileLabel")}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
             </ul>
+          )}
+          {!loading && !error && listing?.truncated && (
+            <div className="border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+              {t("chat.workingDir.truncated")}
+            </div>
           )}
         </div>
 
@@ -177,12 +179,4 @@ export default function ServerDirectoryBrowser({
       </DialogContent>
     </Dialog>
   )
-}
-
-function joinPath(base: string, name: string): string {
-  if (base.endsWith("/") || base.endsWith("\\")) {
-    return `${base}${name}`
-  }
-  const sep = base.includes("\\") && !base.includes("/") ? "\\" : "/"
-  return `${base}${sep}${name}`
 }
