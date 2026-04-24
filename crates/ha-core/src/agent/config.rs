@@ -109,6 +109,10 @@ pub fn is_valid_codex_model(id: &str) -> bool {
 pub fn get_codex_models() -> Vec<CodexModel> {
     vec![
         CodexModel {
+            id: "gpt-5.5".into(),
+            name: "GPT-5.5".into(),
+        },
+        CodexModel {
             id: "gpt-5.4".into(),
             name: "GPT-5.4".into(),
         },

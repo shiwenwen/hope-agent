@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { memo, useMemo } from "react"
 import { cn } from "@/lib/utils"
 import type { TeamMessage, TeamMember } from "./teamTypes"
 
@@ -7,7 +7,7 @@ interface TeamMessageBubbleProps {
   members: TeamMember[]
 }
 
-export function TeamMessageBubble({ message, members }: TeamMessageBubbleProps) {
+function TeamMessageBubbleImpl({ message, members }: TeamMessageBubbleProps) {
   const sender = useMemo(
     () => members.find((m) => m.memberId === message.fromMemberId),
     [members, message.fromMemberId],
@@ -67,3 +67,5 @@ export function TeamMessageBubble({ message, members }: TeamMessageBubbleProps) 
     </div>
   )
 }
+
+export const TeamMessageBubble = memo(TeamMessageBubbleImpl)
