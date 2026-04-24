@@ -363,7 +363,12 @@
     },
     "rawCall": "Просмотреть исходный вызов",
     "loadingSkill": "Загрузка skill: {{name}}",
-    "elapsed": "Прошло {{time}}"
+    "elapsed": "Прошло {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "Просмотрено {{count}} файлов",

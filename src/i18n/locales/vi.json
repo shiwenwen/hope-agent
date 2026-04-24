@@ -363,7 +363,12 @@
     },
     "rawCall": "Xem lệnh gọi gốc",
     "loadingSkill": "Đang tải skill: {{name}}",
-    "elapsed": "Đã trôi qua {{time}}"
+    "elapsed": "Đã trôi qua {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "Đã duyệt {{count}} tệp",

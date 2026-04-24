@@ -363,7 +363,12 @@
     },
     "rawCall": "원시 호출 보기",
     "loadingSkill": "스킬 로드 중: {{name}}",
-    "elapsed": "경과 {{time}}"
+    "elapsed": "경과 {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "{{count}} 개 파일 탐색",

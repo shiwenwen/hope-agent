@@ -363,7 +363,12 @@
     },
     "rawCall": "عرض الاستدعاء الخام",
     "loadingSkill": "تحميل skill: {{name}}",
-    "elapsed": "المدة {{time}}"
+    "elapsed": "المدة {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "تم تصفح {{count}} ملفاً",

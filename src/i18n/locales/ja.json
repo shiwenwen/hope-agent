@@ -363,7 +363,12 @@
     },
     "rawCall": "生の呼び出しを表示",
     "loadingSkill": "スキルを読み込み中: {{name}}",
-    "elapsed": "経過時間 {{time}}"
+    "elapsed": "経過時間 {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "{{count}} 件のファイルを閲覧しました",
