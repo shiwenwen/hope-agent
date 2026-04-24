@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
+import { initThemeFromConfig, listenThemeConfigChange } from "@/hooks/useTheme"
 import { listenNotificationConfigChange, notify } from "@/lib/notifications"
 import {
   autoCheckForUpdate,
@@ -152,11 +153,13 @@ export default function App() {
       setView("chat")
     })
     const unlistenLanguage = listenLanguageConfigChange()
+    const unlistenTheme = listenThemeConfigChange()
     const unlistenNotification = listenNotificationConfigChange()
     return () => {
       unlistenSettings()
       unlistenNewSession()
       unlistenLanguage()
+      unlistenTheme()
       unlistenNotification()
     }
   }, [])
@@ -191,6 +194,7 @@ export default function App() {
       try {
         // Load language preference from backend config.json
         await initLanguageFromConfig()
+        await initThemeFromConfig()
         const avatar = await fetchUserAvatar()
         setUserAvatar(avatar)
         // Decide initial view in this order:

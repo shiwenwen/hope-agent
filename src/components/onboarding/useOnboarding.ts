@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import type { ThemeMode } from "@/hooks/useTheme"
 
 import { stepsForMode, type OnboardingDraft, type OnboardingStepKey } from "./types"
 import { CURRENT_ONBOARDING_VERSION } from "./version"
@@ -33,7 +34,7 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
   const t = getTransport()
   const draft: OnboardingDraft = {}
 
-  const [userCfg, serverCfg, approvalAction, skills] = await Promise.all([
+  const [userCfg, theme, serverCfg, approvalAction, skills] = await Promise.all([
     t
       .call<{
         name?: string | null
@@ -43,6 +44,7 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
         responseStyle?: string | null
       }>("get_user_config")
       .catch(() => null),
+    t.call<string>("get_theme").catch(() => null),
     t
       .call<{ bindAddr?: string; hasApiKey?: boolean }>("get_server_config")
       .catch(() => null),
@@ -70,6 +72,10 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
     if (Object.keys(profile).length > 0) draft.profile = profile
   }
 
+  if (theme === "auto" || theme === "light" || theme === "dark") {
+    draft.theme = theme as ThemeMode
+  }
+
   if (serverCfg) {
     const addr = String(serverCfg.bindAddr || "")
     draft.server = {
@@ -95,6 +101,18 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
   }
 
   return draft
+}
+
+function mergeDraft(base: OnboardingDraft, override: OnboardingDraft): OnboardingDraft {
+  return {
+    ...base,
+    ...override,
+    profile: { ...base.profile, ...override.profile },
+    safety: override.safety ?? base.safety,
+    skills: override.skills ?? base.skills,
+    server: { ...base.server, ...override.server },
+    remote: { ...base.remote, ...override.remote },
+  }
 }
 
 interface UseOnboardingReturn {
@@ -140,16 +158,16 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
           skippedSteps?: string[]
           everCompleted?: boolean
         }>("get_onboarding_state")
+        const seeded = await seedDraftFromCurrentConfig()
+        const restoredDraft = state.draft ?? {}
 
-        if (state.draft && Object.keys(state.draft).length > 0) {
-          setDraft(state.draft)
-        } else {
-          const seeded = await seedDraftFromCurrentConfig()
-          if (Object.keys(seeded).length > 0) setDraft(seeded)
+        const mergedDraft = mergeDraft(seeded, restoredDraft)
+        if (Object.keys(mergedDraft).length > 0) {
+          setDraft(mergedDraft)
         }
 
         if (typeof state.draftStep === "number") {
-          const activeSteps = stepsForMode(state.draft?.serverMode)
+          const activeSteps = stepsForMode(mergedDraft.serverMode)
           setStep(Math.max(0, Math.min(state.draftStep, activeSteps.length - 1)))
         }
         if (state.skippedSteps?.length) {

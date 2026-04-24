@@ -28,13 +28,16 @@ export function ProviderStep({ onProviderSaved, onCodexAuth }: ProviderStepProps
     <div className="px-4 py-6">
       <div className="max-w-3xl mx-auto mb-4 text-center space-y-1">
         <h2 className="text-xl font-semibold">{t("onboarding.provider.title")}</h2>
-        <p className="text-sm text-muted-foreground">{t("onboarding.provider.subtitle")}</p>
+        <p className="text-sm text-muted-foreground">
+          {t("onboarding.provider.subtitle")}
+        </p>
       </div>
-      <div className="max-w-3xl mx-auto [&_[data-tauri-drag-region]]:hidden">
+      <div className="max-w-3xl mx-auto">
         <ProviderSetup
           onComplete={onProviderSaved}
           onCodexAuth={handleCodexAuthInOnboarding}
           hideRemoteConnect
+          embedded
         />
       </div>
     </div>
