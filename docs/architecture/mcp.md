@@ -351,8 +351,8 @@ struct McpCredentials {
 
 stdio server 是任意 binary，潜在命令执行入口：
 
-- **"信任声明" 流程**：加 server 前 GUI 强制弹窗 "授权 hope-agent 启动 `<command>` 子进程？"，记录 `trust_acknowledged_at`
-- **默认 `trust_level=Untrusted`**：工具调用 100% 走审批
+- **默认 `trust_level=Untrusted`**：工具调用 100% 走审批门；`auto_approve=true` 只在 `Trusted` 下生效（double gate）
+- **`trust_acknowledged_at` 字段**：配置里预留的信任声明时间戳；v1 仅作数据结构存在，**GUI 端的显式弹窗确认流程尚未实现**（后续补；现阶段靠 `trust_level` 下拉 + `auto_approve` 互斥约束作为屏障）
 - **env 白名单**：子进程只继承 9 个白名单 env（`HOME` / `USER` / `PATH` / `LANG` / `LC_ALL` / `TZ` / `TMPDIR` / `TEMP` / `TMP`）+ `cfg.env` 显式声明
 - **deny list**：`mcp_global.denied_servers: Vec<String>` 可按名黑名单（企业部署）
 
@@ -539,9 +539,13 @@ pub struct McpOAuthConfig {
 | 字段 | 默认 | 说明 |
 |---|---|---|
 | `enabled` | `true` | 全局 kill switch；改为 `false` 全停 MCP 子系统 |
-| `max_concurrent_calls` | `8` | 全局 semaphore |
-| `denied_servers` | `[]` | 按 name 黑名单（企业预设） |
-| `always_load_servers` | `[]` | 强制 `always_load=true` 的 server 名单 |
+| `maxConcurrentCalls` | `8` | 全局 semaphore |
+| `backoffInitialSecs` | `5` | 失败后首次重连退避；每次失败翻倍直到 `backoffMaxSecs` |
+| `backoffMaxSecs` | `300` | 退避上限 |
+| `consecutiveFailureCircuitBreaker` | `10` | 连续失败达到该值触发熔断；`0` 关闭熔断（无限重试） |
+| `autoReconnectAfterCircuitSecs` | `1800` | 熔断后多久系统自动再试；用户点 Reconnect 立即绕过 |
+| `deniedServers` | `[]` | 按 name 黑名单（企业预设） |
+| `alwaysLoadServers` | `[]` | 强制 `always_load=true` 的 server 名单 |
 
 ### Scope 分层
 
