@@ -51,6 +51,7 @@ export interface OnboardingState {
  */
 export interface OnboardingDraft {
   language?: string
+  theme?: "auto" | "light" | "dark"
   profile?: {
     name?: string
     timezone?: string

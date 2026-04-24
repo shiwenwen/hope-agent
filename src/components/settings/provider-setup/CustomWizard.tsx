@@ -64,6 +64,8 @@ interface CustomWizardProps {
   setTestLoading: (v: boolean) => void
   saving: boolean
   error: string
+  /** Suppress `data-tauri-drag-region` on the header when nested in a host wizard. */
+  embedded?: boolean
   onBack: () => void
   onSave: () => void
 }
@@ -91,6 +93,7 @@ export function CustomWizard({
   setTestLoading,
   saving,
   error,
+  embedded = false,
   onBack,
   onSave,
 }: CustomWizardProps) {
@@ -166,23 +169,10 @@ export function CustomWizard({
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div
-        className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0"
-        data-tauri-drag-region
+        className="h-[4.5rem] flex items-end justify-center pb-2 px-4 border-b border-border shrink-0"
+        data-tauri-drag-region={embedded ? undefined : true}
       >
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => {
-            if (customStep > 0) setCustomStep(customStep - 1)
-            else onBack()
-          }}
-          className="gap-1.5 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {t("common.back")}
-        </Button>
-
-        <div className="flex items-center gap-2 mx-auto">
+        <div className="flex items-center gap-2">
           {[t("wizard.apiType"), t("wizard.connectionConfig"), t("wizard.models")].map(
             (label, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -431,7 +421,16 @@ export function CustomWizard({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border px-6 py-3 flex justify-end gap-2 shrink-0">
+      <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-2 shrink-0">
+        <Button
+          onClick={() => {
+            if (customStep > 0) setCustomStep(customStep - 1)
+            else onBack()
+          }}
+        >
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          {t("common.back")}
+        </Button>
         {customStep < 2 ? (
           <Button onClick={() => setCustomStep(customStep + 1)} disabled={!canNext}>
             {t("common.nextStep")}

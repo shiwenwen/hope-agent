@@ -66,6 +66,8 @@ interface TemplateConfigProps {
   setTestLoading: (v: boolean) => void
   saving: boolean
   error: string
+  /** Suppress `data-tauri-drag-region` on the header when nested in a host wizard. */
+  embedded?: boolean
   onBack: () => void
   onSave: () => void
 }
@@ -94,6 +96,7 @@ export function TemplateConfig({
   setTestLoading,
   saving,
   error,
+  embedded = false,
   onBack,
   onSave,
 }: TemplateConfigProps) {
@@ -145,25 +148,15 @@ export function TemplateConfig({
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
       <div
-        className="h-[4.5rem] flex items-end pb-2 px-4 border-b border-border shrink-0"
-        data-tauri-drag-region
+        className="h-[4.5rem] flex items-end justify-center pb-2 px-4 border-b border-border shrink-0"
+        data-tauri-drag-region={embedded ? undefined : true}
       >
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onBack}
-          className="gap-1.5 text-muted-foreground hover:text-foreground"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          {t("common.back")}
-        </Button>
-        <span className="text-sm font-semibold text-foreground mx-auto flex items-center gap-1.5">
+        <span className="text-sm font-semibold text-foreground flex items-center gap-1.5">
           <ProviderIcon providerKey={selectedTemplate.key} size={18} color />
           {t(`provider_templates.${selectedTemplate.key}.name`, {
             defaultValue: selectedTemplate.name,
           })}
         </span>
-        <div className="w-12" /> {/* spacer */}
       </div>
 
       {/* Content */}
@@ -406,7 +399,11 @@ export function TemplateConfig({
       </div>
 
       {/* Footer */}
-      <div className="border-t border-border px-6 py-3 flex justify-end shrink-0">
+      <div className="border-t border-border px-6 py-3 flex items-center justify-between gap-2 shrink-0">
+        <Button onClick={onBack}>
+          <ArrowLeft className="h-4 w-4 mr-1" />
+          {t("common.back")}
+        </Button>
         <Button onClick={onSave} disabled={!canSave || saving}>
           {saving ? (
             <span className="flex items-center gap-2">

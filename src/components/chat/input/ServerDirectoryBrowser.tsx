@@ -12,8 +12,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { type DirListing } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
-import type { DirListing } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 
 interface ServerDirectoryBrowserProps {
