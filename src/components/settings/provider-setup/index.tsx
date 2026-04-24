@@ -17,12 +17,20 @@ export default function ProviderSetup({
   onCodexAuth,
   onCancel,
   hideRemoteConnect = false,
+  embedded = false,
 }: {
   onComplete: () => void
   onCodexAuth: () => Promise<void>
   onCancel?: () => void
   /** Hide the "Connect to remote server" shortcut (onboarding moves it to its own step). */
   hideRemoteConnect?: boolean
+  /**
+   * True when rendered inside another wizard (e.g. onboarding) that already
+   * owns the window chrome. Suppresses `data-tauri-drag-region` on internal
+   * headers so the host can keep the sub-wizard's back button + stepper
+   * visible instead of hiding them with a drag-region hide rule.
+   */
+  embedded?: boolean
 }) {
   const [mode, setMode] = useState<"choose" | "template-config" | "custom">("choose")
   const { t } = useTranslation()
@@ -180,6 +188,7 @@ export default function ProviderSetup({
         setTestLoading={setTestLoading}
         saving={saving}
         error={error}
+        embedded={embedded}
         onBack={() => setMode("choose")}
         onSave={handleSave}
       />
@@ -211,6 +220,7 @@ export default function ProviderSetup({
       setTestLoading={setTestLoading}
       saving={saving}
       error={error}
+      embedded={embedded}
       onBack={() => setMode("choose")}
       onSave={handleSave}
     />

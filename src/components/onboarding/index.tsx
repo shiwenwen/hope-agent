@@ -206,7 +206,9 @@ export function OnboardingWizard({
         return (
           <WelcomeStep
             initialLanguage={draft.language ?? initialLanguage}
+            initialTheme={draft.theme ?? "auto"}
             onLanguageChange={(lang) => patchDraft({ language: lang })}
+            onThemeChange={(theme) => patchDraft({ theme })}
           />
         )
       case "mode":
@@ -319,7 +321,7 @@ export function OnboardingWizard({
         className="relative h-11 flex items-center justify-center px-6 border-b border-border shrink-0"
         data-tauri-drag-region
       >
-        <div className="text-xs text-muted-foreground pointer-events-none">
+        <div className="pointer-events-none text-[11px] font-medium tabular-nums tracking-[0.18em] text-muted-foreground/80">
           {t("onboarding.stepIndicator", {
             current: step + 1,
             total: steps.length,

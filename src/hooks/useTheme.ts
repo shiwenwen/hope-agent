@@ -4,8 +4,12 @@ import { parsePayload } from "@/lib/transport"
 
 export type ThemeMode = "auto" | "light" | "dark"
 
+function normalizeTheme(raw: string | null | undefined): ThemeMode {
+  return raw === "light" || raw === "dark" ? raw : "auto"
+}
+
 /** Apply theme visually (DOM + native window) without persisting to config */
-function applyThemeVisual(mode: ThemeMode) {
+export function applyThemeVisual(mode: ThemeMode) {
   const root = document.documentElement
   let isDark: boolean
   if (mode === "dark") {
@@ -29,9 +33,40 @@ function applyThemeVisual(mode: ThemeMode) {
 }
 
 /** Apply theme visually and persist to backend config */
-function applyTheme(mode: ThemeMode) {
+export function setThemePreference(mode: ThemeMode) {
   applyThemeVisual(mode)
   getTransport().call("set_theme", { theme: mode }).catch(() => {})
+}
+
+/** Load saved theme from backend config and apply it visually. */
+export async function initThemeFromConfig(): Promise<ThemeMode> {
+  try {
+    const stored = await getTransport().call<string>("get_theme")
+    const mode = normalizeTheme(stored)
+    applyThemeVisual(mode)
+    return mode
+  } catch {
+    applyThemeVisual("auto")
+    return "auto"
+  }
+}
+
+/** Listen for backend theme changes and keep DOM/native window in sync. */
+export function listenThemeConfigChange(onChange?: (mode: ThemeMode) => void): () => void {
+  return getTransport().listen("config:changed", (raw) => {
+    try {
+      const payload = parsePayload<{ category?: string }>(raw)
+      if (payload?.category === "theme") {
+        getTransport().call<string>("get_theme").then((stored) => {
+          const mode = normalizeTheme(stored)
+          onChange?.(mode)
+          applyThemeVisual(mode)
+        }).catch(() => {})
+      }
+    } catch {
+      /* ignore parse errors */
+    }
+  })
 }
 
 export function useTheme() {
@@ -39,36 +74,17 @@ export function useTheme() {
 
   // Load theme from backend config.json on mount (apply visually only, no write-back)
   useEffect(() => {
-    getTransport().call<string>("get_theme")
-      .then((stored) => {
-        const mode = (stored === "light" || stored === "dark") ? stored : "auto"
-        setThemeState(mode)
-        applyThemeVisual(mode)
-      })
-      .catch(() => {
-        applyThemeVisual("auto")
-      })
+    initThemeFromConfig().then(setThemeState).catch(() => {})
   }, [])
 
   const setTheme = useCallback((mode: ThemeMode) => {
     setThemeState(mode)
-    applyTheme(mode)
+    setThemePreference(mode)
   }, [])
 
   // Listen for config changes from backend (e.g. ha-settings skill updates theme)
   useEffect(() => {
-    return getTransport().listen("config:changed", (raw) => {
-      try {
-        const payload = parsePayload<{ category?: string }>(raw)
-        if (payload?.category === "theme") {
-          getTransport().call<string>("get_theme").then((stored) => {
-            const mode = (stored === "light" || stored === "dark") ? stored : "auto"
-            setThemeState(mode)
-            applyThemeVisual(mode)
-          }).catch(() => {})
-        }
-      } catch { /* ignore parse errors */ }
-    })
+    return listenThemeConfigChange(setThemeState)
   }, [])
 
   // Listen for system changes when in "auto" mode
