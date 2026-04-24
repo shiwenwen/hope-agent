@@ -179,7 +179,7 @@ pub struct ToolDefinition {
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `tool_search` | always_load, internal | 延迟工具发现（仅 `deferredTools.enabled` 时启用）。`query`：`select:name1,name2` 精确选取或关键词模糊检索。`max_results` 默认 5，上限 20。返回 deferred 工具完整 schema 以便后续直接调用。 |
-| `job_status` | always_load, internal | 查询/等待 async tool job。参数：`job_id`（必填，对应 async-capable 工具返回的 synthetic id）、`block`（默认 false 即时快照；true 阻塞至终态）、`timeout_ms`（默认 60000，上限 600000）。阻塞模式下向 per-job `tokio::sync::Notify` 注册表登记等待者，`tokio::select!` 于 `notified()` 与指数退避轮询（100ms → ×1.5 → 2s 上限）之间择一触发；`finalize_job` 写完 DB 后 `notify_waiters()` 唤醒所有等待者。结果从独立的 `async_jobs.db` 读出预览/磁盘路径/错误。仅当 `asyncTools.enabled = true` 时注入。 |
+| `job_status` | always_load, internal | 查询/等待 async tool job。参数：`job_id`（必填，对应 async-capable 工具返回的 synthetic id）、`block`（默认 false 即时快照；true 阻塞至终态）、`timeout_ms`（默认 `DEFAULT_WAIT_SECS = 1800` 秒；上限由 `AsyncToolsConfig::job_status_ceiling_secs()` 解析——`max_job_secs > 0` 时取 `max_job_secs`（默认 1800s），否则降到 `job_status_max_wait_secs`（默认 7200s），保证 wait 不超过 job 自己的活时长）。阻塞模式下向 per-job `tokio::sync::Notify` 注册表登记等待者，`tokio::select!` 于 `notified()` 与指数退避轮询（`INITIAL_BACKOFF=100ms` → ×1.5 → `MAX_BACKOFF=2s`）之间择一触发；`finalize_job` 写完 DB 后 `notify_waiters()` 唤醒所有等待者。`register_waiter` 之后强制 recheck DB 关闭"register 之前已 commit"和"重启回放后 in-memory registry 空"两个 race。结果从独立的 `async_jobs.db` 读出预览/磁盘路径/错误。仅当 `asyncTools.enabled = true` 时注入。 |
 
 ---
 
@@ -427,6 +427,26 @@ stateDiagram-v2
 - `Pending → DetachedRunning → DetachedDone`：主线程预算到，原子转移所有权；OS 线程检测到 `DetachedRunning`，独立写 DB + 触发注入
 - 这条相位机是为了避免简单的 `oneshot::timeout` 模式在边界情况下丢结果 —— oneshot 在 timeout 触发瞬间被 drop，OS 线程的 `tx.send` 静默失败，结果消失
 
+### Wait Registry（`job_status(block=true)` 唤醒机制）
+
+`async_jobs::wait` 维护一个进程级 `LazyLock<Mutex<HashMap<job_id, Arc<Notify>>>>`，让 `job_status(block=true)` 不必轮询 DB。生产者 `finalize_job` 写完 terminal 行后调 `notify_completion`，消费者 `tool_job_status` 走 `tokio::select!` 在 `Notify::notified()` 与指数退避轮询（100ms → ×1.5 → 2s 上限，作为兜底）之间择一触发。
+
+| 函数 | 调用方 | 职责 |
+|---|---|---|
+| `register_waiter(job_id) -> Arc<Notify>` | `tool_job_status` 入口 | 懒插入或克隆现有 `Arc<Notify>`；多 waiter 共享同一 `Notify`（`Arc::ptr_eq` 验证） |
+| `notify_completion(job_id)` | `finalize_job` 写完 DB 之后 | `notify_waiters()` 唤醒所有 parked + `map.remove(job_id)` 在同一临界区内完成；幂等 |
+| `cleanup_if_last_waiter(job_id, my_arc)` | `tool_job_status` 返回路径（终态 / 超时 / 错误） | 持锁检查 `Arc::strong_count <= 2`（map + caller）才 `map.remove`；其他 waiter 仍 parked 时不动 |
+| `waiter_count(job_id)`（test-only） | 单元测试 | 返回 `Arc::strong_count` |
+
+**关键不变量**：
+
+1. **Lazy insertion**：从不在 job 创建时预插，避免无人 poll 的 job 留 registry slot
+2. **Producer 一次性 remove**：`notify_completion` 在临界区内 `notify_waiters` + `remove`，保证后到 waiter 不会拿到一个已经被 fire 过的 stale `Notify`（`Notify::notify_waiters` 不留 permit）
+3. **Late waiter 自愈**：`notify_completion` 之后才到的 waiter 会拿到一个**全新**的 `Notify`；`tool_job_status` 强制在 register 后再读一次 DB，看到 terminal 行直接返回，不会 park——orphan `Notify` 在返回路径上由 `cleanup_if_last_waiter` 清理
+4. **Multi-waiter 共生**：同一 job_id 多个 `register_waiter` 调用 `Arc::clone` 同一 `Notify`；其中某个 waiter 超时退出时 `cleanup_if_last_waiter` 因 `strong_count > 2` 不删 entry，不影响其他仍 parked 的 waiter
+
+EventBus `async_tool_job:completed` 事件仍由 `finalize_job` emit，但 `job_status` 不再消费——保留只为给未来前端 UI 订阅用。
+
 ### Job 持久化
 
 独立 SQLite 文件 `~/.hope-agent/async_jobs.db`（`async_jobs/db.rs`），不和 session DB 共享锁，避免热路径阻塞：
@@ -514,6 +534,19 @@ sequenceDiagram
 1. 扫描 `status='running'` 行：本地进程已死，无法续跑 → 改为 `interrupted`，附 error 文案后入注入队列
 2. 扫描 `status in (completed/failed/timed_out/interrupted) AND injected=0`：上次进程崩在注入之前 → 重新派送
 
+### Retention / Orphan 清扫
+
+长跑实例（数周到数月）会持续累积 terminal job 行 + spool 文件。`async_jobs::retention` 用一个 daily background loop 主动清扫，避免 `~/.hope-agent/async_jobs.db` 和 `~/.hope-agent/async_jobs/` 无界增长。
+
+- **入口**：`app_init::start_background_tasks` 调 `retention::spawn_background_loop()`——内部 `tokio::spawn` 一个 24h ticker，启动时立即跑一次 + 之后每天一次
+- **彻底关闭路径**：`retention_secs == 0 && orphan_grace_secs == 0` 时 `spawn_background_loop` 直接 return，不留永久空跑的 ticker
+- **Row 清扫**（`retention_secs > 0`）：`db.purge_terminal_older_than(now - retention_secs)` 删 `completed_at` 早于 cutoff 的 terminal 行 + 关联 spool 文件，单事务原子提交
+- **Orphan 清扫**（`orphan_grace_secs > 0`）：扫 `~/.hope-agent/async_jobs/*.txt`，跳过任何 DB 行 `result_path` 引用过的文件，剩下的若 mtime 早于 `now - orphan_grace_secs` 就删；`grace` 防误杀刚 spawn 但 DB 行尚未 commit 的 job 写入
+- **单次 sweep 上限**：`MAX_ORPHANS_PER_SWEEP = 10_000` 防一个堆积 100k+ 文件的病态目录把 blocking pool 堵死几分钟，超出阈值后 `app_warn!` 退出，剩余下次 daily tick 继续清
+- **运行 context**：`run_once()` 是同步函数，loop 用 `tokio::task::spawn_blocking` 派进 blocking pool，避免阻塞主 runtime
+
+每次清到东西都落 `app_info!("async_jobs", "retention", ...)` 日志：`Purged N row(s), M spool file(s), B byte(s) freed (cutoff=Xs ago)`。
+
 ### 配置
 
 `AppConfig.async_tools`（`config.json` → `asyncTools`）：
@@ -522,8 +555,11 @@ sequenceDiagram
 |------|------|------|
 | `enabled` | `true` | 总开关，关闭后所有 async-capable 工具退化为纯同步执行，`job_status` 工具也不注入 |
 | `autoBackgroundSecs` | `30` | Tier 3 同步预算。`0` 关闭自动后台化，仅保留 Tier 1/2 |
-| `maxJobSecs` | `1800` | 后台 job 的硬墙时；超时 → status=`timed_out` 并注入失败消息 |
+| `maxJobSecs` | `1800`（30 min） | 后台 job 的硬墙时；超时 → status=`timed_out` 并注入失败消息。`0` = 不限时（仍受 `tool_timeout` 兜底） |
 | `inlineResultBytes` | `4096` | 注入消息内联 preview 上限；超过时 spool 到磁盘并注入路径引用 |
+| `retentionSecs` | `30 * SECS_PER_DAY`（30 天） | 终态行 + spool 文件 TTL；超期由 daily background loop 清扫。`0` = 永不清理（长跑实例累积风险，仅极端调试用） |
+| `orphanGraceSecs` | `24 * SECS_PER_HOUR`（24h） | 孤儿 spool 文件 TTL：`~/.hope-agent/async_jobs/` 下名字未被任何 DB 行引用、且 mtime 超过这个 grace 的文件被删（grace 防与新写入 race）。`0` 关闭孤儿清扫 |
+| `jobStatusMaxWaitSecs` | `7200`（2h） | 单次 `job_status(block=true)` 等待硬上限。`max_job_secs > 0` 时由 `max_job_secs` 取代（`job_status_ceiling_secs()` 解析），保证 wait 不会比 job 自己活得更久 |
 
 `AgentConfig.capabilities.async_tool_policy`（`agent.json`）：
 
@@ -549,7 +585,9 @@ sequenceDiagram
 | `crates/ha-core/src/async_jobs/db.rs` | 独立 SQLite 表 + CRUD |
 | `crates/ha-core/src/async_jobs/spawn.rs` | `spawn_explicit_job`、`dispatch_with_auto_background`、相位机、result spool |
 | `crates/ha-core/src/async_jobs/injection.rs` | 注入消息构造 + 复用 `subagent::injection::inject_and_run_parent` |
-| `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具实现（snapshot / blocking） |
+| `crates/ha-core/src/async_jobs/wait.rs` | per-job `Notify` 注册表：`register_waiter` / `notify_completion` / `cleanup_if_last_waiter`，由 `Arc::strong_count` 管理生命周期 |
+| `crates/ha-core/src/async_jobs/retention.rs` | `run_once` 单次清扫 + `spawn_background_loop` daily ticker，删 terminal 行 + 孤儿 spool 文件，`MAX_ORPHANS_PER_SWEEP=10_000` 兜底 |
+| `crates/ha-core/src/tools/job_status.rs` | `job_status` 工具实现（snapshot / blocking，走 `wait::register_waiter`） |
 | `crates/ha-core/src/tools/execution.rs` | `decide_async_path` + 三道闸路由 + `bypass_async_dispatch` 递归保护 |
 | `crates/ha-core/src/tools/definitions/types.rs` | `ToolDefinition.async_capable` + schema 自动注入 `run_in_background` |
 | `crates/ha-core/src/system_prompt/sections.rs` | `build_async_tools_section` 教模型何时使用 / 怎么解析 `<tool-job-result>` |
