@@ -130,19 +130,24 @@ pub fn is_masked_key(key: &str) -> bool {
     key.contains("...") || key == "****"
 }
 
-/// Create or update the built-in Codex provider with OAuth token info.
-/// Returns the provider ID.
-pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
-    // Check if a Codex provider already exists
-    if let Some(existing) = config
-        .providers
-        .iter()
-        .find(|p| p.api_type == ApiType::Codex)
-    {
-        return existing.id.clone();
-    }
-
-    let codex_models = vec![
+/// Default built-in Codex model list. Kept in sync with
+/// [`crate::agent::config::get_codex_models`] (same IDs, richer shape).
+///
+/// New entries added here are auto-merged into any user's existing Codex
+/// provider by [`ensure_codex_provider`], so老用户升级后无需重新登录也能拿到新模型。
+fn default_codex_models() -> Vec<ModelConfig> {
+    vec![
+        ModelConfig {
+            id: "gpt-5.5".into(),
+            name: "GPT-5.5".into(),
+            input_types: vec!["text".into()],
+            context_window: 200_000,
+            max_tokens: 16384,
+            reasoning: true,
+            thinking_style: None,
+            cost_input: 0.0,
+            cost_output: 0.0,
+        },
         ModelConfig {
             id: "gpt-5.4".into(),
             name: "GPT-5.4".into(),
@@ -231,7 +236,40 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
             cost_input: 0.0,
             cost_output: 0.0,
         },
-    ];
+    ]
+}
+
+/// Create or update the built-in Codex provider with OAuth token info.
+/// Returns the provider ID.
+///
+/// When a Codex provider already exists, any default models missing from the
+/// user's local `models` list are appended (preserving existing entries and
+/// order). This keeps老用户登录过后本地 config.json 的模型列表，随升级自动跟上新增 Codex 模型。
+pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
+    let defaults = default_codex_models();
+
+    if let Some(existing) = config
+        .providers
+        .iter_mut()
+        .find(|p| p.api_type == ApiType::Codex)
+    {
+        let mut added: Vec<String> = Vec::new();
+        for m in &defaults {
+            if !existing.models.iter().any(|x| x.id == m.id) {
+                added.push(m.id.clone());
+                existing.models.push(m.clone());
+            }
+        }
+        if !added.is_empty() {
+            crate::app_info!(
+                "provider",
+                "ensure_codex",
+                "Backfilled missing Codex default models into existing provider: {}",
+                added.join(", ")
+            );
+        }
+        return existing.id.clone();
+    }
 
     let provider = ProviderConfig {
         id: uuid::Uuid::new_v4().to_string(),
@@ -240,7 +278,7 @@ pub fn ensure_codex_provider(config: &mut AppConfig) -> String {
         base_url: ApiType::Codex.default_base_url().into(),
         api_key: String::new(), // OAuth, no API key
         auth_profiles: Vec::new(),
-        models: codex_models,
+        models: defaults,
         enabled: true,
         user_agent: super::types::default_user_agent(),
         thinking_style: ThinkingStyle::default(),

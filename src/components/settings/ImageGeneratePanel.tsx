@@ -71,11 +71,28 @@ const GOOGLE_MODEL_OPTIONS = [
   { value: "imagen-4.0-fast-generate-001", label: "Imagen 4 Fast" },
 ]
 
+const OPENAI_MODEL_OPTIONS = [
+  { value: "gpt-image-2", label: "GPT Image 2" },
+  { value: "gpt-image-1", label: "GPT Image 1" },
+  { value: "dall-e-3", label: "DALL·E 3" },
+  { value: "dall-e-2", label: "DALL·E 2" },
+]
+
 const SIZE_OPTIONS = ["1024x1024", "1024x1536", "1536x1024", "1024x1792", "1792x1024"]
 
-function GoogleModelSelect({ value, onChange }: { value: string | null; onChange: (v: string | null) => void }) {
+function PresetModelSelect({
+  value,
+  onChange,
+  options,
+  placeholder,
+}: {
+  value: string | null
+  onChange: (v: string | null) => void
+  options: { value: string; label: string }[]
+  placeholder: string
+}) {
   const { t } = useTranslation()
-  const isPreset = !value || GOOGLE_MODEL_OPTIONS.some((o) => o.value === value)
+  const isPreset = !value || options.some((o) => o.value === value)
   const [customMode, setCustomMode] = useState(!isPreset)
 
   if (customMode) {
@@ -84,7 +101,7 @@ function GoogleModelSelect({ value, onChange }: { value: string | null; onChange
         <Input
           className="flex-1"
           value={value ?? ""}
-          placeholder="gemini-3.1-flash-image-preview"
+          placeholder={placeholder}
           onChange={(e) => onChange(e.target.value || null)}
         />
         <Button
@@ -105,14 +122,14 @@ function GoogleModelSelect({ value, onChange }: { value: string | null; onChange
   return (
     <div className="flex gap-1.5">
       <Select
-        value={value || GOOGLE_MODEL_OPTIONS[0].value}
+        value={value || options[0].value}
         onValueChange={(v) => onChange(v)}
       >
         <SelectTrigger className="flex-1">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {GOOGLE_MODEL_OPTIONS.map((opt) => (
+          {options.map((opt) => (
             <SelectItem key={opt.value} value={opt.value}>
               <span className="text-xs">{opt.label}</span>
               <span className="text-[10px] text-muted-foreground ml-1.5">{opt.value}</span>
@@ -368,9 +385,18 @@ export default function ImageGeneratePanel() {
                           {t("settings.imageGenModel")}
                         </span>
                         {provider.id === "google" ? (
-                          <GoogleModelSelect
+                          <PresetModelSelect
                             value={provider.model}
                             onChange={(v) => updateProvider(index, { model: v })}
+                            options={GOOGLE_MODEL_OPTIONS}
+                            placeholder="gemini-3.1-flash-image-preview"
+                          />
+                        ) : provider.id === "openai" ? (
+                          <PresetModelSelect
+                            value={provider.model}
+                            onChange={(v) => updateProvider(index, { model: v })}
+                            options={OPENAI_MODEL_OPTIONS}
+                            placeholder={getDefaultModel(provider.id)}
                           />
                         ) : (
                           <Input
