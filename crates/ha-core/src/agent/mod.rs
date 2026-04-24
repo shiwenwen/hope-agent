@@ -1002,6 +1002,22 @@ impl AssistantAgent {
             schemas.push(tools::job_status::get_job_status_tool().to_provider_schema(provider));
         }
 
+        // MCP tools — namespaced `mcp__<server>__<tool>`. Only the subset
+        // that matches the current deferred/eager mode is surfaced in the
+        // request schema; the rest stays discoverable via `tool_search`.
+        if let Some(mcp) = crate::mcp::McpManager::global() {
+            for def in mcp.mcp_tool_definitions().iter() {
+                let show = if deferred_enabled {
+                    def.always_load
+                } else {
+                    true
+                };
+                if show {
+                    schemas.push(def.to_provider_schema(provider));
+                }
+            }
+        }
+
         // Plan Agent / Executing Agent tool injection
         self.apply_plan_tools(&mut schemas, provider);
 

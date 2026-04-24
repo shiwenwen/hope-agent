@@ -40,6 +40,7 @@ pub mod failover;
 pub mod file_extract;
 pub mod guardian;
 
+pub mod mcp;
 pub mod memory;
 pub mod memory_extract;
 pub mod oauth;

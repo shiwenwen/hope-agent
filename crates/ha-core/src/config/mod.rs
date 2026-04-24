@@ -591,6 +591,20 @@ pub struct AppConfig {
     /// First-run onboarding wizard state. See [`OnboardingState`].
     #[serde(default)]
     pub onboarding: OnboardingState,
+
+    /// Configured Model Context Protocol (MCP) servers. Each entry describes
+    /// a stdio / http / sse / ws endpoint that contributes tools (and later
+    /// prompts / resources) to the main conversation catalog. See
+    /// `docs/architecture/mcp.md` for the full subsystem overview.
+    #[serde(default)]
+    pub mcp_servers: Vec<crate::mcp::McpServerConfig>,
+
+    /// Global knobs shared by every MCP server: master switch, concurrency
+    /// caps, backoff policy, always-load whitelist, denylist. Defaults are
+    /// tuned to be safe — the MCP subsystem is `enabled=true` but
+    /// `mcp_servers=[]` means new installs see no behavioral change.
+    #[serde(default)]
+    pub mcp_global: crate::mcp::McpGlobalSettings,
 }
 
 impl Default for AppConfig {
@@ -651,6 +665,104 @@ impl Default for AppConfig {
             tool_call_narration_enabled: false,
             dangerous_skip_all_approvals: false,
             onboarding: OnboardingState::default(),
+            mcp_servers: Vec::new(),
+            mcp_global: crate::mcp::McpGlobalSettings::default(),
         }
+    }
+}
+
+#[cfg(test)]
+mod mcp_compat_tests {
+    use super::*;
+
+    // Backward-compat: a config.json produced before MCP landed must still
+    // deserialize cleanly. The empty-object test is the minimum guarantee;
+    // the providers-only test simulates what actual users have on disk.
+
+    #[test]
+    fn bare_providers_deserializes_with_mcp_defaults() {
+        // `providers` is the only non-default field on AppConfig today; a
+        // JSON with just that key is the minimum shape we want to guarantee
+        // still parses after adding MCP fields.
+        let cfg: AppConfig = serde_json::from_str(r#"{"providers":[]}"#)
+            .expect("bare providers config should deserialize");
+        assert!(cfg.mcp_servers.is_empty());
+        assert!(cfg.mcp_global.enabled);
+        assert_eq!(cfg.mcp_global.max_concurrent_calls, 8);
+    }
+
+    #[test]
+    fn pre_mcp_config_deserializes() {
+        // Representative subset of a real pre-MCP config.json: non-trivial
+        // providers + theme + shortcuts but no mcp_* keys at all.
+        let json = serde_json::json!({
+            "providers": [],
+            "theme": "dark",
+            "language": "zh",
+            "shortcuts": { "bindings": [] },
+        });
+        let cfg: AppConfig = serde_json::from_value(json).expect("pre-mcp config should load");
+        assert_eq!(cfg.theme, "dark");
+        assert_eq!(cfg.language, "zh");
+        assert!(cfg.mcp_servers.is_empty());
+        assert!(cfg.mcp_global.enabled);
+    }
+
+    #[test]
+    fn mcp_servers_roundtrip() {
+        use crate::mcp::{McpServerConfig, McpTransportSpec, McpTrustLevel};
+        let server = McpServerConfig {
+            id: "11111111-2222-3333-4444-555555555555".into(),
+            name: "memory".into(),
+            enabled: true,
+            transport: McpTransportSpec::Stdio {
+                command: "npx".into(),
+                args: vec!["-y".into(), "@modelcontextprotocol/server-memory".into()],
+                cwd: None,
+            },
+            env: Default::default(),
+            headers: Default::default(),
+            oauth: None,
+            allowed_tools: vec![],
+            denied_tools: vec![],
+            connect_timeout_secs: 30,
+            call_timeout_secs: 120,
+            health_check_interval_secs: 60,
+            max_concurrent_calls: 4,
+            auto_approve: false,
+            trust_level: McpTrustLevel::Untrusted,
+            eager: false,
+            project_paths: vec![],
+            description: Some("local knowledge base".into()),
+            icon: None,
+            created_at: 0,
+            updated_at: 0,
+            trust_acknowledged_at: None,
+        };
+        let mut cfg = AppConfig::default();
+        cfg.mcp_servers.push(server.clone());
+
+        let text = serde_json::to_string(&cfg).expect("serialize");
+        let round: AppConfig = serde_json::from_str(&text).expect("deserialize");
+        assert_eq!(round.mcp_servers.len(), 1);
+        assert_eq!(round.mcp_servers[0].name, "memory");
+        assert!(matches!(
+            round.mcp_servers[0].transport,
+            McpTransportSpec::Stdio { .. }
+        ));
+    }
+
+    #[test]
+    fn mcp_global_disabled_roundtrip() {
+        // Kill-switch scenario: user opts out via config file.
+        let json = serde_json::json!({
+            "providers": [],
+            "mcpGlobal": { "enabled": false, "maxConcurrentCalls": 0 }
+        });
+        let cfg: AppConfig = serde_json::from_value(json).unwrap();
+        assert!(!cfg.mcp_global.enabled);
+        assert_eq!(cfg.mcp_global.max_concurrent_calls, 0);
+        // Other defaults remain intact:
+        assert_eq!(cfg.mcp_global.backoff_max_secs, 300);
     }
 }

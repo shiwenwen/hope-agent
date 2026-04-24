@@ -116,6 +116,12 @@ fn collect_extra_tools() -> Vec<ToolDefinition> {
     extras.push(super::definitions::get_notification_tool());
     extras.push(super::definitions::get_canvas_tool());
     extras.push(super::definitions::get_acp_spawn_tool());
+    // MCP-sourced tools — live and namespaced `mcp__<server>__<tool>`.
+    // Pulled from `McpManager` which keeps a sync-readable cache so
+    // this stays on the existing sync tool_search path.
+    if let Some(mcp) = crate::mcp::McpManager::global() {
+        extras.extend(mcp.mcp_tool_definitions().iter().cloned());
+    }
     extras
 }
 

@@ -425,4 +425,34 @@ pub async fn start_background_tasks() {
             });
         }
     }
+
+    // Initialize the MCP subsystem. `init_global` is idempotent — safe to
+    // call from both the Tauri desktop shell and `hope-agent server`; the
+    // second call is a no-op. Must happen before any tool dispatch, so
+    // we do it here (start_background_tasks runs before chat sessions).
+    {
+        let store = crate::config::cached_config();
+        let global = store.mcp_global.clone();
+        let servers = store.mcp_servers.clone();
+        if global.enabled {
+            let enabled_count = servers.iter().filter(|s| s.enabled).count();
+            crate::mcp::McpManager::init_global(global, servers);
+            // Watchdog owns periodic reconnect + eager warm-up. Spawned
+            // once per process — subsequent `start_background_tasks`
+            // calls are rare but harmless.
+            crate::mcp::watchdog::spawn_watchdog_loop();
+            app_info!(
+                "mcp",
+                "init",
+                "MCP subsystem initialized ({} enabled server(s))",
+                enabled_count
+            );
+        } else {
+            app_info!(
+                "mcp",
+                "init",
+                "MCP subsystem disabled via mcpGlobal.enabled=false"
+            );
+        }
+    }
 }

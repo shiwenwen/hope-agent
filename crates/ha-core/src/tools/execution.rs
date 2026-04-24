@@ -509,6 +509,11 @@ pub async fn execute_tool_with_context(
             TOOL_RESTORE_SETTINGS_BACKUP => settings::tool_restore_settings_backup(args).await,
             TOOL_SEND_ATTACHMENT => send_attachment::tool_send_attachment(args, ctx).await,
             super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
+            // MCP-sourced tools all share the `mcp__<server>__<tool>`
+            // prefix; dispatch them through the dedicated subsystem.
+            n if crate::mcp::catalog::is_mcp_tool_name(n) => {
+                crate::mcp::invoke::call_tool(n, args, ctx).await
+            }
             _ => Err(anyhow::anyhow!("Unknown tool: {}", name)),
         }
     };

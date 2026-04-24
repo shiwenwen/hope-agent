@@ -113,3 +113,20 @@ url = "2"
 once_cell = "1"
 signal-hook = "0.3"
 arc-swap = "1"
+# Model Context Protocol SDK (client role only, transports added per phase).
+# features:
+#   - client / macros: core client role + #[tool_router] etc.
+#   - transport-child-process: stdio spawn for MCP servers (Phase 2)
+#   - client-side-sse + transport-streamable-http-client(+reqwest+native-tls):
+#     Streamable HTTP + SSE transports (Phase 4)
+#   - auth: OAuth 2.1 + PKCE client (Phase 4)
+rmcp = { version = "1.5", default-features = false, features = [
+    "client",
+    "macros",
+    "transport-child-process",
+    "client-side-sse",
+    "transport-streamable-http-client",
+    "transport-streamable-http-client-reqwest",
+    "reqwest-native-tls",
+    "auth",
+] }
