@@ -18,6 +18,7 @@
 //! anywhere under `mcp/`.** The Tauri and axum shells talk to this module
 //! only through the public API re-exported below.
 
+pub mod api;
 pub mod catalog;
 pub mod client;
 pub mod config;

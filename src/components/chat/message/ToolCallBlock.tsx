@@ -35,6 +35,7 @@ import {
   Wrench,
   Paperclip,
   Cable,
+  Plug,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -278,7 +279,12 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
   }, [tool.name, tool.arguments, tool.result])
 
   const skillName = getSkillName(tool.name, tool.arguments)
-  const Icon = skillName ? FileCode : (TOOL_ICONS[tool.name] || Wrench)
+  const isMcpTool = tool.name.startsWith("mcp__")
+  const Icon = skillName
+    ? FileCode
+    : isMcpTool
+      ? Plug
+      : TOOL_ICONS[tool.name] || Wrench
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
 

@@ -535,6 +535,20 @@ pub fn run() {
             commands::channel::channel_list_sessions,
             commands::channel::channel_wechat_start_login,
             commands::channel::channel_wechat_wait_login,
+            // MCP (Model Context Protocol) servers
+            commands::mcp::mcp_list_servers,
+            commands::mcp::mcp_get_server_status,
+            commands::mcp::mcp_add_server,
+            commands::mcp::mcp_update_server,
+            commands::mcp::mcp_remove_server,
+            commands::mcp::mcp_reorder_servers,
+            commands::mcp::mcp_test_connection,
+            commands::mcp::mcp_reconnect_server,
+            commands::mcp::mcp_list_tools,
+            commands::mcp::mcp_get_recent_logs,
+            commands::mcp::mcp_import_claude_desktop_config,
+            commands::mcp::mcp_get_global_settings,
+            commands::mcp::mcp_update_global_settings,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

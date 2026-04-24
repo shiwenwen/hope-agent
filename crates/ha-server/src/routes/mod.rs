@@ -21,6 +21,7 @@ pub mod filesystem;
 pub mod generated_images;
 pub mod health;
 pub mod logging;
+pub mod mcp;
 pub mod memory;
 pub mod misc;
 pub mod models;

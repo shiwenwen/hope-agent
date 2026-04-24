@@ -20,6 +20,7 @@ export type SettingsSection =
   | "channels"
   | "developer"
   | "server"
+  | "mcp"
   | "security"
   | "browser"
 

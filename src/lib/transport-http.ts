@@ -100,6 +100,21 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_canvas_project:              { method: "GET",    path: "/api/canvas/projects/{projectId}" },
   delete_canvas_project:           { method: "DELETE", path: "/api/canvas/projects/{projectId}" },
 
+  // -- MCP servers --
+  mcp_list_servers:                { method: "GET",    path: "/api/mcp/servers" },
+  mcp_add_server:                  { method: "POST",   path: "/api/mcp/servers" },
+  mcp_reorder_servers:             { method: "POST",   path: "/api/mcp/servers/reorder" },
+  mcp_update_server:               { method: "PUT",    path: "/api/mcp/servers/{id}" },
+  mcp_remove_server:               { method: "DELETE", path: "/api/mcp/servers/{id}" },
+  mcp_get_server_status:           { method: "GET",    path: "/api/mcp/servers/{id}/status" },
+  mcp_test_connection:             { method: "POST",   path: "/api/mcp/servers/{id}/test" },
+  mcp_reconnect_server:            { method: "POST",   path: "/api/mcp/servers/{id}/reconnect" },
+  mcp_list_tools:                  { method: "GET",    path: "/api/mcp/servers/{id}/tools" },
+  mcp_get_recent_logs:             { method: "GET",    path: "/api/mcp/servers/{id}/logs" },
+  mcp_import_claude_desktop_config:{ method: "POST",   path: "/api/mcp/import/claude-desktop" },
+  mcp_get_global_settings:         { method: "GET",    path: "/api/mcp/global" },
+  mcp_update_global_settings:      { method: "PUT",    path: "/api/mcp/global" },
+
   // -- Models --
   get_available_models:            { method: "GET",    path: "/api/models" },
   get_active_model:                { method: "GET",    path: "/api/models/active" },

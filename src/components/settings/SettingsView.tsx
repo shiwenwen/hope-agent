@@ -26,6 +26,7 @@ import {
   ClipboardList,
   MessageCircle,
   LineChart,
+  Plug,
   Users2,
 } from "lucide-react"
 import type { ProviderConfig } from "@/components/settings/ProviderSettings"
@@ -51,6 +52,7 @@ import DeveloperPanel from "@/components/settings/DeveloperPanel"
 import SandboxPanel from "@/components/settings/SandboxPanel"
 import AcpControlPanel from "@/components/settings/AcpControlPanel"
 import ChannelPanel from "@/components/settings/channel-panel"
+import McpServersPanel from "@/components/settings/mcp-panel/McpServersPanel"
 import ServerPanel from "@/components/settings/ServerPanel"
 import SecurityPanel from "@/components/settings/SecurityPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
@@ -96,6 +98,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "tools",
     icon: <Wrench className="h-4 w-4" />,
     labelKey: "settings.tools",
+  },
+  {
+    id: "mcp",
+    icon: <Plug className="h-4 w-4" />,
+    labelKey: "settings.mcp.tabTitle",
   },
   {
     id: "memory",
@@ -295,6 +302,7 @@ export default function SettingsView({
             {activeSection === "memory" && <MemoryPanel />}
             {activeSection === "notifications" && <NotificationPanel />}
             {activeSection === "tools" && <ToolSettingsPanel />}
+            {activeSection === "mcp" && <McpServersPanel />}
             {activeSection === "sandbox" && <SandboxPanel />}
             {activeSection === "browser" && <BrowserPanel />}
             {activeSection === "acp" && <AcpControlPanel />}

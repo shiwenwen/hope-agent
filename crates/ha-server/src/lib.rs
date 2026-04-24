@@ -286,6 +286,29 @@ fn build_router_with_cors(
             "/providers/active-model",
             put(routes::providers::set_active_model),
         )
+        // MCP (Model Context Protocol) servers
+        .route("/mcp/servers", get(routes::mcp::list_servers))
+        .route("/mcp/servers", post(routes::mcp::add_server))
+        .route("/mcp/servers/reorder", post(routes::mcp::reorder_servers))
+        .route("/mcp/servers/{id}", put(routes::mcp::update_server))
+        .route("/mcp/servers/{id}", delete(routes::mcp::remove_server))
+        .route(
+            "/mcp/servers/{id}/status",
+            get(routes::mcp::get_server_status),
+        )
+        .route("/mcp/servers/{id}/test", post(routes::mcp::test_connection))
+        .route(
+            "/mcp/servers/{id}/reconnect",
+            post(routes::mcp::reconnect_server),
+        )
+        .route("/mcp/servers/{id}/tools", get(routes::mcp::list_tools))
+        .route("/mcp/servers/{id}/logs", get(routes::mcp::get_recent_logs))
+        .route(
+            "/mcp/import/claude-desktop",
+            post(routes::mcp::import_claude_desktop_config),
+        )
+        .route("/mcp/global", get(routes::mcp::get_global_settings))
+        .route("/mcp/global", put(routes::mcp::update_global_settings))
         // Models (aliases under /api/models/*)
         .route("/models", get(routes::models::list_available_models))
         .route("/models/active", get(routes::models::get_active_model))

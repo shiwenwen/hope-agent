@@ -91,6 +91,17 @@ export function getToolCategory(name: string): ToolCategory {
 }
 
 export function getToolDisplayName(t: TFunction, toolName: string): string {
+  // MCP tools are dynamic — format the namespaced identifier into
+  // `<server> · <tool>` so the chat UI stays readable.
+  if (toolName.startsWith("mcp__")) {
+    const rest = toolName.slice(5)
+    const sep = rest.indexOf("__")
+    if (sep > 0) {
+      const server = rest.slice(0, sep)
+      const tool = rest.slice(sep + 2)
+      return `${server} · ${tool}`
+    }
+  }
   return String(t(`tools.${toolName}`, { defaultValue: toolName }))
 }
 
