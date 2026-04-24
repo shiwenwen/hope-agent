@@ -345,7 +345,12 @@
     },
     "rawCall": "Ham çağrıyı görüntüle",
     "loadingSkill": "Skill yükleniyor: {{name}}",
-    "elapsed": "Geçen süre {{time}}"
+    "elapsed": "Geçen süre {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "{{count}} dosya tarandı",

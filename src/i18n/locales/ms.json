@@ -345,7 +345,12 @@
     },
     "rawCall": "Lihat panggilan mentah",
     "loadingSkill": "Memuatkan skill: {{name}}",
-    "elapsed": "Berlalu {{time}}"
+    "elapsed": "Berlalu {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "Melayari {{count}} fail",
