@@ -107,6 +107,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `security.ssrf` | `defaultPolicy` (`strict`/`default`/`allowPrivate`), `trustedHosts` (array), per-tool overrides `browserPolicy` / `webFetchPolicy` / `imageGeneratePolicy` / `urlPreviewPolicy` | Controls whether tools can reach private networks / cloud metadata. Relaxing policy or adding untrusted hosts enables SSRF attack paths |
 | `security` | `skipAllApprovals` (bool) | ⚠️ **DANGEROUS MODE** — globally bypasses every tool approval gate (exec / write / edit / apply_patch / channel tools / browser / canvas). Overrides all per-session and per-channel auto-approve settings. Plan Mode restrictions still apply. A CLI flag `--dangerously-skip-all-approvals` can set this ephemerally without touching config; this field is the *persisted* switch. Treat with extreme caution and confirm twice |
 | `channels` | `accounts`, `defaultAgentId`, `defaultModel` | Contains IM Channel Bot configurations (e.g., Telegram, WeChat tokens). Modifying this drops/reconnects listeners and handles sensitive bot credentials |
+| `mcp_global` | `enabled`, `maxConcurrentCalls`, `deniedServers`, `alwaysLoadServers` | MCP subsystem kill switch + concurrency caps + enterprise deny-list. Flipping `enabled=false` disconnects every MCP server; `deniedServers` additions prevent users from adding specific server names |
 
 ### Read-only (cannot be modified via this tool)
 
@@ -114,8 +115,9 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 |----------|-------------|
 | `active_model` | Current primary model — use Settings UI |
 | `fallback_models` | Fallback chain — use Settings UI |
+| `mcp_servers` | MCP server configs — use Settings → MCP Servers UI. Contains OAuth tokens, command arguments, and trust levels; writes must go through the GUI which enforces "trust acknowledgement" for stdio servers and routes credentials through `platform::write_secure_file` (0600). |
 
-Model / Provider / API Key / IM Channel / per-session configs require the Settings UI.
+Model / Provider / API Key / IM Channel / MCP servers / per-session configs require the Settings UI.
 
 ## Special: `teams` Semantics
 
