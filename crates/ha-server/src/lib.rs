@@ -301,6 +301,14 @@ fn build_router_with_cors(
             "/mcp/servers/{id}/reconnect",
             post(routes::mcp::reconnect_server),
         )
+        .route(
+            "/mcp/servers/{id}/oauth/start",
+            post(routes::mcp::start_oauth),
+        )
+        .route(
+            "/mcp/servers/{id}/oauth/sign-out",
+            post(routes::mcp::sign_out),
+        )
         .route("/mcp/servers/{id}/tools", get(routes::mcp::list_tools))
         .route("/mcp/servers/{id}/logs", get(routes::mcp::get_recent_logs))
         .route(

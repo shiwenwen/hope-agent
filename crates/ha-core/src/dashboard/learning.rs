@@ -22,6 +22,13 @@ pub const EVT_SKILL_DISCARDED: &str = "skill_discarded";
 pub const EVT_SKILL_USED: &str = "skill_used";
 pub const EVT_RECALL_HIT: &str = "recall_hit";
 pub const EVT_RECALL_SUMMARY_USED: &str = "recall_summary_used";
+/// An MCP tool call returned a result (success path). `ref_id` is the
+/// namespaced name `mcp__<server>__<tool>`; `meta` carries `server`,
+/// `tool`, `durationMs`.
+pub const EVT_MCP_TOOL_CALLED: &str = "mcp_tool_called";
+/// An MCP tool call produced an error (protocol / timeout / tool-side
+/// `isError=true`). `meta` carries the same fields plus `error`.
+pub const EVT_MCP_TOOL_FAILED: &str = "mcp_tool_failed";
 
 /// Best-effort emitter. Silently no-ops if the session DB hasn't been
 /// initialized (e.g. in unit tests for subsystems that don't need one).

@@ -1,18 +1,17 @@
 //! Transport factories — wire an [`McpTransportSpec`] up to an rmcp client.
 //!
 //! Phase 2 shipped stdio only. Phase 4 adds Streamable HTTP (the spec's
-//! preferred remote transport) plus a best-effort SSE fallback routed
-//! through the same client (rmcp 1.5 retired the standalone SSE client
-//! in favor of Streamable HTTP's SSE sub-protocol).
-//!
-//! WebSocket still returns `NotReady` — implementing `rmcp::Transport`
-//! over `tokio-tungstenite` is a bigger undertaking scheduled for a
-//! follow-up pass.
+//! preferred remote transport), a best-effort SSE fallback routed through
+//! the same client (rmcp 1.5 retired the standalone SSE client in favor
+//! of Streamable HTTP's SSE sub-protocol), and WebSocket via
+//! `tokio-tungstenite` bridged into rmcp's `SinkStreamTransport`.
 //!
 //! Every networked transport goes through the project SSRF policy
 //! (`security::ssrf::check_url`) BEFORE we touch the network, so a
 //! misconfigured private-network URL cannot exfiltrate through a rogue
-//! `Authorization` header.
+//! `Authorization` header. The `ws(s)://` scheme is rewritten to
+//! `http(s)://` for the SSRF gate — host/port classification is
+//! identical, the scheme itself is only a port-default hint.
 
 use std::collections::{BTreeMap, HashMap};
 use std::process::Stdio;
@@ -27,7 +26,9 @@ use rmcp::{RoleClient, ServiceExt};
 use tokio::process::{ChildStderr, Command};
 
 use super::config::{expand_placeholders, McpServerConfig, McpTransportSpec, McpTrustLevel};
+use super::credentials;
 use super::errors::{McpError, McpResult};
+use super::oauth;
 
 /// Minimal list of env vars inherited from the parent process when we
 /// spawn a subprocess. Stops surprises like "works on my machine because
@@ -148,33 +149,40 @@ pub async fn build_stdio_client(cfg: &McpServerConfig) -> McpResult<ConnectedCli
     Ok(ConnectedClient { running, stderr })
 }
 
-/// Build a Streamable HTTP (or SSE → Streamable HTTP fallback) client
-/// transport and complete the initial handshake. Runs the SSRF policy
-/// check before constructing the underlying reqwest client so a
-/// misconfigured private-network URL never dials out.
-pub async fn build_http_client(cfg: &McpServerConfig, url: &str) -> McpResult<ConnectedClient> {
-    let transport_label = cfg.transport.kind_label();
-    // Expand `${VAR}` in user-provided header values + resolve URL
-    // placeholders so the SSRF check sees the real destination.
-    let expanded_url = expand_placeholders(url, |name| std::env::var(name).ok());
-
-    // SSRF gate — trusted servers use the default policy, untrusted
-    // servers get the strict policy. Any block lands on `McpError::Blocked`
-    // which the GUI surfaces as "blocked by security policy".
+/// SSRF-gate a networked transport URL before constructing the client.
+/// Trusted servers use the app-level default policy; untrusted use
+/// `Strict`. Callers pass the `http(s)://` form — WS callers rewrite
+/// `ws(s)://` to the `http(s)://` equivalent first, because
+/// `security::ssrf` only classifies those schemes.
+async fn ssrf_gate_url(cfg: &McpServerConfig, http_equiv_url: &str) -> McpResult<()> {
     let app_cfg = crate::config::cached_config();
     let trusted_hosts = app_cfg.ssrf.trusted_hosts.clone();
     let policy = match cfg.trust_level {
         McpTrustLevel::Trusted => app_cfg.ssrf.default_policy,
         McpTrustLevel::Untrusted => crate::security::ssrf::SsrfPolicy::Strict,
     };
-    crate::security::ssrf::check_url(&expanded_url, policy, &trusted_hosts)
+    crate::security::ssrf::check_url(http_equiv_url, policy, &trusted_hosts)
         .await
         .map_err(|e| McpError::Blocked {
             server: cfg.name.clone(),
-            reason: format!("SSRF policy blocked {transport_label} URL: {e}"),
+            reason: format!(
+                "SSRF policy blocked {} URL: {e}",
+                cfg.transport.kind_label()
+            ),
         })?;
+    Ok(())
+}
 
+/// Build the final request-header map for a networked transport:
+/// user-provided headers (with `${ENV}` expansion) + OAuth Bearer token
+/// (if `cfg.oauth` is set AND disk has credentials AND the user didn't
+/// already pin an `Authorization` header themselves).
+///
+/// A missing credentials file is NOT an error — the handshake's 401
+/// surface path is what flips the server into `NeedsAuth`.
+async fn authorized_headers(cfg: &McpServerConfig) -> McpResult<HashMap<HeaderName, HeaderValue>> {
     let mut headers: HashMap<HeaderName, HeaderValue> = HashMap::new();
+    let mut user_set_authorization = false;
     for (k, v) in &cfg.headers {
         let expanded = expand_placeholders(v, |name| std::env::var(name).ok());
         let name = HeaderName::from_str(k).map_err(|e| {
@@ -189,20 +197,305 @@ pub async fn build_http_client(cfg: &McpServerConfig, url: &str) -> McpResult<Co
                 srv = cfg.name
             ))
         })?;
+        if name == http::header::AUTHORIZATION {
+            user_set_authorization = true;
+        }
         headers.insert(name, value);
     }
+
+    // A user-provided `Authorization` header always wins: some setups
+    // pre-bake a long-lived PAT / service token that our OAuth flow
+    // shouldn't overwrite.
+    if cfg.oauth.is_some() && !user_set_authorization {
+        match credentials::load(&cfg.id) {
+            Ok(Some(creds)) => {
+                let fresh = oauth::refresh_if_stale(&cfg.id, &cfg.name, &creds).await?;
+                let bearer = format!("Bearer {}", fresh.access_token);
+                let value = HeaderValue::from_str(&bearer).map_err(|e| McpError::Auth {
+                    server: cfg.name.clone(),
+                    message: format!("invalid access_token in stored credentials: {e}"),
+                })?;
+                headers.insert(http::header::AUTHORIZATION, value);
+            }
+            Ok(None) => {
+                crate::app_info!(
+                    "mcp",
+                    &format!("{}:oauth", cfg.name),
+                    "No stored OAuth credentials; handshake will trigger NeedsAuth on 401"
+                );
+            }
+            Err(e) => {
+                crate::app_warn!(
+                    "mcp",
+                    &format!("{}:oauth", cfg.name),
+                    "Failed to load stored OAuth credentials: {e}"
+                );
+            }
+        }
+    }
+    Ok(headers)
+}
+
+/// Classify a networked-transport error as `Auth` vs `Transport` using
+/// [`is_auth_challenge`]. The `verb` is the user-visible slice of the
+/// error message that names the phase that failed (e.g. `"handshake"`
+/// or `"WebSocket handshake"`) so the GUI row's `reason` stays
+/// self-explanatory.
+fn classify_network_error(cfg_name: &str, verb: &str, e: impl std::fmt::Display) -> McpError {
+    let msg = e.to_string();
+    if is_auth_challenge(&msg) {
+        McpError::Auth {
+            server: cfg_name.to_string(),
+            message: format!("{verb} rejected by server: {msg}"),
+        }
+    } else {
+        McpError::Transport {
+            server: cfg_name.to_string(),
+            source: format!("{verb} failed: {msg}"),
+        }
+    }
+}
+
+/// Build a Streamable HTTP (or SSE → Streamable HTTP fallback) client
+/// transport and complete the initial handshake. Runs the SSRF policy
+/// check before constructing the underlying reqwest client so a
+/// misconfigured private-network URL never dials out.
+pub async fn build_http_client(cfg: &McpServerConfig, url: &str) -> McpResult<ConnectedClient> {
+    // Expand `${VAR}` in URL so SSRF check sees the real destination.
+    let expanded_url = expand_placeholders(url, |name| std::env::var(name).ok());
+    ssrf_gate_url(cfg, &expanded_url).await?;
+    let headers = authorized_headers(cfg).await?;
 
     let http_cfg =
         StreamableHttpClientTransportConfig::with_uri(expanded_url).custom_headers(headers);
     let transport = StreamableHttpClientTransport::from_config(http_cfg);
-    let running = ().serve(transport).await.map_err(|e| McpError::Transport {
-        server: cfg.name.clone(),
-        source: format!("handshake failed: {e}"),
-    })?;
+    let running = ()
+        .serve(transport)
+        .await
+        .map_err(|e| classify_network_error(&cfg.name, "handshake", e))?;
     Ok(ConnectedClient {
         running,
         stderr: None,
     })
+}
+
+/// Heuristic: does this rmcp handshake error describe an HTTP 401/403 /
+/// OAuth auth challenge? rmcp's error type doesn't expose the underlying
+/// status cleanly, so we substring-match on common response shapes. Any
+/// hit flips the server into `NeedsAuth` which is a recoverable state;
+/// false negatives just degrade to `Transport`, which is also safe.
+fn is_auth_challenge(msg: &str) -> bool {
+    let lower = msg.to_ascii_lowercase();
+    lower.contains("401")
+        || lower.contains("403")
+        || lower.contains("unauthorized")
+        || lower.contains("forbidden")
+        || lower.contains("invalid_token")
+        || lower.contains("invalid_grant")
+}
+
+/// Build a WebSocket MCP client. Bridges `tokio-tungstenite`'s
+/// `WebSocketStream` into rmcp's generic `SinkStreamTransport` via the
+/// [`WsJsonRpcTransport`] adapter defined below — text / binary frames
+/// carry JSON-RPC payloads, ping / pong / close frames are handled by
+/// tungstenite and never reach rmcp.
+pub async fn build_ws_client(cfg: &McpServerConfig, url: &str) -> McpResult<ConnectedClient> {
+    use futures_util::StreamExt;
+    use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
+    let expanded_url = expand_placeholders(url, |name| std::env::var(name).ok());
+    // `security::ssrf::check_url` only classifies http/https. ws→http,
+    // wss→https is semantically identical for host/port classification.
+    let http_equiv = ws_to_http_equiv(&expanded_url)?;
+    ssrf_gate_url(cfg, &http_equiv).await?;
+
+    let headers = authorized_headers(cfg).await?;
+    let mut request = expanded_url.as_str().into_client_request().map_err(|e| {
+        McpError::Config(format!(
+            "invalid WebSocket URL for server '{}': {e}",
+            cfg.name
+        ))
+    })?;
+    for (name, value) in headers {
+        request.headers_mut().insert(name, value);
+    }
+
+    // Cap incoming frames so a malicious / misconfigured MCP server
+    // can't OOM us with a multi-GB text frame. tungstenite's defaults
+    // (64 MiB message / 16 MiB frame) are appropriate for general
+    // WebSocket traffic but wasteful for JSON-RPC. 4 MiB / 1 MiB leaves
+    // generous headroom over realistic MCP payloads.
+    //
+    // `connect_async` does NOT follow HTTP redirects — RFC 6455 requires
+    // the upgrade response to be 101 Switching Protocols, so any 3xx
+    // kills the handshake. Our single SSRF gate above therefore covers
+    // the only dial-out this function makes.
+    let ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(4 * 1024 * 1024))
+        .max_frame_size(Some(1024 * 1024));
+    let (ws, _resp) = tokio_tungstenite::connect_async_with_config(request, Some(ws_config), false)
+        .await
+        .map_err(|e| classify_network_error(&cfg.name, "WebSocket handshake", e))?;
+
+    // rmcp's `IntoTransport for (Si, St)` expects the two halves as a
+    // tuple; `StreamExt::split` on our `Sink + Stream` adapter yields
+    // exactly that shape.
+    let (sink, stream) = WsJsonRpcTransport::new(ws).split();
+    let running = ()
+        .serve((sink, stream))
+        .await
+        .map_err(|e| classify_network_error(&cfg.name, "WebSocket handshake", e))?;
+    Ok(ConnectedClient {
+        running,
+        stderr: None,
+    })
+}
+
+/// Adapter bridging `tokio-tungstenite::WebSocketStream` to rmcp's
+/// `Sink<TxJsonRpcMessage<RoleClient>> + Stream<Item = RxJsonRpcMessage<RoleClient>>`
+/// contract.
+///
+/// Implemented as a manual `Sink` / `Stream` pair rather than
+/// `SinkExt::with` + `StreamExt::filter_map` because those combinators
+/// produce types whose `Unpin` bound depends on the captured future's
+/// auto-trait inference — `async move { ... }` closures are
+/// conservatively `!Unpin`, and rmcp's `IntoTransport for (Si, St)`
+/// bound requires both halves to be `Unpin`. Manual impl sidesteps
+/// the whole category of errors.
+struct WsJsonRpcTransport<S> {
+    ws: S,
+}
+
+impl<S> WsJsonRpcTransport<S> {
+    fn new(ws: S) -> Self {
+        Self { ws }
+    }
+}
+
+// `Unpin` is auto-derived: the only field is `S`, so `WsJsonRpcTransport<S>`
+// is `Unpin` iff `S` is. tokio-tungstenite's `WebSocketStream` is always
+// `Unpin`, so rmcp can hold the adapter by `&mut`.
+
+impl<S> futures_util::Sink<rmcp::service::TxJsonRpcMessage<RoleClient>> for WsJsonRpcTransport<S>
+where
+    S: futures_util::Sink<
+            tokio_tungstenite::tungstenite::protocol::Message,
+            Error = tokio_tungstenite::tungstenite::Error,
+        > + Unpin,
+{
+    type Error = tokio_tungstenite::tungstenite::Error;
+
+    fn poll_ready(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::pin::Pin::new(&mut self.get_mut().ws).poll_ready(cx)
+    }
+
+    fn start_send(
+        self: std::pin::Pin<&mut Self>,
+        item: rmcp::service::TxJsonRpcMessage<RoleClient>,
+    ) -> Result<(), Self::Error> {
+        let json = serde_json::to_string(&item)
+            .map_err(|e| tokio_tungstenite::tungstenite::Error::Io(std::io::Error::other(e)))?;
+        std::pin::Pin::new(&mut self.get_mut().ws).start_send(
+            tokio_tungstenite::tungstenite::protocol::Message::Text(json.into()),
+        )
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::pin::Pin::new(&mut self.get_mut().ws).poll_flush(cx)
+    }
+
+    fn poll_close(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::pin::Pin::new(&mut self.get_mut().ws).poll_close(cx)
+    }
+}
+
+impl<S> futures_util::Stream for WsJsonRpcTransport<S>
+where
+    S: futures_util::Stream<
+            Item = Result<
+                tokio_tungstenite::tungstenite::protocol::Message,
+                tokio_tungstenite::tungstenite::Error,
+            >,
+        > + Unpin,
+{
+    type Item = rmcp::service::RxJsonRpcMessage<RoleClient>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use tokio_tungstenite::tungstenite::protocol::Message;
+        // Cooperative-yield budget: cap consecutive non-data frames
+        // (pings, pongs, malformed JSON) per poll so a misbehaving or
+        // malicious server can't starve the scheduler by flooding us
+        // with frames we'd silently discard. After the budget is spent,
+        // we wake our own task and return `Pending` — the runtime picks
+        // us back up on the next tick with a clean budget.
+        const MAX_DROPPED_FRAMES_PER_POLL: usize = 64;
+        let this = self.get_mut();
+        let mut dropped = 0usize;
+        loop {
+            match std::pin::Pin::new(&mut this.ws).poll_next(cx) {
+                std::task::Poll::Pending => return std::task::Poll::Pending,
+                std::task::Poll::Ready(None) => return std::task::Poll::Ready(None),
+                // Transport error from tungstenite ends the stream.
+                // rmcp treats this the same as a clean close and will
+                // surface a Service-level error on the next operation.
+                std::task::Poll::Ready(Some(Err(_))) => return std::task::Poll::Ready(None),
+                std::task::Poll::Ready(Some(Ok(msg))) => {
+                    let parsed = match msg {
+                        Message::Text(txt) => serde_json::from_str(&txt).ok(),
+                        Message::Binary(bin) => serde_json::from_slice(&bin).ok(),
+                        // Ping / Pong / Close / Frame: handled inside
+                        // tungstenite; nothing for rmcp to see.
+                        _ => None,
+                    };
+                    if let Some(m) = parsed {
+                        return std::task::Poll::Ready(Some(m));
+                    }
+                    // Malformed JSON OR control frame: drop and keep
+                    // polling. Persistent garbage is bounded by the
+                    // budget below rather than killing the transport
+                    // on the first bad frame.
+                    dropped += 1;
+                    if dropped >= MAX_DROPPED_FRAMES_PER_POLL {
+                        cx.waker().wake_by_ref();
+                        return std::task::Poll::Pending;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// ws → http / wss → https for SSRF classification. Anything else is a
+/// config error — the schema-level validator should have already caught
+/// it, but defensive here.
+fn ws_to_http_equiv(url: &str) -> McpResult<String> {
+    let mut parsed =
+        url::Url::parse(url).map_err(|e| McpError::Config(format!("invalid ws URL: {e}")))?;
+    let new_scheme = match parsed.scheme() {
+        "ws" => "http",
+        "wss" => "https",
+        other => {
+            return Err(McpError::Config(format!(
+                "unsupported WebSocket scheme: {other}"
+            )))
+        }
+    };
+    parsed
+        .set_scheme(new_scheme)
+        .map_err(|_| McpError::Config("WebSocket scheme rewrite failed".into()))?;
+    Ok(parsed.to_string())
 }
 
 /// Entry point used by `client::do_connect`. Dispatches on the transport
@@ -227,10 +520,7 @@ pub async fn build_transport_for(cfg: &McpServerConfig) -> McpResult<ConnectedCl
             );
             build_http_client(cfg, url).await
         }
-        McpTransportSpec::WebSocket { .. } => Err(McpError::NotReady {
-            server: cfg.name.clone(),
-            reason: "WebSocket transport is not yet implemented in this build".into(),
-        }),
+        McpTransportSpec::WebSocket { url } => build_ws_client(cfg, url).await,
     }
 }
 
@@ -308,16 +598,33 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn websocket_still_not_implemented() {
+    async fn websocket_transport_honors_ssrf_policy() {
+        // Untrusted + private-network ws:// URL → Blocked. Exercises
+        // the ws→http scheme rewrite on the way into
+        // `security::ssrf::check_url`.
         let mut cfg = stdio_cfg("echo");
         cfg.transport = McpTransportSpec::WebSocket {
-            url: "wss://example.com/mcp".into(),
+            url: "ws://127.0.0.1:9999/mcp".into(),
         };
+        cfg.trust_level = McpTrustLevel::Untrusted;
         match build_transport_for(&cfg).await {
-            Err(McpError::NotReady { .. }) => {}
-            Err(other) => panic!("unexpected error variant: {other:?}"),
-            Ok(_) => panic!("expected NotReady for websocket"),
+            Err(McpError::Blocked { .. }) => {}
+            Err(other) => panic!("expected Blocked, got: {other:?}"),
+            Ok(_) => panic!("expected Blocked for private ws URL under Strict policy"),
         }
+    }
+
+    #[test]
+    fn ws_to_http_equiv_rewrites_scheme() {
+        assert_eq!(
+            ws_to_http_equiv("ws://example.com:9000/mcp").unwrap(),
+            "http://example.com:9000/mcp"
+        );
+        assert_eq!(
+            ws_to_http_equiv("wss://example.com/").unwrap(),
+            "https://example.com/"
+        );
+        assert!(ws_to_http_equiv("http://example.com/").is_err());
     }
 
     #[tokio::test]

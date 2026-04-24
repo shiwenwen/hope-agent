@@ -22,6 +22,8 @@ use super::client;
 use super::config::{
     McpGlobalSettings, McpOAuthConfig, McpServerConfig, McpTransportSpec, McpTrustLevel,
 };
+use super::credentials;
+use super::oauth;
 use super::registry::{McpManager, ServerStatusSnapshot};
 
 // ── Serializable DTOs ────────────────────────────────────────────
@@ -352,8 +354,11 @@ pub async fn update_server(id: &str, draft: McpServerDraft) -> Result<McpServerS
 
 /// Remove a server by id. Deletes its config entry, triggers reconcile
 /// (which shuts down the connection + flushes the tool_index), and
-/// (future phase) wipes `~/.hope-agent/credentials/mcp/<id>.json` on
-/// disk to avoid orphan credentials.
+/// Also wipes the server's persisted OAuth credentials (if any) to avoid
+/// orphan 0600 files under `~/.hope-agent/credentials/mcp/`. A delete
+/// failure on the credentials file is logged but not fatal — the server
+/// row is already gone, so leaving a stale credential behind is a minor
+/// hygiene issue rather than a behavior break.
 pub async fn remove_server(id: &str) -> Result<()> {
     mutate_config(("mcp.remove", "settings_panel"), |store| {
         let before = store.mcp_servers.len();
@@ -363,6 +368,13 @@ pub async fn remove_server(id: &str) -> Result<()> {
         }
         Ok(())
     })?;
+    if let Err(e) = credentials::clear(id) {
+        crate::app_warn!(
+            "mcp",
+            "credentials:cleanup",
+            "Failed to remove credentials for deleted server '{id}': {e}"
+        );
+    }
     reconcile_from_cache().await
 }
 
@@ -421,6 +433,84 @@ pub async fn test_connection(id: &str) -> Result<ServerStatusSnapshot> {
 /// button on the Failed-state badge).
 pub async fn reconnect_server(id: &str) -> Result<ServerStatusSnapshot> {
     test_connection(id).await
+}
+
+// ── OAuth ────────────────────────────────────────────────────────
+
+/// Kick off the OAuth 2.1 + PKCE authorization flow for a networked MCP
+/// server. Returns immediately — the heavy work (discovery, browser
+/// callback, token exchange) happens on a spawned task and progress is
+/// streamed via `mcp:auth_required` / `mcp:auth_completed` events. On
+/// success the task also triggers a fresh `connect_now` so the caller
+/// observes `ServerState::Ready` through the normal status channel
+/// without polling.
+pub async fn start_oauth(id: &str) -> Result<()> {
+    let mgr = McpManager::global().ok_or_else(|| anyhow!("MCP subsystem not initialized"))?;
+    let handle = mgr
+        .get_by_id(id)
+        .await
+        .ok_or_else(|| anyhow!("MCP server '{id}' not found"))?;
+    let cfg = handle.config.read().await.clone();
+    let oauth_cfg = cfg
+        .oauth
+        .clone()
+        .ok_or_else(|| anyhow!("MCP server '{}' has no OAuth configuration", cfg.name))?;
+    let server_url = match &cfg.transport {
+        McpTransportSpec::StreamableHttp { url }
+        | McpTransportSpec::Sse { url }
+        | McpTransportSpec::WebSocket { url } => url.clone(),
+        McpTransportSpec::Stdio { .. } => {
+            return Err(anyhow!("OAuth is only supported on networked transports"));
+        }
+    };
+    // Ownership moves into the spawned task. The API returns to the
+    // caller immediately; OAuth progress is visible through events.
+    let server_id = cfg.id.clone();
+    let server_name = cfg.name.clone();
+    let handle_clone = handle.clone();
+    tokio::spawn(async move {
+        match oauth::authorize_server(&server_id, &server_name, &server_url, &oauth_cfg).await {
+            Ok(_creds) => {
+                // Drop any stale Idle/NeedsAuth connection and rebuild
+                // with the fresh Bearer header. Failures here are
+                // reported through the usual connect path events.
+                client::disconnect(&handle_clone).await.ok();
+                if let Some(mgr) = McpManager::global() {
+                    let _ = client::connect_now(mgr, handle_clone).await;
+                }
+            }
+            Err(e) => {
+                crate::app_warn!(
+                    "mcp",
+                    &format!("{server_name}:oauth"),
+                    "OAuth flow ended with error: {e}"
+                );
+            }
+        }
+    });
+    Ok(())
+}
+
+/// Revoke the persisted credentials for a server. The next connect
+/// attempt will hit a 401 and flip the server into `NeedsAuth`. Missing
+/// credentials on disk is not an error — this is also the "clean up
+/// after a failed authorize" path.
+pub async fn sign_out(id: &str) -> Result<()> {
+    let mgr = McpManager::global().ok_or_else(|| anyhow!("MCP subsystem not initialized"))?;
+    let handle = mgr
+        .get_by_id(id)
+        .await
+        .ok_or_else(|| anyhow!("MCP server '{id}' not found"))?;
+    credentials::clear(id).map_err(|e| anyhow!("clear credentials: {e}"))?;
+    // Drop the in-memory connection so the stale Bearer isn't reused on
+    // the next tool call.
+    client::disconnect(&handle).await.ok();
+    crate::app_info!(
+        "mcp",
+        &format!("{}:oauth", handle.config.read().await.name),
+        "Revoked stored OAuth credentials (sign out)"
+    );
+    Ok(())
 }
 
 /// Return the up-to-date tool list for a server. If the server is in

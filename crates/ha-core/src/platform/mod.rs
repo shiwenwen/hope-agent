@@ -82,6 +82,21 @@ pub fn os_version_string() -> String {
     imp::os_version_string()
 }
 
+/// Atomically write a file containing a secret (OAuth tokens, API keys).
+///
+/// Creates parent directories if missing, writes to a temp file in the
+/// same directory, `fsync`s, sets 0600 (Unix) / clears inherited ACL
+/// entries (Windows), then renames over the target path. Callers should
+/// use this for anything that must not be readable by other local users.
+///
+/// Unix: `chmod 0600` after write so the file inherits the stricter
+/// permission even if the parent dir is group-writable.
+/// Windows: writes the file and relies on NTFS DACL inheritance — a
+/// stronger ACL pass can be layered on later without API change.
+pub fn write_secure_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    imp::write_secure_file(path, bytes)
+}
+
 /// Best-effort search for a Chrome / Chromium / Edge executable when the
 /// user has not configured an explicit path. Mostly used as a safety net
 /// in front of `chromiumoxide`'s own lookup, which is good but can miss

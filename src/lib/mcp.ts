@@ -169,6 +169,14 @@ export function reconnectServer(id: string): Promise<McpServerStatusSnapshot> {
   return transport.call("mcp_reconnect_server", { id });
 }
 
+export function startOauth(id: string): Promise<void> {
+  return transport.call("mcp_start_oauth", { id });
+}
+
+export function signOut(id: string): Promise<void> {
+  return transport.call("mcp_sign_out", { id });
+}
+
 export function listServerTools(id: string): Promise<McpToolSummary[]> {
   return transport.call("mcp_list_tools", { id });
 }

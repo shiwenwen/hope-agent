@@ -1152,6 +1152,76 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "additionalProperties": false
             }),
         },
+        // ── MCP Resources (list + read for resources exposed by connected MCP servers) ──
+        ToolDefinition {
+            name: super::super::TOOL_MCP_RESOURCE.into(),
+            description: "Read resources hosted by a connected MCP server (files, \
+                          records, etc.). `action=list` to enumerate URIs, `action=read` \
+                          with a specific `uri` to fetch content."
+                .into(),
+            internal: false,
+            deferred: false,
+            always_load: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "server": {
+                        "type": "string",
+                        "description": "MCP server name (the `<name>` from `mcp__<name>__<tool>`) or its UUID."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "read"],
+                        "description": "`list` returns the cached resource catalog; `read` fetches the content for a specific URI."
+                    },
+                    "uri": {
+                        "type": "string",
+                        "description": "Resource URI (required when action=read). Must match one of the URIs returned by `list`."
+                    }
+                },
+                "required": ["server", "action"],
+                "additionalProperties": false
+            }),
+        },
+        // ── MCP Prompts (list + get server-hosted prompt templates) ──
+        ToolDefinition {
+            name: super::super::TOOL_MCP_PROMPT.into(),
+            description: "Fetch prompt templates hosted by a connected MCP server. \
+                          `action=list` enumerates available prompts; `action=get` \
+                          expands a prompt by `name`, optionally filling in string \
+                          `arguments`."
+                .into(),
+            internal: false,
+            deferred: false,
+            always_load: false,
+            async_capable: false,
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "server": {
+                        "type": "string",
+                        "description": "MCP server name or UUID."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["list", "get"],
+                        "description": "`list` returns the cached prompt catalog; `get` expands a specific prompt template."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Prompt name (required when action=get)."
+                    },
+                    "arguments": {
+                        "type": "object",
+                        "description": "Template arguments (string values). Required arguments are shown in the prompt's `arguments` list from `action=list`.",
+                        "additionalProperties": { "type": "string" }
+                    }
+                },
+                "required": ["server", "action"],
+                "additionalProperties": false
+            }),
+        },
         // ── Skill (activate a skill by name — preferred over read SKILL.md) ──
         ToolDefinition {
             name: TOOL_SKILL.into(),

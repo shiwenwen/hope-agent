@@ -7,7 +7,7 @@
  * joined on the list response.
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Plug,
@@ -19,6 +19,8 @@ import {
   CheckCircle2,
   AlertCircle,
   Link2,
+  KeyRound,
+  LogOut,
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
@@ -40,6 +42,8 @@ import {
   removeServer,
   reconnectServer,
   testConnection,
+  startOauth,
+  signOut,
   MCP_EVENTS,
   type McpServerSummary,
   type McpServerState,
@@ -103,28 +107,91 @@ export default function McpServersPanel() {
     }
   }, [t])
 
+  // Trailing-edge debounce for refresh: backend emits SERVER_STATUS_CHANGED
+  // on every state transition (Connecting → Ready fires ≥ 2 events) and
+  // SERVERS_CHANGED on every config mutation — without coalescing, a
+  // 5-server eager-connect burst causes ~10 listServers round-trips in
+  // under a second.
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleRefresh = useCallback(() => {
+    if (refreshTimerRef.current !== null) clearTimeout(refreshTimerRef.current)
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null
+      refresh()
+    }, 150)
+  }, [refresh])
+
   useEffect(() => {
     refresh()
   }, [refresh])
 
   // Subscribe to backend events so status dots / counts update live.
+  // AUTH_COMPLETED surfaces a toast but doesn't trigger its own refresh —
+  // the downstream SERVER_STATUS_CHANGED covers that.
   useEffect(() => {
-    let cleanup: (() => void) | undefined
-    // The transport.listen is initialized lazily; call it via dynamic
-    // import to keep the panel file independent of transport-provider's
-    // init order.
+    const cleanups: Array<() => void> = []
     import("@/lib/transport-provider").then(({ transport }) => {
-      cleanup = transport.listen(MCP_EVENTS.SERVERS_CHANGED, () => {
-        refresh()
-      })
+      cleanups.push(
+        transport.listen(MCP_EVENTS.SERVERS_CHANGED, scheduleRefresh),
+      )
+      cleanups.push(
+        transport.listen(MCP_EVENTS.SERVER_STATUS_CHANGED, scheduleRefresh),
+      )
+      cleanups.push(
+        transport.listen(
+          MCP_EVENTS.AUTH_REQUIRED,
+          (payload: { name: string; authUrl: string }) => {
+            toast.info(
+              t("settings.mcp.authRequired", { name: payload.name }),
+              { description: payload.authUrl, duration: 15000 },
+            )
+          },
+        ),
+      )
+      cleanups.push(
+        transport.listen(
+          MCP_EVENTS.AUTH_COMPLETED,
+          (payload: { name: string; ok: boolean; error?: string }) => {
+            if (payload.ok) {
+              toast.success(
+                t("settings.mcp.authSuccess", { name: payload.name }),
+              )
+            } else {
+              toast.error(
+                payload.error ??
+                  t("settings.mcp.authFailed", { name: payload.name }),
+              )
+            }
+          },
+        ),
+      )
     })
-    return () => cleanup?.()
-  }, [refresh])
+    return () => {
+      cleanups.forEach((fn) => fn())
+      if (refreshTimerRef.current !== null) {
+        clearTimeout(refreshTimerRef.current)
+        refreshTimerRef.current = null
+      }
+    }
+  }, [scheduleRefresh, t])
 
-  const handleTest = useCallback(
-    async (id: string) => {
+  const runBusy = useCallback(
+    async (id: string, fn: () => Promise<void>) => {
       setBusyId(id)
       try {
+        await fn()
+      } catch (e) {
+        toast.error(String(e))
+      } finally {
+        setBusyId(null)
+      }
+    },
+    [],
+  )
+
+  const handleTest = useCallback(
+    (id: string) =>
+      runBusy(id, async () => {
         const snap = await testConnection(id)
         if (snap.state === "ready") {
           toast.success(
@@ -133,29 +200,37 @@ export default function McpServersPanel() {
         } else {
           toast.error(snap.reason ?? t("settings.mcp.testFailed"))
         }
-        refresh()
-      } catch (e) {
-        toast.error(String(e))
-      } finally {
-        setBusyId(null)
-      }
-    },
-    [refresh, t],
+        scheduleRefresh()
+      }),
+    [runBusy, scheduleRefresh, t],
   )
 
   const handleReconnect = useCallback(
-    async (id: string) => {
-      setBusyId(id)
-      try {
+    (id: string) =>
+      runBusy(id, async () => {
         await reconnectServer(id)
-        refresh()
-      } catch (e) {
-        toast.error(String(e))
-      } finally {
-        setBusyId(null)
-      }
-    },
-    [refresh],
+        scheduleRefresh()
+      }),
+    [runBusy, scheduleRefresh],
+  )
+
+  const handleAuthorize = useCallback(
+    (id: string) =>
+      runBusy(id, async () => {
+        await startOauth(id)
+        toast.info(t("settings.mcp.authStarted"))
+      }),
+    [runBusy, t],
+  )
+
+  const handleSignOut = useCallback(
+    (id: string, name: string) =>
+      runBusy(id, async () => {
+        await signOut(id)
+        toast.success(t("settings.mcp.signOutSuccess", { name }))
+        scheduleRefresh()
+      }),
+    [runBusy, scheduleRefresh, t],
   )
 
   const confirmDelete = useCallback(async () => {
@@ -232,6 +307,8 @@ export default function McpServersPanel() {
                 onEdit={() => setEdit({ mode: "edit", server })}
                 onTest={() => handleTest(server.id)}
                 onReconnect={() => handleReconnect(server.id)}
+                onAuthorize={() => handleAuthorize(server.id)}
+                onSignOut={() => handleSignOut(server.id, server.name)}
                 onDelete={() =>
                   setPendingDelete({ id: server.id, name: server.name })
                 }
@@ -304,6 +381,8 @@ function ServerRow({
   onEdit,
   onTest,
   onReconnect,
+  onAuthorize,
+  onSignOut,
   onDelete,
 }: {
   server: McpServerSummary
@@ -311,6 +390,8 @@ function ServerRow({
   onEdit: () => void
   onTest: () => void
   onReconnect: () => void
+  onAuthorize: () => void
+  onSignOut: () => void
   onDelete: () => void
 }) {
   const { t } = useTranslation()
@@ -320,6 +401,11 @@ function ServerRow({
   const badge = TRANSPORT_BADGE[transport]
   const isFailed = state === "failed"
   const isReady = state === "ready"
+  const isNeedsAuth = state === "needsAuth"
+  // `server.oauth` is only ever set on networked transports (backend +
+  // edit dialog reject it on stdio), so a simple presence check is
+  // sufficient here.
+  const hasOauth = Boolean(server.oauth)
 
   return (
     <div className="px-6 py-4 hover:bg-muted/30 transition-colors">
@@ -386,6 +472,34 @@ function ServerRow({
             >
               <RefreshCw className="h-3 w-3" />
               {t("settings.mcp.reconnect")}
+            </Button>
+          )}
+          {hasOauth && (isNeedsAuth || isFailed) && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onAuthorize}
+              disabled={busy}
+              className="h-7 px-2 gap-1"
+            >
+              {busy ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <KeyRound className="h-3 w-3" />
+              )}
+              {t("settings.mcp.authorize")}
+            </Button>
+          )}
+          {hasOauth && isReady && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onSignOut}
+              disabled={busy}
+              className="h-7 px-2 gap-1"
+            >
+              <LogOut className="h-3 w-3" />
+              {t("settings.mcp.signOut")}
             </Button>
           )}
           <Button

@@ -1,5 +1,7 @@
+use std::fs;
+use std::io::{self, Write};
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -105,6 +107,35 @@ pub(super) fn find_chrome_executable() -> Option<PathBuf> {
     }
 
     None
+}
+
+pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let tmp = path.with_extension(format!(
+        "tmp.{}.{}",
+        std::process::id(),
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or(0)
+    ));
+    {
+        let mut f = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+    }
+    // NTFS inherits a DACL from the parent directory — `~/.hope-agent/`
+    // lives under the user profile so by default only the owning user
+    // and SYSTEM/Administrators can read. Hardening to an explicit DACL
+    // (strip inherited ACEs, grant only the owner) is a future pass.
+    // Windows rename fails if the destination exists; remove first.
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+    fs::rename(&tmp, path)?;
+    Ok(())
 }
 
 pub(super) fn os_version_string() -> String {

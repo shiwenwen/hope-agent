@@ -47,6 +47,16 @@ pub fn auth_path() -> Result<PathBuf> {
     Ok(credentials_dir()?.join("auth.json"))
 }
 
+/// MCP credentials directory: ~/.hope-agent/credentials/mcp/
+pub fn mcp_credentials_dir() -> Result<PathBuf> {
+    Ok(credentials_dir()?.join("mcp"))
+}
+
+/// Per-server MCP credentials file: ~/.hope-agent/credentials/mcp/{server_id}.json
+pub fn mcp_credential_path(server_id: &str) -> Result<PathBuf> {
+    Ok(mcp_credentials_dir()?.join(format!("{server_id}.json")))
+}
+
 // ── Channels ─────────────────────────────────────────────────────
 
 /// Channels runtime state directory: ~/.hope-agent/channels/

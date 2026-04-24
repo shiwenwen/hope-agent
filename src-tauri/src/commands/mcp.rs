@@ -91,6 +91,16 @@ pub async fn mcp_reconnect_server(
 }
 
 #[tauri::command]
+pub async fn mcp_start_oauth(id: String, _state: State<'_, AppState>) -> Result<(), String> {
+    api::start_oauth(&id).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn mcp_sign_out(id: String, _state: State<'_, AppState>) -> Result<(), String> {
+    api::sign_out(&id).await.map_err(map_err)
+}
+
+#[tauri::command]
 pub async fn mcp_list_tools(
     id: String,
     _state: State<'_, AppState>,

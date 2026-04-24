@@ -1084,6 +1084,14 @@ impl AssistantAgent {
             prompt.push_str("\n\n");
             prompt.push_str(extra);
         }
+        // MCP-connected servers advertise capabilities through a small
+        // appended section. Suppressed entirely when no MCP server has
+        // reached `Ready` — keeps the prompt shape stable for users who
+        // don't use MCP.
+        if let Some(snippet) = crate::mcp::catalog::system_prompt_snippet() {
+            prompt.push_str("\n\n");
+            prompt.push_str(&snippet);
+        }
         prompt
     }
 

@@ -137,17 +137,7 @@ const TOOLS_PER_SERVER_CAP: usize = 512;
 
 pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
     let cfg = handle.config.read().await.clone();
-    let peer_res = {
-        let client = handle.client.lock().await;
-        match client.as_ref() {
-            Some(s) => Ok(s.peer().clone()),
-            None => Err(McpError::NotReady {
-                server: cfg.name.clone(),
-                reason: "not connected".into(),
-            }),
-        }
-    };
-    let peer = peer_res?;
+    let peer = handle.peer().await?;
 
     let mut tools = peer
         .list_all_tools()
@@ -305,6 +295,31 @@ async fn record_failure(handle: &ServerHandle, server_name: &str, err: &McpError
     handle
         .consecutive_failures
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Auth errors take a different branch — the recovery path is "user
+    // clicks Authorize in the GUI", not "watchdog retries". Keeping the
+    // server in NeedsAuth instead of Failed prevents a tight retry loop
+    // that would spam refresh attempts against an already-broken token.
+    let cfg_id = handle.config.read().await.id.clone();
+    if matches!(err, McpError::Auth { .. }) {
+        set_state(
+            handle,
+            ServerState::NeedsAuth {
+                // Real authorize URL is emitted dynamically by
+                // `oauth::authorize_server` (embeds one-shot PKCE); we
+                // leave this empty to signal "press the button and the
+                // backend will produce a fresh URL".
+                auth_url: String::new(),
+            },
+        )
+        .await;
+        emit_server_status(&cfg_id, server_name, "needsAuth", Some(&err.to_string()));
+        crate::app_warn!(
+            "mcp",
+            &format!("{server_name}:auth"),
+            "MCP server requires re-authorization: {err}"
+        );
+        return;
+    }
     let now = chrono::Utc::now().timestamp();
     // Tiny placeholder backoff — the real exponential-backoff policy
     // lives in `watchdog.rs`; this just puts us in the right state so
@@ -318,7 +333,6 @@ async fn record_failure(handle: &ServerHandle, server_name: &str, err: &McpError
         },
     )
     .await;
-    let cfg_id = handle.config.read().await.id.clone();
     emit_server_status(&cfg_id, server_name, "failed", Some(&err.to_string()));
     crate::app_warn!(
         "mcp",

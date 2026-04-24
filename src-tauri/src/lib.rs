@@ -544,6 +544,8 @@ pub fn run() {
             commands::mcp::mcp_reorder_servers,
             commands::mcp::mcp_test_connection,
             commands::mcp::mcp_reconnect_server,
+            commands::mcp::mcp_start_oauth,
+            commands::mcp::mcp_sign_out,
             commands::mcp::mcp_list_tools,
             commands::mcp::mcp_get_recent_logs,
             commands::mcp::mcp_import_claude_desktop_config,

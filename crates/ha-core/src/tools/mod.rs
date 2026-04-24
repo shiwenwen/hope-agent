@@ -108,6 +108,8 @@ pub const TOOL_LIST_SETTINGS_BACKUPS: &str = "list_settings_backups";
 pub const TOOL_RESTORE_SETTINGS_BACKUP: &str = "restore_settings_backup";
 pub const TOOL_SEND_ATTACHMENT: &str = "send_attachment";
 pub const TOOL_SKILL: &str = "skill";
+pub const TOOL_MCP_RESOURCE: &str = "mcp_resource";
+pub const TOOL_MCP_PROMPT: &str = "mcp_prompt";
 
 // ── Shared Helpers ────────────────────────────────────────────────
 

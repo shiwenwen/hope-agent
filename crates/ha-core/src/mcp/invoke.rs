@@ -33,7 +33,7 @@ use super::registry::{McpManager, ServerHandle};
 pub async fn call_tool(
     name: &str,
     args: &Value,
-    _ctx: &crate::tools::ToolExecContext,
+    ctx: &crate::tools::ToolExecContext,
 ) -> anyhow::Result<String> {
     let manager = McpManager::global().ok_or_else(|| {
         anyhow::anyhow!(
@@ -91,26 +91,74 @@ pub async fn call_tool(
         .await
         .map_err(|e| anyhow::anyhow!("MCP per-server semaphore closed: {e}"))?;
 
+    let start = std::time::Instant::now();
     let fut = dispatch_inner(handle.clone(), &entry.original_tool_name, args);
-    match timeout(Duration::from_secs(call_timeout_secs), fut).await {
-        Ok(Ok(body)) => Ok(body),
-        Ok(Err(e)) => Err(anyhow::anyhow!("{}", e)),
-        Err(_elapsed) => {
-            // Treat as a per-server failure so the health counter grows
-            // and the watchdog can escalate.
-            handle
-                .consecutive_failures
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            Err(anyhow::anyhow!(
-                "{}",
-                McpError::Timeout {
-                    server: entry.server_name.clone(),
-                    tool: entry.original_tool_name.clone(),
-                    secs: call_timeout_secs,
-                }
-            ))
-        }
-    }
+    let result: anyhow::Result<String> =
+        match timeout(Duration::from_secs(call_timeout_secs), fut).await {
+            Ok(Ok(body)) => Ok(body),
+            Ok(Err(e)) => Err(anyhow::anyhow!("{}", e)),
+            Err(_elapsed) => {
+                // Treat as a per-server failure so the health counter grows
+                // and the watchdog can escalate.
+                handle
+                    .consecutive_failures
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Err(anyhow::anyhow!(
+                    "{}",
+                    McpError::Timeout {
+                        server: entry.server_name.clone(),
+                        tool: entry.original_tool_name.clone(),
+                        secs: call_timeout_secs,
+                    }
+                ))
+            }
+        };
+    emit_learning(
+        &entry,
+        name,
+        &result,
+        start.elapsed().as_millis() as u64,
+        ctx,
+    );
+    result
+}
+
+fn emit_learning(
+    entry: &crate::mcp::registry::ToolIndexEntry,
+    namespaced_name: &str,
+    result: &anyhow::Result<String>,
+    duration_ms: u64,
+    ctx: &crate::tools::ToolExecContext,
+) {
+    // Branch the meta object so the success event omits `error`
+    // entirely rather than surfacing a literal `"error": null` —
+    // keeps Dashboard Learning consumers from having to special-case
+    // the null sentinel.
+    let (kind, meta) = match result {
+        Ok(_) => (
+            crate::dashboard::learning::EVT_MCP_TOOL_CALLED,
+            serde_json::json!({
+                "server": entry.server_name,
+                "tool": entry.original_tool_name,
+                "durationMs": duration_ms,
+            }),
+        ),
+        Err(e) => (
+            crate::dashboard::learning::EVT_MCP_TOOL_FAILED,
+            serde_json::json!({
+                "server": entry.server_name,
+                "tool": entry.original_tool_name,
+                "durationMs": duration_ms,
+                "error": e.to_string(),
+            }),
+        ),
+    };
+    crate::dashboard::learning::emit(
+        kind,
+        ctx.session_id.as_deref(),
+        Some(namespaced_name),
+        Some(&meta),
+    );
 }
 
 async fn dispatch_inner(
@@ -119,15 +167,7 @@ async fn dispatch_inner(
     args: &Value,
 ) -> McpResult<String> {
     let cfg_name = handle.config.read().await.name.clone();
-
-    let peer_opt = {
-        let guard = handle.client.lock().await;
-        guard.as_ref().map(|s| s.peer().clone())
-    };
-    let peer = peer_opt.ok_or_else(|| McpError::NotReady {
-        server: cfg_name.clone(),
-        reason: "peer vanished during call".into(),
-    })?;
+    let peer = handle.peer().await?;
 
     let arguments = match args {
         Value::Object(m) => Some(m.clone()),

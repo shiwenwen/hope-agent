@@ -142,6 +142,23 @@ impl ServerHandle {
         }
     }
 
+    /// Clone the rmcp `Peer<RoleClient>` handle used for RPCs
+    /// (`tools/call`, `resources/read`, `prompts/get`, `ping`). Returns
+    /// [`McpError::NotReady`] when the server hasn't finished its
+    /// handshake. Callers should grab the peer, drop the client mutex,
+    /// then await the RPC so a slow RPC doesn't block concurrent
+    /// readers of the same handle.
+    pub async fn peer(&self) -> super::errors::McpResult<rmcp::Peer<RoleClient>> {
+        if let Some(running) = self.client.lock().await.as_ref() {
+            return Ok(running.peer().clone());
+        }
+        let server = self.config.read().await.name.clone();
+        Err(super::errors::McpError::NotReady {
+            server,
+            reason: "not connected".into(),
+        })
+    }
+
     /// Minimal serializable snapshot for frontends / settings dumps.
     /// Clones only the counts — the raw `Tool` vec stays inside the Mutex.
     pub async fn snapshot(&self) -> ServerStatusSnapshot {
@@ -263,6 +280,19 @@ impl McpManager {
     /// Resolve the reverse tool-name map for dispatch.
     pub async fn lookup_tool(&self, namespaced_name: &str) -> Option<ToolIndexEntry> {
         self.tool_index.read().await.get(namespaced_name).cloned()
+    }
+
+    /// Best-effort server lookup: id first, then name. Used by the
+    /// `mcp_resource` / `mcp_prompt` tool handlers so the LLM can
+    /// reference a server by either form. Note: a server whose `name`
+    /// happens to equal another server's UUID would shadow — prevented
+    /// by the `^[a-z0-9_-]{1,32}$` name validator (UUIDs are 36 chars
+    /// with hyphens, never valid server names).
+    pub async fn locate(&self, name_or_id: &str) -> Option<Arc<ServerHandle>> {
+        if let Some(h) = self.get_by_id(name_or_id).await {
+            return Some(h);
+        }
+        self.get_by_name(name_or_id).await
     }
 
     /// Snapshots of every registered server, for the settings panel /

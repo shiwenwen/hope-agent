@@ -509,6 +509,8 @@ pub async fn execute_tool_with_context(
             TOOL_RESTORE_SETTINGS_BACKUP => settings::tool_restore_settings_backup(args).await,
             TOOL_SEND_ATTACHMENT => send_attachment::tool_send_attachment(args, ctx).await,
             super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
+            super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
+            super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
             // MCP-sourced tools all share the `mcp__<server>__<tool>`
             // prefix; dispatch them through the dedicated subsystem.
             n if crate::mcp::catalog::is_mcp_tool_name(n) => {

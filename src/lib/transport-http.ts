@@ -109,6 +109,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   mcp_get_server_status:           { method: "GET",    path: "/api/mcp/servers/{id}/status" },
   mcp_test_connection:             { method: "POST",   path: "/api/mcp/servers/{id}/test" },
   mcp_reconnect_server:            { method: "POST",   path: "/api/mcp/servers/{id}/reconnect" },
+  mcp_start_oauth:                 { method: "POST",   path: "/api/mcp/servers/{id}/oauth/start" },
+  mcp_sign_out:                    { method: "POST",   path: "/api/mcp/servers/{id}/oauth/sign-out" },
   mcp_list_tools:                  { method: "GET",    path: "/api/mcp/servers/{id}/tools" },
   mcp_get_recent_logs:             { method: "GET",    path: "/api/mcp/servers/{id}/logs" },
   mcp_import_claude_desktop_config:{ method: "POST",   path: "/api/mcp/import/claude-desktop" },

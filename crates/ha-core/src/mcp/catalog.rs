@@ -63,6 +63,50 @@ pub fn is_mcp_tool_name(name: &str) -> bool {
     name.starts_with(MCP_TOOL_PREFIX)
 }
 
+/// Parse a namespaced MCP tool name of the form
+/// `mcp__<server>__<tool>` into its two halves. Returns `None` when
+/// the name isn't MCP-shaped or lacks the double-underscore separator
+/// between the server and tool parts.
+fn split_mcp_tool_name(name: &str) -> Option<(&str, &str)> {
+    name.strip_prefix(MCP_TOOL_PREFIX)?.split_once("__")
+}
+
+/// Build a short "MCP Capabilities" system-prompt section when any
+/// MCP server has landed a populated tool catalog (i.e. a server that
+/// completed at least one `tools/list` round is connected). Reads
+/// purely from [`crate::mcp::McpManager::mcp_tool_definitions`] —
+/// sync, `ArcSwap`-backed — so it can be called from the sync
+/// `build_full_system_prompt` path without awaiting any lock.
+///
+/// The snippet intentionally does not enumerate every resource / prompt
+/// — that list can be large and requires an async read of the per-
+/// server state. The agent discovers those via the `mcp_resource`
+/// and `mcp_prompt` tools we point at here.
+pub fn system_prompt_snippet() -> Option<String> {
+    let mgr = crate::mcp::McpManager::global()?;
+    let defs = mgr.mcp_tool_definitions();
+    if defs.is_empty() {
+        return None;
+    }
+    let mut servers: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for d in defs.iter() {
+        if let Some((server, _tool)) = split_mcp_tool_name(&d.name) {
+            servers.insert(server.to_string());
+        }
+    }
+    if servers.is_empty() {
+        return None;
+    }
+    let list = servers.into_iter().collect::<Vec<_>>().join(", ");
+    Some(format!(
+        "# MCP Capabilities\n\n\
+         Connected MCP servers: {list}\n\
+         - Tools exposed by each server appear in the tool catalog with the `mcp__<server>__<tool>` naming.\n\
+         - `mcp_resource(server=..., action=\"list\"|\"read\")` — inspect files / records / documents the server hosts.\n\
+         - `mcp_prompt(server=..., action=\"list\"|\"get\")` — use prompt templates the server publishes."
+    ))
+}
+
 // ── Schema conversion ────────────────────────────────────────────
 
 /// Best-effort sanitation of the inputSchema the server advertises.
@@ -177,6 +221,20 @@ pub fn rmcp_tool_to_definition(
     let raw_schema = Value::Object((*tool.input_schema).clone());
     let parameters = normalize_input_schema(raw_schema);
 
+    // MCP spec 2025-11-25 introduced per-tool `execution.taskSupport`:
+    // `required` → server mandates task-mode invocation (long-running),
+    // `optional` → client chooses, `forbidden` (default) → sync only.
+    // We map both `required` and `optional` onto ha-agent's
+    // `async_capable=true`, which lets the existing "sync budget
+    // timeout → auto-background" logic in the tool loop kick in when
+    // the call takes too long.
+    let async_capable = matches!(
+        tool.execution
+            .as_ref()
+            .and_then(|e| e.task_support.as_ref()),
+        Some(rmcp::model::TaskSupport::Required | rmcp::model::TaskSupport::Optional)
+    );
+
     ToolDefinition {
         name,
         description: desc,
@@ -184,7 +242,7 @@ pub fn rmcp_tool_to_definition(
         internal: false,
         deferred: !always_load,
         always_load,
-        async_capable: false,
+        async_capable,
     }
 }
 
@@ -321,5 +379,36 @@ mod tests {
         let def = rmcp_tool_to_definition(&cfg, &tool, true);
         assert!(!def.deferred);
         assert!(def.always_load);
+    }
+
+    #[test]
+    fn async_capable_tracks_task_support() {
+        let cfg = min_cfg("srv");
+        let schema = std::sync::Arc::new(serde_json::Map::new());
+
+        // Default (no execution block) → sync-only.
+        let default_tool = model::Tool::new("fast", "x", schema.clone());
+        assert!(!rmcp_tool_to_definition(&cfg, &default_tool, false).async_capable);
+
+        // `required` or `optional` → async_capable=true so the tool
+        // loop's "sync budget → auto-background" branch can engage.
+        let mut required_tool = model::Tool::new("long_required", "x", schema.clone());
+        required_tool.execution = Some(model::ToolExecution::from_raw(Some(
+            model::TaskSupport::Required,
+        )));
+        assert!(rmcp_tool_to_definition(&cfg, &required_tool, false).async_capable);
+
+        let mut optional_tool = model::Tool::new("long_optional", "x", schema.clone());
+        optional_tool.execution = Some(model::ToolExecution::from_raw(Some(
+            model::TaskSupport::Optional,
+        )));
+        assert!(rmcp_tool_to_definition(&cfg, &optional_tool, false).async_capable);
+
+        // Explicit `forbidden` → sync-only (same as default).
+        let mut forbidden_tool = model::Tool::new("short", "x", schema);
+        forbidden_tool.execution = Some(model::ToolExecution::from_raw(Some(
+            model::TaskSupport::Forbidden,
+        )));
+        assert!(!rmcp_tool_to_definition(&cfg, &forbidden_tool, false).async_capable);
     }
 }

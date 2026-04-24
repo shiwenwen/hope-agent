@@ -102,6 +102,20 @@ pub async fn reconnect_server(
         .map_err(|e| AppError::internal(e.to_string()))
 }
 
+pub async fn start_oauth(Path(id): Path<String>) -> Result<Json<serde_json::Value>, AppError> {
+    api::start_oauth(&id)
+        .await
+        .map(|_| Json(serde_json::json!({ "ok": true })))
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
+pub async fn sign_out(Path(id): Path<String>) -> Result<Json<serde_json::Value>, AppError> {
+    api::sign_out(&id)
+        .await
+        .map(|_| Json(serde_json::json!({ "ok": true })))
+        .map_err(|e| AppError::bad_request(e.to_string()))
+}
+
 pub async fn list_tools(Path(id): Path<String>) -> Result<Json<Vec<McpToolSummary>>, AppError> {
     api::list_server_tools(&id)
         .await
