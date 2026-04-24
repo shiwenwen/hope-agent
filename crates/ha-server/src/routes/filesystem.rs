@@ -216,7 +216,7 @@ mod tests {
             path: Some(sub.to_string_lossy().to_string()),
         }))
         .await
-        .expect("list_dir ok");
+        .unwrap_or_else(|e| panic!("list_dir failed: {}", e.message));
         let body = res.0;
         let entries = body.get("entries").and_then(|v| v.as_array()).unwrap();
         assert!(entries.iter().any(|e| e
