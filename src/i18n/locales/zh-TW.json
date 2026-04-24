@@ -345,7 +345,12 @@
     },
     "rawCall": "查看原始調用",
     "loadingSkill": "加載技能: {{name}}",
-    "elapsed": "耗時 {{time}}"
+    "elapsed": "耗時 {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "已瀏覽 {{count}} 個文件",

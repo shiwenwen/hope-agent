@@ -345,7 +345,12 @@
     },
     "rawCall": "View raw call",
     "loadingSkill": "Loading skill: {{name}}",
-    "elapsed": "Elapsed {{time}}"
+    "elapsed": "Elapsed {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "No output",
+      "running": "Running..."
+    }
   },
   "toolGroup": {
     "browse": "Browsed {{count}} files",

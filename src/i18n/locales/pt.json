@@ -345,7 +345,12 @@
     },
     "rawCall": "Ver chamada bruta",
     "loadingSkill": "Carregando skill: {{name}}",
-    "elapsed": "Decorrido {{time}}"
+    "elapsed": "Decorrido {{time}}",
+    "execPanel": {
+      "title": "Shell",
+      "noOutput": "无输出",
+      "running": "运行中..."
+    }
   },
   "toolGroup": {
     "browse": "{{count}} arquivos navegados",
