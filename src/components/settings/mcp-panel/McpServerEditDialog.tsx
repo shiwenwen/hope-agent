@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Plus, X } from "lucide-react"
+import { Loader2, Plus, X, Check, XCircle } from "lucide-react"
 import { toast } from "sonner"
 
 import {
@@ -120,10 +120,12 @@ function initialFromSummary(s: McpServerSummary | null): FormState {
 }
 
 function formToDraft(form: FormState): McpServerDraft {
-  const transport =
+  // stdio has its own payload shape; http / sse / ws all carry just a
+  // url, so one branch covers the three URL-only kinds.
+  const transport: McpServerDraft["transport"] =
     form.kind === "stdio"
       ? {
-          kind: "stdio" as const,
+          kind: "stdio",
           command: form.command.trim(),
           args: form.args
             .split(/\r?\n/)
@@ -131,11 +133,7 @@ function formToDraft(form: FormState): McpServerDraft {
             .filter(Boolean),
           cwd: form.cwd.trim() || null,
         }
-      : form.kind === "streamableHttp"
-        ? { kind: "streamableHttp" as const, url: form.url.trim() }
-        : form.kind === "sse"
-          ? { kind: "sse" as const, url: form.url.trim() }
-          : { kind: "websocket" as const, url: form.url.trim() }
+      : { kind: form.kind, url: form.url.trim() }
 
   const env = Object.fromEntries(
     form.env.filter(([k]) => k.trim().length > 0).map(([k, v]) => [k.trim(), v]),
@@ -187,6 +185,12 @@ export default function McpServerEditDialog({
   const { t } = useTranslation()
   const [form, setForm] = useState<FormState>(initialFromSummary(initial))
   const [saving, setSaving] = useState(false)
+  // Three-state save feedback: button flashes green (saved) or red (failed)
+  // for ~2s so users see the result before the dialog closes. Project
+  // convention — see AGENTS.md "保存按钮统一三态交互".
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">(
+    "idle",
+  )
 
   useEffect(() => {
     setForm(initialFromSummary(initial))
@@ -222,10 +226,17 @@ export default function McpServerEditDialog({
       } else {
         await addServer(draft)
       }
+      setSaveStatus("saved")
       toast.success(t("settings.mcp.saved"))
-      onSaved()
+      // Let the green flash land before the dialog auto-closes.
+      setTimeout(() => {
+        setSaveStatus("idle")
+        onSaved()
+      }, 600)
     } catch (e) {
+      setSaveStatus("failed")
       toast.error(String(e))
+      setTimeout(() => setSaveStatus("idle"), 2000)
     } finally {
       setSaving(false)
     }
@@ -473,11 +484,31 @@ export default function McpServerEditDialog({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             {t("common.cancel")}
           </Button>
-          <Button onClick={handleSave} disabled={saving || nameInvalid}>
+          <Button
+            onClick={handleSave}
+            disabled={saving || nameInvalid}
+            className={
+              saveStatus === "saved"
+                ? "bg-green-600 hover:bg-green-600/90"
+                : saveStatus === "failed"
+                  ? "bg-destructive hover:bg-destructive/90"
+                  : undefined
+            }
+          >
             {saving ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 {t("common.saving")}
+              </>
+            ) : saveStatus === "saved" ? (
+              <>
+                <Check className="h-4 w-4 mr-2" />
+                {t("common.saved")}
+              </>
+            ) : saveStatus === "failed" ? (
+              <>
+                <XCircle className="h-4 w-4 mr-2" />
+                {t("common.saveFailed")}
               </>
             ) : (
               t("common.save")

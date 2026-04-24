@@ -127,6 +127,14 @@ pub async fn disconnect(handle: &ServerHandle) -> McpResult<()> {
 /// and rebuild the manager's tool index entries for it. The `Ready`
 /// catalog snapshot is replaced in place; other servers' entries in
 /// the index are untouched.
+/// Hard cap on tools per server. A malicious or buggy MCP server could
+/// advertise millions of entries via `list_tools`; without a cap, the
+/// reverse index + schema cache + `Ready` state's embedded Vec would
+/// allocate unbounded memory + every LLM request would spend time
+/// filtering the giant list. 512 is generous for any legitimate
+/// catalog (the biggest public servers ship ~50).
+const TOOLS_PER_SERVER_CAP: usize = 512;
+
 pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) -> McpResult<()> {
     let cfg = handle.config.read().await.clone();
     let peer_res = {
@@ -141,10 +149,20 @@ pub async fn refresh_catalog(manager: &McpManager, handle: Arc<ServerHandle>) ->
     };
     let peer = peer_res?;
 
-    let tools = peer
+    let mut tools = peer
         .list_all_tools()
         .await
         .map_err(|e| rmcp_service_err(&cfg.name, "list_tools", e))?;
+    if tools.len() > TOOLS_PER_SERVER_CAP {
+        crate::app_warn!(
+            "mcp",
+            &format!("{}:catalog", cfg.name),
+            "Server advertised {} tools; truncating to the per-server cap of {}",
+            tools.len(),
+            TOOLS_PER_SERVER_CAP
+        );
+        tools.truncate(TOOLS_PER_SERVER_CAP);
+    }
 
     // Resources / prompts are optional per spec; an `InvalidRequest` /
     // method-not-found is NOT a real failure — it just means the server
@@ -309,17 +327,61 @@ async fn record_failure(handle: &ServerHandle, server_name: &str, err: &McpError
     );
 }
 
+/// Max bytes from a single stderr line kept in the log; stack traces
+/// from crashing servers can be multi-MB and would saturate the log DB.
+const STDERR_LINE_TRUNCATE_BYTES: usize = 4096;
+
+/// Token bucket: at most this many lines get written per window before
+/// the tailer drops further lines and emits one summary "N lines
+/// suppressed" warning. Prevents a runaway server from DoS-ing the
+/// logger.
+const STDERR_RATE_LIMIT_LINES: u32 = 100;
+const STDERR_RATE_LIMIT_WINDOW_SECS: u64 = 10;
+
 /// Forward each line of the child's stderr to the app log with a stable
-/// source prefix `<server_name>:stderr`. We intentionally treat this as
-/// warn level — MCP servers commonly emit their own info logs there,
-/// and users need to see them without having to attach a separate
-/// tail. Noisy servers get filtered at the settings panel level later.
+/// source prefix `<server_name>:stderr`. Warn-level because MCP servers
+/// commonly mix their own info logs in there and users want to see
+/// them without tailing a separate file.
+///
+/// Rate-limit + per-line truncation defend the shared `AppLogger`
+/// SQLite store against a chatty or crashing server's firehose.
 fn spawn_stderr_tailer(server_name: String, stderr: tokio::process::ChildStderr) {
     tokio::spawn(async move {
         let reader = BufReader::new(stderr);
         let mut lines = reader.lines();
+        let mut window_start = std::time::Instant::now();
+        let mut lines_in_window: u32 = 0;
+        let mut suppressed_in_window: u32 = 0;
+        let source = format!("{server_name}:stderr");
         while let Ok(Some(line)) = lines.next_line().await {
-            crate::app_warn!("mcp", &format!("{server_name}:stderr"), "{}", line);
+            let now = std::time::Instant::now();
+            if now.duration_since(window_start).as_secs() >= STDERR_RATE_LIMIT_WINDOW_SECS {
+                if suppressed_in_window > 0 {
+                    crate::app_warn!(
+                        "mcp",
+                        &source,
+                        "[suppressed {suppressed_in_window} lines over {STDERR_RATE_LIMIT_WINDOW_SECS}s]"
+                    );
+                }
+                window_start = now;
+                lines_in_window = 0;
+                suppressed_in_window = 0;
+            }
+            if lines_in_window >= STDERR_RATE_LIMIT_LINES {
+                suppressed_in_window += 1;
+                continue;
+            }
+            lines_in_window += 1;
+            let trimmed = if line.len() > STDERR_LINE_TRUNCATE_BYTES {
+                format!(
+                    "{}… [truncated {} bytes]",
+                    crate::truncate_utf8(&line, STDERR_LINE_TRUNCATE_BYTES),
+                    line.len().saturating_sub(STDERR_LINE_TRUNCATE_BYTES)
+                )
+            } else {
+                line
+            };
+            crate::app_warn!("mcp", &source, "{}", trimmed);
         }
     });
 }

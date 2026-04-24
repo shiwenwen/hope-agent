@@ -152,11 +152,8 @@ pub async fn build_stdio_client(cfg: &McpServerConfig) -> McpResult<ConnectedCli
 /// transport and complete the initial handshake. Runs the SSRF policy
 /// check before constructing the underlying reqwest client so a
 /// misconfigured private-network URL never dials out.
-pub async fn build_http_client(
-    cfg: &McpServerConfig,
-    url: &str,
-    transport_label: &str,
-) -> McpResult<ConnectedClient> {
+pub async fn build_http_client(cfg: &McpServerConfig, url: &str) -> McpResult<ConnectedClient> {
+    let transport_label = cfg.transport.kind_label();
     // Expand `${VAR}` in user-provided header values + resolve URL
     // placeholders so the SSRF check sees the real destination.
     let expanded_url = expand_placeholders(url, |name| std::env::var(name).ok());
@@ -215,9 +212,7 @@ pub async fn build_http_client(
 pub async fn build_transport_for(cfg: &McpServerConfig) -> McpResult<ConnectedClient> {
     match &cfg.transport {
         McpTransportSpec::Stdio { .. } => build_stdio_client(cfg).await,
-        McpTransportSpec::StreamableHttp { url } => {
-            build_http_client(cfg, url, "streamable-http").await
-        }
+        McpTransportSpec::StreamableHttp { url } => build_http_client(cfg, url).await,
         McpTransportSpec::Sse { url } => {
             // rmcp 1.5 retired the standalone SSE client; Streamable HTTP
             // speaks the same SSE sub-protocol on its GET channel, so we
@@ -230,7 +225,7 @@ pub async fn build_transport_for(cfg: &McpServerConfig) -> McpResult<ConnectedCl
                 "Legacy SSE transport routed through Streamable HTTP; \
                  update the server to the 2025-03-26 spec if behavior differs"
             );
-            build_http_client(cfg, url, "sse").await
+            build_http_client(cfg, url).await
         }
         McpTransportSpec::WebSocket { .. } => Err(McpError::NotReady {
             server: cfg.name.clone(),

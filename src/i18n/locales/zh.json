@@ -712,6 +712,7 @@
       "emptyDesc": "添加一个 MCP 服务器，或从 Claude Desktop 的配置 JSON 里一键导入。stdio 类型支持本地命令，远端 HTTP/SSE/WebSocket 将在后续版本启用。",
       "loadFailed": "加载服务器列表失败",
       "confirmDelete": "确定要删除服务器 \"{{name}}\" 吗？此操作不可撤销。",
+      "confirmDeleteTitle": "删除 \"{{name}}\"？",
       "deleted": "已删除服务器 \"{{name}}\"",
       "testSuccess": "连接成功，共 {{count}} 个工具",
       "testFailed": "连接失败",

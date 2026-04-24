@@ -1828,7 +1828,8 @@
         "importedHeader": "Imported {{count}}",
         "skippedHeader": "Skipped {{count}}",
         "emptyError": "Paste JSON first"
-      }
+      },
+      "confirmDeleteTitle": "Delete \"{{name}}\"?"
     }
   },
   "tz": {

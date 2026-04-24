@@ -22,6 +22,17 @@ import {
 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { logger } from "@/lib/logger"
 import { toast } from "sonner"
 import {
@@ -29,12 +40,22 @@ import {
   removeServer,
   reconnectServer,
   testConnection,
+  MCP_EVENTS,
   type McpServerSummary,
   type McpServerState,
   type McpTransportKind,
 } from "@/lib/mcp"
 import McpServerEditDialog from "./McpServerEditDialog"
 import McpImportDialog from "./McpImportDialog"
+
+/** Single slot describing what the edit dialog is showing (if anything).
+ * Combining "add" vs "edit(existing server)" into one discriminator
+ * removes a whole class of bugs where `editingId` points at a row that
+ * was deleted between refresh ticks. */
+type EditTarget =
+  | { mode: "add" }
+  | { mode: "edit"; server: McpServerSummary }
+  | null
 
 // ── Status visuals ───────────────────────────────────────────────
 
@@ -64,10 +85,11 @@ export default function McpServersPanel() {
   const { t } = useTranslation()
   const [servers, setServers] = useState<McpServerSummary[]>([])
   const [loading, setLoading] = useState(true)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [addingNew, setAddingNew] = useState(false)
+  const [edit, setEdit] = useState<EditTarget>(null)
   const [importing, setImporting] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] =
+    useState<{ id: string; name: string } | null>(null)
 
   const refresh = useCallback(async () => {
     try {
@@ -92,7 +114,7 @@ export default function McpServersPanel() {
     // import to keep the panel file independent of transport-provider's
     // init order.
     import("@/lib/transport-provider").then(({ transport }) => {
-      cleanup = transport.listen("mcp:servers_changed", () => {
+      cleanup = transport.listen(MCP_EVENTS.SERVERS_CHANGED, () => {
         refresh()
       })
     })
@@ -136,34 +158,23 @@ export default function McpServersPanel() {
     [refresh],
   )
 
-  const handleDelete = useCallback(
-    async (id: string, name: string) => {
-      // Plain confirm here — AlertDialog works but adds overhead for a
-      // screen users enter rarely.
-      const ok = window.confirm(
-        t("settings.mcp.confirmDelete", { name }),
-      )
-      if (!ok) return
-      try {
-        await removeServer(id)
-        toast.success(t("settings.mcp.deleted", { name }))
-        refresh()
-      } catch (e) {
-        toast.error(String(e))
-      }
-    },
-    [refresh, t],
-  )
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return
+    const { id, name } = pendingDelete
+    setPendingDelete(null)
+    try {
+      await removeServer(id)
+      toast.success(t("settings.mcp.deleted", { name }))
+      refresh()
+    } catch (e) {
+      toast.error(String(e))
+    }
+  }, [pendingDelete, refresh, t])
 
   const handleAfterEdit = useCallback(() => {
-    setEditingId(null)
-    setAddingNew(false)
+    setEdit(null)
     refresh()
   }, [refresh])
-
-  const editing = editingId
-    ? servers.find((s) => s.id === editingId) ?? null
-    : null
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -190,7 +201,7 @@ export default function McpServersPanel() {
           </Button>
           <Button
             size="sm"
-            onClick={() => setAddingNew(true)}
+            onClick={() => setEdit({ mode: "add" })}
             className="gap-1.5"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -207,7 +218,10 @@ export default function McpServersPanel() {
             {t("common.loading")}
           </div>
         ) : servers.length === 0 ? (
-          <EmptyState onAdd={() => setAddingNew(true)} onImport={() => setImporting(true)} />
+          <EmptyState
+            onAdd={() => setEdit({ mode: "add" })}
+            onImport={() => setImporting(true)}
+          />
         ) : (
           <div className="divide-y divide-border">
             {servers.map((server) => (
@@ -215,10 +229,12 @@ export default function McpServersPanel() {
                 key={server.id}
                 server={server}
                 busy={busyId === server.id}
-                onEdit={() => setEditingId(server.id)}
+                onEdit={() => setEdit({ mode: "edit", server })}
                 onTest={() => handleTest(server.id)}
                 onReconnect={() => handleReconnect(server.id)}
-                onDelete={() => handleDelete(server.id, server.name)}
+                onDelete={() =>
+                  setPendingDelete({ id: server.id, name: server.name })
+                }
               />
             ))}
           </div>
@@ -226,14 +242,11 @@ export default function McpServersPanel() {
       </div>
 
       {/* Edit / Add dialogs */}
-      {(editing || addingNew) && (
+      {edit && (
         <McpServerEditDialog
           open
-          initial={editing}
-          onClose={() => {
-            setEditingId(null)
-            setAddingNew(false)
-          }}
+          initial={edit.mode === "edit" ? edit.server : null}
+          onClose={() => setEdit(null)}
           onSaved={handleAfterEdit}
         />
       )}
@@ -248,6 +261,37 @@ export default function McpServersPanel() {
           }}
         />
       )}
+
+      <AlertDialog
+        open={pendingDelete !== null}
+        onOpenChange={(o) => {
+          if (!o) setPendingDelete(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("settings.mcp.confirmDeleteTitle", {
+                name: pendingDelete?.name ?? "",
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.mcp.confirmDelete", {
+                name: pendingDelete?.name ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
@@ -282,10 +326,12 @@ function ServerRow({
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <div
-              className={`h-2 w-2 rounded-full shrink-0 ${dot}`}
-              title={t(`settings.mcp.state.${state}`)}
-            />
+            <IconTip label={t(`settings.mcp.state.${state}`)}>
+              <span
+                className={`h-2 w-2 rounded-full shrink-0 ${dot}`}
+                aria-label={t(`settings.mcp.state.${state}`)}
+              />
+            </IconTip>
             <span className="font-medium truncate">{server.name}</span>
             <span
               className={`text-xs px-1.5 py-0.5 rounded ${badge}`}

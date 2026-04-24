@@ -712,6 +712,7 @@
       "emptyDesc": "Add an MCP server or import one from a Claude Desktop config. stdio servers work today; remote HTTP/SSE/WebSocket transports arrive in a later phase.",
       "loadFailed": "Failed to load servers",
       "confirmDelete": "Delete server \"{{name}}\"? This cannot be undone.",
+      "confirmDeleteTitle": "Delete \"{{name}}\"?",
       "deleted": "Server \"{{name}}\" deleted",
       "testSuccess": "Connected — {{count}} tools",
       "testFailed": "Connection failed",

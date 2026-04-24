@@ -66,9 +66,34 @@ impl McpServerSummary {
             prompt_count: snap.prompt_count,
             consecutive_failures: snap.consecutive_failures,
             last_health_check_ts: snap.last_health_check_ts,
-            config,
+            config: redact_for_response(config),
         }
     }
+}
+
+/// Strip every field on an [`McpServerConfig`] that could leak a secret
+/// when serialized back to the GUI / HTTP client: the OAuth client
+/// secret, each env value, and every header value (we keep the keys so
+/// the editor shows which variables / headers were configured).
+///
+/// `#[serde(flatten)]` on `McpServerSummary.config` means any new
+/// sensitive field added to `McpServerConfig` rides along automatically;
+/// bake the redaction here so that "add field" stays the single mental
+/// model for schema evolution.
+fn redact_for_response(mut cfg: McpServerConfig) -> McpServerConfig {
+    const REDACTED: &str = "<redacted>";
+    if let Some(oauth) = cfg.oauth.as_mut() {
+        if oauth.client_secret.is_some() {
+            oauth.client_secret = Some(REDACTED.into());
+        }
+    }
+    for v in cfg.env.values_mut() {
+        *v = REDACTED.into();
+    }
+    for v in cfg.headers.values_mut() {
+        *v = REDACTED.into();
+    }
+    cfg
 }
 
 /// Minimal tool descriptor returned by `list_server_tools` for the GUI's
@@ -263,26 +288,22 @@ pub async fn update_global_settings(new_settings: McpGlobalSettings) -> Result<(
 }
 
 /// Add a new server. Runs `validate()` before persisting — invalid
-/// drafts come back as a 400-shaped anyhow error.
+/// drafts come back as a 400-shaped anyhow error. Uniqueness on `name`
+/// is re-checked **inside** the mutate_config closure so two concurrent
+/// add requests can't race past a stale cached snapshot.
 pub async fn add_server(draft: McpServerDraft) -> Result<McpServerSummary> {
     let now = now_secs();
     let cfg = draft.into_config(now, None);
     cfg.validate().map_err(|e| anyhow!("{e}"))?;
 
-    // Reject duplicates on `name` — the namespace `mcp__<name>__*` must
-    // be unique across the whole list.
-    {
-        let store = cached_config();
-        if store.mcp_servers.iter().any(|s| s.name == cfg.name) {
-            return Err(anyhow!(
-                "A server named '{}' already exists; choose a different name",
-                cfg.name
-            ));
-        }
-    }
-
     let saved = cfg.clone();
     mutate_config(("mcp.add", "settings_panel"), |store| {
+        if store.mcp_servers.iter().any(|s| s.name == saved.name) {
+            return Err(anyhow!(
+                "A server named '{}' already exists; choose a different name",
+                saved.name
+            ));
+        }
         store.mcp_servers.push(saved.clone());
         Ok(())
     })?;
@@ -294,34 +315,30 @@ pub async fn add_server(draft: McpServerDraft) -> Result<McpServerSummary> {
 /// refreshes `updated_at`.
 pub async fn update_server(id: &str, draft: McpServerDraft) -> Result<McpServerSummary> {
     let now = now_secs();
-    let store = cached_config();
-    let existing = store
+    let existing = cached_config()
         .mcp_servers
         .iter()
         .find(|s| s.id == id)
         .cloned()
         .ok_or_else(|| anyhow!("MCP server '{id}' not found"))?;
-    drop(store);
 
     let new_cfg = draft.into_config(now, Some(&existing));
     new_cfg.validate().map_err(|e| anyhow!("{e}"))?;
 
-    if new_cfg.name != existing.name {
-        let store = cached_config();
+    let saved = new_cfg.clone();
+    mutate_config(("mcp.update", "settings_panel"), |store| {
+        // Rename + uniqueness re-checked atomically against the live
+        // snapshot so two concurrent edits can't collide.
         if store
             .mcp_servers
             .iter()
-            .any(|s| s.id != new_cfg.id && s.name == new_cfg.name)
+            .any(|s| s.id != saved.id && s.name == saved.name)
         {
             return Err(anyhow!(
                 "A server named '{}' already exists; choose a different name",
-                new_cfg.name
+                saved.name
             ));
         }
-    }
-
-    let saved = new_cfg.clone();
-    mutate_config(("mcp.update", "settings_panel"), |store| {
         let Some(slot) = store.mcp_servers.iter_mut().find(|s| s.id == id) else {
             return Err(anyhow!("MCP server '{id}' not found"));
         };
@@ -528,9 +545,13 @@ pub async fn import_claude_desktop_config(raw_json: &str) -> Result<ImportSummar
 
     let outer: Outer = serde_json::from_str(raw_json).map_err(|e| anyhow!("Invalid JSON: {e}"))?;
 
-    let mut imported = Vec::new();
+    // Step 1 — validate each entry OUTSIDE of `mutate_config`. Name
+    // normalization, regex validation, and per-entry config construction
+    // are pure functions; doing them up front lets us fail fast per
+    // entry and keeps the mutate_config closure short.
+    let mut prepared: Vec<(String, McpServerConfig)> = Vec::new();
     let mut skipped = Vec::new();
-
+    let now = now_secs();
     for (raw_name, server) in outer.mcp_servers {
         let name = normalize_name_for_import(&raw_name);
         if !super::config::is_valid_name(&name) {
@@ -539,16 +560,6 @@ pub async fn import_claude_desktop_config(raw_json: &str) -> Result<ImportSummar
                 reason: format!("invalid server name '{name}' (must match ^[a-z0-9_-]{{1,32}}$)"),
             });
             continue;
-        }
-        {
-            let store = cached_config();
-            if store.mcp_servers.iter().any(|s| s.name == name) {
-                skipped.push(ImportSkip {
-                    name: raw_name.clone(),
-                    reason: "a server with this name already exists".into(),
-                });
-                continue;
-            }
         }
         let (transport, headers, env_map) = match server {
             ClaudeDesktopServer::Stdio {
@@ -602,15 +613,63 @@ pub async fn import_claude_desktop_config(raw_json: &str) -> Result<ImportSummar
             icon: None,
             trust_acknowledged_at: None,
         };
-        match add_server(draft).await {
-            Ok(_) => imported.push(name),
-            Err(e) => skipped.push(ImportSkip {
+        let cfg = draft.into_config(now, None);
+        if let Err(e) = cfg.validate() {
+            skipped.push(ImportSkip {
                 name: raw_name,
-                reason: format!("{e}"),
-            }),
+                reason: e.to_string(),
+            });
+            continue;
         }
+        prepared.push((raw_name, cfg));
     }
 
+    if prepared.is_empty() {
+        return Ok(ImportSummary {
+            imported: Vec::new(),
+            skipped,
+        });
+    }
+
+    // Step 2 — one atomic `mutate_config` call for every valid entry.
+    // Collisions against the live list (or among the prepared batch
+    // itself) are resolved inside the closure so nothing races past a
+    // stale cached snapshot. One reconcile + one `mcp:servers_changed`
+    // event at the end regardless of batch size — no storm of per-entry
+    // reconciles on a big import.
+    let batch = prepared.clone();
+    let skipped_from_mutate: Vec<ImportSkip> = mutate_config(
+        ("mcp.import", "settings_panel"),
+        |store| -> Result<Vec<ImportSkip>> {
+            let mut inner_skipped = Vec::new();
+            for (raw_name, cfg) in batch {
+                if store.mcp_servers.iter().any(|s| s.name == cfg.name) {
+                    inner_skipped.push(ImportSkip {
+                        name: raw_name,
+                        reason: "a server with this name already exists".into(),
+                    });
+                    continue;
+                }
+                store.mcp_servers.push(cfg);
+            }
+            Ok(inner_skipped)
+        },
+    )?;
+
+    // Figure out which prepared entries made it by diffing against the
+    // skip list returned by the mutate closure.
+    let skipped_names: std::collections::HashSet<&str> = skipped_from_mutate
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
+    let imported: Vec<String> = prepared
+        .into_iter()
+        .filter(|(raw_name, _)| !skipped_names.contains(raw_name.as_str()))
+        .map(|(_, cfg)| cfg.name)
+        .collect();
+    skipped.extend(skipped_from_mutate);
+
+    reconcile_from_cache().await?;
     Ok(ImportSummary { imported, skipped })
 }
 

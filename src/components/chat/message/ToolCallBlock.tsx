@@ -38,6 +38,7 @@ import {
   Plug,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { parseMcpToolName } from "@/lib/mcp"
 import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
@@ -279,7 +280,7 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
   }, [tool.name, tool.arguments, tool.result])
 
   const skillName = getSkillName(tool.name, tool.arguments)
-  const isMcpTool = tool.name.startsWith("mcp__")
+  const isMcpTool = parseMcpToolName(tool.name) !== null
   const Icon = skillName
     ? FileCode
     : isMcpTool

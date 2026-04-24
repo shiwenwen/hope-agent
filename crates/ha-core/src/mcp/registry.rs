@@ -266,11 +266,17 @@ impl McpManager {
     }
 
     /// Snapshots of every registered server, for the settings panel /
-    /// `get_settings(category="mcp")`.
+    /// `get_settings(category="mcp")`. Clones the handle Arcs up front
+    /// so we don't hold `servers` read lock while awaiting each
+    /// per-server snapshot — a slow `state.lock()` would otherwise
+    /// block every concurrent reader.
     pub async fn snapshot_all(&self) -> Vec<ServerStatusSnapshot> {
-        let servers = self.servers.read().await;
-        let mut out = Vec::with_capacity(servers.len());
-        for handle in servers.values() {
+        let handles: Vec<Arc<ServerHandle>> = {
+            let servers = self.servers.read().await;
+            servers.values().cloned().collect()
+        };
+        let mut out = Vec::with_capacity(handles.len());
+        for handle in handles {
             out.push(handle.snapshot().await);
         }
         out.sort_by(|a, b| a.name.cmp(&b.name));
