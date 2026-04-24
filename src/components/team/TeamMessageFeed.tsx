@@ -17,11 +17,7 @@ type TeamFeedRow =
   | { type: "empty"; key: "empty" }
   | { type: "message"; key: string; message: TeamMessage }
 
-export function TeamMessageFeed({
-  messages,
-  members,
-  onSendMessage,
-}: TeamMessageFeedProps) {
+export function TeamMessageFeed({ messages, members, onSendMessage }: TeamMessageFeedProps) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
 
@@ -35,13 +31,16 @@ export function TeamMessageFeed({
   }, [messages])
 
   const getRowKey = useCallback((row: TeamFeedRow) => row.key, [])
-  const estimateSize = useCallback((index: number) => {
-    const row = rows[index]
-    if (!row) return 56
-    if (row.type === "empty") return 160
-    if (row.message.messageType === "system") return 28
-    return 56
-  }, [rows])
+  const estimateSize = useCallback(
+    (index: number) => {
+      const row = rows[index]
+      if (!row) return 56
+      if (row.type === "empty") return 160
+      if (row.message.messageType === "system") return 28
+      return 56
+    },
+    [rows],
+  )
 
   const lastMessage = messages[messages.length - 1]
   const followKey = `${messages.length}:${lastMessage?.messageId ?? ""}:${lastMessage?.content.length ?? 0}`
@@ -51,6 +50,8 @@ export function TeamMessageFeed({
     estimateSize,
     overscan: 8,
     gap: 2,
+    paddingStart: 8,
+    paddingEnd: 8,
     followKey,
     resetKey: lastMessage?.teamId ?? "team-feed",
   })
@@ -66,9 +67,7 @@ export function TeamMessageFeed({
     const atMatch = text.match(/^@(\S+)\s+(.+)$/s)
     if (atMatch) {
       const targetName = atMatch[1]
-      const member = members.find(
-        (m) => m.name.toLowerCase() === targetName.toLowerCase(),
-      )
+      const member = members.find((m) => m.name.toLowerCase() === targetName.toLowerCase())
       if (member) {
         to = member.memberId
         content = atMatch[2]
@@ -98,21 +97,13 @@ export function TeamMessageFeed({
       )
     }
 
-    return (
-      <TeamMessageBubble
-        message={row.message}
-        members={members}
-      />
-    )
+    return <TeamMessageBubble message={row.message} members={members} />
   }
 
   return (
     <div className="flex flex-col h-full">
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-y-auto min-h-0"
-      >
-        <div className="relative w-full py-2" style={{ height: totalSize }}>
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
+        <div className="relative w-full" style={{ height: totalSize }}>
           {virtualItems.map((virtualRow) => {
             const row = rows[virtualRow.index]
             if (!row) return null
@@ -136,10 +127,7 @@ export function TeamMessageFeed({
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={t(
-            "team.messagePlaceholder",
-            "Message team... (@name for DM)",
-          )}
+          placeholder={t("team.messagePlaceholder", "Message team... (@name for DM)")}
           className="flex-1 h-8 text-sm"
         />
         <Button

@@ -133,17 +133,20 @@ export default function MessageList({
 
   const getRowKey = useCallback((row: ChatRow) => row.key, [])
   const canAnchorRow = useCallback((row: ChatRow) => row.type === "message", [])
-  const estimateSize = useCallback((index: number) => {
-    const row = rows[index]
-    if (!row) return 120
-    if (row.type === "loadMore") return 40
-    if (row.type === "empty") return 240
-    if (row.type === "planRunning") return 52
-    if (row.type === "askUser" || row.type === "planCard") return 180
-    if (row.msg.role === "user") return 76
-    if (row.msg.role === "event" || row.msg.isSubagentResult || row.msg.isCronTrigger) return 48
-    return 120
-  }, [rows])
+  const estimateSize = useCallback(
+    (index: number) => {
+      const row = rows[index]
+      if (!row) return 120
+      if (row.type === "loadMore") return 40
+      if (row.type === "empty") return 240
+      if (row.type === "planRunning") return 52
+      if (row.type === "askUser" || row.type === "planCard") return 180
+      if (row.msg.role === "user") return 76
+      if (row.msg.role === "event" || row.msg.isSubagentResult || row.msg.isCronTrigger) return 48
+      return 120
+    },
+    [rows],
+  )
 
   const lastMsg = messages[messages.length - 1]
   const followKey = `${messages.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.contentBlocks?.length ?? 0}`
@@ -153,6 +156,8 @@ export default function MessageList({
     estimateSize,
     overscan: 8,
     gap: 16,
+    paddingStart: 24,
+    paddingEnd: 24,
     followOutput: loading,
     followKey,
     resetKey: sessionId ?? "draft-session",
@@ -323,7 +328,7 @@ export default function MessageList({
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-6">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4">
       <div className="relative w-full" style={{ height: totalSize }}>
         {virtualItems.map((virtualRow) => {
           const row = rows[virtualRow.index]

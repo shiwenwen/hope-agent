@@ -46,14 +46,17 @@ export default function QuickChatMessages({
   }, [messages, onNavigateToSession, sessionId])
 
   const getRowKey = useCallback((row: QuickChatRow) => row.key, [])
-  const estimateSize = useCallback((index: number) => {
-    const row = rows[index]
-    if (!row) return 72
-    if (row.type === "viewFullChat") return 28
-    if (row.msg.role === "event") return 28
-    if (row.msg.role === "user") return 58
-    return 72
-  }, [rows])
+  const estimateSize = useCallback(
+    (index: number) => {
+      const row = rows[index]
+      if (!row) return 72
+      if (row.type === "viewFullChat") return 28
+      if (row.msg.role === "event") return 28
+      if (row.msg.role === "user") return 58
+      return 72
+    },
+    [rows],
+  )
 
   const lastMsg = messages[messages.length - 1]
   const followKey = `${rows.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.toolCalls?.length ?? 0}`
@@ -63,6 +66,8 @@ export default function QuickChatMessages({
     estimateSize,
     overscan: 6,
     gap: 12,
+    paddingStart: 12,
+    paddingEnd: 12,
     followOutput: loading,
     followKey,
     resetKey: sessionId ?? "quick-chat",
@@ -87,11 +92,7 @@ export default function QuickChatMessages({
 
     const { msg, originalIndex } = row
     if (msg.role === "event") {
-      return (
-        <div className="text-xs text-center text-muted-foreground py-1">
-          {msg.content}
-        </div>
-      )
+      return <div className="text-xs text-center text-muted-foreground py-1">{msg.content}</div>
     }
 
     if (msg.role === "user") {
@@ -138,7 +139,7 @@ export default function QuickChatMessages({
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-4 py-3">
+    <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-4">
       <div className="relative w-full" style={{ height: totalSize }}>
         {virtualItems.map((virtualRow) => {
           const row = rows[virtualRow.index]

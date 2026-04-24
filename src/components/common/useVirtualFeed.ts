@@ -9,6 +9,8 @@ interface UseVirtualFeedOptions<T> {
   estimateSize: (index: number) => number
   overscan?: number
   gap?: number
+  paddingStart?: number
+  paddingEnd?: number
   followOutput?: boolean
   followKey?: RowKey | null
   resetKey?: RowKey | null
@@ -33,6 +35,8 @@ export function useVirtualFeed<T>({
   estimateSize,
   overscan = 8,
   gap = 0,
+  paddingStart = 0,
+  paddingEnd = 0,
   followOutput = false,
   followKey = null,
   resetKey = null,
@@ -75,6 +79,8 @@ export function useVirtualFeed<T>({
     },
     gap,
     overscan,
+    paddingStart,
+    paddingEnd,
     useAnimationFrameWithResizeObserver: true,
   })
 
@@ -91,7 +97,7 @@ export function useVirtualFeed<T>({
         requestAnimationFrame(() => {
           const latest = scrollRef.current
           if (!latest || isUserScrolledUpRef.current) return
-          latest.scrollTop = latest.scrollHeight
+          latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
         })
       })
     },
@@ -208,10 +214,7 @@ export function useVirtualFeed<T>({
           next.scrollTop = Math.max(0, next.scrollTop - anchor.offset)
         })
       } else {
-        latest.scrollTop = Math.max(
-          0,
-          anchor.scrollTop + latest.scrollHeight - anchor.scrollHeight,
-        )
+        latest.scrollTop = Math.max(0, anchor.scrollTop + latest.scrollHeight - anchor.scrollHeight)
       }
       pendingAnchorRef.current = null
       startLoadPendingRef.current = false
