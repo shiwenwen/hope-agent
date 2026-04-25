@@ -1860,7 +1860,41 @@
     "serverConnSubLocal": "{{count}} 本機",
     "serverChatSourceDesktop": "{{count}} 桌面",
     "serverChatSourceHttp": "{{count}} HTTP",
-    "serverChatSourceChannel": "{{count}} 頻道"
+    "serverChatSourceChannel": "{{count}} 頻道",
+    "skillsImport": {
+      "button": "快速匯入",
+      "dialogTitle": "快速匯入 skill 目錄",
+      "dialogDescription": "掃描已知第三方 skill 來源（Claude Code、OpenClaw、Hermes Agent、Anthropic marketplace），並把已安裝的目錄一鍵加入。",
+      "cc": {
+        "user": "Claude Code 使用者層級 skill",
+        "plugins": "Claude Code 外掛 skill",
+        "anthropic": "Anthropic Agent Skills marketplace"
+      },
+      "openclaw": "OpenClaw 倉庫 skill",
+      "hermes": "Hermes Agent 倉庫 skill",
+      "notFound": "本機未發現相符路徑。",
+      "alreadyAdded": "已加入",
+      "skillCount_one": "{{count}} 個 skill",
+      "skillCount_other": "{{count}} 個 skill",
+      "skillCount": "{{count}} 個 skill",
+      "add": "加入",
+      "warning": {
+        "openclaw": "OpenClaw 多數 skill 依賴外部 CLI（gh、1password、tmux 等），未安裝時呼叫會失敗。",
+        "proprietary": "Anthropic 的 skill 為專有授權，使用前請確認你與 Anthropic 的服務條款。"
+      },
+      "tooltip": {
+        "distinguishOnboarding": "若要遷移舊版 OpenClaw 使用者資料，請使用第 2 步『Import OpenClaw』。"
+      },
+      "error": {
+        "discover": "發現預設 skill 來源失敗",
+        "add": "加入目錄失敗"
+      }
+    },
+    "skillExtras": {
+      "licenseWarning": "來源授權：{{license}}",
+      "relatedSkills": "相關 skill",
+      "installHint": "執行 {{cmd}} 安裝相依套件"
+    }
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

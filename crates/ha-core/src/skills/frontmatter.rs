@@ -42,6 +42,10 @@ pub(super) struct ParsedFrontmatter {
     pub status: SkillStatus,
     pub authored_by: Option<String>,
     pub rationale: Option<String>,
+    /// Display-only metadata aggregated from top-level YAML and vendor-
+    /// namespaced `metadata.openclaw` / `metadata.hermes` blocks. See
+    /// [`crate::skills::SkillDisplay`].
+    pub display: SkillDisplay,
 }
 
 /// Extract YAML frontmatter from a SKILL.md file content.
@@ -77,35 +81,137 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
     let mut status: SkillStatus = SkillStatus::Active;
     let mut authored_by: Option<String> = None;
     let mut rationale: Option<String> = None;
+    // Display-only top-level fields. Lifted into `SkillDisplay` after the loop,
+    // merged with anything pulled from `metadata.<vendor>` namespaces.
+    let mut top_version: Option<String> = None;
+    let mut top_license: Option<String> = None;
+    let mut top_author: Option<String> = None;
 
-    let requires = parse_requires(yaml_block);
-    let install = parse_install_specs(yaml_block);
+    let mut requires = parse_requires(yaml_block);
+    let mut install = parse_install_specs(yaml_block);
+    let mut nested = parse_metadata_namespaces(yaml_block);
 
-    for line in yaml_block.lines() {
+    // Lift vendor-namespaced requires/install into top-level when the user
+    // didn't set the canonical fields. This makes vendored OW skills work
+    // out-of-the-box without losing dependency-check info.
+    if requires.is_empty() {
+        if let Some(req) = nested.openclaw_requires.take() {
+            requires = req;
+        } else if let Some(req) = nested.hermes_requires.take() {
+            requires = req;
+        }
+    }
+    if install.is_empty() {
+        if !nested.openclaw_install.is_empty() {
+            install = std::mem::take(&mut nested.openclaw_install);
+        } else if !nested.hermes_install.is_empty() {
+            install = std::mem::take(&mut nested.hermes_install);
+        }
+    }
+
+    let lines: Vec<&str> = yaml_block.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
         let line_trimmed = line.trim();
         // Only parse root-level keys (no indentation)
         let indent = line.len() - line.trim_start().len();
-        if indent > 0 {
+        if indent > 0 || line_trimmed.is_empty() {
+            i += 1;
             continue;
         }
+
+        // String-typed fields. Each candidate key produces a single-line value
+        // unless it ends with `>` (folded block scalar — newlines collapse to
+        // spaces) or `|` (literal block scalar — newlines preserved); both are
+        // followed by an indented continuation block. See Hermes Agent /
+        // Anthropic SKILL.md authoring conventions which lean heavily on `>`
+        // for long descriptions.
         if let Some(rest) = line_trimmed.strip_prefix("name:") {
+            // `name` is always single-line — keep simple.
             name = Some(unquote(rest.trim()));
-        } else if let Some(rest) = line_trimmed.strip_prefix("description:") {
-            description = Some(unquote(rest.trim()));
-        } else if let Some(rest) = line_trimmed.strip_prefix("aliases:") {
-            if let Some(arr) = parse_inline_string_array(rest.trim()) {
-                aliases = arr;
-            }
-        } else if let Some(rest) = line_trimmed
-            .strip_prefix("whenToUse:")
-            .or_else(|| line_trimmed.strip_prefix("when-to-use:"))
-            .or_else(|| line_trimmed.strip_prefix("when_to_use:"))
+            i += 1;
+            continue;
+        }
+        if let Some((value, consumed)) =
+            read_string_field(&lines, i, line_trimmed, &["description:"])
         {
-            let val = unquote(rest.trim());
-            if !val.is_empty() {
-                when_to_use = Some(val);
+            description = Some(value);
+            i += consumed;
+            continue;
+        }
+        if let Some((value, consumed)) = read_string_field(
+            &lines,
+            i,
+            line_trimmed,
+            &["whenToUse:", "when-to-use:", "when_to_use:"],
+        ) {
+            if !value.is_empty() {
+                when_to_use = Some(value);
             }
-        } else if let Some(rest) = line_trimmed
+            i += consumed;
+            continue;
+        }
+        if let Some((value, consumed)) = read_string_field(&lines, i, line_trimmed, &["rationale:"])
+        {
+            if !value.is_empty() {
+                rationale = Some(value);
+            }
+            i += consumed;
+            continue;
+        }
+        if let Some((value, consumed)) = read_string_field(
+            &lines,
+            i,
+            line_trimmed,
+            &["command-prompt-template:", "command_prompt_template:"],
+        ) {
+            if !value.is_empty() {
+                command_prompt_template = Some(value);
+            }
+            i += consumed;
+            continue;
+        }
+
+        // List-typed fields. Each accepts inline `[a, b]` or block `- a\n  - b`
+        // syntax. The hand-rolled parser previously only honored inline; the
+        // block form is what Hermes vendors use heavily.
+        if let Some((items, consumed)) = read_list_field(&lines, i, line_trimmed, &["aliases:"]) {
+            aliases = items;
+            i += consumed;
+            continue;
+        }
+        if let Some((items, consumed)) = read_list_field(&lines, i, line_trimmed, &["paths:"]) {
+            if !items.is_empty() {
+                paths = Some(items);
+            }
+            i += consumed;
+            continue;
+        }
+        if let Some((items, consumed)) = read_list_field(
+            &lines,
+            i,
+            line_trimmed,
+            &["allowed-tools:", "allowed_tools:"],
+        ) {
+            allowed_tools = items;
+            i += consumed;
+            continue;
+        }
+        if let Some((items, consumed)) = read_list_field(
+            &lines,
+            i,
+            line_trimmed,
+            &["command-arg-options:", "command_arg_options:"],
+        ) {
+            command_arg_options = if items.is_empty() { None } else { Some(items) };
+            i += consumed;
+            continue;
+        }
+
+        // Single-line value fields. The remaining keys never legitimately
+        // appear as block scalars; treat the rest of the line as the value.
+        if let Some(rest) = line_trimmed
             .strip_prefix("skillKey:")
             .or_else(|| line_trimmed.strip_prefix("skill_key:"))
         {
@@ -144,26 +250,6 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             .or_else(|| line_trimmed.strip_prefix("argument_hint:"))
         {
             command_arg_placeholder = Some(unquote(rest.trim()));
-        } else if let Some(rest) = line_trimmed
-            .strip_prefix("command-arg-options:")
-            .or_else(|| line_trimmed.strip_prefix("command_arg_options:"))
-        {
-            command_arg_options = parse_inline_string_array(rest.trim());
-        } else if let Some(rest) = line_trimmed
-            .strip_prefix("command-prompt-template:")
-            .or_else(|| line_trimmed.strip_prefix("command_prompt_template:"))
-        {
-            let val = unquote(rest.trim());
-            if !val.is_empty() {
-                command_prompt_template = Some(val);
-            }
-        } else if let Some(rest) = line_trimmed
-            .strip_prefix("allowed-tools:")
-            .or_else(|| line_trimmed.strip_prefix("allowed_tools:"))
-        {
-            if let Some(arr) = parse_inline_string_array(rest.trim()) {
-                allowed_tools = arr;
-            }
         } else if let Some(rest) = line_trimmed.strip_prefix("context:") {
             let val = unquote(rest.trim());
             if !val.is_empty() {
@@ -179,12 +265,6 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             if !val.is_empty() {
                 effort = Some(val);
             }
-        } else if let Some(rest) = line_trimmed.strip_prefix("paths:") {
-            if let Some(arr) = parse_inline_string_array(rest.trim()) {
-                if !arr.is_empty() {
-                    paths = Some(arr);
-                }
-            }
         } else if let Some(rest) = line_trimmed.strip_prefix("status:") {
             let val = unquote(rest.trim());
             if !val.is_empty() {
@@ -198,12 +278,28 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             if !val.is_empty() {
                 authored_by = Some(val);
             }
-        } else if let Some(rest) = line_trimmed.strip_prefix("rationale:") {
+        } else if let Some(rest) = line_trimmed.strip_prefix("version:") {
+            // Display-only top-level field used by Hermes / Anthropic skills.
             let val = unquote(rest.trim());
             if !val.is_empty() {
-                rationale = Some(val);
+                top_version = Some(val);
+            }
+        } else if let Some(rest) = line_trimmed.strip_prefix("license:") {
+            // Display-only. Surfaced as a badge so users see "Proprietary"
+            // skills (Anthropic marketplace) clearly distinguished from MIT.
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                top_license = Some(val);
+            }
+        } else if let Some(rest) = line_trimmed.strip_prefix("author:") {
+            // Display-only. Distinct from `authored_by` (which is HA's
+            // internal "user vs auto-review" provenance flag).
+            let val = unquote(rest.trim());
+            if !val.is_empty() {
+                top_author = Some(val);
             }
         }
+        i += 1;
     }
 
     let name = name.filter(|n| !n.is_empty())?;
@@ -216,6 +312,20 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
             command_prompt_template = Some(body_trimmed.to_string());
         }
     }
+
+    // Assemble display from top-level fields + vendor-namespaced metadata.
+    // Top-level wins; vendor namespaces fill in only when top-level is absent.
+    let mut display = SkillDisplay {
+        emoji: nested.openclaw_emoji.or(nested.hermes_emoji),
+        version: top_version,
+        license: top_license,
+        license_label: None,
+        is_proprietary: false,
+        author: top_author,
+        tags: nested.hermes_tags,
+        related_skills: nested.hermes_related_skills,
+    };
+    display.finalize();
 
     Some(ParsedFrontmatter {
         name,
@@ -242,7 +352,112 @@ pub(super) fn parse_frontmatter(content: &str) -> Option<ParsedFrontmatter> {
         status,
         authored_by,
         rationale,
+        display,
     })
+}
+
+/// Try to parse a string-typed root-level field starting at `lines[i]`.
+///
+/// Returns `Some((value, consumed))` when one of `keys` matches the line, where
+/// `consumed` is the number of lines (>= 1) the field spans:
+///
+/// - Inline (`key: value`) → consumes 1 line.
+/// - Folded block scalar (`key: >`) → joins continuation lines with spaces.
+/// - Literal block scalar (`key: |`) → joins continuation lines with `\n`.
+///
+/// Continuation lines are any indented or empty lines following the key; the
+/// block ends at the next root-level non-empty line. Mirrors the YAML 1.2
+/// rules just enough to handle real-world SKILL.md vendored from Hermes
+/// Agent / Anthropic, without pulling in a full YAML library.
+fn read_string_field(
+    lines: &[&str],
+    i: usize,
+    line_trimmed: &str,
+    keys: &[&str],
+) -> Option<(String, usize)> {
+    let rest = keys.iter().find_map(|k| line_trimmed.strip_prefix(k))?;
+    let val_after_colon = rest.trim();
+    if val_after_colon == ">" || val_after_colon == "|" {
+        let folded = val_after_colon == ">";
+        let (text, consumed) = read_continuation_block(lines, i + 1);
+        let joined = if folded {
+            text.into_iter().collect::<Vec<_>>().join(" ")
+        } else {
+            text.into_iter().collect::<Vec<_>>().join("\n")
+        };
+        Some((joined.trim().to_string(), 1 + consumed))
+    } else {
+        Some((unquote(val_after_colon), 1))
+    }
+}
+
+/// Try to parse a list-typed root-level field starting at `lines[i]`.
+///
+/// Returns `Some((items, consumed))` when one of `keys` matches the line:
+///
+/// - Inline `[a, b, c]` → consumes 1 line.
+/// - Empty value followed by `  - item` block list → consumes the block.
+/// - Empty value with no continuation → returns `Some((vec![], 1))` so the
+///   caller knows the key was seen (and decides whether to treat empty as
+///   "unset" or "explicitly empty").
+fn read_list_field(
+    lines: &[&str],
+    i: usize,
+    line_trimmed: &str,
+    keys: &[&str],
+) -> Option<(Vec<String>, usize)> {
+    let rest = keys.iter().find_map(|k| line_trimmed.strip_prefix(k))?;
+    let val_after_colon = rest.trim();
+    if val_after_colon.is_empty() {
+        // Block-list form: scan indented `- item` continuation lines.
+        let mut items = Vec::new();
+        let mut consumed = 0;
+        let mut j = i + 1;
+        while j < lines.len() {
+            let cont = lines[j];
+            let cont_trimmed = cont.trim();
+            let cont_indent = cont.len() - cont.trim_start().len();
+            if cont_indent == 0 && !cont_trimmed.is_empty() {
+                break;
+            }
+            if let Some(item) = cont_trimmed.strip_prefix("- ") {
+                let v = unquote(item.trim());
+                if !v.is_empty() {
+                    items.push(v);
+                }
+            }
+            consumed += 1;
+            j += 1;
+        }
+        Some((items, 1 + consumed))
+    } else if let Some(arr) = parse_inline_string_array(val_after_colon) {
+        Some((arr, 1))
+    } else {
+        // Bare value like `paths: foo` is malformed; treat as no list to
+        // preserve the existing parser's behavior.
+        Some((Vec::new(), 1))
+    }
+}
+
+/// Collect indented / blank continuation lines starting at `start`. Returns
+/// the trimmed payload of each non-empty line and the number of lines
+/// consumed (including any trailing blank lines that belong to the block).
+fn read_continuation_block(lines: &[&str], start: usize) -> (Vec<String>, usize) {
+    let mut payload = Vec::new();
+    let mut consumed = 0;
+    for j in start..lines.len() {
+        let line = lines[j];
+        let trimmed = line.trim();
+        let indent = line.len() - line.trim_start().len();
+        if indent == 0 && !trimmed.is_empty() {
+            break;
+        }
+        if !trimmed.is_empty() {
+            payload.push(trimmed.to_string());
+        }
+        consumed += 1;
+    }
+    (payload, consumed)
 }
 
 /// Parse a boolean-ish YAML value.
@@ -521,4 +736,311 @@ pub(super) fn unquote(s: &str) -> String {
     } else {
         s.to_string()
     }
+}
+
+// ── Vendor-namespaced metadata blocks ─────────────────────────────
+//
+// OpenClaw / Hermes / Anthropic skills nest some fields under
+// `metadata.<vendor>:`. We don't introduce a YAML library — the existing
+// hand-rolled parser is intentionally permissive — but we do a second pass
+// just for these namespaces so vendored skills don't lose their `requires`
+// / `install` / `tags` info when imported via Quick Import.
+
+#[derive(Debug, Default, Clone)]
+pub(super) struct MetadataNamespaces {
+    pub openclaw_requires: Option<SkillRequires>,
+    pub openclaw_install: Vec<SkillInstallSpec>,
+    pub openclaw_emoji: Option<String>,
+    pub hermes_requires: Option<SkillRequires>,
+    pub hermes_install: Vec<SkillInstallSpec>,
+    pub hermes_emoji: Option<String>,
+    pub hermes_tags: Vec<String>,
+    pub hermes_related_skills: Vec<String>,
+}
+
+/// Parse `metadata.openclaw.*` and `metadata.hermes.*` blocks. The grammar
+/// follows the existing parser's permissive style: indent-based, list items
+/// with `- ` prefix or inline `[a, b]`, no full YAML support.
+///
+/// Layout the parser handles:
+///
+/// ```yaml
+/// metadata:
+///   openclaw:
+///     emoji: "🐙"
+///     requires:
+///       bins: [gh]
+///       anyBins:
+///         - claude
+///         - codex
+///     install:
+///       - kind: brew
+///         formula: gh
+///   hermes:
+///     tags: [debugging, tdd]
+///     related_skills:
+///       - test-driven-development
+/// ```
+pub(super) fn parse_metadata_namespaces(yaml_block: &str) -> MetadataNamespaces {
+    let mut out = MetadataNamespaces::default();
+
+    // Cheap early-out — most SKILL.md files have no `metadata:` block at all,
+    // so spare the full scan. The substring check is O(n) on the yaml block
+    // (typically < 2 KB) and trips well below the regex/parser cost below.
+    if !yaml_block.contains("metadata:") {
+        return out;
+    }
+
+    let mut in_metadata = false;
+    let mut current_vendor: Option<String> = None; // "openclaw" | "hermes"
+    let mut current_subkey: Option<String> = None; // top-level under vendor
+                                                   // For nested blocks like `requires` (which has its own sub-keys), and
+                                                   // `install` (which is a list of objects). Keep one builder slot per
+                                                   // namespace.
+    let mut oc_install_builder: Option<InstallSpecBuilder> = None;
+    let mut oc_install_specs: Vec<SkillInstallSpec> = Vec::new();
+    let mut hr_install_builder: Option<InstallSpecBuilder> = None;
+    let mut hr_install_specs: Vec<SkillInstallSpec> = Vec::new();
+
+    for line in yaml_block.lines() {
+        if line.trim().is_empty() || line.trim().starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - line.trim_start().len();
+        let trimmed = line.trim();
+
+        // Indent 0: top-level YAML keys.
+        if indent == 0 {
+            // Flush any in-flight install builders (closing the namespace).
+            if let Some(b) = oc_install_builder.take() {
+                if let Some(spec) = b.build() {
+                    oc_install_specs.push(spec);
+                }
+            }
+            if let Some(b) = hr_install_builder.take() {
+                if let Some(spec) = b.build() {
+                    hr_install_specs.push(spec);
+                }
+            }
+
+            in_metadata = trimmed.starts_with("metadata:");
+            current_vendor = None;
+            current_subkey = None;
+            continue;
+        }
+
+        if !in_metadata {
+            continue;
+        }
+
+        // Indent 2: vendor key under `metadata:` — `openclaw:` / `hermes:`.
+        if indent == 2 {
+            if let Some(b) = oc_install_builder.take() {
+                if let Some(spec) = b.build() {
+                    oc_install_specs.push(spec);
+                }
+            }
+            if let Some(b) = hr_install_builder.take() {
+                if let Some(spec) = b.build() {
+                    hr_install_specs.push(spec);
+                }
+            }
+            current_subkey = None;
+            if let Some((key, _)) = trimmed.split_once(':') {
+                let key = key.trim();
+                if key == "openclaw" || key == "hermes" {
+                    current_vendor = Some(key.to_string());
+                } else {
+                    current_vendor = None;
+                }
+            } else {
+                current_vendor = None;
+            }
+            continue;
+        }
+
+        let vendor = match current_vendor.as_deref() {
+            Some(v) => v,
+            None => continue,
+        };
+
+        // Indent 4: leaf or sub-block under vendor.
+        if indent == 4 {
+            if let Some(b) = oc_install_builder.take() {
+                if let Some(spec) = b.build() {
+                    oc_install_specs.push(spec);
+                }
+            }
+            if let Some(b) = hr_install_builder.take() {
+                if let Some(spec) = b.build() {
+                    hr_install_specs.push(spec);
+                }
+            }
+            current_subkey = None;
+
+            if let Some((key, val)) = trimmed.split_once(':') {
+                let key = key.trim();
+                let val = val.trim();
+                match key {
+                    "emoji" => {
+                        let v = unquote(val);
+                        if !v.is_empty() {
+                            match vendor {
+                                "openclaw" => out.openclaw_emoji = Some(v),
+                                "hermes" => out.hermes_emoji = Some(v),
+                                _ => {}
+                            }
+                        }
+                    }
+                    "tags" if vendor == "hermes" => {
+                        if !val.is_empty() {
+                            let items = parse_yaml_inline_list(val);
+                            if !items.is_empty() {
+                                out.hermes_tags = items;
+                            } else {
+                                current_subkey = Some("tags".to_string());
+                            }
+                        } else {
+                            current_subkey = Some("tags".to_string());
+                        }
+                    }
+                    "related_skills" | "relatedSkills" if vendor == "hermes" => {
+                        if !val.is_empty() {
+                            let items = parse_yaml_inline_list(val);
+                            if !items.is_empty() {
+                                out.hermes_related_skills = items;
+                            } else {
+                                current_subkey = Some("related_skills".to_string());
+                            }
+                        } else {
+                            current_subkey = Some("related_skills".to_string());
+                        }
+                    }
+                    "requires" => {
+                        // Marker — sub-keys parsed below at indent 6+.
+                        current_subkey = Some("requires".to_string());
+                    }
+                    "install" => {
+                        current_subkey = Some("install".to_string());
+                    }
+                    _ => {}
+                }
+            }
+            continue;
+        }
+
+        // Indent ≥ 6: items inside a sub-block (`requires` / `install` / `tags` list).
+        let sub = match current_subkey.as_deref() {
+            Some(s) => s,
+            None => continue,
+        };
+
+        match sub {
+            "tags" if vendor == "hermes" => {
+                if let Some(item) = trimmed.strip_prefix("- ") {
+                    let v = unquote(item.trim());
+                    if !v.is_empty() {
+                        out.hermes_tags.push(v);
+                    }
+                }
+            }
+            "related_skills" if vendor == "hermes" => {
+                if let Some(item) = trimmed.strip_prefix("- ") {
+                    let v = unquote(item.trim());
+                    if !v.is_empty() {
+                        out.hermes_related_skills.push(v);
+                    }
+                }
+            }
+            // Inside the requires block. `sub` is "requires" while we're
+            // looking at the very first sub-key, then transitions to
+            // "requires:<key>" once we see e.g. `bins:` so subsequent list
+            // items at indent 8 know which target list to push into.
+            s if s == "requires" || s.starts_with("requires:") => {
+                let req = match vendor {
+                    "openclaw" => out
+                        .openclaw_requires
+                        .get_or_insert_with(SkillRequires::default),
+                    "hermes" => out
+                        .hermes_requires
+                        .get_or_insert_with(SkillRequires::default),
+                    _ => continue,
+                };
+                if indent == 6 {
+                    // Sub-key transition (bins / anyBins / env / os / config).
+                    if let Some((key, val)) = trimmed.split_once(':') {
+                        let key = key.trim();
+                        let val = val.trim();
+                        if !val.is_empty() {
+                            let items = parse_yaml_inline_list(val);
+                            push_requires_items(req, key, items);
+                        }
+                        current_subkey = Some(format!("requires:{}", key));
+                    }
+                } else if indent >= 8 {
+                    // List item under the currently-active requires sub-key.
+                    if let Some(item) = trimmed.strip_prefix("- ") {
+                        let key = current_subkey
+                            .as_deref()
+                            .and_then(|s| s.strip_prefix("requires:"))
+                            .unwrap_or("");
+                        let v = unquote(item.trim()).to_string();
+                        if !v.is_empty() && !key.is_empty() {
+                            push_requires_items(req, key, vec![v]);
+                        }
+                    }
+                }
+            }
+            "install" => {
+                let builder = match vendor {
+                    "openclaw" => &mut oc_install_builder,
+                    "hermes" => &mut hr_install_builder,
+                    _ => continue,
+                };
+                let specs = match vendor {
+                    "openclaw" => &mut oc_install_specs,
+                    "hermes" => &mut hr_install_specs,
+                    _ => continue,
+                };
+
+                // List item start: "- kind: brew"
+                if indent == 6 && trimmed.starts_with("- ") {
+                    if let Some(b) = builder.take() {
+                        if let Some(spec) = b.build() {
+                            specs.push(spec);
+                        }
+                    }
+                    let rest = &trimmed[2..];
+                    let mut nb = InstallSpecBuilder::default();
+                    if let Some((key, val)) = rest.split_once(':') {
+                        nb.set(key.trim(), val.trim());
+                    }
+                    *builder = Some(nb);
+                } else if indent >= 8 {
+                    if let Some(ref mut b) = builder {
+                        if let Some((key, val)) = trimmed.split_once(':') {
+                            b.set(key.trim(), val.trim());
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Final flush.
+    if let Some(b) = oc_install_builder.take() {
+        if let Some(spec) = b.build() {
+            oc_install_specs.push(spec);
+        }
+    }
+    if let Some(b) = hr_install_builder.take() {
+        if let Some(spec) = b.build() {
+            hr_install_specs.push(spec);
+        }
+    }
+    out.openclaw_install = oc_install_specs;
+    out.hermes_install = hr_install_specs;
+
+    out
 }

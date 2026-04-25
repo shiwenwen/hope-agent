@@ -201,6 +201,7 @@ mod tests {
             status: crate::skills::types::SkillStatus::Active,
             authored_by: None,
             rationale: None,
+            display: crate::skills::types::SkillDisplay::default(),
         }
     }
 

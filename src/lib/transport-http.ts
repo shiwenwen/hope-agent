@@ -349,6 +349,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_extra_skills_dirs:           { method: "GET",    path: "/api/skills/extra-dirs" },
   add_extra_skills_dir:            { method: "POST",   path: "/api/skills/extra-dirs" },
   remove_extra_skills_dir:         { method: "DELETE", path: "/api/skills/extra-dirs" },
+  discover_preset_skill_sources:   { method: "GET",    path: "/api/skills/preset-sources" },
   get_skill_env:                   { method: "GET",    path: "/api/skills/{name}/env" },
   set_skill_env_var:               { method: "POST",   path: "/api/skills/{skill}/env" },
   remove_skill_env_var:            { method: "DELETE", path: "/api/skills/{skill}/env" },

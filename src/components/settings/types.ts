@@ -55,6 +55,22 @@ export interface ActiveModelRef {
  * from discovery until a user promotes them via the Skills panel. */
 export type SkillStatus = "active" | "draft" | "archived"
 
+/** Display-only metadata aggregated from frontmatter top-level + vendor
+ * namespaces (`metadata.openclaw`, `metadata.hermes`). Mirrors
+ * [`ha_core::skills::SkillDisplay`](../../crates/ha-core/src/skills/types.rs). */
+export interface SkillDisplay {
+  emoji?: string
+  version?: string
+  license?: string
+  /** Short SPDX-ish label derived from `license` for badge rendering. */
+  license_label?: string
+  /** True when `license` is not a recognized OSS family. Backend-derived. */
+  is_proprietary?: boolean
+  author?: string
+  tags?: string[]
+  related_skills?: string[]
+}
+
 export interface SkillSummary {
   name: string
   description: string
@@ -70,6 +86,24 @@ export interface SkillSummary {
   always?: boolean
   status?: SkillStatus
   authored_by?: string
+  display?: SkillDisplay
+}
+
+/** A discoverable third-party skill catalog (Claude Code, Anthropic
+ * marketplace, OpenClaw, Hermes Agent). Returned by
+ * `discover_preset_skill_sources`. */
+export interface PresetSkillSource {
+  id: string
+  labelKey: string
+  warningKey?: string
+  candidates: PresetCandidate[]
+}
+
+export interface PresetCandidate {
+  path: string
+  exists: boolean
+  skillCount: number
+  alreadyAdded: boolean
 }
 
 export interface SkillInstallSpec {

@@ -15,7 +15,7 @@ import {
   Cell,
 } from "recharts"
 import type { DashboardTokenData } from "./types"
-import { formatNumber, formatCost, formatDuration } from "./types"
+import { chartName, chartNumber, formatNumber, formatCost, formatDuration } from "./types"
 
 const PIE_COLORS = [
   "#8b5cf6",
@@ -119,9 +119,9 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                 color: "var(--color-popover-foreground)",
                 }}
                 labelStyle={{ color: "var(--color-foreground)" }}
-                formatter={(value: number, name: string) => [
-                  formatNumber(value),
-                  name === "inputTokens"
+                formatter={(value, name) => [
+                  formatNumber(chartNumber(value)),
+                  chartName(name) === "inputTokens"
                     ? t("dashboard.token.input")
                     : t("dashboard.token.output"),
                 ]}
@@ -167,12 +167,13 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   outerRadius={100}
                   dataKey="value"
                   label={({ name, percent }) =>
-                    `${name} (${(percent * 100).toFixed(0)}%)`
+                    `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`
                   }
                   labelLine={{ strokeWidth: 1 }}
                   onClick={(entry) => {
-                    if (entry.name !== t("dashboard.token.other")) {
-                      onDrillDown(entry.name)
+                    const name = chartName((entry as { name?: unknown }).name)
+                    if (name && name !== t("dashboard.token.other")) {
+                      onDrillDown(name)
                     }
                   }}
                   className="cursor-pointer"
@@ -193,7 +194,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                     fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                   }}
-                  formatter={(value: number) => [formatNumber(value), "tokens"]}
+                  formatter={(value) => [formatNumber(chartNumber(value)), "tokens"]}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -292,8 +293,8 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   color: "var(--color-popover-foreground)",
                 }}
                 labelStyle={{ color: "var(--color-foreground)" }}
-                formatter={(value: number) => [
-                  formatDuration(value),
+                formatter={(value) => [
+                  formatDuration(chartNumber(value)),
                   t("dashboard.token.avgTtft"),
                 ]}
               />

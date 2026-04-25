@@ -38,6 +38,13 @@ pub async fn remove_extra_skills_dir(
 }
 
 #[tauri::command]
+pub async fn discover_preset_skill_sources(
+    _state: State<'_, AppState>,
+) -> Result<Vec<core::PresetSkillSource>, String> {
+    Ok(core::discover_preset_skill_sources())
+}
+
+#[tauri::command]
 pub async fn toggle_skill(
     name: String,
     enabled: bool,

@@ -9,8 +9,10 @@
 //! change.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
 
 use super::{
     author, auto_review, binary_in_path_public, bump_skill_version, check_all_skills_status,
@@ -347,6 +349,244 @@ async fn run_install_command(program: &str, args: &[&str]) -> Result<String> {
             stderr
         ))
     }
+}
+
+// ── Quick Import: preset skill source discovery ───────────────────
+//
+// Probes a small set of known third-party skill catalogs on the user's
+// machine (Claude Code user-level + plugins, Anthropic agent-skills
+// marketplace, OpenClaw and Hermes Agent clones) and returns a structured
+// listing for the Settings / Onboarding "Quick Import" UI. Adding the
+// returned paths to `extra_skills_dirs` is done with the existing
+// `add_extra_skills_dir` flow — this RPC is read-only.
+
+/// One discoverable skill catalog source. Always returned even when none of
+/// its candidate paths exist, so the UI can render a complete row with the
+/// expected paths grayed out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetSkillSource {
+    /// Stable id, used as the i18n lookup key suffix (e.g. "claude-code-user").
+    pub id: String,
+    /// i18n key for the human-readable label.
+    pub label_key: String,
+    /// Optional warning key — the UI surfaces a `⚠️` badge with this i18n
+    /// string when present (e.g. OpenClaw "skills depend on external CLIs",
+    /// Anthropic marketplace "Proprietary license").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning_key: Option<String>,
+    /// Concrete candidate paths probed for this source. Multiple paths can
+    /// map to one logical source (Claude Code plugins scan two layouts;
+    /// OW/HA repos may live in `~/Codes`, `~/git`, etc.).
+    pub candidates: Vec<PresetCandidate>,
+}
+
+/// One concrete filesystem candidate inside a [`PresetSkillSource`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetCandidate {
+    /// Absolute path. `~` is resolved on the server, not the browser.
+    pub path: String,
+    /// Whether the directory exists right now.
+    pub exists: bool,
+    /// Number of `SKILL.md`-bearing subdirectories found (recursive ≤ 2 levels).
+    /// `0` when the path doesn't exist or contains no skills — the UI shows
+    /// the row anyway so the user knows what was probed.
+    pub skill_count: usize,
+    /// True when this exact path is already in `extra_skills_dirs`.
+    pub already_added: bool,
+}
+
+/// Probe known third-party skill catalog locations. Returns 5 sources in a
+/// stable order regardless of what's installed locally — the UI renders
+/// "not found" rows for absent ones.
+pub fn discover_preset_skill_sources() -> Vec<PresetSkillSource> {
+    let store = crate::config::cached_config();
+    let extra: Vec<String> = store.extra_skills_dirs.clone();
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => {
+            // No home → return all sources with empty candidate lists.
+            return preset_sources_layout()
+                .into_iter()
+                .map(|(id, label, warning, _candidates)| PresetSkillSource {
+                    id: id.to_string(),
+                    label_key: label.to_string(),
+                    warning_key: warning.map(|w| w.to_string()),
+                    candidates: vec![],
+                })
+                .collect();
+        }
+    };
+
+    let mut out = Vec::new();
+    for (id, label, warning, candidate_layouts) in preset_sources_layout() {
+        let mut candidates = Vec::new();
+        for layout in candidate_layouts {
+            let paths = layout.expand(&home);
+            for path in paths {
+                let exists = path.is_dir();
+                let skill_count = if exists {
+                    count_skills_in_dir(&path, 2)
+                } else {
+                    0
+                };
+                let path_str = path.to_string_lossy().to_string();
+                let already_added = extra.iter().any(|d| d == &path_str);
+                candidates.push(PresetCandidate {
+                    path: path_str,
+                    exists,
+                    skill_count,
+                    already_added,
+                });
+            }
+        }
+        // Deduplicate by path while preserving order.
+        let mut seen = std::collections::HashSet::new();
+        candidates.retain(|c| seen.insert(c.path.clone()));
+        out.push(PresetSkillSource {
+            id: id.to_string(),
+            label_key: label.to_string(),
+            warning_key: warning.map(|w| w.to_string()),
+            candidates,
+        });
+    }
+    out
+}
+
+/// Layout describing how to compute one or more paths under a user's HOME.
+/// Either fixed (one literal path) or globbed (e.g. `~/.claude/plugins/*/skills`).
+enum CandidateLayout {
+    Fixed(&'static str),
+    Glob {
+        prefix: &'static str,
+        suffix: &'static str,
+    },
+}
+
+impl CandidateLayout {
+    fn expand(&self, home: &Path) -> Vec<PathBuf> {
+        match self {
+            CandidateLayout::Fixed(rel) => vec![home.join(rel)],
+            CandidateLayout::Glob { prefix, suffix } => {
+                let parent = home.join(prefix);
+                let entries = match std::fs::read_dir(&parent) {
+                    Ok(rd) => rd,
+                    Err(_) => return vec![],
+                };
+                let mut out = Vec::new();
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false) {
+                        let candidate = entry.path().join(suffix);
+                        if candidate.is_dir() {
+                            out.push(candidate);
+                        }
+                    }
+                }
+                out
+            }
+        }
+    }
+}
+
+#[allow(clippy::type_complexity)]
+fn preset_sources_layout() -> Vec<(
+    &'static str,
+    &'static str,
+    Option<&'static str>,
+    Vec<CandidateLayout>,
+)> {
+    vec![
+        (
+            "claude-code-user",
+            "settings.skillsImport.cc.user",
+            None,
+            vec![CandidateLayout::Fixed(".claude/skills")],
+        ),
+        (
+            "claude-code-plugins",
+            "settings.skillsImport.cc.plugins",
+            None,
+            vec![
+                CandidateLayout::Glob {
+                    prefix: ".claude/plugins",
+                    suffix: "skills",
+                },
+                CandidateLayout::Glob {
+                    prefix: ".claude/plugins",
+                    suffix: ".claude-plugin/skills",
+                },
+            ],
+        ),
+        (
+            "anthropic-marketplace",
+            "settings.skillsImport.cc.anthropic",
+            Some("settings.skillsImport.warning.proprietary"),
+            vec![CandidateLayout::Fixed(
+                ".claude/plugins/marketplaces/anthropic-agent-skills/skills",
+            )],
+        ),
+        (
+            "openclaw",
+            "settings.skillsImport.openclaw",
+            Some("settings.skillsImport.warning.openclaw"),
+            vec![
+                CandidateLayout::Fixed("Codes/openclaw/skills"),
+                CandidateLayout::Fixed("git/openclaw/skills"),
+                CandidateLayout::Fixed("projects/openclaw/skills"),
+                CandidateLayout::Fixed("openclaw/skills"),
+            ],
+        ),
+        (
+            "hermes-agent",
+            "settings.skillsImport.hermes",
+            None,
+            vec![
+                CandidateLayout::Fixed("Codes/hermes-agent/skills"),
+                CandidateLayout::Fixed("git/hermes-agent/skills"),
+                CandidateLayout::Fixed("projects/hermes-agent/skills"),
+                CandidateLayout::Fixed("hermes-agent/skills"),
+            ],
+        ),
+    ]
+}
+
+/// Count subdirectories containing a `SKILL.md`, recursing up to `max_depth`
+/// levels deep (Hermes Agent groups skills in two-level category trees, so
+/// depth 2 covers it; one level is enough for everything else).
+fn count_skills_in_dir(dir: &Path, max_depth: usize) -> usize {
+    fn walk(dir: &Path, depth: usize, max_depth: usize, count: &mut usize, budget: &mut usize) {
+        if *budget == 0 || depth > max_depth {
+            return;
+        }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(rd) => rd,
+            Err(_) => return,
+        };
+        for entry in entries.flatten() {
+            if *budget == 0 {
+                return;
+            }
+            *budget -= 1;
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            if path.join("SKILL.md").is_file() {
+                *count += 1;
+                continue; // Don't recurse into a confirmed skill dir.
+            }
+            if depth < max_depth {
+                walk(&path, depth + 1, max_depth, count, budget);
+            }
+        }
+    }
+    let mut count = 0usize;
+    // Cap the walk to keep the discovery RPC snappy even when the user has
+    // huge unrelated trees under the probed parents.
+    let mut budget = 2000usize;
+    walk(dir, 0, max_depth, &mut count, &mut budget);
+    count
 }
 
 pub async fn trigger_skill_review_now(session_id: &str) -> Result<serde_json::Value> {

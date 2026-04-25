@@ -832,6 +832,40 @@
     "skillsDirSharedDesc": "跨工具共享的技能目录（~/.agents/skills/ 约定）",
     "skillsDirAdd": "导入技能目录",
     "skillsDirRemove": "移除此目录",
+    "skillsImport": {
+      "button": "快速导入",
+      "dialogTitle": "快速导入 skill 目录",
+      "dialogDescription": "扫描已知第三方 skill 来源（Claude Code、OpenClaw、Hermes Agent、Anthropic marketplace），并把已安装的目录一键加入。",
+      "cc": {
+        "user": "Claude Code 用户级 skill",
+        "plugins": "Claude Code 插件 skill",
+        "anthropic": "Anthropic Agent Skills marketplace"
+      },
+      "openclaw": "OpenClaw 仓库 skill",
+      "hermes": "Hermes Agent 仓库 skill",
+      "notFound": "本机未发现匹配路径。",
+      "alreadyAdded": "已添加",
+      "skillCount_one": "{{count}} 个 skill",
+      "skillCount_other": "{{count}} 个 skill",
+      "skillCount": "{{count}} 个 skill",
+      "add": "添加",
+      "warning": {
+        "openclaw": "OpenClaw 多数 skill 依赖外部 CLI（gh、1password、tmux 等），未安装时调用会失败。",
+        "proprietary": "Anthropic 的 skill 是专有许可，使用前请确认你与 Anthropic 的服务条款。"
+      },
+      "tooltip": {
+        "distinguishOnboarding": "如要迁移老 OpenClaw 用户数据，请使用第 2 步『Import OpenClaw』。"
+      },
+      "error": {
+        "discover": "发现预设 skill 来源失败",
+        "add": "添加目录失败"
+      }
+    },
+    "skillExtras": {
+      "licenseWarning": "来源许可：{{license}}",
+      "relatedSkills": "相关 skill",
+      "installHint": "运行 {{cmd}} 安装依赖"
+    },
     "skillsList": "已加载的技能",
     "skillsListBundled": "内置技能",
     "skillsListUser": "用户技能",

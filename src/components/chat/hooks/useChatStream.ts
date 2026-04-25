@@ -37,7 +37,7 @@ export interface UseChatStreamOptions {
   loadingSessionsRef: React.MutableRefObject<Set<string>>
   setLoadingSessionIds: React.Dispatch<React.SetStateAction<Set<string>>>
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
-  sessions: { id: string; title?: string | null }[]
+  sessions: { id: string; title?: string | null; workingDir?: string | null }[]
   agents: AgentSummaryForSidebar[]
   activeModel: ActiveModel | null
   reloadSessions: () => Promise<void>

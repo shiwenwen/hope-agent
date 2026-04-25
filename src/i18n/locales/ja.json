@@ -1860,7 +1860,41 @@
     "serverConnSubLocal": "{{count}} ローカル",
     "serverChatSourceDesktop": "{{count}} デスクトップ",
     "serverChatSourceHttp": "{{count}} HTTP",
-    "serverChatSourceChannel": "{{count}} チャンネル"
+    "serverChatSourceChannel": "{{count}} チャンネル",
+    "skillsImport": {
+      "button": "クイックインポート",
+      "dialogTitle": "skill ディレクトリのクイックインポート",
+      "dialogDescription": "既知のサードパーティ skill カタログ（Claude Code / OpenClaw / Hermes Agent / Anthropic マーケットプレイス）を探し、インストール済みのものを追加します。",
+      "cc": {
+        "user": "Claude Code ユーザーレベル skill",
+        "plugins": "Claude Code プラグイン skill",
+        "anthropic": "Anthropic Agent Skills マーケットプレイス"
+      },
+      "openclaw": "OpenClaw リポジトリの skill",
+      "hermes": "Hermes Agent リポジトリの skill",
+      "notFound": "一致するパスが見つかりませんでした。",
+      "alreadyAdded": "追加済み",
+      "skillCount_one": "{{count}} 件の skill",
+      "skillCount_other": "{{count}} 件の skill",
+      "skillCount": "{{count}} 件の skill",
+      "add": "追加",
+      "warning": {
+        "openclaw": "OpenClaw の skill は外部 CLI（gh, 1password, tmux など）に依存することが多く、未インストール時は呼び出しに失敗する可能性があります。",
+        "proprietary": "Anthropic の skill は独占的ライセンスです。Anthropic のサービス利用規約に従ってご利用ください。"
+      },
+      "tooltip": {
+        "distinguishOnboarding": "旧 OpenClaw ユーザーデータの移行は、ステップ 2 の『Import OpenClaw』を使用してください。"
+      },
+      "error": {
+        "discover": "プリセット skill ソースの探索に失敗しました",
+        "add": "ディレクトリの追加に失敗しました"
+      }
+    },
+    "skillExtras": {
+      "licenseWarning": "ソースライセンス: {{license}}",
+      "relatedSkills": "関連 skill",
+      "installHint": "{{cmd}} を実行して依存関係をインストール"
+    }
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

@@ -1,5 +1,5 @@
 import type React from "react"
-import type { ContentBlock, MediaItem, Message } from "@/types/chat"
+import type { ContentBlock, FallbackEvent, MediaItem, Message } from "@/types/chat"
 import { mergeUsageFromEvent } from "../chatUtils"
 import { hasToolError } from "../message/executionStatus"
 
@@ -138,6 +138,21 @@ function flushPendingStreamDeltas(
     }
     return updated
   })
+}
+
+function fallbackEventFromStreamEvent(event: Record<string, unknown>): FallbackEvent {
+  const model =
+    typeof event.model === "string"
+      ? event.model
+      : typeof event.model_id === "string"
+        ? event.model_id
+        : typeof event.to_model === "string"
+          ? event.to_model
+          : ""
+  return {
+    ...event,
+    model,
+  }
 }
 
 function schedulePendingStreamFlush(sid: string, deps: StreamEventHandlerDeps): void {
@@ -293,7 +308,7 @@ export function handleStreamEvent(
       case "model_fallback": {
         updated[updated.length - 1] = {
           ...last,
-          fallbackEvent: event,
+          fallbackEvent: fallbackEventFromStreamEvent(event),
         }
         break
       }

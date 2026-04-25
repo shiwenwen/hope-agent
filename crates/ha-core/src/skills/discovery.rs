@@ -112,10 +112,56 @@ pub(super) fn compact_path(path: &str) -> String {
 
 // ── Discovery ────────────────────────────────────────────────────
 
-/// Discover skills from a single directory.
-/// Each immediate subdirectory containing a SKILL.md is treated as a skill.
-/// Also detects nested `skills/` subdirectories for recursive scan.
-fn load_skills_from_dir(dir: &Path, source: &str, budget: &SkillPromptBudget) -> Vec<SkillEntry> {
+/// Maximum number of levels below a configured skills root at which a
+/// `SKILL.md` will be picked up. Real-world layouts observed:
+///
+/// - Level 1: `<root>/<skill>/SKILL.md` — Hope Agent / OpenClaw / Anthropic
+///   marketplace. The base case.
+/// - Level 2: `<root>/<category>/<skill>/SKILL.md` — Hermes Agent groups
+///   skills by category (`apple/`, `creative/`, `software-development/`, …).
+/// - Level 2 (alt): `<root>/<package>/skills/<skill>/SKILL.md` — explicit
+///   `skills/` re-entry, still capped at 2 hops by the same constant.
+///
+/// Going deeper would scan unrelated directory trees (test fixtures, vendored
+/// dependencies) and inflate startup latency without observed benefit. The
+/// per-root [`SkillPromptBudget::max_candidates_per_root`] cap still applies
+/// across the whole walk, so a runaway tree is bounded.
+const MAX_SKILL_DEPTH: usize = 2;
+
+/// Discover skills from a directory.
+///
+/// Each immediate subdirectory with a `SKILL.md` is loaded as a skill. When
+/// a subdirectory has neither a `SKILL.md` nor a recognizable layout marker,
+/// the loader recurses one level deeper (up to [`MAX_NESTED_SKILL_DEPTH`])
+/// to find the SKILL.md. This handles three real-world layouts:
+///
+/// 1. Flat: `<root>/<skill>/SKILL.md` (Hope Agent, OpenClaw, Anthropic marketplace)
+/// 2. Nested-`skills/`: `<root>/<x>/skills/<skill>/SKILL.md` (OW extensions)
+/// 3. Category-grouped: `<root>/<category>/<skill>/SKILL.md` (Hermes Agent)
+pub(super) fn load_skills_from_dir(
+    dir: &Path,
+    source: &str,
+    budget: &SkillPromptBudget,
+) -> Vec<SkillEntry> {
+    let mut total_candidates = 0usize;
+    load_skills_from_dir_recursive(dir, source, budget, 0, &mut total_candidates)
+}
+
+fn load_skills_from_dir_recursive(
+    dir: &Path,
+    source: &str,
+    budget: &SkillPromptBudget,
+    depth: usize,
+    total_candidates: &mut usize,
+) -> Vec<SkillEntry> {
+    // `depth` counts levels already descended from the configured root;
+    // SKILL.md found by this call lands at `depth + 1`. Once `depth + 1 >
+    // MAX_SKILL_DEPTH` the call would only see SKILL.md beyond the cap, so
+    // bail out early without even reading the directory.
+    if depth + 1 > MAX_SKILL_DEPTH {
+        return Vec::new();
+    }
+
     let mut entries = Vec::new();
 
     let read_dir = match std::fs::read_dir(dir) {
@@ -123,15 +169,13 @@ fn load_skills_from_dir(dir: &Path, source: &str, budget: &SkillPromptBudget) ->
         Err(_) => return entries,
     };
 
-    let mut candidate_count = 0;
-
     for entry in read_dir.flatten() {
-        candidate_count += 1;
-        if candidate_count > budget.max_candidates_per_root {
+        *total_candidates += 1;
+        if *total_candidates > budget.max_candidates_per_root {
             app_warn!(
                 "skills",
                 "loader",
-                "Reached max candidates limit ({}) for directory: {}",
+                "Reached max candidates limit ({}) for directory tree rooted at: {}",
                 budget.max_candidates_per_root,
                 dir.display()
             );
@@ -145,19 +189,28 @@ fn load_skills_from_dir(dir: &Path, source: &str, budget: &SkillPromptBudget) ->
 
         let skill_md = path.join("SKILL.md");
         if skill_md.is_file() {
-            // Direct skill directory
             if let Some(skill) = load_single_skill(&skill_md, &path, source, budget.max_file_bytes)
             {
                 entries.push(skill);
             }
-        } else {
-            // Check for nested skills/ subdirectory
-            let nested_skills = path.join("skills");
-            if nested_skills.is_dir() {
-                let nested = load_skills_from_dir(&nested_skills, source, budget);
-                entries.extend(nested);
-            }
+            continue;
         }
+
+        // Two recursion targets:
+        //   1. Explicit `skills/` re-entry (OW extensions ship with this).
+        //   2. Otherwise descend into the directory itself — covers Hermes-
+        //      style category grouping and any other 2-level nesting.
+        // Both share the same depth budget; the next call's entry-check
+        // refuses anything past MAX_SKILL_DEPTH.
+        let nested_skills = path.join("skills");
+        let target = if nested_skills.is_dir() {
+            nested_skills
+        } else {
+            path
+        };
+        let nested =
+            load_skills_from_dir_recursive(&target, source, budget, depth + 1, total_candidates);
+        entries.extend(nested);
     }
 
     entries
@@ -227,6 +280,7 @@ fn load_single_skill(
         status: parsed.status,
         authored_by: parsed.authored_by,
         rationale: parsed.rationale,
+        display: parsed.display,
     })
 }
 
@@ -381,5 +435,6 @@ pub fn get_skill_content(
         status: entry.status,
         authored_by: entry.authored_by,
         rationale: entry.rationale,
+        display: entry.display,
     })
 }

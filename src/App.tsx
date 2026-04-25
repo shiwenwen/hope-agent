@@ -306,7 +306,7 @@ export default function App() {
             <DangerousModeBanner />
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <IconSidebar
-                view={view === "loading" || view === "setup" ? "chat" : view}
+                view={view}
                 onOpenSettings={handleOpenSettings}
                 onOpenChat={() => setView("chat")}
                 onOpenAgents={() => {

@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Puzzle,
   Settings2,
+  Sparkles,
   X,
 } from "lucide-react"
 import type { SkillSummary } from "../types"
@@ -24,6 +25,7 @@ interface SkillListViewProps {
   onAddDir: () => void
   onRemoveDir: (dir: string) => void
   onSetSkillEnvCheck: (v: boolean) => void
+  onQuickImport?: () => void
 }
 
 export default function SkillListView({
@@ -38,6 +40,7 @@ export default function SkillListView({
   onAddDir,
   onRemoveDir,
   onSetSkillEnvCheck,
+  onQuickImport,
 }: SkillListViewProps) {
   const { t } = useTranslation()
 
@@ -53,6 +56,7 @@ export default function SkillListView({
   function renderSkillRow(skill: SkillSummary) {
     const showWarning = hasEnvWarning(skill.name)
     const hasEnvConfig = skill.requires_env.length > 0
+    const display = skill.display
 
     return (
       <div
@@ -77,9 +81,27 @@ export default function SkillListView({
           onClick={() => onSelectSkill(skill.name)}
         >
           <div className="flex items-center gap-1.5">
+            {display?.emoji && (
+              <span className="shrink-0 text-base leading-none" aria-hidden>
+                {display.emoji}
+              </span>
+            )}
             <span className={cn("font-medium truncate", !skill.enabled && "line-through")}>
               {skill.name}
             </span>
+            {display?.version && (
+              <IconTip
+                label={
+                  display.author
+                    ? `v${display.version} · ${display.author}`
+                    : `v${display.version}`
+                }
+              >
+                <span className="text-[10px] text-muted-foreground/70 shrink-0">
+                  v{display.version}
+                </span>
+              </IconTip>
+            )}
             {/* Warning icon for unconfigured env vars */}
             {showWarning && (
               <IconTip label={t("settings.skillEnvNotConfigured")}>
@@ -91,7 +113,7 @@ export default function SkillListView({
           </div>
           <div className="text-xs text-muted-foreground truncate">{skill.description}</div>
           {/* Status badges */}
-          <div className="flex items-center gap-1 mt-0.5">
+          <div className="flex items-center gap-1 mt-0.5 flex-wrap">
             {skill.always && (
               <span className="text-[9px] px-1 py-0 rounded bg-green-500/10 text-green-600 font-medium">
                 {t("settings.skillAlways")}
@@ -107,6 +129,21 @@ export default function SkillListView({
                 {t("settings.skillModelInvocable")}: ✗
               </span>
             )}
+            {display?.is_proprietary && (
+              <IconTip label={t("settings.skillExtras.licenseWarning", { license: display.license })}>
+                <span className="text-[9px] px-1 py-0 rounded bg-amber-500/10 text-amber-600 font-medium cursor-help">
+                  {display.license_label ?? "Proprietary"}
+                </span>
+              </IconTip>
+            )}
+            {display?.tags?.slice(0, 3).map((tag) => (
+              <span
+                key={tag}
+                className="text-[9px] px-1 py-0 rounded bg-secondary/60 text-muted-foreground"
+              >
+                {tag}
+              </span>
+            ))}
           </div>
         </button>
 
@@ -219,14 +256,25 @@ export default function SkillListView({
           ))}
         </div>
 
-        {/* Import directory button */}
-        <button
-          className="mt-2 flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-3 py-1.5"
-          onClick={onAddDir}
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-          <span>{t("settings.skillsDirAdd")}</span>
-        </button>
+        {/* Import directory buttons */}
+        <div className="mt-2 flex items-center gap-3">
+          <button
+            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-3 py-1.5"
+            onClick={onAddDir}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+            <span>{t("settings.skillsDirAdd")}</span>
+          </button>
+          {onQuickImport && (
+            <button
+              className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-3 py-1.5"
+              onClick={onQuickImport}
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>{t("settings.skillsImport.button")}</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Divider */}
