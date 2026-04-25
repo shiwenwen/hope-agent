@@ -1,5 +1,8 @@
 import { useTranslation } from "react-i18next"
 
+import openClawLogoDark from "@/assets/openclaw-logo-text-dark.svg"
+import openClawLogoLight from "@/assets/openclaw-logo-text-light.svg"
+
 import {
   OpenClawImportPanel,
   type OpenClawImportSummary,
@@ -24,7 +27,19 @@ export function ImportOpenClawStep({ onContinue }: ImportOpenClawStepProps) {
   const { t } = useTranslation()
   return (
     <div className="px-4 sm:px-8 py-6 space-y-4">
-      <div className="text-center space-y-2">
+      <div className="flex flex-col items-center text-center gap-3">
+        <img
+          src={openClawLogoDark}
+          alt="OpenClaw"
+          className="h-12 w-auto block dark:hidden"
+          draggable={false}
+        />
+        <img
+          src={openClawLogoLight}
+          alt="OpenClaw"
+          className="h-12 w-auto hidden dark:block"
+          draggable={false}
+        />
         <h1 className="text-2xl font-semibold tracking-tight">
           {t("onboarding.importOpenClaw.headline")}
         </h1>
