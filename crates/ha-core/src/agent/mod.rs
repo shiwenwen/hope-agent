@@ -1153,10 +1153,13 @@ impl AssistantAgent {
             }
         }
         let force_sandbox = caps.sandbox;
+        let session_working_dir = crate::session::lookup_session_meta(self.session_id.as_deref())
+            .and_then(|meta| meta.working_dir);
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,
             home_dir: self.agent_home(),
+            session_working_dir,
             session_id: self.session_id.clone(),
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,

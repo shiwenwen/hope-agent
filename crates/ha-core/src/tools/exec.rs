@@ -130,7 +130,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     let cwd = args
         .get("cwd")
         .and_then(|v| v.as_str())
-        .map(super::expand_tilde);
+        .map(|raw| ctx.resolve_path(raw));
 
     let timeout_secs = args
         .get("timeout")
@@ -156,13 +156,14 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         .min(MAX_YIELD_MS);
 
     let max_output = compute_max_output_chars(ctx.context_window_tokens);
+    let session_cwd = cwd.clone().unwrap_or_else(|| ctx.default_cwd());
 
     app_info!(
         "tool",
         "exec",
-        "Executing command: {} (cwd: {:?}, timeout: {}s, bg: {}, pty: {}, max_out: {})",
+        "Executing command: {} (cwd: {}, timeout: {}s, bg: {}, pty: {}, max_out: {})",
         command,
-        cwd,
+        session_cwd,
         timeout_secs,
         background,
         use_pty,
@@ -183,7 +184,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             &format!("exec: {}", cmd_preview),
             Some(
                 serde_json::json!({
-                    "cwd": cwd, "timeout": timeout_secs,
+                    "cwd": &session_cwd, "explicitCwd": &cwd, "timeout": timeout_secs,
                     "background": background, "pty": use_pty, "sandbox": sandbox,
                 })
                 .to_string(),
@@ -196,14 +197,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // Build the command via the platform shell (sh -c on Unix, cmd /C on Windows)
     let mut cmd = crate::platform::default_shell_command_tokio(command);
 
-    // Set working directory: explicit cwd > agent home > user home
-    if let Some(ref dir) = cwd {
-        cmd.current_dir(dir);
-    } else if let Some(ref agent_home) = ctx.home_dir {
-        cmd.current_dir(agent_home);
-    } else if let Some(home) = dirs::home_dir() {
-        cmd.current_dir(home);
-    }
+    cmd.current_dir(&session_cwd);
 
     // Apply login shell PATH
     if let Some(shell_path) = get_login_shell_path() {
@@ -221,15 +215,6 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // Create a session for tracking
     let session_id = create_session_id();
-    let session_cwd = cwd
-        .clone()
-        .or_else(|| ctx.home_dir.clone())
-        .unwrap_or_else(|| {
-            dirs::home_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|| ".".to_string())
-        });
-
     let session = ProcessSession {
         id: session_id.clone(),
         command: command.to_string(),
@@ -706,7 +691,7 @@ async fn exec_via_pty(
 
     let command_owned = command.to_string();
     let cwd_owned = cwd.map(|s| s.to_string());
-    let agent_home_owned = ctx.home_dir.clone();
+    let default_cwd_owned = ctx.default_cwd();
     let env_vars: Vec<(String, String)> = args
         .get("env")
         .and_then(|v| v.as_object())
@@ -760,14 +745,8 @@ async fn exec_via_pty(
             c
         };
 
-        // Set working directory: explicit cwd > agent home > user home
-        if let Some(ref dir) = cwd_owned {
-            cmd.cwd(dir);
-        } else if let Some(ref agent_home) = agent_home_owned {
-            cmd.cwd(agent_home);
-        } else if let Some(home) = dirs::home_dir() {
-            cmd.cwd(home);
-        }
+        let effective_cwd = cwd_owned.as_deref().unwrap_or(&default_cwd_owned);
+        cmd.cwd(effective_cwd);
 
         // Apply login shell PATH
         if let Some(ref path) = login_path {
