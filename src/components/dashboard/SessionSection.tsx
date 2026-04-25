@@ -14,7 +14,7 @@ import {
   Legend,
 } from "recharts"
 import type { DashboardSessionData } from "./types"
-import { formatNumber } from "./types"
+import { chartName, chartNumber, formatNumber } from "./types"
 
 const PIE_COLORS = [
   "#6366f1",
@@ -119,9 +119,9 @@ const SessionSection = React.memo(function SessionSection({
                   fontSize: "12px",
                 color: "var(--color-popover-foreground)",
                 }}
-                formatter={(value: number, name: string) => [
-                  formatNumber(value),
-                  name === "sessionCount"
+                formatter={(value, name) => [
+                  formatNumber(chartNumber(value)),
+                  chartName(name) === "sessionCount"
                     ? t("dashboard.session.sessions")
                     : t("dashboard.session.messages"),
                 ]}
@@ -174,10 +174,13 @@ const SessionSection = React.memo(function SessionSection({
                   outerRadius={100}
                   dataKey="value"
                   label={({ name, percent }) =>
-                    `${name} (${(percent * 100).toFixed(0)}%)`
+                    `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`
                   }
                   labelLine={{ strokeWidth: 1 }}
-                  onClick={(entry) => onDrillDown(entry.agentId)}
+                  onClick={(entry) => {
+                    const agentId = (entry as { agentId?: unknown }).agentId
+                    if (typeof agentId === "string") onDrillDown(agentId)
+                  }}
                   className="cursor-pointer"
                 >
                   {pieData.map((_, i) => (
@@ -196,8 +199,8 @@ const SessionSection = React.memo(function SessionSection({
                     fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                   }}
-                  formatter={(value: number) => [
-                    formatNumber(value),
+                  formatter={(value) => [
+                    formatNumber(chartNumber(value)),
                     t("dashboard.session.sessions"),
                   ]}
                 />

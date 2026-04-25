@@ -641,7 +641,7 @@ export function useChatSession({
         }
       } catch (e) {
         logger.warn("chat", "useChatSession", "handleNewChatInProject failed", e)
-        notify({ title: t("common.saveFailed"), body: String(e) })
+        notify(t("common.saveFailed"), String(e))
       }
     },
     [

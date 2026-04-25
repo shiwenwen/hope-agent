@@ -264,7 +264,7 @@ export default function ChatInput({
           enabled={incognitoEnabled}
           saving={incognitoSaving}
           disabledReason={incognitoDisabledReason}
-          onChange={onIncognitoChange}
+          onChange={onIncognitoChange ?? (() => {})}
         />
       )}
     </>

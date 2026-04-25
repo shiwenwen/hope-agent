@@ -338,6 +338,20 @@ export function formatNumber(n: number): string {
   return n.toLocaleString()
 }
 
+export function chartNumber(value: unknown): number {
+  const raw = Array.isArray(value) ? value[0] : value
+  if (typeof raw === "number") return raw
+  if (typeof raw === "string") {
+    const parsed = Number(raw)
+    return Number.isFinite(parsed) ? parsed : 0
+  }
+  return 0
+}
+
+export function chartName(value: unknown): string {
+  return typeof value === "string" || typeof value === "number" ? String(value) : ""
+}
+
 /** Format USD currency */
 export function formatCost(n: number): string {
   return `$${n.toFixed(2)}`

@@ -13,7 +13,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import type { ModelConfig } from "@/components/settings/provider-setup"
+import type {
+  ApiType,
+  AuthProfile,
+  ModelConfig,
+  ThinkingStyleType,
+} from "@/components/settings/provider-setup"
 import ProviderIcon from "@/components/common/ProviderIcon"
 import {
   DndContext,
@@ -44,15 +49,13 @@ import {
 
 // ── Types (shared with ProviderSetup) ─────────────────────────────
 
-type ApiType = "anthropic" | "openai-chat" | "openai-responses" | "codex"
-type ThinkingStyleType = "openai" | "anthropic" | "zai" | "qwen" | "none"
-
 export interface ProviderConfig {
   id: string
   name: string
   apiType: ApiType
   baseUrl: string
   apiKey: string
+  authProfiles: AuthProfile[]
   models: ModelConfig[]
   enabled: boolean
   userAgent: string

@@ -15,7 +15,7 @@ import {
 import { AlertTriangle, AlertOctagon, Percent } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardErrorData } from "./types"
-import { formatNumber } from "./types"
+import { chartName, chartNumber, formatNumber } from "./types"
 
 interface ErrorSectionProps {
   data: DashboardErrorData | null
@@ -152,9 +152,9 @@ const ErrorSection = React.memo(function ErrorSection({
                   fontSize: "12px",
                 color: "var(--color-popover-foreground)",
                 }}
-                formatter={(value: number, name: string) => [
-                  formatNumber(value),
-                  name === "errorCount"
+                formatter={(value, name) => [
+                  formatNumber(chartNumber(value)),
+                  chartName(name) === "errorCount"
                     ? t("dashboard.error.errors")
                     : t("dashboard.error.warnings"),
                 ]}
@@ -228,8 +228,8 @@ const ErrorSection = React.memo(function ErrorSection({
                   fontSize: "12px",
                 color: "var(--color-popover-foreground)",
                 }}
-                formatter={(value: number) => [
-                  formatNumber(value),
+                formatter={(value) => [
+                  formatNumber(chartNumber(value)),
                   t("dashboard.error.count"),
                 ]}
               />

@@ -308,7 +308,7 @@ export default function MessageList({
                   ...row.data,
                   steps: planSteps || row.data.steps,
                 }}
-                planState={planState}
+                planState={planState ?? "off"}
                 onOpenPanel={onOpenPlanPanel}
                 onApprove={onApprovePlan}
                 onExit={onExitPlan}

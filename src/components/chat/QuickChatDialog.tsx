@@ -31,6 +31,7 @@ export default function QuickChatDialog({
   // Quick chat is transient — no reattach logic is wired, but the seq cursor
   // still has to be supplied to `useChatStream` and local-only is fine here.
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
+  const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
 
   // ── Stream Hook ─────────────────────────────────
   const stream = useChatStream({
@@ -52,6 +53,7 @@ export default function QuickChatDialog({
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
+    endedStreamIdsRef: quickEndedStreamIdsRef,
   })
 
   // ── Keyboard handling ───────────────────────────

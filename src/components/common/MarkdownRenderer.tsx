@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo, type AnchorHTMLAttributes } from "react"
-import { Streamdown, type AnimateOptions } from "streamdown"
+import { Streamdown, type AnimateOptions, type PluginConfig } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
 import "streamdown/styles.css"
@@ -8,9 +8,8 @@ import { cn } from "@/lib/utils"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
 // KaTeX (~300KB) and Mermaid (~200KB) are only loaded when content requires them.
-type PluginFn = (typeof code)
-let cachedMath: PluginFn | null = null
-let cachedMermaid: PluginFn | null = null
+let cachedMath: PluginConfig["math"] | null = null
+let cachedMermaid: PluginConfig["mermaid"] | null = null
 let mathLoading = false
 let mermaidLoading = false
 
@@ -47,7 +46,7 @@ function useHeavyPlugins(content: string) {
   }, [needMath, needMermaid])
 
   return useMemo(() => {
-    const p: Record<string, PluginFn> = { code, cjk }
+    const p: PluginConfig = { code, cjk }
     if (cachedMath) p.math = cachedMath
     if (cachedMermaid) p.mermaid = cachedMermaid
     return p
