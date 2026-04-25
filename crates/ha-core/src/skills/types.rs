@@ -109,6 +109,103 @@ impl Default for SkillPromptBudget {
     }
 }
 
+/// Display-only metadata aggregated from frontmatter. None of these fields
+/// affect skill activation or tool dispatch — they exist so the UI can render
+/// emoji, tags, license badges, version tooltips, and "related skills" hints.
+///
+/// Sources (lifted into a single struct so the frontend has one shape):
+/// - `version` / `license` / `author` — top-level YAML
+/// - `metadata.openclaw.emoji` / `metadata.hermes.emoji` — vendor-namespaced
+/// - `metadata.hermes.tags` / `metadata.hermes.related_skills` — vendor-namespaced
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SkillDisplay {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+    /// Short license label suitable for a UI badge (the leading SPDX-ish
+    /// token, e.g. `MIT` / `Apache-2.0` / `Proprietary`). Derived from
+    /// [`Self::license_short`] at parse time so the frontend doesn't
+    /// re-parse the verbose `license` string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license_label: Option<String>,
+    /// True when the license is not a recognized OSS family. Frontend uses
+    /// this to surface a warning badge on Anthropic / vendor-restricted
+    /// skills. Derived at parse time via [`Self::is_proprietary`].
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub is_proprietary: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub related_skills: Vec<String>,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+impl SkillDisplay {
+    /// True when no display-only data was extracted. Lets serializers omit
+    /// empty payloads from REST responses.
+    pub fn is_empty(&self) -> bool {
+        self.emoji.is_none()
+            && self.version.is_none()
+            && self.license.is_none()
+            && self.author.is_none()
+            && self.tags.is_empty()
+            && self.related_skills.is_empty()
+    }
+
+    /// Populate the derived `license_label` and `is_proprietary` fields from
+    /// the raw `license` string. Called by the parser once after assembling
+    /// the struct, so the frontend gets a flat, computed payload.
+    pub fn finalize(&mut self) {
+        self.license_label = self.license_short().map(str::to_string);
+        self.is_proprietary = self.is_proprietary();
+    }
+
+    /// Short label suitable for a UI badge. For SPDX-style identifiers like
+    /// `MIT` / `Apache-2.0` this returns the full string; for verbose
+    /// proprietary headers (`Proprietary. LICENSE.txt has complete terms`)
+    /// it returns the leading word. `None` when no license was declared.
+    pub fn license_short(&self) -> Option<&str> {
+        self.license.as_deref().map(|s| {
+            s.split(|c: char| c == '.' || c.is_whitespace())
+                .next()
+                .unwrap_or(s)
+        })
+    }
+
+    /// True when the declared license is **not** a recognized OSS family.
+    /// Used to surface a warning badge on Anthropic / vendor-restricted
+    /// skills. The match is conservative — anything we don't recognize as
+    /// OSS is treated as proprietary. Prefix-match handles SPDX variants
+    /// like `BSD-3-Clause`, `Apache-2.0`, `MPL-2.0`.
+    pub fn is_proprietary(&self) -> bool {
+        let Some(short) = self.license_short() else {
+            return false;
+        };
+        let lower = short.to_ascii_lowercase();
+        const OSS_PREFIXES: &[&str] = &[
+            "mit",
+            "bsd",
+            "apache",
+            "gpl",
+            "lgpl",
+            "agpl",
+            "mpl",
+            "isc",
+            "unlicense",
+            "cc0",
+        ];
+        !OSS_PREFIXES.iter().any(|p| lower.starts_with(p))
+    }
+}
+
 /// Environment requirements parsed from SKILL.md frontmatter `requires:` block.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SkillRequires {
@@ -134,6 +231,22 @@ pub struct SkillRequires {
     /// Primary env var name that can be satisfied by skill's apiKey config.
     #[serde(default)]
     pub primary_env: Option<String>,
+}
+
+impl SkillRequires {
+    /// True when no requirement was declared. Used by the frontmatter parser
+    /// to decide whether to "lift" a vendor-namespaced `metadata.<vendor>.requires`
+    /// block into the top-level — only happens when top-level is empty so we
+    /// never silently override an explicit user-set value.
+    pub fn is_empty(&self) -> bool {
+        self.bins.is_empty()
+            && self.any_bins.is_empty()
+            && self.env.is_empty()
+            && self.os.is_empty()
+            && self.config.is_empty()
+            && !self.always
+            && self.primary_env.is_none()
+    }
 }
 
 /// Installation spec for a skill dependency.
@@ -250,6 +363,12 @@ pub struct SkillEntry {
     /// auto-patched (surfaced in the draft review UI).
     #[serde(default)]
     pub rationale: Option<String>,
+    /// Display-only metadata (emoji / tags / version / license / author /
+    /// related skills). Aggregated from top-level YAML and vendor-namespaced
+    /// `metadata.openclaw` / `metadata.hermes` blocks. Does not affect
+    /// activation or dispatch.
+    #[serde(default, skip_serializing_if = "SkillDisplay::is_empty")]
+    pub display: SkillDisplay,
 }
 
 impl SkillEntry {
@@ -305,6 +424,7 @@ impl SkillEntry {
             effort: self.effort,
             status: self.status,
             authored_by: self.authored_by,
+            display: self.display,
         }
     }
 }
@@ -350,6 +470,10 @@ pub struct SkillSummary {
     /// Source hint: "user" / "auto-review".
     #[serde(default)]
     pub authored_by: Option<String>,
+    /// Display-only metadata (emoji / tags / version / license / author /
+    /// related skills). See [`SkillDisplay`].
+    #[serde(default, skip_serializing_if = "SkillDisplay::is_empty")]
+    pub display: SkillDisplay,
 }
 
 /// File metadata inside a skill directory.
@@ -405,6 +529,10 @@ pub struct SkillDetail {
     pub authored_by: Option<String>,
     #[serde(default)]
     pub rationale: Option<String>,
+    /// Display-only metadata (emoji / tags / version / license / author /
+    /// related skills). See [`SkillDisplay`].
+    #[serde(default, skip_serializing_if = "SkillDisplay::is_empty")]
+    pub display: SkillDisplay,
 }
 
 /// Skill health status for diagnostics.

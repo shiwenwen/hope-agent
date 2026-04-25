@@ -1854,7 +1854,41 @@
     "serverConnSubLocal": "{{count}} cục bộ",
     "serverChatSourceDesktop": "{{count}} máy tính",
     "serverChatSourceHttp": "{{count}} http",
-    "serverChatSourceChannel": "{{count}} kênh"
+    "serverChatSourceChannel": "{{count}} kênh",
+    "skillsImport": {
+      "button": "Quick import",
+      "dialogTitle": "Quick import skill directories",
+      "dialogDescription": "Probe known third-party skill catalogs (Claude Code, OpenClaw, Hermes Agent, Anthropic marketplace) and add the ones you have installed.",
+      "cc": {
+        "user": "Claude Code user-level skills",
+        "plugins": "Claude Code plugin skills",
+        "anthropic": "Anthropic Agent Skills marketplace"
+      },
+      "openclaw": "OpenClaw repository skills",
+      "hermes": "Hermes Agent repository skills",
+      "notFound": "No matching paths found on this machine.",
+      "alreadyAdded": "Already added",
+      "skillCount_one": "{{count}} skill",
+      "skillCount_other": "{{count}} skills",
+      "skillCount": "{{count}} skills",
+      "add": "Add",
+      "warning": {
+        "openclaw": "OpenClaw skills often depend on external CLIs (gh, 1password, tmux); calls may fail until you install them.",
+        "proprietary": "Anthropic skills are proprietary — use is governed by your Anthropic Consumer/Commercial Terms."
+      },
+      "tooltip": {
+        "distinguishOnboarding": "To migrate legacy OpenClaw user data, use the dedicated 'Import OpenClaw' step (step 2)."
+      },
+      "error": {
+        "discover": "Failed to discover preset skill sources",
+        "add": "Failed to add directory"
+      }
+    },
+    "skillExtras": {
+      "licenseWarning": "Source license: {{license}}",
+      "relatedSkills": "Related skills",
+      "installHint": "Run {{cmd}} to install dependencies"
+    }
   },
   "tz": {
     "shanghai": "Thượng Hải (UTC+8)",

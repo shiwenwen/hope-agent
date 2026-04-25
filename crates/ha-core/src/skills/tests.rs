@@ -3,7 +3,7 @@ mod tests {
     use std::collections::HashMap;
     use std::path::PathBuf;
 
-    use crate::skills::discovery::compact_path;
+    use crate::skills::discovery::{compact_path, load_skills_from_dir};
     use crate::skills::frontmatter::{
         parse_bool_value, parse_frontmatter, parse_install_specs, parse_requires, unquote,
         ParsedFrontmatter,
@@ -43,6 +43,7 @@ mod tests {
             status: SkillStatus::Active,
             authored_by: None,
             rationale: None,
+            display: SkillDisplay::default(),
         }
     }
 
@@ -74,6 +75,7 @@ mod tests {
             status: SkillStatus::Active,
             authored_by: None,
             rationale: None,
+            display: SkillDisplay::default(),
         }
     }
 
@@ -317,6 +319,390 @@ install:
         assert_eq!(specs[0].label.as_deref(), Some("Install GitHub CLI"));
         assert_eq!(specs[1].kind, "node");
         assert_eq!(specs[1].package.as_deref(), Some("@anthropic-ai/sdk"));
+    }
+
+    // ── frontmatter cross-vendor compatibility ────────────────────────────
+    //
+    // These three fixtures cover the three skill catalogs we explicitly want
+    // Quick Import to support without losing data:
+    //
+    // - OpenClaw: requires/install nested under `metadata.openclaw.*`
+    // - Hermes: tags + related_skills under `metadata.hermes.*`, top-level
+    //   version/license/author
+    // - Anthropic agent-skills: `license: Proprietary` at top-level
+    //
+    // See [`docs/research/bundled-skills-survey.md`](../../../../docs/research/bundled-skills-survey.md)
+    // for the catalog overview.
+
+    #[test]
+    fn test_parse_openclaw_metadata_lift() {
+        // Mirrors skills/github/SKILL.md from upstream openclaw — the
+        // metadata.openclaw.requires.bins block must be lifted to top-level
+        // `requires.bins` so HA's existing dependency-check pipeline sees `gh`.
+        let content = r#"---
+name: github
+description: "Use gh for GitHub issues"
+metadata:
+  openclaw:
+    emoji: "🐙"
+    requires:
+      bins:
+        - gh
+      anyBins:
+        - claude
+        - codex
+    install:
+      - kind: brew
+        formula: gh
+        bins: [gh]
+        label: "Install GitHub CLI"
+      - kind: node
+        package: "@anthropic-ai/claude-code"
+        bins: [claude]
+        label: "Install Claude Code CLI"
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.name, "github");
+        // Top-level requires was empty → must inherit from metadata.openclaw
+        assert_eq!(parsed.requires.bins, vec!["gh"]);
+        assert_eq!(parsed.requires.any_bins, vec!["claude", "codex"]);
+        // Same for install — must include the brew + node specs
+        assert_eq!(parsed.install.len(), 2);
+        assert_eq!(parsed.install[0].kind, "brew");
+        assert_eq!(parsed.install[0].formula.as_deref(), Some("gh"));
+        assert_eq!(parsed.install[1].kind, "node");
+        assert_eq!(
+            parsed.install[1].package.as_deref(),
+            Some("@anthropic-ai/claude-code")
+        );
+        // Display: emoji visible
+        assert_eq!(parsed.display.emoji.as_deref(), Some("🐙"));
+    }
+
+    #[test]
+    fn test_parse_openclaw_lift_does_not_override_top_level() {
+        // If a SKILL.md sets BOTH top-level and metadata.openclaw.requires,
+        // the explicit top-level value wins and the namespace is ignored —
+        // never silently overwrite the user's declaration.
+        let content = r#"---
+name: explicit
+description: "explicit top-level wins"
+requires:
+  bins:
+    - jq
+metadata:
+  openclaw:
+    requires:
+      bins:
+        - gh
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.requires.bins, vec!["jq"]);
+    }
+
+    #[test]
+    fn test_parse_hermes_tags_and_related_and_top_level() {
+        // Mirrors hermes-agent skills/software-development/systematic-debugging/SKILL.md.
+        // tags + related_skills under metadata.hermes; version/license/author at top.
+        let content = r#"---
+name: systematic-debugging
+description: "4-phase root cause investigation"
+version: 1.1.0
+author: Hermes Agent (adapted from obra/superpowers)
+license: MIT
+metadata:
+  hermes:
+    tags: [debugging, troubleshooting, root-cause]
+    related_skills:
+      - test-driven-development
+      - writing-plans
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.display.version.as_deref(), Some("1.1.0"));
+        assert_eq!(
+            parsed.display.author.as_deref(),
+            Some("Hermes Agent (adapted from obra/superpowers)")
+        );
+        assert_eq!(parsed.display.license.as_deref(), Some("MIT"));
+        assert_eq!(
+            parsed.display.tags,
+            vec!["debugging", "troubleshooting", "root-cause"]
+        );
+        assert_eq!(
+            parsed.display.related_skills,
+            vec!["test-driven-development", "writing-plans"]
+        );
+    }
+
+    #[test]
+    fn test_parse_block_scalar_description_folded() {
+        // YAML folded-scalar (`>`) is heavily used in Hermes/Anthropic
+        // SKILL.md authoring. Codex review caught that our hand-rolled parser
+        // previously read this as the literal description `>` and dropped
+        // every continuation line — the regression test guards against that.
+        let content = r#"---
+name: code-review
+description: >
+  Pre-commit verification pipeline — static security scan,
+  baseline-aware quality gates, independent reviewer subagent,
+  and auto-fix loop.
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.name, "code-review");
+        // Folded form joins continuation lines with single spaces.
+        assert_eq!(
+            parsed.description,
+            "Pre-commit verification pipeline — static security scan, \
+             baseline-aware quality gates, independent reviewer subagent, \
+             and auto-fix loop."
+        );
+    }
+
+    #[test]
+    fn test_parse_block_scalar_description_literal() {
+        // YAML literal-scalar (`|`) preserves newlines. Less common but
+        // worth supporting since it's the only YAML 1.2 form for embedding
+        // multi-paragraph values without explicit `\n` escapes.
+        let content = r#"---
+name: layered
+description: |
+  Line one.
+  Line two.
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.description, "Line one.\nLine two.");
+    }
+
+    #[test]
+    fn test_parse_block_list_paths() {
+        // Block-list `paths:` (one item per line, leading `- `) is what
+        // every Hermes-vendored coding skill uses. Inline `[..]` form was
+        // already supported; this test guards the block-list path that the
+        // Codex review found broken.
+        let content = r#"---
+name: systematic-debugging
+description: "4-phase root cause investigation"
+paths:
+  - "*.rs"
+  - "*.ts"
+  - "*.py"
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(
+            parsed.paths.as_deref(),
+            Some(&["*.rs".to_string(), "*.ts".to_string(), "*.py".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn test_parse_block_list_paths_inline_still_works() {
+        // Sanity-check that the refactor didn't break the legacy inline
+        // form; existing bundled skills (ha-settings etc.) might use it.
+        let content = r#"---
+name: x
+description: y
+paths: ["*.rs", "*.ts"]
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(
+            parsed.paths.as_deref(),
+            Some(&["*.rs".to_string(), "*.ts".to_string()][..])
+        );
+    }
+
+    #[test]
+    fn test_parse_block_list_aliases_and_allowed_tools() {
+        // Block-list also applies to `aliases:` and `allowed-tools:`. A
+        // single test covers both since they share the helper.
+        let content = r#"---
+name: x
+description: y
+aliases:
+  - alias-a
+  - alias-b
+allowed-tools:
+  - read
+  - grep
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.aliases, vec!["alias-a", "alias-b"]);
+        assert_eq!(parsed.allowed_tools, vec!["read", "grep"]);
+    }
+
+    #[test]
+    fn test_load_skills_from_dir_flat_layout() {
+        // Sanity-check the flat case (Hope Agent / OpenClaw / Anthropic
+        // marketplace) still works after the recursion refactor.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        std::fs::create_dir_all(root.join("alpha")).unwrap();
+        std::fs::write(
+            root.join("alpha/SKILL.md"),
+            "---\nname: alpha\ndescription: a\n---\nbody",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("beta")).unwrap();
+        std::fs::write(
+            root.join("beta/SKILL.md"),
+            "---\nname: beta\ndescription: b\n---\nbody",
+        )
+        .unwrap();
+
+        let mut entries = load_skills_from_dir(root, "test", &SkillPromptBudget::default());
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["alpha", "beta"]);
+    }
+
+    #[test]
+    fn test_load_skills_from_dir_hermes_category_layout() {
+        // Hermes Agent lays out skills as <root>/<category>/<skill>/SKILL.md.
+        // This was the second issue Codex flagged: Quick Import counted these
+        // skills correctly but the loader could not actually load them. This
+        // test guards the depth-2 recursion that fixes the discrepancy.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join("apple/imessage")).unwrap();
+        std::fs::write(
+            root.join("apple/imessage/SKILL.md"),
+            "---\nname: imessage\ndescription: Apple iMessage\n---\nbody",
+        )
+        .unwrap();
+
+        std::fs::create_dir_all(root.join("software-development/systematic-debugging")).unwrap();
+        std::fs::write(
+            root.join("software-development/systematic-debugging/SKILL.md"),
+            "---\nname: systematic-debugging\ndescription: 4-phase\n---\nbody",
+        )
+        .unwrap();
+
+        // Empty category dir — should be silently skipped, not crash.
+        std::fs::create_dir_all(root.join("placeholder")).unwrap();
+
+        let mut entries = load_skills_from_dir(root, "test", &SkillPromptBudget::default());
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, vec!["imessage", "systematic-debugging"]);
+    }
+
+    #[test]
+    fn test_load_skills_from_dir_explicit_skills_subdir() {
+        // OpenClaw extensions ship with `<package>/skills/<skill>/SKILL.md`.
+        // The explicit `skills/` re-entry path is preferred over generic
+        // category recursion; both must continue to work after the refactor.
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join("ext-foo/skills/foo-tool")).unwrap();
+        std::fs::write(
+            root.join("ext-foo/skills/foo-tool/SKILL.md"),
+            "---\nname: foo-tool\ndescription: nested\n---\nbody",
+        )
+        .unwrap();
+
+        let entries = load_skills_from_dir(root, "test", &SkillPromptBudget::default());
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].name, "foo-tool");
+    }
+
+    #[test]
+    fn test_load_skills_from_dir_depth_cap() {
+        // Pathological 3-level nesting must NOT load — depth cap is the
+        // backstop against runaway scans (e.g. someone passing their entire
+        // home dir as an extra skills root).
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        std::fs::create_dir_all(root.join("a/b/c")).unwrap();
+        std::fs::write(
+            root.join("a/b/c/SKILL.md"),
+            "---\nname: too-deep\ndescription: x\n---\nbody",
+        )
+        .unwrap();
+
+        let entries = load_skills_from_dir(root, "test", &SkillPromptBudget::default());
+        assert!(
+            entries.is_empty(),
+            "expected depth-3 SKILL.md to be ignored, got {:?}",
+            entries
+        );
+    }
+
+    #[test]
+    fn test_vendored_coding_skills_have_paths_populated() {
+        // End-to-end guard against the original Codex-flagged regression:
+        // five vendored Hermes coding skills authored with block-list `paths:`
+        // syntax must come back with a non-empty `paths` after parsing. If a
+        // future refactor breaks block-list handling, this catches it
+        // regardless of whether the dedicated parser unit test was kept.
+        for name in [
+            "systematic-debugging",
+            "test-driven-development",
+            "writing-plans",
+            "code-review",
+            "subagent-driven-development",
+        ] {
+            let parsed = parse_bundled_skill_frontmatter(name);
+            let paths = parsed
+                .paths
+                .as_deref()
+                .unwrap_or_else(|| panic!("{name}: paths not parsed"));
+            assert!(
+                !paths.is_empty(),
+                "{name}: paths block should produce a non-empty list"
+            );
+            assert!(
+                paths.iter().any(|p| p == "*.rs"),
+                "{name}: paths missing *.rs (got {:?})",
+                paths
+            );
+            // code-review uses a folded block scalar for description; that
+            // must be a real sentence, not the literal `>` token.
+            assert!(
+                parsed.description.len() > 5,
+                "{name}: description should be a real string, got {:?}",
+                parsed.description
+            );
+            assert_ne!(parsed.description, ">", "{name}: parser stopped at `>`");
+        }
+    }
+
+    #[test]
+    fn test_parse_anthropic_proprietary_license() {
+        // Mirrors anthropic-agent-skills (e.g. xlsx) license header. The UI
+        // surfaces the "Proprietary" string as a license badge so users see
+        // the distinction from MIT skills.
+        let content = r#"---
+name: xlsx
+description: "Spreadsheet skill"
+license: "Proprietary. LICENSE.txt has complete terms"
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert!(parsed
+            .display
+            .license
+            .as_deref()
+            .unwrap_or("")
+            .starts_with("Proprietary"));
     }
 
     #[test]

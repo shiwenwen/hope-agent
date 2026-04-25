@@ -860,6 +860,10 @@ fn build_router_with_cors(
             "/skills/extra-dirs",
             delete(routes::skills::remove_extra_skills_dir),
         )
+        .route(
+            "/skills/preset-sources",
+            get(routes::skills::discover_preset_skill_sources),
+        )
         .route("/skills/{name}", get(routes::skills::get_skill_detail))
         .route("/skills/{name}/toggle", post(routes::skills::toggle_skill))
         .route(

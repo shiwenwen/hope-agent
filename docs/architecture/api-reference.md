@@ -516,6 +516,7 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `get_extra_skills_dirs` | `GET /api/skills/extra-dirs` | ✅ |
 | `add_extra_skills_dir` | `POST /api/skills/extra-dirs` | ✅ |
 | `remove_extra_skills_dir` | `DELETE /api/skills/extra-dirs` | ✅ |
+| `discover_preset_skill_sources` | `GET /api/skills/preset-sources` | ✅ |
 | `get_skill_env` | `GET /api/skills/{name}/env` | ✅ |
 | `set_skill_env_var` | `POST /api/skills/{skill}/env` | ✅ |
 | `remove_skill_env_var` | `DELETE /api/skills/{skill}/env` | ✅ |
