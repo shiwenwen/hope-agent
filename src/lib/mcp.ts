@@ -3,11 +3,11 @@
  *
  * Mirrors the serialized shapes from `crates/ha-core/src/mcp/api.rs`
  * and `crates/ha-core/src/mcp/config.rs`. Every function here is a
- * thin wrapper over `transport.call(...)` so switching between Tauri
- * IPC and HTTP transport is invisible to callers.
+ * thin wrapper over `getTransport().call(...)` so switching between
+ * Tauri IPC and HTTP transport is invisible to callers.
  */
 
-import { transport } from "@/lib/transport-provider";
+import { getTransport } from "@/lib/transport-provider";
 
 // ── Enums & unions ───────────────────────────────────────────────
 
@@ -135,73 +135,73 @@ export interface McpImportSummary {
 // ── Transport helpers ────────────────────────────────────────────
 
 export function listServers(): Promise<McpServerSummary[]> {
-  return transport.call("mcp_list_servers");
+  return getTransport().call("mcp_list_servers");
 }
 
 export function getServerStatus(id: string): Promise<McpServerStatusSnapshot> {
-  return transport.call("mcp_get_server_status", { id });
+  return getTransport().call("mcp_get_server_status", { id });
 }
 
 export function addServer(draft: McpServerDraft): Promise<McpServerSummary> {
-  return transport.call("mcp_add_server", { draft });
+  return getTransport().call("mcp_add_server", { draft });
 }
 
 export function updateServer(
   id: string,
   draft: McpServerDraft,
 ): Promise<McpServerSummary> {
-  return transport.call("mcp_update_server", { id, draft });
+  return getTransport().call("mcp_update_server", { id, draft });
 }
 
 export function removeServer(id: string): Promise<void> {
-  return transport.call("mcp_remove_server", { id });
+  return getTransport().call("mcp_remove_server", { id });
 }
 
 export function reorderServers(order: string[]): Promise<void> {
-  return transport.call("mcp_reorder_servers", { order });
+  return getTransport().call("mcp_reorder_servers", { order });
 }
 
 export function testConnection(id: string): Promise<McpServerStatusSnapshot> {
-  return transport.call("mcp_test_connection", { id });
+  return getTransport().call("mcp_test_connection", { id });
 }
 
 export function reconnectServer(id: string): Promise<McpServerStatusSnapshot> {
-  return transport.call("mcp_reconnect_server", { id });
+  return getTransport().call("mcp_reconnect_server", { id });
 }
 
 export function startOauth(id: string): Promise<void> {
-  return transport.call("mcp_start_oauth", { id });
+  return getTransport().call("mcp_start_oauth", { id });
 }
 
 export function signOut(id: string): Promise<void> {
-  return transport.call("mcp_sign_out", { id });
+  return getTransport().call("mcp_sign_out", { id });
 }
 
 export function listServerTools(id: string): Promise<McpToolSummary[]> {
-  return transport.call("mcp_list_tools", { id });
+  return getTransport().call("mcp_list_tools", { id });
 }
 
 export function getRecentLogs(
   id: string,
   limit: number = 200,
 ): Promise<McpLogLine[]> {
-  return transport.call("mcp_get_recent_logs", { id, limit });
+  return getTransport().call("mcp_get_recent_logs", { id, limit });
 }
 
 export function importClaudeDesktopConfig(
   json: string,
 ): Promise<McpImportSummary> {
-  return transport.call("mcp_import_claude_desktop_config", { json });
+  return getTransport().call("mcp_import_claude_desktop_config", { json });
 }
 
 export function getGlobalSettings(): Promise<McpGlobalSettings> {
-  return transport.call("mcp_get_global_settings");
+  return getTransport().call("mcp_get_global_settings");
 }
 
 export function updateGlobalSettings(
   settings: McpGlobalSettings,
 ): Promise<void> {
-  return transport.call("mcp_update_global_settings", { settings });
+  return getTransport().call("mcp_update_global_settings", { settings });
 }
 
 // ── EventBus subscriptions ──────────────────────────────────────
