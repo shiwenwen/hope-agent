@@ -147,7 +147,8 @@ sequenceDiagram
                 Engine->>DB: flush 剩余 thinking/text blocks
                 Engine->>DB: append_message(Assistant + usage 元数据)
                 Engine->>DB: save_agent_context()
-                Engine->>Engine: run_memory_extraction_inline()
+                Engine->>Sink: emit chat:stream_end
+                Engine->>Engine: schedule_memory_extraction_after_turn()
                 Engine-->>Caller: Ok(ChatEngineResult)
             else ContextOverflow（首次）
                 Engine->>Engine: emergency_compact()
@@ -176,7 +177,7 @@ sequenceDiagram
 3. **流式执行** — 调用 `agent.chat()` 启动 LLM 请求 + Tool Loop，通过 `on_delta` 回调实时处理
 4. **响应持久化** — flush 未完成的 thinking/text blocks，保存 assistant 消息（附带 tokens、model、ttft_ms、duration_ms）
 5. **上下文保存** — `save_agent_context()` 将更新后的 conversation_history 序列化存回 DB
-6. **记忆提取** — inline 执行自动记忆提取（非 spawn），利用 side_query 缓存共享
+6. **记忆提取** — assistant 消息落库后结束可见 stream，再后台调度自动记忆提取，避免 stop 按钮 / sidebar spinner 被后处理任务拖住
 7. **错误处理** — 分类错误、决定重试/降级/终止
 
 ## 流式事件协议
@@ -241,7 +242,7 @@ flowchart TD
 
 ## 记忆提取门控
 
-`run_memory_extraction_inline()` 在每次成功响应后 inline 执行（非 `tokio::spawn`），以共享 Agent 实例的 side_query 缓存：
+`schedule_memory_extraction_after_turn()` 在每次成功响应后检查门控；满足阈值时通过 `tokio::spawn` 后台执行记忆提取。可见聊天流在最终 assistant 行落库后立即结束，自动提取不会阻塞前端的停止按钮、会话列表转圈或 `POST /chat` 返回：
 
 | 门控 | 条件 | 说明 |
 |---|---|---|
@@ -250,9 +251,9 @@ flowchart TD
 | Gate 3 | 冷却保护 | 距上次提取 ≥ `extract_time_threshold_secs`（默认 300s） |
 | Gate 4 | 内容阈值（任一满足） | Token ≥ 阈值（默认 8000）或 消息数 ≥ 阈值（默认 10） |
 
-Gate 3（冷却）和 Gate 4（内容）需同时满足。提取成功后重置追踪状态。
+Gate 3（冷却）和 Gate 4（内容）需同时满足。后台提取调度后重置追踪状态。
 
-**空闲超时兜底**：当 inline 提取未触发时（追踪状态未重置），调度延迟任务（默认 30 分钟）。超时后从 DB 加载历史执行最终提取（无 side_query 缓存共享）。新建会话时 `create_session()` 调用 `flush_all_idle_extractions()` 立即执行所有待提取。
+**空闲超时兜底**：当阈值提取未触发时（追踪状态未重置），调度延迟任务（默认 30 分钟）。超时后从 DB 加载历史执行最终提取。新建会话时 `create_session()` 调用 `flush_all_idle_extractions()` 立即执行所有待提取。
 
 提取使用的 provider/model 可独立配置（Agent 级 > 全局 > 当前模型），支持用廉价模型做提取以降低成本。
 

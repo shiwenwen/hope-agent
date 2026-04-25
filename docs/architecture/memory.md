@@ -157,19 +157,19 @@ flowchart TD
 
 ### 2. 自动提取
 
-Agent 在以下时机自动提取记忆（同步执行，非 `tokio::spawn`）：
+Agent 在以下时机自动提取记忆：
 
 - **Tier 3 压缩前**（`flush_before_compact = true`）：在 LLM 摘要压缩对话历史之前，先提取有价值的记忆
-- **阈值触发**：对话过程中，当冷却时间已过且内容阈值满足时触发提取
+- **阈值触发**：对话过程中，当冷却时间已过且内容阈值满足时，在 assistant 最终消息落库后后台调度提取
 
 自动提取特性：
-- 复用 `side_query` 缓存共享，降低 LLM 调用成本
+- 阈值触发的提取通过后台任务执行，不阻塞聊天流结束与前端 loading 状态
 - **项目感知作用域**：`resolve_extract_scope(session_id, agent_id)` 查询当前会话的 `project_id`，有则写入 `MemoryScope::Project { id }`，否则回退 `MemoryScope::Agent { id }`。保证项目知识自动积累到项目作用域
 - **冷却 + 阈值双层触发**（自上次提取以来，两个条件需同时满足）：
   - 冷却保护：时间间隔 ≥ `extract_time_threshold_secs`（默认 300 秒 = 5 分钟）
   - 内容触发（任一满足）：Token 累积 ≥ `extract_token_threshold`（默认 8000）或 消息条数 ≥ `extract_message_threshold`（默认 10 条）
 - **互斥保护**：检测到当前轮次已调用 `save_memory` / `update_core_memory` 工具时，跳过自动提取
-- **空闲超时兜底**：当同步提取因阈值未满足而跳过时，调度延迟任务（默认 30 分钟）。会话空闲超时后从 DB 加载历史执行最终提取。新建会话时立即 flush 所有待提取的空闲会话
+- **空闲超时兜底**：当阈值提取因门控未满足而跳过时，调度延迟任务（默认 30 分钟）。会话空闲超时后从 DB 加载历史执行最终提取。新建会话时立即 flush 所有待提取的空闲会话
 
 ```mermaid
 flowchart TD

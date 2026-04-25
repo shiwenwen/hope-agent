@@ -154,16 +154,16 @@ pub async fn relay_to_channel(session_id: &str, response: &str) {
     }
 }
 
-/// Run memory extraction inline (non-spawned) to enable side_query cache sharing.
-/// Returns the resolved idle_timeout_secs so the caller can schedule idle extraction
-/// without re-loading config.
+/// Schedule memory extraction after a successful turn. Returns the resolved
+/// idle_timeout_secs so the caller can schedule idle extraction without
+/// re-loading config.
 ///
 /// Trigger logic (since last extraction):
 /// - Cooldown: elapsed time must >= time threshold (prevents too-frequent extraction)
 /// - Trigger: token count >= token threshold OR message count >= message threshold
 ///
 /// Both cooldown AND trigger must be satisfied.
-pub(super) async fn run_memory_extraction_inline(
+pub(super) fn schedule_memory_extraction_after_turn(
     agent_id: &str,
     session_id: &str,
     model_ref: &ActiveModel,
@@ -235,7 +235,7 @@ pub(super) async fn run_memory_extraction_inline(
     app_info!(
         "memory",
         "auto_extract",
-        "Extraction triggered: tokens={}/{} msgs={}/{} cooldown={}s/{}s (session: {})",
+        "Extraction scheduled: tokens={}/{} msgs={}/{} cooldown={}s/{}s (session: {})",
         tokens_acc,
         token_threshold,
         messages_acc,
@@ -257,18 +257,29 @@ pub(super) async fn run_memory_extraction_inline(
 
     let history = agent.get_conversation_history();
     let store = crate::config::cached_config();
-    if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id) {
-        crate::memory_extract::run_extraction(
-            &history,
-            agent_id,
-            session_id,
-            prov,
-            &extract_model_id,
-            Some(agent),
-        )
-        .await;
-
+    if let Some(prov) = provider::find_provider(&store.providers, &extract_provider_id).cloned() {
+        let agent_id = agent_id.to_string();
+        let session_id = session_id.to_string();
+        tokio::spawn(async move {
+            crate::memory_extract::run_extraction(
+                &history,
+                &agent_id,
+                &session_id,
+                &prov,
+                &extract_model_id,
+                None,
+            )
+            .await;
+        });
         agent.reset_extraction_tracking();
+    } else {
+        app_warn!(
+            "memory",
+            "auto_extract",
+            "Extraction provider {} not found for session {}",
+            extract_provider_id,
+            session_id
+        );
     }
     idle_timeout
 }

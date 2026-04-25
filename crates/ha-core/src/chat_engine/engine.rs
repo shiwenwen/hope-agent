@@ -24,11 +24,13 @@ struct ChatRoundOk {
     chat_start: std::time::Instant,
 }
 
-/// Drop-guarded scope for a session's stream lifecycle. Ensures `stream_seq::end`
-/// + `chat:stream_end` broadcast fire on every `run_chat_engine` return path
-/// (including panics).
+/// Drop-guarded scope for a session's visible stream lifecycle. Ensures
+/// `stream_seq::end` + `chat:stream_end` broadcast fire on every
+/// `run_chat_engine` return path (including panics), while allowing the
+/// successful path to end the UI stream before post-turn follow-ups run.
 struct StreamLifecycle {
     session_id: String,
+    finished: bool,
 }
 
 impl StreamLifecycle {
@@ -36,14 +38,23 @@ impl StreamLifecycle {
         stream_seq::begin(session_id, source);
         Self {
             session_id: session_id.to_string(),
+            finished: false,
         }
+    }
+
+    fn finish(&mut self) {
+        if self.finished {
+            return;
+        }
+        stream_seq::end(&self.session_id);
+        stream_broadcast::broadcast_stream_end(&self.session_id);
+        self.finished = true;
     }
 }
 
 impl Drop for StreamLifecycle {
     fn drop(&mut self) {
-        stream_seq::end(&self.session_id);
-        stream_broadcast::broadcast_stream_end(&self.session_id);
+        self.finish();
     }
 }
 
@@ -114,7 +125,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         }
     }
 
-    let _stream_lifecycle = StreamLifecycle::begin(&session_id, source);
+    let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source);
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -374,6 +385,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);
 
+                    // The user-visible response is complete once the final
+                    // assistant row is durable. End the frontend stream here;
+                    // memory extraction and other follow-ups below must not
+                    // keep the stop button/sidebar spinner alive.
+                    stream_lifecycle.finish();
+
                     {
                         let usage_snapshot = persister.usage();
                         let round_tokens = {
@@ -389,9 +406,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         agent.accumulate_extraction_stats(round_tokens, round_messages);
                     }
 
-                    let idle_timeout =
-                        run_memory_extraction_inline(&agent_id, &session_id, model_ref, &agent)
-                            .await;
+                    let idle_timeout = schedule_memory_extraction_after_turn(
+                        &agent_id,
+                        &session_id,
+                        model_ref,
+                        &agent,
+                    );
 
                     // Phase B'1: skill auto-review — same as pre-Phase-3.
                     {
@@ -659,4 +679,25 @@ fn configure_agent(
     // Main-chat path: let provider tool loops re-read the live global effort
     // so UI toggles apply to the next API request, not only the next turn.
     agent.set_follow_global_reasoning_effort(true);
+}
+
+#[cfg(test)]
+mod stream_lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn finish_marks_stream_inactive_before_scope_drop() {
+        let sid = "test-chat-engine-stream-lifecycle-finish";
+
+        {
+            let mut lifecycle = StreamLifecycle::begin(sid, stream_seq::ChatSource::Desktop);
+            assert!(stream_seq::is_active(sid));
+
+            lifecycle.finish();
+
+            assert!(!stream_seq::is_active(sid));
+        }
+
+        assert!(!stream_seq::is_active(sid));
+    }
 }
