@@ -1,16 +1,16 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::{expand_tilde, extract_string_param};
+use super::extract_string_param;
 
-pub(crate) async fn tool_edit(args: &Value) -> Result<String> {
+pub(crate) async fn tool_edit(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     // Accept path aliases: path, file_path
     let raw_path = args
         .get("path")
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
         .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-    let path = expand_tilde(raw_path);
+    let path = ctx.resolve_path(raw_path);
 
     // Accept old_text aliases: old_text, oldText, old_string
     let old_text = args

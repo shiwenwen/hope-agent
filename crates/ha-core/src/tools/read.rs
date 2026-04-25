@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::{expand_tilde, extract_string_param};
+use super::extract_string_param;
 
 // ── Image Detection & Resize ──────────────────────────────────────
 
@@ -233,7 +233,7 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
         .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-    let path = expand_tilde(raw_path);
+    let path = ctx.resolve_path(raw_path);
 
     let offset = args
         .get("offset")

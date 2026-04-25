@@ -64,6 +64,8 @@ pub struct ToolDefinition {
 
 ### 2. 文件系统
 
+Path-aware 工具统一使用 `ToolExecContext` 解析默认路径：显式绝对路径保持不变；相对路径先落到当前 session 的 `working_dir`，没有时落到 Agent home，再没有时使用进程当前目录。`exec` 的默认 cwd 同样优先使用 session `working_dir` / Agent home，但最后一层回退是用户 home，保持 shell 命令的历史行为。
+
 | 工具 | 标记 | 说明 |
 |------|------|------|
 | `read` | always_load, concurrent_safe | 读取文件内容。支持行号分页（`offset` / `limit`），自动识别图片文件并以 base64 返回。兼容 `file_path` 别名。 |

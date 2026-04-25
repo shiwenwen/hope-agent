@@ -2,32 +2,57 @@ use anyhow::Result;
 use serde_json::Value;
 use std::path::Path;
 
-use super::{expand_tilde, extract_string_param};
+use super::extract_string_param;
 
-pub(crate) async fn tool_write_file(args: &Value) -> Result<String> {
+fn nearest_existing_ancestor(path: &Path) -> Option<&Path> {
+    let mut current = Some(path);
+    while let Some(candidate) = current {
+        if candidate.exists() {
+            return Some(candidate);
+        }
+        current = candidate.parent();
+    }
+    None
+}
+
+fn path_is_under_root(path: &Path, root: &Path) -> bool {
+    let Ok(canonical_root) = root.canonicalize() else {
+        return false;
+    };
+    nearest_existing_ancestor(path)
+        .and_then(|ancestor| ancestor.canonicalize().ok())
+        .map(|ancestor| ancestor.starts_with(canonical_root))
+        .unwrap_or(false)
+}
+
+pub(crate) async fn tool_write_file(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     // Accept both "path" and "file_path", with structured content support
     let raw_path = args
         .get("path")
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
         .ok_or_else(|| anyhow::anyhow!("Missing 'path' parameter"))?;
-    let path = expand_tilde(raw_path);
+    let path = ctx.resolve_path(raw_path);
 
-    // Validate path: disallow writing outside user home directory
+    // Validate path: disallow writing outside the selected session working
+    // directory or, when no session directory is set, outside user home.
     let resolved = std::path::Path::new(&path);
-    if let Some(home) = dirs::home_dir() {
-        // Attempt canonicalization of parent to detect traversal
-        if let Some(parent) = resolved.parent() {
-            if parent.exists() {
-                if let Ok(canonical_parent) = parent.canonicalize() {
-                    if !canonical_parent.starts_with(&home) {
-                        return Err(anyhow::anyhow!(
-                            "Refusing to write outside home directory: {}",
-                            path
-                        ));
-                    }
-                }
-            }
+    if let Some(parent) = resolved.parent() {
+        let session_root = ctx.session_working_dir.as_deref().map(Path::new);
+        let home_root = dirs::home_dir();
+        let allowed = session_root
+            .map(|root| path_is_under_root(parent, root))
+            .unwrap_or(false)
+            || home_root
+                .as_deref()
+                .map(|root| path_is_under_root(parent, root))
+                .unwrap_or(false);
+
+        if !allowed {
+            return Err(anyhow::anyhow!(
+                "Refusing to write outside the session working directory or home directory: {}",
+                path
+            ));
         }
     }
 
@@ -54,4 +79,39 @@ pub(crate) async fn tool_write_file(args: &Value) -> Result<String> {
         content.len(),
         path
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_write_file;
+    use crate::tools::ToolExecContext;
+    use serde_json::json;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn write_allows_relative_paths_under_session_working_dir_outside_home() {
+        let dir = std::path::Path::new("/tmp").join(format!(
+            "ha-session-working-dir-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock after epoch")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create tempdir outside user home");
+        let ctx = ToolExecContext {
+            session_working_dir: Some(dir.to_string_lossy().to_string()),
+            ..ToolExecContext::default()
+        };
+
+        tool_write_file(&json!({"path": "note.txt", "content": "hello"}), &ctx)
+            .await
+            .expect("write relative path inside session working dir");
+
+        let written = tokio::fs::read_to_string(dir.join("note.txt"))
+            .await
+            .expect("read written file");
+        assert_eq!(written, "hello");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

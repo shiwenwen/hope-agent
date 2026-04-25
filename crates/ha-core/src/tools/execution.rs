@@ -68,9 +68,12 @@ pub struct ToolExecContext {
     /// Estimated tokens currently used by system prompt + messages + max_output.
     /// Used by the read tool to compute remaining context budget for adaptive sizing.
     pub used_tokens: Option<u32>,
-    /// Agent home directory — used as default cwd/path for tools.
-    /// Falls back to user ~ if None.
+    /// Agent home directory — per-agent scratch/home directory.
     pub home_dir: Option<String>,
+    /// User-selected working directory for the current session.
+    /// Path-aware tools prefer this over the agent home when no explicit
+    /// absolute path/cwd is provided.
+    pub session_working_dir: Option<String>,
     /// Current session ID (for sub-agent spawning context)
     pub session_id: Option<String>,
     /// Current agent ID
@@ -108,9 +111,38 @@ pub struct ToolExecContext {
 }
 
 impl ToolExecContext {
-    /// Returns the default path for tools: agent home if set, otherwise ".".
+    /// Returns the default path for path-aware tools: session working dir,
+    /// then agent home, then ".".
     pub fn default_path(&self) -> &str {
-        self.home_dir.as_deref().unwrap_or(".")
+        self.session_working_dir
+            .as_deref()
+            .or(self.home_dir.as_deref())
+            .unwrap_or(".")
+    }
+
+    /// Returns the default cwd for process tools: session working dir, then
+    /// agent home, then the user's home directory, then ".".
+    pub fn default_cwd(&self) -> String {
+        self.session_working_dir
+            .clone()
+            .or_else(|| self.home_dir.clone())
+            .or_else(|| dirs::home_dir().map(|p| p.to_string_lossy().to_string()))
+            .unwrap_or_else(|| ".".to_string())
+    }
+
+    /// Resolve a user/model supplied file path against the current tool
+    /// default. Absolute paths and `~` stay anchored where the caller asked;
+    /// relative paths are rooted at the session working dir when one exists.
+    pub fn resolve_path(&self, raw_path: &str) -> String {
+        let expanded = super::expand_tilde(raw_path);
+        let path = std::path::Path::new(&expanded);
+        if path.is_absolute() {
+            return expanded;
+        }
+        std::path::Path::new(self.default_path())
+            .join(path)
+            .to_string_lossy()
+            .to_string()
     }
 
     /// Whether the tool is visible under the current combined restrictions.
@@ -308,7 +340,7 @@ pub async fn execute_tool_with_context(
                 s
             }
         });
-        let cwd = ctx.home_dir.as_deref().unwrap_or(".");
+        let cwd = ctx.default_path();
         match approval::check_and_request_approval(&desc, cwd, ctx.session_id.as_deref()).await {
             Ok(approval::ApprovalResponse::AllowOnce) => {
                 app_info!("tool", "approval", "Tool '{}' approved (once)", name);
@@ -455,12 +487,12 @@ pub async fn execute_tool_with_context(
             TOOL_PROCESS => process::tool_process(args).await,
             TOOL_READ | "read_file" => read::tool_read_file(args, ctx).await,
             TOOL_PROJECT_READ_FILE => project_read_file::tool_project_read_file(args, ctx).await,
-            TOOL_WRITE | "write_file" => write::tool_write_file(args).await,
-            TOOL_EDIT | "patch_file" => edit::tool_edit(args).await,
+            TOOL_WRITE | "write_file" => write::tool_write_file(args, ctx).await,
+            TOOL_EDIT | "patch_file" => edit::tool_edit(args, ctx).await,
             TOOL_LS | "list_dir" => ls::tool_ls(args, ctx).await,
             TOOL_GREP => grep::tool_grep(args, ctx).await,
             TOOL_FIND => find::tool_find(args, ctx).await,
-            TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args).await,
+            TOOL_APPLY_PATCH => apply_patch::tool_apply_patch(args, ctx).await,
             TOOL_WEB_SEARCH => web_search::tool_web_search(args).await,
             TOOL_WEB_FETCH => web_fetch::tool_web_fetch(args).await,
             TOOL_SAVE_MEMORY => memory::tool_save_memory(args, ctx).await,
@@ -658,7 +690,11 @@ fn extract_touched_paths(tool_name: &str, args: &Value) -> Vec<String> {
         }
         TOOL_APPLY_PATCH => {
             // Patch format uses `*** Update File: <path>` / `*** Add File: <path>`.
-            let patch = match args.get("patch").and_then(|v| v.as_str()) {
+            let patch = match args
+                .get("input")
+                .or_else(|| args.get("patch"))
+                .and_then(|v| v.as_str())
+            {
                 Some(s) => s,
                 None => return Vec::new(),
             };
@@ -725,7 +761,7 @@ fn maybe_activate_conditional_skills(name: &str, args: &Value, ctx: &ToolExecCon
     if !any_paths_skills(&cfg) {
         return;
     }
-    let cwd = ctx.home_dir.as_deref().unwrap_or(".");
+    let cwd = ctx.default_path();
     let catalog = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     let activated = crate::skills::activate_skills_for_paths(session_id, &paths, cwd, &catalog);
     if !activated.is_empty() {
@@ -759,4 +795,37 @@ fn persist_large_result(
     std::fs::write(&path, content)?;
 
     Ok(path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToolExecContext;
+    use std::path::Path;
+
+    #[test]
+    fn default_path_prefers_session_working_dir_over_agent_home() {
+        let ctx = ToolExecContext {
+            home_dir: Some("/tmp/hope-agent/coder-home".to_string()),
+            session_working_dir: Some("/tmp/projects/demo".to_string()),
+            ..ToolExecContext::default()
+        };
+
+        assert_eq!(ctx.default_path(), "/tmp/projects/demo");
+    }
+
+    #[test]
+    fn resolve_path_joins_relative_paths_to_session_working_dir() {
+        let ctx = ToolExecContext {
+            home_dir: Some("/tmp/hope-agent/coder-home".to_string()),
+            session_working_dir: Some("/tmp/projects/demo".to_string()),
+            ..ToolExecContext::default()
+        };
+
+        let expected = Path::new("/tmp/projects/demo")
+            .join("src/main.rs")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(ctx.resolve_path("src/main.rs"), expected);
+        assert_eq!(ctx.resolve_path("/var/tmp/file.txt"), "/var/tmp/file.txt");
+    }
 }
