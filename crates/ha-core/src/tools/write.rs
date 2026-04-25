@@ -81,13 +81,12 @@ pub(crate) async fn tool_write_file(args: &Value, ctx: &super::ToolExecContext) 
     ))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::tool_write_file;
     use crate::tools::ToolExecContext;
     use serde_json::json;
 
-    #[cfg(unix)]
     #[tokio::test]
     async fn write_allows_relative_paths_under_session_working_dir_outside_home() {
         let dir = std::path::Path::new("/tmp").join(format!(
