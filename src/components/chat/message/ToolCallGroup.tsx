@@ -127,6 +127,7 @@ function GroupItem({ tool }: { tool: ToolCall }) {
     () => (elapsedMs != null && elapsedMs >= 0 ? formatElapsed(elapsedMs) : null),
     [elapsedMs],
   )
+  const canExpand = tool.name === "exec" || (!isRunning && !!tool.result)
 
   useEffect(() => {
     if (!isRunning || !startedAtMs) return
@@ -138,23 +139,26 @@ function GroupItem({ tool }: { tool: ToolCall }) {
     <div className="text-[11px]">
       <button
         className="flex items-center gap-1.5 w-full px-1.5 py-0.5 text-left hover:bg-secondary/60 rounded transition-colors group/item"
-        onClick={() => (tool.name === "exec" || (!isRunning && tool.result)) && setShowResult(!showResult)}
+        onClick={() => canExpand && setShowResult(!showResult)}
       >
-        {isRunning ? (
-          <span className="animate-spin h-3 w-3 border border-current border-t-transparent rounded-full shrink-0 text-muted-foreground/60" />
-        ) : (
-          <ChevronRight
-            className={cn(
-              "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
-              showResult && "rotate-90",
-            )}
-          />
-        )}
-        <CatIcon className="h-3 w-3 shrink-0 text-muted-foreground/40" />
+        <ChevronRight
+          className={cn(
+            "h-3 w-3 shrink-0 text-muted-foreground/40 transition-transform duration-150",
+            showResult && "rotate-90",
+            !canExpand && "opacity-40",
+          )}
+        />
+        <span className="relative h-3 w-3 shrink-0">
+          <CatIcon className="h-3 w-3 text-muted-foreground/40" />
+          {isRunning && (
+            <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/60 ring-1 ring-card animate-pulse" />
+          )}
+        </span>
         <span
           className={cn(
             "font-medium shrink-0",
             isFailed ? "text-red-500" : "text-muted-foreground/80",
+            isRunning && "animate-text-shimmer",
           )}
         >
           {toolLabel}
@@ -229,6 +233,7 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(() => Date.now())
   const anyRunning = tools.some((tool) => getToolExecutionState(tool) === "running")
+  const showActivity = anyRunning || shimmer
   const failedCount = getFailedToolCount(tools)
 
   const primaryCategory = getPrimaryCategory(tools)
@@ -269,15 +274,18 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
         className="flex items-center gap-1.5 w-full px-1 py-1 text-left hover:bg-secondary/60 rounded-md transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
-        {anyRunning ? (
-          <span className="animate-spin h-3.5 w-3.5 border-[1.5px] border-current border-t-transparent rounded-full shrink-0 text-muted-foreground" />
-        ) : expanded ? (
+        {expanded ? (
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         ) : (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         )}
-        <HeaderIcon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className={cn("text-muted-foreground font-medium", (anyRunning || shimmer) && "animate-text-shimmer")}>{label}</span>
+        <span className="relative h-3.5 w-3.5 shrink-0">
+          <HeaderIcon className="h-3.5 w-3.5 text-muted-foreground" />
+          {showActivity && (
+            <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/60 ring-1 ring-card animate-pulse" />
+          )}
+        </span>
+        <span className={cn("text-muted-foreground font-medium", showActivity && "animate-text-shimmer")}>{label}</span>
         {failedCount > 0 && (
           <span className="shrink-0 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-500">
             <span className="inline-flex items-center gap-0.5">

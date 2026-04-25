@@ -241,6 +241,8 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
   const state = getToolExecutionState(tool)
   const isRunning = state === "running"
   const isFailed = state === "failed"
+  const showActivity = isRunning || shimmer
+  const canExpand = tool.name === "exec" || !isRunning
   const startedAtMs = tool.startedAtMs || 0
   const elapsedMs = tool.durationMs ?? (isRunning && startedAtMs ? now - startedAtMs : undefined)
   const elapsedText = useMemo(() => {
@@ -345,24 +347,26 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
     <div className="my-1 text-xs">
       <button
         className="flex items-center gap-1.5 w-full px-1 py-1 text-left hover:bg-secondary/60 rounded-md transition-colors group"
-        onClick={() => (tool.name === "exec" || !isRunning) && setExpanded(!expanded)}
+        onClick={() => canExpand && setExpanded(!expanded)}
       >
-        {isRunning ? (
-          <span className="animate-spin h-3.5 w-3.5 border-[1.5px] border-current border-t-transparent rounded-full shrink-0 text-muted-foreground" />
-        ) : (
-          <ChevronRight
-            className={cn(
-              "h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200",
-              expanded && "rotate-90",
-            )}
-          />
-        )}
-        <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <ChevronRight
+          className={cn(
+            "h-3.5 w-3.5 shrink-0 text-muted-foreground/60 transition-transform duration-200",
+            expanded && "rotate-90",
+            !canExpand && "opacity-40",
+          )}
+        />
+        <span className="relative h-3.5 w-3.5 shrink-0">
+          <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+          {showActivity && (
+            <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/60 ring-1 ring-card animate-pulse" />
+          )}
+        </span>
         <span
           className={cn(
             "font-medium shrink-0 whitespace-nowrap",
             isFailed ? "text-red-500" : "text-muted-foreground",
-            (isRunning || shimmer) && "animate-text-shimmer",
+            showActivity && "animate-text-shimmer",
           )}
         >
           {toolLabel}
