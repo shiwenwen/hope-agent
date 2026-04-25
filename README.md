@@ -112,8 +112,8 @@ pnpm tauri build       # 打生产包
 
 | 模式              | 启动方式                                                                         | 场景                                                         |
 | ----------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| 桌面 GUI          | 双击图标 / `pnpm tauri dev`                                                   | 默认体验，本机一个人用                                       |
-| Server（HTTP/WS） | 通过 `server start` 子命令；`server install` 可注册成 launchd / systemd 开机自启 | 守护进程 24 小时在线，IM 渠道/Cron 不断线                    |
+| 桌面 GUI          | 双击图标 / `pnpm tauri dev`                                                   | 功能最全的入口：完整 GUI 体验，并内嵌 HTTP/WS 服务，桌面在用的同时可对外提供接入 |
+| Server（HTTP/WS） | 通过 `server start` 子命令；`server install` 可注册成 launchd / systemd 开机自启 | 无 GUI 守护进程，24 小时在线，IM 渠道/Cron 不断线              |
 | ACP（stdio）      | 通过 `acp` 子命令                                                                | IDE 直连，兼容 ACP 协议的编辑器把 Hope Agent 当 agent 后端调 |
 
 三种模式共用同一套 `ha-core` 核心逻辑；配置、会话、记忆全部落在 `~/.hope-agent/` 下。

@@ -112,8 +112,8 @@ pnpm tauri build       # production build
 
 | Mode             | How to start                                                                      | When to use                                                                       |
 | ---------------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| Desktop GUI      | Double-click the app / `pnpm tauri dev`                                        | Default, single user                                                              |
-| Server (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Always-on daemon for IM channels and cron jobs                                    |
+| Desktop GUI      | Double-click the app / `pnpm tauri dev`                                        | The most complete entry point: full GUI plus an embedded HTTP/WS server, so the desktop can serve remote clients while you use it |
+| Server (HTTP/WS) | `server start` subcommand; `server install` registers a launchd / systemd service | Headless always-on daemon for IM channels and cron jobs                            |
 | ACP (stdio)      | `acp` subcommand                                                                  | IDE integration — any ACP-capable editor can call Hope Agent as its agent backend |
 
 All three modes share the same `ha-core` core. Config, sessions, and memories live under `~/.hope-agent/`.
