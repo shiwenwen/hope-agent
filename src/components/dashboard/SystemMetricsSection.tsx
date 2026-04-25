@@ -27,7 +27,7 @@ import {
 } from "lucide-react"
 import MetricCard from "@/components/common/MetricCard"
 import type { SystemMetrics } from "./types"
-import { formatBytes, formatUptime } from "./types"
+import { chartName, chartNumber, formatBytes, formatUptime } from "./types"
 
 export interface SystemHistoryPoint {
   t: number
@@ -266,7 +266,7 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
                       fontSize: "12px",
                       color: "var(--color-popover-foreground)",
                     }}
-                    formatter={(value: number) => [formatBytes(value)]}
+                    formatter={(value) => [formatBytes(chartNumber(value))]}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -347,7 +347,7 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
                   fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                 }}
-                formatter={(value: number) => [formatBytes(value)]}
+                formatter={(value) => [formatBytes(chartNumber(value))]}
               />
               <Bar dataKey="value" radius={[0, 4, 4, 0]} barSize={20}>
                 {diskBarData.map((entry, i) => (
@@ -411,12 +411,12 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
                     fontSize: "12px",
                     color: "var(--color-popover-foreground)",
                   }}
-                  labelFormatter={(v: number) =>
-                    new Date(v).toLocaleTimeString()
+                  labelFormatter={(value) =>
+                    new Date(chartNumber(value)).toLocaleTimeString()
                   }
-                  formatter={(value: number, name: string) => [
-                    `${value.toFixed(2)}%`,
-                    name === "cpu"
+                  formatter={(value, name) => [
+                    `${chartNumber(value).toFixed(2)}%`,
+                    chartName(name) === "cpu"
                       ? t("dashboard.system.cpuUsage")
                       : t("dashboard.system.memRss"),
                   ]}

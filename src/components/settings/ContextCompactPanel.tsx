@@ -334,7 +334,11 @@ export default function ContextCompactPanel() {
                   <div className="flex items-center justify-between gap-2">
                     <label className="text-sm">
                       {t("settings.contextCompactSummarizationModel")}
-                      <IconTip label={t("settings.contextCompactSummarizationModelDesc")} />
+                      <IconTip label={t("settings.contextCompactSummarizationModelDesc")}>
+                        <span className="ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full border border-border text-[10px] text-muted-foreground">
+                          ?
+                        </span>
+                      </IconTip>
                     </label>
                     <select
                       className="h-7 w-56 rounded-md border border-border bg-background px-2 text-sm text-right truncate"

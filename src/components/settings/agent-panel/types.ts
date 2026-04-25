@@ -7,7 +7,9 @@ export type {
   ActiveModelRef,
   SkillSummary,
   ActiveMemoryConfig,
+  AgentMemoryConfig,
   MemoryBudgetConfig,
+  PersonaMode,
   SqliteSectionBudgets,
 } from "../types"
 export {

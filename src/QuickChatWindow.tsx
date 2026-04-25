@@ -25,6 +25,7 @@ const QUICK_CHAT_MESSAGES_HEIGHT = 500
 export default function QuickChatWindow() {
   const session = useQuickChatSession(true)
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
+  const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
 
   const stream = useChatStream({
     messages: session.messages,
@@ -45,6 +46,7 @@ export default function QuickChatWindow() {
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
+    endedStreamIdsRef: quickEndedStreamIdsRef,
   })
 
   useEffect(() => { initLanguageFromConfig() }, [])

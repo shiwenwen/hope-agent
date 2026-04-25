@@ -9,7 +9,7 @@ import { TemplateConfig } from "./TemplateConfig"
 import { CustomWizard } from "./CustomWizard"
 
 // Re-export types and components that external files depend on
-export type { ModelConfig } from "./types"
+export type { ApiType, AuthProfile, ModelConfig, ProviderConfig, ThinkingStyleType } from "./types"
 export { SortableModelEditor, ModelEditor } from "./ModelEditor"
 
 export default function ProviderSetup({

@@ -12,7 +12,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { SortableModelEditor, type ModelConfig } from "@/components/settings/provider-setup"
+import {
+  SortableModelEditor,
+  type ApiType,
+  type ModelConfig,
+  type ThinkingStyleType,
+} from "@/components/settings/provider-setup"
 import ProviderIcon from "@/components/common/ProviderIcon"
 import TestResultDisplay, {
   parseTestResult,

@@ -22,7 +22,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardInsights } from "./types"
-import { formatNumber, formatCost, formatDuration } from "./types"
+import { chartName, chartNumber, formatNumber, formatCost, formatDuration } from "./types"
 
 interface InsightsSectionProps {
   data: DashboardInsights | null
@@ -314,7 +314,7 @@ const InsightsSection = React.memo(function InsightsSection({
                     fontSize: "12px",
                     color: "var(--color-popover-foreground)",
                   }}
-                  formatter={(value: number) => [formatCost(value), t("dashboard.insights.cost")]}
+                  formatter={(value) => [formatCost(chartNumber(value)), t("dashboard.insights.cost")]}
                 />
                 <ReferenceLine
                   y={data.costTrend.avgDailyCostUsd}
@@ -396,9 +396,9 @@ const InsightsSection = React.memo(function InsightsSection({
                   fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                 }}
-                formatter={(value: number, name: string) => [
-                  formatNumber(value),
-                  name === "messageCount"
+                formatter={(value, name) => [
+                  formatNumber(chartNumber(value)),
+                  chartName(name) === "messageCount"
                     ? t("dashboard.insights.messages")
                     : t("dashboard.insights.sessions"),
                 ]}

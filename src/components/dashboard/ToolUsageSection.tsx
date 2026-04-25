@@ -13,7 +13,7 @@ import { ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import type { ToolUsageStats } from "./types"
-import { formatNumber, formatDuration } from "./types"
+import { chartName, chartNumber, formatNumber, formatDuration } from "./types"
 
 interface ToolUsageSectionProps {
   data: ToolUsageStats[] | null
@@ -155,10 +155,10 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                   fontSize: "12px",
                 color: "var(--color-popover-foreground)",
                 }}
-                labelFormatter={getToolLabel}
-                formatter={(value: number, name: string) => [
-                  formatNumber(value),
-                  name === "callCount"
+                labelFormatter={(name) => getToolLabel(chartName(name))}
+                formatter={(value, name) => [
+                  formatNumber(chartNumber(value)),
+                  chartName(name) === "callCount"
                     ? t("dashboard.tool.calls")
                     : t("dashboard.tool.errors"),
                 ]}
@@ -204,9 +204,9 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                     fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                   }}
-                  labelFormatter={getToolLabel}
-                  formatter={(value: number) => [
-                    formatDuration(value),
+                  labelFormatter={(name) => getToolLabel(chartName(name))}
+                  formatter={(value) => [
+                    formatDuration(chartNumber(value)),
                     t("dashboard.tool.avgDuration"),
                   ]}
                 />
