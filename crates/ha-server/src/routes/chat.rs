@@ -48,6 +48,11 @@ pub struct ChatRequest {
     /// See Tauri `chat` command — DB stores this while `message` goes to the LLM.
     #[serde(default)]
     pub display_text: Option<String>,
+    /// Draft working dir picked before the session was materialized. Only
+    /// honored when this call also creates the session (mirrors the Tauri
+    /// `chat` command).
+    #[serde(default)]
+    pub working_dir: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -143,13 +148,25 @@ pub async fn chat(
     let agent_id = body.agent_id.unwrap_or_else(|| "default".to_string());
 
     // Resolve or create session
+    let mut new_session_created = false;
     let sid = match body.session_id {
         Some(id) if !id.is_empty() => id,
         _ => {
             let meta = db.create_session_with_project(&agent_id, None, body.incognito)?;
+            new_session_created = true;
             meta.id
         }
     };
+
+    // Apply draft working dir picked before the session existed. Mirrors the
+    // Tauri `chat` command — explicit-session callers must use the dedicated
+    // setter to change it.
+    if new_session_created {
+        if let Some(wd) = body.working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
+            db.update_session_working_dir(&sid, Some(wd.clone()))
+                .map_err(|e| AppError::bad_request(e.to_string()))?;
+        }
+    }
 
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
     let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);

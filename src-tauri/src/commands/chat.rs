@@ -49,6 +49,10 @@ pub async fn chat(
     // When set, DB stores `display_text` as the user message while `message` is still
     // fed to the LLM (slash-skill passThrough uses this).
     display_text: Option<String>,
+    // Draft working dir picked before the session was materialized. Only honored
+    // when this call also creates the session — applies via the same
+    // `update_session_working_dir` validation as the explicit setter command.
+    working_dir: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -85,6 +89,24 @@ pub async fn chat(
             meta.id
         }
     };
+
+    // Apply draft working dir picked before the session existed. Only honored on
+    // the auto-create branch — explicit-session callers must use
+    // `set_session_working_dir` to change it. Validation errors are surfaced so
+    // an invalid path doesn't silently get dropped.
+    if new_session_created.is_some() {
+        if let Some(wd) = working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
+            db.update_session_working_dir(&sid, Some(wd.clone()))
+                .map_err(|e| e.to_string())?;
+            app_info!(
+                "session",
+                "chat",
+                "Applied draft working_dir on new session: session={} dir={}",
+                sid,
+                wd
+            );
+        }
+    }
 
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);

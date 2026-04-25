@@ -44,6 +44,12 @@ export interface UseChatStreamOptions {
   temperatureOverride?: number | null
   /** New-chat preset; only applied when the backend auto-creates a session. */
   incognitoEnabled?: boolean
+  /**
+   * Draft working dir picked before the session was materialized. Sent to the
+   * `chat` command only when no `sessionId` is set yet — the backend applies it
+   * on the auto-create branch.
+   */
+  draftWorkingDir?: string | null
 }
 
 export interface UseChatStreamReturn {
@@ -88,6 +94,7 @@ export function useChatStream({
   planMode,
   temperatureOverride,
   incognitoEnabled = false,
+  draftWorkingDir = null,
 }: UseChatStreamOptions): UseChatStreamReturn {
   const { t } = useTranslation()
   const [input, setInput] = useState("")
@@ -347,6 +354,7 @@ export function useChatStream({
         planMode: planMode && planMode !== "off" ? planMode : undefined,
         temperatureOverride: temperatureOverride ?? undefined,
         displayText: options?.displayText?.trim() || undefined,
+        workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
         onEvent,
       })
     } catch (e) {

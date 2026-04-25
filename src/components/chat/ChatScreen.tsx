@@ -96,6 +96,10 @@ export default function ChatScreen({
   const [systemPromptContent, setSystemPromptContent] = useState("")
   const [systemPromptLoading, setSystemPromptLoading] = useState(false)
   const [draftIncognito, setDraftIncognito] = useState(false)
+  // Draft working dir picked before a session exists. Materialized into the new
+  // session by the backend `chat` command on first send, then cleared via the
+  // `currentSessionId` transition effect below.
+  const [draftWorkingDir, setDraftWorkingDir] = useState<string | null>(null)
   const [workingDirSaving, setWorkingDirSaving] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
@@ -368,7 +372,12 @@ export default function ChatScreen({
   const handleWorkingDirChange = useCallback(
     async (workingDir: string | null) => {
       const sid = session.currentSessionId
-      if (!sid) return
+      // No session yet — stash the choice. The backend `chat` command applies
+      // it on the auto-create branch when the first message ships.
+      if (!sid) {
+        setDraftWorkingDir(workingDir)
+        return
+      }
       const previous = currentSessionMeta?.workingDir ?? null
       if (previous === workingDir) return
       session.updateSessionMeta(sid, (prev) =>
@@ -399,6 +408,15 @@ export default function ChatScreen({
     },
     [session, currentSessionMeta?.workingDir, t],
   )
+
+  // Once the auto-created session lands (chat command emits `session_created`),
+  // the draft has been materialized server-side — drop the local copy so the
+  // sidebar/sessions metadata becomes the single source of truth.
+  useEffect(() => {
+    if (session.currentSessionId && draftWorkingDir !== null) {
+      setDraftWorkingDir(null)
+    }
+  }, [session.currentSessionId, draftWorkingDir])
 
   // Reload sessions when external trigger changes (e.g. mark-all-read from IconSidebar)
   useEffect(() => {
@@ -536,6 +554,7 @@ export default function ChatScreen({
     planMode: planModeState,
     temperatureOverride: sessionTemperature,
     incognitoEnabled,
+    draftWorkingDir,
   })
 
   // Restore the per-session tool permission toggle on session switch. The ref
@@ -1057,11 +1076,13 @@ export default function ChatScreen({
               incognitoEnabled={incognitoEnabled}
               incognitoDisabledReason={incognitoDisabledReason}
               onIncognitoChange={handleIncognitoChange}
-              workingDir={currentSessionMeta?.workingDir ?? null}
-              workingDirSaving={workingDirSaving}
-              onWorkingDirChange={
-                session.currentSessionId ? handleWorkingDirChange : undefined
+              workingDir={
+                session.currentSessionId
+                  ? (currentSessionMeta?.workingDir ?? null)
+                  : draftWorkingDir
               }
+              workingDirSaving={workingDirSaving}
+              onWorkingDirChange={handleWorkingDirChange}
               planState={planMode.planState}
               planProgress={planMode.progress}
               onEnterPlanMode={planMode.enterPlanMode}
