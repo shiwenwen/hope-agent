@@ -1,28 +1,31 @@
-export type SettingsSection =
-  | "general"
-  | "modelConfig"
-  | "tools"
-  | "skills"
-  | "agents"
-  | "teams"
-  | "memory"
-  | "notifications"
-  | "sandbox"
-  | "acp"
-  | "permissions"
-  | "profile"
-  | "chat"
-  | "plan"
-  | "recap"
-  | "logs"
-  | "health"
-  | "about"
-  | "channels"
-  | "developer"
-  | "server"
-  | "mcp"
-  | "security"
-  | "browser"
+export const SETTINGS_SECTION_IDS = [
+  "general",
+  "modelConfig",
+  "tools",
+  "skills",
+  "agents",
+  "teams",
+  "memory",
+  "notifications",
+  "sandbox",
+  "acp",
+  "permissions",
+  "profile",
+  "chat",
+  "plan",
+  "recap",
+  "logs",
+  "health",
+  "about",
+  "channels",
+  "developer",
+  "server",
+  "mcp",
+  "security",
+  "browser",
+] as const
+
+export type SettingsSection = (typeof SETTINGS_SECTION_IDS)[number]
 
 export interface SettingsSectionItem {
   id: SettingsSection

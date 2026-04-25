@@ -27,11 +27,19 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     #[cfg(target_os = "macos")]
     {
         use tauri::menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
-        let hide_quit = MenuItemBuilder::with_id("hide_quit", "Hide Hope Agent")
+        let labels =
+            crate::menu_labels::macos_app_menu_labels(&crate::menu_labels::resolve_language());
+        let about = MenuItemBuilder::with_id("open_about", labels.about).build(app)?;
+        let settings = MenuItemBuilder::with_id("open_settings", labels.settings)
+            .accelerator("CmdOrCtrl+,")
+            .build(app)?;
+        let hide_quit = MenuItemBuilder::with_id("hide_quit", labels.hide)
             .accelerator("CmdOrCtrl+Q")
             .build(app)?;
         let app_submenu = SubmenuBuilder::new(app, "Hope Agent")
-            .about(None)
+            .item(&about)
+            .separator()
+            .item(&settings)
             .separator()
             .item(&hide_quit)
             .build()?;
@@ -60,11 +68,31 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             .build()?;
         app.set_menu(menu)?;
         app.on_menu_event(|app_handle, event| {
-            if event.id().as_ref() == "hide_quit" {
-                use tauri::Manager;
-                if let Some(window) = app_handle.get_webview_window("main") {
-                    let _ = window.hide();
+            use tauri::{Emitter, Manager};
+            match event.id().as_ref() {
+                "open_about" => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                    let _ =
+                        app_handle.emit("open-settings", serde_json::json!({ "section": "about" }));
                 }
+                "open_settings" => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                    let _ = app_handle.emit("open-settings", ());
+                }
+                "hide_quit" => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.hide();
+                    }
+                }
+                _ => {}
             }
         });
     }

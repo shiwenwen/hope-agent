@@ -3,6 +3,7 @@ mod app_init;
 pub mod cli_onboarding;
 mod commands;
 mod globals;
+mod menu_labels;
 mod setup;
 mod shortcuts;
 mod tauri_wrappers;

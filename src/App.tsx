@@ -19,6 +19,7 @@ import ErrorBoundary from "@/components/common/ErrorBoundary"
 import ProviderSetup from "@/components/settings/ProviderSetup"
 import SettingsView from "@/components/settings/SettingsView"
 import type { SettingsSection } from "@/components/settings/types"
+import { parseOpenSettingsSection } from "@/components/settings/openSettingsEvent"
 import OnboardingWizard from "@/components/onboarding"
 import { CURRENT_ONBOARDING_VERSION } from "@/components/onboarding/version"
 import IconSidebar from "@/components/common/IconSidebar"
@@ -49,6 +50,7 @@ export default function App() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
     undefined,
   )
+  const [settingsInitialSectionRequestKey, setSettingsInitialSectionRequestKey] = useState(0)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
@@ -131,6 +133,7 @@ export default function App() {
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
   const handleOpenSettings = useCallback((section?: SettingsSection) => {
     setSettingsInitialSection(section)
+    setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
   }, [])
   useEffect(() => {
@@ -146,8 +149,8 @@ export default function App() {
 
   // Listen for system tray events + config hot-reload
   useEffect(() => {
-    const unlistenSettings = getTransport().listen("open-settings", () => {
-      setView("settings")
+    const unlistenSettings = getTransport().listen("open-settings", (raw) => {
+      handleOpenSettings(parseOpenSettingsSection(raw))
     })
     const unlistenNewSession = getTransport().listen("new-session", () => {
       setView("chat")
@@ -162,7 +165,7 @@ export default function App() {
       unlistenTheme()
       unlistenNotification()
     }
-  }, [])
+  }, [handleOpenSettings])
 
   // Auto-check for desktop updates on startup
   const updateCheckRef = useRef(false)
@@ -321,6 +324,7 @@ export default function App() {
               />
               {view === "settings" && (
                 <SettingsView
+                  key={settingsInitialSectionRequestKey}
                   onBack={() => setView("chat")}
                   onCodexAuth={handleCodexAuth}
                   onCodexReauth={handleCodexAuth}
