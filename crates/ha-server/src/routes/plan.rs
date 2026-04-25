@@ -11,15 +11,19 @@ use crate::routes::helpers::session_db;
 
 /// `GET /api/plan/{session_id}/mode`
 pub async fn get_plan_mode(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
-    let state = plan::get_plan_state(&session_id).await;
-    if state != PlanModeState::Off {
-        return Ok(Json(json!({ "state": state.as_str() })));
-    }
     if let Ok(Some(meta)) = session_db()?.get_session(&session_id) {
+        if meta.plan_mode == "off" {
+            plan::set_plan_state(&session_id, PlanModeState::Off).await;
+            return Ok(Json(json!({ "state": "off" })));
+        }
         if meta.plan_mode != "off" {
             plan::restore_from_db(&session_id, &meta.plan_mode).await;
             return Ok(Json(json!({ "state": meta.plan_mode })));
         }
+    }
+    let state = plan::get_plan_state(&session_id).await;
+    if state != PlanModeState::Off {
+        return Ok(Json(json!({ "state": state.as_str() })));
     }
     Ok(Json(json!({ "state": "off" })))
 }
@@ -88,17 +92,21 @@ pub async fn save_plan_content(
 pub async fn get_plan_steps(
     Path(session_id): Path<String>,
 ) -> Result<Json<Vec<PlanStep>>, AppError> {
-    if let Some(meta) = plan::get_plan_meta(&session_id).await {
-        if !meta.steps.is_empty() {
-            return Ok(Json(meta.steps));
-        }
-    }
     if let Ok(Some(session_meta)) = session_db()?.get_session(&session_id) {
+        if session_meta.plan_mode == "off" {
+            plan::set_plan_state(&session_id, PlanModeState::Off).await;
+            return Ok(Json(Vec::new()));
+        }
         if session_meta.plan_mode != "off" {
             plan::restore_from_db(&session_id, &session_meta.plan_mode).await;
             if let Some(meta) = plan::get_plan_meta(&session_id).await {
                 return Ok(Json(meta.steps));
             }
+        }
+    }
+    if let Some(meta) = plan::get_plan_meta(&session_id).await {
+        if !meta.steps.is_empty() {
+            return Ok(Json(meta.steps));
         }
     }
     Ok(Json(Vec::new()))

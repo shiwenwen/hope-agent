@@ -570,6 +570,22 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
     const paginated = value as { sessions: unknown; total: unknown };
     return [paginated.sessions, paginated.total];
   }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    switch (command) {
+      case "get_plan_mode":
+        return record.state;
+      case "get_plan_content":
+      case "load_plan_version_content":
+        return record.content;
+      case "get_plan_file_path":
+        return record.filePath;
+      case "get_plan_checkpoint":
+        return record.checkpoint;
+      case "plan_rollback":
+        return record.message;
+    }
+  }
   return value;
 }
 

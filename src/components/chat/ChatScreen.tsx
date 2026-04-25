@@ -828,6 +828,13 @@ export default function ChatScreen({
     [setPlanState, sendMessage, currentSessionId],
   )
 
+  const shouldShowPlanPanel =
+    planMode.showPanel &&
+    planMode.planState !== "off" &&
+    (planMode.planState === "planning" ||
+      planMode.planContent.trim().length > 0 ||
+      planMode.planSteps.length > 0)
+
   return (
     <>
       {/* Sidebar */}
@@ -1094,7 +1101,7 @@ export default function ChatScreen({
       </div>
 
       {/* Plan Panel (right side) */}
-      {planMode.showPanel && planMode.planState !== "off" && (
+      {shouldShowPlanPanel && (
         <>
           <div
             className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"

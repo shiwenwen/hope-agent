@@ -61,6 +61,7 @@ export function PlanPanel({
   panelWidth,
 }: PlanPanelProps) {
   const { t } = useTranslation()
+  const desktopMode = isTauriMode()
   const [showVersions, setShowVersions] = useState(false)
   const [versions, setVersions] = useState<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>([])
   const [loadingVersions, setLoadingVersions] = useState(false)
@@ -79,7 +80,7 @@ export function PlanPanel({
 
   // Adjust window min size
   useEffect(() => {
-    if (!isTauriMode()) return
+    if (!desktopMode) return
     const win = getCurrentWindow()
     if (!detached) {
       win.setMinSize(new LogicalSize(1240, 480))
@@ -89,7 +90,7 @@ export function PlanPanel({
     return () => {
       win.setMinSize(new LogicalSize(840, 480))
     }
-  }, [detached])
+  }, [detached, desktopMode])
 
   // Clean up detached window on unmount
   useEffect(() => {
@@ -103,7 +104,7 @@ export function PlanPanel({
 
   const handleDetach = useCallback(async () => {
     if (!sessionId) return
-    if (!isTauriMode()) return
+    if (!desktopMode) return
     try {
       if (detachedWindowRef.current) {
         await detachedWindowRef.current.close().catch(() => {})
@@ -138,7 +139,7 @@ export function PlanPanel({
     } catch {
       /* ignore creation errors */
     }
-  }, [sessionId, t])
+  }, [desktopMode, sessionId, t])
 
   const handleReattach = useCallback(() => {
     if (detachedWindowRef.current) {
@@ -348,6 +349,23 @@ export function PlanPanel({
 
   // Whether inline commenting is enabled
   const canComment = (planState === "review" || planState === "planning") && !!onRequestChanges
+  const panelShellClass = maximized
+    ? "fixed inset-0 z-50 flex flex-col bg-background"
+    : cn(
+        "flex h-full flex-col shrink-0 bg-background animate-in slide-in-from-right-2 duration-200",
+        desktopMode
+          ? "max-w-[40vw]"
+          : "max-w-[42vw] border-l border-border/70 bg-background/95",
+      )
+  const headerClass = cn(
+    "flex items-center gap-2 px-3 border-b shrink-0",
+    desktopMode ? "py-2 border-border bg-secondary/30" : "h-10 border-border/70 bg-background/95",
+    maximized && desktopMode && "pt-8",
+  )
+  const actionBarClass = cn(
+    "px-3 py-3 border-t border-border shrink-0 space-y-2",
+    desktopMode ? "bg-secondary/20" : "bg-background/95",
+  )
 
   // Detached: show compact placeholder
   if (detached) {
@@ -355,7 +373,7 @@ export function PlanPanel({
       <div className="flex flex-col w-[200px] shrink-0 bg-background animate-in slide-in-from-right-2 duration-200">
         <div
           className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0"
-          data-tauri-drag-region
+          data-tauri-drag-region={desktopMode ? true : undefined}
         >
           <ClipboardList className={cn("h-4 w-4", iconColor)} />
           <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
@@ -389,20 +407,13 @@ export function PlanPanel({
 
   return (
     <div
-      className={
-        maximized
-          ? "fixed inset-0 z-50 flex flex-col bg-background"
-          : "flex flex-col shrink-0 max-w-[40vw] bg-background animate-in slide-in-from-right-2 duration-200"
-      }
+      className={panelShellClass}
       style={maximized ? undefined : { width: panelWidth ?? 400 }}
     >
       {/* Title bar */}
       <div
-        className={cn(
-          "flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0",
-          maximized && "pt-8"
-        )}
-        data-tauri-drag-region
+        className={headerClass}
+        data-tauri-drag-region={desktopMode ? true : undefined}
       >
         <ClipboardList className={cn("h-4 w-4", iconColor)} />
         <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
@@ -419,7 +430,7 @@ export function PlanPanel({
               </button>
             </IconTip>
           )}
-          {isTauriMode() && (
+          {desktopMode && (
             <IconTip label={t("planMode.popOut")}>
               <button
                 onClick={handleDetach}
@@ -429,14 +440,16 @@ export function PlanPanel({
               </button>
             </IconTip>
           )}
-          <IconTip label={maximized ? t("planMode.minimize") : t("planMode.maximize")}>
-            <button
-              onClick={() => setMaximized((v) => !v)}
-              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-            >
-              {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            </button>
-          </IconTip>
+          {desktopMode && (
+            <IconTip label={maximized ? t("planMode.minimize") : t("planMode.maximize")}>
+              <button
+                onClick={() => setMaximized((v) => !v)}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              </button>
+            </IconTip>
+          )}
           <IconTip label={t("common.close")}>
             <button
               className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
@@ -587,7 +600,7 @@ export function PlanPanel({
       </div>
 
       {/* Action bar */}
-      <div className="px-3 py-3 border-t border-border bg-secondary/20 shrink-0 space-y-2">
+      <div className={actionBarClass}>
         {/* Planning: exit only */}
         {planState === "planning" && (
           <Button variant="ghost" className="w-full" onClick={onExit}>

@@ -21,6 +21,38 @@ export interface PlanCardInfo {
   phaseCount: number
 }
 
+const PLAN_MODE_STATES = new Set<PlanModeState>([
+  "off",
+  "planning",
+  "review",
+  "executing",
+  "paused",
+  "completed",
+])
+
+function unwrapField(value: unknown, key: string): unknown {
+  if (value && typeof value === "object" && !Array.isArray(value) && key in value) {
+    return (value as Record<string, unknown>)[key]
+  }
+  return value
+}
+
+function normalizePlanModeState(value: unknown): PlanModeState {
+  const raw = unwrapField(value, "state")
+  return typeof raw === "string" && PLAN_MODE_STATES.has(raw as PlanModeState)
+    ? (raw as PlanModeState)
+    : "off"
+}
+
+function normalizePlanContent(value: unknown): string {
+  const raw = unwrapField(value, "content")
+  return typeof raw === "string" ? raw : ""
+}
+
+function normalizePlanSteps(value: unknown): PlanStep[] {
+  return Array.isArray(value) ? (value as PlanStep[]) : []
+}
+
 export interface UsePlanModeReturn {
   planState: PlanModeState
   setPlanState: React.Dispatch<React.SetStateAction<PlanModeState>>
@@ -61,6 +93,7 @@ export function usePlanMode(
 
   // Track whether plan mode was entered in the current no-session context
   const preSessionPlanRef = useRef(false)
+  const lastSessionIdRef = useRef<string | null>(null)
 
   // Enter Plan Mode
   const enterPlanMode = useCallback(async () => {
@@ -139,6 +172,10 @@ export function usePlanMode(
   }, [planState])
 
   useEffect(() => {
+    const previousSessionId = lastSessionIdRef.current
+    const sessionChanged = previousSessionId !== currentSessionId
+    lastSessionIdRef.current = currentSessionId
+
     if (!currentSessionId) {
       // No session — reset plan state unless user just entered plan mode
       // in this no-session context (pre-session plan mode)
@@ -154,8 +191,23 @@ export function usePlanMode(
       return
     }
 
+    const shouldMaterializePreSessionPlan =
+      preSessionPlanRef.current && planStateRef.current !== "off"
+
     // Session exists now — clear pre-session flag
     preSessionPlanRef.current = false
+
+    if (!shouldMaterializePreSessionPlan && sessionChanged) {
+      setPlanState("off")
+      queueMicrotask(() => {
+        setPlanSteps([])
+        setPlanContent("")
+        setShowPanel(false)
+        setPlanCardInfo(null)
+      })
+    }
+
+    let cancelled = false
 
     // Clear stale question UI, then restore any still-pending group for the
     // target session from the backend (handles "switch away before answering"
@@ -167,37 +219,70 @@ export function usePlanMode(
         sessionId: currentSessionId,
       })
       .then((group) => {
+        if (cancelled) return
         if (group && group.sessionId === currentSessionId) {
           setPendingQuestionGroup(group)
         }
       })
       .catch(() => {})
 
-    // If frontend already has a non-off plan state (entered before session existed),
-    // sync it TO the backend instead of reading FROM backend
-    if (planStateRef.current !== "off") {
+    // If plan mode was explicitly entered before the backend session existed,
+    // sync that draft state to the newly materialized session. Do not reuse a
+    // non-off state from a different session; that makes ordinary chats look
+    // like plan sessions after switching.
+    if (shouldMaterializePreSessionPlan) {
       getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
         .catch(() => {})
-      return
+      return () => {
+        cancelled = true
+      }
     }
 
     // Otherwise, load plan state from backend (e.g. restoring a historical session)
     Promise.all([
-      getTransport().call<string>("get_plan_mode", { sessionId: currentSessionId }),
-      getTransport().call<PlanStep[]>("get_plan_steps", { sessionId: currentSessionId }),
-      getTransport().call<string | null>("get_plan_content", { sessionId: currentSessionId }),
+      getTransport().call<unknown>("get_plan_mode", { sessionId: currentSessionId }),
+      getTransport().call<unknown>("get_plan_steps", { sessionId: currentSessionId }),
+      getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId }),
     ])
-      .then(([state, steps, content]) => {
-        const s = (state || "off") as PlanModeState
+      .then(([rawState, rawSteps, rawContent]) => {
+        if (cancelled) return
+        const s = normalizePlanModeState(rawState)
+        const steps = normalizePlanSteps(rawSteps)
+        const content = normalizePlanContent(rawContent)
+        const hasPlanData = !!content?.trim() || (steps || []).length > 0
+        if (s !== "off" && s !== "planning" && !hasPlanData) {
+          setPlanState("off")
+          setPlanSteps([])
+          setPlanContent("")
+          setShowPanel(false)
+          setPlanCardInfo(null)
+          getTransport()
+            .call("set_plan_mode", { sessionId: currentSessionId, state: "off" })
+            .catch(() => {})
+          return
+        }
         setPlanState(s)
         setPlanSteps(steps || [])
         setPlanContent(content || "")
+        if (s === "off") {
+          setShowPanel(false)
+          setPlanCardInfo(null)
+        }
         // Only auto-show panel when plan content exists (not during initial planning)
         if (s !== "off" && content) setShowPanel(true)
       })
       .catch(() => {
+        if (cancelled) return
         setPlanState("off")
+        setPlanSteps([])
+        setPlanContent("")
+        setShowPanel(false)
+        setPlanCardInfo(null)
       })
+
+    return () => {
+      cancelled = true
+    }
   }, [currentSessionId, setPlanState])
 
   // Listen for plan_content_updated events (backend detected plan in LLM output)
@@ -240,7 +325,7 @@ export function usePlanMode(
     return getTransport().listen("plan_mode_changed", (raw) => {
       const payload = raw as { sessionId: string; state: string; reason?: string }
       if (payload.sessionId !== currentSessionId) return
-      setPlanState(payload.state as PlanModeState)
+      setPlanState(normalizePlanModeState(payload.state))
     })
   }, [currentSessionId, setPlanState])
 
@@ -258,8 +343,9 @@ export function usePlanMode(
       setPlanState("review")
       setPendingQuestionGroup(null)
       // Load the plan content and auto-show panel
-      getTransport().call<string | null>("get_plan_content", { sessionId: currentSessionId })
-        .then((content) => {
+      getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId })
+        .then((rawContent) => {
+          const content = normalizePlanContent(rawContent)
           if (content) {
             setPlanContent(content)
             setShowPanel(true)
