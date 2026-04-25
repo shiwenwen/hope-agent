@@ -274,13 +274,8 @@ async fn handle_inbound_message(
     );
     let _ = session_db.append_message(&session_id, &user_msg);
 
-    // Auto-generate title from first message (same logic as normal chat)
-    if let Ok(Some(meta)) = session_db.get_session(&session_id) {
-        if meta.title.is_none() && meta.message_count <= 1 {
-            let title = crate::session::auto_title(user_text);
-            let _ = session_db.update_session_title(&session_id, &title);
-        }
-    }
+    // Auto-generate fallback title from first message (same logic as normal chat)
+    let _ = crate::session::ensure_first_message_title(&session_db, &session_id, user_text);
 
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.

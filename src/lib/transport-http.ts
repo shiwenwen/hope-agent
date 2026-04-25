@@ -200,6 +200,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Context compaction --
   get_compact_config:              { method: "GET",    path: "/api/config/compact" },
   save_compact_config:             { method: "PUT",    path: "/api/config/compact" },
+  get_session_title_config:        { method: "GET",    path: "/api/config/session-title" },
+  save_session_title_config:       { method: "PUT",    path: "/api/config/session-title" },
 
   // -- Behavior awareness --
   get_awareness_config:        { method: "GET",    path: "/api/config/awareness" },

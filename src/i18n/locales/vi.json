@@ -1300,6 +1300,12 @@
     "chatAutoExpandThinkingDesc": "Tự động mở rộng các khối suy nghĩ trong bóng chat. Khi tắt, nhấn để mở rộng thủ công.",
     "toolCallNarration": "Thông báo khi gọi công cụ",
     "toolCallNarrationDesc": "Khi bật, yêu cầu mô hình mở đầu mỗi lần gọi công cụ bằng một câu thông báo (theo phong cách Claude Code). Một số mô hình (vd. GPT-5.4) áp dụng quá mức và lặp lại cùng một ý định qua các lần gọi liên tiếp, gây trùng lặp rõ rệt. Mặc định tắt.",
+    "sessionTitle": "Tự động tạo tên cuộc trò chuyện",
+    "sessionTitleDesc": "Giữ tiêu đề từ tin nhắn đầu tiên ngay lập tức, rồi tạo tiêu đề ngắn gọn sau phản hồi đầu tiên của trợ lý.",
+    "sessionTitleModel": "Mô hình đặt tên",
+    "sessionTitleUseChatModel": "Dùng mô hình trò chuyện",
+    "sessionTitleChatModelHint": "Dùng mô hình trò chuyện chính để tạo tên một lần.",
+    "sessionTitleCustomModelHint": "Dùng nhà cung cấp/mô hình đã chọn để tạo tên.",
     "awareness": {
       "title": "Nhận biết hành vi",
       "desc": "Cho cuộc trò chuyện này tầm nhìn động về việc người dùng đang làm ở các phiên song song khác.",

@@ -41,6 +41,16 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
     return unlisten
   }, [])
 
+  // Backend-generated session metadata updates (for example async LLM titles).
+  useEffect(() => {
+    const unlisten = getTransport().listen("session:title_updated", () => {
+      reloadSessions()
+    })
+    return unlisten
+    // reloadSessions is stable in practice; keep one listener per mounted chat screen.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Listen for backend-driven parent agent streaming (sub-agent result injection)
   useEffect(() => {
     const unlisten = getTransport().listen("parent_agent_stream", (raw) => {

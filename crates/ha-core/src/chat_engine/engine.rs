@@ -415,6 +415,14 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // keep the stop button/sidebar spinner alive.
                     stream_lifecycle.finish();
 
+                    crate::session_title::maybe_schedule_after_success(
+                        db.clone(),
+                        session_id.clone(),
+                        agent_id.clone(),
+                        model_ref.clone(),
+                        providers.clone(),
+                    );
+
                     {
                         let usage_snapshot = persister.usage();
                         let round_tokens = {

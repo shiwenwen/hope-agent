@@ -135,6 +135,7 @@ export type ToolPermissionMode = "auto" | "ask_every_time" | "full_approve"
 export interface SessionMeta {
   id: string
   title?: string | null
+  titleSource?: "first_message" | "llm" | "manual"
   agentId: string
   providerId?: string | null
   providerName?: string | null

@@ -396,6 +396,14 @@ fn build_router_with_cors(
         .route("/config/compact", get(routes::config::get_compact_config))
         .route("/config/compact", put(routes::config::save_compact_config))
         .route(
+            "/config/session-title",
+            get(routes::config::get_session_title_config),
+        )
+        .route(
+            "/config/session-title",
+            put(routes::config::save_session_title_config),
+        )
+        .route(
             "/config/awareness",
             get(routes::config::get_awareness_config),
         )
