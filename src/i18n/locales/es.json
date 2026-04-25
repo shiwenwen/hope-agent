@@ -140,6 +140,7 @@
     "send": "Enviar",
     "queueMessage": "Encolar mensaje",
     "stopReply": "Detener respuesta",
+    "moreActions": "Más acciones",
     "incognito": "Incógnito",
     "incognitoPreset": "Preajuste de incógnito para chats nuevos",
     "incognitoAwarenessDisabled": "La conciencia de comportamiento no está disponible mientras el modo incógnito esté activo",
@@ -165,8 +166,10 @@
       "truncated": "Sólo se muestran las primeras entradas — este directorio es demasiado grande para el navegador."
     },
     "modelsCount": "{{count}} modelos",
+    "attachPhotosAndFiles": "Agregar fotos y archivos",
     "attachImage": "Agregar imagen",
     "attachFile": "Agregar archivo",
+    "addWorkingDirectory": "Agregar directorio de trabajo",
     "selectModel": "Seleccionar modelo",
     "deleteSessionTitle": "Eliminar conversación",
     "deleteSessionWarning": "Esta acción eliminará permanentemente esta conversación y todos sus mensajes. No se puede deshacer. ¿Estás seguro?",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "Importar desde OpenClaw",
+      "description": "¿Ya tienes OpenClaw configurado? Podemos importar tus proveedores, claves API, agentes y memorias de una sola vez.\nPuedes omitir si no usas OpenClaw.",
+      "title": "Lo que encontramos",
+      "subtitle": "Detectado en:",
+      "scanning": "Escaneando configuración de OpenClaw…",
+      "scanFailed": "No se pudo escanear OpenClaw",
+      "notFound": "No se detectó configuración de OpenClaw. Puedes continuar con una configuración nueva.",
+      "empty": "Directorio de OpenClaw encontrado pero vacío — nada que importar.",
+      "warningsTitle": "Aviso",
+      "selectAll": "Seleccionar todo",
+      "deselectAll": "Quitar selección",
+      "providers": {
+        "title": "Proveedores y claves API",
+        "modelCount": "{{count}} modelo",
+        "modelCount_other": "{{count}} modelos",
+        "profileWithPlainKey": "{{count}} clave",
+        "profileWithPlainKey_other": "{{count}} claves",
+        "envRef": "desde variable de entorno",
+        "oauthExcluded": "OAuth excluido",
+        "apiTypeWarning": "Ruta de compatibilidad",
+        "nameConflict": "Conflicto de nombre — se añadirá \"(Imported)\""
+      },
+      "agents": {
+        "title": "Agentes",
+        "alreadyExists": "ID ya existe",
+        "hasSystemPrompt": "System prompt personalizado",
+        "sandbox": "Sandbox",
+        "skills": "{{count}} habilidad",
+        "skills_other": "{{count}} habilidades"
+      },
+      "memory": {
+        "title": "Memorias",
+        "global": "MEMORY.md global",
+        "perAgent": "{{agent}} — {{count}} entradas"
+      },
+      "import": {
+        "button": "Importar {{n}} elemento",
+        "button_other": "Importar {{n}} elementos"
+      },
+      "skip": "Omitir",
+      "continue": "Continuar",
+      "success": "Importado",
+      "failed": "Falló",
+      "partial": "Importado con avisos"
     },
     "provider": {
       "title": "Pick a model provider",

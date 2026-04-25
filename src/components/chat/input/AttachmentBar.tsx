@@ -18,7 +18,14 @@ export function AttachmentPreview({ attachedFiles, onRemoveFile }: AttachmentPre
     () => attachedFiles.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : "")),
     [attachedFiles],
   )
-  useEffect(() => () => { blobUrls.forEach((u) => { if (u) URL.revokeObjectURL(u) }) }, [blobUrls])
+  useEffect(
+    () => () => {
+      blobUrls.forEach((u) => {
+        if (u) URL.revokeObjectURL(u)
+      })
+    },
+    [blobUrls],
+  )
 
   if (attachedFiles.length === 0) return null
 
@@ -60,10 +67,50 @@ interface AttachmentButtonsProps {
   onAttachFiles: (files: File[]) => void
 }
 
-export default function AttachmentButtons({ onAttachFiles }: AttachmentButtonsProps) {
+interface AttachFilesMenuItemProps extends AttachmentButtonsProps {
+  onPicked?: () => void
+}
+
+export function AttachFilesMenuItem({ onAttachFiles, onPicked }: AttachFilesMenuItemProps) {
+  const { t } = useTranslation()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files
+      if (files) {
+        onAttachFiles(Array.from(files))
+      }
+      e.target.value = ""
+      onPicked?.()
+    },
+    [onAttachFiles, onPicked],
+  )
+
+  return (
+    <>
+      <button
+        type="button"
+        className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground"
+        onClick={() => fileInputRef.current?.click()}
+      >
+        <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="truncate">{t("chat.attachPhotosAndFiles")}</span>
+      </button>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+    </>
+  )
+}
+
+export function AttachImageButton({ onAttachFiles }: AttachmentButtonsProps) {
   const { t } = useTranslation()
   const imageInputRef = useRef<HTMLInputElement>(null)
-  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const handleFileSelect = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -96,6 +143,27 @@ export default function AttachmentButtons({ onAttachFiles }: AttachmentButtonsPr
         className="hidden"
         onChange={handleFileSelect}
       />
+    </>
+  )
+}
+
+export function AttachFileButton({ onAttachFiles }: AttachmentButtonsProps) {
+  const { t } = useTranslation()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const handleFileSelect = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const files = e.target.files
+      if (files) {
+        onAttachFiles(Array.from(files))
+      }
+      e.target.value = ""
+    },
+    [onAttachFiles],
+  )
+
+  return (
+    <>
       <IconTip label={t("chat.attachFile")}>
         <Button
           variant="ghost"
@@ -113,6 +181,15 @@ export default function AttachmentButtons({ onAttachFiles }: AttachmentButtonsPr
         className="hidden"
         onChange={handleFileSelect}
       />
+    </>
+  )
+}
+
+export default function AttachmentButtons({ onAttachFiles }: AttachmentButtonsProps) {
+  return (
+    <>
+      <AttachImageButton onAttachFiles={onAttachFiles} />
+      <AttachFileButton onAttachFiles={onAttachFiles} />
     </>
   )
 }

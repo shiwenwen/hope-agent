@@ -140,6 +140,7 @@
     "send": "Gửi",
     "queueMessage": "Xếp hàng gửi",
     "stopReply": "Dừng trả lời",
+    "moreActions": "Thêm thao tác",
     "incognito": "Ẩn danh",
     "incognitoPreset": "Thiết lập ẩn danh mặc định cho cuộc trò chuyện mới",
     "incognitoAwarenessDisabled": "Nhận biết hành vi không khả dụng khi bật ẩn danh",
@@ -165,8 +166,10 @@
       "truncated": "Chỉ hiển thị các mục đầu tiên — thư mục này quá lớn để trình duyệt hiển thị hết."
     },
     "modelsCount": "{{count}} mô hình",
+    "attachPhotosAndFiles": "Thêm ảnh và tệp",
     "attachImage": "Thêm ảnh",
     "attachFile": "Thêm tệp",
+    "addWorkingDirectory": "Thêm thư mục làm việc",
     "selectModel": "Chọn mô hình",
     "deleteSessionTitle": "Xóa cuộc trò chuyện",
     "deleteSessionWarning": "Thao tác này sẽ xóa vĩnh viễn cuộc trò chuyện này và tất cả tin nhắn. Không thể hoàn tác. Bạn có chắc chắn không?",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "Nhập từ OpenClaw",
+      "description": "Bạn đã cấu hình OpenClaw? Chúng tôi có thể nhập nhà cung cấp, API key, agent và bộ nhớ cùng một lúc.\nBỏ qua nếu bạn không dùng OpenClaw.",
+      "title": "Đã tìm thấy",
+      "subtitle": "Phát hiện tại:",
+      "scanning": "Đang quét cấu hình OpenClaw…",
+      "scanFailed": "Không thể quét OpenClaw",
+      "notFound": "Không phát hiện cấu hình OpenClaw. Bạn có thể tiếp tục với cài đặt mới.",
+      "empty": "Đã tìm thấy thư mục OpenClaw nhưng trống — không có gì để nhập.",
+      "warningsTitle": "Lưu ý",
+      "selectAll": "Chọn tất cả",
+      "deselectAll": "Bỏ chọn tất cả",
+      "providers": {
+        "title": "Nhà cung cấp và API key",
+        "modelCount": "{{count}} mô hình",
+        "modelCount_other": "{{count}} mô hình",
+        "profileWithPlainKey": "{{count}} key",
+        "profileWithPlainKey_other": "{{count}} key",
+        "envRef": "từ biến môi trường",
+        "oauthExcluded": "Loại trừ OAuth",
+        "apiTypeWarning": "Đường tương thích",
+        "nameConflict": "Trùng tên — sẽ thêm \"(Imported)\""
+      },
+      "agents": {
+        "title": "Agents",
+        "alreadyExists": "ID đã tồn tại",
+        "hasSystemPrompt": "System prompt tùy chỉnh",
+        "sandbox": "Sandbox",
+        "skills": "{{count}} kỹ năng",
+        "skills_other": "{{count}} kỹ năng"
+      },
+      "memory": {
+        "title": "Bộ nhớ",
+        "global": "MEMORY.md toàn cục",
+        "perAgent": "{{agent}} — {{count}} mục"
+      },
+      "import": {
+        "button": "Nhập {{n}} mục",
+        "button_other": "Nhập {{n}} mục"
+      },
+      "skip": "Bỏ qua",
+      "continue": "Tiếp tục",
+      "success": "Đã nhập",
+      "failed": "Thất bại",
+      "partial": "Đã nhập có cảnh báo"
     },
     "provider": {
       "title": "Pick a model provider",

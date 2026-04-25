@@ -140,6 +140,7 @@
     "send": "Отправить",
     "queueMessage": "В очередь",
     "stopReply": "Остановить ответ",
+    "moreActions": "Еще действия",
     "incognito": "Инкогнито",
     "incognitoPreset": "Режим инкогнито по умолчанию для новых чатов",
     "incognitoAwarenessDisabled": "При включенном инкогнито поведенческая осведомленность недоступна",
@@ -165,8 +166,10 @@
       "truncated": "Показаны только первые записи — каталог слишком велик для отображения целиком."
     },
     "modelsCount": "{{count}} моделей",
+    "attachPhotosAndFiles": "Добавить фото и файлы",
     "attachImage": "Добавить изображение",
     "attachFile": "Добавить файл",
+    "addWorkingDirectory": "Добавить рабочий каталог",
     "selectModel": "Выбрать модель",
     "deleteSessionTitle": "Удалить разговор",
     "deleteSessionWarning": "Это действие навсегда удалит этот разговор и все его сообщения. Отменить невозможно. Вы уверены?",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "Импорт из OpenClaw",
+      "description": "Уже используете OpenClaw? Мы можем перенести провайдеров, API-ключи, агентов и память за один раз.\nМожете пропустить этот шаг, если не используете OpenClaw.",
+      "title": "Найдено",
+      "subtitle": "Обнаружено в:",
+      "scanning": "Сканирование конфигурации OpenClaw…",
+      "scanFailed": "Не удалось просканировать OpenClaw",
+      "notFound": "Конфигурация OpenClaw не обнаружена. Можно продолжить с чистой настройки.",
+      "empty": "Каталог OpenClaw найден, но он пуст — нечего импортировать.",
+      "warningsTitle": "Внимание",
+      "selectAll": "Выбрать все",
+      "deselectAll": "Снять выбор",
+      "providers": {
+        "title": "Провайдеры и API-ключи",
+        "modelCount": "{{count}} модель",
+        "modelCount_other": "{{count}} моделей",
+        "profileWithPlainKey": "{{count}} ключ",
+        "profileWithPlainKey_other": "{{count}} ключей",
+        "envRef": "из переменной окружения",
+        "oauthExcluded": "OAuth не импортируется",
+        "apiTypeWarning": "Путь совместимости",
+        "nameConflict": "Конфликт имён — добавится \"(Imported)\""
+      },
+      "agents": {
+        "title": "Агенты",
+        "alreadyExists": "ID уже существует",
+        "hasSystemPrompt": "Свой system prompt",
+        "sandbox": "Песочница",
+        "skills": "{{count}} навык",
+        "skills_other": "{{count}} навыков"
+      },
+      "memory": {
+        "title": "Память",
+        "global": "Глобальный MEMORY.md",
+        "perAgent": "{{agent}} — {{count}} записей"
+      },
+      "import": {
+        "button": "Импортировать {{n}} элемент",
+        "button_other": "Импортировать {{n}} элементов"
+      },
+      "skip": "Пропустить",
+      "continue": "Продолжить",
+      "success": "Импортировано",
+      "failed": "Ошибка",
+      "partial": "Импортировано с предупреждениями"
     },
     "provider": {
       "title": "Pick a model provider",

@@ -140,6 +140,7 @@
     "send": "Gönder",
     "queueMessage": "Sıraya al",
     "stopReply": "Yanıtı durdur",
+    "moreActions": "Daha fazla işlem",
     "incognito": "Gizli",
     "incognitoPreset": "Yeni sohbetler için gizli ön ayar",
     "incognitoAwarenessDisabled": "Gizli mod açıkken davranış farkındalığı kullanılamaz",
@@ -165,8 +166,10 @@
       "truncated": "Yalnızca ilk girdiler gösteriliyor — bu dizin tarayıcının tamamını göstermesi için çok büyük."
     },
     "modelsCount": "{{count}} model",
+    "attachPhotosAndFiles": "Fotoğraf ve dosya ekle",
     "attachImage": "Resim Ekle",
     "attachFile": "Dosya Ekle",
+    "addWorkingDirectory": "Çalışma dizini ekle",
     "selectModel": "Model Seç",
     "deleteSessionTitle": "Sohbeti Sil",
     "deleteSessionWarning": "Bu işlem bu sohbeti ve tüm mesajlarını kalıcı olarak silecektir. Bu işlem geri alınamaz. Emin misiniz?",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "OpenClaw'dan İçe Aktar",
+      "description": "Zaten OpenClaw yapılandırmanız var mı? Sağlayıcılarınızı, API anahtarlarınızı, ajanlarınızı ve belleklerinizi tek seferde getirebiliriz.\nOpenClaw kullanmıyorsanız atlayabilirsiniz.",
+      "title": "Bulunanlar",
+      "subtitle": "Algılandı:",
+      "scanning": "OpenClaw yapılandırması taranıyor…",
+      "scanFailed": "OpenClaw taraması başarısız",
+      "notFound": "OpenClaw yapılandırması algılanmadı. Yeni bir kurulumla devam edebilirsiniz.",
+      "empty": "OpenClaw dizini bulundu ama boş — içe aktarılacak bir şey yok.",
+      "warningsTitle": "Uyarı",
+      "selectAll": "Tümünü seç",
+      "deselectAll": "Seçimi kaldır",
+      "providers": {
+        "title": "Sağlayıcılar ve API anahtarları",
+        "modelCount": "{{count}} model",
+        "modelCount_other": "{{count}} model",
+        "profileWithPlainKey": "{{count}} anahtar",
+        "profileWithPlainKey_other": "{{count}} anahtar",
+        "envRef": "ortam değişkeninden",
+        "oauthExcluded": "OAuth dışarıda",
+        "apiTypeWarning": "Uyumluluk yolu",
+        "nameConflict": "Ad çakışması — \"(Imported)\" eklenecek"
+      },
+      "agents": {
+        "title": "Ajanlar",
+        "alreadyExists": "Kimlik mevcut",
+        "hasSystemPrompt": "Özel system prompt",
+        "sandbox": "Korumalı alan",
+        "skills": "{{count}} yetenek",
+        "skills_other": "{{count}} yetenek"
+      },
+      "memory": {
+        "title": "Bellekler",
+        "global": "Global MEMORY.md",
+        "perAgent": "{{agent}} — {{count}} kayıt"
+      },
+      "import": {
+        "button": "{{n}} öge içe aktar",
+        "button_other": "{{n}} öge içe aktar"
+      },
+      "skip": "Atla",
+      "continue": "Devam",
+      "success": "İçe aktarıldı",
+      "failed": "Başarısız",
+      "partial": "Uyarılarla içe aktarıldı"
     },
     "provider": {
       "title": "Pick a model provider",

@@ -140,6 +140,7 @@
     "send": "Hantar",
     "queueMessage": "Beratur mesej",
     "stopReply": "Hentikan balasan",
+    "moreActions": "Lebih banyak tindakan",
     "incognito": "Inkognito",
     "incognitoPreset": "Pratetap inkognito untuk sembang baharu",
     "incognitoAwarenessDisabled": "Kesedaran tingkah laku tidak tersedia semasa inkognito dihidupkan",
@@ -165,8 +166,10 @@
       "truncated": "Hanya entri pertama dipaparkan — direktori ini terlalu besar untuk pelayar memaparkan keseluruhannya."
     },
     "modelsCount": "{{count}} model",
+    "attachPhotosAndFiles": "Tambah foto dan fail",
     "attachImage": "Tambah Gambar",
     "attachFile": "Tambah Fail",
+    "addWorkingDirectory": "Tambah direktori kerja",
     "selectModel": "Pilih Model",
     "deleteSessionTitle": "Padam Perbualan",
     "deleteSessionWarning": "Tindakan ini akan memadamkan perbualan ini dan semua mesejnya secara kekal. Tindakan ini tidak boleh dibatalkan. Adakah anda pasti?",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "Import dari OpenClaw",
+      "description": "Sudah ada OpenClaw? Kami boleh tarik penyedia, kunci API, agen dan ingatan sekali gus.\nLangkau jika anda tidak menggunakan OpenClaw.",
+      "title": "Yang ditemui",
+      "subtitle": "Dikesan di:",
+      "scanning": "Mengimbas konfigurasi OpenClaw…",
+      "scanFailed": "Gagal mengimbas OpenClaw",
+      "notFound": "Tiada konfigurasi OpenClaw dikesan. Boleh teruskan dengan persediaan baru.",
+      "empty": "Direktori OpenClaw ditemui tetapi kosong — tiada apa untuk diimport.",
+      "warningsTitle": "Perhatian",
+      "selectAll": "Pilih semua",
+      "deselectAll": "Buang pilihan",
+      "providers": {
+        "title": "Penyedia & kunci API",
+        "modelCount": "{{count}} model",
+        "modelCount_other": "{{count}} model",
+        "profileWithPlainKey": "{{count}} kunci",
+        "profileWithPlainKey_other": "{{count}} kunci",
+        "envRef": "dari pemboleh ubah env",
+        "oauthExcluded": "OAuth dikecualikan",
+        "apiTypeWarning": "Laluan keserasian",
+        "nameConflict": "Konflik nama — akan tambah \"(Imported)\""
+      },
+      "agents": {
+        "title": "Agen",
+        "alreadyExists": "ID sudah wujud",
+        "hasSystemPrompt": "System prompt tersuai",
+        "sandbox": "Sandbox",
+        "skills": "{{count}} kemahiran",
+        "skills_other": "{{count}} kemahiran"
+      },
+      "memory": {
+        "title": "Ingatan",
+        "global": "MEMORY.md global",
+        "perAgent": "{{agent}} — {{count}} entri"
+      },
+      "import": {
+        "button": "Import {{n}} item",
+        "button_other": "Import {{n}} item"
+      },
+      "skip": "Langkau",
+      "continue": "Teruskan",
+      "success": "Diimport",
+      "failed": "Gagal",
+      "partial": "Diimport dengan amaran"
     },
     "provider": {
       "title": "Pick a model provider",

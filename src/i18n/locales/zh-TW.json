@@ -140,6 +140,7 @@
     "send": "發送",
     "queueMessage": "排隊發送",
     "stopReply": "停止回複",
+    "moreActions": "更多功能",
     "incognito": "無痕",
     "incognitoPreset": "新對話無痕預設",
     "incognitoAwarenessDisabled": "開啟無痕時不可用行為感知",
@@ -165,8 +166,10 @@
       "truncated": "僅顯示前若干條——該目錄條目過多，瀏覽器無法全部展示。"
     },
     "modelsCount": "{{count}} 個模型",
+    "attachPhotosAndFiles": "添加照片和文件",
     "attachImage": "添加圖片",
     "attachFile": "添加文件",
+    "addWorkingDirectory": "添加工作目錄",
     "selectModel": "選擇模型",
     "deleteSessionTitle": "刪除對話",
     "deleteSessionWarning": "此操作將永久刪除該對話及其所有消息記錄，且無法恢複。請確認是否繼續？",
@@ -2843,6 +2846,52 @@
       "languageLabel": "界面语言",
       "autoLanguage": "跟随系统",
       "languageHint": "当前显示:{{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "從 OpenClaw 一鍵匯入",
+      "description": "已經設定過 OpenClaw 了？我們可以把你的 Provider、API Key、Agents 與 MEMORY.md 一次性拉進來。\n沒用過 OpenClaw 可直接略過。",
+      "title": "掃描結果",
+      "subtitle": "偵測到目錄：",
+      "scanning": "正在掃描 OpenClaw 設定……",
+      "scanFailed": "掃描 OpenClaw 設定失敗",
+      "notFound": "未偵測到 OpenClaw 設定。可以從空白設定開始。",
+      "empty": "OpenClaw 目錄存在但內容為空，沒有可匯入的內容。",
+      "warningsTitle": "注意事項",
+      "selectAll": "全選",
+      "deselectAll": "全不選",
+      "providers": {
+        "title": "Provider 與 API Key",
+        "modelCount": "{{count}} 個模型",
+        "modelCount_other": "{{count}} 個模型",
+        "profileWithPlainKey": "{{count}} 個金鑰",
+        "profileWithPlainKey_other": "{{count}} 個金鑰",
+        "envRef": "從環境變數",
+        "oauthExcluded": "OAuth 不匯入",
+        "apiTypeWarning": "相容路徑",
+        "nameConflict": "同名衝突 — 將追加 \"(Imported)\" 字尾"
+      },
+      "agents": {
+        "title": "Agents",
+        "alreadyExists": "ID 已存在",
+        "hasSystemPrompt": "自訂 system prompt",
+        "sandbox": "沙盒模式",
+        "skills": "{{count}} 個技能",
+        "skills_other": "{{count}} 個技能"
+      },
+      "memory": {
+        "title": "記憶",
+        "global": "全域 MEMORY.md",
+        "perAgent": "{{agent}} — {{count}} 筆"
+      },
+      "import": {
+        "button": "匯入 {{n}} 項",
+        "button_other": "匯入 {{n}} 項"
+      },
+      "skip": "略過",
+      "continue": "繼續",
+      "success": "已匯入",
+      "failed": "失敗",
+      "partial": "已匯入（有警告）"
     },
     "provider": {
       "title": "选择模型服务商",

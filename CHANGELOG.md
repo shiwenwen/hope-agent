@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **聊天输入区窄宽度收纳低频功能**：当输入区可用宽度不足时，温度、无痕、工作目录、Awareness、Plan Mode 和工具权限会收进一个加号菜单，保留附件、斜杠、模型/思考模式与发送按钮在主工具栏，避免按钮换行挤占输入区。
+- **聊天输入区窄宽度收纳添加类入口**：当输入区可用宽度不足时，添加照片和文件、工作目录、斜杠命令和无痕模式会收进一个加号菜单，并以 icon + 文案的列表行展示；模型/思考模式、温度、Plan Mode、工具权限与发送按钮继续留在主工具栏，避免入口按钮换行挤占输入区。
 - **菜单栏托盘菜单显示运行时状态**：桌面托盘菜单顶部现在同步展示内嵌服务器运行时状态（绑定地址、运行时长、活跃连接、活跃会话），与设置页 / 侧边栏状态指示器共用 `server_status` 数据源，并随托盘 tooltip 一起定时刷新。
 - **Agent Team 消息流接入"加载更多"滑窗分页**：Team 面板的 Messages Tab 以前一次拉 100 条且丢弃后端分页信号，超过 100 条的历史（以及 EventBus 原有 200 条硬截尾之外的更早消息）完全不可见。现在 `get_team_messages` 返回 `(messages, hasMore)`，新增 `get_team_messages_before` 以 `(timestamp, message_id)` 复合游标向上翻页（Tauri + HTTP `GET /api/teams/{teamId}/messages/before` 双端对齐）；`useTeam` 维护 `hasMore / loadingMore`，向上滚动到顶时复用 `useVirtualFeed` 的 `onStartReached + canAnchorRow` 触发并锚定不抖；EventBus 新消息去重追加不再做截尾，保障能加载全部历史。默认页大小与 Quick Chat 对齐为 50 条。
 - **聊天相关消息流改用虚拟列表渲染**：主聊天窗口、Quick Chat 弹窗和 Team Feed 统一接入 `@tanstack/react-virtual`，只渲染可见行和 overscan 行。保留现有分页、搜索跳转、流式输出底部跟随、Plan / ask_user / tool / thinking 等富内容展示，同时在向上加载旧消息时按可见锚点恢复滚动位置，长会话滚动和团队消息流不再随已加载消息数线性堆 DOM。

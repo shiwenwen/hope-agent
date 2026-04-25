@@ -140,6 +140,7 @@
     "send": "إرسال",
     "queueMessage": "وضع في الطابور",
     "stopReply": "إيقاف الرد",
+    "moreActions": "المزيد من الإجراءات",
     "incognito": "خفي",
     "incognitoPreset": "إعداد الوضع الخفي للمحادثات الجديدة",
     "incognitoAwarenessDisabled": "إدراك السلوك غير متاح أثناء تشغيل الوضع الخفي",
@@ -165,8 +166,10 @@
       "truncated": "يتم عرض أول مجموعة من العناصر فقط — هذا الدليل أكبر من أن يعرضه المتصفح كاملاً."
     },
     "modelsCount": "{{count}} نماذج",
+    "attachPhotosAndFiles": "إضافة صور وملفات",
     "attachImage": "إضافة صورة",
     "attachFile": "إضافة ملف",
+    "addWorkingDirectory": "إضافة دليل العمل",
     "selectModel": "اختيار النموذج",
     "deleteSessionTitle": "حذف المحادثة",
     "deleteSessionWarning": "سيؤدي هذا الإجراء إلى حذف هذه المحادثة وجميع رسائلها نهائيًا. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "استيراد من OpenClaw",
+      "description": "هل لديك OpenClaw مُكوَّن مسبقًا؟ يمكننا استيراد المزودين ومفاتيح API والوكلاء والذاكرة مرة واحدة.\nيمكنك التخطي إذا لم تستخدم OpenClaw.",
+      "title": "ما تم العثور عليه",
+      "subtitle": "تم اكتشافه في:",
+      "scanning": "يتم فحص إعدادات OpenClaw…",
+      "scanFailed": "تعذّر فحص OpenClaw",
+      "notFound": "لم يتم اكتشاف إعدادات OpenClaw. يمكنك المتابعة بإعداد جديد.",
+      "empty": "تم العثور على مجلد OpenClaw لكنه فارغ — لا شيء للاستيراد.",
+      "warningsTitle": "تنبيه",
+      "selectAll": "اختيار الكل",
+      "deselectAll": "إلغاء الكل",
+      "providers": {
+        "title": "المزودون ومفاتيح API",
+        "modelCount": "{{count}} نموذج",
+        "modelCount_other": "{{count}} نماذج",
+        "profileWithPlainKey": "{{count}} مفتاح",
+        "profileWithPlainKey_other": "{{count}} مفاتيح",
+        "envRef": "من متغير البيئة",
+        "oauthExcluded": "تم استبعاد OAuth",
+        "apiTypeWarning": "مسار التوافق",
+        "nameConflict": "تعارض الاسم — سيتم إضافة \"(Imported)\""
+      },
+      "agents": {
+        "title": "الوكلاء",
+        "alreadyExists": "المعرّف موجود",
+        "hasSystemPrompt": "system prompt مخصص",
+        "sandbox": "صندوق الحماية",
+        "skills": "{{count}} مهارة",
+        "skills_other": "{{count}} مهارات"
+      },
+      "memory": {
+        "title": "الذاكرة",
+        "global": "MEMORY.md عام",
+        "perAgent": "{{agent}} — {{count}} عنصرًا"
+      },
+      "import": {
+        "button": "استيراد {{n}} عنصر",
+        "button_other": "استيراد {{n}} عناصر"
+      },
+      "skip": "تخطي",
+      "continue": "متابعة",
+      "success": "تم الاستيراد",
+      "failed": "فشل",
+      "partial": "تم الاستيراد مع تحذيرات"
     },
     "provider": {
       "title": "Pick a model provider",

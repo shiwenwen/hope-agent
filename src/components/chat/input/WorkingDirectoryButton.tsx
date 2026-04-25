@@ -14,6 +14,8 @@ interface WorkingDirectoryButtonProps {
   workingDir: string | null | undefined
   saving?: boolean
   disabled?: boolean
+  variant?: "toolbar" | "menu"
+  onPicked?: () => void
   /**
    * Fired with the canonical path (or `null` to clear). Parent is
    * responsible for persisting to the backend.
@@ -32,6 +34,8 @@ export default function WorkingDirectoryButton({
   workingDir,
   saving = false,
   disabled = false,
+  variant = "toolbar",
+  onPicked,
   onChange,
 }: WorkingDirectoryButtonProps) {
   const { t } = useTranslation()
@@ -45,6 +49,7 @@ export default function WorkingDirectoryButton({
         const picked = await getTransport().pickLocalDirectory()
         if (!picked) return
         onChange(picked)
+        onPicked?.()
       } catch (e) {
         logger.error(
           "chat",
@@ -74,6 +79,44 @@ export default function WorkingDirectoryButton({
       : t("chat.workingDir.selectPreset")
 
   const label = hasSelection ? basename(workingDir!) : t("chat.workingDir.select")
+
+  if (variant === "menu") {
+    return (
+      <div className="w-full">
+        <button
+          type="button"
+          disabled={saving || disabled}
+          onClick={handlePick}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50",
+            saving && "disabled:opacity-70",
+            hasSelection ? "text-primary" : "text-foreground",
+          )}
+        >
+          {saving ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0 text-muted-foreground" />
+          ) : hasSelection ? (
+            <FolderCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+          ) : (
+            <FolderPlus className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="truncate">{hasSelection ? label : t("chat.addWorkingDirectory")}</span>
+        </button>
+        {!isTauriMode() && (
+          <ServerDirectoryBrowser
+            open={browserOpen}
+            initialPath={workingDir ?? null}
+            onOpenChange={setBrowserOpen}
+            onSelect={(path) => {
+              setBrowserOpen(false)
+              onChange(path)
+              onPicked?.()
+            }}
+          />
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="flex items-center shrink-0">

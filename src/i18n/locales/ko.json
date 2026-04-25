@@ -140,6 +140,7 @@
     "send": "보내기",
     "queueMessage": "대기열에 추가",
     "stopReply": "응답 중지",
+    "moreActions": "더 많은 기능",
     "incognito": "시크릿",
     "incognitoPreset": "새 대화용 시크릿 기본값",
     "incognitoAwarenessDisabled": "시크릿이 켜져 있으면 행동 인식을 사용할 수 없습니다",
@@ -165,8 +166,10 @@
       "truncated": "첫 항목만 표시합니다 — 이 디렉터리는 브라우저에 모두 표시하기에 너무 큽니다."
     },
     "modelsCount": "모델 {{count}}개",
+    "attachPhotosAndFiles": "사진 및 파일 추가",
     "attachImage": "이미지 추가",
     "attachFile": "파일 추가",
+    "addWorkingDirectory": "작업 디렉터리 추가",
     "selectModel": "모델 선택",
     "deleteSessionTitle": "대화 삭제",
     "deleteSessionWarning": "이 작업은 이 대화와 모든 메시지를 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "OpenClaw 에서 가져오기",
+      "description": "OpenClaw를 이미 사용 중이신가요? 프로바이더, API 키, 에이전트, 메모리를 한 번에 가져올 수 있습니다.\nOpenClaw를 사용하지 않으신다면 건너뛰어도 됩니다.",
+      "title": "검색 결과",
+      "subtitle": "감지된 디렉터리：",
+      "scanning": "OpenClaw 구성 검색 중…",
+      "scanFailed": "OpenClaw 구성 검색 실패",
+      "notFound": "OpenClaw 구성이 감지되지 않았습니다. 새로 설정할 수 있습니다.",
+      "empty": "OpenClaw 디렉터리가 비어 있어 가져올 항목이 없습니다.",
+      "warningsTitle": "주의",
+      "selectAll": "모두 선택",
+      "deselectAll": "모두 해제",
+      "providers": {
+        "title": "프로바이더와 API 키",
+        "modelCount": "{{count}} 모델",
+        "modelCount_other": "{{count}} 모델",
+        "profileWithPlainKey": "{{count}} 키",
+        "profileWithPlainKey_other": "{{count}} 키",
+        "envRef": "환경 변수에서",
+        "oauthExcluded": "OAuth 제외",
+        "apiTypeWarning": "호환성 경로",
+        "nameConflict": "이름 충돌 — \"(Imported)\" 추가됨"
+      },
+      "agents": {
+        "title": "에이전트",
+        "alreadyExists": "ID 중복",
+        "hasSystemPrompt": "사용자 정의 system prompt",
+        "sandbox": "샌드박스",
+        "skills": "{{count}} 스킬",
+        "skills_other": "{{count}} 스킬"
+      },
+      "memory": {
+        "title": "메모리",
+        "global": "글로벌 MEMORY.md",
+        "perAgent": "{{agent}} — {{count}} 항목"
+      },
+      "import": {
+        "button": "{{n}}개 항목 가져오기",
+        "button_other": "{{n}}개 항목 가져오기"
+      },
+      "skip": "건너뛰기",
+      "continue": "계속",
+      "success": "가져옴",
+      "failed": "실패",
+      "partial": "경고와 함께 가져옴"
     },
     "provider": {
       "title": "Pick a model provider",

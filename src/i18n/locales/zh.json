@@ -140,6 +140,7 @@
     "send": "发送",
     "queueMessage": "排队发送",
     "stopReply": "停止回复",
+    "moreActions": "更多功能",
     "incognito": "无痕",
     "incognitoPreset": "新对话无痕预设",
     "incognitoAwarenessDisabled": "开启无痕时不可用行为感知",
@@ -165,8 +166,10 @@
       "truncated": "仅显示前若干条——该目录条目过多，浏览器无法全部展示。"
     },
     "modelsCount": "{{count}} 个模型",
+    "attachPhotosAndFiles": "添加照片和文件",
     "attachImage": "添加图片",
     "attachFile": "添加文件",
+    "addWorkingDirectory": "添加工作目录",
     "selectModel": "选择模型",
     "deleteSessionTitle": "删除对话",
     "deleteSessionWarning": "此操作将永久删除该对话及其所有消息记录，且无法恢复。请确认是否继续？",
@@ -3002,6 +3005,52 @@
       "localDesc": "在当前设备运行 Hope Agent，接下来选择模型服务商并完成后续配置。",
       "remoteTitle": "连接远程服务",
       "remoteDesc": "已有一台运行 Hope Agent 服务的机器？填写地址连上后直接使用，跳过后续本地配置。"
+    },
+    "importOpenClaw": {
+      "headline": "从 OpenClaw 一键导入",
+      "description": "已经配置过 OpenClaw 了？我们可以把你的 Provider、API Key、Agents 和 MEMORY.md 一次性拉过来。\n没用过 OpenClaw 可以直接跳过。",
+      "title": "检测结果",
+      "subtitle": "检测到目录：",
+      "scanning": "正在扫描 OpenClaw 配置……",
+      "scanFailed": "扫描 OpenClaw 配置失败",
+      "notFound": "未检测到 OpenClaw 配置。可以从空白配置开始。",
+      "empty": "OpenClaw 目录存在但内容为空，没有可导入的内容。",
+      "warningsTitle": "注意事项",
+      "selectAll": "全选",
+      "deselectAll": "全不选",
+      "providers": {
+        "title": "Provider 与 API Key",
+        "modelCount": "{{count}} 个模型",
+        "modelCount_other": "{{count}} 个模型",
+        "profileWithPlainKey": "{{count}} 个密钥",
+        "profileWithPlainKey_other": "{{count}} 个密钥",
+        "envRef": "从环境变量",
+        "oauthExcluded": "OAuth 不导入",
+        "apiTypeWarning": "兼容路径",
+        "nameConflict": "同名冲突 — 将追加 \"(Imported)\" 后缀"
+      },
+      "agents": {
+        "title": "Agents",
+        "alreadyExists": "ID 已存在",
+        "hasSystemPrompt": "自定义 system prompt",
+        "sandbox": "沙箱模式",
+        "skills": "{{count}} 个技能",
+        "skills_other": "{{count}} 个技能"
+      },
+      "memory": {
+        "title": "记忆",
+        "global": "全局 MEMORY.md",
+        "perAgent": "{{agent}} — {{count}} 条"
+      },
+      "import": {
+        "button": "导入 {{n}} 项",
+        "button_other": "导入 {{n}} 项"
+      },
+      "skip": "跳过",
+      "continue": "继续",
+      "success": "已导入",
+      "failed": "失败",
+      "partial": "已导入（有警告）"
     }
   }
 }

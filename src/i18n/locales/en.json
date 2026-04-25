@@ -140,6 +140,7 @@
     "send": "Send",
     "queueMessage": "Queue message",
     "stopReply": "Stop reply",
+    "moreActions": "More actions",
     "incognito": "Incognito",
     "incognitoPreset": "Incognito preset for new chats",
     "incognitoAwarenessDisabled": "Behavior awareness is unavailable while incognito is on",
@@ -165,8 +166,10 @@
       "truncated": "Only the first entries are shown — this directory is larger than the browser can display."
     },
     "modelsCount": "{{count}} models",
+    "attachPhotosAndFiles": "Add photos and files",
     "attachImage": "Add Image",
     "attachFile": "Add File",
+    "addWorkingDirectory": "Add working directory",
     "selectModel": "Select Model",
     "deleteSessionTitle": "Delete Conversation",
     "deleteSessionWarning": "This will permanently delete this conversation and all its messages. This action cannot be undone. Are you sure?",
@@ -2843,6 +2846,52 @@
       "languageLabel": "Interface language",
       "autoLanguage": "Follow system",
       "languageHint": "Currently showing: {{current}}"
+    },
+    "importOpenClaw": {
+      "headline": "Import from OpenClaw",
+      "description": "Already have OpenClaw configured? We can pull in your providers, API keys, agents, and notebook memories in one shot.\nSafe to skip if you don't use OpenClaw.",
+      "title": "What we found",
+      "subtitle": "Detected at:",
+      "scanning": "Scanning your OpenClaw configuration…",
+      "scanFailed": "Couldn't scan OpenClaw configuration",
+      "notFound": "No OpenClaw configuration detected. You can continue with a fresh setup.",
+      "empty": "OpenClaw directory found but it's empty — nothing to import.",
+      "warningsTitle": "Heads up",
+      "selectAll": "Select all",
+      "deselectAll": "Deselect all",
+      "providers": {
+        "title": "Providers & API keys",
+        "modelCount": "{{count}} model",
+        "modelCount_other": "{{count}} models",
+        "profileWithPlainKey": "{{count}} key",
+        "profileWithPlainKey_other": "{{count}} keys",
+        "envRef": "from env",
+        "oauthExcluded": "OAuth excluded",
+        "apiTypeWarning": "Compatibility path",
+        "nameConflict": "Name conflict — will append \"(Imported)\""
+      },
+      "agents": {
+        "title": "Agents",
+        "alreadyExists": "ID exists locally",
+        "hasSystemPrompt": "Custom system prompt",
+        "sandbox": "Sandbox",
+        "skills": "{{count}} skill",
+        "skills_other": "{{count}} skills"
+      },
+      "memory": {
+        "title": "Memories",
+        "global": "Global MEMORY.md",
+        "perAgent": "{{agent}} — {{count}} entries"
+      },
+      "import": {
+        "button": "Import {{n}} item",
+        "button_other": "Import {{n}} items"
+      },
+      "skip": "Skip",
+      "continue": "Continue",
+      "success": "Imported",
+      "failed": "Failed",
+      "partial": "Imported with warnings"
     },
     "provider": {
       "title": "Pick a model provider",
