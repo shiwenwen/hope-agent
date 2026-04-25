@@ -6,6 +6,7 @@ import { test } from "node:test"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
   CHAT_INPUT_OVERFLOW_ACTION_IDS,
+  CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
 } from "./toolbarOverflow.ts"
 import * as toolbarOverflow from "./toolbarOverflow.ts"
@@ -22,6 +23,9 @@ test("groups add-style chat input actions behind the overflow menu", () => {
 test("keeps overflow visibility classes static for Tailwind scanning", () => {
   assert.equal(CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS, "contents max-[900px]:hidden")
   assert.equal(CHAT_INPUT_OVERFLOW_MENU_CLASS, "hidden max-[900px]:block")
+  // JS-side breakpoint must mirror the Tailwind class so the matchMedia
+  // auto-close stays in lockstep with the CSS toggle.
+  assert.equal(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX, 900)
 })
 
 test("shows the incognito preset action only before a session exists", () => {

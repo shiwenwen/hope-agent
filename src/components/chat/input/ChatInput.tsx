@@ -41,6 +41,7 @@ import WorkingDirectoryButton from "./WorkingDirectoryButton"
 import { Switch } from "@/components/ui/switch"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
+  CHAT_INPUT_OVERFLOW_BREAKPOINT_PX,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
   getChatInputOverflowActionIds,
   shouldShowIncognitoPresetAction,
@@ -154,6 +155,21 @@ export default function ChatInput({
   useEffect(() => {
     adjustTextareaHeight()
   }, [input, adjustTextareaHeight])
+
+  // The overflow `+` trigger is hidden via CSS once the viewport widens past
+  // the breakpoint, but Radix keeps the open popper mounted in a Portal — with
+  // no measurable trigger it falls back to (0,0). Listen for the breakpoint
+  // crossing and force-close the menu when it goes wide.
+  useEffect(() => {
+    if (!showOverflowMenu) return
+    if (typeof window === "undefined" || !window.matchMedia) return
+    const mql = window.matchMedia(`(min-width: ${CHAT_INPUT_OVERFLOW_BREAKPOINT_PX + 1}px)`)
+    const onChange = (e: MediaQueryListEvent) => {
+      if (e.matches) setShowOverflowMenu(false)
+    }
+    mql.addEventListener("change", onChange)
+    return () => mql.removeEventListener("change", onChange)
+  }, [showOverflowMenu])
 
   const handlePaste = useCallback(
     (e: React.ClipboardEvent) => {
@@ -454,7 +470,8 @@ export default function ChatInput({
         )}
 
         {/* Toolbar */}
-        <div className="flex items-center gap-1 px-2 pb-2 flex-wrap">
+        <div className="flex items-end justify-between gap-2 px-2 pb-2">
+          <div className="flex items-center gap-1 flex-wrap min-w-0">
           <div className={CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>{renderInlineAddControls()}</div>
 
           <div className={CHAT_INPUT_OVERFLOW_MENU_CLASS}>
@@ -555,8 +572,11 @@ export default function ChatInput({
             onToolPermissionChange={onToolPermissionChange}
           />
 
-          {/* Send & Stop */}
-          <div className="flex items-center gap-1 ml-auto">
+          </div>
+
+          {/* Send & Stop — kept in its own column so toolbar wrapping never
+              orphans the send button onto a half-empty row. */}
+          <div className="flex items-center gap-1 shrink-0">
             {loading && (
               <div className="animate-in fade-in-0 zoom-in-90 duration-150">
                 <IconTip label={t("chat.stopReply")}>

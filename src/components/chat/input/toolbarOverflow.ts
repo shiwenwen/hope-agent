@@ -27,3 +27,7 @@ export function getChatInputOverflowActionIds(
 
 export const CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS = "contents max-[900px]:hidden"
 export const CHAT_INPUT_OVERFLOW_MENU_CLASS = "hidden max-[900px]:block"
+// Mirrors the Tailwind `max-[900px]` arbitrary breakpoint above. JS reads this
+// to auto-close the dropdown when the trigger goes `display:none` on resize —
+// Radix would otherwise leave the orphaned popper at (0,0).
+export const CHAT_INPUT_OVERFLOW_BREAKPOINT_PX = 900
