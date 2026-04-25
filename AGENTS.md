@@ -10,7 +10,7 @@ pnpm dev               # 仅前端 Vite 开发服务器
 pnpm tauri build       # 构建生产包
 pnpm sync:version      # 以 package.json 为单一来源，同步 src-tauri 版本号
 pnpm release:verify    # 校验 package.json / src-tauri 版本一致；可附 -- --tag vX.Y.Z
-pnpm tsc --noEmit      # 前端类型检查
+pnpm typecheck         # 前端类型检查（tsc -b）
 pnpm lint              # Lint
 node scripts/sync-i18n.mjs --check   # 检查各语言翻译缺失
 node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
@@ -31,7 +31,7 @@ hope-agent server stop               # 停止服务
 cargo fmt --all --check                                                    # 对应 CI: rust.yml fmt job
 cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings # 对应 CI: rust.yml clippy job
 cargo test  -p ha-core -p ha-server --locked                               # 对应 CI: rust.yml test job
-pnpm tsc --noEmit                                                           # 对应 CI: lint.yml 前端类型
+pnpm typecheck                                                              # 对应 CI: lint.yml 前端类型（tsc -b）
 pnpm lint                                                                    # 对应 CI: lint.yml ESLint
 ```
 
