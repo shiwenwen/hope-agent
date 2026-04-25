@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "このプロジェクトの概要は？",
     "projectInstructions": "プロジェクト指示",
     "projectInstructionsHint": "この指示はこのプロジェクト内の全セッションのシステムプロンプトに自動的に追加されます。",
-    "projectInstructionsPlaceholder": "例：常に日本語で返答する。スタックは Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "例：常に日本語で返答する。明るく親しみやすい口調にし、最初に結論を述べる",
     "projectEmoji": "絵文字",
     "projectLogo": "ロゴ",
     "projectLogoHint": "任意。設定するとサイドバーの絵文字アイコンの代わりに表示。画像は 256×256 に自動リサイズされます。",

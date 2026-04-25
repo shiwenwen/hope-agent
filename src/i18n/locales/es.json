@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "¿De qué trata este proyecto?",
     "projectInstructions": "Instrucciones del proyecto",
     "projectInstructionsHint": "Estas instrucciones se añaden automáticamente al prompt de sistema de cada sesión de este proyecto.",
-    "projectInstructionsPlaceholder": "p. ej. Responde siempre en español; el stack es Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "p. ej. Responde siempre en español; usa un tono claro y amable; empieza por la conclusión",
     "projectEmoji": "Emoji",
     "projectLogo": "Logo",
     "projectLogoHint": "Opcional. Si se define, reemplaza el icono emoji en la barra lateral. Las imágenes se redimensionan automáticamente a 256×256.",

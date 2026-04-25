@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "Projek ini mengenai apa?",
     "projectInstructions": "Arahan projek",
     "projectInstructionsHint": "Arahan ini akan ditambah automatik ke prompt sistem setiap sesi projek ini.",
-    "projectInstructionsPlaceholder": "cth. Sentiasa balas dalam BM; stack ialah Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "cth. Sentiasa balas dalam BM; gunakan nada jelas dan mesra; mulakan dengan kesimpulan",
     "projectEmoji": "Emoji",
     "projectLogo": "Logo",
     "projectLogoHint": "Pilihan. Jika ditetapkan, ia menggantikan ikon emoji di bar sisi. Imej akan diubah saiz secara automatik kepada 256×256.",

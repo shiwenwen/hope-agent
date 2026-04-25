@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "Bu proje ne hakkında?",
     "projectInstructions": "Proje talimatları",
     "projectInstructionsHint": "Bu talimatlar, bu projedeki her oturumun sistem istemine otomatik olarak eklenir.",
-    "projectInstructionsPlaceholder": "örn. Her zaman Türkçe yanıtla; yığın Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "örn. Her zaman Türkçe yanıtla; tonu açık ve samimi tut; sonuca önce başla",
     "projectEmoji": "Emoji",
     "projectLogo": "Logo",
     "projectLogoHint": "İsteğe bağlı. Ayarlandığında kenar çubuğundaki emoji simgesinin yerine geçer. Görüntüler otomatik olarak 256×256 boyutuna getirilir.",
