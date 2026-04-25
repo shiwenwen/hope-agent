@@ -107,11 +107,12 @@ export default function ChatScreen({
     "off" | "planning" | "review" | "executing" | "paused" | "completed"
   >("off")
 
-  // Shared per-session seq cursor for chat stream dedup across the primary
-  // per-call Channel/WS path (useChatStream) and the EventBus reattach path
-  // (useChatStreamReattach). Owned at this level to break the two-way
-  // dependency between the two hooks.
+  // Shared stream identity state for dedup across the primary per-call
+  // Channel/WS path (useChatStream) and the EventBus reattach path
+  // (useChatStreamReattach). Cursors are keyed by session + stream id so a
+  // delayed frame from a finished stream cannot mutate the next DB snapshot.
   const streamSeqRef = useRef<Map<string, number>>(new Map())
+  const endedStreamIdsRef = useRef<Map<string, string>>(new Map())
   const manualModelOverrideRef = useRef<ActiveModel | null>(null)
 
   // ── Session Hook ────────────────────────────────────────────
@@ -551,6 +552,7 @@ export default function ChatScreen({
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: streamSeqRef,
+    endedStreamIdsRef,
     planMode: planModeState,
     temperatureOverride: sessionTemperature,
     incognitoEnabled,
@@ -593,6 +595,7 @@ export default function ChatScreen({
     currentSessionId: session.currentSessionId,
     currentSessionIdRef: session.currentSessionIdRef,
     lastSeqRef: streamSeqRef,
+    endedStreamIdsRef,
     updateSessionMessages: session.updateSessionMessages,
     setShowCodexAuthExpired: stream.setShowCodexAuthExpired,
     setMessages: session.setMessages,

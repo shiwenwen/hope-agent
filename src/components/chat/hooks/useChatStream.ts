@@ -11,7 +11,15 @@ import type {
   ToolPermissionMode,
 } from "@/types/chat"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
-import { handleStreamEvent } from "./useStreamEventHandler"
+import {
+  createStreamDeltaBuffers,
+  discardAllPendingStreamDeltas,
+  discardPendingStreamDeltas,
+  handleStreamEvent,
+  streamCursorKey,
+  streamIdFromEvent,
+  streamIdFromPayload,
+} from "./useStreamEventHandler"
 import { useApprovals } from "./useApprovals"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { useNotificationListeners } from "./useNotificationListeners"
@@ -39,6 +47,9 @@ export interface UseChatStreamOptions {
    * `onmessage` bumps it so redundant EventBus events are dropped.
    */
   lastSeqRef: React.MutableRefObject<Map<string, number>>
+  /** Latest stream id that has ended for each session. Used to drop delayed
+   *  primary frames that arrive after DB reconciliation. */
+  endedStreamIdsRef: React.MutableRefObject<Map<string, string>>
   /** Current plan mode state, passed to backend chat() for reliable sync */
   planMode?: string
   /** Session-level temperature override (0.0–2.0). Overrides agent and global settings. */
@@ -92,6 +103,7 @@ export function useChatStream({
   reloadSessions,
   updateSessionMessages,
   lastSeqRef,
+  endedStreamIdsRef,
   planMode,
   temperatureOverride,
   incognitoEnabled = false,
@@ -146,8 +158,21 @@ export function useChatStream({
   const autoSendRef = useRef(false)
 
   // Delta batch buffer
-  const deltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
-  const deltaFlushRafRef = useRef<number | null>(null)
+  const deltaBuffersRef = useRef(createStreamDeltaBuffers())
+
+  useEffect(() => {
+    const unlisten = getTransport().listen("chat:stream_end", (raw) => {
+      const sid = (raw as { sessionId?: string } | null)?.sessionId
+      if (!sid) return
+      const streamId = streamIdFromPayload(raw)
+      if (streamId) endedStreamIdsRef.current.set(sid, streamId)
+      discardPendingStreamDeltas(sid, deltaBuffersRef)
+    })
+    return () => {
+      unlisten()
+      discardAllPendingStreamDeltas(deltaBuffersRef)
+    }
+  }, [endedStreamIdsRef])
 
   // Compose sub-hooks
   const { approvalRequests, handleApprovalResponse } = useApprovals()
@@ -301,20 +326,22 @@ export function useChatStream({
           }
 
           const sid = targetSessionId || "__pending__"
+          const streamId = streamIdFromEvent(event)
+          if (streamId && endedStreamIdsRef.current.get(sid) === streamId) return
 
           // Primary path bumps the seq cursor so identical events arriving
           // later via the EventBus reattach listener are dropped.
           const seqRaw = event._oc_seq
           if (typeof seqRaw === "number" && sid !== "__pending__") {
-            const prev = lastSeqRef.current.get(sid) ?? 0
+            const cursorKey = streamCursorKey(sid, streamId)
+            const prev = lastSeqRef.current.get(cursorKey) ?? 0
             if (seqRaw <= prev) return
-            lastSeqRef.current.set(sid, seqRaw)
+            lastSeqRef.current.set(cursorKey, seqRaw)
           }
 
           const handled = handleStreamEvent(event, sid, {
             updateSessionMessages,
-            deltaBufferRef,
-            deltaFlushRafRef,
+            deltaBuffersRef,
             setShowCodexAuthExpired,
           })
           if (handled) return

@@ -10,7 +10,10 @@ use crate::agent::AssistantAgent;
 use crate::memory::{AddResult, MemoryScope, MemoryType, NewMemory};
 
 const MEMORY_EXTRACTION_SYSTEM: &str =
-    "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences.";
+    "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences. \
+Write every `content` (and free-form `tags`) field in the same language the user predominantly \
+used in the conversation — if the user wrote in Chinese, the memory must be in Chinese; if they \
+wrote in Japanese, write in Japanese; etc. Match the user's language, not the assistant's.";
 
 fn memory_extraction_instruction(prompt: &str) -> String {
     format!("{}\n\n{}", MEMORY_EXTRACTION_SYSTEM, prompt)
@@ -53,6 +56,8 @@ Types:
 Rules:
 - Only extract NEW information not in "Known memories" below
 - Be concise — each content should be 1-2 sentences
+- Write `content` in the SAME language the user predominantly used in the conversation
+  (Chinese in → Chinese out, English in → English out). Do not translate.
 - Return [] if nothing worth remembering
 - Maximum 5 items
 
@@ -77,12 +82,15 @@ const COMBINED_EXTRACT_PROMPT: &str = r#"Output ONE JSON object with TWO arrays:
   * "reference" for URLs / docs / external resources
 - 1–2 sentences each, max 5 items
 - tags are free-form keywords
+- Write `content` in the SAME language the user predominantly used in the conversation
+  (Chinese in → Chinese out, English in → English out). Do not translate.
 
 "profile" rules (REFLECTIVE — user behavior / communication / work style):
 - What did you LEARN about the user themselves in this conversation?
 - Their preferences, communication style, expectations, work habits
 - Skip if nothing new this turn; max 3 items
 - MUST include "profile" as one of the tags
+- Write `content` in the SAME language the user predominantly used in the conversation
 - type = "user" for persona traits ("prefers terse answers", "native Chinese speaker")
 -        "feedback" for behavior preferences toward AI ("wants confirmation before destructive ops")
 
@@ -346,6 +354,8 @@ Rules:
 - Only extract NEW information not in "Known memories" below
 - Focus on information that would be lost after compression
 - Be concise — each content should be 1-2 sentences
+- Write `content` in the SAME language the user predominantly used in the conversation
+  (Chinese in → Chinese out, English in → English out). Do not translate.
 - Return [] if nothing worth remembering
 - Maximum 8 items
 

@@ -25,19 +25,24 @@ struct ChatRoundOk {
 }
 
 /// Drop-guarded scope for a session's visible stream lifecycle. Ensures
-/// `stream_seq::end` + `chat:stream_end` broadcast fire on every
-/// `run_chat_engine` return path (including panics), while allowing the
-/// successful path to end the UI stream before post-turn follow-ups run.
+/// `stream_seq::end` fires on every `run_chat_engine` return path (including
+/// panics), while allowing the successful path to end the UI stream before
+/// post-turn follow-ups run. Only desktop / HTTP turns broadcast on the main
+/// `chat:*` bus; IM channel turns have a separate `channel:*` lifecycle.
 struct StreamLifecycle {
     session_id: String,
+    stream_id: String,
+    source: stream_seq::ChatSource,
     finished: bool,
 }
 
 impl StreamLifecycle {
     fn begin(session_id: &str, source: stream_seq::ChatSource) -> Self {
-        stream_seq::begin(session_id, source);
+        let stream_id = stream_seq::begin(session_id, source);
         Self {
             session_id: session_id.to_string(),
+            stream_id,
+            source,
             finished: false,
         }
     }
@@ -46,8 +51,10 @@ impl StreamLifecycle {
         if self.finished {
             return;
         }
+        if self.source != stream_seq::ChatSource::Channel {
+            stream_broadcast::broadcast_stream_end(&self.session_id, &self.stream_id);
+        }
         stream_seq::end(&self.session_id);
-        stream_broadcast::broadcast_stream_end(&self.session_id);
         self.finished = true;
     }
 }
@@ -58,12 +65,23 @@ impl Drop for StreamLifecycle {
     }
 }
 
-/// Emit one stream event through the per-call sink and the EventBus broadcast,
-/// injecting a monotonic `_oc_seq` shared by both paths.
-fn emit_stream_event(event_sink: &std::sync::Arc<dyn EventSink>, session_id: &str, event: &str) {
-    let (enveloped, seq) = stream_broadcast::inject_seq(session_id, event);
+/// Emit one stream event. Desktop / HTTP turns send through both the per-call
+/// sink and the main `chat:stream_delta` EventBus path with a shared `_oc_seq`
+/// for dedup. Channel / cron turns stay off the main chat bus; IM uses
+/// `ChannelStreamSink` to emit `channel:stream_delta` instead.
+fn emit_stream_event(
+    event_sink: &std::sync::Arc<dyn EventSink>,
+    session_id: &str,
+    source: stream_seq::ChatSource,
+    event: &str,
+) {
+    if source == stream_seq::ChatSource::Channel {
+        event_sink.send(event);
+        return;
+    }
+    let (enveloped, seq, stream_id) = stream_broadcast::inject_seq(session_id, event);
     event_sink.send(&enveloped);
-    stream_broadcast::broadcast_delta(session_id, &enveloped, seq);
+    stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
 }
 
 // ── Core Chat Engine ────────────────────────────────────────────────
@@ -189,7 +207,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 "error": last_error.as_deref().unwrap_or(""),
             });
             if let Ok(json_str) = serde_json::to_string(&event) {
-                emit_stream_event(&event_sink, &session_id, &json_str);
+                emit_stream_event(&event_sink, &session_id, source, &json_str);
                 let _ = db.append_message(&session_id, &session::NewMessage::event(&json_str));
             }
         }
@@ -232,7 +250,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "to_profile": to.label,
                         "reason": reason,
                     })) {
-                        emit_stream_event(&event_sink, &session_id, &json_str);
+                        emit_stream_event(&event_sink, &session_id, source, &json_str);
                     }
                 };
 
@@ -277,6 +295,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Per-call clones for the streaming callback's `move ||`.
                     let event_sink_for_cb = event_sink_ref.clone();
                     let session_for_cb = session_id_ref.clone();
+                    let source_for_cb = source;
                     let cancel_for_op = cancel_ref.clone();
 
                     let agent_id_owned = agent_id_ref.clone();
@@ -334,7 +353,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 cancel_for_op,
                                 move |delta| {
                                     persist_cb(delta);
-                                    emit_stream_event(&event_sink_for_cb, &session_for_cb, delta);
+                                    emit_stream_event(
+                                        &event_sink_for_cb,
+                                        &session_for_cb,
+                                        source_for_cb,
+                                        delta,
+                                    );
                                 },
                             )
                             .await;
@@ -373,7 +397,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "duration_ms": duration_ms,
                     });
                     if let Ok(json_str) = serde_json::to_string(&usage_event) {
-                        emit_stream_event(&event_sink, &session_id, &json_str);
+                        emit_stream_event(&event_sink, &session_id, source, &json_str);
                     }
 
                     persister.flush_remaining_thinking(&db, &session_id);
@@ -561,7 +585,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "type": "context_compacted",
                         "data": compact_result,
                     })) {
-                        emit_stream_event(&event_sink, &session_id, &event_str);
+                        emit_stream_event(&event_sink, &session_id, source, &event_str);
                     }
 
                     // Write the just-failed profile back to PROFILE_STICKY
@@ -596,7 +620,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             "type": "codex_auth_expired",
                             "error": &err_str,
                         })) {
-                            emit_stream_event(&event_sink, &session_id, &json_str);
+                            emit_stream_event(&event_sink, &session_id, source, &json_str);
                         }
                     }
 

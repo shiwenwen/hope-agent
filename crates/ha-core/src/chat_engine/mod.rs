@@ -17,6 +17,7 @@ pub use types::*;
 pub struct SessionStreamState {
     pub active: bool,
     pub last_seq: u64,
+    pub stream_id: Option<String>,
 }
 
 /// Snapshot the current stream state for a session.
@@ -24,5 +25,6 @@ pub fn session_stream_state(session_id: &str) -> SessionStreamState {
     SessionStreamState {
         active: stream_seq::is_active(session_id),
         last_seq: stream_seq::last_seq(session_id),
+        stream_id: stream_seq::stream_id(session_id),
     }
 }

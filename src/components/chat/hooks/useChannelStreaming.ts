@@ -1,9 +1,14 @@
-import { useEffect, useRef } from "react"
+import { useCallback, useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { mergeUsageFromEvent, parseSessionMessages, reloadAndMergeSessionMessages } from "../chatUtils"
-import { hasToolError } from "../message/executionStatus"
+import { parseSessionMessages, reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "./constants"
-import type { Message, ContentBlock, MediaItem, SessionMessage } from "@/types/chat"
+import type { Message, SessionMessage } from "@/types/chat"
+import {
+  createStreamDeltaBuffers,
+  discardAllPendingStreamDeltas,
+  discardPendingStreamDeltas,
+  handleStreamEvent,
+} from "./useStreamEventHandler"
 
 interface UseChannelStreamingParams {
   currentSessionIdRef: React.MutableRefObject<string | null>
@@ -24,293 +29,229 @@ export function useChannelStreaming({
   setLoadingSessionIds,
   reloadSessions,
 }: UseChannelStreamingParams): void {
-  // Channel streaming delta buffer + rAF handle (mirrors useChatStream's batching)
-  const channelDeltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
-  const channelDeltaFlushRafRef = useRef<number | null>(null)
+  const deltaBuffersRef = useRef(createStreamDeltaBuffers())
+  const preparingStreamRef = useRef<Set<string>>(new Set())
+  const preparedStreamRef = useRef<Set<string>>(new Set())
+  const queuedEventsRef = useRef<Map<string, Record<string, unknown>[]>>(new Map())
+  const streamGenerationRef = useRef<Map<string, number>>(new Map())
+  const nextStreamGenerationRef = useRef(0)
+
+  const updateSessionMessages = useCallback(
+    (sessionId: string, updater: (prev: Message[]) => Message[]) => {
+      const isActive = currentSessionIdRef.current === sessionId
+      const hasCached = sessionCacheRef.current.has(sessionId)
+      if (!isActive && !hasCached) return
+      const prev = sessionCacheRef.current.get(sessionId) || []
+      const next = updater(prev)
+      sessionCacheRef.current.set(sessionId, next)
+      if (isActive) {
+        setMessages(next)
+      }
+    },
+    [currentSessionIdRef, sessionCacheRef, setMessages],
+  )
+
+  const appendStreamingPlaceholder = useCallback((messages: Message[]) => {
+    return [
+      ...messages,
+      {
+        role: "assistant" as const,
+        content: "",
+        isStreaming: true,
+        timestamp: new Date().toISOString(),
+      },
+    ]
+  }, [])
+
+  const replayQueuedEvents = useCallback(
+    (sessionId: string) => {
+      const queued = queuedEventsRef.current.get(sessionId)
+      if (!queued?.length) return
+      queuedEventsRef.current.delete(sessionId)
+      for (const event of queued) {
+        handleStreamEvent(event, sessionId, {
+          updateSessionMessages,
+          deltaBuffersRef,
+        })
+      }
+    },
+    [updateSessionMessages],
+  )
 
   // Listen for channel stream lifecycle — loading state + message placeholder
   useEffect(() => {
     const unlisteners: Array<() => void> = []
+    const preparingStreams = preparingStreamRef.current
+    const preparedStreams = preparedStreamRef.current
+    const queuedEvents = queuedEventsRef.current
+    const streamGenerations = streamGenerationRef.current
 
     unlisteners.push(getTransport().listen("channel:stream_start", (raw) => {
       const payload = raw as { sessionId: string }
       if (!payload.sessionId) return
+      const sessionId = payload.sessionId
+      const generation = nextStreamGenerationRef.current + 1
+      nextStreamGenerationRef.current = generation
+      streamGenerationRef.current.set(sessionId, generation)
+      preparedStreamRef.current.delete(sessionId)
+      preparingStreamRef.current.delete(sessionId)
+      queuedEventsRef.current.delete(sessionId)
+      discardPendingStreamDeltas(sessionId, deltaBuffersRef)
+
       // Mark session as loading
-      loadingSessionsRef.current.add(payload.sessionId)
+      loadingSessionsRef.current.add(sessionId)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
       // Refresh sidebar to show new session / update title
       reloadSessions()
-      if (payload.sessionId === currentSessionIdRef.current) {
-        setLoading(true)
-        // Load latest messages from DB (includes the just-saved user message),
-        // then append an empty assistant placeholder for streaming into.
+      const isActive = sessionId === currentSessionIdRef.current
+      const hadCached = sessionCacheRef.current.has(sessionId)
+
+      if (isActive || hadCached) {
+        preparingStreamRef.current.add(sessionId)
+        if (!isActive) {
+          sessionCacheRef.current.delete(sessionId)
+        }
         getTransport().call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
-          sessionId: payload.sessionId,
+          sessionId,
           limit: PAGE_SIZE,
         }).then(([msgs]) => {
-          const parsed = parseSessionMessages(msgs)
-          const withPlaceholder = [
-            ...parsed,
-            {
-              role: "assistant" as const,
-              content: "",
-              isStreaming: true,
-              timestamp: new Date().toISOString(),
-            },
-          ]
-          sessionCacheRef.current.set(payload.sessionId, withPlaceholder)
-          setMessages(withPlaceholder)
+          if (streamGenerationRef.current.get(sessionId) !== generation) return
+          const withPlaceholder = appendStreamingPlaceholder(parseSessionMessages(msgs))
+          preparingStreamRef.current.delete(sessionId)
+          preparedStreamRef.current.add(sessionId)
+          sessionCacheRef.current.set(sessionId, withPlaceholder)
+          if (sessionId === currentSessionIdRef.current) {
+            setMessages(withPlaceholder)
+          }
+          replayQueuedEvents(sessionId)
         }).catch(() => {
-          // Fallback: just add placeholder to existing messages
-          setMessages((prev) => {
-            const next = [
-              ...prev,
-              {
-                role: "assistant" as const,
-                content: "",
-                isStreaming: true,
-                timestamp: new Date().toISOString(),
-              },
-            ]
-            sessionCacheRef.current.set(payload.sessionId, next)
-            return next
-          })
+          if (streamGenerationRef.current.get(sessionId) !== generation) return
+          preparingStreamRef.current.delete(sessionId)
+          preparedStreamRef.current.delete(sessionId)
+          queuedEventsRef.current.delete(sessionId)
+          discardPendingStreamDeltas(sessionId, deltaBuffersRef)
+          if (sessionId === currentSessionIdRef.current) {
+            const baseMessages = sessionCacheRef.current.get(sessionId)
+            if (!baseMessages) {
+              setMessages((prev) => {
+                const fallback = appendStreamingPlaceholder(prev)
+                sessionCacheRef.current.set(sessionId, fallback)
+                return fallback
+              })
+              preparedStreamRef.current.add(sessionId)
+              queueMicrotask(() => replayQueuedEvents(sessionId))
+              return
+            }
+            const fallback = appendStreamingPlaceholder(baseMessages)
+            preparedStreamRef.current.add(sessionId)
+            sessionCacheRef.current.set(sessionId, fallback)
+            setMessages(fallback)
+            replayQueuedEvents(sessionId)
+          } else {
+            sessionCacheRef.current.delete(sessionId)
+          }
         })
+      }
+
+      if (isActive) {
+        setLoading(true)
       }
     }))
 
     unlisteners.push(getTransport().listen("channel:stream_end", (raw) => {
       const payload = raw as { sessionId: string }
       if (!payload.sessionId) return
-      loadingSessionsRef.current.delete(payload.sessionId)
+      const sessionId = payload.sessionId
+      streamGenerationRef.current.delete(sessionId)
+      preparingStreamRef.current.delete(sessionId)
+      preparedStreamRef.current.delete(sessionId)
+      queuedEventsRef.current.delete(sessionId)
+
+      loadingSessionsRef.current.delete(sessionId)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
 
-      // Flush any remaining delta buffer
-      if (channelDeltaFlushRafRef.current !== null) {
-        cancelAnimationFrame(channelDeltaFlushRafRef.current)
-        channelDeltaFlushRafRef.current = null
-      }
-      channelDeltaBufferRef.current = { text: "", thinking: "", sid: "" }
+      discardPendingStreamDeltas(sessionId, deltaBuffersRef)
 
-      if (payload.sessionId === currentSessionIdRef.current) {
+      if (sessionId === currentSessionIdRef.current) {
         setLoading(false)
         reloadAndMergeSessionMessages({
-          sessionId: payload.sessionId,
+          sessionId,
           pageSize: PAGE_SIZE,
           sessionCacheRef,
           setMessages,
         })
+      } else {
+        sessionCacheRef.current.delete(sessionId)
       }
     }))
 
     return () => {
       unlisteners.forEach((fn) => fn())
+      discardAllPendingStreamDeltas(deltaBuffersRef)
+      preparingStreams.clear()
+      preparedStreams.clear()
+      queuedEvents.clear()
+      streamGenerations.clear()
     }
-  }, [setLoading, setLoadingSessionIds, reloadSessions, currentSessionIdRef, sessionCacheRef, loadingSessionsRef, setMessages])
+  }, [
+    appendStreamingPlaceholder,
+    currentSessionIdRef,
+    loadingSessionsRef,
+    reloadSessions,
+    replayQueuedEvents,
+    sessionCacheRef,
+    setLoading,
+    setLoadingSessionIds,
+    setMessages,
+  ])
 
-  // Listen for channel streaming events — full event processing (mirrors useChatStream)
+  // Listen for channel streaming events. The event handler is shared with the
+  // main chat stream so text/tool/usage rendering and rAF buffering follow the
+  // same lifecycle contract across GUI, HTTP, and IM-originated turns.
   useEffect(() => {
     const unlisten = getTransport().listen("channel:stream_delta", (raw) => {
       const payload = raw as { sessionId: string; event: string }
-      if (!payload.sessionId || payload.sessionId !== currentSessionIdRef.current) return
+      if (!payload.sessionId) return
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let ev: any = null
-      try { ev = JSON.parse(payload.event) } catch { return }
-      if (!ev || !ev.type) return
+      let event: Record<string, unknown>
+      try {
+        event = JSON.parse(payload.event) as Record<string, unknown>
+      } catch {
+        return
+      }
+      if (!event?.type) return
 
       const sid = payload.sessionId
-
-      // ── text_delta / thinking_delta: buffer and flush via rAF ──
-      if (ev.type === "text_delta" || ev.type === "thinking_delta") {
-        if (ev.type === "text_delta") {
-          channelDeltaBufferRef.current.text += ev.text || ev.content || ""
-        } else {
-          channelDeltaBufferRef.current.thinking += ev.content || ""
-        }
-        channelDeltaBufferRef.current.sid = sid
-        if (channelDeltaFlushRafRef.current === null) {
-          channelDeltaFlushRafRef.current = requestAnimationFrame(() => {
-            channelDeltaFlushRafRef.current = null
-            const buf = channelDeltaBufferRef.current
-            const textChunk = buf.text
-            const thinkingChunk = buf.thinking
-            buf.text = ""
-            buf.thinking = ""
-            if (!textChunk && !thinkingChunk) return
-            setMessages((prev) => {
-              const updated = [...prev]
-              const last = updated[updated.length - 1]
-              if (!last || last.role !== "assistant") return updated
-              const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
-              if (thinkingChunk) {
-                const lastBlock = blocks[blocks.length - 1]
-                if (lastBlock && lastBlock.type === "thinking") {
-                  blocks[blocks.length - 1] = { type: "thinking", content: lastBlock.content + thinkingChunk }
-                } else {
-                  blocks.push({ type: "thinking", content: thinkingChunk })
-                }
-              }
-              if (textChunk) {
-                const lastBlock = blocks[blocks.length - 1]
-                if (lastBlock && lastBlock.type === "text") {
-                  blocks[blocks.length - 1] = { type: "text", content: lastBlock.content + textChunk }
-                } else {
-                  blocks.push({ type: "text", content: textChunk })
-                }
-              }
-              updated[updated.length - 1] = {
-                ...last,
-                contentBlocks: blocks,
-                ...(textChunk ? { content: last.content + textChunk } : {}),
-                ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
-              }
-              sessionCacheRef.current.set(sid, updated)
-              return updated
-            })
-          })
-        }
+      if (preparingStreamRef.current.has(sid)) {
+        const queued = queuedEventsRef.current.get(sid) || []
+        queued.push(event)
+        queuedEventsRef.current.set(sid, queued)
         return
       }
 
-      // ── Flush pending buffer before tool_call to preserve display order ──
-      if (ev.type === "tool_call") {
-        if (channelDeltaFlushRafRef.current !== null) {
-          cancelAnimationFrame(channelDeltaFlushRafRef.current)
-          channelDeltaFlushRafRef.current = null
-        }
-        const buf = channelDeltaBufferRef.current
-        const textChunk = buf.text
-        const thinkingChunk = buf.thinking
-        buf.text = ""
-        buf.thinking = ""
-        if (textChunk || thinkingChunk) {
-          setMessages((prev) => {
-            const updated = [...prev]
-            const last = updated[updated.length - 1]
-            if (!last || last.role !== "assistant") return updated
-            const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
-            if (thinkingChunk) {
-              const lastBlock = blocks[blocks.length - 1]
-              if (lastBlock && lastBlock.type === "thinking") {
-                blocks[blocks.length - 1] = { type: "thinking", content: lastBlock.content + thinkingChunk }
-              } else {
-                blocks.push({ type: "thinking", content: thinkingChunk })
-              }
-            }
-            if (textChunk) {
-              const lastBlock = blocks[blocks.length - 1]
-              if (lastBlock && lastBlock.type === "text") {
-                blocks[blocks.length - 1] = { type: "text", content: lastBlock.content + textChunk }
-              } else {
-                blocks.push({ type: "text", content: textChunk })
-              }
-            }
-            updated[updated.length - 1] = {
-              ...last,
-              contentBlocks: blocks,
-              ...(textChunk ? { content: last.content + textChunk } : {}),
-              ...(thinkingChunk ? { thinking: (last.thinking || "") + thinkingChunk } : {}),
-            }
-            sessionCacheRef.current.set(sid, updated)
-            return updated
-          })
+      const isActive = sid === currentSessionIdRef.current
+      if (!isActive && !preparedStreamRef.current.has(sid)) {
+        return
+      }
+
+      if (isActive && !preparedStreamRef.current.has(sid)) {
+        const cached = sessionCacheRef.current.get(sid)
+        const last = cached?.[cached.length - 1]
+        if (cached && (last?.role !== "assistant" || !last.isStreaming)) {
+          const withPlaceholder = appendStreamingPlaceholder(cached)
+          preparedStreamRef.current.add(sid)
+          sessionCacheRef.current.set(sid, withPlaceholder)
+          setMessages(withPlaceholder)
         }
       }
 
-      // ── Process structured events (tool_call, tool_result, usage, model_fallback) ──
-      setMessages((prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (!last || last.role !== "assistant") return updated
-
-        switch (ev.type) {
-          case "tool_call": {
-            const calls = [...(last.toolCalls || [])]
-            const newTool = {
-              callId: ev.call_id,
-              name: ev.name,
-              arguments: ev.arguments || "",
-              startedAtMs: Date.now(),
-            }
-            calls.push(newTool)
-            const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
-            blocks.push({ type: "tool_call", tool: { ...newTool } })
-            updated[updated.length - 1] = {
-              ...last,
-              toolCalls: calls,
-              contentBlocks: blocks,
-            }
-            break
-          }
-          case "tool_result": {
-            const mediaItems: MediaItem[] | undefined =
-              Array.isArray(ev.media_items) && (ev.media_items as MediaItem[]).length
-                ? (ev.media_items as MediaItem[])
-                : undefined
-            const calls = [...(last.toolCalls || [])]
-            const idx = calls.findIndex((c) => c.callId === ev.call_id)
-            const resolvedDurationMs = ev.duration_ms ?? (
-              idx >= 0 && calls[idx].startedAtMs ? Date.now() - calls[idx].startedAtMs! : undefined
-            )
-            const isError = typeof ev.is_error === "boolean"
-              ? ev.is_error
-              : hasToolError({ result: ev.result })
-            if (idx >= 0) {
-              calls[idx] = {
-                ...calls[idx],
-                result: ev.result,
-                isError,
-                ...(mediaItems && { mediaItems }),
-                ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
-              }
-            }
-            const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
-            const blockIdx = blocks.findIndex(
-              (b) => b.type === "tool_call" && b.tool.callId === ev.call_id,
-            )
-            if (blockIdx >= 0) {
-              const block = blocks[blockIdx] as {
-                type: "tool_call"
-                tool: { callId: string; name: string; arguments: string; result?: string; mediaItems?: MediaItem[] }
-              }
-              blocks[blockIdx] = {
-                type: "tool_call",
-                tool: {
-                  ...block.tool,
-                  result: ev.result,
-                  isError,
-                  ...(mediaItems && { mediaItems }),
-                  ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
-                },
-              }
-            }
-            updated[updated.length - 1] = {
-              ...last,
-              toolCalls: calls,
-              contentBlocks: blocks,
-            }
-            break
-          }
-          case "usage": {
-            const usage = mergeUsageFromEvent(last.usage, ev)
-            const model = ev.model ? String(ev.model) : last.model
-            updated[updated.length - 1] = { ...last, usage, model }
-            break
-          }
-          case "model_fallback": {
-            updated[updated.length - 1] = { ...last, fallbackEvent: ev }
-            break
-          }
-          default:
-            return updated
-        }
-        sessionCacheRef.current.set(sid, updated)
-        return updated
+      handleStreamEvent(event, sid, {
+        updateSessionMessages,
+        deltaBuffersRef,
       })
     })
     return unlisten
-  }, [currentSessionIdRef, sessionCacheRef, setMessages])
+  }, [appendStreamingPlaceholder, currentSessionIdRef, sessionCacheRef, setMessages, updateSessionMessages])
 
   // Listen for channel message updates — refresh sessions + reload current session messages
   // (but SKIP DB reload if the session is currently streaming to avoid overwriting stream state)

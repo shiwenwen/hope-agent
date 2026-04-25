@@ -29,6 +29,7 @@ pub enum ChatSource {
 
 struct Entry {
     counter: Arc<AtomicU64>,
+    stream_id: String,
     source: ChatSource,
 }
 
@@ -38,17 +39,20 @@ fn registry() -> &'static Mutex<HashMap<String, Entry>> {
     REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-/// Mark the session as running. Resets the counter to 0 and records which
-/// caller opened the stream.
-pub fn begin(session_id: &str, source: ChatSource) {
+/// Mark the session as running. Resets the counter, records which caller
+/// opened the stream, and returns a stream identity unique to this run.
+pub fn begin(session_id: &str, source: ChatSource) -> String {
+    let stream_id = uuid::Uuid::new_v4().to_string();
     let mut map = registry().lock().expect("stream_seq registry poisoned");
     map.insert(
         session_id.to_string(),
         Entry {
             counter: Arc::new(AtomicU64::new(0)),
+            stream_id: stream_id.clone(),
             source,
         },
     );
+    stream_id
 }
 
 /// Drop the session entry, marking it as no longer streaming.
@@ -74,6 +78,12 @@ pub fn last_seq(session_id: &str) -> u64 {
     map.get(session_id)
         .map(|e| e.counter.load(Ordering::SeqCst))
         .unwrap_or(0)
+}
+
+/// Current stream id for an active session.
+pub fn stream_id(session_id: &str) -> Option<String> {
+    let map = registry().lock().expect("stream_seq registry poisoned");
+    map.get(session_id).map(|e| e.stream_id.clone())
 }
 
 /// Whether the session is currently registered (run_chat is running).
@@ -123,6 +133,7 @@ mod tests {
         assert!(!is_active(sid));
         begin(sid, ChatSource::Desktop);
         assert!(is_active(sid));
+        assert!(stream_id(sid).is_some());
         assert_eq!(last_seq(sid), 0);
         assert_eq!(next_seq(sid), 1);
         assert_eq!(next_seq(sid), 2);

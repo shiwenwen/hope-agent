@@ -184,8 +184,17 @@ export function useChatSession({
   /** Update messages for a specific session. If it's the current session, also update state. */
   const updateSessionMessages = useCallback(
     (sessionId: string, updater: (prev: Message[]) => Message[]) => {
+      const hasCached = sessionCacheRef.current.has(sessionId)
       const prev = sessionCacheRef.current.get(sessionId) || []
       const next = updater(prev)
+      if (
+        !hasCached &&
+        currentSessionIdRef.current !== sessionId &&
+        next === prev &&
+        next.length === 0
+      ) {
+        return
+      }
       sessionCacheRef.current.set(sessionId, next)
       if (currentSessionIdRef.current === sessionId) {
         setMessages(next)

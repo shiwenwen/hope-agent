@@ -4,7 +4,14 @@ import { logger } from "@/lib/logger"
 import { reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "../useChatSession"
 import type { Message } from "@/types/chat"
-import { handleStreamEvent } from "./useStreamEventHandler"
+import {
+  createStreamDeltaBuffers,
+  discardAllPendingStreamDeltas,
+  discardPendingStreamDeltas,
+  handleStreamEvent,
+  streamCursorKey,
+  streamIdFromPayload,
+} from "./useStreamEventHandler"
 
 // Backend constants: see `crates/ha-core/src/chat_engine/stream_broadcast.rs`.
 const EVENT_CHAT_STREAM_DELTA = "chat:stream_delta"
@@ -16,6 +23,7 @@ export interface UseChatStreamReattachDeps {
   /** Per-session seq cursor shared with `useChatStream` for dedup. Owned by the
    *  parent (ChatScreen) so both hooks can see / update it. */
   lastSeqRef: React.MutableRefObject<Map<string, number>>
+  endedStreamIdsRef: React.MutableRefObject<Map<string, string>>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>
@@ -29,16 +37,19 @@ export interface UseChatStreamReattachDeps {
 interface SessionStreamState {
   active: boolean
   lastSeq: number
+  streamId?: string | null
 }
 
 interface StreamDeltaPayload {
   sessionId: string
   seq: number
+  streamId?: string
   event: string
 }
 
 interface StreamEndPayload {
   sessionId: string
+  streamId?: string
 }
 
 /**
@@ -52,6 +63,7 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
     currentSessionId,
     currentSessionIdRef,
     lastSeqRef,
+    endedStreamIdsRef,
     updateSessionMessages,
     setShowCodexAuthExpired,
     setMessages,
@@ -63,9 +75,10 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
   } = deps
 
   // Buffers are per-hook, not shared with useChatStream's primary path;
-  // lastSeqRef dedup ensures each event hits at most one path.
-  const deltaBufferRef = useRef({ text: "", thinking: "", sid: "" })
-  const deltaFlushRafRef = useRef<number | null>(null)
+  // lastSeqRef dedup ensures each event hits at most one path. Within this
+  // hook they are keyed by session so overlapping background streams cannot
+  // mix pending text before the rAF flush runs.
+  const deltaBuffersRef = useRef(createStreamDeltaBuffers())
 
   useEffect(() => {
     const unlisten = getTransport().listen(EVENT_CHAT_STREAM_DELTA, (raw) => {
@@ -74,9 +87,11 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
 
       const sid = payload.sessionId
       const seq = payload.seq
-      const prev = lastSeqRef.current.get(sid) ?? 0
+      if (payload.streamId && endedStreamIdsRef.current.get(sid) === payload.streamId) return
+      const cursorKey = streamCursorKey(sid, payload.streamId)
+      const prev = lastSeqRef.current.get(cursorKey) ?? 0
       if (seq <= prev) return // already handled via primary path
-      lastSeqRef.current.set(sid, seq)
+      lastSeqRef.current.set(cursorKey, seq)
 
       let event: Record<string, unknown>
       try {
@@ -88,12 +103,14 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
 
       handleStreamEvent(event, sid, {
         updateSessionMessages,
-        deltaBufferRef,
-        deltaFlushRafRef,
+        deltaBuffersRef,
         setShowCodexAuthExpired,
       })
     })
-    return unlisten
+    return () => {
+      unlisten()
+      discardAllPendingStreamDeltas(deltaBuffersRef)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -108,8 +125,11 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       .then((state) => {
         if (cancelled) return
         if (!state?.active) return
-        if (!lastSeqRef.current.has(sid)) {
-          lastSeqRef.current.set(sid, Number(state.lastSeq) || 0)
+        const streamId = state.streamId || undefined
+        if (streamId) endedStreamIdsRef.current.delete(sid)
+        const cursorKey = streamCursorKey(sid, streamId)
+        if (!lastSeqRef.current.has(cursorKey)) {
+          lastSeqRef.current.set(cursorKey, Number(state.lastSeq) || 0)
         }
         if (!loadingSessionsRef.current.has(sid)) {
           loadingSessionsRef.current.add(sid)
@@ -131,8 +151,10 @@ export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
       const payload = raw as StreamEndPayload
       if (!payload?.sessionId) return
       const sid = payload.sessionId
+      const streamId = payload.streamId || streamIdFromPayload(raw)
+      if (streamId) endedStreamIdsRef.current.set(sid, streamId)
 
-      lastSeqRef.current.delete(sid)
+      discardPendingStreamDeltas(sid, deltaBuffersRef)
       loadingSessionsRef.current.delete(sid)
       setLoadingSessionIds(new Set(loadingSessionsRef.current))
 
