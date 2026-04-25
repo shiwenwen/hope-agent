@@ -16,10 +16,27 @@ use crate::subagent;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use tokio::sync::Mutex;
 
-/// Initialize all databases, subsystems, and construct the `AppState`.
-pub fn init_app_state() -> AppState {
+/// Sentinel marking that `init_runtime` has run successfully. Set last so
+/// that any fatal panic during init leaves it clear and a retry attempt is
+/// distinguishable from a successful first run.
+static INIT_DONE: OnceLock<()> = OnceLock::new();
+
+/// Initialize all global singletons (databases, OnceLocks, channel registry,
+/// ACP control plane, orphan cleanup, embedder, welcome log). Idempotent —
+/// the second call is a no-op so dev hot-reload and accidental double-call
+/// don't reopen DB files or double-register channel plugins.
+///
+/// Side effects only — does not construct `AppState`. Desktop callers should
+/// follow up with `build_app_state()`. Server / ACP modes don't need
+/// `AppState` and stop here.
+pub fn init_runtime() {
+    if INIT_DONE.get().is_some() {
+        return;
+    }
+
     /// Unwrap a Result or print a fatal error to stderr and panic.
     fn fatal<T>(result: anyhow::Result<T>, msg: &str) -> T {
         result.unwrap_or_else(|e| {
@@ -46,6 +63,7 @@ pub fn init_app_state() -> AppState {
         SessionDB::open(&db_path),
         "Cannot open session database",
     ));
+    let _ = SESSION_DB.set(session_db.clone());
 
     // Initialize the ProjectDB (shares the SessionDB SQLite connection).
     // Run its table-creation migration so `projects` / `project_files` exist
@@ -55,7 +73,7 @@ pub fn init_app_state() -> AppState {
         eprintln!("[FATAL] Cannot run project DB migration: {e}");
         panic!("project DB migration failed: {e}");
     }
-    let _ = PROJECT_DB.set(project_db.clone());
+    let _ = PROJECT_DB.set(project_db);
 
     // Initialize the LogDB and AppLogger. `LogDB` captures the db path
     // internally so we don't need to keep it around in this scope.
@@ -68,7 +86,7 @@ pub fn init_app_state() -> AppState {
     // logger starts so startup stays off the VACUUM hot path.
     let log_config = logging::load_log_config().unwrap_or_default();
     let logs_dir = fatal(paths::logs_dir(), "Cannot resolve logs directory");
-    let logger = AppLogger::new(log_db.clone(), logs_dir);
+    let logger = AppLogger::new(log_db, logs_dir);
     logger.update_config(log_config);
 
     // Store logger globally for access from non-State contexts
@@ -119,13 +137,13 @@ pub fn init_app_state() -> AppState {
         }
     }
 
-    // Initialize the CronDB (scheduler started in .setup() where tokio runtime is available)
+    // Initialize the CronDB (scheduler started in start_background_tasks)
     let cron_db_path = fatal(paths::cron_db_path(), "Cannot resolve cron database path");
     let cron_db = Arc::new(fatal(
         cron::CronDB::open(&cron_db_path),
         "Cannot open cron database",
     ));
-    let _ = CRON_DB.set(cron_db.clone());
+    let _ = CRON_DB.set(cron_db);
 
     // Failure here is non-fatal — async tools degrade to sync mode if the DB cannot be opened.
     match paths::async_jobs_db_path().and_then(|p| crate::async_jobs::AsyncJobsDB::open(&p)) {
@@ -159,23 +177,17 @@ pub fn init_app_state() -> AppState {
         let _ = bus.emit("agent:send_notification", payload);
     }
 
-    // Initialize sub-agent cancel registry
-    let subagent_cancels = Arc::new(subagent::SubagentCancelRegistry::new());
-    let _ = SUBAGENT_CANCELS.set(subagent_cancels.clone());
-    let _ = SESSION_DB.set(session_db.clone());
+    // Sub-agent cancel registry + idle-extract handle map
+    let _ = SUBAGENT_CANCELS.set(Arc::new(subagent::SubagentCancelRegistry::new()));
     let _ = IDLE_EXTRACT_HANDLES.set(std::sync::Mutex::new(std::collections::HashMap::new()));
 
-    // Published to OnceLocks here, shared into AppState below. The two
-    // access styles must see the same Arc — `debug_assert!` at the bottom
-    // of this function enforces it.
-    let channel_cancels = Arc::new(channel::ChannelCancelRegistry::new());
-    let codex_token = Arc::new(Mutex::new(None::<(String, String)>));
-    let reasoning_effort = Arc::new(Mutex::new("medium".to_string()));
-    let cached_agent = Arc::new(Mutex::new(None::<crate::agent::AssistantAgent>));
-    let _ = CHANNEL_CANCELS.set(channel_cancels.clone());
-    let _ = CODEX_TOKEN_CACHE.set(codex_token.clone());
-    let _ = REASONING_EFFORT.set(reasoning_effort.clone());
-    let _ = CACHED_AGENT.set(cached_agent.clone());
+    // Per-AppState fields that desktop reads via OnceLock too. Constructed
+    // here so server / acp modes get the same defaults without depending on
+    // `build_app_state`.
+    let _ = CHANNEL_CANCELS.set(Arc::new(channel::ChannelCancelRegistry::new()));
+    let _ = CODEX_TOKEN_CACHE.set(Arc::new(Mutex::new(None::<(String, String)>)));
+    let _ = REASONING_EFFORT.set(Arc::new(Mutex::new("medium".to_string())));
+    let _ = CACHED_AGENT.set(Arc::new(Mutex::new(None::<crate::agent::AssistantAgent>)));
 
     // Clean up orphan sub-agent runs from previous app session
     subagent::cleanup_orphan_runs(&session_db);
@@ -247,6 +259,39 @@ pub fn init_app_state() -> AppState {
         }
     }
 
+    // Mark init complete only after every fallible step has succeeded. Any
+    // earlier `fatal()` panic kills the process before this set runs.
+    let _ = INIT_DONE.set(());
+}
+
+/// Construct the desktop `AppState` from already-initialised global
+/// singletons. **Must be preceded by `init_runtime()`.** Server / ACP modes
+/// do not call this — they consume the OnceLocks directly.
+pub fn build_app_state() -> AppState {
+    debug_assert!(
+        INIT_DONE.get().is_some(),
+        "build_app_state called before init_runtime"
+    );
+
+    fn must<T>(opt: Option<&'static Arc<T>>, label: &str) -> Arc<T> {
+        opt.unwrap_or_else(|| panic!("build_app_state: {label} not initialised by init_runtime"))
+            .clone()
+    }
+
+    let session_db = must(SESSION_DB.get(), "SESSION_DB");
+    let project_db = must(PROJECT_DB.get(), "PROJECT_DB");
+    let log_db = must(LOG_DB.get(), "LOG_DB");
+    let cron_db = must(CRON_DB.get(), "CRON_DB");
+    let subagent_cancels = must(SUBAGENT_CANCELS.get(), "SUBAGENT_CANCELS");
+    let channel_cancels = must(CHANNEL_CANCELS.get(), "CHANNEL_CANCELS");
+    let codex_token = must(CODEX_TOKEN_CACHE.get(), "CODEX_TOKEN_CACHE");
+    let reasoning_effort = must(REASONING_EFFORT.get(), "REASONING_EFFORT");
+    let cached_agent = must(CACHED_AGENT.get(), "CACHED_AGENT");
+    let logger = APP_LOGGER
+        .get()
+        .expect("build_app_state: APP_LOGGER not initialised by init_runtime")
+        .clone();
+
     let state = AppState {
         agent: cached_agent,
         auth_result: Arc::new(Mutex::new(None)),
@@ -286,6 +331,13 @@ pub fn init_app_state() -> AppState {
     state
 }
 
+/// Backwards-compatible shim. New call sites should use `init_runtime()` +
+/// `build_app_state()` directly so it's clear which side effect they want.
+pub fn init_app_state() -> AppState {
+    init_runtime();
+    build_app_state()
+}
+
 fn ptr_eq_lock<T>(lock: &std::sync::OnceLock<Arc<T>>, field: &Arc<T>) -> bool {
     lock.get()
         .map(|arc| Arc::ptr_eq(arc, field))
@@ -297,7 +349,7 @@ fn ptr_eq_lock<T>(lock: &std::sync::OnceLock<Arc<T>>, field: &Arc<T>) -> bool {
 pub async fn start_background_tasks() {
     // IM channel approval / ask_user listeners. These use bare `tokio::spawn`
     // internally, so they live here (post-runtime) rather than in
-    // `init_app_state` (which can run on a sync stack). Idempotent — the
+    // `init_runtime` (which can run on a sync stack). Idempotent — the
     // listeners early-return if `get_event_bus()` is None.
     if let (Some(channel_db), Some(registry)) = (CHANNEL_DB.get(), CHANNEL_REGISTRY.get()) {
         channel::worker::approval::spawn_channel_approval_listener(
@@ -462,29 +514,101 @@ pub async fn start_background_tasks() {
     // call from both the Tauri desktop shell and `hope-agent server`; the
     // second call is a no-op. Must happen before any tool dispatch, so
     // we do it here (start_background_tasks runs before chat sessions).
-    {
-        let store = crate::config::cached_config();
-        let global = store.mcp_global.clone();
-        let servers = store.mcp_servers.clone();
-        if global.enabled {
-            let enabled_count = servers.iter().filter(|s| s.enabled).count();
-            crate::mcp::McpManager::init_global(global, servers);
-            // Watchdog owns periodic reconnect + eager warm-up. Spawned
-            // once per process — subsequent `start_background_tasks`
-            // calls are rare but harmless.
-            crate::mcp::watchdog::spawn_watchdog_loop();
-            app_info!(
-                "mcp",
-                "init",
-                "MCP subsystem initialized ({} enabled server(s))",
-                enabled_count
-            );
-        } else {
-            app_info!(
-                "mcp",
-                "init",
-                "MCP subsystem disabled via mcpGlobal.enabled=false"
-            );
+    if init_mcp_subsystem() {
+        // Watchdog owns periodic reconnect + eager warm-up. Long-lived
+        // processes (desktop / server) want it; ACP's minimal path skips it.
+        crate::mcp::watchdog::spawn_watchdog_loop();
+    }
+}
+
+/// ACP-shaped background tasks. ACP is a single-conversation-per-process
+/// model spawned by an IDE — daily timers leak file handles, channel
+/// auto-start has no IM out, dreaming makes no sense. Intentionally
+/// **excludes**:
+///   - daily ask_user purge loop
+///   - daily async_jobs retention loop
+///   - daily recap retention loop
+///   - dreaming idle trigger loop
+///   - channel auto-start
+///   - cron scheduler (it would survive past the ACP exit)
+///   - ACP backend auto-discover (we *are* the ACP backend)
+///   - MCP watchdog (process is short-lived; init_global is enough)
+///
+/// Future maintainers: think before adding to this list. The point is to
+/// stay small.
+pub async fn start_minimal_background_tasks() {
+    // IM channel approval / ask_user listeners are *also* registered here so
+    // that an ACP-launched channel-aware tool (e.g. notify-on-IM) doesn't
+    // silently drop. Both early-return when no EventBus subscriber exists.
+    if let (Some(channel_db), Some(registry)) = (CHANNEL_DB.get(), CHANNEL_REGISTRY.get()) {
+        channel::worker::approval::spawn_channel_approval_listener(
+            channel_db.clone(),
+            registry.clone(),
+        );
+        channel::worker::ask_user::spawn_channel_ask_user_listener(
+            channel_db.clone(),
+            registry.clone(),
+        );
+    }
+
+    // One-shot ask_user table cleanup. Identical to start_background_tasks
+    // body but without the daily loop.
+    tokio::spawn(async move {
+        if let Some(db) = crate::get_session_db() {
+            if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
+                app_warn!(
+                    "ask_user",
+                    "startup",
+                    "Failed to purge old ask_user rows: {}",
+                    e
+                );
+            }
+            if let Err(e) = db.expire_pending_ask_user_groups() {
+                app_warn!(
+                    "ask_user",
+                    "startup",
+                    "Failed to expire pending ask_user rows: {}",
+                    e
+                );
+            }
         }
+    });
+
+    // Replay leftover async tool jobs from a previous ACP run. One-shot,
+    // no retention loop.
+    tokio::spawn(async move {
+        crate::async_jobs::replay_pending_jobs();
+    });
+
+    // MCP init (no watchdog). ACP tool dispatch may hit MCP-namespaced tools
+    // and would otherwise see "MCP subsystem not initialised".
+    let _ = init_mcp_subsystem();
+}
+
+/// Shared MCP bring-up used by both `start_background_tasks` and
+/// `start_minimal_background_tasks`. Returns `true` when MCP was enabled
+/// and `init_global` was called — the caller decides whether to also
+/// spawn the long-running watchdog.
+fn init_mcp_subsystem() -> bool {
+    let store = crate::config::cached_config();
+    let global = store.mcp_global.clone();
+    let servers = store.mcp_servers.clone();
+    if global.enabled {
+        let enabled_count = servers.iter().filter(|s| s.enabled).count();
+        crate::mcp::McpManager::init_global(global, servers);
+        app_info!(
+            "mcp",
+            "init",
+            "MCP subsystem initialized ({} enabled server(s))",
+            enabled_count
+        );
+        true
+    } else {
+        app_info!(
+            "mcp",
+            "init",
+            "MCP subsystem disabled via mcpGlobal.enabled=false"
+        );
+        false
     }
 }
