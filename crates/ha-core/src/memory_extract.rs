@@ -3,14 +3,18 @@
 //! After a chat completion, this module can extract valuable information
 //! (user facts, preferences, project context) and save them as memories.
 
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
-
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::Value;
 
 use crate::agent::AssistantAgent;
 use crate::memory::{AddResult, MemoryScope, MemoryType, NewMemory};
+
+const MEMORY_EXTRACTION_SYSTEM: &str =
+    "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences.";
+
+fn memory_extraction_instruction(prompt: &str) -> String {
+    format!("{}\n\n{}", MEMORY_EXTRACTION_SYSTEM, prompt)
+}
 
 /// Pick the scope to use when auto-saving a memory extracted from `session_id`.
 ///
@@ -190,11 +194,19 @@ async fn do_extraction(
 
     // Make LLM call — prefer side_query for prompt cache sharing
     let response = if let Some(agent) = main_agent {
-        let instruction = format!(
-            "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences.\n\n{}",
-            prompt
-        );
-        let result = agent.side_query(&instruction, 4096).await?;
+        let instruction = memory_extraction_instruction(&prompt);
+        let result = agent
+            .side_query(&instruction, 4096)
+            .await
+            .with_context(|| {
+                format!(
+                    "memory extraction side_query failed (source=main_agent, provider_id={}, api_type={}, model={}, session={})",
+                    provider_config.id,
+                    provider_config.api_type.display_name(),
+                    model_id,
+                    session_id
+                )
+            })?;
         if let Some(logger) = crate::get_logger() {
             logger.log(
                 "info",
@@ -211,18 +223,27 @@ async fn do_extraction(
         }
         result.text
     } else {
-        // Fallback: create temp agent (no cache sharing)
+        // Fallback: create temp agent (no cache sharing). Use side_query so
+        // Codex hydrates OAuth from disk through build_llm_provider instead
+        // of sending the placeholder provider token from config.
         let mut agent = AssistantAgent::new_from_provider(provider_config, model_id)
             .with_failover_context(provider_config);
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
-        agent.set_extra_system_context(
-            "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences."
-                .to_string(),
-        );
-        let cancel = Arc::new(AtomicBool::new(false));
-        let (resp, _thinking) = agent.chat(&prompt, &[], None, cancel, |_| {}).await?;
-        resp
+        let instruction = memory_extraction_instruction(&prompt);
+        agent
+            .side_query(&instruction, 4096)
+            .await
+            .with_context(|| {
+                format!(
+                    "memory extraction side_query failed (source=temp_agent, provider_id={}, api_type={}, model={}, session={})",
+                    provider_config.id,
+                    provider_config.api_type.display_name(),
+                    model_id,
+                    session_id
+                )
+            })?
+            .text
     };
 
     // Parse JSON response
@@ -394,13 +415,20 @@ pub async fn flush_before_compact(
         .with_failover_context(provider_config);
     agent.set_agent_id(agent_id);
     agent.set_session_id(session_id);
-    agent.set_extra_system_context(
-        "You are a memory extraction assistant. Respond ONLY with a JSON array, no markdown fences."
-            .to_string(),
-    );
-
-    let cancel = Arc::new(AtomicBool::new(false));
-    let (response, _thinking) = agent.chat(&prompt, &[], None, cancel, |_| {}).await?;
+    let instruction = memory_extraction_instruction(&prompt);
+    let response = agent
+        .side_query(&instruction, 4096)
+        .await
+        .with_context(|| {
+            format!(
+                "flush_before_compact side_query failed (provider_id={}, api_type={}, model={}, session={})",
+                provider_config.id,
+                provider_config.api_type.display_name(),
+                model_id,
+                session_id
+            )
+        })?
+        .text;
 
     let extracted = parse_extraction_response(&response)?;
     if extracted.is_empty() {

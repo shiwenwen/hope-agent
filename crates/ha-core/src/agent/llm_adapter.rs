@@ -302,8 +302,24 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
         req: OneShotRequest<'_>,
     ) -> Result<OneShotResult> {
         let body = build_responses_body(self.model, &req, ProviderFormat::Codex);
+        let body_size = serde_json::to_string(&body).map(|s| s.len()).unwrap_or(0);
+        let input_count = body
+            .get("input")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.len())
+            .unwrap_or(0);
+        let tool_count = body
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.len())
+            .unwrap_or(0);
+        let instructions_present = body
+            .get("instructions")
+            .and_then(|v| v.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
         let request_start = std::time::Instant::now();
-        let resp = apply_codex_headers(
+        let resp = match apply_codex_headers(
             client.post(CODEX_API_URL),
             self.token,
             self.account_id,
@@ -312,21 +328,101 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
         .json(&body)
         .send()
         .await
-        .map_err(|e| anyhow::anyhow!("Codex one-shot request failed: {}", e))?;
+        {
+            Ok(resp) => resp,
+            Err(e) => {
+                app_warn!(
+                    "agent",
+                    "codex_one_shot",
+                    "Codex one-shot network error: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
+                    self.model,
+                    !self.token.is_empty(),
+                    !self.account_id.is_empty(),
+                    instructions_present,
+                    input_count,
+                    tool_count,
+                    body_size,
+                    e
+                );
+                return Err(anyhow::anyhow!("Codex one-shot request failed: {}", e));
+            }
+        };
 
         if !resp.status().is_success() {
             let status = resp.status().as_u16();
             let err_text = resp.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "{}",
-                parse_error_response(status, &err_text)
-            ));
+            let friendly = parse_error_response(status, &err_text);
+            let error_preview = if err_text.len() > 500 {
+                format!("{}...", crate::truncate_utf8(&err_text, 500))
+            } else {
+                err_text.clone()
+            };
+            let error_preview = crate::logging::redact_sensitive(&error_preview);
+            if let Some(logger) = crate::get_logger() {
+                logger.log(
+                    "error",
+                    "agent",
+                    "agent::codex_one_shot::error",
+                    &format!(
+                        "Codex one-shot API error ({}): model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B",
+                        status,
+                        self.model,
+                        !self.token.is_empty(),
+                        !self.account_id.is_empty(),
+                        instructions_present,
+                        input_count,
+                        tool_count,
+                        body_size
+                    ),
+                    Some(
+                        json!({
+                            "status": status,
+                            "model": self.model,
+                            "has_token": !self.token.is_empty(),
+                            "has_account_id": !self.account_id.is_empty(),
+                            "instructions_present": instructions_present,
+                            "input_count": input_count,
+                            "tool_count": tool_count,
+                            "body_size_bytes": body_size,
+                            "error_preview": error_preview,
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
+            }
+            return Err(anyhow::anyhow!("{}", friendly));
         }
 
         let cancel = AtomicBool::new(false);
         let noop = |_: &str| {};
-        let (text, _tool_calls, mut usage, _thinking, _ttft, _reasoning) =
-            parse_openai_sse(resp, request_start, &cancel, &noop).await?;
+        let (text, _tool_calls, mut usage, _thinking, _ttft, _reasoning) = match parse_openai_sse(
+            resp,
+            request_start,
+            &cancel,
+            &noop,
+        )
+        .await
+        {
+            Ok(parsed) => parsed,
+            Err(e) => {
+                app_warn!(
+                        "agent",
+                        "codex_one_shot",
+                        "Codex one-shot SSE parse failed: model={} has_token={} has_account_id={} instructions_present={} input_count={} tool_count={} body={}B err={}",
+                        self.model,
+                        !self.token.is_empty(),
+                        !self.account_id.is_empty(),
+                        instructions_present,
+                        input_count,
+                        tool_count,
+                        body_size,
+                        e
+                    );
+                return Err(e);
+            }
+        };
         // One-shot is single-round: last == only input.
         usage.last_input_tokens = usage.input_tokens;
 
@@ -345,6 +441,9 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
 ///
 /// Side queries deliberately don't forward temperature / reasoning /
 /// awareness suffixes — see [`OneShotRequest`].
+const BARE_RESPONSES_INSTRUCTIONS: &str =
+    "You are a helpful assistant. Follow the user's instruction exactly.";
+
 fn build_responses_body(
     model: &str,
     req: &OneShotRequest<'_>,
@@ -378,6 +477,7 @@ fn build_responses_body(
                     "model": model,
                     "store": false,
                     "stream": stream,
+                    "instructions": BARE_RESPONSES_INSTRUCTIONS,
                     "input": [{ "role": "user", "content": req.instruction }],
                 })
             }
@@ -826,6 +926,26 @@ mod tests {
     }
 
     #[test]
+    fn codex_bare_body_still_sends_required_instructions() {
+        let req = OneShotRequest {
+            instruction: "pick the relevant memory",
+            max_tokens: 100,
+            mode: OneShotMode::Bare,
+        };
+        let body = build_responses_body("gpt-5", &req, ProviderFormat::Codex);
+
+        let instructions = body
+            .get("instructions")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+
+        assert!(
+            !instructions.trim().is_empty(),
+            "Codex rejects one-shot requests without instructions"
+        );
+    }
+
+    #[test]
     fn responses_format_mismatch_falls_back() {
         let params = cached_anthropic(); // wrong format for Responses adapter
         let req = OneShotRequest {
@@ -840,6 +960,7 @@ mod tests {
                 "model": "gpt-5",
                 "store": false,
                 "stream": false,
+                "instructions": BARE_RESPONSES_INSTRUCTIONS,
                 "input": [{"role": "user", "content": "X"}],
                 "max_output_tokens": 100,
             })

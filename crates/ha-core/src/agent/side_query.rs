@@ -18,10 +18,33 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use serde_json::json;
 
 use super::llm_adapter::{OneShotMode, OneShotRequest};
-use super::types::{AssistantAgent, CacheSafeParams, ProviderFormat, SideQueryResult};
+use super::types::{AssistantAgent, CacheSafeParams, LlmProvider, ProviderFormat, SideQueryResult};
 use crate::failover::executor::{execute_with_failover, FailoverPolicy};
+
+fn side_query_cache_mode(
+    cached: Option<&CacheSafeParams>,
+    expected_format: &ProviderFormat,
+) -> &'static str {
+    match cached {
+        Some(params) if &params.provider_format == expected_format => "cached",
+        Some(_) => "format_mismatch_bare",
+        None => "bare",
+    }
+}
+
+fn codex_direct_needs_oauth_hydration(provider: &LlmProvider) -> bool {
+    matches!(
+        provider,
+        LlmProvider::Codex {
+            access_token,
+            account_id,
+            ..
+        } if access_token.is_empty() || account_id.is_empty()
+    )
+}
 
 impl AssistantAgent {
     /// Save cache-safe params after building the main chat request.
@@ -75,6 +98,10 @@ impl AssistantAgent {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
+        let expected_format = ProviderFormat::from(&self.provider);
+        let cache_mode = side_query_cache_mode(cached.as_deref(), &expected_format);
+        let model_id = self.provider.model();
+        let instruction_bytes = instruction.len();
 
         // Fast path: legacy constructors (new_anthropic / new_openai / test
         // paths) don't carry a ProviderConfig, so we issue a single direct
@@ -82,12 +109,85 @@ impl AssistantAgent {
         let (Some(provider_config), Some(session_id)) =
             (self.provider_config.as_ref(), self.session_id.as_deref())
         else {
-            return self
+            if let Some(logger) = crate::get_logger() {
+                logger.log(
+                    "debug",
+                    "agent",
+                    "side_query::dispatch",
+                    &format!(
+                        "Side query dispatch: provider={}, model={}, path=direct, cache_mode={}, max_tokens={}",
+                        expected_format.label(),
+                        model_id,
+                        cache_mode,
+                        max_tokens
+                    ),
+                    Some(
+                        json!({
+                            "provider": expected_format.label(),
+                            "model": model_id,
+                            "path": "direct",
+                            "cache_mode": cache_mode,
+                            "max_tokens": max_tokens,
+                            "instruction_bytes": instruction_bytes,
+                            "has_provider_config": self.provider_config.is_some(),
+                            "has_session_id": self.session_id.is_some(),
+                        })
+                        .to_string(),
+                    ),
+                    None,
+                    None,
+                );
+            }
+            let result = self
                 .side_query_direct(&client, cached.as_deref(), instruction, max_tokens)
                 .await;
+            if let Err(e) = &result {
+                app_warn!(
+                    "agent",
+                    "side_query",
+                    "Side query failed: provider={} model={} path=direct cache_mode={} has_provider_config={} has_session_id={} err={}",
+                    expected_format.label(),
+                    model_id,
+                    cache_mode,
+                    self.provider_config.is_some(),
+                    self.session_id.is_some(),
+                    e
+                );
+            }
+            return result;
         };
 
-        let model_id = self.provider.model();
+        if let Some(logger) = crate::get_logger() {
+            logger.log(
+                "debug",
+                "agent",
+                "side_query::dispatch",
+                &format!(
+                    "Side query dispatch: provider={}, model={}, session={}, path=failover, cache_mode={}, max_tokens={}",
+                    provider_config.api_type.display_name(),
+                    model_id,
+                    session_id,
+                    cache_mode,
+                    max_tokens
+                ),
+                Some(
+                    json!({
+                        "provider_id": provider_config.id,
+                        "provider_name": provider_config.name,
+                        "api_type": provider_config.api_type.display_name(),
+                        "model": model_id,
+                        "session_id": session_id,
+                        "path": "failover",
+                        "cache_mode": cache_mode,
+                        "max_tokens": max_tokens,
+                        "instruction_bytes": instruction_bytes,
+                    })
+                    .to_string(),
+                ),
+                None,
+                None,
+            );
+        }
 
         let exec_result = execute_with_failover(
             provider_config.as_ref(),
@@ -133,7 +233,23 @@ impl AssistantAgent {
         )
         .await;
 
-        exec_result.map_err(|e| anyhow::anyhow!("side query: {}", e))
+        match exec_result {
+            Ok(result) => Ok(result),
+            Err(e) => {
+                app_warn!(
+                    "agent",
+                    "side_query",
+                    "Side query failed: provider_id={} api_type={} model={} session={} path=failover cache_mode={} err={}",
+                    provider_config.id,
+                    provider_config.api_type.display_name(),
+                    model_id,
+                    session_id,
+                    cache_mode,
+                    e
+                );
+                Err(anyhow::anyhow!("side query: {}", e))
+            }
+        }
     }
 
     /// Legacy fast path: single direct one-shot, no rotation, no retry.
@@ -150,8 +266,31 @@ impl AssistantAgent {
             Some(params) => OneShotMode::Cached(params),
             None => OneShotMode::Bare,
         };
-        let result = self
-            .provider
+
+        let hydrated_codex;
+        let provider = if codex_direct_needs_oauth_hydration(&self.provider) {
+            let LlmProvider::Codex { model, .. } = &self.provider else {
+                unreachable!("checked by codex_direct_needs_oauth_hydration");
+            };
+            let (access_token, account_id) = crate::oauth::load_fresh_codex_token().await?;
+            app_info!(
+                "agent",
+                "side_query",
+                "Hydrated Codex OAuth token for direct side_query: model={} has_account_id={}",
+                model,
+                !account_id.is_empty()
+            );
+            hydrated_codex = LlmProvider::Codex {
+                access_token,
+                account_id,
+                model: model.clone(),
+            };
+            &hydrated_codex
+        } else {
+            &self.provider
+        };
+
+        let result = provider
             .as_adapter()
             .one_shot(
                 client,
@@ -176,6 +315,7 @@ mod tests {
 
     use super::*;
     use crate::context_compact::round_grouping::{stamp_round, ROUND_KEY};
+    use crate::provider::{ApiType, ProviderConfig};
 
     #[test]
     fn save_cache_safe_params_strips_round_metadata() {
@@ -196,5 +336,41 @@ mod tests {
             .expect("cache snapshot");
 
         assert!(cached.conversation_history[1].get(ROUND_KEY).is_none());
+    }
+
+    #[test]
+    fn cache_mode_labels_missing_and_mismatched_snapshots() {
+        let params = CacheSafeParams {
+            system_prompt: "SYS".to_string(),
+            tool_schemas: Vec::new(),
+            conversation_history: Vec::new(),
+            provider_format: ProviderFormat::Codex,
+        };
+
+        assert_eq!(
+            side_query_cache_mode(Some(&params), &ProviderFormat::Codex),
+            "cached"
+        );
+        assert_eq!(
+            side_query_cache_mode(Some(&params), &ProviderFormat::OpenAIResponses),
+            "format_mismatch_bare"
+        );
+        assert_eq!(side_query_cache_mode(None, &ProviderFormat::Codex), "bare");
+    }
+
+    #[test]
+    fn direct_codex_side_query_hydrates_placeholder_provider_auth() {
+        let provider = ProviderConfig::new(
+            "Codex".to_string(),
+            ApiType::Codex,
+            ApiType::Codex.default_base_url().to_string(),
+            String::new(),
+        );
+        let agent = AssistantAgent::new_from_provider(&provider, "gpt-5.5");
+
+        assert!(codex_direct_needs_oauth_hydration(&agent.provider));
+
+        let hydrated = AssistantAgent::new_openai("token", "account", "gpt-5.5");
+        assert!(!codex_direct_needs_oauth_hydration(&hydrated.provider));
     }
 }
