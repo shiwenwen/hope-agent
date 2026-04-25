@@ -6,8 +6,8 @@
   "packageManager": "pnpm@10.33.1+sha512.05ba3c1d5d1c18f68df06470d74055e62d41fc110a0c660db1b2dfb2785327f04cf0f68345d4609bc52089e7fa0343c31593b2f9594e2c5d5da426230acc9820",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "typecheck": "tsc -b",
+    "build": "tsc -b --pretty false && vite build",
+    "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "format": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,css}'",
     "i18n:check": "node scripts/sync-i18n.mjs --check",

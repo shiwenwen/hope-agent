@@ -104,7 +104,7 @@ pnpm install
 pnpm tauri dev         # desktop dev (frontend + Rust hot reload)
 
 # Other useful commands
-pnpm typecheck         # frontend typecheck (tsc -b)
+pnpm typecheck         # frontend typecheck (tsc -b --pretty false)
 pnpm lint              # lint
 pnpm tauri build       # production build
 ```
