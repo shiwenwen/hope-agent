@@ -27,7 +27,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.tool_permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-           s.working_dir
+           s.working_dir, s.title_source
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -62,7 +62,8 @@ impl SessionDB {
                 last_read_message_id INTEGER DEFAULT 0,
                 is_cron INTEGER NOT NULL DEFAULT 0,
                 parent_session_id TEXT,
-                incognito INTEGER NOT NULL DEFAULT 0
+                incognito INTEGER NOT NULL DEFAULT 0,
+                title_source TEXT NOT NULL DEFAULT 'manual'
             );
 
             CREATE TABLE IF NOT EXISTS messages (
@@ -293,6 +294,17 @@ impl SessionDB {
             .is_ok();
         if !has_working_dir {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN working_dir TEXT;")?;
+        }
+
+        // Migration: track who last set the session title so automatic LLM
+        // naming never overwrites user/manual titles.
+        let has_title_source = conn
+            .prepare("SELECT title_source FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_title_source {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN title_source TEXT NOT NULL DEFAULT 'manual';",
+            )?;
         }
 
         // Migration: pending ask_user_question groups for resume-after-restart.
@@ -726,6 +738,7 @@ impl SessionDB {
         Ok(SessionMeta {
             id,
             title: None,
+            title_source: crate::session_title::TITLE_SOURCE_MANUAL.to_string(),
             agent_id: agent_id.to_string(),
             provider_id: None,
             provider_name: None,
@@ -1140,6 +1153,9 @@ impl SessionDB {
         Ok(SessionMeta {
             id: row.get(0)?,
             title: row.get(1)?,
+            title_source: row
+                .get::<_, String>(22)
+                .unwrap_or_else(|_| crate::session_title::TITLE_SOURCE_MANUAL.to_string()),
             agent_id: row.get(2)?,
             provider_id: row.get(3)?,
             provider_name: row.get(4)?,
@@ -1301,15 +1317,51 @@ impl SessionDB {
 
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
+        self.update_session_title_with_source(
+            session_id,
+            title,
+            crate::session_title::TITLE_SOURCE_MANUAL,
+        )
+    }
+
+    /// Update session title and record its source.
+    pub fn update_session_title_with_source(
+        &self,
+        session_id: &str,
+        title: &str,
+        title_source: &str,
+    ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET title = ?1 WHERE id = ?2",
-            params![title, session_id],
+            "UPDATE sessions SET title = ?1, title_source = ?2 WHERE id = ?3",
+            params![title, title_source, session_id],
         )?;
         Ok(())
+    }
+
+    /// Update a session title only if its source still matches an expected
+    /// value. Returns true when the row was updated.
+    pub fn update_session_title_if_source(
+        &self,
+        session_id: &str,
+        expected_source: &str,
+        title: &str,
+        title_source: &str,
+    ) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let changed = conn.execute(
+            "UPDATE sessions
+                SET title = ?1, title_source = ?2
+              WHERE id = ?3 AND title_source = ?4",
+            params![title, title_source, session_id, expected_source],
+        )?;
+        Ok(changed > 0)
     }
 
     /// Mark a session as a cron-triggered session.
@@ -2130,6 +2182,67 @@ mod tests {
 
         drop(stmt);
         drop(conn);
+        let _ = std::fs::remove_file(&db_path);
+    }
+
+    #[test]
+    fn title_source_roundtrip_and_guarded_update() {
+        let db_path = temp_db_path("session-title-source");
+        let db = SessionDB::open(&db_path).expect("open session db");
+        ensure_channel_conversations_table(&db);
+
+        let created = db.create_session("default").expect("create session");
+        assert_eq!(
+            created.title_source,
+            crate::session_title::TITLE_SOURCE_MANUAL
+        );
+
+        let fallback =
+            crate::session::ensure_first_message_title(&db, &created.id, "帮我分析这个 Rust 报错")
+                .expect("set first message title");
+        assert_eq!(fallback.as_deref(), Some("帮我分析这个 Rust 报错"));
+
+        let first = db
+            .get_session(&created.id)
+            .expect("get session")
+            .expect("session exists");
+        assert_eq!(
+            first.title_source,
+            crate::session_title::TITLE_SOURCE_FIRST_MESSAGE
+        );
+
+        let changed = db
+            .update_session_title_if_source(
+                &created.id,
+                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
+                "Rust 报错分析",
+                crate::session_title::TITLE_SOURCE_LLM,
+            )
+            .expect("guarded update");
+        assert!(changed);
+
+        db.update_session_title(&created.id, "Manual Title")
+            .expect("manual rename");
+        let blocked = db
+            .update_session_title_if_source(
+                &created.id,
+                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
+                "Should Not Win",
+                crate::session_title::TITLE_SOURCE_LLM,
+            )
+            .expect("guarded update after manual");
+        assert!(!blocked);
+
+        let loaded = db
+            .get_session(&created.id)
+            .expect("get session")
+            .expect("session exists");
+        assert_eq!(loaded.title.as_deref(), Some("Manual Title"));
+        assert_eq!(
+            loaded.title_source,
+            crate::session_title::TITLE_SOURCE_MANUAL
+        );
+
         let _ = std::fs::remove_file(&db_path);
     }
 

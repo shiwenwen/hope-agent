@@ -1300,6 +1300,12 @@
     "chatAutoExpandThinkingDesc": "Expandir automaticamente blocos de pensamento nos balões de chat. Quando desativado, clique para expandir manualmente.",
     "toolCallNarration": "Anunciar chamadas de ferramentas",
     "toolCallNarrationDesc": "Quando ativado, instrui o modelo a preceder cada chamada de ferramenta com uma frase de anúncio (estilo Claude Code). Alguns modelos (ex. GPT-5.4) exageram e repetem a mesma intenção entre chamadas consecutivas, criando duplicação visível. Desativado por padrão.",
+    "sessionTitle": "Gerar títulos de chat automaticamente",
+    "sessionTitleDesc": "Mantém o título da primeira mensagem imediatamente e gera um título conciso após a primeira resposta do assistente.",
+    "sessionTitleModel": "Modelo de título",
+    "sessionTitleUseChatModel": "Usar modelo do chat",
+    "sessionTitleChatModelHint": "Usa o modelo principal do chat para gerar o título uma vez.",
+    "sessionTitleCustomModelHint": "Usa o provedor/modelo selecionado para gerar o título.",
     "awareness": {
       "title": "Consciência de comportamento",
       "desc": "Dê a este chat uma visão dinâmica do que o usuário está fazendo em outras sessões paralelas.",

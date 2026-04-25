@@ -336,24 +336,22 @@ impl AcpAgent {
             .session_db
             .append_message(&session_id, &session::NewMessage::user(&text));
 
-        // Auto-generate title
-        if let Ok(Some(meta)) = self.session_db.get_session(&session_id) {
-            if meta.title.is_none() && meta.message_count <= 1 {
-                let title = session::auto_title(&text);
-                let _ = self.session_db.update_session_title(&session_id, &title);
-                // Emit session_info_update
-                let notif = serde_json::json!({
-                    "sessionId": session_id,
-                    "sessionUpdate": {
-                        "sessionUpdate": "session_info_update",
-                        "title": title,
-                        "updatedAt": chrono::Utc::now().to_rfc3339(),
-                    }
-                });
-                let _ = self
-                    .transport
-                    .write_notification(&JsonRpcNotification::new("session/update", notif));
-            }
+        // Auto-generate fallback title
+        if let Ok(Some(title)) =
+            session::ensure_first_message_title(&self.session_db, &session_id, &text)
+        {
+            // Emit session_info_update
+            let notif = serde_json::json!({
+                "sessionId": session_id,
+                "sessionUpdate": {
+                    "sessionUpdate": "session_info_update",
+                    "title": title,
+                    "updatedAt": chrono::Utc::now().to_rfc3339(),
+                }
+            });
+            let _ = self
+                .transport
+                .write_notification(&JsonRpcNotification::new("session/update", notif));
         }
 
         // Run agent chat
@@ -717,6 +715,13 @@ impl AcpAgent {
                             .session_db
                             .append_message(&session_id_owned, &assistant_msg);
                         save_agent_context(&db_clone, &session_id_owned, &agent);
+                        crate::session_title::maybe_schedule_after_success(
+                            db_clone.clone(),
+                            session_id_owned.clone(),
+                            agent_id.clone(),
+                            model_ref.clone(),
+                            store.providers.clone(),
+                        );
 
                         let stop = if cancel.load(Ordering::SeqCst) {
                             "cancelled"

@@ -11,6 +11,8 @@ fn default_tool_permission_mode() -> String {
 pub struct SessionMeta {
     pub id: String,
     pub title: Option<String>,
+    #[serde(default = "default_title_source")]
+    pub title_source: String,
     pub agent_id: String,
     pub provider_id: Option<String>,
     pub provider_name: Option<String>,
@@ -51,6 +53,10 @@ pub struct SessionMeta {
     /// to the server machine's filesystem.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+}
+
+fn default_title_source() -> String {
+    crate::session_title::TITLE_SOURCE_MANUAL.to_string()
 }
 
 /// Lightweight channel info attached to a session for UI display.

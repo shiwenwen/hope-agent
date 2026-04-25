@@ -280,6 +280,8 @@ pub fn run() {
             commands::memory::get_embedding_presets,
             commands::config::get_compact_config,
             commands::config::save_compact_config,
+            commands::config::get_session_title_config,
+            commands::config::save_session_title_config,
             commands::config::get_notification_config,
             commands::config::save_notification_config,
             commands::config::get_server_config,

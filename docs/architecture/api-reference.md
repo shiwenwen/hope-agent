@@ -352,6 +352,8 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 |---|---|---|
 | `get_compact_config` | `GET /api/config/compact` | ✅ |
 | `save_compact_config` | `PUT /api/config/compact` | ✅ |
+| `get_session_title_config` | `GET /api/config/session-title` | ✅ |
+| `save_session_title_config` | `PUT /api/config/session-title` | ✅ |
 
 ### Behavior awareness
 
