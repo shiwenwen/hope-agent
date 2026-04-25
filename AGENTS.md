@@ -55,7 +55,11 @@ src/                    前端（React + TypeScript）
   components/           chat/ settings/ dashboard/ cron/ common/ ui/ 等
   lib/                  Transport 抽象层：transport.ts + transport-tauri.ts + transport-http.ts
   i18n/locales/         12 种语言翻译文件
-skills/                 内置技能（bundled skills，随应用发行；当前 ha-settings / ha-skill-creator / ha-find-skills）
+skills/                 内置技能（bundled skills，随应用发行）
+                          - meta：ha-settings / ha-skill-creator / ha-find-skills
+                          - 编程方法论（vendor 自 Hermes Agent，MIT，带 `paths:` 限定 *.{rs,ts,py,go,...} 触发）：systematic-debugging / test-driven-development / writing-plans / code-review / subagent-driven-development
+                          - 办公方法论（原创）：meeting-notes / email-draft / status-report / mermaid-diagram
+                          - vendor 来源记录在仓库根 `THIRD_PARTY_NOTICES.md`，每个 vendor skill 子目录附 `ATTRIBUTION.md`
 ```
 
 ha-core 按功能域拆分模块，具体用 `ls crates/ha-core/src/` / `Glob` 查看，无需在此维护清单。主要领域：`agent/`（AssistantAgent + Provider + Tool Loop）、`chat_engine/`、`context_compact/`、`memory/`、`skills/`、`tools/`、`channel/`（IM 渠道）、`subagent/`、`team/`、`cron/`、`acp/`、`dashboard/`、`recap/`、`awareness/`、`config/`、`session/`、`project/`、`plan/`、`ask_user/`、`async_jobs/`、`failover/`、`platform/`、`security/`、`logging/`。

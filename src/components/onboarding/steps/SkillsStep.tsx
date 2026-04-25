@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, FolderOpen, Plus, X } from "lucide-react"
+import { Loader2, FolderOpen, Plus, Sparkles, X } from "lucide-react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Switch } from "@/components/ui/switch"
+import QuickImportDialog from "@/components/settings/skills-panel/QuickImportDialog"
 
 /**
  * Subset of `SkillSummary` returned by the `get_skills` Tauri/HTTP command.
@@ -44,6 +45,7 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
   const [disabled, setDisabled] = useState<Set<string>>(new Set(initialDisabled))
   const [error, setError] = useState<string | null>(null)
   const [importing, setImporting] = useState(false)
+  const [quickImportOpen, setQuickImportOpen] = useState(false)
 
   const reload = async () => {
     try {
@@ -162,19 +164,31 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
             </IconTip>
           </div>
         ))}
-        <button
-          type="button"
-          onClick={() => void handleImportDir()}
-          disabled={importing}
-          className="mt-1 flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-2 py-1 disabled:opacity-50"
-        >
-          {importing ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Plus className="h-3.5 w-3.5" />
-          )}
-          <span>{t("settings.skillsDirAdd")}</span>
-        </button>
+        <div className="mt-1 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void handleImportDir()}
+            disabled={importing}
+            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-2 py-1 disabled:opacity-50"
+          >
+            {importing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus className="h-3.5 w-3.5" />
+            )}
+            <span>{t("settings.skillsDirAdd")}</span>
+          </button>
+          <IconTip label={t("settings.skillsImport.tooltip.distinguishOnboarding")}>
+            <button
+              type="button"
+              onClick={() => setQuickImportOpen(true)}
+              className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-2 py-1"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              <span>{t("settings.skillsImport.button")}</span>
+            </button>
+          </IconTip>
+        </div>
       </div>
 
       {/* Skills list */}
@@ -262,6 +276,12 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
           })}
         </ul>
       )}
+
+      <QuickImportDialog
+        open={quickImportOpen}
+        onClose={() => setQuickImportOpen(false)}
+        onImported={() => void reload()}
+      />
     </div>
   )
 }

@@ -46,6 +46,16 @@ pub async fn remove_extra_skills_dir(Query(body): Query<DirBody>) -> Result<Json
     Ok(Json(json!({ "ok": true })))
 }
 
+/// `GET /api/skills/preset-sources` — probes known third-party skill catalog
+/// locations (Claude Code user-level + plugins, Anthropic agent-skills
+/// marketplace, OpenClaw / Hermes Agent clones) and returns the candidates
+/// for the Quick Import UI. Read-only; adding paths is done via the existing
+/// `POST /api/skills/extra-dirs` route.
+pub async fn discover_preset_skill_sources() -> Result<Json<Vec<core::PresetSkillSource>>, AppError>
+{
+    Ok(Json(core::discover_preset_skill_sources()))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ToggleBody {
     pub enabled: bool,

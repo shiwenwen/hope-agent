@@ -17,6 +17,7 @@ pub use activation::{
     activate_skills_for_paths, activated_skill_names, clear_session_activation,
     reset_activation_cache,
 };
+pub use commands::{PresetCandidate, PresetSkillSource};
 pub use discovery::*;
 pub use fork_helper::{extract_fork_result, spawn_skill_fork, MAX_RESULT_CHARS};
 pub use prompt::*;
