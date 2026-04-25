@@ -108,15 +108,6 @@ pnpm lint              # Lint
 pnpm tauri build       # 打生产包
 ```
 
-发布版本建议走：
-
-```bash
-pnpm version patch      # 或 minor / major；自动同步 package.json -> src-tauri 版本
-git push --follow-tags # 推送 commit + vX.Y.Z tag，触发 Release workflow
-```
-
-首次启用自动更新前，需要把本机 `~/.tauri/hope-agent-updater.key` 的私钥内容写入 GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY`。如果私钥设置了密码，再额外配置 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`。
-
 ## 运行模式
 
 | 模式              | 启动方式                                                                         | 场景                                                         |

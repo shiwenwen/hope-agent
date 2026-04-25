@@ -108,15 +108,6 @@ pnpm lint              # lint
 pnpm tauri build       # production build
 ```
 
-Recommended release flow:
-
-```bash
-pnpm version patch      # or minor / major; auto-syncs package.json -> src-tauri versions
-git push --follow-tags # push the commit + vX.Y.Z tag and trigger the Release workflow
-```
-
-Before the first updater-enabled release, store the private key from `~/.tauri/hope-agent-updater.key` in the GitHub secret `TAURI_SIGNING_PRIVATE_KEY`. If your private key has a password, also set `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
-
 ## Run Modes
 
 | Mode             | How to start                                                                      | When to use                                                                       |
