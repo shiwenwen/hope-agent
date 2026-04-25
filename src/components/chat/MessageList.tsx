@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
+import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
@@ -229,23 +230,7 @@ export default function MessageList({
   const renderRow = (row: ChatRow) => {
     switch (row.type) {
       case "loadMore":
-        return (
-          <div className="flex justify-center py-2">
-            {loadingMore ? (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <div className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
-                {t("chat.loadingMore")}
-              </div>
-            ) : (
-              <button
-                onClick={onLoadMore}
-                className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {t("chat.loadMore")}
-              </button>
-            )}
-          </div>
-        )
+        return <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
       case "empty":
         return (
           <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">

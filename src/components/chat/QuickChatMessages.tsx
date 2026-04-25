@@ -4,15 +4,20 @@ import { ExternalLink } from "lucide-react"
 import type { Message } from "@/types/chat"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import LoadMoreRow from "./LoadMoreRow"
 
 interface QuickChatMessagesProps {
   messages: Message[]
   loading: boolean
   sessionId: string | null
   onNavigateToSession?: (sessionId: string) => void
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void | Promise<void>
 }
 
 type QuickChatRow =
+  | { type: "loadMore"; key: "load-more" }
   | { type: "viewFullChat"; key: "view-full-chat" }
   | { type: "message"; key: string; msg: Message; originalIndex: number }
 
@@ -26,11 +31,17 @@ export default function QuickChatMessages({
   loading,
   sessionId,
   onNavigateToSession,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: QuickChatMessagesProps) {
   const { t } = useTranslation()
 
   const rows = useMemo<QuickChatRow[]>(() => {
     const next: QuickChatRow[] = []
+    if (hasMore && onLoadMore) {
+      next.push({ type: "loadMore", key: "load-more" })
+    }
     if (sessionId && onNavigateToSession) {
       next.push({ type: "viewFullChat", key: "view-full-chat" })
     }
@@ -43,13 +54,14 @@ export default function QuickChatMessages({
       })
     })
     return next
-  }, [messages, onNavigateToSession, sessionId])
+  }, [messages, onNavigateToSession, sessionId, hasMore, onLoadMore])
 
   const getRowKey = useCallback((row: QuickChatRow) => row.key, [])
   const estimateSize = useCallback(
     (index: number) => {
       const row = rows[index]
       if (!row) return 72
+      if (row.type === "loadMore") return 32
       if (row.type === "viewFullChat") return 28
       if (row.msg.role === "event") return 28
       if (row.msg.role === "user") return 58
@@ -60,6 +72,10 @@ export default function QuickChatMessages({
 
   const lastMsg = messages[messages.length - 1]
   const followKey = `${rows.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.toolCalls?.length ?? 0}`
+  const canAnchorRow = useCallback(
+    (row: QuickChatRow) => row.type === "message",
+    [],
+  )
   const { scrollRef, virtualizer, virtualItems, totalSize } = useVirtualFeed({
     rows,
     getRowKey,
@@ -71,6 +87,10 @@ export default function QuickChatMessages({
     followOutput: loading,
     followKey,
     resetKey: sessionId ?? "quick-chat",
+    canAnchorRow,
+    onStartReached: onLoadMore,
+    canLoadMore: hasMore,
+    loadingMore,
   })
 
   if (messages.length === 0) {
@@ -78,6 +98,10 @@ export default function QuickChatMessages({
   }
 
   const renderRow = (row: QuickChatRow) => {
+    if (row.type === "loadMore") {
+      return <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
+    }
+
     if (row.type === "viewFullChat") {
       return (
         <button

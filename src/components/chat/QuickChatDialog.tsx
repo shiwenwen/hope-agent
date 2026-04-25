@@ -163,6 +163,9 @@ export default function QuickChatDialog({
           loading={session.loading}
           sessionId={session.currentSessionId}
           onNavigateToSession={handleNavigate}
+          hasMore={session.hasMore}
+          loadingMore={session.loadingMore}
+          onLoadMore={session.handleLoadMore}
         />
 
         {/* ── Approval Dialog ────────────────────── */}
