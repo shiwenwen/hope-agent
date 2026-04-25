@@ -143,7 +143,7 @@ jitter = rand_in(-delay/10, delay/10)
 return max(delay + jitter, 0)
 ```
 
-`chat_engine_default` / `side_query_default` 都用 base=1000ms / max=10000ms，attempt 序列实测约 `1s ±10% → 2s ±10% → 10s ±10%`（max 钳到 10s）。`rand_simple()` 用 `SystemTime::now().subsec_nanos() XOR (thread_local_counter * 6364136223846793005)`，避免连续调用同纳秒位时全输出相同抖动值。
+三档默认 policy 都用 `base=1000ms` / `max=10000ms`，但实际 sleep 次数受 `max_retries` 约束：`chat_engine_default` / `summarize_default` `max_retries=2` 跑两次 sleep（实测约 `1s ±10%` 然后 `2s ±10%`），`side_query_default` `max_retries=1` 只跑一次（约 `1s ±10%`）。`max_ms=10000` 是给"caller 自定义高 `max_retries`"留的安全 clamp——`retry_delay_ms(10, 1000, 10000)` 才会触发这条上限，default policy 都到不了。`rand_simple()` 用 `SystemTime::now().subsec_nanos() XOR (thread_local_counter * 6364136223846793005)`，避免连续调用同纳秒位时全输出相同抖动值。
 
 ## EventBus 信号
 

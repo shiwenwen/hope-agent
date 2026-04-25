@@ -212,7 +212,7 @@ pub fn status() -> DangerousModeStatus;
 
 - **任何日志路径**（包括 `app_*!` / `tracing` / panic backtrace / API 请求体落盘）都必须经 [`logging::file_ops::redact_sensitive`](../../crates/ha-core/src/logging/file_ops.rs) 脱敏。`logging.rs` 的请求体落盘路径已经强制 redact + 32 KB 截断
 - OAuth token 持久化在 `~/.hope-agent/credentials/auth.json`（核心 LLM）和 `~/.hope-agent/credentials/mcp/{server_id}.json`（MCP server）；登出 / 删除 server 时**必须** `clear_token()` / `mcp::credentials::clear()`
-- 凭据文件统一走 [`platform::write_secure_file`](../../crates/ha-core/src/platform/) 0600 原子写
+- **MCP 凭据**走 [`platform::write_secure_file`](../../crates/ha-core/src/platform/) 0600 原子写（temp + fsync + rename）；**主 LLM OAuth `oauth.rs::save_token`** 当前用 `std::fs::write` 直写，没经过 `write_secure_file`——见 [跨平台抽象层](platform.md) 的"已知缺口"，待统一
 - `tauri.conf.json` 的 CSP 当前为 `null`，**禁止放行外部域名**——任何远端资源加载请走后端代理
 
 ## 单元测试覆盖

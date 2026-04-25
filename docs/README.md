@@ -71,6 +71,7 @@
 | [日志系统](architecture/logging.md)           | 非阻塞双写、敏感数据脱敏、文件轮转                  | `logging/`              |
 | [配置系统](architecture/config-system.md)     | `cached_config` / `mutate_config`、ArcSwap 快照、写锁串行化、`config:changed` 事件 | `config/`               |
 | [安全子系统](architecture/security.md)         | SSRF 三档 policy、`trusted_hosts`、Metadata IP 硬拒、Dangerous Mode (YOLO)、HTTP 响应封顶 | `security/`             |
+| [跨平台抽象层](architecture/platform.md)       | 8 个 OS 适配入口（进程组 kill、安全文件写、shell 命令、系统代理探测、Chrome 定位等）、Unix/Windows 双实现、硬规则与已知缺口 | `platform/`             |
 
 
 ## 平台支持
