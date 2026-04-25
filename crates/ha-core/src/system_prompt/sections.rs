@@ -1,5 +1,6 @@
 use super::constants::*;
 use super::helpers::{current_date, find_git_root, hostname, os_version};
+use super::working_dir_instructions::InstructionFile;
 use crate::agent_config::{FilterConfig, PersonalityConfig};
 use crate::project::{Project, ProjectFile};
 use crate::skills;
@@ -478,14 +479,36 @@ pub(super) fn build_project_context_section(project: &Project) -> String {
 /// is the canonicalized absolute path on whichever machine the ha-core
 /// process is running — for server mode that's the server host, not the
 /// browser client.
-pub(super) fn build_session_working_dir_section(path: &str) -> String {
-    format!(
+pub(super) fn build_session_working_dir_section(
+    path: &str,
+    instructions: &[InstructionFile],
+) -> String {
+    use std::fmt::Write;
+
+    let mut out = format!(
         "# Working Directory\n\n\
          The user has selected `{}` as the working directory for this conversation. \
          When you need to operate on files, default to this directory unless the user \
          or an explicit tool argument specifies otherwise.",
         path
-    )
+    );
+    if instructions.is_empty() {
+        return out;
+    }
+    out.push_str(
+        "\n\n## Working Directory Instructions\n\n\
+         The following files in the working directory contain user-authored \
+         instructions and conventions for this conversation. Adhere to them \
+         carefully — they OVERRIDE generic defaults where they conflict.\n",
+    );
+    for file in instructions {
+        let _ = write!(
+            out,
+            "\n### Contents of {} ({})\n\n```\n{}\n```\n",
+            file.abs_path, file.display_label, file.content
+        );
+    }
+    out
 }
 
 /// Build a "Project Files" section listing uploaded project files (Layer 1:

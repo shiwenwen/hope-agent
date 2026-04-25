@@ -4,6 +4,7 @@ use super::constants::{
 };
 use super::helpers::truncate;
 use super::sections::*;
+use super::working_dir_instructions::collect_working_dir_instructions;
 use crate::agent_config::AgentDefinition;
 use crate::memory::{MemoryBudgetConfig, MemoryEntry};
 use crate::project::{Project, ProjectFile};
@@ -36,7 +37,8 @@ const DEFAULT_PROJECT_FILES_INLINE_BUDGET: usize = 8 * 1024;
 /// ⑪ Sandbox mode (conditional)
 /// ⑦b Current Project (conditional — when session belongs to a project)
 /// ⑦c Project Files catalog + small-file inlining (conditional)
-/// ⑦d Session working directory (conditional — when user selected one)
+/// ⑦d Session working directory + auto-injected AGENTS.md/CLAUDE.md and
+///     transitive `@`-includes (conditional — when user selected one)
 /// ⑬ ACP external agents (conditional)
 pub fn build(
     definition: &AgentDefinition,
@@ -242,8 +244,16 @@ pub fn build(
     // ⑦d User-selected working directory for this session. Injected after
     //     project context so the model treats it as the operational focus
     //     before it reads memory / runtime info.
+    //
+    //     If the working directory contains an AGENTS.md (or fallback
+    //     CLAUDE.md), it (and its transitively `@`-included files) is
+    //     loaded synchronously and rendered inside the same section, so
+    //     project conventions reach the model on every turn without the
+    //     user having to repeat them. See
+    //     `system_prompt::working_dir_instructions` for the discovery rules.
     if let Some(wd) = session_working_dir.map(str::trim).filter(|s| !s.is_empty()) {
-        sections.push(build_session_working_dir_section(wd));
+        let instructions = collect_working_dir_instructions(wd);
+        sections.push(build_session_working_dir_section(wd, &instructions));
     }
 
     // ⑧ Memory — layered budget negotiation (see `build_memory_section`).
