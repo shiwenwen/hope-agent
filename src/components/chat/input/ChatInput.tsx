@@ -41,8 +41,9 @@ import WorkingDirectoryButton from "./WorkingDirectoryButton"
 import { Switch } from "@/components/ui/switch"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
-  CHAT_INPUT_OVERFLOW_ACTION_IDS,
   CHAT_INPUT_OVERFLOW_MENU_CLASS,
+  getChatInputOverflowActionIds,
+  shouldShowIncognitoPresetAction,
   type ChatInputOverflowActionId,
 } from "./toolbarOverflow"
 
@@ -190,13 +191,24 @@ export default function ChatInput({
 
   const overflowMenuItemClass =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
+  const showIncognitoPreset = shouldShowIncognitoPresetAction(
+    currentSessionId ?? null,
+    !!onIncognitoChange,
+  )
 
   const toggleSlashCommandMenu = () => {
     slash.setOpen(!slash.isOpen)
   }
 
   const toggleIncognito = (next = !incognitoEnabled) => {
-    if (!onIncognitoChange || incognitoSaving || incognitoDisabledReason !== undefined) return
+    if (
+      !onIncognitoChange ||
+      !showIncognitoPreset ||
+      incognitoSaving ||
+      incognitoDisabledReason !== undefined
+    ) {
+      return
+    }
     onIncognitoChange(next)
   }
 
@@ -222,7 +234,7 @@ export default function ChatInput({
           <Slash className="h-3.5 w-3.5" />
         </Button>
       </IconTip>
-      {onIncognitoChange && (
+      {showIncognitoPreset && (
         <IncognitoToggle
           sessionId={currentSessionId ?? null}
           enabled={incognitoEnabled}
@@ -274,7 +286,7 @@ export default function ChatInput({
           </button>
         )
       case "incognito": {
-        if (!onIncognitoChange) return null
+        if (!onIncognitoChange || !showIncognitoPreset) return null
         const disabled = incognitoSaving || incognitoDisabledReason !== undefined
         return (
           <div
@@ -317,9 +329,11 @@ export default function ChatInput({
 
   const renderOverflowMenuItems = () => (
     <>
-      {CHAT_INPUT_OVERFLOW_ACTION_IDS.map((actionId) => (
-        <Fragment key={actionId}>{renderOverflowMenuItem(actionId)}</Fragment>
-      ))}
+      {getChatInputOverflowActionIds(currentSessionId ?? null, !!onIncognitoChange).map(
+        (actionId) => (
+          <Fragment key={actionId}>{renderOverflowMenuItem(actionId)}</Fragment>
+        ),
+      )}
     </>
   )
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MessageBubble from "./MessageBubble"
@@ -21,6 +22,7 @@ interface MessageListProps {
   onLoadMore: () => void | Promise<void>
   // Plan mode
   sessionId?: string | null
+  incognito?: boolean
   /**
    * Database id of a message to scroll into view (set when jumping from a
    * history search result). Cleared via `onScrollTargetHandled` once applied.
@@ -65,6 +67,7 @@ export default function MessageList({
   loadingMore,
   onLoadMore,
   sessionId,
+  incognito = false,
   pendingScrollTarget,
   onScrollTargetHandled,
   pendingQuestionGroup,
@@ -232,6 +235,19 @@ export default function MessageList({
       case "loadMore":
         return <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
       case "empty":
+        if (incognito) {
+          return (
+            <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
+              <div className="max-w-[360px] px-4 text-center text-muted-foreground">
+                <Ghost className="mx-auto mb-3 h-6 w-6" />
+                <div className="text-sm font-semibold text-foreground/70">
+                  {t("chat.incognitoEmptyTitle")}
+                </div>
+                <p className="mt-2 text-sm leading-relaxed">{t("chat.incognitoEmptyBody")}</p>
+              </div>
+            </div>
+          )
+        }
         return (
           <div className="flex min-h-[50vh] items-center justify-center animate-in fade-in-0 duration-300">
             <p className="text-muted-foreground text-sm">{t("chat.howCanIHelp")}</p>
