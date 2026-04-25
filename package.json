@@ -8,6 +8,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "format": "prettier --write 'src/**/*.{ts,tsx,js,jsx,json,css}'",
     "i18n:check": "node scripts/sync-i18n.mjs --check",
     "i18n:apply": "node scripts/sync-i18n.mjs --apply",
@@ -70,6 +72,8 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@tauri-apps/cli": "^2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^25.5.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -80,9 +84,11 @@
     "eslint-plugin-react-refresh": "^0.5.2",
     "globals": "^17.4.0",
     "husky": "^9.1.7",
+    "jsdom": "^29.0.2",
     "prettier": "^3.8.1",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.56.1",
-    "vite": "^8.0.0"
+    "vite": "^8.0.0",
+    "vitest": "^4.1.5"
   }
 }

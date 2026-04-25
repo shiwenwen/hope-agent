@@ -37,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { logger } from "@/lib/logger"
 import { toast } from "sonner"
+import { getTransport } from "@/lib/transport-provider"
 import {
   listServers,
   removeServer,
@@ -125,47 +126,36 @@ export default function McpServersPanel() {
     refresh()
   }, [refresh])
 
-  // Subscribe to backend events so status dots / counts update live.
-  // AUTH_COMPLETED surfaces a toast but doesn't trigger its own refresh —
-  // the downstream SERVER_STATUS_CHANGED covers that.
   useEffect(() => {
-    const cleanups: Array<() => void> = []
-    import("@/lib/transport-provider").then(({ transport }) => {
-      cleanups.push(
-        transport.listen(MCP_EVENTS.SERVERS_CHANGED, scheduleRefresh),
-      )
-      cleanups.push(
-        transport.listen(MCP_EVENTS.SERVER_STATUS_CHANGED, scheduleRefresh),
-      )
-      cleanups.push(
-        transport.listen(
-          MCP_EVENTS.AUTH_REQUIRED,
-          (payload: { name: string; authUrl: string }) => {
-            toast.info(
-              t("settings.mcp.authRequired", { name: payload.name }),
-              { description: payload.authUrl, duration: 15000 },
+    const transport = getTransport()
+    const cleanups = [
+      transport.listen(MCP_EVENTS.SERVERS_CHANGED, scheduleRefresh),
+      transport.listen(MCP_EVENTS.SERVER_STATUS_CHANGED, scheduleRefresh),
+      transport.listen(
+        MCP_EVENTS.AUTH_REQUIRED,
+        (payload: { name: string; authUrl: string }) => {
+          toast.info(t("settings.mcp.authRequired", { name: payload.name }), {
+            description: payload.authUrl,
+            duration: 15000,
+          })
+        },
+      ),
+      // AUTH_COMPLETED only surfaces a toast — SERVER_STATUS_CHANGED is
+      // what triggers the actual refresh, so don't re-pull here.
+      transport.listen(
+        MCP_EVENTS.AUTH_COMPLETED,
+        (payload: { name: string; ok: boolean; error?: string }) => {
+          if (payload.ok) {
+            toast.success(t("settings.mcp.authSuccess", { name: payload.name }))
+          } else {
+            toast.error(
+              payload.error ??
+                t("settings.mcp.authFailed", { name: payload.name }),
             )
-          },
-        ),
-      )
-      cleanups.push(
-        transport.listen(
-          MCP_EVENTS.AUTH_COMPLETED,
-          (payload: { name: string; ok: boolean; error?: string }) => {
-            if (payload.ok) {
-              toast.success(
-                t("settings.mcp.authSuccess", { name: payload.name }),
-              )
-            } else {
-              toast.error(
-                payload.error ??
-                  t("settings.mcp.authFailed", { name: payload.name }),
-              )
-            }
-          },
-        ),
-      )
-    })
+          }
+        },
+      ),
+    ]
     return () => {
       cleanups.forEach((fn) => fn())
       if (refreshTimerRef.current !== null) {

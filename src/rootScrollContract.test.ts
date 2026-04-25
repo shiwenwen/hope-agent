@@ -1,10 +1,12 @@
-/// <reference types="node" />
-
-import assert from "node:assert/strict"
 import { readFileSync } from "node:fs"
-import { test } from "node:test"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
+import { test, expect } from "vitest"
 
-const indexCss = readFileSync(new URL("./index.css", import.meta.url), "utf8")
+const indexCss = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "index.css"),
+  "utf8",
+)
 
 function ruleBodyFor(selectorPattern: RegExp): string {
   const match = indexCss.match(new RegExp(`${selectorPattern.source}\\s*\\{([^}]*)\\}`, "m"))
@@ -14,7 +16,7 @@ function ruleBodyFor(selectorPattern: RegExp): string {
 test("locks the webview document so only in-app panes can scroll", () => {
   const rootRule = ruleBodyFor(/html\s*,\s*body\s*,\s*#root/)
 
-  assert.match(rootRule, /height:\s*100%;/)
-  assert.match(rootRule, /overflow:\s*hidden;/)
-  assert.match(rootRule, /overscroll-behavior:\s*none;/)
+  expect(rootRule).toMatch(/height:\s*100%;/)
+  expect(rootRule).toMatch(/overflow:\s*hidden;/)
+  expect(rootRule).toMatch(/overscroll-behavior:\s*none;/)
 })

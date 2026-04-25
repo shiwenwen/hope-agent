@@ -1,10 +1,7 @@
-/// <reference types="node" />
-
-import assert from "node:assert/strict"
 import { readFileSync, readdirSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { test } from "node:test"
 import { fileURLToPath } from "node:url"
+import { test, expect } from "vitest"
 
 const localesDir = join(dirname(fileURLToPath(import.meta.url)), "locales")
 
@@ -28,7 +25,7 @@ test("project instruction placeholders use non-technical examples in every local
     .filter((file) => file.endsWith(".json"))
     .sort()
 
-  assert.deepEqual(Object.keys(expectedPlaceholders).sort(), localeFiles)
+  expect(Object.keys(expectedPlaceholders).sort()).toEqual(localeFiles)
 
   for (const file of localeFiles) {
     const locale = JSON.parse(readFileSync(join(localesDir, file), "utf8")) as {
@@ -36,7 +33,7 @@ test("project instruction placeholders use non-technical examples in every local
     }
     const placeholder = locale.project?.projectInstructionsPlaceholder
 
-    assert.equal(placeholder, expectedPlaceholders[file], file)
-    assert.doesNotMatch(placeholder ?? "", /Tauri|React|stack|技术栈|技術棧/i, file)
+    expect(placeholder, file).toBe(expectedPlaceholders[file])
+    expect(placeholder ?? "", file).not.toMatch(/Tauri|React|stack|技术栈|技術棧/i)
   }
 })
