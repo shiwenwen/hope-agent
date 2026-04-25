@@ -11,7 +11,7 @@ export interface ChatSidebarProps {
   panelWidth: number
   onPanelWidthChange: (width: number) => void
   onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
-  onNewChat: (agentId: string, projectId?: string | null) => void
+  onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
   onDeleteSession: (sessionId: string) => void
   onEditAgent?: (agentId: string) => void
   onMarkAllRead?: () => void

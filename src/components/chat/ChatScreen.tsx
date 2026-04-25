@@ -96,7 +96,6 @@ export default function ChatScreen({
   const [systemPromptContent, setSystemPromptContent] = useState("")
   const [systemPromptLoading, setSystemPromptLoading] = useState(false)
   const [draftIncognito, setDraftIncognito] = useState(false)
-  const [incognitoSaving, setIncognitoSaving] = useState(false)
   const [workingDirSaving, setWorkingDirSaving] = useState(false)
 
   // Plan mode state (declared early so useChatStream can access it)
@@ -148,6 +147,14 @@ export default function ChatScreen({
   const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
   const setAgentName = session.setAgentName
+
+  const handleStartNewChat = useCallback(
+    async (agentId: string, opts?: { incognito?: boolean }) => {
+      setDraftIncognito(opts?.incognito ?? false)
+      await handleNewChat(agentId)
+    },
+    [handleNewChat],
+  )
 
   // ── Team ──────────────────────────────────────────────────
   const activeTeamId = useActiveTeam(currentSessionId ?? null)
@@ -351,39 +358,11 @@ export default function ChatScreen({
   )
 
   const handleIncognitoChange = useCallback(
-    async (enabled: boolean) => {
-      const sid = session.currentSessionId
-      if (!sid) {
-        setDraftIncognito(enabled)
-        return
-      }
-
-      // Project / Channel sessions can never be incognito; the toggle is
-      // disabled in the UI but a stale prop or external trigger could still
-      // call us. Reject before hitting the backend.
-      if (enabled && incognitoDisabledReason !== undefined) return
-
-      const previous = currentSessionMeta?.incognito ?? false
-      if (previous === enabled) return
-      session.updateSessionMeta(sid, (prev) =>
-        prev.incognito === enabled ? prev : { ...prev, incognito: enabled },
-      )
-      setIncognitoSaving(true)
-      try {
-        await getTransport().call("set_session_incognito", {
-          sessionId: sid,
-          enabled,
-        })
-      } catch (err) {
-        session.updateSessionMeta(sid, (prev) =>
-          prev.incognito === previous ? prev : { ...prev, incognito: previous },
-        )
-        logger.error("chat", "ChatScreen::setIncognito", "Failed to update incognito mode", err)
-      } finally {
-        setIncognitoSaving(false)
-      }
+    (enabled: boolean) => {
+      if (session.currentSessionId) return
+      setDraftIncognito(enabled)
     },
-    [session, currentSessionMeta?.incognito, incognitoDisabledReason],
+    [session.currentSessionId],
   )
 
   const handleWorkingDirChange = useCallback(
@@ -461,9 +440,9 @@ export default function ChatScreen({
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
     return getTransport().listen("new-session", () => {
-      handleNewChat(currentAgentId)
+      void handleStartNewChat(currentAgentId)
     })
-  }, [handleNewChat, currentAgentId])
+  }, [handleStartNewChat, currentAgentId])
 
   // Listen for channel slash command state-sync events
   useEffect(() => {
@@ -668,7 +647,7 @@ export default function ChatScreen({
         case "newSession":
           // Behave like the "New Chat" button: clear immediately without showing an empty session
           // in the sidebar. The backend-created session is deleted to avoid DB clutter.
-          session.handleNewChat(session.currentAgentId)
+          await handleStartNewChat(session.currentAgentId)
           if (action.sessionId) {
             getTransport()
               .call("delete_session_cmd", { sessionId: action.sessionId })
@@ -789,7 +768,16 @@ export default function ChatScreen({
         }
       }
     },
-    [session, stream, handleManualModelChange, handleEffortChange, planMode, loadSystemPrompt, t],
+    [
+      session,
+      stream,
+      handleStartNewChat,
+      handleManualModelChange,
+      handleEffortChange,
+      planMode,
+      loadSystemPrompt,
+      t,
+    ],
   )
 
   // ── Plan Approve Handler ───────────────────────────────────────
@@ -833,7 +821,7 @@ export default function ChatScreen({
         panelWidth={panelWidth}
         onPanelWidthChange={setPanelWidth}
         onSwitchSession={session.handleSwitchSession}
-        onNewChat={session.handleNewChat}
+        onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
         onMarkAllRead={session.reloadSessions}
@@ -873,7 +861,8 @@ export default function ChatScreen({
           if (archived) setProjectOverviewOpen(false)
         }}
         onNewSessionInProject={(projectId, defaultAgentId) => {
-          void handleNewChatInProject(projectId, defaultAgentId, draftIncognito)
+          setDraftIncognito(false)
+          void handleNewChatInProject(projectId, defaultAgentId, false)
         }}
         onOpenSession={(sid) => session.handleSwitchSession(sid)}
         onUpdateProject={updateProject}
@@ -989,6 +978,7 @@ export default function ChatScreen({
           loadingMore={session.loadingMore}
           onLoadMore={session.handleLoadMore}
           sessionId={session.currentSessionId}
+          incognito={incognitoEnabled}
           pendingScrollTarget={session.pendingScrollTarget}
           onScrollTargetHandled={session.clearPendingScrollTarget}
           pendingQuestionGroup={planMode.pendingQuestionGroup}
@@ -1065,7 +1055,6 @@ export default function ChatScreen({
               sessionTemperature={sessionTemperature}
               onSessionTemperatureChange={setSessionTemperature}
               incognitoEnabled={incognitoEnabled}
-              incognitoSaving={incognitoSaving}
               incognitoDisabledReason={incognitoDisabledReason}
               onIncognitoChange={handleIncognitoChange}
               workingDir={currentSessionMeta?.workingDir ?? null}

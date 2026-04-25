@@ -12,6 +12,7 @@ import {
 import {
   ChevronRight,
   Bot,
+  Ghost,
   MessageSquarePlus,
   Settings,
 } from "lucide-react"
@@ -23,7 +24,7 @@ interface AgentSectionProps {
   setAgentsExpanded: (expanded: boolean) => void
   selectedAgentId: string | null
   toggleAgentFilter: (agentId: string) => void
-  onNewChat: (agentId: string) => void
+  onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
   onEditAgent?: (agentId: string) => void
   panelWidth: number
 }
@@ -153,14 +154,18 @@ export default function AgentSection({
                 </ContextMenuTrigger>
                 <TooltipContent>{agent.description || agent.name}</TooltipContent>
                 </Tooltip>
-                {onEditAgent && (
-                  <ContextMenuContent>
+                <ContextMenuContent>
+                  <ContextMenuItem onClick={() => onNewChat(agent.id, { incognito: true })}>
+                    <Ghost className="h-3 w-3 mr-2" />
+                    {t("chat.newIncognitoChat")}
+                  </ContextMenuItem>
+                  {onEditAgent && (
                     <ContextMenuItem onClick={() => onEditAgent(agent.id)}>
                       <Settings className="h-3 w-3 mr-2" />
                       {t("common.settings")}
                     </ContextMenuItem>
-                  </ContextMenuContent>
-                )}
+                  )}
+                </ContextMenuContent>
               </ContextMenu>
             )
           })}
