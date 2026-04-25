@@ -130,7 +130,8 @@ export default function McpServersPanel() {
   // the downstream SERVER_STATUS_CHANGED covers that.
   useEffect(() => {
     const cleanups: Array<() => void> = []
-    import("@/lib/transport-provider").then(({ transport }) => {
+    import("@/lib/transport-provider").then(({ getTransport }) => {
+      const transport = getTransport()
       cleanups.push(
         transport.listen(MCP_EVENTS.SERVERS_CHANGED, scheduleRefresh),
       )
@@ -140,10 +141,13 @@ export default function McpServersPanel() {
       cleanups.push(
         transport.listen(
           MCP_EVENTS.AUTH_REQUIRED,
-          (payload: { name: string; authUrl: string }) => {
+          (payload) => {
+            if (!payload || typeof payload !== "object") return
+            const event = payload as { name?: unknown; authUrl?: unknown }
+            if (typeof event.name !== "string" || typeof event.authUrl !== "string") return
             toast.info(
-              t("settings.mcp.authRequired", { name: payload.name }),
-              { description: payload.authUrl, duration: 15000 },
+              t("settings.mcp.authRequired", { name: event.name }),
+              { description: event.authUrl, duration: 15000 },
             )
           },
         ),
@@ -151,15 +155,18 @@ export default function McpServersPanel() {
       cleanups.push(
         transport.listen(
           MCP_EVENTS.AUTH_COMPLETED,
-          (payload: { name: string; ok: boolean; error?: string }) => {
-            if (payload.ok) {
+          (payload) => {
+            if (!payload || typeof payload !== "object") return
+            const event = payload as { name?: unknown; ok?: unknown; error?: unknown }
+            if (typeof event.name !== "string" || typeof event.ok !== "boolean") return
+            if (event.ok) {
               toast.success(
-                t("settings.mcp.authSuccess", { name: payload.name }),
+                t("settings.mcp.authSuccess", { name: event.name }),
               )
             } else {
               toast.error(
-                payload.error ??
-                  t("settings.mcp.authFailed", { name: payload.name }),
+                (typeof event.error === "string" ? event.error : undefined) ??
+                  t("settings.mcp.authFailed", { name: event.name }),
               )
             }
           },

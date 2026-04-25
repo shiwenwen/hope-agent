@@ -110,8 +110,12 @@ function mergeDraft(base: OnboardingDraft, override: OnboardingDraft): Onboardin
     profile: { ...base.profile, ...override.profile },
     safety: override.safety ?? base.safety,
     skills: override.skills ?? base.skills,
-    server: { ...base.server, ...override.server },
-    remote: { ...base.remote, ...override.remote },
+    server: override.server
+      ? { ...(base.server ?? { bindMode: "local", apiKeyEnabled: false }), ...override.server }
+      : base.server,
+    remote: override.remote
+      ? { ...(base.remote ?? { url: "" }), ...override.remote }
+      : base.remote,
   }
 }
 

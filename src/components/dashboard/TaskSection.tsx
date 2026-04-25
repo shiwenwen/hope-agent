@@ -19,7 +19,7 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardTaskData } from "./types"
-import { formatNumber, formatDuration } from "./types"
+import { chartNumber, formatNumber, formatDuration } from "./types"
 
 interface TaskSectionProps {
   data: DashboardTaskData | null
@@ -192,7 +192,7 @@ const TaskSection = React.memo(function TaskSection({
                     fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                   }}
-                  formatter={(value: number) => [formatNumber(value)]}
+                  formatter={(value) => [formatNumber(chartNumber(value))]}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -289,7 +289,7 @@ const TaskSection = React.memo(function TaskSection({
                     fontSize: "12px",
                   color: "var(--color-popover-foreground)",
                   }}
-                  formatter={(value: number) => [formatNumber(value)]}
+                  formatter={(value) => [formatNumber(chartNumber(value))]}
                 />
               </PieChart>
             </ResponsiveContainer>
