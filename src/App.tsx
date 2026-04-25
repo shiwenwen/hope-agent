@@ -264,16 +264,18 @@ export default function App() {
   if (view === "onboarding") {
     return (
       <TooltipProvider>
-        <div className="flex flex-col h-screen overflow-y-auto">
+        <div className="flex flex-col h-screen overflow-hidden">
           <StarrySky />
           <Toaster />
           <DangerousModeBanner />
-          <OnboardingWizard
-            onComplete={() => setView("chat")}
-            onJumpToChannelsSettings={() => setView("channels")}
-            onCodexAuth={runCodexAuth}
-            initialLanguage={i18n.language || ""}
-          />
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            <OnboardingWizard
+              onComplete={() => setView("chat")}
+              onJumpToChannelsSettings={() => setView("channels")}
+              onCodexAuth={runCodexAuth}
+              initialLanguage={i18n.language || ""}
+            />
+          </div>
         </div>
       </TooltipProvider>
     )
