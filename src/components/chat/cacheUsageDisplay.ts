@@ -5,7 +5,7 @@ interface CacheUsageDisplayOptions {
   hitLabel: string
 }
 
-function formatCompactTokenCount(count: number): string {
+export function formatCompactTokenCount(count: number): string {
   return count > 1000 ? `${(count / 1000).toFixed(1)}k` : String(count)
 }
 

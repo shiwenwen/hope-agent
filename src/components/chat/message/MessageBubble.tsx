@@ -314,14 +314,39 @@ function MessageBubbleInner({
                         {msg.model && msg.usage?.inputTokens != null && (
                           <div className="border-t border-border" />
                         )}
-                        {msg.usage?.inputTokens != null && (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.inputTokens")}</span>
-                            <span className="font-medium text-foreground tabular-nums">
-                              {formatTokens(msg.usage.inputTokens)}
-                            </span>
-                          </div>
-                        )}
+                        {(() => {
+                          const inputTokens = msg.usage?.inputTokens
+                          const lastInputTokens = msg.usage?.lastInputTokens
+                          const showLastInput =
+                            inputTokens != null &&
+                            lastInputTokens != null &&
+                            lastInputTokens !== inputTokens
+                          if (inputTokens == null) return null
+                          return (
+                            <>
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                                  {showLastInput
+                                    ? t("chat.inputTokensCumulative")
+                                    : t("chat.inputTokens")}
+                                </span>
+                                <span className="font-medium text-foreground tabular-nums">
+                                  {formatTokens(inputTokens)}
+                                </span>
+                              </div>
+                              {showLastInput && lastInputTokens != null && (
+                                <div className="flex items-center justify-between gap-3">
+                                  <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                                    {t("chat.lastRoundInputTokens")}
+                                  </span>
+                                  <span className="font-medium text-foreground tabular-nums">
+                                    {formatTokens(lastInputTokens)}
+                                  </span>
+                                </div>
+                              )}
+                            </>
+                          )
+                        })()}
                         {msg.usage?.outputTokens != null && (
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.outputTokens")}</span>

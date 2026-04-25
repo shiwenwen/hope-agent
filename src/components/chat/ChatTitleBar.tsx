@@ -18,7 +18,7 @@ import {
   Ghost,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
-import { formatCacheUsageDisplay } from "./cacheUsageDisplay"
+import { formatCacheUsageDisplay, formatCompactTokenCount } from "./cacheUsageDisplay"
 import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
 import { logger } from "@/lib/logger"
@@ -456,17 +456,32 @@ export default function ChatTitleBar({
                   return null
                 const created = u.cacheCreationInputTokens || 0
                 const read = u.cacheReadInputTokens || 0
+                const lastInput = u.lastInputTokens
                 return (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">🗄️ {t("chat.statusCache")}</span>
-                    <span className="font-medium text-foreground tabular-nums">
-                      {formatCacheUsageDisplay({
-                        created,
-                        read,
-                        writeLabel: t("chat.statusCacheWrite"),
-                        hitLabel: t("chat.statusCacheHit"),
-                      })}
-                    </span>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-muted-foreground">
+                        🗄️ {t("chat.statusCache")} · {t("chat.statusCumulative")}
+                      </span>
+                      <span className="font-medium text-foreground tabular-nums">
+                        {formatCacheUsageDisplay({
+                          created,
+                          read,
+                          writeLabel: t("chat.statusCacheWrite"),
+                          hitLabel: t("chat.statusCacheHit"),
+                        })}
+                      </span>
+                    </div>
+                    {lastInput != null && (
+                      <div className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="text-muted-foreground">
+                          {t("chat.lastRoundInputTokens")}
+                        </span>
+                        <span className="font-medium text-foreground tabular-nums">
+                          {formatCompactTokenCount(lastInput)}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )
               })()}
