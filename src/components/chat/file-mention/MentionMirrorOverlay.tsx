@@ -3,16 +3,18 @@ import { X } from "lucide-react"
 import { segmentInput } from "./mentionTokens"
 
 /**
- * Transparent mirror of the textarea content with chip backgrounds behind
- * each `@path` mention. Stacked under the textarea — text glyphs still come
- * from the textarea, only chip backdrop + X-button bleed through.
+ * Lays a transparent mirror over the textarea so we can paint chip
+ * backgrounds and re-color `@path` text without touching the textarea (caret,
+ * selection, and IME preview stay native that way).
  *
- * Layout contract: this overlay and the textarea must share padding, font,
+ * The overlay is on top (`z-10` + `pointer-events-none`); plain segments
+ * stay `text-transparent` so the textarea's glyphs show through unchanged,
+ * and only the chip segments render visible text — pixel-aligned over the
+ * textarea's own characters in blue, replacing the foreground rendering.
+ *
+ * Layout contract: textarea and overlay must share padding, font,
  * line-height, and width so character grids coincide. `CHAT_INPUT_MIRROR_CLASS`
- * is the single source of truth; both must reference it.
- *
- * Pointer-events: wrapper is `pointer-events-none` so click-to-position
- * caret reaches the textarea; only the X-button opts back into events.
+ * is the single source of truth — both must reference it.
  */
 
 export const CHAT_INPUT_MIRROR_CLASS =
@@ -22,7 +24,7 @@ interface MentionMirrorOverlayProps {
   value: string
   /** Mirrors the textarea scrollTop. Updated via parent in onScroll. */
   scrollTop: number
-  /** Active when working_dir is set; otherwise we render only plain text. */
+  /** Active when working_dir is set; otherwise renders only plain text. */
   enabled: boolean
   /** X-button click handler. Receives the raw mention text including `@`. */
   onRemoveMention: (raw: string) => void
@@ -49,7 +51,7 @@ const MentionMirrorOverlay = forwardRef<HTMLDivElement, MentionMirrorOverlayProp
       <div
         ref={ref}
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 overflow-hidden select-none"
+        className="pointer-events-none absolute inset-0 z-10 overflow-hidden select-none"
       >
         <div className={`${CHAT_INPUT_MIRROR_CLASS} text-transparent`} style={style}>
           {segments.map((seg, i) => {
@@ -59,10 +61,12 @@ const MentionMirrorOverlay = forwardRef<HTMLDivElement, MentionMirrorOverlayProp
             return (
               <span
                 key={`m-${i}`}
-                // px-[1px] (and not px-0.5) intentionally: the chip background
-                // needs to bleed slightly past glyph edges without shifting
-                // textarea char positions away from this mirror's grid.
-                className="relative inline-flex items-center bg-primary/12 text-primary/90 rounded-md px-[1px] group/chip pointer-events-auto"
+                // px-1.5 -mx-1.5: padding extends the chip background past
+                // glyph edges; negative margin cancels the layout cost so the
+                // mirror character grid stays aligned with the textarea below.
+                className="relative inline-flex items-center rounded-md px-1.5 -mx-1.5 pointer-events-auto group/chip
+                           bg-blue-500/15 text-blue-400
+                           dark:bg-blue-400/20 dark:text-blue-200"
               >
                 {seg.raw}
                 <button
@@ -75,7 +79,7 @@ const MentionMirrorOverlay = forwardRef<HTMLDivElement, MentionMirrorOverlayProp
                     onRemoveMention(seg.raw)
                   }}
                   className="absolute -right-1.5 -top-1.5 hidden group-hover/chip:flex
-                             h-3.5 w-3.5 rounded-full bg-primary text-primary-foreground items-center justify-center
+                             h-3.5 w-3.5 rounded-full bg-blue-500 text-white items-center justify-center
                              shadow ring-1 ring-background"
                   aria-label="Remove mention"
                   tabIndex={-1}
