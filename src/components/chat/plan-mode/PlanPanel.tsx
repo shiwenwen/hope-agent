@@ -2,6 +2,7 @@ import { useMemo, useEffect, useState, useCallback, useRef } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { getTransport } from "@/lib/transport-provider"
+import { isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import {
   ClipboardList,
@@ -78,6 +79,7 @@ export function PlanPanel({
 
   // Adjust window min size
   useEffect(() => {
+    if (!isTauriMode()) return
     const win = getCurrentWindow()
     if (!detached) {
       win.setMinSize(new LogicalSize(1240, 480))
@@ -101,6 +103,7 @@ export function PlanPanel({
 
   const handleDetach = useCallback(async () => {
     if (!sessionId) return
+    if (!isTauriMode()) return
     try {
       if (detachedWindowRef.current) {
         await detachedWindowRef.current.close().catch(() => {})
@@ -416,14 +419,16 @@ export function PlanPanel({
               </button>
             </IconTip>
           )}
-          <IconTip label={t("planMode.popOut")}>
-            <button
-              onClick={handleDetach}
-              className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-            </button>
-          </IconTip>
+          {isTauriMode() && (
+            <IconTip label={t("planMode.popOut")}>
+              <button
+                onClick={handleDetach}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            </IconTip>
+          )}
           <IconTip label={maximized ? t("planMode.minimize") : t("planMode.maximize")}>
             <button
               onClick={() => setMaximized((v) => !v)}

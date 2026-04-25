@@ -550,6 +550,21 @@ function appendQueryParams(url: string, params: Record<string, unknown>): string
   return url.includes("?") ? `${url}&${qs}` : `${url}?${qs}`;
 }
 
+function normalizeCommandResponse(command: string, value: unknown): unknown {
+  if (
+    command === "list_sessions_cmd" &&
+    value &&
+    typeof value === "object" &&
+    !Array.isArray(value) &&
+    "sessions" in value &&
+    "total" in value
+  ) {
+    const paginated = value as { sessions: unknown; total: unknown };
+    return [paginated.sessions, paginated.total];
+  }
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // WebSocket reconnection helper for the global events channel
 // ---------------------------------------------------------------------------
@@ -671,7 +686,7 @@ export class HttpTransport implements Transport {
       return undefined as unknown as T;
     }
 
-    return (await response.json()) as T;
+    return normalizeCommandResponse(command, await response.json()) as T;
   }
 
   /**

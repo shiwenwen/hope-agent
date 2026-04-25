@@ -147,6 +147,7 @@ export default function ChatScreen({
   const handleNewChat = session.handleNewChat
   const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
+  const setAgentName = session.setAgentName
 
   // ── Team ──────────────────────────────────────────────────
   const activeTeamId = useActiveTeam(currentSessionId ?? null)
@@ -165,7 +166,7 @@ export default function ChatScreen({
             model?: { primary?: string | null }
             emoji?: string | null
             avatar?: string | null
-          }>("get_agent_config", { id: session.currentAgentId })
+          }>("get_agent_config", { id: currentAgentId })
           .catch(() => null),
       ])
 
@@ -215,7 +216,7 @@ export default function ChatScreen({
       setReasoningEffort(normalizeEffortForModel(displayModelInfo, settings.reasoning_effort, t))
 
       if (agentConfig?.name) {
-        session.setAgentName(agentConfig.name)
+        setAgentName(agentConfig.name)
       }
     } catch (e) {
       logger.error("ui", "ChatScreen::refreshRuntimeModelState", "Failed to refresh model state", e)
@@ -223,9 +224,10 @@ export default function ChatScreen({
   }, [
     currentSessionMeta?.modelId,
     currentSessionMeta?.providerId,
+    currentAgentId,
     globalActiveModelRef,
-    session,
     setActiveModel,
+    setAgentName,
     setAvailableModels,
     setReasoningEffort,
     t,

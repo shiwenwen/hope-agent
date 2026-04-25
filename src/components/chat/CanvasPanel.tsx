@@ -124,6 +124,7 @@ export default function CanvasPanel({
 
   // Dynamically adjust window min width when canvas is shown/hidden
   useEffect(() => {
+    if (!isTauriMode()) return
     const win = getCurrentWindow()
     if (canvas && !detached) {
       win.setMinSize(new LogicalSize(1280, 480))
