@@ -4,6 +4,12 @@ import { parseMcpToolName } from "@/lib/mcp"
 
 export type ExecutionState = "running" | "completed" | "failed"
 export type ToolCategory = "browse" | "edit" | "search" | "web" | "memory" | "other"
+export type ExecutionToolGroupLabelKey = ToolCategory | "skill"
+
+export interface ExecutionToolGroupLabelSegment {
+  key: ExecutionToolGroupLabelKey
+  label: string
+}
 
 const TOOL_CATEGORY_MAP: Record<string, ToolCategory> = {
   read: "browse",
@@ -122,46 +128,94 @@ export function getExecutionToolLabel(params: {
   )
 }
 
-export function getExecutionToolGroupLabel(
+function stripRepeatedChineseStatusPrefix(
+  segment: string,
+  firstSegment: string,
+): string {
+  if (firstSegment.startsWith("正在") && segment.startsWith("正在")) {
+    return segment.slice("正在".length)
+  }
+  if (firstSegment.startsWith("已") && segment.startsWith("已")) {
+    return segment.slice("已".length)
+  }
+  return segment
+}
+
+function joinExecutionToolGroupSegments(segments: string[]): string {
+  if (segments.length <= 1) return segments[0] || ""
+
+  return segments.join(getExecutionToolGroupSegmentSeparator(segments))
+}
+
+export function getExecutionToolGroupSegmentSeparator(
+  segments: readonly string[] | readonly ExecutionToolGroupLabelSegment[],
+): string {
+  const firstSegment = segments[0]
+  const firstLabel = typeof firstSegment === "string" ? firstSegment : firstSegment?.label
+  return firstLabel?.startsWith("正在") || firstLabel?.startsWith("已") ? "，" : ", "
+}
+
+export function getExecutionToolGroupLabelSegments(
   tools: ToolCall[],
   t: TFunction,
   getSkillName: (tool: ToolCall) => string | null,
-): string {
-  type LabelKey = ToolCategory | "skill"
-
+): ExecutionToolGroupLabelSegment[] {
   const state: Exclude<ExecutionState, "failed"> = tools.some(
     (tool) => getToolExecutionState(tool) === "running",
   )
     ? "running"
     : "completed"
 
-  const order: LabelKey[] = []
-  const counts = new Map<LabelKey, number>()
+  const order: ExecutionToolGroupLabelKey[] = []
+  const counts = new Map<ExecutionToolGroupLabelKey, number>()
   const skillNames: string[] = []
 
   for (const tool of tools) {
     const skillName = getSkillName(tool)
-    const key: LabelKey = skillName ? "skill" : getToolCategory(tool.name)
+    const key: ExecutionToolGroupLabelKey = skillName ? "skill" : getToolCategory(tool.name)
     if (skillName) skillNames.push(skillName)
     if (!counts.has(key)) order.push(key)
     counts.set(key, (counts.get(key) || 0) + 1)
   }
 
-  return order
-    .map((key) => {
-      if (key === "skill") {
-        const count = counts.get(key) || 0
-        if (count === 1 && skillNames.length === 1) {
-          return String(
+  const rawSegments = order.map((key): ExecutionToolGroupLabelSegment => {
+    if (key === "skill") {
+      const count = counts.get(key) || 0
+      if (count === 1 && skillNames.length === 1) {
+        return {
+          key,
+          label: String(
             t(`executionStatus.tool.group.skill_single.${state}`, {
               count,
               name: skillNames[0],
             }),
-          )
+          ),
         }
-        return String(t(`executionStatus.tool.group.skill.${state}`, { count }))
       }
-      return String(t(`executionStatus.tool.group.${key}.${state}`, { count: counts.get(key) || 0 }))
-    })
-    .join(", ")
+      return {
+        key,
+        label: String(t(`executionStatus.tool.group.skill.${state}`, { count })),
+      }
+    }
+    return {
+      key,
+      label: String(t(`executionStatus.tool.group.${key}.${state}`, { count: counts.get(key) || 0 })),
+    }
+  })
+
+  const firstLabel = rawSegments[0]?.label || ""
+  return rawSegments.map((segment, idx) => ({
+    ...segment,
+    label: idx === 0 ? segment.label : stripRepeatedChineseStatusPrefix(segment.label, firstLabel),
+  }))
+}
+
+export function getExecutionToolGroupLabel(
+  tools: ToolCall[],
+  t: TFunction,
+  getSkillName: (tool: ToolCall) => string | null,
+): string {
+  return joinExecutionToolGroupSegments(
+    getExecutionToolGroupLabelSegments(tools, t, getSkillName).map((segment) => segment.label),
+  )
 }

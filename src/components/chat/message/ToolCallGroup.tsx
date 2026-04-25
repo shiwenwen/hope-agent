@@ -11,6 +11,7 @@ import {
   Wrench,
   Info,
   AlertCircle,
+  Puzzle,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
@@ -18,11 +19,13 @@ import { IconTip } from "@/components/ui/tooltip"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
 import {
-  getExecutionToolGroupLabel,
+  getExecutionToolGroupLabelSegments,
+  getExecutionToolGroupSegmentSeparator,
   getExecutionToolLabel,
   getFailedToolCount,
   getToolCategory,
   getToolExecutionState,
+  type ExecutionToolGroupLabelKey,
   type ToolCategory,
 } from "./executionStatus"
 
@@ -42,6 +45,11 @@ const CATEGORY_ICONS: Record<ToolCategory, React.ComponentType<{ className?: str
   web: Globe,
   memory: Brain,
   other: Wrench,
+}
+
+const GROUP_ICONS: Record<ExecutionToolGroupLabelKey, React.ComponentType<{ className?: string }>> = {
+  ...CATEGORY_ICONS,
+  skill: Puzzle,
 }
 
 /** Check if a read tool call targets a SKILL.md file, return skill name if so */
@@ -86,24 +94,6 @@ function formatRawCall(tool: ToolCall): string {
   } catch {
     return `${tool.name}(${tool.arguments})`
   }
-}
-
-/** Get the icon for the most frequent category in a mixed group */
-function getPrimaryCategory(tools: ToolCall[]): ToolCategory {
-  const counts = new Map<ToolCategory, number>()
-  for (const tool of tools) {
-    const cat = getToolCategory(tool.name)
-    counts.set(cat, (counts.get(cat) || 0) + 1)
-  }
-  let maxCat: ToolCategory = "other"
-  let maxCount = 0
-  for (const [cat, count] of counts) {
-    if (count > maxCount) {
-      maxCat = cat
-      maxCount = count
-    }
-  }
-  return maxCat
 }
 
 /** Single item inside a group — shows label + expandable result */
@@ -236,9 +226,8 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
   const showActivity = anyRunning || shimmer
   const failedCount = getFailedToolCount(tools)
 
-  const primaryCategory = getPrimaryCategory(tools)
-  const HeaderIcon = CATEGORY_ICONS[primaryCategory]
-  const label = getExecutionToolGroupLabel(tools, t, getSkillName)
+  const labelSegments = getExecutionToolGroupLabelSegments(tools, t, getSkillName)
+  const labelSeparator = getExecutionToolGroupSegmentSeparator(labelSegments)
 
   // Calculate total elapsed time across all tools in the group
   const totalElapsedMs = useMemo(() => {
@@ -279,13 +268,32 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
         ) : (
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         )}
-        <span className="relative h-3.5 w-3.5 shrink-0">
-          <HeaderIcon className="h-3.5 w-3.5 text-muted-foreground" />
-          {showActivity && (
-            <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/60 ring-1 ring-card animate-pulse" />
+        <span
+          className={cn(
+            "flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-muted-foreground font-medium",
+            showActivity && "animate-text-shimmer",
           )}
+        >
+          {labelSegments.map((segment, idx) => {
+            const SegmentIcon = GROUP_ICONS[segment.key]
+            return (
+              <span key={`${segment.key}-${idx}`} className="inline-flex min-w-0 items-center gap-1">
+                {idx > 0 && (
+                  <span className="text-muted-foreground/50">
+                    {labelSeparator.trim()}
+                  </span>
+                )}
+                <span className="relative h-3.5 w-3.5 shrink-0">
+                  <SegmentIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                  {showActivity && idx === 0 && (
+                    <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/60 ring-1 ring-card animate-pulse" />
+                  )}
+                </span>
+                <span>{segment.label}</span>
+              </span>
+            )
+          })}
         </span>
-        <span className={cn("text-muted-foreground font-medium", showActivity && "animate-text-shimmer")}>{label}</span>
         {failedCount > 0 && (
           <span className="shrink-0 rounded-full bg-red-500/10 px-1.5 py-0.5 text-[10px] text-red-500">
             <span className="inline-flex items-center gap-0.5">
