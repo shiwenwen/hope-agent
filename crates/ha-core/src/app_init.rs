@@ -28,6 +28,18 @@ pub fn init_app_state() -> AppState {
         })
     }
 
+    // Bootstrap a default EventBus if no caller pre-installed one. Tauri
+    // shell installs its own bridged bus before `.manage(...)`; the HTTP
+    // server installs one before building AppContext; ACP doesn't bridge
+    // anywhere but still wants `emit()` to be a no-op rather than a panic.
+    // First-write-wins (`OnceLock::set` returns Err on second call), so this
+    // is safe regardless of order.
+    if EVENT_BUS.get().is_none() {
+        let bus: Arc<dyn crate::event_bus::EventBus> =
+            Arc::new(crate::event_bus::BroadcastEventBus::new(256));
+        let _ = EVENT_BUS.set(bus);
+    }
+
     // Initialize the SessionDB
     let db_path = fatal(session::db_path(), "Cannot resolve session database path");
     let session_db = Arc::new(fatal(
@@ -206,20 +218,16 @@ pub fn init_app_state() -> AppState {
             );
         }
 
-        // Spawn the inbound message dispatcher
+        // Spawn the inbound message dispatcher. Self-hosted on a dedicated
+        // OS thread with its own tokio runtime, so it's safe to call from
+        // sync init regardless of which mode (desktop / server / acp) is
+        // bringing up the runtime.
         channel::worker::spawn_dispatcher(registry.clone(), channel_db.clone(), inbound_rx);
 
-        // Spawn the IM channel approval listener (routes tool approval prompts to IM)
-        channel::worker::approval::spawn_channel_approval_listener(
-            channel_db.clone(),
-            registry.clone(),
-        );
-
-        // Spawn the IM channel ask_user_question listener
-        channel::worker::ask_user::spawn_channel_ask_user_listener(
-            channel_db.clone(),
-            registry.clone(),
-        );
+        // NOTE: approval / ask_user listeners use bare `tokio::spawn` and
+        // require an ambient tokio runtime. They moved to
+        // `start_background_tasks()` so server / acp paths (which call
+        // `init_runtime` from sync stacks) don't panic on missing runtime.
 
         let _ = CHANNEL_REGISTRY.set(registry);
         let _ = CHANNEL_DB.set(channel_db);
@@ -287,6 +295,30 @@ fn ptr_eq_lock<T>(lock: &std::sync::OnceLock<Arc<T>>, field: &Arc<T>) -> bool {
 /// Start background async tasks that require a tokio runtime.
 /// Must be called from within a tokio async context (e.g., Tauri's `.setup()` or a server runtime).
 pub async fn start_background_tasks() {
+    // IM channel approval / ask_user listeners. These use bare `tokio::spawn`
+    // internally, so they live here (post-runtime) rather than in
+    // `init_app_state` (which can run on a sync stack). Idempotent — the
+    // listeners early-return if `get_event_bus()` is None.
+    if let (Some(channel_db), Some(registry)) = (CHANNEL_DB.get(), CHANNEL_REGISTRY.get()) {
+        channel::worker::approval::spawn_channel_approval_listener(
+            channel_db.clone(),
+            registry.clone(),
+        );
+        channel::worker::ask_user::spawn_channel_ask_user_listener(
+            channel_db.clone(),
+            registry.clone(),
+        );
+    }
+
+    // Cron scheduler: `start_scheduler` itself spawns a dedicated OS thread
+    // with its own multi-thread tokio runtime (see scheduler.rs), so we just
+    // call it here and let the returned JoinHandle detach. Used to live in
+    // `src-tauri/src/setup.rs`; centralising it here means server / acp
+    // entrypoints don't have to remember to start cron separately.
+    if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
+        let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
+    }
+
     // Clean up the `ask_user_questions` table: drop old answered rows and
     // expire any still-pending rows left behind by a previous process
     // (their in-memory oneshots are gone, so the UI could not deliver

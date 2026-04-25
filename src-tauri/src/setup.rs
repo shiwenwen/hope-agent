@@ -1,5 +1,5 @@
 use crate::globals::APP_HANDLE;
-use crate::{cron, docker, get_logger, session, tools, tray, weather, CRON_DB};
+use crate::{docker, get_logger, session, tools, tray, weather};
 use ha_core::{app_error, app_warn};
 use session::SessionDB;
 use std::sync::Arc;
@@ -236,15 +236,11 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         });
     }
 
-    // Start cron scheduler on dedicated thread with its own tokio runtime
-    if let (Some(cron_db), Ok(db_path)) = (CRON_DB.get(), session::db_path()) {
-        if let Ok(session_db) = SessionDB::open(&db_path) {
-            let _handle = cron::start_scheduler(cron_db.clone(), Arc::new(session_db));
-            // Thread runs until app exits
-        }
-    }
-
-    // Start background async tasks (channel auto-start, ACP discovery) — requires async runtime
+    // Start background async tasks (channel listeners, cron scheduler,
+    // channel auto-start, dreaming, MCP, ACP discovery, retention loops, …).
+    // Cron used to live as a separate `start_scheduler` call here; it now
+    // lives inside `start_background_tasks` so all three modes share one
+    // entry point.
     tauri::async_runtime::spawn(async {
         ha_core::start_background_tasks().await;
     });
