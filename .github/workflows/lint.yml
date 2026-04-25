@@ -26,8 +26,11 @@ jobs:
       - name: ESLint
         run: pnpm lint
 
-      - name: TypeScript project build
-        run: pnpm exec tsc -b --pretty false
+      - name: TypeScript typecheck
+        run: pnpm tsc --noEmit
+
+      - name: Vitest
+        run: pnpm test
 
       # Informational only for now: the repo carries ~3.3k historical missing
       # keys across the 10 non-baseline locales (en/zh are the source of truth).

@@ -140,18 +140,37 @@ function flushPendingStreamDeltas(
   })
 }
 
+function pickString(event: Record<string, unknown>, key: string): string | undefined {
+  const v = event[key]
+  return typeof v === "string" ? v : undefined
+}
+
+function pickNumber(event: Record<string, unknown>, key: string): number | undefined {
+  const v = event[key]
+  if (typeof v === "number" && Number.isFinite(v)) return v
+  if (typeof v === "string") {
+    const parsed = Number(v)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return undefined
+}
+
 function fallbackEventFromStreamEvent(event: Record<string, unknown>): FallbackEvent {
   const model =
-    typeof event.model === "string"
-      ? event.model
-      : typeof event.model_id === "string"
-        ? event.model_id
-        : typeof event.to_model === "string"
-          ? event.to_model
-          : ""
+    pickString(event, "model") ??
+    pickString(event, "model_id") ??
+    pickString(event, "to_model") ??
+    ""
   return {
-    ...event,
+    type: pickString(event, "type"),
     model,
+    from_model: pickString(event, "from_model"),
+    reason: pickString(event, "reason"),
+    error: pickString(event, "error"),
+    attempt: pickNumber(event, "attempt"),
+    total: pickNumber(event, "total"),
+    provider_id: pickString(event, "provider_id"),
+    model_id: pickString(event, "model_id"),
   }
 }
 

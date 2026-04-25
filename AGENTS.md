@@ -12,6 +12,8 @@ pnpm sync:version      # 以 package.json 为单一来源，同步 src-tauri 版
 pnpm release:verify    # 校验 package.json / src-tauri 版本一致；可附 -- --tag vX.Y.Z
 pnpm tsc --noEmit      # 前端类型检查
 pnpm lint              # Lint
+pnpm test              # Vitest（一次性跑完）
+pnpm test:watch        # Vitest watch 模式
 node scripts/sync-i18n.mjs --check   # 检查各语言翻译缺失
 node scripts/sync-i18n.mjs --apply   # 从翻译文件补齐缺失翻译
 
@@ -25,7 +27,7 @@ hope-agent server stop               # 停止服务
 
 ## 提交前检查（强制）
 
-推送（`git push`）前**必须**本地跑一遍以下四条，任一失败都要先修再推——CI 会对同一组检查投红票，红在 CI 上要等 10 分钟反馈。`pnpm install` 后会自动启用 [`.husky/pre-push`](.husky/pre-push) 钩子，该钩子就按这个顺序跑这四条；裸跑也可以：
+推送（`git push`）前**必须**本地跑一遍以下六条，任一失败都要先修再推——CI 会对同一组检查投红票，红在 CI 上要等 10 分钟反馈。`pnpm install` 后会自动启用 [`.husky/pre-push`](.husky/pre-push) 钩子，该钩子就按这个顺序跑这六条；裸跑也可以：
 
 ```bash
 cargo fmt --all --check                                                    # 对应 CI: rust.yml fmt job
@@ -33,14 +35,15 @@ cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings # 对
 cargo test  -p ha-core -p ha-server --locked                               # 对应 CI: rust.yml test job
 pnpm tsc --noEmit                                                           # 对应 CI: lint.yml 前端类型
 pnpm lint                                                                    # 对应 CI: lint.yml ESLint
+pnpm test                                                                    # 对应 CI: lint.yml Vitest
 ```
 
 - **clippy / test 只覆盖 `ha-core` + `ha-server`**（CI 也是如此）—— `src-tauri` 不在本地钩子范围内，tauri-specific 的 lint / test 问题请用 `cargo {clippy,test} --workspace` 主动自查
 - **fmt 用 `--all`**，覆盖整个 workspace；钩子用的是 `cargo fmt --all --check`，裸跑时用不用 `--all` 都能对齐 CI，不过 `--all` 更稳
-- **Rust 版本由仓库根目录 [`rust-toolchain.toml`](rust-toolchain.toml) 固定**，本地与 CI 共用同一版本和组件集合；升级 Rust 时优先改这个文件，再验证 pre-push 五项检查全部通过
+- **Rust 版本由仓库根目录 [`rust-toolchain.toml`](rust-toolchain.toml) 固定**，本地与 CI 共用同一版本和组件集合；升级 Rust 时优先改这个文件，再验证 pre-push 六项检查全部通过
 - **应急开关**：
   - `HA_SKIP_PREPUSH=1 git push` — 整段钩子跳过（仅限文档 / 纯 `.md` 改动 / 弱网紧急场合）
-  - `HA_SKIP_PREPUSH_TEST=1 git push` — 只跳过 `cargo test`（WIP 分支快速推送，test 让 CI 兜底；fmt/clippy/tsc/eslint 仍然跑）
+  - `HA_SKIP_PREPUSH_TEST=1 git push` — 只跳过 `cargo test`（WIP 分支快速推送，test 让 CI 兜底；fmt/clippy/tsc/eslint/vitest 仍然跑）
   - 禁止用 `--no-verify`，因为它会把 GPG 签名等其它钩子也一并绕过
 
 ## 项目结构
