@@ -173,6 +173,12 @@
     "attachImage": "添加圖片",
     "attachFile": "添加文件",
     "addWorkingDirectory": "添加工作目錄",
+    "fileMention": {
+      "breadcrumb": "瀏覽：{{path}}",
+      "searchHeader": "搜尋結果",
+      "empty": "沒有符合項目",
+      "truncated": "結果已截斷"
+    },
     "selectModel": "選擇模型",
     "deleteSessionTitle": "刪除對話",
     "deleteSessionWarning": "此操作將永久刪除該對話及其所有消息記錄，且無法恢複。請確認是否繼續？",

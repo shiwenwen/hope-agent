@@ -7,7 +7,13 @@
 
 import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
-import type { Transport, ChatStream, PickedImage, DirListing } from "@/lib/transport";
+import type {
+  Transport,
+  ChatStream,
+  PickedImage,
+  DirListing,
+  FileSearchResponse,
+} from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
 export class TauriTransport implements Transport {
@@ -114,9 +120,19 @@ export class TauriTransport implements Transport {
     return selected;
   }
 
-  async listServerDirectory(): Promise<DirListing> {
-    // Desktop uses the native picker — no server-side listing in this mode.
-    throw new Error("listServerDirectory is not available in Tauri mode");
+  async listServerDirectory(path?: string): Promise<DirListing> {
+    // The chat-input `@` mention popper needs cross-mode parity with HTTP.
+    // The working-dir picker still prefers the native dialog, but it can use
+    // this too when needed.
+    return invoke<DirListing>("fs_list_dir", { path: path ?? null });
+  }
+
+  async searchFiles(root: string, q: string, limit?: number): Promise<FileSearchResponse> {
+    return invoke<FileSearchResponse>("fs_search_files", {
+      root,
+      q,
+      limit: limit ?? null,
+    });
   }
 
   /** Absolute server-side path for Tauri file ops. Legacy items may carry

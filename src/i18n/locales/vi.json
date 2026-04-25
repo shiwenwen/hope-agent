@@ -173,6 +173,12 @@
     "attachImage": "Thêm ảnh",
     "attachFile": "Thêm tệp",
     "addWorkingDirectory": "Thêm thư mục làm việc",
+    "fileMention": {
+      "breadcrumb": "Duyệt: {{path}}",
+      "searchHeader": "Kết quả tìm kiếm",
+      "empty": "Không có kết quả",
+      "truncated": "Kết quả bị cắt"
+    },
     "selectModel": "Chọn mô hình",
     "deleteSessionTitle": "Xóa cuộc trò chuyện",
     "deleteSessionWarning": "Thao tác này sẽ xóa vĩnh viễn cuộc trò chuyện này và tất cả tin nhắn. Không thể hoàn tác. Bạn có chắc chắn không?",

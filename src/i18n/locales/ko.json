@@ -173,6 +173,12 @@
     "attachImage": "이미지 추가",
     "attachFile": "파일 추가",
     "addWorkingDirectory": "작업 디렉터리 추가",
+    "fileMention": {
+      "breadcrumb": "탐색: {{path}}",
+      "searchHeader": "검색 결과",
+      "empty": "일치 항목 없음",
+      "truncated": "결과가 잘렸습니다"
+    },
     "selectModel": "모델 선택",
     "deleteSessionTitle": "대화 삭제",
     "deleteSessionWarning": "이 작업은 이 대화와 모든 메시지를 영구적으로 삭제합니다. 이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?",

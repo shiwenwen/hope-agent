@@ -173,6 +173,12 @@
     "attachImage": "Resim Ekle",
     "attachFile": "Dosya Ekle",
     "addWorkingDirectory": "Çalışma dizini ekle",
+    "fileMention": {
+      "breadcrumb": "Gözat: {{path}}",
+      "searchHeader": "Arama sonuçları",
+      "empty": "Eşleşme yok",
+      "truncated": "Sonuçlar kırpıldı"
+    },
     "selectModel": "Model Seç",
     "deleteSessionTitle": "Sohbeti Sil",
     "deleteSessionWarning": "Bu işlem bu sohbeti ve tüm mesajlarını kalıcı olarak silecektir. Bu işlem geri alınamaz. Emin misiniz?",

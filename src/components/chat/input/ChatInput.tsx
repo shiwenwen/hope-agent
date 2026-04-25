@@ -24,6 +24,9 @@ import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/ch
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
 import { useUrlPreview } from "@/hooks/useUrlPreview"
 import SlashCommandMenu from "../slash-commands/SlashCommandMenu"
+import { useFileMention } from "../file-mention/useFileMention"
+import FileMentionMenu from "../file-mention/FileMentionMenu"
+import MentionMirrorOverlay from "../file-mention/MentionMirrorOverlay"
 import UrlPreviewCard from "../UrlPreviewCard"
 import type { CommandResult } from "../slash-commands/types"
 import {
@@ -141,6 +144,10 @@ export default function ChatInput({
   }
   const slash = useSlashCommands(input, onInputChange, slashActions)
 
+  // File mention `@` popper — only meaningful when a working dir is set.
+  const mention = useFileMention(input, onInputChange, textareaRef, workingDir ?? null)
+  const [mirrorScrollTop, setMirrorScrollTop] = useState(0)
+
   // URL preview
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
 
@@ -193,8 +200,9 @@ export default function ChatInput({
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
-    // Let slash command menu handle keys first
+    // Slash menu first (owns header `/...` slot), then mention popper, then send.
     if (slash.handleKeyDown(e)) return
+    if (mention.handleKeyDown(e)) return
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault()
       onSend()
@@ -369,6 +377,21 @@ export default function ChatInput({
           />
         )}
 
+        {/* File Mention Menu (`@` popper) */}
+        <FileMentionMenu
+          isOpen={mention.isOpen && !slash.isOpen}
+          entries={mention.entries}
+          selectedIndex={mention.selectedIndex}
+          mode={mention.mode}
+          dirPath={mention.dirPath}
+          workingDir={workingDir ?? null}
+          loading={mention.loading}
+          error={mention.error}
+          truncated={mention.truncated}
+          onSelect={mention.applyEntry}
+          onHover={mention.setSelectedIndex}
+        />
+
         {/* Attached files preview (rendered above textarea) */}
         <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
 
@@ -435,23 +458,36 @@ export default function ChatInput({
           </div>
         )}
 
-        {/* Textarea */}
-        <Textarea
-          ref={textareaRef}
-          placeholder={
-            planState === "planning"
-              ? t("planMode.placeholder")
-              : loading && pendingMessage
-                ? t("chat.pendingQueued")
-                : t("chat.askAnything")
-          }
-          value={input}
-          onChange={(e) => onInputChange(e.target.value)}
-          onKeyDown={handleKeyDown}
-          onPaste={handlePaste}
-          rows={1}
-          className="border-0 shadow-none bg-transparent px-4 pt-3 pb-1 text-sm text-foreground placeholder:text-muted-foreground focus-visible:ring-0 resize-none min-h-[42px] max-h-[40vh] overflow-y-auto"
-        />
+        {/* Textarea + mention chip mirror — `@` mentions get a chip backdrop
+            from the overlay; the textarea renders the actual characters on
+            top so caret/selection stay native. */}
+        <div className="relative">
+          <MentionMirrorOverlay
+            value={input}
+            scrollTop={mirrorScrollTop}
+            enabled={!!workingDir}
+            onRemoveMention={mention.removeMention}
+          />
+          <Textarea
+            ref={textareaRef}
+            placeholder={
+              planState === "planning"
+                ? t("planMode.placeholder")
+                : loading && pendingMessage
+                  ? t("chat.pendingQueued")
+                  : t("chat.askAnything")
+            }
+            value={input}
+            onChange={(e) => onInputChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
+            onSelect={() => mention.recheckTrigger()}
+            onClick={() => mention.recheckTrigger()}
+            onScroll={(e) => setMirrorScrollTop(e.currentTarget.scrollTop)}
+            rows={1}
+            className="relative border-0 shadow-none bg-transparent px-4 pt-3 pb-1 text-sm leading-[1.5] text-foreground placeholder:text-muted-foreground focus-visible:ring-0 resize-none min-h-[42px] max-h-[40vh] overflow-y-auto break-words"
+          />
+        </div>
 
         {/* URL Previews */}
         {urlPreviews.size > 0 && (

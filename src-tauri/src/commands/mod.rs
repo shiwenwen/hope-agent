@@ -10,6 +10,7 @@ pub mod cron;
 pub mod dashboard;
 pub mod docker;
 pub mod dreaming;
+pub mod filesystem;
 pub mod logging;
 pub mod mcp;
 pub mod memory;

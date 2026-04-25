@@ -187,6 +187,9 @@ pub fn run() {
             commands::misc::reveal_in_folder,
             commands::misc::open_url,
             commands::misc::write_export_file,
+            // Filesystem listing & search (chat-input @ mention popper, working-dir picker)
+            commands::filesystem::fs_list_dir,
+            commands::filesystem::fs_search_files,
             // Agent management
             commands::agent_mgmt::list_agents,
             commands::agent_mgmt::get_agent_config,

@@ -173,6 +173,12 @@
     "attachImage": "Agregar imagen",
     "attachFile": "Agregar archivo",
     "addWorkingDirectory": "Agregar directorio de trabajo",
+    "fileMention": {
+      "breadcrumb": "Explorar: {{path}}",
+      "searchHeader": "Resultados de búsqueda",
+      "empty": "Sin coincidencias",
+      "truncated": "Resultados truncados"
+    },
     "selectModel": "Seleccionar modelo",
     "deleteSessionTitle": "Eliminar conversación",
     "deleteSessionWarning": "Esta acción eliminará permanentemente esta conversación y todos sus mensajes. No se puede deshacer. ¿Estás seguro?",

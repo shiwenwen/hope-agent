@@ -129,15 +129,24 @@ export interface Transport {
   pickLocalDirectory(): Promise<string | null>;
 
   /**
-   * List a single directory level on the server machine. Only implemented in
-   * HTTP mode — the directory-browser modal uses this to let the user drill
-   * into the server's filesystem. Tauri mode can throw or return a rejected
-   * promise because the native picker covers that path.
+   * List a single directory level on the server machine. Used by both the
+   * directory-browser modal (HTTP mode) and the chat-input `@` mention popper
+   * (path-mode navigation, both modes).
    *
    * @param path Absolute path to list. When omitted, the server returns a
    *             platform default root (`/` on Unix, user profile on Windows).
    */
   listServerDirectory(path?: string): Promise<DirListing>;
+
+  /**
+   * Fuzzy-search files & directories under `root`. Used by the chat-input
+   * `@` mention popper for tokens that don't contain a `/` (e.g. `@chat`).
+   *
+   * - `root` MUST be absolute.
+   * - `q` is matched as a case-insensitive subsequence against name then path.
+   * - `limit` defaults to 50 server-side; results are pre-sorted by score.
+   */
+  searchFiles(root: string, q: string, limit?: number): Promise<FileSearchResponse>;
 }
 
 /**
@@ -160,6 +169,30 @@ export interface DirEntry {
   isSymlink: boolean;
   size: number | null;
   modifiedMs: number | null;
+}
+
+/** A single result from `searchFiles`, sorted by score descending. */
+export interface FileMatch {
+  name: string;
+  /** Absolute path. */
+  path: string;
+  /** Path relative to the search root, with `/` separator. */
+  relPath: string;
+  isDir: boolean;
+  /** Subsequence-match score; higher = better. Server-sorted. */
+  score: number;
+}
+
+/**
+ * Response from `searchFiles`. Mirrors the `/api/filesystem/search-files`
+ * response shape.
+ */
+export interface FileSearchResponse {
+  /** Canonicalized absolute root that was searched. */
+  root: string;
+  matches: FileMatch[];
+  /** `true` when the walk hit the per-search file cap and stopped early. */
+  truncated: boolean;
 }
 
 /**

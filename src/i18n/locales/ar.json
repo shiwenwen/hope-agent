@@ -173,6 +173,12 @@
     "attachImage": "إضافة صورة",
     "attachFile": "إضافة ملف",
     "addWorkingDirectory": "إضافة دليل العمل",
+    "fileMention": {
+      "breadcrumb": "التصفح: {{path}}",
+      "searchHeader": "نتائج البحث",
+      "empty": "لا توجد نتائج",
+      "truncated": "تم اقتطاع النتائج"
+    },
     "selectModel": "اختيار النموذج",
     "deleteSessionTitle": "حذف المحادثة",
     "deleteSessionWarning": "سيؤدي هذا الإجراء إلى حذف هذه المحادثة وجميع رسائلها نهائيًا. لا يمكن التراجع عن هذا الإجراء. هل أنت متأكد؟",

@@ -13,6 +13,7 @@ import type {
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import { handleStreamEvent } from "./useStreamEventHandler"
 import { useApprovals } from "./useApprovals"
+import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { useNotificationListeners } from "./useNotificationListeners"
 
 export interface UseChatStreamOptions {
@@ -220,6 +221,17 @@ export function useChatStream({
       data?: string
       file_path?: string
     }[] = []
+
+    // Expand `@path` mentions into file_path attachments. Working dir resolves
+    // from the current session (committed) or the draft picker (new chat).
+    const sessionWorkingDir =
+      sessions.find((s) => s.id === currentSessionId)?.workingDir ?? null
+    const resolvedWorkingDir = currentSessionId ? sessionWorkingDir : draftWorkingDir
+    const mentionAttachments = expandMentionsToAttachments(text, resolvedWorkingDir ?? null)
+    for (const m of mentionAttachments) {
+      attachments.push(m)
+    }
+
     for (const file of filesToSend) {
       try {
         const mimeType = file.type || "application/octet-stream"

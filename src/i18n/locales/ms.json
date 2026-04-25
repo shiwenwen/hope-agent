@@ -173,6 +173,12 @@
     "attachImage": "Tambah Gambar",
     "attachFile": "Tambah Fail",
     "addWorkingDirectory": "Tambah direktori kerja",
+    "fileMention": {
+      "breadcrumb": "Layari: {{path}}",
+      "searchHeader": "Hasil carian",
+      "empty": "Tiada padanan",
+      "truncated": "Hasil dipotong"
+    },
     "selectModel": "Pilih Model",
     "deleteSessionTitle": "Padam Perbualan",
     "deleteSessionWarning": "Tindakan ini akan memadamkan perbualan ini dan semua mesejnya secara kekal. Tindakan ini tidak boleh dibatalkan. Adakah anda pasti?",

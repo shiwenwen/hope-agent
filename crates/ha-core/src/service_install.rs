@@ -188,7 +188,7 @@ fn plist_path_for_label(label: &str) -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn unload_launchd_plist(plist: &PathBuf) {
+fn unload_launchd_plist(plist: &std::path::Path) {
     let _ = std::process::Command::new("launchctl")
         .args(["unload", &plist.to_string_lossy()])
         .output();
@@ -336,7 +336,7 @@ fn status_launchd() -> Result<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn status_launchd_for(label: &str, plist: &PathBuf) -> Result<String> {
+fn status_launchd_for(label: &str, plist: &std::path::Path) -> Result<String> {
     if !plist.exists() {
         return Ok("not installed".to_string());
     }

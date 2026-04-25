@@ -1119,8 +1119,13 @@ fn build_router_with_cors(
             "/desktop/reveal-in-folder",
             post(routes::desktop::reveal_in_folder),
         )
-        // Filesystem (server-side directory browser for the working-dir picker)
+        // Filesystem (server-side directory browser for the working-dir picker
+        // and the chat-input `@` mention popper)
         .route("/filesystem/list-dir", get(routes::filesystem::list_dir))
+        .route(
+            "/filesystem/search-files",
+            get(routes::filesystem::search_files),
+        )
         // Dev tools
         .route("/dev/clear-sessions", post(routes::dev::clear_sessions))
         .route("/dev/clear-cron", post(routes::dev::clear_cron))

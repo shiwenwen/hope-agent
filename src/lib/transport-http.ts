@@ -6,7 +6,13 @@
  * streaming chat and backend events.
  */
 
-import type { Transport, ChatStream, PickedImage, DirListing } from "@/lib/transport";
+import type {
+  Transport,
+  ChatStream,
+  PickedImage,
+  DirListing,
+  FileSearchResponse,
+} from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
 // ---------------------------------------------------------------------------
@@ -945,6 +951,28 @@ export class HttpTransport implements Transport {
     // Response already has camelCase keys and matches `DirListing` exactly;
     // assert the shape and return without a per-entry remap.
     return (await res.json()) as DirListing;
+  }
+
+  async searchFiles(root: string, q: string, limit?: number): Promise<FileSearchResponse> {
+    const url = new URL(`${this.baseUrl}/api/filesystem/search-files`);
+    url.searchParams.set("root", root);
+    url.searchParams.set("q", q);
+    if (limit !== undefined) url.searchParams.set("limit", String(limit));
+    const headers: Record<string, string> = {};
+    if (this.apiKey) headers["Authorization"] = `Bearer ${this.apiKey}`;
+    const res = await fetch(url.toString(), { method: "GET", headers });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      let message = text || `search-files failed: ${res.status}`;
+      try {
+        const parsed = JSON.parse(text) as { error?: string };
+        if (parsed?.error) message = parsed.error;
+      } catch {
+        /* text was not JSON */
+      }
+      throw new Error(message);
+    }
+    return (await res.json()) as FileSearchResponse;
   }
 
   // ----- listen -----
