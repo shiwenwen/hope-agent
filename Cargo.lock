@@ -3009,6 +3009,7 @@ dependencies = [
  "sqlite-vec",
  "sysinfo",
  "teloxide",
+ "tempfile",
  "tiny_http",
  "tokio",
  "tokio-native-tls",

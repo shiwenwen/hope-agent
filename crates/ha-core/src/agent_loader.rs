@@ -409,6 +409,28 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
     Ok(summaries)
 }
 
+/// Lightweight variant of [`list_agents`] that only returns directory names.
+/// Skips the per-agent JSON parse and memory count, suitable for callers that
+/// only need to detect ID collisions (e.g. import flows).
+pub fn list_agent_ids() -> Result<std::collections::HashSet<String>> {
+    let agents_dir = paths::agents_dir()?;
+    let mut ids = std::collections::HashSet::new();
+    let entries = match std::fs::read_dir(&agents_dir) {
+        Ok(e) => e,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(ids),
+        Err(err) => return Err(err.into()),
+    };
+    for entry in entries.flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        if let Some(name) = entry.file_name().to_str() {
+            ids.insert(name.to_string());
+        }
+    }
+    Ok(ids)
+}
+
 // ── Save Agent Config ────────────────────────────────────────────
 
 /// Save agent.json for the given agent ID. Creates the directory if needed.

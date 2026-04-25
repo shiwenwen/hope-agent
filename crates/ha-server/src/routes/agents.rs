@@ -143,6 +143,41 @@ pub async fn import_openclaw_agents(
     Ok(Json(results))
 }
 
+/// `GET /api/agents/openclaw/scan-full` — full preview (providers + agents + memories).
+pub async fn scan_openclaw_full(
+) -> Result<Json<ha_core::openclaw_import::OpenClawImportPreview>, AppError> {
+    let preview = ha_core::openclaw_import::scan_openclaw_full()?;
+    Ok(Json(preview))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ImportOpenClawFullBody {
+    pub request: ha_core::openclaw_import::OpenClawImportRequest,
+}
+
+/// `POST /api/agents/openclaw/import-full` — perform full import based on preview.
+pub async fn import_openclaw_full(
+    Json(body): Json<ImportOpenClawFullBody>,
+) -> Result<Json<ha_core::openclaw_import::OpenClawImportSummary>, AppError> {
+    let summary = ha_core::openclaw_import::import_openclaw_full(&body.request)?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        let imported_count = summary.agents.iter().filter(|r| r.success).count();
+        if imported_count > 0 {
+            bus.emit(
+                "agents:changed",
+                json!({ "kind": "imported", "count": imported_count }),
+            );
+        }
+        if !summary.providers_added.is_empty() {
+            bus.emit(
+                "config:changed",
+                json!({ "category": "providers", "source": "openclaw-import" }),
+            );
+        }
+    }
+    Ok(Json(summary))
+}
+
 // ── Agent templates ────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]

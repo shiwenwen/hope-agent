@@ -569,6 +569,54 @@
       "releases": "リリース",
       "feedback": "フィードバックと課題",
       "closing": "機能チェックリストとして設計していません。長く使っても、役に立ち、信頼でき、邪魔にならないことを目指して設計しています。"
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "OpenClaw からインポート",
+        "description": "OpenClaw を使用していますか？プロバイダ、API キー、エージェント、メモリを一括でインポートできます。\nOpenClaw を使用していない場合はスキップしてください。",
+        "title": "検出結果",
+        "subtitle": "検出されたディレクトリ：",
+        "scanning": "OpenClaw 設定をスキャン中…",
+        "scanFailed": "OpenClaw 設定のスキャンに失敗しました",
+        "notFound": "OpenClaw 設定が検出されませんでした。新規セットアップを続行できます。",
+        "empty": "OpenClaw ディレクトリは存在しますが空です。インポートするものがありません。",
+        "warningsTitle": "注意",
+        "selectAll": "すべて選択",
+        "deselectAll": "すべて解除",
+        "providers": {
+          "title": "プロバイダと API キー",
+          "modelCount": "{{count}} モデル",
+          "modelCount_other": "{{count}} モデル",
+          "profileWithPlainKey": "{{count}} キー",
+          "profileWithPlainKey_other": "{{count}} キー",
+          "envRef": "環境変数から",
+          "oauthExcluded": "OAuth は除外",
+          "apiTypeWarning": "互換性パス",
+          "nameConflict": "名前衝突 — \"(Imported)\" を付加"
+        },
+        "agents": {
+          "title": "エージェント",
+          "alreadyExists": "ID 重複",
+          "hasSystemPrompt": "カスタム system prompt",
+          "sandbox": "サンドボックス",
+          "skills": "{{count}} スキル",
+          "skills_other": "{{count}} スキル"
+        },
+        "memory": {
+          "title": "メモリ",
+          "global": "グローバル MEMORY.md",
+          "perAgent": "{{agent}} — {{count}} 件"
+        },
+        "import": {
+          "button": "{{n}} 項目をインポート",
+          "button_other": "{{n}} 項目をインポート"
+        },
+        "skip": "スキップ",
+        "continue": "続行",
+        "success": "インポート済み",
+        "failed": "失敗",
+        "partial": "インポート完了（警告あり）"
+      }
     }
   },
   "ko": {
@@ -1141,6 +1189,54 @@
       "releases": "릴리스",
       "feedback": "피드백 및 이슈",
       "closing": "기능 체크리스트로 만든 것이 아닙니다. 오래 써도 유용하고, 믿을 수 있고, 과하게 방해하지 않도록 설계했습니다."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "OpenClaw 에서 가져오기",
+        "description": "OpenClaw를 이미 사용 중이신가요? 프로바이더, API 키, 에이전트, 메모리를 한 번에 가져올 수 있습니다.\nOpenClaw를 사용하지 않으신다면 건너뛰어도 됩니다.",
+        "title": "검색 결과",
+        "subtitle": "감지된 디렉터리：",
+        "scanning": "OpenClaw 구성 검색 중…",
+        "scanFailed": "OpenClaw 구성 검색 실패",
+        "notFound": "OpenClaw 구성이 감지되지 않았습니다. 새로 설정할 수 있습니다.",
+        "empty": "OpenClaw 디렉터리가 비어 있어 가져올 항목이 없습니다.",
+        "warningsTitle": "주의",
+        "selectAll": "모두 선택",
+        "deselectAll": "모두 해제",
+        "providers": {
+          "title": "프로바이더와 API 키",
+          "modelCount": "{{count}} 모델",
+          "modelCount_other": "{{count}} 모델",
+          "profileWithPlainKey": "{{count}} 키",
+          "profileWithPlainKey_other": "{{count}} 키",
+          "envRef": "환경 변수에서",
+          "oauthExcluded": "OAuth 제외",
+          "apiTypeWarning": "호환성 경로",
+          "nameConflict": "이름 충돌 — \"(Imported)\" 추가됨"
+        },
+        "agents": {
+          "title": "에이전트",
+          "alreadyExists": "ID 중복",
+          "hasSystemPrompt": "사용자 정의 system prompt",
+          "sandbox": "샌드박스",
+          "skills": "{{count}} 스킬",
+          "skills_other": "{{count}} 스킬"
+        },
+        "memory": {
+          "title": "메모리",
+          "global": "글로벌 MEMORY.md",
+          "perAgent": "{{agent}} — {{count}} 항목"
+        },
+        "import": {
+          "button": "{{n}}개 항목 가져오기",
+          "button_other": "{{n}}개 항목 가져오기"
+        },
+        "skip": "건너뛰기",
+        "continue": "계속",
+        "success": "가져옴",
+        "failed": "실패",
+        "partial": "경고와 함께 가져옴"
+      }
     }
   },
   "zh-TW": {
@@ -1713,6 +1809,54 @@
       "releases": "發行版本",
       "feedback": "回饋與問題",
       "closing": "它不是為了堆功能清單而設計，而是為了在長時間使用裡依然順手、可靠、不過度打擾。"
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "從 OpenClaw 一鍵匯入",
+        "description": "已經設定過 OpenClaw 了？我們可以把你的 Provider、API Key、Agents 與 MEMORY.md 一次性拉進來。\n沒用過 OpenClaw 可直接略過。",
+        "title": "掃描結果",
+        "subtitle": "偵測到目錄：",
+        "scanning": "正在掃描 OpenClaw 設定……",
+        "scanFailed": "掃描 OpenClaw 設定失敗",
+        "notFound": "未偵測到 OpenClaw 設定。可以從空白設定開始。",
+        "empty": "OpenClaw 目錄存在但內容為空，沒有可匯入的內容。",
+        "warningsTitle": "注意事項",
+        "selectAll": "全選",
+        "deselectAll": "全不選",
+        "providers": {
+          "title": "Provider 與 API Key",
+          "modelCount": "{{count}} 個模型",
+          "modelCount_other": "{{count}} 個模型",
+          "profileWithPlainKey": "{{count}} 個金鑰",
+          "profileWithPlainKey_other": "{{count}} 個金鑰",
+          "envRef": "從環境變數",
+          "oauthExcluded": "OAuth 不匯入",
+          "apiTypeWarning": "相容路徑",
+          "nameConflict": "同名衝突 — 將追加 \"(Imported)\" 字尾"
+        },
+        "agents": {
+          "title": "Agents",
+          "alreadyExists": "ID 已存在",
+          "hasSystemPrompt": "自訂 system prompt",
+          "sandbox": "沙盒模式",
+          "skills": "{{count}} 個技能",
+          "skills_other": "{{count}} 個技能"
+        },
+        "memory": {
+          "title": "記憶",
+          "global": "全域 MEMORY.md",
+          "perAgent": "{{agent}} — {{count}} 筆"
+        },
+        "import": {
+          "button": "匯入 {{n}} 項",
+          "button_other": "匯入 {{n}} 項"
+        },
+        "skip": "略過",
+        "continue": "繼續",
+        "success": "已匯入",
+        "failed": "失敗",
+        "partial": "已匯入（有警告）"
+      }
     }
   },
   "tr": {
@@ -2285,6 +2429,54 @@
       "releases": "Sürümler",
       "feedback": "Geri bildirim ve sorunlar",
       "closing": "Bir özellik kontrol listesi olarak tasarlanmadı. Uzun vadede faydalı, güvenilir ve rahatsız etmeyen kalması için tasarlandı."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "OpenClaw'dan İçe Aktar",
+        "description": "Zaten OpenClaw yapılandırmanız var mı? Sağlayıcılarınızı, API anahtarlarınızı, ajanlarınızı ve belleklerinizi tek seferde getirebiliriz.\nOpenClaw kullanmıyorsanız atlayabilirsiniz.",
+        "title": "Bulunanlar",
+        "subtitle": "Algılandı:",
+        "scanning": "OpenClaw yapılandırması taranıyor…",
+        "scanFailed": "OpenClaw taraması başarısız",
+        "notFound": "OpenClaw yapılandırması algılanmadı. Yeni bir kurulumla devam edebilirsiniz.",
+        "empty": "OpenClaw dizini bulundu ama boş — içe aktarılacak bir şey yok.",
+        "warningsTitle": "Uyarı",
+        "selectAll": "Tümünü seç",
+        "deselectAll": "Seçimi kaldır",
+        "providers": {
+          "title": "Sağlayıcılar ve API anahtarları",
+          "modelCount": "{{count}} model",
+          "modelCount_other": "{{count}} model",
+          "profileWithPlainKey": "{{count}} anahtar",
+          "profileWithPlainKey_other": "{{count}} anahtar",
+          "envRef": "ortam değişkeninden",
+          "oauthExcluded": "OAuth dışarıda",
+          "apiTypeWarning": "Uyumluluk yolu",
+          "nameConflict": "Ad çakışması — \"(Imported)\" eklenecek"
+        },
+        "agents": {
+          "title": "Ajanlar",
+          "alreadyExists": "Kimlik mevcut",
+          "hasSystemPrompt": "Özel system prompt",
+          "sandbox": "Korumalı alan",
+          "skills": "{{count}} yetenek",
+          "skills_other": "{{count}} yetenek"
+        },
+        "memory": {
+          "title": "Bellekler",
+          "global": "Global MEMORY.md",
+          "perAgent": "{{agent}} — {{count}} kayıt"
+        },
+        "import": {
+          "button": "{{n}} öge içe aktar",
+          "button_other": "{{n}} öge içe aktar"
+        },
+        "skip": "Atla",
+        "continue": "Devam",
+        "success": "İçe aktarıldı",
+        "failed": "Başarısız",
+        "partial": "Uyarılarla içe aktarıldı"
+      }
     }
   },
   "vi": {
@@ -2857,6 +3049,54 @@
       "releases": "Bản phát hành",
       "feedback": "Phản hồi và lỗi",
       "closing": "Nó không được thiết kế như một danh sách tính năng. Nó được thiết kế để luôn hữu ích, đáng tin và không gây phiền trong quá trình sử dụng lâu dài."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "Nhập từ OpenClaw",
+        "description": "Bạn đã cấu hình OpenClaw? Chúng tôi có thể nhập nhà cung cấp, API key, agent và bộ nhớ cùng một lúc.\nBỏ qua nếu bạn không dùng OpenClaw.",
+        "title": "Đã tìm thấy",
+        "subtitle": "Phát hiện tại:",
+        "scanning": "Đang quét cấu hình OpenClaw…",
+        "scanFailed": "Không thể quét OpenClaw",
+        "notFound": "Không phát hiện cấu hình OpenClaw. Bạn có thể tiếp tục với cài đặt mới.",
+        "empty": "Đã tìm thấy thư mục OpenClaw nhưng trống — không có gì để nhập.",
+        "warningsTitle": "Lưu ý",
+        "selectAll": "Chọn tất cả",
+        "deselectAll": "Bỏ chọn tất cả",
+        "providers": {
+          "title": "Nhà cung cấp và API key",
+          "modelCount": "{{count}} mô hình",
+          "modelCount_other": "{{count}} mô hình",
+          "profileWithPlainKey": "{{count}} key",
+          "profileWithPlainKey_other": "{{count}} key",
+          "envRef": "từ biến môi trường",
+          "oauthExcluded": "Loại trừ OAuth",
+          "apiTypeWarning": "Đường tương thích",
+          "nameConflict": "Trùng tên — sẽ thêm \"(Imported)\""
+        },
+        "agents": {
+          "title": "Agents",
+          "alreadyExists": "ID đã tồn tại",
+          "hasSystemPrompt": "System prompt tùy chỉnh",
+          "sandbox": "Sandbox",
+          "skills": "{{count}} kỹ năng",
+          "skills_other": "{{count}} kỹ năng"
+        },
+        "memory": {
+          "title": "Bộ nhớ",
+          "global": "MEMORY.md toàn cục",
+          "perAgent": "{{agent}} — {{count}} mục"
+        },
+        "import": {
+          "button": "Nhập {{n}} mục",
+          "button_other": "Nhập {{n}} mục"
+        },
+        "skip": "Bỏ qua",
+        "continue": "Tiếp tục",
+        "success": "Đã nhập",
+        "failed": "Thất bại",
+        "partial": "Đã nhập có cảnh báo"
+      }
     }
   },
   "pt": {
@@ -3429,6 +3669,54 @@
       "releases": "Lançamentos",
       "feedback": "Feedback e problemas",
       "closing": "Não foi pensado como uma checklist de recursos. Foi pensado para continuar útil, confiável e discreto ao longo do tempo."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "Importar do OpenClaw",
+        "description": "Já usa o OpenClaw? Podemos trazer seus provedores, chaves de API, agentes e memórias de uma vez.\nPule esta etapa se não usa o OpenClaw.",
+        "title": "O que encontramos",
+        "subtitle": "Detectado em:",
+        "scanning": "Analisando configuração do OpenClaw…",
+        "scanFailed": "Falha ao analisar o OpenClaw",
+        "notFound": "Configuração do OpenClaw não detectada. Você pode continuar com uma configuração nova.",
+        "empty": "Diretório do OpenClaw encontrado, mas vazio — nada para importar.",
+        "warningsTitle": "Atenção",
+        "selectAll": "Selecionar tudo",
+        "deselectAll": "Desmarcar tudo",
+        "providers": {
+          "title": "Provedores e chaves de API",
+          "modelCount": "{{count}} modelo",
+          "modelCount_other": "{{count}} modelos",
+          "profileWithPlainKey": "{{count}} chave",
+          "profileWithPlainKey_other": "{{count}} chaves",
+          "envRef": "da variável de ambiente",
+          "oauthExcluded": "OAuth excluído",
+          "apiTypeWarning": "Caminho de compatibilidade",
+          "nameConflict": "Conflito de nome — sufixo \"(Imported)\""
+        },
+        "agents": {
+          "title": "Agentes",
+          "alreadyExists": "ID já existe",
+          "hasSystemPrompt": "System prompt personalizado",
+          "sandbox": "Sandbox",
+          "skills": "{{count}} habilidade",
+          "skills_other": "{{count}} habilidades"
+        },
+        "memory": {
+          "title": "Memórias",
+          "global": "MEMORY.md global",
+          "perAgent": "{{agent}} — {{count}} entradas"
+        },
+        "import": {
+          "button": "Importar {{n}} item",
+          "button_other": "Importar {{n}} itens"
+        },
+        "skip": "Pular",
+        "continue": "Continuar",
+        "success": "Importado",
+        "failed": "Falhou",
+        "partial": "Importado com avisos"
+      }
     }
   },
   "ru": {
@@ -4001,6 +4289,54 @@
       "releases": "Релизы",
       "feedback": "Отзывы и проблемы",
       "closing": "Он задуман не как чеклист функций, а как инструмент, который остается полезным, надежным и ненавязчивым при долгом использовании."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "Импорт из OpenClaw",
+        "description": "Уже используете OpenClaw? Мы можем перенести провайдеров, API-ключи, агентов и память за один раз.\nМожете пропустить этот шаг, если не используете OpenClaw.",
+        "title": "Найдено",
+        "subtitle": "Обнаружено в:",
+        "scanning": "Сканирование конфигурации OpenClaw…",
+        "scanFailed": "Не удалось просканировать OpenClaw",
+        "notFound": "Конфигурация OpenClaw не обнаружена. Можно продолжить с чистой настройки.",
+        "empty": "Каталог OpenClaw найден, но он пуст — нечего импортировать.",
+        "warningsTitle": "Внимание",
+        "selectAll": "Выбрать все",
+        "deselectAll": "Снять выбор",
+        "providers": {
+          "title": "Провайдеры и API-ключи",
+          "modelCount": "{{count}} модель",
+          "modelCount_other": "{{count}} моделей",
+          "profileWithPlainKey": "{{count}} ключ",
+          "profileWithPlainKey_other": "{{count}} ключей",
+          "envRef": "из переменной окружения",
+          "oauthExcluded": "OAuth не импортируется",
+          "apiTypeWarning": "Путь совместимости",
+          "nameConflict": "Конфликт имён — добавится \"(Imported)\""
+        },
+        "agents": {
+          "title": "Агенты",
+          "alreadyExists": "ID уже существует",
+          "hasSystemPrompt": "Свой system prompt",
+          "sandbox": "Песочница",
+          "skills": "{{count}} навык",
+          "skills_other": "{{count}} навыков"
+        },
+        "memory": {
+          "title": "Память",
+          "global": "Глобальный MEMORY.md",
+          "perAgent": "{{agent}} — {{count}} записей"
+        },
+        "import": {
+          "button": "Импортировать {{n}} элемент",
+          "button_other": "Импортировать {{n}} элементов"
+        },
+        "skip": "Пропустить",
+        "continue": "Продолжить",
+        "success": "Импортировано",
+        "failed": "Ошибка",
+        "partial": "Импортировано с предупреждениями"
+      }
     }
   },
   "ar": {
@@ -4573,6 +4909,54 @@
       "releases": "الإصدارات",
       "feedback": "الملاحظات والمشكلات",
       "closing": "لم يُصمم كقائمة ميزات. بل صُمم ليبقى مفيدًا وموثوقًا وغير مزعج مع الاستخدام الطويل."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "استيراد من OpenClaw",
+        "description": "هل لديك OpenClaw مُكوَّن مسبقًا؟ يمكننا استيراد المزودين ومفاتيح API والوكلاء والذاكرة مرة واحدة.\nيمكنك التخطي إذا لم تستخدم OpenClaw.",
+        "title": "ما تم العثور عليه",
+        "subtitle": "تم اكتشافه في:",
+        "scanning": "يتم فحص إعدادات OpenClaw…",
+        "scanFailed": "تعذّر فحص OpenClaw",
+        "notFound": "لم يتم اكتشاف إعدادات OpenClaw. يمكنك المتابعة بإعداد جديد.",
+        "empty": "تم العثور على مجلد OpenClaw لكنه فارغ — لا شيء للاستيراد.",
+        "warningsTitle": "تنبيه",
+        "selectAll": "اختيار الكل",
+        "deselectAll": "إلغاء الكل",
+        "providers": {
+          "title": "المزودون ومفاتيح API",
+          "modelCount": "{{count}} نموذج",
+          "modelCount_other": "{{count}} نماذج",
+          "profileWithPlainKey": "{{count}} مفتاح",
+          "profileWithPlainKey_other": "{{count}} مفاتيح",
+          "envRef": "من متغير البيئة",
+          "oauthExcluded": "تم استبعاد OAuth",
+          "apiTypeWarning": "مسار التوافق",
+          "nameConflict": "تعارض الاسم — سيتم إضافة \"(Imported)\""
+        },
+        "agents": {
+          "title": "الوكلاء",
+          "alreadyExists": "المعرّف موجود",
+          "hasSystemPrompt": "system prompt مخصص",
+          "sandbox": "صندوق الحماية",
+          "skills": "{{count}} مهارة",
+          "skills_other": "{{count}} مهارات"
+        },
+        "memory": {
+          "title": "الذاكرة",
+          "global": "MEMORY.md عام",
+          "perAgent": "{{agent}} — {{count}} عنصرًا"
+        },
+        "import": {
+          "button": "استيراد {{n}} عنصر",
+          "button_other": "استيراد {{n}} عناصر"
+        },
+        "skip": "تخطي",
+        "continue": "متابعة",
+        "success": "تم الاستيراد",
+        "failed": "فشل",
+        "partial": "تم الاستيراد مع تحذيرات"
+      }
     }
   },
   "es": {
@@ -5145,6 +5529,54 @@
       "releases": "Lanzamientos",
       "feedback": "Comentarios y problemas",
       "closing": "No está diseñado como una lista de funciones. Está diseñado para seguir siendo útil, fiable y discreto a largo plazo."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "Importar desde OpenClaw",
+        "description": "¿Ya tienes OpenClaw configurado? Podemos importar tus proveedores, claves API, agentes y memorias de una sola vez.\nPuedes omitir si no usas OpenClaw.",
+        "title": "Lo que encontramos",
+        "subtitle": "Detectado en:",
+        "scanning": "Escaneando configuración de OpenClaw…",
+        "scanFailed": "No se pudo escanear OpenClaw",
+        "notFound": "No se detectó configuración de OpenClaw. Puedes continuar con una configuración nueva.",
+        "empty": "Directorio de OpenClaw encontrado pero vacío — nada que importar.",
+        "warningsTitle": "Aviso",
+        "selectAll": "Seleccionar todo",
+        "deselectAll": "Quitar selección",
+        "providers": {
+          "title": "Proveedores y claves API",
+          "modelCount": "{{count}} modelo",
+          "modelCount_other": "{{count}} modelos",
+          "profileWithPlainKey": "{{count}} clave",
+          "profileWithPlainKey_other": "{{count}} claves",
+          "envRef": "desde variable de entorno",
+          "oauthExcluded": "OAuth excluido",
+          "apiTypeWarning": "Ruta de compatibilidad",
+          "nameConflict": "Conflicto de nombre — se añadirá \"(Imported)\""
+        },
+        "agents": {
+          "title": "Agentes",
+          "alreadyExists": "ID ya existe",
+          "hasSystemPrompt": "System prompt personalizado",
+          "sandbox": "Sandbox",
+          "skills": "{{count}} habilidad",
+          "skills_other": "{{count}} habilidades"
+        },
+        "memory": {
+          "title": "Memorias",
+          "global": "MEMORY.md global",
+          "perAgent": "{{agent}} — {{count}} entradas"
+        },
+        "import": {
+          "button": "Importar {{n}} elemento",
+          "button_other": "Importar {{n}} elementos"
+        },
+        "skip": "Omitir",
+        "continue": "Continuar",
+        "success": "Importado",
+        "failed": "Falló",
+        "partial": "Importado con avisos"
+      }
     }
   },
   "ms": {
@@ -5717,6 +6149,104 @@
       "releases": "Keluaran",
       "feedback": "Maklum balas dan isu",
       "closing": "Ia bukan direka sebagai senarai semak ciri. Ia direka untuk kekal berguna, boleh dipercayai dan tidak mengganggu dalam penggunaan jangka panjang."
+    },
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "Import dari OpenClaw",
+        "description": "Sudah ada OpenClaw? Kami boleh tarik penyedia, kunci API, agen dan ingatan sekali gus.\nLangkau jika anda tidak menggunakan OpenClaw.",
+        "title": "Yang ditemui",
+        "subtitle": "Dikesan di:",
+        "scanning": "Mengimbas konfigurasi OpenClaw…",
+        "scanFailed": "Gagal mengimbas OpenClaw",
+        "notFound": "Tiada konfigurasi OpenClaw dikesan. Boleh teruskan dengan persediaan baru.",
+        "empty": "Direktori OpenClaw ditemui tetapi kosong — tiada apa untuk diimport.",
+        "warningsTitle": "Perhatian",
+        "selectAll": "Pilih semua",
+        "deselectAll": "Buang pilihan",
+        "providers": {
+          "title": "Penyedia & kunci API",
+          "modelCount": "{{count}} model",
+          "modelCount_other": "{{count}} model",
+          "profileWithPlainKey": "{{count}} kunci",
+          "profileWithPlainKey_other": "{{count}} kunci",
+          "envRef": "dari pemboleh ubah env",
+          "oauthExcluded": "OAuth dikecualikan",
+          "apiTypeWarning": "Laluan keserasian",
+          "nameConflict": "Konflik nama — akan tambah \"(Imported)\""
+        },
+        "agents": {
+          "title": "Agen",
+          "alreadyExists": "ID sudah wujud",
+          "hasSystemPrompt": "System prompt tersuai",
+          "sandbox": "Sandbox",
+          "skills": "{{count}} kemahiran",
+          "skills_other": "{{count}} kemahiran"
+        },
+        "memory": {
+          "title": "Ingatan",
+          "global": "MEMORY.md global",
+          "perAgent": "{{agent}} — {{count}} entri"
+        },
+        "import": {
+          "button": "Import {{n}} item",
+          "button_other": "Import {{n}} item"
+        },
+        "skip": "Langkau",
+        "continue": "Teruskan",
+        "success": "Diimport",
+        "failed": "Gagal",
+        "partial": "Diimport dengan amaran"
+      }
+    }
+  },
+  "zh": {
+    "onboarding": {
+      "importOpenClaw": {
+        "headline": "从 OpenClaw 一键导入",
+        "description": "已经配置过 OpenClaw 了？我们可以把你的 Provider、API Key、Agents 和 MEMORY.md 一次性拉过来。\n没用过 OpenClaw 可以直接跳过。",
+        "title": "检测结果",
+        "subtitle": "检测到目录：",
+        "scanning": "正在扫描 OpenClaw 配置……",
+        "scanFailed": "扫描 OpenClaw 配置失败",
+        "notFound": "未检测到 OpenClaw 配置。可以从空白配置开始。",
+        "empty": "OpenClaw 目录存在但内容为空，没有可导入的内容。",
+        "warningsTitle": "注意事项",
+        "selectAll": "全选",
+        "deselectAll": "全不选",
+        "providers": {
+          "title": "Provider 与 API Key",
+          "modelCount": "{{count}} 个模型",
+          "modelCount_other": "{{count}} 个模型",
+          "profileWithPlainKey": "{{count}} 个密钥",
+          "profileWithPlainKey_other": "{{count}} 个密钥",
+          "envRef": "从环境变量",
+          "oauthExcluded": "OAuth 不导入",
+          "apiTypeWarning": "兼容路径",
+          "nameConflict": "同名冲突 — 将追加 \"(Imported)\" 后缀"
+        },
+        "agents": {
+          "title": "Agents",
+          "alreadyExists": "ID 已存在",
+          "hasSystemPrompt": "自定义 system prompt",
+          "sandbox": "沙箱模式",
+          "skills": "{{count}} 个技能",
+          "skills_other": "{{count}} 个技能"
+        },
+        "memory": {
+          "title": "记忆",
+          "global": "全局 MEMORY.md",
+          "perAgent": "{{agent}} — {{count}} 条"
+        },
+        "import": {
+          "button": "导入 {{n}} 项",
+          "button_other": "导入 {{n}} 项"
+        },
+        "skip": "跳过",
+        "continue": "继续",
+        "success": "已导入",
+        "failed": "失败",
+        "partial": "已导入（有警告）"
+      }
     }
   }
 }

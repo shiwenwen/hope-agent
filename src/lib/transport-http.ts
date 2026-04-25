@@ -146,6 +146,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dreaming_is_running:             { method: "GET",    path: "/api/dreaming/status" },
   scan_openclaw_agents:            { method: "GET",    path: "/api/agents/openclaw/scan" },
   import_openclaw_agents:          { method: "POST",   path: "/api/agents/openclaw/import" },
+  scan_openclaw_full:              { method: "GET",    path: "/api/agents/openclaw/scan-full" },
+  import_openclaw_full:            { method: "POST",   path: "/api/agents/openclaw/import-full" },
 
   // -- User config --
   get_user_config:                 { method: "GET",    path: "/api/config/user" },

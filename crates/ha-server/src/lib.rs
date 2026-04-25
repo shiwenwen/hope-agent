@@ -629,6 +629,14 @@ fn build_router_with_cors(
             "/agents/openclaw/import",
             post(routes::agents::import_openclaw_agents),
         )
+        .route(
+            "/agents/openclaw/scan-full",
+            get(routes::agents::scan_openclaw_full),
+        )
+        .route(
+            "/agents/openclaw/import-full",
+            post(routes::agents::import_openclaw_full),
+        )
         .route("/agents/{id}", get(routes::agents::get_agent))
         .route("/agents/{id}", put(routes::agents::save_agent))
         .route("/agents/{id}", delete(routes::agents::delete_agent))

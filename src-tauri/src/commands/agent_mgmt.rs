@@ -67,3 +67,31 @@ pub async fn import_openclaw_agents(
 ) -> Result<Vec<openclaw_import::ImportResult>, String> {
     openclaw_import::import_openclaw_agents(&requests).map_err(|e| e.to_string())
 }
+
+#[tauri::command]
+pub async fn scan_openclaw_full() -> Result<openclaw_import::OpenClawImportPreview, String> {
+    openclaw_import::scan_openclaw_full().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn import_openclaw_full(
+    request: openclaw_import::OpenClawImportRequest,
+) -> Result<openclaw_import::OpenClawImportSummary, String> {
+    let summary = openclaw_import::import_openclaw_full(&request).map_err(|e| e.to_string())?;
+    if let Some(bus) = ha_core::get_event_bus() {
+        let imported_count = summary.agents.iter().filter(|r| r.success).count();
+        if imported_count > 0 {
+            bus.emit(
+                "agents:changed",
+                serde_json::json!({ "kind": "imported", "count": imported_count }),
+            );
+        }
+        if !summary.providers_added.is_empty() {
+            bus.emit(
+                "config:changed",
+                serde_json::json!({ "category": "providers", "source": "openclaw-import" }),
+            );
+        }
+    }
+    Ok(summary)
+}

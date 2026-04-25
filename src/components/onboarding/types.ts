@@ -1,5 +1,6 @@
 export type OnboardingStepKey =
   | "welcome"
+  | "import-openclaw"
   | "mode"
   | "provider"
   | "profile"
@@ -13,6 +14,7 @@ export type OnboardingStepKey =
 /** Full ordered step list for the local-configuration flow. */
 export const ONBOARDING_STEPS: OnboardingStepKey[] = [
   "welcome",
+  "import-openclaw",
   "mode",
   "provider",
   "profile",
@@ -31,7 +33,7 @@ export const ONBOARDING_STEPS: OnboardingStepKey[] = [
  * server), so we drop straight from the mode step to completion.
  */
 export function stepsForMode(mode: "local" | "remote" | undefined): OnboardingStepKey[] {
-  if (mode === "remote") return ["welcome", "mode"]
+  if (mode === "remote") return ["welcome", "import-openclaw", "mode"]
   return ONBOARDING_STEPS
 }
 

@@ -288,8 +288,10 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `dreaming_list_diaries` | `GET /api/dreaming/diaries` | ✅ |
 | `dreaming_read_diary` | `GET /api/dreaming/diaries/{filename}` | ✅ |
 | `dreaming_is_running` | `GET /api/dreaming/status` | ✅ |
-| `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ |
-| `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ |
+| `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ legacy（agents-only） |
+| `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ legacy（agents-only） |
+| `scan_openclaw_full` | `GET /api/agents/openclaw/scan-full` | ✅ providers + agents + memories |
+| `import_openclaw_full` | `POST /api/agents/openclaw/import-full` | ✅ providers + agents + memories |
 
 ### Memory
 

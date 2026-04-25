@@ -22,6 +22,7 @@ import { StepIndicator } from "./StepIndicator"
 import { type OnboardingDraft, type OnboardingStepKey } from "./types"
 import { useOnboarding } from "./useOnboarding"
 import { ChannelsStep } from "./steps/ChannelsStep"
+import { ImportOpenClawStep } from "./steps/ImportOpenClawStep"
 import { ModeStep } from "./steps/ModeStep"
 import { PersonalityStep } from "./steps/PersonalityStep"
 import { ProfileStep } from "./steps/ProfileStep"
@@ -97,6 +98,9 @@ export function OnboardingWizard({
         case "welcome":
           if (draft.language)
             await t.call("apply_onboarding_language", { language: draft.language })
+          return true
+        case "import-openclaw":
+          // Import already happened inside the panel; nothing to apply here.
           return true
         case "mode":
           return true
@@ -211,6 +215,14 @@ export function OnboardingWizard({
             onThemeChange={(theme) => patchDraft({ theme })}
           />
         )
+      case "import-openclaw":
+        return (
+          <ImportOpenClawStep
+            onContinue={() => {
+              goNext()
+            }}
+          />
+        )
       case "mode":
         return (
           <ModeStep
@@ -303,6 +315,7 @@ export function OnboardingWizard({
   const isFinal = stepKey === "summary"
   const isProvider = stepKey === "provider"
   const isMode = stepKey === "mode"
+  const isImport = stepKey === "import-openclaw"
   const canGoBack = step > 0 && !isFinal
   const canSkip = !isFinal && !isMode
   // Mode step's "Next" is a no-op for remote (inline Connect drives completion)
@@ -343,7 +356,11 @@ export function OnboardingWizard({
 
       <div className="flex-1 overflow-y-auto">
         <div className="min-h-full flex items-center justify-center py-6">
-          <div className={`w-full ${isProvider ? "max-w-3xl" : "max-w-2xl"}`}>
+          <div
+            className={`w-full ${
+              isProvider || isImport ? "max-w-3xl" : "max-w-2xl"
+            }`}
+          >
             {renderStep()}
           </div>
         </div>
@@ -356,7 +373,7 @@ export function OnboardingWizard({
         isFinal={isFinal}
         busy={saving || busy}
         nextDisabled={modeNextDisabled}
-        hideNext={isProvider}
+        hideNext={isProvider || isImport}
         onBack={goBack}
         onSkip={() => void skipCurrent()}
         onNext={() => void handleNext()}
