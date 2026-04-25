@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "كل استدعاء أداة يتطلب تأكيداً",
     "toolPermissionFullDesc": "الموافقة تلقائياً على جميع استدعاءات الأدوات",
     "statusCache": "ذاكرة مؤقتة",
+    "statusCacheWrite": "كتابة",
+    "statusCacheHit": "إصابة",
     "fallbackTitle": "تبديل النموذج",
     "fallbackReason": "السبب",
     "fallbackFrom": "النموذج الأصلي",

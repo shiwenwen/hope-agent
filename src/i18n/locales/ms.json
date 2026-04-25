@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "Setiap panggilan alat memerlukan pengesahan",
     "toolPermissionFullDesc": "Luluskan semua panggilan alat secara automatik",
     "statusCache": "Cache",
+    "statusCacheWrite": "Tulis",
+    "statusCacheHit": "Kena",
     "fallbackTitle": "Penukaran Model",
     "fallbackReason": "Sebab",
     "fallbackFrom": "Model asal",

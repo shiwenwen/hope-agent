@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "每次工具调用都需要确认",
     "toolPermissionFullDesc": "自动批准所有工具调用",
     "statusCache": "缓存",
+    "statusCacheWrite": "写入",
+    "statusCacheHit": "命中",
     "fallbackTitle": "降级切换",
     "fallbackReason": "原因",
     "fallbackFrom": "原模型",

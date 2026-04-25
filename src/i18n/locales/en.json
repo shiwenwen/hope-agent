@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "Every tool call requires confirmation",
     "toolPermissionFullDesc": "Automatically approve all tool calls",
     "statusCache": "Cache",
+    "statusCacheWrite": "Write",
+    "statusCacheHit": "Hit",
     "fallbackTitle": "Model Fallback",
     "fallbackReason": "Reason",
     "fallbackFrom": "Original",

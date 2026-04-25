@@ -18,6 +18,7 @@ import {
   Ghost,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
+import { formatCacheUsageDisplay } from "./cacheUsageDisplay"
 import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
 import { logger } from "@/lib/logger"
@@ -459,8 +460,12 @@ export default function ChatTitleBar({
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">🗄️ {t("chat.statusCache")}</span>
                     <span className="font-medium text-foreground tabular-nums">
-                      +{created > 1000 ? `${(created / 1000).toFixed(1)}k` : created}
-                      {" / "}⚡{read > 1000 ? `${(read / 1000).toFixed(1)}k` : read}
+                      {formatCacheUsageDisplay({
+                        created,
+                        read,
+                        writeLabel: t("chat.statusCacheWrite"),
+                        hitLabel: t("chat.statusCacheHit"),
+                      })}
                     </span>
                   </div>
                 )

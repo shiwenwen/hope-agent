@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "Toda chamada de ferramenta requer confirmação",
     "toolPermissionFullDesc": "Aprovar automaticamente todas as chamadas de ferramentas",
     "statusCache": "Cache",
+    "statusCacheWrite": "Gravação",
+    "statusCacheHit": "Acerto",
     "fallbackTitle": "Troca de Modelo",
     "fallbackReason": "Motivo",
     "fallbackFrom": "Modelo original",

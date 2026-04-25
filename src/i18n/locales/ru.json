@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "Каждый вызов инструмента требует подтверждения",
     "toolPermissionFullDesc": "Автоматически одобрять все вызовы инструментов",
     "statusCache": "Кэш",
+    "statusCacheWrite": "Запись",
+    "statusCacheHit": "Попадание",
     "fallbackTitle": "Переключение модели",
     "fallbackReason": "Причина",
     "fallbackFrom": "Исходная модель",

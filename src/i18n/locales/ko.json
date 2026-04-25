@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "모든 도구 호출에 확인이 필요합니다",
     "toolPermissionFullDesc": "모든 도구 호출을 자동으로 승인합니다",
     "statusCache": "캐시",
+    "statusCacheWrite": "쓰기",
+    "statusCacheHit": "히트",
     "fallbackTitle": "모델 전환",
     "fallbackReason": "원인",
     "fallbackFrom": "원래 모델",

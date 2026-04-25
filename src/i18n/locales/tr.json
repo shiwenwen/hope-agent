@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "Her araç çağrısı onay gerektirir",
     "toolPermissionFullDesc": "Tüm araç çağrılarını otomatik olarak onayla",
     "statusCache": "Önbellek",
+    "statusCacheWrite": "Yazma",
+    "statusCacheHit": "İsabet",
     "fallbackTitle": "Model Geçişi",
     "fallbackReason": "Neden",
     "fallbackFrom": "Orijinal model",

@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "Mọi lệnh gọi công cụ đều cần xác nhận",
     "toolPermissionFullDesc": "Tự động phê duyệt mọi lệnh gọi công cụ",
     "statusCache": "Bộ nhớ đệm",
+    "statusCacheWrite": "Ghi",
+    "statusCacheHit": "Trúng",
     "fallbackTitle": "Chuyển đổi mô hình",
     "fallbackReason": "Lý do",
     "fallbackFrom": "Mô hình gốc",

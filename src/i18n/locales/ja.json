@@ -211,6 +211,8 @@
     "toolPermissionAskDesc": "すべてのツール呼び出しに確認が必要です",
     "toolPermissionFullDesc": "すべてのツール呼び出しを自動承認します",
     "statusCache": "キャッシュ",
+    "statusCacheWrite": "書き込み",
+    "statusCacheHit": "ヒット",
     "fallbackTitle": "モデル切替",
     "fallbackReason": "理由",
     "fallbackFrom": "元のモデル",
