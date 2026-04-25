@@ -1,6 +1,6 @@
 # Hope Agent 提示词系统技术文档
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-13
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-25
 
 ## 目录
 
@@ -9,6 +9,7 @@
   - [13 段组装顺序](#13-段组装顺序)
   - [三种组装模式](#三种组装模式)
   - [Legacy 兼容路径](#legacy-兼容路径)
+  - [Agent Home 与 Session Working Directory](#agent-home-与-session-working-directory)
 - [Per-Tool 描述系统](#per-tool-描述系统)
   - [设计理念](#设计理念)
   - [工具描述清单（32 个工具）](#工具描述清单32-个工具)
@@ -35,7 +36,7 @@
 
 ## 概述
 
-Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。支持两种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**OpenClaw 兼容模式**（4 文件配置）。
+Hope Agent 的提示词系统采用**模块化组装**架构，由 `system_prompt::build()` 统一编排。System Prompt 由若干独立段落（section）按固定顺序拼接，每段可独立启用/禁用/过滤，支持 Agent 级别的差异化配置。其中工具描述（⑥）、Deferred Tools（⑥b）、Human-in-the-loop（⑥c）、Memory Guidelines（8d）、Sandbox Mode（⑪）等关键行为指引以编译时常量形式硬编码进二进制，用户无法通过自定义 agent.md 覆盖。Runtime Info 只展示 Agent 自己的 home/scratch 目录；用户为当前会话选择的工作目录会作为独立的 `# Working Directory` 条件段注入。支持两种互斥的组装模式：**结构化模式**（默认 GUI 配置）、**OpenClaw 兼容模式**（4 文件配置）。
 
 ```mermaid
 graph TD
@@ -45,8 +46,8 @@ graph TD
         S4["④ User Context"] --> S5["⑤ tools.md"] --> S6["⑥ Tool Descriptions (filtered)"]
         S6 --> S6b["⑥c Tool-Call Narration (hardcoded, always)"]
         S6b --> S6c["⑥d Human-in-the-loop (hardcoded, conditional)"]
-        S6c --> S7["⑦ Skills (filtered)"] --> S8["⑧ Memory Guidelines"]
-        S9["⑨ Runtime Info"] --> S10["⑩ SubAgent Delegation"] --> S11["⑪ Sandbox Mode"]
+        S6c --> S7["⑦ Skills (filtered)"] --> S7d["⑦d Working Directory (session, conditional)"] --> S8["⑧ Memory"]
+        S9["⑨ Runtime Info (Agent home)"] --> S10["⑩ SubAgent Delegation"] --> S11["⑪ Sandbox Mode"]
         S12["⑫ reserved"] --> S13["⑬ ACP Ext Agents"]
     end
     S3 --> S4
@@ -95,12 +96,13 @@ graph LR
     S6 --> S6b["⑥c Tool-Call Narration guidance (hardcoded, always injected)"]
     S6b --> S6c["⑥d Human-in-the-loop guidance (hardcoded, only if ask_user_question is enabled)"]
     AD --> S7["⑦ Skills (FilterConfig)"]
-    AD --> S8["⑧ Memory"]
+    S7 --> S7d["⑦d Working Directory (conditional)"]
+    S7d --> S8["⑧ Memory"]
     S8 --> S8a["8a: Core Memory (Global)"]
     S8 --> S8b["8b: Core Memory (Agent)"]
     S8 --> S8c["8c: SQLite Memories"]
     S8 --> S8d["8d: Memory Guidelines"]
-    AD --> S9["⑨ Runtime Info"]
+    AD --> S9["⑨ Runtime Info (Agent home)"]
     AD --> S10["⑩ SubAgent (conditional)"]
     AD --> S11["⑪ Sandbox (conditional)"]
     AD --> S13["⑬ ACP (conditional)"]
@@ -160,6 +162,24 @@ The following project context files have been loaded:
 - 无 Memory、SubAgent、Sandbox、ACP 段
 
 **代码位置**：`crates/ha-core/src/system_prompt/build.rs` — `pub fn build_legacy()`
+
+### Agent Home 与 Session Working Directory
+
+这两个目录在 prompt 中必须保持语义分离：
+
+| 概念 | 来源 | Prompt 呈现 | 用途 |
+| ---- | ---- | ----------- | ---- |
+| **Agent home** | `paths::agent_home_dir(agent_id)`，形如 `~/.hope-agent/{agent_id}-home/` | `# Runtime` 段中的 `- Agent home: ...` | Agent 自己的长期 scratch/home 目录，可保存工作期间的内部文件和状态 |
+| **Session Working Directory** | `sessions.working_dir`，由 `set_session_working_dir` 设置 | 独立 `# Working Directory` 段 | 当前会话用户希望默认读写的业务目录 |
+
+`Agent home` 不再在 prompt 中叫 `Working directory`，避免模型把 Agent 自己的内部目录误认为用户当前项目目录。`# Working Directory` 只在当前 session 明确设置了 `working_dir` 时注入，位置在 Project / Project Files 之后、Memory 之前，让会话级文件操作焦点优先于记忆和运行时杂项。
+
+执行层与 prompt 保持一致：path-aware 工具的相对路径按「显式绝对路径 > Session Working Directory > Agent home」解析；`exec` 无 `cwd` 时再回退到用户 home。详细工具层规则见 [tool-system.md](tool-system.md#2-文件系统)。
+
+**代码位置**：
+- Runtime / Working Directory 段：`crates/ha-core/src/system_prompt/sections.rs`
+- 注入顺序：`crates/ha-core/src/system_prompt/build.rs`
+- 会话 working dir 取值：`crates/ha-core/src/agent/config.rs`、`crates/ha-core/src/agent/mod.rs`
 
 ---
 

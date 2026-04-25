@@ -1,8 +1,8 @@
 use anyhow::Result;
 use serde_json::Value;
 
+use super::extract_string_param;
 use super::grep::GREP_FIND_MAX_OUTPUT_BYTES;
-use super::{expand_tilde, extract_string_param};
 
 /// Default max results for find.
 const FIND_DEFAULT_LIMIT: usize = 1000;
@@ -18,7 +18,7 @@ pub(crate) async fn tool_find(args: &Value, ctx: &super::ToolExecContext) -> Res
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
         .unwrap_or(ctx.default_path());
-    let search_path = expand_tilde(raw_path);
+    let search_path = ctx.resolve_path(raw_path);
 
     let limit = args
         .get("limit")

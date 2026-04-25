@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::{expand_tilde, extract_string_param};
+use super::extract_string_param;
 
 /// Max matches for grep (default).
 pub(crate) const GREP_DEFAULT_LIMIT: usize = 100;
@@ -21,7 +21,7 @@ pub(crate) async fn tool_grep(args: &Value, ctx: &super::ToolExecContext) -> Res
         .or_else(|| args.get("file_path"))
         .and_then(|v| extract_string_param(v))
         .unwrap_or(ctx.default_path());
-    let search_path = expand_tilde(raw_path);
+    let search_path = ctx.resolve_path(raw_path);
 
     let glob_pattern = args.get("glob").and_then(|v| extract_string_param(v));
     let ignore_case = args

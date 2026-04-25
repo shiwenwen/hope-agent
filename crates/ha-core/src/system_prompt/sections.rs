@@ -205,13 +205,13 @@ pub(super) fn build_runtime_section(
     let arch = std::env::consts::ARCH;
     let hostname = hostname();
 
-    // Working directory: agent home if set, otherwise process cwd
-    let working_dir = agent_home.map(|h| h.to_string()).unwrap_or_else(|| {
+    // Agent home: per-agent scratch/home directory if set, otherwise process cwd.
+    let agent_home_display = agent_home.map(|h| h.to_string()).unwrap_or_else(|| {
         std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| "unknown".to_string())
     });
-    let git_root = find_git_root(&working_dir);
+    let git_root = find_git_root(&agent_home_display);
 
     // Shared directory for cross-agent data
     let shared_dir = crate::paths::home_dir()
@@ -223,7 +223,7 @@ pub(super) fn build_runtime_section(
         format!("- Host: {}", hostname),
         format!("- OS: {} ({})", os, arch),
         format!("- Shell: {}", shell),
-        format!("- Working directory: {}", working_dir),
+        format!("- Agent home: {}", agent_home_display),
     ];
 
     if let Some(ref shared) = shared_dir {
