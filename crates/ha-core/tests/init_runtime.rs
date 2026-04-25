@@ -1,10 +1,13 @@
-//! Integration test for `init_runtime` + `build_app_state`.
+//! Integration test for `init_runtime` + `build_app_state` +
+//! `start_minimal_background_tasks`.
 //!
-//! `init_runtime` writes process-global OnceLocks (SESSION_DB, CRON_DB,
-//! APP_LOGGER, …). Cargo runs each integration test file in its own
-//! binary, so these writes don't collide with `mcp_e2e.rs` or other
-//! tests. Within this file we only have a single `#[test]` so there's no
-//! intra-binary race either.
+//! Cargo runs each integration test file in its own binary, so the
+//! process-global OnceLocks (SESSION_DB, CRON_DB, APP_LOGGER, …) written
+//! by `init_runtime` don't collide with `mcp_e2e.rs` or other tests. We
+//! deliberately keep this file to a **single** `#[test]` so we don't
+//! race within the binary either: tempdir-backed DBs need to outlive
+//! every assertion, and parallel `#[test]`s would tear down their own
+//! dirs before the other reads them.
 
 use std::sync::Arc;
 
@@ -14,8 +17,8 @@ use ha_core::globals::{
     SESSION_DB, SUBAGENT_CANCELS,
 };
 
-#[test]
-fn init_runtime_full_lifecycle() {
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn init_runtime_full_lifecycle() {
     // Sandbox: redirect ~/.hope-agent into a tempdir for this test process.
     let tmp = tempfile::tempdir().expect("tempdir");
     // dirs::home_dir() reads $HOME on Unix, %USERPROFILE% on Windows.
@@ -96,4 +99,11 @@ fn init_runtime_full_lifecycle() {
         CACHED_AGENT.get().expect("CACHED_AGENT"),
     ));
     assert!(Arc::ptr_eq(&state.log_db, LOG_DB.get().expect("LOG_DB"),));
+
+    // ── Minimal background-task variant (ACP shape): must run to
+    //    completion without panicking under a tokio runtime. The full
+    //    `start_background_tasks` would also kick off the cron scheduler
+    //    and a 1-minute dreaming ticker we don't want to leak past the
+    //    test, so we only exercise the minimal path here. ──
+    ha_core::start_minimal_background_tasks().await;
 }

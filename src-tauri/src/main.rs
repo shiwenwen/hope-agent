@@ -197,24 +197,59 @@ fn run_acp_server(args: &[String]) {
         _ => {}
     }
 
-    // Initialize SessionDB
-    let db_path = match app_lib::session::db_path() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("[acp] Fatal: failed to resolve database path: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let session_db = match app_lib::session::SessionDB::open(&db_path) {
-        Ok(db) => Arc::new(db),
-        Err(e) => {
-            eprintln!("[acp] Fatal: failed to open session database: {}", e);
+    // Initialize core runtime: opens every DB, sets every OnceLock,
+    // registers channel plugins, and brings up the ACP control plane.
+    // ACP needs this because its tool loop hits memory / cron / subagent
+    // / cached-agent / logger paths that all depend on these singletons.
+    ha_core::init_runtime();
+
+    let session_db = match ha_core::globals::SESSION_DB.get() {
+        Some(db) => db.clone(),
+        None => {
+            eprintln!("[acp] Fatal: SESSION_DB not initialized by init_runtime");
             std::process::exit(1);
         }
     };
 
+    // Side-channel tokio runtime for the minimal background-task set:
+    //   - IM channel approval / ask_user listeners (idempotent if no bus
+    //     subscriber)
+    //   - one-shot ask_user purge + async_jobs replay
+    //   - MCP `init_global` (so MCP-namespaced tools resolve)
+    //
+    // Intentionally skips daily timers, channel auto-start, dreaming,
+    // cron, and the MCP watchdog — see `start_minimal_background_tasks`
+    // for the rationale.
+    //
+    // The ACP main loop itself stays on this thread (synchronous stdin
+    // reader; each `session/prompt` builds its own current-thread runtime
+    // internally). Sharing one runtime is awkward because of nested
+    // `block_on`s, so we keep them strictly separate: bg_rt drops when
+    // `run` returns and cancels the listeners cleanly.
+    let bg_rt = match tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .worker_threads(2)
+        .thread_name("acp-bg")
+        .build()
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!(
+                "[acp] Fatal: failed to build background tokio runtime: {}",
+                e
+            );
+            std::process::exit(1);
+        }
+    };
+    bg_rt.spawn(ha_core::start_minimal_background_tasks());
+
     // Run the ACP server (blocks on stdin)
-    if let Err(e) = app_lib::acp::server::start(session_db, agent_id, verbose) {
+    let result = app_lib::acp::server::start(session_db, agent_id, verbose);
+
+    // Tear bg_rt down before exit so its tasks see cancellation.
+    drop(bg_rt);
+
+    if let Err(e) = result {
         eprintln!("[acp] Server error: {}", e);
         std::process::exit(1);
     }
@@ -326,37 +361,24 @@ fn run_server(args: &[String]) {
         eprintln!("[server] Warning: failed to ensure default agent: {}", e);
     }
 
-    // Initialize SessionDB (use ha_core types for server mode)
-    let db_path = match ha_core::session::db_path() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("[server] Fatal: failed to resolve database path: {}", e);
-            std::process::exit(1);
-        }
-    };
-    let session_db = match ha_core::session::SessionDB::open(&db_path) {
-        Ok(db) => Arc::new(db),
-        Err(e) => {
-            eprintln!("[server] Fatal: failed to open session database: {}", e);
-            std::process::exit(1);
-        }
-    };
+    // Initialize core runtime: opens every DB, sets every OnceLock,
+    // bootstraps a default EventBus, registers channel plugins, and brings
+    // up the ACP control plane. Server mode wants the same singleton set
+    // as desktop — only the GUI-specific pieces (Tauri webview, embedded
+    // HTTP server, EventBus → frontend bridge) differ.
+    ha_core::init_runtime();
 
-    // Register global SessionDB so ha-core internals (tools, agent, etc.) can access it
-    let _ = ha_core::globals::SESSION_DB.set(session_db.clone());
-
-    // Initialize ProjectDB (shares SessionDB's SQLite connection) and register globally
-    let project_db = Arc::new(ha_core::project::ProjectDB::new(session_db.clone()));
-    if let Err(e) = project_db.migrate() {
-        eprintln!("[server] Fatal: failed to run project DB migration: {}", e);
-        std::process::exit(1);
-    }
-    let _ = ha_core::globals::PROJECT_DB.set(project_db.clone());
-
-    // Create event bus
-    let event_bus: Arc<dyn ha_core::event_bus::EventBus> =
-        Arc::new(ha_core::event_bus::BroadcastEventBus::new(256));
-    ha_core::set_event_bus(event_bus.clone());
+    let session_db = ha_core::globals::SESSION_DB
+        .get()
+        .expect("SESSION_DB set by init_runtime")
+        .clone();
+    let project_db = ha_core::globals::PROJECT_DB
+        .get()
+        .expect("PROJECT_DB set by init_runtime")
+        .clone();
+    let event_bus = ha_core::get_event_bus()
+        .expect("EVENT_BUS bootstrapped by init_runtime")
+        .clone();
 
     // Build server context
     let ctx = Arc::new(ha_server::AppContext {
@@ -382,9 +404,14 @@ fn run_server(args: &[String]) {
         let _ = std::fs::write(p, std::process::id().to_string());
     }
 
-    // Run the tokio runtime
+    // Run the tokio runtime. Inside it: kick off the long-running
+    // background-task set (channel listeners, cron scheduler, channel
+    // auto-start, dreaming, MCP + watchdog, retention loops, …) before
+    // serving HTTP. Server mode is the daemon equivalent of desktop —
+    // it gets the full set, not the ACP-shaped minimal one.
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     rt.block_on(async {
+        tokio::spawn(ha_core::start_background_tasks());
         if let Err(e) = ha_server::start_server(config, ctx).await {
             eprintln!("[server] Server error: {}", e);
             std::process::exit(1);
