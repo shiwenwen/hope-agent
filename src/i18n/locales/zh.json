@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "这个项目是做什么的？",
     "projectInstructions": "项目指令",
     "projectInstructionsHint": "这些指令会自动加入该项目所有会话的系统提示词",
-    "projectInstructionsPlaceholder": "例如：始终用中文回复；技术栈是 Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "例如：始终用中文回复；语气清楚亲切；先给结论再补充细节",
     "projectEmoji": "Emoji",
     "projectLogo": "Logo",
     "projectLogoHint": "可选。设置后会替代侧边栏的 Emoji 图标显示。图片会自动压缩到 256×256。",
