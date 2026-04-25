@@ -131,30 +131,30 @@ export default function McpServersPanel() {
     const cleanups = [
       transport.listen(MCP_EVENTS.SERVERS_CHANGED, scheduleRefresh),
       transport.listen(MCP_EVENTS.SERVER_STATUS_CHANGED, scheduleRefresh),
-      transport.listen(
-        MCP_EVENTS.AUTH_REQUIRED,
-        (payload: { name: string; authUrl: string }) => {
-          toast.info(t("settings.mcp.authRequired", { name: payload.name }), {
-            description: payload.authUrl,
-            duration: 15000,
-          })
-        },
-      ),
+      transport.listen(MCP_EVENTS.AUTH_REQUIRED, (payload) => {
+        if (!payload || typeof payload !== "object") return
+        const event = payload as { name?: unknown; authUrl?: unknown }
+        if (typeof event.name !== "string" || typeof event.authUrl !== "string") return
+        toast.info(t("settings.mcp.authRequired", { name: event.name }), {
+          description: event.authUrl,
+          duration: 15000,
+        })
+      }),
       // AUTH_COMPLETED only surfaces a toast — SERVER_STATUS_CHANGED is
       // what triggers the actual refresh, so don't re-pull here.
-      transport.listen(
-        MCP_EVENTS.AUTH_COMPLETED,
-        (payload: { name: string; ok: boolean; error?: string }) => {
-          if (payload.ok) {
-            toast.success(t("settings.mcp.authSuccess", { name: payload.name }))
-          } else {
-            toast.error(
-              payload.error ??
-                t("settings.mcp.authFailed", { name: payload.name }),
-            )
-          }
-        },
-      ),
+      transport.listen(MCP_EVENTS.AUTH_COMPLETED, (payload) => {
+        if (!payload || typeof payload !== "object") return
+        const event = payload as { name?: unknown; ok?: unknown; error?: unknown }
+        if (typeof event.name !== "string" || typeof event.ok !== "boolean") return
+        if (event.ok) {
+          toast.success(t("settings.mcp.authSuccess", { name: event.name }))
+        } else {
+          toast.error(
+            (typeof event.error === "string" ? event.error : undefined) ??
+              t("settings.mcp.authFailed", { name: event.name }),
+          )
+        }
+      }),
     ]
     return () => {
       cleanups.forEach((fn) => fn())
