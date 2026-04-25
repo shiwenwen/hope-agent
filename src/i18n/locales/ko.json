@@ -1854,7 +1854,41 @@
     "serverConnSubLocal": "{{count}} 로컬",
     "serverChatSourceDesktop": "{{count}} 데스크톱",
     "serverChatSourceHttp": "{{count}} HTTP",
-    "serverChatSourceChannel": "{{count}} 채널"
+    "serverChatSourceChannel": "{{count}} 채널",
+    "skillsImport": {
+      "button": "빠른 가져오기",
+      "dialogTitle": "skill 디렉터리 빠른 가져오기",
+      "dialogDescription": "알려진 타사 skill 카탈로그(Claude Code, OpenClaw, Hermes Agent, Anthropic 마켓플레이스)를 탐색하여 설치된 항목을 추가합니다.",
+      "cc": {
+        "user": "Claude Code 사용자 수준 skill",
+        "plugins": "Claude Code 플러그인 skill",
+        "anthropic": "Anthropic Agent Skills 마켓플레이스"
+      },
+      "openclaw": "OpenClaw 저장소 skill",
+      "hermes": "Hermes Agent 저장소 skill",
+      "notFound": "이 컴퓨터에서 일치하는 경로를 찾지 못했습니다.",
+      "alreadyAdded": "이미 추가됨",
+      "skillCount_one": "{{count}}개 skill",
+      "skillCount_other": "{{count}}개 skill",
+      "skillCount": "{{count}}개 skill",
+      "add": "추가",
+      "warning": {
+        "openclaw": "OpenClaw skill은 외부 CLI(gh, 1password, tmux 등)에 의존하는 경우가 많아 설치 전에는 호출이 실패할 수 있습니다.",
+        "proprietary": "Anthropic skill은 독점 라이선스입니다. Anthropic 서비스 약관을 따라 주세요."
+      },
+      "tooltip": {
+        "distinguishOnboarding": "이전 OpenClaw 사용자 데이터 마이그레이션은 2단계의 'Import OpenClaw'를 사용하세요."
+      },
+      "error": {
+        "discover": "프리셋 skill 소스 검색 실패",
+        "add": "디렉터리 추가 실패"
+      }
+    },
+    "skillExtras": {
+      "licenseWarning": "소스 라이선스: {{license}}",
+      "relatedSkills": "관련 skill",
+      "installHint": "{{cmd}} 명령으로 의존성 설치"
+    }
   },
   "tz": {
     "shanghai": "상하이 (UTC+8)",

@@ -6,6 +6,7 @@ import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
 import SkillDetailView from "./SkillDetailView"
 import DraftReviewSection from "./DraftReviewSection"
+import QuickImportDialog from "./QuickImportDialog"
 
 export default function SkillsPanel() {
   const [skills, setSkills] = useState<SkillSummary[]>([])
@@ -16,6 +17,7 @@ export default function SkillsPanel() {
   const [extraDirs, setExtraDirs] = useState<string[]>([])
   const [selectedSkill, setSelectedSkill] = useState<SkillDetail | null>(null)
   const [loading, setLoading] = useState(true)
+  const [quickImportOpen, setQuickImportOpen] = useState(false)
   const [skillEnvCheck, setSkillEnvCheck] = useState(true)
   // Per-skill env status: skill_name -> { env_var -> is_configured }
   const [envStatus, setEnvStatus] = useState<Record<string, Record<string, boolean>>>({})
@@ -238,6 +240,12 @@ export default function SkillsPanel() {
         onAddDir={handleAddDir}
         onRemoveDir={handleRemoveDir}
         onSetSkillEnvCheck={handleSetSkillEnvCheck}
+        onQuickImport={() => setQuickImportOpen(true)}
+      />
+      <QuickImportDialog
+        open={quickImportOpen}
+        onClose={() => setQuickImportOpen(false)}
+        onImported={reload}
       />
     </div>
   )

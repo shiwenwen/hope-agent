@@ -170,6 +170,7 @@ pub fn run() {
             commands::skills::get_extra_skills_dirs,
             commands::skills::add_extra_skills_dir,
             commands::skills::remove_extra_skills_dir,
+            commands::skills::discover_preset_skill_sources,
             commands::skills::toggle_skill,
             commands::skills::get_skill_env_check,
             commands::skills::set_skill_env_check,
