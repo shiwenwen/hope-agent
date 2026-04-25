@@ -352,7 +352,17 @@ impl SessionDB {
         Ok(())
     }
 
-    pub fn list_team_messages(&self, team_id: &str, limit: usize) -> Result<Vec<TeamMessage>> {
+    /// Load the latest `limit` team messages in ASC order, with a `has_more`
+    /// flag indicating whether older messages exist beyond the window.
+    ///
+    /// Uses composite cursor `(timestamp, message_id)` so same-millisecond
+    /// inserts are paginated deterministically. `timestamp` is RFC3339 so
+    /// lexicographic comparison matches chronological order.
+    pub fn list_team_messages_latest(
+        &self,
+        team_id: &str,
+        limit: u32,
+    ) -> Result<(Vec<TeamMessage>, bool)> {
         let conn = self
             .conn
             .lock()
@@ -361,24 +371,95 @@ impl SessionDB {
             "SELECT message_id, team_id, from_member_id, to_member_id,
                     content, message_type, timestamp
              FROM team_messages WHERE team_id = ?1
-             ORDER BY timestamp DESC LIMIT ?2",
+             ORDER BY timestamp DESC, message_id DESC
+             LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![team_id, limit as i64], |row| {
-            Ok(TeamMessage {
-                message_id: row.get(0)?,
-                team_id: row.get(1)?,
-                from_member_id: row.get(2)?,
-                to_member_id: row.get(3)?,
-                content: row.get(4)?,
-                message_type: TeamMessageType::from_str(&row.get::<_, String>(5)?),
-                timestamp: row.get(6)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![team_id, limit as i64], Self::row_to_team_message)?;
         let mut messages: Vec<TeamMessage> = rows
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| anyhow::anyhow!("{}", e))?;
         messages.reverse(); // oldest first
-        Ok(messages)
+
+        let has_more = match messages.first() {
+            Some(first) => Self::has_team_messages_before(&conn, team_id, first)?,
+            None => false,
+        };
+
+        Ok((messages, has_more))
+    }
+
+    /// Load messages strictly older than the given cursor in ASC order, with
+    /// `has_more`. Cursor is `(before_timestamp, before_message_id)` — the
+    /// first message currently in view (client-maintained oldest cursor).
+    pub fn list_team_messages_before(
+        &self,
+        team_id: &str,
+        before_timestamp: &str,
+        before_message_id: &str,
+        limit: u32,
+    ) -> Result<(Vec<TeamMessage>, bool)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT message_id, team_id, from_member_id, to_member_id,
+                    content, message_type, timestamp
+             FROM team_messages
+             WHERE team_id = ?1
+               AND (timestamp < ?2
+                    OR (timestamp = ?2 AND message_id < ?3))
+             ORDER BY timestamp DESC, message_id DESC
+             LIMIT ?4",
+        )?;
+        let rows = stmt.query_map(
+            params![team_id, before_timestamp, before_message_id, limit as i64],
+            Self::row_to_team_message,
+        )?;
+        let mut messages: Vec<TeamMessage> = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
+        messages.reverse();
+
+        let has_more = match messages.first() {
+            Some(first) => Self::has_team_messages_before(&conn, team_id, first)?,
+            None => false,
+        };
+
+        Ok((messages, has_more))
+    }
+
+    fn row_to_team_message(row: &rusqlite::Row) -> rusqlite::Result<TeamMessage> {
+        Ok(TeamMessage {
+            message_id: row.get(0)?,
+            team_id: row.get(1)?,
+            from_member_id: row.get(2)?,
+            to_member_id: row.get(3)?,
+            content: row.get(4)?,
+            message_type: TeamMessageType::from_str(&row.get::<_, String>(5)?),
+            timestamp: row.get(6)?,
+        })
+    }
+
+    fn has_team_messages_before(
+        conn: &rusqlite::Connection,
+        team_id: &str,
+        first: &TeamMessage,
+    ) -> Result<bool> {
+        let result: rusqlite::Result<i64> = conn.query_row(
+            "SELECT 1 FROM team_messages
+             WHERE team_id = ?1
+               AND (timestamp < ?2
+                    OR (timestamp = ?2 AND message_id < ?3))
+             LIMIT 1",
+            params![team_id, first.timestamp, first.message_id],
+            |row| row.get(0),
+        );
+        match result {
+            Ok(_) => Ok(true),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+            Err(e) => Err(e.into()),
+        }
     }
 
     // ── Team Tasks ──────────────────────────────────────────────

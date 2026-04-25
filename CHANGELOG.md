@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Agent Team 消息流接入"加载更多"滑窗分页**：Team 面板的 Messages Tab 以前一次拉 100 条且丢弃后端分页信号，超过 100 条的历史（以及 EventBus 原有 200 条硬截尾之外的更早消息）完全不可见。现在 `get_team_messages` 返回 `(messages, hasMore)`，新增 `get_team_messages_before` 以 `(timestamp, message_id)` 复合游标向上翻页（Tauri + HTTP `GET /api/teams/{teamId}/messages/before` 双端对齐）；`useTeam` 维护 `hasMore / loadingMore`，向上滚动到顶时复用 `useVirtualFeed` 的 `onStartReached + canAnchorRow` 触发并锚定不抖；EventBus 新消息去重追加不再做截尾，保障能加载全部历史。默认页大小与 Quick Chat 对齐为 50 条。
 - **聊天相关消息流改用虚拟列表渲染**：主聊天窗口、Quick Chat 弹窗和 Team Feed 统一接入 `@tanstack/react-virtual`，只渲染可见行和 overscan 行。保留现有分页、搜索跳转、流式输出底部跟随、Plan / ask_user / tool / thinking 等富内容展示，同时在向上加载旧消息时按可见锚点恢复滚动位置，长会话滚动和团队消息流不再随已加载消息数线性堆 DOM。
 - **技能详情支持 Markdown 预览 + 响应式双栏阅读**：设置页的 skill 详情现在会把 `SKILL.md` 同时作为原始文本和 Markdown 渲染内容展示。窄窗口下可通过 tab 在“原始内容 / Markdown 预览”之间切换；当详情面板容器足够宽时会自动切成左右双栏，便于一边核对源文件一边查看最终渲染效果。配套补齐了 12 种语言的 UI 文案。
 - **模型级 Think 模式覆盖 + 聊天页模型状态热同步**：`ProviderConfig.models[*]` 新增可选 `thinking_style` 覆盖，默认继承 Provider 的 `thinking_style`，允许把同一 Provider 下的个别模型改成不同的 thinking 参数格式或显式 `none`。`AssistantAgent::build_from_key` 现在按「`reasoning=false` => 强制 no-think；否则 model override > provider default」解析实际 think 模式，OpenAI Responses / Codex 也统一尊重 `none` 关闭 reasoning。桌面聊天页 / Quick Chat 改为订阅 `config:changed` + `agents:changed`，重新解析“会话模型 > Agent override > 全局 active model”并立即刷新模型显示，不再必须切会话或重启才能看到最新设置。顺带修掉 Tauri / HTTP Provider 保存路径遗漏 `allowPrivateNetwork` / 新 thinking 字段 round-trip 的问题。

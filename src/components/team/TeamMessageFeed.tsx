@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
+import LoadMoreRow from "@/components/chat/LoadMoreRow"
 import type { TeamMessage, TeamMember } from "./teamTypes"
 import { TeamMessageBubble } from "./TeamMessageBubble"
 
@@ -11,24 +12,42 @@ interface TeamMessageFeedProps {
   messages: TeamMessage[]
   members: TeamMember[]
   onSendMessage: (to: string | null, content: string) => void
+  hasMore?: boolean
+  loadingMore?: boolean
+  onLoadMore?: () => void | Promise<void>
 }
 
 type TeamFeedRow =
   | { type: "empty"; key: "empty" }
+  | { type: "loadMore"; key: "load-more" }
   | { type: "message"; key: string; message: TeamMessage }
 
-export function TeamMessageFeed({ messages, members, onSendMessage }: TeamMessageFeedProps) {
+export function TeamMessageFeed({
+  messages,
+  members,
+  onSendMessage,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
+}: TeamMessageFeedProps) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
 
   const rows = useMemo<TeamFeedRow[]>(() => {
     if (messages.length === 0) return [{ type: "empty", key: "empty" }]
-    return messages.map((message) => ({
-      type: "message",
-      key: `team-message:${message.messageId}`,
-      message,
-    }))
-  }, [messages])
+    const next: TeamFeedRow[] = []
+    if (hasMore && onLoadMore) {
+      next.push({ type: "loadMore", key: "load-more" })
+    }
+    for (const message of messages) {
+      next.push({
+        type: "message",
+        key: `team-message:${message.messageId}`,
+        message,
+      })
+    }
+    return next
+  }, [messages, hasMore, onLoadMore])
 
   const getRowKey = useCallback((row: TeamFeedRow) => row.key, [])
   const estimateSize = useCallback(
@@ -36,10 +55,16 @@ export function TeamMessageFeed({ messages, members, onSendMessage }: TeamMessag
       const row = rows[index]
       if (!row) return 56
       if (row.type === "empty") return 160
+      if (row.type === "loadMore") return 32
       if (row.message.messageType === "system") return 28
       return 56
     },
     [rows],
+  )
+
+  const canAnchorRow = useCallback(
+    (row: TeamFeedRow) => row.type === "message",
+    [],
   )
 
   const lastMessage = messages[messages.length - 1]
@@ -54,6 +79,10 @@ export function TeamMessageFeed({ messages, members, onSendMessage }: TeamMessag
     paddingEnd: 8,
     followKey,
     resetKey: lastMessage?.teamId ?? "team-feed",
+    canAnchorRow,
+    onStartReached: onLoadMore,
+    canLoadMore: hasMore,
+    loadingMore,
   })
 
   const handleSend = useCallback(() => {
@@ -95,6 +124,10 @@ export function TeamMessageFeed({ messages, members, onSendMessage }: TeamMessag
           {t("team.noMessages", "No messages yet")}
         </div>
       )
+    }
+
+    if (row.type === "loadMore") {
+      return <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
     }
 
     return <TeamMessageBubble message={row.message} members={members} />

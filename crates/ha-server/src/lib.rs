@@ -976,6 +976,10 @@ fn build_router_with_cors(
             "/teams/{id}/messages",
             get(routes::team::get_team_messages).post(routes::team::send_user_team_message),
         )
+        .route(
+            "/teams/{id}/messages/before",
+            get(routes::team::get_team_messages_before),
+        )
         .route("/teams/{id}/tasks", get(routes::team::get_team_tasks))
         .route("/teams/{id}/pause", post(routes::team::pause_team))
         .route("/teams/{id}/resume", post(routes::team::resume_team))

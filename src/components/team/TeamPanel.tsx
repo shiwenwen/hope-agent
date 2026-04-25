@@ -31,7 +31,16 @@ export function TeamPanel({
   onSwitchSession,
 }: TeamPanelProps) {
   const { t } = useTranslation()
-  const { team, members, messages, tasks, sendMessage } = useTeam(teamId)
+  const {
+    team,
+    members,
+    messages,
+    tasks,
+    sendMessage,
+    hasMore,
+    loadingMore,
+    loadMoreMessages,
+  } = useTeam(teamId)
   const [tab, setTab] = useState("dashboard")
 
   // ── Drag resize handle ──────────────────────────────────
@@ -151,6 +160,9 @@ export function TeamPanel({
             messages={messages}
             members={members}
             onSendMessage={sendMessage}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMoreMessages}
           />
         </TabsContent>
       </Tabs>

@@ -45,12 +45,31 @@ pub async fn get_team_members(
 #[tauri::command]
 pub async fn get_team_messages(
     team_id: String,
-    limit: Option<usize>,
+    limit: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<Vec<team::TeamMessage>, String> {
+) -> Result<(Vec<team::TeamMessage>, bool), String> {
     state
         .session_db
-        .list_team_messages(&team_id, limit.unwrap_or(100))
+        .list_team_messages_latest(&team_id, limit.unwrap_or(50))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_team_messages_before(
+    team_id: String,
+    before_timestamp: String,
+    before_message_id: String,
+    limit: Option<u32>,
+    state: State<'_, AppState>,
+) -> Result<(Vec<team::TeamMessage>, bool), String> {
+    state
+        .session_db
+        .list_team_messages_before(
+            &team_id,
+            &before_timestamp,
+            &before_message_id,
+            limit.unwrap_or(50),
+        )
         .map_err(|e| e.to_string())
 }
 

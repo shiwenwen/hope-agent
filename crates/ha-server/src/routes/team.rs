@@ -43,17 +43,45 @@ pub async fn get_team_members(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MessagesQuery {
-    pub limit: Option<usize>,
+    pub limit: Option<u32>,
 }
 
-/// `GET /api/teams/:id/messages`
+/// `GET /api/teams/:id/messages?limit=N` — load latest team messages.
+///
+/// Returns JSON tuple `[messages, hasMore]` (same shape as Tauri
+/// `get_team_messages`). Default limit is 50.
 pub async fn get_team_messages(
     Path(team_id): Path<String>,
     Query(q): Query<MessagesQuery>,
-) -> Result<Json<Vec<team::TeamMessage>>, AppError> {
-    Ok(Json(
-        session_db()?.list_team_messages(&team_id, q.limit.unwrap_or(100))?,
-    ))
+) -> Result<Json<Value>, AppError> {
+    let (messages, has_more) =
+        session_db()?.list_team_messages_latest(&team_id, q.limit.unwrap_or(50))?;
+    Ok(Json(json!([messages, has_more])))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MessagesBeforeQuery {
+    pub before_timestamp: String,
+    pub before_message_id: String,
+    pub limit: Option<u32>,
+}
+
+/// `GET /api/teams/:id/messages/before?beforeTimestamp=...&beforeMessageId=...&limit=N`
+///
+/// Load team messages strictly older than the composite cursor, in ASC order.
+/// Returns JSON tuple `[messages, hasMore]`.
+pub async fn get_team_messages_before(
+    Path(team_id): Path<String>,
+    Query(q): Query<MessagesBeforeQuery>,
+) -> Result<Json<Value>, AppError> {
+    let (messages, has_more) = session_db()?.list_team_messages_before(
+        &team_id,
+        &q.before_timestamp,
+        &q.before_message_id,
+        q.limit.unwrap_or(50),
+    )?;
+    Ok(Json(json!([messages, has_more])))
 }
 
 /// `GET /api/teams/:id/tasks`

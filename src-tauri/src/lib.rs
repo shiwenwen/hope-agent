@@ -414,6 +414,7 @@ pub fn run() {
             commands::team::get_team,
             commands::team::get_team_members,
             commands::team::get_team_messages,
+            commands::team::get_team_messages_before,
             commands::team::get_team_tasks,
             commands::team::send_user_team_message,
             commands::team::list_team_templates,

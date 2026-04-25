@@ -589,6 +589,7 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `get_team` | `GET /api/teams/{teamId}` | ✅ |
 | `get_team_members` | `GET /api/teams/{teamId}/members` | ✅ |
 | `get_team_messages` | `GET /api/teams/{teamId}/messages` | ✅ |
+| `get_team_messages_before` | `GET /api/teams/{teamId}/messages/before` | ✅ |
 | `get_team_tasks` | `GET /api/teams/{teamId}/tasks` | ✅ |
 | `send_user_team_message` | `POST /api/teams/{teamId}/messages` | ✅ |
 | `pause_team` | `POST /api/teams/{teamId}/pause` | ✅ |

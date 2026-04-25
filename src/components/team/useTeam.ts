@@ -8,6 +8,8 @@ import type {
   TeamEvent,
 } from "./teamTypes"
 
+const TEAM_MESSAGE_PAGE_SIZE = 50
+
 /**
  * Hook to manage team state with real-time EventBus subscription.
  */
@@ -17,6 +19,8 @@ export function useTeam(teamId: string | null) {
   const [messages, setMessages] = useState<TeamMessage[]>([])
   const [tasks, setTasks] = useState<TeamTask[]>([])
   const [loading, setLoading] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
   const teamIdRef = useRef(teamId)
   teamIdRef.current = teamId
 
@@ -26,16 +30,21 @@ export function useTeam(teamId: string | null) {
     if (!teamId) return
     setLoading(true)
     try {
-      const [t, m, msgs, tks] = await Promise.all([
+      const [t, m, msgPage, tks] = await Promise.all([
         getTransport().call<Team | null>("get_team", { teamId }),
         getTransport().call<TeamMember[]>("get_team_members", { teamId }),
-        getTransport().call<TeamMessage[]>("get_team_messages", { teamId, limit: 100 }),
+        getTransport().call<[TeamMessage[], boolean]>("get_team_messages", {
+          teamId,
+          limit: TEAM_MESSAGE_PAGE_SIZE,
+        }),
         getTransport().call<TeamTask[]>("get_team_tasks", { teamId }),
       ])
       if (teamIdRef.current === teamId) {
         setTeam(t)
         setMembers(m)
-        setMessages(msgs)
+        setMessages(msgPage[0])
+        setHasMore(msgPage[1])
+        setLoadingMore(false)
         setTasks(tks)
       }
     } catch {
@@ -44,6 +53,37 @@ export function useTeam(teamId: string | null) {
       setLoading(false)
     }
   }, [teamId])
+
+  // ── Pagination: load older messages ───────────────────────
+
+  const loadMoreMessages = useCallback(async () => {
+    const tid = teamIdRef.current
+    if (!tid || !hasMore || loadingMore) return
+    const oldest = messages[0]
+    if (!oldest) return
+    setLoadingMore(true)
+    try {
+      const [older, moreBefore] = await getTransport().call<
+        [TeamMessage[], boolean]
+      >("get_team_messages_before", {
+        teamId: tid,
+        beforeTimestamp: oldest.timestamp,
+        beforeMessageId: oldest.messageId,
+        limit: TEAM_MESSAGE_PAGE_SIZE,
+      })
+      if (teamIdRef.current !== tid) return
+      if (older.length === 0) {
+        setHasMore(false)
+        return
+      }
+      setMessages((prev) => [...older, ...prev])
+      setHasMore(moreBefore)
+    } catch {
+      // Ignore; user can retry by scrolling up again
+    } finally {
+      setLoadingMore(false)
+    }
+  }, [hasMore, loadingMore, messages])
 
   // ── Initial load ──────────────────────────────────────────
 
@@ -55,6 +95,8 @@ export function useTeam(teamId: string | null) {
       setMembers([])
       setMessages([])
       setTasks([])
+      setHasMore(false)
+      setLoadingMore(false)
     }
   }, [teamId, reload])
 
@@ -88,10 +130,11 @@ export function useTeam(teamId: string | null) {
         case "message": {
           const msg = event.payload as TeamMessage
           if (msg.teamId === teamIdRef.current) {
-            setMessages((prev) => {
-              const next = [...prev, msg]
-              return next.length > 200 ? next.slice(-200) : next
-            })
+            setMessages((prev) =>
+              prev.some((m) => m.messageId === msg.messageId)
+                ? prev
+                : [...prev, msg],
+            )
           }
           break
         }
@@ -143,6 +186,9 @@ export function useTeam(teamId: string | null) {
     messages,
     tasks,
     loading,
+    hasMore,
+    loadingMore,
+    loadMoreMessages,
     reload,
     sendMessage,
   }

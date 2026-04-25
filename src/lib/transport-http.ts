@@ -389,6 +389,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_team:                        { method: "GET",    path: "/api/teams/{teamId}" },
   get_team_members:                { method: "GET",    path: "/api/teams/{teamId}/members" },
   get_team_messages:               { method: "GET",    path: "/api/teams/{teamId}/messages" },
+  get_team_messages_before:        { method: "GET",    path: "/api/teams/{teamId}/messages/before" },
   get_team_tasks:                  { method: "GET",    path: "/api/teams/{teamId}/tasks" },
   send_user_team_message:          { method: "POST",   path: "/api/teams/{teamId}/messages" },
   pause_team:                      { method: "POST",   path: "/api/teams/{teamId}/pause" },
