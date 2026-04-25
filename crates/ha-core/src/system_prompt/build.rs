@@ -728,6 +728,24 @@ mod memory_section_tests {
     }
 
     #[test]
+    fn runtime_section_labels_agent_home_separately_from_session_working_dir() {
+        let out = build_runtime_section(
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            Some("/tmp/hope-agent/coder-home"),
+        );
+
+        assert!(
+            out.contains("- Agent home: /tmp/hope-agent/coder-home"),
+            "agent home should be named as agent home: {out}"
+        );
+        assert!(
+            !out.contains("- Working directory: /tmp/hope-agent/coder-home"),
+            "agent home should not be presented as the session working directory: {out}"
+        );
+    }
+
+    #[test]
     fn incognito_prompt_omits_memory_and_includes_policy() {
         let definition = mk_definition();
         let budget = MemoryBudgetConfig::default();

@@ -288,7 +288,7 @@ fn apply_update_hunks(content: &str, path: &str, chunks: &[UpdateChunk]) -> Resu
     Ok(result)
 }
 
-pub(crate) async fn tool_apply_patch(args: &Value) -> Result<String> {
+pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let input = args
         .get("input")
         .and_then(|v| extract_string_param(v))
@@ -317,53 +317,57 @@ pub(crate) async fn tool_apply_patch(args: &Value) -> Result<String> {
     for hunk in &hunks {
         match hunk {
             PatchHunkKind::Add { path, contents } => {
-                let p = Path::new(path);
+                let resolved_path = ctx.resolve_path(path);
+                let p = Path::new(&resolved_path);
                 if let Some(parent) = p.parent() {
                     tokio::fs::create_dir_all(parent).await.map_err(|e| {
                         anyhow::anyhow!("Failed to create directories for '{}': {}", path, e)
                     })?;
                 }
-                tokio::fs::write(path, contents)
+                tokio::fs::write(&resolved_path, contents)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to write new file '{}': {}", path, e))?;
-                added.push(path.clone());
+                added.push(resolved_path);
             }
             PatchHunkKind::Delete { path } => {
-                tokio::fs::remove_file(path)
+                let resolved_path = ctx.resolve_path(path);
+                tokio::fs::remove_file(&resolved_path)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to delete file '{}': {}", path, e))?;
-                deleted.push(path.clone());
+                deleted.push(resolved_path);
             }
             PatchHunkKind::Update {
                 path,
                 chunks,
                 move_to,
             } => {
-                let content = tokio::fs::read_to_string(path)
+                let resolved_path = ctx.resolve_path(path);
+                let content = tokio::fs::read_to_string(&resolved_path)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to read file '{}': {}", path, e))?;
 
                 let new_content = apply_update_hunks(&content, path, chunks)?;
 
                 if let Some(new_path) = move_to {
-                    let np = Path::new(new_path);
+                    let resolved_new_path = ctx.resolve_path(new_path);
+                    let np = Path::new(&resolved_new_path);
                     if let Some(parent) = np.parent() {
                         tokio::fs::create_dir_all(parent).await.map_err(|e| {
                             anyhow::anyhow!("Failed to create dirs for '{}': {}", new_path, e)
                         })?;
                     }
-                    tokio::fs::write(new_path, &new_content)
+                    tokio::fs::write(&resolved_new_path, &new_content)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to write '{}': {}", new_path, e))?;
-                    tokio::fs::remove_file(path).await.map_err(|e| {
+                    tokio::fs::remove_file(&resolved_path).await.map_err(|e| {
                         anyhow::anyhow!("Failed to remove old file '{}': {}", path, e)
                     })?;
-                    modified.push(format!("{} -> {}", path, new_path));
+                    modified.push(format!("{} -> {}", resolved_path, resolved_new_path));
                 } else {
-                    tokio::fs::write(path, &new_content)
+                    tokio::fs::write(&resolved_path, &new_content)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to write '{}': {}", path, e))?;
-                    modified.push(path.clone());
+                    modified.push(resolved_path);
                 }
             }
         }

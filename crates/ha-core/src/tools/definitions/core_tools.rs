@@ -29,7 +29,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "cwd": {
                         "type": "string",
-                        "description": "Working directory for the command. Defaults to user home directory."
+                        "description": "Working directory for the command. Relative paths resolve from the session working directory when set, otherwise the agent home. Defaults to session working directory > agent home > user home."
                     },
                     "timeout": {
                         "type": "integer",
@@ -103,7 +103,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_READ.into(),
-            description: "Read the contents of a file at the specified path. Supports text files with line-based pagination (offset/limit) and image files (auto-detected, returned as base64). For large files, use offset and limit to read specific sections.".into(),
+            description: "Read the contents of a file at the specified path. Relative paths resolve from the session working directory when set, otherwise the agent home. Supports text files with line-based pagination (offset/limit) and image files (auto-detected, returned as base64). For large files, use offset and limit to read specific sections.".into(),
             internal: false,
             deferred: false,
             always_load: false,
@@ -160,7 +160,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_WRITE.into(),
-            description: "Write content to a file at the specified path. Creates parent directories if needed. Accepts 'file_path' as alias for 'path'.".into(),
+            description: "Write content to a file at the specified path. Relative paths resolve from the session working directory when set, otherwise the agent home. Creates parent directories if needed. Accepts 'file_path' as alias for 'path'.".into(),
             internal: false,
             deferred: false,
             always_load: false,
@@ -183,7 +183,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_EDIT.into(),
-            description: "Edit a file by replacing specific text. More precise than write for making targeted changes. The old_text must match exactly once (including whitespace and indentation). Accepts aliases: 'file_path' for 'path', 'oldText'/'old_string' for 'old_text', 'newText'/'new_string' for 'new_text'.".into(),
+            description: "Edit a file by replacing specific text. Relative paths resolve from the session working directory when set, otherwise the agent home. More precise than write for making targeted changes. The old_text must match exactly once (including whitespace and indentation). Accepts aliases: 'file_path' for 'path', 'oldText'/'old_string' for 'old_text', 'newText'/'new_string' for 'new_text'.".into(),
             internal: false,
             deferred: false,
             always_load: false,
@@ -210,7 +210,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_LS.into(),
-            description: "List files and directories in the specified path. Returns sorted names with type indicators (/ for directories, @ for symlinks). Supports ~ expansion and entry limit.".into(),
+            description: "List files and directories in the specified path. Relative paths resolve from the session working directory when set, otherwise the agent home. Returns sorted names with type indicators (/ for directories, @ for symlinks). Supports ~ expansion and entry limit.".into(),
             internal: false,
             deferred: false,
             always_load: false,
@@ -220,7 +220,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Directory path to list (also accepts 'file_path'). Defaults to current directory. Supports ~ for home directory."
+                        "description": "Directory path to list (also accepts 'file_path'). Defaults to the session working directory when set, otherwise the agent home. Supports ~ for home directory."
                     },
                     "limit": {
                         "type": "integer",
@@ -233,7 +233,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_GREP.into(),
-            description: "Search file contents using regex or literal patterns. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
+            description: "Search file contents using regex or literal patterns. Relative paths resolve from the session working directory when set, otherwise the agent home. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
             internal: false,
             deferred: false,
             always_load: false,
@@ -247,7 +247,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Directory or file to search in (default: current directory). Supports ~ expansion."
+                        "description": "Directory or file to search in. Defaults to the session working directory when set, otherwise the agent home. Supports ~ expansion."
                     },
                     "glob": {
                         "type": "string",
@@ -276,7 +276,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_FIND.into(),
-            description: "Find files by glob pattern. Respects .gitignore. Returns matching file paths relative to the search directory.".into(),
+            description: "Find files by glob pattern. Relative paths resolve from the session working directory when set, otherwise the agent home. Respects .gitignore. Returns matching file paths relative to the search directory.".into(),
             internal: false,
             deferred: false,
             always_load: false,
@@ -290,7 +290,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                     },
                     "path": {
                         "type": "string",
-                        "description": "Directory to search in (default: current directory). Supports ~ expansion."
+                        "description": "Directory to search in. Defaults to the session working directory when set, otherwise the agent home. Supports ~ expansion."
                     },
                     "limit": {
                         "type": "integer",
@@ -303,7 +303,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_APPLY_PATCH.into(),
-            description: "Apply a patch to create, modify, move, or delete files. Use the *** Begin Patch / *** End Patch format with Add File, Update File, Delete File, and Move to markers.".into(),
+            description: "Apply a patch to create, modify, move, or delete files. Relative paths resolve from the session working directory when set, otherwise the agent home. Use the *** Begin Patch / *** End Patch format with Add File, Update File, Delete File, and Move to markers.".into(),
             internal: false,
             deferred: false,
             always_load: false,

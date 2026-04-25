@@ -1,7 +1,7 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::{expand_tilde, extract_string_param};
+use super::extract_string_param;
 
 /// Default max entries for ls.
 const LS_DEFAULT_LIMIT: usize = 500;
@@ -16,7 +16,7 @@ pub(crate) async fn tool_ls(args: &Value, ctx: &super::ToolExecContext) -> Resul
         .and_then(|v| extract_string_param(v))
         .unwrap_or(ctx.default_path());
 
-    let path = expand_tilde(raw_path);
+    let path = ctx.resolve_path(raw_path);
     let limit = args
         .get("limit")
         .and_then(|v| v.as_u64())
