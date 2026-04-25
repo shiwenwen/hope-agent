@@ -203,13 +203,9 @@ fn run_acp_server(args: &[String]) {
     // / cached-agent / logger paths that all depend on these singletons.
     ha_core::init_runtime();
 
-    let session_db = match ha_core::globals::SESSION_DB.get() {
-        Some(db) => db.clone(),
-        None => {
-            eprintln!("[acp] Fatal: SESSION_DB not initialized by init_runtime");
-            std::process::exit(1);
-        }
-    };
+    let session_db = ha_core::require_session_db()
+        .expect("init_runtime contract")
+        .clone();
 
     // Side-channel tokio runtime for the minimal background-task set:
     //   - IM channel approval / ask_user listeners (idempotent if no bus
@@ -368,16 +364,14 @@ fn run_server(args: &[String]) {
     // HTTP server, EventBus → frontend bridge) differ.
     ha_core::init_runtime();
 
-    let session_db = ha_core::globals::SESSION_DB
-        .get()
-        .expect("SESSION_DB set by init_runtime")
+    let session_db = ha_core::require_session_db()
+        .expect("init_runtime contract")
         .clone();
-    let project_db = ha_core::globals::PROJECT_DB
-        .get()
-        .expect("PROJECT_DB set by init_runtime")
+    let project_db = ha_core::require_project_db()
+        .expect("init_runtime contract")
         .clone();
     let event_bus = ha_core::get_event_bus()
-        .expect("EVENT_BUS bootstrapped by init_runtime")
+        .expect("init_runtime contract")
         .clone();
 
     // Build server context

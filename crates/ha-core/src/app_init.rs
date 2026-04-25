@@ -273,23 +273,38 @@ pub fn build_app_state() -> AppState {
         "build_app_state called before init_runtime"
     );
 
-    fn must<T>(opt: Option<&'static Arc<T>>, label: &str) -> Arc<T> {
-        opt.unwrap_or_else(|| panic!("build_app_state: {label} not initialised by init_runtime"))
-            .clone()
-    }
-
-    let session_db = must(SESSION_DB.get(), "SESSION_DB");
-    let project_db = must(PROJECT_DB.get(), "PROJECT_DB");
-    let log_db = must(LOG_DB.get(), "LOG_DB");
-    let cron_db = must(CRON_DB.get(), "CRON_DB");
-    let subagent_cancels = must(SUBAGENT_CANCELS.get(), "SUBAGENT_CANCELS");
-    let channel_cancels = must(CHANNEL_CANCELS.get(), "CHANNEL_CANCELS");
-    let codex_token = must(CODEX_TOKEN_CACHE.get(), "CODEX_TOKEN_CACHE");
-    let reasoning_effort = must(REASONING_EFFORT.get(), "REASONING_EFFORT");
-    let cached_agent = must(CACHED_AGENT.get(), "CACHED_AGENT");
-    let logger = APP_LOGGER
-        .get()
-        .expect("build_app_state: APP_LOGGER not initialised by init_runtime")
+    // OnceLocks are always Some after `init_runtime()`. The `require_*`
+    // accessors share one error shape ("X not initialized") so we surface
+    // the same message everyone else (HTTP routes, slash commands) sees.
+    let session_db = crate::require_session_db()
+        .expect("init_runtime contract")
+        .clone();
+    let project_db = crate::require_project_db()
+        .expect("init_runtime contract")
+        .clone();
+    let log_db = crate::require_log_db()
+        .expect("init_runtime contract")
+        .clone();
+    let cron_db = crate::require_cron_db()
+        .expect("init_runtime contract")
+        .clone();
+    let subagent_cancels = crate::require_subagent_cancels()
+        .expect("init_runtime contract")
+        .clone();
+    let channel_cancels = crate::require_channel_cancels()
+        .expect("init_runtime contract")
+        .clone();
+    let codex_token = crate::require_codex_token_cache()
+        .expect("init_runtime contract")
+        .clone();
+    let reasoning_effort = crate::require_reasoning_effort_cell()
+        .expect("init_runtime contract")
+        .clone();
+    let cached_agent = crate::require_cached_agent()
+        .expect("init_runtime contract")
+        .clone();
+    let logger = crate::require_logger()
+        .expect("init_runtime contract")
         .clone();
 
     let state = AppState {
@@ -344,13 +359,12 @@ fn ptr_eq_lock<T>(lock: &std::sync::OnceLock<Arc<T>>, field: &Arc<T>) -> bool {
         .unwrap_or(false)
 }
 
-/// Start background async tasks that require a tokio runtime.
-/// Must be called from within a tokio async context (e.g., Tauri's `.setup()` or a server runtime).
-pub async fn start_background_tasks() {
-    // IM channel approval / ask_user listeners. These use bare `tokio::spawn`
-    // internally, so they live here (post-runtime) rather than in
-    // `init_runtime` (which can run on a sync stack). Idempotent — the
-    // listeners early-return if `get_event_bus()` is None.
+/// Spawn the IM channel approval + ask_user listeners. Both internally
+/// use bare `tokio::spawn` so they require an ambient tokio runtime —
+/// callers are `start_background_tasks` and `start_minimal_background_tasks`,
+/// never `init_runtime` (which can run on a sync stack). No-op if the
+/// channel registry isn't initialised yet.
+fn spawn_channel_listeners() {
     if let (Some(channel_db), Some(registry)) = (CHANNEL_DB.get(), CHANNEL_REGISTRY.get()) {
         channel::worker::approval::spawn_channel_approval_listener(
             channel_db.clone(),
@@ -361,12 +375,16 @@ pub async fn start_background_tasks() {
             registry.clone(),
         );
     }
+}
 
-    // Cron scheduler: `start_scheduler` itself spawns a dedicated OS thread
-    // with its own multi-thread tokio runtime (see scheduler.rs), so we just
-    // call it here and let the returned JoinHandle detach. Used to live in
-    // `src-tauri/src/setup.rs`; centralising it here means server / acp
-    // entrypoints don't have to remember to start cron separately.
+/// Start background async tasks that require a tokio runtime.
+/// Must be called from within a tokio async context (e.g., Tauri's `.setup()` or a server runtime).
+pub async fn start_background_tasks() {
+    spawn_channel_listeners();
+
+    // Cron scheduler self-hosts a dedicated OS thread with its own tokio
+    // runtime (see scheduler.rs); centralising the spawn here means all
+    // three modes share one entry point.
     if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
         let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
     }
@@ -537,19 +555,7 @@ pub async fn start_background_tasks() {
 /// Future maintainers: think before adding to this list. The point is to
 /// stay small.
 pub async fn start_minimal_background_tasks() {
-    // IM channel approval / ask_user listeners are *also* registered here so
-    // that an ACP-launched channel-aware tool (e.g. notify-on-IM) doesn't
-    // silently drop. Both early-return when no EventBus subscriber exists.
-    if let (Some(channel_db), Some(registry)) = (CHANNEL_DB.get(), CHANNEL_REGISTRY.get()) {
-        channel::worker::approval::spawn_channel_approval_listener(
-            channel_db.clone(),
-            registry.clone(),
-        );
-        channel::worker::ask_user::spawn_channel_ask_user_listener(
-            channel_db.clone(),
-            registry.clone(),
-        );
-    }
+    spawn_channel_listeners();
 
     // One-shot ask_user table cleanup. Identical to start_background_tasks
     // body but without the daily loop.
