@@ -7,7 +7,8 @@ mod types;
 
 // Re-export all public types
 pub use types::{
-    CalendarEvent, CronDeliveryTarget, CronJob, CronPayload, CronRunLog, CronSchedule, NewCronJob,
+    CalendarEvent, ClaimedCronJob, CronDeliveryTarget, CronJob, CronPayload, CronRunLog,
+    CronSchedule, NewCronJob,
 };
 
 // Re-export DB layer

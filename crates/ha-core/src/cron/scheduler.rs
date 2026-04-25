@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use super::db::CronDB;
-use super::executor::execute_job;
+use super::executor::execute_claimed_job;
 
 // ── Scheduler ───────────────────────────────────────────────────
 
@@ -61,15 +61,15 @@ pub fn start_scheduler(
                             due_jobs.len()
                         );
                         for job in due_jobs {
-                            match cron_db.claim_job_for_execution(&job) {
-                                Ok(true) => {
+                            match cron_db.claim_scheduled_job_for_execution(&job) {
+                                Ok(Some(claimed)) => {
                                     let db = cron_db.clone();
                                     let sdb = session_db.clone();
                                     tokio::spawn(async move {
-                                        execute_job(&db, &sdb, &job).await;
+                                        execute_claimed_job(&db, &sdb, claimed).await;
                                     });
                                 }
-                                Ok(false) => {}
+                                Ok(None) => {}
                                 Err(e) => {
                                     app_error!(
                                         "cron",
@@ -105,15 +105,15 @@ pub fn start_scheduler(
                         Ok(due_jobs) => {
                             for job in due_jobs {
                                 // Claim job first to prevent duplicate execution
-                                match cron_db.claim_job_for_execution(&job) {
-                                    Ok(true) => {
+                                match cron_db.claim_scheduled_job_for_execution(&job) {
+                                    Ok(Some(claimed)) => {
                                         let db = cron_db.clone();
                                         let sdb = session_db.clone();
                                         tokio::spawn(async move {
-                                            execute_job(&db, &sdb, &job).await;
+                                            execute_claimed_job(&db, &sdb, claimed).await;
                                         });
                                     }
-                                    Ok(false) => {
+                                    Ok(None) => {
                                         app_debug!(
                                             "cron",
                                             "scheduler",

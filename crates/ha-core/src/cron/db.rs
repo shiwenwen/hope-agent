@@ -603,9 +603,12 @@ impl CronDB {
         Ok(count)
     }
 
-    /// Atomically claim a job for execution: set running_at and advance next_run_at.
-    /// Returns true if the job was claimed (no one else grabbed it first).
-    pub fn claim_job_for_execution(&self, job: &CronJob) -> Result<bool> {
+    /// Atomically claim a scheduled due job: set running_at and advance next_run_at.
+    /// Returns an execution lease if no one else grabbed it first.
+    pub fn claim_scheduled_job_for_execution(
+        &self,
+        job: &CronJob,
+    ) -> Result<Option<ClaimedCronJob>> {
         let now = Utc::now();
         let now_str = now.to_rfc3339();
         let conn = self
@@ -622,14 +625,22 @@ impl CronDB {
         // Atomically claim: only succeed if still active, not running, and next_run_at matches
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1, next_run_at=?2, updated_at=?1
-             WHERE id=?3 AND next_run_at=?4 AND status='active' AND running_at IS NULL",
-            params![now_str, next_run, job.id, job.next_run_at],
+             WHERE id=?3 AND next_run_at=?4 AND next_run_at <= ?5
+               AND status='active' AND running_at IS NULL",
+            params![now_str, next_run, job.id, job.next_run_at, now_str],
         )?;
-        Ok(rows > 0)
+        Ok((rows > 0).then(|| ClaimedCronJob {
+            job: job.clone(),
+            claimed_at: now_str,
+        }))
     }
 
-    /// Atomically claim a job for execution. Returns `false` if already running.
-    pub fn try_mark_running(&self, id: &str) -> Result<bool> {
+    /// Atomically claim a job for immediate execution without changing its schedule.
+    /// Used by manual run-now entrypoints.
+    pub fn claim_immediate_job_for_execution(
+        &self,
+        job: &CronJob,
+    ) -> Result<Option<ClaimedCronJob>> {
         let conn = self
             .conn
             .lock()
@@ -637,9 +648,12 @@ impl CronDB {
         let now = chrono::Utc::now().to_rfc3339();
         let rows = conn.execute(
             "UPDATE cron_jobs SET running_at=?1 WHERE id=?2 AND running_at IS NULL",
-            params![now, id],
+            params![now, job.id],
         )?;
-        Ok(rows > 0)
+        Ok((rows > 0).then(|| ClaimedCronJob {
+            job: job.clone(),
+            claimed_at: now,
+        }))
     }
 
     /// Clear running_at after job execution completes (called by execute_job).
@@ -1108,6 +1122,128 @@ mod tests {
 
         drop(stmt);
         drop(conn);
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn scheduled_claim_returns_execution_lease_and_clears_one_shot_next_run() {
+        let path = temp_db_path("scheduled-claim");
+        let db = CronDB::open(&path).expect("open db");
+        let mut job = db
+            .add_job(&NewCronJob {
+                name: "Hydrate".into(),
+                description: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "drink water".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add job");
+        let due_at = (Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET next_run_at=?1 WHERE id=?2",
+                params![due_at, job.id],
+            )
+            .expect("mark due");
+        }
+        job.next_run_at = Some(due_at);
+
+        let claimed = db
+            .claim_scheduled_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed job");
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+
+        assert_eq!(claimed.job.id, job.id);
+        assert_eq!(
+            stored.running_at.as_deref(),
+            Some(claimed.claimed_at.as_str())
+        );
+        assert_eq!(stored.next_run_at, None);
+        assert!(db
+            .claim_scheduled_job_for_execution(&job)
+            .expect("second claim")
+            .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn scheduled_claim_does_not_claim_future_job() {
+        let path = temp_db_path("scheduled-future-claim");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Hydrate".into(),
+                description: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "drink water".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add job");
+
+        assert!(db
+            .claim_scheduled_job_for_execution(&job)
+            .expect("claim")
+            .is_none());
+
+        cleanup_db_files(&path);
+    }
+
+    #[test]
+    fn immediate_claim_returns_execution_lease_without_advancing_schedule() {
+        let path = temp_db_path("immediate-claim");
+        let db = CronDB::open(&path).expect("open db");
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Hydrate".into(),
+                description: None,
+                schedule: CronSchedule::At {
+                    timestamp: (Utc::now() + chrono::Duration::minutes(1)).to_rfc3339(),
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "drink water".into(),
+                    agent_id: None,
+                },
+                max_failures: None,
+                notify_on_complete: None,
+                delivery_targets: None,
+            })
+            .expect("add job");
+        let original_next_run = job.next_run_at.clone();
+
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed job");
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+
+        assert_eq!(claimed.job.id, job.id);
+        assert_eq!(
+            stored.running_at.as_deref(),
+            Some(claimed.claimed_at.as_str())
+        );
+        assert_eq!(stored.next_run_at, original_next_run);
+        assert!(db
+            .claim_immediate_job_for_execution(&job)
+            .expect("second claim")
+            .is_none());
+
         cleanup_db_files(&path);
     }
 }

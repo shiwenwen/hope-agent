@@ -95,6 +95,14 @@ pub struct CronJob {
     pub delivery_targets: Vec<CronDeliveryTarget>,
 }
 
+/// A cron job execution lease. Constructed only after the DB atomically marks
+/// a job as running, so executors do not need to claim it again.
+#[derive(Debug, Clone)]
+pub struct ClaimedCronJob {
+    pub job: CronJob,
+    pub claimed_at: String,
+}
+
 /// A single IM channel conversation target for cron result delivery.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

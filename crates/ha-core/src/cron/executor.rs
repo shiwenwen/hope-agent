@@ -19,22 +19,9 @@ pub async fn execute_job_public(
     session_db: &Arc<crate::session::SessionDB>,
     job: &CronJob,
 ) {
-    execute_job(cron_db, session_db, job).await;
-}
-
-/// Execute a single cron job: build agent, run chat, record result.
-pub(crate) async fn execute_job(
-    cron_db: &Arc<CronDB>,
-    session_db: &Arc<crate::session::SessionDB>,
-    job: &CronJob,
-) {
-    let start_time = std::time::Instant::now();
-    let started_at = Utc::now().to_rfc3339();
-
-    // Atomically claim the job — skip if already running
-    match cron_db.try_mark_running(&job.id) {
-        Ok(true) => {} // claimed successfully
-        Ok(false) => {
+    match cron_db.claim_immediate_job_for_execution(job) {
+        Ok(Some(claimed)) => execute_claimed_job(cron_db, session_db, claimed).await,
+        Ok(None) => {
             app_warn!(
                 "cron",
                 "executor",
@@ -42,7 +29,6 @@ pub(crate) async fn execute_job(
                 job.name,
                 job.id
             );
-            return;
         }
         Err(e) => {
             app_error!(
@@ -52,9 +38,19 @@ pub(crate) async fn execute_job(
                 job.name,
                 e
             );
-            return;
         }
     }
+}
+
+/// Execute a job whose running marker was already claimed by the DB.
+pub(crate) async fn execute_claimed_job(
+    cron_db: &Arc<CronDB>,
+    session_db: &Arc<crate::session::SessionDB>,
+    claimed: ClaimedCronJob,
+) {
+    let start_time = std::time::Instant::now();
+    let started_at = claimed.claimed_at.clone();
+    let job = claimed.job;
 
     app_info!(
         "cron",
@@ -89,7 +85,7 @@ pub(crate) async fn execute_job(
             );
             record_failure(
                 cron_db,
-                job,
+                &job,
                 &started_at,
                 start_time,
                 "no_session",
@@ -171,7 +167,7 @@ pub(crate) async fn execute_job(
             let _ = cron_db.add_run_log(&run_log);
             let _ = cron_db.update_after_run(&job.id, true, &job.schedule);
 
-            deliver_results(job, DeliveryOutcome::Success { text: &response }).await;
+            deliver_results(&job, DeliveryOutcome::Success { text: &response }).await;
 
             let _ = cron_db.clear_running(&job.id);
 
@@ -184,11 +180,11 @@ pub(crate) async fn execute_job(
             persist_failure_message_if_missing(session_db, &session_id, &err_text);
 
             // Notify IM channel targets of the failure before bookkeeping.
-            deliver_results(job, DeliveryOutcome::Failure { error: &err_text }).await;
+            deliver_results(&job, DeliveryOutcome::Failure { error: &err_text }).await;
 
             record_failure(
                 cron_db,
-                job,
+                &job,
                 &started_at,
                 start_time,
                 "error",
