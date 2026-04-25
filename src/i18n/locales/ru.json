@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "О чём этот проект?",
     "projectInstructions": "Инструкции проекта",
     "projectInstructionsHint": "Эти инструкции автоматически добавляются в системный промпт каждой сессии этого проекта.",
-    "projectInstructionsPlaceholder": "напр. Всегда отвечай на русском; стек — Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "напр. Всегда отвечай на русском; сохраняй ясный и дружелюбный тон; начинай с вывода",
     "projectEmoji": "Эмодзи",
     "projectLogo": "Логотип",
     "projectLogoHint": "Необязательно. При установке заменяет эмодзи-иконку в боковой панели. Изображения автоматически масштабируются до 256×256.",

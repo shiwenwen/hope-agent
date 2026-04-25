@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "這個專案是做什麼的？",
     "projectInstructions": "專案指令",
     "projectInstructionsHint": "這些指令會自動加入此專案所有對話的系統提示詞",
-    "projectInstructionsPlaceholder": "例如：始終用繁體中文回覆；技術棧為 Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "例如：始終用繁體中文回覆；語氣清楚親切；先給結論再補充細節",
     "projectEmoji": "Emoji",
     "projectLogo": "Logo",
     "projectLogoHint": "可選。設定後會取代側邊欄的 Emoji 圖示。圖片會自動縮放為 256×256。",

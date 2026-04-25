@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "ما الذي يدور حوله هذا المشروع؟",
     "projectInstructions": "تعليمات المشروع",
     "projectInstructionsHint": "تُضاف هذه التعليمات تلقائيًا إلى مطالبة النظام لكل جلسة ضمن هذا المشروع.",
-    "projectInstructionsPlaceholder": "مثال: الرد دائمًا بالإنجليزية؛ المكدس هو Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "مثال: الرد دائمًا بالعربية؛ اجعل النبرة واضحة ولطيفة؛ ابدأ بالخلاصة",
     "projectEmoji": "Emoji",
     "projectLogo": "الشعار",
     "projectLogoHint": "اختياري. عند التعيين يحل محل أيقونة الإيموجي في الشريط الجانبي. يتم تغيير حجم الصور تلقائيًا إلى 256×256.",

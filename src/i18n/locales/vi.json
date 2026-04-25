@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "Dự án này về việc gì?",
     "projectInstructions": "Chỉ dẫn dự án",
     "projectInstructionsHint": "Các chỉ dẫn này tự động được thêm vào system prompt của mọi phiên trong dự án này.",
-    "projectInstructionsPlaceholder": "vd. Luôn trả lời bằng tiếng Việt; stack là Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "vd. Luôn trả lời bằng tiếng Việt; giữ giọng rõ ràng và thân thiện; bắt đầu bằng kết luận",
     "projectEmoji": "Emoji",
     "projectLogo": "Logo",
     "projectLogoHint": "Tùy chọn. Khi đặt, sẽ thay thế biểu tượng emoji ở thanh bên. Ảnh tự động được thu về 256×256.",
