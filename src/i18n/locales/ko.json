@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "이 프로젝트는 무엇에 관한 것인가요?",
     "projectInstructions": "프로젝트 지침",
     "projectInstructionsHint": "이 지침은 이 프로젝트의 모든 세션 시스템 프롬프트에 자동으로 추가됩니다.",
-    "projectInstructionsPlaceholder": "예: 항상 한국어로 응답; 스택은 Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "예: 항상 한국어로 응답; 명확하고 친근한 톤 유지; 결론부터 말하기",
     "projectEmoji": "이모지",
     "projectLogo": "로고",
     "projectLogoHint": "선택. 설정 시 사이드바의 이모지 아이콘을 대체합니다. 이미지는 자동으로 256×256으로 조정됩니다.",

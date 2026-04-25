@@ -35,7 +35,7 @@
     "projectDescriptionPlaceholder": "What is this project about?",
     "projectInstructions": "Project Instructions",
     "projectInstructionsHint": "These instructions are automatically added to the system prompt of every session in this project.",
-    "projectInstructionsPlaceholder": "e.g. Always reply in English; the stack is Tauri 2 + React 19",
+    "projectInstructionsPlaceholder": "e.g. Always reply in English; keep the tone clear and friendly; start with the conclusion",
     "projectEmoji": "Emoji",
     "projectLogo": "Logo",
     "projectLogoHint": "Optional. When set, replaces the emoji icon in the sidebar. Images are auto-resized to 256×256.",
