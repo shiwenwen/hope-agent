@@ -421,12 +421,12 @@ stateDiagram-v2
 ### macOS (launchd)
 
 ```
-~/Library/LaunchAgents/com.hopeagent.server.plist
+~/Library/LaunchAgents/ai.hopeagent.server.plist
 ```
 
 | 配置项 | 值 |
 |--------|-----|
-| Label | `com.hopeagent.server` |
+| Label | `ai.hopeagent.server` |
 | KeepAlive | `true`（进程消失自动拉起） |
 | RunAtLoad | `true`（开机自启） |
 | ProgramArguments | `[exe_path, "server", "--bind", addr]` |

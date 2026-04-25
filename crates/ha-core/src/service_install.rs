@@ -3,7 +3,9 @@ use anyhow::{bail, Context, Result};
 use std::path::PathBuf;
 
 #[cfg(target_os = "macos")]
-const SERVICE_LABEL: &str = "com.hopeagent.server";
+const SERVICE_LABEL: &str = "ai.hopeagent.server";
+#[cfg(target_os = "macos")]
+const LEGACY_SERVICE_LABEL: &str = "com.hopeagent.server";
 
 /// Minimal XML-text escape for plist `<string>` bodies. launchd parses
 /// the plist as XML, so any user-controlled value (home path, api key)
@@ -169,10 +171,27 @@ pub fn stop_server() -> Result<()> {
 
 #[cfg(target_os = "macos")]
 fn plist_path() -> Result<PathBuf> {
+    plist_path_for_label(SERVICE_LABEL)
+}
+
+#[cfg(target_os = "macos")]
+fn legacy_plist_path() -> Result<PathBuf> {
+    plist_path_for_label(LEGACY_SERVICE_LABEL)
+}
+
+#[cfg(target_os = "macos")]
+fn plist_path_for_label(label: &str) -> Result<PathBuf> {
     let home = dirs::home_dir().context("Cannot find home directory")?;
     let launch_agents = home.join("Library").join("LaunchAgents");
     std::fs::create_dir_all(&launch_agents)?;
-    Ok(launch_agents.join(format!("{}.plist", SERVICE_LABEL)))
+    Ok(launch_agents.join(format!("{}.plist", label)))
+}
+
+#[cfg(target_os = "macos")]
+fn unload_launchd_plist(plist: &PathBuf) {
+    let _ = std::process::Command::new("launchctl")
+        .args(["unload", &plist.to_string_lossy()])
+        .output();
 }
 
 #[cfg(target_os = "macos")]
@@ -183,6 +202,7 @@ fn install_launchd(
     log_path: &str,
 ) -> Result<String> {
     let plist = plist_path()?;
+    let legacy_plist = legacy_plist_path()?;
 
     // Build ProgramArguments entries. Every user-controlled value
     // (exe path, bind addr, api key, log path) is XML-escaped so that
@@ -231,11 +251,17 @@ fn install_launchd(
         log = xml_escape(log_path),
     );
 
+    // Remove the pre-hopeagent.ai service label so users don't end up
+    // with two LaunchAgents racing to run the same server.
+    if legacy_plist.exists() {
+        unload_launchd_plist(&legacy_plist);
+        std::fs::remove_file(&legacy_plist)
+            .with_context(|| format!("Failed to remove legacy plist {:?}", legacy_plist))?;
+    }
+
     // Unload the existing service if present (ignore errors)
     if plist.exists() {
-        let _ = std::process::Command::new("launchctl")
-            .args(["unload", &plist.to_string_lossy()])
-            .output();
+        unload_launchd_plist(&plist);
     }
 
     std::fs::write(&plist, &content)
@@ -261,26 +287,35 @@ fn install_launchd(
 #[cfg(target_os = "macos")]
 fn uninstall_launchd() -> Result<()> {
     let plist = plist_path()?;
-    if !plist.exists() {
+    let legacy_plist = legacy_plist_path()?;
+    if !plist.exists() && !legacy_plist.exists() {
         bail!(
-            "Service plist not found at {:?} — is the service installed?",
-            plist
+            "Service plist not found at {:?} or {:?} — is the service installed?",
+            plist,
+            legacy_plist
         );
     }
 
-    let status = std::process::Command::new("launchctl")
-        .args(["unload", &plist.to_string_lossy()])
-        .status()
-        .context("Failed to run launchctl unload")?;
+    for service_plist in [&plist, &legacy_plist] {
+        if !service_plist.exists() {
+            continue;
+        }
 
-    if !status.success() {
-        eprintln!(
-            "[service] Warning: launchctl unload exited with status {}",
-            status
-        );
+        let status = std::process::Command::new("launchctl")
+            .args(["unload", &service_plist.to_string_lossy()])
+            .status()
+            .context("Failed to run launchctl unload")?;
+
+        if !status.success() {
+            eprintln!(
+                "[service] Warning: launchctl unload exited with status {}",
+                status
+            );
+        }
+
+        std::fs::remove_file(service_plist)
+            .with_context(|| format!("Failed to remove plist {:?}", service_plist))?;
     }
-
-    std::fs::remove_file(&plist).with_context(|| format!("Failed to remove plist {:?}", plist))?;
 
     Ok(())
 }
@@ -288,14 +323,34 @@ fn uninstall_launchd() -> Result<()> {
 #[cfg(target_os = "macos")]
 fn status_launchd() -> Result<String> {
     let plist = plist_path()?;
+    if plist.exists() {
+        return status_launchd_for(SERVICE_LABEL, &plist);
+    }
+
+    let legacy_plist = legacy_plist_path()?;
+    if legacy_plist.exists() {
+        return status_launchd_for(LEGACY_SERVICE_LABEL, &legacy_plist);
+    }
+
+    Ok("not installed".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn status_launchd_for(label: &str, plist: &PathBuf) -> Result<String> {
     if !plist.exists() {
         return Ok("not installed".to_string());
     }
 
     let output = std::process::Command::new("launchctl")
-        .args(["list", SERVICE_LABEL])
+        .args(["list", label])
         .output()
         .context("Failed to run launchctl list")?;
+
+    let install_state = if label == SERVICE_LABEL {
+        "installed"
+    } else {
+        "installed with legacy label"
+    };
 
     if output.status.success() {
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -314,15 +369,19 @@ fn status_launchd() -> Result<String> {
             }
         }
         Ok(format!(
-            "installed (plist: {})\n  PID: {}\n  Last exit status: {}",
+            "{} (plist: {})\n  Label: {}\n  PID: {}\n  Last exit status: {}",
+            install_state,
             plist.display(),
+            label,
             pid,
             exit_status,
         ))
     } else {
         Ok(format!(
-            "installed but not loaded (plist: {})",
-            plist.display()
+            "{} but not loaded (plist: {})\n  Label: {}",
+            install_state,
+            plist.display(),
+            label,
         ))
     }
 }

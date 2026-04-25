@@ -169,7 +169,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 
 `hope-agent server install` 把 [`service_install.rs`](../../crates/ha-core/src/service_install.rs) 的 plist / unit 写入系统，由 launchd / systemd 真正去执行 `hope-agent server start`：
 
-- macOS：`~/Library/LaunchAgents/com.hopeagent.server.plist`（label = `SERVICE_LABEL` 常量，无连字符）
+- macOS：`~/Library/LaunchAgents/ai.hopeagent.server.plist`（label = `SERVICE_LABEL` 常量）
 - Linux：`~/.config/systemd/user/hope-agent.service`
 - Windows：暂不支持 `server install`，走 Task Scheduler 手动方案，见 [`windows-development.md`](../platform/windows-development.md)
 
@@ -225,7 +225,7 @@ Guardian parent ─ spawn ─▶ Child
 | UI 保存配置没生效 | `cached_config()` vs `mutate_config()` —— 见 [config-system.md](config-system.md) |
 | Cron / Channel 任务停了 | 当前模式是不是桌面 GUI？server 模式不跑这些（Layer C §跨模式能力不对等）。或 Guardian 反复重启看 `~/.hope-agent/crash_journal.json` |
 | 日志 DB 不缩 / 膨胀 | AppLogger cleanup_loop 是否存活（grep `logging / cleanup` 日志）；`max_size_mb` 是否设了 0；**server / acp 模式根本不初始化 AppLogger** |
-| server install 后 "No such service" | 检查 `~/Library/LaunchAgents/com.hopeagent.server.plist`（macOS）或 `~/.config/systemd/user/hope-agent.service`（Linux）；`hope-agent server status` 能否拿到真实 PID |
+| server install 后 "No such service" | 检查 `~/Library/LaunchAgents/ai.hopeagent.server.plist`（macOS）或 `~/.config/systemd/user/hope-agent.service`（Linux）；`hope-agent server status` 能否拿到真实 PID |
 | ACP 连接后无响应 | `acp_control/health.rs` ping 是否超时；Codex CLI 子进程是否僵死 |
 | 关 GUI 窗口进程不退 | 正常——桌面 GUI 默认「关闭 = 隐藏到托盘」，走 `Quit` 菜单项才真正退出 |
 
