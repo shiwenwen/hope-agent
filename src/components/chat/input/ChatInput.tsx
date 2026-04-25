@@ -238,8 +238,6 @@ export default function ChatInput({
 
   const renderInlineAddControls = () => (
     <>
-      <AttachImageButton onAttachFiles={onAttachFiles} />
-      <AttachFileButton onAttachFiles={onAttachFiles} />
       {onWorkingDirChange && (
         <WorkingDirectoryButton
           sessionId={currentSessionId ?? null}
@@ -248,6 +246,8 @@ export default function ChatInput({
           onChange={onWorkingDirChange}
         />
       )}
+      <AttachImageButton onAttachFiles={onAttachFiles} />
+      <AttachFileButton onAttachFiles={onAttachFiles} />
       <IconTip label={t("slashCommands.buttonTip")}>
         <Button
           variant="ghost"
@@ -258,13 +258,13 @@ export default function ChatInput({
           <Slash className="h-3.5 w-3.5" />
         </Button>
       </IconTip>
-      {showIncognitoPreset && (
+      {showIncognitoPreset && onIncognitoChange && (
         <IncognitoToggle
           sessionId={currentSessionId ?? null}
           enabled={incognitoEnabled}
           saving={incognitoSaving}
           disabledReason={incognitoDisabledReason}
-          onChange={onIncognitoChange ?? (() => {})}
+          onChange={onIncognitoChange}
         />
       )}
     </>

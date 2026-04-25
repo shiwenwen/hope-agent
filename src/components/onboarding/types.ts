@@ -73,6 +73,17 @@ export interface OnboardingDraft {
   remote?: { url: string; apiKey?: string }
 }
 
+export type ServerDraft = NonNullable<OnboardingDraft["server"]>
+export type RemoteDraft = NonNullable<OnboardingDraft["remote"]>
+
+/** Canonical defaults used when partially-merging an `OnboardingDraft` whose
+ *  `server` / `remote` field is still undefined. Keep aligned with backend. */
+export const DEFAULT_SERVER_DRAFT: ServerDraft = {
+  bindMode: "local",
+  apiKeyEnabled: false,
+}
+export const DEFAULT_REMOTE_DRAFT: RemoteDraft = { url: "" }
+
 export type PersonalityPresetId = NonNullable<OnboardingDraft["personalityPresetId"]>
 
 export interface StepSummary {

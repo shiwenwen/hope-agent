@@ -338,8 +338,31 @@ export function formatNumber(n: number): string {
   return n.toLocaleString()
 }
 
+/**
+ * All current callers are single-series tooltip / labelFormatter slots, so the
+ * input is expected to be `number | string`. Recharts also types it as
+ * potentially an array (stacked tooltips) — we tolerate that by taking the
+ * first element to keep the chart from blanking, but warn in dev so a
+ * future stacked-chart caller surfaces immediately instead of silently
+ * displaying only one of the series.
+ */
+const chartNumberArrayWarned = new Set<string>()
 export function chartNumber(value: unknown): number {
-  const raw = Array.isArray(value) ? value[0] : value
+  let raw: unknown = value
+  if (Array.isArray(value)) {
+    if (import.meta.env.DEV) {
+      const key = value.length === 0 ? "empty" : typeof value[0]
+      if (!chartNumberArrayWarned.has(key)) {
+        chartNumberArrayWarned.add(key)
+        console.warn(
+          "[dashboard] chartNumber received an array — only first element is used. " +
+            "Stacked tooltips need a dedicated formatter.",
+          value,
+        )
+      }
+    }
+    raw = value[0]
+  }
   if (typeof raw === "number") return raw
   if (typeof raw === "string") {
     const parsed = Number(raw)

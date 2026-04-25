@@ -10,8 +10,8 @@ import * as toolbarOverflow from "./toolbarOverflow.ts"
 
 test("groups add-style chat input actions behind the overflow menu", () => {
   expect(CHAT_INPUT_OVERFLOW_ACTION_IDS).toEqual([
-    "attach-files",
     "working-dir",
+    "attach-files",
     "slash-command",
     "incognito",
   ])
@@ -39,14 +39,14 @@ test("filters overflow incognito action for existing sessions", () => {
   const { getChatInputOverflowActionIds } = toolbarOverflow
 
   expect(getChatInputOverflowActionIds(null, true)).toEqual([
-    "attach-files",
     "working-dir",
+    "attach-files",
     "slash-command",
     "incognito",
   ])
   expect(getChatInputOverflowActionIds("session-1", true)).toEqual([
-    "attach-files",
     "working-dir",
+    "attach-files",
     "slash-command",
   ])
 })
