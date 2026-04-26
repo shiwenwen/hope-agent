@@ -5,6 +5,7 @@ import { TOOL_I18N_KEY } from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ChevronDown } from "lucide-react"
 import { OpenClawHintBanner } from "./CustomTab"
@@ -89,11 +90,9 @@ export default function CapabilitiesTab({
               }}
             />
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap cursor-pointer select-none">
-              <input
-                type="checkbox"
-                className="rounded"
+              <Switch
                 checked={config.capabilities.maxToolRounds === 0}
-                onChange={(e) => updateCapabilities({ maxToolRounds: e.target.checked ? 0 : 20 })}
+                onCheckedChange={(checked) => updateCapabilities({ maxToolRounds: checked ? 0 : 20 })}
               />
               {t("settings.agentUnlimited")}
             </label>
@@ -102,12 +101,13 @@ export default function CapabilitiesTab({
 
         {/* Tool Injection */}
         <div>
-          <button
+          <Button
             type="button"
-            className="w-full flex items-center justify-between px-1 py-1 group cursor-pointer"
+            variant="ghost"
+            className="group h-auto w-full justify-between gap-2 rounded-md px-1 py-1 text-left font-normal hover:bg-transparent"
             onClick={() => setToolInjectionOpen(!toolInjectionOpen)}
           >
-            <div className="text-left">
+            <div className="min-w-0 text-left">
               <div className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                 {t("settings.agentCapabilitiesToolInjection")}
                 {injectableTools.length > 0 && (
@@ -126,7 +126,7 @@ export default function CapabilitiesTab({
                 toolInjectionOpen && "rotate-180",
               )}
             />
-          </button>
+          </Button>
           <div
             className={cn(
               "grid transition-[grid-template-rows] duration-200 ease-in-out",
@@ -197,12 +197,14 @@ export default function CapabilitiesTab({
                   : "custom"
               const isActive = currentMode === mode
               return (
-                <button
+                <Button
                   key={mode}
+                  variant="outline"
+                  size="sm"
                   className={cn(
-                    "px-3 py-1.5 text-xs rounded-md border transition-colors",
+                    "h-auto rounded-md px-3 py-1.5 text-xs font-normal",
                     isActive
-                      ? "bg-primary/10 border-primary/40 text-primary"
+                      ? "bg-primary/10 border-primary/40 text-primary hover:bg-primary/15 hover:text-primary"
                       : "bg-secondary/40 border-border/50 text-muted-foreground hover:border-border",
                   )}
                   onClick={() => {
@@ -216,7 +218,7 @@ export default function CapabilitiesTab({
                   }}
                 >
                   {label}
-                </button>
+                </Button>
               )
             })}
           </div>

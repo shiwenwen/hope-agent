@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -60,12 +61,13 @@ export default function ProfileForm({
         </div>
         <div className="space-y-0.5">
           {GENDER_PRESETS.map((g) => (
-            <button
+            <Button
               key={g}
+              variant="ghost"
               className={cn(
-                "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+                "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
                 !customGender && config.gender === g
-                  ? "bg-primary/10 text-primary font-medium"
+                  ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                   : "bg-secondary/20 text-foreground hover:bg-secondary/60",
               )}
               onClick={() => {
@@ -79,13 +81,14 @@ export default function ProfileForm({
               {!customGender && config.gender === g && (
                 <Check className="h-4 w-4 text-primary shrink-0" />
               )}
-            </button>
+            </Button>
           ))}
-          <button
+          <Button
+            variant="ghost"
             className={cn(
-              "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+              "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
               customGender
-                ? "bg-primary/10 text-primary font-medium"
+                ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                 : "bg-secondary/20 text-foreground hover:bg-secondary/60",
             )}
             onClick={() => {
@@ -95,7 +98,7 @@ export default function ProfileForm({
           >
             <span className="flex-1 text-left">{t("settings.profileGenderCustom")}</span>
             {customGender && <Check className="h-4 w-4 text-primary shrink-0" />}
-          </button>
+          </Button>
         </div>
         {customGender && (
           <Input
@@ -112,18 +115,19 @@ export default function ProfileForm({
           {t("settings.profileLanguage")}
         </div>
         <div className="space-y-0.5">
-          <button
+          <Button
+            variant="ghost"
             className={cn(
-              "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+              "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
               !config.language
-                ? "bg-primary/10 text-primary font-medium"
+                ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                 : "bg-secondary/20 text-foreground hover:bg-secondary/60",
             )}
             onClick={() => update({ language: null })}
           >
             <span className="flex-1 text-left">{t("settings.profileLanguageSystem")}</span>
             {!config.language && <Check className="h-4 w-4 text-primary shrink-0" />}
-          </button>
+          </Button>
         </div>
         <Select
           value={config.language ?? ""}
@@ -154,12 +158,13 @@ export default function ProfileForm({
         </div>
         <div className="space-y-0.5">
           {PRESET_STYLES.map((style) => (
-            <button
+            <Button
               key={style}
+              variant="ghost"
               className={cn(
-                "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+                "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
                 !customStyle && config.responseStyle === style
-                  ? "bg-primary/10 text-primary font-medium"
+                  ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                   : "bg-secondary/20 text-foreground hover:bg-secondary/60",
               )}
               onClick={() => {
@@ -173,13 +178,14 @@ export default function ProfileForm({
               {!customStyle && config.responseStyle === style && (
                 <Check className="h-4 w-4 text-primary shrink-0" />
               )}
-            </button>
+            </Button>
           ))}
-          <button
+          <Button
+            variant="ghost"
             className={cn(
-              "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+              "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
               customStyle
-                ? "bg-primary/10 text-primary font-medium"
+                ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                 : "bg-secondary/20 text-foreground hover:bg-secondary/60",
             )}
             onClick={() => {
@@ -189,7 +195,7 @@ export default function ProfileForm({
           >
             <span className="flex-1 text-left">{t("settings.profileStyleCustom")}</span>
             {customStyle && <Check className="h-4 w-4 text-primary shrink-0" />}
-          </button>
+          </Button>
         </div>
 
         {customStyle && (

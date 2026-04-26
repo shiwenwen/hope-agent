@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { Check, Bot } from "lucide-react"
 import type { AgentConfig, AgentSummary } from "./types"
 
@@ -77,9 +78,10 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
                 {agents.map((agent) => {
                   const enabled = isAgentEnabled(agent.id)
                   return (
-                    <button
+                    <Button
                       key={agent.id}
-                      className="flex items-center gap-2 w-full px-3 py-2 rounded-lg border border-border hover:bg-secondary/60 transition-colors text-left"
+                      variant="outline"
+                      className="h-auto w-full justify-start gap-2 rounded-lg px-3 py-2 text-left font-normal hover:bg-secondary/60"
                       onClick={() => toggleAgent(agent.id)}
                     >
                       <div
@@ -106,7 +108,7 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
                           {agent.description}
                         </span>
                       )}
-                    </button>
+                    </Button>
                   )
                 })}
               </div>

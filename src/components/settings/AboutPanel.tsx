@@ -171,8 +171,10 @@ export default function AboutPanel() {
                     v{appVersion}
                   </span>
                   {desktopUpdaterAvailable && !pendingUpdate && (
-                    <button
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 hover:border-primary/30 hover:bg-primary/8 hover:text-foreground active:scale-[0.97] disabled:opacity-50"
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-auto gap-1.5 rounded-full border-border/50 bg-secondary/30 px-3 py-1 text-xs font-medium text-muted-foreground transition-all duration-200 hover:border-primary/30 hover:bg-primary/8 hover:text-foreground active:scale-[0.97]"
                       onClick={handleCheckForUpdates}
                       disabled={checkingUpdate || installingUpdate}
                     >
@@ -182,7 +184,7 @@ export default function AboutPanel() {
                         <RefreshCw className="h-3.5 w-3.5" />
                       )}
                       {checkingUpdate ? t("about.updateChecking") : t("about.updateCheck")}
-                    </button>
+                    </Button>
                   )}
                   {updateStatus && !pendingUpdate && (
                     <span className="text-xs text-muted-foreground/70">{updateStatus}</span>

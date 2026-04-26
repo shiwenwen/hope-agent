@@ -164,8 +164,10 @@ function SortableProviderCard({
             <>
               <div className="fixed inset-0 z-40" onClick={() => setMenuId(null)} />
               <div className="absolute right-0 top-8 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-[130px]">
-                <button
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary"
                   onClick={() => {
                     setMenuId(null)
                     onEditProvider(provider)
@@ -173,9 +175,11 @@ function SortableProviderCard({
                 >
                   <Pencil className="h-3 w-3" />
                   {t("common.edit")}
-                </button>
-                <button
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary"
                   onClick={() => onToggle(provider)}
                 >
                   {provider.enabled ? (
@@ -189,10 +193,12 @@ function SortableProviderCard({
                       {t("provider.enable")}
                     </>
                   )}
-                </button>
+                </Button>
                 {provider.apiType === "codex" && onCodexReauth && (
-                  <button
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-foreground hover:bg-secondary transition-colors"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-foreground hover:bg-secondary"
                     onClick={() => {
                       setMenuId(null)
                       onCodexReauth()
@@ -200,16 +206,18 @@ function SortableProviderCard({
                   >
                     <RefreshCw className="h-3 w-3" />
                     {t("provider.relogin")}
-                  </button>
+                  </Button>
                 )}
                 {provider.apiType !== "codex" && (
-                  <button
-                    className="flex items-center gap-2 w-full px-3 py-1.5 text-xs text-red-400 hover:bg-secondary transition-colors"
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto w-full justify-start gap-2 rounded-none px-3 py-1.5 text-xs font-normal text-red-400 hover:bg-secondary"
                     onClick={() => onDelete(provider.id)}
                   >
                     <Trash2 className="h-3 w-3" />
                     {t("common.delete")}
-                  </button>
+                  </Button>
                 )}
               </div>
             </>

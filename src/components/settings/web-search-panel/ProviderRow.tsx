@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { useSortable } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { ChevronDown, ChevronRight, ExternalLink, GripVertical } from "lucide-react"
@@ -71,8 +73,9 @@ export function SortableProviderItem({
         </span>
 
         {/* Expand toggle + name */}
-        <button
-          className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+        <Button
+          variant="ghost"
+          className="h-auto flex-1 min-w-0 justify-start gap-1.5 px-0 py-0 text-left font-normal hover:bg-transparent"
           onClick={onToggleExpand}
         >
           {hasFields ? (
@@ -100,17 +103,20 @@ export function SortableProviderItem({
               {t(meta.needsApiKey ? "settings.webSearchNeedsKey" : "settings.webSearchNeedsConfig")}
             </span>
           )}
-        </button>
+        </Button>
 
         {/* Website link */}
-        <button
-          type="button"
-          className="text-muted-foreground/40 hover:text-primary shrink-0 transition-colors"
-          onClick={() => getTransport().call("open_url", { url: meta.url })}
-          title={meta.url}
-        >
-          <ExternalLink className="h-3.5 w-3.5" />
-        </button>
+        <IconTip label={meta.url}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground/40 hover:text-primary"
+            onClick={() => getTransport().call("open_url", { url: meta.url })}
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+          </Button>
+        </IconTip>
 
         {/* Enable toggle */}
         <Switch

@@ -174,22 +174,24 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
       <p className="text-xs text-muted-foreground mb-4">{t("settings.agentsDesc")}</p>
 
       {/* New Agent button */}
-      <button
-        className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-primary hover:bg-primary/5 transition-colors"
+      <Button
+        variant="ghost"
+        className="h-auto w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-primary hover:bg-primary/5 hover:text-primary"
         onClick={() => setCreating(true)}
       >
         <Plus className="h-4 w-4" />
-        <span className="font-medium">{t("settings.agentNew")}</span>
-      </button>
+        <span>{t("settings.agentNew")}</span>
+      </Button>
 
       {/* Import from OpenClaw button */}
-      <button
-        className="flex items-center gap-2 w-full px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors mb-3"
+      <Button
+        variant="ghost"
+        className="h-auto w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-sm font-medium text-muted-foreground mb-3 hover:bg-secondary/60 hover:text-foreground"
         onClick={() => setImportOpen(true)}
       >
         <Download className="h-4 w-4" />
-        <span className="font-medium">{t("settings.openclawImportBtn")}</span>
-      </button>
+        <span>{t("settings.openclawImportBtn")}</span>
+      </Button>
 
       <OpenClawImportDialog
         open={importOpen}
@@ -212,9 +214,10 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
       ) : (
         <div className="space-y-1">
           {agents.map((agent) => (
-            <button
+            <Button
               key={agent.id}
-              className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors text-foreground hover:bg-secondary/60 group"
+              variant="ghost"
+              className="group h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm font-normal text-foreground hover:bg-secondary/60"
               onClick={() => onEditAgent(agent.id)}
             >
               {/* Avatar / fallback */}
@@ -247,7 +250,7 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
               </div>
 
               <ChevronRight className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground/60 transition-colors" />
-            </button>
+            </Button>
           ))}
         </div>
       )}

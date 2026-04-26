@@ -42,7 +42,9 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
           {t("settings.memoryEmbeddingProvider")}
         </label>
         <div className="flex flex-wrap gap-2">
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setEmbeddingConfig({
                 ...embeddingConfig,
@@ -55,18 +57,20 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
               setEmbeddingDirty(true)
             }}
             className={cn(
-              "px-3 py-1.5 rounded-lg text-xs border transition-colors flex items-center gap-1",
+              "h-auto gap-1 rounded-lg px-3 py-1.5 text-xs font-normal",
               embeddingConfig.providerType === "auto"
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border text-muted-foreground hover:border-foreground/30",
+                ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                : "text-muted-foreground hover:border-foreground/30",
             )}
           >
             <Sparkles className="h-3 w-3" />
             Auto
-          </button>
+          </Button>
           {presets.map((preset) => (
-            <button
+            <Button
               key={preset.name}
+              variant="outline"
+              size="sm"
               onClick={() => {
                 setEmbeddingConfig({
                   ...embeddingConfig,
@@ -79,16 +83,18 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
                 setEmbeddingDirty(true)
               }}
               className={cn(
-                "px-3 py-1.5 rounded-lg text-xs border transition-colors",
+                "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
                 embeddingConfig.apiBaseUrl === preset.baseUrl
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:border-foreground/30",
+                  ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                  : "text-muted-foreground hover:border-foreground/30",
               )}
             >
               {preset.name}
-            </button>
+            </Button>
           ))}
-          <button
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => {
               setEmbeddingConfig({
                 ...embeddingConfig,
@@ -100,14 +106,14 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
               setEmbeddingDirty(true)
             }}
             className={cn(
-              "px-3 py-1.5 rounded-lg text-xs border transition-colors",
+              "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
               embeddingConfig.providerType === "local"
-                ? "border-primary bg-primary/10 text-primary"
-                : "border-border text-muted-foreground hover:border-foreground/30",
+                ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                : "text-muted-foreground hover:border-foreground/30",
             )}
           >
             {t("settings.memoryLocalModel")}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -197,8 +203,9 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
             {t("settings.memorySelectModel")}
           </label>
           {localModels.map((model) => (
-            <button
+            <Button
               key={model.id}
+              variant="outline"
               onClick={() => {
                 setEmbeddingConfig({
                   ...embeddingConfig,
@@ -208,10 +215,10 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
                 setEmbeddingDirty(true)
               }}
               className={cn(
-                "w-full flex items-center justify-between px-3 py-2.5 rounded-lg border transition-colors text-left",
+                "h-auto w-full justify-between gap-2 rounded-lg px-3 py-2.5 text-left font-normal",
                 embeddingConfig.localModelId === model.id
-                  ? "border-primary bg-primary/10"
-                  : "border-border hover:border-foreground/30",
+                  ? "border-primary bg-primary/10 hover:bg-primary/15"
+                  : "hover:border-foreground/30",
               )}
             >
               <div>
@@ -226,7 +233,7 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
               ) : (
                 <Download className="h-4 w-4 text-muted-foreground" />
               )}
-            </button>
+            </Button>
           ))}
         </div>
       )}

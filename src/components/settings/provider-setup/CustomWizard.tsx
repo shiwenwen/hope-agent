@@ -206,12 +206,13 @@ export function CustomWizard({
             <h3 className="text-base font-semibold text-foreground">{t("wizard.selectApiType")}</h3>
             <div className="grid gap-2.5">
               {API_TYPE_OPTIONS.map((opt) => (
-                <button
+                <Button
                   key={opt.value}
+                  variant="outline"
                   onClick={() => setApiType(opt.value)}
-                  className={`flex items-center gap-3 p-3.5 rounded-xl border text-left transition-all duration-200 ${
+                  className={`h-auto justify-start gap-3 rounded-xl p-3.5 text-left font-normal transition-all duration-200 ${
                     apiType === opt.value
-                      ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                      ? "border-primary bg-primary/5 ring-1 ring-primary/30 hover:bg-primary/10"
                       : "border-border bg-card hover:border-primary/40 hover:bg-secondary/50"
                   }`}
                 >
@@ -222,7 +223,7 @@ export function CustomWizard({
                   {apiType === opt.value && (
                     <Check className="h-4 w-4 text-primary ml-auto shrink-0" />
                   )}
-                </button>
+                </Button>
               ))}
             </div>
           </div>
@@ -273,17 +274,19 @@ export function CustomWizard({
                     placeholder={t("provider.authRequired")}
                     className="bg-card font-mono text-xs pr-9"
                   />
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="icon"
                     onClick={() => setShowApiKey(!showApiKey)}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
                   >
                     {showApiKey ? (
                       <EyeOff className="h-3.5 w-3.5" />
                     ) : (
                       <Eye className="h-3.5 w-3.5" />
                     )}
-                  </button>
+                  </Button>
                 </div>
               </div>
               <div className="space-y-1.5">

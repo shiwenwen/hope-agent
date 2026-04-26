@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Slider } from "@/components/ui/slider"
+import { Button } from "@/components/ui/button"
 import { ChevronRight, Settings2 } from "lucide-react"
 import type { useMemoryData } from "./useMemoryData"
 import TemporalDecayConfig from "./TemporalDecayConfig"
@@ -44,13 +45,15 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
     <>
       {/* Dedup thresholds (advanced) */}
       <div className="mt-6 pt-4 border-t border-border/50">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setDedupExpanded(!dedupExpanded)}
-          className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          className="h-auto -ml-2 gap-1 px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
         >
           <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", dedupExpanded && "rotate-90")} />
           {t("settings.memoryDedupAdvanced")}
-        </button>
+        </Button>
         {dedupExpanded && (
           <div className="mt-3 space-y-3">
             <p className="text-xs text-muted-foreground">{t("settings.memoryDedupAdvancedDesc")}</p>
@@ -98,14 +101,16 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
 
       {/* Search Tuning (advanced) */}
       <div className="mt-6 pt-4 border-t border-border/50">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setSearchTuningExpanded(!searchTuningExpanded)}
-          className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          className="h-auto -ml-2 gap-1 px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
         >
           <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", searchTuningExpanded && "rotate-90")} />
           <Settings2 className="h-3.5 w-3.5 mr-0.5" />
           {t("settings.memorySearchTuning")}
-        </button>
+        </Button>
         {searchTuningExpanded && (
           <div className="mt-3 space-y-5">
             <p className="text-xs text-muted-foreground">{t("settings.memorySearchTuningDesc")}</p>
@@ -203,11 +208,11 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                 <div className="space-y-2 pl-1">
                   <div className="flex items-center gap-3">
                     <label className="text-xs text-muted-foreground">{t("settings.memoryMultimodalModalities")}:</label>
-                    <label className="flex items-center gap-1 text-xs">
-                      <input type="checkbox" className="rounded"
+                    <label className="flex items-center gap-1.5 text-xs">
+                      <Switch
                         checked={multimodalConfig.modalities.includes("image")}
-                        onChange={(e) => {
-                          const mods = e.target.checked
+                        onCheckedChange={(checked) => {
+                          const mods = checked
                             ? [...multimodalConfig.modalities, "image"]
                             : multimodalConfig.modalities.filter(m => m !== "image")
                           const updated = { ...multimodalConfig, modalities: mods }
@@ -217,11 +222,11 @@ export default function HybridSearchConfigSection({ data }: HybridSearchConfigPr
                       />
                       {t("settings.memoryMultimodalImage")}
                     </label>
-                    <label className="flex items-center gap-1 text-xs">
-                      <input type="checkbox" className="rounded"
+                    <label className="flex items-center gap-1.5 text-xs">
+                      <Switch
                         checked={multimodalConfig.modalities.includes("audio")}
-                        onChange={(e) => {
-                          const mods = e.target.checked
+                        onCheckedChange={(checked) => {
+                          const mods = checked
                             ? [...multimodalConfig.modalities, "audio"]
                             : multimodalConfig.modalities.filter(m => m !== "audio")
                           const updated = { ...multimodalConfig, modalities: mods }

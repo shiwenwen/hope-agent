@@ -138,11 +138,13 @@ export default function MemberRow({
           </Label>
           <div className="flex items-center gap-1.5 mt-1">
             {DEFAULT_COLOR_PALETTE.map((c) => (
-              <button
+              <Button
                 key={c}
                 type="button"
+                variant="ghost"
+                size="icon"
                 className={
-                  "w-5 h-5 rounded-full ring-offset-1 transition-all " +
+                  "h-5 w-5 rounded-full p-0 ring-offset-1 transition-all hover:bg-transparent " +
                   (value.color === c ? "ring-2 ring-primary scale-110" : "hover:scale-110")
                 }
                 style={{ backgroundColor: c }}

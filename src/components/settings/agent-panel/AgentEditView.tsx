@@ -348,13 +348,15 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
       <div className="flex-1 overflow-y-auto p-6">
         <div className="w-full">
           {/* Back button */}
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={onBack}
-            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+            className="mb-4 -ml-3 gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
             <span>{t("settings.agents")}</span>
-          </button>
+          </Button>
 
           {/* Header: Avatar + Name */}
           <div className="flex items-center gap-4 mb-5">
@@ -395,18 +397,20 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           {/* Tabs */}
           <div className="flex gap-1 mb-5 border-b border-border pb-px">
             {TABS.map((tab) => (
-              <button
+              <Button
                 key={tab.id}
+                variant="ghost"
+                size="sm"
                 className={cn(
-                  "px-3 py-1.5 text-sm rounded-t-md transition-colors -mb-px",
+                  "h-auto rounded-t-md rounded-b-none px-3 py-1.5 text-sm font-normal -mb-px",
                   activeTab === tab.id
-                    ? "text-primary border-b-2 border-primary font-medium"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "text-primary border-b-2 border-primary font-medium hover:bg-transparent hover:text-primary"
+                    : "text-muted-foreground hover:bg-transparent hover:text-foreground",
                 )}
                 onClick={() => setActiveTab(tab.id)}
               >
                 {t(tab.labelKey)}
-              </button>
+              </Button>
             ))}
           </div>
 

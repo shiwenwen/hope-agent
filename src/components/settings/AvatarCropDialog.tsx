@@ -11,6 +11,7 @@ import {
   AlertDialogCancel,
   AlertDialogAction,
 } from "@/components/ui/alert-dialog"
+import { Slider } from "@/components/ui/slider"
 import { useTranslation } from "react-i18next"
 
 interface AvatarCropDialogProps {
@@ -119,14 +120,13 @@ export function AvatarCropDialog({ imageSrc, onConfirm, onCancel, open }: Avatar
         {/* Zoom slider */}
         <div className="px-5 pb-2 flex items-center gap-3">
           <span className="text-xs text-muted-foreground shrink-0">{t("settings.avatarZoom")}</span>
-          <input
-            type="range"
+          <Slider
             min={1}
             max={3}
             step={0.05}
-            value={zoom}
-            onChange={(e) => setZoom(Number(e.target.value))}
-            className="flex-1 accent-primary h-1.5"
+            value={[zoom]}
+            onValueChange={([v]) => setZoom(v)}
+            className="flex-1"
           />
         </div>
 

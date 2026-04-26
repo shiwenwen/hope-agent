@@ -299,17 +299,18 @@ export default function AddAccountDialog({
 
             <div className="grid grid-cols-2 gap-3">
               {plugins.map((p) => (
-                <button
+                <Button
                   key={p.meta.id}
+                  variant="outline"
                   onClick={() => handleSelectChannel(p.meta.id)}
-                  className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-accent transition-colors text-left cursor-pointer"
+                  className="h-auto justify-start gap-3 rounded-lg p-4 text-left font-normal hover:border-primary hover:bg-accent"
                 >
                   <ChannelIcon channelId={p.meta.id} className="h-8 w-8" />
                   <div className="min-w-0">
                     <div className="font-medium">{t(`channels.pluginName_${p.meta.id}`, p.meta.displayName)}</div>
                     <div className="text-xs text-muted-foreground truncate">{t(`channels.pluginDesc_${p.meta.id}`, p.meta.description)}</div>
                   </div>
-                </button>
+                </Button>
               ))}
             </div>
 

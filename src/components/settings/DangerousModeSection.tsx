@@ -166,19 +166,18 @@ export default function DangerousModeSection() {
             </AlertDialogDescription>
           </AlertDialogHeader>
 
-          <label className="flex items-start gap-3 rounded-md border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors">
-            <input
-              type="checkbox"
-              checked={ackChecked}
-              onChange={(e) => setAckChecked(e.target.checked)}
-              className="mt-0.5 h-4 w-4 rounded border-border accent-destructive"
-            />
+          <label className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors">
             <span className="text-sm">
               {t(
                 "settings.dangerousConfirmAck",
                 "我已了解风险，并同意跳过全部工具审批",
               )}
             </span>
+            <Switch
+              checked={ackChecked}
+              onCheckedChange={setAckChecked}
+              className="mt-0.5 shrink-0 data-[state=checked]:bg-destructive"
+            />
           </label>
 
           <AlertDialogFooter>

@@ -549,9 +549,11 @@ export default function LocalLlmAssistantCard({
             </div>
 
             {recommendation.alternatives.length > 1 && (
-              <button
+              <Button
                 type="button"
-                className="mt-2 text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1"
+                variant="ghost"
+                size="sm"
+                className="mt-2 h-auto -ml-2 gap-1 px-2 py-1 text-[11px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
                 onClick={() => setShowAlternatives((v) => !v)}
               >
                 {showAlternatives ? (
@@ -562,28 +564,30 @@ export default function LocalLlmAssistantCard({
                 {showAlternatives
                   ? t("settings.localLlm.hideAlternatives")
                   : t("settings.localLlm.showAlternatives")}
-              </button>
+              </Button>
             )}
             {showAlternatives && (
               <div className="mt-2 space-y-1 border-t border-border/60 pt-2">
                 {recommendation.alternatives.map((c) => {
                   const isChosen = recommended?.id === c.id
                   return (
-                    <button
+                    <Button
                       key={c.id}
                       type="button"
+                      variant="ghost"
                       onClick={() => setChosen(c)}
-                      className={`w-full text-left rounded-md px-2 py-1.5 text-[11px] transition-colors flex items-center justify-between gap-2 ${
+                      className={cn(
+                        "h-auto w-full justify-between gap-2 rounded-md px-2 py-1.5 text-[11px] font-normal",
                         isChosen
-                          ? "bg-primary/10 text-foreground"
-                          : "text-muted-foreground hover:bg-secondary"
-                      }`}
+                          ? "bg-primary/10 text-foreground hover:bg-primary/15 hover:text-foreground"
+                          : "text-muted-foreground hover:bg-secondary",
+                      )}
                     >
                       <span className="truncate">{c.displayName}</span>
                       <span className="font-mono text-[10px] text-muted-foreground/80 shrink-0">
                         {formatSize(c.sizeMb)}
                       </span>
-                    </button>
+                    </Button>
                   )
                 })}
               </div>

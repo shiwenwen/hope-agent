@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -146,12 +147,14 @@ export default function ExtractConfig({ data, isAgentMode }: ExtractConfigProps)
           </div>
           {/* Reset to global (agent mode only) */}
           {isAgentMode && agentHasOverride && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={resetAgentExtract}
-              className="text-[11px] text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
+              className="h-auto -ml-2 px-2 py-1 text-[11px] font-normal text-muted-foreground underline underline-offset-2 hover:bg-transparent hover:text-foreground"
             >
               {t("settings.memoryResetToGlobal")}
-            </button>
+            </Button>
           )}
         </div>
       )}

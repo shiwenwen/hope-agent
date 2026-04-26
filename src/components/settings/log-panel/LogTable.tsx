@@ -55,9 +55,10 @@ export default function LogTable({
             <div className="space-y-0.5">
               {logs.map((log) => (
                 <div key={log.id}>
-                  <button
+                  <Button
+                    variant="ghost"
                     onClick={() => setExpandedId(expandedId === log.id ? null : log.id)}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-xs hover:bg-secondary/40 transition-colors"
+                    className="h-auto w-full justify-start gap-2 rounded px-2 py-1.5 text-left text-xs font-normal hover:bg-secondary/40"
                   >
                     <span className="shrink-0 w-[110px] text-muted-foreground font-mono">
                       {formatTime(log.timestamp)}
@@ -85,7 +86,7 @@ export default function LogTable({
                         )}
                       />
                     )}
-                  </button>
+                  </Button>
                   {expandedId === log.id && log.details && (
                     <div className="ml-[112px] mb-1 px-3 py-2 rounded bg-secondary/30 text-xs font-mono overflow-x-auto">
                       <pre className="whitespace-pre-wrap break-all text-muted-foreground">
@@ -155,17 +156,18 @@ export default function LogTable({
         ) : (
           <div className="py-1">
             {logFiles.map((file) => (
-              <button
+              <Button
                 key={file.name}
+                variant="ghost"
                 onClick={() => onSelectFile(file.name)}
                 className={cn(
-                  "w-full px-3 py-2 text-left text-xs hover:bg-secondary/40 transition-colors",
-                  selectedFile === file.name && "bg-secondary/60",
+                  "h-auto w-full flex-col items-start justify-start rounded-none px-3 py-2 text-left text-xs font-normal hover:bg-secondary/40",
+                  selectedFile === file.name && "bg-secondary/60 hover:bg-secondary/60",
                 )}
               >
                 <p className="font-medium truncate">{file.name}</p>
                 <p className="text-muted-foreground">{formatSize(file.sizeBytes)}</p>
-              </button>
+              </Button>
             ))}
           </div>
         )}

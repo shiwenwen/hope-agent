@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import type { AgentConfig } from "../types"
 
 /** Reusable hint banner for OpenClaw-disabled tabs */
@@ -108,18 +109,20 @@ export default function CustomTab({
           {/* Sub-tabs for 4 md files */}
           <div className="flex gap-1 border-b border-border pb-px">
             {OC_FILE_TABS.map((tab) => (
-              <button
+              <Button
                 key={tab.id}
+                variant="ghost"
+                size="sm"
                 className={cn(
-                  "px-2.5 py-1.5 text-xs rounded-t-md transition-colors -mb-px",
+                  "h-auto rounded-t-md rounded-b-none px-2.5 py-1.5 text-xs font-normal -mb-px",
                   activeFile === tab.id
-                    ? "text-primary border-b-2 border-primary font-medium"
-                    : "text-muted-foreground hover:text-foreground",
+                    ? "text-primary border-b-2 border-primary font-medium hover:bg-transparent hover:text-primary"
+                    : "text-muted-foreground hover:bg-transparent hover:text-foreground",
                 )}
                 onClick={() => setActiveFile(tab.id)}
               >
                 {t(tab.labelKey)}
-              </button>
+              </Button>
             ))}
           </div>
 

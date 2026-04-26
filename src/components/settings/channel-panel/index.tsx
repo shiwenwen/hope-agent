@@ -158,20 +158,21 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
       {accounts.length === 0 ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {plugins.map((p) => (
-            <button
+            <Button
               key={p.meta.id}
+              variant="outline"
               onClick={() => {
                 setAddInitialChannel(p.meta.id)
                 setShowAddDialog(true)
               }}
-              className="flex items-center gap-3 p-4 rounded-lg border border-border hover:border-primary hover:bg-accent transition-colors text-left cursor-pointer"
+              className="h-auto justify-start gap-3 rounded-lg p-4 text-left font-normal hover:border-primary hover:bg-accent"
             >
               <ChannelIcon channelId={p.meta.id} className="h-8 w-8" />
               <div className="min-w-0">
                 <div className="font-medium text-sm">{t(`channels.pluginName_${p.meta.id}`, p.meta.displayName)}</div>
                 <div className="text-xs text-muted-foreground truncate">{t(`channels.pluginDesc_${p.meta.id}`, p.meta.description)}</div>
               </div>
-            </button>
+            </Button>
           ))}
         </div>
       ) : (

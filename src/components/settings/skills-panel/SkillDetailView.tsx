@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ui/button"
 import {
   ArrowLeft,
   Check,
@@ -63,16 +64,18 @@ function InstallSpecRow({
         {spec.kind}
       </span>
       <span className="text-xs text-foreground/80 flex-1 truncate">{label}</span>
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         className={cn(
-          "text-[10px] px-2 py-0.5 rounded transition-colors font-medium",
+          "h-auto rounded px-2 py-0.5 text-[10px] font-medium",
           installing
-            ? "bg-muted text-muted-foreground cursor-wait"
+            ? "bg-muted text-muted-foreground cursor-wait hover:bg-muted hover:text-muted-foreground"
             : result?.ok
-              ? "bg-green-500/10 text-green-600"
+              ? "bg-green-500/10 text-green-600 hover:bg-green-500/15 hover:text-green-600"
               : result && !result.ok
-                ? "bg-destructive/10 text-destructive"
-                : "bg-primary/10 text-primary hover:bg-primary/20",
+                ? "bg-destructive/10 text-destructive hover:bg-destructive/15 hover:text-destructive"
+                : "bg-primary/10 text-primary hover:bg-primary/20 hover:text-primary",
         )}
         onClick={handleInstall}
         disabled={installing}
@@ -84,7 +87,7 @@ function InstallSpecRow({
             : result && !result.ok
               ? t("settings.skillInstallFailed")
               : t("settings.skillInstall")}
-      </button>
+      </Button>
     </div>
   )
 }
@@ -174,13 +177,15 @@ export default function SkillDetailView({
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-y-auto p-6">
       <div className="w-full">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={onBack}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-4"
+          className="mb-4 -ml-3 gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           <span>{t("settings.skills")}</span>
-        </button>
+        </Button>
 
         {/* Header */}
         <div className="mb-4">
@@ -196,14 +201,17 @@ export default function SkillDetailView({
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
               {skill.source}
             </span>
-            <button
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => onOpenDir(skill.base_dir)}
-              title={skill.base_dir}
-            >
-              <ExternalLink className="h-3 w-3" />
-              <span className="truncate max-w-[300px]">{skill.base_dir}</span>
-            </button>
+            <IconTip label={skill.base_dir}>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-auto gap-1 px-2 py-1 text-[10px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground"
+                onClick={() => onOpenDir(skill.base_dir)}
+              >
+                <ExternalLink className="h-3 w-3" />
+                <span className="truncate max-w-[300px]">{skill.base_dir}</span>
+              </Button>
+            </IconTip>
           </div>
         </div>
 
@@ -257,9 +265,11 @@ export default function SkillDetailView({
                     />
                     {/* Save button */}
                     <IconTip label={t("settings.skillEnvSave")}>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className={cn(
-                          "shrink-0 p-1 rounded transition-colors",
+                          "h-7 w-7 shrink-0",
                           isDirty && !isSaving
                             ? "text-primary hover:bg-primary/10"
                             : "text-muted-foreground/30 cursor-default",
@@ -268,13 +278,15 @@ export default function SkillDetailView({
                         disabled={!isDirty || isSaving}
                       >
                         <Check className="h-3.5 w-3.5" />
-                      </button>
+                      </Button>
                     </IconTip>
                     {/* Clear button */}
                     <IconTip label={t("settings.skillEnvClear")}>
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="icon"
                         className={cn(
-                          "shrink-0 p-1 rounded transition-colors",
+                          "h-7 w-7 shrink-0",
                           currentValue
                             ? "text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                             : "text-muted-foreground/30 cursor-default",
@@ -283,7 +295,7 @@ export default function SkillDetailView({
                         disabled={!currentValue}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                      </Button>
                     </IconTip>
                   </div>
                 )

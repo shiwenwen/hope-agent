@@ -139,25 +139,19 @@
 
 ---
 
-### F-015 `src/components/settings/` 大批原生 `<button>` / `<input>` / `<textarea>` 未走 shadcn
-
-- **来源**：2026-04-26 焦点轮廓视觉降噪手动审查
-- **现象**：[AGENTS.md](../../AGENTS.md) 前端规范明文要求 "UI 组件统一用 `src/components/ui/`，不直接用 HTML 原生表单组件"，但实际 codebase 没贯彻。`src/components/settings/` 一带就翻出 30+ 处原生 `<button>`、5+ 处原生 `<input>` / `<textarea>`，零散分布在 [`ProviderEditPage.tsx`](../../src/components/settings/ProviderEditPage.tsx)、[`ContextCompactPanel.tsx`](../../src/components/settings/ContextCompactPanel.tsx)、[`GlobalModelPanel.tsx`](../../src/components/settings/GlobalModelPanel.tsx)、[`AgentEditView.tsx`](../../src/components/settings/agent-panel/AgentEditView.tsx)、[`PersonalityTab.tsx`](../../src/components/settings/agent-panel/tabs/PersonalityTab.tsx)、[`CapabilitiesTab.tsx`](../../src/components/settings/agent-panel/tabs/CapabilitiesTab.tsx)、[`AvatarCropDialog.tsx`](../../src/components/settings/AvatarCropDialog.tsx)、[`DangerousModeSection.tsx`](../../src/components/settings/DangerousModeSection.tsx) 等多个文件。这些原生元素绕过了 shadcn 的 focus-visible 处理，浏览器默认黑色 outline 直接可见，是当期"获焦黑框"用户感知的主因。
-- **为什么留**：当期 PR 已经在 [`src/index.css`](../../src/index.css) 的 `@layer base` 加了全局 fallback（`button:focus-visible` 用 1px 软 outline），视觉问题止住；但规范层面的债务没解决。逐个替换涉及 40+ 处改动且每个 `<button onClick=...>` 替换为 `<Button variant="ghost" size="sm">` 时 padding/尺寸经常微变，需要逐个目检视觉回归，跟"修黑框"主题混在一个 PR 里风险过大。
-- **改的话要做什么**：
-  1. `<button>` → `<Button variant="ghost"|"outline"|"secondary" size="sm"|"icon">`，按视觉分组替换；图标按钮统一 `size="icon"`
-  2. `<input type="text|number|...">` → `<Input>`；`<input type="file">` 保留原生（shadcn 没对应）
-  3. `<input type="checkbox">` → 业务上多数应该是 `<Switch>` 或 `<Checkbox>`（仓库目前没 Checkbox 组件，可能要先加）
-  4. `<textarea>` → `<Textarea>`
-  5. 替换后回归 `pnpm tauri dev` 全设置面板目检
-- **影响面**：当前无功能 bug，只有规范一致性 / 视觉一致性债务。全局 CSS fallback 已经把"黑框"压住，所以并不紧急。
-- **触发时机建议**：下一次重构某个具体设置面板时（例如 ProviderEditPage 改版、AgentEditView 重组）顺手把那个面板内的原生元素换掉，分批清；或独立一个 "settings 面板 shadcn 化" PR 一次干完。**禁止**新代码继续写原生 `<button>` / `<input>` / `<textarea>`——code review 看到要打回去。
-
 ---
 
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-015 `src/components/settings/` 大批原生 `<button>` / `<input>` / `<textarea>` 未走 shadcn
+
+- **来源**：2026-04-26 焦点轮廓视觉降噪手动审查
+- **关闭**：2026-04-26 / branch `worktree-settings-shadcn-migration`
+- **修复方式**：把 `src/components/settings/` 下 50+ 个文件里所有原生 `<button>`（116 处）/ `<input>`（5 处非 file/checkbox 类型）/ `<textarea>`（2 处）/ `<input type="range">`（2 处）/ `<input type="checkbox">`（4 处）系统替换成 shadcn 等价组件：`<Button>` 各 variant（ghost / outline / secondary / icon）、`<Input>`、`<Textarea>`、`<Slider>`、`<Switch>`。图标按钮统一走 `size="icon"`；原本"看起来像按钮但其实是文字链"的内联点击点（如 SearxngDocker 端口、profile 自定义重置）改 `variant="ghost"` + 行内 className override 保留 baseline + underline。涉及 40+ 文件，主要包括 ProviderEditPage / ProviderSettings / ContextCompactPanel / GlobalModelPanel / AgentEditView / PersonalityTab / CapabilitiesTab / ModelTab / AgentListView / AvatarCropDialog / DangerousModeSection / ProfileForm / MemoryListView / MemoryFormView / EmbeddingModelSection / SkillListView / SkillDetailView / ModelEditor / AddAccountDialog / AllowlistTagInput 等。新代码若再写原生 `<button>` / `<input>` / `<textarea>` 由 code review 打回。`src/index.css` 全局 focus-visible fallback 仍然保留作为防御层。
+
+---
 
 ### F-014 `docs/architecture/` 缺中心化 transport mode 文档
 

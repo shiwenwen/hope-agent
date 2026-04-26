@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
 import { OpenClawHintBanner } from "./CustomTab"
 import { TONE_PRESETS } from "../types"
@@ -100,28 +101,30 @@ export default function PersonalityTab({
             </p>
           </div>
           <div className="flex gap-1.5">
-            <button
+            <Button
+              variant="ghost"
               onClick={() => handleModeChange("structured")}
               className={cn(
-                "flex-1 px-3 py-2 text-xs rounded-md transition-colors",
+                "h-auto flex-1 rounded-md px-3 py-2 text-xs",
                 mode === "structured"
-                  ? "bg-primary/10 text-primary font-medium"
+                  ? "bg-primary/10 text-primary font-medium hover:bg-primary/15 hover:text-primary"
                   : "bg-secondary/40 text-foreground hover:bg-secondary/70",
               )}
             >
               {t("settings.personaModeStructured")}
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="ghost"
               onClick={() => handleModeChange("soulMd")}
               className={cn(
-                "flex-1 px-3 py-2 text-xs rounded-md transition-colors",
+                "h-auto flex-1 rounded-md px-3 py-2 text-xs",
                 mode === "soulMd"
-                  ? "bg-primary/10 text-primary font-medium"
+                  ? "bg-primary/10 text-primary font-medium hover:bg-primary/15 hover:text-primary"
                   : "bg-secondary/40 text-foreground hover:bg-secondary/70",
               )}
             >
               {t("settings.personaModeSoulMd")}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -193,12 +196,14 @@ export default function PersonalityTab({
               )
               const isSelected = matchIdx >= 0
               return (
-                <button
+                <Button
                   key={preset.value}
+                  variant="ghost"
+                  size="sm"
                   className={cn(
-                    "px-2.5 py-1.5 text-xs rounded-md transition-colors",
+                    "h-auto rounded-md px-2.5 py-1.5 text-xs",
                     isSelected
-                      ? "bg-primary/10 text-primary font-medium"
+                      ? "bg-primary/10 text-primary font-medium hover:bg-primary/15 hover:text-primary"
                       : "bg-secondary/30 text-foreground hover:bg-secondary/60",
                   )}
                   onClick={() => {
@@ -214,7 +219,7 @@ export default function PersonalityTab({
                   }}
                 >
                   {label}
-                </button>
+                </Button>
               )
             })}
           </div>
@@ -244,9 +249,10 @@ export default function PersonalityTab({
                 className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-md bg-secondary text-foreground"
               >
                 {trait}
-                <button
-      
-                  className="text-muted-foreground hover:text-destructive transition-colors"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-4 w-4 text-muted-foreground hover:bg-transparent hover:text-destructive"
                   onClick={() =>
                     updatePersonality({
                       traits: config.personality.traits.filter((t) => t !== trait),
@@ -254,7 +260,7 @@ export default function PersonalityTab({
                   }
                 >
                   <X className="h-3 w-3" />
-                </button>
+                </Button>
               </span>
             ))}
           </div>
@@ -293,9 +299,10 @@ export default function PersonalityTab({
                 className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-md bg-secondary/30 text-foreground"
               >
                 <span className="flex-1">{p}</span>
-                <button
-      
-                  className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 shrink-0 text-muted-foreground hover:bg-transparent hover:text-destructive"
                   onClick={() =>
                     updatePersonality({
                       principles: config.personality.principles.filter((_, idx) => idx !== i),
@@ -303,7 +310,7 @@ export default function PersonalityTab({
                   }
                 >
                   <X className="h-3 w-3" />
-                </button>
+                </Button>
               </div>
             ))}
           </div>

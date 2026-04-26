@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { Button } from "@/components/ui/button"
 import {
   Select,
   SelectContent,
@@ -88,12 +89,13 @@ export default function PersonalInfoSection({
         </div>
         <div className="space-y-0.5">
           {(["expert", "intermediate", "beginner"] as const).map((level) => (
-            <button
+            <Button
               key={level}
+              variant="ghost"
               className={cn(
-                "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+                "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
                 config.aiExperience === level
-                  ? "bg-primary/10 text-primary font-medium"
+                  ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                   : "bg-secondary/20 text-foreground hover:bg-secondary/60",
               )}
               onClick={() =>
@@ -106,7 +108,7 @@ export default function PersonalInfoSection({
               {config.aiExperience === level && (
                 <Check className="h-4 w-4 text-primary shrink-0" />
               )}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -119,11 +121,12 @@ export default function PersonalInfoSection({
           {t("settings.profileTimezone")}
         </div>
         <div className="space-y-0.5">
-          <button
+          <Button
+            variant="ghost"
             className={cn(
-              "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+              "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
               !config.timezone
-                ? "bg-primary/10 text-primary font-medium"
+                ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                 : "bg-secondary/20 text-foreground hover:bg-secondary/60",
             )}
             onClick={() => update({ timezone: null })}
@@ -131,7 +134,7 @@ export default function PersonalInfoSection({
             <Monitor className="h-4 w-4 shrink-0 opacity-60" />
             <span className="flex-1 text-left">{t("settings.profileTimezoneSystem")}</span>
             {!config.timezone && <Check className="h-4 w-4 text-primary shrink-0" />}
-          </button>
+          </Button>
         </div>
         <Select
           value={config.timezone ?? ""}

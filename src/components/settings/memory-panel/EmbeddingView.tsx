@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { ArrowLeft } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ui/button"
 import type { useMemoryData } from "./useMemoryData"
 import EmbeddingModelSection from "./EmbeddingModelSection"
 import HybridSearchConfigSection from "./HybridSearchConfig"
@@ -23,13 +24,15 @@ export default function EmbeddingView({ data }: EmbeddingViewProps) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="w-full">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => setView("list")}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
+          className="mb-4 -ml-3 gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           {t("settings.memory")}
-        </button>
+        </Button>
 
         <h2 className="text-lg font-semibold mb-1">{t("settings.memoryEmbedding")}</h2>
         <p className="text-xs text-muted-foreground mb-6">{t("settings.memoryEmbeddingDesc")}</p>

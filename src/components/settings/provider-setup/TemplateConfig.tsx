@@ -212,17 +212,19 @@ export function TemplateConfig({
                 }
                 className="bg-background font-mono text-xs pr-9"
               />
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="icon"
                 onClick={() => setShowApiKey(!showApiKey)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground"
               >
                 {showApiKey ? (
                   <EyeOff className="h-3.5 w-3.5" />
                 ) : (
                   <Eye className="h-3.5 w-3.5" />
                 )}
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -287,9 +289,10 @@ export function TemplateConfig({
 
         {/* Models (collapsed by default for templates, shows summary) */}
         <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <button
+          <Button
+            variant="ghost"
             onClick={() => setModelsExpanded(!modelsExpanded)}
-            className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-secondary/30 transition-colors"
+            className="h-auto w-full justify-between rounded-none px-4 py-3 text-left font-normal hover:bg-secondary/30"
           >
             <div className="flex items-center gap-1.5">
               <span className="text-sm font-semibold text-foreground">
@@ -309,7 +312,7 @@ export function TemplateConfig({
                 modelsExpanded ? "rotate-90" : ""
               }`}
             />
-          </button>
+          </Button>
 
           {!modelsExpanded && (
             <div className="px-4 pb-3 flex flex-wrap gap-1.5">
