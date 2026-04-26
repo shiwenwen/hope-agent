@@ -71,6 +71,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
     selectedIds,
     batchLoading,
     embeddingConfig,
+    localModels,
     stats,
     handleExport,
     handleImport,
@@ -86,6 +87,21 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
     startEdit,
     startAdd,
   } = data
+
+  const activeEmbeddingModel = embeddingConfig.enabled
+    ? embeddingConfig.providerType === "local"
+      ? localModels.find((model) => model.id === embeddingConfig.localModelId)?.name ??
+        embeddingConfig.localModelId ??
+        t("settings.memoryLocalModel")
+      : embeddingConfig.providerType === "auto"
+        ? "Auto"
+        : embeddingConfig.apiModel?.trim() ||
+          embeddingConfig.apiBaseUrl?.trim() ||
+          t("settings.memoryModel")
+    : null
+  const embeddingButtonTip = activeEmbeddingModel
+    ? `${t("settings.memoryVectorEnabled")} · ${activeEmbeddingModel}`
+    : t("settings.memoryEmbedding")
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -110,23 +126,27 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
               </Button>
             </IconTip>
             {!compact && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setView("embedding")}
-                className={cn(
-                  "gap-1.5 text-xs",
-                  embeddingConfig.enabled
-                    ? "border-primary/40 text-primary hover:bg-primary/10"
-                    : "text-muted-foreground",
-                )}
-              >
-                <Zap className="h-3.5 w-3.5" />
-                {t("settings.memoryEmbedding")}
-                {embeddingConfig.enabled && (
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                )}
-              </Button>
+              <IconTip label={embeddingButtonTip}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setView("embedding")}
+                  className={cn(
+                    "relative overflow-visible gap-1.5 text-xs transition-colors",
+                    embeddingConfig.enabled
+                      ? "border-green-500/50 bg-green-500/10 text-green-700 hover:bg-green-500/15 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
+                      : "text-muted-foreground",
+                  )}
+                >
+                  <Zap
+                    className={cn(
+                      "h-3.5 w-3.5",
+                      embeddingConfig.enabled && "fill-green-500/20",
+                    )}
+                  />
+                  {t("settings.memoryEmbedding")}
+                </Button>
+              </IconTip>
             )}
             <Button size="sm" onClick={startAdd} className="gap-1.5">
               <Plus className="h-3.5 w-3.5" />
@@ -134,7 +154,17 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
             </Button>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground mb-4">{t("settings.memoryDesc")}</p>
+        <p className={cn("text-xs text-muted-foreground", activeEmbeddingModel ? "mb-1" : "mb-4")}>
+          {t("settings.memoryDesc")}
+        </p>
+        {activeEmbeddingModel && (
+          <div className="mb-4 flex min-h-4 items-center gap-1.5 text-xs text-green-600 dark:text-green-400">
+            <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+            <span className="truncate">
+              {t("settings.memoryVectorEnabled")} {activeEmbeddingModel}
+            </span>
+          </div>
+        )}
 
         {/* Global Core Memory editor (standalone mode only) */}
         {!isAgentMode && <CoreMemoryEditor scope="global" />}
