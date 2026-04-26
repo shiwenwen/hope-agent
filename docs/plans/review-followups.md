@@ -30,42 +30,6 @@
 
 ## Open
 
-### F-002 Provider 写入路径未单一化（add_provider 缺 upsert 语义）
-
-- **来源**：2026-04-26 本地小模型助手 `/simplify` review
-- **现象**：仓库里有两条创建 Provider 的路径：
-  - [`src-tauri/src/commands/provider/crud.rs::add_provider`](../../src-tauri/src/commands/provider/crud.rs)：GUI"添加 Provider"走这条，**无 upsert**，每次都 `store.providers.push()`
-  - [`crates/ha-core/src/local_llm/mod.rs::ensure_ollama_provider_with_model`](../../crates/ha-core/src/local_llm/mod.rs)：本地小模型助手走这条，**有 upsert**（按 base_url 去重）
-- **为什么留**：
-  1. ha-core 不能反向依赖 src-tauri（AGENTS.md "零 Tauri 依赖" 约束），不能直接调用 `add_provider`
-  2. 老的 GUI `add_provider` 不 upsert 不算 bug（用户视觉判重）；只有自动化路径才需要 upsert
-  3. 统一要下放 Provider CRUD 到 ha-core，跨多个 crate + 改写入语义，独立工作
-- **改的话要做什么**：
-  1. 在 [`crates/ha-core/src/provider/`](../../crates/ha-core/src/provider/) 新建 `crud.rs`，把 Provider 写入逻辑（add / update / delete / reorder / upsert_by_base_url）下放，统一走 `mutate_config(("providers.<op>", source), ...)`
-  2. [`src-tauri/src/commands/provider/crud.rs`](../../src-tauri/src/commands/provider/crud.rs) 与 [`crates/ha-server/src/routes/providers.rs`](../../crates/ha-server/src/routes/providers.rs) 改成薄壳直接调用 ha-core 函数
-  3. `local_llm::ensure_ollama_provider_with_model` 改用统一的 `upsert_by_base_url` helper
-- **影响面**：当前无 bug；未来若 `add_provider` 增加副作用（如自动写 SSRF trusted_hosts、emit 特定事件），新代码不会自动享受到，是漂移风险。
-- **触发时机建议**：下一次有人需要"再加一条 Provider 创建路径"时（例如 import / batch onboarding），顺势统一；或独立 "Provider CRUD 单一入口" 重构 PR。
-
----
-
-### F-003 "local Ollama" 判定逻辑分散在 4 处
-
-- **来源**：2026-04-26 本地小模型助手 `/simplify` review
-- **现象**：判断"这是不是本地 Ollama"的代码散落在四个文件，正则/字符串/常量各一份：
-  - [`crates/ha-core/src/local_llm/mod.rs::is_local_ollama_url`](../../crates/ha-core/src/local_llm/mod.rs) — 后端 upsert 去重
-  - [`src/components/settings/ProviderSettings.tsx::LOCAL_OLLAMA_HOST_RE`](../../src/components/settings/ProviderSettings.tsx) — 前端"是否挂载本地小模型卡片"判定
-  - [`crates/ha-core/src/openclaw_import/providers.rs`](../../crates/ha-core/src/openclaw_import/providers.rs) — 写死 `http://127.0.0.1:11434`
-  - [`src/components/settings/provider-setup/templates/local.ts`](../../src/components/settings/provider-setup/templates/local.ts) — Provider 模板字段
-- **为什么留**：跨前后端、跨 crate 的"小常量统一"价值有限；当前四处行为一致没有 bug。强行抽出 shared 常量需要做 wire-format 同步（前端 TS const 怎么从 Rust 同步），引入新约束。
-- **改的话要做什么**：候选方案：
-  - **A**：在 [`crates/ha-core/src/provider/local.rs`](../../crates/ha-core/src/provider/local.rs)（新建）放 `pub const LOCAL_OLLAMA_BASE_URL` + `pub fn is_local_ollama_url`，后端三处都用；前端继续维护一个独立常量但加注释指向后端同名定义
-  - **B**：把"已知本地后端"做成数据驱动表（Ollama / LM Studio / vLLM / SGLang / LiteLLM），后端暴露 `GET /api/local-llm/known-backends`，前端跟着拉
-- **影响面**：纯整洁度，没有 bug。但如果有一天 Ollama 默认端口变了或要支持 `http://[::1]:11434` 之类，要改 4 个地方。
-- **触发时机建议**：下一次需要在多处加新的 local backend（例如增加对 LM Studio 的一键安装支持）时统一；或者发现端口/host 变化要改时被动收掉。
-
----
-
 ### F-004 NDJSON 流式解析无统一 helper
 
 - **来源**：2026-04-26 本地小模型助手 `/simplify` review
@@ -147,6 +111,22 @@
   - **文档**：[`docs/architecture/api-reference.md`](../../docs/architecture/api-reference.md) 事件表用 `local_model_job:*` 替换，新增「Local model background jobs」表与 8 条 routes / 同时把 Local LLM assistant 表收敛到 5 条探测命令；[`docs/architecture/transport-modes.md`](../../docs/architecture/transport-modes.md) 事件矩阵同步替换；[`AGENTS.md`](../../AGENTS.md) 「本地 LLM 助手」段把"进度走 EventBus"改成"后台任务统一接口"；docker.rs / docker command shim 内残留的旧函数引用注释一并清理
   - 验证：`cargo check -p ha-core -p ha-server` / `cargo check -p hope-agent` / `pnpm typecheck` 全绿
 - **影响面**：dead-code 移除，无 runtime 行为变更。
+
+---
+
+### F-003 "local Ollama" 判定逻辑分散在 4 处
+
+- **来源**：2026-04-26 本地小模型助手 `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-002 + F-003 修复
+- **修复方式**：新增 [`crates/ha-core/src/provider/local.rs`](../../crates/ha-core/src/provider/local.rs) 维护 known local backends catalog（Ollama / LiteLLM / vLLM / LM Studio / SGLang）与 host+port 匹配逻辑，`local_llm::OLLAMA_BASE_URL` 改为复用 `LOCAL_OLLAMA_BASE_URL`。新增 Tauri `local_llm_known_backends` 与 HTTP `GET /api/local-llm/known-backends`，前端 [`provider-detection.ts`](../../src/components/settings/local-llm/provider-detection.ts) 改为消费后端 catalog，不再维护 `LOCAL_OLLAMA_HOST_RE`。ProviderSettings / TemplateGrid 均使用同一 catalog 判定是否展示本地小模型助手。
+
+---
+
+### F-002 Provider 写入路径未单一化（add_provider 缺 upsert 语义）
+
+- **来源**：2026-04-26 本地小模型助手 `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-002 + F-003 修复
+- **修复方式**：新增 [`crates/ha-core/src/provider/crud.rs`](../../crates/ha-core/src/provider/crud.rs) 作为 Provider 写入单一入口，集中 add / update / delete / reorder / set active / add-and-activate / batch add / Codex ensure / local backend upsert。GUI、HTTP、onboarding、Codex auth/restore/logout、OpenClaw import、CLI onboarding、IM slash active-model 切换和 local LLM 注册路径均改走 ha-core helper。普通 `add_provider` 继续追加并生成新 id；本地模型助手单独通过 known backend upsert 去重。
 
 ---
 

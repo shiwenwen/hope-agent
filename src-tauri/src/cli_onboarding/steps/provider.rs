@@ -12,8 +12,7 @@
 
 use anyhow::Result;
 
-use ha_core::config::{load_config, save_config};
-use ha_core::provider::{ActiveModel, ApiType, ModelConfig, ProviderConfig};
+use ha_core::provider::{ApiType, ModelConfig, ProviderConfig};
 
 use crate::cli_onboarding::prompt::{
     print_saved, print_skipped, println_step, prompt_input, prompt_password, prompt_select,
@@ -95,7 +94,6 @@ pub fn run(step: u32, total: u32) -> Result<bool> {
     }
     let model_id = prompt_input("Primary model id", Some(tpl.model_id))?;
 
-    let mut config = load_config()?;
     let mut provider = ProviderConfig::new(provider_name, tpl.api_type.clone(), base_url, api_key);
     provider.models = vec![ModelConfig {
         id: model_id.clone(),
@@ -108,13 +106,7 @@ pub fn run(step: u32, total: u32) -> Result<bool> {
         cost_input: 0.0,
         cost_output: 0.0,
     }];
-    let provider_id = provider.id.clone();
-    config.providers.push(provider);
-    config.active_model = Some(ActiveModel {
-        provider_id,
-        model_id,
-    });
-    save_config(&config)?;
+    ha_core::provider::add_and_activate_provider(provider, model_id, "cli-onboarding")?;
 
     print_saved("Provider saved and set as active model");
     Ok(true)

@@ -8,6 +8,7 @@ use axum::Json;
 use serde_json::{json, Value};
 
 use ha_core::local_llm::{detect_hardware, detect_ollama, recommend_model, start_ollama};
+use ha_core::provider::known_local_backends;
 
 use crate::error::AppError;
 
@@ -24,6 +25,11 @@ pub async fn get_recommendation() -> Json<Value> {
 /// `GET /api/local-llm/ollama-status` — installed / running probe.
 pub async fn get_ollama_status() -> Json<Value> {
     Json(json!(detect_ollama().await))
+}
+
+/// `GET /api/local-llm/known-backends` — static local backend catalog.
+pub async fn get_known_backends() -> Json<Value> {
+    Json(json!(known_local_backends()))
 }
 
 /// `POST /api/local-llm/start` — best-effort `ollama serve` spawn.

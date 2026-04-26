@@ -27,21 +27,8 @@ pub(crate) async fn set_active_model_core(
     model_id: &str,
     state: &AppState,
 ) -> Result<(), CmdError> {
-    // Clone the provider snapshot before mutating — holding the Arc from
-    // `cached_config()` across the later `.await` points would deadlock.
-    let provider = {
-        let store = ha_core::config::cached_config();
-        let found = store
-            .providers
-            .iter()
-            .find(|p| p.id == provider_id)
-            .cloned()
-            .ok_or_else(|| CmdError::msg(format!("Provider not found: {}", provider_id)))?;
-        if !found.models.iter().any(|m| m.id == model_id) {
-            return Err(CmdError::msg(format!("Model not found: {}", model_id)));
-        }
-        found
-    };
+    let provider =
+        ha_core::provider::set_active_model(provider_id.to_string(), model_id.to_string(), "ui")?;
 
     // For Codex, use stored token info; otherwise build agent from provider.
     if provider.api_type == ApiType::Codex {
@@ -54,17 +41,7 @@ pub(crate) async fn set_active_model_core(
         let agent = AssistantAgent::new_from_provider(&provider, model_id);
         *state.agent.lock().await = Some(agent);
     }
-
-    let provider_id = provider_id.to_string();
-    let model_id = model_id.to_string();
-    ha_core::config::mutate_config(("active_model", "ui"), |store| {
-        store.active_model = Some(ActiveModel {
-            provider_id,
-            model_id,
-        });
-        Ok(())
-    })
-    .map_err(Into::into)
+    Ok(())
 }
 
 #[tauri::command]

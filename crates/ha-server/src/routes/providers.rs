@@ -3,7 +3,7 @@ use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use ha_core::provider::{self, ActiveModel, AvailableModel, ProviderConfig};
+use ha_core::provider::{self, AvailableModel, ProviderConfig, ProviderWriteError};
 
 use crate::error::AppError;
 
@@ -14,6 +14,16 @@ use crate::error::AppError;
 pub struct SetActiveModelRequest {
     pub provider_id: String,
     pub model_id: String,
+}
+
+fn provider_write_error(err: ProviderWriteError) -> AppError {
+    match err {
+        ProviderWriteError::NotFound(_) | ProviderWriteError::ModelNotFound { .. } => {
+            AppError::not_found(err.to_string())
+        }
+        ProviderWriteError::UnknownLocalBackend(_) => AppError::bad_request(err.to_string()),
+        ProviderWriteError::Config(err) => AppError::internal(err.to_string()),
+    }
 }
 
 // ── Handlers ───────────────────────────────────────────────────
@@ -37,68 +47,23 @@ pub async fn has_providers() -> Result<Json<bool>, AppError> {
 pub async fn add_provider(
     Json(config): Json<ProviderConfig>,
 ) -> Result<Json<ProviderConfig>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-    let mut new_provider = ProviderConfig::new(
-        config.name,
-        config.api_type,
-        config.base_url,
-        config.api_key,
-    );
-    new_provider.models = config.models;
-    new_provider.auth_profiles = config.auth_profiles;
-    new_provider.thinking_style = config.thinking_style;
-    new_provider.allow_private_network = config.allow_private_network;
-
-    let masked = new_provider.masked();
-    store.providers.push(new_provider);
-    ha_core::config::save_config(&store)?;
+    let masked = provider::add_provider(config, "http").map_err(provider_write_error)?;
     Ok(Json(masked))
 }
 
 /// `PUT /api/providers/{id}` — update an existing provider.
 pub async fn update_provider(
     Path(id): Path<String>,
-    Json(config): Json<ProviderConfig>,
+    Json(mut config): Json<ProviderConfig>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-    if let Some(existing) = store.providers.iter_mut().find(|p| p.id == id) {
-        existing.name = config.name;
-        existing.api_type = config.api_type;
-        existing.base_url = config.base_url;
-        // Only update API key if a real key is provided (not the masked version)
-        if !provider::is_masked_key(&config.api_key) {
-            existing.api_key = config.api_key;
-        }
-        // Merge auth profile keys: preserve real keys when incoming is masked
-        existing.auth_profiles =
-            provider::merge_profile_keys(&existing.auth_profiles, &config.auth_profiles);
-        existing.models = config.models;
-        existing.enabled = config.enabled;
-        existing.user_agent = config.user_agent;
-        existing.thinking_style = config.thinking_style;
-        existing.allow_private_network = config.allow_private_network;
-        ha_core::config::save_config(&store)?;
-        Ok(Json(json!({ "updated": true })))
-    } else {
-        Err(AppError::not_found(format!("Provider not found: {}", id)))
-    }
+    config.id = id;
+    provider::update_provider(config, "http").map_err(provider_write_error)?;
+    Ok(Json(json!({ "updated": true })))
 }
 
 /// `DELETE /api/providers/{id}` — delete a provider.
 pub async fn delete_provider(Path(id): Path<String>) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-    let len_before = store.providers.len();
-    store.providers.retain(|p| p.id != id);
-    if store.providers.len() == len_before {
-        return Err(AppError::not_found(format!("Provider not found: {}", id)));
-    }
-    // Clear active model if it was from the deleted provider
-    if let Some(ref active) = store.active_model {
-        if active.provider_id == id {
-            store.active_model = None;
-        }
-    }
-    ha_core::config::save_config(&store)?;
+    provider::delete_provider(id, "http").map_err(provider_write_error)?;
     Ok(Json(json!({ "deleted": true })))
 }
 
@@ -131,20 +96,7 @@ pub struct ReorderBody {
 
 /// `POST /api/providers/reorder` — reorder providers.
 pub async fn reorder_providers(Json(body): Json<ReorderBody>) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-    let mut reordered = Vec::with_capacity(body.provider_ids.len());
-    for id in &body.provider_ids {
-        if let Some(p) = store.providers.iter().find(|p| &p.id == id) {
-            reordered.push(p.clone());
-        }
-    }
-    for p in &store.providers {
-        if !body.provider_ids.contains(&p.id) {
-            reordered.push(p.clone());
-        }
-    }
-    store.providers = reordered;
-    ha_core::config::save_config(&store)?;
+    provider::reorder_providers(body.provider_ids, "http").map_err(provider_write_error)?;
     Ok(Json(json!({ "reordered": true })))
 }
 
@@ -214,26 +166,7 @@ pub async fn test_model(Json(body): Json<TestModelBody>) -> Result<Json<Value>, 
 pub async fn set_active_model(
     Json(body): Json<SetActiveModelRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-
-    // Verify provider and model exist
-    let provider = store
-        .providers
-        .iter()
-        .find(|p| p.id == body.provider_id)
-        .ok_or_else(|| AppError::not_found(format!("Provider not found: {}", body.provider_id)))?;
-
-    if !provider.models.iter().any(|m| m.id == body.model_id) {
-        return Err(AppError::not_found(format!(
-            "Model not found: {}",
-            body.model_id
-        )));
-    }
-
-    store.active_model = Some(ActiveModel {
-        provider_id: body.provider_id,
-        model_id: body.model_id,
-    });
-    ha_core::config::save_config(&store)?;
+    provider::set_active_model(body.provider_id, body.model_id, "http")
+        .map_err(provider_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }

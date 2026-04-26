@@ -263,6 +263,7 @@ pub fn run() {
             commands::local_llm::local_llm_detect_hardware,
             commands::local_llm::local_llm_recommend_model,
             commands::local_llm::local_llm_detect_ollama,
+            commands::local_llm::local_llm_known_backends,
             commands::local_llm::local_llm_start_ollama,
             commands::local_embedding::local_embedding_list_models,
             commands::local_model_jobs::local_model_job_start_chat_model,

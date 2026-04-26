@@ -347,6 +347,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   local_llm_detect_hardware:       { method: "GET",    path: "/api/local-llm/hardware" },
   local_llm_recommend_model:       { method: "GET",    path: "/api/local-llm/recommendation" },
   local_llm_detect_ollama:         { method: "GET",    path: "/api/local-llm/ollama-status" },
+  local_llm_known_backends:        { method: "GET",    path: "/api/local-llm/known-backends" },
   local_llm_start_ollama:          { method: "POST",   path: "/api/local-llm/start" },
   local_embedding_list_models:     { method: "GET",    path: "/api/local-embedding/models" },
   local_model_job_start_chat_model:{ method: "POST",   path: "/api/local-model-jobs/chat-model" },

@@ -1144,6 +1144,10 @@ fn build_router_with_cors(
             "/local-llm/ollama-status",
             get(routes::local_llm::get_ollama_status),
         )
+        .route(
+            "/local-llm/known-backends",
+            get(routes::local_llm::get_known_backends),
+        )
         .route("/local-llm/start", post(routes::local_llm::start))
         // SearXNG Docker
         .route("/searxng/status", get(routes::searxng::status))

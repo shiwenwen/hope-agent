@@ -17,14 +17,16 @@ use std::sync::OnceLock;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 
-use crate::provider::{ApiType, ModelConfig, ProviderConfig, ThinkingStyle};
+use crate::provider::{
+    upsert_known_local_provider_model, ModelConfig, ProviderConfig, ThinkingStyle,
+};
 #[cfg(unix)]
 use crate::security::ssrf::{check_url, SsrfPolicy};
 
 pub mod types;
 pub use types::*;
 
-pub const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
+pub use crate::provider::LOCAL_OLLAMA_BASE_URL as OLLAMA_BASE_URL;
 #[cfg(unix)]
 const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
@@ -943,9 +945,6 @@ where
 /// `mutate_config` write so the `config:changed` consumers never observe
 /// the half-done state.
 pub fn ensure_ollama_provider_with_model(model: &ModelCandidate) -> Result<(String, String)> {
-    use crate::config::mutate_config;
-    use crate::provider::ActiveModel;
-
     let model_cfg = ModelConfig {
         id: model.id.clone(),
         name: model.display_name.clone(),
@@ -958,58 +957,25 @@ pub fn ensure_ollama_provider_with_model(model: &ModelCandidate) -> Result<(Stri
         cost_output: 0.0,
     };
 
-    let model_id = model.id.clone();
-    let provider_id = mutate_config(("providers.add+activate", PROVIDER_SOURCE), |store| {
-        // Upsert the local-Ollama provider keyed by base_url so we never
-        // create duplicate rows when the user clicks Install twice.
-        let existing_idx = store
-            .providers
-            .iter()
-            .position(|p| p.api_type == ApiType::OpenaiChat && is_local_ollama_url(&p.base_url));
-        let pid = if let Some(idx) = existing_idx {
-            let p = &mut store.providers[idx];
-            if !p.models.iter().any(|m| m.id == model_id) {
-                p.models.push(model_cfg.clone());
-            }
-            p.enabled = true;
-            p.allow_private_network = true;
-            p.id.clone()
-        } else {
-            let mut new_provider = ProviderConfig::new(
-                OLLAMA_PROVIDER_NAME.into(),
-                ApiType::OpenaiChat,
-                OLLAMA_BASE_URL.into(),
-                String::new(),
-            );
-            new_provider.models.push(model_cfg.clone());
-            new_provider.allow_private_network = true;
-            new_provider.thinking_style = ThinkingStyle::Qwen;
-            let id = new_provider.id.clone();
-            store.providers.push(new_provider);
-            id
-        };
-        store.active_model = Some(ActiveModel {
-            provider_id: pid.clone(),
-            model_id: model_id.clone(),
-        });
-        Ok(pid)
-    })?;
+    let mut provider = ProviderConfig::new(
+        OLLAMA_PROVIDER_NAME.into(),
+        crate::provider::ApiType::OpenaiChat,
+        OLLAMA_BASE_URL.into(),
+        String::new(),
+    );
+    provider.thinking_style = ThinkingStyle::Qwen;
+
+    let (provider_id, model_id) =
+        upsert_known_local_provider_model("ollama", provider, model_cfg, true, PROVIDER_SOURCE)?;
 
     app_info!(
         "local_llm",
         "register_provider",
         "Ollama provider {} active with model {}",
         provider_id,
-        model.id
+        model_id
     );
-    Ok((provider_id, model.id.clone()))
-}
-
-fn is_local_ollama_url(url: &str) -> bool {
-    let lowered = url.to_ascii_lowercase();
-    lowered.contains("127.0.0.1:11434")
-        || lowered.contains("localhost:11434")
-        || lowered.contains("ollama.local")
+    Ok((provider_id, model_id))
 }
 
 // ── End-to-end orchestration ──────────────────────────────────────
@@ -1083,14 +1049,6 @@ mod tests {
         let rec = recommend_model(&budget_hw(7 * 1024, BudgetSource::SystemMemory));
         assert!(rec.recommended.is_none());
         assert_eq!(rec.reason, RecommendationReason::Insufficient);
-    }
-
-    #[test]
-    fn local_ollama_url_match() {
-        assert!(is_local_ollama_url("http://127.0.0.1:11434"));
-        assert!(is_local_ollama_url("http://localhost:11434/v1"));
-        assert!(is_local_ollama_url("http://ollama.local:11434"));
-        assert!(!is_local_ollama_url("https://api.openai.com"));
     }
 
     #[test]
