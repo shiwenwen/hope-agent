@@ -1,9 +1,11 @@
 //! Tauri commands for the Project feature.
 //!
 //! Thin wrappers around [`ha_core::project`] — all business logic lives in
-//! ha-core; this file only handles `Result<T, E>` → `Result<T, String>`
+//! ha-core; this file only handles `Result<T, E>` → `Result<T, CmdError>`
 //! conversion and holds the `AppState` bridge.
 
+use crate::commands::CmdError;
+use anyhow::Context;
 use ha_core::project::{
     delete_project_cascade, delete_project_file as delete_file_pipeline, upload_project_file,
     CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput, UploadInput,
@@ -13,19 +15,15 @@ use tauri::State;
 
 use crate::AppState;
 
-fn map_err<E: std::fmt::Display>(e: E) -> String {
-    e.to_string()
-}
-
 // ── Project CRUD ────────────────────────────────────────────────
 
 #[tauri::command]
 pub async fn list_projects_cmd(
     include_archived: Option<bool>,
     state: State<'_, AppState>,
-) -> Result<Vec<ProjectMeta>, String> {
+) -> Result<Vec<ProjectMeta>, CmdError> {
     let include_archived = include_archived.unwrap_or(false);
-    let mut projects = state.project_db.list(include_archived).map_err(map_err)?;
+    let mut projects = state.project_db.list(include_archived)?;
 
     // Cross-DB enrichment: fetch project-scoped memory counts.
     if let Some(backend) = ha_core::get_memory_backend() {
@@ -43,16 +41,16 @@ pub async fn list_projects_cmd(
 pub async fn get_project_cmd(
     id: String,
     state: State<'_, AppState>,
-) -> Result<Option<Project>, String> {
-    state.project_db.get(&id).map_err(map_err)
+) -> Result<Option<Project>, CmdError> {
+    state.project_db.get(&id).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn create_project_cmd(
     input: CreateProjectInput,
     state: State<'_, AppState>,
-) -> Result<Project, String> {
-    let project = state.project_db.create(input).map_err(map_err)?;
+) -> Result<Project, CmdError> {
+    let project = state.project_db.create(input)?;
 
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
@@ -68,8 +66,8 @@ pub async fn update_project_cmd(
     id: String,
     patch: UpdateProjectInput,
     state: State<'_, AppState>,
-) -> Result<Project, String> {
-    let project = state.project_db.update(&id, patch).map_err(map_err)?;
+) -> Result<Project, CmdError> {
+    let project = state.project_db.update(&id, patch)?;
 
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
@@ -81,8 +79,8 @@ pub async fn update_project_cmd(
 }
 
 #[tauri::command]
-pub async fn delete_project_cmd(id: String, state: State<'_, AppState>) -> Result<bool, String> {
-    let deleted = delete_project_cascade(&id, &state.project_db).map_err(map_err)?;
+pub async fn delete_project_cmd(id: String, state: State<'_, AppState>) -> Result<bool, CmdError> {
+    let deleted = delete_project_cascade(&id, &state.project_db)?;
 
     if deleted {
         if let Some(bus) = ha_core::get_event_bus() {
@@ -97,12 +95,12 @@ pub async fn archive_project_cmd(
     id: String,
     archived: bool,
     state: State<'_, AppState>,
-) -> Result<Project, String> {
+) -> Result<Project, CmdError> {
     let patch = UpdateProjectInput {
         archived: Some(archived),
         ..Default::default()
     };
-    let project = state.project_db.update(&id, patch).map_err(map_err)?;
+    let project = state.project_db.update(&id, patch)?;
 
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
@@ -122,21 +120,16 @@ pub async fn list_project_sessions_cmd(
     offset: Option<u32>,
     active_session_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<(Vec<SessionMeta>, u32), String> {
+) -> Result<(Vec<SessionMeta>, u32), CmdError> {
     use ha_core::session::ProjectFilter;
-    let (mut sessions, total) = state
-        .session_db
-        .list_sessions_paged(
-            None,
-            ProjectFilter::InProject(&id),
-            limit,
-            offset,
-            active_session_id.as_deref(),
-        )
-        .map_err(map_err)?;
-    ha_core::session::enrich_pending_interactions(&mut sessions, &state.session_db)
-        .await
-        .map_err(map_err)?;
+    let (mut sessions, total) = state.session_db.list_sessions_paged(
+        None,
+        ProjectFilter::InProject(&id),
+        limit,
+        offset,
+        active_session_id.as_deref(),
+    )?;
+    ha_core::session::enrich_pending_interactions(&mut sessions, &state.session_db).await?;
     Ok((sessions, total))
 }
 
@@ -145,11 +138,11 @@ pub async fn move_session_to_project_cmd(
     session_id: String,
     project_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .session_db
         .set_session_project(&session_id, project_id.as_deref())
-        .map_err(map_err)
+        .map_err(Into::into)
 }
 
 // ── Project Files ───────────────────────────────────────────────
@@ -158,8 +151,8 @@ pub async fn move_session_to_project_cmd(
 pub async fn list_project_files_cmd(
     id: String,
     state: State<'_, AppState>,
-) -> Result<Vec<ProjectFile>, String> {
-    state.project_db.list_files(&id).map_err(map_err)
+) -> Result<Vec<ProjectFile>, CmdError> {
+    state.project_db.list_files(&id).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -169,7 +162,7 @@ pub async fn upload_project_file_cmd(
     mime_type: Option<String>,
     data: Vec<u8>,
     state: State<'_, AppState>,
-) -> Result<ProjectFile, String> {
+) -> Result<ProjectFile, CmdError> {
     // Run the blocking upload pipeline (file IO + text extraction) off the
     // tokio runtime so the main thread stays responsive on large files.
     let project_db = state.project_db.clone();
@@ -184,9 +177,7 @@ pub async fn upload_project_file_cmd(
             &project_db,
         )
     })
-    .await
-    .map_err(|e| e.to_string())?
-    .map_err(map_err)?;
+    .await??;
 
     if let Some(bus) = ha_core::get_event_bus() {
         let _ = bus.emit(
@@ -205,14 +196,12 @@ pub async fn delete_project_file_cmd(
     project_id: String,
     file_id: String,
     state: State<'_, AppState>,
-) -> Result<bool, String> {
+) -> Result<bool, CmdError> {
     let project_db = state.project_db.clone();
     let file_id_for_pipe = file_id.clone();
     let deleted =
         tokio::task::spawn_blocking(move || delete_file_pipeline(&file_id_for_pipe, &project_db))
-            .await
-            .map_err(|e| e.to_string())?
-            .map_err(map_err)?;
+            .await??;
 
     if deleted {
         if let Some(bus) = ha_core::get_event_bus() {
@@ -234,11 +223,11 @@ pub async fn rename_project_file_cmd(
     file_id: String,
     name: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .project_db
         .rename_file(&file_id, &name)
-        .map_err(map_err)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -248,23 +237,27 @@ pub async fn read_project_file_content_cmd(
     offset: Option<u32>,
     limit: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, CmdError> {
     let file = state
         .project_db
-        .get_file(&project_id, &file_id)
-        .map_err(map_err)?
-        .ok_or_else(|| format!("file {} not found in project {}", file_id, project_id))?;
+        .get_file(&project_id, &file_id)?
+        .ok_or_else(|| {
+            CmdError::msg(format!(
+                "file {} not found in project {}",
+                file_id, project_id
+            ))
+        })?;
 
     let ext_rel = file
         .extracted_path
         .as_ref()
-        .ok_or_else(|| "file has no extracted text (binary)".to_string())?;
+        .ok_or_else(|| CmdError::msg("file has no extracted text (binary)"))?;
 
-    let base = ha_core::paths::projects_dir().map_err(map_err)?;
+    let base = ha_core::paths::projects_dir()?;
     let full = base.join(ext_rel);
     let content = tokio::fs::read_to_string(&full)
         .await
-        .map_err(|e| format!("read {}: {}", full.display(), e))?;
+        .with_context(|| format!("read {}", full.display()))?;
 
     let lines: Vec<&str> = content.lines().collect();
     let total = lines.len();
@@ -293,9 +286,9 @@ pub async fn list_project_memories_cmd(
     id: String,
     limit: Option<u32>,
     offset: Option<u32>,
-) -> Result<Vec<ha_core::memory::MemoryEntry>, String> {
+) -> Result<Vec<ha_core::memory::MemoryEntry>, CmdError> {
     let backend = ha_core::get_memory_backend()
-        .ok_or_else(|| "memory backend not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("memory backend not initialized"))?;
     let scope = ha_core::memory::MemoryScope::Project { id };
     backend
         .list(
@@ -304,5 +297,5 @@ pub async fn list_project_memories_cmd(
             limit.unwrap_or(200) as usize,
             offset.unwrap_or(0) as usize,
         )
-        .map_err(map_err)
+        .map_err(Into::into)
 }

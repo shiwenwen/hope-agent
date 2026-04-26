@@ -1,4 +1,5 @@
 use crate::agent::AssistantAgent;
+use crate::commands::CmdError;
 use crate::provider::{self, ActiveModel, ApiType, AvailableModel};
 use crate::AppState;
 use tauri::State;
@@ -6,14 +7,16 @@ use tauri::State;
 #[tauri::command]
 pub async fn get_available_models(
     _state: State<'_, AppState>,
-) -> Result<Vec<AvailableModel>, String> {
+) -> Result<Vec<AvailableModel>, CmdError> {
     Ok(provider::build_available_models(
         &ha_core::config::cached_config().providers,
     ))
 }
 
 #[tauri::command]
-pub async fn get_active_model(_state: State<'_, AppState>) -> Result<Option<ActiveModel>, String> {
+pub async fn get_active_model(
+    _state: State<'_, AppState>,
+) -> Result<Option<ActiveModel>, CmdError> {
     Ok(ha_core::config::cached_config().active_model.clone())
 }
 
@@ -23,7 +26,7 @@ pub(crate) async fn set_active_model_core(
     provider_id: &str,
     model_id: &str,
     state: &AppState,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     // Clone the provider snapshot before mutating — holding the Arc from
     // `cached_config()` across the later `.await` points would deadlock.
     let provider = {
@@ -33,9 +36,9 @@ pub(crate) async fn set_active_model_core(
             .iter()
             .find(|p| p.id == provider_id)
             .cloned()
-            .ok_or_else(|| format!("Provider not found: {}", provider_id))?;
+            .ok_or_else(|| CmdError::msg(format!("Provider not found: {}", provider_id)))?;
         if !found.models.iter().any(|m| m.id == model_id) {
-            return Err(format!("Model not found: {}", model_id));
+            return Err(CmdError::msg(format!("Model not found: {}", model_id)));
         }
         found
     };
@@ -61,7 +64,7 @@ pub(crate) async fn set_active_model_core(
         });
         Ok(())
     })
-    .map_err(|e| e.to_string())
+    .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -69,12 +72,14 @@ pub async fn set_active_model(
     provider_id: String,
     model_id: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     set_active_model_core(&provider_id, &model_id, &state).await
 }
 
 #[tauri::command]
-pub async fn get_fallback_models(_state: State<'_, AppState>) -> Result<Vec<ActiveModel>, String> {
+pub async fn get_fallback_models(
+    _state: State<'_, AppState>,
+) -> Result<Vec<ActiveModel>, CmdError> {
     Ok(ha_core::config::cached_config().fallback_models.clone())
 }
 
@@ -82,12 +87,12 @@ pub async fn get_fallback_models(_state: State<'_, AppState>) -> Result<Vec<Acti
 pub async fn set_fallback_models(
     models: Vec<ActiveModel>,
     _state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("fallback_models", "ui"), |store| {
         store.fallback_models = models;
         Ok(())
     })
-    .map_err(|e| e.to_string())
+    .map_err(Into::into)
 }
 
 // has_providers is in crud.rs

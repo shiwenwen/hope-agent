@@ -1,11 +1,13 @@
 use crate::agent::Attachment;
 use crate::agent_loader;
 use crate::chat_engine::EventSink;
+use crate::commands::CmdError;
 use crate::provider::{self, ActiveModel};
 use crate::session::{self, SessionDB};
 use crate::tools;
 use crate::truncate_utf8;
 use crate::AppState;
+use anyhow::Context;
 use ha_core::{app_error, app_info, app_warn};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -30,9 +32,9 @@ pub async fn save_attachment(
     file_name: String,
     _mime_type: String,
     data: Vec<u8>,
-) -> Result<String, String> {
+) -> Result<String, CmdError> {
     ha_core::attachments::save_attachment_bytes(session_id.as_deref(), &file_name, &data)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -55,7 +57,7 @@ pub async fn chat(
     working_dir: Option<String>,
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
-) -> Result<String, String> {
+) -> Result<String, CmdError> {
     if let Some(mode) = tool_permission_mode {
         crate::tools::set_tool_permission_mode(mode).await;
     }
@@ -82,9 +84,7 @@ pub async fn chat(
         Some(id) if !id.is_empty() => id,
         _ => {
             // Auto-create a new session; emit session_created after auto_title is set
-            let meta = db
-                .create_session_with_project(&current_agent_id, None, incognito)
-                .map_err(|e| e.to_string())?;
+            let meta = db.create_session_with_project(&current_agent_id, None, incognito)?;
             new_session_created = Some(meta.id.clone());
             meta.id
         }
@@ -96,8 +96,7 @@ pub async fn chat(
     // an invalid path doesn't silently get dropped.
     if new_session_created.is_some() {
         if let Some(wd) = working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
-            db.update_session_working_dir(&sid, Some(wd.clone()))
-                .map_err(|e| e.to_string())?;
+            db.update_session_working_dir(&sid, Some(wd.clone()))?;
             app_info!(
                 "session",
                 "chat",
@@ -114,9 +113,8 @@ pub async fn chat(
     // Build attachments metadata from file paths (files already saved by save_attachment)
     let attachments_meta = if !attachments.is_empty() {
         // Ensure session attachments directory exists and move temp files if needed
-        let att_dir = crate::paths::attachments_dir(&sid).map_err(|e| e.to_string())?;
-        std::fs::create_dir_all(&att_dir)
-            .map_err(|e| format!("Failed to create attachments dir: {}", e))?;
+        let att_dir = crate::paths::attachments_dir(&sid)?;
+        std::fs::create_dir_all(&att_dir).context("Failed to create attachments dir")?;
 
         let temp_dir = crate::paths::root_dir()
             .map(|r| r.join("attachments").join("_temp"))
@@ -317,7 +315,7 @@ pub async fn chat(
             let recent_summary = build_recent_context_summary(&db, &sid).await;
             let cancel_registry = crate::get_subagent_cancels()
                 .cloned()
-                .ok_or_else(|| "Sub-agent cancel registry not initialized".to_string())?;
+                .ok_or_else(|| CmdError::msg("Sub-agent cancel registry not initialized"))?;
             match crate::plan::spawn_plan_subagent(
                 &sid,
                 &current_agent_id,
@@ -439,7 +437,7 @@ pub async fn chat(
                     Err(e) => {
                         let err = e.to_string();
                         let _ = db.append_message(&sid, &session::NewMessage::event(&err));
-                        return Err(err);
+                        return Err(CmdError::msg(err));
                     }
                 };
                 let duration_ms = chat_start.elapsed().as_millis() as u64;
@@ -466,7 +464,7 @@ pub async fn chat(
             None => {
                 let err = "Agent not initialized. Please sign in first.".to_string();
                 let _ = db.append_message(&sid, &session::NewMessage::event(&err));
-                Err(err)
+                Err(CmdError::msg(err))
             }
         };
     }
@@ -628,13 +626,13 @@ pub async fn chat(
             if let Some(ref agent) = *state.agent.lock().await {
                 crate::chat_engine::save_agent_context(&db, &sid, agent);
             }
-            Err(e)
+            Err(CmdError::msg(e))
         }
     }
 }
 
 #[tauri::command]
-pub async fn stop_chat(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn stop_chat(state: State<'_, AppState>) -> Result<(), CmdError> {
     state.chat_cancel.store(true, Ordering::SeqCst);
     Ok(())
 }
@@ -649,13 +647,12 @@ pub async fn set_tool_permission_mode(
     session_id: Option<String>,
     mode: tools::ToolPermissionMode,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     tools::set_tool_permission_mode(mode).await;
     if let Some(sid) = session_id.as_deref() {
         state
             .session_db
-            .update_session_tool_permission_mode(sid, mode.as_str())
-            .map_err(|e| e.to_string())?;
+            .update_session_tool_permission_mode(sid, mode.as_str())?;
     }
     Ok(())
 }
@@ -698,16 +695,21 @@ async fn build_recent_context_summary(db: &Arc<SessionDB>, session_id: &str) -> 
 // ── Command Approval ──────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn respond_to_approval(request_id: String, response: String) -> Result<(), String> {
+pub async fn respond_to_approval(request_id: String, response: String) -> Result<(), CmdError> {
     let approval_response = match response.as_str() {
         "allow_once" => tools::ApprovalResponse::AllowOnce,
         "allow_always" => tools::ApprovalResponse::AllowAlways,
         "deny" => tools::ApprovalResponse::Deny,
-        _ => return Err(format!("Invalid approval response: {}", response)),
+        _ => {
+            return Err(CmdError::msg(format!(
+                "Invalid approval response: {}",
+                response
+            )))
+        }
     };
     tools::submit_approval_response(&request_id, approval_response)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 // ── System Prompt ────────────────────────────────────────────────
@@ -723,7 +725,7 @@ pub async fn get_system_prompt(
     agent_id: Option<String>,
     session_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<String, String> {
+) -> Result<String, CmdError> {
     let aid = match agent_id {
         Some(id) => id,
         None => state.current_agent_id.lock().await.clone(),
@@ -755,7 +757,7 @@ pub async fn get_system_prompt(
 // ── Tools Info Commands ───────────────────────────────────────────
 
 #[tauri::command]
-pub async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, String> {
+pub async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, CmdError> {
     let mut all = tools::get_available_tools();
     // Include conditionally-injected tools so they appear in settings
     all.push(tools::get_notification_tool());

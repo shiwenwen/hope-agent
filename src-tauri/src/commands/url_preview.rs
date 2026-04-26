@@ -1,16 +1,15 @@
+use crate::commands::CmdError;
 use crate::url_preview;
 
 #[tauri::command]
-pub async fn fetch_url_preview(url: String) -> Result<url_preview::UrlPreviewMeta, String> {
-    url_preview::fetch_preview(&url)
-        .await
-        .map_err(|e| e.to_string())
+pub async fn fetch_url_preview(url: String) -> Result<url_preview::UrlPreviewMeta, CmdError> {
+    url_preview::fetch_preview(&url).await.map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn fetch_url_previews(
     urls: Vec<String>,
-) -> Result<Vec<url_preview::UrlPreviewMeta>, String> {
+) -> Result<Vec<url_preview::UrlPreviewMeta>, CmdError> {
     let handles: Vec<_> = urls
         .into_iter()
         .map(|url| tokio::spawn(async move { url_preview::fetch_preview(&url).await }))

@@ -1,3 +1,4 @@
+use crate::commands::CmdError;
 use crate::subagent;
 use crate::AppState;
 use tauri::State;
@@ -6,43 +7,42 @@ use tauri::State;
 pub async fn list_subagent_runs(
     session_id: String,
     state: State<'_, AppState>,
-) -> Result<Vec<subagent::SubagentRun>, String> {
+) -> Result<Vec<subagent::SubagentRun>, CmdError> {
     state
         .session_db
         .list_subagent_runs(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_subagent_run(
     run_id: String,
     state: State<'_, AppState>,
-) -> Result<Option<subagent::SubagentRun>, String> {
+) -> Result<Option<subagent::SubagentRun>, CmdError> {
     state
         .session_db
         .get_subagent_run(&run_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_subagent_runs_batch(
     run_ids: Vec<String>,
     state: State<'_, AppState>,
-) -> Result<std::collections::HashMap<String, subagent::SubagentRun>, String> {
+) -> Result<std::collections::HashMap<String, subagent::SubagentRun>, CmdError> {
     state
         .session_db
         .get_subagent_runs_batch(&run_ids)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn kill_subagent(run_id: String, state: State<'_, AppState>) -> Result<String, String> {
+pub async fn kill_subagent(run_id: String, state: State<'_, AppState>) -> Result<String, CmdError> {
     // Verify run exists
     let run = state
         .session_db
-        .get_subagent_run(&run_id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Sub-agent run '{}' not found", run_id))?;
+        .get_subagent_run(&run_id)?
+        .ok_or_else(|| CmdError::msg(format!("Sub-agent run '{}' not found", run_id)))?;
 
     if run.status.is_terminal() {
         return Ok(format!(

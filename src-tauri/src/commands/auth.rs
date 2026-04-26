@@ -1,4 +1,5 @@
 use crate::agent::{self, AssistantAgent};
+use crate::commands::CmdError;
 use crate::oauth;
 use crate::provider::{self, ActiveModel, ApiType, ProviderConfig};
 use crate::AppState;
@@ -7,7 +8,7 @@ use serde::Serialize;
 use tauri::State;
 
 #[tauri::command]
-pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     let provider = ProviderConfig::new_default_anthropic(api_key);
     let provider_id = provider.id.clone();
     let model_id = provider.models[0].id.clone();
@@ -20,8 +21,7 @@ pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Re
             model_id,
         });
         Ok(())
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
     *state.agent.lock().await = Some(agent);
     Ok(())
 }
@@ -29,7 +29,7 @@ pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Re
 // ── Codex OAuth Auth ──────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn start_codex_auth(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn start_codex_auth(state: State<'_, AppState>) -> Result<(), CmdError> {
     {
         let mut lock = state.auth_result.lock().await;
         *lock = None;
@@ -37,11 +37,11 @@ pub async fn start_codex_auth(state: State<'_, AppState>) -> Result<(), String> 
     let auth_result = state.auth_result.clone();
     oauth::start_oauth_flow(auth_result)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn check_auth_status(state: State<'_, AppState>) -> Result<oauth::AuthStatus, String> {
+pub async fn check_auth_status(state: State<'_, AppState>) -> Result<oauth::AuthStatus, CmdError> {
     let lock = state.auth_result.lock().await;
     match lock.as_ref() {
         None => Ok(oauth::AuthStatus {
@@ -60,13 +60,13 @@ pub async fn check_auth_status(state: State<'_, AppState>) -> Result<oauth::Auth
 }
 
 #[tauri::command]
-pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), CmdError> {
     let token = {
         let mut lock = state.auth_result.lock().await;
         match lock.take() {
             Some(Ok(token)) => token,
-            Some(Err(e)) => return Err(e.to_string()),
-            None => return Err("Auth not complete yet".to_string()),
+            Some(Err(e)) => return Err(e.into()),
+            None => return Err(CmdError::msg("Auth not complete yet")),
         }
     };
 
@@ -74,7 +74,7 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
         .account_id
         .clone()
         .or_else(|| oauth::extract_account_id(&token.access_token))
-        .ok_or_else(|| "Failed to extract account ID from token".to_string())?;
+        .ok_or_else(|| CmdError::msg("Failed to extract account ID from token"))?;
 
     // Ensure Codex provider exists in store
     let default_model_id = "gpt-5.4".to_string();
@@ -86,8 +86,7 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
             model_id: model_for_agent.clone(),
         });
         Ok(())
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
 
     let agent = AssistantAgent::new_openai(&token.access_token, &account_id, &default_model_id);
     *state.agent.lock().await = Some(agent);
@@ -96,7 +95,7 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), Strin
 }
 
 #[tauri::command]
-pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, String> {
+pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, CmdError> {
     // Try to restore Codex OAuth session
     match oauth::load_token() {
         Ok(Some(mut token)) => {
@@ -153,8 +152,7 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Str
                             });
                         }
                         Ok(())
-                    })
-                    .map_err(|e| e.to_string())?;
+                    })?;
 
                     // Create agent based on the active model's provider type
                     {
@@ -225,7 +223,7 @@ pub(crate) async fn try_restore_non_codex_session(state: &State<'_, AppState>) -
 }
 
 #[tauri::command]
-pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), CmdError> {
     *state.agent.lock().await = None;
     *state.codex_token.lock().await = None;
 
@@ -239,10 +237,9 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), String> {
             }
         }
         Ok(())
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
 
-    oauth::clear_token().map_err(|e| e.to_string())?;
+    oauth::clear_token()?;
     Ok(())
 }
 
@@ -255,12 +252,12 @@ pub struct CurrentSettings {
 }
 
 #[tauri::command]
-pub async fn get_codex_models() -> Result<Vec<agent::CodexModel>, String> {
+pub async fn get_codex_models() -> Result<Vec<agent::CodexModel>, CmdError> {
     Ok(agent::get_codex_models())
 }
 
 #[tauri::command]
-pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentSettings, String> {
+pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentSettings, CmdError> {
     let model = ha_core::config::cached_config()
         .active_model
         .as_ref()
@@ -274,9 +271,9 @@ pub async fn get_current_settings(state: State<'_, AppState>) -> Result<CurrentS
 }
 
 #[tauri::command]
-pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     if !agent::is_valid_codex_model(&model) {
-        return Err(format!("Unknown model: {}", model));
+        return Err(CmdError::msg(format!("Unknown model: {}", model)));
     }
 
     // Update active model in store
@@ -286,8 +283,7 @@ pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Resul
             active.model_id = model_for_mut;
         }
         Ok(())
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
 
     // Rebuild agent with new model if authenticated
     let token_info = state.codex_token.lock().await.clone();
@@ -304,13 +300,13 @@ pub async fn set_codex_model(model: String, state: State<'_, AppState>) -> Resul
 pub(crate) async fn set_reasoning_effort_core(
     effort: &str,
     state: &AppState,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     let valid = ["none", "low", "medium", "high", "xhigh"];
     if !valid.contains(&effort) {
-        return Err(format!(
+        return Err(CmdError::msg(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
             effort, valid
-        ));
+        )));
     }
     *state.reasoning_effort.lock().await = effort.to_string();
     Ok(())
@@ -320,6 +316,6 @@ pub(crate) async fn set_reasoning_effort_core(
 pub async fn set_reasoning_effort(
     effort: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     set_reasoning_effort_core(&effort, &state).await
 }

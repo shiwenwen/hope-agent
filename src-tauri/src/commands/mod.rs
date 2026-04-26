@@ -1,3 +1,6 @@
+pub mod error;
+pub use error::CmdError;
+
 pub mod acp_control;
 pub mod agent_mgmt;
 pub mod auth;

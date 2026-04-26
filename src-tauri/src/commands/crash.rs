@@ -1,9 +1,10 @@
 use crate::backup;
+use crate::commands::CmdError;
 use crate::crash_journal;
 use crate::paths;
 
 #[tauri::command]
-pub async fn get_crash_recovery_info() -> Result<serde_json::Value, String> {
+pub async fn get_crash_recovery_info() -> Result<serde_json::Value, CmdError> {
     let recovered = std::env::var("HOPE_AGENT_RECOVERED").is_ok();
     let crash_count: u32 = std::env::var("HOPE_AGENT_CRASH_COUNT")
         .ok()
@@ -31,57 +32,58 @@ pub async fn get_crash_recovery_info() -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
-pub async fn get_crash_history() -> Result<serde_json::Value, String> {
-    let path = paths::crash_journal_path().map_err(|e| e.to_string())?;
+pub async fn get_crash_history() -> Result<serde_json::Value, CmdError> {
+    let path = paths::crash_journal_path()?;
     let journal = crash_journal::CrashJournal::load(&path);
-    serde_json::to_value(&journal).map_err(|e| e.to_string())
+    Ok(serde_json::to_value(&journal)?)
 }
 
 #[tauri::command]
-pub async fn clear_crash_history() -> Result<(), String> {
-    let path = paths::crash_journal_path().map_err(|e| e.to_string())?;
+pub async fn clear_crash_history() -> Result<(), CmdError> {
+    let path = paths::crash_journal_path()?;
     let mut journal = crash_journal::CrashJournal::load(&path);
     journal.clear();
-    journal.save(&path)
+    journal.save(&path).map_err(CmdError::msg)
 }
 
 #[tauri::command]
-pub async fn request_app_restart(app: tauri::AppHandle) -> Result<(), String> {
+pub async fn request_app_restart(app: tauri::AppHandle) -> Result<(), CmdError> {
     app.exit(42);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn list_backups_cmd() -> Result<Vec<backup::BackupInfo>, String> {
-    backup::list_backups()
+pub async fn list_backups_cmd() -> Result<Vec<backup::BackupInfo>, CmdError> {
+    backup::list_backups().map_err(CmdError::msg)
 }
 
 #[tauri::command]
-pub async fn restore_backup_cmd(name: String) -> Result<(), String> {
-    backup::restore_backup(&name)
+pub async fn restore_backup_cmd(name: String) -> Result<(), CmdError> {
+    backup::restore_backup(&name).map_err(CmdError::msg)
 }
 
 #[tauri::command]
-pub async fn create_backup_cmd() -> Result<String, String> {
-    backup::create_backup()
+pub async fn create_backup_cmd() -> Result<String, CmdError> {
+    backup::create_backup().map_err(CmdError::msg)
 }
 
 #[tauri::command]
-pub async fn list_settings_backups_cmd() -> Result<Vec<backup::AutosaveEntry>, String> {
-    backup::list_autosaves()
+pub async fn list_settings_backups_cmd() -> Result<Vec<backup::AutosaveEntry>, CmdError> {
+    backup::list_autosaves().map_err(CmdError::msg)
 }
 
 #[tauri::command]
-pub async fn restore_settings_backup_cmd(id: String) -> Result<backup::AutosaveEntry, String> {
-    backup::restore_autosave(&id)
+pub async fn restore_settings_backup_cmd(id: String) -> Result<backup::AutosaveEntry, CmdError> {
+    backup::restore_autosave(&id).map_err(CmdError::msg)
 }
 
 #[tauri::command]
-pub async fn get_guardian_enabled() -> Result<bool, String> {
-    crate::guardian::get_enabled_from_config().map_err(|e| e.to_string())
+pub async fn get_guardian_enabled() -> Result<bool, CmdError> {
+    Ok(crate::guardian::get_enabled_from_config()?)
 }
 
 #[tauri::command]
-pub async fn set_guardian_enabled(enabled: bool) -> Result<(), String> {
-    crate::guardian::set_enabled_in_config(enabled).map_err(|e| e.to_string())
+pub async fn set_guardian_enabled(enabled: bool) -> Result<(), CmdError> {
+    crate::guardian::set_enabled_in_config(enabled)?;
+    Ok(())
 }

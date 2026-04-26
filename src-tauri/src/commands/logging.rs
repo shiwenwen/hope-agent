@@ -1,3 +1,4 @@
+use crate::commands::CmdError;
 use crate::logging;
 use crate::AppState;
 use tauri::State;
@@ -8,37 +9,36 @@ pub async fn query_logs_cmd(
     page: u32,
     page_size: u32,
     state: State<'_, AppState>,
-) -> Result<logging::LogQueryResult, String> {
+) -> Result<logging::LogQueryResult, CmdError> {
     let ps = if page_size == 0 {
         50
     } else {
         page_size.min(500)
     };
     let pg = if page == 0 { 1 } else { page };
-    state
-        .log_db
-        .query(&filter, pg, ps)
-        .map_err(|e| e.to_string())
+    state.log_db.query(&filter, pg, ps).map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn get_log_stats_cmd(state: State<'_, AppState>) -> Result<logging::LogStats, String> {
-    state.log_db.get_stats().map_err(|e| e.to_string())
+pub async fn get_log_stats_cmd(state: State<'_, AppState>) -> Result<logging::LogStats, CmdError> {
+    state.log_db.get_stats().map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn clear_logs_cmd(
     before_date: Option<String>,
     state: State<'_, AppState>,
-) -> Result<u64, String> {
+) -> Result<u64, CmdError> {
     state
         .log_db
         .clear(before_date.as_deref())
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn get_log_config_cmd(state: State<'_, AppState>) -> Result<logging::LogConfig, String> {
+pub async fn get_log_config_cmd(
+    state: State<'_, AppState>,
+) -> Result<logging::LogConfig, CmdError> {
     Ok(state.logger.get_config())
 }
 
@@ -46,28 +46,28 @@ pub async fn get_log_config_cmd(state: State<'_, AppState>) -> Result<logging::L
 pub async fn save_log_config_cmd(
     config: logging::LogConfig,
     state: State<'_, AppState>,
-) -> Result<(), String> {
-    logging::save_log_config(&config).map_err(|e| e.to_string())?;
+) -> Result<(), CmdError> {
+    logging::save_log_config(&config)?;
     state.logger.update_config(config);
     Ok(())
 }
 
 #[tauri::command]
-pub async fn list_log_files_cmd() -> Result<Vec<logging::LogFileInfo>, String> {
-    logging::list_log_files().map_err(|e| e.to_string())
+pub async fn list_log_files_cmd() -> Result<Vec<logging::LogFileInfo>, CmdError> {
+    logging::list_log_files().map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn read_log_file_cmd(
     filename: String,
     tail_lines: Option<u32>,
-) -> Result<String, String> {
-    logging::read_log_file(&filename, tail_lines).map_err(|e| e.to_string())
+) -> Result<String, CmdError> {
+    logging::read_log_file(&filename, tail_lines).map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn get_log_file_path_cmd() -> Result<String, String> {
-    logging::current_log_file_path().map_err(|e| e.to_string())
+pub async fn get_log_file_path_cmd() -> Result<String, CmdError> {
+    logging::current_log_file_path().map_err(Into::into)
 }
 
 /// Receive log entries from the frontend and write them to the unified logging system.
@@ -80,7 +80,7 @@ pub async fn frontend_log(
     details: Option<String>,
     session_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     // Validate level
     let valid_levels = ["error", "warn", "info", "debug"];
     let level = if valid_levels.contains(&level.as_str()) {
@@ -100,7 +100,7 @@ pub async fn frontend_log(
 pub async fn frontend_log_batch(
     entries: Vec<serde_json::Value>,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     let valid_levels = ["error", "warn", "info", "debug"];
     for entry in entries {
         let level = entry
@@ -142,8 +142,8 @@ pub async fn export_logs_cmd(
     filter: logging::LogFilter,
     format: String,
     state: State<'_, AppState>,
-) -> Result<String, String> {
-    let logs = state.log_db.export(&filter).map_err(|e| e.to_string())?;
+) -> Result<String, CmdError> {
+    let logs = state.log_db.export(&filter)?;
     match format.as_str() {
         "csv" => {
             let mut csv =
@@ -163,6 +163,6 @@ pub async fn export_logs_cmd(
             }
             Ok(csv)
         }
-        _ => serde_json::to_string_pretty(&logs).map_err(|e| e.to_string()),
+        _ => serde_json::to_string_pretty(&logs).map_err(Into::into),
     }
 }
