@@ -56,6 +56,7 @@ pub mod process_registry;
 pub mod project;
 pub mod provider;
 pub mod recap;
+pub mod runtime_lock;
 pub mod sandbox;
 pub mod security;
 pub mod self_diagnosis;
@@ -76,7 +77,10 @@ pub mod weather;
 pub mod weather_location_macos;
 
 // ── Re-exports ────────────────────────────────────────────────────
-pub use app_init::{init_app_state, start_background_tasks};
+pub use app_init::{
+    build_app_state, init_app_state, init_runtime, start_background_tasks,
+    start_minimal_background_tasks,
+};
 #[allow(deprecated)]
 pub use globals::{
     get_acp_manager, get_app_handle, get_cached_agent, get_channel_cancels, get_channel_db,

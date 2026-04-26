@@ -35,5 +35,8 @@ mime_guess = "2"
 # substitute a LAN-reachable IP when the server binds to 0.0.0.0.
 local-ip-address = "0.6"
 
+[dev-dependencies]
+tempfile = "3"
+
 [lints]
 workspace = true

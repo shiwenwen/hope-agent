@@ -82,6 +82,29 @@ pub fn os_version_string() -> String {
     imp::os_version_string()
 }
 
+/// Try to take an exclusive, advisory, process-scoped lock on `path`.
+///
+/// - **Success** (`Ok(Some(file))`): caller holds the lock until `file`
+///   is dropped or the process exits. The OS releases the lock on
+///   process termination (normal exit, panic, SIGKILL, power loss).
+/// - **Contention** (`Ok(None)`): another live process already holds it.
+///   Caller should run as Secondary.
+/// - **Error**: filesystem / permission failure unrelated to contention.
+///
+/// Used by [`crate::runtime_lock`] to elect a single Primary process
+/// across desktop / `hope-agent server` / `hope-agent acp` so that
+/// startup cleanup and "global only-one" loops don't run twice.
+///
+/// Unix: `flock(LOCK_EX | LOCK_NB)` on a file opened with `O_CLOEXEC`,
+/// so `fork`ed children don't inherit the lock fd.
+/// Windows: `OpenOptions::share_mode(0)` (`FILE_SHARE_NONE`) for a
+/// kernel-enforced exclusive open, plus `FILE_FLAG_NO_INHERIT_HANDLE`.
+pub fn try_acquire_exclusive_lock(
+    path: &std::path::Path,
+) -> std::io::Result<Option<std::fs::File>> {
+    imp::try_acquire_exclusive_lock(path)
+}
+
 /// Atomically write a file containing a secret (OAuth tokens, API keys).
 ///
 /// Creates parent directories if missing, writes to a temp file in the
