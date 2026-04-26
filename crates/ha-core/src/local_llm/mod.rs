@@ -26,6 +26,8 @@ const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
 const OLLAMA_PROVIDER_NAME: &str = "Ollama (local)";
 const RECOMMENDATION_BUDGET_PERCENT: u64 = 60;
+pub const EVENT_LOCAL_LLM_INSTALL_PROGRESS: &str = "local_llm:install_progress";
+pub const EVENT_LOCAL_LLM_PULL_PROGRESS: &str = "local_llm:pull_progress";
 /// Hard ceiling on a single NDJSON line during `/api/pull`. Ollama's frames
 /// stay well under 1 KiB; this bound only fires on a malicious or broken
 /// peer that streams without newlines.
@@ -376,6 +378,105 @@ struct PullLine {
     error: Option<String>,
 }
 
+fn handle_pull_line(
+    model_id: &str,
+    line_text: &str,
+    latest_phase: &mut String,
+    emit: &(dyn Fn(&PullProgress) + Send + Sync),
+    strict_json: bool,
+) -> Result<()> {
+    let trimmed = line_text.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+
+    let parsed: PullLine = match serde_json::from_str(trimmed) {
+        Ok(p) => p,
+        Err(e) if strict_json => {
+            return Err(anyhow!(
+                "Ollama pull stream ended with invalid JSON frame: {e}"
+            ));
+        }
+        Err(e) => {
+            app_warn!(
+                "local_llm",
+                "pull_model",
+                "skip non-JSON line ({}): {}",
+                e,
+                trimmed
+            );
+            return Ok(());
+        }
+    };
+    if let Some(err) = parsed.error {
+        return Err(anyhow!("Ollama pull error: {err}"));
+    }
+
+    let phase = parsed.status.unwrap_or_else(|| "unknown".into());
+    latest_phase.clear();
+    latest_phase.push_str(&phase);
+    let percent = match (parsed.completed, parsed.total) {
+        (Some(c), Some(t)) if t > 0 => {
+            Some(((c as f64 / t as f64) * 100.0).clamp(0.0, 100.0) as u8)
+        }
+        _ => None,
+    };
+    emit(&PullProgress {
+        model_id: model_id.into(),
+        phase,
+        percent,
+    });
+    Ok(())
+}
+
+fn drain_pull_lines(
+    model_id: &str,
+    buf: &mut Vec<u8>,
+    latest_phase: &mut String,
+    emit: &(dyn Fn(&PullProgress) + Send + Sync),
+) -> Result<()> {
+    while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
+        let line = buf.drain(..=pos).collect::<Vec<u8>>();
+        let line_text = std::str::from_utf8(&line[..line.len().saturating_sub(1)])
+            .context("decode Ollama pull line")?;
+        handle_pull_line(model_id, line_text, latest_phase, emit, false)?;
+    }
+    Ok(())
+}
+
+fn finish_pull_stream(
+    model_id: &str,
+    buf: &mut Vec<u8>,
+    latest_phase: &mut String,
+    emit: &(dyn Fn(&PullProgress) + Send + Sync),
+) -> Result<()> {
+    if !buf.is_empty() {
+        let line_text = std::str::from_utf8(buf).context("decode trailing Ollama pull line")?;
+        handle_pull_line(model_id, line_text, latest_phase, emit, true)
+            .context("parse trailing Ollama pull frame")?;
+        buf.clear();
+    }
+
+    if !latest_phase.eq_ignore_ascii_case("success") {
+        let last = if latest_phase.is_empty() {
+            "<none>"
+        } else {
+            latest_phase.as_str()
+        };
+        app_warn!(
+            "local_llm",
+            "pull_model",
+            "pull stream ended without success status (last={})",
+            last
+        );
+        return Err(anyhow!(
+            "Ollama pull stream ended before success status (last={last})"
+        ));
+    }
+
+    Ok(())
+}
+
 /// Stream `POST /api/pull` and emit per-frame progress. Returns when Ollama
 /// closes the connection — successful pulls end with `status="success"`.
 pub async fn pull_model<F>(model_id: &str, on_progress: F) -> Result<()>
@@ -427,53 +528,10 @@ where
             ));
         }
 
-        while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
-            let line = buf.drain(..=pos).collect::<Vec<u8>>();
-            let line_text = String::from_utf8_lossy(&line[..line.len().saturating_sub(1)]);
-            if line_text.trim().is_empty() {
-                continue;
-            }
-            let parsed: PullLine = match serde_json::from_str(&line_text) {
-                Ok(p) => p,
-                Err(e) => {
-                    app_warn!(
-                        "local_llm",
-                        "pull_model",
-                        "skip non-JSON line ({}): {}",
-                        e,
-                        line_text
-                    );
-                    continue;
-                }
-            };
-            if let Some(err) = parsed.error {
-                return Err(anyhow!("Ollama pull error: {err}"));
-            }
-            let phase = parsed.status.unwrap_or_else(|| "unknown".into());
-            latest_phase = phase.clone();
-            let percent = match (parsed.completed, parsed.total) {
-                (Some(c), Some(t)) if t > 0 => {
-                    Some(((c as f64 / t as f64) * 100.0).clamp(0.0, 100.0) as u8)
-                }
-                _ => None,
-            };
-            emit(&PullProgress {
-                model_id: model_id.into(),
-                phase,
-                percent,
-            });
-        }
+        drain_pull_lines(model_id, &mut buf, &mut latest_phase, emit.as_ref())?;
     }
 
-    if !latest_phase.eq_ignore_ascii_case("success") {
-        app_warn!(
-            "local_llm",
-            "pull_model",
-            "pull stream ended without success status (last={})",
-            latest_phase
-        );
-    }
-    Ok(())
+    finish_pull_stream(model_id, &mut buf, &mut latest_phase, emit.as_ref())
 }
 
 // ── Provider registration ─────────────────────────────────────────
@@ -632,5 +690,66 @@ mod tests {
     #[test]
     fn recommendation_budget_uses_sixty_percent_with_buffer() {
         assert_eq!(recommendation_budget_mb(32 * 1024), 18_636);
+    }
+
+    fn collect_pull_frames(chunks: &[&[u8]]) -> Result<Vec<PullProgress>> {
+        use std::sync::Mutex;
+
+        let frames = Mutex::new(Vec::<PullProgress>::new());
+        let emit = |p: &PullProgress| frames.lock().unwrap().push(p.clone());
+        let mut buf = Vec::<u8>::new();
+        let mut latest_phase = String::new();
+
+        for chunk in chunks {
+            buf.extend_from_slice(chunk);
+            drain_pull_lines("test-model", &mut buf, &mut latest_phase, &emit)?;
+        }
+        finish_pull_stream("test-model", &mut buf, &mut latest_phase, &emit)?;
+
+        Ok(frames.into_inner().unwrap())
+    }
+
+    #[test]
+    fn pull_stream_accepts_final_success_with_newline() {
+        let frames = collect_pull_frames(&[
+            br#"{"status":"pulling manifest"}"#,
+            b"\n",
+            br#"{"status":"success"}"#,
+            b"\n",
+        ])
+        .expect("success frame should finish pull");
+
+        assert_eq!(frames.last().map(|p| p.phase.as_str()), Some("success"));
+    }
+
+    #[test]
+    fn pull_stream_accepts_final_success_without_newline() {
+        let frames = collect_pull_frames(&[
+            br#"{"status":"downloading","completed":50,"total":100}"#,
+            b"\n",
+            br#"{"status":"success"}"#,
+        ])
+        .expect("trailing success frame should finish pull");
+
+        assert_eq!(frames.last().map(|p| p.phase.as_str()), Some("success"));
+    }
+
+    #[test]
+    fn pull_stream_errors_on_early_eof_without_success() {
+        let err = collect_pull_frames(&[
+            br#"{"status":"downloading","completed":50,"total":100}"#,
+            b"\n",
+        ])
+        .expect_err("early EOF should not activate a model");
+
+        assert!(err.to_string().contains("before success status"));
+    }
+
+    #[test]
+    fn pull_stream_errors_on_truncated_final_frame() {
+        let err = collect_pull_frames(&[br#"{"status":"success""#])
+            .expect_err("truncated trailing JSON should fail");
+
+        assert!(err.to_string().contains("parse trailing Ollama pull frame"));
     }
 }

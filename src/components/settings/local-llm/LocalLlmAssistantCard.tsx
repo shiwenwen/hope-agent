@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
+import { withEventListener } from "@/lib/transport-events"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import {
@@ -76,7 +77,14 @@ interface InstallProgressPayload {
   message: string
 }
 
+interface DesktopOpenResult {
+  ok?: boolean
+}
+
 // ── Helpers ───────────────────────────────────────────────────────
+
+const EVENT_LOCAL_LLM_INSTALL_PROGRESS = "local_llm:install_progress"
+const EVENT_LOCAL_LLM_PULL_PROGRESS = "local_llm:pull_progress"
 
 const PHASE_KEY: Record<string, string> = {
   starting: "settings.localLlm.phases.starting",
@@ -206,7 +214,7 @@ export default function LocalLlmAssistantCard({
     setDialogDone(false)
     setDialogError(null)
 
-    const unlisten = getTransport().listen("local_llm:install_progress", (raw) => {
+    const handleProgress = (raw: unknown) => {
       const p = parsePayload<InstallProgressPayload>(raw)
       if (p.kind === "step") {
         setDialogFrame({ phase: p.message, message: p.message })
@@ -215,19 +223,22 @@ export default function LocalLlmAssistantCard({
       } else if (p.kind === "error") {
         setDialogError(p.message)
       }
-    })
+    }
 
     let installed = false
     try {
-      await getTransport().call("local_llm_install_ollama")
-      installed = true
-      setDialogFrame({
-        phase: "starting",
-        message: t("settings.localLlm.buttons.startOllama"),
+      await withEventListener(EVENT_LOCAL_LLM_INSTALL_PROGRESS, handleProgress, async () => {
+        await getTransport().call("local_llm_install_ollama")
+        installed = true
+        setDialogFrame({
+          phase: "starting",
+          message: t("settings.localLlm.buttons.startOllama"),
+        })
+        await getTransport().call("local_llm_start_ollama")
       })
-      await getTransport().call("local_llm_start_ollama")
       setDialogDone(true)
       await refresh()
+      setTimeout(() => setDialogOpen(false), 800)
     } catch (e) {
       const msg = String(e)
       setDialogError(msg)
@@ -242,7 +253,6 @@ export default function LocalLlmAssistantCard({
         ),
       )
     } finally {
-      unlisten()
       setBusy(null)
     }
   }, [refresh, t])
@@ -263,17 +273,19 @@ export default function LocalLlmAssistantCard({
       setDialogDone(false)
       setDialogError(null)
 
-      const unlisten = getTransport().listen("local_llm:pull_progress", (raw) => {
+      const handleProgress = (raw: unknown) => {
         const p = parsePayload<PullProgressPayload>(raw)
         setDialogFrame({
           phase: p.phase,
           message: phaseLabel(p.phase) || p.phase,
           percent: p.percent ?? null,
         })
-      })
+      }
 
       try {
-        await getTransport().call("local_llm_pull_and_activate", { model })
+        await withEventListener(EVENT_LOCAL_LLM_PULL_PROGRESS, handleProgress, () =>
+          getTransport().call("local_llm_pull_and_activate", { model }),
+        )
         setDialogDone(true)
         // Hold the 100% / checkmark frame briefly so users register the
         // success state before we reload.
@@ -286,7 +298,6 @@ export default function LocalLlmAssistantCard({
         setDialogError(msg)
         setError(t("settings.localLlm.error.pullFailed", { message: msg }))
       } finally {
-        unlisten()
         setBusy(null)
       }
     },
@@ -294,9 +305,16 @@ export default function LocalLlmAssistantCard({
   )
 
   const openDownloadPage = useCallback(() => {
+    const url = "https://ollama.com/download"
+    const openInBrowser = () => window.open(url, "_blank", "noopener")
     void getTransport()
-      .call("open_url", { url: "https://ollama.com/download" })
-      .catch(() => window.open("https://ollama.com/download", "_blank", "noopener"))
+      .call<DesktopOpenResult | void>("open_url", { url })
+      .then((result) => {
+        if (result && typeof result === "object" && result.ok === false) {
+          openInBrowser()
+        }
+      })
+      .catch(openInBrowser)
   }, [])
 
   if (!recommendation) {
@@ -564,6 +582,7 @@ export default function LocalLlmAssistantCard({
 
       <InstallProgressDialog
         open={dialogOpen}
+        onOpenChange={setDialogOpen}
         title={dialogTitle}
         subtitle={dialogSubtitle}
         frame={dialogFrame}

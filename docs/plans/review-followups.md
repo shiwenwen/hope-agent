@@ -98,48 +98,6 @@
 
 ---
 
-### F-006 Ollama pull 流提前结束时仍会激活模型
-
-- **来源**：2026-04-26 commit `a29a4b27393eb573110e1bafe8f9c0cad11d59c9` review
-- **现象**：[`crates/ha-core/src/local_llm/mod.rs::pull_model`](../../crates/ha-core/src/local_llm/mod.rs) 在 `/api/pull` 流结束后，如果最后状态不是 `success`，只打 `app_warn!`，仍返回 `Ok(())`。随后 `pull_and_activate` 会继续注册并激活该模型。
-- **为什么留**：本次按 review 结果登记待办，暂不在当前改动里修；修复需要顺手调整 NDJSON 尾部 buffer 处理和错误路径测试，适合作为独立小补丁。
-- **改的话要做什么**：
-  1. 在 `pull_model` 结束前处理没有换行但仍残留在 buffer 中的最后一行
-  2. 将"未收到终态 `success`"从 warn 改成 `Err`
-  3. 增加单元测试覆盖 early EOF / truncated frame / final success 三种路径
-- **影响面**：用户可见 bug。网络中断、Ollama 进程异常退出或流被截断时，UI 可能提示完成并把一个未完整下载的模型设为 active，下一次聊天才失败。
-- **触发时机建议**：下一次动本地小模型 pull 流程时优先修；也可以单独开一个 "Ollama pull completion hardening" PR。
-
----
-
-### F-007 Ollama 安装成功后进度弹窗不会关闭
-
-- **来源**：2026-04-26 commit `a29a4b27393eb573110e1bafe8f9c0cad11d59c9` review
-- **现象**：[`LocalLlmAssistantCard.tsx::installOllama`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) 在 `local_llm_install_ollama` 成功后只 `setDialogDone(true)` + `refresh()`，没有 `setDialogOpen(false)`；而 [`InstallProgressDialog`](../../src/components/settings/local-llm/InstallProgressDialog.tsx) 是受控 `open={dialogOpen}`，也没有 `onOpenChange`。
-- **为什么留**：本次按 review 结果登记待办，暂不在当前改动里修；修复很小，但需要决定成功/失败后的弹窗交互（自动关闭、显示完成按钮、允许关闭错误态）。
-- **改的话要做什么**：
-  1. 安装成功后像模型安装流程一样短暂展示完成态，再关闭弹窗
-  2. 给 `InstallProgressDialog` 增加受控 `onOpenChange` 或显式关闭按钮，让 done/error 态可退出
-  3. 回归验证安装成功后主卡片能继续展示 "Start Ollama" 操作
-- **影响面**：用户可见 bug。安装脚本成功后 modal 仍覆盖设置页，用户会被卡住，无法继续点击启动 Ollama。
-- **触发时机建议**：下一次动本地小模型安装向导 UI 时修；也可以和 F-006 一起做成小型 bugfix PR。
-
----
-
-### F-008 HTTP 模式下手动下载 Ollama 按钮无效
-
-- **来源**：2026-04-26 commit `a29a4b27393eb573110e1bafe8f9c0cad11d59c9` review
-- **现象**：[`LocalLlmAssistantCard.tsx::openDownloadPage`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) 先调用 `getTransport().call("open_url")`，失败才 fallback 到 `window.open`。HTTP transport 会把它映射到 [`/api/desktop/open-url`](../../crates/ha-server/src/routes/desktop.rs)，该端点在 server mode 返回 200 + `{ ok: false }`，所以 Promise 正常 resolve，fallback 不会执行。
-- **为什么留**：本次按 review 结果登记待办，暂不在当前改动里修；修复需要明确 transport 层 desktop-only API 的统一约定（返回 200 no-op 还是抛错）。
-- **改的话要做什么**：
-  1. 在前端检查 `open_url` 返回值的 `ok === false` 并主动 `window.open`
-  2. 或者让 HTTP transport 对 desktop-only no-op 响应抛错，统一触发现有 fallback
-  3. 验证 Windows / HTTP server 模式下 "Download Ollama" 能打开 `https://ollama.com/download`
-- **影响面**：用户可见 bug。Windows 用户和远程 HTTP 模式用户点击下载按钮没有任何效果，无法从向导继续安装 Ollama。
-- **触发时机建议**：下一次动 HTTP transport desktop-only API 或本地小模型 Windows 分支时修；也可以作为独立前端小修。
-
----
-
 ### F-009 EventBus 桥接闭包样板在 4 处重复
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
@@ -166,30 +124,6 @@
 
 ---
 
-### F-011 短期 EventBus 订阅 + `try/finally off()` 模式应抽 `withEventListener` helper
-
-- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
-- **现象**：前端"调用一次长任务前订阅 EventBus、调用结束后取消订阅"的模式现在有 3 处：
-  - [`src/components/settings/web-search-panel/SearxngDocker.tsx::handleDeploy`](../../src/components/settings/web-search-panel/SearxngDocker.tsx)（本期新增）
-  - [`src/components/settings/local-llm/LocalLlmAssistantCard.tsx`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) install + pull 两处
-- **为什么留**：3 处刚好是抽 helper 的拐点（再多一处就该抽了），但 3 处之间订阅事件名 / handler 形态都不一样，抽完每个调用点节省也只有 2 行，性价比不高。本期不抽。
-- **改的话要做什么**：在 [`src/lib/transport.ts`](../../src/lib/transport.ts) 加：
-  ```ts
-  export async function withEventListener<T>(
-    eventName: string,
-    handler: (payload: unknown) => void,
-    fn: () => Promise<T>,
-  ): Promise<T> {
-    const off = getTransport().listen(eventName, handler);
-    try { return await fn(); } finally { off(); }
-  }
-  ```
-  3 处调用点改成单层调用。
-- **影响面**：纯整洁度。
-- **触发时机建议**：再新增一处同模式时顺手抽；或与 F-009 一起做"event helpers" 小 PR。
-
----
-
 ### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
@@ -205,8 +139,8 @@
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
 - **现象**：EventBus 事件名当前混合两种风格：
-  - **常量**：[`crates/ha-core/src/chat_engine/stream_broadcast.rs::EVENT_CHAT_STREAM_DELTA`](../../crates/ha-core/src/chat_engine/stream_broadcast.rs)、本期新增 [`crates/ha-core/src/docker/mod.rs::EVENT_SEARXNG_DEPLOY_PROGRESS`](../../crates/ha-core/src/docker/mod.rs)
-  - **字面量**：`local_llm:install_progress` / `local_llm:pull_progress`（在 4 处出现）；前端 [`useChatStreamReattach.ts:17`](../../src/components/chat/hooks/useChatStreamReattach.ts) 重新声明的 `EVENT_CHAT_STREAM_DELTA` 与 ha-core 常量值各自维护
+  - **Rust 常量**：[`crates/ha-core/src/chat_engine/stream_broadcast.rs::EVENT_CHAT_STREAM_DELTA`](../../crates/ha-core/src/chat_engine/stream_broadcast.rs)、[`crates/ha-core/src/docker/mod.rs::EVENT_SEARXNG_DEPLOY_PROGRESS`](../../crates/ha-core/src/docker/mod.rs)、[`crates/ha-core/src/local_llm/mod.rs`](../../crates/ha-core/src/local_llm/mod.rs) 的 `EVENT_LOCAL_LLM_*`
+  - **前端独立常量 / 字面量**：前端仍各自维护同值（例如本地小模型进度事件、`useChatStreamReattach.ts` 的 `EVENT_CHAT_STREAM_DELTA`），缺少跨 Rust/TS 的单一来源
 - **为什么留**：跨前端（TS）/ 后端（Rust）同步常量需要 codegen 或 wire-format 文档约定，引入新约束。本期把刚碰到的 searxng 升成常量已经是最低成本的"按碰到逐步收"。
 - **改的话要做什么**：候选方案：
   - **A**：每个子系统在自己 mod 顶部定义 `pub const EVENT_*: &str = "..."`（已经 chat / searxng 在做）；前端继续维护独立常量但加注释指向 Rust 同名定义。Rust 端集中调用，前端只 listen 时用一次，漂移风险低
@@ -230,6 +164,38 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-006 Ollama pull 流提前结束时仍会激活模型
+
+- **来源**：2026-04-26 commit `a29a4b27393eb573110e1bafe8f9c0cad11d59c9` review
+- **关闭**：2026-04-26 / 本次 Ollama followups 修复
+- **修复方式**：[`crates/ha-core/src/local_llm/mod.rs::pull_model`](../../crates/ha-core/src/local_llm/mod.rs) 现在会在流结束时解析残留 buffer 中无换行的最后一帧；若最终状态不是 `success`，或最后残留帧是截断/非法 JSON，则返回 `Err`，阻止后续 provider 注册与 active model 切换。新增单元测试覆盖 final success 有换行、final success 无换行、early EOF、truncated final frame。
+
+---
+
+### F-007 Ollama 安装成功后进度弹窗不会关闭
+
+- **来源**：2026-04-26 commit `a29a4b27393eb573110e1bafe8f9c0cad11d59c9` review
+- **关闭**：2026-04-26 / 本次 Ollama followups 修复
+- **修复方式**：[`InstallProgressDialog`](../../src/components/settings/local-llm/InstallProgressDialog.tsx) 增加受控 `onOpenChange`，运行中拦截关闭，完成/错误态允许关闭；[`LocalLlmAssistantCard.tsx::installOllama`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) 在一键安装并启动成功后展示完成态约 800ms，然后自动关闭弹窗并刷新 Ollama 状态。
+
+---
+
+### F-008 HTTP 模式下手动下载 Ollama 按钮无效
+
+- **来源**：2026-04-26 commit `a29a4b27393eb573110e1bafe8f9c0cad11d59c9` review
+- **关闭**：2026-04-26 / 本次 Ollama followups 修复
+- **修复方式**：[`LocalLlmAssistantCard.tsx::openDownloadPage`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) 现在会检查 `open_url` 返回值；当 HTTP/server 模式返回 `{ ok: false }` 时主动 fallback 到 `window.open("https://ollama.com/download")`，Tauri 原生打开失败时也继续走同一 fallback。
+
+---
+
+### F-011 短期 EventBus 订阅 + `try/finally off()` 模式应抽 `withEventListener` helper
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **关闭**：2026-04-26 / 本次 Ollama followups 修复
+- **修复方式**：新增 [`src/lib/transport-events.ts::withEventListener`](../../src/lib/transport-events.ts)，封装"订阅事件 → 执行长任务 → finally 取消订阅"模式；本地小模型 install / pull 与 SearXNG deploy 三个调用点已切换到该 helper。
+
+---
 
 ### F-001 Tauri 命令错误类型未统一
 
