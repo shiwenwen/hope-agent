@@ -37,23 +37,15 @@ export interface NewMemory {
   source: string
 }
 
-export interface EmbeddingConfig {
-  enabled: boolean
-  providerType: string
-  apiBaseUrl?: string | null
-  apiKey?: string | null
-  apiModel?: string | null
-  apiDimensions?: number | null
-  localModelId?: string | null
-}
-
-export interface EmbeddingPreset {
-  name: string
-  providerType: string
-  baseUrl: string
-  defaultModel: string
-  defaultDimensions: number
-}
+export type {
+  EmbeddingConfig,
+  EmbeddingModelConfig,
+  EmbeddingModelTemplate,
+  EmbeddingPreset,
+  MemoryEmbeddingSelection,
+  MemoryEmbeddingSetDefaultResult,
+  MemoryEmbeddingState,
+} from "@/types/embedding-models"
 
 export interface LocalEmbeddingModel {
   id: string

@@ -1,10 +1,14 @@
 import { useTranslation } from "react-i18next"
 import { ArrowLeft } from "lucide-react"
+import { toast } from "sonner"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import type { useMemoryData } from "./useMemoryData"
 import EmbeddingModelSection from "./EmbeddingModelSection"
 import HybridSearchConfigSection from "./HybridSearchConfig"
+import { openEmbeddingModelSettings } from "@/types/embedding-models"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 
@@ -17,8 +21,10 @@ export default function EmbeddingView({ data }: EmbeddingViewProps) {
 
   const {
     setView,
-    embeddingConfig, setEmbeddingConfig,
-    setEmbeddingDirty,
+    embeddingModels,
+    memoryEmbeddingState,
+    setMemoryEmbeddingState,
+    reloadEmbeddingConfig,
   } = data
 
   return (
@@ -46,20 +52,35 @@ export default function EmbeddingView({ data }: EmbeddingViewProps) {
             </div>
           </div>
           <Switch
-            checked={embeddingConfig.enabled}
+            checked={memoryEmbeddingState.selection.enabled}
             onCheckedChange={(v) => {
-              setEmbeddingConfig({ ...embeddingConfig, enabled: v })
-              setEmbeddingDirty(true)
+              if (v) {
+                if (embeddingModels.length === 0) {
+                  toast.info(t("settings.embeddingModels.emptyMemory"))
+                  openEmbeddingModelSettings()
+                } else {
+                  toast.info(t("settings.embeddingModels.selectToEnable"))
+                }
+                return
+              }
+              void getTransport()
+                .call("memory_embedding_disable")
+                .then((state) => {
+                  setMemoryEmbeddingState(state as typeof memoryEmbeddingState)
+                  return reloadEmbeddingConfig()
+                })
+                .catch((e) => {
+                  logger.error("settings", "EmbeddingView::disable", "Failed to disable", e)
+                  toast.error(String(e))
+                })
             }}
           />
         </div>
 
-        {embeddingConfig.enabled && (
-          <div className="space-y-4">
-            <EmbeddingModelSection data={data} />
-            <HybridSearchConfigSection data={data} />
-          </div>
-        )}
+        <div className="space-y-4">
+          <EmbeddingModelSection data={data} />
+          {memoryEmbeddingState.selection.enabled && <HybridSearchConfigSection data={data} />}
+        </div>
       </div>
     </div>
   )

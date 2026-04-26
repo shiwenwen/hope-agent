@@ -78,3 +78,13 @@ export function formatBytesFromMb(mb: number): string {
 export function formatGbFromMb(mb: number): string {
   return formatNumber(safeNumber(mb) / 1024, 1, false)
 }
+
+export function formatDurationCompact(seconds: number): string {
+  const safe = Math.max(0, Math.round(safeNumber(seconds)))
+  const hours = Math.floor(safe / 3600)
+  const minutes = Math.floor((safe % 3600) / 60)
+  const secs = safe % 60
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${secs}s`
+  return `${secs}s`
+}

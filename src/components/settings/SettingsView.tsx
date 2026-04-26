@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -205,8 +205,19 @@ export default function SettingsView({
   const [activeSection, setActiveSection] = useState<SettingsSection>(
     initialSection ?? "modelConfig",
   )
+  const [modelConfigTab, setModelConfigTab] = useState<string | undefined>(undefined)
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
+
+  useEffect(() => {
+    const handleNavigate = (event: Event) => {
+      const detail = (event as CustomEvent<{ section?: SettingsSection; modelTab?: string }>).detail
+      if (detail?.section) setActiveSection(detail.section)
+      if (detail?.modelTab) setModelConfigTab(detail.modelTab)
+    }
+    window.addEventListener("settings:navigate", handleNavigate)
+    return () => window.removeEventListener("settings:navigate", handleNavigate)
+  }, [])
 
   return (
     <div className="flex flex-1 h-full overflow-hidden bg-background">
@@ -294,6 +305,7 @@ export default function SettingsView({
                   onAddProvider={() => setAddingProvider(true)}
                   onEditProvider={(p) => setEditingProvider(p)}
                   onCodexReauth={onCodexReauth}
+                  initialTab={modelConfigTab}
                 />
               ))}
             {activeSection === "skills" && <SkillsPanel />}

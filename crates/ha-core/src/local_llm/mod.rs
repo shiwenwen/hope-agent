@@ -25,6 +25,8 @@ use crate::security::ssrf::{check_url, SsrfPolicy};
 
 pub mod types;
 pub use types::*;
+mod management;
+pub use management::*;
 
 pub use crate::provider::LOCAL_OLLAMA_BASE_URL as OLLAMA_BASE_URL;
 #[cfg(unix)]
@@ -811,6 +813,8 @@ fn handle_pull_line(
         model_id: model_id.into(),
         phase,
         percent,
+        bytes_completed: parsed.completed,
+        bytes_total: parsed.total,
     });
     Ok(())
 }
@@ -893,6 +897,8 @@ where
         model_id: model_id.into(),
         phase: "starting".into(),
         percent: None,
+        bytes_completed: None,
+        bytes_total: None,
     });
 
     // Pulls run for many minutes — no outer timeout. The peer closes the
@@ -945,6 +951,13 @@ where
 /// `mutate_config` write so the `config:changed` consumers never observe
 /// the half-done state.
 pub fn ensure_ollama_provider_with_model(model: &ModelCandidate) -> Result<(String, String)> {
+    ensure_ollama_provider_with_model_activation(model, true)
+}
+
+pub fn ensure_ollama_provider_with_model_activation(
+    model: &ModelCandidate,
+    activate: bool,
+) -> Result<(String, String)> {
     let model_cfg = ModelConfig {
         id: model.id.clone(),
         name: model.display_name.clone(),
@@ -956,7 +969,21 @@ pub fn ensure_ollama_provider_with_model(model: &ModelCandidate) -> Result<(Stri
         cost_input: 0.0,
         cost_output: 0.0,
     };
+    let (provider_id, model_id) = ensure_ollama_provider_with_model_config(model_cfg, activate)?;
+    app_info!(
+        "local_llm",
+        "register_provider",
+        "Ollama provider {} active with model {}",
+        provider_id,
+        model_id
+    );
+    Ok((provider_id, model_id))
+}
 
+pub fn ensure_ollama_provider_with_model_config(
+    model_cfg: ModelConfig,
+    activate: bool,
+) -> Result<(String, String)> {
     let mut provider = ProviderConfig::new(
         OLLAMA_PROVIDER_NAME.into(),
         crate::provider::ApiType::OpenaiChat,
@@ -965,16 +992,13 @@ pub fn ensure_ollama_provider_with_model(model: &ModelCandidate) -> Result<(Stri
     );
     provider.thinking_style = ThinkingStyle::Qwen;
 
-    let (provider_id, model_id) =
-        upsert_known_local_provider_model("ollama", provider, model_cfg, true, PROVIDER_SOURCE)?;
-
-    app_info!(
-        "local_llm",
-        "register_provider",
-        "Ollama provider {} active with model {}",
-        provider_id,
-        model_id
-    );
+    let (provider_id, model_id) = upsert_known_local_provider_model(
+        "ollama",
+        provider,
+        model_cfg,
+        activate,
+        PROVIDER_SOURCE,
+    )?;
     Ok((provider_id, model_id))
 }
 
@@ -1000,6 +1024,8 @@ where
         model_id: model_id.clone(),
         phase: "register-provider".into(),
         percent: Some(99),
+        bytes_completed: None,
+        bytes_total: None,
     });
     let result = ensure_ollama_provider_with_model(&model)?;
 
@@ -1007,6 +1033,8 @@ where
         model_id,
         phase: "done".into(),
         percent: Some(100),
+        bytes_completed: None,
+        bytes_total: None,
     });
     Ok(result)
 }

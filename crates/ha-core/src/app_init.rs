@@ -116,9 +116,45 @@ pub fn init_runtime(role: &str) {
     ));
     let _ = MEMORY_BACKEND.set(memory_backend);
 
-    // Auto-initialize embedder if enabled in config
+    // Auto-initialize memory embedding model if enabled in config
     if let Some(backend) = MEMORY_BACKEND.get() {
         match crate::config::load_config() {
+            Ok(store) if store.memory_embedding.enabled => {
+                match memory::resolve_memory_embedding_config(
+                    &store.memory_embedding,
+                    &store.embedding_models,
+                )
+                .and_then(|resolved| {
+                    resolved
+                        .map(|(_, config, _)| memory::create_embedding_provider(&config))
+                        .transpose()
+                }) {
+                    Ok(Some(emb_provider)) => {
+                        backend.set_embedder(emb_provider);
+                        logger.log(
+                            "info",
+                            "memory",
+                            "embedding",
+                            "Memory embedding provider auto-initialized on startup",
+                            None,
+                            None,
+                            None,
+                        );
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        logger.log(
+                            "warn",
+                            "memory",
+                            "embedding",
+                            &format!("Failed to auto-initialize memory embedding provider: {}", e),
+                            None,
+                            None,
+                            None,
+                        );
+                    }
+                }
+            }
             Ok(store) if store.embedding.enabled => {
                 match memory::create_embedding_provider(&store.embedding) {
                     Ok(emb_provider) => {

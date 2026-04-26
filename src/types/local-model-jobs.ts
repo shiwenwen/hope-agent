@@ -1,8 +1,9 @@
-export type LocalModelJobKind = "chat_model" | "embedding_model"
+export type LocalModelJobKind = "chat_model" | "embedding_model" | "ollama_install" | "ollama_pull"
 
 export type LocalModelJobStatus =
   | "running"
   | "cancelling"
+  | "paused"
   | "completed"
   | "failed"
   | "interrupted"
@@ -16,6 +17,8 @@ export interface LocalModelJobSnapshot {
   status: LocalModelJobStatus
   phase: string
   percent?: number | null
+  bytesCompleted?: number | null
+  bytesTotal?: number | null
   error?: string | null
   resultJson?: unknown | null
   createdAt: number
@@ -50,6 +53,10 @@ export function isLocalModelJobActive(job: LocalModelJobSnapshot): boolean {
   return job.status === "running" || job.status === "cancelling"
 }
 
+export function isLocalModelJobVisible(job: LocalModelJobSnapshot): boolean {
+  return isLocalModelJobActive(job) || job.status === "paused"
+}
+
 export function isLocalModelJobTerminal(job: LocalModelJobSnapshot): boolean {
   return !isLocalModelJobActive(job)
 }
@@ -62,6 +69,7 @@ const PHASE_KEY: Record<string, string> = {
   authorize: "settings.localLlm.phases.authorize",
   "install-ollama": "settings.localLlm.phases.installOllama",
   "start-ollama": "localModelJobs.phases.startOllama",
+  paused: "localModelJobs.phases.paused",
   "pulling manifest": "settings.localLlm.phases.pullingManifest",
   downloading: "settings.localLlm.phases.downloading",
   "verifying digest": "settings.localLlm.phases.verifying",
@@ -90,5 +98,7 @@ export function localModelJobToProgressFrame(
     phase: job.phase,
     message: phaseLabel(job.phase) || job.phase,
     percent: job.percent ?? null,
+    bytesCompleted: job.bytesCompleted ?? null,
+    bytesTotal: job.bytesTotal ?? null,
   }
 }

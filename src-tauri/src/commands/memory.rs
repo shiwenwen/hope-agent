@@ -1,7 +1,6 @@
 use crate::commands::CmdError;
 use crate::get_memory_backend;
 use crate::memory;
-use ha_core::app_warn;
 
 #[tauri::command]
 pub async fn memory_add(entry: memory::NewMemory) -> Result<i64, CmdError> {
@@ -284,32 +283,17 @@ pub async fn save_multimodal_config(config: memory::MultimodalConfig) -> Result<
 
 #[tauri::command]
 pub async fn get_embedding_config() -> Result<memory::EmbeddingConfig, CmdError> {
-    let store = ha_core::config::load_config()?;
-    Ok(store.embedding)
+    let store = ha_core::config::cached_config();
+    let resolved =
+        memory::resolve_memory_embedding_config(&store.memory_embedding, &store.embedding_models)?;
+    Ok(resolved
+        .map(|(_, config, _)| config)
+        .unwrap_or_else(memory::EmbeddingConfig::default))
 }
 
 #[tauri::command]
 pub async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<(), CmdError> {
-    let should_enable = config.enabled;
-    let applied = config.clone();
-    ha_core::config::mutate_config(("embedding", "settings-ui"), |store| {
-        store.embedding = applied;
-        Ok(())
-    })?;
-
-    // Apply embedder in background to avoid blocking the command response
-    tokio::task::spawn_blocking(move || {
-        if let Err(e) = memory::apply_embedding_config_to_backend(&config, "settings-ui") {
-            let action = if should_enable { "apply" } else { "clear" };
-            app_warn!(
-                "memory",
-                "embedding",
-                "Failed to {} embedding provider: {}",
-                action,
-                e
-            );
-        }
-    });
+    memory::save_legacy_embedding_config(config, "settings-ui")?;
     Ok(())
 }
 
@@ -321,6 +305,59 @@ pub async fn get_embedding_presets() -> Result<Vec<memory::EmbeddingPreset>, Cmd
 #[tauri::command]
 pub async fn list_local_embedding_models() -> Result<Vec<memory::LocalEmbeddingModel>, CmdError> {
     Ok(memory::list_local_models_with_status())
+}
+
+#[tauri::command]
+pub async fn embedding_model_config_list() -> Result<Vec<memory::EmbeddingModelConfig>, CmdError> {
+    Ok(memory::list_embedding_model_configs())
+}
+
+#[tauri::command]
+pub async fn embedding_model_config_templates(
+) -> Result<Vec<memory::EmbeddingModelTemplate>, CmdError> {
+    Ok(memory::embedding_model_config_templates())
+}
+
+#[tauri::command]
+pub async fn embedding_model_config_save(
+    config: memory::EmbeddingModelConfig,
+) -> Result<memory::EmbeddingModelConfig, CmdError> {
+    memory::save_embedding_model_config(config, "settings-ui").map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn embedding_model_config_delete(id: String) -> Result<(), CmdError> {
+    memory::delete_embedding_model_config(&id, "settings-ui").map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn embedding_model_config_test(
+    config: memory::EmbeddingModelConfig,
+) -> Result<String, CmdError> {
+    let config = config.normalize_for_save();
+    config.validate()?;
+    ha_core::provider::test::test_embedding(config.to_runtime_config(true))
+        .await
+        .map_err(CmdError::msg)
+}
+
+#[tauri::command]
+pub async fn memory_embedding_get() -> Result<memory::MemoryEmbeddingState, CmdError> {
+    Ok(memory::get_memory_embedding_state())
+}
+
+#[tauri::command]
+pub async fn memory_embedding_set_default(
+    model_config_id: String,
+    reembed: bool,
+) -> Result<memory::MemoryEmbeddingSetDefaultResult, CmdError> {
+    memory::set_memory_embedding_default(&model_config_id, reembed, "settings-ui")
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn memory_embedding_disable() -> Result<memory::MemoryEmbeddingState, CmdError> {
+    memory::disable_memory_embedding("settings-ui").map_err(Into::into)
 }
 
 // ── Core Memory (memory.md) commands ────────────────────────────

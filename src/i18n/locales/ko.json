@@ -22,7 +22,9 @@
     "select": "선택",
     "refresh": "새로 고침",
     "settings": "설정",
-    "close": "닫기"
+    "close": "닫기",
+    "search": "Search",
+    "loading": "Loading..."
   },
   "project": {
     "projects": "프로젝트",
@@ -834,6 +836,40 @@
     "skillsDirSharedDesc": "도구 간 공유 스킬 디렉토리 (~/.agents/skills/ 규약)",
     "skillsDirAdd": "스킬 디렉토리 가져오기",
     "skillsDirRemove": "이 디렉토리 제거",
+    "skillsImport": {
+      "button": "빠른 가져오기",
+      "dialogTitle": "skill 디렉터리 빠른 가져오기",
+      "dialogDescription": "알려진 타사 skill 카탈로그(Claude Code, OpenClaw, Hermes Agent, Anthropic 마켓플레이스)를 탐색하여 설치된 항목을 추가합니다.",
+      "cc": {
+        "user": "Claude Code 사용자 수준 skill",
+        "plugins": "Claude Code 플러그인 skill",
+        "anthropic": "Anthropic Agent Skills 마켓플레이스"
+      },
+      "openclaw": "OpenClaw 저장소 skill",
+      "hermes": "Hermes Agent 저장소 skill",
+      "notFound": "이 컴퓨터에서 일치하는 경로를 찾지 못했습니다.",
+      "alreadyAdded": "이미 추가됨",
+      "skillCount_one": "{{count}}개 skill",
+      "skillCount_other": "{{count}}개 skill",
+      "skillCount": "{{count}}개 skill",
+      "add": "추가",
+      "warning": {
+        "openclaw": "OpenClaw skill은 외부 CLI(gh, 1password, tmux 등)에 의존하는 경우가 많아 설치 전에는 호출이 실패할 수 있습니다.",
+        "proprietary": "Anthropic skill은 독점 라이선스입니다. Anthropic 서비스 약관을 따라 주세요."
+      },
+      "tooltip": {
+        "distinguishOnboarding": "이전 OpenClaw 사용자 데이터 마이그레이션은 2단계의 'Import OpenClaw'를 사용하세요."
+      },
+      "error": {
+        "discover": "프리셋 skill 소스 검색 실패",
+        "add": "디렉터리 추가 실패"
+      }
+    },
+    "skillExtras": {
+      "licenseWarning": "소스 라이선스: {{license}}",
+      "relatedSkills": "관련 skill",
+      "installHint": "{{cmd}} 명령으로 의존성 설치"
+    },
     "skillsList": "로드된 스킬",
     "skillsListBundled": "내장 Skills",
     "skillsListUser": "사용자 Skills",
@@ -938,7 +974,10 @@
     "memoryEmbeddingEnabled": "벡터 검색 활성화",
     "memoryEmbeddingEnabledDesc": "Embedding 모델로 의미적으로 유사한 기억 찾기",
     "memoryEmbeddingProvider": "제공자",
+    "memoryEmbeddingProviderDesc": "명확한 Embedding 제공업체를 선택하세요. 제공업체, 모델 또는 차원을 변경한 뒤에는 기존 기억의 벡터를 다시 생성해야 합니다.",
     "memoryEmbeddingTest": "Embedding 테스트",
+    "memoryEmbeddingLegacyProvider": "현재 이전 {{provider}} 구성을 사용 중입니다. 자동 전환으로 벡터 공간이 달라지지 않도록 명확한 제공업체를 선택하고 저장하세요.",
+    "memoryEmbeddingReembedWarning": "Embedding 구성이 변경되었습니다. 저장 후 모든 기억의 벡터를 다시 생성해야 이전 벡터가 선택한 모델 기준으로 갱신됩니다.",
     "memoryLocalModel": "로컬 모델",
     "memorySelectModel": "모델 선택",
     "memoryModel": "모델",
@@ -1863,40 +1902,6 @@
     "serverChatSourceDesktop": "{{count}} 데스크톱",
     "serverChatSourceHttp": "{{count}} HTTP",
     "serverChatSourceChannel": "{{count}} 채널",
-    "skillsImport": {
-      "button": "빠른 가져오기",
-      "dialogTitle": "skill 디렉터리 빠른 가져오기",
-      "dialogDescription": "알려진 타사 skill 카탈로그(Claude Code, OpenClaw, Hermes Agent, Anthropic 마켓플레이스)를 탐색하여 설치된 항목을 추가합니다.",
-      "cc": {
-        "user": "Claude Code 사용자 수준 skill",
-        "plugins": "Claude Code 플러그인 skill",
-        "anthropic": "Anthropic Agent Skills 마켓플레이스"
-      },
-      "openclaw": "OpenClaw 저장소 skill",
-      "hermes": "Hermes Agent 저장소 skill",
-      "notFound": "이 컴퓨터에서 일치하는 경로를 찾지 못했습니다.",
-      "alreadyAdded": "이미 추가됨",
-      "skillCount_one": "{{count}}개 skill",
-      "skillCount_other": "{{count}}개 skill",
-      "skillCount": "{{count}}개 skill",
-      "add": "추가",
-      "warning": {
-        "openclaw": "OpenClaw skill은 외부 CLI(gh, 1password, tmux 등)에 의존하는 경우가 많아 설치 전에는 호출이 실패할 수 있습니다.",
-        "proprietary": "Anthropic skill은 독점 라이선스입니다. Anthropic 서비스 약관을 따라 주세요."
-      },
-      "tooltip": {
-        "distinguishOnboarding": "이전 OpenClaw 사용자 데이터 마이그레이션은 2단계의 'Import OpenClaw'를 사용하세요."
-      },
-      "error": {
-        "discover": "프리셋 skill 소스 검색 실패",
-        "add": "디렉터리 추가 실패"
-      }
-    },
-    "skillExtras": {
-      "licenseWarning": "소스 라이선스: {{license}}",
-      "relatedSkills": "관련 skill",
-      "installHint": "{{cmd}} 명령으로 의존성 설치"
-    },
     "localLlm": {
       "title": "로컬 모델 도우미",
       "subtitle": "하드웨어를 자동 감지하고 Qwen3.6 / Gemma 4 모델을 한 번에 설치",
@@ -1967,7 +1972,118 @@
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
       },
-      "reembedHint": "Embedding dimensions changed. Use Re-embed All to update existing memories."
+      "reembedHint": "Embedding dimensions changed. Use Re-embed All to update existing memories.",
+      "activated": "Local embedding is enabled",
+      "confirmEnableDesc": "This will install/download {{model}}, create an embedding model config, and set it as the default memory model. All memory vectors will be rebuilt after confirmation."
+    },
+    "embeddingModels": {
+      "tab": "Embedding Models",
+      "title": "Embedding Model Configs",
+      "desc": "Configure reusable embedding models first, then choose one as the memory vector search model.",
+      "custom": "Custom config",
+      "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
+      "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "goConfig": "Configure embedding models",
+      "memoryDefault": "Default memory model",
+      "memoryDefaultDesc": "Switching the default memory model rebuilds all memory vectors so old and new vectors are not mixed.",
+      "memoryActive": "Default memory model",
+      "needsReembed": "Needs re-embed",
+      "selectPlaceholder": "Select an embedding model config",
+      "selectToEnable": "Select an embedding model as the default memory model",
+      "setMemoryDefault": "Set as default memory model",
+      "confirmSwitchTitle": "Switch default memory model?",
+      "confirmSwitchDesc": "This will set {{model}} as the default memory model and rebuild all memory vectors. Vector search may be temporarily incomplete while rebuilding.",
+      "confirmSwitchAction": "Confirm and rebuild",
+      "defaultSet": "Default memory model updated",
+      "reembedFailed": "The default model changed, but vector rebuild failed. Retry rebuilding later.",
+      "deleted": "Embedding model config deleted",
+      "deleteTitle": "Delete embedding model config?",
+      "deleteDesc": "This will delete the config for {{model}}. The current default memory model cannot be deleted directly.",
+      "editTitle": "Edit embedding model",
+      "name": "Config name",
+      "providerType": "Provider type",
+      "testOk": "Embedding connection test passed"
+    },
+    "localModels": {
+      "tab": "Local Models",
+      "title": "Local Models",
+      "subtitle": "Manage Ollama models installed on this machine: search, download, preload, unload, delete, and connect them to chat or memory.",
+      "installedTab": "Installed",
+      "libraryTab": "Library",
+      "searchPlaceholder": "Search Ollama models, e.g. qwen, gemma, embedding",
+      "searchHint": "Search the Ollama Library to find downloadable models.",
+      "noSearchResults": "No matching models.",
+      "detailPlaceholder": "Select a model family to view downloadable tags.",
+      "emptyInstalled": "No local models yet",
+      "emptyInstalledDesc": "Download a model from the Library tab or enter an Ollama tag manually.",
+      "cacheStale": "Showing cached library results because the live search is unavailable.",
+      "cloudOnly": "Cloud only",
+      "downloads": "{{count}} downloads",
+      "tags": "{{count}} tags",
+      "manualTitle": "Download by Ollama tag",
+      "ollama": {
+        "not-installed": "Ollama not installed",
+        "installed": "Ollama installed",
+        "running": "Ollama running"
+      },
+      "badges": {
+        "running": "Running",
+        "provider": "Added to Provider",
+        "embeddingConfig": "Added to Embedding Config",
+        "default": "Default",
+        "embedding": "Embedding",
+        "llm": "LLM",
+        "memory": "Used for memory"
+      },
+      "filters": {
+        "all": "All",
+        "embedding": "Embedding",
+        "vision": "Vision",
+        "tools": "Tools",
+        "thinking": "Thinking"
+      },
+      "actions": {
+        "download": "Download",
+        "downloadProvider": "Download & add to Provider",
+        "downloadDefault": "Download & default",
+        "downloadEmbedding": "Download & use for memory",
+        "installOllama": "Install Ollama",
+        "preload": "Start model",
+        "stop": "Stop model",
+        "addProvider": "Add to model config",
+        "setDefault": "Set default",
+        "setEmbedding": "Use for memory",
+        "addEmbeddingConfig": "Add Embedding config",
+        "setMemoryDefault": "Set as default memory model"
+      },
+      "jobs": {
+        "title": "Downloading {{model}}"
+      },
+      "delete": {
+        "title": "Delete local model?",
+        "description": "{{model}} will be removed from Ollama local storage. This cannot be undone.",
+        "running": "The model is currently loaded and will be unloaded first.",
+        "active": "It is the global default model; that reference will be cleared.",
+        "fallback": "It is in the fallback model chain; that reference will be removed.",
+        "provider": "It is registered in the Ollama provider; that model entry will be removed.",
+        "embeddingConfig": "It is added to Embedding model configs; the matching config will be removed.",
+        "embedding": "It is the active memory embedding model; local embedding will be disabled."
+      },
+      "toast": {
+        "ollamaStarted": "Ollama started",
+        "preloaded": "{{model}} loaded",
+        "stopped": "{{model}} unloaded",
+        "providerAdded": "{{model}} added to Ollama Provider",
+        "defaultSet": "{{model}} set as default",
+        "embeddingSet": "{{model}} set for memory embedding",
+        "embeddingConfigAdded": "{{model}} added to Embedding config",
+        "deleted": "{{model}} deleted"
+      },
+      "errors": {
+        "refreshFailed": "Failed to refresh local models",
+        "searchFailed": "Failed to search Ollama Library",
+        "detailFailed": "Failed to load model tags"
+      }
     }
   },
   "tz": {
@@ -2970,15 +3086,20 @@
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",
+    "pausedSummary": "{{count}} model install task is paused",
+    "pausedSummary_other": "{{count}} model install tasks are paused",
     "emptyTitle": "No model install tasks",
     "emptyDescription": "Ollama and model downloads will appear here.",
     "kind": {
       "chat_model": "Chat model",
-      "embedding_model": "Embedding model"
+      "embedding_model": "Embedding model",
+      "ollama_install": "Ollama install",
+      "ollama_pull": "Ollama model"
     },
     "status": {
       "running": "Running",
       "cancelling": "Cancelling",
+      "paused": "Paused",
       "completed": "Completed",
       "failed": "Failed",
       "interrupted": "Interrupted",
@@ -2988,6 +3109,7 @@
       "queued": "Queued",
       "checkingOllama": "Checking Ollama",
       "startOllama": "Starting Ollama",
+      "paused": "Paused",
       "cancelling": "Cancelling",
       "cancelled": "Cancelled",
       "failed": "Failed",
@@ -2999,6 +3121,8 @@
       "keepWatching": "Keep watching",
       "viewLogs": "View logs",
       "hideLogs": "Hide logs",
+      "pause": "Pause",
+      "resume": "Resume",
       "cancel": "Cancel",
       "retry": "Retry",
       "clear": "Clear"
@@ -3012,6 +3136,7 @@
     },
     "toast": {
       "completed": "{{model}} installed",
+      "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
       "retryStarted": "Retry started for {{model}}"

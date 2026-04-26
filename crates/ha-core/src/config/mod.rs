@@ -400,8 +400,16 @@ pub struct AppConfig {
     /// the session.
     #[serde(default = "default_conditional_skills_enabled")]
     pub conditional_skills_enabled: bool,
-    /// Embedding model configuration for memory vector search
+    /// Reusable embedding model configurations.
     #[serde(default)]
+    pub embedding_models: Vec<crate::memory::EmbeddingModelConfig>,
+    /// Active memory vector-search embedding selection.
+    #[serde(default)]
+    pub memory_embedding: crate::memory::MemoryEmbeddingSelection,
+    /// Deprecated legacy embedding config. Kept as a deserialization sink only;
+    /// user-facing embedding config lives in `embedding_models` +
+    /// `memory_embedding`.
+    #[serde(default, skip_serializing)]
     pub embedding: crate::memory::EmbeddingConfig,
     /// Web search provider configuration
     #[serde(default)]
@@ -621,6 +629,8 @@ impl Default for AppConfig {
             disabled_skills: Vec::new(),
             skill_env_check: true,
             conditional_skills_enabled: true,
+            embedding_models: Vec::new(),
+            memory_embedding: crate::memory::MemoryEmbeddingSelection::default(),
             embedding: crate::memory::EmbeddingConfig::default(),
             memory_extract: crate::memory::MemoryExtractConfig::default(),
             memory_selection: crate::memory::MemorySelectionConfig::default(),

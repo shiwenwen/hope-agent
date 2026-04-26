@@ -10,8 +10,11 @@ pub(crate) mod utils;
 // so that `crate::memory::embedding::XXX` and `crate::memory::XXX` continue to work.
 
 pub use config::{
-    embedding_presets, list_local_models_with_status, local_embedding_models, EmbeddingConfig,
-    EmbeddingPreset, EmbeddingProviderType, LocalEmbeddingModel,
+    embedding_model_templates, embedding_presets, list_local_models_with_status,
+    local_embedding_models, memory_embedding_state, resolve_memory_embedding_config,
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate, EmbeddingPreset,
+    EmbeddingProviderType, LocalEmbeddingModel, MemoryEmbeddingSelection,
+    MemoryEmbeddingSetDefaultResult, MemoryEmbeddingState,
 };
 pub use factory::create_embedding_provider;
 

@@ -134,6 +134,93 @@ pub fn upsert_known_local_provider_model(
     .map_err(map_config_error)
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct LocalProviderModelRemoval {
+    pub removed_provider_model: bool,
+    pub removed_provider: bool,
+    pub removed_active_model: bool,
+    pub removed_fallback_models: usize,
+}
+
+/// Remove one model from a known local backend provider and clean references
+/// that would otherwise point at a deleted local Ollama tag.
+pub fn remove_known_local_provider_model(
+    backend_key: &str,
+    model_id: &str,
+    source: &'static str,
+) -> ProviderWriteResult<LocalProviderModelRemoval> {
+    let backend = known_local_backend(backend_key)
+        .ok_or_else(|| ProviderWriteError::UnknownLocalBackend(backend_key.to_string()))?;
+    let model_id = model_id.to_string();
+    mutate_config(("providers.remove-local-model", source), move |store| {
+        Ok(remove_known_local_provider_model_in_config(
+            store, &backend, &model_id,
+        ))
+    })
+    .map_err(map_config_error)
+}
+
+fn remove_known_local_provider_model_in_config(
+    store: &mut crate::config::AppConfig,
+    backend: &KnownLocalBackend,
+    model_id: &str,
+) -> LocalProviderModelRemoval {
+    let Some(provider_idx) = store
+        .providers
+        .iter()
+        .position(|p| known_local_backend_matches(backend, &p.api_type, &p.base_url))
+    else {
+        return LocalProviderModelRemoval::default();
+    };
+
+    let provider_id = store.providers[provider_idx].id.clone();
+    let before = store.providers[provider_idx].models.len();
+    store.providers[provider_idx]
+        .models
+        .retain(|model| model.id != model_id);
+    let removed_provider_model = store.providers[provider_idx].models.len() != before;
+
+    let removed_active_model = store
+        .active_model
+        .as_ref()
+        .map(|active| active.provider_id == provider_id && active.model_id == model_id)
+        .unwrap_or(false);
+    if removed_active_model {
+        store.active_model = None;
+    }
+
+    let fallback_before = store.fallback_models.len();
+    store
+        .fallback_models
+        .retain(|model| !(model.provider_id == provider_id && model.model_id == model_id));
+    let mut removed_fallback_models = fallback_before - store.fallback_models.len();
+
+    let removed_provider = store.providers[provider_idx].models.is_empty();
+    if removed_provider {
+        store.providers.remove(provider_idx);
+        let fallback_before = store.fallback_models.len();
+        store
+            .fallback_models
+            .retain(|model| model.provider_id != provider_id);
+        removed_fallback_models += fallback_before - store.fallback_models.len();
+        if store
+            .active_model
+            .as_ref()
+            .map(|active| active.provider_id == provider_id)
+            .unwrap_or(false)
+        {
+            store.active_model = None;
+        }
+    }
+
+    LocalProviderModelRemoval {
+        removed_provider_model,
+        removed_provider,
+        removed_active_model,
+        removed_fallback_models,
+    }
+}
+
 fn upsert_known_local_provider_model_in_config(
     store: &mut crate::config::AppConfig,
     backend: &KnownLocalBackend,

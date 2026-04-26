@@ -12,6 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
+import { formatBytes, formatDurationCompact } from "@/lib/format"
 import {
   Dialog,
   DialogContent,
@@ -51,7 +52,9 @@ export function InstallProgressDialog({
 }) {
   const { t } = useTranslation()
   const tailRef = useRef<HTMLDivElement | null>(null)
+  const previousBytesRef = useRef<{ bytes: number; timestamp: number } | null>(null)
   const [confirmCloseOpen, setConfirmCloseOpen] = useState(false)
+  const [transfer, setTransfer] = useState<{ speedBps?: number; etaSeconds?: number }>({})
 
   useEffect(() => {
     tailRef.current?.scrollTo({ top: tailRef.current.scrollHeight })
@@ -61,6 +64,51 @@ export function InstallProgressDialog({
   const running = !done && !error
   const shouldConfirmClose = running && Boolean(onBackground || onCancelTask)
   const canClose = Boolean(done || error || cancellable || shouldConfirmClose)
+
+  useEffect(() => {
+    const completed = frame?.bytesCompleted ?? null
+    const total = frame?.bytesTotal ?? null
+    if (!running || completed == null || completed < 0) {
+      previousBytesRef.current = null
+      setTransfer({})
+      return
+    }
+
+    const now = Date.now()
+    const previous = previousBytesRef.current
+    previousBytesRef.current = { bytes: completed, timestamp: now }
+
+    if (!previous || completed <= previous.bytes || now <= previous.timestamp) return
+
+    const elapsedSeconds = (now - previous.timestamp) / 1000
+    if (elapsedSeconds <= 0) return
+
+    const speedBps = (completed - previous.bytes) / elapsedSeconds
+    if (!Number.isFinite(speedBps) || speedBps <= 0) return
+
+    const etaSeconds =
+      total != null && total > completed ? (total - completed) / speedBps : undefined
+    setTransfer({ speedBps, etaSeconds })
+  }, [frame?.bytesCompleted, frame?.bytesTotal, running])
+
+  const transferSummary = (() => {
+    const completed = frame?.bytesCompleted ?? null
+    const total = frame?.bytesTotal ?? null
+    if (completed == null && total == null) return null
+    const parts: string[] = []
+    if (completed != null && total != null) {
+      parts.push(`${formatBytes(completed, { maxUnit: "GB" })} / ${formatBytes(total, { maxUnit: "GB" })}`)
+    } else if (completed != null) {
+      parts.push(formatBytes(completed, { maxUnit: "GB" }))
+    }
+    if (transfer.speedBps) {
+      parts.push(`${formatBytes(transfer.speedBps, { maxUnit: "GB" })}/s`)
+    }
+    if (transfer.etaSeconds != null && Number.isFinite(transfer.etaSeconds)) {
+      parts.push(`≈ ${formatDurationCompact(transfer.etaSeconds)}`)
+    }
+    return parts.join(" · ")
+  })()
 
   const requestClose = () => {
     if (shouldConfirmClose) {
@@ -79,6 +127,7 @@ export function InstallProgressDialog({
   const cancelTask = () => {
     setConfirmCloseOpen(false)
     onCancelTask?.()
+    onOpenChange?.(false)
   }
 
   return (
@@ -118,6 +167,11 @@ export function InstallProgressDialog({
                 <span className="tabular-nums">{Math.round(frame.percent)}%</span>
               )}
             </div>
+            {transferSummary && (
+              <div className="text-xs tabular-nums text-muted-foreground">
+                {transferSummary}
+              </div>
+            )}
             {logs.length > 0 && (
               <div
                 ref={tailRef}
@@ -136,11 +190,18 @@ export function InstallProgressDialog({
                 {t("settings.localLlm.install.cannotCancel")}
               </p>
             )}
-            {running && onBackground && (
-              <div className="flex justify-end pt-1">
-                <Button type="button" variant="secondary" size="sm" onClick={background}>
-                  {t("localModelJobs.actions.backgroundInstall")}
-                </Button>
+            {running && (onBackground || onCancelTask) && (
+              <div className="flex justify-end gap-2 pt-1">
+                {onCancelTask && (
+                  <Button type="button" variant="destructive" size="sm" onClick={cancelTask}>
+                    {t("localModelJobs.actions.cancelInstall")}
+                  </Button>
+                )}
+                {onBackground && (
+                  <Button type="button" variant="secondary" size="sm" onClick={background}>
+                    {t("localModelJobs.actions.backgroundInstall")}
+                  </Button>
+                )}
               </div>
             )}
           </div>

@@ -1,7 +1,7 @@
 use crate::commands::CmdError;
 use crate::AppState;
 use ha_core::local_embedding::OllamaEmbeddingModel;
-use ha_core::local_llm::ModelCandidate;
+use ha_core::local_llm::{ModelCandidate, OllamaPullRequest};
 use ha_core::local_model_jobs::{self, LocalModelJobLogEntry, LocalModelJobSnapshot};
 use tauri::State;
 
@@ -19,6 +19,18 @@ pub async fn local_model_job_start_embedding(
     model: OllamaEmbeddingModel,
 ) -> Result<LocalModelJobSnapshot, CmdError> {
     local_model_jobs::start_embedding_job(model).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn local_model_job_start_ollama_install() -> Result<LocalModelJobSnapshot, CmdError> {
+    local_model_jobs::start_ollama_install_job().map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn local_model_job_start_ollama_pull(
+    request: OllamaPullRequest,
+) -> Result<LocalModelJobSnapshot, CmdError> {
+    local_model_jobs::start_ollama_pull_job(request).map_err(Into::into)
 }
 
 #[tauri::command]
@@ -44,6 +56,11 @@ pub async fn local_model_job_logs(
 #[tauri::command]
 pub async fn local_model_job_cancel(job_id: String) -> Result<LocalModelJobSnapshot, CmdError> {
     local_model_jobs::cancel_job(&job_id).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn local_model_job_pause(job_id: String) -> Result<LocalModelJobSnapshot, CmdError> {
+    local_model_jobs::pause_job(&job_id).map_err(Into::into)
 }
 
 #[tauri::command]

@@ -22,7 +22,9 @@
     "select": "选择",
     "refresh": "刷新",
     "settings": "设置",
-    "close": "关闭"
+    "close": "关闭",
+    "search": "搜索",
+    "loading": "加载中..."
   },
   "project": {
     "projects": "项目",
@@ -972,7 +974,10 @@
     "memoryEmbeddingEnabled": "启用向量搜索",
     "memoryEmbeddingEnabledDesc": "使用 Embedding 模型查找语义相似的记忆",
     "memoryEmbeddingProvider": "服务商",
+    "memoryEmbeddingProviderDesc": "请选择一个明确的 Embedding 服务商；切换服务商、模型或维度后，需要重新生成已有记忆的向量。",
     "memoryEmbeddingTest": "测试 Embedding",
+    "memoryEmbeddingLegacyProvider": "当前仍是旧的 {{provider}} 配置。请选择一个明确服务商并保存，避免后续自动切换导致向量空间不一致。",
+    "memoryEmbeddingReembedWarning": "Embedding 配置已变化。保存后请重新生成全部向量，否则旧记忆仍使用之前模型生成的向量。",
     "memoryLocalModel": "本地模型",
     "memorySelectModel": "选择模型",
     "memoryModel": "模型",
@@ -1967,7 +1972,118 @@
       "error": {
         "activateFailed": "启用本地 Embedding 失败：{{message}}"
       },
-      "reembedHint": "Embedding 维度已变化，请使用“重新生成全部向量”更新现有记忆。"
+      "reembedHint": "Embedding 维度已变化，请使用“重新生成全部向量”更新现有记忆。",
+      "activated": "本地 Embedding 已启用",
+      "confirmEnableDesc": "将安装/下载 {{model}}，创建 Embedding 模型配置，并设为默认记忆模型。确认后会自动重建全部记忆向量。"
+    },
+    "embeddingModels": {
+      "tab": "Embedding 模型",
+      "title": "Embedding 模型配置",
+      "desc": "先配置可复用的 Embedding 模型，再选择其中一个作为记忆向量检索模型。",
+      "custom": "自定义配置",
+      "empty": "还没有 Embedding 模型配置。可以从上方模板创建，或添加自定义配置。",
+      "emptyMemory": "还没有可用的 Embedding 模型配置。请先创建一个配置，或使用本地 Embedding 快捷卡。",
+      "goConfig": "去配置 Embedding 模型",
+      "memoryDefault": "默认记忆模型",
+      "memoryDefaultDesc": "切换默认记忆模型会自动重建全部记忆向量，避免新旧向量混用。",
+      "memoryActive": "默认记忆模型",
+      "needsReembed": "需要重建向量",
+      "selectPlaceholder": "选择一个 Embedding 模型配置",
+      "selectToEnable": "请选择一个 Embedding 模型作为默认记忆模型",
+      "setMemoryDefault": "设为默认记忆模型",
+      "confirmSwitchTitle": "切换默认记忆模型？",
+      "confirmSwitchDesc": "将把 {{model}} 设为默认记忆模型，并自动重建全部记忆向量。重建期间向量检索可能暂时不完整。",
+      "confirmSwitchAction": "确认并重建",
+      "defaultSet": "默认记忆模型已更新",
+      "reembedFailed": "默认模型已切换，但向量重建失败，需要稍后重试",
+      "deleted": "Embedding 模型配置已删除",
+      "deleteTitle": "删除 Embedding 模型配置？",
+      "deleteDesc": "将删除 {{model}} 的配置。当前默认记忆模型不能直接删除。",
+      "editTitle": "编辑 Embedding 模型",
+      "name": "配置名称",
+      "providerType": "服务商类型",
+      "testOk": "Embedding 连接测试通过"
+    },
+    "localModels": {
+      "tab": "本地模型",
+      "title": "本地模型",
+      "subtitle": "管理这台机器上的 Ollama 模型：搜索、下载、预加载、卸载、删除，并接入对话或记忆向量。",
+      "installedTab": "已安装",
+      "libraryTab": "模型库",
+      "searchPlaceholder": "搜索 Ollama 模型，例如 qwen、gemma、embedding",
+      "searchHint": "搜索 Ollama 模型库，找到可下载的模型。",
+      "noSearchResults": "没有匹配的模型。",
+      "detailPlaceholder": "选择一个模型系列查看可下载的 tag。",
+      "emptyInstalled": "还没有本地模型",
+      "emptyInstalledDesc": "从模型库下载，或手动输入 Ollama tag。",
+      "cacheStale": "实时搜索不可用，正在显示缓存结果。",
+      "cloudOnly": "仅云端",
+      "downloads": "{{count}} 次下载",
+      "tags": "{{count}} 个 tag",
+      "manualTitle": "通过 Ollama tag 下载",
+      "ollama": {
+        "not-installed": "未安装 Ollama",
+        "installed": "已安装 Ollama",
+        "running": "Ollama 运行中"
+      },
+      "badges": {
+        "running": "运行中",
+        "provider": "已加入 Provider",
+        "embeddingConfig": "已加入 Embedding 配置",
+        "default": "默认",
+        "embedding": "Embedding",
+        "llm": "LLM",
+        "memory": "用于记忆"
+      },
+      "filters": {
+        "all": "全部",
+        "embedding": "Embedding",
+        "vision": "视觉",
+        "tools": "工具",
+        "thinking": "推理"
+      },
+      "actions": {
+        "download": "下载",
+        "downloadProvider": "下载并加入 Provider",
+        "downloadDefault": "下载并设默认",
+        "downloadEmbedding": "下载并用于记忆",
+        "installOllama": "安装 Ollama",
+        "preload": "启动模型",
+        "stop": "停止模型",
+        "addProvider": "加入模型配置",
+        "setDefault": "设为默认",
+        "setEmbedding": "用于记忆",
+        "addEmbeddingConfig": "加入 Embedding 配置",
+        "setMemoryDefault": "设为默认记忆模型"
+      },
+      "jobs": {
+        "title": "正在下载 {{model}}"
+      },
+      "delete": {
+        "title": "删除本地模型？",
+        "description": "{{model}} 会从 Ollama 本地存储中删除，此操作不可撤销。",
+        "running": "该模型当前已加载，会先卸载再删除。",
+        "active": "它是全局默认模型，对应引用会被清除。",
+        "fallback": "它在 fallback 模型链中，对应引用会被移除。",
+        "provider": "它已注册在 Ollama Provider 中，对应模型条目会被移除。",
+        "embeddingConfig": "它已加入 Embedding 模型配置，对应配置会被删除。",
+        "embedding": "它是当前记忆向量模型，本地 Embedding 会被禁用。"
+      },
+      "toast": {
+        "ollamaStarted": "Ollama 已启动",
+        "preloaded": "{{model}} 已加载",
+        "stopped": "{{model}} 已卸载",
+        "providerAdded": "{{model}} 已加入模型配置",
+        "defaultSet": "{{model}} 已设为默认模型",
+        "embeddingSet": "{{model}} 已用于记忆向量",
+        "embeddingConfigAdded": "{{model}} 已加入 Embedding 配置",
+        "deleted": "{{model}} 已删除"
+      },
+      "errors": {
+        "refreshFailed": "刷新本地模型失败",
+        "searchFailed": "搜索 Ollama 模型库失败",
+        "detailFailed": "加载模型 tag 失败"
+      }
     }
   },
   "tz": {
@@ -2970,15 +3086,20 @@
     "subtitle": "模型安装任务会在后台继续运行。",
     "activeSummary": "{{count}} 个模型安装任务正在运行",
     "activeSummary_other": "{{count}} 个模型安装任务正在运行",
+    "pausedSummary": "{{count}} 个模型安装任务已暂停",
+    "pausedSummary_other": "{{count}} 个模型安装任务已暂停",
     "emptyTitle": "暂无模型安装任务",
     "emptyDescription": "Ollama 安装和模型下载会显示在这里。",
     "kind": {
       "chat_model": "对话模型",
-      "embedding_model": "Embedding 模型"
+      "embedding_model": "Embedding 模型",
+      "ollama_install": "Ollama 安装",
+      "ollama_pull": "Ollama 模型"
     },
     "status": {
       "running": "运行中",
       "cancelling": "正在取消",
+      "paused": "已暂停",
       "completed": "已完成",
       "failed": "失败",
       "interrupted": "已中断",
@@ -2988,6 +3109,7 @@
       "queued": "排队中",
       "checkingOllama": "检查 Ollama",
       "startOllama": "启动 Ollama",
+      "paused": "已暂停",
       "cancelling": "正在取消",
       "cancelled": "已取消",
       "failed": "失败",
@@ -2999,6 +3121,8 @@
       "keepWatching": "继续查看",
       "viewLogs": "查看日志",
       "hideLogs": "收起日志",
+      "pause": "暂停",
+      "resume": "继续",
       "cancel": "取消",
       "retry": "重试",
       "clear": "清除"
@@ -3012,6 +3136,7 @@
     },
     "toast": {
       "completed": "{{model}} 已安装",
+      "paused": "{{model}} 已暂停",
       "cancelled": "{{model}} 安装已取消",
       "failed": "{{model}} 安装失败",
       "retryStarted": "已开始重试 {{model}}"

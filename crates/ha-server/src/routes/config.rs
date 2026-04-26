@@ -426,37 +426,102 @@ pub async fn save_server_config(
 
 /// `GET /api/config/embedding` -- get embedding provider config.
 pub async fn get_embedding_config() -> Result<Json<ha_core::memory::EmbeddingConfig>, AppError> {
-    let store = load_config()?;
-    Ok(Json(store.embedding))
+    let store = ha_core::config::cached_config();
+    let resolved = ha_core::memory::resolve_memory_embedding_config(
+        &store.memory_embedding,
+        &store.embedding_models,
+    )?;
+    Ok(Json(
+        resolved
+            .map(|(_, config, _)| config)
+            .unwrap_or_else(ha_core::memory::EmbeddingConfig::default),
+    ))
 }
 
 /// `PUT /api/config/embedding` -- save embedding provider config.
 pub async fn save_embedding_config(
     Json(body): Json<ConfigBody<ha_core::memory::EmbeddingConfig>>,
 ) -> Result<Json<Value>, AppError> {
-    let config = body.config;
-    let applied = config.clone();
-    ha_core::config::mutate_config(("embedding", "http"), |store| {
-        store.embedding = applied;
-        Ok(())
-    })?;
-    tokio::task::spawn_blocking(move || {
-        if let Err(e) = ha_core::memory::apply_embedding_config_to_backend(&config, "http") {
-            ha_core::app_warn!(
-                "memory",
-                "embedding",
-                "Failed to hot-reload embedding provider after HTTP config save: {}",
-                e
-            );
-        }
-    });
-    Ok(Json(json!({ "saved": true })))
+    let state = ha_core::memory::save_legacy_embedding_config(body.config, "http")?;
+    Ok(Json(json!({ "saved": true, "state": state })))
 }
 
 /// `GET /api/config/embedding/presets` -- list built-in embedding presets.
 pub async fn get_embedding_presets() -> Result<Json<Vec<ha_core::memory::EmbeddingPreset>>, AppError>
 {
     Ok(Json(ha_core::memory::embedding_presets()))
+}
+
+pub async fn embedding_model_config_list(
+) -> Result<Json<Vec<ha_core::memory::EmbeddingModelConfig>>, AppError> {
+    Ok(Json(ha_core::memory::list_embedding_model_configs()))
+}
+
+pub async fn embedding_model_config_templates(
+) -> Result<Json<Vec<ha_core::memory::EmbeddingModelTemplate>>, AppError> {
+    Ok(Json(ha_core::memory::embedding_model_config_templates()))
+}
+
+pub async fn embedding_model_config_save(
+    Json(body): Json<ConfigBody<ha_core::memory::EmbeddingModelConfig>>,
+) -> Result<Json<ha_core::memory::EmbeddingModelConfig>, AppError> {
+    Ok(Json(ha_core::memory::save_embedding_model_config(
+        body.config,
+        "http",
+    )?))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingModelConfigIdBody {
+    pub id: String,
+}
+
+pub async fn embedding_model_config_delete(
+    Json(body): Json<EmbeddingModelConfigIdBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::memory::delete_embedding_model_config(&body.id, "http")?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+pub async fn embedding_model_config_test(
+    Json(body): Json<ConfigBody<ha_core::memory::EmbeddingModelConfig>>,
+) -> Result<Json<Value>, AppError> {
+    let config = body.config.normalize_for_save();
+    config.validate()?;
+    let payload = ha_core::provider::test::test_embedding(config.to_runtime_config(true))
+        .await
+        .map_err(AppError::bad_request)?;
+    Ok(Json(
+        serde_json::from_str(&payload).unwrap_or_else(|_| json!({ "message": payload })),
+    ))
+}
+
+pub async fn memory_embedding_get() -> Result<Json<ha_core::memory::MemoryEmbeddingState>, AppError>
+{
+    Ok(Json(ha_core::memory::get_memory_embedding_state()))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryEmbeddingSetDefaultBody {
+    pub model_config_id: String,
+    pub reembed: bool,
+}
+
+pub async fn memory_embedding_set_default(
+    Json(body): Json<MemoryEmbeddingSetDefaultBody>,
+) -> Result<Json<ha_core::memory::MemoryEmbeddingSetDefaultResult>, AppError> {
+    Ok(Json(ha_core::memory::set_memory_embedding_default(
+        &body.model_config_id,
+        body.reembed,
+        "http",
+    )?))
+}
+
+pub async fn memory_embedding_disable(
+) -> Result<Json<ha_core::memory::MemoryEmbeddingState>, AppError> {
+    Ok(Json(ha_core::memory::disable_memory_embedding("http")?))
 }
 
 /// `GET /api/config/embedding-cache` -- get embedding cache config.

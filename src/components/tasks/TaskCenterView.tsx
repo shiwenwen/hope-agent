@@ -36,6 +36,7 @@ function statusTone(status: LocalModelJobStatus): string {
     case "interrupted":
       return "border-destructive/30 bg-destructive/10 text-destructive"
     case "cancelled":
+    case "paused":
       return "border-muted-foreground/25 bg-muted text-muted-foreground"
     case "cancelling":
       return "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"

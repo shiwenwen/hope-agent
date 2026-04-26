@@ -397,6 +397,14 @@ fn build_router_with_cors(
             post(routes::local_model_jobs::start_embedding),
         )
         .route(
+            "/local-model-jobs/ollama-install",
+            post(routes::local_model_jobs::start_ollama_install),
+        )
+        .route(
+            "/local-model-jobs/ollama-pull",
+            post(routes::local_model_jobs::start_ollama_pull),
+        )
+        .route(
             "/local-model-jobs/{id}",
             get(routes::local_model_jobs::get_job).delete(routes::local_model_jobs::clear_job),
         )
@@ -407,6 +415,10 @@ fn build_router_with_cors(
         .route(
             "/local-model-jobs/{id}/cancel",
             post(routes::local_model_jobs::cancel_job),
+        )
+        .route(
+            "/local-model-jobs/{id}/pause",
+            post(routes::local_model_jobs::pause_job),
         )
         .route(
             "/local-model-jobs/{id}/retry",
@@ -553,6 +565,35 @@ fn build_router_with_cors(
         .route(
             "/config/embedding/presets",
             get(routes::config::get_embedding_presets),
+        )
+        .route(
+            "/config/embedding-models",
+            get(routes::config::embedding_model_config_list)
+                .put(routes::config::embedding_model_config_save),
+        )
+        .route(
+            "/config/embedding-models/templates",
+            get(routes::config::embedding_model_config_templates),
+        )
+        .route(
+            "/config/embedding-models/delete",
+            post(routes::config::embedding_model_config_delete),
+        )
+        .route(
+            "/config/embedding-models/test",
+            post(routes::config::embedding_model_config_test),
+        )
+        .route(
+            "/config/memory-embedding",
+            get(routes::config::memory_embedding_get),
+        )
+        .route(
+            "/config/memory-embedding/default",
+            post(routes::config::memory_embedding_set_default),
+        )
+        .route(
+            "/config/memory-embedding/disable",
+            post(routes::config::memory_embedding_disable),
         )
         .route(
             "/config/embedding-cache",
@@ -1149,6 +1190,33 @@ fn build_router_with_cors(
             get(routes::local_llm::get_known_backends),
         )
         .route("/local-llm/start", post(routes::local_llm::start))
+        .route("/local-llm/models", get(routes::local_llm::list_models))
+        .route(
+            "/local-llm/library/search",
+            get(routes::local_llm::search_library),
+        )
+        .route(
+            "/local-llm/library/model",
+            post(routes::local_llm::get_library_model),
+        )
+        .route("/local-llm/preload", post(routes::local_llm::preload))
+        .route("/local-llm/stop-model", post(routes::local_llm::stop_model))
+        .route(
+            "/local-llm/delete-model",
+            post(routes::local_llm::delete_model),
+        )
+        .route(
+            "/local-llm/provider-model",
+            post(routes::local_llm::add_provider_model),
+        )
+        .route(
+            "/local-llm/default-model",
+            post(routes::local_llm::set_default_model),
+        )
+        .route(
+            "/local-llm/embedding-config",
+            post(routes::local_llm::add_embedding_config),
+        )
         // SearXNG Docker
         .route("/searxng/status", get(routes::searxng::status))
         .route("/searxng/deploy", post(routes::searxng::deploy))

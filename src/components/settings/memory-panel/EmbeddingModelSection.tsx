@@ -1,13 +1,34 @@
+import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { getTransport } from "@/lib/transport-provider"
-import { cn } from "@/lib/utils"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Download, Loader2, Check, Zap, Wifi, Sparkles } from "lucide-react"
+import { Brain, CheckCircle2, Loader2, Settings, Zap } from "lucide-react"
 import { toast } from "sonner"
-import TestResultDisplay, { parseTestResult } from "../TestResultDisplay"
+import { Button } from "@/components/ui/button"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import type { useMemoryData } from "./useMemoryData"
 import LocalEmbeddingAssistantCard from "./LocalEmbeddingAssistantCard"
+import type { MemoryEmbeddingSetDefaultResult } from "./types"
+import {
+  embeddingProviderLabel,
+  openEmbeddingModelSettings,
+} from "@/types/embedding-models"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 
@@ -17,345 +38,173 @@ interface EmbeddingModelSectionProps {
 
 export default function EmbeddingModelSection({ data }: EmbeddingModelSectionProps) {
   const { t } = useTranslation()
-
   const {
     totalCount,
-    embeddingConfig, setEmbeddingConfig,
-    presets,
-    localModels,
-    embeddingDirty, setEmbeddingDirty,
-    embeddingTestLoading, setEmbeddingTestLoading,
-    embeddingTestResult, setEmbeddingTestResult,
-    embeddingSaving,
-    embeddingSaveStatus,
+    embeddingModels,
+    memoryEmbeddingState,
+    setMemoryEmbeddingState,
     reloadEmbeddingConfig,
     batchLoading,
-    saveEmbeddingConfig,
     handleReembedAll,
   } = data
+  const [pendingModelId, setPendingModelId] = useState<string | null>(null)
+  const [switching, setSwitching] = useState(false)
+
+  const currentId = memoryEmbeddingState.selection.enabled
+    ? memoryEmbeddingState.selection.modelConfigId
+    : undefined
+  const pendingModel = useMemo(
+    () => embeddingModels.find((model) => model.id === pendingModelId) ?? null,
+    [embeddingModels, pendingModelId],
+  )
+
+  async function confirmSwitchDefault() {
+    if (!pendingModelId) return
+    setSwitching(true)
+    try {
+      const result = await getTransport().call<MemoryEmbeddingSetDefaultResult>(
+        "memory_embedding_set_default",
+        { modelConfigId: pendingModelId, reembed: true },
+      )
+      setMemoryEmbeddingState(result.state)
+      await reloadEmbeddingConfig()
+      if (result.reembedError) {
+        toast.warning(t("settings.embeddingModels.reembedFailed"))
+      } else {
+        toast.success(t("settings.embeddingModels.defaultSet"))
+      }
+    } catch (e) {
+      logger.error("settings", "EmbeddingModelSection::confirmSwitchDefault", "Failed to switch", e)
+      toast.error(String(e))
+    } finally {
+      setSwitching(false)
+      setPendingModelId(null)
+    }
+  }
 
   return (
     <>
-      {/* Provider type selector */}
-      <div>
-        <label className="text-sm font-medium mb-1.5 block">
-          {t("settings.memoryEmbeddingProvider")}
-        </label>
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setEmbeddingConfig({
-                ...embeddingConfig,
-                providerType: "auto",
-                apiBaseUrl: null,
-                apiKey: null,
-                apiModel: null,
-                apiDimensions: null,
-              })
-              setEmbeddingDirty(true)
-            }}
-            className={cn(
-              "h-auto gap-1 rounded-lg px-3 py-1.5 text-xs font-normal",
-              embeddingConfig.providerType === "auto"
-                ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                : "text-muted-foreground hover:border-foreground/30",
-            )}
-          >
-            <Sparkles className="h-3 w-3" />
-            Auto
-          </Button>
-          {presets.map((preset) => (
-            <Button
-              key={preset.name}
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setEmbeddingConfig({
-                  ...embeddingConfig,
-                  providerType: preset.providerType,
-                  apiBaseUrl: preset.baseUrl,
-                  apiKey: null,
-                  apiModel: preset.defaultModel,
-                  apiDimensions: preset.defaultDimensions,
-                })
-                setEmbeddingDirty(true)
-              }}
-              className={cn(
-                "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
-                embeddingConfig.apiBaseUrl === preset.baseUrl
-                  ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                  : "text-muted-foreground hover:border-foreground/30",
-              )}
-            >
-              {preset.name}
-            </Button>
-          ))}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setEmbeddingConfig({
-                ...embeddingConfig,
-                providerType: "local",
-                apiBaseUrl: null,
-                apiKey: null,
-                apiModel: null,
-              })
-              setEmbeddingDirty(true)
-            }}
-            className={cn(
-              "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
-              embeddingConfig.providerType === "local"
-                ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
-                : "text-muted-foreground hover:border-foreground/30",
-            )}
-          >
-            {t("settings.memoryLocalModel")}
-          </Button>
-        </div>
-      </div>
-
-      {embeddingConfig.providerType === "auto" ? (
-        /* Auto mode info */
-        <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
-          <p className="text-xs text-muted-foreground">
-            {t("settings.memoryEmbeddingAutoDesc")}
-          </p>
-        </div>
-      ) : embeddingConfig.providerType !== "local" ? (
-        /* API mode fields */
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">API Base URL</label>
-            <Input
-              value={embeddingConfig.apiBaseUrl ?? ""}
-              onChange={(e) => {
-                setEmbeddingConfig({ ...embeddingConfig, apiBaseUrl: e.target.value })
-                setEmbeddingDirty(true)
-              }}
-              placeholder="https://api.openai.com"
-              className="text-sm"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-muted-foreground mb-1 block">API Key</label>
-            <Input
-              type="password"
-              value={embeddingConfig.apiKey ?? ""}
-              onChange={(e) => {
-                setEmbeddingConfig({ ...embeddingConfig, apiKey: e.target.value })
-                setEmbeddingDirty(true)
-              }}
-              placeholder="sk-..."
-              className="text-sm"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </div>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-xs text-muted-foreground mb-1 block">
-                {t("settings.memoryModel")}
-              </label>
-              <Input
-                value={embeddingConfig.apiModel ?? ""}
-                onChange={(e) => {
-                  setEmbeddingConfig({ ...embeddingConfig, apiModel: e.target.value })
-                  setEmbeddingDirty(true)
-                }}
-                placeholder="text-embedding-3-small"
-                className="text-sm"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-            </div>
-            <div className="w-28">
-              <label className="text-xs text-muted-foreground mb-1 block">
-                {t("settings.memoryDimensions")}
-              </label>
-              <Input
-                type="number"
-                value={embeddingConfig.apiDimensions ?? ""}
-                onChange={(e) => {
-                  setEmbeddingConfig({
-                    ...embeddingConfig,
-                    apiDimensions: e.target.value ? Number(e.target.value) : null,
-                  })
-                  setEmbeddingDirty(true)
-                }}
-                placeholder="1536"
-                className="text-sm"
-              />
-            </div>
-          </div>
-        </div>
-      ) : (
-        /* Local model selector */
-        <div className="space-y-2">
-          <label className="text-sm font-medium mb-1.5 block">
-            {t("settings.memorySelectModel")}
-          </label>
-          {localModels.map((model) => (
-            <Button
-              key={model.id}
-              variant="outline"
-              onClick={() => {
-                setEmbeddingConfig({
-                  ...embeddingConfig,
-                  localModelId: model.id,
-                  apiDimensions: model.dimensions,
-                })
-                setEmbeddingDirty(true)
-              }}
-              className={cn(
-                "h-auto w-full justify-between gap-2 rounded-lg px-3 py-2.5 text-left font-normal",
-                embeddingConfig.localModelId === model.id
-                  ? "border-primary bg-primary/10 hover:bg-primary/15"
-                  : "hover:border-foreground/30",
-              )}
-            >
-              <div>
-                <div className="text-sm font-medium">{model.name}</div>
-                <div className="text-xs text-muted-foreground">
-                  {model.dimensions}d | {model.sizeMb}MB | RAM {model.minRamGb}GB+ |{" "}
-                  {model.languages.join(", ")}
-                </div>
-              </div>
-              {model.downloaded ? (
-                <span className="text-xs text-green-500">✓</span>
-              ) : (
-                <Download className="h-4 w-4 text-muted-foreground" />
-              )}
-            </Button>
-          ))}
-        </div>
-      )}
-
       <LocalEmbeddingAssistantCard
-        onActivated={(config) => {
-          const dimsChanged =
-            embeddingConfig.apiDimensions != null &&
-            config.apiDimensions != null &&
-            embeddingConfig.apiDimensions !== config.apiDimensions
-          const replacedEnabledEmbedding =
-            embeddingConfig.enabled &&
-            (embeddingConfig.providerType !== config.providerType ||
-              (embeddingConfig.apiBaseUrl ?? null) !== (config.apiBaseUrl ?? null) ||
-              (embeddingConfig.apiModel ?? null) !== (config.apiModel ?? null) ||
-              (embeddingConfig.localModelId ?? null) !== (config.localModelId ?? null))
-          setEmbeddingConfig(config)
-          setEmbeddingDirty(false)
+        onActivated={(result) => {
+          setMemoryEmbeddingState(result.state)
           void reloadEmbeddingConfig()
-          if ((dimsChanged || replacedEnabledEmbedding) && totalCount > 0) {
-            toast.info(t("settings.localEmbedding.reembedHint"))
+          if (result.reembedError) {
+            toast.warning(t("settings.embeddingModels.reembedFailed"))
+          } else {
+            toast.success(t("settings.localEmbedding.activated"))
           }
         }}
       />
 
-      {/* Test & Save buttons */}
-      <div className="flex items-center gap-2 mt-4">
-        <Button
-          onClick={saveEmbeddingConfig}
-          size="sm"
-          disabled={(!embeddingDirty && embeddingSaveStatus === "idle") || embeddingSaving}
-          className={cn(
-            embeddingSaveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
-            embeddingSaveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
-          )}
-        >
-          {embeddingSaving ? (
-            <span className="flex items-center gap-1.5">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("common.saving")}
-            </span>
-          ) : embeddingSaveStatus === "saved" ? (
-            <span className="flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5" />
-              {t("common.saved")}
-            </span>
-          ) : embeddingSaveStatus === "failed" ? (
-            t("common.saveFailed")
-          ) : (
-            t("common.save")
-          )}
-        </Button>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={
-            embeddingTestLoading ||
-            (embeddingConfig.providerType === "local"
-              ? !embeddingConfig.localModelId
-              : !embeddingConfig.apiBaseUrl?.trim())
-          }
-          onClick={async () => {
-            setEmbeddingTestLoading(true)
-            setEmbeddingTestResult(null)
-            try {
-              const msg = await getTransport().call<string>("test_embedding", {
-                config: embeddingConfig,
-              })
-              setEmbeddingTestResult(parseTestResult(msg, false))
-            } catch (e) {
-              setEmbeddingTestResult(parseTestResult(String(e), true))
-            } finally {
-              setEmbeddingTestLoading(false)
-            }
-          }}
-        >
-          {embeddingTestLoading ? (
-            <span className="flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              {t("common.testing")}
-            </span>
-          ) : (
-            <span className="flex items-center gap-2">
-              <Wifi className="h-3.5 w-3.5" />
-              {t("settings.memoryEmbeddingTest")}
-            </span>
-          )}
-        </Button>
-      </div>
-
-      {embeddingTestResult && (
-        <div className="mt-3">
-          <TestResultDisplay result={embeddingTestResult} />
+      <div className="rounded-lg border border-border bg-card p-4 space-y-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Brain className="h-4 w-4 text-primary" />
+              {t("settings.embeddingModels.memoryDefault")}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("settings.embeddingModels.memoryDefaultDesc")}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={openEmbeddingModelSettings}>
+            <Settings className="mr-1.5 h-3.5 w-3.5" />
+            {t("settings.embeddingModels.goConfig")}
+          </Button>
         </div>
-      )}
 
-      {/* Re-embed All */}
-      {embeddingConfig.enabled && totalCount > 0 && (
-        <div className="mt-6 pt-4 border-t border-border/50">
-          <div className="flex items-center justify-between">
+        {embeddingModels.length === 0 ? (
+          <div className="rounded-lg border border-dashed border-border bg-secondary/30 p-4 text-sm text-muted-foreground">
+            {t("settings.embeddingModels.emptyMemory")}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <Select
+              value={currentId ?? ""}
+              onValueChange={(value) => {
+                if (value && value !== currentId) setPendingModelId(value)
+              }}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder={t("settings.embeddingModels.selectPlaceholder")} />
+              </SelectTrigger>
+              <SelectContent>
+                {embeddingModels.map((model) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.name} · {embeddingProviderLabel(model)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            {memoryEmbeddingState.currentModel && (
+              <div className="rounded-lg border border-border/70 bg-secondary/25 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium">
+                    {memoryEmbeddingState.currentModel.name}
+                  </span>
+                  <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                    {t("settings.embeddingModels.memoryActive")}
+                  </span>
+                  {memoryEmbeddingState.needsReembed && (
+                    <span className="rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
+                      {t("settings.embeddingModels.needsReembed")}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {embeddingProviderLabel(memoryEmbeddingState.currentModel)} ·{" "}
+                  {memoryEmbeddingState.currentModel.apiModel}
+                  {memoryEmbeddingState.currentModel.apiDimensions
+                    ? ` · ${memoryEmbeddingState.currentModel.apiDimensions}d`
+                    : ""}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {memoryEmbeddingState.selection.enabled && totalCount > 0 && (
+          <div className="flex items-center justify-between border-t border-border/60 pt-4">
             <div>
               <div className="text-sm font-medium">{t("settings.memoryReembedAll")}</div>
               <div className="text-xs text-muted-foreground">
                 {t("settings.memoryCount", { count: totalCount })}
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={batchLoading}
-              onClick={handleReembedAll}
-            >
+            <Button variant="outline" size="sm" disabled={batchLoading} onClick={handleReembedAll}>
               {batchLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+              ) : memoryEmbeddingState.needsReembed ? (
+                <Zap className="mr-1.5 h-3.5 w-3.5" />
               ) : (
-                <Zap className="h-3.5 w-3.5 mr-1.5" />
+                <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
               )}
               {t("settings.memoryReembedAll")}
             </Button>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      <AlertDialog open={!!pendingModel} onOpenChange={(open) => !open && setPendingModelId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.embeddingModels.confirmSwitchTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.embeddingModels.confirmSwitchDesc", {
+                model: pendingModel?.name ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={switching}>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction disabled={switching} onClick={() => void confirmSwitchDefault()}>
+              {switching && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
+              {t("settings.embeddingModels.confirmSwitchAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

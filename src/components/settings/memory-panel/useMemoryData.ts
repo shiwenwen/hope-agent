@@ -423,17 +423,11 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
     // Embedding config state (from sub-hook)
     embeddingConfig: statsHook.embeddingConfig,
-    setEmbeddingConfig: statsHook.setEmbeddingConfig,
-    presets: statsHook.presets,
-    localModels: statsHook.localModels,
-    embeddingDirty: statsHook.embeddingDirty,
-    setEmbeddingDirty: statsHook.setEmbeddingDirty,
-    embeddingTestLoading: statsHook.embeddingTestLoading,
-    setEmbeddingTestLoading: statsHook.setEmbeddingTestLoading,
-    embeddingTestResult: statsHook.embeddingTestResult,
-    setEmbeddingTestResult: statsHook.setEmbeddingTestResult,
-    embeddingSaving: statsHook.embeddingSaving,
-    embeddingSaveStatus: statsHook.embeddingSaveStatus,
+    embeddingModels: statsHook.embeddingModels,
+    setEmbeddingModels: statsHook.setEmbeddingModels,
+    embeddingTemplates: statsHook.embeddingTemplates,
+    memoryEmbeddingState: statsHook.memoryEmbeddingState,
+    setMemoryEmbeddingState: statsHook.setMemoryEmbeddingState,
     reloadEmbeddingConfig: statsHook.reloadEmbeddingConfig,
 
     // Dedup config state (from sub-hook)
@@ -461,7 +455,6 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     handleReembedBatch,
     handleReembedAll,
     handleImport,
-    saveEmbeddingConfig: statsHook.saveEmbeddingConfig,
     startEdit,
     startAdd,
     handleToggleAutoExtract: extract.handleToggleAutoExtract,

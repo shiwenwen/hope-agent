@@ -1,0 +1,1283 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useTranslation } from "react-i18next"
+import {
+  Brain,
+  Database,
+  Download,
+  Loader2,
+  Pause,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  Square,
+  Star,
+  Trash2,
+} from "lucide-react"
+import { Ollama } from "@lobehub/icons"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Progress } from "@/components/ui/progress"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { InstallProgressDialog } from "@/components/settings/local-llm/InstallProgressDialog"
+import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
+import { logger } from "@/lib/logger"
+import { cn } from "@/lib/utils"
+import { formatBytes, formatDurationCompact } from "@/lib/format"
+import {
+  formatLocalModelJobLogLine,
+  isLocalModelJobActive,
+  isLocalModelJobTerminal,
+  isLocalModelJobVisible,
+  LOCAL_MODEL_JOB_EVENTS,
+  localModelJobToProgressFrame,
+  phaseTranslationKey,
+  type LocalModelJobLogEntry,
+  type LocalModelJobSnapshot,
+  type ProgressFrame,
+} from "@/types/local-model-jobs"
+import type {
+  LocalOllamaModel,
+  ModelCandidate,
+  ModelRecommendation,
+  OllamaLibraryModel,
+  OllamaLibraryModelDetail,
+  OllamaLibrarySearchResponse,
+  OllamaPullRequest,
+  OllamaStatus,
+} from "@/types/local-llm"
+import { openExternalUrl } from "@/lib/openExternalUrl"
+
+const MAX_DIALOG_LOG_LINES = 240
+
+const JOB_ACTION_COMMANDS = {
+  pause: "local_model_job_pause",
+  cancel: "local_model_job_cancel",
+  resume: "local_model_job_retry",
+} as const
+const CAPABILITY_FILTERS = ["all", "embedding", "vision", "tools", "thinking"] as const
+const ACTION_BUTTON_CLASS = "shrink-0 whitespace-nowrap"
+const ACTION_ICON_CLASS = "mr-2 h-3.5 w-3.5 shrink-0"
+
+function sizeLabel(bytes?: number | null): string {
+  return bytes ? formatBytes(bytes, { maxUnit: "GB", trimTrailingZeros: true }) : "-"
+}
+
+function contextLabel(value?: number | null): string {
+  if (!value) return "-"
+  return value >= 1000 ? `${Math.round(value / 1000)}K` : String(value)
+}
+
+function candidateSizeLabel(sizeMb: number): string {
+  return formatBytes(sizeMb * 1024 * 1024, { maxUnit: "GB", trimTrailingZeros: true })
+}
+
+function modelMatchesFilter(model: OllamaLibraryModel, filter: string): boolean {
+  if (filter === "all") return true
+  return model.capabilities.some((cap) => cap.toLowerCase() === filter)
+}
+
+function candidateMatchesFilter(model: ModelCandidate, filter: string): boolean {
+  if (filter === "all") return true
+  return filter === "thinking" && model.reasoning
+}
+
+function isCompletionCapable(model: LocalOllamaModel): boolean {
+  if (model.capabilities.length === 0) return true
+  const caps = model.capabilities.map((cap) => cap.toLowerCase())
+  const hasCompletion = caps.some((cap) =>
+    ["completion", "chat", "tools", "thinking", "vision"].includes(cap),
+  )
+  return hasCompletion && !caps.every((cap) => cap === "embedding")
+}
+
+function isEmbeddingCapable(model: LocalOllamaModel): boolean {
+  return model.capabilities.some((cap) => cap.toLowerCase() === "embedding")
+}
+
+export default function LocalModelsPanel() {
+  const { t } = useTranslation()
+  const [ollama, setOllama] = useState<OllamaStatus | null>(null)
+  const [models, setModels] = useState<LocalOllamaModel[]>([])
+  const [recommendation, setRecommendation] = useState<ModelRecommendation | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [actioning, setActioning] = useState<Record<string, boolean>>({})
+  const [activeJobs, setActiveJobs] = useState<LocalModelJobSnapshot[]>([])
+
+  const [query, setQuery] = useState("")
+  const [capabilityFilter, setCapabilityFilter] = useState<(typeof CAPABILITY_FILTERS)[number]>("all")
+  const [searching, setSearching] = useState(false)
+  const [searchResult, setSearchResult] = useState<OllamaLibrarySearchResponse | null>(null)
+  const [selectedDetail, setSelectedDetail] = useState<OllamaLibraryModelDetail | null>(null)
+  const [manualTag, setManualTag] = useState("")
+
+  const [pendingDelete, setPendingDelete] = useState<LocalOllamaModel | null>(null)
+  const [pendingEmbeddingDefault, setPendingEmbeddingDefault] = useState<LocalOllamaModel | null>(null)
+
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [dialogTitle, setDialogTitle] = useState("")
+  const [dialogSubtitle, setDialogSubtitle] = useState<string | undefined>(undefined)
+  const [dialogFrame, setDialogFrame] = useState<ProgressFrame | null>(null)
+  const [dialogLogs, setDialogLogs] = useState<string[]>([])
+  const [dialogDone, setDialogDone] = useState(false)
+  const [dialogError, setDialogError] = useState<string | null>(null)
+  const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
+  const handledTerminalJobs = useRef<Set<string>>(new Set())
+  const refreshedTerminalJobs = useRef<Set<string>>(new Set())
+  const jobTransferRef = useRef<
+    Map<string, { bytes: number; timestamp: number; speedBps?: number; etaSeconds?: number }>
+  >(new Map())
+  const [jobTransferStats, setJobTransferStats] = useState<
+    Record<string, { speedBps?: number; etaSeconds?: number }>
+  >({})
+
+  const filteredSearchModels = useMemo(
+    () => (searchResult?.models ?? []).filter((model) => modelMatchesFilter(model, capabilityFilter)),
+    [capabilityFilter, searchResult],
+  )
+
+  const recommendedModels = useMemo(() => {
+    const byId = new Map<string, ModelCandidate>()
+    if (recommendation?.recommended) {
+      byId.set(recommendation.recommended.id, recommendation.recommended)
+    }
+    for (const candidate of recommendation?.alternatives ?? []) {
+      byId.set(candidate.id, candidate)
+    }
+    return [...byId.values()].filter((model) => candidateMatchesFilter(model, capabilityFilter))
+  }, [capabilityFilter, recommendation])
+
+  const sortedActiveJobs = useMemo(
+    () => [...activeJobs].sort((a, b) => b.createdAt - a.createdAt || a.jobId.localeCompare(b.jobId)),
+    [activeJobs],
+  )
+
+  const phaseLabel = useCallback(
+    (phase: string | undefined) => {
+      const key = phaseTranslationKey(phase)
+      return key ? t(key) : (phase ?? "")
+    },
+    [t],
+  )
+
+  const appendDialogLog = useCallback((message: string, createdAt?: number) => {
+    const trimmed = message.trim()
+    if (!trimmed) return
+    const line = formatLocalModelJobLogLine(trimmed, createdAt)
+    setDialogLogs((prev) => {
+      if (prev[prev.length - 1] === line) return prev
+      return [...prev.slice(-(MAX_DIALOG_LOG_LINES - 1)), line]
+    })
+  }, [])
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [status, localModels, rec] = await Promise.all([
+        getTransport().call<OllamaStatus>("local_llm_detect_ollama"),
+        getTransport().call<LocalOllamaModel[]>("local_llm_list_models"),
+        getTransport().call<ModelRecommendation>("local_llm_recommend_model"),
+      ])
+      setOllama(status)
+      setModels(localModels)
+      setRecommendation(rec)
+    } catch (e) {
+      logger.error("local-llm", "LocalModelsPanel::refresh", "Failed to refresh", e)
+      toast.error(t("settings.localModels.errors.refreshFailed"))
+    } finally {
+      setLoading(false)
+    }
+  }, [t])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const upsertActiveJob = useCallback((job: LocalModelJobSnapshot) => {
+    setActiveJobs((prev) => {
+      if (!isLocalModelJobActive(job)) {
+        if (job.status === "paused") {
+          const idx = prev.findIndex((item) => item.jobId === job.jobId)
+          if (idx === -1) return [job, ...prev]
+          const next = [...prev]
+          next[idx] = job
+          return next
+        }
+        return prev.filter((item) => item.jobId !== job.jobId)
+      }
+      const idx = prev.findIndex((item) => item.jobId === job.jobId)
+      if (idx === -1) return [job, ...prev]
+      const next = [...prev]
+      next[idx] = job
+      return next
+    })
+  }, [])
+
+  const refreshActiveJobs = useCallback(async () => {
+    try {
+      const jobs = await getTransport().call<LocalModelJobSnapshot[]>("local_model_job_list")
+      setActiveJobs(jobs.filter(isLocalModelJobVisible))
+    } catch (e) {
+      logger.warn("local-llm", "LocalModelsPanel::refreshActiveJobs", "Failed to load jobs", e)
+    }
+  }, [])
+
+  useEffect(() => {
+    void refreshActiveJobs()
+  }, [refreshActiveJobs])
+
+  useEffect(() => {
+    const now = Date.now()
+    const activeIds = new Set(activeJobs.map((job) => job.jobId))
+    const nextStats: Record<string, { speedBps?: number; etaSeconds?: number }> = {}
+
+    for (const job of activeJobs) {
+      const completed = job.bytesCompleted ?? null
+      if (completed == null) continue
+
+      const previous = jobTransferRef.current.get(job.jobId)
+      if (!previous || completed < previous.bytes) {
+        jobTransferRef.current.set(job.jobId, { bytes: completed, timestamp: now })
+        continue
+      }
+
+      if (completed > previous.bytes && now > previous.timestamp) {
+        const elapsedSeconds = (now - previous.timestamp) / 1000
+        const speedBps = (completed - previous.bytes) / elapsedSeconds
+        const etaSeconds =
+          job.bytesTotal != null && job.bytesTotal > completed && speedBps > 0
+            ? (job.bytesTotal - completed) / speedBps
+            : undefined
+        jobTransferRef.current.set(job.jobId, {
+          bytes: completed,
+          timestamp: now,
+          speedBps,
+          etaSeconds,
+        })
+      }
+
+      const current = jobTransferRef.current.get(job.jobId)
+      if (current?.speedBps) {
+        nextStats[job.jobId] = {
+          speedBps: current.speedBps,
+          etaSeconds: current.etaSeconds,
+        }
+      }
+    }
+
+    for (const jobId of Array.from(jobTransferRef.current.keys())) {
+      if (!activeIds.has(jobId)) jobTransferRef.current.delete(jobId)
+    }
+    setJobTransferStats((prev) => {
+      const prevKeys = Object.keys(prev)
+      const nextKeys = Object.keys(nextStats)
+      if (prevKeys.length === nextKeys.length) {
+        const unchanged = nextKeys.every((k) => {
+          const a = prev[k]
+          const b = nextStats[k]
+          return a && b && a.speedBps === b.speedBps && a.etaSeconds === b.etaSeconds
+        })
+        if (unchanged) return prev
+      }
+      return nextStats
+    })
+  }, [activeJobs])
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refresh(), refreshActiveJobs()])
+  }, [refresh, refreshActiveJobs])
+
+  const hydrateJobLogs = useCallback(async (jobId: string) => {
+    try {
+      const entries = await getTransport().call<LocalModelJobLogEntry[]>("local_model_job_logs", {
+        jobId,
+      })
+      setDialogLogs(
+        entries
+          .slice(-MAX_DIALOG_LOG_LINES)
+          .map((entry) => formatLocalModelJobLogLine(entry.message, entry.createdAt)),
+      )
+    } catch (e) {
+      logger.warn("local-llm", "LocalModelsPanel::hydrateJobLogs", "Failed to load logs", e)
+    }
+  }, [])
+
+  const openJobDialog = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      setCurrentJob(job)
+      setDialogOpen(true)
+      setDialogTitle(t("settings.localModels.jobs.title", { model: job.displayName }))
+      setDialogSubtitle(job.modelId)
+      setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+      setDialogLogs([])
+      setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+      setDialogError(job.error ?? null)
+      void hydrateJobLogs(job.jobId)
+    },
+    [hydrateJobLogs, phaseLabel, t],
+  )
+
+  const handleTerminalJob = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      if (!isLocalModelJobTerminal(job)) return
+      if (handledTerminalJobs.current.has(job.jobId)) return
+      handledTerminalJobs.current.add(job.jobId)
+      if (job.status === "completed") {
+        appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
+      } else if (job.error) {
+        appendDialogLog(job.error, job.updatedAt)
+      }
+    },
+    [appendDialogLog, t],
+  )
+
+  const refreshAfterTerminalJob = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      if (!isLocalModelJobTerminal(job)) return
+      if (refreshedTerminalJobs.current.has(job.jobId)) return
+      refreshedTerminalJobs.current.add(job.jobId)
+      void refresh()
+    },
+    [refresh],
+  )
+
+  useEffect(() => {
+    const handleSnapshot = (raw: unknown) => {
+      const job = parsePayload<LocalModelJobSnapshot>(raw)
+      upsertActiveJob(job)
+      refreshAfterTerminalJob(job)
+      setCurrentJob((current) => {
+        if (current?.jobId !== job.jobId) return current
+        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+        setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+        setDialogError(job.error ?? null)
+        handleTerminalJob(job)
+        return job
+      })
+    }
+    const handleLog = (raw: unknown) => {
+      const entry = parsePayload<LocalModelJobLogEntry>(raw)
+      setCurrentJob((current) => {
+        if (current?.jobId !== entry.jobId) return current
+        appendDialogLog(entry.message, entry.createdAt)
+        return current
+      })
+    }
+    const unlistenCreated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.created, handleSnapshot)
+    const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleSnapshot)
+    const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
+    const unlistenLog = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.log, handleLog)
+    return () => {
+      unlistenCreated()
+      unlistenUpdated()
+      unlistenCompleted()
+      unlistenLog()
+    }
+  }, [appendDialogLog, handleTerminalJob, phaseLabel, refreshAfterTerminalJob, upsertActiveJob])
+
+  const runModelAction = useCallback(
+    async (modelId: string, action: () => Promise<unknown>, successKey: string) => {
+      setActioning((prev) => ({ ...prev, [modelId]: true }))
+      try {
+        await action()
+        toast.success(t(successKey, { model: modelId }))
+        await refresh()
+      } catch (e) {
+        const message = String(e)
+        logger.error("local-llm", "LocalModelsPanel::runModelAction", "Local model action failed", {
+          modelId,
+          successKey,
+          error: message,
+        })
+        toast.error(message)
+      } finally {
+        setActioning((prev) => ({ ...prev, [modelId]: false }))
+      }
+    },
+    [refresh, t],
+  )
+
+  const startOllama = useCallback(async () => {
+    await runModelAction(
+      "__ollama__",
+      () => getTransport().call("local_llm_start_ollama"),
+      "settings.localModels.toast.ollamaStarted",
+    )
+  }, [runModelAction])
+
+  const openOllamaDownloadPage = useCallback(() => {
+    openExternalUrl("https://ollama.com/download")
+  }, [])
+
+  const installOrDownloadOllama = useCallback(async () => {
+    if (!ollama) return
+    if (!ollama.installScriptSupported) {
+      openOllamaDownloadPage()
+      return
+    }
+
+    setActioning((prev) => ({ ...prev, __ollama_install__: true }))
+    try {
+      const job = await getTransport().call<LocalModelJobSnapshot>(
+        "local_model_job_start_ollama_install",
+      )
+      upsertActiveJob(job)
+    } catch (e) {
+      const message = String(e)
+      logger.error(
+        "local-llm",
+        "LocalModelsPanel::installOrDownloadOllama",
+        "Failed to start Ollama install job",
+        { error: message },
+      )
+      toast.error(message)
+    } finally {
+      setActioning((prev) => ({ ...prev, __ollama_install__: false }))
+    }
+  }, [ollama, openOllamaDownloadPage, upsertActiveJob])
+
+  const searchLibrary = useCallback(async () => {
+    setSearching(true)
+    try {
+      const result = await getTransport().call<OllamaLibrarySearchResponse>(
+        "local_llm_search_library",
+        { query },
+      )
+      setSearchResult(result)
+      setSelectedDetail(null)
+    } catch (e) {
+      logger.error("local-llm", "LocalModelsPanel::searchLibrary", "Search failed", e)
+      toast.error(t("settings.localModels.errors.searchFailed"))
+    } finally {
+      setSearching(false)
+    }
+  }, [query, t])
+
+  const loadLibraryModel = useCallback(
+    async (model: string) => {
+      setSearching(true)
+      try {
+        const detail = await getTransport().call<OllamaLibraryModelDetail>(
+          "local_llm_get_library_model",
+          { model },
+        )
+        setSelectedDetail(detail)
+      } catch (e) {
+        logger.error("local-llm", "LocalModelsPanel::loadLibraryModel", "Load detail failed", e)
+        toast.error(t("settings.localModels.errors.detailFailed"))
+      } finally {
+        setSearching(false)
+      }
+    },
+    [t],
+  )
+
+  const startPullJob = useCallback(
+    async (request: OllamaPullRequest) => {
+      try {
+        const job = await getTransport().call<LocalModelJobSnapshot>(
+          "local_model_job_start_ollama_pull",
+          { request },
+        )
+        upsertActiveJob(job)
+      } catch (e) {
+        const message = String(e)
+        logger.error("local-llm", "LocalModelsPanel::startPullJob", "Failed to start pull job", {
+          request,
+          error: message,
+        })
+        toast.error(message)
+      }
+    },
+    [upsertActiveJob],
+  )
+
+  const cancelCurrentJob = useCallback(() => {
+    const job = currentJob
+    if (!job) return
+    void getTransport()
+      .call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId: job.jobId })
+      .then(upsertActiveJob)
+      .catch((e) => {
+        const message = String(e)
+        logger.error("local-llm", "LocalModelsPanel::cancelCurrentJob", "Failed to cancel job", {
+          jobId: job.jobId,
+          error: message,
+        })
+        setDialogError(message)
+      })
+  }, [currentJob, upsertActiveJob])
+
+  const runJobAction = useCallback(
+    async (job: LocalModelJobSnapshot, action: "pause" | "cancel" | "resume") => {
+      const actionKey = `${job.jobId}:${action}`
+      setActioning((prev) => ({ ...prev, [actionKey]: true }))
+      try {
+        // "resume" maps to retry: Ollama's chunked layer cache lets the next
+        // pull pick up where the cancelled one stopped, so a fresh job is OK.
+        const command = JOB_ACTION_COMMANDS[action]
+        const nextJob = await getTransport().call<LocalModelJobSnapshot>(command, {
+          jobId: job.jobId,
+        })
+        upsertActiveJob(nextJob)
+      } catch (e) {
+        const message = String(e)
+        logger.error("local-llm", "LocalModelsPanel::runJobAction", "Local model job action failed", {
+          jobId: job.jobId,
+          action,
+          error: message,
+        })
+        toast.error(message)
+      } finally {
+        setActioning((prev) => ({ ...prev, [actionKey]: false }))
+      }
+    },
+    [upsertActiveJob],
+  )
+
+  const confirmDelete = useCallback(async () => {
+    const model = pendingDelete
+    if (!model) return
+    await runModelAction(
+      model.id,
+      () => getTransport().call("local_llm_delete_model", { modelId: model.id }),
+      "settings.localModels.toast.deleted",
+    )
+    setPendingDelete(null)
+  }, [pendingDelete, runModelAction])
+
+  const confirmEmbeddingDefault = useCallback(async () => {
+    const model = pendingEmbeddingDefault
+    const configId = model?.usage.embeddingConfigId
+    if (!model || !configId) return
+    await runModelAction(
+      model.id,
+      () => getTransport().call("memory_embedding_set_default", { modelConfigId: configId, reembed: true }),
+      "settings.localModels.toast.embeddingSet",
+    )
+    setPendingEmbeddingDefault(null)
+  }, [pendingEmbeddingDefault, runModelAction])
+
+  const deleteWarnings = pendingDelete
+    ? [
+        pendingDelete.usage.running && t("settings.localModels.delete.running"),
+        pendingDelete.usage.activeModel && t("settings.localModels.delete.active"),
+        pendingDelete.usage.fallbackModel && t("settings.localModels.delete.fallback"),
+        pendingDelete.usage.providerModel && t("settings.localModels.delete.provider"),
+        pendingDelete.usage.embeddingConfig && t("settings.localModels.delete.embeddingConfig"),
+        pendingDelete.usage.embeddingModel && t("settings.localModels.delete.embedding"),
+      ].filter(Boolean)
+    : []
+
+  const installedEmpty = !loading && models.length === 0
+  const ollamaRunning = ollama?.phase === "running"
+  const jobTransferSummary = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      const parts: string[] = []
+      if (job.bytesCompleted != null && job.bytesTotal != null) {
+        parts.push(`${formatBytes(job.bytesCompleted, { maxUnit: "GB" })} / ${formatBytes(job.bytesTotal, { maxUnit: "GB" })}`)
+      }
+      const stats = jobTransferStats[job.jobId]
+      if (stats?.speedBps) {
+        parts.push(`${formatBytes(stats.speedBps, { maxUnit: "GB" })}/s`)
+      }
+      if (stats?.etaSeconds != null && Number.isFinite(stats.etaSeconds)) {
+        parts.push(`≈ ${formatDurationCompact(stats.etaSeconds)}`)
+      }
+      return parts.join(" · ")
+    },
+    [jobTransferStats],
+  )
+
+  return (
+    <div className="flex-1 overflow-y-auto p-6">
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-foreground">{t("settings.localModels.title")}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{t("settings.localModels.subtitle")}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {ollama?.phase === "not-installed" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className={cn(
+                ACTION_BUTTON_CLASS,
+                "border-amber-500/30 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 hover:text-amber-800 dark:text-amber-300 dark:hover:text-amber-200",
+              )}
+              onClick={() => void installOrDownloadOllama()}
+              disabled={actioning.__ollama_install__}
+            >
+              {actioning.__ollama_install__ ? (
+                <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+              ) : (
+                <Ollama size={14} className="mr-2 h-3.5 w-3.5 shrink-0" />
+              )}
+              {ollama.installScriptSupported
+                ? t("settings.localModels.actions.installOllama")
+                : t("settings.localLlm.buttons.downloadOllama")}
+            </Button>
+          ) : (
+            <span
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
+                ollamaRunning
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+              )}
+            >
+              <Ollama size={14} className="h-3.5 w-3.5" />
+              {ollama ? t(`settings.localModels.ollama.${ollama.phase}`) : t("settings.localLlm.detecting")}
+            </span>
+          )}
+          {ollama?.phase === "installed" && (
+            <Button
+              size="sm"
+              className={ACTION_BUTTON_CLASS}
+              onClick={() => void startOllama()}
+              disabled={actioning.__ollama__}
+            >
+              {actioning.__ollama__ ? (
+                <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+              ) : (
+                <Play className={ACTION_ICON_CLASS} />
+              )}
+              {t("settings.localLlm.buttons.startOllama")}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className={ACTION_BUTTON_CLASS}
+            onClick={() => void refreshAll()}
+            disabled={loading}
+          >
+            <RefreshCw className={cn(ACTION_ICON_CLASS, loading && "animate-spin")} />
+            {t("common.refresh")}
+          </Button>
+        </div>
+      </div>
+
+      {sortedActiveJobs.length > 0 && (
+        <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
+              {sortedActiveJobs.some(isLocalModelJobActive) ? (
+                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+              ) : (
+                <Pause className="h-4 w-4 text-primary" />
+              )}
+              {sortedActiveJobs.some(isLocalModelJobActive)
+                ? t("localModelJobs.activeSummary", { count: sortedActiveJobs.length })
+                : t("localModelJobs.pausedSummary", { count: sortedActiveJobs.length })}
+            </div>
+            <span className="text-xs text-muted-foreground">{t("localModelJobs.subtitle")}</span>
+          </div>
+          <div className="grid gap-2 lg:grid-cols-2">
+            {sortedActiveJobs.map((job) => {
+              const percent = job.percent ?? null
+              const transferSummary = jobTransferSummary(job)
+              const active = isLocalModelJobActive(job)
+              const paused = job.status === "paused"
+              return (
+                <div
+                  key={job.jobId}
+                  className="rounded-md border border-border/70 bg-card p-3 text-left transition-colors hover:bg-secondary/60"
+                  onClick={() => openJobDialog(job)}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-foreground">
+                        {job.displayName}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span className="font-mono">{job.modelId}</span>
+                        <span>·</span>
+                        <span>{t(`localModelJobs.kind.${job.kind}`)}</span>
+                        <span>·</span>
+                        <span>
+                          {paused ? t("localModelJobs.status.paused") : phaseLabel(job.phase)}
+                        </span>
+                        {transferSummary && (
+                          <>
+                            <span>·</span>
+                            <span className="tabular-nums">{transferSummary}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {percent != null && (
+                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                        {Math.round(percent)}%
+                      </span>
+                    )}
+                  </div>
+                  <Progress
+                    value={percent}
+                    indeterminate={active && percent == null}
+                    className="mt-3 h-1.5"
+                  />
+                  <div
+                    className="mt-3 flex flex-wrap justify-end gap-2"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    {active && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[`${job.jobId}:pause`] || actioning[`${job.jobId}:cancel`]}
+                        onClick={() => void runJobAction(job, "pause")}
+                      >
+                        {actioning[`${job.jobId}:pause`] ? (
+                          <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+                        ) : (
+                          <Pause className={ACTION_ICON_CLASS} />
+                        )}
+                        {t("localModelJobs.actions.pause")}
+                      </Button>
+                    )}
+                    {paused && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]}
+                        onClick={() => void runJobAction(job, "resume")}
+                      >
+                        {actioning[`${job.jobId}:resume`] ? (
+                          <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+                        ) : (
+                          <RotateCcw className={ACTION_ICON_CLASS} />
+                        )}
+                        {t("localModelJobs.actions.resume")}
+                      </Button>
+                    )}
+                    {(active || paused) && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
+                        disabled={actioning[`${job.jobId}:pause`] || actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]}
+                        onClick={() => void runJobAction(job, "cancel")}
+                      >
+                        {actioning[`${job.jobId}:cancel`] ? (
+                          <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+                        ) : (
+                          <Square className={ACTION_ICON_CLASS} />
+                        )}
+                        {t("localModelJobs.actions.cancel")}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      <Tabs defaultValue="installed" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="installed">{t("settings.localModels.installedTab")}</TabsTrigger>
+          <TabsTrigger value="library">{t("settings.localModels.libraryTab")}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="installed" className="space-y-3">
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : installedEmpty ? (
+            <div className="rounded-lg border border-dashed border-border p-8 text-center">
+              <Database className="mx-auto mb-3 h-8 w-8 text-muted-foreground/50" />
+              <div className="text-sm font-medium">{t("settings.localModels.emptyInstalled")}</div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t("settings.localModels.emptyInstalledDesc")}
+              </p>
+            </div>
+          ) : (
+            models.map((model) => {
+              const completionCapable = isCompletionCapable(model)
+              const embeddingCapable = isEmbeddingCapable(model)
+              return (
+              <div key={model.id} className="rounded-lg border border-border bg-card p-4">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-mono text-sm font-semibold text-foreground">{model.id}</span>
+                      {completionCapable && (
+                        <span className="rounded border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300">
+                          {t("settings.localModels.badges.llm")}
+                        </span>
+                      )}
+                      {embeddingCapable && (
+                        <span className="rounded border border-purple-500/25 bg-purple-500/10 px-1.5 py-0.5 text-[10px] text-purple-700 dark:text-purple-300">
+                          {t("settings.localModels.badges.embedding")}
+                        </span>
+                      )}
+                      {model.running && (
+                        <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">
+                          {t("settings.localModels.badges.running")}
+                        </span>
+                      )}
+                      {model.usage.providerModel && (
+                        <span className="rounded border border-sky-500/25 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+                          {t("settings.localModels.badges.provider")}
+                        </span>
+                      )}
+                      {model.usage.embeddingConfig && !model.usage.embeddingModel && (
+                        <span className="rounded border border-cyan-500/25 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-700 dark:text-cyan-300">
+                          {t("settings.localModels.badges.embeddingConfig")}
+                        </span>
+                      )}
+                      {model.usage.activeModel && (
+                        <span className="rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                          {t("settings.localModels.badges.default")}
+                        </span>
+                      )}
+                      {model.usage.embeddingModel && (
+                        <span className="rounded border border-fuchsia-500/25 bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-700 dark:text-fuchsia-300">
+                          {t("settings.localModels.badges.memory")}
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      <span>{sizeLabel(model.sizeBytes)}</span>
+                      <span>·</span>
+                      <span>{contextLabel(model.contextWindow)}</span>
+                      {model.details?.family && (
+                        <>
+                          <span>·</span>
+                          <span>{model.details.family}</span>
+                        </>
+                      )}
+                      {model.details?.quantizationLevel && (
+                        <>
+                          <span>·</span>
+                          <span>{model.details.quantizationLevel}</span>
+                        </>
+                      )}
+                      {model.capabilities.length > 0 && (
+                        <>
+                          <span>·</span>
+                          <span>{model.capabilities.join(", ")}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-wrap items-center gap-2">
+                    {model.running ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[model.id]}
+                        onClick={() =>
+                          void runModelAction(
+                            model.id,
+                            () => getTransport().call("local_llm_stop_model", { modelId: model.id }),
+                            "settings.localModels.toast.stopped",
+                          )
+                        }
+                      >
+                        <Square className={ACTION_ICON_CLASS} />
+                        {t("settings.localModels.actions.stop")}
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[model.id]}
+                        onClick={() =>
+                          void runModelAction(
+                            model.id,
+                            () => getTransport().call("local_llm_preload_model", { modelId: model.id }),
+                            "settings.localModels.toast.preloaded",
+                          )
+                        }
+                      >
+                        <Play className={ACTION_ICON_CLASS} />
+                        {t("settings.localModels.actions.preload")}
+                      </Button>
+                    )}
+                    {completionCapable && !model.usage.providerModel && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[model.id]}
+                        onClick={() =>
+                          void runModelAction(
+                            model.id,
+                            () => getTransport().call("local_llm_add_provider_model", { modelId: model.id }),
+                            "settings.localModels.toast.providerAdded",
+                          )
+                        }
+                      >
+                        <Database className={ACTION_ICON_CLASS} />
+                        {t("settings.localModels.actions.addProvider")}
+                      </Button>
+                    )}
+                    {completionCapable && model.usage.providerModel && !model.usage.activeModel && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[model.id]}
+                        onClick={() =>
+                          void runModelAction(
+                            model.id,
+                            () => getTransport().call("local_llm_set_default_model", { modelId: model.id }),
+                            "settings.localModels.toast.defaultSet",
+                          )
+                        }
+                      >
+                        <Star className={ACTION_ICON_CLASS} />
+                        {t("settings.localModels.actions.setDefault")}
+                      </Button>
+                    )}
+                    {embeddingCapable && !model.usage.embeddingConfig && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[model.id]}
+                        onClick={() =>
+                          void runModelAction(
+                            model.id,
+                            () => getTransport().call("local_llm_add_embedding_config", { modelId: model.id }),
+                            "settings.localModels.toast.embeddingConfigAdded",
+                          )
+                        }
+                      >
+                        <Brain className={ACTION_ICON_CLASS} />
+                        {t("settings.localModels.actions.addEmbeddingConfig")}
+                      </Button>
+                    )}
+                    {embeddingCapable && model.usage.embeddingConfig && !model.usage.embeddingModel && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={ACTION_BUTTON_CLASS}
+                        disabled={actioning[model.id]}
+                        onClick={() => setPendingEmbeddingDefault(model)}
+                      >
+                        <Brain className={ACTION_ICON_CLASS} />
+                        {t("settings.localModels.actions.setMemoryDefault")}
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={actioning[model.id]}
+                      className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
+                      onClick={() => setPendingDelete(model)}
+                    >
+                      <Trash2 className={ACTION_ICON_CLASS} />
+                      {t("common.delete")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              )
+            })
+          )}
+        </TabsContent>
+
+        <TabsContent value="library" className="space-y-4">
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="flex flex-col gap-3 lg:flex-row">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void searchLibrary()
+                  }}
+                  placeholder={t("settings.localModels.searchPlaceholder")}
+                  className="pl-9"
+                />
+              </div>
+              <Button
+                className={ACTION_BUTTON_CLASS}
+                onClick={() => void searchLibrary()}
+                disabled={searching}
+              >
+                {searching ? (
+                  <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+                ) : (
+                  <Search className={ACTION_ICON_CLASS} />
+                )}
+                {t("common.search")}
+              </Button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {CAPABILITY_FILTERS.map((filter) => (
+                <Button
+                  key={filter}
+                  variant={capabilityFilter === filter ? "default" : "outline"}
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => setCapabilityFilter(filter)}
+                >
+                  {t(`settings.localModels.filters.${filter}`)}
+                </Button>
+              ))}
+            </div>
+            {searchResult?.stale && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                {t("settings.localModels.cacheStale")}
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+            <div className="space-y-2">
+              {!searchResult && recommendedModels.length > 0 ? (
+                recommendedModels.map((model) => {
+                  const isRecommended = recommendation?.recommended?.id === model.id
+                  return (
+                    <div key={model.id} className="rounded-lg border border-border bg-card p-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-foreground">
+                              {model.displayName}
+                            </span>
+                            {isRecommended && (
+                              <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                                {t("settings.localLlm.recommended")}
+                              </span>
+                            )}
+                            {model.reasoning && (
+                              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                {t("settings.localLlm.reasoning")}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                            <span className="font-mono">{model.id}</span>
+                            <span>{candidateSizeLabel(model.sizeMb)}</span>
+                            <span>
+                              {t("settings.localLlm.contextWindow", {
+                                n: model.contextWindow.toLocaleString(),
+                              })}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex min-w-fit shrink-0 flex-wrap justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={ACTION_BUTTON_CLASS}
+                            onClick={() =>
+                              void startPullJob({
+                                modelId: model.id,
+                                displayName: model.displayName,
+                              })
+                            }
+                          >
+                            <Download className={ACTION_ICON_CLASS} />
+                            {t("settings.localModels.actions.download")}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })
+              ) : filteredSearchModels.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                  {searchResult ? t("settings.localModels.noSearchResults") : t("settings.localModels.searchHint")}
+                </div>
+              ) : (
+                filteredSearchModels.map((model) => (
+                  <Button
+                    key={model.name}
+                    variant="outline"
+                    className="h-auto w-full justify-start rounded-lg bg-card p-3 text-left font-normal"
+                    onClick={() => void loadLibraryModel(model.name)}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-semibold text-foreground">{model.name}</span>
+                        {model.capabilities.map((cap) => (
+                          <span key={cap} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {cap}
+                          </span>
+                        ))}
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{model.description}</p>
+                      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                        {model.sizes.slice(0, 6).map((size) => (
+                          <span key={size}>{size}</span>
+                        ))}
+                        {model.pullCount && <span>{t("settings.localModels.downloads", { count: model.pullCount })}</span>}
+                        {model.tagCount != null && <span>{t("settings.localModels.tags", { count: model.tagCount })}</span>}
+                      </div>
+                    </div>
+                  </Button>
+                ))
+              )}
+            </div>
+
+            <div className="rounded-lg border border-border bg-card p-4">
+              {selectedDetail ? (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-sm font-semibold">{selectedDetail.model.name}</div>
+                    <p className="mt-1 text-xs text-muted-foreground">{selectedDetail.summary}</p>
+                  </div>
+                  <div className="space-y-2">
+                    {selectedDetail.tags.map((tag) => (
+                      <div key={tag.id} className="rounded-md border border-border/70 p-3">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <div className="font-mono text-xs font-medium text-foreground">{tag.id}</div>
+                            <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                              <span>{tag.sizeLabel ?? "-"}</span>
+                              <span>{tag.contextLabel ?? "-"}</span>
+                              {tag.inputTypes.length > 0 && <span>{tag.inputTypes.join(", ")}</span>}
+                              {tag.cloudOnly && (
+                                <span className="text-amber-600 dark:text-amber-400">
+                                  {t("settings.localModels.cloudOnly")}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex min-w-fit shrink-0 flex-wrap justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className={ACTION_BUTTON_CLASS}
+                              disabled={tag.cloudOnly}
+                              onClick={() =>
+                                void startPullJob({
+                                  modelId: tag.id,
+                                  displayName: tag.id,
+                                })
+                              }
+                            >
+                              <Download className={ACTION_ICON_CLASS} />
+                              {t("settings.localModels.actions.download")}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="flex min-h-[240px] items-center justify-center text-center text-sm text-muted-foreground">
+                  {t("settings.localModels.detailPlaceholder")}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-card p-4">
+            <div className="mb-2 text-sm font-medium">{t("settings.localModels.manualTitle")}</div>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Input
+                value={manualTag}
+                onChange={(e) => setManualTag(e.target.value)}
+                placeholder="qwen3.6:27b"
+              />
+              <Button
+                variant="outline"
+                className={ACTION_BUTTON_CLASS}
+                disabled={!manualTag.trim()}
+                onClick={() =>
+                  void startPullJob({
+                    modelId: manualTag.trim(),
+                    displayName: manualTag.trim(),
+                  })
+                }
+              >
+                <Download className={ACTION_ICON_CLASS} />
+                {t("settings.localModels.actions.download")}
+              </Button>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      <InstallProgressDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        title={dialogTitle}
+        subtitle={dialogSubtitle}
+        frame={dialogFrame}
+        logs={dialogLogs}
+        done={dialogDone}
+        error={dialogError}
+        cancellable={false}
+        onBackground={() => setDialogOpen(false)}
+        onCancelTask={currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined}
+      />
+
+      <AlertDialog
+        open={!!pendingEmbeddingDefault}
+        onOpenChange={(open) => !open && setPendingEmbeddingDefault(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.embeddingModels.confirmSwitchTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.embeddingModels.confirmSwitchDesc", {
+                model: pendingEmbeddingDefault?.id ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmEmbeddingDefault()}>
+              {t("settings.embeddingModels.confirmSwitchAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingDelete} onOpenChange={(open) => !open && setPendingDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.localModels.delete.title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.localModels.delete.description", { model: pendingDelete?.id ?? "" })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {deleteWarnings.length > 0 && (
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-300">
+              {deleteWarnings.map((warning) => (
+                <div key={String(warning)}>{warning}</div>
+              ))}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmDelete()}
+            >
+              {t("common.delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}

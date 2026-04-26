@@ -165,6 +165,11 @@ pub fn local_model_jobs_db_path() -> Result<PathBuf> {
     Ok(root_dir()?.join("local_model_jobs.db"))
 }
 
+/// Cached Ollama Library search/tag metadata: ~/.hope-agent/local_llm_library_cache.db
+pub fn local_llm_library_cache_db_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("local_llm_library_cache.db"))
+}
+
 // ── Recap ───────────────────────────────────────────────────────
 
 /// Recap directory: ~/.hope-agent/recap/

@@ -70,8 +70,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
     setSelectedAgentId,
     selectedIds,
     batchLoading,
-    embeddingConfig,
-    localModels,
+    memoryEmbeddingState,
     stats,
     handleExport,
     handleImport,
@@ -88,17 +87,12 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
     startAdd,
   } = data
 
-  const activeEmbeddingModel = embeddingConfig.enabled
-    ? embeddingConfig.providerType === "local"
-      ? localModels.find((model) => model.id === embeddingConfig.localModelId)?.name ??
-        embeddingConfig.localModelId ??
-        t("settings.memoryLocalModel")
-      : embeddingConfig.providerType === "auto"
-        ? "Auto"
-        : embeddingConfig.apiModel?.trim() ||
-          embeddingConfig.apiBaseUrl?.trim() ||
-          t("settings.memoryModel")
+  const activeEmbeddingModel = memoryEmbeddingState.selection.enabled
+    ? (memoryEmbeddingState.currentModel?.name ??
+      memoryEmbeddingState.currentModel?.apiModel ??
+      t("settings.memoryModel"))
     : null
+  const embeddingEnabled = memoryEmbeddingState.selection.enabled
   const embeddingButtonTip = activeEmbeddingModel
     ? `${t("settings.memoryVectorEnabled")} · ${activeEmbeddingModel}`
     : t("settings.memoryEmbedding")
@@ -133,7 +127,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                   onClick={() => setView("embedding")}
                   className={cn(
                     "relative overflow-visible gap-1.5 text-xs transition-colors",
-                    embeddingConfig.enabled
+                    embeddingEnabled
                       ? "border-green-500/50 bg-green-500/10 text-green-700 hover:bg-green-500/15 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
                       : "text-muted-foreground",
                   )}
@@ -141,7 +135,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                   <Zap
                     className={cn(
                       "h-3.5 w-3.5",
-                      embeddingConfig.enabled && "fill-green-500/20",
+                      embeddingEnabled && "fill-green-500/20",
                     )}
                   />
                   {t("settings.memoryEmbedding")}
@@ -191,7 +185,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                 </span>
               )
             })}
-            {embeddingConfig.enabled && stats.total > 0 && (
+            {embeddingEnabled && stats.total > 0 && (
               <>
                 <span className="text-border">|</span>
                 <span>
@@ -312,7 +306,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
               </Button>
             )}
             <span>{t("settings.memoryCount", { count: totalCount })}</span>
-            {embeddingConfig.enabled && (
+            {embeddingEnabled && (
               <span className="text-primary">
                 <Zap className="h-3 w-3 inline -mt-0.5 mr-0.5" />
                 {t("settings.memoryVectorEnabled")}
@@ -330,7 +324,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
               >
                 {t("settings.memoryDeleteBatch", { count: selectedIds.size })}
               </Button>
-              {embeddingConfig.enabled && (
+              {embeddingEnabled && (
                 <Button
                   variant="outline"
                   size="sm"

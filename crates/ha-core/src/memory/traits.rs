@@ -205,6 +205,20 @@ pub trait MemoryBackend: Send + Sync {
         false
     }
 
+    /// Ensure any backing vector index is sized for `dims`, blocking until the
+    /// writer is available. Used as a deferred retry path when [`set_embedder`]
+    /// could not acquire the writer lock immediately.
+    fn ensure_vec_table_blocking(&self, _dims: u32) -> Result<()> {
+        Ok(())
+    }
+
+    /// Drop cached embedding rows whose signature does not match the active
+    /// signature. Called after a successful re-embed so swapping models does
+    /// not leave dead rows that the LRU prune only evicts under size pressure.
+    fn prune_embedding_cache_to_signature(&self, _active_signature: &str) -> Result<usize> {
+        Ok(0)
+    }
+
     // ── Backend identity & lifecycle ──
 
     /// Short lowercase tag identifying the backend implementation.

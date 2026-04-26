@@ -35,10 +35,13 @@ impl MemoryBackend for SqliteMemoryBackend {
         let embedding_bytes: Option<Vec<u8>> = embedding
             .as_ref()
             .map(|v| v.iter().flat_map(|f| f.to_le_bytes()).collect());
+        let embedding_signature = embedding_bytes
+            .as_ref()
+            .and_then(|_| crate::memory::helpers::active_embedding_signature());
 
         conn.execute(
-            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, scope_project_id, content, tags, source, source_session_id, embedding, pinned, created_at, updated_at, attachment_path, attachment_mime)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            "INSERT INTO memories (memory_type, scope_type, scope_agent_id, scope_project_id, content, tags, source, source_session_id, embedding, embedding_signature, pinned, created_at, updated_at, attachment_path, attachment_mime)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 entry.memory_type.as_str(),
                 scope_type,
@@ -49,6 +52,7 @@ impl MemoryBackend for SqliteMemoryBackend {
                 entry.source,
                 entry.source_session_id,
                 embedding_bytes,
+                embedding_signature,
                 entry.pinned as i64,
                 now,
                 now,
@@ -86,10 +90,13 @@ impl MemoryBackend for SqliteMemoryBackend {
         let embedding_bytes: Option<Vec<u8>> = embedding
             .as_ref()
             .map(|v| v.iter().flat_map(|f| f.to_le_bytes()).collect());
+        let embedding_signature = embedding_bytes
+            .as_ref()
+            .and_then(|_| crate::memory::helpers::active_embedding_signature());
 
         let affected = conn.execute(
-            "UPDATE memories SET content = ?1, tags = ?2, embedding = ?3, updated_at = ?4 WHERE id = ?5",
-            params![content, tags_json, embedding_bytes, now, id],
+            "UPDATE memories SET content = ?1, tags = ?2, embedding = ?3, embedding_signature = ?4, updated_at = ?5 WHERE id = ?6",
+            params![content, tags_json, embedding_bytes, embedding_signature, now, id],
         )?;
 
         if affected == 0 {
@@ -110,6 +117,8 @@ impl MemoryBackend for SqliteMemoryBackend {
                     params![id, emb_bytes],
                 );
             }
+        } else {
+            let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![id]);
         }
 
         Ok(())
@@ -213,7 +222,12 @@ impl MemoryBackend for SqliteMemoryBackend {
         let decay_cfg = load_temporal_decay_config();
 
         // Try hybrid search (FTS5 + vector), fall back to FTS5-only
-        let query_embedding = self.generate_embedding(&query.query);
+        let active_signature = crate::memory::helpers::active_embedding_signature();
+        let query_embedding = if active_signature.is_some() {
+            self.generate_embedding(&query.query)
+        } else {
+            None
+        };
         let has_vec = query_embedding.is_some();
 
         // ── Step 1: FTS5 keyword search (with query expansion) ──
@@ -238,17 +252,23 @@ impl MemoryBackend for SqliteMemoryBackend {
 
         if let Some(ref emb) = query_embedding {
             let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-            if let Ok(mut stmt) = conn.prepare(
-                "SELECT rowid, distance FROM memories_vec
-                 WHERE embedding MATCH ?1
-                 ORDER BY distance LIMIT ?2",
-            ) {
-                let rows = stmt.query_map(params![emb_bytes, (limit * 3) as i64], |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
-                });
-                if let Ok(rows) = rows {
-                    for r in rows.flatten() {
-                        vec_results.push(r);
+            if let Some(signature) = active_signature.as_deref() {
+                if let Ok(mut stmt) = conn.prepare(
+                    "SELECT rowid, distance FROM memories_vec
+                     WHERE embedding MATCH ?1
+                       AND rowid IN (
+                           SELECT id FROM memories WHERE embedding_signature = ?3
+                       )
+                     ORDER BY distance LIMIT ?2",
+                ) {
+                    let rows = stmt
+                        .query_map(params![emb_bytes, (limit * 3) as i64, signature], |row| {
+                            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?))
+                        });
+                    if let Ok(rows) = rows {
+                        for r in rows.flatten() {
+                            vec_results.push(r);
+                        }
                     }
                 }
             }
@@ -565,16 +585,22 @@ impl MemoryBackend for SqliteMemoryBackend {
         }
 
         // Count with embedding
-        let with_embedding: usize = {
-            let (sc, sp) = scope_where(scope, None);
+        let with_embedding: usize = if let Some(signature) =
+            crate::memory::helpers::active_embedding_signature()
+        {
+            let (sc, mut sp) = scope_where(scope, None);
+            sp.push(Box::new(signature));
             conn.query_row(
-                &format!(
-                    "SELECT COUNT(*) FROM memories WHERE {} AND id IN (SELECT rowid FROM memory_vec)",
-                    sc
-                ),
-                rusqlite::params_from_iter(sp.iter()),
-                |row| row.get::<_, i64>(0).map(|v| v as usize),
-            ).unwrap_or(0)
+                    &format!(
+                        "SELECT COUNT(*) FROM memories WHERE {} AND embedding_signature = ? AND id IN (SELECT rowid FROM memories_vec)",
+                        sc
+                    ),
+                    rusqlite::params_from_iter(sp.iter()),
+                    |row| row.get::<_, i64>(0).map(|v| v as usize),
+                )
+                .unwrap_or(0)
+        } else {
+            0
         };
 
         // Oldest and newest
@@ -776,10 +802,24 @@ impl MemoryBackend for SqliteMemoryBackend {
         let dims = provider.dimensions();
         self.embedding_dims
             .store(dims, std::sync::atomic::Ordering::Relaxed);
-        if let Ok(conn) = self.write_conn() {
-            let _ = self.ensure_vec_table(&conn, dims);
-        }
         *self.embedder.write().unwrap_or_else(|e| e.into_inner()) = Some(provider);
+
+        // Fast path: try_lock so settings/install flows aren't blocked by an
+        // in-flight long memory write. On contention, retry on a background
+        // thread so recall can use vector search before the next
+        // add/update/reembed lazily creates the table.
+        match self.writer.try_lock() {
+            Ok(conn) => {
+                let _ = self.ensure_vec_table(&conn, dims);
+            }
+            Err(_) => {
+                std::thread::spawn(move || {
+                    if let Some(backend) = crate::get_memory_backend() {
+                        let _ = backend.ensure_vec_table_blocking(dims);
+                    }
+                });
+            }
+        }
     }
 
     fn clear_embedder(&self) {
@@ -793,6 +833,20 @@ impl MemoryBackend for SqliteMemoryBackend {
             .read()
             .unwrap_or_else(|e| e.into_inner())
             .is_some()
+    }
+
+    fn ensure_vec_table_blocking(&self, dims: u32) -> Result<()> {
+        let conn = self.write_conn()?;
+        self.ensure_vec_table(&conn, dims)
+    }
+
+    fn prune_embedding_cache_to_signature(&self, active_signature: &str) -> Result<usize> {
+        let conn = self.write_conn()?;
+        let deleted = conn.execute(
+            "DELETE FROM embedding_cache WHERE signature != ?1",
+            params![active_signature],
+        )?;
+        Ok(deleted)
     }
 
     fn backend_kind(&self) -> &'static str {

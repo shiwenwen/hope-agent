@@ -108,6 +108,20 @@ pub struct PullProgress {
     pub phase: String,
     /// 0..=100, only set when both completed and total are known.
     pub percent: Option<u8>,
+    /// Bytes downloaded so far, when Ollama reports byte-level progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_completed: Option<u64>,
+    /// Total bytes expected, when Ollama reports byte-level progress.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bytes_total: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OllamaPullRequest {
+    pub model_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

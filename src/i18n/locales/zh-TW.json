@@ -22,7 +22,9 @@
     "select": "選擇",
     "refresh": "重新整理",
     "settings": "設置",
-    "close": "關閉"
+    "close": "關閉",
+    "search": "搜索",
+    "loading": "Loading..."
   },
   "project": {
     "projects": "專案",
@@ -834,6 +836,40 @@
     "skillsDirSharedDesc": "跨工具共享的技能目錄（~/.agents/skills/ 約定）",
     "skillsDirAdd": "導入技能目錄",
     "skillsDirRemove": "移除此目錄",
+    "skillsImport": {
+      "button": "快速匯入",
+      "dialogTitle": "快速匯入 skill 目錄",
+      "dialogDescription": "掃描已知第三方 skill 來源（Claude Code、OpenClaw、Hermes Agent、Anthropic marketplace），並把已安裝的目錄一鍵加入。",
+      "cc": {
+        "user": "Claude Code 使用者層級 skill",
+        "plugins": "Claude Code 外掛 skill",
+        "anthropic": "Anthropic Agent Skills marketplace"
+      },
+      "openclaw": "OpenClaw 倉庫 skill",
+      "hermes": "Hermes Agent 倉庫 skill",
+      "notFound": "本機未發現相符路徑。",
+      "alreadyAdded": "已加入",
+      "skillCount_one": "{{count}} 個 skill",
+      "skillCount_other": "{{count}} 個 skill",
+      "skillCount": "{{count}} 個 skill",
+      "add": "加入",
+      "warning": {
+        "openclaw": "OpenClaw 多數 skill 依賴外部 CLI（gh、1password、tmux 等），未安裝時呼叫會失敗。",
+        "proprietary": "Anthropic 的 skill 為專有授權，使用前請確認你與 Anthropic 的服務條款。"
+      },
+      "tooltip": {
+        "distinguishOnboarding": "若要遷移舊版 OpenClaw 使用者資料，請使用第 2 步『Import OpenClaw』。"
+      },
+      "error": {
+        "discover": "發現預設 skill 來源失敗",
+        "add": "加入目錄失敗"
+      }
+    },
+    "skillExtras": {
+      "licenseWarning": "來源授權：{{license}}",
+      "relatedSkills": "相關 skill",
+      "installHint": "執行 {{cmd}} 安裝相依套件"
+    },
     "skillsList": "已加載的技能",
     "skillsListBundled": "內建技能",
     "skillsListUser": "使用者技能",
@@ -938,7 +974,10 @@
     "memoryEmbeddingEnabled": "啟用向量搜索",
     "memoryEmbeddingEnabledDesc": "使用 Embedding 模型查找語義相似的記憶",
     "memoryEmbeddingProvider": "服務商",
+    "memoryEmbeddingProviderDesc": "請選擇一個明確的 Embedding 服務商；切換服務商、模型或維度後，需要重新生成已有記憶的向量。",
     "memoryEmbeddingTest": "測試 Embedding",
+    "memoryEmbeddingLegacyProvider": "目前仍是舊的 {{provider}} 配置。請選擇一個明確服務商並儲存，避免後續自動切換導致向量空間不一致。",
+    "memoryEmbeddingReembedWarning": "Embedding 配置已變更。儲存後請重新生成全部向量，否則舊記憶仍會使用之前模型生成的向量。",
     "memoryLocalModel": "本地模型",
     "memorySelectModel": "選擇模型",
     "memoryModel": "模型",
@@ -1863,40 +1902,6 @@
     "serverChatSourceDesktop": "{{count}} 桌面",
     "serverChatSourceHttp": "{{count}} HTTP",
     "serverChatSourceChannel": "{{count}} 頻道",
-    "skillsImport": {
-      "button": "快速匯入",
-      "dialogTitle": "快速匯入 skill 目錄",
-      "dialogDescription": "掃描已知第三方 skill 來源（Claude Code、OpenClaw、Hermes Agent、Anthropic marketplace），並把已安裝的目錄一鍵加入。",
-      "cc": {
-        "user": "Claude Code 使用者層級 skill",
-        "plugins": "Claude Code 外掛 skill",
-        "anthropic": "Anthropic Agent Skills marketplace"
-      },
-      "openclaw": "OpenClaw 倉庫 skill",
-      "hermes": "Hermes Agent 倉庫 skill",
-      "notFound": "本機未發現相符路徑。",
-      "alreadyAdded": "已加入",
-      "skillCount_one": "{{count}} 個 skill",
-      "skillCount_other": "{{count}} 個 skill",
-      "skillCount": "{{count}} 個 skill",
-      "add": "加入",
-      "warning": {
-        "openclaw": "OpenClaw 多數 skill 依賴外部 CLI（gh、1password、tmux 等），未安裝時呼叫會失敗。",
-        "proprietary": "Anthropic 的 skill 為專有授權，使用前請確認你與 Anthropic 的服務條款。"
-      },
-      "tooltip": {
-        "distinguishOnboarding": "若要遷移舊版 OpenClaw 使用者資料，請使用第 2 步『Import OpenClaw』。"
-      },
-      "error": {
-        "discover": "發現預設 skill 來源失敗",
-        "add": "加入目錄失敗"
-      }
-    },
-    "skillExtras": {
-      "licenseWarning": "來源授權：{{license}}",
-      "relatedSkills": "相關 skill",
-      "installHint": "執行 {{cmd}} 安裝相依套件"
-    },
     "localLlm": {
       "title": "本機小型模型助理",
       "subtitle": "自動偵測硬體配置，一鍵安裝 Qwen3.6 / Gemma 4 系列",
@@ -1967,7 +1972,118 @@
       "error": {
         "activateFailed": "啟用本地 Embedding 失敗：{{message}}"
       },
-      "reembedHint": "Embedding 維度已變更，請使用「重新生成全部向量」更新現有記憶。"
+      "reembedHint": "Embedding 維度已變更，請使用「重新生成全部向量」更新現有記憶。",
+      "activated": "Local embedding is enabled",
+      "confirmEnableDesc": "This will install/download {{model}}, create an embedding model config, and set it as the default memory model. All memory vectors will be rebuilt after confirmation."
+    },
+    "embeddingModels": {
+      "tab": "Embedding Models",
+      "title": "Embedding Model Configs",
+      "desc": "Configure reusable embedding models first, then choose one as the memory vector search model.",
+      "custom": "Custom config",
+      "empty": "No embedding model configs yet. Create one from a template above, or add a custom config.",
+      "emptyMemory": "No embedding model config is available yet. Create one first, or use the local embedding quick card.",
+      "goConfig": "Configure embedding models",
+      "memoryDefault": "Default memory model",
+      "memoryDefaultDesc": "Switching the default memory model rebuilds all memory vectors so old and new vectors are not mixed.",
+      "memoryActive": "Default memory model",
+      "needsReembed": "Needs re-embed",
+      "selectPlaceholder": "Select an embedding model config",
+      "selectToEnable": "Select an embedding model as the default memory model",
+      "setMemoryDefault": "Set as default memory model",
+      "confirmSwitchTitle": "Switch default memory model?",
+      "confirmSwitchDesc": "This will set {{model}} as the default memory model and rebuild all memory vectors. Vector search may be temporarily incomplete while rebuilding.",
+      "confirmSwitchAction": "Confirm and rebuild",
+      "defaultSet": "Default memory model updated",
+      "reembedFailed": "The default model changed, but vector rebuild failed. Retry rebuilding later.",
+      "deleted": "Embedding model config deleted",
+      "deleteTitle": "Delete embedding model config?",
+      "deleteDesc": "This will delete the config for {{model}}. The current default memory model cannot be deleted directly.",
+      "editTitle": "Edit embedding model",
+      "name": "Config name",
+      "providerType": "Provider type",
+      "testOk": "Embedding connection test passed"
+    },
+    "localModels": {
+      "tab": "本地模型",
+      "title": "本地模型",
+      "subtitle": "管理这台机器上的 Ollama 模型：搜索、下载、预加载、卸载、删除，并接入对话或记忆向量。",
+      "installedTab": "已安装",
+      "libraryTab": "模型库",
+      "searchPlaceholder": "搜索 Ollama 模型，例如 qwen、gemma、embedding",
+      "searchHint": "搜索 Ollama 模型库，找到可下载的模型。",
+      "noSearchResults": "没有匹配的模型。",
+      "detailPlaceholder": "选择一个模型系列查看可下载的 tag。",
+      "emptyInstalled": "还没有本地模型",
+      "emptyInstalledDesc": "从模型库下载，或手动输入 Ollama tag。",
+      "cacheStale": "实时搜索不可用，正在显示缓存结果。",
+      "cloudOnly": "仅云端",
+      "downloads": "{{count}} 次下载",
+      "tags": "{{count}} 个 tag",
+      "manualTitle": "通过 Ollama tag 下载",
+      "ollama": {
+        "not-installed": "未安装 Ollama",
+        "installed": "已安装 Ollama",
+        "running": "Ollama 运行中"
+      },
+      "badges": {
+        "running": "執行中",
+        "provider": "已加入 Provider",
+        "embeddingConfig": "Added to Embedding Config",
+        "default": "默认",
+        "embedding": "Embedding",
+        "llm": "LLM",
+        "memory": "用於記憶"
+      },
+      "filters": {
+        "all": "全部",
+        "embedding": "Embedding",
+        "vision": "视觉",
+        "tools": "工具",
+        "thinking": "推理"
+      },
+      "actions": {
+        "download": "下載",
+        "downloadProvider": "下載並加入 Provider",
+        "downloadDefault": "下载并设默认",
+        "downloadEmbedding": "下载并用于记忆",
+        "installOllama": "安裝 Ollama",
+        "preload": "啟動模型",
+        "stop": "停止模型",
+        "addProvider": "加入模型配置",
+        "setDefault": "设为默认",
+        "setEmbedding": "用于记忆",
+        "addEmbeddingConfig": "Add Embedding config",
+        "setMemoryDefault": "Set as default memory model"
+      },
+      "jobs": {
+        "title": "正在下载 {{model}}"
+      },
+      "delete": {
+        "title": "删除本地模型？",
+        "description": "{{model}} 会从 Ollama 本地存储中删除，此操作不可撤销。",
+        "running": "该模型当前已加载，会先卸载再删除。",
+        "active": "它是全局默认模型，对应引用会被清除。",
+        "fallback": "它在 fallback 模型链中，对应引用会被移除。",
+        "provider": "它已注册在 Ollama Provider 中，对应模型条目会被移除。",
+        "embeddingConfig": "It is added to Embedding model configs; the matching config will be removed.",
+        "embedding": "它是当前记忆向量模型，本地 Embedding 会被禁用。"
+      },
+      "toast": {
+        "ollamaStarted": "Ollama 已启动",
+        "preloaded": "{{model}} 已加载",
+        "stopped": "{{model}} 已卸载",
+        "providerAdded": "{{model}} 已加入模型配置",
+        "defaultSet": "{{model}} 已设为默认模型",
+        "embeddingSet": "{{model}} 已用於記憶向量",
+        "embeddingConfigAdded": "{{model}} added to Embedding config",
+        "deleted": "{{model}} 已删除"
+      },
+      "errors": {
+        "refreshFailed": "刷新本地模型失败",
+        "searchFailed": "搜索 Ollama 模型库失败",
+        "detailFailed": "加载模型 tag 失败"
+      }
     }
   },
   "tz": {
@@ -2970,15 +3086,20 @@
     "subtitle": "模型安裝任務會在背景繼續執行。",
     "activeSummary": "{{count}} 個模型安裝任務正在執行",
     "activeSummary_other": "{{count}} 個模型安裝任務正在執行",
+    "pausedSummary": "{{count}} 個模型安裝任務已暫停",
+    "pausedSummary_other": "{{count}} 個模型安裝任務已暫停",
     "emptyTitle": "暫無模型安裝任務",
     "emptyDescription": "Ollama 安裝和模型下載會顯示在這裡。",
     "kind": {
       "chat_model": "對話模型",
-      "embedding_model": "Embedding 模型"
+      "embedding_model": "Embedding 模型",
+      "ollama_install": "Ollama 安裝",
+      "ollama_pull": "Ollama 模型"
     },
     "status": {
       "running": "執行中",
       "cancelling": "正在取消",
+      "paused": "已暫停",
       "completed": "已完成",
       "failed": "失敗",
       "interrupted": "已中斷",
@@ -2988,6 +3109,7 @@
       "queued": "排隊中",
       "checkingOllama": "檢查 Ollama",
       "startOllama": "啟動 Ollama",
+      "paused": "已暫停",
       "cancelling": "正在取消",
       "cancelled": "已取消",
       "failed": "失敗",
@@ -2999,6 +3121,8 @@
       "keepWatching": "繼續查看",
       "viewLogs": "查看日誌",
       "hideLogs": "收起日誌",
+      "pause": "暫停",
+      "resume": "繼續",
       "cancel": "取消",
       "retry": "重試",
       "clear": "清除"
@@ -3012,6 +3136,7 @@
     },
     "toast": {
       "completed": "{{model}} 已安裝",
+      "paused": "{{model}} 已暫停",
       "cancelled": "{{model}} 安裝已取消",
       "failed": "{{model}} 安裝失敗",
       "retryStarted": "已開始重試 {{model}}"

@@ -1,8 +1,7 @@
 //! Local embedding helper for Ollama-backed vector search.
 //!
-//! This intentionally writes the existing `EmbeddingConfig` shape instead of
-//! adding a new provider type: Ollama exposes `/v1/embeddings`, so memory
-//! search can keep using the OpenAI-compatible embedding provider.
+//! Ollama exposes `/v1/embeddings`, so local embedding models are stored as
+//! reusable OpenAI-compatible embedding model configs.
 
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
@@ -11,7 +10,9 @@ use crate::local_llm::{
     detect_ollama_version, list_ollama_model_names, pull_model_cancellable, PullProgress,
     OLLAMA_BASE_URL,
 };
-use crate::memory::{EmbeddingConfig, EmbeddingProviderType};
+use crate::memory::{
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingProviderType, MemoryEmbeddingSetDefaultResult,
+};
 use tokio_util::sync::CancellationToken;
 
 const PROVIDER_SOURCE: &str = "local-embedding-wizard";
@@ -109,6 +110,27 @@ pub fn embedding_config_for_model(model: &OllamaEmbeddingModel) -> EmbeddingConf
     }
 }
 
+pub fn embedding_model_config_for_model(model: &OllamaEmbeddingModel) -> EmbeddingModelConfig {
+    EmbeddingModelConfig {
+        id: ollama_embedding_config_id(&model.id),
+        name: model.display_name.clone(),
+        provider_type: EmbeddingProviderType::OpenaiCompatible,
+        api_base_url: Some(OLLAMA_BASE_URL.to_string()),
+        api_key: Some("ollama".to_string()),
+        api_model: Some(model.id.clone()),
+        api_dimensions: Some(model.dimensions),
+        source: Some("ollama".to_string()),
+    }
+}
+
+pub fn ollama_embedding_config_id(model_id: &str) -> String {
+    let sanitized: String = model_id
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    format!("ollama-{sanitized}")
+}
+
 pub fn resolve_catalog_model(model_id: &str) -> Result<OllamaEmbeddingModel> {
     embedding_model_catalog()
         .into_iter()
@@ -150,28 +172,39 @@ pub async fn ensure_version_compatible(model: &OllamaEmbeddingModel) -> Result<(
 }
 
 pub fn save_embedding_config_for_model(model: &OllamaEmbeddingModel) -> Result<EmbeddingConfig> {
-    let config = embedding_config_for_model(model);
-    let applied = config.clone();
-    crate::config::mutate_config(("embedding", PROVIDER_SOURCE), |store| {
-        store.embedding = applied;
-        Ok(())
-    })?;
-    crate::memory::apply_embedding_config_to_backend(&config, PROVIDER_SOURCE)?;
+    let model_config = save_embedding_model_config_for_model(model)?;
+    let config = model_config.to_runtime_config(true);
     app_info!(
         "memory",
         "local_embedding",
-        "Ollama embedding configured with model {} ({}d)",
+        "Ollama embedding model config saved for model {} ({}d)",
         model.id,
         model.dimensions
     );
     Ok(config)
 }
 
+pub fn save_embedding_model_config_for_model(
+    model: &OllamaEmbeddingModel,
+) -> Result<EmbeddingModelConfig> {
+    crate::memory::save_embedding_model_config(
+        embedding_model_config_for_model(model),
+        PROVIDER_SOURCE,
+    )
+}
+
+pub fn save_and_set_default_for_model(
+    model: &OllamaEmbeddingModel,
+) -> Result<MemoryEmbeddingSetDefaultResult> {
+    let config = save_embedding_model_config_for_model(model)?;
+    crate::memory::set_memory_embedding_default(&config.id, true, PROVIDER_SOURCE)
+}
+
 pub async fn pull_and_activate_cancellable<F>(
     requested: OllamaEmbeddingModel,
     on_progress: F,
     cancel_token: CancellationToken,
-) -> Result<EmbeddingConfig>
+) -> Result<MemoryEmbeddingSetDefaultResult>
 where
     F: Fn(&PullProgress) + Send + Sync + 'static,
 {
@@ -186,14 +219,18 @@ where
         model_id: model.id.clone(),
         phase: "configure-embedding".into(),
         percent: Some(99),
+        bytes_completed: None,
+        bytes_total: None,
     });
-    let config = save_embedding_config_for_model(&model)?;
+    let result = save_and_set_default_for_model(&model)?;
     on_progress(&PullProgress {
         model_id: model.id.clone(),
         phase: "done".into(),
         percent: Some(100),
+        bytes_completed: None,
+        bytes_total: None,
     });
-    Ok(config)
+    Ok(result)
 }
 
 #[cfg(test)]

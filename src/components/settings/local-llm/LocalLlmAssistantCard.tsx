@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
+import { openExternalUrl } from "@/lib/openExternalUrl"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { formatBytesFromMb, formatGbFromMb } from "@/lib/format"
@@ -71,10 +72,6 @@ interface OllamaStatus {
   phase: OllamaPhase
   baseUrl: string
   installScriptSupported: boolean
-}
-
-interface DesktopOpenResult {
-  ok?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
@@ -202,7 +199,7 @@ export default function LocalLlmAssistantCard({
       setDialogSubtitle(job.modelId)
       setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
       setDialogLogs([])
-      setDialogDone(job.status === "completed")
+      setDialogDone(isLocalModelJobTerminal(job) && !job.error)
       setDialogError(job.error ?? null)
       void hydrateJobLogs(job.jobId)
     },
@@ -220,6 +217,10 @@ export default function LocalLlmAssistantCard({
       openJobDialog(job)
     } catch (e) {
       const msg = String(e)
+      logger.error("local-llm", "LocalLlmAssistantCard::startModelJob", "Failed to start chat model job", {
+        modelId: model.id,
+        error: msg,
+      })
       setDialogError(msg)
       setError(t("settings.localLlm.error.pullFailed", { message: msg }))
     } finally {
@@ -236,6 +237,12 @@ export default function LocalLlmAssistantCard({
       void refresh()
       onProviderInstalled()
     } else if (job.error) {
+      logger.error("local-llm", "LocalLlmAssistantCard::handleTerminalJob", "Chat model job failed", {
+        jobId: job.jobId,
+        modelId: job.modelId,
+        phase: job.phase,
+        error: job.error,
+      })
       appendDialogLog(job.error, job.updatedAt)
       setError(t("settings.localLlm.error.pullFailed", { message: job.error }))
     }
@@ -247,7 +254,7 @@ export default function LocalLlmAssistantCard({
       setCurrentJob((current) => {
         if (current?.jobId !== job.jobId) return current
         setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
-        setDialogDone(job.status === "completed")
+        setDialogDone(isLocalModelJobTerminal(job) && !job.error)
         setDialogError(job.error ?? null)
         handleTerminalJob(job)
         return job
@@ -280,6 +287,10 @@ export default function LocalLlmAssistantCard({
       .call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId: job.jobId })
       .catch((e) => {
         const msg = String(e)
+        logger.error("local-llm", "LocalLlmAssistantCard::cancelCurrentJob", "Failed to cancel job", {
+          jobId: job.jobId,
+          error: msg,
+        })
         setDialogError(msg)
         setError(msg)
       })
@@ -291,16 +302,7 @@ export default function LocalLlmAssistantCard({
   }, [recommended, startModelJob])
 
   const openDownloadPage = useCallback(() => {
-    const url = "https://ollama.com/download"
-    const openInBrowser = () => window.open(url, "_blank", "noopener")
-    void getTransport()
-      .call<DesktopOpenResult | void>("open_url", { url })
-      .then((result) => {
-        if (result && typeof result === "object" && result.ok === false) {
-          openInBrowser()
-        }
-      })
-      .catch(openInBrowser)
+    openExternalUrl("https://ollama.com/download")
   }, [])
 
   if (!recommendation) {
@@ -502,7 +504,7 @@ export default function LocalLlmAssistantCard({
                 ollama?.phase === "running" && (
                   <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-[11px] shrink-0">
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    {t("settings.localLlm.ready")}
+                    {t("settings.localModels.ollama.running")}
                   </span>
                 )
               )}

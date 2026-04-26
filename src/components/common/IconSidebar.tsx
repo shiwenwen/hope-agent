@@ -33,7 +33,6 @@ import {
   User,
   CheckCheck,
 } from "lucide-react"
-import { Ollama } from "@lobehub/icons"
 import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 
@@ -49,7 +48,6 @@ interface IconSidebarProps {
     | "channels"
     | "calendar"
     | "dashboard"
-    | "tasks"
   onOpenSettings: (section?: SettingsSection) => void
   onOpenChat: () => void
   onOpenAgents: () => void
@@ -60,10 +58,8 @@ interface IconSidebarProps {
   onOpenProfile: () => void
   onOpenCalendar: () => void
   onOpenDashboard: () => void
-  onOpenTasks: () => void
   userAvatar?: string | null
   totalUnreadCount?: number
-  localModelJobActiveCount?: number
   onMarkAllRead?: () => void
 }
 
@@ -79,10 +75,8 @@ export default function IconSidebar({
   onOpenProfile,
   onOpenCalendar,
   onOpenDashboard,
-  onOpenTasks,
   userAvatar,
   totalUnreadCount,
-  localModelJobActiveCount,
   onMarkAllRead,
 }: IconSidebarProps) {
   const { t, i18n } = useTranslation()
@@ -403,30 +397,6 @@ export default function IconSidebar({
                 <Settings className="h-4 w-4" />
               </Button>
             </IconTip>
-          </div>
-
-          {/* Local model management */}
-          <div className="relative flex justify-center">
-            <IconTip label={t("localModelJobs.title")} side="right">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "tasks"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={onOpenTasks}
-              >
-                <Ollama size={16} className="h-4 w-4" />
-              </Button>
-            </IconTip>
-            {!!localModelJobActiveCount && localModelJobActiveCount > 0 && (
-              <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-background bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground">
-                {localModelJobActiveCount > 9 ? "9+" : localModelJobActiveCount}
-              </span>
-            )}
           </div>
 
           {/* About */}

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  CheckCircle2,
   Cpu,
   ChevronDown,
   ChevronUp,
@@ -12,13 +13,24 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { parsePayload } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
+import { openExternalUrl } from "@/lib/openExternalUrl"
 import { logger } from "@/lib/logger"
 import { formatBytesFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { InstallProgressDialog } from "@/components/settings/local-llm/InstallProgressDialog"
-import type { EmbeddingConfig, OllamaEmbeddingModel } from "./types"
+import type { MemoryEmbeddingSetDefaultResult, OllamaEmbeddingModel } from "./types"
 import {
   formatLocalModelJobLogLine,
   isLocalModelJobActive,
@@ -39,16 +51,12 @@ interface OllamaStatus {
   installScriptSupported: boolean
 }
 
-interface DesktopOpenResult {
-  ok?: boolean
-}
-
 const MAX_DIALOG_LOG_LINES = 240
 
 export default function LocalEmbeddingAssistantCard({
   onActivated,
 }: {
-  onActivated: (config: EmbeddingConfig) => void
+  onActivated: (result: MemoryEmbeddingSetDefaultResult) => void
 }) {
   const { t } = useTranslation()
   const [models, setModels] = useState<OllamaEmbeddingModel[]>([])
@@ -67,6 +75,7 @@ export default function LocalEmbeddingAssistantCard({
   const [dialogDone, setDialogDone] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
+  const [pendingActivation, setPendingActivation] = useState<OllamaEmbeddingModel | null>(null)
   const handledCompletedJobs = useRef<Set<string>>(new Set())
   const jobActive = currentJob ? isLocalModelJobActive(currentJob) : false
   const busy = submitting || jobActive
@@ -114,16 +123,7 @@ export default function LocalEmbeddingAssistantCard({
   )
 
   const openDownloadPage = useCallback(() => {
-    const url = "https://ollama.com/download"
-    const openInBrowser = () => window.open(url, "_blank", "noopener")
-    void getTransport()
-      .call<DesktopOpenResult | void>("open_url", { url })
-      .then((result) => {
-        if (result && typeof result === "object" && result.ok === false) {
-          openInBrowser()
-        }
-      })
-      .catch(openInBrowser)
+    openExternalUrl("https://ollama.com/download")
   }, [])
 
   const hydrateJobLogs = useCallback(async (jobId: string) => {
@@ -173,6 +173,15 @@ export default function LocalEmbeddingAssistantCard({
         openJobDialog(job)
       } catch (e) {
         const msg = String(e)
+        logger.error(
+          "local-llm",
+          "LocalEmbeddingAssistantCard::activateModel",
+          "Failed to start embedding model job",
+          {
+            modelId: model.id,
+            error: msg,
+          },
+        )
         setDialogError(msg)
         setError(t("settings.localEmbedding.error.activateFailed", { message: msg }))
       } finally {
@@ -182,20 +191,34 @@ export default function LocalEmbeddingAssistantCard({
     [ollama, openDownloadPage, openJobDialog, t],
   )
 
-  const handleTerminalJob = useCallback((job: LocalModelJobSnapshot) => {
-    if (!isLocalModelJobTerminal(job)) return
-    if (handledCompletedJobs.current.has(job.jobId)) return
-    handledCompletedJobs.current.add(job.jobId)
-    if (job.status === "completed") {
-      appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
-      const config = job.resultJson as EmbeddingConfig | null | undefined
-      if (config) onActivated(config)
-      void refresh()
-    } else if (job.error) {
-      appendDialogLog(job.error, job.updatedAt)
-      setError(t("settings.localEmbedding.error.activateFailed", { message: job.error }))
-    }
-  }, [appendDialogLog, onActivated, refresh, t])
+  const handleTerminalJob = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      if (!isLocalModelJobTerminal(job)) return
+      if (handledCompletedJobs.current.has(job.jobId)) return
+      handledCompletedJobs.current.add(job.jobId)
+      if (job.status === "completed") {
+        appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
+        const result = job.resultJson as MemoryEmbeddingSetDefaultResult | null | undefined
+        if (result) onActivated(result)
+        void refresh()
+      } else if (job.error) {
+        logger.error(
+          "local-llm",
+          "LocalEmbeddingAssistantCard::handleTerminalJob",
+          "Embedding model job failed",
+          {
+            jobId: job.jobId,
+            modelId: job.modelId,
+            phase: job.phase,
+            error: job.error,
+          },
+        )
+        appendDialogLog(job.error, job.updatedAt)
+        setError(t("settings.localEmbedding.error.activateFailed", { message: job.error }))
+      }
+    },
+    [appendDialogLog, onActivated, refresh, t],
+  )
 
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
@@ -236,6 +259,15 @@ export default function LocalEmbeddingAssistantCard({
       .call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId: job.jobId })
       .catch((e) => {
         const msg = String(e)
+        logger.error(
+          "local-llm",
+          "LocalEmbeddingAssistantCard::cancelCurrentJob",
+          "Failed to cancel job",
+          {
+            jobId: job.jobId,
+            error: msg,
+          },
+        )
         setDialogError(msg)
         setError(msg)
       })
@@ -251,6 +283,16 @@ export default function LocalEmbeddingAssistantCard({
           {t("settings.localEmbedding.detecting")}
         </div>
       </div>
+    )
+  }
+
+  const ollamaStatus = () => {
+    if (ollama?.phase !== "running") return null
+    return (
+      <span className="flex items-center gap-1 text-[11px] shrink-0 text-emerald-600 dark:text-emerald-400">
+        <CheckCircle2 className="h-3.5 w-3.5" />
+        {t(`settings.localModels.ollama.${ollama.phase}`)}
+      </span>
     )
   }
 
@@ -272,7 +314,7 @@ export default function LocalEmbeddingAssistantCard({
         : t("settings.localEmbedding.buttons.activate", { model: recommended.displayName })
 
     return (
-      <Button size="sm" onClick={() => void activateModel(recommended)} disabled={busy}>
+      <Button size="sm" onClick={() => setPendingActivation(recommended)} disabled={busy}>
         {busy ? (
           <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
         ) : (
@@ -354,7 +396,7 @@ export default function LocalEmbeddingAssistantCard({
                 )}
               </div>
             </div>
-            <div className="shrink-0">{primaryAction()}</div>
+            {ollamaStatus()}
           </div>
 
           {models.length > 1 && (
@@ -405,6 +447,8 @@ export default function LocalEmbeddingAssistantCard({
           )}
         </div>
 
+        <div className="flex items-center justify-end">{primaryAction()}</div>
+
         {error && <p className="text-[11px] text-destructive whitespace-pre-wrap">{error}</p>}
       </div>
 
@@ -421,6 +465,34 @@ export default function LocalEmbeddingAssistantCard({
         onBackground={() => setDialogOpen(false)}
         onCancelTask={currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined}
       />
+
+      <AlertDialog
+        open={!!pendingActivation}
+        onOpenChange={(open) => !open && setPendingActivation(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("settings.embeddingModels.confirmSwitchTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("settings.localEmbedding.confirmEnableDesc", {
+                model: pendingActivation?.displayName ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const model = pendingActivation
+                setPendingActivation(null)
+                if (model) void activateModel(model)
+              }}
+            >
+              {t("settings.embeddingModels.confirmSwitchAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
 }

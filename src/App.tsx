@@ -29,7 +29,6 @@ import ChatScreen from "@/components/chat/ChatScreen"
 import StarrySky from "@/components/common/StarrySky"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
 import {
-  isLocalModelJobActive,
   LOCAL_MODEL_JOB_EVENTS,
   type LocalModelJobSnapshot,
 } from "@/types/local-model-jobs"
@@ -37,7 +36,6 @@ import {
 // Lazy-loaded views (heavy dependencies: recharts, cron UI)
 const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
-const TaskCenterView = lazy(() => import("@/components/tasks/TaskCenterView"))
 
 export default function App() {
   const { t, i18n } = useTranslation()
@@ -55,7 +53,6 @@ export default function App() {
     | "channels"
     | "calendar"
     | "dashboard"
-    | "tasks"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
@@ -78,7 +75,6 @@ export default function App() {
 
   const [installingUpdate, setInstallingUpdate] = useState(false)
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
-  const [localModelJobActiveCount, setLocalModelJobActiveCount] = useState(0)
   const completedLocalModelJobToasts = useRef<Set<string>>(new Set())
 
   async function handleInstallUpdate() {
@@ -180,48 +176,17 @@ export default function App() {
     }
   }, [handleOpenSettings])
 
-  const activeJobsRef = useRef<Map<string, boolean>>(new Map())
-
   useEffect(() => {
     if (view === "loading" || view === "onboarding" || view === "setup") return
 
-    let cancelled = false
-    void getTransport()
-      .call<LocalModelJobSnapshot[]>("local_model_job_list")
-      .then((jobs) => {
-        if (cancelled) return
-        const map = new Map<string, boolean>()
-        for (const job of jobs) {
-          if (isLocalModelJobActive(job)) map.set(job.jobId, true)
-        }
-        activeJobsRef.current = map
-        setLocalModelJobActiveCount(map.size)
-      })
-      .catch(() => {
-        if (!cancelled) setLocalModelJobActiveCount(0)
-      })
-
-    const recordJob = (job: LocalModelJobSnapshot) => {
-      const map = activeJobsRef.current
-      const wasActive = map.has(job.jobId)
-      const isActive = isLocalModelJobActive(job)
-      if (isActive && !wasActive) {
-        map.set(job.jobId, true)
-        setLocalModelJobActiveCount(map.size)
-      } else if (!isActive && wasActive) {
-        map.delete(job.jobId)
-        setLocalModelJobActiveCount(map.size)
-      }
-    }
-
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
-      recordJob(job)
       if (completedLocalModelJobToasts.current.has(job.jobId)) return
-      if (isLocalModelJobActive(job)) return
       completedLocalModelJobToasts.current.add(job.jobId)
       if (job.status === "completed") {
         toast.success(t("localModelJobs.toast.completed", { model: job.displayName }))
+      } else if (job.status === "paused") {
+        toast.info(t("localModelJobs.toast.paused", { model: job.displayName }))
       } else if (job.status === "cancelled") {
         toast.info(t("localModelJobs.toast.cancelled", { model: job.displayName }))
       } else {
@@ -229,17 +194,8 @@ export default function App() {
       }
     }
 
-    const handleUpdate = (raw: unknown) => {
-      recordJob(parsePayload<LocalModelJobSnapshot>(raw))
-    }
-
-    const unlistenCreated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.created, handleUpdate)
-    const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleUpdate)
     const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
     return () => {
-      cancelled = true
-      unlistenCreated()
-      unlistenUpdated()
       unlistenCompleted()
     }
   }, [t, view])
@@ -399,10 +355,8 @@ export default function App() {
                 }}
                 onOpenCalendar={() => setView("calendar")}
                 onOpenDashboard={() => setView("dashboard")}
-                onOpenTasks={() => setView("tasks")}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
-                localModelJobActiveCount={localModelJobActiveCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
               />
               {view === "settings" && (
@@ -493,17 +447,6 @@ export default function App() {
                   }
                 >
                   <DashboardView onBack={() => setView("chat")} />
-                </Suspense>
-              )}
-              {view === "tasks" && (
-                <Suspense
-                  fallback={
-                    <div className="flex-1 flex items-center justify-center">
-                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
-                    </div>
-                  }
-                >
-                  <TaskCenterView onBack={() => setView("chat")} />
                 </Suspense>
               )}
               <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>

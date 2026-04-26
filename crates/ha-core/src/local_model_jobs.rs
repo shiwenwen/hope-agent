@@ -14,12 +14,13 @@ use std::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 const PROGRESS_THROTTLE_MS: u128 = 250;
+const GLOBAL_LOG_MESSAGE_MAX_BYTES: usize = 2048;
 
 use crate::agent::AssistantAgent;
 use crate::local_embedding::{self, OllamaEmbeddingModel};
 use crate::local_llm::{
     self, install_ollama_via_script_cancellable, start_ollama, InstallScriptKind,
-    InstallScriptProgress, ModelCandidate, OllamaPhase, PullProgress,
+    InstallScriptProgress, ModelCandidate, OllamaPhase, OllamaPullRequest, PullProgress,
 };
 
 pub const EVENT_LOCAL_MODEL_JOB_CREATED: &str = "local_model_job:created";
@@ -65,11 +66,22 @@ static LOCAL_MODEL_JOBS_DB: OnceLock<Arc<LocalModelJobsDB>> = OnceLock::new();
 static CANCELS: LazyLock<Mutex<HashMap<String, CancellationToken>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
+fn truncate_global_log_message(message: &str) -> String {
+    let truncated = crate::truncate_utf8(message, GLOBAL_LOG_MESSAGE_MAX_BYTES);
+    if truncated.len() == message.len() {
+        message.to_string()
+    } else {
+        format!("{truncated}...")
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalModelJobKind {
     ChatModel,
     EmbeddingModel,
+    OllamaInstall,
+    OllamaPull,
 }
 
 impl LocalModelJobKind {
@@ -77,6 +89,8 @@ impl LocalModelJobKind {
         match self {
             Self::ChatModel => "chat_model",
             Self::EmbeddingModel => "embedding_model",
+            Self::OllamaInstall => "ollama_install",
+            Self::OllamaPull => "ollama_pull",
         }
     }
 
@@ -84,6 +98,8 @@ impl LocalModelJobKind {
         match value {
             "chat_model" => Some(Self::ChatModel),
             "embedding_model" => Some(Self::EmbeddingModel),
+            "ollama_install" => Some(Self::OllamaInstall),
+            "ollama_pull" => Some(Self::OllamaPull),
             _ => None,
         }
     }
@@ -94,6 +110,7 @@ impl LocalModelJobKind {
 pub enum LocalModelJobStatus {
     Running,
     Cancelling,
+    Paused,
     Completed,
     Failed,
     Interrupted,
@@ -101,12 +118,14 @@ pub enum LocalModelJobStatus {
 }
 
 impl LocalModelJobStatus {
-    pub const TERMINAL_SQL_LIST: &'static str = "'completed','failed','interrupted','cancelled'";
+    pub const TERMINAL_SQL_LIST: &'static str =
+        "'paused','completed','failed','interrupted','cancelled'";
 
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Running => "running",
             Self::Cancelling => "cancelling",
+            Self::Paused => "paused",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Interrupted => "interrupted",
@@ -118,6 +137,7 @@ impl LocalModelJobStatus {
         match value {
             "running" => Some(Self::Running),
             "cancelling" => Some(Self::Cancelling),
+            "paused" => Some(Self::Paused),
             "completed" => Some(Self::Completed),
             "failed" => Some(Self::Failed),
             "interrupted" => Some(Self::Interrupted),
@@ -141,6 +161,8 @@ pub struct LocalModelJobSnapshot {
     pub status: LocalModelJobStatus,
     pub phase: String,
     pub percent: Option<u8>,
+    pub bytes_completed: Option<u64>,
+    pub bytes_total: Option<u64>,
     pub error: Option<String>,
     pub result_json: Option<Value>,
     pub created_at: i64,
@@ -177,6 +199,8 @@ impl LocalModelJobsDB {
                 status TEXT NOT NULL,
                 phase TEXT NOT NULL,
                 percent INTEGER,
+                bytes_completed INTEGER,
+                bytes_total INTEGER,
                 error TEXT,
                 result_json TEXT,
                 created_at INTEGER NOT NULL,
@@ -197,6 +221,14 @@ impl LocalModelJobsDB {
             CREATE INDEX IF NOT EXISTS idx_local_model_job_logs_job_seq
                 ON local_model_job_logs(job_id, seq);",
         )?;
+        let _ = conn.execute(
+            "ALTER TABLE local_model_jobs ADD COLUMN bytes_completed INTEGER",
+            [],
+        );
+        let _ = conn.execute(
+            "ALTER TABLE local_model_jobs ADD COLUMN bytes_total INTEGER",
+            [],
+        );
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -207,8 +239,8 @@ impl LocalModelJobsDB {
         conn.execute(
             "INSERT INTO local_model_jobs (
                 job_id, kind, model_id, display_name, status, phase, percent,
-                error, result_json, created_at, updated_at, completed_at
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+                bytes_completed, bytes_total, error, result_json, created_at, updated_at, completed_at
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
             params![
                 job.job_id,
                 job.kind.as_str(),
@@ -217,6 +249,8 @@ impl LocalModelJobsDB {
                 job.status.as_str(),
                 job.phase,
                 job.percent.map(i64::from),
+                job.bytes_completed.and_then(|n| i64::try_from(n).ok()),
+                job.bytes_total.and_then(|n| i64::try_from(n).ok()),
                 job.error,
                 job.result_json.as_ref().map(Value::to_string),
                 job.created_at,
@@ -233,6 +267,8 @@ impl LocalModelJobsDB {
         status: LocalModelJobStatus,
         phase: &str,
         percent: Option<u8>,
+        bytes_completed: Option<u64>,
+        bytes_total: Option<u64>,
         error: Option<&str>,
         result_json: Option<&Value>,
         completed_at: Option<i64>,
@@ -241,14 +277,19 @@ impl LocalModelJobsDB {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         conn.execute(
             "UPDATE local_model_jobs
-                SET status=?1, phase=?2, percent=?3, error=?4,
-                    result_json=COALESCE(?5, result_json),
-                    updated_at=?6, completed_at=?7
-              WHERE job_id=?8",
+                SET status=?1, phase=?2, percent=?3,
+                    bytes_completed=COALESCE(?4, bytes_completed),
+                    bytes_total=COALESCE(?5, bytes_total),
+                    error=?6,
+                    result_json=COALESCE(?7, result_json),
+                    updated_at=?8, completed_at=?9
+              WHERE job_id=?10",
             params![
                 status.as_str(),
                 phase,
                 percent.map(i64::from),
+                bytes_completed.and_then(|n| i64::try_from(n).ok()),
+                bytes_total.and_then(|n| i64::try_from(n).ok()),
                 error,
                 result_json.map(Value::to_string),
                 now,
@@ -312,12 +353,39 @@ impl LocalModelJobsDB {
         self.load(job_id)
     }
 
+    fn mark_paused(&self, job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
+        let now = now_secs();
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "UPDATE local_model_jobs
+                SET status='paused', phase='paused', updated_at=?1, completed_at=?1
+              WHERE job_id=?2 AND status IN ('running','cancelling','paused')",
+            params![now, job_id],
+        )?;
+        drop(conn);
+        self.load(job_id)
+    }
+
+    fn mark_cancelled(&self, job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
+        let now = now_secs();
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        conn.execute(
+            "UPDATE local_model_jobs
+                SET status='cancelled', phase='cancelled', updated_at=?1, completed_at=?1
+              WHERE job_id=?2 AND status IN ('running','cancelling','paused')",
+            params![now, job_id],
+        )?;
+        drop(conn);
+        self.load(job_id)
+    }
+
     fn load(&self, job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let result = conn
             .prepare(
                 "SELECT job_id, kind, model_id, display_name, status, phase, percent,
-                    error, result_json, created_at, updated_at, completed_at
+                    bytes_completed, bytes_total, error, result_json, created_at, updated_at,
+                    completed_at
                FROM local_model_jobs
               WHERE job_id=?1",
             )?
@@ -331,7 +399,8 @@ impl LocalModelJobsDB {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = conn.prepare(
             "SELECT job_id, kind, model_id, display_name, status, phase, percent,
-                    error, result_json, created_at, updated_at, completed_at
+                    bytes_completed, bytes_total, error, result_json, created_at, updated_at,
+                    completed_at
                FROM local_model_jobs
               ORDER BY created_at DESC
               LIMIT 100",
@@ -424,8 +493,10 @@ impl LocalModelJobsDB {
 fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelJobSnapshot> {
     let kind_raw: String = row.get(1)?;
     let status_raw: String = row.get(4)?;
-    let result_raw: Option<String> = row.get(8)?;
+    let result_raw: Option<String> = row.get(10)?;
     let percent_raw: Option<i64> = row.get(6)?;
+    let bytes_completed_raw: Option<i64> = row.get(7)?;
+    let bytes_total_raw: Option<i64> = row.get(8)?;
     let kind = LocalModelJobKind::parse(&kind_raw).ok_or_else(|| {
         rusqlite::Error::FromSqlConversionFailure(
             1,
@@ -448,11 +519,13 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelJobSnapshot
         status,
         phase: row.get(5)?,
         percent: percent_raw.and_then(|n| u8::try_from(n).ok()),
-        error: row.get(7)?,
+        bytes_completed: bytes_completed_raw.and_then(|n| u64::try_from(n).ok()),
+        bytes_total: bytes_total_raw.and_then(|n| u64::try_from(n).ok()),
+        error: row.get(9)?,
         result_json: result_raw.and_then(|raw| serde_json::from_str(&raw).ok()),
-        created_at: row.get(9)?,
-        updated_at: row.get(10)?,
-        completed_at: row.get(11)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+        completed_at: row.get(13)?,
     })
 }
 
@@ -507,7 +580,7 @@ pub fn cancel_job(job_id: &str) -> Result<LocalModelJobSnapshot> {
     let job = db
         .load(job_id)?
         .ok_or_else(|| anyhow!("Local model job not found: {job_id}"))?;
-    if job.status.is_terminal() {
+    if job.status.is_terminal() && job.status != LocalModelJobStatus::Paused {
         return Ok(job);
     }
     if let Some(token) = CANCELS
@@ -518,9 +591,12 @@ pub fn cancel_job(job_id: &str) -> Result<LocalModelJobSnapshot> {
     {
         token.cancel();
     }
-    let snapshot = db
-        .mark_cancelling(job_id)?
-        .ok_or_else(|| anyhow!("Local model job not found: {job_id}"))?;
+    let snapshot = if job.status == LocalModelJobStatus::Paused {
+        db.mark_cancelled(job_id)?
+    } else {
+        db.mark_cancelling(job_id)?
+    }
+    .ok_or_else(|| anyhow!("Local model job not found: {job_id}"))?;
     crate::app_info!(
         "local_model_jobs",
         "cancel",
@@ -530,6 +606,41 @@ pub fn cancel_job(job_id: &str) -> Result<LocalModelJobSnapshot> {
         snapshot.model_id
     );
     emit_snapshot(EVENT_LOCAL_MODEL_JOB_UPDATED, &snapshot);
+    Ok(snapshot)
+}
+
+pub fn pause_job(job_id: &str) -> Result<LocalModelJobSnapshot> {
+    let db = require_db()?;
+    let job = db
+        .load(job_id)?
+        .ok_or_else(|| anyhow!("Local model job not found: {job_id}"))?;
+    if job.status == LocalModelJobStatus::Paused {
+        return Ok(job);
+    }
+    if job.status.is_terminal() {
+        return Err(anyhow!("Only running jobs can be paused"));
+    }
+    if let Some(token) = CANCELS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .get(job_id)
+        .cloned()
+    {
+        token.cancel();
+    }
+    let snapshot = db
+        .mark_paused(job_id)?
+        .ok_or_else(|| anyhow!("Local model job not found: {job_id}"))?;
+    crate::app_info!(
+        "local_model_jobs",
+        "pause",
+        "Local model job pause requested: {} ({} {})",
+        job_id,
+        snapshot.kind.as_str(),
+        snapshot.model_id
+    );
+    emit_snapshot(EVENT_LOCAL_MODEL_JOB_UPDATED, &snapshot);
+    emit_snapshot(EVENT_LOCAL_MODEL_JOB_COMPLETED, &snapshot);
     Ok(snapshot)
 }
 
@@ -558,6 +669,29 @@ pub fn start_embedding_job(model: OllamaEmbeddingModel) -> Result<LocalModelJobS
     )
 }
 
+pub fn start_ollama_install_job() -> Result<LocalModelJobSnapshot> {
+    spawn_job(
+        LocalModelJobKind::OllamaInstall,
+        "ollama".into(),
+        "Ollama".into(),
+        run_ollama_install_job,
+    )
+}
+
+pub fn start_ollama_pull_job(request: OllamaPullRequest) -> Result<LocalModelJobSnapshot> {
+    let model_id = request.model_id.clone();
+    let display_name = request
+        .display_name
+        .clone()
+        .unwrap_or_else(|| request.model_id.clone());
+    spawn_job(
+        LocalModelJobKind::OllamaPull,
+        model_id,
+        display_name,
+        move |job_id, token| run_ollama_pull_job(job_id, request, token),
+    )
+}
+
 pub fn retry_job(
     job_id: &str,
     on_chat_complete: Option<ChatCompletionHook>,
@@ -579,6 +713,14 @@ pub fn retry_job(
         LocalModelJobKind::EmbeddingModel => {
             let model = local_embedding::resolve_catalog_model(&job.model_id)?;
             start_embedding_job(model)
+        }
+        LocalModelJobKind::OllamaInstall => start_ollama_install_job(),
+        LocalModelJobKind::OllamaPull => {
+            let _ = on_chat_complete;
+            start_ollama_pull_job(OllamaPullRequest {
+                model_id: job.model_id,
+                display_name: Some(job.display_name),
+            })
         }
     }
 }
@@ -604,6 +746,8 @@ where
         status: LocalModelJobStatus::Running,
         phase: "queued".into(),
         percent: Some(0),
+        bytes_completed: None,
+        bytes_total: None,
         error: None,
         result_json: None,
         created_at: now,
@@ -693,6 +837,100 @@ async fn run_embedding_job(
     finish_job(&job_id, final_result, &cancel_token);
 }
 
+async fn run_ollama_install_job(job_id: String, cancel_token: CancellationToken) {
+    let final_result = install_ollama_only(&job_id, &cancel_token).await;
+    finish_job(&job_id, final_result, &cancel_token);
+}
+
+async fn run_ollama_pull_job(
+    job_id: String,
+    request: OllamaPullRequest,
+    cancel_token: CancellationToken,
+) {
+    let final_result = match run_common_setup(&job_id, &cancel_token).await {
+        Ok(()) => {
+            let throttle = Arc::new(Mutex::new(ProgressThrottle::default()));
+            let job_id_for_progress = job_id.clone();
+            let model_id = request.model_id.clone();
+            match local_llm::pull_model_cancellable(
+                &model_id,
+                move |progress| handle_pull_progress(&job_id_for_progress, progress, &throttle),
+                cancel_token.clone(),
+            )
+            .await
+            {
+                Ok(()) => {
+                    update_job(
+                        &job_id,
+                        LocalModelJobStatus::Running,
+                        "done",
+                        Some(100),
+                        None,
+                        None,
+                    );
+                    Ok(json!({
+                        "modelId": model_id,
+                        "downloaded": true
+                    }))
+                }
+                Err(e) => Err(e),
+            }
+        }
+        Err(e) => Err(e),
+    };
+    finish_job(&job_id, final_result, &cancel_token);
+}
+
+async fn install_ollama_only(job_id: &str, cancel_token: &CancellationToken) -> Result<Value> {
+    update_job(
+        job_id,
+        LocalModelJobStatus::Running,
+        "checking-ollama",
+        Some(0),
+        None,
+        None,
+    );
+    let mut status = local_llm::detect_ollama().await;
+    if cancel_token.is_cancelled() {
+        return Err(anyhow!("Local model job was cancelled"));
+    }
+
+    if status.phase == OllamaPhase::NotInstalled {
+        append_log(job_id, "step", "Install Ollama");
+        update_job(
+            job_id,
+            LocalModelJobStatus::Running,
+            "install-ollama",
+            Some(0),
+            None,
+            None,
+        );
+        let job_id_for_progress = job_id.to_string();
+        install_ollama_via_script_cancellable(
+            move |progress| handle_install_progress(&job_id_for_progress, progress),
+            cancel_token.clone(),
+        )
+        .await?;
+        status = local_llm::detect_ollama().await;
+    }
+
+    if status.phase == OllamaPhase::NotInstalled {
+        return Err(anyhow!(
+            "Ollama installation finished but Ollama was not detected"
+        ));
+    }
+
+    update_job(
+        job_id,
+        LocalModelJobStatus::Running,
+        "done",
+        Some(100),
+        None,
+        None,
+    );
+    serde_json::to_value(status).map_err(Into::into)
+}
+
 async fn run_common_setup(job_id: &str, cancel_token: &CancellationToken) -> Result<()> {
     update_job(
         job_id,
@@ -778,10 +1016,16 @@ struct ProgressThrottle {
     last_emit: Option<Instant>,
     last_phase: Option<String>,
     last_percent: Option<u8>,
+    last_bytes_completed: Option<u64>,
 }
 
 impl ProgressThrottle {
-    fn should_emit(&mut self, phase: &str, percent: Option<u8>) -> bool {
+    fn should_emit(
+        &mut self,
+        phase: &str,
+        percent: Option<u8>,
+        bytes_completed: Option<u64>,
+    ) -> bool {
         let now = Instant::now();
         let phase_changed = self.last_phase.as_deref() != Some(phase);
         let terminal = matches!(percent, Some(100)) || phase.eq_ignore_ascii_case("success");
@@ -790,14 +1034,20 @@ impl ProgressThrottle {
             (None, Some(_)) | (Some(_), None) => true,
             (None, None) => false,
         };
+        let bytes_changed = match (self.last_bytes_completed, bytes_completed) {
+            (Some(a), Some(b)) => a != b,
+            (None, Some(_)) | (Some(_), None) => true,
+            (None, None) => false,
+        };
         let due = self
             .last_emit
             .map(|t| now.duration_since(t).as_millis() >= PROGRESS_THROTTLE_MS)
             .unwrap_or(true);
-        if phase_changed || terminal || (percent_changed && due) {
+        if phase_changed || terminal || ((percent_changed || bytes_changed) && due) {
             self.last_emit = Some(now);
             self.last_phase = Some(phase.to_string());
             self.last_percent = percent;
+            self.last_bytes_completed = bytes_completed;
             true
         } else {
             false
@@ -812,15 +1062,17 @@ fn handle_pull_progress(
 ) {
     {
         let mut guard = throttle.lock().unwrap_or_else(|p| p.into_inner());
-        if !guard.should_emit(&progress.phase, progress.percent) {
+        if !guard.should_emit(&progress.phase, progress.percent, progress.bytes_completed) {
             return;
         }
     }
-    update_job(
+    update_job_with_bytes(
         job_id,
         LocalModelJobStatus::Running,
         &progress.phase,
         progress.percent,
+        progress.bytes_completed,
+        progress.bytes_total,
         None,
         None,
     );
@@ -834,18 +1086,23 @@ fn handle_pull_progress(
 fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &CancellationToken) {
     let job_before = get_job(job_id).ok().flatten();
     let status_before = job_before.as_ref().map(|job| job.status);
+    let paused = matches!(status_before, Some(LocalModelJobStatus::Paused));
     let cancelled = cancel_token.is_cancelled()
         || matches!(status_before, Some(LocalModelJobStatus::Cancelling));
-    let final_status = if cancelled {
+    let final_status = if paused {
+        LocalModelJobStatus::Paused
+    } else if cancelled {
         LocalModelJobStatus::Cancelled
     } else if result.is_ok() {
         LocalModelJobStatus::Completed
     } else {
         LocalModelJobStatus::Failed
     };
-    let (phase, error, result_json) = match result {
-        Ok(value) => ("done".to_string(), None, Some(value)),
-        Err(e) => {
+    let (phase, error, result_json) = match (final_status, result) {
+        (LocalModelJobStatus::Paused, _) => ("paused".to_string(), None, None),
+        (LocalModelJobStatus::Cancelled, _) => ("cancelled".to_string(), None, None),
+        (_, Ok(value)) => ("done".to_string(), None, Some(value)),
+        (_, Err(e)) => {
             let msg = e.to_string();
             append_log(job_id, "error", &msg);
             // Keep the phase that was active when the job stopped so the UI
@@ -855,6 +1112,28 @@ fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &CancellationTo
                 .as_ref()
                 .map(|job| job.phase.clone())
                 .unwrap_or_default();
+            if let Some(job) = job_before.as_ref() {
+                crate::app_warn!(
+                    "local_model_jobs",
+                    "finish",
+                    "Local model job failed: {} status={} kind={} model={} phase={} error={}",
+                    job.job_id,
+                    LocalModelJobStatus::Failed.as_str(),
+                    job.kind.as_str(),
+                    job.model_id,
+                    last_phase,
+                    truncate_global_log_message(&msg)
+                );
+            } else {
+                crate::app_warn!(
+                    "local_model_jobs",
+                    "finish",
+                    "Local model job failed: {} status={} error={}",
+                    job_id,
+                    LocalModelJobStatus::Failed.as_str(),
+                    truncate_global_log_message(&msg)
+                );
+            }
             (last_phase, Some(msg), None)
         }
     };
@@ -880,6 +1159,28 @@ fn update_job(
     error: Option<String>,
     result_json: Option<Value>,
 ) {
+    update_job_with_bytes(
+        job_id,
+        status,
+        phase,
+        percent,
+        None,
+        None,
+        error,
+        result_json,
+    );
+}
+
+fn update_job_with_bytes(
+    job_id: &str,
+    status: LocalModelJobStatus,
+    phase: &str,
+    percent: Option<u8>,
+    bytes_completed: Option<u64>,
+    bytes_total: Option<u64>,
+    error: Option<String>,
+    result_json: Option<Value>,
+) {
     let Some(db) = get_local_model_jobs_db() else {
         return;
     };
@@ -893,6 +1194,8 @@ fn update_job(
         status,
         phase,
         percent,
+        bytes_completed,
+        bytes_total,
         error.as_deref(),
         result_json.as_ref(),
         completed_at,
@@ -900,15 +1203,33 @@ fn update_job(
         Ok(Some(snapshot)) => {
             emit_snapshot(EVENT_LOCAL_MODEL_JOB_UPDATED, &snapshot);
             if snapshot.status.is_terminal() {
-                crate::app_info!(
-                    "local_model_jobs",
-                    "finish",
-                    "Local model job finished: {} status={} kind={} model={}",
-                    snapshot.job_id,
-                    snapshot.status.as_str(),
-                    snapshot.kind.as_str(),
-                    snapshot.model_id
-                );
+                if snapshot.status == LocalModelJobStatus::Failed {
+                    crate::app_warn!(
+                        "local_model_jobs",
+                        "finish",
+                        "Local model job finished with failure: {} status={} kind={} model={} phase={} error={}",
+                        snapshot.job_id,
+                        snapshot.status.as_str(),
+                        snapshot.kind.as_str(),
+                        snapshot.model_id,
+                        snapshot.phase,
+                        snapshot
+                            .error
+                            .as_deref()
+                            .map(truncate_global_log_message)
+                            .unwrap_or_else(|| "unknown error".to_string())
+                    );
+                } else {
+                    crate::app_info!(
+                        "local_model_jobs",
+                        "finish",
+                        "Local model job finished: {} status={} kind={} model={}",
+                        snapshot.job_id,
+                        snapshot.status.as_str(),
+                        snapshot.kind.as_str(),
+                        snapshot.model_id
+                    );
+                }
                 emit_snapshot(EVENT_LOCAL_MODEL_JOB_COMPLETED, &snapshot);
             }
         }
@@ -929,6 +1250,15 @@ fn append_log(job_id: &str, kind: &str, message: &str) {
     };
     match db.insert_log(job_id, kind, message) {
         Ok(entry) => {
+            if kind == "error" {
+                crate::app_warn!(
+                    "local_model_jobs",
+                    "job_log",
+                    "Local model job error log: {} {}",
+                    job_id,
+                    truncate_global_log_message(message)
+                );
+            }
             if let Some(bus) = crate::get_event_bus() {
                 bus.emit(EVENT_LOCAL_MODEL_JOB_LOG, json!(entry));
             }
@@ -970,6 +1300,8 @@ mod tests {
             status: LocalModelJobStatus::Running,
             phase: "queued".into(),
             percent: Some(0),
+            bytes_completed: None,
+            bytes_total: None,
             error: None,
             result_json: None,
             created_at: now_secs(),
@@ -997,5 +1329,25 @@ mod tests {
 
         db.clear(&job.job_id).expect("clear");
         assert!(db.load(&job.job_id).expect("load").is_none());
+    }
+
+    #[test]
+    fn paused_job_can_be_cancelled() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let db = LocalModelJobsDB::open(&tmp.path().join("jobs.db")).expect("db");
+        let job = sample_job();
+        db.insert_job(&job).expect("insert");
+
+        let paused = db
+            .mark_paused(&job.job_id)
+            .expect("pause")
+            .expect("paused job");
+        assert_eq!(paused.status, LocalModelJobStatus::Paused);
+
+        let cancelled = db
+            .mark_cancelled(&job.job_id)
+            .expect("cancel")
+            .expect("cancelled job");
+        assert_eq!(cancelled.status, LocalModelJobStatus::Cancelled);
     }
 }

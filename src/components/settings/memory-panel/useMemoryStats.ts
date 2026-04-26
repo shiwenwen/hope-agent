@@ -3,70 +3,55 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
   EmbeddingConfig,
-  EmbeddingPreset,
-  LocalEmbeddingModel,
+  EmbeddingModelConfig,
+  EmbeddingModelTemplate,
+  MemoryEmbeddingState,
   MemoryStats,
 } from "./types"
 
 export function useMemoryStats() {
-  // ── Stats state ──
   const [stats, setStats] = useState<MemoryStats | null>(null)
 
-  // ── Embedding config state ──
+  // `embeddingConfig` is kept around for HybridSearchConfig's "is this Gemini
+  // embedding-2?" multimodal warning; the rest of the embedding flow now lives
+  // in EmbeddingModelsPanel and writes go through the model-config endpoints.
   const [embeddingConfig, setEmbeddingConfig] = useState<EmbeddingConfig>({
     enabled: false,
     providerType: "openai-compatible",
   })
-  const [presets, setPresets] = useState<EmbeddingPreset[]>([])
-  const [localModels, setLocalModels] = useState<LocalEmbeddingModel[]>([])
-  const [embeddingDirty, setEmbeddingDirty] = useState(false)
-  const [embeddingTestLoading, setEmbeddingTestLoading] = useState(false)
-  const [embeddingTestResult, setEmbeddingTestResult] = useState<import("../TestResultDisplay").TestResult | null>(null)
-  const [embeddingSaving, setEmbeddingSaving] = useState(false)
-  const [embeddingSaveStatus, setEmbeddingSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
+  const [embeddingModels, setEmbeddingModels] = useState<EmbeddingModelConfig[]>([])
+  const [embeddingTemplates, setEmbeddingTemplates] = useState<EmbeddingModelTemplate[]>([])
+  const [memoryEmbeddingState, setMemoryEmbeddingState] = useState<MemoryEmbeddingState>({
+    selection: { enabled: false },
+    currentModel: null,
+    needsReembed: false,
+  })
 
-  // ── Dedup config state ──
   const [dedupConfig, setDedupConfig] = useState({ thresholdHigh: 0.02, thresholdMerge: 0.012 })
   const [dedupExpanded, setDedupExpanded] = useState(false)
 
   const loadEmbedding = useCallback(async () => {
     try {
-      const [config, presetList, models, dedup] = await Promise.all([
+      const [config, templateList, modelConfigs, memoryEmbedding, dedup] = await Promise.all([
         getTransport().call<EmbeddingConfig>("get_embedding_config"),
-        getTransport().call<EmbeddingPreset[]>("get_embedding_presets"),
-        getTransport().call<LocalEmbeddingModel[]>("list_local_embedding_models"),
+        getTransport().call<EmbeddingModelTemplate[]>("embedding_model_config_templates"),
+        getTransport().call<EmbeddingModelConfig[]>("embedding_model_config_list"),
+        getTransport().call<MemoryEmbeddingState>("memory_embedding_get"),
         getTransport().call<{ thresholdHigh: number; thresholdMerge: number }>("get_dedup_config"),
       ])
       setEmbeddingConfig(config)
-      setPresets(presetList)
-      setLocalModels(models)
+      setEmbeddingTemplates(templateList)
+      setEmbeddingModels(modelConfigs)
+      setMemoryEmbeddingState(memoryEmbedding)
       setDedupConfig(dedup)
-      setEmbeddingDirty(false)
     } catch (e) {
       logger.error("settings", "MemoryPanel::loadEmbedding", "Failed to load embedding config", e)
     }
   }, [])
 
-  // ── Load embedding config ──
   useEffect(() => {
     void loadEmbedding()
   }, [loadEmbedding])
-
-  async function saveEmbeddingConfig() {
-    setEmbeddingSaving(true)
-    try {
-      await getTransport().call("save_embedding_config", { config: embeddingConfig })
-      setEmbeddingDirty(false)
-      setEmbeddingSaveStatus("saved")
-      setTimeout(() => setEmbeddingSaveStatus("idle"), 2000)
-    } catch (e) {
-      logger.error("settings", "MemoryPanel::saveEmbedding", "Failed to save", e)
-      setEmbeddingSaveStatus("failed")
-      setTimeout(() => setEmbeddingSaveStatus("idle"), 2000)
-    } finally {
-      setEmbeddingSaving(false)
-    }
-  }
 
   function updateStats(statsData: MemoryStats | null) {
     if (statsData) setStats(statsData)
@@ -75,17 +60,12 @@ export function useMemoryStats() {
   return {
     stats,
     updateStats,
-    embeddingConfig, setEmbeddingConfig,
-    presets,
-    localModels,
-    embeddingDirty, setEmbeddingDirty,
-    embeddingTestLoading, setEmbeddingTestLoading,
-    embeddingTestResult, setEmbeddingTestResult,
-    embeddingSaving,
-    embeddingSaveStatus,
+    embeddingConfig,
+    embeddingModels, setEmbeddingModels,
+    embeddingTemplates,
+    memoryEmbeddingState, setMemoryEmbeddingState,
     reloadEmbeddingConfig: loadEmbedding,
     dedupConfig, setDedupConfig,
     dedupExpanded, setDedupExpanded,
-    saveEmbeddingConfig,
   }
 }

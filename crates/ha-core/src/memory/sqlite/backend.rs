@@ -71,6 +71,7 @@ impl SqliteMemoryBackend {
                 source TEXT NOT NULL DEFAULT 'user',
                 source_session_id TEXT,
                 embedding BLOB,
+                embedding_signature TEXT,
                 pinned INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -99,10 +100,11 @@ impl SqliteMemoryBackend {
                 hash TEXT NOT NULL,
                 provider TEXT NOT NULL,
                 model TEXT NOT NULL,
+                signature TEXT NOT NULL,
                 embedding BLOB NOT NULL,
                 dimensions INTEGER NOT NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
-                PRIMARY KEY (hash, provider, model)
+                PRIMARY KEY (hash, provider, model, signature)
             );
 
             -- Triggers to keep FTS in sync
@@ -145,6 +147,41 @@ impl SqliteMemoryBackend {
                 "ALTER TABLE memories ADD COLUMN scope_project_id TEXT;
                  CREATE INDEX IF NOT EXISTS idx_memories_scope_project
                      ON memories(scope_type, scope_project_id);",
+            );
+        }
+
+        // Migration: track which embedding model produced each vector so old
+        // vectors are never mixed with a newly selected memory embedding model.
+        if conn
+            .prepare("SELECT embedding_signature FROM memories LIMIT 0")
+            .is_err()
+        {
+            let _ = conn.execute_batch(
+                "ALTER TABLE memories ADD COLUMN embedding_signature TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_memories_embedding_signature
+                     ON memories(embedding_signature);",
+            );
+        }
+
+        // Migration: the old cache keyed only provider/model and could reuse
+        // embeddings across different base URLs or dimensions. Recreate it
+        // once when the signature column is absent.
+        if conn
+            .prepare("SELECT signature FROM embedding_cache LIMIT 0")
+            .is_err()
+        {
+            let _ = conn.execute_batch(
+                "DROP TABLE IF EXISTS embedding_cache;
+                 CREATE TABLE IF NOT EXISTS embedding_cache (
+                    hash TEXT NOT NULL,
+                    provider TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    signature TEXT NOT NULL,
+                    embedding BLOB NOT NULL,
+                    dimensions INTEGER NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (hash, provider, model, signature)
+                 );",
             );
         }
 
@@ -248,16 +285,35 @@ impl SqliteMemoryBackend {
         text.hash(&mut hasher);
         let hash_str = format!("{:016x}", hasher.finish());
 
-        // Load provider/model info from config for cache key
+        // Load provider/model/signature info from config for cache key
         let store = crate::config::cached_config();
-        let provider_key = format!("{:?}", store.embedding.provider_type);
-        let model_key = store.embedding.api_model.clone().unwrap_or_default();
+        let (provider_key, model_key, signature_key) =
+            crate::memory::resolve_memory_embedding_config(
+                &store.memory_embedding,
+                &store.embedding_models,
+            )
+            .ok()
+            .flatten()
+            .map(|(model, _runtime, signature)| {
+                (
+                    format!("{:?}", model.provider_type),
+                    model.api_model.unwrap_or_default(),
+                    signature,
+                )
+            })
+            .unwrap_or_else(|| {
+                (
+                    format!("{:?}", store.embedding.provider_type),
+                    store.embedding.api_model.clone().unwrap_or_default(),
+                    "legacy".to_string(),
+                )
+            });
 
         // Check cache (read-only)
         if let Ok(conn) = self.read_conn() {
             let cached: Option<Vec<u8>> = conn.query_row(
-                "SELECT embedding FROM embedding_cache WHERE hash = ?1 AND provider = ?2 AND model = ?3",
-                params![hash_str, provider_key, model_key],
+                "SELECT embedding FROM embedding_cache WHERE hash = ?1 AND provider = ?2 AND model = ?3 AND signature = ?4",
+                params![hash_str, provider_key, model_key, signature_key],
                 |row| row.get(0),
             ).optional().unwrap_or(None);
 
@@ -281,9 +337,9 @@ impl SqliteMemoryBackend {
             let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
             let dims = emb.len() as i64;
             let _ = conn.execute(
-                "INSERT OR REPLACE INTO embedding_cache (hash, provider, model, embedding, dimensions, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))",
-                params![hash_str, provider_key, model_key, emb_bytes, dims],
+                "INSERT OR REPLACE INTO embedding_cache (hash, provider, model, signature, embedding, dimensions, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now'))",
+                params![hash_str, provider_key, model_key, signature_key, emb_bytes, dims],
             );
 
             // Prune cache if over limit
@@ -409,6 +465,8 @@ impl SqliteMemoryBackend {
         if dims == 0 {
             return Err(anyhow::anyhow!("No embedding provider configured"));
         }
+        let signature = crate::memory::helpers::active_embedding_signature()
+            .ok_or_else(|| anyhow::anyhow!("No active memory embedding model configured"))?;
         let _ = self.ensure_vec_table(&conn, dims);
 
         // Try async Batch API for bulk re-embedding (cheaper + faster for large batches)
@@ -453,8 +511,8 @@ impl SqliteMemoryBackend {
                                 let emb_bytes: Vec<u8> =
                                     emb.iter().flat_map(|f| f.to_le_bytes()).collect();
                                 let _ = conn.execute(
-                                    "UPDATE memories SET embedding = ?1 WHERE id = ?2",
-                                    params![emb_bytes, id],
+                                    "UPDATE memories SET embedding = ?1, embedding_signature = ?2 WHERE id = ?3",
+                                    params![emb_bytes, signature.as_str(), id],
                                 );
                                 let _ = conn.execute(
                                     "DELETE FROM memories_vec WHERE rowid = ?1",
@@ -477,8 +535,8 @@ impl SqliteMemoryBackend {
                                     let emb_bytes: Vec<u8> =
                                         emb.iter().flat_map(|f| f.to_le_bytes()).collect();
                                     let _ = conn.execute(
-                                        "UPDATE memories SET embedding = ?1 WHERE id = ?2",
-                                        params![emb_bytes, entry.id],
+                                        "UPDATE memories SET embedding = ?1, embedding_signature = ?2 WHERE id = ?3",
+                                        params![emb_bytes, signature.as_str(), entry.id],
                                     );
                                     let _ = conn.execute(
                                         "DELETE FROM memories_vec WHERE rowid = ?1",
@@ -527,8 +585,8 @@ impl SqliteMemoryBackend {
             if let Some(emb) = emb {
                 let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
                 conn.execute(
-                    "UPDATE memories SET embedding = ?1 WHERE id = ?2",
-                    params![emb_bytes, entry.id],
+                    "UPDATE memories SET embedding = ?1, embedding_signature = ?2 WHERE id = ?3",
+                    params![emb_bytes, signature.as_str(), entry.id],
                 )?;
                 let _ = conn.execute(
                     "DELETE FROM memories_vec WHERE rowid = ?1",

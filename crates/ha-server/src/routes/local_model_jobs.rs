@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use ha_core::local_embedding::OllamaEmbeddingModel;
-use ha_core::local_llm::ModelCandidate;
+use ha_core::local_llm::{ModelCandidate, OllamaPullRequest};
 use ha_core::local_model_jobs::{self, LocalModelJobLogEntry, LocalModelJobSnapshot};
 
 use crate::error::AppError;
@@ -19,6 +19,11 @@ pub struct StartChatBody {
 #[derive(Debug, Deserialize)]
 pub struct StartEmbeddingBody {
     pub model: OllamaEmbeddingModel,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StartOllamaPullBody {
+    pub request: OllamaPullRequest,
 }
 
 #[derive(Debug, Deserialize)]
@@ -44,6 +49,18 @@ pub async fn start_embedding(
     Ok(Json(local_model_jobs::start_embedding_job(body.model)?))
 }
 
+/// `POST /api/local-model-jobs/ollama-install`
+pub async fn start_ollama_install() -> Result<Json<LocalModelJobSnapshot>, AppError> {
+    Ok(Json(local_model_jobs::start_ollama_install_job()?))
+}
+
+/// `POST /api/local-model-jobs/ollama-pull`
+pub async fn start_ollama_pull(
+    Json(body): Json<StartOllamaPullBody>,
+) -> Result<Json<LocalModelJobSnapshot>, AppError> {
+    Ok(Json(local_model_jobs::start_ollama_pull_job(body.request)?))
+}
+
 /// `GET /api/local-model-jobs`
 pub async fn list_jobs() -> Result<Json<Vec<LocalModelJobSnapshot>>, AppError> {
     Ok(Json(local_model_jobs::list_jobs()?))
@@ -67,6 +84,11 @@ pub async fn get_logs(
 /// `POST /api/local-model-jobs/{id}/cancel`
 pub async fn cancel_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(local_model_jobs::cancel_job(&id)?))
+}
+
+/// `POST /api/local-model-jobs/{id}/pause`
+pub async fn pause_job(Path(id): Path<String>) -> Result<Json<LocalModelJobSnapshot>, AppError> {
+    Ok(Json(local_model_jobs::pause_job(&id)?))
 }
 
 /// `POST /api/local-model-jobs/{id}/retry`
