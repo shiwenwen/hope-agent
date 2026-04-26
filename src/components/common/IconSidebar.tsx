@@ -14,6 +14,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils"
+import appLogoUrl from "@/assets/logo.png"
 import {
   MessageSquare,
   Bot,
@@ -402,12 +403,6 @@ export default function IconSidebar({
                 <Settings className="h-4 w-4" />
               </Button>
             </IconTip>
-            {pendingUpdate && (
-              <span className="absolute -top-0.5 -right-0.5 z-10 flex h-2.5 w-2.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" />
-              </span>
-            )}
           </div>
 
           {/* Local model management */}
@@ -430,6 +425,29 @@ export default function IconSidebar({
             {!!localModelJobActiveCount && localModelJobActiveCount > 0 && (
               <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-background bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground">
                 {localModelJobActiveCount > 9 ? "9+" : localModelJobActiveCount}
+              </span>
+            )}
+          </div>
+
+          {/* About */}
+          <div className="relative flex justify-center pt-1">
+            <IconTip label={t("about.title")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("about.title")}
+                className="h-11 w-11 rounded-full border border-border/70 bg-background/80 p-0 shadow-sm hover:bg-secondary hover:shadow-md"
+                onClick={() => onOpenSettings("about")}
+              >
+                <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-secondary">
+                  <img src={appLogoUrl} alt="" className="h-full w-full object-cover" />
+                </span>
+              </Button>
+            </IconTip>
+            {pendingUpdate && (
+              <span className="absolute -right-0.5 top-0 z-10 flex h-3 w-3">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                <span className="relative inline-flex h-3 w-3 rounded-full border-2 border-background bg-emerald-500" />
               </span>
             )}
           </div>
