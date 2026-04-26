@@ -47,7 +47,10 @@ import {
   Trash2,
 } from "lucide-react"
 import LocalLlmAssistantCard from "@/components/settings/local-llm/LocalLlmAssistantCard"
-import { hasLocalOllamaProvider } from "@/components/settings/local-llm/provider-detection"
+import {
+  hasKnownLocalBackend,
+  type KnownLocalBackend,
+} from "@/components/settings/local-llm/provider-detection"
 
 // ── Types (shared with ProviderSetup) ─────────────────────────────
 
@@ -255,6 +258,7 @@ export default function ProviderSettings({
 }) {
   const { t } = useTranslation()
   const [providers, setProviders] = useState<ProviderConfig[]>([])
+  const [knownLocalBackends, setKnownLocalBackends] = useState<KnownLocalBackend[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [menuId, setMenuId] = useState<string | null>(null)
   const [pendingDelete, setPendingDelete] = useState<ProviderConfig | null>(null)
@@ -262,7 +266,8 @@ export default function ProviderSettings({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   useEffect(() => {
-    loadProviders()
+    void loadProviders()
+    void loadKnownLocalBackends()
   }, [])
 
   async function loadProviders() {
@@ -274,6 +279,21 @@ export default function ProviderSettings({
       logger.error("settings", "ProviderSettings::load", "Failed to load providers", e)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadKnownLocalBackends() {
+    try {
+      const backends = await getTransport().call<KnownLocalBackend[]>("local_llm_known_backends")
+      setKnownLocalBackends(backends)
+    } catch (e) {
+      setKnownLocalBackends(null)
+      logger.warn(
+        "settings",
+        "ProviderSettings::loadKnownLocalBackends",
+        "Failed to load known local backends",
+        e,
+      )
     }
   }
 
@@ -323,6 +343,11 @@ export default function ProviderSettings({
       )
   }
 
+  const showLocalLlmAssistant =
+    !loading &&
+    knownLocalBackends !== null &&
+    !hasKnownLocalBackend(providers, knownLocalBackends, "ollama")
+
   return (
     <div className="flex flex-col h-full">
       {/* Add Provider Button */}
@@ -341,7 +366,7 @@ export default function ProviderSettings({
 
       {/* Provider List */}
       <div className="flex-1 overflow-y-auto px-5 pb-5 space-y-3">
-        {!loading && !hasLocalOllamaProvider(providers) && (
+        {showLocalLlmAssistant && (
           <LocalLlmAssistantCard onProviderInstalled={() => void loadProviders()} />
         )}
         {loading ? (

@@ -7,6 +7,7 @@ use ha_core::local_llm::{
     start_ollama, HardwareInfo, ModelCandidate, ModelRecommendation, OllamaStatus,
     EVENT_LOCAL_LLM_INSTALL_PROGRESS, EVENT_LOCAL_LLM_PULL_PROGRESS,
 };
+use ha_core::provider::{known_local_backends, KnownLocalBackend};
 use serde_json::json;
 use tauri::State;
 
@@ -24,6 +25,11 @@ pub async fn local_llm_recommend_model() -> Result<ModelRecommendation, CmdError
 #[tauri::command]
 pub async fn local_llm_detect_ollama() -> Result<OllamaStatus, CmdError> {
     Ok(detect_ollama().await)
+}
+
+#[tauri::command]
+pub async fn local_llm_known_backends() -> Result<Vec<KnownLocalBackend>, CmdError> {
+    Ok(known_local_backends())
 }
 
 /// Run the bundled installer (Unix only). Progress is emitted via the

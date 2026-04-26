@@ -336,7 +336,7 @@ pub(super) async fn dispatch_slash_for_channel(
 /// Switch the active model. Equivalent to the old `commands::provider::set_active_model_core`.
 async fn set_active_model_core(provider_id: &str, model_id: &str) -> Result<(), String> {
     use crate::agent::AssistantAgent;
-    use crate::provider::{ActiveModel, ApiType};
+    use crate::provider::ApiType;
 
     // Clone the provider before awaiting on agent/codex_token locks —
     // the Arc from `cached_config()` must be dropped first to avoid deadlock.
@@ -371,15 +371,12 @@ async fn set_active_model_core(provider_id: &str, model_id: &str) -> Result<(), 
         *cached_agent.lock().await = Some(agent);
     }
 
-    let provider_id = provider_id.to_string();
-    let model_id = model_id.to_string();
-    crate::config::mutate_config(("active_model", "slash-channel"), |store| {
-        store.active_model = Some(ActiveModel {
-            provider_id,
-            model_id,
-        });
-        Ok(())
-    })
+    crate::provider::set_active_model(
+        provider_id.to_string(),
+        model_id.to_string(),
+        "slash-channel",
+    )
+    .map(|_| ())
     .map_err(|e| e.to_string())
 }
 

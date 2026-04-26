@@ -1117,6 +1117,10 @@ fn build_router_with_cors(
             get(routes::local_llm::get_ollama_status),
         )
         .route(
+            "/local-llm/known-backends",
+            get(routes::local_llm::get_known_backends),
+        )
+        .route(
             "/local-llm/install",
             post(routes::local_llm::install_ollama),
         )

@@ -214,17 +214,10 @@ pub async fn initialize_agent(
     Json(body): Json<InitializeAgentBody>,
 ) -> Result<Json<Value>, AppError> {
     let provider = ha_core::provider::ProviderConfig::new_default_anthropic(body.api_key);
-    let provider_id = provider.id.clone();
     let model_id = provider.models[0].id.clone();
 
-    ha_core::config::mutate_config(("initialize_agent", "onboarding-http"), |store| {
-        store.providers.push(provider);
-        store.active_model = Some(ha_core::provider::ActiveModel {
-            provider_id,
-            model_id,
-        });
-        Ok(())
-    })?;
+    ha_core::provider::add_and_activate_provider(provider, model_id, "onboarding-http")
+        .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(Json(json!({ "ok": true })))
 }
