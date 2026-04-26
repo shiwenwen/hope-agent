@@ -30,22 +30,6 @@
 
 ## Open
 
-### F-001 Tauri 命令错误类型未统一
-
-- **来源**：2026-04-26 本地小模型助手 `/simplify` review
-- **现象**：所有 Tauri 命令返回 `Result<T, String>`，每条命令尾巴都重复一行 `.map_err(|e| e.to_string())` 把 `anyhow::Error` 降成 `String`。`#[tauri::command]` 要求返回值实现 `Serialize`，`anyhow::Error` 不实现，所以不能直接 `?`。
-- **为什么留**：ha-server 那边已经有等价的 [`AppError`](../../crates/ha-server/src/error.rs) + `impl<E> From<E> for AppError where E: Into<anyhow::Error>` 让 `?` 直接 work；Tauri 这边没有，统一要动几百条命令的签名 + `invoke_handler!` 注册。属于独立"统一错误类型"重构 PR 的范畴，本期不在 scope。
-- **改的话要做什么**：
-  1. 在 [`src-tauri/src/commands/mod.rs`](../../src-tauri/src/commands/mod.rs) 引入 `pub struct CmdError(pub String);`
-  2. 给 `CmdError` 加 `impl<E> From<E> for CmdError where E: Into<anyhow::Error>`
-  3. 给 `CmdError` 加 `impl Serialize`（serialize 成纯字符串，与 `Result<T, String>` 在 IPC wire 上等价，前端零迁移）
-  4. 把 [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs) 注册的所有命令的返回类型从 `Result<T, String>` 换成 `Result<T, CmdError>`
-  5. 删掉所有 `.map_err(|e| e.to_string())`、`.map_err(|e| format!("..."))`，改用 `?`
-- **影响面**：纯代码整洁度，无功能 bug、无性能影响。
-- **触发时机建议**："Tauri 命令错误类型统一" 独立 PR；或当某条命令需要返回结构化错误（带 code / category）时连带做。
-
----
-
 ### F-002 Provider 写入路径未单一化（add_provider 缺 upsert 语义）
 
 - **来源**：2026-04-26 本地小模型助手 `/simplify` review
@@ -118,4 +102,8 @@
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
 
-_(暂无)_
+### F-001 Tauri 命令错误类型未统一
+
+- **来源**：2026-04-26 本地小模型助手 `/simplify` review
+- **关闭**：2026-04-26 / branch `worktree-tauri-cmd-error-unify`
+- **修复方式**：新增 [`src-tauri/src/commands/error.rs`](../../src-tauri/src/commands/error.rs) 定义 `CmdError(pub String)`，挂 `impl<E: Into<anyhow::Error>> From<E>` + `impl Serialize`（输出纯字符串，IPC wire 与原 `Result<T, String>` 等价）；把 `src-tauri/src/commands/` 下 31 个文件的命令签名统一改成 `Result<T, CmdError>`，291 处 `.map_err(|e| e.to_string())?` 删成 `?`，剩余 `.map_err(|e| format!(...))` 改为 `CmdError::msg(format!(...))`，`Err("..".to_string())` / `.ok_or_else(|| "..".to_string())` 等串字面量误差类全部走 `CmdError::msg(..)`。`tauri_wrappers.rs` 不属于"命令尾巴 boilerplate"范畴，保持 `Result<T, String>` 不动。前端零变化。

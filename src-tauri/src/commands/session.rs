@@ -1,3 +1,4 @@
+use crate::commands::CmdError;
 use crate::session;
 use crate::session::ProjectFilter;
 use crate::AppState;
@@ -9,12 +10,12 @@ pub async fn create_session_cmd(
     project_id: Option<String>,
     incognito: Option<bool>,
     state: State<'_, AppState>,
-) -> Result<session::SessionMeta, String> {
+) -> Result<session::SessionMeta, CmdError> {
     let agent_id = agent_id.unwrap_or_else(|| "default".to_string());
     state
         .session_db
         .create_session_with_project(&agent_id, project_id.as_deref(), incognito)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -26,7 +27,7 @@ pub async fn list_sessions_cmd(
     offset: Option<u32>,
     active_session_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<(Vec<session::SessionMeta>, u32), String> {
+) -> Result<(Vec<session::SessionMeta>, u32), CmdError> {
     // Precedence: explicit `unassigned=true` wins; then `project_id`; else All.
     let project_filter = if unassigned.unwrap_or(false) {
         ProjectFilter::Unassigned
@@ -36,20 +37,15 @@ pub async fn list_sessions_cmd(
         ProjectFilter::All
     };
 
-    let (mut sessions, total) = state
-        .session_db
-        .list_sessions_paged(
-            agent_id.as_deref(),
-            project_filter,
-            limit,
-            offset,
-            active_session_id.as_deref(),
-        )
-        .map_err(|e| e.to_string())?;
+    let (mut sessions, total) = state.session_db.list_sessions_paged(
+        agent_id.as_deref(),
+        project_filter,
+        limit,
+        offset,
+        active_session_id.as_deref(),
+    )?;
 
-    session::enrich_pending_interactions(&mut sessions, &state.session_db)
-        .await
-        .map_err(|e| e.to_string())?;
+    session::enrich_pending_interactions(&mut sessions, &state.session_db).await?;
 
     Ok((sessions, total))
 }
@@ -59,11 +55,11 @@ pub async fn load_session_messages_latest_cmd(
     session_id: String,
     limit: u32,
     state: State<'_, AppState>,
-) -> Result<(Vec<session::SessionMessage>, u32, bool), String> {
+) -> Result<(Vec<session::SessionMessage>, u32, bool), CmdError> {
     state
         .session_db
         .load_session_messages_latest(&session_id, limit)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -72,22 +68,22 @@ pub async fn load_session_messages_before_cmd(
     before_id: i64,
     limit: u32,
     state: State<'_, AppState>,
-) -> Result<(Vec<session::SessionMessage>, bool), String> {
+) -> Result<(Vec<session::SessionMessage>, bool), CmdError> {
     state
         .session_db
         .load_session_messages_before(&session_id, before_id, limit)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_session_cmd(
     session_id: String,
     state: State<'_, AppState>,
-) -> Result<Option<session::SessionMeta>, String> {
+) -> Result<Option<session::SessionMeta>, CmdError> {
     state
         .session_db
         .get_session(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -95,11 +91,11 @@ pub async fn set_session_incognito(
     session_id: String,
     enabled: bool,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .session_db
         .update_session_incognito(&session_id, enabled)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Persist the user-selected working directory for a chat session. The core
@@ -110,34 +106,34 @@ pub async fn set_session_working_dir(
     session_id: String,
     working_dir: Option<String>,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .session_db
         .update_session_working_dir(&session_id, working_dir)
         .map(|_| ())
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn delete_session_cmd(
     session_id: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .session_db
         .delete_session(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn purge_session_if_incognito(
     session_id: String,
     state: State<'_, AppState>,
-) -> Result<bool, String> {
+) -> Result<bool, CmdError> {
     state
         .session_db
         .purge_session_if_incognito(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -145,11 +141,11 @@ pub async fn rename_session_cmd(
     session_id: String,
     title: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .session_db
         .update_session_title(&session_id, &title)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Mark all messages in a session as read.
@@ -157,11 +153,11 @@ pub async fn rename_session_cmd(
 pub async fn mark_session_read_cmd(
     session_id: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .session_db
         .mark_session_read(&session_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Mark all messages in multiple sessions as read.
@@ -169,19 +165,19 @@ pub async fn mark_session_read_cmd(
 pub async fn mark_session_read_batch_cmd(
     session_ids: Vec<String>,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     state
         .session_db
         .mark_session_read_batch(&session_ids)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn mark_all_sessions_read_cmd(state: State<'_, AppState>) -> Result<(), String> {
+pub async fn mark_all_sessions_read_cmd(state: State<'_, AppState>) -> Result<(), CmdError> {
     state
         .session_db
         .mark_all_sessions_read()
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Search message history (FTS5) across sessions.
@@ -196,7 +192,7 @@ pub async fn search_sessions_cmd(
     types: Option<Vec<String>>,
     limit: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<Vec<session::SessionSearchResult>, String> {
+) -> Result<Vec<session::SessionSearchResult>, CmdError> {
     let limit = limit.unwrap_or(80) as usize;
 
     let parsed_types: Option<Vec<session::SessionTypeFilter>> = types.map(|list| {
@@ -209,7 +205,7 @@ pub async fn search_sessions_cmd(
     state
         .session_db
         .search_messages(&query, agent_id.as_deref(), None, type_slice, limit)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Search message history within a single session (FTS5). Used by the
@@ -220,12 +216,12 @@ pub async fn search_session_messages_cmd(
     query: String,
     limit: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<Vec<session::SessionSearchResult>, String> {
+) -> Result<Vec<session::SessionSearchResult>, CmdError> {
     let limit = limit.unwrap_or(200) as usize;
     state
         .session_db
         .search_messages(&query, None, Some(&session_id), None, limit)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Load a window of messages centred on a target message id (used by search
@@ -237,11 +233,11 @@ pub async fn load_session_messages_around_cmd(
     before: u32,
     after: u32,
     state: State<'_, AppState>,
-) -> Result<(Vec<session::SessionMessage>, u32, bool, bool), String> {
+) -> Result<(Vec<session::SessionMessage>, u32, bool, bool), CmdError> {
     state
         .session_db
         .load_session_messages_around(&session_id, target_message_id, before, after)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Report whether a session currently has an active chat stream running in
@@ -251,6 +247,6 @@ pub async fn load_session_messages_around_cmd(
 #[tauri::command]
 pub async fn get_session_stream_state(
     session_id: String,
-) -> Result<ha_core::chat_engine::SessionStreamState, String> {
+) -> Result<ha_core::chat_engine::SessionStreamState, CmdError> {
     Ok(ha_core::chat_engine::session_stream_state(&session_id))
 }

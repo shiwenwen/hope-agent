@@ -1,12 +1,14 @@
 use crate::channel::accounts::{self, UpdateAccountParams};
 use crate::channel::types::*;
+use crate::commands::CmdError;
+use anyhow::Context;
 
 // ── List Plugins ─────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn channel_list_plugins() -> Result<Vec<serde_json::Value>, String> {
+pub async fn channel_list_plugins() -> Result<Vec<serde_json::Value>, CmdError> {
     let registry = crate::get_channel_registry()
-        .ok_or_else(|| "Channel registry not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
     let plugins = registry.list_plugins();
     let result: Vec<serde_json::Value> = plugins
@@ -25,7 +27,7 @@ pub async fn channel_list_plugins() -> Result<Vec<serde_json::Value>, String> {
 // ── Account Management ───────────────────────────────────────────
 
 #[tauri::command]
-pub async fn channel_list_accounts() -> Result<Vec<ChannelAccountConfig>, String> {
+pub async fn channel_list_accounts() -> Result<Vec<ChannelAccountConfig>, CmdError> {
     Ok(ha_core::config::cached_config().channels.accounts.clone())
 }
 
@@ -37,10 +39,10 @@ pub async fn channel_add_account(
     credentials: serde_json::Value,
     settings: serde_json::Value,
     security: SecurityConfig,
-) -> Result<String, String> {
+) -> Result<String, CmdError> {
     accounts::add_account(channel_id, label, agent_id, credentials, settings, security)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -53,7 +55,7 @@ pub async fn channel_update_account(
     credentials: Option<serde_json::Value>,
     settings: Option<serde_json::Value>,
     security: Option<SecurityConfig>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     accounts::update_account(
         &account_id,
         UpdateAccountParams {
@@ -67,52 +69,46 @@ pub async fn channel_update_account(
         },
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn channel_remove_account(account_id: String) -> Result<(), String> {
+pub async fn channel_remove_account(account_id: String) -> Result<(), CmdError> {
     accounts::remove_account(&account_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 // ── Lifecycle ────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn channel_start_account(account_id: String) -> Result<(), String> {
+pub async fn channel_start_account(account_id: String) -> Result<(), CmdError> {
     let account = ha_core::config::cached_config()
         .channels
         .find_account(&account_id)
-        .ok_or_else(|| format!("Account '{}' not found", account_id))?
+        .ok_or_else(|| CmdError::msg(format!("Account '{}' not found", account_id)))?
         .clone();
 
     let registry = crate::get_channel_registry()
-        .ok_or_else(|| "Channel registry not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
-    registry
-        .start_account(&account)
-        .await
-        .map_err(|e| e.to_string())
+    registry.start_account(&account).await.map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn channel_stop_account(account_id: String) -> Result<(), String> {
+pub async fn channel_stop_account(account_id: String) -> Result<(), CmdError> {
     let registry = crate::get_channel_registry()
-        .ok_or_else(|| "Channel registry not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
-    registry
-        .stop_account(&account_id)
-        .await
-        .map_err(|e| e.to_string())
+    registry.stop_account(&account_id).await.map_err(Into::into)
 }
 
 // ── Health ───────────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn channel_health(account_id: String) -> Result<ChannelHealth, String> {
+pub async fn channel_health(account_id: String) -> Result<ChannelHealth, CmdError> {
     let registry = crate::get_channel_registry()
-        .ok_or_else(|| "Channel registry not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
     // Get running status
     let mut health = registry.health(&account_id).await;
@@ -136,9 +132,9 @@ pub async fn channel_health(account_id: String) -> Result<ChannelHealth, String>
 }
 
 #[tauri::command]
-pub async fn channel_health_all() -> Result<Vec<(String, ChannelHealth)>, String> {
+pub async fn channel_health_all() -> Result<Vec<(String, ChannelHealth)>, CmdError> {
     let registry = crate::get_channel_registry()
-        .ok_or_else(|| "Channel registry not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
     Ok(registry.list_running().await)
 }
@@ -149,22 +145,22 @@ pub async fn channel_health_all() -> Result<Vec<(String, ChannelHealth)>, String
 pub async fn channel_validate_credentials(
     channel_id: String,
     credentials: serde_json::Value,
-) -> Result<String, String> {
+) -> Result<String, CmdError> {
     let parsed_channel_id: ChannelId =
         serde_json::from_value(serde_json::Value::String(channel_id.clone()))
-            .map_err(|e| format!("Invalid channel_id '{}': {}", channel_id, e))?;
+            .with_context(|| format!("Invalid channel_id '{}'", channel_id))?;
 
     let registry = crate::get_channel_registry()
-        .ok_or_else(|| "Channel registry not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
     let plugin = registry
         .get_plugin(&parsed_channel_id)
-        .ok_or_else(|| format!("No plugin for channel: {}", channel_id))?;
+        .ok_or_else(|| CmdError::msg(format!("No plugin for channel: {}", channel_id)))?;
 
     plugin
         .validate_credentials(&credentials)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 // ── Test Message ─────────────────────────────────────────────────
@@ -174,21 +170,21 @@ pub async fn channel_send_test_message(
     account_id: String,
     chat_id: String,
     text: String,
-) -> Result<DeliveryResult, String> {
+) -> Result<DeliveryResult, CmdError> {
     let store = ha_core::config::cached_config();
     let account = store
         .channels
         .find_account(&account_id)
-        .ok_or_else(|| format!("Account '{}' not found", account_id))?;
+        .ok_or_else(|| CmdError::msg(format!("Account '{}' not found", account_id)))?;
 
     let registry = crate::get_channel_registry()
-        .ok_or_else(|| "Channel registry not initialized".to_string())?;
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
 
     let payload = ReplyPayload::text(text);
     registry
         .send_reply(account, &chat_id, &payload)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 // ── Sessions ─────────────────────────────────────────────────────
@@ -197,13 +193,11 @@ pub async fn channel_send_test_message(
 pub async fn channel_list_sessions(
     channel_id: String,
     account_id: String,
-) -> Result<Vec<serde_json::Value>, String> {
+) -> Result<Vec<serde_json::Value>, CmdError> {
     let channel_db =
-        crate::get_channel_db().ok_or_else(|| "Channel DB not initialized".to_string())?;
+        crate::get_channel_db().ok_or_else(|| CmdError::msg("Channel DB not initialized"))?;
 
-    let conversations = channel_db
-        .list_conversations(&channel_id, &account_id)
-        .map_err(|e| e.to_string())?;
+    let conversations = channel_db.list_conversations(&channel_id, &account_id)?;
 
     let result: Vec<serde_json::Value> = conversations
         .into_iter()
@@ -232,18 +226,18 @@ pub async fn channel_list_sessions(
 #[tauri::command]
 pub async fn channel_wechat_start_login(
     account_id: Option<String>,
-) -> Result<crate::channel::wechat::login::WeChatLoginStart, String> {
+) -> Result<crate::channel::wechat::login::WeChatLoginStart, CmdError> {
     crate::channel::wechat::login::start_login(account_id.as_deref())
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn channel_wechat_wait_login(
     session_key: String,
     timeout_ms: Option<u64>,
-) -> Result<crate::channel::wechat::login::WeChatLoginWait, String> {
+) -> Result<crate::channel::wechat::login::WeChatLoginWait, CmdError> {
     crate::channel::wechat::login::wait_login(&session_key, timeout_ms)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }

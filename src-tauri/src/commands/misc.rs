@@ -1,7 +1,9 @@
+use crate::commands::CmdError;
+use anyhow::Context;
 use tauri;
 
 #[tauri::command]
-pub async fn open_directory(path: String) -> Result<(), String> {
+pub async fn open_directory(path: String) -> Result<(), CmdError> {
     // Resolve ~ to home directory
     let resolved = if path.starts_with("~/") {
         if let Some(home) = dirs::home_dir() {
@@ -12,11 +14,12 @@ pub async fn open_directory(path: String) -> Result<(), String> {
     } else {
         path
     };
-    open::that(&resolved).map_err(|e| format!("Failed to open directory: {}", e))
+    open::that(&resolved).context("Failed to open directory")?;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn reveal_in_folder(path: String) -> Result<(), String> {
+pub async fn reveal_in_folder(path: String) -> Result<(), CmdError> {
     let resolved = if path.starts_with("~/") {
         if let Some(home) = dirs::home_dir() {
             home.join(&path[2..]).to_string_lossy().to_string()
@@ -32,14 +35,14 @@ pub async fn reveal_in_folder(path: String) -> Result<(), String> {
             .arg("-R")
             .arg(&resolved)
             .spawn()
-            .map_err(|e| format!("Failed to reveal in Finder: {}", e))?;
+            .context("Failed to reveal in Finder")?;
     }
     #[cfg(target_os = "windows")]
     {
         std::process::Command::new("explorer")
             .arg(format!("/select,{}", &resolved))
             .spawn()
-            .map_err(|e| format!("Failed to reveal in Explorer: {}", e))?;
+            .context("Failed to reveal in Explorer")?;
     }
     #[cfg(target_os = "linux")]
     {
@@ -48,20 +51,22 @@ pub async fn reveal_in_folder(path: String) -> Result<(), String> {
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or(resolved);
-        open::that(&parent).map_err(|e| format!("Failed to open folder: {}", e))?;
+        open::that(&parent).context("Failed to open folder")?;
     }
     Ok(())
 }
 
 #[tauri::command]
-pub async fn open_url(url: String) -> Result<(), String> {
-    open::that(&url).map_err(|e| format!("Failed to open URL: {}", e))
+pub async fn open_url(url: String) -> Result<(), CmdError> {
+    open::that(&url).context("Failed to open URL")?;
+    Ok(())
 }
 
 /// Write exported content to a file (used by slash command /export).
 #[tauri::command]
-pub async fn write_export_file(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, content).map_err(|e| format!("Failed to write export file: {}", e))
+pub async fn write_export_file(path: String, content: String) -> Result<(), CmdError> {
+    std::fs::write(&path, content).context("Failed to write export file")?;
+    Ok(())
 }
 
 /// Query whether Dangerous Mode (skip ALL tool approvals) is active, and the
@@ -80,16 +85,16 @@ pub fn get_dangerous_mode_status() -> ha_core::security::dangerous::DangerousMod
 /// Follows the same autosave-backup path as other config writes and emits
 /// `config:changed` so subscribed UIs refresh immediately.
 #[tauri::command]
-pub fn set_dangerous_skip_all_approvals(enabled: bool) -> Result<(), String> {
+pub fn set_dangerous_skip_all_approvals(enabled: bool) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("security.dangerous", "settings-ui"), |store| {
         store.dangerous_skip_all_approvals = enabled;
         Ok(())
-    })
-    .map_err(|e| e.to_string())
+    })?;
+    Ok(())
 }
 
 #[tauri::command]
-pub async fn set_window_theme(is_dark: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+pub async fn set_window_theme(is_dark: bool, app_handle: tauri::AppHandle) -> Result<(), CmdError> {
     #[cfg(target_os = "macos")]
     {
         use tauri::Manager;
