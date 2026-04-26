@@ -20,7 +20,8 @@
     "deleteFailed": "فشل الحذف",
     "custom": "مخصص",
     "select": "اختر",
-    "settings": "الإعدادات"
+    "settings": "الإعدادات",
+    "close": "إغلاق"
   },
   "project": {
     "projects": "المشاريع",

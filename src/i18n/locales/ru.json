@@ -20,7 +20,8 @@
     "deleteFailed": "Ошибка удаления",
     "custom": "Пользовательский",
     "select": "Выбрать",
-    "settings": "Настройки"
+    "settings": "Настройки",
+    "close": "Закрыть"
   },
   "project": {
     "projects": "Проекты",

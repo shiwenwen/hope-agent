@@ -20,7 +20,8 @@
     "deleteFailed": "Delete failed",
     "custom": "Custom",
     "select": "Select",
-    "settings": "Settings"
+    "settings": "Settings",
+    "close": "Close"
   },
   "project": {
     "projects": "Projects",

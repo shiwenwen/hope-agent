@@ -20,7 +20,8 @@
     "deleteFailed": "Silinemedi",
     "custom": "Özel",
     "select": "Seç",
-    "settings": "Ayarlar"
+    "settings": "Ayarlar",
+    "close": "Kapat"
   },
   "project": {
     "projects": "Projeler",

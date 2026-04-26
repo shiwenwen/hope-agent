@@ -20,7 +20,8 @@
     "deleteFailed": "Error al eliminar",
     "custom": "Personalizado",
     "select": "Seleccionar",
-    "settings": "Ajustes"
+    "settings": "Ajustes",
+    "close": "Cerrar"
   },
   "project": {
     "projects": "Proyectos",

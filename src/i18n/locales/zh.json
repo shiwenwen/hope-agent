@@ -20,7 +20,8 @@
     "deleteFailed": "删除失败",
     "custom": "自定义",
     "select": "选择",
-    "settings": "设置"
+    "settings": "设置",
+    "close": "关闭"
   },
   "project": {
     "projects": "项目",

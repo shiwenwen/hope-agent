@@ -20,7 +20,8 @@
     "deleteFailed": "Gagal memadam",
     "custom": "Tersuai",
     "select": "Pilih",
-    "settings": "Tetapan"
+    "settings": "Tetapan",
+    "close": "Tutup"
   },
   "project": {
     "projects": "Projek",

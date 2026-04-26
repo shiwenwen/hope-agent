@@ -20,7 +20,8 @@
     "deleteFailed": "Falha ao excluir",
     "custom": "Personalizado",
     "select": "Selecionar",
-    "settings": "Configurações"
+    "settings": "Configurações",
+    "close": "Fechar"
   },
   "project": {
     "projects": "Projetos",

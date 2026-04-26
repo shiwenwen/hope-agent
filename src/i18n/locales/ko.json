@@ -20,7 +20,8 @@
     "deleteFailed": "삭제 실패",
     "custom": "사용자 지정",
     "select": "선택",
-    "settings": "설정"
+    "settings": "설정",
+    "close": "닫기"
   },
   "project": {
     "projects": "프로젝트",
