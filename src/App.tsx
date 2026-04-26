@@ -43,6 +43,7 @@ export default function App() {
     | "profile"
     | "agents"
     | "modelConfig"
+    | "memory"
     | "channels"
     | "calendar"
     | "dashboard"
@@ -316,6 +317,7 @@ export default function App() {
                 }}
                 onOpenModelConfig={() => setView("modelConfig")}
                 onOpenSkills={() => setView("skills")}
+                onOpenMemory={() => setView("memory")}
                 onOpenChannels={() => setView("channels")}
                 onOpenProfile={() => {
                   setView("profile")
@@ -341,6 +343,14 @@ export default function App() {
                   onCodexAuth={handleCodexAuth}
                   onCodexReauth={handleCodexAuth}
                   initialSection="skills"
+                />
+              )}
+              {view === "memory" && (
+                <SettingsView
+                  onBack={() => setView("chat")}
+                  onCodexAuth={handleCodexAuth}
+                  onCodexReauth={handleCodexAuth}
+                  initialSection="memory"
                 />
               )}
               {view === "profile" && (

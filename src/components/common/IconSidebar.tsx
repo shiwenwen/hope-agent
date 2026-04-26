@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import {
   MessageSquare,
   Bot,
+  Brain,
   Settings,
   Languages,
   Puzzle,
@@ -42,6 +43,7 @@ interface IconSidebarProps {
     | "profile"
     | "agents"
     | "modelConfig"
+    | "memory"
     | "channels"
     | "calendar"
     | "dashboard"
@@ -51,6 +53,7 @@ interface IconSidebarProps {
   onOpenModelConfig: () => void
   onOpenChannels: () => void
   onOpenSkills: () => void
+  onOpenMemory: () => void
   onOpenProfile: () => void
   onOpenCalendar: () => void
   onOpenDashboard: () => void
@@ -67,6 +70,7 @@ export default function IconSidebar({
   onOpenModelConfig,
   onOpenChannels,
   onOpenSkills,
+  onOpenMemory,
   onOpenProfile,
   onOpenCalendar,
   onOpenDashboard,
@@ -212,6 +216,25 @@ export default function IconSidebar({
               onClick={onOpenSkills}
             >
               <Puzzle className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        </div>
+
+        {/* Memory entry */}
+        <div className="w-full flex justify-center mt-1">
+          <IconTip label={t("settings.memory")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "memory"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={onOpenMemory}
+            >
+              <Brain className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>
