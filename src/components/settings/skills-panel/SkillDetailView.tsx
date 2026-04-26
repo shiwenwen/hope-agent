@@ -4,6 +4,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { formatBytes } from "@/lib/format"
 import { IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -18,12 +19,6 @@ import {
 import type { SkillDetail, SkillInstallSpec } from "./types"
 
 const CONTENT_SPLIT_MIN_WIDTH = 1100
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-}
 
 function InstallSpecRow({
   spec,
@@ -376,7 +371,7 @@ export default function SkillDetailView({
                   </span>
                   {!file.is_dir && (
                     <span className="text-muted-foreground/60 shrink-0">
-                      {formatFileSize(file.size)}
+                      {formatBytes(file.size)}
                     </span>
                   )}
                 </div>

@@ -40,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
+import { formatBytes } from "@/lib/format"
 
 import type {
   CreateProjectInput,
@@ -498,7 +499,10 @@ async function resizeImageToDataUrl(
 ): Promise<string> {
   if (file.size > MAX_LOGO_SOURCE_BYTES) {
     throw new Error(
-      `Image too large (max ${(MAX_LOGO_SOURCE_BYTES / 1024 / 1024).toFixed(0)}MB)`,
+      `Image too large (max ${formatBytes(MAX_LOGO_SOURCE_BYTES, {
+        unit: "MB",
+        fractionDigits: 0,
+      })})`,
     )
   }
   const img = await loadImageFromFile(file)

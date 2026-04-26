@@ -380,16 +380,6 @@ export function formatCost(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
-/** Format bytes to human readable (KB, MB, GB, TB) */
-export function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
-  if (bytes < 1024 * 1024 * 1024 * 1024)
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`
-  return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(2)} TB`
-}
-
 /** Format seconds to human readable uptime */
 export function formatUptime(secs: number): string {
   const days = Math.floor(secs / 86400)

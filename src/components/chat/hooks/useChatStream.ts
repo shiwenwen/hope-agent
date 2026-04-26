@@ -302,58 +302,82 @@ export function useChatStream({
     let targetSessionId = currentSessionId
 
     try {
+      const targetSid = () => targetSessionId || "__pending__"
+
+      const handleSessionCreated = (event: Record<string, unknown>): boolean => {
+        if (
+          event.type !== "session_created" ||
+          typeof event.session_id !== "string" ||
+          !event.session_id
+        ) {
+          return false
+        }
+
+        targetSessionId = event.session_id
+        const current = sessionCacheRef.current.get("__pending__")
+        if (current) {
+          sessionCacheRef.current.delete("__pending__")
+          sessionCacheRef.current.set(event.session_id, current)
+        }
+        loadingSessionsRef.current.add(event.session_id)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        setCurrentSessionId(event.session_id)
+        reloadSessions()
+        return true
+      }
+
+      const shouldDropStreamEvent = (
+        event: Record<string, unknown>,
+        sid: string,
+      ): boolean => {
+        const streamId = streamIdFromEvent(event)
+        if (streamId && endedStreamIdsRef.current.get(sid) === streamId) return true
+
+        // Primary path bumps the seq cursor so identical events arriving
+        // later via the EventBus reattach listener are dropped.
+        const seqRaw = event._oc_seq
+        if (typeof seqRaw === "number" && sid !== "__pending__") {
+          const cursorKey = streamCursorKey(sid, streamId)
+          const prev = lastSeqRef.current.get(cursorKey) ?? 0
+          if (seqRaw <= prev) return true
+          lastSeqRef.current.set(cursorKey, seqRaw)
+        }
+        return false
+      }
+
+      const dispatchStreamEvent = (event: Record<string, unknown>) => {
+        if (handleSessionCreated(event)) return
+
+        const sid = targetSid()
+        if (shouldDropStreamEvent(event, sid)) return
+
+        handleStreamEvent(event, sid, {
+          updateSessionMessages,
+          deltaBuffersRef,
+          setShowCodexAuthExpired,
+        })
+      }
+
+      const appendRawStreamText = (raw: string) => {
+        const sid = targetSid()
+        updateSessionMessages(sid, (prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (last && last.role === "assistant") {
+            updated[updated.length - 1] = {
+              ...last,
+              content: last.content + raw,
+            }
+          }
+          return updated
+        })
+      }
+
       const onEvent = (raw: string) => {
         try {
-          const event = JSON.parse(raw)
-
-          // Handle session_created first
-          if (event.type === "session_created" && event.session_id) {
-            targetSessionId = event.session_id
-            const current = sessionCacheRef.current.get("__pending__")
-            if (current) {
-              sessionCacheRef.current.delete("__pending__")
-              sessionCacheRef.current.set(event.session_id, current)
-            }
-            loadingSessionsRef.current.add(event.session_id)
-            setLoadingSessionIds(new Set(loadingSessionsRef.current))
-            setCurrentSessionId(event.session_id)
-            reloadSessions()
-            return
-          }
-
-          const sid = targetSessionId || "__pending__"
-          const streamId = streamIdFromEvent(event)
-          if (streamId && endedStreamIdsRef.current.get(sid) === streamId) return
-
-          // Primary path bumps the seq cursor so identical events arriving
-          // later via the EventBus reattach listener are dropped.
-          const seqRaw = event._oc_seq
-          if (typeof seqRaw === "number" && sid !== "__pending__") {
-            const cursorKey = streamCursorKey(sid, streamId)
-            const prev = lastSeqRef.current.get(cursorKey) ?? 0
-            if (seqRaw <= prev) return
-            lastSeqRef.current.set(cursorKey, seqRaw)
-          }
-
-          const handled = handleStreamEvent(event, sid, {
-            updateSessionMessages,
-            deltaBuffersRef,
-            setShowCodexAuthExpired,
-          })
-          if (handled) return
+          dispatchStreamEvent(JSON.parse(raw) as Record<string, unknown>)
         } catch {
-          const sid = targetSessionId || "__pending__"
-          updateSessionMessages(sid, (prev) => {
-            const updated = [...prev]
-            const last = updated[updated.length - 1]
-            if (last && last.role === "assistant") {
-              updated[updated.length - 1] = {
-                ...last,
-                content: last.content + raw,
-              }
-            }
-            return updated
-          })
+          appendRawStreamText(raw)
         }
       }
 

@@ -80,35 +80,6 @@
 
 ---
 
-### F-005 前端字节/容量格式化在 6+ 处重复
-
-- **来源**：2026-04-26 本地小模型助手 `/simplify` review
-- **现象**：前端"把 MB / bytes 格式化成 'X.X GB'"的小函数散落在至少 6 个文件，本期新增 [`LocalLlmAssistantCard.tsx::formatGb` + `formatSize`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) 是第 7 处。其它已知点：
-  - [`src/components/settings/dashboard/types.ts`](../../src/components/dashboard/types.ts)
-  - [`src/components/settings/BrowserPanel.tsx`](../../src/components/settings/BrowserPanel.tsx)
-  - [`src/components/chat/message/FileCard.tsx`](../../src/components/chat/message/FileCard.tsx)
-  - [`src/components/log-panel/constants.ts`](../../src/components/log-panel/constants.ts)
-  - `SystemMetricsSection.tsx`
-- **为什么留**：每处函数都很短（3-5 行），抽到 `src/lib/format.ts` 价值有限；存量债，本期不展开。
-- **改的话要做什么**：
-  1. 在 [`src/lib/format.ts`](../../src/lib/format.ts)（新建）加 `formatBytes(bytes: number, opts?)` + `formatBytesFromMb(mb: number)`
-  2. 全仓 grep `\.toFixed.*GB|toFixed.*MB` 替换调用点
-- **影响面**：纯整洁度。语义差异极小，不会引入 bug。
-- **触发时机建议**：下一次新加 file-size / capacity 显示组件时顺手抽；或者独立"前端 utility 整理"小 PR 一次清掉。
-
----
-
-### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
-
-- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
-- **现象**：[`useChatStream.ts:307-359`](../../src/components/chat/hooks/useChatStream.ts) 的 `onEvent` 闭包内部 try/catch 包嵌套 `event.type === "session_created" && event.session_id` 早返回 + `streamId && endedStreamIdsRef.current.get(sid) === streamId` 早返回 + `_oc_seq` dedup + `handleStreamEvent(...)` dispatch + catch 兜底文本拼接，单函数 ~50 行。
-- **为什么留**：本期 PR 主题是"切换调用方 API"，没动 onEvent 内部逻辑；按 AGENTS.md "review 决定不改的清理登记到 followups"。
-- **改的话要做什么**：拆成几个 named handler：`handleSessionCreated`、`handleStreamDelta`、`fallbackTextAppend`，主 `onEvent` 退化为 `try { dispatch(JSON.parse(raw)) } catch { fallbackTextAppend(raw) }`。
-- **影响面**：纯可读性。
-- **触发时机建议**：下次有人为了别的事真要动这段逻辑时顺手收掉。
-
----
-
 ### F-013 EventBus 事件名常量散落，应有 events 常量模块
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
@@ -149,6 +120,24 @@
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
 - **关闭**：2026-04-26 / 本次 F-009 修复
 - **修复方式**：在 [`crates/ha-core/src/event_bus.rs`](../../crates/ha-core/src/event_bus.rs) 新增 `EventBusProgressExt::emit_progress`，把 typed progress callback 统一桥接到 EventBus JSON payload。为保留 `EventBus` 的 object-safe 形状（仓库大量使用 `Arc<dyn EventBus>`），实现采用 `Arc<B: EventBus + ?Sized>` 扩展 trait，而不是直接在 `EventBus` 本体加泛型方法。local LLM install / pull、SearXNG deploy、local embedding pull 的 ha-server route 与 Tauri command 均已切换到 helper，事件名与 payload contract 不变。
+
+---
+
+### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-012 修复
+- **修复方式**：[`useChatStream.ts`](../../src/components/chat/hooks/useChatStream.ts) 的 `onEvent` 现在拆为 `handleSessionCreated`、`shouldDropStreamEvent`、`dispatchStreamEvent`、`appendRawStreamText` 等本地 helper；保留 `__pending__` cache rename、loading session 更新、`_oc_seq` cursor 去重、ended stream 丢弃与 raw fallback 行为。
+
+---
+
+### F-005 前端字节/容量格式化在 6+ 处重复
+
+- **来源**：2026-04-26 本地小模型助手 `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-005 修复
+- **修复方式**：新增 [`src/lib/format.ts`](../../src/lib/format.ts) 统一 `formatBytes`、`formatBytesFromMb`、`formatGbFromMb`；替换 dashboard、BrowserPanel、FileCard、log panel、SkillDetailView、本地 LLM / embedding 卡片、project 上传与 logo 限制错误文案里的重复容量格式化，并新增 [`src/lib/format.test.ts`](../../src/lib/format.test.ts) 覆盖单位转换。
+
+---
 
 ### F-014 `docs/architecture/` 缺中心化 transport mode 文档
 

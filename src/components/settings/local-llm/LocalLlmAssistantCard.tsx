@@ -16,6 +16,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { withEventListener } from "@/lib/transport-events"
 import { logger } from "@/lib/logger"
+import { formatBytesFromMb, formatGbFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   InstallProgressDialog,
@@ -98,15 +99,6 @@ const PHASE_KEY: Record<string, string> = {
   done: "settings.localLlm.phases.done",
 }
 
-function formatGb(mb: number): string {
-  return (mb / 1024).toFixed(1)
-}
-
-function formatSize(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
-  return `${mb} MB`
-}
-
 function formatLogLine(message: string): string {
   return `[${new Date().toLocaleTimeString()}] ${message}`
 }
@@ -121,19 +113,19 @@ function reasonText(
       return t("settings.localLlm.hardware.insufficient")
     case "unified-memory":
       return t("settings.localLlm.hardware.macOs", {
-        memory: formatGb(hw.totalMemoryMb),
-        budget: formatGb(hw.budgetMb),
+        memory: formatGbFromMb(hw.totalMemoryMb),
+        budget: formatGbFromMb(hw.budgetMb),
       })
     case "dgpu":
       return t("settings.localLlm.hardware.dgpu", {
         gpu: hw.gpu?.name ?? "GPU",
-        vram: hw.gpu?.vramMb ? formatGb(hw.gpu.vramMb) : "?",
-        budget: formatGb(hw.budgetMb),
+        vram: hw.gpu?.vramMb ? formatGbFromMb(hw.gpu.vramMb) : "?",
+        budget: formatGbFromMb(hw.budgetMb),
       })
     default:
       return t("settings.localLlm.hardware.ramFallback", {
-        memory: formatGb(hw.totalMemoryMb),
-        budget: formatGb(hw.budgetMb),
+        memory: formatGbFromMb(hw.totalMemoryMb),
+        budget: formatGbFromMb(hw.budgetMb),
       })
   }
 }
@@ -510,7 +502,7 @@ export default function LocalLlmAssistantCard({
                   </span>
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
-                  <span>{formatSize(recommended.sizeMb)}</span>
+                  <span>{formatBytesFromMb(recommended.sizeMb)}</span>
                   <span>·</span>
                   <span>
                     {t("settings.localLlm.contextWindow", {
@@ -581,7 +573,7 @@ export default function LocalLlmAssistantCard({
                     >
                       <span className="truncate">{c.displayName}</span>
                       <span className="font-mono text-[10px] text-muted-foreground/80 shrink-0">
-                        {formatSize(c.sizeMb)}
+                        {formatBytesFromMb(c.sizeMb)}
                       </span>
                     </button>
                   )

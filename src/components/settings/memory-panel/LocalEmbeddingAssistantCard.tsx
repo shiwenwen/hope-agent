@@ -16,6 +16,7 @@ import { parsePayload } from "@/lib/transport"
 import { withEventListener } from "@/lib/transport-events"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { formatBytesFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   InstallProgressDialog,
@@ -60,11 +61,6 @@ const PHASE_KEY: Record<string, string> = {
   success: "settings.localLlm.phases.success",
   "configure-embedding": "settings.localEmbedding.phases.configureEmbedding",
   done: "settings.localLlm.phases.done",
-}
-
-function formatSize(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
-  return `${mb} MB`
 }
 
 function formatLogLine(message: string): string {
@@ -327,7 +323,7 @@ export default function LocalEmbeddingAssistantCard({
               </div>
               <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1.5 flex-wrap">
                 <Cpu className="h-3 w-3" />
-                <span>{formatSize(recommended.sizeMb)}</span>
+                <span>{formatBytesFromMb(recommended.sizeMb)}</span>
                 <span>·</span>
                 <span>
                   {t("settings.localEmbedding.dimensions", { n: recommended.dimensions })}
@@ -390,7 +386,7 @@ export default function LocalEmbeddingAssistantCard({
                   >
                     <span className="truncate">{model.displayName}</span>
                     <span className="font-mono text-[10px] text-muted-foreground/80 shrink-0">
-                      {formatSize(model.sizeMb)} · {model.dimensions}d
+                      {formatBytesFromMb(model.sizeMb)} · {model.dimensions}d
                     </span>
                   </Button>
                 )
