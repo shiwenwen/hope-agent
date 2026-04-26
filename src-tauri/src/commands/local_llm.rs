@@ -4,6 +4,7 @@ use ha_core::agent::AssistantAgent;
 use ha_core::local_llm::{
     detect_hardware, detect_ollama, install_ollama_via_script, pull_and_activate, recommend_model,
     start_ollama, HardwareInfo, ModelCandidate, ModelRecommendation, OllamaStatus,
+    EVENT_LOCAL_LLM_INSTALL_PROGRESS, EVENT_LOCAL_LLM_PULL_PROGRESS,
 };
 use serde_json::json;
 use tauri::State;
@@ -25,7 +26,7 @@ pub async fn local_llm_detect_ollama() -> Result<OllamaStatus, CmdError> {
 }
 
 /// Run the bundled installer (Unix only). Progress is emitted via the
-/// shared event bus on `local_llm:install_progress`; the frontend listens
+/// shared event bus on `EVENT_LOCAL_LLM_INSTALL_PROGRESS`; the frontend listens
 /// for those events instead of receiving a Tauri Channel.
 #[tauri::command]
 pub async fn local_llm_install_ollama() -> Result<(), CmdError> {
@@ -33,7 +34,7 @@ pub async fn local_llm_install_ollama() -> Result<(), CmdError> {
         .cloned()
         .ok_or_else(|| CmdError::msg("EventBus not initialized"))?;
     install_ollama_via_script(move |p| {
-        bus.emit("local_llm:install_progress", json!(p));
+        bus.emit(EVENT_LOCAL_LLM_INSTALL_PROGRESS, json!(p));
     })
     .await
     .map_err(Into::into)
@@ -46,7 +47,7 @@ pub async fn local_llm_start_ollama() -> Result<(), CmdError> {
 
 /// Pull the requested model, register the local-Ollama provider, and switch
 /// the active model. Progress streams through the event bus on
-/// `local_llm:pull_progress`. Returns the new `(provider_id, model_id)`.
+/// `EVENT_LOCAL_LLM_PULL_PROGRESS`. Returns the new `(provider_id, model_id)`.
 #[tauri::command]
 pub async fn local_llm_pull_and_activate(
     model: ModelCandidate,
@@ -56,7 +57,7 @@ pub async fn local_llm_pull_and_activate(
         .cloned()
         .ok_or_else(|| CmdError::msg("EventBus not initialized"))?;
     let (provider_id, model_id) = pull_and_activate(model, move |p| {
-        bus.emit("local_llm:pull_progress", json!(p));
+        bus.emit(EVENT_LOCAL_LLM_PULL_PROGRESS, json!(p));
     })
     .await?;
 

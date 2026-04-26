@@ -31,8 +31,6 @@ pub struct AppContext {
     pub session_db: Arc<SessionDB>,
     pub project_db: Arc<ProjectDB>,
     pub event_bus: Arc<dyn EventBus>,
-    /// Per-session broadcast channels for chat streaming via WebSocket.
-    pub chat_streams: Arc<ws::chat_stream::ChatStreamRegistry>,
     /// Per-session cancel flags. Key = session_id.
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
     /// API key used by middleware auth, reused by attachment URL rewrite to
@@ -1161,9 +1159,7 @@ fn build_router_with_cors(
         .route("/dev/reset-config", post(routes::dev::reset_config))
         .route("/dev/clear-all", post(routes::dev::clear_all));
 
-    let ws_routes = Router::new()
-        .route("/events", get(ws::events::events_ws))
-        .route("/chat/{session_id}", get(ws::chat_stream::chat_stream_ws));
+    let ws_routes = Router::new().route("/events", get(ws::events::events_ws));
 
     // Apply API key auth middleware to protected routes
     let auth_state = middleware::ApiKeyState { api_key };

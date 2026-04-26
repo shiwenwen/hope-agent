@@ -20,6 +20,7 @@ export type ProgressFrame = {
 
 export function InstallProgressDialog({
   open,
+  onOpenChange,
   title,
   subtitle,
   frame,
@@ -29,6 +30,7 @@ export function InstallProgressDialog({
   cancellable,
 }: {
   open: boolean
+  onOpenChange?: (open: boolean) => void
   title: string
   subtitle?: string
   frame: ProgressFrame | null
@@ -44,22 +46,32 @@ export function InstallProgressDialog({
     tailRef.current?.scrollTo({ top: tailRef.current.scrollHeight })
   }, [logs])
 
-  const indeterminate =
-    !error && !done && (frame?.percent == null || Number.isNaN(frame.percent))
+  const indeterminate = !error && !done && (frame?.percent == null || Number.isNaN(frame.percent))
+  const canClose = Boolean(done || error || cancellable)
 
   return (
-    <Dialog open={open}>
-      <DialogContent className="sm:max-w-lg" onInteractOutside={(e) => e.preventDefault()}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen || canClose) onOpenChange?.(nextOpen)
+      }}
+    >
+      <DialogContent
+        className="sm:max-w-lg"
+        onEscapeKeyDown={(e) => {
+          if (!canClose) e.preventDefault()
+        }}
+        onInteractOutside={(e) => {
+          if (!canClose) e.preventDefault()
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
           {subtitle && <DialogDescription>{subtitle}</DialogDescription>}
         </DialogHeader>
 
         <div className="space-y-3 pt-2">
-          <Progress
-            value={frame?.percent ?? null}
-            indeterminate={indeterminate}
-          />
+          <Progress value={frame?.percent ?? null} indeterminate={indeterminate} />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <span className="flex items-center gap-2 truncate">
               {!done && !error && <Loader2 className="h-3 w-3 animate-spin shrink-0" />}
@@ -81,9 +93,7 @@ export function InstallProgressDialog({
               ))}
             </div>
           )}
-          {error && (
-            <p className="text-xs text-destructive whitespace-pre-wrap">{error}</p>
-          )}
+          {error && <p className="text-xs text-destructive whitespace-pre-wrap">{error}</p>}
           {!cancellable && !done && !error && (
             <p className="text-[11px] text-muted-foreground/70">
               {t("settings.localLlm.install.cannotCancel")}

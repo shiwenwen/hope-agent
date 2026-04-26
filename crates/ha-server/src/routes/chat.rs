@@ -14,7 +14,6 @@ use ha_core::session;
 use ha_core::tools;
 
 use crate::error::AppError;
-use crate::ws::chat_stream::ChatStreamRegistry;
 use crate::AppContext;
 
 // ── Request / Response Types ───────────────────────────────────
@@ -106,29 +105,16 @@ pub struct SystemPromptBody {
     pub session_id: Option<String>,
 }
 
-// ── WebSocket-backed EventSink ─────────────────────────────────
+// ── HTTP EventSink ──────────────────────────────────────────────
 
-/// EventSink that broadcasts events to all WebSocket subscribers for a session.
-///
-/// Rewrites `tool_result` events before broadcast: strips `media_items[].localPath`
-/// (never leak server filesystem paths to browsers) and stamps `?token=<api_key>`
-/// onto `/api/attachments/*` URLs so `<img src>` / `<a href>` authenticate.
-struct WsSink {
-    session_id: String,
-    registry: Arc<ChatStreamRegistry>,
-    api_key: Option<String>,
-}
+/// HTTP mode delivers chat stream deltas through the global EventBus
+/// (`chat:stream_delta` over `/ws/events`). `run_chat_engine` still requires a
+/// per-call sink because desktop and channel modes use it directly, so HTTP
+/// passes a no-op sink and lets the shared EventBus broadcast path do the work.
+struct NoopSink;
 
-impl EventSink for WsSink {
-    fn send(&self, event: &str) {
-        // EventSink::send is sync but broadcast is async. Use spawn_blocking-safe approach.
-        let rewritten = ha_core::agent::rewrite_event_for_http(event, self.api_key.as_deref());
-        let registry = self.registry.clone();
-        let sid = self.session_id.clone();
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(registry.broadcast(&sid, &rewritten));
-        });
-    }
+impl EventSink for NoopSink {
+    fn send(&self, _event: &str) {}
 }
 
 // ── Handlers ───────────────────────────────────────────────────
@@ -253,12 +239,9 @@ pub async fn chat(
         cancels.insert(sid.clone(), cancel.clone());
     }
 
-    // Build event sink that broadcasts to WebSocket subscribers
-    let event_sink: Arc<dyn EventSink> = Arc::new(WsSink {
-        session_id: sid.clone(),
-        registry: ctx.chat_streams.clone(),
-        api_key: ctx.api_key.clone(),
-    });
+    // HTTP stream delivery uses `/ws/events` via `chat:stream_delta`; the
+    // EventBus bridge performs the HTTP attachment URL rewrite there.
+    let event_sink: Arc<dyn EventSink> = Arc::new(NoopSink);
 
     let engine_params = ChatEngineParams {
         session_id: sid.clone(),
