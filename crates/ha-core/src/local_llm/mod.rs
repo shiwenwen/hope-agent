@@ -10,8 +10,12 @@
 
 use anyhow::{anyhow, Context, Result};
 use serde::Deserialize;
+use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Duration;
+use tokio_util::sync::CancellationToken;
 
 use crate::provider::{ApiType, ModelConfig, ProviderConfig, ThinkingStyle};
 #[cfg(unix)]
@@ -26,8 +30,16 @@ const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
 const OLLAMA_PROVIDER_NAME: &str = "Ollama (local)";
 const RECOMMENDATION_BUDGET_PERCENT: u64 = 60;
+const START_OLLAMA_TIMEOUT_SECS: u64 = 30;
+const OLLAMA_BINARY_CHECK_TIMEOUT_SECS: u64 = 3;
 pub const EVENT_LOCAL_LLM_INSTALL_PROGRESS: &str = "local_llm:install_progress";
 pub const EVENT_LOCAL_LLM_PULL_PROGRESS: &str = "local_llm:pull_progress";
+#[cfg(unix)]
+const INSTALL_PHASE_DOWNLOAD: &str = "download-installer";
+#[cfg(unix)]
+const INSTALL_PHASE_AUTHORIZE: &str = "authorize";
+#[cfg(unix)]
+const INSTALL_PHASE_INSTALL: &str = "install-ollama";
 /// Hard ceiling on a single NDJSON line during `/api/pull`. Ollama's frames
 /// stay well under 1 KiB; this bound only fires on a malicious or broken
 /// peer that streams without newlines.
@@ -137,11 +149,12 @@ pub fn recommend_model(hardware: &HardwareInfo) -> ModelRecommendation {
 
 /// Probe Ollama: is the binary present, and is the daemon answering?
 pub async fn detect_ollama() -> OllamaStatus {
-    let installed = tokio::task::spawn_blocking(|| which::which("ollama").is_ok())
-        .await
-        .unwrap_or(false);
-
     let running = ping_ollama().await;
+    let installed = if running {
+        true
+    } else {
+        usable_ollama_binary().await.is_some()
+    };
     let phase = match (installed, running) {
         (_, true) => OllamaPhase::Running,
         (true, false) => OllamaPhase::Installed,
@@ -153,6 +166,58 @@ pub async fn detect_ollama() -> OllamaStatus {
         base_url: OLLAMA_BASE_URL.to_string(),
         install_script_supported: cfg!(unix),
     }
+}
+
+async fn locate_ollama_binaries() -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(from_path) = tokio::task::spawn_blocking(|| which::which("ollama"))
+        .await
+        .ok()
+        .and_then(|res| res.ok())
+    {
+        candidates.push(from_path);
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let app_binary = PathBuf::from("/Applications/Ollama.app/Contents/Resources/ollama");
+        if app_binary.is_file() && !candidates.iter().any(|path| path == &app_binary) {
+            candidates.push(app_binary);
+        }
+    }
+
+    candidates
+}
+
+async fn usable_ollama_binary() -> Option<PathBuf> {
+    for path in locate_ollama_binaries().await {
+        if ollama_binary_responds(&path).await {
+            return Some(path);
+        }
+        app_warn!(
+            "local_llm",
+            "detect_ollama",
+            "found ollama binary at {} but `ollama --version` failed",
+            path.display()
+        );
+    }
+    None
+}
+
+async fn ollama_binary_responds(path: &Path) -> bool {
+    use std::process::Stdio;
+
+    let status = tokio::process::Command::new(path)
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    matches!(
+        tokio::time::timeout(Duration::from_secs(OLLAMA_BINARY_CHECK_TIMEOUT_SECS), status).await,
+        Ok(Ok(status)) if status.success()
+    )
 }
 
 /// Cached 1-second-timeout, no-proxy reqwest client used only for the
@@ -239,23 +304,20 @@ pub async fn detect_ollama_version() -> Result<Option<String>> {
 
 // ── Ollama lifecycle ──────────────────────────────────────────────
 
-/// Spawn `ollama serve` detached and wait up to 10 s for the HTTP API to
-/// answer. Idempotent — if the daemon already responds, returns Ok early.
+/// Spawn Ollama detached and wait for the HTTP API to answer. Idempotent — if
+/// the daemon already responds, returns Ok early.
 pub async fn start_ollama() -> Result<()> {
     if ping_ollama().await {
         app_info!("local_llm", "start_ollama", "already running");
         return Ok(());
     }
-    let installed = tokio::task::spawn_blocking(|| which::which("ollama").is_ok())
+    let binary = usable_ollama_binary()
         .await
-        .unwrap_or(false);
-    if !installed {
-        return Err(anyhow!("Ollama is not installed"));
-    }
+        .ok_or_else(|| anyhow!("Ollama is not installed or the installed binary is not usable"))?;
 
-    spawn_ollama_serve()?;
+    spawn_ollama_serve(&binary)?;
 
-    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + Duration::from_secs(START_OLLAMA_TIMEOUT_SECS);
     while std::time::Instant::now() < deadline {
         if ping_ollama().await {
             app_info!("local_llm", "start_ollama", "ready");
@@ -264,14 +326,42 @@ pub async fn start_ollama() -> Result<()> {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
     Err(anyhow!(
-        "Ollama did not respond on {OLLAMA_BASE_URL}/api/tags within 10s"
+        "Ollama did not respond on {OLLAMA_BASE_URL}/api/tags within {START_OLLAMA_TIMEOUT_SECS}s"
     ))
 }
 
-#[cfg(unix)]
-fn spawn_ollama_serve() -> Result<()> {
+#[cfg(target_os = "macos")]
+fn spawn_ollama_serve(binary: &Path) -> Result<()> {
     use std::process::{Command, Stdio};
-    Command::new("ollama")
+
+    if Path::new("/Applications/Ollama.app").is_dir() {
+        Command::new("open")
+            .arg("-a")
+            .arg("Ollama")
+            .arg("--args")
+            .arg("hidden")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("open Ollama.app")?;
+        return Ok(());
+    }
+
+    Command::new(binary)
+        .arg("serve")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .context("spawn `ollama serve`")?;
+    Ok(())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn spawn_ollama_serve(binary: &Path) -> Result<()> {
+    use std::process::{Command, Stdio};
+    Command::new(binary)
         .arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -282,12 +372,12 @@ fn spawn_ollama_serve() -> Result<()> {
 }
 
 #[cfg(windows)]
-fn spawn_ollama_serve() -> Result<()> {
+fn spawn_ollama_serve(binary: &Path) -> Result<()> {
     use std::os::windows::process::CommandExt;
     use std::process::{Command, Stdio};
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    Command::new("ollama")
+    Command::new(binary)
         .arg("serve")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -298,20 +388,58 @@ fn spawn_ollama_serve() -> Result<()> {
     Ok(())
 }
 
-/// Run the upstream Ollama install script and stream stdout/stderr to
-/// `on_progress`. Unix only — Windows users are routed to the download page
-/// in the UI, see [`OllamaStatus::install_script_supported`].
+/// Run the upstream Ollama install script with OS-level administrator
+/// authorization and stream progress to `on_progress`. Unix only — Windows
+/// users are routed to the download page in the UI, see
+/// [`OllamaStatus::install_script_supported`].
 #[cfg(unix)]
 pub async fn install_ollama_via_script<F>(on_progress: F) -> Result<()>
 where
     F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
 {
-    use std::process::Stdio;
-    use tokio::io::{AsyncBufReadExt, BufReader};
-    use tokio::process::Command;
+    install_ollama_via_script_cancellable(on_progress, CancellationToken::new()).await
+}
 
-    let emit = std::sync::Arc::new(on_progress);
+#[cfg(unix)]
+pub async fn install_ollama_via_script_cancellable<F>(
+    on_progress: F,
+    cancel_token: CancellationToken,
+) -> Result<()>
+where
+    F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
+{
+    let emit: InstallProgressEmitter = Arc::new(on_progress);
+    let script = download_ollama_install_script(&emit).await?;
+    if cancel_token.is_cancelled() {
+        return Err(anyhow!("Ollama install was cancelled"));
+    }
+    run_ollama_install_script_authorized(&script, &emit, cancel_token).await?;
 
+    emit_install_progress(&emit, InstallScriptKind::Step, "done");
+    app_info!("local_llm", "install_ollama", "install.sh succeeded");
+    Ok(())
+}
+
+#[cfg(unix)]
+type InstallProgressEmitter = Arc<dyn Fn(&InstallScriptProgress) + Send + Sync + 'static>;
+
+#[cfg(unix)]
+const INSTALL_STARTED_MARKER: &str = "__HOPE_AGENT_OLLAMA_INSTALL_STARTED__";
+
+#[cfg(unix)]
+fn emit_install_progress(
+    emit: &InstallProgressEmitter,
+    kind: InstallScriptKind,
+    message: impl Into<String>,
+) {
+    emit(&InstallScriptProgress {
+        kind,
+        message: message.into(),
+    });
+}
+
+#[cfg(unix)]
+async fn download_ollama_install_script(emit: &InstallProgressEmitter) -> Result<String> {
     // Public HTTPS — must pass through SSRF + global proxy like every
     // other outbound hop. Loopback bypass doesn't apply (this is ollama.com).
     let trusted = crate::config::cached_config().ssrf.trusted_hosts.clone();
@@ -319,10 +447,7 @@ where
         .await
         .with_context(|| format!("SSRF blocked {OLLAMA_INSTALL_URL}"))?;
 
-    emit(&InstallScriptProgress {
-        kind: InstallScriptKind::Step,
-        message: "download".into(),
-    });
+    emit_install_progress(emit, InstallScriptKind::Step, INSTALL_PHASE_DOWNLOAD);
 
     let client = crate::provider::apply_proxy_for_url(
         reqwest::Client::builder().timeout(Duration::from_secs(60)),
@@ -340,10 +465,6 @@ where
         .await
         .context("read install.sh body")?;
 
-    emit(&InstallScriptProgress {
-        kind: InstallScriptKind::Step,
-        message: "running script".into(),
-    });
     app_info!(
         "local_llm",
         "install_ollama",
@@ -351,70 +472,292 @@ where
         script.len()
     );
 
-    let mut child = Command::new("sh")
-        .arg("-s")
-        .arg("--")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .context("spawn sh -s")?;
+    Ok(script)
+}
 
-    if let Some(mut stdin) = child.stdin.take() {
-        use tokio::io::AsyncWriteExt;
-        stdin.write_all(script.as_bytes()).await.ok();
-        // Drop closes stdin so `sh` knows the script is complete.
-    }
+#[cfg(unix)]
+async fn run_ollama_install_script_authorized(
+    script: &str,
+    emit: &InstallProgressEmitter,
+    cancel_token: CancellationToken,
+) -> Result<()> {
+    let temp = InstallerTempDir::new(script).context("prepare ollama install script")?;
+    let command = build_logged_install_command(&temp.script_path, &temp.log_path);
 
-    let stdout = child.stdout.take().context("capture stdout")?;
-    let stderr = child.stderr.take().context("capture stderr")?;
+    emit_install_progress(emit, InstallScriptKind::Step, INSTALL_PHASE_AUTHORIZE);
 
-    let emit_out = emit.clone();
-    let stdout_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stdout).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            emit_out(&InstallScriptProgress {
-                kind: InstallScriptKind::Log,
-                message: line,
-            });
+    let child = match spawn_authorized_install_command(&command) {
+        Ok(child) => child,
+        Err(err) => {
+            let message = err.to_string();
+            emit_install_progress(emit, InstallScriptKind::Error, message.clone());
+            return Err(err);
         }
-    });
-    let emit_err = emit.clone();
-    let stderr_task = tokio::spawn(async move {
-        let mut lines = BufReader::new(stderr).lines();
-        while let Ok(Some(line)) = lines.next_line().await {
-            emit_err(&InstallScriptProgress {
-                kind: InstallScriptKind::Log,
-                message: line,
-            });
-        }
-    });
+    };
 
-    let status = child.wait().await.context("wait for install script")?;
-    let _ = stdout_task.await;
-    let _ = stderr_task.await;
+    let output = wait_with_log_tail(child, &temp.log_path, emit, cancel_token).await?;
 
-    if !status.success() {
-        let code = status.code().unwrap_or(-1);
-        emit(&InstallScriptProgress {
-            kind: InstallScriptKind::Error,
-            message: format!("install script exited with code {code}"),
-        });
+    if !output.status.success() {
+        let code = output.status.code().unwrap_or(-1);
+        let message = install_failure_message(&output);
+        emit_install_progress(emit, InstallScriptKind::Error, message.clone());
         app_warn!(
             "local_llm",
             "install_ollama",
             "install.sh exited with code {}",
             code
         );
-        return Err(anyhow!("install script exited with code {code}"));
+        return Err(anyhow!(message));
     }
 
-    emit(&InstallScriptProgress {
-        kind: InstallScriptKind::Step,
-        message: "done".into(),
-    });
-    app_info!("local_llm", "install_ollama", "install.sh succeeded");
     Ok(())
+}
+
+#[cfg(unix)]
+struct InstallerTempDir {
+    dir: PathBuf,
+    script_path: PathBuf,
+    log_path: PathBuf,
+}
+
+#[cfg(unix)]
+impl InstallerTempDir {
+    fn new(script: &str) -> Result<Self> {
+        use std::fs::OpenOptions;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "hope-agent-ollama-install-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir(&dir).context("create installer temp dir")?;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .context("secure installer temp dir")?;
+
+        let script_path = dir.join("install.sh");
+        let log_path = dir.join("install.log");
+
+        std::fs::write(&script_path, script).context("write install script")?;
+        std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o600))
+            .context("secure install script")?;
+
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .context("create install log")?;
+        log.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .context("secure install log")?;
+
+        Ok(Self {
+            dir,
+            script_path,
+            log_path,
+        })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for InstallerTempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+#[cfg(unix)]
+fn build_logged_install_command(script_path: &Path, log_path: &Path) -> String {
+    format!(
+        "{{ printf '%s\\n' {}; OLLAMA_NO_START=1 /bin/sh {}; }} >> {} 2>&1",
+        shell_quote(INSTALL_STARTED_MARKER),
+        shell_quote_path(script_path),
+        shell_quote_path(log_path)
+    )
+}
+
+#[cfg(unix)]
+fn shell_quote_path(path: &Path) -> String {
+    shell_quote(path.to_string_lossy().as_ref())
+}
+
+#[cfg(unix)]
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
+
+#[cfg(unix)]
+fn spawn_authorized_install_command(command: &str) -> Result<tokio::process::Child> {
+    use std::process::Stdio;
+    use tokio::process::Command;
+
+    let mut cmd = if cfg!(target_os = "macos") {
+        let mut cmd = Command::new("osascript");
+        cmd.arg("-e").arg(format!(
+            "do shell script \"{}\" with administrator privileges",
+            applescript_string(command)
+        ));
+        cmd
+    } else if current_user_is_root() {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c").arg(command);
+        cmd
+    } else if which::which("pkexec").is_ok() {
+        let mut cmd = Command::new("pkexec");
+        cmd.arg("/bin/sh").arg("-c").arg(command);
+        cmd
+    } else if sudo_askpass_available() && which::which("sudo").is_ok() {
+        let mut cmd = Command::new("sudo");
+        if let Some(askpass) =
+            std::env::var_os("SUDO_ASKPASS").or_else(|| std::env::var_os("SSH_ASKPASS"))
+        {
+            cmd.env("SUDO_ASKPASS", askpass);
+        }
+        cmd.arg("-A").arg("/bin/sh").arg("-c").arg(command);
+        cmd
+    } else {
+        return Err(anyhow!(
+            "Graphical administrator authorization is unavailable. Install polkit/pkexec or configure SUDO_ASKPASS, then try again."
+        ));
+    };
+
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .context("spawn authorized ollama installer")
+}
+
+#[cfg(unix)]
+fn current_user_is_root() -> bool {
+    unsafe { libc::geteuid() == 0 }
+}
+
+#[cfg(unix)]
+fn sudo_askpass_available() -> bool {
+    std::env::var_os("SUDO_ASKPASS").is_some() || std::env::var_os("SSH_ASKPASS").is_some()
+}
+
+#[cfg(unix)]
+fn applescript_string(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(unix)]
+async fn wait_with_log_tail(
+    mut child: tokio::process::Child,
+    log_path: &Path,
+    emit: &InstallProgressEmitter,
+    cancel_token: CancellationToken,
+) -> Result<std::process::Output> {
+    let mut offset = 0_u64;
+
+    loop {
+        tokio::select! {
+            output = child.wait() => {
+                let status = output.context("wait for authorized install script")?;
+                let _ = emit_new_install_log_lines(log_path, &mut offset, emit).await;
+                return Ok(std::process::Output {
+                    status,
+                    stdout: Vec::new(),
+                    stderr: Vec::new(),
+                });
+            }
+            _ = cancel_token.cancelled() => {
+                let _ = child.kill().await;
+                let _ = child.wait().await;
+                let _ = emit_new_install_log_lines(log_path, &mut offset, emit).await;
+                return Err(anyhow!("Ollama install was cancelled"));
+            }
+            _ = tokio::time::sleep(Duration::from_millis(250)) => {
+                let _ = emit_new_install_log_lines(log_path, &mut offset, emit).await;
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub async fn install_ollama_via_script_cancellable<F>(
+    on_progress: F,
+    _cancel_token: CancellationToken,
+) -> Result<()>
+where
+    F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
+{
+    install_ollama_via_script(on_progress).await
+}
+
+#[cfg(unix)]
+async fn emit_new_install_log_lines(
+    log_path: &Path,
+    offset: &mut u64,
+    emit: &InstallProgressEmitter,
+) -> Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    let mut file = match tokio::fs::File::open(log_path).await {
+        Ok(file) => file,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err).context("open install log"),
+    };
+
+    let len = file.metadata().await.context("stat install log")?.len();
+    if len < *offset {
+        *offset = 0;
+    }
+
+    file.seek(std::io::SeekFrom::Start(*offset))
+        .await
+        .context("seek install log")?;
+
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)
+        .await
+        .context("read install log")?;
+    *offset += bytes.len() as u64;
+
+    let text = String::from_utf8_lossy(&bytes);
+    for line in text
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.is_empty())
+    {
+        if line == INSTALL_STARTED_MARKER {
+            emit_install_progress(emit, InstallScriptKind::Step, INSTALL_PHASE_INSTALL);
+        } else {
+            emit_install_progress(emit, InstallScriptKind::Log, line);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn install_failure_message(output: &std::process::Output) -> String {
+    let code = output.status.code().unwrap_or(-1);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let details = format!("{stderr}\n{stdout}");
+    let detail = details.trim();
+
+    if authorization_was_denied(detail) {
+        return "System authorization was canceled or denied.".into();
+    }
+
+    if detail.is_empty() {
+        format!("install script exited with code {code}")
+    } else {
+        format!("install script exited with code {code}: {detail}")
+    }
+}
+
+#[cfg(unix)]
+fn authorization_was_denied(detail: &str) -> bool {
+    let lower = detail.to_ascii_lowercase();
+    lower.contains("user canceled")
+        || lower.contains("user cancelled")
+        || lower.contains("not authorized")
+        || lower.contains("authentication failed")
+        || lower.contains("authorization failed")
+        || lower.contains("dismissed")
 }
 
 #[cfg(windows)]
@@ -542,6 +885,17 @@ pub async fn pull_model<F>(model_id: &str, on_progress: F) -> Result<()>
 where
     F: Fn(&PullProgress) + Send + Sync + 'static,
 {
+    pull_model_cancellable(model_id, on_progress, CancellationToken::new()).await
+}
+
+pub async fn pull_model_cancellable<F>(
+    model_id: &str,
+    on_progress: F,
+    cancel_token: CancellationToken,
+) -> Result<()>
+where
+    F: Fn(&PullProgress) + Send + Sync + 'static,
+{
     use futures_util::StreamExt;
 
     if !ping_ollama().await {
@@ -578,7 +932,14 @@ where
     let mut stream = resp.bytes_stream();
     let mut buf = Vec::<u8>::new();
     let mut latest_phase = String::new();
-    while let Some(chunk) = stream.next().await {
+    loop {
+        let next_chunk = tokio::select! {
+            _ = cancel_token.cancelled() => {
+                return Err(anyhow!("Ollama pull was cancelled"));
+            }
+            chunk = stream.next() => chunk,
+        };
+        let Some(chunk) = next_chunk else { break };
         let chunk = chunk.context("read pull chunk")?;
         buf.extend_from_slice(&chunk);
         if buf.len() > MAX_PULL_LINE_BYTES {
@@ -678,9 +1039,20 @@ pub async fn pull_and_activate<F>(model: ModelCandidate, on_progress: F) -> Resu
 where
     F: Fn(&PullProgress) + Send + Sync + 'static,
 {
+    pull_and_activate_cancellable(model, on_progress, CancellationToken::new()).await
+}
+
+pub async fn pull_and_activate_cancellable<F>(
+    model: ModelCandidate,
+    on_progress: F,
+    cancel_token: CancellationToken,
+) -> Result<(String, String)>
+where
+    F: Fn(&PullProgress) + Send + Sync + 'static,
+{
     let on_progress = std::sync::Arc::new(on_progress);
     let cb = on_progress.clone();
-    pull_model(&model.id, move |p| cb(p)).await?;
+    pull_model_cancellable(&model.id, move |p| cb(p), cancel_token).await?;
 
     let model_id = model.id.clone();
     on_progress(&PullProgress {

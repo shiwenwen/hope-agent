@@ -169,6 +169,20 @@ pub fn init_runtime(role: &str) {
         ),
     }
 
+    // Failure here is non-fatal — local model setup stays available through
+    // the older synchronous commands, but the global task center is disabled.
+    match paths::local_model_jobs_db_path()
+        .and_then(|p| crate::local_model_jobs::LocalModelJobsDB::open(&p))
+    {
+        Ok(db) => crate::local_model_jobs::set_local_model_jobs_db(Arc::new(db)),
+        Err(e) => crate::app_warn!(
+            "local_model_jobs",
+            "init",
+            "Failed to open local_model_jobs DB ({}); model install jobs disabled",
+            e
+        ),
+    }
+
     // Log system startup
     logger.log(
         "info",
@@ -523,6 +537,7 @@ pub async fn start_background_tasks() {
         tokio::spawn(async move {
             crate::async_jobs::replay_pending_jobs();
         });
+        crate::local_model_jobs::replay_interrupted_jobs();
 
         // Retention sweep for async_jobs (rows + spool files). Runs once at
         // startup and then once per day. Disabled entirely when both
@@ -643,6 +658,7 @@ pub async fn start_minimal_background_tasks() {
         tokio::spawn(async move {
             crate::async_jobs::replay_pending_jobs();
         });
+        crate::local_model_jobs::replay_interrupted_jobs();
     }
 
     // MCP init (no watchdog). Tier-agnostic — ACP tool dispatch may hit

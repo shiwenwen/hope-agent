@@ -1925,6 +1925,9 @@
       },
       "phases": {
         "starting": "準備中…",
+        "downloadInstaller": "インストーラをダウンロード中",
+        "authorize": "システム認証待ち",
+        "installOllama": "Ollama をインストール中",
         "pullingManifest": "マニフェスト取得",
         "downloading": "ダウンロード中",
         "verifying": "整合性チェック",
@@ -2960,6 +2963,61 @@
     "bannerBoth": "危険モード有効（CLI + 設定）— すべてのツール承認をバイパス中",
     "bannerCli": "危険モード有効（CLI フラグで起動）— 無効にするには --dangerously-skip-all-approvals なしで再起動",
     "bannerConfig": "危険モード有効 — すべてのツール承認をバイパス中。設定 → セキュリティで無効化"
+  },
+  "localModelJobs": {
+    "title": "Tasks",
+    "subtitle": "Model installation tasks keep running in the background.",
+    "activeSummary": "{{count}} model install task is running",
+    "activeSummary_other": "{{count}} model install tasks are running",
+    "emptyTitle": "No model install tasks",
+    "emptyDescription": "Ollama and model downloads will appear here.",
+    "kind": {
+      "chat_model": "Chat model",
+      "embedding_model": "Embedding model"
+    },
+    "status": {
+      "running": "Running",
+      "cancelling": "Cancelling",
+      "completed": "Completed",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "cancelled": "Cancelled"
+    },
+    "phases": {
+      "queued": "Queued",
+      "checkingOllama": "Checking Ollama",
+      "startOllama": "Starting Ollama",
+      "cancelling": "Cancelling",
+      "cancelled": "Cancelled",
+      "failed": "Failed",
+      "interrupted": "Interrupted"
+    },
+    "actions": {
+      "backgroundInstall": "Install in background",
+      "cancelInstall": "Cancel install",
+      "keepWatching": "Keep watching",
+      "viewLogs": "View logs",
+      "hideLogs": "Hide logs",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "clear": "Clear"
+    },
+    "close": {
+      "title": "Close install window?",
+      "description": "This task can continue in the background, or you can cancel it now."
+    },
+    "logs": {
+      "empty": "No logs yet"
+    },
+    "toast": {
+      "completed": "{{model}} installed",
+      "cancelled": "{{model}} install cancelled",
+      "failed": "{{model}} install failed",
+      "retryStarted": "Retry started for {{model}}"
+    },
+    "errors": {
+      "loadFailed": "Failed to load model install tasks"
+    }
   },
   "onboarding": {
     "welcome": {

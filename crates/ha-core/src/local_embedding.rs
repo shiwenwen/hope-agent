@@ -8,9 +8,11 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::local_llm::{
-    detect_ollama_version, list_ollama_model_names, pull_model, PullProgress, OLLAMA_BASE_URL,
+    detect_ollama_version, list_ollama_model_names, pull_model_cancellable, PullProgress,
+    OLLAMA_BASE_URL,
 };
 use crate::memory::{EmbeddingConfig, EmbeddingProviderType};
+use tokio_util::sync::CancellationToken;
 
 pub const EVENT_LOCAL_EMBEDDING_PULL_PROGRESS: &str = "local_embedding:pull_progress";
 const PROVIDER_SOURCE: &str = "local-embedding-wizard";
@@ -108,7 +110,7 @@ pub fn embedding_config_for_model(model: &OllamaEmbeddingModel) -> EmbeddingConf
     }
 }
 
-fn resolve_catalog_model(model_id: &str) -> Result<OllamaEmbeddingModel> {
+pub fn resolve_catalog_model(model_id: &str) -> Result<OllamaEmbeddingModel> {
     embedding_model_catalog()
         .into_iter()
         .find(|model| model.id == model_id)
@@ -131,7 +133,7 @@ pub fn ollama_version_meets_min(version: &str, minimum: &str) -> bool {
     current >= required
 }
 
-async fn ensure_version_compatible(model: &OllamaEmbeddingModel) -> Result<()> {
+pub async fn ensure_version_compatible(model: &OllamaEmbeddingModel) -> Result<()> {
     let Some(minimum) = model.min_ollama_version.as_deref() else {
         return Ok(());
     };
@@ -173,12 +175,23 @@ pub async fn pull_and_activate<F>(
 where
     F: Fn(&PullProgress) + Send + Sync + 'static,
 {
+    pull_and_activate_cancellable(requested, on_progress, CancellationToken::new()).await
+}
+
+pub async fn pull_and_activate_cancellable<F>(
+    requested: OllamaEmbeddingModel,
+    on_progress: F,
+    cancel_token: CancellationToken,
+) -> Result<EmbeddingConfig>
+where
+    F: Fn(&PullProgress) + Send + Sync + 'static,
+{
     let model = resolve_catalog_model(&requested.id)?;
     ensure_version_compatible(&model).await?;
 
     let on_progress = std::sync::Arc::new(on_progress);
     let cb = on_progress.clone();
-    pull_model(&model.id, move |p| cb(p)).await?;
+    pull_model_cancellable(&model.id, move |p| cb(p), cancel_token).await?;
 
     on_progress(&PullProgress {
         model_id: model.id.clone(),

@@ -352,6 +352,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   local_llm_pull_and_activate:     { method: "POST",   path: "/api/local-llm/pull" },
   local_embedding_list_models:     { method: "GET",    path: "/api/local-embedding/models" },
   local_embedding_pull_and_activate: { method: "POST",  path: "/api/local-embedding/pull" },
+  local_model_job_start_chat_model:{ method: "POST",   path: "/api/local-model-jobs/chat-model" },
+  local_model_job_start_embedding: { method: "POST",   path: "/api/local-model-jobs/embedding" },
+  local_model_job_list:            { method: "GET",    path: "/api/local-model-jobs" },
+  local_model_job_get:             { method: "GET",    path: "/api/local-model-jobs/{jobId}" },
+  local_model_job_logs:            { method: "GET",    path: "/api/local-model-jobs/{jobId}/logs" },
+  local_model_job_cancel:          { method: "POST",   path: "/api/local-model-jobs/{jobId}/cancel" },
+  local_model_job_retry:           { method: "POST",   path: "/api/local-model-jobs/{jobId}/retry" },
+  local_model_job_clear:           { method: "DELETE", path: "/api/local-model-jobs/{jobId}" },
 
   // -- Skills --
   get_skills:                      { method: "GET",    path: "/api/skills" },

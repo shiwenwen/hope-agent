@@ -1925,6 +1925,9 @@
       },
       "phases": {
         "starting": "Подготовка…",
+        "downloadInstaller": "Загрузка установщика",
+        "authorize": "Ожидание системной авторизации",
+        "installOllama": "Установка Ollama",
         "pullingManifest": "Получение манифеста",
         "downloading": "Загрузка",
         "verifying": "Проверка целостности",
@@ -2960,6 +2963,61 @@
     "bannerBoth": "Опасный режим активен (CLI + конфиг) — все подтверждения инструментов пропускаются",
     "bannerCli": "Опасный режим активен (запущен флагом CLI) — перезапустите без --dangerously-skip-all-approvals для отключения",
     "bannerConfig": "Опасный режим активен — все подтверждения инструментов пропускаются. Отключите в Настройки → Безопасность"
+  },
+  "localModelJobs": {
+    "title": "Tasks",
+    "subtitle": "Model installation tasks keep running in the background.",
+    "activeSummary": "{{count}} model install task is running",
+    "activeSummary_other": "{{count}} model install tasks are running",
+    "emptyTitle": "No model install tasks",
+    "emptyDescription": "Ollama and model downloads will appear here.",
+    "kind": {
+      "chat_model": "Chat model",
+      "embedding_model": "Embedding model"
+    },
+    "status": {
+      "running": "Running",
+      "cancelling": "Cancelling",
+      "completed": "Completed",
+      "failed": "Failed",
+      "interrupted": "Interrupted",
+      "cancelled": "Cancelled"
+    },
+    "phases": {
+      "queued": "Queued",
+      "checkingOllama": "Checking Ollama",
+      "startOllama": "Starting Ollama",
+      "cancelling": "Cancelling",
+      "cancelled": "Cancelled",
+      "failed": "Failed",
+      "interrupted": "Interrupted"
+    },
+    "actions": {
+      "backgroundInstall": "Install in background",
+      "cancelInstall": "Cancel install",
+      "keepWatching": "Keep watching",
+      "viewLogs": "View logs",
+      "hideLogs": "Hide logs",
+      "cancel": "Cancel",
+      "retry": "Retry",
+      "clear": "Clear"
+    },
+    "close": {
+      "title": "Close install window?",
+      "description": "This task can continue in the background, or you can cancel it now."
+    },
+    "logs": {
+      "empty": "No logs yet"
+    },
+    "toast": {
+      "completed": "{{model}} installed",
+      "cancelled": "{{model}} install cancelled",
+      "failed": "{{model}} install failed",
+      "retryStarted": "Retry started for {{model}}"
+    },
+    "errors": {
+      "loadFailed": "Failed to load model install tasks"
+    }
   },
   "onboarding": {
     "welcome": {

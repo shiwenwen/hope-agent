@@ -95,6 +95,59 @@
 
 ---
 
+### F-016 LocalModelJobsDB 与 AsyncJobsDB 大量重复
+
+- **来源**：2026-04-26 Task Center / Local Model Jobs `/simplify` review
+- **现象**：[`crates/ha-core/src/local_model_jobs.rs`](../../crates/ha-core/src/local_model_jobs.rs) 重新实现了与 [`crates/ha-core/src/async_jobs/`](../../crates/ha-core/src/async_jobs/) 几乎一一对应的基础设施：
+  - 状态枚举 `LocalModelJobStatus { Running, Cancelling, Completed, Failed, Interrupted, Cancelled }` ↔ `AsyncJobStatus`（多一个 `TimedOut`）
+  - `is_terminal()` + `TERMINAL_SQL_LIST`
+  - `LocalModelJobsDB::open` 的 PRAGMA WAL/NORMAL + CREATE TABLE 模板
+  - `mark_interrupted_running` / `mark_cancelling` 的 lifecycle 逻辑
+  - `static CANCELS: Mutex<HashMap<String, CancellationToken>>` 取消注册表（`async_jobs::cancel` 已有）
+  - `now_secs()` 时间戳助手（`async_jobs::spawn` 已有）
+  - `row_to_job` 行解析模板
+- **为什么留**：`local_model_jobs.rs` 顶部注释明确说"故意与 async_jobs 分离：那些是工具调用结果，本模块是用户可见的安装任务"——确实需要不同的 payload schema 与 UI 语义，但 *基础设施层*（DB scaffold / cancel registry / lifecycle）是可以共享的。统一需要把 async_jobs 的相关基元抽到一个 `crate::async_jobs::scaffolding` 层，工程量大且涉及现有 async_jobs 的回归风险，本期 PR 已经过大不再叠加。
+- **改的话要做什么**：
+  1. 在 `crates/ha-core/src/async_jobs/` 抽出 `lifecycle.rs`：`CommonJobStatus` enum + `is_terminal` + `TERMINAL_SQL_LIST` + `mark_interrupted_running` 通用模板
+  2. 把 `cancel.rs::CANCELS` 和 helper（`register_job_token` / `cancel_job` / `remove_job`）改成 generic by job-id 字符串，让 `local_model_jobs` 直接复用而不是另开一份
+  3. `local_model_jobs::LocalModelJobsDB::open` 把 PRAGMA + CREATE 步骤拆出 `init_journal_pragmas(&conn)` helper
+  4. `now_secs()` 移到 `crate::time` 或 `crate::util`
+- **影响面**：纯整洁度，没有 bug。但现状下任何对 async_jobs 基础设施的改动（如新增 status / 改 cancel 协议 / 调 PRAGMA）都需要在 local_model_jobs 平行复制一份，长期维护成本。
+- **触发时机建议**：下一次有人需要再加第三类用户可见后台任务（例如"批量索引项目文件"或"长时间 web search"）时一并抽 scaffolding；或独立 "async_jobs scaffolding 抽出" 重构 PR。
+
+---
+
+### F-017 旧 `local_llm:install_progress` / `local_llm:pull_progress` / `local_embedding:pull_progress` 事件路径已无前端监听
+
+- **来源**：2026-04-26 Task Center / Local Model Jobs `/simplify` review
+- **现象**：新 Task Center 落地后，安装/拉取走 `local_model_job:*` 事件总线。但旧的：
+  - `crates/ha-server/src/routes/local_llm.rs` `install_ollama` / `pull_and_activate` 端点
+  - `src-tauri/src/commands/local_llm.rs` 同名 Tauri 命令
+  - `crates/ha-core/src/local_llm/mod.rs::EVENT_LOCAL_*` 常量 + emit 调用
+  - `crates/ha-core/src/local_embedding.rs::EVENT_LOCAL_*` 同上
+  仍在生产中可被调用，前端代码已 100% 切到新路径，没有任何 listener 在监听这三个事件名了（grep 验证）。
+- **为什么留**：删除涉及 ha-core / ha-server / src-tauri 三处源 + `docs/architecture/api-reference.md` + `CHANGELOG.md` 同步，且需要确认确实没有外部调用方（如 hope-agent CLI / 第三方 SDK / 自动化脚本）。本期已经把新路径打磨好，老路径短期共存对运行没影响。
+- **改的话要做什么**：
+  1. grep `local_llm_install_ollama` / `local_llm_pull_and_activate` / `local_embedding_pull_and_activate` 的所有外部使用面（CLI 子命令、文档示例、SDK）
+  2. 确认零外部用户后，从 ha-server `router.rs`、src-tauri `invoke_handler!`、ha-core 三处删除函数与 EVENT 常量
+  3. 同步更新 [`docs/architecture/api-reference.md`](../../docs/architecture/api-reference.md) 与 `CHANGELOG.md`
+- **影响面**：当前为 dead code，二进制大小 / 编译时间 / 可读性轻微负担，无 runtime 风险。
+- **触发时机建议**：下一次清理 deprecated 命令时一并；或者切到 1.0 之前做 API 收敛时收掉。
+
+---
+
+### F-018 SQLite 写在 tokio worker 上同步串行成为高频进度场景的瓶颈
+
+- **来源**：2026-04-26 Task Center / Local Model Jobs `/simplify` review
+- **现象**：[`crates/ha-core/src/local_model_jobs.rs::LocalModelJobsDB`](../../crates/ha-core/src/local_model_jobs.rs) 的 `conn: Mutex<Connection>`（`std::sync::Mutex`）在 pull 进度风暴中由 reqwest stream 回调以同步方式持锁；同一把锁也是 `list_jobs` / `get_job` / `cancel_job` 的读路径锁。多 job 并行时 tokio worker 互相阻塞；本期已加 250 ms / phase-change 节流（`ProgressThrottle`）把帧率压到 ~4 Hz 缓解，但 SQLite IO 仍在 worker 线程上。
+- **为什么留**：节流后的 4 Hz 写入 + 100 行上限的 GC 已经远低于会成为瓶颈的水平，本期实测无可见卡顿；改成 `spawn_blocking` 或单线程 writer task 是结构性优化但需要重新设计 read/write 分离与 cancel 路径，工程量与风险与本期收益不匹配。
+- **改的话要做什么**：候选两条：
+  - **A**：所有 SQL 调用包 `spawn_blocking`，retain `Arc<Mutex<Connection>>` 但避免占 worker
+  - **B**：dedicated writer task：`mpsc::UnboundedSender<WriterCmd>` + 独立 thread 持 connection，`update_progress` / `append_log` / `mark_*` 改成发消息；读路径用独立 read-only connection（SQLite WAL 允许并发读）
+  - 推荐 B，与 dashboard / session DB 的潜在统一更大
+- **影响面**：极端场景（多个并发 GB 级 pull + 大量并发 list_jobs 查询）下可能出现 worker stall；现实中很难触发。
+- **触发时机建议**：如果未来要支持"批量预拉模型"（多 job 并行）或观察到 tokio worker stall，再处理。
+
 ---
 
 ## Closed

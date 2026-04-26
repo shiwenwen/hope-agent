@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Ollama 一键安装改为原生授权流程 + 更稳的启动探测**：macOS/Linux 的本地小模型助手不再把权限问题抛给用户手动执行命令，而是在应用内下载官方 install.sh 后触发系统管理员授权（macOS `osascript ... with administrator privileges`，Linux 优先 `pkexec` / `sudo -A`，root 直接执行），并把 `download-installer` / `authorize` / `install-ollama` 阶段和脚本日志统一回传给前端。Ollama 探测从单纯 `which ollama` 升级为执行 `ollama --version` 校验可用性，macOS 同时识别 `/Applications/Ollama.app/Contents/Resources/ollama`；启动超时从 10s 放宽到 30s，macOS 优先通过 `open -a Ollama --args hidden` 拉起桌面应用，减少“实际已安装但启动探测过早失败”的误判。
 - **设置面板原生 `<button>` / `<input>` / `<textarea>` 全量切到 shadcn 组件**：`src/components/settings/` 下 50+ 个文件里所有零散的原生 HTML 表单元素（116 个 `<button>` / 5 个 `<input>` / 2 个 `<textarea>` / 2 个 `<input type="range">` / 4 个 `<input type="checkbox">`）系统替换成 shadcn 等价组件（`<Button>` 各 variant、`<Input>`、`<Textarea>`、`<Slider>`、`<Switch>`），原生元素绕过 shadcn focus-visible 处理导致的浏览器默认黑色 outline 焦点框问题彻底清掉。文字链样式的内联点击点改 `variant="ghost"` + 行内 className override 保持视觉。`src/index.css` 全局 focus-visible fallback 保留为防御层。关闭 [F-015](docs/plans/review-followups.md#closed)。
 - **正式标识符切到 `hopeagent.ai` 命名空间**：Tauri 桌面主应用 bundle identifier 从 `com.hopeagent.app` 改为 `ai.hopeagent.desktop`，避开 `.app` 末段打包警告；macOS launchd 服务 label 同步从 `com.hopeagent.server` 改为 `ai.hopeagent.server`，安装/卸载路径兼容清理旧 plist，避免升级后留下两份后台服务。
 - **聊天输入区窄宽度收纳添加类入口**：当输入区可用宽度不足时，添加照片和文件、工作目录、斜杠命令和无痕模式会收进一个加号菜单，并以 icon + 文案的列表行展示；模型/思考模式、温度、Plan Mode、工具权限与发送按钮继续留在主工具栏，避免入口按钮换行挤占输入区。
@@ -34,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **后台模型安装任务中心**：Ollama 安装、Ollama 启动、Embedding 模型拉取和普通本地对话模型拉取统一改成 ha-core 后台任务，弹层只作为当前任务的前台观察窗口。新增独立的 `ha-core::local_model_jobs` 模块和 `~/.hope-agent/local_model_jobs.db`，持久化 job snapshot 与最近日志；启动时把未完成任务标记为 `interrupted`，不自动续跑，用户可在任务中心手动重试。
+  - **新后台任务 API + 事件**：新增 Tauri 命令与 HTTP 路由 `local_model_job_start_chat_model` / `local_model_job_start_embedding` / `local_model_job_list` / `local_model_job_get` / `local_model_job_logs` / `local_model_job_cancel` / `local_model_job_retry` / `local_model_job_clear`，HTTP 对应 `/api/local-model-jobs/*`。新增事件 `local_model_job:created` / `local_model_job:updated` / `local_model_job:log` / `local_model_job:completed`，Tauri IPC 和 server WebSocket 两种运行模式都通过同一 EventBus 推送。
+  - **任务执行与取消语义**：后台任务在 core 层串起“检测 Ollama → 必要时授权安装 → 启动 Ollama → 拉取模型 → 写入配置”的完整流程。对话模型完成后注册/激活本地 Ollama Provider，Tauri wrapper 通过 completion hook 即时刷新 `AppState.agent`；Embedding 完成后写入 Embedding 配置并应用到 memory backend。取消采用 best-effort 停止当前安装/拉取任务，保留 Ollama 已下载缓存层，不调用 Ollama 删除模型，避免误删用户已有同名模型。
+  - **前端任务中心与后台安装交互**：`InstallProgressDialog` 新增“后台安装”按钮；点击右上角 X 时，未完成任务会弹出“取消安装 / 后台安装 / 继续查看”。左侧全局图标栏新增“任务”入口和运行中数量徽标；`TaskCenterView` 支持查看日志、取消运行中任务、重试失败/中断/取消任务、清除终态记录，并在后台任务完成/失败/取消时保留记录并弹 toast。
 - **本地小模型一键安装助手（设置 → 模型 → Provider）**：模型配置页 Provider 标签顶部新增"本地小模型助手"卡片，自动检测电脑配置并按 `模型 ≤ 可用资源 50%` 推荐 Qwen3.6 / Gemma 4 系列里能跑得动的尺寸（macOS 看统一内存、Windows/Linux 优先 dGPU VRAM 探测顺序 `nvidia-smi` → `lspci` → PowerShell `Win32_VideoController`，否则回落到系统内存的一半）。
   - **一键安装并启用**：目录包含 `qwen3.6:27b` / `qwen3.6:35b-a3b`（dense + MoE）与 `gemma4:e2b` / `gemma4:e4b` / `gemma4:26b-a4b` / `gemma4:31b`，尺寸数字以 `ollama.com/library` tag 页为准。Ollama 未安装时 macOS/Linux 弹模态进度对话框跑官方 `install.sh`，Windows 引导用户去 `ollama.com/download` 后回来重新检测。安装完自动 `ollama serve` 启动，再调 `/api/pull` 流式拉取模型，进度条 + 阶段名（`pulling manifest` / `downloading` / `verifying digest` / `writing manifest`）实时显示。完成后自动注册 OpenAI 兼容 Provider（`http://127.0.0.1:11434`，`apiType=openai-chat`，`allow_private_network=true`）并切换为 active model。
   - **后端**：[`crates/ha-core/src/local_llm/`](crates/ha-core/src/local_llm/) 模块（`detect_hardware` / `recommend_model` / `detect_ollama` / `start_ollama` / `install_ollama_via_script` / `pull_model` / `pull_and_activate`）+ [`crates/ha-core/src/platform/`](crates/ha-core/src/platform/) 新增 `detect_dedicated_gpu`。Tauri 命令 `local_llm_*` 6 个 + HTTP 路由 `/api/local-llm/{hardware,recommendation,ollama-status,install,start,pull}`。
@@ -57,6 +62,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **后台模型安装弹层和任务日志的事件漏收兜底**：对话模型与 Embedding 模型安装弹层现在把 `local_model_job:*` 事件路径和 `local_model_job_get` 轮询路径合并到同一套终态处理逻辑；即使 HTTP `/ws/events` 重连或 EventBus lag 漏掉 completed 事件，轮询拿到终态 snapshot 后也会清理 busy 状态、刷新 Provider / Embedding 配置并更新页面。任务中心日志面板每次重新展开都会重新拉取后端日志，避免折叠期间产生的日志在 UI 中缺失。
 - **聊天结束后停止按钮 / 会话列表转圈滞后消失**：主聊天流在最终 assistant 消息落库后立即广播 `chat:stream_end`，自动记忆提取改为后台调度，不再让一次 post-turn 记忆 LLM 调用把前端 loading 状态拖住。
 - **定时任务日历视图把高频 `every` 任务错误回填到月初**：`CronSchedule::Every` 现在持久化 `start_at`（首个计划触发时间），创建/编辑时由后端锚定，旧数据库任务在 `CronDB::open` 启动时按 `created_at + interval_ms` 自动回填。`cron/calendar` 不再从查询窗口起点硬铺 interval 任务，`每 5 分钟` 的喝水提醒不会再在 4 月日历里凭空出现在 `4/1-4/4`。顺带把日历日志匹配改成“按 job 批量读取 + 就近唯一匹配到最近 occurrence”，避免高频任务状态点错贴到前一个时间槽位。
 - **`delete_session` silent orphan**：长期以来 `learning_events / subagent_runs / acp_runs` 三张表对 `session_id` / `parent_session_id` 没有 FK cascade，普通删除会话也会留孤儿（Dashboard / Learning 查询时偶尔出现幽灵行）。本次随无痕"关闭即焚"路径一起修，所有 `delete_session` 路径同样受益。

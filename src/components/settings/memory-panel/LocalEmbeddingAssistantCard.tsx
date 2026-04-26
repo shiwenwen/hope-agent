@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Cpu,
@@ -13,19 +13,25 @@ import {
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { parsePayload } from "@/lib/transport"
-import { withEventListener } from "@/lib/transport-events"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { formatBytesFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import {
-  InstallProgressDialog,
-  type ProgressFrame,
-} from "@/components/settings/local-llm/InstallProgressDialog"
+import { InstallProgressDialog } from "@/components/settings/local-llm/InstallProgressDialog"
 import type { EmbeddingConfig, OllamaEmbeddingModel } from "./types"
+import {
+  formatLocalModelJobLogLine,
+  isLocalModelJobActive,
+  isLocalModelJobTerminal,
+  LOCAL_MODEL_JOB_EVENTS,
+  localModelJobToProgressFrame,
+  phaseTranslationKey,
+  type LocalModelJobLogEntry,
+  type LocalModelJobSnapshot,
+  type ProgressFrame,
+} from "@/types/local-model-jobs"
 
 type OllamaPhase = "not-installed" | "installed" | "running"
-type InstallProgressKind = "step" | "log" | "error"
 
 interface OllamaStatus {
   phase: OllamaPhase
@@ -33,39 +39,11 @@ interface OllamaStatus {
   installScriptSupported: boolean
 }
 
-interface PullProgressPayload {
-  modelId: string
-  phase: string
-  percent?: number | null
-}
-
-interface InstallProgressPayload {
-  kind: InstallProgressKind
-  message: string
-}
-
 interface DesktopOpenResult {
   ok?: boolean
 }
 
-const EVENT_LOCAL_LLM_INSTALL_PROGRESS = "local_llm:install_progress"
-const EVENT_LOCAL_EMBEDDING_PULL_PROGRESS = "local_embedding:pull_progress"
 const MAX_DIALOG_LOG_LINES = 240
-
-const PHASE_KEY: Record<string, string> = {
-  starting: "settings.localLlm.phases.starting",
-  "pulling manifest": "settings.localLlm.phases.pullingManifest",
-  downloading: "settings.localLlm.phases.downloading",
-  "verifying digest": "settings.localLlm.phases.verifying",
-  "writing manifest": "settings.localLlm.phases.writingManifest",
-  success: "settings.localLlm.phases.success",
-  "configure-embedding": "settings.localEmbedding.phases.configureEmbedding",
-  done: "settings.localLlm.phases.done",
-}
-
-function formatLogLine(message: string): string {
-  return `[${new Date().toLocaleTimeString()}] ${message}`
-}
 
 export default function LocalEmbeddingAssistantCard({
   onActivated,
@@ -77,7 +55,7 @@ export default function LocalEmbeddingAssistantCard({
   const [ollama, setOllama] = useState<OllamaStatus | null>(null)
   const [chosen, setChosen] = useState<OllamaEmbeddingModel | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
   const [showAlternatives, setShowAlternatives] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -88,11 +66,15 @@ export default function LocalEmbeddingAssistantCard({
   const [dialogLogs, setDialogLogs] = useState<string[]>([])
   const [dialogDone, setDialogDone] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
+  const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
+  const handledCompletedJobs = useRef<Set<string>>(new Set())
+  const jobActive = currentJob ? isLocalModelJobActive(currentJob) : false
+  const busy = submitting || jobActive
 
-  const appendDialogLog = useCallback((message: string) => {
+  const appendDialogLog = useCallback((message: string, createdAt?: number) => {
     const trimmed = message.trim()
     if (!trimmed) return
-    const line = formatLogLine(trimmed)
+    const line = formatLocalModelJobLogLine(trimmed, createdAt)
     setDialogLogs((prev) => {
       if (prev[prev.length - 1] === line) return prev
       return [...prev.slice(-(MAX_DIALOG_LOG_LINES - 1)), line]
@@ -125,9 +107,8 @@ export default function LocalEmbeddingAssistantCard({
 
   const phaseLabel = useCallback(
     (phase: string | undefined) => {
-      if (!phase) return ""
-      const key = PHASE_KEY[phase.toLowerCase()]
-      return key ? t(key) : phase
+      const key = phaseTranslationKey(phase)
+      return key ? t(key) : (phase ?? "")
     },
     [t],
   )
@@ -145,6 +126,36 @@ export default function LocalEmbeddingAssistantCard({
       .catch(openInBrowser)
   }, [])
 
+  const hydrateJobLogs = useCallback(async (jobId: string) => {
+    try {
+      const entries = await getTransport().call<LocalModelJobLogEntry[]>("local_model_job_logs", {
+        jobId,
+      })
+      setDialogLogs(
+        entries
+          .slice(-MAX_DIALOG_LOG_LINES)
+          .map((entry) => formatLocalModelJobLogLine(entry.message, entry.createdAt)),
+      )
+    } catch (e) {
+      logger.warn("settings", "LocalEmbeddingAssistant::hydrateJobLogs", "Failed to load logs", e)
+    }
+  }, [])
+
+  const openJobDialog = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      setCurrentJob(job)
+      setDialogOpen(true)
+      setDialogTitle(t("settings.localEmbedding.install.title"))
+      setDialogSubtitle(job.modelId)
+      setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+      setDialogLogs([])
+      setDialogDone(job.status === "completed")
+      setDialogError(job.error ?? null)
+      void hydrateJobLogs(job.jobId)
+    },
+    [hydrateJobLogs, phaseLabel, t],
+  )
+
   const activateModel = useCallback(
     async (model: OllamaEmbeddingModel) => {
       if (ollama?.phase === "not-installed" && !ollama.installScriptSupported) {
@@ -152,84 +163,83 @@ export default function LocalEmbeddingAssistantCard({
         return
       }
 
-      setBusy(true)
+      setSubmitting(true)
       setError(null)
-      setDialogOpen(true)
-      setDialogTitle(t("settings.localEmbedding.install.title"))
-      setDialogSubtitle(model.id)
-      setDialogFrame({
-        phase: "starting",
-        message: t("settings.localLlm.phases.starting"),
-        percent: null,
-      })
-      setDialogLogs([])
-      setDialogDone(false)
-      setDialogError(null)
-
-      const handleInstallProgress = (raw: unknown) => {
-        const p = parsePayload<InstallProgressPayload>(raw)
-        if (p.kind === "step") {
-          setDialogFrame({ phase: p.message, message: p.message })
-          appendDialogLog(p.message)
-        } else if (p.kind === "log") {
-          appendDialogLog(p.message)
-        } else if (p.kind === "error") {
-          setDialogError(p.message)
-          appendDialogLog(p.message)
-        }
-      }
-
-      const handlePullProgress = (raw: unknown) => {
-        const p = parsePayload<PullProgressPayload>(raw)
-        const label = phaseLabel(p.phase) || p.phase
-        const progressSuffix = p.percent == null ? "" : ` ${Math.round(p.percent)}%`
-        setDialogFrame({
-          phase: p.phase,
-          message: label,
-          percent: p.percent ?? null,
-        })
-        appendDialogLog(`${label}${progressSuffix}`)
-      }
-
       try {
-        if (ollama?.phase === "not-installed") {
-          await withEventListener(EVENT_LOCAL_LLM_INSTALL_PROGRESS, handleInstallProgress, () =>
-            getTransport().call("local_llm_install_ollama"),
-          )
-        }
-
-        if (ollama?.phase !== "running") {
-          const label = t("settings.localLlm.buttons.startOllama")
-          setDialogFrame({ phase: "starting", message: label, percent: null })
-          appendDialogLog(label)
-          await getTransport().call("local_llm_start_ollama")
-        }
-
-        const config = await withEventListener(
-          EVENT_LOCAL_EMBEDDING_PULL_PROGRESS,
-          handlePullProgress,
-          () =>
-            getTransport().call<EmbeddingConfig>("local_embedding_pull_and_activate", {
-              model,
-            }),
+        const job = await getTransport().call<LocalModelJobSnapshot>(
+          "local_model_job_start_embedding",
+          { model },
         )
-
-        onActivated(config)
-        setDialogDone(true)
-        appendDialogLog(t("settings.localLlm.phases.done"))
-        await refresh()
-        setTimeout(() => setDialogOpen(false), 800)
+        openJobDialog(job)
       } catch (e) {
         const msg = String(e)
         setDialogError(msg)
-        appendDialogLog(msg)
         setError(t("settings.localEmbedding.error.activateFailed", { message: msg }))
       } finally {
-        setBusy(false)
+        setSubmitting(false)
       }
     },
-    [appendDialogLog, ollama, onActivated, openDownloadPage, phaseLabel, refresh, t],
+    [ollama, openDownloadPage, openJobDialog, t],
   )
+
+  const handleTerminalJob = useCallback((job: LocalModelJobSnapshot) => {
+    if (!isLocalModelJobTerminal(job)) return
+    if (handledCompletedJobs.current.has(job.jobId)) return
+    handledCompletedJobs.current.add(job.jobId)
+    if (job.status === "completed") {
+      appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
+      const config = job.resultJson as EmbeddingConfig | null | undefined
+      if (config) onActivated(config)
+      void refresh()
+    } else if (job.error) {
+      appendDialogLog(job.error, job.updatedAt)
+      setError(t("settings.localEmbedding.error.activateFailed", { message: job.error }))
+    }
+  }, [appendDialogLog, onActivated, refresh, t])
+
+  useEffect(() => {
+    const handleSnapshot = (raw: unknown) => {
+      const job = parsePayload<LocalModelJobSnapshot>(raw)
+      setCurrentJob((current) => {
+        if (current?.jobId !== job.jobId) return current
+        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+        setDialogDone(job.status === "completed")
+        setDialogError(job.error ?? null)
+        handleTerminalJob(job)
+        return job
+      })
+    }
+
+    const handleLog = (raw: unknown) => {
+      const entry = parsePayload<LocalModelJobLogEntry>(raw)
+      setCurrentJob((current) => {
+        if (current?.jobId !== entry.jobId) return current
+        appendDialogLog(entry.message, entry.createdAt)
+        return current
+      })
+    }
+
+    const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleSnapshot)
+    const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
+    const unlistenLog = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.log, handleLog)
+    return () => {
+      unlistenUpdated()
+      unlistenCompleted()
+      unlistenLog()
+    }
+  }, [appendDialogLog, handleTerminalJob, phaseLabel])
+
+  const cancelCurrentJob = useCallback(() => {
+    const job = currentJob
+    if (!job) return
+    void getTransport()
+      .call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId: job.jobId })
+      .catch((e) => {
+        const msg = String(e)
+        setDialogError(msg)
+        setError(msg)
+      })
+  }, [currentJob])
 
   const recommended = chosen ?? models.find((model) => model.recommended) ?? models[0] ?? null
 
@@ -408,6 +418,8 @@ export default function LocalEmbeddingAssistantCard({
         done={dialogDone}
         error={dialogError}
         cancellable={false}
+        onBackground={() => setDialogOpen(false)}
+        onCancelTask={currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined}
       />
     </>
   )

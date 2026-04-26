@@ -16,6 +16,7 @@ pub mod dreaming;
 pub mod filesystem;
 pub mod local_embedding;
 pub mod local_llm;
+pub mod local_model_jobs;
 pub mod logging;
 pub mod mcp;
 pub mod memory;

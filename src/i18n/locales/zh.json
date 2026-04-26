@@ -1925,6 +1925,9 @@
       },
       "phases": {
         "starting": "准备中…",
+        "downloadInstaller": "下载安装器",
+        "authorize": "等待系统授权",
+        "installOllama": "安装 Ollama",
         "pullingManifest": "拉取清单",
         "downloading": "下载中",
         "verifying": "校验完整性",
@@ -2960,6 +2963,61 @@
     "bannerBoth": "危险模式已启用（CLI + 配置）—— 所有工具调用跳过审批",
     "bannerCli": "危险模式已启用（CLI 启动）—— 重启应用不带 --dangerously-skip-all-approvals 即可关闭",
     "bannerConfig": "危险模式已启用 —— 所有工具调用跳过审批。前往 设置 → 安全 关闭"
+  },
+  "localModelJobs": {
+    "title": "任务",
+    "subtitle": "模型安装任务会在后台继续运行。",
+    "activeSummary": "{{count}} 个模型安装任务正在运行",
+    "activeSummary_other": "{{count}} 个模型安装任务正在运行",
+    "emptyTitle": "暂无模型安装任务",
+    "emptyDescription": "Ollama 安装和模型下载会显示在这里。",
+    "kind": {
+      "chat_model": "对话模型",
+      "embedding_model": "Embedding 模型"
+    },
+    "status": {
+      "running": "运行中",
+      "cancelling": "正在取消",
+      "completed": "已完成",
+      "failed": "失败",
+      "interrupted": "已中断",
+      "cancelled": "已取消"
+    },
+    "phases": {
+      "queued": "排队中",
+      "checkingOllama": "检查 Ollama",
+      "startOllama": "启动 Ollama",
+      "cancelling": "正在取消",
+      "cancelled": "已取消",
+      "failed": "失败",
+      "interrupted": "已中断"
+    },
+    "actions": {
+      "backgroundInstall": "后台安装",
+      "cancelInstall": "取消安装",
+      "keepWatching": "继续查看",
+      "viewLogs": "查看日志",
+      "hideLogs": "收起日志",
+      "cancel": "取消",
+      "retry": "重试",
+      "clear": "清除"
+    },
+    "close": {
+      "title": "关闭安装窗口？",
+      "description": "这个任务可以继续在后台安装，也可以现在取消。"
+    },
+    "logs": {
+      "empty": "暂无日志"
+    },
+    "toast": {
+      "completed": "{{model}} 已安装",
+      "cancelled": "{{model}} 安装已取消",
+      "failed": "{{model}} 安装失败",
+      "retryStarted": "已开始重试 {{model}}"
+    },
+    "errors": {
+      "loadFailed": "加载模型安装任务失败"
+    }
   },
   "onboarding": {
     "welcome": {

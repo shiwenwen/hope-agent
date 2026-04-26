@@ -384,6 +384,35 @@ fn build_router_with_cors(
             get(routes::local_embedding::list_models),
         )
         .route("/local-embedding/pull", post(routes::local_embedding::pull))
+        // Local model background jobs
+        .route(
+            "/local-model-jobs",
+            get(routes::local_model_jobs::list_jobs),
+        )
+        .route(
+            "/local-model-jobs/chat-model",
+            post(routes::local_model_jobs::start_chat_model),
+        )
+        .route(
+            "/local-model-jobs/embedding",
+            post(routes::local_model_jobs::start_embedding),
+        )
+        .route(
+            "/local-model-jobs/{id}",
+            get(routes::local_model_jobs::get_job).delete(routes::local_model_jobs::clear_job),
+        )
+        .route(
+            "/local-model-jobs/{id}/logs",
+            get(routes::local_model_jobs::get_logs),
+        )
+        .route(
+            "/local-model-jobs/{id}/cancel",
+            post(routes::local_model_jobs::cancel_job),
+        )
+        .route(
+            "/local-model-jobs/{id}/retry",
+            post(routes::local_model_jobs::retry_job),
+        )
         // Config
         .route("/config/user", get(routes::config::get_user_config))
         .route("/config/user", put(routes::config::save_user_config))

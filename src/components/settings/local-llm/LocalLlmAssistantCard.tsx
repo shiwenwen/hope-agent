@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Cpu,
@@ -14,22 +14,28 @@ import {
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
-import { withEventListener } from "@/lib/transport-events"
 import { logger } from "@/lib/logger"
 import { formatBytesFromMb, formatGbFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
-import {
-  InstallProgressDialog,
-  type ProgressFrame,
-} from "@/components/settings/local-llm/InstallProgressDialog"
+import { InstallProgressDialog } from "@/components/settings/local-llm/InstallProgressDialog"
 import { IconTip } from "@/components/ui/tooltip"
+import {
+  formatLocalModelJobLogLine,
+  isLocalModelJobActive,
+  isLocalModelJobTerminal,
+  LOCAL_MODEL_JOB_EVENTS,
+  localModelJobToProgressFrame,
+  phaseTranslationKey,
+  type LocalModelJobLogEntry,
+  type LocalModelJobSnapshot,
+  type ProgressFrame,
+} from "@/types/local-model-jobs"
 
 // ── Wire types (mirror ha_core::local_llm::types) ─────────────────
 
 type BudgetSource = "unified-memory" | "dedicated-vram" | "system-memory"
 type OllamaPhase = "not-installed" | "installed" | "running"
 type RecommendationReason = "insufficient" | "unified-memory" | "dgpu" | "ram-fallback"
-type InstallProgressKind = "step" | "log" | "error"
 
 interface GpuInfo {
   name: string
@@ -67,41 +73,13 @@ interface OllamaStatus {
   installScriptSupported: boolean
 }
 
-interface PullProgressPayload {
-  modelId: string
-  phase: string
-  percent?: number | null
-}
-
-interface InstallProgressPayload {
-  kind: InstallProgressKind
-  message: string
-}
-
 interface DesktopOpenResult {
   ok?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
 
-const EVENT_LOCAL_LLM_INSTALL_PROGRESS = "local_llm:install_progress"
-const EVENT_LOCAL_LLM_PULL_PROGRESS = "local_llm:pull_progress"
 const MAX_DIALOG_LOG_LINES = 240
-
-const PHASE_KEY: Record<string, string> = {
-  starting: "settings.localLlm.phases.starting",
-  "pulling manifest": "settings.localLlm.phases.pullingManifest",
-  downloading: "settings.localLlm.phases.downloading",
-  "verifying digest": "settings.localLlm.phases.verifying",
-  "writing manifest": "settings.localLlm.phases.writingManifest",
-  success: "settings.localLlm.phases.success",
-  "register-provider": "settings.localLlm.phases.registerProvider",
-  done: "settings.localLlm.phases.done",
-}
-
-function formatLogLine(message: string): string {
-  return `[${new Date().toLocaleTimeString()}] ${message}`
-}
 
 function reasonText(
   rec: ModelRecommendation,
@@ -143,7 +121,7 @@ export default function LocalLlmAssistantCard({
   const [recommendation, setRecommendation] = useState<ModelRecommendation | null>(null)
   const [ollama, setOllama] = useState<OllamaStatus | null>(null)
   const [refreshing, setRefreshing] = useState(false)
-  const [busy, setBusy] = useState<null | "install" | "start" | "pull">(null)
+  const [submitting, setSubmitting] = useState(false)
   const [showAlternatives, setShowAlternatives] = useState(false)
   // `null` = follow recommendation; non-null = user explicitly picked.
   const [chosen, setChosen] = useState<ModelCandidate | null>(null)
@@ -156,11 +134,16 @@ export default function LocalLlmAssistantCard({
   const [dialogLogs, setDialogLogs] = useState<string[]>([])
   const [dialogDone, setDialogDone] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
+  const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
+  const handledCompletedJobs = useRef<Set<string>>(new Set())
+  const recommended = chosen ?? recommendation?.recommended ?? null
+  const jobActive = currentJob ? isLocalModelJobActive(currentJob) : false
+  const busy = submitting || jobActive
 
-  const appendDialogLog = useCallback((message: string) => {
+  const appendDialogLog = useCallback((message: string, createdAt?: number) => {
     const trimmed = message.trim()
     if (!trimmed) return
-    const line = formatLogLine(trimmed)
+    const line = formatLocalModelJobLogLine(trimmed, createdAt)
     setDialogLogs((prev) => {
       if (prev[prev.length - 1] === line) return prev
       return [...prev.slice(-(MAX_DIALOG_LOG_LINES - 1)), line]
@@ -190,136 +173,122 @@ export default function LocalLlmAssistantCard({
 
   const phaseLabel = useCallback(
     (phase: string | undefined) => {
-      if (!phase) return ""
-      const key = PHASE_KEY[phase.toLowerCase()]
-      return key ? t(key) : phase
+      const key = phaseTranslationKey(phase)
+      return key ? t(key) : (phase ?? "")
     },
     [t],
   )
 
-  const startOllama = useCallback(async () => {
-    setBusy("start")
-    setError(null)
+  const hydrateJobLogs = useCallback(async (jobId: string) => {
     try {
-      await getTransport().call("local_llm_start_ollama")
-      await refresh()
-    } catch (e) {
-      setError(t("settings.localLlm.error.startFailed", { message: String(e) }))
-    } finally {
-      setBusy(null)
-    }
-  }, [refresh, t])
-
-  const installOllama = useCallback(async () => {
-    setBusy("install")
-    setError(null)
-    setDialogOpen(true)
-    setDialogTitle(t("settings.localLlm.install.title"))
-    setDialogSubtitle(undefined)
-    setDialogFrame({ phase: "starting", message: t("settings.localLlm.phases.starting") })
-    setDialogLogs([])
-    setDialogDone(false)
-    setDialogError(null)
-
-    const handleProgress = (raw: unknown) => {
-      const p = parsePayload<InstallProgressPayload>(raw)
-      if (p.kind === "step") {
-        setDialogFrame({ phase: p.message, message: p.message })
-        appendDialogLog(p.message)
-      } else if (p.kind === "log") {
-        appendDialogLog(p.message)
-      } else if (p.kind === "error") {
-        setDialogError(p.message)
-        appendDialogLog(p.message)
-      }
-    }
-
-    let installed = false
-    try {
-      await withEventListener(EVENT_LOCAL_LLM_INSTALL_PROGRESS, handleProgress, async () => {
-        await getTransport().call("local_llm_install_ollama")
-        installed = true
-        setDialogFrame({
-          phase: "starting",
-          message: t("settings.localLlm.buttons.startOllama"),
-        })
-        appendDialogLog(t("settings.localLlm.buttons.startOllama"))
-        await getTransport().call("local_llm_start_ollama")
+      const entries = await getTransport().call<LocalModelJobLogEntry[]>("local_model_job_logs", {
+        jobId,
       })
-      setDialogDone(true)
-      appendDialogLog(t("settings.localLlm.phases.done"))
-      await refresh()
-      setTimeout(() => setDialogOpen(false), 800)
+      setDialogLogs(
+        entries
+          .slice(-MAX_DIALOG_LOG_LINES)
+          .map((entry) => formatLocalModelJobLogLine(entry.message, entry.createdAt)),
+      )
+    } catch (e) {
+      logger.warn("local-llm", "hydrateJobLogs", "Failed to load local model job logs", e)
+    }
+  }, [])
+
+  const openJobDialog = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      setCurrentJob(job)
+      setDialogOpen(true)
+      setDialogTitle(t("settings.localLlm.buttons.installModel", { model: job.displayName }))
+      setDialogSubtitle(job.modelId)
+      setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+      setDialogLogs([])
+      setDialogDone(job.status === "completed")
+      setDialogError(job.error ?? null)
+      void hydrateJobLogs(job.jobId)
+    },
+    [hydrateJobLogs, phaseLabel, t],
+  )
+
+  const startModelJob = useCallback(async (model: ModelCandidate) => {
+    setSubmitting(true)
+    setError(null)
+    try {
+      const job = await getTransport().call<LocalModelJobSnapshot>(
+        "local_model_job_start_chat_model",
+        { model },
+      )
+      openJobDialog(job)
     } catch (e) {
       const msg = String(e)
       setDialogError(msg)
-      appendDialogLog(msg)
-      setError(
-        t(
-          installed
-            ? "settings.localLlm.error.startFailed"
-            : "settings.localLlm.error.installFailed",
-          {
-            message: msg,
-          },
-        ),
-      )
+      setError(t("settings.localLlm.error.pullFailed", { message: msg }))
     } finally {
-      setBusy(null)
+      setSubmitting(false)
     }
-  }, [appendDialogLog, refresh, t])
+  }, [openJobDialog, t])
 
-  const installModel = useCallback(
-    async (model: ModelCandidate) => {
-      setBusy("pull")
-      setError(null)
-      setDialogOpen(true)
-      setDialogTitle(t("settings.localLlm.buttons.installModel", { model: model.displayName }))
-      setDialogSubtitle(model.id)
-      setDialogFrame({
-        phase: "starting",
-        message: t("settings.localLlm.phases.starting"),
-        percent: null,
+  const handleTerminalJob = useCallback((job: LocalModelJobSnapshot) => {
+    if (!isLocalModelJobTerminal(job)) return
+    if (handledCompletedJobs.current.has(job.jobId)) return
+    handledCompletedJobs.current.add(job.jobId)
+    if (job.status === "completed") {
+      appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
+      void refresh()
+      onProviderInstalled()
+    } else if (job.error) {
+      appendDialogLog(job.error, job.updatedAt)
+      setError(t("settings.localLlm.error.pullFailed", { message: job.error }))
+    }
+  }, [appendDialogLog, onProviderInstalled, refresh, t])
+
+  useEffect(() => {
+    const handleSnapshot = (raw: unknown) => {
+      const job = parsePayload<LocalModelJobSnapshot>(raw)
+      setCurrentJob((current) => {
+        if (current?.jobId !== job.jobId) return current
+        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+        setDialogDone(job.status === "completed")
+        setDialogError(job.error ?? null)
+        handleTerminalJob(job)
+        return job
       })
-      setDialogLogs([])
-      setDialogDone(false)
-      setDialogError(null)
+    }
 
-      const handleProgress = (raw: unknown) => {
-        const p = parsePayload<PullProgressPayload>(raw)
-        const label = phaseLabel(p.phase) || p.phase
-        const progressSuffix = p.percent == null ? "" : ` ${Math.round(p.percent)}%`
-        setDialogFrame({
-          phase: p.phase,
-          message: label,
-          percent: p.percent ?? null,
-        })
-        appendDialogLog(`${label}${progressSuffix}`)
-      }
+    const handleLog = (raw: unknown) => {
+      const entry = parsePayload<LocalModelJobLogEntry>(raw)
+      setCurrentJob((current) => {
+        if (current?.jobId !== entry.jobId) return current
+        appendDialogLog(entry.message, entry.createdAt)
+        return current
+      })
+    }
 
-      try {
-        await withEventListener(EVENT_LOCAL_LLM_PULL_PROGRESS, handleProgress, () =>
-          getTransport().call("local_llm_pull_and_activate", { model }),
-        )
-        setDialogDone(true)
-        appendDialogLog(t("settings.localLlm.phases.done"))
-        // Hold the 100% / checkmark frame briefly so users register the
-        // success state before we reload.
-        setTimeout(() => {
-          setDialogOpen(false)
-          onProviderInstalled()
-        }, 800)
-      } catch (e) {
+    const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleSnapshot)
+    const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
+    const unlistenLog = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.log, handleLog)
+    return () => {
+      unlistenUpdated()
+      unlistenCompleted()
+      unlistenLog()
+    }
+  }, [appendDialogLog, handleTerminalJob, phaseLabel])
+
+  const cancelCurrentJob = useCallback(() => {
+    const job = currentJob
+    if (!job) return
+    void getTransport()
+      .call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId: job.jobId })
+      .catch((e) => {
         const msg = String(e)
         setDialogError(msg)
-        appendDialogLog(msg)
-        setError(t("settings.localLlm.error.pullFailed", { message: msg }))
-      } finally {
-        setBusy(null)
-      }
-    },
-    [appendDialogLog, onProviderInstalled, phaseLabel, t],
-  )
+        setError(msg)
+      })
+  }, [currentJob])
+
+  const startRecommendedJob = useCallback(() => {
+    if (!recommended) return
+    void startModelJob(recommended)
+  }, [recommended, startModelJob])
 
   const openDownloadPage = useCallback(() => {
     const url = "https://ollama.com/download"
@@ -345,7 +314,6 @@ export default function LocalLlmAssistantCard({
     )
   }
 
-  const recommended = chosen ?? recommendation.recommended
   const insufficient = !recommended
   const actionButtonClassName = compact
     ? "h-auto min-h-8 px-2.5 py-1.5 text-xs whitespace-normal"
@@ -374,10 +342,10 @@ export default function LocalLlmAssistantCard({
           variant="default"
           size="sm"
           className={actionButtonClassName}
-          onClick={() => void installOllama()}
-          disabled={busy !== null}
+          onClick={startRecommendedJob}
+          disabled={busy}
         >
-          {busy === "install" ? (
+          {busy ? (
             <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
           ) : (
             <Download className="h-3.5 w-3.5 mr-1.5" />
@@ -393,10 +361,10 @@ export default function LocalLlmAssistantCard({
           variant="default"
           size="sm"
           className={actionButtonClassName}
-          onClick={() => void startOllama()}
-          disabled={busy !== null}
+          onClick={startRecommendedJob}
+          disabled={busy}
         >
-          {busy === "start" ? (
+          {busy ? (
             <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
           ) : (
             <Sparkles className="h-3.5 w-3.5 mr-1.5" />
@@ -411,10 +379,10 @@ export default function LocalLlmAssistantCard({
         variant="default"
         size="sm"
         className={actionButtonClassName}
-        onClick={() => recommended && void installModel(recommended)}
-        disabled={busy !== null || !recommended}
+        onClick={startRecommendedJob}
+        disabled={busy || !recommended}
       >
-        {busy === "pull" ? (
+        {busy ? (
           <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
         ) : (
           <Download className="h-3.5 w-3.5 mr-1.5" />
@@ -611,6 +579,8 @@ export default function LocalLlmAssistantCard({
         done={dialogDone}
         error={dialogError}
         cancellable={false}
+        onBackground={() => setDialogOpen(false)}
+        onCancelTask={currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined}
       />
     </>
   )

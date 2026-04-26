@@ -160,6 +160,11 @@ pub fn async_job_result_path(job_id: &str) -> Result<PathBuf> {
     Ok(async_jobs_dir()?.join(format!("{}.txt", job_id)))
 }
 
+/// Local model install/pull jobs database path: ~/.hope-agent/local_model_jobs.db
+pub fn local_model_jobs_db_path() -> Result<PathBuf> {
+    Ok(root_dir()?.join("local_model_jobs.db"))
+}
+
 // ── Recap ───────────────────────────────────────────────────────
 
 /// Recap directory: ~/.hope-agent/recap/
