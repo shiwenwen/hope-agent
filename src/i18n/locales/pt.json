@@ -2966,7 +2966,7 @@
     "bannerConfig": "Modo Perigoso ativo — todas as aprovações de ferramentas são ignoradas. Desative em Configurações → Segurança"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "Gerenciamento de modelos locais",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",

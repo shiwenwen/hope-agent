@@ -24,7 +24,6 @@ import {
   MessageCircle,
   CalendarDays,
   BarChart3,
-  ListChecks,
   Server,
   Sun,
   Moon,
@@ -33,6 +32,7 @@ import {
   User,
   CheckCheck,
 } from "lucide-react"
+import { Ollama } from "@lobehub/icons"
 import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 
@@ -245,32 +245,6 @@ export default function IconSidebar({
           </IconTip>
         </div>
 
-        {/* Local model install jobs */}
-        <div className="w-full flex justify-center mt-1">
-          <div className="relative">
-            <IconTip label={t("localModelJobs.title")} side="right">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl h-8 w-8",
-                  view === "tasks"
-                    ? "bg-primary/10 text-primary hover:bg-primary/20"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-                onClick={onOpenTasks}
-              >
-                <ListChecks className="h-4 w-4" />
-              </Button>
-            </IconTip>
-            {!!localModelJobActiveCount && localModelJobActiveCount > 0 && (
-              <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-background bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground">
-                {localModelJobActiveCount > 9 ? "9+" : localModelJobActiveCount}
-              </span>
-            )}
-          </div>
-        </div>
-
         {/* Calendar / Scheduled Tasks entry */}
         <div className="w-full flex justify-center mt-1">
           <IconTip label={t("cron.title")} side="right">
@@ -432,6 +406,30 @@ export default function IconSidebar({
               <span className="absolute -top-0.5 -right-0.5 z-10 flex h-2.5 w-2.5">
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                 <span className="relative inline-flex h-2.5 w-2.5 rounded-full border-2 border-background bg-emerald-500" />
+              </span>
+            )}
+          </div>
+
+          {/* Local model management */}
+          <div className="relative flex justify-center">
+            <IconTip label={t("localModelJobs.title")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "tasks"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenTasks}
+              >
+                <Ollama size={16} className="h-4 w-4" />
+              </Button>
+            </IconTip>
+            {!!localModelJobActiveCount && localModelJobActiveCount > 0 && (
+              <span className="absolute -right-1 -top-1 z-10 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-background bg-primary px-1 text-[9px] font-semibold leading-none text-primary-foreground">
+                {localModelJobActiveCount > 9 ? "9+" : localModelJobActiveCount}
               </span>
             )}
           </div>

@@ -2966,7 +2966,7 @@
     "bannerConfig": "위험 모드 활성 — 모든 도구 승인을 건너뜁니다. 설정 → 보안에서 비활성화"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "로컬 모델 관리",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",

@@ -2966,7 +2966,7 @@
     "bannerConfig": "Tehlikeli Mod aktif — tüm araç onayları atlanıyor. Ayarlar → Güvenlik bölümünden kapatın"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "Yerel model yönetimi",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",

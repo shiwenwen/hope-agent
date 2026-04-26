@@ -2966,7 +2966,7 @@
     "bannerConfig": "Chế độ Nguy hiểm đang bật — mọi phê duyệt công cụ bị bỏ qua. Tắt ở Cài đặt → Bảo mật"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "Quản lý mô hình cục bộ",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",

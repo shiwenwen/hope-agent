@@ -2966,7 +2966,7 @@
     "bannerConfig": "Опасный режим активен — все подтверждения инструментов пропускаются. Отключите в Настройки → Безопасность"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "Управление локальными моделями",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",

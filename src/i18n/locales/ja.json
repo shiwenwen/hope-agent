@@ -2966,7 +2966,7 @@
     "bannerConfig": "危険モード有効 — すべてのツール承認をバイパス中。設定 → セキュリティで無効化"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "ローカルモデル管理",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",

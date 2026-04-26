@@ -2966,7 +2966,7 @@
     "bannerConfig": "الوضع الخطير مفعّل — تم تجاوز جميع موافقات الأدوات. أوقفه من الإعدادات → الأمان"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "إدارة النماذج المحلية",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",

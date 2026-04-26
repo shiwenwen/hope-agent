@@ -2966,7 +2966,7 @@
     "bannerConfig": "危險模式已啟用 —— 所有工具呼叫跳過審批。請至 設定 → 安全 關閉"
   },
   "localModelJobs": {
-    "title": "任務",
+    "title": "本地模型管理",
     "subtitle": "模型安裝任務會在背景繼續執行。",
     "activeSummary": "{{count}} 個模型安裝任務正在執行",
     "activeSummary_other": "{{count}} 個模型安裝任務正在執行",

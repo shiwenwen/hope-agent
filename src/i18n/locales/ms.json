@@ -2966,7 +2966,7 @@
     "bannerConfig": "Mod Berbahaya aktif — semua kelulusan alat dipintas. Matikan di Tetapan → Keselamatan"
   },
   "localModelJobs": {
-    "title": "Tasks",
+    "title": "Pengurusan model tempatan",
     "subtitle": "Model installation tasks keep running in the background.",
     "activeSummary": "{{count}} model install task is running",
     "activeSummary_other": "{{count}} model install tasks are running",
