@@ -6,6 +6,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+use ha_core::event_bus::EventBusProgressExt;
 use ha_core::local_embedding::{
     list_models_with_status, pull_and_activate, OllamaEmbeddingModel,
     EVENT_LOCAL_EMBEDDING_PULL_PROGRESS,
@@ -30,10 +31,11 @@ pub async fn pull(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<PullBody>,
 ) -> Result<Json<Value>, AppError> {
-    let bus = ctx.event_bus.clone();
-    let config = pull_and_activate(body.model, move |p| {
-        bus.emit(EVENT_LOCAL_EMBEDDING_PULL_PROGRESS, json!(p));
-    })
+    let config = pull_and_activate(
+        body.model,
+        ctx.event_bus
+            .emit_progress(EVENT_LOCAL_EMBEDDING_PULL_PROGRESS),
+    )
     .await?;
     Ok(Json(json!(config)))
 }

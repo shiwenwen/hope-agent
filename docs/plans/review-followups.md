@@ -98,21 +98,6 @@
 
 ---
 
-### F-009 EventBus 桥接闭包样板在 4 处重复
-
-- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
-- **现象**：把 ha-core 长任务的 progress callback 桥接到 EventBus 的样板（"取 bus → 闭包 emit"）目前在 4 处复制：
-  - [`crates/ha-server/src/routes/local_llm.rs::install_ollama`](../../crates/ha-server/src/routes/local_llm.rs) + `pull`
-  - [`crates/ha-server/src/routes/searxng.rs::deploy`](../../crates/ha-server/src/routes/searxng.rs)
-  - [`src-tauri/src/commands/local_llm.rs::local_llm_install_ollama`](../../src-tauri/src/commands/local_llm.rs) + `local_llm_pull_and_activate`
-  - [`src-tauri/src/commands/docker.rs::searxng_docker_deploy`](../../src-tauri/src/commands/docker.rs)
-- **为什么留**：跨 ha-server / src-tauri 两个 crate 抽 helper 涉及 trait 设计选择（free function vs `EventBus` trait method 默认实现）；本期 PR 的 scope 只是"消除前端裸 Channel"，再展开会扩大 diff。
-- **改的话要做什么**：在 [`crates/ha-core/src/event_bus.rs`](../../crates/ha-core/src/event_bus.rs) 给 `EventBus` trait 加默认方法 `fn emit_progress<T: Serialize>(&self, name: &str) -> impl Fn(&T) + Send + Sync` 返回桥接闭包；4 个调用点都改成 `bus.emit_progress(EVENT_*_PROGRESS)`，省掉 `move |p| bus.emit(NAME, json!(p))` 一行。
-- **影响面**：纯整洁度，0 行为变化。
-- **触发时机建议**：下次新增第 5 个 long-running command（例如 model fine-tune progress）时顺势抽；或独立 "EventBus helper" 小 PR。
-
----
-
 ### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
@@ -158,6 +143,12 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-009 EventBus 桥接闭包样板在多处重复
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-009 修复
+- **修复方式**：在 [`crates/ha-core/src/event_bus.rs`](../../crates/ha-core/src/event_bus.rs) 新增 `EventBusProgressExt::emit_progress`，把 typed progress callback 统一桥接到 EventBus JSON payload。为保留 `EventBus` 的 object-safe 形状（仓库大量使用 `Arc<dyn EventBus>`），实现采用 `Arc<B: EventBus + ?Sized>` 扩展 trait，而不是直接在 `EventBus` 本体加泛型方法。local LLM install / pull、SearXNG deploy、local embedding pull 的 ha-server route 与 Tauri command 均已切换到 helper，事件名与 payload contract 不变。
 
 ### F-014 `docs/architecture/` 缺中心化 transport mode 文档
 

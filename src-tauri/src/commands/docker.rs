@@ -1,6 +1,7 @@
 use crate::commands::CmdError;
 use crate::docker;
 use crate::tools;
+use ha_core::event_bus::EventBusProgressExt;
 
 #[tauri::command]
 pub async fn searxng_docker_status() -> Result<docker::SearxngDockerStatus, CmdError> {
@@ -16,13 +17,8 @@ pub async fn searxng_docker_deploy() -> Result<String, CmdError> {
     let bus = ha_core::get_event_bus()
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("EventBus not initialized"))?;
-    let url = docker::deploy(move |progress| {
-        bus.emit(
-            ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS,
-            serde_json::json!(progress),
-        );
-    })
-    .await?;
+    let url =
+        docker::deploy(bus.emit_progress(ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS)).await?;
     // Auto-save the URL into the SearXNG provider entry and mark as docker-managed
     let url_for_mut = url.clone();
     let _ = ha_core::config::mutate_config(("web_search", "searxng-docker-deploy"), |store| {

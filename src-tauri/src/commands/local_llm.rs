@@ -1,6 +1,7 @@
 use crate::commands::CmdError;
 use crate::AppState;
 use ha_core::agent::AssistantAgent;
+use ha_core::event_bus::EventBusProgressExt;
 use ha_core::local_llm::{
     detect_hardware, detect_ollama, install_ollama_via_script, pull_and_activate, recommend_model,
     start_ollama, HardwareInfo, ModelCandidate, ModelRecommendation, OllamaStatus,
@@ -33,11 +34,9 @@ pub async fn local_llm_install_ollama() -> Result<(), CmdError> {
     let bus = ha_core::get_event_bus()
         .cloned()
         .ok_or_else(|| CmdError::msg("EventBus not initialized"))?;
-    install_ollama_via_script(move |p| {
-        bus.emit(EVENT_LOCAL_LLM_INSTALL_PROGRESS, json!(p));
-    })
-    .await
-    .map_err(Into::into)
+    install_ollama_via_script(bus.emit_progress(EVENT_LOCAL_LLM_INSTALL_PROGRESS))
+        .await
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -56,10 +55,8 @@ pub async fn local_llm_pull_and_activate(
     let bus = ha_core::get_event_bus()
         .cloned()
         .ok_or_else(|| CmdError::msg("EventBus not initialized"))?;
-    let (provider_id, model_id) = pull_and_activate(model, move |p| {
-        bus.emit(EVENT_LOCAL_LLM_PULL_PROGRESS, json!(p));
-    })
-    .await?;
+    let (provider_id, model_id) =
+        pull_and_activate(model, bus.emit_progress(EVENT_LOCAL_LLM_PULL_PROGRESS)).await?;
 
     // Rebuild the cached agent so the next chat call uses the new local
     // provider without requiring a frontend reload.

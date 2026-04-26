@@ -10,6 +10,8 @@ use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
 
+use ha_core::event_bus::EventBusProgressExt;
+
 use crate::error::AppError;
 use crate::AppContext;
 
@@ -23,13 +25,10 @@ pub async fn status() -> Result<Json<ha_core::docker::SearxngDockerStatus>, AppE
 /// `EventBus` under [`ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS`];
 /// browsers receive the stream via `/ws/events`.
 pub async fn deploy(State(ctx): State<Arc<AppContext>>) -> Result<Json<Value>, AppError> {
-    let bus = ctx.event_bus.clone();
-    let url = ha_core::docker::deploy(move |progress| {
-        bus.emit(
-            ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS,
-            json!(progress),
-        );
-    })
+    let url = ha_core::docker::deploy(
+        ctx.event_bus
+            .emit_progress(ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS),
+    )
     .await
     .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true, "url": url })))

@@ -10,6 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
+use ha_core::event_bus::EventBusProgressExt;
 use ha_core::local_llm::{
     detect_hardware, detect_ollama, install_ollama_via_script, pull_and_activate, recommend_model,
     start_ollama, ModelCandidate, EVENT_LOCAL_LLM_INSTALL_PROGRESS, EVENT_LOCAL_LLM_PULL_PROGRESS,
@@ -41,10 +42,10 @@ pub async fn get_ollama_status() -> Json<Value> {
 /// `POST /api/local-llm/install` — run the bundled installer (Unix only).
 /// Streams progress to local-LLM install progress events.
 pub async fn install_ollama(State(ctx): State<Arc<AppContext>>) -> Result<Json<Value>, AppError> {
-    let bus = ctx.event_bus.clone();
-    install_ollama_via_script(move |p| {
-        bus.emit(EVENT_LOCAL_LLM_INSTALL_PROGRESS, json!(p));
-    })
+    install_ollama_via_script(
+        ctx.event_bus
+            .emit_progress(EVENT_LOCAL_LLM_INSTALL_PROGRESS),
+    )
     .await?;
     Ok(Json(json!({ "ok": true })))
 }
@@ -61,10 +62,10 @@ pub async fn pull(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<PullBody>,
 ) -> Result<Json<Value>, AppError> {
-    let bus = ctx.event_bus.clone();
-    let (provider_id, model_id) = pull_and_activate(body.model, move |p| {
-        bus.emit(EVENT_LOCAL_LLM_PULL_PROGRESS, json!(p));
-    })
+    let (provider_id, model_id) = pull_and_activate(
+        body.model,
+        ctx.event_bus.emit_progress(EVENT_LOCAL_LLM_PULL_PROGRESS),
+    )
     .await?;
     Ok(Json(
         json!({ "providerId": provider_id, "modelId": model_id }),
