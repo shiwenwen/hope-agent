@@ -3,15 +3,21 @@ use std::sync::atomic::Ordering;
 use tokio::process::Command;
 
 use super::{
-    helpers::*, DeployProgress, CONTAINER_NAME, DEPLOYING, DEPLOY_PROGRESS, IMAGE, STATUS_LOCK,
+    helpers::*, DeployProgress, DeployProgressSnapshot, CONTAINER_NAME, DEPLOYING, DEPLOY_PROGRESS,
+    IMAGE, STATUS_LOCK,
 };
 
 /// Pull image, start container, inject config, health-check.
 /// Returns the accessible URL (e.g. "http://127.0.0.1:8080").
-/// `on_progress` is called with JSON messages: `{"step":"..."}` or `{"log":"..."}`.
+///
+/// `on_progress` is invoked with one [`DeployProgress`] frame per
+/// step/log line. Callers typically forward each frame to the shared
+/// `EventBus` under [`EVENT_SEARXNG_DEPLOY_PROGRESS`] — matches the
+/// `local_llm_install_ollama` pattern (see
+/// `local_llm/mod.rs::install_ollama_via_script`).
 pub async fn deploy<F>(on_progress: F) -> Result<String>
 where
-    F: Fn(&str),
+    F: Fn(&DeployProgress) + Send + Sync,
 {
     // Prevent concurrent deploy operations
     if DEPLOYING
@@ -24,7 +30,7 @@ where
     DEPLOYING.store(false, Ordering::SeqCst);
     // Clear shared progress after completion
     if let Ok(mut p) = DEPLOY_PROGRESS.lock() {
-        *p = DeployProgress::default();
+        *p = DeployProgressSnapshot::default();
     }
     // Invalidate status cache so next poll picks up new state
     if let Ok(mut guard) = STATUS_LOCK.try_lock() {
@@ -35,24 +41,25 @@ where
 
 async fn deploy_inner<F>(on_progress: &F) -> Result<String>
 where
-    F: Fn(&str),
+    F: Fn(&DeployProgress) + Send + Sync,
 {
     // Clear previous progress
     if let Ok(mut p) = DEPLOY_PROGRESS.lock() {
-        *p = DeployProgress::default();
+        *p = DeployProgressSnapshot::default();
     }
 
     let step = |s: &str| {
-        on_progress(&format!(r#"{{"step":"{}"}}"#, s));
+        on_progress(&DeployProgress::Step {
+            step: s.to_string(),
+        });
         if let Ok(mut p) = DEPLOY_PROGRESS.lock() {
             p.step = Some(s.to_string());
         }
     };
     let log = |msg: &str| {
-        on_progress(&format!(
-            r#"{{"log":"{}"}}"#,
-            msg.replace('\\', "\\\\").replace('"', "\\\"")
-        ));
+        on_progress(&DeployProgress::Log {
+            log: msg.to_string(),
+        });
         if let Ok(mut p) = DEPLOY_PROGRESS.lock() {
             p.logs.push(msg.to_string());
             // Keep last 100 lines

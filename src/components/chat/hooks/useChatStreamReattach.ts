@@ -53,10 +53,17 @@ interface StreamEndPayload {
 }
 
 /**
- * EventBus reattach path for the main chat stream. Runs alongside the primary
- * `Channel` / WebSocket path in useChatStream; when the primary sink dies
- * (frontend reload), this path keeps the UI updating. Dedup by `_oc_seq`
- * against `lastSeqRef` — whichever path sees an event first bumps the cursor.
+ * EventBus path for the chat stream. Role differs per transport:
+ *  - Tauri mode: tertiary safety net for the in-flight `Channel` path inside
+ *    `useChatStream` — when the primary sink dies (frontend reload) this path
+ *    keeps the UI updating.
+ *  - HTTP mode: this path *is* the primary delivery for stream deltas.
+ *    `transport.startChat` over HTTP only synthesizes a `session_created`
+ *    event for cache-rename bookkeeping; everything else flows here via
+ *    `/ws/events` → `chat:stream_delta`.
+ *
+ * Dedup by `_oc_seq` against `lastSeqRef` — whichever path sees an event
+ * first bumps the cursor.
  */
 export function useChatStreamReattach(deps: UseChatStreamReattachDeps): void {
   const {

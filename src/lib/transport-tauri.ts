@@ -9,7 +9,7 @@ import { invoke, Channel, convertFileSrc } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import type {
   Transport,
-  ChatStream,
+  ChatStartArgs,
   PickedImage,
   DirListing,
   FileSearchResponse,
@@ -29,35 +29,21 @@ export class TauriTransport implements Transport {
     return Array.from(new Uint8Array(buffer));
   }
 
-  // ----- openChatStream -----
+  // ----- startChat -----
 
-  openChatStream(
-    _sessionId: string | null,
+  async startChat(
+    args: ChatStartArgs,
     onEvent: (event: string) => void,
-  ): ChatStream {
+  ): Promise<string> {
     const channel = new Channel<string>();
-    channel.onmessage = (raw: string) => {
-      onEvent(raw);
-    };
-
-    // The Tauri Channel is passed as an argument to the `chat` command.
-    // The actual `invoke("chat", { ..., onEvent: channel })` call is
-    // performed by the caller (e.g. useChatStream). Here we just expose
-    // the channel so callers can attach it.
-    //
-    // We store the channel reference on the returned handle so the caller
-    // can pass `handle.tauriChannel` to invoke().
-    const handle: TauriChatStream = {
-      tauriChannel: channel,
-      close() {
-        // Tauri Channels are closed when the invoke promise resolves or
-        // the caller drops the reference. Explicit close is a no-op but
-        // we null out the callback to prevent late deliveries.
-        channel.onmessage = () => {};
-      },
-    };
-
-    return handle;
+    channel.onmessage = onEvent;
+    try {
+      return await invoke<string>("chat", { ...args, onEvent: channel });
+    } finally {
+      // Drop the callback so any late-delivered Channel message after the
+      // invoke promise resolves does not re-enter caller state.
+      channel.onmessage = () => {};
+    }
   }
 
   // ----- media -----
@@ -166,19 +152,4 @@ export class TauriTransport implements Transport {
       unlisten?.();
     };
   }
-}
-
-/**
- * Extended ChatStream that exposes the underlying Tauri Channel.
- *
- * Callers that need to pass the channel to `invoke("chat", { onEvent })`
- * can narrow the type:
- *
- * ```ts
- * const stream = transport.openChatStream(sid, handler);
- * invoke("chat", { ..., onEvent: (stream as TauriChatStream).tauriChannel });
- * ```
- */
-export interface TauriChatStream extends ChatStream {
-  readonly tauriChannel: Channel<string>;
 }
