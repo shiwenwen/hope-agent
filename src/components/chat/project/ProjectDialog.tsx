@@ -382,7 +382,7 @@ export default function ProjectDialog({
                     id="project-emoji"
                     value={emoji}
                     onChange={(e) => setEmoji(e.target.value)}
-                    placeholder="🚀"
+                    placeholder="🦭"
                     maxLength={4}
                     className="h-10 text-center text-lg"
                   />
