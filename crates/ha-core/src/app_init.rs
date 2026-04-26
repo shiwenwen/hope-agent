@@ -32,7 +32,7 @@ static INIT_DONE: OnceLock<()> = OnceLock::new();
 /// Side effects only — does not construct `AppState`. Desktop callers should
 /// follow up with `build_app_state()`. Server / ACP modes don't need
 /// `AppState` and stop here.
-pub fn init_runtime() {
+pub fn init_runtime(role: &str) {
     if INIT_DONE.get().is_some() {
         return;
     }
@@ -44,6 +44,19 @@ pub fn init_runtime() {
             panic!("{msg}: {e}");
         })
     }
+
+    // Make sure the data dir exists before we try to put a lock file in
+    // it. Idempotent — Tauri / server / acp entrypoints already call
+    // this, but covering it here keeps `init_runtime` self-sufficient.
+    if let Err(e) = paths::ensure_dirs() {
+        eprintln!("[runtime_lock] ensure_dirs failed: {e}");
+    }
+
+    // Elect Primary / Secondary across the data dir. Tier is captured
+    // here but logged via `app_info!` further down once APP_LOGGER is
+    // initialised; commit C8 wires the cleanup + single-owner loop
+    // gating against `runtime_lock::is_primary()`.
+    let tier = crate::runtime_lock::acquire_or_secondary(role);
 
     // Bootstrap a default EventBus if no caller pre-installed one. Tauri
     // shell installs its own bridged bus before `.manage(...)`; the HTTP
@@ -165,6 +178,17 @@ pub fn init_runtime() {
         None,
         None,
         None,
+    );
+
+    // Tier election result. Logging it after APP_LOGGER is set so it
+    // lands in the SQLite log + log file alongside the welcome line.
+    app_info!(
+        "runtime",
+        "tier",
+        "elected {:?} (role={}, holder={:?})",
+        tier,
+        role,
+        crate::runtime_lock::current_holder()
     );
 
     // Send welcome notification on startup via EventBus
@@ -346,10 +370,12 @@ pub fn build_app_state() -> AppState {
     state
 }
 
-/// Backwards-compatible shim. New call sites should use `init_runtime()` +
-/// `build_app_state()` directly so it's clear which side effect they want.
+/// Backwards-compatible shim. New call sites should use `init_runtime`
+/// + `build_app_state()` directly so it's clear which side effect they
+/// want. The role is hard-coded to `"desktop"` because the only
+/// surviving caller of this shim is the Tauri shell.
 pub fn init_app_state() -> AppState {
-    init_runtime();
+    init_runtime("desktop");
     build_app_state()
 }
 

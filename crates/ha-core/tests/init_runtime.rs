@@ -37,7 +37,7 @@ async fn init_runtime_full_lifecycle() {
     ha_core::paths::ensure_dirs().expect("ensure_dirs in tempdir");
 
     // ── First call: every OnceLock must be Some afterwards. ──
-    ha_core::init_runtime();
+    ha_core::init_runtime("test");
 
     assert!(SESSION_DB.get().is_some(), "SESSION_DB");
     assert!(PROJECT_DB.get().is_some(), "PROJECT_DB");
@@ -57,7 +57,7 @@ async fn init_runtime_full_lifecycle() {
 
     // ── Idempotency: second call must not panic and must not reset. ──
     let session_arc_before = SESSION_DB.get().expect("SESSION_DB").clone();
-    ha_core::init_runtime();
+    ha_core::init_runtime("test");
     let session_arc_after = SESSION_DB.get().expect("SESSION_DB").clone();
     assert!(
         Arc::ptr_eq(&session_arc_before, &session_arc_after),

@@ -24,7 +24,7 @@ async fn server_starts_and_serves_health() {
     std::env::set_var("USERPROFILE", tmp.path());
 
     ha_core::paths::ensure_dirs().expect("ensure_dirs");
-    ha_core::init_runtime();
+    ha_core::init_runtime("test");
 
     let session_db = ha_core::globals::SESSION_DB
         .get()

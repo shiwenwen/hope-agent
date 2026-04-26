@@ -201,7 +201,7 @@ fn run_acp_server(args: &[String]) {
     // registers channel plugins, and brings up the ACP control plane.
     // ACP needs this because its tool loop hits memory / cron / subagent
     // / cached-agent / logger paths that all depend on these singletons.
-    ha_core::init_runtime();
+    ha_core::init_runtime("acp");
 
     let session_db = ha_core::require_session_db()
         .expect("init_runtime contract")
@@ -362,7 +362,7 @@ fn run_server(args: &[String]) {
     // up the ACP control plane. Server mode wants the same singleton set
     // as desktop — only the GUI-specific pieces (Tauri webview, embedded
     // HTTP server, EventBus → frontend bridge) differ.
-    ha_core::init_runtime();
+    ha_core::init_runtime("server");
 
     let session_db = ha_core::require_session_db()
         .expect("init_runtime contract")
