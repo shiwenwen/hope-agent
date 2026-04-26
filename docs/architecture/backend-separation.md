@@ -72,7 +72,7 @@ logging/        非阻塞双写 + 脱敏
 | 职责 | 说明 |
 |------|------|
 | REST API | 361 个端点（完整清单与 Tauri 命令对照见 [api-reference.md](api-reference.md)） |
-| WebSocket | `/ws/events`（全局事件广播）+ `/ws/chat/{session_id}`（流式输出） |
+| WebSocket | `/ws/events`（全局事件广播，含聊天流 `chat:stream_delta`） |
 | 路由框架 | axum 0.8 + tower-http CORS |
 | API Key 鉴权 | `middleware.rs` — `Authorization: Bearer` 头 + `?token=` 查询参数，`/api/health` 免鉴权 |
 | 错误处理 | `AppError` — 显式 status code，不做字符串匹配 |
@@ -83,7 +83,6 @@ logging/        非阻塞双写 + 脱敏
 pub struct AppContext {
     pub session_db: Arc<SessionDB>,
     pub event_bus: Arc<dyn EventBus>,
-    pub chat_streams: Arc<ChatStreamRegistry>,  // per-session WS 广播
     pub chat_cancels: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,  // per-session 取消
 }
 ```
@@ -248,7 +247,7 @@ graph TD
 ```typescript
 interface Transport {
   call<T>(command: string, args?: Record<string, unknown>): Promise<T>;
-  openChatStream(sessionId: string | null, onEvent: (event: string) => void): ChatStream;
+  startChat(args: ChatStartArgs, onEvent: (event: string) => void): Promise<string>;
   listen(eventName: string, handler: (payload: unknown) => void): () => void;
 }
 ```
@@ -484,11 +483,11 @@ stateDiagram-v2
 
 ## HTTP API 端点一览
 
-完整清单（361 个 REST 端点 + 2 个 WebSocket 端点）与对应 Tauri 命令对照见 **[api-reference.md](api-reference.md)**，本节只保留顶层结构索引：
+完整清单（361 个 REST 端点 + 1 个 WebSocket 端点）与对应 Tauri 命令对照见 **[api-reference.md](api-reference.md)**，本节只保留顶层结构索引：
 
 | 功能域 | HTTP 前缀 | WebSocket |
 |---|---|---|
-| Sessions / Chat | `/api/sessions/*`、`/api/chat/*` | `/ws/chat/{session_id}` 流式聊天 |
+| Sessions / Chat | `/api/sessions/*`、`/api/chat/*` | `/ws/events` 上的 `chat:stream_delta` |
 | Providers / Models / Agents | `/api/providers/*`、`/api/models/*`、`/api/agents/*` | — |
 | Memory（4 域 + 13 配置） | `/api/memory/*`、`/api/config/{embedding,dedup,mmr,...}` | — |
 | Config（40+ 配置分项） | `/api/config/*` | — |
@@ -517,9 +516,9 @@ sequenceDiagram
     participant LLM as LLM API
     participant WS as WebSocket
 
-    FE->>T: getTransport().call("chat", {message, sessionId})
+    FE->>T: getTransport().startChat({message, sessionId}, onEvent)
     T->>S: POST /api/chat
-    FE->>WS: connect /ws/chat/{sessionId}
+    FE->>WS: connect /ws/events
 
     S->>CE: run_chat_engine(params)
     CE->>Agent: agent.chat(message)
@@ -528,9 +527,9 @@ sequenceDiagram
     loop 流式输出
         LLM-->>Agent: token delta
         Agent-->>CE: on_delta callback
-        CE-->>S: EventSink.send(json)
-        S-->>WS: broadcast to subscribers
-        WS-->>FE: text frame {"type":"text","text":"..."}
+        CE-->>S: EventBus chat:stream_delta
+        S-->>WS: forward AppEvent
+        WS-->>FE: text frame {"name":"chat:stream_delta","payload":...}
     end
 
     CE-->>S: ChatEngineResult
@@ -545,6 +544,6 @@ sequenceDiagram
 | 层面 | 机制 | 说明 |
 |------|------|------|
 | 全局事件 | `BroadcastEventBus` | 每个 WS 连接独立 Receiver，所有客户端同步收到 |
-| 会话流式 | `ChatStreamRegistry` per-session broadcast | 多端可订阅同一 session 实时观看 |
+| 会话流式 | `BroadcastEventBus` 上的 `chat:stream_delta` | 多端可按 `sessionId` 过滤并实时观看 |
 | 并发对话 | per-session `AtomicBool` cancel map | 不同客户端不同会话互不干扰 |
 | 审批系统 | EventBus 广播 + oneshot 响应 | 任何客户端可响应审批请求 |

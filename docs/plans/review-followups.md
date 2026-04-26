@@ -113,17 +113,6 @@
 
 ---
 
-### F-010 HTTP `startChat` 用合成 `session_created` 事件 vs 显式 return shape 的取舍
-
-- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
-- **现象**：[`src/lib/transport-http.ts::startChat`](../../src/lib/transport-http.ts) 在 HTTP 模式下，POST `/api/chat` 返回后**手动合成**一个 `{type:"session_created", session_id:...}` 事件喂给 `onEvent` 回调，目的是让 [`useChatStream.ts`](../../src/components/chat/hooks/useChatStream.ts) 内部 `__pending__` cache key 替换逻辑统一走 onEvent 分支。语义上接口"看起来 generic"但 HTTP 实现行为隐式特化，签名留下"似 stream 实非 stream"的疑义。**还要顺便核实** [`crates/ha-server/src/ws/chat_stream.rs`](../../crates/ha-server/src/ws/chat_stream.rs) 的 `/ws/chat/{session_id}` 路由：前端 `openChatStream` 已删，server 端 `WsSink` 仍 broadcast 到这个路由，可能成为死路径——若 reattach `/ws/events` 能完整覆盖，可一并清理。
-- **为什么留**：换成"显式 return `{sessionId, response}` 让调用方自己改 cache"会把 transport 抽象的好处折损（hook 要自己 if (isHttp) 分支）；当前文档已显式说明 HTTP 模式仅合成 `session_created`，合约是诚实的。死路径核实涉及 axum router 注册顺序梳理，独立小工作。
-- **改的话要做什么**：(a) 评估是否换成"`startChat` 直接 return `ChatResponse`，cache rename 由 hook 自己做"。(b) 验证 `/ws/chat/{id}` 路由的所有消费者是否都已切到 `/ws/events`，无消费者则删 [`ws/chat_stream.rs`](../../crates/ha-server/src/ws/chat_stream.rs) + lib.rs 路由注册。
-- **影响面**：当前无 bug，无性能差异；属于架构清晰度问题。
-- **触发时机建议**：HTTP `startChat` 出现第二种"必须前置交付"的事件（例如 chat 命令同步阶段 error）时回头重设计；或独立 "chat stream 路径清理" PR。
-
----
-
 ### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
@@ -154,16 +143,24 @@
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
 - **现象**：[`useChatStreamReattach.ts:55-66`](../../src/components/chat/hooks/useChatStreamReattach.ts) 的 docstring 是仓库**首次**正式文字化"Tauri 模式 vs HTTP 模式行为差异"。其它地方对 transport 模式的判断散落在 [`isTauriMode()`](../../src/lib/transport.ts) 调用点 + 两个 transport adapter 实现 + `transport-provider.ts` 选 adapter 逻辑，没有架构级综述。新人接手或调试 transport 相关 bug 必须读多个源才能拼出全图。
-- **为什么留**：架构文档需要先把"打算保留的" vs "打算简化掉的"区分清楚（参见 F-010 关于 `/ws/chat/{id}` 死路径），再写权威文档；现在写容易立刻过时。
+- **为什么留**：F-010 已经明确保留 `startChat` 合成 `session_created`，并删除 `/ws/chat/{id}` 死路径；剩下的是把这些约定整理成一篇权威综述，适合独立文档 PR。
 - **改的话要做什么**：在 [`docs/architecture/`](../README.md) 新建 `transport-modes.md`，覆盖：(a) 三种运行模式的事件流向图；(b) 每个 Transport 方法在两种模式下的实现路径；(c) `chat:stream_delta` 双写架构 + reattach 角色（Tauri 兜底 vs HTTP 主路径）；(d) 列出所有 EventBus 事件名 + 用途；(e) 决策记录 "为什么 startChat 不是 streamCall 通用原语"。回填到 `docs/README.md` 索引。
 - **影响面**：纯文档债。无功能影响。
-- **触发时机建议**：F-010 决策落地（startChat 合约 / `/ws/chat/{id}` 死路径处置）后再写，避免文档与代码不同步。
+- **触发时机建议**：下一次继续做 transport 文档整理时优先收掉；F-010 已落地，当前可以安全写。
 
 ---
 
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-010 HTTP `startChat` 用合成 `session_created` 事件 vs 显式 return shape 的取舍
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-010 修复
+- **修复方式**：保留 [`src/lib/transport-http.ts::startChat`](../../src/lib/transport-http.ts) 合成 `session_created` 的现有合约，让 [`useChatStream.ts`](../../src/components/chat/hooks/useChatStream.ts) 继续用同一条 `onEvent` 路径完成 `__pending__` cache rename，避免把 HTTP 特例泄漏到 hook。经核实前端已不再消费 `/ws/chat/{session_id}`，HTTP 流式输出完整走 `/ws/events` 上的 `chat:stream_delta`；因此删除 [`crates/ha-server/src/ws/chat_stream.rs`](../../crates/ha-server/src/ws/chat_stream.rs)、`ChatStreamRegistry`、`WsSink` 和 `/ws/chat/{session_id}` 路由，ha-server 改用 `NoopSink` 依赖 Chat Engine 的 EventBus 双写路径。同步更新架构文档中旧的 `openChatStream` / `/ws/chat` 描述。
+
+---
 
 ### F-006 Ollama pull 流提前结束时仍会激活模型
 
