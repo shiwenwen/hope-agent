@@ -58,27 +58,25 @@ pub(super) fn truncate(text: &str, max_chars: usize) -> String {
 
     let head_size = max_chars * 70 / 100;
     let tail_size = max_chars * 20 / 100;
-
-    // Find safe char boundaries
-    let head_end = text
-        .char_indices()
-        .take_while(|(i, _)| *i < head_size)
-        .last()
-        .map(|(i, c)| i + c.len_utf8())
-        .unwrap_or(head_size);
-
-    let tail_start = text
-        .char_indices()
-        .rev()
-        .take_while(|(i, _)| text.len() - *i <= tail_size)
-        .last()
-        .map(|(i, _)| i)
-        .unwrap_or(text.len() - tail_size);
+    let head = crate::truncate_utf8(text, head_size);
+    let tail = crate::truncate_utf8_tail(text, tail_size);
+    let omitted = text.len().saturating_sub(head.len() + tail.len());
 
     format!(
-        "{}\n\n[... truncated {} characters ...]\n\n{}",
-        &text[..head_end],
-        text.len() - head_end - (text.len() - tail_start),
-        &text[tail_start..]
+        "{}\n\n[... truncated {} bytes ...]\n\n{}",
+        head, omitted, tail
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate;
+
+    #[test]
+    fn truncate_keeps_utf8_boundaries_with_tiny_budget() {
+        let text = "甲乙丙丁戊己庚辛";
+        let truncated = truncate(text, 5);
+        assert!(std::str::from_utf8(truncated.as_bytes()).is_ok());
+        assert!(truncated.contains("[... truncated"));
+    }
 }

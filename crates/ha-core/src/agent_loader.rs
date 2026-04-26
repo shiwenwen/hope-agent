@@ -35,8 +35,8 @@ pub(crate) fn detect_system_locale() -> String {
                 return "zh-TW".to_string();
             }
             // Return first 2 chars as language code
-            if locale.len() >= 2 {
-                return locale[..2].to_string();
+            if locale.chars().count() >= 2 {
+                return locale.chars().take(2).collect();
             }
         }
     }
@@ -47,8 +47,8 @@ pub(crate) fn detect_system_locale() -> String {
             if val.starts_with("zh_tw") || val.starts_with("zh_hk") {
                 return "zh-TW".to_string();
             }
-            if val.len() >= 2 {
-                return val[..2].to_string();
+            if val.chars().count() >= 2 {
+                return val.chars().take(2).collect();
             }
         }
     }

@@ -398,10 +398,10 @@ pub async fn get_server_config() -> Result<Json<Value>, AppError> {
     let server = &store.server;
     // Mask api_key for security — only reveal whether it's set
     let masked_key = server.api_key.as_ref().map(|k| {
-        if k.len() <= 4 {
+        if k.is_empty() {
             "****".to_string()
         } else {
-            format!("{}...{}", &k[..2], &k[k.len() - 2..])
+            ha_core::mask_secret_middle(k, 2, 2)
         }
     });
     Ok(Json(json!({

@@ -192,13 +192,15 @@ async fn resolve_url(url: &str) -> Result<(Vec<u8>, String)> {
         ));
     }
 
-    // Truncate URL for label
-    let label = if url.len() > 80 {
-        format!("url: {}...", &url[..77])
+    Ok((bytes.to_vec(), url_label(url)))
+}
+
+fn url_label(url: &str) -> String {
+    if url.len() > 80 {
+        format!("url: {}...", crate::truncate_utf8(url, 77))
     } else {
         format!("url: {}", url)
-    };
-    Ok((bytes.to_vec(), label))
+    }
 }
 
 /// Decode a `data:image/...;base64,...` URI.
@@ -379,4 +381,17 @@ pub(crate) async fn tool_image(args: &Value) -> Result<String> {
     }
 
     Ok(result_parts.join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url_label;
+
+    #[test]
+    fn url_label_truncates_on_utf8_boundary() {
+        let url = format!("https://example.com/{}", "图".repeat(40));
+        let label = url_label(&url);
+        assert!(std::str::from_utf8(label.as_bytes()).is_ok());
+        assert!(label.ends_with("..."));
+    }
 }

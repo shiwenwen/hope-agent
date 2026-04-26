@@ -354,7 +354,7 @@ impl IrcClient {
             let delay_secs = BACKOFF_SECS
                 .get(attempt)
                 .copied()
-                .unwrap_or(*BACKOFF_SECS.last().unwrap());
+                .unwrap_or_else(|| BACKOFF_SECS.last().copied().unwrap_or(60));
             attempt += 1;
 
             app_info!(

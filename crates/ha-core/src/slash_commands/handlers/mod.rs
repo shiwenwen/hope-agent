@@ -289,7 +289,7 @@ async fn dispatch_skill_fork(
         content: format!(
             "Skill **{}** forked to sub-agent (run: {}). Result will be injected when complete.",
             skill.name,
-            &run_id[..8]
+            crate::truncate_utf8(&run_id, 8)
         ),
         action: Some(CommandAction::SkillFork {
             run_id,

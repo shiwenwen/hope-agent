@@ -90,6 +90,6 @@ pub fn backoff_duration(attempt: usize) -> std::time::Duration {
     let secs = BACKOFF_SECS
         .get(attempt)
         .copied()
-        .unwrap_or(*BACKOFF_SECS.last().unwrap());
+        .unwrap_or_else(|| BACKOFF_SECS.last().copied().unwrap_or(60));
     std::time::Duration::from_secs(secs)
 }
