@@ -68,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rust panic 与 UTF-8 安全治理**：收敛长驻任务、网络输入、IM Channel、配置展示与 exec 输出路径上的高风险 panic 点。新增 UTF-8 安全的 `truncate_string_utf8` 与 `mask_secret_middle` helper，替换 `String::truncate(max_output)`、URL/API key/secret 字节切片、IM 长文本分片、system prompt 截断等会在多字节字符边界 panic 的路径；HTTP chat cancel registry 的 poisoned lock、WeChat CDN 上传 headers、WhatsApp bridge 消息缺字段、Channel dispatcher runtime/thread、process stdout/stderr capture、ask_user/approval pending pop 等入口改为返回错误或安全降级。补充针对性 regression tests 覆盖 UTF-8 分片、原地截断、secret mask、URL label、ask_user unicode 输入和 WhatsApp 缺字段消息。
 - **后台模型安装弹层和任务日志的事件漏收兜底**：对话模型与 Embedding 模型安装弹层现在把 `local_model_job:*` 事件路径和 `local_model_job_get` 轮询路径合并到同一套终态处理逻辑；即使 HTTP `/ws/events` 重连或 EventBus lag 漏掉 completed 事件，轮询拿到终态 snapshot 后也会清理 busy 状态、刷新 Provider / Embedding 配置并更新页面。任务中心日志面板每次重新展开都会重新拉取后端日志，避免折叠期间产生的日志在 UI 中缺失。
 - **聊天结束后停止按钮 / 会话列表转圈滞后消失**：主聊天流在最终 assistant 消息落库后立即广播 `chat:stream_end`，自动记忆提取改为后台调度，不再让一次 post-turn 记忆 LLM 调用把前端 loading 状态拖住。
 - **定时任务日历视图把高频 `every` 任务错误回填到月初**：`CronSchedule::Every` 现在持久化 `start_at`（首个计划触发时间），创建/编辑时由后端锚定，旧数据库任务在 `CronDB::open` 启动时按 `created_at + interval_ms` 自动回填。`cron/calendar` 不再从查询窗口起点硬铺 interval 任务，`每 5 分钟` 的喝水提醒不会再在 4 月日历里凭空出现在 `4/1-4/4`。顺带把日历日志匹配改成“按 job 批量读取 + 就近唯一匹配到最近 occurrence”，避免高频任务状态点错贴到前一个时间槽位。

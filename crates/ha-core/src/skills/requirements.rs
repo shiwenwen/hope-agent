@@ -146,13 +146,7 @@ pub fn check_requirements_detail(
 /// Mask a secret value for frontend display.
 /// Same pattern as ProviderConfig::masked().
 pub fn mask_value(v: &str) -> String {
-    if v.len() > 8 {
-        format!("{}...{}", &v[..4], &v[v.len() - 4..])
-    } else if !v.is_empty() {
-        "****".to_string()
-    } else {
-        String::new()
-    }
+    crate::mask_secret_middle(v, 4, 4)
 }
 
 /// Check if a value is a masked placeholder (should not overwrite real value).

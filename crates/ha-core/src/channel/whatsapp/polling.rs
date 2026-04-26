@@ -106,27 +106,36 @@ pub(crate) async fn run_whatsapp_polling(
 
 /// Convert a bridge message to a normalized MsgContext.
 fn convert_bridge_message(account_id: &str, msg: BridgeMessage) -> Option<MsgContext> {
-    // Validate required fields exist before proceeding
-    if msg.chat_id.is_none() || msg.sender_id.is_none() {
-        return None;
-    }
-
     // Capture raw JSON before moving fields out of msg
     let raw = serde_json::to_value(&msg).unwrap_or(serde_json::Value::Null);
 
-    let chat_id = msg.chat_id.unwrap();
-    let sender_id = msg.sender_id.unwrap();
-    let message_id = msg.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let BridgeMessage {
+        id,
+        chat_id,
+        sender_id,
+        sender_name,
+        text,
+        timestamp,
+        was_mentioned,
+        reply_to,
+        chat_title,
+        ..
+    } = msg;
 
-    let text = msg
-        .text
+    let (chat_id, sender_id) = match (chat_id, sender_id) {
+        (Some(chat_id), Some(sender_id)) => (chat_id, sender_id),
+        _ => return None,
+    };
+
+    let message_id = id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+    let text = text
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(str::to_string);
 
-    let timestamp = msg
-        .timestamp
+    let timestamp = timestamp
         .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
         .unwrap_or_else(Utc::now);
 
@@ -143,18 +152,18 @@ fn convert_bridge_message(account_id: &str, msg: BridgeMessage) -> Option<MsgCon
         channel_id: ChannelId::WhatsApp,
         account_id: account_id.to_string(),
         sender_id,
-        sender_name: msg.sender_name,
+        sender_name,
         sender_username: None,
         chat_id,
         chat_type,
-        chat_title: msg.chat_title,
+        chat_title,
         thread_id: None,
         message_id,
         text,
         media: Vec::new(),
-        reply_to_message_id: msg.reply_to,
+        reply_to_message_id: reply_to,
         timestamp,
-        was_mentioned: msg.was_mentioned,
+        was_mentioned,
         raw,
     })
 }
@@ -164,5 +173,43 @@ async fn sleep_or_cancel(cancel: &CancellationToken, delay: Duration) -> bool {
     tokio::select! {
         _ = cancel.cancelled() => true,
         _ = tokio::time::sleep(delay) => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::convert_bridge_message;
+    use crate::channel::types::ChatType;
+    use crate::channel::whatsapp::api::BridgeMessage;
+
+    #[test]
+    fn convert_bridge_message_missing_required_fields_returns_none() {
+        let missing_chat = BridgeMessage {
+            sender_id: Some("sender@s.whatsapp.net".to_string()),
+            ..Default::default()
+        };
+        assert!(convert_bridge_message("acct", missing_chat).is_none());
+
+        let missing_sender = BridgeMessage {
+            chat_id: Some("chat@s.whatsapp.net".to_string()),
+            ..Default::default()
+        };
+        assert!(convert_bridge_message("acct", missing_sender).is_none());
+    }
+
+    #[test]
+    fn convert_bridge_message_accepts_group_chat_without_unwrap() {
+        let msg = BridgeMessage {
+            id: Some("m1".to_string()),
+            chat_id: Some("123@g.us".to_string()),
+            sender_id: Some("sender@s.whatsapp.net".to_string()),
+            text: Some(" hello ".to_string()),
+            ..Default::default()
+        };
+
+        let ctx = convert_bridge_message("acct", msg).expect("valid message");
+        assert_eq!(ctx.chat_type, ChatType::Group);
+        assert_eq!(ctx.message_id, "m1");
+        assert_eq!(ctx.text.as_deref(), Some("hello"));
     }
 }

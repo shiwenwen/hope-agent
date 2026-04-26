@@ -354,7 +354,8 @@ async fn upload_media_to_wechat(
         return Err(anyhow::anyhow!(err));
     }
 
-    let headers = response_headers.expect("headers must be set on success");
+    let headers = response_headers
+        .ok_or_else(|| anyhow::anyhow!("WeChat CDN upload succeeded without response headers"))?;
     let download_param = headers
         .get("x-encrypted-param")
         .and_then(|value| value.to_str().ok())

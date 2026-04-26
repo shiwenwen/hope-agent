@@ -131,7 +131,7 @@ pub fn collect_entries(
             .title
             .clone()
             .filter(|t: &String| !t.trim().is_empty())
-            .unwrap_or_else(|| format!("Session {}", &meta.id[..meta.id.len().min(8)]));
+            .unwrap_or_else(|| format!("Session {}", crate::truncate_utf8(&meta.id, 8)));
 
         let agent_name = resolve_agent_name(&meta.agent_id);
 

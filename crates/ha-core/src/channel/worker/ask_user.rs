@@ -481,7 +481,9 @@ pub async fn try_handle_ask_user_reply(msg: &crate::channel::types::MsgContext) 
 
     if should_finish && current.is_complete() {
         let request_id = current.request_id.clone();
-        let pending = entry.pop().unwrap();
+        let Some(pending) = entry.pop() else {
+            return false;
+        };
         if entry.is_empty() {
             pending_map.remove(&key);
         }
@@ -510,7 +512,8 @@ fn parse_marker(tok: &str) -> Option<(usize, usize)> {
     }
     let letter = tok.chars().last().filter(|c| c.is_ascii_alphabetic())?;
     let oi = (letter as u8 - b'a') as usize;
-    let qi: usize = tok[..tok.len() - 1].parse().ok()?;
+    let number = tok.strip_suffix(letter).unwrap_or(tok.as_str());
+    let qi: usize = number.parse().ok()?;
     if qi == 0 {
         return None;
     }
@@ -657,4 +660,16 @@ pub fn try_dispatch_interactive_callback(data: &str, source: &'static str) -> bo
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_marker;
+
+    #[test]
+    fn parse_marker_rejects_unicode_without_panicking() {
+        assert_eq!(parse_marker("你好"), None);
+        assert_eq!(parse_marker("1好"), None);
+        assert_eq!(parse_marker("10c"), Some((9, 2)));
+    }
 }

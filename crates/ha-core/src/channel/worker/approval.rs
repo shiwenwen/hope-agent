@@ -256,7 +256,9 @@ pub async fn try_handle_approval_reply(msg: &crate::channel::types::MsgContext) 
                 return false;
             }
             // LIFO: the most recent approval gets the reply
-            let entry = list.pop().unwrap();
+            let Some(entry) = list.pop() else {
+                return false;
+            };
             if list.is_empty() {
                 pending.remove(&key);
             }

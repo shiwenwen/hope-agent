@@ -1007,6 +1007,7 @@ Body."#;
         assert_eq!(mask_value("12345678"), "****");
         assert_eq!(mask_value("123456789"), "1234...6789");
         assert_eq!(mask_value("sk-abcdefghijklmnop"), "sk-a...mnop");
+        assert_eq!(mask_value("密钥🔑abcdef"), "密钥🔑a...cdef");
     }
 
     #[test]

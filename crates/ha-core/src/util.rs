@@ -62,6 +62,42 @@ pub fn truncate_utf8_tail(s: &str, max_bytes: usize) -> &str {
     &s[start..]
 }
 
+/// Truncate a `String` in place to at most `max_bytes` bytes on a valid UTF-8
+/// char boundary. Returns whether truncation happened.
+pub fn truncate_string_utf8(s: &mut String, max_bytes: usize) -> bool {
+    if s.len() <= max_bytes {
+        return false;
+    }
+    let end = truncate_utf8(s.as_str(), max_bytes).len();
+    s.truncate(end);
+    true
+}
+
+/// Mask a secret for display by keeping a small char-count prefix and suffix.
+/// Empty values remain empty so callers can distinguish "not configured" from
+/// "configured but hidden".
+pub fn mask_secret_middle(value: &str, prefix_chars: usize, suffix_chars: usize) -> String {
+    if value.is_empty() {
+        return String::new();
+    }
+
+    let visible_chars = prefix_chars.saturating_add(suffix_chars);
+    if value.chars().count() <= visible_chars {
+        return "****".to_string();
+    }
+
+    let prefix: String = value.chars().take(prefix_chars).collect();
+    let suffix: String = value
+        .chars()
+        .rev()
+        .take(suffix_chars)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    format!("{}...{}", prefix, suffix)
+}
+
 /// Recursively merge `src` JSON into `dst`. Object keys are merged deeply;
 /// non-object values in `src` overwrite `dst`.
 pub fn merge_json(dst: &mut serde_json::Value, src: serde_json::Value) {
@@ -160,5 +196,24 @@ mod tests {
     fn sql_in_placeholders_many() {
         assert_eq!(sql_in_placeholders(3), "?,?,?");
         assert_eq!(sql_in_placeholders(5), "?,?,?,?,?");
+    }
+
+    #[test]
+    fn truncate_string_utf8_keeps_char_boundaries() {
+        let mut s = "你好abc".to_string();
+        assert!(truncate_string_utf8(&mut s, 4));
+        assert_eq!(s, "你");
+
+        let mut emoji = "🔑abc".to_string();
+        assert!(truncate_string_utf8(&mut emoji, 1));
+        assert_eq!(emoji, "");
+    }
+
+    #[test]
+    fn mask_secret_middle_uses_chars_not_bytes() {
+        assert_eq!(mask_secret_middle("", 2, 2), "");
+        assert_eq!(mask_secret_middle("abcd", 2, 2), "****");
+        assert_eq!(mask_secret_middle("abcdef", 2, 2), "ab...ef");
+        assert_eq!(mask_secret_middle("密钥🔑abcdef", 2, 2), "密钥...ef");
     }
 }

@@ -58,7 +58,7 @@ pub(crate) fn get_login_shell_path() -> Option<&'static str> {
                         "tool",
                         "exec",
                         "Resolved login shell PATH: {}",
-                        &path[..path.len().min(120)]
+                        crate::truncate_utf8(&path, 120)
                     );
                     Some(path)
                 } else {
@@ -505,8 +505,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                 }
 
                 // Dynamic truncation
-                if result_text.len() > max_output {
-                    result_text.truncate(max_output);
+                if crate::truncate_string_utf8(&mut result_text, max_output) {
                     result_text.push_str("\n... (output truncated)");
                 }
 
@@ -646,8 +645,7 @@ async fn finish_exec_sync(
             }
 
             // Dynamic truncation
-            if result_text.len() > max_output {
-                result_text.truncate(max_output);
+            if crate::truncate_string_utf8(&mut result_text, max_output) {
                 result_text.push_str("\n... (output truncated)");
             }
 
@@ -808,8 +806,7 @@ async fn exec_via_pty(
                             Ok(n) => {
                                 let chunk = String::from_utf8_lossy(&buf[..n]);
                                 output.push_str(&chunk);
-                                if output.len() > max_output {
-                                    output.truncate(max_output);
+                                if crate::truncate_string_utf8(&mut output, max_output) {
                                     output.push_str("\n... (output truncated)");
                                     break;
                                 }
@@ -849,8 +846,7 @@ async fn exec_via_pty(
                 Ok(n) => {
                     let chunk = String::from_utf8_lossy(&buf[..n]);
                     output.push_str(&chunk);
-                    if output.len() > max_output {
-                        output.truncate(max_output);
+                    if crate::truncate_string_utf8(&mut output, max_output) {
                         output.push_str("\n... (output truncated)");
                         let _ = child.kill();
                         return Ok((output, None));

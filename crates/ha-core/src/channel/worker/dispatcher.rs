@@ -55,10 +55,21 @@ pub fn spawn_dispatcher(
 ) {
     // Use a dedicated thread with its own tokio runtime, since this is called
     // during init_app_state() before Tauri's async runtime is available.
-    std::thread::Builder::new()
+    if let Err(e) = std::thread::Builder::new()
         .name("channel-dispatcher".into())
         .spawn(move || {
-            let rt = tokio::runtime::Runtime::new().expect("channel dispatcher runtime");
+            let rt = match tokio::runtime::Runtime::new() {
+                Ok(rt) => rt,
+                Err(e) => {
+                    app_error!(
+                        "channel",
+                        "worker",
+                        "Failed to create channel dispatcher runtime: {}",
+                        e
+                    );
+                    return;
+                }
+            };
             rt.block_on(async move {
                 app_info!(
                     "channel",
@@ -90,7 +101,14 @@ pub fn spawn_dispatcher(
                 app_info!("channel", "worker", "Inbound message dispatcher stopped");
             });
         })
-        .expect("spawn channel dispatcher thread");
+    {
+        app_error!(
+            "channel",
+            "worker",
+            "Failed to spawn channel dispatcher thread: {}",
+            e
+        );
+    }
 }
 
 /// Process a single inbound message from a channel.

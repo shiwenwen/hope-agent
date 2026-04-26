@@ -80,7 +80,7 @@ pub fn cleanup_old_log_files(max_age_days: u32) -> Result<u64> {
         let name = entry.file_name().to_string_lossy().to_string();
         // Parse date from filename: hope-agent-YYYY-MM-DD.log or hope-agent-YYYY-MM-DD.N.log
         if let Some(date_part) = name.strip_prefix("hope-agent-") {
-            let date = &date_part[..10.min(date_part.len())];
+            let date = crate::truncate_utf8(date_part, 10);
             if date < cutoff_date.as_str() {
                 let _ = std::fs::remove_file(entry.path());
                 removed += 1;

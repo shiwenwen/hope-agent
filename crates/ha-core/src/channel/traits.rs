@@ -231,20 +231,30 @@ pub fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
         }
 
         // Try to split at a paragraph boundary (double newline)
-        let search_range = &remaining[..max_len];
+        let safe_limit = crate::truncate_utf8(remaining, max_len).len();
+        if safe_limit == 0 {
+            // max_len is smaller than the next scalar value. Keep making
+            // progress instead of dropping the rest of the message.
+            if let Some(ch) = remaining.chars().next() {
+                chunks.push(ch.to_string());
+                remaining = &remaining[ch.len_utf8()..];
+                continue;
+            }
+            break;
+        }
+
+        let search_range = &remaining[..safe_limit];
         let split_pos = search_range
             .rfind("\n\n")
             .or_else(|| search_range.rfind('\n'))
             .or_else(|| search_range.rfind(". "))
             .or_else(|| search_range.rfind(' '))
-            .unwrap_or(max_len);
-
-        // Ensure we don't split in the middle of a UTF-8 character
-        let split_pos = crate::truncate_utf8(&remaining[..split_pos], split_pos).len();
-        if split_pos == 0 {
-            // Edge case: single character wider than max_len (shouldn't happen with 4096)
-            break;
-        }
+            .unwrap_or(safe_limit);
+        let split_pos = if split_pos == 0 {
+            safe_limit
+        } else {
+            split_pos
+        };
 
         chunks.push(remaining[..split_pos].to_string());
         remaining = remaining[split_pos..].trim_start();
@@ -277,5 +287,23 @@ mod tests {
         let text = format!("{}\n{}", "A".repeat(100), "B".repeat(100));
         let chunks = chunk_text(&text, 150);
         assert_eq!(chunks.len(), 2);
+    }
+
+    #[test]
+    fn test_chunk_text_does_not_slice_inside_utf8() {
+        let chunks = chunk_text("你好世界", 5);
+        assert_eq!(chunks, vec!["你", "好", "世", "界"]);
+    }
+
+    #[test]
+    fn test_chunk_text_progresses_when_limit_is_smaller_than_char() {
+        let chunks = chunk_text("🔑🔒", 1);
+        assert_eq!(chunks, vec!["🔑", "🔒"]);
+    }
+
+    #[test]
+    fn test_chunk_text_does_not_emit_empty_chunk_for_leading_space() {
+        let chunks = chunk_text(" 你好世界", 5);
+        assert!(!chunks.iter().any(|chunk| chunk.is_empty()));
     }
 }
