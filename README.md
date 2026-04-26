@@ -110,6 +110,8 @@ pnpm lint              # Lint
 pnpm tauri build       # 打生产包
 ```
 
+本地开发时如果想在浏览器里看“网页版”并实时刷新，运行 `pnpm tauri dev` 后打开 `http://localhost:1420`。这是 Vite dev server，和 Tauri 窗口共用前端热更新；`http://localhost:8420` 是内嵌 HTTP/WS 服务提供的静态 Web GUI（来自 `dist/` / embedded bundle），用于模拟打包后的浏览器入口，不会跟随源码 HMR。若本地 Server 开了 API Key，`1420` 页面请求 `8420` 可能返回 401，开发时可先在设置里临时清空 Server API Key 后重启。
+
 ## 运行模式
 
 | 模式              | 启动方式                                                                         | 场景                                                         |

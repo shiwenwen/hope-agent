@@ -110,6 +110,8 @@ pnpm lint              # lint
 pnpm tauri build       # production build
 ```
 
+For local Web GUI development with live reload, run `pnpm tauri dev` and open `http://localhost:1420` in your browser. That is the Vite dev server, sharing the same frontend HMR as the Tauri window. `http://localhost:8420` is the embedded HTTP/WS server's static Web GUI entry, served from `dist/` / the embedded bundle, so it behaves like the packaged browser entry and does not HMR with source changes. If your local server has an API key enabled, the `1420` page may get 401s from `8420`; for development, temporarily clear the Server API Key in Settings and restart.
+
 ## Run Modes
 
 | Mode             | How to start                                                                      | When to use                                                                       |
