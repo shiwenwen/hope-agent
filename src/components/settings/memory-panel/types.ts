@@ -65,6 +65,18 @@ export interface LocalEmbeddingModel {
   downloaded: boolean
 }
 
+export interface OllamaEmbeddingModel {
+  id: string
+  displayName: string
+  dimensions: number
+  sizeMb: number
+  contextWindow: number
+  languages: string[]
+  minOllamaVersion?: string | null
+  installed: boolean
+  recommended: boolean
+}
+
 export type { AgentInfo } from "@/types/chat"
 
 export interface MemoryStats {

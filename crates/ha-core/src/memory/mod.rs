@@ -15,7 +15,7 @@ pub mod types;
 // so that `crate::memory::XXX` continues to work.
 
 pub use embedding::*;
-pub use helpers::{load_dedup_config, load_extract_config};
+pub use helpers::{apply_embedding_config_to_backend, load_dedup_config, load_extract_config};
 pub use import::*;
 pub use recall_summary::{maybe_summarize_recall, RecallSummaryConfig};
 pub use sqlite::SqliteMemoryBackend;

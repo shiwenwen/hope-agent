@@ -434,6 +434,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     setEmbeddingTestResult: statsHook.setEmbeddingTestResult,
     embeddingSaving: statsHook.embeddingSaving,
     embeddingSaveStatus: statsHook.embeddingSaveStatus,
+    reloadEmbeddingConfig: statsHook.reloadEmbeddingConfig,
 
     // Dedup config state (from sub-hook)
     dedupConfig: statsHook.dedupConfig,

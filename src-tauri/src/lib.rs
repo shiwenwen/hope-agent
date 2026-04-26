@@ -33,6 +33,7 @@ pub use ha_core::docker;
 pub use ha_core::failover;
 pub use ha_core::file_extract;
 pub use ha_core::guardian;
+pub use ha_core::local_embedding;
 pub use ha_core::logging;
 pub use ha_core::memory;
 pub use ha_core::memory_extract;
@@ -265,6 +266,8 @@ pub fn run() {
             commands::local_llm::local_llm_install_ollama,
             commands::local_llm::local_llm_start_ollama,
             commands::local_llm::local_llm_pull_and_activate,
+            commands::local_embedding::local_embedding_list_models,
+            commands::local_embedding::local_embedding_pull_and_activate,
             commands::memory::memory_stats,
             commands::memory::get_extract_config,
             commands::memory::save_extract_config,

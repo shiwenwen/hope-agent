@@ -1,7 +1,7 @@
 use crate::commands::CmdError;
 use crate::get_memory_backend;
 use crate::memory;
-use ha_core::{app_info, app_warn};
+use ha_core::app_warn;
 
 #[tauri::command]
 pub async fn memory_add(entry: memory::NewMemory) -> Result<i64, CmdError> {
@@ -299,34 +299,15 @@ pub async fn save_embedding_config(config: memory::EmbeddingConfig) -> Result<()
 
     // Apply embedder in background to avoid blocking the command response
     tokio::task::spawn_blocking(move || {
-        if let Some(backend) = get_memory_backend() {
-            if should_enable {
-                match memory::create_embedding_provider(&config) {
-                    Ok(provider) => {
-                        backend.set_embedder(provider);
-                        app_info!(
-                            "memory",
-                            "embedding",
-                            "Embedding provider applied after config save"
-                        );
-                    }
-                    Err(e) => {
-                        app_warn!(
-                            "memory",
-                            "embedding",
-                            "Failed to apply embedding provider: {}",
-                            e
-                        );
-                    }
-                }
-            } else {
-                backend.clear_embedder();
-                app_info!(
-                    "memory",
-                    "embedding",
-                    "Embedding provider cleared after config save"
-                );
-            }
+        if let Err(e) = memory::apply_embedding_config_to_backend(&config, "settings-ui") {
+            let action = if should_enable { "apply" } else { "clear" };
+            app_warn!(
+                "memory",
+                "embedding",
+                "Failed to {} embedding provider: {}",
+                action,
+                e
+            );
         }
     });
     Ok(())

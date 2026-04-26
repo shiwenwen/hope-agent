@@ -434,10 +434,22 @@ pub async fn get_embedding_config() -> Result<Json<ha_core::memory::EmbeddingCon
 pub async fn save_embedding_config(
     Json(body): Json<ConfigBody<ha_core::memory::EmbeddingConfig>>,
 ) -> Result<Json<Value>, AppError> {
+    let config = body.config;
+    let applied = config.clone();
     ha_core::config::mutate_config(("embedding", "http"), |store| {
-        store.embedding = body.config;
+        store.embedding = applied;
         Ok(())
     })?;
+    tokio::task::spawn_blocking(move || {
+        if let Err(e) = ha_core::memory::apply_embedding_config_to_backend(&config, "http") {
+            ha_core::app_warn!(
+                "memory",
+                "embedding",
+                "Failed to hot-reload embedding provider after HTTP config save: {}",
+                e
+            );
+        }
+    });
     Ok(Json(json!({ "saved": true })))
 }
 

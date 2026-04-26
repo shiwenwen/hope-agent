@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useCallback, useState, useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
@@ -29,26 +29,28 @@ export function useMemoryStats() {
   const [dedupConfig, setDedupConfig] = useState({ thresholdHigh: 0.02, thresholdMerge: 0.012 })
   const [dedupExpanded, setDedupExpanded] = useState(false)
 
+  const loadEmbedding = useCallback(async () => {
+    try {
+      const [config, presetList, models, dedup] = await Promise.all([
+        getTransport().call<EmbeddingConfig>("get_embedding_config"),
+        getTransport().call<EmbeddingPreset[]>("get_embedding_presets"),
+        getTransport().call<LocalEmbeddingModel[]>("list_local_embedding_models"),
+        getTransport().call<{ thresholdHigh: number; thresholdMerge: number }>("get_dedup_config"),
+      ])
+      setEmbeddingConfig(config)
+      setPresets(presetList)
+      setLocalModels(models)
+      setDedupConfig(dedup)
+      setEmbeddingDirty(false)
+    } catch (e) {
+      logger.error("settings", "MemoryPanel::loadEmbedding", "Failed to load embedding config", e)
+    }
+  }, [])
+
   // ── Load embedding config ──
   useEffect(() => {
-    async function loadEmbedding() {
-      try {
-        const [config, presetList, models, dedup] = await Promise.all([
-          getTransport().call<EmbeddingConfig>("get_embedding_config"),
-          getTransport().call<EmbeddingPreset[]>("get_embedding_presets"),
-          getTransport().call<LocalEmbeddingModel[]>("list_local_embedding_models"),
-          getTransport().call<{ thresholdHigh: number; thresholdMerge: number }>("get_dedup_config"),
-        ])
-        setEmbeddingConfig(config)
-        setPresets(presetList)
-        setLocalModels(models)
-        setDedupConfig(dedup)
-      } catch (e) {
-        logger.error("settings", "MemoryPanel::loadEmbedding", "Failed to load embedding config", e)
-      }
-    }
-    loadEmbedding()
-  }, [])
+    void loadEmbedding()
+  }, [loadEmbedding])
 
   async function saveEmbeddingConfig() {
     setEmbeddingSaving(true)
@@ -81,6 +83,7 @@ export function useMemoryStats() {
     embeddingTestResult, setEmbeddingTestResult,
     embeddingSaving,
     embeddingSaveStatus,
+    reloadEmbeddingConfig: loadEmbedding,
     dedupConfig, setDedupConfig,
     dedupExpanded, setDedupExpanded,
     saveEmbeddingConfig,
