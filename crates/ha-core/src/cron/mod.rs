@@ -1,3 +1,4 @@
+mod cancel;
 mod db;
 pub(crate) mod delivery;
 pub(crate) mod executor;
@@ -21,4 +22,4 @@ pub use schedule::validate_cron_expression;
 pub use scheduler::start_scheduler;
 
 // Re-export executor
-pub use executor::execute_job_public;
+pub use executor::{cancel_running_job, execute_job_public};

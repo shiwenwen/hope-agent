@@ -24,6 +24,7 @@ pub mod plan;
 pub mod project;
 pub mod provider;
 pub mod recap;
+pub mod runtime_tasks;
 pub mod session;
 pub mod skills;
 pub mod subagent;

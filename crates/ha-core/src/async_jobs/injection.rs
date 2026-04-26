@@ -227,6 +227,14 @@ pub fn build_tool_job_push_message(
                  </tool-job-result>"
             )
         }
+        AsyncJobStatus::Cancelled => {
+            let err = error.unwrap_or("Job was cancelled.");
+            format!(
+                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"cancelled\">\n\
+                 <error>{err}</error>\n\
+                 </tool-job-result>"
+            )
+        }
         AsyncJobStatus::Interrupted => {
             format!(
                 "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"interrupted\">\n\
@@ -238,6 +246,13 @@ pub fn build_tool_job_push_message(
             format!(
                 "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"running\">\n\
                  <note>Still running — call job_status to check.</note>\n\
+                 </tool-job-result>"
+            )
+        }
+        AsyncJobStatus::Cancelling => {
+            format!(
+                "<tool-job-result job-id=\"{job_id}\" tool=\"{tool_name}\" status=\"cancelling\">\n\
+                 <note>Cancellation requested; still shutting down.</note>\n\
                  </tool-job-result>"
             )
         }

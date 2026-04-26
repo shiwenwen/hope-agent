@@ -26,6 +26,7 @@ mod plan_step;
 mod process;
 mod project_read_file;
 pub(crate) mod read;
+mod runtime_cancel;
 mod send_attachment;
 pub(crate) mod skill;
 // NOTE: `skill` is `pub(crate)` only to expose `render_inline` for the
@@ -99,6 +100,7 @@ pub const TOOL_TASK_CREATE: &str = "task_create";
 pub const TOOL_TASK_UPDATE: &str = "task_update";
 pub const TOOL_TASK_LIST: &str = "task_list";
 pub const TOOL_JOB_STATUS: &str = "job_status";
+pub const TOOL_RUNTIME_CANCEL: &str = "runtime_cancel";
 pub const TOOL_PROJECT_READ_FILE: &str = "project_read_file";
 pub const TOOL_TEAM: &str = "team";
 pub const TOOL_PEEK_SESSIONS: &str = "peek_sessions";

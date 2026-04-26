@@ -44,6 +44,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
+import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
 import { getExecutionToolLabel, getToolExecutionState } from "./executionStatus"
 
 /** Map tool name → Lucide icon component */
@@ -393,6 +394,7 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
           </span>
         </IconTip>
       </button>
+      <AsyncJobCancelCard result={tool.result} className="ml-5" />
       <ToolMediaPreview tool={tool} className="ml-5" />
       {/* ask_user_question answers card */}
       {askUserOutcome && !isRunning && (

@@ -91,12 +91,13 @@ impl AsyncJobsDB {
         result_path: Option<&str>,
         error: Option<&str>,
         completed_at: i64,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
-        conn.execute(
+        let rows = conn.execute(
             "UPDATE async_tool_jobs
                 SET status=?1, result_preview=?2, result_path=?3, error=?4, completed_at=?5
-                WHERE job_id=?6",
+                WHERE job_id=?6
+                  AND status IN ('running','cancelling')",
             params![
                 status.as_str(),
                 result_preview,
@@ -106,7 +107,19 @@ impl AsyncJobsDB {
                 job_id
             ],
         )?;
-        Ok(())
+        Ok(rows > 0)
+    }
+
+    pub fn mark_cancelling(&self, job_id: &str, error: Option<&str>) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        let rows = conn.execute(
+            "UPDATE async_tool_jobs
+                SET status=?1, error=COALESCE(?2, error)
+                WHERE job_id=?3
+                  AND status IN ('running','cancelling')",
+            params![AsyncJobStatus::Cancelling.as_str(), error, job_id],
+        )?;
+        Ok(rows > 0)
     }
 
     pub fn mark_injected(&self, job_id: &str) -> Result<()> {
@@ -131,16 +144,17 @@ impl AsyncJobsDB {
             .map_err(Into::into)
     }
 
-    /// All jobs whose status is still `running` — used by startup replay.
+    /// All jobs whose status is still active (`running` / `cancelling`) —
+    /// used by startup replay.
     pub fn list_running(&self) -> Result<Vec<AsyncJob>> {
         let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
         let mut stmt = conn.prepare(
             "SELECT job_id, session_id, agent_id, tool_name, tool_call_id,
                     args_json, status, result_preview, result_path, error,
                     created_at, completed_at, injected, origin
-             FROM async_tool_jobs WHERE status=?1",
+             FROM async_tool_jobs WHERE status IN ('running','cancelling')",
         )?;
-        let rows = stmt.query_map(params![AsyncJobStatus::Running.as_str()], row_to_job)?;
+        let rows = stmt.query_map([], row_to_job)?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);

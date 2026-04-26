@@ -216,6 +216,10 @@ fn build_router_with_cors(
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
+            "/runtime-tasks/cancel",
+            post(routes::runtime_tasks::cancel_runtime_task),
+        )
+        .route(
             "/chat/tool-permission-mode",
             post(routes::chat::set_tool_permission_mode),
         )

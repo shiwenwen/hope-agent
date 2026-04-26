@@ -12,6 +12,7 @@
 //!
 //! The `job_status` deferred tool lets the model actively wait for results.
 
+pub(crate) mod cancel;
 pub(crate) mod db;
 pub(crate) mod injection;
 pub(crate) mod retention;
@@ -38,6 +39,63 @@ pub fn set_async_jobs_db(db: Arc<AsyncJobsDB>) {
 /// Get the global async jobs database (None until initialization completes).
 pub fn get_async_jobs_db() -> Option<&'static Arc<AsyncJobsDB>> {
     ASYNC_JOBS_DB.get()
+}
+
+/// Best-effort cancellation for an async tool job. Returns the updated job
+/// snapshot when the job exists.
+pub fn cancel_job(job_id: &str) -> anyhow::Result<Option<AsyncJob>> {
+    let Some(db) = get_async_jobs_db() else {
+        return Ok(None);
+    };
+    let Some(job) = db.load(job_id)? else {
+        return Ok(None);
+    };
+    if job.status.is_terminal() {
+        return Ok(Some(job));
+    }
+
+    if !db.mark_cancelling(job_id, Some("Cancellation requested"))? {
+        return db.load(job_id);
+    }
+    let signalled = cancel::cancel_job(job_id);
+    if !signalled {
+        // No in-process runner owns this job id. Mark it terminal so callers
+        // are not left with an un-cancellable row forever; any late runner
+        // completion is ignored by `update_terminal`'s active-status guard.
+        let _ = db.update_terminal(
+            job_id,
+            AsyncJobStatus::Cancelled,
+            None,
+            None,
+            Some("Cancelled; no active runner handle was found in this process"),
+            chrono::Utc::now().timestamp(),
+        )?;
+        let _ = db.mark_injected(job_id);
+        wait::notify_completion(job_id);
+        if let Some(bus) = crate::get_event_bus() {
+            bus.emit(
+                "async_tool_job:completed",
+                serde_json::json!({
+                    "job_id": job_id,
+                    "tool": job.tool_name,
+                    "status": AsyncJobStatus::Cancelled.as_str(),
+                }),
+            );
+        }
+    } else {
+        wait::notify_completion(job_id);
+        if let Some(bus) = crate::get_event_bus() {
+            bus.emit(
+                "async_tool_job:updated",
+                serde_json::json!({
+                    "job_id": job_id,
+                    "tool": job.tool_name,
+                    "status": AsyncJobStatus::Cancelling.as_str(),
+                }),
+            );
+        }
+    }
+    db.load(job_id)
 }
 
 /// Replay logic invoked from `start_background_tasks`:
@@ -84,6 +142,10 @@ pub fn replay_pending_jobs() {
     match db.list_pending_injection() {
         Ok(rows) => {
             for job in rows {
+                if job.status == AsyncJobStatus::Cancelled {
+                    let _ = db.mark_injected(&job.job_id);
+                    continue;
+                }
                 let Some(session_id) = job.session_id.clone() else {
                     let _ = db.mark_injected(&job.job_id);
                     continue;

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useTranslation } from "react-i18next"
-import { ChevronRight, Users, Paperclip, ArrowUpRight } from "lucide-react"
+import { ChevronRight, Users, Paperclip, ArrowUpRight, XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
@@ -37,6 +37,7 @@ export default function SubagentBlock({
   const [childSessionId, setChildSessionId] = useState<string | undefined>()
   const [agentMeta, setAgentMeta] = useState<AgentSummaryForSidebar | undefined>()
   const [agentMissing, setAgentMissing] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   // Resolve agentId → friendly name + emoji via shared cache
   useEffect(() => {
@@ -81,6 +82,7 @@ export default function SubagentBlock({
       const payload = raw as SubagentEvent
       if (payload.runId !== runId) return
       setStatus(payload.status)
+      setCancelling(false)
       if (payload.resultFull) setResultFull(payload.resultFull)
       if (payload.error) setError(payload.error)
       if (payload.durationMs) setDurationMs(payload.durationMs)
@@ -99,6 +101,20 @@ export default function SubagentBlock({
 
   const canViewSession = !!(onSwitchSession && childSessionId)
   const rowInteractive = isTerminal || canViewSession
+
+  async function handleCancel() {
+    if (isTerminal || cancelling) return
+    setCancelling(true)
+    try {
+      const result = await getTransport().call<{ status?: string }>("cancel_runtime_task", {
+        kind: "subagent",
+        id: runId,
+      })
+      if (result.status) setStatus(result.status)
+    } catch {
+      setCancelling(false)
+    }
+  }
 
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/50 text-xs">
@@ -175,6 +191,19 @@ export default function SubagentBlock({
                 aria-label={t("subagent.viewChildSession")}
               >
                 <ArrowUpRight className="h-3 w-3" />
+              </button>
+            </IconTip>
+          )}
+          {!isTerminal && (
+            <IconTip label={t("common.cancel")}>
+              <button
+                type="button"
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"
+                onClick={handleCancel}
+                disabled={cancelling}
+                aria-label={t("common.cancel")}
+              >
+                <XCircle className="h-3 w-3" />
               </button>
             </IconTip>
           )}
