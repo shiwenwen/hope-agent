@@ -129,7 +129,7 @@ export default function ProviderIcon({
 
   if (!entry) {
     // Fallback: generic settings icon
-    return <Settings2 style={{ width: size, height: size }} className={className} />
+    return <Settings2 size={size} className={className} />
   }
 
   if (color) {

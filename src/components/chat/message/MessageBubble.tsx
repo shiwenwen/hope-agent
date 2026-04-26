@@ -99,9 +99,7 @@ function MessageBubbleInner({
 
   const modifiedFiles = useMemo(
     () =>
-      msg.role === "assistant" && msg.contentBlocks
-        ? extractModifiedFiles(msg.contentBlocks)
-        : [],
+      msg.role === "assistant" && msg.contentBlocks ? extractModifiedFiles(msg.contentBlocks) : [],
     [msg.role, msg.contentBlocks],
   )
 
@@ -185,9 +183,7 @@ function MessageBubbleInner({
         <div className="w-6 h-6 rounded-full bg-purple-500/15 flex items-center justify-center text-purple-500 shrink-0 mt-1 text-[10px] overflow-hidden">
           {fromAgent?.avatar ? (
             <img
-              src={
-                getTransport().resolveAssetUrl(fromAgent.avatar) ?? fromAgent.avatar
-              }
+              src={getTransport().resolveAssetUrl(fromAgent.avatar) ?? fromAgent.avatar}
               className="w-full h-full object-cover"
               alt=""
             />
@@ -266,120 +262,127 @@ function MessageBubbleInner({
         {/* Hover toolbar */}
         {msg.content && (
           <div
-              className={cn(
-                "flex items-center gap-0.5 mt-0.5 h-6",
-                msg.role === "user" ? "justify-end" : "justify-start",
-                !(isHovered || isCopied || detailsIndex === index) && "invisible",
-              )}
-            >
-              <IconTip label={t("chat.copy")}>
-                <button
-                  onClick={() => onCopy(msg.content, index)}
-                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
-                >
-                  {isCopied ? (
-                    <Check className="h-3.5 w-3.5 text-green-500" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5" />
-                  )}
-                </button>
-              </IconTip>
-              {msg.role === "assistant" && (msg.usage || msg.model) && (
-                <div className="relative">
-                  <IconTip label={t("chat.details")}>
-                    <button
-                      onClick={() => setDetailsIndex(detailsIndex === index ? null : index)}
-                      className={cn(
-                        "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
-                        detailsIndex === index && "text-foreground bg-muted/80",
-                      )}
-                    >
-                      <Info className="h-3.5 w-3.5" />
-                    </button>
-                  </IconTip>
-                  {detailsIndex === index && (
-                    <div className="absolute bottom-full mb-1 z-50 min-w-[220px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
-                      <div className="space-y-1.5 text-xs">
-                        {msg.model && (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.statusModel")}</span>
-                            <span
-                              className="font-medium text-foreground truncate max-w-[160px]"
-                              title={msg.model}
-                            >
+            className={cn(
+              "flex items-center gap-0.5 mt-0.5 h-6",
+              msg.role === "user" ? "justify-end" : "justify-start",
+              !(isHovered || isCopied || detailsIndex === index) && "invisible",
+            )}
+          >
+            <IconTip label={t("chat.copy")}>
+              <button
+                onClick={() => onCopy(msg.content, index)}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
+              >
+                {isCopied ? (
+                  <Check className="h-3.5 w-3.5 text-green-500" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </IconTip>
+            {msg.role === "assistant" && (msg.usage || msg.model) && (
+              <div className="relative">
+                <IconTip label={t("chat.details")}>
+                  <button
+                    onClick={() => setDetailsIndex(detailsIndex === index ? null : index)}
+                    className={cn(
+                      "p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors",
+                      detailsIndex === index && "text-foreground bg-muted/80",
+                    )}
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                  </button>
+                </IconTip>
+                {detailsIndex === index && (
+                  <div className="absolute bottom-full mb-1 z-50 min-w-[220px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
+                    <div className="space-y-1.5 text-xs">
+                      {msg.model && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                            {t("chat.statusModel")}
+                          </span>
+                          <IconTip label={msg.model}>
+                            <span className="font-medium text-foreground truncate max-w-[160px]">
                               {msg.model}
                             </span>
-                          </div>
-                        )}
-                        {msg.model && msg.usage?.inputTokens != null && (
-                          <div className="border-t border-border" />
-                        )}
-                        {(() => {
-                          const inputTokens = msg.usage?.inputTokens
-                          const lastInputTokens = msg.usage?.lastInputTokens
-                          const showLastInput =
-                            inputTokens != null &&
-                            lastInputTokens != null &&
-                            lastInputTokens !== inputTokens
-                          if (inputTokens == null) return null
-                          return (
-                            <>
-                              <div className="flex items-center justify-between gap-3">
-                                <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                                  {showLastInput
-                                    ? t("chat.inputTokensCumulative")
-                                    : t("chat.inputTokens")}
-                                </span>
-                                <span className="font-medium text-foreground tabular-nums">
-                                  {formatTokens(inputTokens)}
-                                </span>
-                              </div>
-                              {showLastInput && lastInputTokens != null && (
-                                <div className="flex items-center justify-between gap-3">
-                                  <span className="text-muted-foreground whitespace-nowrap shrink-0">
-                                    {t("chat.lastRoundInputTokens")}
-                                  </span>
-                                  <span className="font-medium text-foreground tabular-nums">
-                                    {formatTokens(lastInputTokens)}
-                                  </span>
-                                </div>
-                              )}
-                            </>
-                          )
-                        })()}
-                        {msg.usage?.outputTokens != null && (
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.outputTokens")}</span>
-                            <span className="font-medium text-foreground tabular-nums">
-                              {formatTokens(msg.usage.outputTokens)}
-                            </span>
-                          </div>
-                        )}
-                        {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
+                          </IconTip>
+                        </div>
+                      )}
+                      {msg.model && msg.usage?.inputTokens != null && (
+                        <div className="border-t border-border" />
+                      )}
+                      {(() => {
+                        const inputTokens = msg.usage?.inputTokens
+                        const lastInputTokens = msg.usage?.lastInputTokens
+                        const showLastInput =
+                          inputTokens != null &&
+                          lastInputTokens != null &&
+                          lastInputTokens !== inputTokens
+                        if (inputTokens == null) return null
+                        return (
                           <>
-                            <div className="border-t border-border" />
                             <div className="flex items-center justify-between gap-3">
-                              <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.totalTokens")}</span>
+                              <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                                {showLastInput
+                                  ? t("chat.inputTokensCumulative")
+                                  : t("chat.inputTokens")}
+                              </span>
                               <span className="font-medium text-foreground tabular-nums">
-                                {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
+                                {formatTokens(inputTokens)}
                               </span>
                             </div>
+                            {showLastInput && lastInputTokens != null && (
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                                  {t("chat.lastRoundInputTokens")}
+                                </span>
+                                <span className="font-medium text-foreground tabular-nums">
+                                  {formatTokens(lastInputTokens)}
+                                </span>
+                              </div>
+                            )}
                           </>
-                        )}
-                        {msg.usage?.durationMs != null && (
+                        )
+                      })()}
+                      {msg.usage?.outputTokens != null && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                            {t("chat.outputTokens")}
+                          </span>
+                          <span className="font-medium text-foreground tabular-nums">
+                            {formatTokens(msg.usage.outputTokens)}
+                          </span>
+                        </div>
+                      )}
+                      {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
+                        <>
+                          <div className="border-t border-border" />
                           <div className="flex items-center justify-between gap-3">
-                            <span className="text-muted-foreground whitespace-nowrap shrink-0">{t("chat.duration")}</span>
+                            <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                              {t("chat.totalTokens")}
+                            </span>
                             <span className="font-medium text-foreground tabular-nums">
-                              {formatDuration(msg.usage.durationMs)}
+                              {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
                             </span>
                           </div>
-                        )}
-                      </div>
+                        </>
+                      )}
+                      {msg.usage?.durationMs != null && (
+                        <div className="flex items-center justify-between gap-3">
+                          <span className="text-muted-foreground whitespace-nowrap shrink-0">
+                            {t("chat.duration")}
+                          </span>
+                          <span className="font-medium text-foreground tabular-nums">
+                            {formatDuration(msg.usage.durationMs)}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
     </div>

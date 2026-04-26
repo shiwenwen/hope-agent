@@ -22,16 +22,8 @@ type ProfileDraft = NonNullable<OnboardingDraft["profile"]>
 type AiExperience = NonNullable<ProfileDraft["aiExperience"]>
 type ResponseStyle = NonNullable<ProfileDraft["responseStyle"]>
 
-const AI_EXPERIENCE_VALUES: readonly AiExperience[] = [
-  "beginner",
-  "intermediate",
-  "expert",
-]
-const RESPONSE_STYLE_VALUES: readonly ResponseStyle[] = [
-  "concise",
-  "balanced",
-  "detailed",
-]
+const AI_EXPERIENCE_VALUES: readonly AiExperience[] = ["beginner", "intermediate", "expert"]
+const RESPONSE_STYLE_VALUES: readonly ResponseStyle[] = ["concise", "balanced", "detailed"]
 
 /** Best-effort pre-fill from disk so rerun flows don't ask for values
  *  the user already provided. Individual lookup failures degrade to
@@ -54,9 +46,7 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
       }>("get_user_config")
       .catch(() => null),
     t.call<string>("get_theme").catch(() => null),
-    t
-      .call<{ bindAddr?: string; hasApiKey?: boolean }>("get_server_config")
-      .catch(() => null),
+    t.call<{ bindAddr?: string; hasApiKey?: boolean }>("get_server_config").catch(() => null),
     t.call<string>("get_approval_timeout_action").catch(() => null),
     t.call<Array<{ name: string; enabled?: boolean }>>("get_skills").catch(() => []),
   ])
@@ -116,16 +106,17 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
   }
 
   if (Array.isArray(skills)) {
-    const disabledList = skills
-      .filter((s) => s.enabled === false)
-      .map((s) => s.name)
+    const disabledList = skills.filter((s) => s.enabled === false).map((s) => s.name)
     if (disabledList.length > 0) draft.skills = { disabled: disabledList }
   }
 
   return draft
 }
 
-function mergeDraft(base: OnboardingDraft, override: OnboardingDraft): OnboardingDraft {
+export function mergeOnboardingDraft(
+  base: OnboardingDraft,
+  override: OnboardingDraft,
+): OnboardingDraft {
   return {
     ...base,
     ...override,
@@ -187,7 +178,7 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
         const seeded = await seedDraftFromCurrentConfig()
         const restoredDraft = state.draft ?? {}
 
-        const mergedDraft = mergeDraft(seeded, restoredDraft)
+        const mergedDraft = mergeOnboardingDraft(seeded, restoredDraft)
         if (Object.keys(mergedDraft).length > 0) {
           setDraft(mergedDraft)
         }
@@ -209,7 +200,7 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
   const stepKey = steps[step] ?? "summary"
 
   const patchDraft = useCallback((patch: Partial<OnboardingDraft>) => {
-    setDraft((prev) => ({ ...prev, ...patch }))
+    setDraft((prev) => mergeOnboardingDraft(prev, patch))
   }, [])
 
   const persistDraft = useCallback(async () => {

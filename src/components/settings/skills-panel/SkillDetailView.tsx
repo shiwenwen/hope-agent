@@ -9,14 +9,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
-import {
-  ArrowLeft,
-  Check,
-  ExternalLink,
-  File,
-  Folder,
-  Trash2,
-} from "lucide-react"
+import { ArrowLeft, Check, ExternalLink, File, Folder, Trash2 } from "lucide-react"
 import type { SkillDetail, SkillInstallSpec } from "./types"
 
 const CONTENT_SPLIT_MIN_WIDTH = 1100
@@ -186,10 +179,7 @@ export default function SkillDetailView({
         <div className="mb-4">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-foreground">{skill.name}</h2>
-            <Switch
-              checked={skill.enabled}
-              onCheckedChange={(v) => onToggleSkill(skill.name, v)}
-            />
+            <Switch checked={skill.enabled} onCheckedChange={(v) => onToggleSkill(skill.name, v)} />
           </div>
           <p className="text-xs text-muted-foreground mt-1">{skill.description}</p>
           <div className="flex items-center gap-2 mt-2">
@@ -216,9 +206,7 @@ export default function SkillDetailView({
             <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">
               {t("settings.skillEnvVars")}
             </h3>
-            <p className="text-xs text-muted-foreground mb-3">
-              {t("settings.skillEnvVarsDesc")}
-            </p>
+            <p className="text-xs text-muted-foreground mb-3">{t("settings.skillEnvVarsDesc")}</p>
             <div className="space-y-2">
               {requiresEnv.map((envKey) => {
                 const currentValue = envValues[envKey] ?? ""
@@ -229,24 +217,26 @@ export default function SkillDetailView({
                 return (
                   <div key={envKey} className="flex items-center gap-2">
                     {/* Status indicator */}
-                    <div
-                      className={cn(
-                        "h-2 w-2 rounded-full shrink-0",
-                        isConfigured ? "bg-green-500" : "bg-orange-400",
-                      )}
-                      title={
+                    <IconTip
+                      label={
                         isConfigured
                           ? t("settings.skillEnvConfigured")
                           : t("settings.skillEnvNotConfigured")
                       }
-                    />
-                    {/* Label */}
-                    <code
-                      className="text-xs text-foreground/80 w-44 shrink-0 truncate"
-                      title={envKey}
                     >
-                      {envKey}
-                    </code>
+                      <div
+                        className={cn(
+                          "h-2 w-2 rounded-full shrink-0",
+                          isConfigured ? "bg-green-500" : "bg-orange-400",
+                        )}
+                      />
+                    </IconTip>
+                    {/* Label */}
+                    <IconTip label={envKey}>
+                      <code className="text-xs text-foreground/80 w-44 shrink-0 truncate">
+                        {envKey}
+                      </code>
+                    </IconTip>
                     {/* Input */}
                     <Input
                       type="password"
@@ -347,12 +337,7 @@ export default function SkillDetailView({
                 </h4>
                 <div className="space-y-1.5">
                   {skill.install.map((spec, idx) => (
-                    <InstallSpecRow
-                      key={idx}
-                      spec={spec}
-                      skillName={skill.name}
-                      specIndex={idx}
-                    />
+                    <InstallSpecRow key={idx} spec={spec} skillName={skill.name} specIndex={idx} />
                   ))}
                 </div>
               </div>

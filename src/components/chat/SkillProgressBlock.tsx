@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils"
 import type { ToolCall } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { getToolExecutionState } from "@/components/chat/message/executionStatus"
+import { IconTip } from "@/components/ui/tooltip"
 
 interface SkillProgressBlockProps {
   tool: ToolCall
@@ -57,9 +58,7 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
     <div
       className={cn(
         "my-1.5 rounded-lg border text-xs",
-        failed
-          ? "border-red-500/30 bg-red-500/5"
-          : "border-amber-500/30 bg-amber-500/5",
+        failed ? "border-red-500/30 bg-red-500/5" : "border-amber-500/30 bg-amber-500/5",
       )}
     >
       <button
@@ -95,17 +94,15 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
         <span
           className={cn(
             "hidden sm:inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] leading-none shrink-0",
-            failed
-              ? "bg-red-500/10 text-red-500"
-              : "bg-amber-500/10 text-muted-foreground",
+            failed ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-muted-foreground",
           )}
         >
           {t(`executionStatus.skill.mode.${forkMode ? "fork" : "inline"}`)}
         </span>
         {args && (
-          <span className="text-muted-foreground truncate flex-1 min-w-0" title={args}>
-            {args}
-          </span>
+          <IconTip label={args}>
+            <span className="text-muted-foreground truncate flex-1 min-w-0">{args}</span>
+          </IconTip>
         )}
         {tool.durationMs !== undefined && (
           <span className="ml-auto shrink-0 text-muted-foreground tabular-nums">

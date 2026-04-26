@@ -94,9 +94,7 @@ export default function SkillListView({
             {display?.version && (
               <IconTip
                 label={
-                  display.author
-                    ? `v${display.version} · ${display.author}`
-                    : `v${display.version}`
+                  display.author ? `v${display.version} · ${display.author}` : `v${display.version}`
                 }
               >
                 <span className="text-[10px] text-muted-foreground/70 shrink-0">
@@ -132,7 +130,9 @@ export default function SkillListView({
               </span>
             )}
             {display?.is_proprietary && (
-              <IconTip label={t("settings.skillExtras.licenseWarning", { license: display.license })}>
+              <IconTip
+                label={t("settings.skillExtras.licenseWarning", { license: display.license })}
+              >
                 <span className="text-[9px] px-1 py-0 rounded bg-amber-500/10 text-amber-600 font-medium cursor-help">
                   {display.license_label ?? "Proprietary"}
                 </span>
@@ -250,9 +250,9 @@ export default function SkillListView({
                 onClick={() => onOpenDir(dir)}
               >
                 <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <code className="flex-1 text-foreground/80 truncate" title={dir}>
-                  {dir}
-                </code>
+                <IconTip label={dir}>
+                  <code className="flex-1 text-foreground/80 truncate">{dir}</code>
+                </IconTip>
               </Button>
               <IconTip label={t("settings.skillsDirRemove")}>
                 <Button
@@ -304,10 +304,7 @@ export default function SkillListView({
             {t("settings.agentSkillEnvCheckDesc")}
           </div>
         </div>
-        <Switch
-          checked={skillEnvCheck}
-          onCheckedChange={onSetSkillEnvCheck}
-        />
+        <Switch checked={skillEnvCheck} onCheckedChange={onSetSkillEnvCheck} />
       </div>
 
       <div className="border-t border-border mb-4" />
