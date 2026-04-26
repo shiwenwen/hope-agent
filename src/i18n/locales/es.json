@@ -1888,6 +1888,49 @@
       "licenseWarning": "Source license: {{license}}",
       "relatedSkills": "Related skills",
       "installHint": "Run {{cmd}} to install dependencies"
+    },
+    "localLlm": {
+      "title": "Asistente de modelos locales",
+      "subtitle": "Detecta tu hardware e instala Qwen3.6 / Gemma 4 con un clic",
+      "detecting": "Detectando hardware…",
+      "recommended": "Recomendado",
+      "ready": "Listo",
+      "contextWindow": "Contexto {{n}}",
+      "reasoning": "Razonamiento",
+      "showAlternatives": "Otros candidatos",
+      "hideAlternatives": "Ocultar candidatos",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB de memoria unificada · presupuesto ≈ {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB de VRAM · presupuesto ≈ {{budget}} GB",
+        "ramFallback": "{{memory}} GB de RAM · presupuesto ≈ {{budget}} GB",
+        "insufficient": "Hardware insuficiente: usa un proveedor en la nube por ahora."
+      },
+      "buttons": {
+        "installOllama": "Instalar Ollama",
+        "downloadOllama": "Descargar desde ollama.com",
+        "recheck": "Volver a comprobar",
+        "startOllama": "Iniciar Ollama",
+        "installModel": "Instalar y abrir {{model}}"
+      },
+      "install": {
+        "title": "Instalando Ollama",
+        "cannotCancel": "No se puede cancelar durante la instalación"
+      },
+      "phases": {
+        "starting": "Iniciando…",
+        "pullingManifest": "Obteniendo manifiesto",
+        "downloading": "Descargando",
+        "verifying": "Verificando integridad",
+        "writingManifest": "Escribiendo manifiesto",
+        "success": "Descarga completada",
+        "registerProvider": "Registrando proveedor",
+        "done": "Hecho"
+      },
+      "error": {
+        "startFailed": "No se pudo iniciar Ollama: {{message}}",
+        "installFailed": "Fallo de instalación: {{message}}",
+        "pullFailed": "Fallo en la descarga: {{message}}"
+      }
     }
   },
   "tz": {

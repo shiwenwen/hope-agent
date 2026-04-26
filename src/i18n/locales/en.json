@@ -1888,7 +1888,50 @@
     "serverConnSubLocal": "{{count}} local",
     "serverChatSourceDesktop": "{{count}} desktop",
     "serverChatSourceHttp": "{{count}} http",
-    "serverChatSourceChannel": "{{count}} channel"
+    "serverChatSourceChannel": "{{count}} channel",
+    "localLlm": {
+      "title": "Local Model Assistant",
+      "subtitle": "Detect your hardware and install a Qwen3.6 / Gemma 4 model in one click",
+      "detecting": "Detecting hardware…",
+      "recommended": "Recommended",
+      "ready": "Ready",
+      "contextWindow": "{{n}} context",
+      "reasoning": "Reasoning",
+      "showAlternatives": "Other candidates",
+      "hideAlternatives": "Hide candidates",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB unified memory · budget ≈ {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · budget ≈ {{budget}} GB",
+        "ramFallback": "{{memory}} GB RAM · budget ≈ {{budget}} GB",
+        "insufficient": "Hardware too modest — keep using a cloud provider for now."
+      },
+      "buttons": {
+        "installOllama": "Install Ollama",
+        "downloadOllama": "Download from ollama.com",
+        "recheck": "Re-check",
+        "startOllama": "Start Ollama",
+        "installModel": "Install & launch {{model}}"
+      },
+      "install": {
+        "title": "Installing Ollama",
+        "cannotCancel": "Installing — cancellation is unavailable"
+      },
+      "phases": {
+        "starting": "Starting…",
+        "pullingManifest": "Fetching manifest",
+        "downloading": "Downloading",
+        "verifying": "Verifying digest",
+        "writingManifest": "Writing manifest",
+        "success": "Download complete",
+        "registerProvider": "Registering provider",
+        "done": "Done"
+      },
+      "error": {
+        "startFailed": "Failed to start Ollama: {{message}}",
+        "installFailed": "Install failed: {{message}}",
+        "pullFailed": "Pull failed: {{message}}"
+      }
+    }
   },
   "tz": {
     "shanghai": "Shanghai (UTC+8)",

@@ -1888,6 +1888,49 @@
       "licenseWarning": "Source license: {{license}}",
       "relatedSkills": "Related skills",
       "installHint": "Run {{cmd}} to install dependencies"
+    },
+    "localLlm": {
+      "title": "Yerel Model Yardımcısı",
+      "subtitle": "Donanımı algılar ve Qwen3.6 / Gemma 4 modellerini tek tıkla kurar",
+      "detecting": "Donanım algılanıyor…",
+      "recommended": "Önerilen",
+      "ready": "Hazır",
+      "contextWindow": "Bağlam {{n}}",
+      "reasoning": "Akıl yürütme",
+      "showAlternatives": "Diğer adaylar",
+      "hideAlternatives": "Adayları gizle",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB birleşik bellek · bütçe ≈ {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · bütçe ≈ {{budget}} GB",
+        "ramFallback": "{{memory}} GB RAM · bütçe ≈ {{budget}} GB",
+        "insufficient": "Donanım yetersiz — şimdilik bulut sağlayıcısı kullanın."
+      },
+      "buttons": {
+        "installOllama": "Ollama'yı Kur",
+        "downloadOllama": "ollama.com'dan indir",
+        "recheck": "Yeniden algıla",
+        "startOllama": "Ollama'yı Başlat",
+        "installModel": "{{model}} kur ve başlat"
+      },
+      "install": {
+        "title": "Ollama kuruluyor",
+        "cannotCancel": "Kurulum sürerken iptal edilemez"
+      },
+      "phases": {
+        "starting": "Başlatılıyor…",
+        "pullingManifest": "Manifest alınıyor",
+        "downloading": "İndiriliyor",
+        "verifying": "Bütünlük doğrulanıyor",
+        "writingManifest": "Manifest yazılıyor",
+        "success": "İndirme tamamlandı",
+        "registerProvider": "Provider kaydediliyor",
+        "done": "Tamamlandı"
+      },
+      "error": {
+        "startFailed": "Ollama başlatılamadı: {{message}}",
+        "installFailed": "Kurulum başarısız: {{message}}",
+        "pullFailed": "İndirme başarısız: {{message}}"
+      }
     }
   },
   "tz": {

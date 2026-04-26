@@ -1888,6 +1888,49 @@
       "licenseWarning": "Source license: {{license}}",
       "relatedSkills": "Related skills",
       "installHint": "Run {{cmd}} to install dependencies"
+    },
+    "localLlm": {
+      "title": "Локальный помощник по моделям",
+      "subtitle": "Определит конфигурацию и установит Qwen3.6 / Gemma 4 одним кликом",
+      "detecting": "Определяем оборудование…",
+      "recommended": "Рекомендуется",
+      "ready": "Готово",
+      "contextWindow": "Контекст {{n}}",
+      "reasoning": "Поддержка reasoning",
+      "showAlternatives": "Другие варианты",
+      "hideAlternatives": "Свернуть",
+      "hardware": {
+        "macOs": "macOS · {{memory}} ГБ единой памяти · бюджет ≈ {{budget}} ГБ",
+        "dgpu": "{{gpu}} · {{vram}} ГБ VRAM · бюджет ≈ {{budget}} ГБ",
+        "ramFallback": "{{memory}} ГБ ОЗУ · бюджет ≈ {{budget}} ГБ",
+        "insufficient": "Ресурсов мало — пока используйте облачный Provider."
+      },
+      "buttons": {
+        "installOllama": "Установить Ollama",
+        "downloadOllama": "Скачать с ollama.com",
+        "recheck": "Обновить",
+        "startOllama": "Запустить Ollama",
+        "installModel": "Установить и запустить {{model}}"
+      },
+      "install": {
+        "title": "Установка Ollama",
+        "cannotCancel": "Установка идёт — отменить нельзя"
+      },
+      "phases": {
+        "starting": "Подготовка…",
+        "pullingManifest": "Получение манифеста",
+        "downloading": "Загрузка",
+        "verifying": "Проверка целостности",
+        "writingManifest": "Запись манифеста",
+        "success": "Загрузка завершена",
+        "registerProvider": "Регистрация провайдера",
+        "done": "Готово"
+      },
+      "error": {
+        "startFailed": "Не удалось запустить Ollama: {{message}}",
+        "installFailed": "Ошибка установки: {{message}}",
+        "pullFailed": "Ошибка загрузки: {{message}}"
+      }
     }
   },
   "tz": {

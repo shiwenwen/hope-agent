@@ -340,6 +340,14 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   searxng_docker_stop:             { method: "POST",   path: "/api/searxng/stop" },
   searxng_docker_remove:           { method: "DELETE", path: "/api/searxng" },
 
+  // -- Local LLM assistant --
+  local_llm_detect_hardware:       { method: "GET",    path: "/api/local-llm/hardware" },
+  local_llm_recommend_model:       { method: "GET",    path: "/api/local-llm/recommendation" },
+  local_llm_detect_ollama:         { method: "GET",    path: "/api/local-llm/ollama-status" },
+  local_llm_install_ollama:        { method: "POST",   path: "/api/local-llm/install" },
+  local_llm_start_ollama:          { method: "POST",   path: "/api/local-llm/start" },
+  local_llm_pull_and_activate:     { method: "POST",   path: "/api/local-llm/pull" },
+
   // -- Skills --
   get_skills:                      { method: "GET",    path: "/api/skills" },
   get_skill_detail:                { method: "GET",    path: "/api/skills/{name}" },

@@ -1888,6 +1888,49 @@
       "licenseWarning": "ソースライセンス: {{license}}",
       "relatedSkills": "関連 skill",
       "installHint": "{{cmd}} を実行して依存関係をインストール"
+    },
+    "localLlm": {
+      "title": "ローカルモデルアシスタント",
+      "subtitle": "ハードウェアを自動検出し、Qwen3.6 / Gemma 4 をワンクリックで導入",
+      "detecting": "ハードウェア検出中…",
+      "recommended": "推奨",
+      "ready": "利用可能",
+      "contextWindow": "コンテキスト {{n}}",
+      "reasoning": "推論対応",
+      "showAlternatives": "他の候補を見る",
+      "hideAlternatives": "候補を閉じる",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB 統合メモリ · 予算 ≈ {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · 予算 ≈ {{budget}} GB",
+        "ramFallback": "{{memory}} GB RAM · 予算 ≈ {{budget}} GB",
+        "insufficient": "リソースが不足しています。クラウドプロバイダの利用をおすすめします。"
+      },
+      "buttons": {
+        "installOllama": "Ollama をインストール",
+        "downloadOllama": "ollama.com からダウンロード",
+        "recheck": "再検出",
+        "startOllama": "Ollama を起動",
+        "installModel": "{{model}} を導入して起動"
+      },
+      "install": {
+        "title": "Ollama をインストール中",
+        "cannotCancel": "インストール中はキャンセルできません"
+      },
+      "phases": {
+        "starting": "準備中…",
+        "pullingManifest": "マニフェスト取得",
+        "downloading": "ダウンロード中",
+        "verifying": "整合性チェック",
+        "writingManifest": "マニフェスト書き込み",
+        "success": "ダウンロード完了",
+        "registerProvider": "プロバイダ登録",
+        "done": "完了"
+      },
+      "error": {
+        "startFailed": "Ollama 起動失敗: {{message}}",
+        "installFailed": "インストール失敗: {{message}}",
+        "pullFailed": "ダウンロード失敗: {{message}}"
+      }
     }
   },
   "tz": {

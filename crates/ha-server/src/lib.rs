@@ -1090,6 +1090,22 @@ fn build_router_with_cors(
             "/security/dangerous-skip-all-approvals",
             post(routes::misc::set_dangerous_skip_all_approvals),
         )
+        // Local LLM assistant
+        .route("/local-llm/hardware", get(routes::local_llm::get_hardware))
+        .route(
+            "/local-llm/recommendation",
+            get(routes::local_llm::get_recommendation),
+        )
+        .route(
+            "/local-llm/ollama-status",
+            get(routes::local_llm::get_ollama_status),
+        )
+        .route(
+            "/local-llm/install",
+            post(routes::local_llm::install_ollama),
+        )
+        .route("/local-llm/start", post(routes::local_llm::start))
+        .route("/local-llm/pull", post(routes::local_llm::pull))
         // SearXNG Docker
         .route("/searxng/status", get(routes::searxng::status))
         .route("/searxng/deploy", post(routes::searxng::deploy))

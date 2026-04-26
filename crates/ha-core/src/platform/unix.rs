@@ -61,6 +61,55 @@ pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
+    Command::new(cmd).args(args).output().ok()
+}
+
+#[cfg(target_os = "macos")]
+pub(super) fn detect_dedicated_gpu_fallback() -> Option<super::DetectedGpu> {
+    // Unified memory architecture — let the caller fall back to system RAM.
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(super) fn detect_dedicated_gpu_fallback() -> Option<super::DetectedGpu> {
+    // lspci tells us the adapter name even when no NVIDIA driver is
+    // installed. We can't read VRAM from this path.
+    let output = run_hidden("lspci", &["-mm"])?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let lowered = line.to_lowercase();
+        if lowered.contains("vga compatible controller") || lowered.contains("3d controller") {
+            if let Some(name) = parse_lspci_name(line) {
+                return Some(super::DetectedGpu {
+                    name,
+                    vram_mb: None,
+                });
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+fn parse_lspci_name(line: &str) -> Option<String> {
+    // `lspci -mm` quotes vendor/device fields, e.g.
+    //   01:00.0 "VGA compatible controller" "NVIDIA Corporation" "GA106 [RTX 3060]"
+    let mut chunks = line.split('"').filter(|c| !c.trim().is_empty());
+    let _slot = chunks.next()?;
+    let _class = chunks.next()?;
+    let vendor = chunks.next()?.trim();
+    let device = chunks.next().map(|s| s.trim()).unwrap_or("");
+    if device.is_empty() {
+        Some(vendor.to_string())
+    } else {
+        Some(format!("{vendor} {device}"))
+    }
+}
+
 pub(super) fn os_version_string() -> String {
     #[cfg(target_os = "macos")]
     {

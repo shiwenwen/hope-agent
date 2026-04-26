@@ -114,6 +114,8 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `acp_control_event` | ACP 运行生命周期 |
 | `skills:auto_review_complete` | skills 草稿审核完成 |
 | `recap_progress` | `/recap` 深度复盘进度 |
+| `local_llm:install_progress` | Ollama 安装脚本逐行输出（`{ kind: "step"\|"log"\|"error", message }`） |
+| `local_llm:pull_progress` | Ollama `/api/pull` 流式进度（`{ modelId, phase, percent, bytesCompleted, bytesTotal }`） |
 
 ### Canvas
 
@@ -505,6 +507,19 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `searxng_docker_start` | `POST /api/searxng/start` | ✅ |
 | `searxng_docker_stop` | `POST /api/searxng/stop` | ✅ |
 | `searxng_docker_remove` | `DELETE /api/searxng` | ✅ |
+
+### Local LLM assistant
+
+进度走 EventBus：`local_llm:install_progress` / `local_llm:pull_progress`（前端用 `transport.listen` 订阅）。Windows 不支持 `local_llm_install_ollama`，需引导用户去 ollama.com 手动安装。
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `local_llm_detect_hardware` | `GET /api/local-llm/hardware` | ✅ |
+| `local_llm_recommend_model` | `GET /api/local-llm/recommendation` | ✅ |
+| `local_llm_detect_ollama` | `GET /api/local-llm/ollama-status` | ✅ |
+| `local_llm_install_ollama` | `POST /api/local-llm/install` | ✅ |
+| `local_llm_start_ollama` | `POST /api/local-llm/start` | ✅ |
+| `local_llm_pull_and_activate` | `POST /api/local-llm/pull` | ✅ |
 
 ### Skills
 

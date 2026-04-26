@@ -1888,6 +1888,49 @@
       "licenseWarning": "Source license: {{license}}",
       "relatedSkills": "Related skills",
       "installHint": "Run {{cmd}} to install dependencies"
+    },
+    "localLlm": {
+      "title": "Trợ lý mô hình cục bộ",
+      "subtitle": "Tự động phát hiện cấu hình, cài Qwen3.6 / Gemma 4 chỉ với một click",
+      "detecting": "Đang phát hiện phần cứng…",
+      "recommended": "Đề xuất",
+      "ready": "Sẵn sàng",
+      "contextWindow": "Ngữ cảnh {{n}}",
+      "reasoning": "Hỗ trợ suy luận",
+      "showAlternatives": "Lựa chọn khác",
+      "hideAlternatives": "Thu gọn",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB bộ nhớ thống nhất · ngân sách ≈ {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · ngân sách ≈ {{budget}} GB",
+        "ramFallback": "{{memory}} GB RAM · ngân sách ≈ {{budget}} GB",
+        "insufficient": "Cấu hình hơi thấp — tạm thời dùng nhà cung cấp đám mây."
+      },
+      "buttons": {
+        "installOllama": "Cài Ollama",
+        "downloadOllama": "Tải từ ollama.com",
+        "recheck": "Phát hiện lại",
+        "startOllama": "Khởi động Ollama",
+        "installModel": "Cài và chạy {{model}}"
+      },
+      "install": {
+        "title": "Đang cài Ollama",
+        "cannotCancel": "Đang cài, không thể hủy"
+      },
+      "phases": {
+        "starting": "Đang chuẩn bị…",
+        "pullingManifest": "Lấy manifest",
+        "downloading": "Đang tải",
+        "verifying": "Kiểm tra toàn vẹn",
+        "writingManifest": "Ghi manifest",
+        "success": "Tải xong",
+        "registerProvider": "Đăng ký provider",
+        "done": "Hoàn tất"
+      },
+      "error": {
+        "startFailed": "Không khởi động được Ollama: {{message}}",
+        "installFailed": "Cài đặt thất bại: {{message}}",
+        "pullFailed": "Tải thất bại: {{message}}"
+      }
     }
   },
   "tz": {

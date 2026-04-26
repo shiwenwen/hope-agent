@@ -257,6 +257,13 @@ pub fn run() {
             commands::docker::searxng_docker_start,
             commands::docker::searxng_docker_stop,
             commands::docker::searxng_docker_remove,
+            // Local LLM assistant
+            commands::local_llm::local_llm_detect_hardware,
+            commands::local_llm::local_llm_recommend_model,
+            commands::local_llm::local_llm_detect_ollama,
+            commands::local_llm::local_llm_install_ollama,
+            commands::local_llm::local_llm_start_ollama,
+            commands::local_llm::local_llm_pull_and_activate,
             commands::memory::memory_stats,
             commands::memory::get_extract_config,
             commands::memory::save_extract_config,

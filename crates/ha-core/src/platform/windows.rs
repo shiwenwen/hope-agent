@@ -138,6 +138,49 @@ pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
+pub(super) fn run_hidden(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
+    Command::new(cmd)
+        .args(args)
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .ok()
+}
+
+pub(super) fn detect_dedicated_gpu_fallback() -> Option<super::DetectedGpu> {
+    // `Win32_VideoController.AdapterRAM` is a 32-bit field that wraps at
+    // 4 GiB. We surface 4096 MiB as a conservative floor so the recommender
+    // doesn't think a high-end GPU has tiny memory; the GUI surfaces the
+    // raw name so users can sanity-check.
+    let script = "Get-CimInstance Win32_VideoController | \
+                  Where-Object { $_.AdapterRAM -gt 0 } | \
+                  Sort-Object AdapterRAM -Descending | \
+                  Select-Object -First 1 | \
+                  ForEach-Object { \"$($_.Name)|$($_.AdapterRAM)\" }";
+    let output = run_hidden(
+        "powershell",
+        &["-NoProfile", "-NonInteractive", "-Command", script],
+    )?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let line = stdout.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    let mut parts = line.splitn(2, '|');
+    let name = parts.next()?.trim().to_string();
+    let bytes = parts.next()?.trim().parse::<u64>().ok()?;
+    let mut vram_mb = bytes / (1024 * 1024);
+    if (4090..=4100).contains(&vram_mb) {
+        vram_mb = 4096;
+    }
+    Some(super::DetectedGpu {
+        name,
+        vram_mb: Some(vram_mb),
+    })
+}
+
 pub(super) fn os_version_string() -> String {
     let long = sysinfo::System::long_os_version();
     let kernel = sysinfo::System::kernel_version();

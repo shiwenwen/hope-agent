@@ -1888,6 +1888,49 @@
       "licenseWarning": "Source license: {{license}}",
       "relatedSkills": "Related skills",
       "installHint": "Run {{cmd}} to install dependencies"
+    },
+    "localLlm": {
+      "title": "مساعد النماذج المحلية",
+      "subtitle": "يكتشف عتاد جهازك ويثبّت Qwen3.6 / Gemma 4 بنقرة واحدة",
+      "detecting": "يجري الكشف عن العتاد…",
+      "recommended": "موصى به",
+      "ready": "جاهز",
+      "contextWindow": "السياق {{n}}",
+      "reasoning": "يدعم الاستدلال",
+      "showAlternatives": "بدائل أخرى",
+      "hideAlternatives": "إخفاء البدائل",
+      "hardware": {
+        "macOs": "macOS · {{memory}} غيغابايت ذاكرة موحدة · الميزانية ≈ {{budget}} غيغابايت",
+        "dgpu": "{{gpu}} · {{vram}} غيغابايت VRAM · الميزانية ≈ {{budget}} غيغابايت",
+        "ramFallback": "{{memory}} غيغابايت ذاكرة · الميزانية ≈ {{budget}} غيغابايت",
+        "insufficient": "العتاد محدود — استخدم مزوّدًا سحابيًا في الوقت الحالي."
+      },
+      "buttons": {
+        "installOllama": "تثبيت Ollama",
+        "downloadOllama": "التنزيل من ollama.com",
+        "recheck": "إعادة الكشف",
+        "startOllama": "تشغيل Ollama",
+        "installModel": "تثبيت وتشغيل {{model}}"
+      },
+      "install": {
+        "title": "جارٍ تثبيت Ollama",
+        "cannotCancel": "التثبيت قيد التنفيذ — لا يمكن الإلغاء"
+      },
+      "phases": {
+        "starting": "جارٍ البدء…",
+        "pullingManifest": "جلب البيان",
+        "downloading": "جارٍ التنزيل",
+        "verifying": "التحقق من السلامة",
+        "writingManifest": "كتابة البيان",
+        "success": "اكتمل التنزيل",
+        "registerProvider": "تسجيل المزوّد",
+        "done": "تم"
+      },
+      "error": {
+        "startFailed": "تعذّر تشغيل Ollama: {{message}}",
+        "installFailed": "فشل التثبيت: {{message}}",
+        "pullFailed": "فشل التنزيل: {{message}}"
+      }
     }
   },
   "tz": {

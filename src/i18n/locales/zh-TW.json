@@ -1888,6 +1888,49 @@
       "licenseWarning": "來源授權：{{license}}",
       "relatedSkills": "相關 skill",
       "installHint": "執行 {{cmd}} 安裝相依套件"
+    },
+    "localLlm": {
+      "title": "本機小型模型助理",
+      "subtitle": "自動偵測硬體配置，一鍵安裝 Qwen3.6 / Gemma 4 系列",
+      "detecting": "正在偵測硬體…",
+      "recommended": "推薦",
+      "ready": "已就緒",
+      "contextWindow": "{{n}} 上下文",
+      "reasoning": "支援推理",
+      "showAlternatives": "查看其他候選",
+      "hideAlternatives": "收起候選",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB 統一記憶體 · 預算約 {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB 顯記憶體 · 預算約 {{budget}} GB",
+        "ramFallback": "{{memory}} GB 記憶體 · 預算約 {{budget}} GB",
+        "insufficient": "機器配置較低，建議繼續使用雲端 Provider"
+      },
+      "buttons": {
+        "installOllama": "安裝 Ollama",
+        "downloadOllama": "前往 ollama.com 下載",
+        "recheck": "已安裝，重新偵測",
+        "startOllama": "啟動 Ollama",
+        "installModel": "安裝並啟用 {{model}}"
+      },
+      "install": {
+        "title": "正在安裝 Ollama",
+        "cannotCancel": "安裝進行中，暫不支援取消"
+      },
+      "phases": {
+        "starting": "準備中…",
+        "pullingManifest": "抓取清單",
+        "downloading": "下載中",
+        "verifying": "校驗完整性",
+        "writingManifest": "寫入清單",
+        "success": "下載完成",
+        "registerProvider": "註冊至 Provider",
+        "done": "完成"
+      },
+      "error": {
+        "startFailed": "啟動 Ollama 失敗：{{message}}",
+        "installFailed": "安裝失敗：{{message}}",
+        "pullFailed": "下載失敗：{{message}}"
+      }
     }
   },
   "tz": {

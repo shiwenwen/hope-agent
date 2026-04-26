@@ -1888,7 +1888,50 @@
     "serverConnSubLocal": "{{count}} 本机",
     "serverChatSourceDesktop": "{{count}} 桌面",
     "serverChatSourceHttp": "{{count}} HTTP",
-    "serverChatSourceChannel": "{{count}} 渠道"
+    "serverChatSourceChannel": "{{count}} 渠道",
+    "localLlm": {
+      "title": "本地小模型助手",
+      "subtitle": "自动检测电脑配置，一键安装 Qwen3.6 / Gemma 4 系列",
+      "detecting": "正在检测硬件…",
+      "recommended": "推荐",
+      "ready": "已就绪",
+      "contextWindow": "{{n}} 上下文",
+      "reasoning": "支持推理",
+      "showAlternatives": "查看其他候选",
+      "hideAlternatives": "收起候选",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB 统一内存 · 预算约 {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB 显存 · 预算约 {{budget}} GB",
+        "ramFallback": "{{memory}} GB 内存 · 预算约 {{budget}} GB",
+        "insufficient": "机器配置较低，建议继续使用云端 Provider"
+      },
+      "buttons": {
+        "installOllama": "安装 Ollama",
+        "downloadOllama": "前往 ollama.com 下载",
+        "recheck": "我已装好，重新检测",
+        "startOllama": "启动 Ollama",
+        "installModel": "安装并启用 {{model}}"
+      },
+      "install": {
+        "title": "正在安装 Ollama",
+        "cannotCancel": "安装进行中，暂不支持取消"
+      },
+      "phases": {
+        "starting": "准备中…",
+        "pullingManifest": "拉取清单",
+        "downloading": "下载中",
+        "verifying": "校验完整性",
+        "writingManifest": "写入清单",
+        "success": "下载完成",
+        "registerProvider": "注册到 Provider",
+        "done": "完成"
+      },
+      "error": {
+        "startFailed": "启动 Ollama 失败：{{message}}",
+        "installFailed": "安装失败：{{message}}",
+        "pullFailed": "下载失败：{{message}}"
+      }
+    }
   },
   "tz": {
     "shanghai": "上海 (UTC+8)",

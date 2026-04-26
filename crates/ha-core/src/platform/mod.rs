@@ -107,3 +107,48 @@ pub fn write_secure_file(path: &std::path::Path, bytes: &[u8]) -> std::io::Resul
 pub fn find_chrome_executable() -> Option<PathBuf> {
     imp::find_chrome_executable()
 }
+
+/// Synchronous, best-effort detection of a discrete GPU. Used by the local
+/// LLM recommender to pick a model size that fits in VRAM rather than RAM.
+///
+/// macOS: returns `None` — Apple Silicon and recent Intel Macs use unified
+///   memory, so the recommender uses system RAM instead.
+/// Linux: tries `nvidia-smi`; on failure parses `lspci` for any VGA/3D
+///   adapter so the GUI can still render a name (VRAM falls back to `None`).
+/// Windows: tries `nvidia-smi`, then PowerShell `Win32_VideoController`.
+///   Note: `AdapterRAM` is a 32-bit field that wraps at 4 GiB on cards with
+///   more memory; in that case we report 4096 MiB as a conservative floor.
+pub fn detect_dedicated_gpu() -> Option<DetectedGpu> {
+    if let Some(gpu) = nvidia_smi_query() {
+        return Some(gpu);
+    }
+    imp::detect_dedicated_gpu_fallback()
+}
+
+fn nvidia_smi_query() -> Option<DetectedGpu> {
+    let output = imp::run_hidden(
+        "nvidia-smi",
+        &[
+            "--query-gpu=name,memory.total",
+            "--format=csv,noheader,nounits",
+        ],
+    )?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8(output.stdout).ok()?;
+    let line = stdout.lines().next()?;
+    let mut parts = line.splitn(2, ',');
+    let name = parts.next()?.trim().to_string();
+    let vram_mb = parts.next()?.trim().parse::<u64>().ok();
+    Some(DetectedGpu { name, vram_mb })
+}
+
+/// Bare GPU descriptor returned by [`detect_dedicated_gpu`]. The `local_llm`
+/// module wraps this into its own `GpuInfo` for the wire format.
+#[derive(Debug, Clone)]
+pub struct DetectedGpu {
+    pub name: String,
+    /// VRAM in MiB. `None` when the OS reports the adapter but not its memory.
+    pub vram_mb: Option<u64>,
+}

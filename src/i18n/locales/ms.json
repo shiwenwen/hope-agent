@@ -1888,6 +1888,49 @@
       "licenseWarning": "Source license: {{license}}",
       "relatedSkills": "Related skills",
       "installHint": "Run {{cmd}} to install dependencies"
+    },
+    "localLlm": {
+      "title": "Pembantu Model Tempatan",
+      "subtitle": "Kesan perkakasan anda dan pasang Qwen3.6 / Gemma 4 dengan satu klik",
+      "detecting": "Mengesan perkakasan…",
+      "recommended": "Disyorkan",
+      "ready": "Sedia",
+      "contextWindow": "Konteks {{n}}",
+      "reasoning": "Sokong reasoning",
+      "showAlternatives": "Calon lain",
+      "hideAlternatives": "Tutup calon",
+      "hardware": {
+        "macOs": "macOS · {{memory}} GB memori bersepadu · belanjawan ≈ {{budget}} GB",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · belanjawan ≈ {{budget}} GB",
+        "ramFallback": "{{memory}} GB RAM · belanjawan ≈ {{budget}} GB",
+        "insufficient": "Spesifikasi terlalu rendah — gunakan penyedia awan buat masa ini."
+      },
+      "buttons": {
+        "installOllama": "Pasang Ollama",
+        "downloadOllama": "Muat turun dari ollama.com",
+        "recheck": "Imbas semula",
+        "startOllama": "Mulakan Ollama",
+        "installModel": "Pasang & lancarkan {{model}}"
+      },
+      "install": {
+        "title": "Memasang Ollama",
+        "cannotCancel": "Sedang memasang — tidak boleh batal"
+      },
+      "phases": {
+        "starting": "Memulakan…",
+        "pullingManifest": "Ambil manifes",
+        "downloading": "Memuat turun",
+        "verifying": "Sah integriti",
+        "writingManifest": "Menulis manifes",
+        "success": "Muat turun selesai",
+        "registerProvider": "Daftar provider",
+        "done": "Selesai"
+      },
+      "error": {
+        "startFailed": "Gagal mulakan Ollama: {{message}}",
+        "installFailed": "Pemasangan gagal: {{message}}",
+        "pullFailed": "Muat turun gagal: {{message}}"
+      }
     }
   },
   "tz": {
