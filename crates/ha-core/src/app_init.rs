@@ -213,15 +213,23 @@ pub fn init_runtime(role: &str) {
     let _ = REASONING_EFFORT.set(Arc::new(Mutex::new("medium".to_string())));
     let _ = CACHED_AGENT.set(Arc::new(Mutex::new(None::<crate::agent::AssistantAgent>)));
 
-    // Clean up orphan sub-agent runs from previous app session
-    subagent::cleanup_orphan_runs(&session_db);
+    // Startup orphan sweeps. Gated on Primary tier so a Secondary process
+    // (e.g. acp launching while desktop is running) doesn't mark-error the
+    // desktop's live subagent runs / team members or, worst case, hard-
+    // delete its incognito sessions. Defense in depth: incognito purge
+    // also has a per-row updated_at < now-60s SQL guard added in this
+    // commit (see purge_orphan_incognito_sessions).
+    if crate::runtime_lock::is_primary() {
+        // Clean up orphan sub-agent runs from previous app session
+        subagent::cleanup_orphan_runs(&session_db);
 
-    // Clean up orphan team members from previous app session
-    crate::team::cleanup::cleanup_orphan_teams(&session_db);
+        // Clean up orphan team members from previous app session
+        crate::team::cleanup::cleanup_orphan_teams(&session_db);
 
-    // Backstop the live close-on-leave path: incognito sessions left from a
-    // crash / SIGKILL / power loss never reach the frontend purge call.
-    crate::session::cleanup_orphan_incognito(&session_db);
+        // Backstop the live close-on-leave path: incognito sessions left from a
+        // crash / SIGKILL / power loss never reach the frontend purge call.
+        crate::session::cleanup_orphan_incognito(&session_db);
+    }
 
     // Initialize IM Channel system
     {
@@ -405,162 +413,181 @@ fn spawn_channel_listeners() {
 
 /// Start background async tasks that require a tokio runtime.
 /// Must be called from within a tokio async context (e.g., Tauri's `.setup()` or a server runtime).
+///
+/// Most spawns here are guarded by `runtime_lock::is_primary()` because
+/// they own shared SQLite state (cron scheduler, retention sweeps,
+/// dreaming, MCP watchdog, ACP backend discovery, async-jobs replay)
+/// or compete for an external resource (channel auto-start fights with
+/// any other process for the same Telegram bot webhook). Manual user
+/// actions on the same subsystems (`/api/cron/jobs/{id}/run` via atomic
+/// SQL claim, `/api/dreaming/run`, channel `start_account` button) are
+/// tier-agnostic and continue to work in Secondary processes.
 pub async fn start_background_tasks() {
+    let primary = crate::runtime_lock::is_primary();
+
+    // Tier-agnostic: EventBus subscription is multi-subscriber-safe.
     spawn_channel_listeners();
 
-    // Cron scheduler self-hosts a dedicated OS thread with its own tokio
-    // runtime (see scheduler.rs); centralising the spawn here means all
-    // three modes share one entry point.
-    if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
-        let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
-    }
-
-    // Clean up the `ask_user_questions` table: drop old answered rows and
-    // expire any still-pending rows left behind by a previous process
-    // (their in-memory oneshots are gone, so the UI could not deliver
-    // answers to them anyway).
-    tokio::spawn(async move {
-        if let Some(db) = crate::get_session_db() {
-            if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
-                app_warn!(
-                    "ask_user",
-                    "startup",
-                    "Failed to purge old ask_user rows: {}",
-                    e
-                );
-            }
+    if primary {
+        // Cron scheduler self-hosts a dedicated OS thread with its own tokio
+        // runtime (see scheduler.rs). Primary-only because the periodic
+        // tick's `claim_scheduled_job_for_execution` would double-claim
+        // jobs across processes; manual run-now uses an atomic SQL claim
+        // that's still safe in any tier.
+        if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
+            let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
         }
 
-        // Expire any rows left pending by a previous process. The in-memory
-        // oneshot registry is empty at startup, so a "resume" would produce
-        // orphaned UI entries whose submissions fail with "No pending plan
-        // question request".
-        if let Some(db) = crate::get_session_db() {
-            match db.expire_pending_ask_user_groups() {
-                Ok(0) => {}
-                Ok(n) => app_info!(
-                    "ask_user",
-                    "startup",
-                    "Expired {} orphaned pending ask_user rows from previous process",
-                    n
-                ),
-                Err(e) => app_warn!(
-                    "ask_user",
-                    "startup",
-                    "Failed to expire pending ask_user rows: {}",
-                    e
-                ),
-            }
-        }
-    });
-
-    // Daily purge loop: keeps `ask_user_questions` bounded in long-running
-    // server/launchd/systemd deployments where start_background_tasks only
-    // runs once at boot.
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
-        ticker.tick().await; // skip immediate tick (startup path already purged)
-        loop {
-            ticker.tick().await;
+        // Clean up the `ask_user_questions` table: drop old answered rows and
+        // expire any still-pending rows left behind by a previous process
+        // (their in-memory oneshots are gone, so the UI could not deliver
+        // answers to them anyway).
+        tokio::spawn(async move {
             if let Some(db) = crate::get_session_db() {
                 if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
-                    app_warn!("ask_user", "purge", "Daily ask_user purge failed: {}", e);
-                }
-            }
-        }
-    });
-
-    // Auto-start enabled channel accounts
-    if let Some(registry) = CHANNEL_REGISTRY.get() {
-        let registry = registry.clone();
-        let store = crate::config::cached_config();
-        tokio::spawn(async move {
-            for account in store.channels.enabled_accounts() {
-                if let Err(e) = registry.start_account(account).await {
-                    app_error!(
-                        "channel",
-                        "init",
-                        "Failed to auto-start channel account '{}': {}",
-                        account.label,
+                    app_warn!(
+                        "ask_user",
+                        "startup",
+                        "Failed to purge old ask_user rows: {}",
                         e
                     );
                 }
             }
+
+            // Expire any rows left pending by a previous process. The in-memory
+            // oneshot registry is empty at startup, so a "resume" would produce
+            // orphaned UI entries whose submissions fail with "No pending plan
+            // question request".
+            if let Some(db) = crate::get_session_db() {
+                match db.expire_pending_ask_user_groups() {
+                    Ok(0) => {}
+                    Ok(n) => app_info!(
+                        "ask_user",
+                        "startup",
+                        "Expired {} orphaned pending ask_user rows from previous process",
+                        n
+                    ),
+                    Err(e) => app_warn!(
+                        "ask_user",
+                        "startup",
+                        "Failed to expire pending ask_user rows: {}",
+                        e
+                    ),
+                }
+            }
         });
-    }
 
-    // Replay async tool jobs left over from the previous process: mark
-    // `running` rows as interrupted (their host process is gone) and inject
-    // any terminal-but-not-injected results back into their parent sessions.
-    tokio::spawn(async move {
-        crate::async_jobs::replay_pending_jobs();
-    });
+        // Daily purge loop: keeps `ask_user_questions` bounded in long-running
+        // server/launchd/systemd deployments where start_background_tasks only
+        // runs once at boot.
+        tokio::spawn(async move {
+            let mut ticker =
+                tokio::time::interval(std::time::Duration::from_secs(crate::SECS_PER_DAY));
+            ticker.tick().await; // skip immediate tick (startup path already purged)
+            loop {
+                ticker.tick().await;
+                if let Some(db) = crate::get_session_db() {
+                    if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
+                        app_warn!("ask_user", "purge", "Daily ask_user purge failed: {}", e);
+                    }
+                }
+            }
+        });
 
-    // Retention sweep for async_jobs (rows + spool files). Runs once at
-    // startup and then once per day. Disabled entirely when both
-    // `retention_secs` and `orphan_grace_secs` are `0`.
-    crate::async_jobs::spawn_retention_loop();
+        // Auto-start enabled channel accounts. Two processes auto-starting
+        // the same Telegram bot would fight over its webhook; users still
+        // start accounts manually via the API/UI in any tier.
+        if let Some(registry) = CHANNEL_REGISTRY.get() {
+            let registry = registry.clone();
+            let store = crate::config::cached_config();
+            tokio::spawn(async move {
+                for account in store.channels.enabled_accounts() {
+                    if let Err(e) = registry.start_account(account).await {
+                        app_error!(
+                            "channel",
+                            "init",
+                            "Failed to auto-start channel account '{}': {}",
+                            account.label,
+                            e
+                        );
+                    }
+                }
+            });
+        }
 
-    // Retention sweep for recap session facets. Runs once at startup and
-    // then once per day. Disabled when `recap.cache_retention_days == 0`.
-    crate::recap::spawn_facet_retention_loop();
+        // Replay async tool jobs left over from the previous process: mark
+        // `running` rows as interrupted (their host process is gone) and inject
+        // any terminal-but-not-injected results back into their parent sessions.
+        // Primary-only: a Secondary process running this would flip the
+        // Primary's still-running tools to Interrupted.
+        tokio::spawn(async move {
+            crate::async_jobs::replay_pending_jobs();
+        });
 
-    // Dreaming idle-trigger loop (Phase B3). Every minute, check whether
-    // the app has been idle long enough and fire an offline consolidation
-    // cycle. The cycle itself serialises through a global AtomicBool so
-    // overlapping triggers (idle + manual) are safe.
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        ticker.tick().await; // skip immediate tick
-        loop {
-            ticker.tick().await;
-            let cfg = crate::config::cached_config().dreaming.clone();
-            if crate::memory::dreaming::check_idle_trigger(&cfg) {
-                tokio::spawn(async {
-                    let report = crate::memory::dreaming::manual_run(
-                        crate::memory::dreaming::DreamTrigger::Idle,
-                    )
-                    .await;
-                    app_info!(
-                        "memory",
-                        "dreaming::idle_trigger",
-                        "idle-trigger cycle: scanned={}, promoted={}, note={:?}",
-                        report.candidates_scanned,
-                        report.promoted.len(),
-                        report.note,
-                    );
+        // Retention sweep for async_jobs (rows + spool files). Runs once at
+        // startup and then once per day. Disabled entirely when both
+        // `retention_secs` and `orphan_grace_secs` are `0`.
+        crate::async_jobs::spawn_retention_loop();
+
+        // Retention sweep for recap session facets. Runs once at startup and
+        // then once per day. Disabled when `recap.cache_retention_days == 0`.
+        crate::recap::spawn_facet_retention_loop();
+
+        // Dreaming idle-trigger loop (Phase B3). Every minute, check whether
+        // the app has been idle long enough and fire an offline consolidation
+        // cycle. The DREAMING_RUNNING AtomicBool serialises within one
+        // process — Primary-only here serialises across processes.
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_secs(60));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await; // skip immediate tick
+            loop {
+                ticker.tick().await;
+                let cfg = crate::config::cached_config().dreaming.clone();
+                if crate::memory::dreaming::check_idle_trigger(&cfg) {
+                    tokio::spawn(async {
+                        let report = crate::memory::dreaming::manual_run(
+                            crate::memory::dreaming::DreamTrigger::Idle,
+                        )
+                        .await;
+                        app_info!(
+                            "memory",
+                            "dreaming::idle_trigger",
+                            "idle-trigger cycle: scanned={}, promoted={}, note={:?}",
+                            report.candidates_scanned,
+                            report.promoted.len(),
+                            report.note,
+                        );
+                    });
+                }
+            }
+        });
+
+        // One-shot reconciler for orphan project-scoped memory rows. The
+        // delete_project cascade touches both `session.db` and `memory.db` and
+        // cannot wrap them in a single transaction, so a crash between the two
+        // can leave unreachable memory rows behind. Project deletion is
+        // low-frequency, so a startup sweep is enough — no periodic timer.
+        crate::project::reconcile::spawn_startup_reconciler();
+
+        // Auto-discover ACP backends
+        if let Some(acp_mgr) = ACP_MANAGER.get() {
+            let store = crate::config::cached_config();
+            if store.acp_control.enabled {
+                let registry = acp_mgr.runtime_registry().clone();
+                let acp_config = store.acp_control.clone();
+                tokio::spawn(async move {
+                    acp_control::registry::auto_discover_and_register(&registry, &acp_config).await;
                 });
             }
         }
-    });
-
-    // One-shot reconciler for orphan project-scoped memory rows. The
-    // delete_project cascade touches both `session.db` and `memory.db` and
-    // cannot wrap them in a single transaction, so a crash between the two
-    // can leave unreachable memory rows behind. Project deletion is
-    // low-frequency, so a startup sweep is enough — no periodic timer.
-    crate::project::reconcile::spawn_startup_reconciler();
-
-    // Auto-discover ACP backends
-    if let Some(acp_mgr) = ACP_MANAGER.get() {
-        let store = crate::config::cached_config();
-        if store.acp_control.enabled {
-            let registry = acp_mgr.runtime_registry().clone();
-            let acp_config = store.acp_control.clone();
-            tokio::spawn(async move {
-                acp_control::registry::auto_discover_and_register(&registry, &acp_config).await;
-            });
-        }
     }
 
-    // Initialize the MCP subsystem. `init_global` is idempotent — safe to
-    // call from both the Tauri desktop shell and `hope-agent server`; the
-    // second call is a no-op. Must happen before any tool dispatch, so
-    // we do it here (start_background_tasks runs before chat sessions).
-    if init_mcp_subsystem() {
-        // Watchdog owns periodic reconnect + eager warm-up. Long-lived
-        // processes (desktop / server) want it; ACP's minimal path skips it.
+    // Initialize the MCP subsystem. `init_global` is idempotent and the
+    // catalog snippet must be visible to every process so all tiers see
+    // MCP-namespaced tools. Watchdog (long-running reconnect loop) is
+    // Primary-only — Secondary's idle catalog is enough.
+    if init_mcp_subsystem() && primary {
         crate::mcp::watchdog::spawn_watchdog_loop();
     }
 }
@@ -581,39 +608,48 @@ pub async fn start_background_tasks() {
 /// Future maintainers: think before adding to this list. The point is to
 /// stay small.
 pub async fn start_minimal_background_tasks() {
+    let primary = crate::runtime_lock::is_primary();
+
+    // EventBus listeners — multi-subscriber-safe, tier-agnostic.
     spawn_channel_listeners();
 
-    // One-shot ask_user table cleanup. Identical to start_background_tasks
-    // body but without the daily loop.
-    tokio::spawn(async move {
-        if let Some(db) = crate::get_session_db() {
-            if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
-                app_warn!(
-                    "ask_user",
-                    "startup",
-                    "Failed to purge old ask_user rows: {}",
-                    e
-                );
+    if primary {
+        // One-shot ask_user table cleanup. Primary-only because Secondary
+        // would expire the desktop's still-live pending questions.
+        tokio::spawn(async move {
+            if let Some(db) = crate::get_session_db() {
+                if let Err(e) = db.purge_old_answered_ask_user_groups(7) {
+                    app_warn!(
+                        "ask_user",
+                        "startup",
+                        "Failed to purge old ask_user rows: {}",
+                        e
+                    );
+                }
+                if let Err(e) = db.expire_pending_ask_user_groups() {
+                    app_warn!(
+                        "ask_user",
+                        "startup",
+                        "Failed to expire pending ask_user rows: {}",
+                        e
+                    );
+                }
             }
-            if let Err(e) = db.expire_pending_ask_user_groups() {
-                app_warn!(
-                    "ask_user",
-                    "startup",
-                    "Failed to expire pending ask_user rows: {}",
-                    e
-                );
-            }
-        }
-    });
+        });
 
-    // Replay leftover async tool jobs from a previous ACP run. One-shot,
-    // no retention loop.
-    tokio::spawn(async move {
-        crate::async_jobs::replay_pending_jobs();
-    });
+        // Replay leftover async tool jobs. Primary-only: a Secondary ACP
+        // booting alongside an active desktop would flip the desktop's
+        // running tools to Interrupted.
+        tokio::spawn(async move {
+            crate::async_jobs::replay_pending_jobs();
+        });
+    }
 
-    // MCP init (no watchdog). ACP tool dispatch may hit MCP-namespaced tools
-    // and would otherwise see "MCP subsystem not initialised".
+    // MCP init (no watchdog). Tier-agnostic — ACP tool dispatch may hit
+    // MCP-namespaced tools regardless of tier and `init_global` is
+    // idempotent. Watchdog (long-running reconnect loop) skipped here
+    // even when ACP is Primary because the process is short-lived; the
+    // next process start re-runs init_global.
     let _ = init_mcp_subsystem();
 }
 
