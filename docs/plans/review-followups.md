@@ -30,17 +30,21 @@
 
 ## Open
 
-### F-004 NDJSON 流式解析无统一 helper
+### F-019 SSE 解析器在 4 处 LLM / IM stream 重复实现
 
-- **来源**：2026-04-26 本地小模型助手 `/simplify` review
-- **现象**：[`crates/ha-core/src/local_llm/mod.rs::pull_model`](../../crates/ha-core/src/local_llm/mod.rs) 用 `bytes_stream` + `buf.iter().position(b'\n')` 手写 NDJSON 切行；同模式在 [`docker/deploy.rs`](../../crates/ha-core/src/docker/deploy.rs)（用 `BufReader::lines()`）、[`mcp/client.rs`](../../crates/ha-core/src/mcp/client.rs)、[`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs)、[`agent/providers/anthropic_adapter.rs`](../../crates/ha-core/src/agent/providers/anthropic_adapter.rs)（SSE 流）等处都有 inline 实现，**仓库目前没有统一的"流式 NDJSON helper"约定**。
-- **为什么留**：现有几处实现差异较大（reqwest `bytes_stream` vs `tokio::io::BufReader` vs `mpsc::Receiver<String>`），抽通用 helper 需要先统一 input 抽象，跨模块改动大。本期 `pull_model` 的实现已加 1 MiB 单行上限防御 + 单元测试覆盖，质量上可独立。
+- **来源**：2026-04-26 F-004 重新核查时分流出来
+- **现象**：4 处 `bytes_stream` SSE 解析各自手写 buffer + `find("\n\n")` / `find('\n')` + `event:` / `data:` 拆解，结构相似但实现细节有出入：
+  - [`crates/ha-core/src/agent/providers/anthropic_adapter.rs`](../../crates/ha-core/src/agent/providers/anthropic_adapter.rs)（`\n\n` event boundary，多 `data:` 行 join）
+  - [`crates/ha-core/src/agent/providers/openai_chat_adapter.rs`](../../crates/ha-core/src/agent/providers/openai_chat_adapter.rs)
+  - [`crates/ha-core/src/agent/providers/openai_responses_adapter.rs`](../../crates/ha-core/src/agent/providers/openai_responses_adapter.rs)
+  - [`crates/ha-core/src/channel/signal/client.rs`](../../crates/ha-core/src/channel/signal/client.rs)（line-based + 空行 boundary，结构等价）
+- **为什么留**：抽公共 SSE parser 需要先统一 event 数据结构（`SseEvent { event, data, id, retry }`）+ 决定多 `data:` 行 join、`\r\n`、`:` 注释行、`retry` 字段处理。3 个 LLM provider adapter 是聊天热点路径，重构必须有逐 frame 等价测试兜底，独立 PR 范围。
 - **改的话要做什么**：
-  1. 在 [`crates/ha-core/src/util.rs`](../../crates/ha-core/src/util.rs)（或新建 `util/ndjson.rs`）加 `pub fn ndjson_stream<S>(stream: S, max_line_bytes: usize) -> impl Stream<Item = Result<Value>>`
-  2. 把 reqwest `bytes_stream::Stream<Item = Result<Bytes, _>>` 转 `AsyncBufRead`（用 `tokio_util::io::StreamReader`），再用 `lines()` 拆行 + `serde_json::from_str`
-  3. 替换 5 处 inline 实现
-- **影响面**：当前无 bug，每处实现都正确但重复。
-- **触发时机建议**：下一次新增"还需要解析流式 NDJSON / SSE"的接入点时，顺手抽 helper；不必单独立 PR。
+  1. 在 [`crates/ha-core/src/util.rs`](../../crates/ha-core/src/util.rs)（或新建 `util/sse.rs`）加 `pub fn sse_event_stream<S>(stream: S, max_buffer_bytes: usize) -> impl Stream<Item = Result<SseEvent>>`
+  2. 用 `tokio_util::io::StreamReader` + `AsyncBufReadExt::lines()` 逐行收 `event:` / `data:` / `id:` / `retry:` / 空行 boundary，多 `data:` 按 SSE 规范 `\n` join
+  3. 替换 4 处 inline 解析；保留各 caller 自己的 event-name 分支与 payload 反序列化
+- **影响面**：纯整洁度，当前无可见 bug；但 SSE spec 边界条件 4 处实现各有遗漏，新增 SSE 接入点时容易再走偏
+- **触发时机建议**：下一次新增 SSE 接入点（OpenAI 新流式模式 / 新 IM channel SSE 入站）时顺手抽；或独立 "SSE parser 统一" 重构 PR
 
 ---
 
@@ -98,6 +102,20 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-004 NDJSON 流式解析无统一 helper
+
+- **来源**：2026-04-26 本地小模型助手 `/simplify` review
+- **关闭**：2026-04-26 / rejected on second look，不实现
+- **修复方式**：实现前先核对 5 个候选站点，发现登记前提错误：实际 NDJSON 只有 [`crates/ha-core/src/local_llm/mod.rs::pull_model`](../../crates/ha-core/src/local_llm/mod.rs) 一处，其它 4 处均不属于：
+  - [`docker/deploy.rs`](../../crates/ha-core/src/docker/deploy.rs) — `docker pull` 纯文本 stdout 转 log
+  - [`mcp/client.rs`](../../crates/ha-core/src/mcp/client.rs) — MCP server stderr 纯文本 tail（rate-limit + truncate）
+  - [`channel/process_manager.rs`](../../crates/ha-core/src/channel/process_manager.rs) — 子进程 stdout/stderr 纯文本转 `mpsc::Receiver<String>`
+  - [`agent/providers/anthropic_adapter.rs`](../../crates/ha-core/src/agent/providers/anthropic_adapter.rs) — **SSE**（`event:` / `data:` / `\n\n` boundary），不是 NDJSON
+
+  抽 helper 只有一个消费者 (`pull_model`)，且本期已经自带 `MAX_PULL_LINE_BYTES` + 严格末帧 + 单测覆盖，新增一层间接零收益（典型的 premature abstraction）。SSE 那侧的真重复另开 [F-019](#f-019-sse-解析器在-4-处-llm--im-stream-重复实现) 登记。
+
+---
 
 ### F-017 旧 `local_llm:install_progress` / `local_llm:pull_progress` / `local_embedding:pull_progress` 事件路径已无前端监听
 
