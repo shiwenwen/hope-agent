@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
+import { withEventListener } from "@/lib/transport-events"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -112,19 +113,22 @@ export function SearxngDockerSection({
     setDeployStep(null)
     setDeployLogs([])
     setError(null)
-    const off = getTransport().listen("searxng:deploy_progress", (raw) => {
+
+    const handleProgress = (raw: unknown) => {
       const parsed = parsePayload<{ step?: string; log?: string }>(raw)
       if (parsed.step) setDeployStep(parsed.step)
       if (parsed.log) setDeployLogs((prev) => [...prev.slice(-50), parsed.log!])
-    })
+    }
+
     try {
-      const url = await getTransport().call<string>("searxng_docker_deploy")
+      const url = await withEventListener("searxng:deploy_progress", handleProgress, () =>
+        getTransport().call<string>("searxng_docker_deploy"),
+      )
       onUrlSet(url)
       await refreshStatus()
     } catch (e) {
       setError(String(e))
     } finally {
-      off()
       setDeploying(false)
       setDeployStep(null)
     }

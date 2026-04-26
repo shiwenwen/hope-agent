@@ -146,12 +146,10 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         // Read server config from config.json (bind address, API key)
         let store = ha_core::config::load_config().unwrap_or_default();
         let api_key = store.server.api_key.clone();
-        let chat_streams = Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new());
         let ctx = Arc::new(ha_server::AppContext {
             session_db,
             project_db,
             event_bus,
-            chat_streams,
             chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
             api_key: api_key.clone(),
         });

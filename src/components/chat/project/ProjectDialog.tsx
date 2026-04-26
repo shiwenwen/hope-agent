@@ -6,9 +6,20 @@
  *  - `mode="edit"` + `initialProject=<Project>` → prefilled form, calls onUpdate
  */
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, Check, Camera } from "lucide-react"
+import {
+  Bot,
+  Camera,
+  Check,
+  CircleSlash,
+  FileText,
+  FolderKanban,
+  ImagePlus,
+  Loader2,
+  Palette,
+  X,
+} from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +39,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { cn } from "@/lib/utils"
 
 import type {
   CreateProjectInput,
@@ -47,13 +59,48 @@ export interface ProjectDialogProps {
 }
 
 const COLOR_CHOICES = [
-  { value: "amber", label: "amber", className: "bg-amber-500" },
-  { value: "violet", label: "violet", className: "bg-violet-500" },
-  { value: "sky", label: "sky", className: "bg-sky-500" },
-  { value: "emerald", label: "emerald", className: "bg-emerald-500" },
-  { value: "rose", label: "rose", className: "bg-rose-500" },
-  { value: "indigo", label: "indigo", className: "bg-indigo-500" },
-  { value: "slate", label: "slate", className: "bg-slate-500" },
+  {
+    value: "amber",
+    label: "amber",
+    className: "bg-amber-500",
+    softClassName: "bg-amber-500/15",
+  },
+  {
+    value: "violet",
+    label: "violet",
+    className: "bg-violet-500",
+    softClassName: "bg-violet-500/15",
+  },
+  {
+    value: "sky",
+    label: "sky",
+    className: "bg-sky-500",
+    softClassName: "bg-sky-500/15",
+  },
+  {
+    value: "emerald",
+    label: "emerald",
+    className: "bg-emerald-500",
+    softClassName: "bg-emerald-500/15",
+  },
+  {
+    value: "rose",
+    label: "rose",
+    className: "bg-rose-500",
+    softClassName: "bg-rose-500/15",
+  },
+  {
+    value: "indigo",
+    label: "indigo",
+    className: "bg-indigo-500",
+    softClassName: "bg-indigo-500/15",
+  },
+  {
+    value: "slate",
+    label: "slate",
+    className: "bg-slate-500",
+    softClassName: "bg-slate-500/15",
+  },
 ]
 
 export default function ProjectDialog({
@@ -107,9 +154,9 @@ export default function ProjectDialog({
     }
   }, [open, mode, initialProject])
 
-  async function handleLogoFileChange(
-    e: React.ChangeEvent<HTMLInputElement>,
-  ) {
+  const selectedColor = COLOR_CHOICES.find((choice) => choice.value === color)
+
+  async function handleLogoFileChange(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     // Reset the input so re-selecting the same file still fires change.
     e.target.value = ""
@@ -180,166 +227,234 @@ export default function ProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            {mode === "create" ? t("project.newProject") : t("project.editProject")}
-          </DialogTitle>
-        </DialogHeader>
-
-        <div className="space-y-4 py-2">
-          <div className="grid grid-cols-6 gap-3">
-            <div className="col-span-5 space-y-1.5">
-              <Label htmlFor="project-name">{t("project.projectName")}</Label>
-              <Input
-                id="project-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t("project.projectNamePlaceholder")}
-                autoFocus
-              />
-            </div>
-            <div className="col-span-1 space-y-1.5">
-              <Label htmlFor="project-emoji">{t("project.projectEmoji")}</Label>
-              <Input
-                id="project-emoji"
-                value={emoji}
-                onChange={(e) => setEmoji(e.target.value)}
-                placeholder="🚀"
-                maxLength={4}
-                className="text-center text-lg"
-              />
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <Label>{t("project.projectLogo")}</Label>
-            <p className="text-xs text-muted-foreground">
-              {t("project.projectLogoHint")}
-            </p>
-            <div className="flex items-center gap-3">
-              <div
-                onClick={() => fileInputRef.current?.click()}
-                className="w-14 h-14 rounded-xl bg-secondary border border-border/50 flex items-center justify-center overflow-hidden hover:border-primary/30 transition-colors cursor-pointer shrink-0"
-                role="button"
-                aria-label={t("project.uploadLogo")}
+      <DialogContent className="max-h-[88vh] max-w-3xl gap-0 overflow-hidden p-0">
+        <div className="border-b border-border/70 bg-muted/25 px-6 py-5">
+          <DialogHeader className="space-y-0">
+            <DialogTitle className="flex items-center gap-3 text-xl">
+              <span
+                className={cn(
+                  "flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-base shadow-sm",
+                  selectedColor
+                    ? `${selectedColor.softClassName} text-foreground`
+                    : "bg-primary/10 text-primary",
+                )}
               >
                 {logo ? (
-                  <img src={logo} alt="" className="w-full h-full object-cover" />
+                  <img src={logo} alt="" className="h-full w-full object-cover" />
                 ) : emoji ? (
-                  <span className="text-2xl">{emoji}</span>
+                  <span>{emoji}</span>
                 ) : (
-                  <Camera className="h-5 w-5 text-muted-foreground/40" />
+                  <FolderKanban className="h-5 w-5" />
                 )}
-              </div>
-              {logo && (
-                <button
-                  type="button"
-                  onClick={clearLogo}
-                  className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {t("project.removeLogo")}
-                </button>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleLogoFileChange}
-              />
-            </div>
-            {logoError && (
-              <p className="text-xs text-destructive">{logoError}</p>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="project-description">
-              {t("project.projectDescription")}
-            </Label>
-            <Textarea
-              id="project-description"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("project.projectDescriptionPlaceholder")}
-              rows={2}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="project-instructions">
-              {t("project.projectInstructions")}
-            </Label>
-            <p className="text-xs text-muted-foreground">
-              {t("project.projectInstructionsHint")}
-            </p>
-            <Textarea
-              id="project-instructions"
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              placeholder={t("project.projectInstructionsPlaceholder")}
-              rows={5}
-              className="font-mono text-sm"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label>{t("project.projectColor")}</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {COLOR_CHOICES.map((c) => (
-                  <button
-                    key={c.value}
-                    type="button"
-                    onClick={() => setColor(c.value)}
-                    className={`h-6 w-6 rounded-full ring-offset-background transition-all ${c.className} ${
-                      color === c.value
-                        ? "ring-2 ring-foreground ring-offset-2"
-                        : "hover:scale-110"
-                    }`}
-                    aria-label={c.label}
-                  />
-                ))}
-                <button
-                  type="button"
-                  onClick={() => setColor("")}
-                  className={`h-6 w-6 rounded-full border border-dashed border-muted-foreground/50 text-xs text-muted-foreground ${
-                    !color ? "ring-2 ring-foreground ring-offset-2" : ""
-                  }`}
-                  aria-label="no color"
-                >
-                  —
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>{t("project.defaultAgent")}</Label>
-              <Select
-                value={defaultAgentId || "__none__"}
-                onValueChange={(v) => setDefaultAgentId(v === "__none__" ? "" : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t("project.inheritGlobal")} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">{t("project.inheritGlobal")}</SelectItem>
-                  {agents.map((a) => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.emoji ? `${a.emoji} ` : ""}
-                      {a.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {error && <p className="text-sm text-destructive">{error}</p>}
+              </span>
+              {mode === "create" ? t("project.newProject") : t("project.editProject")}
+            </DialogTitle>
+          </DialogHeader>
         </div>
 
-        <DialogFooter>
+        <div className="max-h-[calc(88vh-9.5rem)] overflow-y-auto px-6 py-5">
+          <div className="grid gap-5 lg:grid-cols-[13rem_minmax(0,1fr)]">
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>{t("project.projectLogo")}</Label>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fileInputRef.current?.click()}
+                  className={cn(
+                    "group relative h-40 w-full overflow-hidden rounded-lg border-dashed bg-muted/20 p-0 shadow-none hover:bg-muted/30",
+                    selectedColor && !logo ? "border-border" : "",
+                  )}
+                  aria-label={t("project.uploadLogo")}
+                >
+                  {logo ? (
+                    <img src={logo} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-3">
+                      <div
+                        className={cn(
+                          "flex h-16 w-16 items-center justify-center rounded-lg text-3xl shadow-sm",
+                          selectedColor
+                            ? `${selectedColor.softClassName} text-foreground`
+                            : "bg-background text-primary",
+                        )}
+                      >
+                        {emoji ? (
+                          <span>{emoji}</span>
+                        ) : (
+                          <ImagePlus className="h-7 w-7 text-muted-foreground" />
+                        )}
+                      </div>
+                      <span className="text-xs font-medium text-muted-foreground">
+                        {t("project.uploadLogo")}
+                      </span>
+                    </div>
+                  )}
+                  <span className="absolute inset-x-0 bottom-0 flex items-center justify-center gap-1 bg-background/90 px-3 py-2 text-xs font-medium text-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                    <Camera className="h-3.5 w-3.5" />
+                    {logo ? t("project.replaceLogo") : t("project.uploadLogo")}
+                  </span>
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleLogoFileChange}
+                />
+                <div className="flex min-h-8 items-start justify-between gap-2">
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {t("project.projectLogoHint")}
+                  </p>
+                  {logo && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearLogo}
+                      className="h-7 shrink-0 px-2 text-muted-foreground"
+                    >
+                      <X className="mr-1 h-3.5 w-3.5" />
+                      {t("project.removeLogo")}
+                    </Button>
+                  )}
+                </div>
+                {logoError && (
+                  <p className="text-xs text-destructive">{logoError}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Palette className="h-4 w-4 text-muted-foreground" />
+                  {t("project.projectColor")}
+                </Label>
+                <div className="grid grid-cols-4 gap-2">
+                  {COLOR_CHOICES.map((choice) => (
+                    <Button
+                      key={choice.value}
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => setColor(choice.value)}
+                      className={cn(
+                        "h-9 w-9 rounded-full border border-transparent p-0 ring-offset-background transition-all hover:scale-105 hover:bg-transparent",
+                        color === choice.value && "ring-2 ring-foreground ring-offset-2",
+                      )}
+                      aria-label={choice.label}
+                    >
+                      <span className={cn("h-6 w-6 rounded-full", choice.className)} />
+                    </Button>
+                  ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setColor("")}
+                    className={cn(
+                      "h-9 w-9 rounded-full border border-dashed border-muted-foreground/40 p-0 text-muted-foreground hover:bg-muted/40",
+                      !color && "ring-2 ring-foreground ring-offset-2",
+                    )}
+                    aria-label="no color"
+                  >
+                    <CircleSlash className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_5rem]">
+                <div className="space-y-1.5">
+                  <Label htmlFor="project-name">{t("project.projectName")}</Label>
+                  <Input
+                    id="project-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder={t("project.projectNamePlaceholder")}
+                    autoFocus
+                    className="h-10"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="project-emoji">{t("project.projectEmoji")}</Label>
+                  <Input
+                    id="project-emoji"
+                    value={emoji}
+                    onChange={(e) => setEmoji(e.target.value)}
+                    placeholder="🚀"
+                    maxLength={4}
+                    className="h-10 text-center text-lg"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="project-description">
+                  {t("project.projectDescription")}
+                </Label>
+                <Textarea
+                  id="project-description"
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder={t("project.projectDescriptionPlaceholder")}
+                  rows={3}
+                  className="resize-none"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 text-muted-foreground" />
+                  {t("project.defaultAgent")}
+                </Label>
+                <Select
+                  value={defaultAgentId || "__none__"}
+                  onValueChange={(v) => setDefaultAgentId(v === "__none__" ? "" : v)}
+                >
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder={t("project.inheritGlobal")} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">{t("project.inheritGlobal")}</SelectItem>
+                    {agents.map((a) => (
+                      <SelectItem key={a.id} value={a.id}>
+                        {a.emoji ? `${a.emoji} ` : ""}
+                        {a.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="project-instructions" className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  {t("project.projectInstructions")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("project.projectInstructionsHint")}
+                </p>
+                <Textarea
+                  id="project-instructions"
+                  value={instructions}
+                  onChange={(e) => setInstructions(e.target.value)}
+                  placeholder={t("project.projectInstructionsPlaceholder")}
+                  rows={7}
+                  className="max-h-52 min-h-36 font-mono text-sm"
+                />
+              </div>
+
+              {error && (
+                <p className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="border-t border-border/70 bg-background px-6 py-4">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

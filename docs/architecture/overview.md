@@ -48,7 +48,7 @@ graph TD
 
     subgraph OcServer["ha-server (HTTP/WS)"]
         Router["axum Router<br/>43 REST 端点"]
-        WSHandler["WebSocket<br/>/ws/events<br/>/ws/chat/{session}"]
+        WSHandler["WebSocket<br/>/ws/events"]
     end
 
     Commands --> ChatEngine

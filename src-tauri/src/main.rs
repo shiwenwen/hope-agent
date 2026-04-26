@@ -379,7 +379,6 @@ fn run_server(args: &[String]) {
         session_db,
         project_db,
         event_bus,
-        chat_streams: Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new()),
         chat_cancels: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         api_key: api_key.clone(),
     });

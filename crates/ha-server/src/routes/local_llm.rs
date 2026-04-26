@@ -1,9 +1,8 @@
 //! Local LLM assistant routes.
 //!
 //! Long-running operations (`install`, `pull`) emit progress through the
-//! shared event bus on the `local_llm:install_progress` /
-//! `local_llm:pull_progress` channels. Browsers subscribe via the
-//! `/api/ws/events` WebSocket.
+//! shared event bus on the local-LLM progress channels. Browsers subscribe
+//! via the `/api/ws/events` WebSocket.
 
 use axum::extract::State;
 use axum::Json;
@@ -13,7 +12,7 @@ use std::sync::Arc;
 
 use ha_core::local_llm::{
     detect_hardware, detect_ollama, install_ollama_via_script, pull_and_activate, recommend_model,
-    start_ollama, ModelCandidate,
+    start_ollama, ModelCandidate, EVENT_LOCAL_LLM_INSTALL_PROGRESS, EVENT_LOCAL_LLM_PULL_PROGRESS,
 };
 
 use crate::error::AppError;
@@ -40,11 +39,11 @@ pub async fn get_ollama_status() -> Json<Value> {
 }
 
 /// `POST /api/local-llm/install` — run the bundled installer (Unix only).
-/// Streams progress to `local_llm:install_progress` events.
+/// Streams progress to local-LLM install progress events.
 pub async fn install_ollama(State(ctx): State<Arc<AppContext>>) -> Result<Json<Value>, AppError> {
     let bus = ctx.event_bus.clone();
     install_ollama_via_script(move |p| {
-        bus.emit("local_llm:install_progress", json!(p));
+        bus.emit(EVENT_LOCAL_LLM_INSTALL_PROGRESS, json!(p));
     })
     .await?;
     Ok(Json(json!({ "ok": true })))
@@ -57,14 +56,14 @@ pub async fn start() -> Result<Json<Value>, AppError> {
 }
 
 /// `POST /api/local-llm/pull` — pull `model.id`, register Ollama provider,
-/// switch active model. Streams progress to `local_llm:pull_progress`.
+/// switch active model. Streams progress to local-LLM pull progress events.
 pub async fn pull(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<PullBody>,
 ) -> Result<Json<Value>, AppError> {
     let bus = ctx.event_bus.clone();
     let (provider_id, model_id) = pull_and_activate(body.model, move |p| {
-        bus.emit("local_llm:pull_progress", json!(p));
+        bus.emit(EVENT_LOCAL_LLM_PULL_PROGRESS, json!(p));
     })
     .await?;
     Ok(Json(

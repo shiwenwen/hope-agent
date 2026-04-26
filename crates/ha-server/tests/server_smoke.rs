@@ -40,7 +40,6 @@ async fn server_starts_and_serves_health() {
         session_db,
         project_db,
         event_bus,
-        chat_streams: Arc::new(ha_server::ws::chat_stream::ChatStreamRegistry::new()),
         chat_cancels: Arc::new(RwLock::new(HashMap::<String, Arc<AtomicBool>>::new())),
         api_key: None,
     });
