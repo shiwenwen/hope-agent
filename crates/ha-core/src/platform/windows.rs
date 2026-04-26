@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::{self, Write};
+use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -107,6 +108,42 @@ pub(super) fn find_chrome_executable() -> Option<PathBuf> {
     }
 
     None
+}
+
+pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::File>> {
+    use std::io::ErrorKind;
+
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    // FILE_SHARE_NONE (share_mode 0) gives a kernel-enforced exclusive
+    // open: any second process trying to open the same path gets
+    // ERROR_SHARING_VIOLATION. The handle is released automatically when
+    // the process exits or panics, matching flock(LOCK_EX) semantics.
+    // FILE_FLAG_NO_INHERIT_HANDLE keeps spawned children from holding the
+    // handle alive past their parent's death.
+    const FILE_FLAG_NO_INHERIT_HANDLE: u32 = 0x0000_0080;
+    let result = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .share_mode(0)
+        .custom_flags(FILE_FLAG_NO_INHERIT_HANDLE)
+        .open(path);
+
+    match result {
+        Ok(file) => Ok(Some(file)),
+        Err(e) => {
+            // ERROR_SHARING_VIOLATION (32) — another process owns it.
+            // PermissionDenied is what `io::Error::kind` maps it to.
+            if matches!(e.kind(), ErrorKind::PermissionDenied) || e.raw_os_error() == Some(32) {
+                Ok(None)
+            } else {
+                Err(e)
+            }
+        }
+    }
 }
 
 pub(super) fn write_secure_file(path: &Path, bytes: &[u8]) -> io::Result<()> {

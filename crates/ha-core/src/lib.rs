@@ -55,6 +55,7 @@ pub mod process_registry;
 pub mod project;
 pub mod provider;
 pub mod recap;
+pub mod runtime_lock;
 pub mod sandbox;
 pub mod security;
 pub mod self_diagnosis;
