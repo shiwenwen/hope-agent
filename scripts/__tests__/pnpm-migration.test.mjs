@@ -145,7 +145,7 @@ exit 0
       assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`)
 
       const log = readFileSync(logPath, "utf8")
-      assert.match(log, /pnpm:tsc --noEmit/)
+      assert.match(log, /pnpm:typecheck/)
       assert.doesNotMatch(log, /pnpm:lint --silent/)
     } finally {
       rmSync(tempRoot, { recursive: true, force: true })
