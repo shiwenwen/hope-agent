@@ -283,26 +283,32 @@ const COMMAND_MAP = {
 
 ## 初始化流程
 
+三种模式共享 `ha_core::init_runtime(role)` 这一个全局单例 setter。它内部第一步就调 [`runtime_lock::acquire_or_secondary`](../../crates/ha-core/src/runtime_lock.rs)，在 `~/.hope-agent/runtime.lock` 上抢一把 OS 级 advisory exclusive lock：第一个抢到的进程是 **Primary**，做所有 startup cleanup + 跑独占性后台循环；其它进程是 **Secondary**，初始化 OnceLock 但跳过这些清扫与循环。后台任务变体按模式选 `start_background_tasks`（桌面 + server）或 `start_minimal_background_tasks`（acp），两个变体内部各自再按 `runtime_lock::is_primary()` gate Primary-only 部分。详见 [process-model.md § Primary / Secondary 协作](process-model.md#primary--secondary-协作多进程并存)。
+
+### 桌面模式
+
 ```mermaid
 sequenceDiagram
     participant Main as main.rs
     participant Guard as Guardian
     participant Tauri as Tauri Builder
-    participant Init as ha_core::init_app_state()
+    participant Init as ha_core::init_runtime()
+    participant Build as ha_core::build_app_state()
     participant Setup as setup.rs::app_setup()
     participant BG as start_background_tasks()
 
     Main->>Guard: run_guardian()
     Guard->>Main: spawn child --child-mode
     Main->>Tauri: tauri::Builder::default()
-    Tauri->>Init: .manage(init_app_state(store))
-    Note over Init: SessionDB / LogDB / MemoryDB<br/>Logger / CronDB / Channel Plugins<br/>SubagentCancels / ACP Manager
+    Tauri->>Init: .manage(init_tauri_app_state())
+    Note over Init: runtime_lock::acquire_or_secondary(\"desktop\")<br/>全部 OnceLock 注入<br/>(SessionDB / LogDB / MemoryDB<br/>Logger / CronDB / Channel Plugins<br/>SubagentCancels / ACP Manager / EventBus)<br/>**Primary tier 才跑 cleanup 三件套**
+    Init->>Build: 读 OnceLock 装配 AppState
     Tauri->>Setup: .setup(app_setup)
-    Note over Setup: APP_HANDLE 存储<br/>macOS 菜单/主题<br/>系统托盘<br/>内嵌 HTTP 服务 spawn
+    Note over Setup: APP_HANDLE 存储<br/>macOS 菜单/主题<br/>系统托盘<br/>EventBus → app_handle.emit 桥<br/>内嵌 HTTP 服务 spawn
     Setup->>BG: tauri::async_runtime::spawn
-    Note over BG: Channel 账号自动启动<br/>ACP 后端自动发现
+    Note over BG: channel approval/ask_user listener (任意 tier)<br/>MCP init_global (任意 tier)<br/>**Primary-only**: cron scheduler / channel auto-start /<br/>dreaming idle-trigger / 3 个 daily retention loops /<br/>MCP watchdog / ACP backend auto-discover /<br/>async_jobs replay
     Setup-->>Tauri: Ok(())
-    Note over Setup: Cron 调度器启动<br/>SearXNG Docker 自启<br/>天气缓存刷新<br/>全局快捷键注册
+    Note over Setup: SearXNG Docker 自启<br/>天气缓存刷新<br/>全局快捷键注册
     Tauri->>Tauri: .build() + .run()
 ```
 
@@ -315,14 +321,37 @@ sequenceDiagram
     participant Server as ha_server
 
     Main->>Core: paths::ensure_dirs()
+    Main->>Core: 可选 cli_onboarding 向导
     Main->>Core: agent_loader::ensure_default_agent()
-    Main->>Core: session::SessionDB::open()
-    Main->>Core: globals::SESSION_DB.set()
-    Main->>Core: BroadcastEventBus::new(256)
-    Main->>Core: set_event_bus()
-    Main->>Server: AppContext { session_db, event_bus, ... }
-    Main->>Server: start_server(config, ctx)
+    Main->>Core: init_runtime("server")
+    Note over Core: runtime_lock::acquire_or_secondary("server")<br/>与桌面同一组 OnceLock<br/>EventBus 由 init_runtime 兜底创建<br/>**Primary tier 才跑 cleanup 三件套**
+    Main->>Server: AppContext { session_db, project_db, event_bus }
+    Main->>Main: tokio::Runtime::new()
+    Main->>Core: tokio::spawn(start_background_tasks)
+    Note over Core: tier-agnostic: channel listeners / MCP catalog<br/>**Primary-only**: cron / dreaming / retention /<br/>MCP watchdog / channel auto-start / ACP discover /<br/>async_jobs replay
+    Main->>Server: start_server(config, ctx).await
     Note over Server: axum::serve(listener, router)
+```
+
+### ACP 模式初始化（stdio）
+
+```mermaid
+sequenceDiagram
+    participant Main as main.rs::run_acp_server()
+    participant Core as ha_core
+    participant ACP as acp::server::start
+    participant BgRt as bg_rt（旁路 runtime）
+
+    Main->>Core: 检查 onboarding 状态（未配置则 exit 2）
+    Main->>Core: init_runtime("acp")
+    Note over Core: runtime_lock::acquire_or_secondary("acp")<br/>与桌面同一组 OnceLock<br/>**ACP-only 场景**自然成为 Primary
+    Main->>BgRt: Builder::new_multi_thread(2 worker, "acp-bg")
+    Main->>BgRt: bg_rt.spawn(start_minimal_background_tasks)
+    Note over BgRt: 任意 tier: channel listeners + MCP init_global<br/>**Primary-only**: ask_user 一次性清理 +<br/>async_jobs replay
+    Main->>ACP: acp::server::start(session_db, agent_id, verbose)
+    Note over ACP: 主线程同步 stdin NDJSON 循环<br/>每个 prompt 自建 current_thread runtime
+    ACP-->>Main: Ok 或 Err
+    Main->>BgRt: drop(bg_rt) → 后台任务取消
 ```
 
 ---
@@ -365,9 +394,15 @@ sequenceDiagram
 | `subagent_cancels` | `Arc<SubagentCancelRegistry>` | 与 [`SUBAGENT_CANCELS`] 共享 |
 | `channel_cancels` | `Arc<ChannelCancelRegistry>` | 与 [`CHANNEL_CANCELS`] 共享 |
 
-### 跨模式能力 gap
+### 跨模式能力（已对齐）
 
-`hope-agent server start` / `hope-agent acp` 目前**不**调用 `init_app_state()`（process-model.md 有登记）。所有 OnceLock 都没被 populate，依赖它们的能力在这两个模式下表现为：IM channel 取消、slash 命令、`/compact`、`/model`、`/effort`、`/recap`、`/context` 这类要读跨运行时状态的路径返回 `XXX not initialized` 错误。桌面模式不受影响。彻底修需要把 `init_app_state()` + `start_background_tasks()` 下沉到 server/acp 的入口路径，这是该 gap 的后续动作。
+三种模式都调用 `ha_core::init_runtime(role)`，所有 OnceLock 在三种模式下都被 populate；`build_app_state()` 仅桌面用（构造 Tauri `AppState`），server / ACP 直接消费 OnceLock。后台任务变体按模式选 `start_background_tasks`（桌面 + server）或 `start_minimal_background_tasks`（acp）。
+
+**多进程并存安全**：`init_runtime` 内部第一步抢 `~/.hope-agent/runtime.lock`（OS advisory lock，进程退出 / panic / SIGKILL / 断电时 OS 自动释放）。第一个抢到的进程是 **Primary** 跑 cleanup + 独占性循环；后续进程是 **Secondary** 只 init OnceLock 但跳过这些。模式不参与（FCFS），ACP-only 场景自然成为 Primary。详细 Primary-only 清单与 manual-API 不受影响的 carve-outs 见 [process-model.md § Primary / Secondary 协作](process-model.md#primary--secondary-协作多进程并存)。
+
+历史 gap：
+- `fix/server-acp-runtime-init` 之前，`hope-agent server start` 只手写 SessionDB / ProjectDB / EventBus 三个 OnceLock，`hope-agent acp` 只开 SessionDB；任何依赖其它 OnceLock 的工具（`recall_memory` / `manage_cron` / `subagent` 等）在 daemon 模式下都会 `"XXX not initialized"`。
+- 同一分支早期把 cleanup 共享给三种模式但缺多进程协作，导致桌面 + ACP 共存时 ACP 的 startup cleanup 会 mark 桌面活的 subagent 失败、`clear_all_running` 让 cron 双跑、`replay_pending_jobs` 把活 async 工具标 Interrupted、最严重 **硬删除桌面无痕会话**。本次以 OS file lock 选举 Primary 修复。
 
 ### Tauri 专属全局（src-tauri）
 

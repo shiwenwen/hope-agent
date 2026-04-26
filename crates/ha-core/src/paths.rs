@@ -3,8 +3,22 @@ use std::path::PathBuf;
 
 // ── Root Directory ───────────────────────────────────────────────
 
-/// Returns the root directory for all Hope Agent data: ~/.hope-agent/
+/// Returns the root directory for all Hope Agent data.
+///
+/// Resolution order:
+/// 1. `HA_DATA_DIR` env var, used as-is (no `.hope-agent` suffix).
+///    Lets users run in portable mode and lets cross-platform integration
+///    tests redirect into a tempdir — `dirs::home_dir()` on Windows reads
+///    `SHGetKnownFolderPath`, not `%USERPROFILE%`, so HOME-style overrides
+///    don't work there.
+/// 2. `dirs::home_dir().join(".hope-agent")` for the normal install path.
 pub fn root_dir() -> Result<PathBuf> {
+    if let Some(override_dir) = std::env::var_os("HA_DATA_DIR") {
+        let p = PathBuf::from(override_dir);
+        if !p.as_os_str().is_empty() {
+            return Ok(p);
+        }
+    }
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
     Ok(home.join(".hope-agent"))
 }

@@ -1611,13 +1611,22 @@ impl SessionDB {
     /// sidebar reads the session list. Returns the number of sessions
     /// purged.
     pub fn purge_orphan_incognito_sessions(&self) -> Result<usize> {
+        // Defense in depth: even when this runs (Primary tier in
+        // app_init), exclude sessions that were touched in the last
+        // 60 seconds. A coexisting live process could have just
+        // created or written to one — the runtime_lock guard is the
+        // primary safeguard, this is the second.
+        // updated_at is stored as RFC3339; ISO format compares
+        // lexicographically the same as chronologically.
+        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(60)).to_rfc3339();
         let ids: Vec<String> = {
             let conn = self
                 .conn
                 .lock()
                 .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-            let mut stmt = conn.prepare("SELECT id FROM sessions WHERE incognito = 1")?;
-            let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+            let mut stmt =
+                conn.prepare("SELECT id FROM sessions WHERE incognito = 1 AND updated_at < ?1")?;
+            let rows = stmt.query_map(rusqlite::params![cutoff], |r| r.get::<_, String>(0))?;
             rows.filter_map(|r| r.ok()).collect()
         };
         for id in &ids {
