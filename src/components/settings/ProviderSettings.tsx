@@ -47,6 +47,7 @@ import {
   Trash2,
 } from "lucide-react"
 import LocalLlmAssistantCard from "@/components/settings/local-llm/LocalLlmAssistantCard"
+import { hasLocalOllamaProvider } from "@/components/settings/local-llm/provider-detection"
 
 // ── Types (shared with ProviderSetup) ─────────────────────────────
 
@@ -65,14 +66,6 @@ export interface ProviderConfig {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
-
-const LOCAL_OLLAMA_HOST_RE = /(127\.0\.0\.1|localhost|ollama\.local):11434/i
-
-function hasLocalOllamaProvider(providers: ProviderConfig[]): boolean {
-  return providers.some(
-    (p) => p.enabled && p.apiType === "openai-chat" && LOCAL_OLLAMA_HOST_RE.test(p.baseUrl),
-  )
-}
 
 function apiTypeLabel(type: ApiType) {
   switch (type) {

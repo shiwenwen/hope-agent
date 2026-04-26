@@ -24,11 +24,7 @@ import {
 
 type BudgetSource = "unified-memory" | "dedicated-vram" | "system-memory"
 type OllamaPhase = "not-installed" | "installed" | "running"
-type RecommendationReason =
-  | "insufficient"
-  | "unified-memory"
-  | "dgpu"
-  | "ram-fallback"
+type RecommendationReason = "insufficient" | "unified-memory" | "dgpu" | "ram-fallback"
 type InstallProgressKind = "step" | "log" | "error"
 
 interface GpuInfo {
@@ -236,9 +232,7 @@ export default function LocalLlmAssistantCard({
       setBusy("pull")
       setError(null)
       setDialogOpen(true)
-      setDialogTitle(
-        t("settings.localLlm.buttons.installModel", { model: model.displayName }),
-      )
+      setDialogTitle(t("settings.localLlm.buttons.installModel", { model: model.displayName }))
       setDialogSubtitle(model.id)
       setDialogFrame({
         phase: "starting",
@@ -266,7 +260,6 @@ export default function LocalLlmAssistantCard({
         setTimeout(() => {
           setDialogOpen(false)
           onProviderInstalled()
-          void refresh()
         }, 800)
       } catch (e) {
         const msg = String(e)
@@ -277,7 +270,7 @@ export default function LocalLlmAssistantCard({
         setBusy(null)
       }
     },
-    [onProviderInstalled, phaseLabel, refresh, t],
+    [onProviderInstalled, phaseLabel, t],
   )
 
   const openDownloadPage = useCallback(() => {
