@@ -1,6 +1,6 @@
 use anyhow::Result;
 use chrono::Utc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use super::db::CronDB;
@@ -112,9 +112,16 @@ pub(crate) async fn execute_claimed_job(
 
     // Build agent from app config (with 5-minute timeout to prevent blocking scheduler)
     const CRON_JOB_TIMEOUT_SECS: u64 = 300;
+    let cancel_flag = super::cancel::register(&job.id);
     let result = match tokio::time::timeout(
         std::time::Duration::from_secs(CRON_JOB_TIMEOUT_SECS),
-        build_and_run_agent(&agent_id, &prompt, &session_id, session_db),
+        build_and_run_agent_with_cancel(
+            &agent_id,
+            &prompt,
+            &session_id,
+            session_db,
+            cancel_flag.clone(),
+        ),
     )
     .await
     {
@@ -136,6 +143,21 @@ pub(crate) async fn execute_claimed_job(
 
     let duration_ms = start_time.elapsed().as_millis() as u64;
     let finished_at = Utc::now().to_rfc3339();
+    let was_cancelled = cancel_flag.load(Ordering::SeqCst);
+    super::cancel::remove(&job.id);
+
+    if was_cancelled {
+        app_warn!(
+            "cron",
+            "executor",
+            "Job '{}' ({}) cancelled after {}ms",
+            job.name,
+            job.id,
+            duration_ms
+        );
+        record_cancelled(cron_db, &job, &started_at, duration_ms, &session_id);
+        return;
+    }
 
     match result {
         Ok(response) => {
@@ -199,13 +221,22 @@ pub(crate) async fn execute_claimed_job(
 ///
 /// Cron now delegates to the shared chat engine so provider auth, Codex OAuth,
 /// failover, compaction, and persistence stay aligned with interactive chat.
-pub async fn build_and_run_agent(
+pub async fn build_and_run_agent_with_cancel(
     agent_id: &str,
     message: &str,
     session_id: &str,
     session_db: &Arc<crate::session::SessionDB>,
+    cancel: Arc<AtomicBool>,
 ) -> Result<String> {
-    build_and_run_agent_with_context(agent_id, message, session_id, session_db, None).await
+    build_and_run_agent_with_context(
+        agent_id,
+        message,
+        session_id,
+        session_db,
+        None,
+        Some(cancel),
+    )
+    .await
 }
 
 /// Build an AssistantAgent and run a chat message via the shared chat engine
@@ -216,6 +247,7 @@ pub async fn build_and_run_agent_with_context(
     session_id: &str,
     session_db: &Arc<crate::session::SessionDB>,
     extra_system_context: Option<&str>,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<String> {
     use crate::provider;
 
@@ -297,7 +329,7 @@ pub async fn build_and_run_agent_with_context(
                 .to_string(),
         ),
         reasoning_effort: crate::agent::live_reasoning_effort(None).await,
-        cancel: Arc::new(AtomicBool::new(false)),
+        cancel: cancel.unwrap_or_else(|| Arc::new(AtomicBool::new(false))),
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
@@ -312,6 +344,19 @@ pub async fn build_and_run_agent_with_context(
         Ok(result) => Ok(result.response),
         Err(e) => Err(anyhow::anyhow!("{}", e)),
     }
+}
+
+pub fn cancel_running_job(job_id: &str) -> Result<Option<bool>> {
+    let Some(cron_db) = crate::get_cron_db() else {
+        return Ok(None);
+    };
+    let Some(job) = cron_db.get_job(job_id)? else {
+        return Ok(None);
+    };
+    if job.running_at.is_none() {
+        return Ok(Some(false));
+    }
+    Ok(Some(super::cancel::cancel(job_id)))
 }
 
 fn persist_failure_message_if_missing(
@@ -367,6 +412,30 @@ pub(crate) fn record_failure(
     emit_cron_event(&job.id, &job.name, "error", job.notify_on_complete);
 }
 
+fn record_cancelled(
+    cron_db: &Arc<CronDB>,
+    job: &CronJob,
+    started_at: &str,
+    duration_ms: u64,
+    session_id: &str,
+) {
+    let finished_at = Utc::now().to_rfc3339();
+    let run_log = CronRunLog {
+        id: 0,
+        job_id: job.id.clone(),
+        session_id: session_id.to_string(),
+        status: "cancelled".to_string(),
+        started_at: started_at.to_string(),
+        finished_at: Some(finished_at),
+        duration_ms: Some(duration_ms),
+        result_preview: None,
+        error: Some("Cancelled by user".to_string()),
+    };
+    let _ = cron_db.add_run_log(&run_log);
+    let _ = cron_db.clear_running(&job.id);
+    emit_cron_event(&job.id, &job.name, "cancelled", job.notify_on_complete);
+}
+
 /// Emit an event to notify the frontend of a cron run result.
 pub(crate) fn emit_cron_event(job_id: &str, job_name: &str, status: &str, notify: bool) {
     if let Some(bus) = crate::get_event_bus() {
@@ -377,5 +446,76 @@ pub(crate) fn emit_cron_event(job_id: &str, job_name: &str, status: &str, notify
             "notify": notify,
         });
         bus.emit("cron:run_completed", payload);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::cron::{CronPayload, CronSchedule, NewCronJob};
+    use rusqlite::params;
+    use std::path::{Path, PathBuf};
+    use uuid::Uuid;
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "hope-agent-cron-executor-{label}-{}.db",
+            Uuid::new_v4()
+        ))
+    }
+
+    fn cleanup_db_files(path: &Path) {
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(format!("{}-wal", path.display()));
+        let _ = std::fs::remove_file(format!("{}-shm", path.display()));
+    }
+
+    #[test]
+    fn record_cancelled_writes_log_clears_running_and_preserves_failures() {
+        let path = temp_db_path("cancelled-log");
+        let db = Arc::new(CronDB::open(&path).expect("open db"));
+        let job = db
+            .add_job(&NewCronJob {
+                name: "Hydrate".into(),
+                description: None,
+                schedule: CronSchedule::Every {
+                    interval_ms: 300_000,
+                    start_at: None,
+                },
+                payload: CronPayload::AgentTurn {
+                    prompt: "drink water".into(),
+                    agent_id: None,
+                },
+                max_failures: Some(5),
+                notify_on_complete: Some(false),
+                delivery_targets: None,
+            })
+            .expect("add job");
+        {
+            let conn = db.conn.lock().expect("lock");
+            conn.execute(
+                "UPDATE cron_jobs SET consecutive_failures=2 WHERE id=?1",
+                params![job.id],
+            )
+            .expect("seed failures");
+        }
+        let claimed = db
+            .claim_immediate_job_for_execution(&job)
+            .expect("claim")
+            .expect("claimed job");
+
+        record_cancelled(&db, &claimed.job, &claimed.claimed_at, 42, "session-cancel");
+
+        let stored = db.get_job(&job.id).expect("load").expect("job exists");
+        assert!(stored.running_at.is_none());
+        assert_eq!(stored.consecutive_failures, 2);
+        let logs = db.get_run_logs(&job.id, 10).expect("logs");
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].status, "cancelled");
+        assert_eq!(logs[0].session_id, "session-cancel");
+        assert_eq!(logs[0].duration_ms, Some(42));
+        assert_eq!(logs[0].error.as_deref(), Some("Cancelled by user"));
+
+        cleanup_db_files(&path);
     }
 }

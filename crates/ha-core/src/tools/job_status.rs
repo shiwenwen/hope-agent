@@ -145,7 +145,10 @@ fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
                     );
                 }
             }
-            AsyncJobStatus::Failed | AsyncJobStatus::TimedOut | AsyncJobStatus::Interrupted => {
+            AsyncJobStatus::Failed
+            | AsyncJobStatus::TimedOut
+            | AsyncJobStatus::Interrupted
+            | AsyncJobStatus::Cancelled => {
                 if let Some(err) = &job.error {
                     map.insert("error".to_string(), json!(err));
                 }
@@ -154,6 +157,12 @@ fn format_job_response(job: &crate::async_jobs::AsyncJob) -> String {
                 map.insert(
                     "hint".to_string(),
                     json!("Job is still running. Re-call with block=true to wait."),
+                );
+            }
+            AsyncJobStatus::Cancelling => {
+                map.insert(
+                    "hint".to_string(),
+                    json!("Cancellation has been requested; the job is shutting down."),
                 );
             }
         }
@@ -207,9 +216,11 @@ mod tests {
         db::AsyncJobsDB,
         types::{AsyncJob, AsyncJobStatus, JobOrigin},
     };
+    use crate::runtime_tasks::{cancel_runtime_task, RuntimeTaskKind};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::Instant;
+    use tokio::time::timeout;
 
     // The async_jobs DB is a process-global `OnceLock`, so all tests in
     // this module share one fixture and serialize through `TEST_LOCK`.
@@ -365,6 +376,69 @@ mod tests {
         assert!(out.contains("\"status\":\"running\""), "got {out}");
         // No waiter should have been registered.
         assert_eq!(wait::waiter_count(&job_id), 0);
+    }
+
+    #[tokio::test]
+    async fn cancel_running_job_wakes_waiter_and_finishes_cancelled() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+        let token = crate::async_jobs::cancel::register_job(&job_id);
+
+        let wait_args = json!({ "job_id": job_id, "block": true, "timeout_ms": 5000 });
+        let waiter = tokio::spawn(async move { tool_job_status(&wait_args).await });
+
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        let result = cancel_runtime_task(RuntimeTaskKind::AsyncJob, &job_id)
+            .await
+            .expect("cancel");
+        assert!(result.accepted);
+        assert_eq!(result.status, "cancelling");
+        assert!(token.is_cancelled());
+
+        let db = async_jobs::get_async_jobs_db().expect("db");
+        db.update_terminal(
+            &job_id,
+            AsyncJobStatus::Cancelled,
+            None,
+            None,
+            Some("cancelled"),
+            chrono::Utc::now().timestamp(),
+        )
+        .expect("update_terminal");
+        db.mark_injected(&job_id).expect("mark injected");
+        crate::async_jobs::cancel::remove_job(&job_id);
+        wait::notify_completion(&job_id);
+
+        let out = timeout(Duration::from_millis(500), waiter)
+            .await
+            .expect("waiter wakes")
+            .expect("waiter join")
+            .expect("tool ok");
+        assert!(out.contains("\"status\":\"cancelled\""), "got {out}");
+        let job = db.load(&job_id).expect("load").expect("job exists");
+        assert!(job.injected, "cancelled jobs must not be replay-injected");
+        assert_eq!(wait::waiter_count(&job_id), 0);
+    }
+
+    #[tokio::test]
+    async fn cancelling_completed_job_is_noop() {
+        let _guard = TEST_LOCK.lock().unwrap();
+        ensure_fixture();
+        let job_id = fresh_id();
+        insert_running(&job_id);
+        finalize_ok(&job_id, "done");
+
+        let result = cancel_runtime_task(RuntimeTaskKind::AsyncJob, &job_id)
+            .await
+            .expect("cancel");
+        assert!(!result.accepted);
+        assert_eq!(result.status, "completed");
+        let db = async_jobs::get_async_jobs_db().expect("db");
+        let job = db.load(&job_id).expect("load").expect("job exists");
+        assert_eq!(job.status, AsyncJobStatus::Completed);
+        assert_eq!(job.result_preview.as_deref(), Some("done"));
     }
 
     #[tokio::test]

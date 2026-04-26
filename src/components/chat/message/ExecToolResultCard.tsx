@@ -1,6 +1,9 @@
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
+import { XCircle } from "lucide-react"
 import type { ToolCall } from "@/types/chat"
+import { getTransport } from "@/lib/transport-provider"
+import { IconTip } from "@/components/ui/tooltip"
 
 function parseExecCommand(tool: ToolCall): string {
   try {
@@ -18,10 +21,19 @@ function getDisplayOutput(result: string | undefined): string | null {
   return result
 }
 
+function parseBackgroundSessionId(result: string | undefined): string | null {
+  if (!result) return null
+  if (result.includes("Process exited") || result.includes("Terminated session")) return null
+  const match = result.match(/session ([^\s)]+)\)/)
+  return match?.[1] ?? null
+}
+
 export default function ExecToolResultCard({ tool, isRunning }: { tool: ToolCall; isRunning: boolean }) {
   const { t } = useTranslation()
+  const [cancelled, setCancelled] = useState(false)
   const command = useMemo(() => parseExecCommand(tool), [tool])
   const output = useMemo(() => getDisplayOutput(tool.result), [tool.result])
+  const backgroundSessionId = useMemo(() => parseBackgroundSessionId(tool.result), [tool.result])
   const outputRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
@@ -30,10 +42,34 @@ export default function ExecToolResultCard({ tool, isRunning }: { tool: ToolCall
     el.scrollTop = el.scrollHeight
   }, [output, isRunning])
 
+  async function cancelProcess() {
+    if (!backgroundSessionId || cancelled) return
+    setCancelled(true)
+    try {
+      await getTransport().call("cancel_runtime_task", { kind: "process", id: backgroundSessionId })
+    } catch {
+      setCancelled(false)
+    }
+  }
+
   return (
     <div className="rounded-lg border border-border/50 bg-secondary/40 px-3 py-2.5">
-      <div className="mb-2 text-[11px] font-semibold text-muted-foreground/80">
-        {t("tools.execPanel.title", "Shell")}
+      <div className="mb-2 flex items-center gap-2">
+        <div className="text-[11px] font-semibold text-muted-foreground/80">
+          {t("tools.execPanel.title", "Shell")}
+        </div>
+        {backgroundSessionId && !cancelled && (
+          <IconTip label={t("common.cancel")}>
+            <button
+              type="button"
+              className="ml-auto rounded p-0.5 text-muted-foreground/60 transition-colors hover:bg-secondary hover:text-red-500"
+              onClick={cancelProcess}
+              aria-label={t("common.cancel")}
+            >
+              <XCircle className="h-3 w-3" />
+            </button>
+          </IconTip>
+        )}
       </div>
       <pre className="whitespace-pre-wrap break-all text-foreground font-mono text-xs leading-relaxed">
         $ {command}

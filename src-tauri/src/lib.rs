@@ -157,6 +157,7 @@ pub fn run() {
             commands::chat::save_attachment,
             commands::chat::chat,
             commands::chat::stop_chat,
+            commands::runtime_tasks::cancel_runtime_task,
             commands::chat::set_tool_permission_mode,
             // Command approval
             commands::chat::respond_to_approval,

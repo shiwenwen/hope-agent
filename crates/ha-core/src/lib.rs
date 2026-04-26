@@ -57,6 +57,7 @@ pub mod project;
 pub mod provider;
 pub mod recap;
 pub mod runtime_lock;
+pub mod runtime_tasks;
 pub mod sandbox;
 pub mod security;
 pub mod self_diagnosis;

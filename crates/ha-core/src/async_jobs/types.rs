@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum AsyncJobStatus {
     Running,
+    /// Cancellation has been requested and the running future has been
+    /// signalled, but the runner has not yet finalized the row.
+    Cancelling,
     Completed,
     Failed,
     /// Job was running when the application restarted; the process state
@@ -12,6 +15,8 @@ pub enum AsyncJobStatus {
     Interrupted,
     /// Job exceeded its configured wall-clock budget and was forcibly cancelled.
     TimedOut,
+    /// Job was cancelled by the user/model before it completed.
+    Cancelled,
 }
 
 impl AsyncJobStatus {
@@ -19,31 +24,35 @@ impl AsyncJobStatus {
     /// `status IN (...)` clause. Single source of truth so adding a new
     /// variant can't silently skip purge / replay logic.
     pub const TERMINAL_STATUS_SQL_LIST: &'static str =
-        "'completed','failed','interrupted','timed_out'";
+        "'completed','failed','interrupted','timed_out','cancelled'";
 
     pub fn as_str(&self) -> &'static str {
         match self {
             Self::Running => "running",
+            Self::Cancelling => "cancelling",
             Self::Completed => "completed",
             Self::Failed => "failed",
             Self::Interrupted => "interrupted",
             Self::TimedOut => "timed_out",
+            Self::Cancelled => "cancelled",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "running" => Some(Self::Running),
+            "cancelling" => Some(Self::Cancelling),
             "completed" => Some(Self::Completed),
             "failed" => Some(Self::Failed),
             "interrupted" => Some(Self::Interrupted),
             "timed_out" => Some(Self::TimedOut),
+            "cancelled" => Some(Self::Cancelled),
             _ => None,
         }
     }
 
     pub fn is_terminal(self) -> bool {
-        !matches!(self, Self::Running)
+        !matches!(self, Self::Running | Self::Cancelling)
     }
 }
 
@@ -97,10 +106,12 @@ mod tests {
     fn async_job_status_as_str_parse_roundtrip() {
         for s in [
             AsyncJobStatus::Running,
+            AsyncJobStatus::Cancelling,
             AsyncJobStatus::Completed,
             AsyncJobStatus::Failed,
             AsyncJobStatus::Interrupted,
             AsyncJobStatus::TimedOut,
+            AsyncJobStatus::Cancelled,
         ] {
             assert_eq!(AsyncJobStatus::parse(s.as_str()), Some(s));
         }
@@ -115,11 +126,13 @@ mod tests {
     #[test]
     fn is_terminal_marks_only_running_as_non_terminal() {
         assert!(!AsyncJobStatus::Running.is_terminal());
+        assert!(!AsyncJobStatus::Cancelling.is_terminal());
         for s in [
             AsyncJobStatus::Completed,
             AsyncJobStatus::Failed,
             AsyncJobStatus::Interrupted,
             AsyncJobStatus::TimedOut,
+            AsyncJobStatus::Cancelled,
         ] {
             assert!(s.is_terminal(), "{:?} should be terminal", s);
         }
@@ -133,6 +146,7 @@ mod tests {
             AsyncJobStatus::Failed,
             AsyncJobStatus::Interrupted,
             AsyncJobStatus::TimedOut,
+            AsyncJobStatus::Cancelled,
         ] {
             let fragment = format!("'{}'", s.as_str());
             assert!(
@@ -144,6 +158,7 @@ mod tests {
         }
         // Running must NOT be in the terminal list.
         assert!(!list.contains("'running'"));
+        assert!(!list.contains("'cancelling'"));
     }
 
     #[test]

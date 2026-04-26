@@ -39,6 +39,7 @@ export default function CronJobDetail({
   const [job, setJob] = useState<CronJob | null>(null)
   const [logs, setLogs] = useState<CronRunLog[]>([])
   const [loading, setLoading] = useState(true)
+  const [cancelling, setCancelling] = useState(false)
 
   async function fetchData() {
     try {
@@ -75,6 +76,18 @@ export default function CronJobDetail({
     setTimeout(fetchData, 2000)
   }
 
+  async function handleCancelRun() {
+    if (!job?.runningAt || cancelling) return
+    setCancelling(true)
+    try {
+      await getTransport().call("cancel_runtime_task", { kind: "cron", id: job.id })
+      await fetchData()
+      onRefresh()
+    } finally {
+      setCancelling(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
@@ -109,6 +122,19 @@ export default function CronJobDetail({
               <Zap className="h-3.5 w-3.5" />
             </Button>
           </IconTip>
+          {job.runningAt && (
+            <IconTip label={t("common.cancel")}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 text-red-500 hover:text-red-600"
+                onClick={handleCancelRun}
+                disabled={cancelling}
+              >
+                <XCircle className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+          )}
           <IconTip label={t("common.edit")}>
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onEdit(job)}>
               <Pencil className="h-3.5 w-3.5" />
@@ -150,6 +176,12 @@ export default function CronJobDetail({
           <span className="text-muted-foreground">{t("cron.lastRun")}</span>
           <span>{job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : "-"}</span>
         </div>
+        {job.runningAt && (
+          <div className="flex justify-between">
+            <span className="text-muted-foreground">{t("subagent.status.running")}</span>
+            <span>{new Date(job.runningAt).toLocaleString()}</span>
+          </div>
+        )}
         <div className="flex justify-between">
           <span className="text-muted-foreground">{t("cron.failures")}</span>
           <span>
@@ -181,12 +213,16 @@ export default function CronJobDetail({
                   <div className="flex items-center gap-1.5">
                     {log.status === "success" ? (
                       <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    ) : log.status === "cancelled" ? (
+                      <XCircle className="h-3.5 w-3.5 text-muted-foreground" />
                     ) : (
                       <XCircle className="h-3.5 w-3.5 text-red-500" />
                     )}
                     <span className="font-medium">
                       {log.status === "success"
                         ? t("cron.runStatusSuccess")
+                        : log.status === "cancelled"
+                          ? t("common.cancel")
                         : t("cron.runStatusError")}
                     </span>
                   </div>

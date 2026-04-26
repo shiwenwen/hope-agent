@@ -268,6 +268,7 @@ function SubagentRow({
 }: SubagentRowProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
 
   const status = state?.status ?? "spawning"
   const isTerminal = TERMINAL_STATUSES.has(status)
@@ -282,6 +283,19 @@ function SubagentRow({
   const childSessionId = state?.childSessionId
   const canViewSession = !!(onSwitchSession && childSessionId)
   const rowInteractive = canExpand || canViewSession
+
+  async function handleCancel() {
+    if (isTerminal || cancelling) return
+    setCancelling(true)
+    try {
+      await getTransport().call("cancel_runtime_task", {
+        kind: "subagent",
+        id: run.runId,
+      })
+    } catch {
+      setCancelling(false)
+    }
+  }
 
   return (
     <div className="text-[11px]">
@@ -357,6 +371,19 @@ function SubagentRow({
                 aria-label={t("subagent.viewChildSession")}
               >
                 <ArrowUpRight className="h-3 w-3" />
+              </button>
+            </IconTip>
+          )}
+          {!isTerminal && (
+            <IconTip label={t("common.cancel")}>
+              <button
+                type="button"
+                className="p-0.5 rounded hover:bg-secondary text-muted-foreground/50 hover:text-red-500 transition-colors disabled:opacity-50"
+                onClick={handleCancel}
+                disabled={cancelling}
+                aria-label={t("common.cancel")}
+              >
+                <XCircle className="h-3 w-3" />
               </button>
             </IconTip>
           )}

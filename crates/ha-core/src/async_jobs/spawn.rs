@@ -1,6 +1,7 @@
 use anyhow::Result;
 use serde_json::{json, Value};
 use std::sync::{Arc, Mutex};
+use tokio_util::sync::CancellationToken;
 
 use super::db::AsyncJobsDB;
 use super::injection;
@@ -113,6 +114,7 @@ pub fn spawn_explicit_job(
     let preview_bytes = preview_byte_budget();
     let tool_name_owned = tool_name.to_string();
     let job_id_owned = job_id.clone();
+    let cancel_token = super::cancel::register_job(&job_id);
 
     // Run on a dedicated OS thread so we don't constrain the dispatch future
     // to be `Send`. This mirrors `subagent::injection::inject_and_run_parent`.
@@ -140,6 +142,7 @@ pub fn spawn_explicit_job(
                 );
                 super::wait::notify_completion(&job_id_owned);
                 emit_completion_event(&job_id_owned, &tool_name_owned, "failed");
+                super::cancel::remove_job(&job_id_owned);
                 return;
             }
         };
@@ -152,6 +155,7 @@ pub fn spawn_explicit_job(
                 ctx,
                 max_secs,
                 preview_bytes,
+                cancel_token,
             )
             .await;
         });
@@ -182,6 +186,7 @@ pub async fn dispatch_with_auto_background(
     // Pre-allocate a job id so that, if we end up detaching, the OS thread
     // can later finalize it through the same path used by explicit jobs.
     let job_id = new_job_id();
+    let cancel_token = CancellationToken::new();
 
     let phase_w = phase.clone();
     let notify_w = notify.clone();
@@ -189,6 +194,7 @@ pub async fn dispatch_with_auto_background(
     let name_w = name.to_string();
     let args_w = args.clone();
     let ctx_w = ctx.clone();
+    let cancel_w = cancel_token.clone();
     let preview_bytes = preview_byte_budget();
 
     std::thread::spawn(move || {
@@ -205,11 +211,16 @@ pub async fn dispatch_with_auto_background(
             }
         };
         rt.block_on(async move {
-            let result: Result<String, String> = Box::pin(crate::tools::execute_tool_with_context(
+            let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
                 &name_w, &args_w, &ctx_w,
-            ))
-            .await
-            .map_err(|e| e.to_string());
+            ));
+            let result: Result<String, String> = tokio::select! {
+                inner = &mut dispatch => inner.map_err(|e| e.to_string()),
+                _ = cancel_w.cancelled() => Err(format!(
+                    "Async tool job '{}' was cancelled",
+                    job_id_w
+                )),
+            };
 
             let mut p = phase_w.lock().unwrap_or_else(|p| p.into_inner());
             let next = match std::mem::replace(&mut *p, Phase::Pending) {
@@ -302,6 +313,7 @@ pub async fn dispatch_with_auto_background(
                                 );
                             }
                         }
+                        super::cancel::register_job_token(&job_id, cancel_token.clone());
                         app_info!(
                             "async_jobs",
                             "auto_bg",
@@ -350,21 +362,34 @@ async fn run_job_to_completion(
     ctx: ToolExecContext,
     max_secs: u64,
     preview_bytes: usize,
+    cancel_token: CancellationToken,
 ) {
     let session_id = ctx.session_id.clone();
     let agent_id = ctx.agent_id.clone();
 
-    let dispatch = Box::pin(crate::tools::execute_tool_with_context(
+    let mut dispatch = Box::pin(crate::tools::execute_tool_with_context(
         &tool_name, &args, &ctx,
     ));
     let result: Result<String, String> = if max_secs == 0 {
-        dispatch.await.map_err(|e| e.to_string())
+        tokio::select! {
+            inner = &mut dispatch => inner.map_err(|e| e.to_string()),
+            _ = cancel_token.cancelled() => Err(format!(
+                "Async tool job '{}' was cancelled",
+                job_id
+            )),
+        }
     } else {
-        match tokio::time::timeout(std::time::Duration::from_secs(max_secs), dispatch).await {
-            Ok(inner) => inner.map_err(|e| e.to_string()),
-            Err(_elapsed) => Err(format!(
+        let timer = tokio::time::sleep(std::time::Duration::from_secs(max_secs));
+        tokio::pin!(timer);
+        tokio::select! {
+            inner = &mut dispatch => inner.map_err(|e| e.to_string()),
+            _ = &mut timer => Err(format!(
                 "Async tool job '{}' exceeded max_job_secs ({}s) and was cancelled",
                 job_id, max_secs
+            )),
+            _ = cancel_token.cancelled() => Err(format!(
+                "Async tool job '{}' was cancelled",
+                job_id
             )),
         }
     };
@@ -397,8 +422,11 @@ async fn finalize_job(
         }
         Err(e) => {
             let is_timeout = e.contains("exceeded max_job_secs");
+            let is_cancelled = e.contains("was cancelled");
             let st = if is_timeout {
                 AsyncJobStatus::TimedOut
+            } else if is_cancelled {
+                AsyncJobStatus::Cancelled
             } else {
                 AsyncJobStatus::Failed
             };
@@ -406,7 +434,7 @@ async fn finalize_job(
         }
     };
 
-    if let Err(e) = db.update_terminal(
+    let updated = match db.update_terminal(
         job_id,
         status,
         preview.as_deref(),
@@ -414,13 +442,21 @@ async fn finalize_job(
         error_text.as_deref(),
         now_secs(),
     ) {
-        app_error!(
-            "async_jobs",
-            "finalize",
-            "Failed to update terminal status for job {}: {}",
-            job_id,
-            e
-        );
+        Ok(updated) => updated,
+        Err(e) => {
+            app_error!(
+                "async_jobs",
+                "finalize",
+                "Failed to update terminal status for job {}: {}",
+                job_id,
+                e
+            );
+            false
+        }
+    };
+    super::cancel::remove_job(job_id);
+    if !updated {
+        return;
     }
 
     // Wake per-job `job_status(block=true)` waiters; the EventBus emit below
@@ -429,7 +465,9 @@ async fn finalize_job(
     emit_completion_event(job_id, tool_name, status.as_str());
 
     // Schedule injection back into the parent session.
-    if let Some(sid) = session_id {
+    if status == AsyncJobStatus::Cancelled {
+        let _ = db.mark_injected(job_id);
+    } else if let Some(sid) = session_id {
         injection::dispatch_injection(
             sid.to_string(),
             agent_id.map(|s| s.to_string()),

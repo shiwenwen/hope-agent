@@ -31,6 +31,7 @@ pub mod plan;
 pub mod projects;
 pub mod providers;
 pub mod recap;
+pub mod runtime_tasks;
 pub mod searxng;
 pub mod server_status;
 pub mod sessions;

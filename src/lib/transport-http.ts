@@ -80,6 +80,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Chat --
   chat:                            { method: "POST",   path: "/api/chat" },
   stop_chat:                       { method: "POST",   path: "/api/chat/stop" },
+  cancel_runtime_task:             { method: "POST",   path: "/api/runtime-tasks/cancel" },
   set_tool_permission_mode:        { method: "POST",   path: "/api/chat/tool-permission-mode" },
   respond_to_approval:             { method: "POST",   path: "/api/chat/approval" },
   save_attachment:                  { method: "POST",   path: "/api/chat/attachment" },

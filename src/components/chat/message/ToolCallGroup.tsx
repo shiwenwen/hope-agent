@@ -18,6 +18,7 @@ import type { ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
+import AsyncJobCancelCard from "@/components/chat/message/AsyncJobCancelCard"
 import {
   getExecutionToolGroupLabelSegments,
   getExecutionToolGroupSegmentSeparator,
@@ -178,6 +179,7 @@ function GroupItem({ tool }: { tool: ToolCall }) {
           </span>
         </IconTip>
       </button>
+      <AsyncJobCancelCard result={tool.result} className="ml-4" />
       <ToolMediaPreview tool={tool} className="ml-4" />
       {/* Raw tool call */}
       <div
