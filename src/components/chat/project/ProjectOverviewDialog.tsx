@@ -13,21 +13,13 @@ import { useTranslation } from "react-i18next"
 import { MessageSquarePlus, Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { IconTip } from "@/components/ui/tooltip"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type {
-  Project,
-  ProjectMeta,
-  UpdateProjectInput,
-} from "@/types/project"
+import type { Project, ProjectMeta, UpdateProjectInput } from "@/types/project"
 import type { SessionMeta } from "@/types/chat"
 
 import ProjectFilesPanel from "./ProjectFilesPanel"
@@ -61,9 +53,9 @@ export default function ProjectOverviewDialog({
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [instructionsDraft, setInstructionsDraft] = useState("")
   const [savingInstructions, setSavingInstructions] = useState(false)
-  const [instructionsSaveStatus, setInstructionsSaveStatus] = useState<
-    "idle" | "saved" | "failed"
-  >("idle")
+  const [instructionsSaveStatus, setInstructionsSaveStatus] = useState<"idle" | "saved" | "failed">(
+    "idle",
+  )
 
   useEffect(() => {
     if (!open || !project) return
@@ -118,46 +110,47 @@ export default function ProjectOverviewDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             {project.logo ? (
-              <img
-                src={project.logo}
-                alt=""
-                className="h-8 w-8 rounded-md object-cover shrink-0"
-              />
+              <img src={project.logo} alt="" className="h-8 w-8 rounded-md object-cover shrink-0" />
             ) : (
               <span className="text-2xl">{project.emoji ?? "📁"}</span>
             )}
             <span className="flex-1 truncate">{project.name}</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onEdit(project)}
-              className="h-8 w-8 p-0"
-              title={t("common.edit")}
+            <IconTip label={t("common.edit")}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onEdit(project)}
+                className="h-8 w-8 p-0"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
+            <IconTip
+              label={project.archived ? t("project.unarchiveProject") : t("project.archiveProject")}
             >
-              <Pencil className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onArchive(project, !project.archived)}
-              className="h-8 w-8 p-0 text-muted-foreground"
-              title={project.archived ? t("project.unarchiveProject") : t("project.archiveProject")}
-            >
-              {project.archived ? (
-                <ArchiveRestore className="h-3.5 w-3.5" />
-              ) : (
-                <Archive className="h-3.5 w-3.5" />
-              )}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onDelete(project)}
-              className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-              title={t("common.delete")}
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onArchive(project, !project.archived)}
+                className="h-8 w-8 p-0 text-muted-foreground"
+              >
+                {project.archived ? (
+                  <ArchiveRestore className="h-3.5 w-3.5" />
+                ) : (
+                  <Archive className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </IconTip>
+            <IconTip label={t("common.delete")}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onDelete(project)}
+                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            </IconTip>
           </DialogTitle>
           {project.description && (
             <p className="text-sm text-muted-foreground">{project.description}</p>
@@ -179,18 +172,9 @@ export default function ProjectOverviewDialog({
           {/* Overview */}
           <TabsContent value="overview" className="flex-1 overflow-y-auto space-y-4 pt-3">
             <div className="grid grid-cols-3 gap-3">
-              <StatCard
-                label={t("project.overview.totalSessions")}
-                value={project.sessionCount}
-              />
-              <StatCard
-                label={t("project.overview.totalFiles")}
-                value={project.fileCount}
-              />
-              <StatCard
-                label={t("project.overview.totalMemories")}
-                value={project.memoryCount}
-              />
+              <StatCard label={t("project.overview.totalSessions")} value={project.sessionCount} />
+              <StatCard label={t("project.overview.totalFiles")} value={project.fileCount} />
+              <StatCard label={t("project.overview.totalMemories")} value={project.memoryCount} />
             </div>
             <Button
               onClick={() => {
@@ -239,13 +223,8 @@ export default function ProjectOverviewDialog({
           </TabsContent>
 
           {/* Instructions */}
-          <TabsContent
-            value="instructions"
-            className="flex-1 overflow-y-auto pt-3 space-y-3"
-          >
-            <p className="text-xs text-muted-foreground">
-              {t("project.projectInstructionsHint")}
-            </p>
+          <TabsContent value="instructions" className="flex-1 overflow-y-auto pt-3 space-y-3">
+            <p className="text-xs text-muted-foreground">{t("project.projectInstructionsHint")}</p>
             <Textarea
               value={instructionsDraft}
               onChange={(e) => setInstructionsDraft(e.target.value)}
@@ -294,4 +273,3 @@ function StatCard({ label, value }: { label: string; value: number }) {
     </div>
   )
 }
-

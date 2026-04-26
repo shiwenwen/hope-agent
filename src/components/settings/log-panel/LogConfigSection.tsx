@@ -1,6 +1,13 @@
 import { useTranslation } from "react-i18next"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { LEVELS } from "./constants"
 import type { LogConfig } from "../types"
 
@@ -37,17 +44,21 @@ export default function LogConfigSection({ config, onSaveConfig }: LogConfigSect
       <div className="grid grid-cols-4 gap-3">
         <div>
           <label className="text-xs text-muted-foreground">{t("settings.logsLevel")}</label>
-          <select
+          <Select
             value={config.level}
-            onChange={(e) => onSaveConfig({ ...config, level: e.target.value })}
-            className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            onValueChange={(value) => onSaveConfig({ ...config, level: value })}
           >
-            {LEVELS.map((l) => (
-              <option key={l} value={l}>
-                {l}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="mt-1 h-8 w-full text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LEVELS.map((l) => (
+                <SelectItem key={l} value={l}>
+                  {l}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <label className="text-xs text-muted-foreground">{t("settings.logsMaxAge")}</label>
@@ -76,9 +87,7 @@ export default function LogConfigSection({ config, onSaveConfig }: LogConfigSect
           />
         </div>
         <div>
-          <label className="text-xs text-muted-foreground">
-            {t("settings.logsFileMaxSize")}
-          </label>
+          <label className="text-xs text-muted-foreground">{t("settings.logsFileMaxSize")}</label>
           <Input
             type="number"
             value={config.fileMaxSizeMb}

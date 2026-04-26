@@ -230,11 +230,5 @@ export default function WeatherCanvas({
 
   if (!weatherType) return null
 
-  return (
-    <canvas
-      ref={canvasRef}
-      className="absolute inset-0"
-      style={{ pointerEvents: "none" }}
-    />
-  )
+  return <canvas ref={canvasRef} className="pointer-events-none absolute inset-0" />
 }
