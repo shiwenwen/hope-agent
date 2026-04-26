@@ -15,7 +15,10 @@ export interface DesktopUpdate {
 }
 
 export function isDesktopUpdaterAvailable(): boolean {
-  return isTauriMode()
+  // In `pnpm tauri dev`, the GitHub release updater endpoint may legitimately
+  // be unavailable and the plugin logs that as an error. Only check updates
+  // from packaged desktop builds.
+  return isTauriMode() && import.meta.env.PROD
 }
 
 export async function checkForDesktopUpdate(): Promise<DesktopUpdate | null> {
