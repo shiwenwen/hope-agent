@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { defineConfig } from "vite"
+import { defineConfig } from "vitest/config"
 import react from "@vitejs/plugin-react"
 import tailwindcss from "@tailwindcss/vite"
 import path from "path"
@@ -24,5 +24,13 @@ export default defineConfig({
   server: {
     port: 1420,
     strictPort: true,
+  },
+  test: {
+    // Default to node — pure-logic tests don't need DOM. Component tests
+    // opt in per-file with `// @vitest-environment jsdom` at the top.
+    environment: "node",
+    globals: false,
+    setupFiles: ["./vitest.setup.ts"],
+    include: ["src/**/*.{test,spec}.{ts,tsx}"],
   },
 })

@@ -1,7 +1,4 @@
-/// <reference types="node" />
-
-import assert from "node:assert/strict"
-import { test } from "node:test"
+import { test, expect } from "vitest"
 
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
@@ -12,44 +9,44 @@ import {
 import * as toolbarOverflow from "./toolbarOverflow.ts"
 
 test("groups add-style chat input actions behind the overflow menu", () => {
-  assert.deepEqual(CHAT_INPUT_OVERFLOW_ACTION_IDS, [
-    "attach-files",
+  expect(CHAT_INPUT_OVERFLOW_ACTION_IDS).toEqual([
     "working-dir",
+    "attach-files",
     "slash-command",
     "incognito",
   ])
 })
 
 test("keeps overflow visibility classes static for Tailwind scanning", () => {
-  assert.equal(CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS, "contents max-[900px]:hidden")
-  assert.equal(CHAT_INPUT_OVERFLOW_MENU_CLASS, "hidden max-[900px]:block")
+  expect(CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS).toBe("contents max-[900px]:hidden")
+  expect(CHAT_INPUT_OVERFLOW_MENU_CLASS).toBe("hidden max-[900px]:block")
   // JS-side breakpoint must mirror the Tailwind class so the matchMedia
   // auto-close stays in lockstep with the CSS toggle.
-  assert.equal(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX, 900)
+  expect(CHAT_INPUT_OVERFLOW_BREAKPOINT_PX).toBe(900)
 })
 
 test("shows the incognito preset action only before a session exists", () => {
-  assert.equal(typeof toolbarOverflow.shouldShowIncognitoPresetAction, "function")
+  expect(typeof toolbarOverflow.shouldShowIncognitoPresetAction).toBe("function")
   const { shouldShowIncognitoPresetAction } = toolbarOverflow
 
-  assert.equal(shouldShowIncognitoPresetAction(null, true), true)
-  assert.equal(shouldShowIncognitoPresetAction("session-1", true), false)
-  assert.equal(shouldShowIncognitoPresetAction(null, false), false)
+  expect(shouldShowIncognitoPresetAction(null, true)).toBe(true)
+  expect(shouldShowIncognitoPresetAction("session-1", true)).toBe(false)
+  expect(shouldShowIncognitoPresetAction(null, false)).toBe(false)
 })
 
 test("filters overflow incognito action for existing sessions", () => {
-  assert.equal(typeof toolbarOverflow.getChatInputOverflowActionIds, "function")
+  expect(typeof toolbarOverflow.getChatInputOverflowActionIds).toBe("function")
   const { getChatInputOverflowActionIds } = toolbarOverflow
 
-  assert.deepEqual(getChatInputOverflowActionIds(null, true), [
-    "attach-files",
+  expect(getChatInputOverflowActionIds(null, true)).toEqual([
     "working-dir",
+    "attach-files",
     "slash-command",
     "incognito",
   ])
-  assert.deepEqual(getChatInputOverflowActionIds("session-1", true), [
-    "attach-files",
+  expect(getChatInputOverflowActionIds("session-1", true)).toEqual([
     "working-dir",
+    "attach-files",
     "slash-command",
   ])
 })

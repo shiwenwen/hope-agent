@@ -1,7 +1,4 @@
-/// <reference types="node" />
-
-import assert from "node:assert/strict"
-import { test } from "node:test"
+import { test, expect } from "vitest"
 
 import {
   getConfiguredTemplateKeys,
@@ -71,7 +68,7 @@ test("matches templates by api type and normalized base URL", () => {
     }),
   ]
 
-  assert.deepEqual(getConfiguredTemplateKeys(templates, configured), new Set(["openai", "ollama"]))
+  expect(getConfiguredTemplateKeys(templates, configured)).toEqual(new Set(["openai", "ollama"]))
 })
 
 test("does not mark templates when only the base URL matches", () => {
@@ -90,7 +87,7 @@ test("does not mark templates when only the base URL matches", () => {
     }),
   ]
 
-  assert.deepEqual(getConfiguredTemplateKeys(templates, configured), new Set())
+  expect(getConfiguredTemplateKeys(templates, configured)).toEqual(new Set())
 })
 
 test("detects an already configured codex provider", () => {
@@ -101,5 +98,5 @@ test("detects an already configured codex provider", () => {
     }),
   ]
 
-  assert.equal(hasConfiguredCodexProvider(configured), true)
+  expect(hasConfiguredCodexProvider(configured)).toBe(true)
 })

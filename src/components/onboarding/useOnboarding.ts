@@ -4,7 +4,13 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { ThemeMode } from "@/hooks/useTheme"
 
-import { stepsForMode, type OnboardingDraft, type OnboardingStepKey } from "./types"
+import {
+  DEFAULT_REMOTE_DRAFT,
+  DEFAULT_SERVER_DRAFT,
+  stepsForMode,
+  type OnboardingDraft,
+  type OnboardingStepKey,
+} from "./types"
 import { CURRENT_ONBOARDING_VERSION } from "./version"
 
 interface UseOnboardingArgs {
@@ -111,10 +117,10 @@ function mergeDraft(base: OnboardingDraft, override: OnboardingDraft): Onboardin
     safety: override.safety ?? base.safety,
     skills: override.skills ?? base.skills,
     server: override.server
-      ? { ...(base.server ?? { bindMode: "local", apiKeyEnabled: false }), ...override.server }
+      ? { ...(base.server ?? DEFAULT_SERVER_DRAFT), ...override.server }
       : base.server,
     remote: override.remote
-      ? { ...(base.remote ?? { url: "" }), ...override.remote }
+      ? { ...(base.remote ?? DEFAULT_REMOTE_DRAFT), ...override.remote }
       : base.remote,
   }
 }

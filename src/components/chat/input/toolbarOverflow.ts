@@ -1,6 +1,6 @@
 export const CHAT_INPUT_OVERFLOW_ACTION_IDS = [
-  "attach-files",
   "working-dir",
+  "attach-files",
   "slash-command",
   "incognito",
 ] as const

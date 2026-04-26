@@ -1334,6 +1334,12 @@
     "chatAutoExpandThinkingDesc": "聊天气泡中的Think过程默认自动展开，关闭后需手动点击展开",
     "toolCallNarration": "工具调用前说明",
     "toolCallNarrationDesc": "开启后在系统提示词中要求模型在每次调用工具前用一句话说明意图（Claude Code 风格）。部分模型（如 GPT-5.4）会在连续工具调用间反复复述同一意图，造成重复。默认关闭",
+    "sessionTitle": "自动生成对话名称",
+    "sessionTitleDesc": "新会话先立即使用第一句话作为标题，首轮助手回复后再生成更简洁的名称。",
+    "sessionTitleModel": "命名模型",
+    "sessionTitleUseChatModel": "使用对话模型",
+    "sessionTitleChatModelHint": "使用当前主对话模型执行一次命名生成。",
+    "sessionTitleCustomModelHint": "使用所选 Provider / 模型执行命名生成。",
     "awareness": {
       "title": "行为感知",
       "desc": "让当前会话实时感知其它并行会话中用户正在做的事",

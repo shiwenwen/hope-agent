@@ -21,11 +21,14 @@ cargo fmt --all --check
 echo "[pre-push] cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings"
 cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings
 
-echo "[pre-push] tsc -b"
-pnpm exec tsc -b --pretty false
+echo "[pre-push] tsc --noEmit"
+pnpm tsc --noEmit
 
 echo "[pre-push] eslint"
 pnpm lint
+
+echo "[pre-push] vitest run"
+pnpm test
 
 if [ "${HA_SKIP_PREPUSH_TEST:-}" = "1" ]; then
   echo "[pre-push] HA_SKIP_PREPUSH_TEST=1 — skipping cargo test"

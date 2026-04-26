@@ -228,6 +228,7 @@ mod tests {
         SessionMeta {
             id: id.into(),
             title: None,
+            title_source: crate::session_title::TITLE_SOURCE_MANUAL.into(),
             agent_id: "default".into(),
             provider_id: None,
             provider_name: None,

@@ -175,13 +175,8 @@ pub async fn chat(
     let user_msg = session::NewMessage::user(persisted_content);
     let _ = db.append_message(&sid, &user_msg);
 
-    // Auto-generate title from first user message (prefer display text so titles read naturally).
-    if let Ok(Some(meta)) = db.get_session(&sid) {
-        if meta.title.is_none() && meta.message_count <= 1 {
-            let title = session::auto_title(persisted_content);
-            let _ = db.update_session_title(&sid, &title);
-        }
-    }
+    // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
+    let _ = session::ensure_first_message_title(&db, &sid, persisted_content);
 
     // Load app config (cached after first call)
     let store = ha_core::config::cached_config();

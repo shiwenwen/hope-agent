@@ -8,7 +8,8 @@ mod types;
 
 pub use db::{ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter};
 pub use helpers::{
-    auto_title, cleanup_orphan_incognito, db_path, is_session_incognito, lookup_session_meta,
+    auto_title, cleanup_orphan_incognito, db_path, ensure_first_message_title,
+    is_session_incognito, lookup_session_meta,
 };
 pub use pending::enrich_pending_interactions;
 pub use tasks::{Task, TaskStatus};

@@ -1,17 +1,14 @@
-/// <reference types="node" />
-
-import assert from "node:assert/strict"
-import { test } from "node:test"
+import { test, expect } from "vitest"
 
 import { parseOpenSettingsSection } from "./openSettingsEvent.ts"
 
 test("reads the target settings section from an open-settings payload", () => {
-  assert.equal(parseOpenSettingsSection({ section: "about" }), "about")
+  expect(parseOpenSettingsSection({ section: "about" })).toBe("about")
 })
 
 test("ignores missing or unknown open-settings payload sections", () => {
-  assert.equal(parseOpenSettingsSection(undefined), undefined)
-  assert.equal(parseOpenSettingsSection({}), undefined)
-  assert.equal(parseOpenSettingsSection({ section: "missing" }), undefined)
-  assert.equal(parseOpenSettingsSection({ section: 123 }), undefined)
+  expect(parseOpenSettingsSection(undefined)).toBeUndefined()
+  expect(parseOpenSettingsSection({})).toBeUndefined()
+  expect(parseOpenSettingsSection({ section: "missing" })).toBeUndefined()
+  expect(parseOpenSettingsSection({ section: 123 })).toBeUndefined()
 })
