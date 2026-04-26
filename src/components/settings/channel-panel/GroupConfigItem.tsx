@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
+import { Button } from "@/components/ui/button"
 import { Trash2 } from "lucide-react"
 import AgentAvatar from "./AgentAvatar"
 import type { AgentInfo, TelegramGroupConfig } from "./types"
@@ -37,22 +38,26 @@ export default function GroupConfigItem({
     <div className="rounded-lg border bg-card p-3 space-y-2">
       {/* Header row */}
       <div className="flex items-center justify-between">
-        <button
+        <Button
           type="button"
-          className="flex items-center gap-2 text-sm font-medium hover:text-foreground transition-colors"
+          variant="ghost"
+          size="sm"
+          className="h-auto -ml-2 gap-2 px-2 py-1 text-sm font-medium hover:bg-transparent hover:text-foreground"
           onClick={() => setExpanded(!expanded)}
         >
           <span className={`transition-transform ${expanded ? "rotate-90" : ""}`}>▸</span>
           <span className="font-mono">{mentionLabel}</span>
-        </button>
+        </Button>
         <IconTip label={t("channels.removeConfig")}>
-          <button
+          <Button
             type="button"
-            className="p-1 rounded hover:bg-muted"
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground"
             onClick={onRemove}
           >
-            <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
         </IconTip>
       </div>
 

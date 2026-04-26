@@ -70,12 +70,14 @@ export default function LogActionBar({
             {currentLogPath}
           </code>
           <IconTip label={t("settings.logsCopyPath")}>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={onCopyPath}
-              className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
             >
               <Copy className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </IconTip>
         </div>
       )}
@@ -113,28 +115,30 @@ export default function LogActionBar({
       <div className="flex items-center gap-2 flex-wrap">
         {/* View mode toggle */}
         <div className="flex items-center rounded-md border border-border overflow-hidden">
-          <button
+          <Button
+            variant="ghost"
             onClick={() => onViewModeChange("structured")}
             className={cn(
-              "px-3 py-1 text-xs font-medium transition-colors",
+              "h-auto rounded-none px-3 py-1 text-xs font-medium",
               viewMode === "structured"
-                ? "bg-primary text-primary-foreground"
+                ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
                 : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50",
             )}
           >
             {t("settings.logsStructured")}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="ghost"
             onClick={() => onViewModeChange("files")}
             className={cn(
-              "px-3 py-1 text-xs font-medium transition-colors",
+              "h-auto rounded-none px-3 py-1 text-xs font-medium",
               viewMode === "files"
-                ? "bg-primary text-primary-foreground"
+                ? "bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground"
                 : "bg-secondary/30 text-muted-foreground hover:bg-secondary/50",
             )}
           >
             {t("settings.logsFiles")}
-          </button>
+          </Button>
         </div>
 
         <Button

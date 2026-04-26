@@ -76,11 +76,12 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
 
   return (
     <div className="rounded-lg bg-secondary/30 mb-4 shrink-0">
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2"
-      >
-        <div className="flex items-center gap-1.5">
+      <div className="flex items-center justify-between gap-2 pr-3">
+        <Button
+          variant="ghost"
+          onClick={() => setExpanded(!expanded)}
+          className="h-auto flex-1 justify-start gap-1.5 rounded-none rounded-l-lg px-3 py-2 font-normal hover:bg-transparent"
+        >
           {expanded ? <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />}
           <span className="text-sm font-medium">{title}</span>
           {originalContent.trim() && !expanded && (
@@ -88,13 +89,13 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
               ({originalContent.trim().split("\n").length} {t("settings.coreMemoryLines")})
             </span>
           )}
-        </div>
+        </Button>
         {loaded && hasChanges && expanded && (
           <Button
             size="sm"
-            className="gap-1.5 h-6 text-xs"
+            className="gap-1.5 h-6 text-xs shrink-0"
             disabled={saving}
-            onClick={(e) => { e.stopPropagation(); handleSave() }}
+            onClick={handleSave}
             variant={saveStatus === "saved" ? "outline" : saveStatus === "failed" ? "destructive" : "default"}
           >
             {saving ? (
@@ -106,7 +107,7 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
             )}
           </Button>
         )}
-      </button>
+      </div>
       {expanded && (
         <div className="px-3 pb-3">
           <p className="text-xs text-muted-foreground mb-2">{desc}</p>

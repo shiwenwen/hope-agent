@@ -40,16 +40,18 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="w-full">
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => {
             setView("list")
             setEditingMemory(null)
           }}
-          className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
+          className="mb-4 -ml-3 gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="h-4 w-4" />
           {t("settings.memory")}
-        </button>
+        </Button>
 
         <h2 className="text-lg font-semibold mb-4">
           {isEdit ? t("settings.memoryEdit") : t("settings.memoryAdd")}
@@ -63,20 +65,22 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
               {MEMORY_TYPES.map((type) => {
                 const Icon = MEMORY_TYPE_ICONS[type]
                 return (
-                  <button
+                  <Button
                     key={type}
+                    variant="outline"
+                    size="sm"
                     onClick={() => !isEdit && setFormType(type)}
                     className={cn(
-                      "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-colors",
+                      "h-auto gap-1.5 rounded-lg px-3 py-1.5 text-xs font-normal",
                       formType === type
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:border-foreground/30",
+                        ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                        : "text-muted-foreground hover:border-foreground/30",
                       isEdit && "opacity-60 cursor-default",
                     )}
                   >
                     <Icon className="h-3.5 w-3.5" />
                     {t(`settings.memoryType_${type}`)}
-                  </button>
+                  </Button>
                 )
               })}
             </div>
@@ -89,28 +93,32 @@ export default function MemoryFormView({ data }: MemoryFormViewProps) {
                 {t("settings.memoryScope")}
               </label>
               <div className="flex gap-2">
-                <button
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setFormScope("global")}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs border transition-colors",
+                    "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
                     formScope === "global"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground",
+                      ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                      : "text-muted-foreground",
                   )}
                 >
                   {t("settings.memoryScopeGlobal")}
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() => setFormScope("agent")}
                   className={cn(
-                    "px-3 py-1.5 rounded-lg text-xs border transition-colors",
+                    "h-auto rounded-lg px-3 py-1.5 text-xs font-normal",
                     formScope === "agent"
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border text-muted-foreground",
+                      ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                      : "text-muted-foreground",
                   )}
                 >
                   {t("settings.memoryScopeAgent")}
-                </button>
+                </Button>
               </div>
             </div>
           )}

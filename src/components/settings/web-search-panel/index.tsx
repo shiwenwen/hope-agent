@@ -172,8 +172,9 @@ export default function WebSearchPanel() {
 
           {/* Advanced settings */}
           <div className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
-            <button
-              className="flex items-center gap-2 px-3 py-2.5 w-full text-left"
+            <Button
+              variant="ghost"
+              className="h-auto w-full justify-start gap-2 rounded-none px-3 py-2.5 text-left font-normal hover:bg-secondary/40"
               onClick={() => setAdvancedOpen((prev) => !prev)}
             >
               {advancedOpen ? (
@@ -182,7 +183,7 @@ export default function WebSearchPanel() {
                 <ChevronRight className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
               )}
               <span className="text-sm font-medium">{t("settings.webSearchAdvanced")}</span>
-            </button>
+            </Button>
 
             {advancedOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">

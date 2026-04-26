@@ -144,7 +144,14 @@ export default function SystemPanel() {
         {restoreError && (
           <div className="mx-3 px-3 py-2 rounded-md bg-destructive/10 text-destructive text-xs flex items-center justify-between">
             <span className="truncate">{t("settings.configBackupsRestoreFailed", { msg: restoreError })}</span>
-            <button onClick={() => setRestoreError(null)} className="ml-2 text-destructive/70 hover:text-destructive">×</button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setRestoreError(null)}
+              className="ml-2 h-6 w-6 shrink-0 text-destructive/70 hover:bg-destructive/15 hover:text-destructive"
+            >
+              ×
+            </Button>
           </div>
         )}
 

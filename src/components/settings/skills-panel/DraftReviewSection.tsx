@@ -48,18 +48,21 @@ export default function DraftReviewSection({
               key={d.name}
               className="flex items-center gap-2 p-2 rounded-md bg-background/60 border border-border/40"
             >
-              <button
-                className="flex-1 text-left min-w-0 hover:text-foreground transition-colors"
+              <Button
+                variant="ghost"
+                className="h-auto flex-1 min-w-0 justify-start px-0 py-0 text-left font-normal hover:bg-transparent hover:text-foreground"
                 onClick={() => onSelectSkill(d.name)}
               >
-                <div className="text-sm font-medium truncate">{d.name}</div>
-                <div className="text-xs text-muted-foreground truncate">{d.description}</div>
-                {d.authored_by && (
-                  <div className="text-[10px] text-muted-foreground/70 mt-0.5">
-                    {t("settings.skillsDraftsAuthoredBy")}: {d.authored_by}
-                  </div>
-                )}
-              </button>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium truncate">{d.name}</div>
+                  <div className="text-xs text-muted-foreground truncate">{d.description}</div>
+                  {d.authored_by && (
+                    <div className="text-[10px] text-muted-foreground/70 mt-0.5">
+                      {t("settings.skillsDraftsAuthoredBy")}: {d.authored_by}
+                    </div>
+                  )}
+                </div>
+              </Button>
               <Button
                 size="sm"
                 variant="default"

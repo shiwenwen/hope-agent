@@ -28,6 +28,7 @@ import {
 } from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import { Slider } from "@/components/ui/slider"
+import { IconTip } from "@/components/ui/tooltip"
 import type { AgentConfig, AvailableModel, ActiveModelRef } from "../types"
 
 function SortableFallbackItem({
@@ -71,12 +72,14 @@ function SortableFallbackItem({
       <span className="text-sm text-foreground flex-1 truncate">
         {displayName}
       </span>
-      <button
-        className="p-0.5 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-5 w-5 text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-destructive"
         onClick={onRemove}
       >
         <X className="h-3 w-3" />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -286,8 +289,10 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
                 <span className="text-sm text-foreground flex-1 truncate">
                   {modelDisplayName(config.model.planModel)}
                 </span>
-                <button
-                  className="p-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 text-muted-foreground hover:text-destructive"
                   onClick={() =>
                     updateConfig({
                       model: { ...config.model, planModel: null },
@@ -295,7 +300,7 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
                   }
                 >
                   <X className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </div>
             ) : (
               <ModelSelector
@@ -341,17 +346,20 @@ export default function ModelTab({ config, availableModels, updateConfig }: Mode
               <span className="text-sm font-mono text-foreground w-10 text-right tabular-nums">
                 {config.model.temperature != null ? config.model.temperature.toFixed(2) : "1.00"}
               </span>
-              <button
-                className="text-muted-foreground/50 hover:text-foreground transition-colors"
-                onClick={() =>
-                  updateConfig({
-                    model: { ...config.model, temperature: null },
-                  })
-                }
-                title={t("settings.temperatureReset")}
-              >
-                <RotateCcw className="h-3.5 w-3.5" />
-              </button>
+              <IconTip label={t("settings.temperatureReset")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground/50 hover:text-foreground"
+                  onClick={() =>
+                    updateConfig({
+                      model: { ...config.model, temperature: null },
+                    })
+                  }
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
             </div>
           </div>
         </>

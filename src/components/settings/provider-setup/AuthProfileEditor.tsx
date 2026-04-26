@@ -105,17 +105,19 @@ export default function AuthProfileEditor({
               placeholder="API Key"
               className="h-7 text-xs font-mono pr-8"
             />
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => toggleKeyVisibility(profile.id)}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+              className="absolute right-1 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground hover:text-foreground"
             >
               {visibleKeys.has(profile.id) ? (
                 <EyeOff className="h-3 w-3" />
               ) : (
                 <Eye className="h-3 w-3" />
               )}
-            </button>
+            </Button>
           </div>
 
           <div className="relative">

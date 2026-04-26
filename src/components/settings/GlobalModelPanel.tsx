@@ -20,6 +20,8 @@ import { CSS } from "@dnd-kit/utilities"
 import { GripVertical, Layers, Plus, X, RotateCcw } from "lucide-react"
 import { ModelSelector } from "@/components/ui/model-selector"
 import { Slider } from "@/components/ui/slider"
+import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import type { AvailableModel, ActiveModelRef } from "./types"
 
 function SortableFallbackItem({
@@ -68,12 +70,14 @@ function SortableFallbackItem({
       <span className="flex-1 text-sm text-foreground truncate">{displayName}</span>
 
       {/* Remove */}
-      <button
-        className="text-muted-foreground/40 hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-6 w-6 text-muted-foreground/40 opacity-0 group-hover:opacity-100 hover:text-destructive"
         onClick={onRemove}
       >
         <X className="h-3.5 w-3.5" />
-      </button>
+      </Button>
     </div>
   )
 }
@@ -255,13 +259,15 @@ export default function GlobalModelPanel() {
             placeholder={t("settings.selectFallbackModel")}
           />
         ) : (
-          <button
-            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-1 py-1.5"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto -ml-1 gap-1.5 px-2 py-1.5 text-xs font-normal text-primary hover:bg-transparent hover:text-primary/80"
             onClick={() => setAddingFallback(true)}
           >
             <Plus className="h-3.5 w-3.5" />
             <span>{t("settings.addFallback")}</span>
-          </button>
+          </Button>
         )}
       </div>
 
@@ -297,18 +303,21 @@ export default function GlobalModelPanel() {
           <span className="text-sm font-mono text-foreground w-10 text-right tabular-nums">
             {globalTemperature != null ? globalTemperature.toFixed(2) : "1.00"}
           </span>
-          <button
-            className="text-muted-foreground/50 hover:text-foreground transition-colors"
-            onClick={() => {
-              setGlobalTemperature(null)
-              getTransport().call("set_global_temperature", { temperature: null }).catch((e) =>
-                logger.error("settings", "GlobalModelPanel::resetTemperature", "Failed", e),
-              )
-            }}
-            title={t("settings.temperatureReset")}
-          >
-            <RotateCcw className="h-3.5 w-3.5" />
-          </button>
+          <IconTip label={t("settings.temperatureReset")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground/50 hover:text-foreground"
+              onClick={() => {
+                setGlobalTemperature(null)
+                getTransport().call("set_global_temperature", { temperature: null }).catch((e) =>
+                  logger.error("settings", "GlobalModelPanel::resetTemperature", "Failed", e),
+                )
+              }}
+            >
+              <RotateCcw className="h-3.5 w-3.5" />
+            </Button>
+          </IconTip>
         </div>
       </div>
     </div>

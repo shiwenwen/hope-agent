@@ -2,6 +2,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Switch } from "@/components/ui/switch"
+import { Button } from "@/components/ui/button"
 import {
   AlertTriangle,
   ChevronRight,
@@ -76,11 +77,12 @@ export default function SkillListView({
         />
 
         {/* Name + description (clickable -> detail) */}
-        <button
-          className="flex-1 text-left min-w-0"
+        <Button
+          variant="ghost"
+          className="h-auto flex-1 min-w-0 flex-col items-start justify-start px-0 py-0 text-left font-normal hover:bg-transparent"
           onClick={() => onSelectSkill(skill.name)}
         >
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 w-full">
             {display?.emoji && (
               <span className="shrink-0 text-base leading-none" aria-hidden>
                 {display.emoji}
@@ -145,7 +147,7 @@ export default function SkillListView({
               </span>
             ))}
           </div>
-        </button>
+        </Button>
 
         {/* Source tag */}
         <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
@@ -155,9 +157,11 @@ export default function SkillListView({
         {/* Settings button for skills with env requirements */}
         {hasEnvConfig && (
           <IconTip label={t("settings.skillEnvVars")}>
-            <button
+            <Button
+              variant="ghost"
+              size="icon"
               className={cn(
-                "shrink-0 transition-colors",
+                "h-7 w-7 shrink-0",
                 showWarning
                   ? "text-orange-400 hover:text-orange-500"
                   : "text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100",
@@ -168,21 +172,24 @@ export default function SkillListView({
               }}
             >
               <Settings2 className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </IconTip>
         )}
 
         {/* Open directory */}
-        <button
-          className="shrink-0 text-muted-foreground/40 hover:text-muted-foreground transition-colors opacity-0 group-hover:opacity-100"
-          onClick={(e) => {
-            e.stopPropagation()
-            onOpenDir(skill.base_dir)
-          }}
-          title={skill.base_dir}
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-        </button>
+        <IconTip label={skill.base_dir}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 shrink-0 text-muted-foreground/40 hover:text-muted-foreground opacity-0 group-hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenDir(skill.base_dir)
+            }}
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+          </Button>
+        </IconTip>
 
         <ChevronRight
           className="h-4 w-4 text-muted-foreground/30 shrink-0 group-hover:text-muted-foreground/60 transition-colors cursor-pointer"
@@ -204,8 +211,9 @@ export default function SkillListView({
         </h3>
         <div className="space-y-1">
           {/* Default directory (clickable) */}
-          <button
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 text-xs w-full text-left hover:bg-secondary/50 transition-colors"
+          <Button
+            variant="ghost"
+            className="h-auto w-full justify-start gap-2 rounded-lg bg-secondary/30 px-3 py-2 text-xs font-normal hover:bg-secondary/50"
             onClick={() => onOpenDir("~/.hope-agent/skills/")}
           >
             <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -213,12 +221,13 @@ export default function SkillListView({
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
               {t("settings.skillsDirDefault")}
             </span>
-          </button>
+          </Button>
 
           {/* Shared directory (~/.agents/skills/, cross-tool convention) */}
           <IconTip label={t("settings.skillsDirSharedDesc")}>
-            <button
-              className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 text-xs w-full text-left hover:bg-secondary/50 transition-colors"
+            <Button
+              variant="ghost"
+              className="h-auto w-full justify-start gap-2 rounded-lg bg-secondary/30 px-3 py-2 text-xs font-normal hover:bg-secondary/50"
               onClick={() => onOpenDir("~/.agents/skills/")}
             >
               <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
@@ -226,7 +235,7 @@ export default function SkillListView({
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
                 {t("settings.skillsDirShared")}
               </span>
-            </button>
+            </Button>
           </IconTip>
 
           {/* Extra directories (clickable) */}
@@ -235,22 +244,25 @@ export default function SkillListView({
               key={dir}
               className="flex items-center gap-2 px-3 py-2 rounded-lg bg-secondary/30 text-xs group"
             >
-              <button
-                className="flex items-center gap-2 flex-1 min-w-0 text-left hover:text-foreground transition-colors"
+              <Button
+                variant="ghost"
+                className="h-auto flex-1 min-w-0 justify-start gap-2 px-0 py-0 text-left font-normal hover:bg-transparent hover:text-foreground"
                 onClick={() => onOpenDir(dir)}
               >
                 <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 <code className="flex-1 text-foreground/80 truncate" title={dir}>
                   {dir}
                 </code>
-              </button>
+              </Button>
               <IconTip label={t("settings.skillsDirRemove")}>
-                <button
-                  className="text-muted-foreground/50 hover:text-destructive transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 text-muted-foreground/50 opacity-0 group-hover:opacity-100 hover:text-destructive"
                   onClick={() => onRemoveDir(dir)}
                 >
                   <X className="h-3.5 w-3.5" />
-                </button>
+                </Button>
               </IconTip>
             </div>
           ))}
@@ -258,21 +270,25 @@ export default function SkillListView({
 
         {/* Import directory buttons */}
         <div className="mt-2 flex items-center gap-3">
-          <button
-            className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-3 py-1.5"
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-auto gap-1.5 px-3 py-1.5 text-xs font-normal text-primary hover:bg-transparent hover:text-primary/80"
             onClick={onAddDir}
           >
             <FolderOpen className="h-3.5 w-3.5" />
             <span>{t("settings.skillsDirAdd")}</span>
-          </button>
+          </Button>
           {onQuickImport && (
-            <button
-              className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 transition-colors px-3 py-1.5"
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-auto gap-1.5 px-3 py-1.5 text-xs font-normal text-primary hover:bg-transparent hover:text-primary/80"
               onClick={onQuickImport}
             >
               <Sparkles className="h-3.5 w-3.5" />
               <span>{t("settings.skillsImport.button")}</span>
-            </button>
+            </Button>
           )}
         </div>
       </div>

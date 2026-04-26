@@ -174,13 +174,15 @@ export default function TelegramGroupChannelConfig({
               <div className="flex items-center justify-between">
                 <span className="text-sm font-medium font-mono">{cId}</span>
                 <IconTip label={t("channels.removeConfig")}>
-                  <button
+                  <Button
                     type="button"
-                    className="p-1 rounded hover:bg-muted"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground"
                     onClick={() => removeChannel(cId)}
                   >
-                    <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
-                  </button>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
                 </IconTip>
               </div>
               <div className="flex items-center gap-4 flex-wrap">

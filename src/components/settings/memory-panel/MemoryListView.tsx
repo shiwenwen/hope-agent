@@ -185,12 +185,14 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
               className="pl-8 text-sm"
             />
             {searchQuery && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={() => setSearchQuery("")}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" />
-              </button>
+              </Button>
             )}
           </div>
           <div className="flex gap-1">
@@ -198,17 +200,19 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
               const Icon = MEMORY_TYPE_ICONS[type]
               return (
                 <IconTip key={type} label={t(`settings.memoryType_${type}`)}>
-                  <button
+                  <Button
+                    variant="outline"
+                    size="icon"
                     onClick={() => setFilterType(filterType === type ? null : type)}
                     className={cn(
-                      "p-2 rounded-lg border transition-colors",
+                      "h-9 w-9 rounded-lg",
                       filterType === type
-                        ? "border-primary bg-primary/10 text-primary"
+                        ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
                         : "border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary/40",
                     )}
                   >
                     <Icon className="h-4 w-4" />
-                  </button>
+                  </Button>
                 </IconTip>
               )
             })}
@@ -219,13 +223,15 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
         <div className="flex items-center gap-2 mb-3">
           <div className="flex gap-1">
             {(["all", "global", "agent"] as const).map((scope) => (
-              <button
+              <Button
                 key={scope}
+                variant="ghost"
+                size="sm"
                 onClick={() => setFilterScope(scope)}
                 className={cn(
-                  "px-2.5 py-1 rounded-md text-xs transition-colors",
+                  "h-auto rounded-md px-2.5 py-1 text-xs",
                   filterScope === scope
-                    ? "bg-secondary text-foreground font-medium"
+                    ? "bg-secondary text-foreground font-medium hover:bg-secondary hover:text-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary/40",
                 )}
               >
@@ -234,7 +240,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                   : scope === "global"
                     ? t("settings.memoryScopeGlobal")
                     : t("settings.memoryScopeAgent")}
-              </button>
+              </Button>
             ))}
           </div>
           {/* Agent picker (standalone mode, agent scope selected) */}
@@ -262,16 +268,18 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
         <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
           <div className="flex items-center gap-2">
             {memories.length > 0 && (
-              <button
+              <Button
+                variant="ghost"
+                size="icon"
                 onClick={toggleSelectAll}
-                className="p-0.5 hover:text-foreground transition-colors"
+                className="h-5 w-5 hover:bg-transparent hover:text-foreground"
               >
                 {selectedIds.size === memories.length ? (
                   <CheckSquare className="h-3.5 w-3.5" />
                 ) : (
                   <Square className="h-3.5 w-3.5" />
                 )}
-              </button>
+              </Button>
             )}
             <span>{t("settings.memoryCount", { count: totalCount })}</span>
             {embeddingConfig.enabled && (
@@ -335,34 +343,38 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                   )}
                   onClick={() => startEdit(mem)}
                 >
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={(e) => {
                       e.stopPropagation()
                       toggleSelect(mem.id)
                     }}
-                    className="mt-0.5 shrink-0 p-0 text-muted-foreground hover:text-foreground transition-colors"
+                    className="h-5 w-5 mt-0.5 shrink-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
                   >
                     {isSelected ? (
                       <CheckSquare className="h-4 w-4 text-primary" />
                     ) : (
                       <Square className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                     )}
-                  </button>
+                  </Button>
                   <IconTip label={mem.pinned ? t("settings.memoryUnpin") : t("settings.memoryPin")}>
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={(e) => {
                         e.stopPropagation()
                         handleTogglePin(mem.id, !mem.pinned)
                       }}
                       className={cn(
-                        "mt-0.5 shrink-0 p-0 transition-colors",
+                        "h-5 w-5 mt-0.5 shrink-0 hover:bg-transparent",
                         mem.pinned
-                          ? "text-amber-500"
-                          : "text-muted-foreground/30 hover:text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity",
+                          ? "text-amber-500 hover:text-amber-500"
+                          : "text-muted-foreground/30 opacity-0 group-hover:opacity-100 transition-opacity hover:text-amber-500",
                       )}
                     >
                       <Pin className="h-3.5 w-3.5" />
-                    </button>
+                    </Button>
                   </IconTip>
                   <Icon className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
                   <div className="flex-1 min-w-0">
@@ -387,15 +399,17 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                       )}
                     </div>
                   </div>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon"
                     onClick={(e) => {
                       e.stopPropagation()
                       handleDelete(mem.id)
                     }}
-                    className="opacity-0 group-hover:opacity-100 p-1 text-muted-foreground hover:text-destructive transition-opacity"
+                    className="h-7 w-7 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                   <ChevronRight className="h-4 w-4 text-muted-foreground/30 mt-0.5 shrink-0" />
                 </div>
               )

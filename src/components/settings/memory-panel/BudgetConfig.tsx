@@ -83,14 +83,16 @@ export default function BudgetConfig() {
 
   return (
     <div className="mt-6 mb-4 pt-4 border-t border-border/50">
-      <button
+      <Button
+        variant="ghost"
+        size="sm"
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        className="h-auto -ml-2 gap-1 px-2 py-1 text-sm font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
       >
         <ChevronRight className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")} />
         <Ruler className="h-3.5 w-3.5 mr-0.5" />
         {t("settings.memoryBudget.title")}
-      </button>
+      </Button>
 
       {expanded && (
         <div className="mt-3 space-y-4">

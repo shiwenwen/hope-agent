@@ -256,13 +256,15 @@ export function SearxngDockerSection({
           {alternatives.map((item, idx) => (
             <span key={item.label}>
               {idx > 0 && <span className="mx-1 opacity-60">·</span>}
-              <button
+              <Button
                 type="button"
-                className="underline decoration-dotted underline-offset-2 hover:text-primary transition-colors"
+                variant="ghost"
+                size="sm"
+                className="inline h-auto rounded-none px-0 py-0 text-[11px] font-normal align-baseline underline decoration-dotted underline-offset-2 hover:bg-transparent hover:text-primary"
                 onClick={() => openExt(item.url)}
               >
                 {item.label}
-              </button>
+              </Button>
             </span>
           ))}
         </div>
@@ -328,13 +330,15 @@ export function SearxngDockerSection({
             </span>
             {status.port && status.containerRunning && (
               <IconTip label={t("settings.webSearchDockerFillUrl")}>
-                <button
+                <Button
                   type="button"
-                  className="text-muted-foreground hover:text-primary underline decoration-dotted underline-offset-2 transition-colors"
+                  variant="ghost"
+                  size="sm"
+                  className="inline h-auto rounded-none px-0 py-0 text-xs font-normal align-baseline text-muted-foreground underline decoration-dotted underline-offset-2 hover:bg-transparent hover:text-primary"
                   onClick={() => onUrlSet(`http://127.0.0.1:${status.port}`)}
                 >
                   127.0.0.1:{status.port}
-                </button>
+                </Button>
               </IconTip>
             )}
           </div>

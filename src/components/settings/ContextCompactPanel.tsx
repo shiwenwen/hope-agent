@@ -4,6 +4,8 @@ import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Slider } from "@/components/ui/slider"
+import { Textarea } from "@/components/ui/textarea"
 import {
   Tooltip,
   TooltipContent,
@@ -72,14 +74,13 @@ function RatioInput({
         <label className="text-sm">{label}</label>
         <span className="text-xs font-mono text-muted-foreground">{Math.round(value * 100)}%</span>
       </div>
-      <input
-        type="range"
+      <Slider
         min={min * 100}
         max={max * 100}
         step={step * 100}
-        value={value * 100}
-        onChange={(e) => onChange(Number(e.target.value) / 100)}
-        className="w-full h-1.5 bg-secondary rounded-full appearance-none cursor-pointer accent-primary"
+        value={[value * 100]}
+        onValueChange={([v]) => onChange(v / 100)}
+        className="w-full"
       />
       <p className="text-[10px] text-muted-foreground/60">{desc}</p>
     </div>
@@ -207,8 +208,9 @@ export default function ContextCompactPanel() {
         <>
           {/* ── Tool Compact Policy ── */}
           <div className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
-            <button
-              className="flex items-center gap-2 px-3 py-2.5 w-full text-left hover:bg-secondary/30 transition-colors"
+            <Button
+              variant="ghost"
+              className="h-auto w-full justify-start gap-2 rounded-none px-3 py-2.5 text-left font-normal hover:bg-secondary/30"
               onClick={() => setPruningOpen(!pruningOpen)}
             >
               {pruningOpen ? (
@@ -217,7 +219,7 @@ export default function ContextCompactPanel() {
                 <ChevronRight className="h-3.5 w-3.5" />
               )}
               <span className="text-sm font-medium">{t("settings.contextCompactToolPolicy")}</span>
-            </button>
+            </Button>
             {pruningOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">
                 <p className="text-xs text-muted-foreground">{t("settings.contextCompactToolPolicyDesc")}</p>
@@ -314,8 +316,9 @@ export default function ContextCompactPanel() {
 
           {/* ── Summarization Section ── */}
           <div className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
-            <button
-              className="flex items-center gap-2 px-3 py-2.5 w-full text-left hover:bg-secondary/30 transition-colors"
+            <Button
+              variant="ghost"
+              className="h-auto w-full justify-start gap-2 rounded-none px-3 py-2.5 text-left font-normal hover:bg-secondary/30"
               onClick={() => setSummaryOpen(!summaryOpen)}
             >
               {summaryOpen ? (
@@ -326,7 +329,7 @@ export default function ContextCompactPanel() {
               <span className="text-sm font-medium">
                 {t("settings.contextCompactSummarization")}
               </span>
-            </button>
+            </Button>
             {summaryOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">
                 {/* Summarization Model Selector */}
@@ -407,8 +410,8 @@ export default function ContextCompactPanel() {
                 {config.identifierPolicy === "custom" && (
                   <div className="space-y-1">
                     <label className="text-sm">{t("settings.contextCompactIdentifierInstructions")}</label>
-                    <textarea
-                      className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm min-h-[60px] resize-y"
+                    <Textarea
+                      className="min-h-[60px] resize-y"
                       placeholder={t("settings.contextCompactIdentifierInstructionsPlaceholder")}
                       value={config.identifierInstructions ?? ""}
                       onChange={(e) =>
@@ -438,8 +441,9 @@ export default function ContextCompactPanel() {
 
           {/* ── Advanced Section ── */}
           <div className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
-            <button
-              className="flex items-center gap-2 px-3 py-2.5 w-full text-left hover:bg-secondary/30 transition-colors"
+            <Button
+              variant="ghost"
+              className="h-auto w-full justify-start gap-2 rounded-none px-3 py-2.5 text-left font-normal hover:bg-secondary/30"
               onClick={() => setAdvancedOpen(!advancedOpen)}
             >
               {advancedOpen ? (
@@ -448,7 +452,7 @@ export default function ContextCompactPanel() {
                 <ChevronRight className="h-3.5 w-3.5" />
               )}
               <span className="text-sm font-medium">{t("settings.contextCompactAdvanced")}</span>
-            </button>
+            </Button>
             {advancedOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">
                 <NumberField
@@ -534,8 +538,8 @@ export default function ContextCompactPanel() {
                   <label className="text-sm block mb-2">
                     {t("settings.contextCompactCustomInstructions")}
                   </label>
-                  <textarea
-                    className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm min-h-[60px] resize-y"
+                  <Textarea
+                    className="min-h-[60px] resize-y"
                     placeholder={t("settings.contextCompactCustomInstructions")}
                     value={config.customInstructions ?? ""}
                     onChange={(e) =>

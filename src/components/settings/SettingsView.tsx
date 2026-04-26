@@ -228,12 +228,13 @@ export default function SettingsView({
         {/* Navigation Items */}
         <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
           {SECTIONS.map((section) => (
-            <button
+            <Button
               key={section.id}
+              variant="ghost"
               className={cn(
-                "flex items-center gap-2.5 w-full px-3 py-2 rounded-lg text-sm transition-all duration-150",
+                "h-auto w-full justify-start gap-2.5 rounded-lg px-3 py-2 text-sm transition-all duration-150",
                 activeSection === section.id
-                  ? "bg-secondary text-foreground font-medium shadow-sm"
+                  ? "bg-secondary text-foreground font-medium shadow-sm hover:bg-secondary hover:text-foreground"
                   : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground",
               )}
               onClick={() => setActiveSection(section.id)}
@@ -253,7 +254,7 @@ export default function SettingsView({
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
                 </span>
               )}
-            </button>
+            </Button>
           ))}
         </div>
       </div>

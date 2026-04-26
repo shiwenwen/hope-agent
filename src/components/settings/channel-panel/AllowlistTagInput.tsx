@@ -1,6 +1,8 @@
 import { useRef, type KeyboardEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
 import { X } from "lucide-react"
 
 export default function AllowlistTagInput({
@@ -66,21 +68,23 @@ export default function AllowlistTagInput({
             className="inline-flex items-center gap-0.5 rounded bg-muted px-2 py-0.5 text-sm"
           >
             {tag}
-            <button
+            <Button
               type="button"
-              className="ml-0.5 rounded-full hover:bg-muted-foreground/20 p-0.5"
+              variant="ghost"
+              size="icon"
+              className="ml-0.5 h-4 w-4 rounded-full p-0 hover:bg-muted-foreground/20"
               onClick={(e) => {
                 e.stopPropagation()
                 removeTag(i)
               }}
             >
               <X className="h-3 w-3" />
-            </button>
+            </Button>
           </span>
         ))}
-        <input
+        <Input
           ref={inputRef}
-          className="flex-1 min-w-[120px] bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+          className="flex-1 min-w-[120px] h-auto border-0 bg-transparent p-0 shadow-none text-sm focus-visible:border-0"
           placeholder={tags.length === 0 ? t("channels.userAllowlistPlaceholder") : ""}
           value={inputValue}
           onChange={(e) => onInputChange(e.target.value)}

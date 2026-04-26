@@ -5,6 +5,8 @@ import { CSS } from "@dnd-kit/utilities"
 import type { DraggableAttributes, DraggableSyntheticListeners } from "@dnd-kit/core"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Switch } from "@/components/ui/switch"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
   SelectContent,
@@ -168,13 +170,15 @@ export function ModelEditor({
         </label>
         <div className="flex gap-2">
           {inputTypes.map((type) => (
-            <button
+            <Button
               key={type}
+              variant="outline"
+              size="sm"
               onClick={() => toggleInput(type)}
-              className={`px-2.5 py-1 text-[11px] rounded-md border transition-colors flex items-center gap-1.5 ${
+              className={`h-auto gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-normal ${
                 model.inputTypes.includes(type)
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border bg-background text-muted-foreground hover:border-primary/40"
+                  ? "border-primary bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary"
+                  : "bg-background text-muted-foreground hover:border-primary/40"
               }`}
             >
               {type === "text" && <Type className="h-3 w-3" />}
@@ -185,7 +189,7 @@ export function ModelEditor({
                 : type === "image"
                   ? t("model.image")
                   : t("model.video")}
-            </button>
+            </Button>
           ))}
         </div>
       </div>
@@ -218,18 +222,10 @@ export function ModelEditor({
 
       <div className="flex items-center justify-between">
         <label className="text-xs text-muted-foreground">{t("model.reasoning")}</label>
-        <button
-          onClick={() => onChange({ ...model, reasoning: !model.reasoning })}
-          className={`w-9 h-5 rounded-full transition-colors relative ${
-            model.reasoning ? "bg-primary" : "bg-secondary border border-border"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-              model.reasoning ? "left-[18px]" : "left-0.5"
-            }`}
-          />
-        </button>
+        <Switch
+          checked={model.reasoning}
+          onCheckedChange={(checked) => onChange({ ...model, reasoning: checked })}
+        />
       </div>
 
       <div className="space-y-1">
@@ -294,7 +290,9 @@ export function ModelEditor({
       {onTest && model.id && (
         <div className="space-y-1.5 pt-1 border-t border-border/50">
           <div className="flex items-center gap-2">
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               onClick={async () => {
                 if (!onTest || !model.id) return
                 setTestLoading(true)
@@ -316,7 +314,7 @@ export function ModelEditor({
                 }
               }}
               disabled={testLoading}
-              className="flex items-center gap-1 text-[10px] text-primary/70 hover:text-primary transition-colors disabled:opacity-50"
+              className="h-auto gap-1 px-2 py-1 text-[10px] font-normal text-primary/70 hover:bg-transparent hover:text-primary"
             >
               {testLoading ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -324,7 +322,7 @@ export function ModelEditor({
                 <Play className="h-3 w-3 fill-current" />
               )}
               发送 "Hi" 测试
-            </button>
+            </Button>
             {testResult && (
               <span
                 className={`flex items-center gap-1 text-[10px] ${testResult.ok ? "text-green-400" : "text-red-400"}`}
@@ -341,13 +339,16 @@ export function ModelEditor({
                     {testResult.data.latencyMs}ms
                   </span>
                 )}
-                <button
-                  onClick={() => setLogExpanded(!logExpanded)}
-                  className="text-muted-foreground hover:text-foreground transition-colors ml-0.5"
-                  title="查看完整日志"
-                >
-                  <Info className="h-3 w-3" />
-                </button>
+                <IconTip label="查看完整日志">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => setLogExpanded(!logExpanded)}
+                    className="ml-0.5 h-4 w-4 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                  >
+                    <Info className="h-3 w-3" />
+                  </Button>
+                </IconTip>
               </span>
             )}
           </div>
@@ -365,12 +366,14 @@ export function ModelEditor({
                 <div className="px-2.5 py-2 rounded-md bg-secondary/30 border border-border/50 overflow-hidden space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-[9px] font-medium text-foreground/60">完整日志</span>
-                    <button
+                    <Button
+                      variant="ghost"
+                      size="icon"
                       onClick={() => setLogExpanded(false)}
-                      className="text-muted-foreground hover:text-foreground"
+                      className="h-4 w-4 text-muted-foreground hover:bg-transparent hover:text-foreground"
                     >
                       <X className="h-2.5 w-2.5" />
-                    </button>
+                    </Button>
                   </div>
                   {d.request != null && (
                     <div>

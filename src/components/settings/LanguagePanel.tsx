@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
+import { Button } from "@/components/ui/button"
 import { Monitor, Check } from "lucide-react"
 
 export default function LanguagePanel() {
@@ -30,11 +31,12 @@ export default function LanguagePanel() {
 
       <div className="space-y-0.5">
         {/* Follow System option */}
-        <button
+        <Button
+          variant="ghost"
           className={cn(
-            "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+            "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
             followSystem
-              ? "bg-primary/10 text-primary font-medium"
+              ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
               : "text-foreground hover:bg-secondary/60",
           )}
           onClick={handleFollowSystem}
@@ -44,18 +46,19 @@ export default function LanguagePanel() {
           </span>
           <span className="flex-1 text-left">{t("language.system")}</span>
           {followSystem && <Check className="h-4 w-4 text-primary shrink-0" />}
-        </button>
+        </Button>
 
         {/* Divider */}
         <div className="border-t border-border/50 my-1.5" />
 
         {SUPPORTED_LANGUAGES.map((lang) => (
-          <button
+          <Button
             key={lang.code}
+            variant="ghost"
             className={cn(
-              "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
+              "h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm",
               isCurrentLang(lang.code)
-                ? "bg-primary/10 text-primary font-medium"
+                ? "bg-primary/10 text-primary font-medium hover:bg-primary/10 hover:text-primary"
                 : "text-foreground hover:bg-secondary/60",
             )}
             onClick={() => handleSelectLanguage(lang.code)}
@@ -63,7 +66,7 @@ export default function LanguagePanel() {
             <span className="text-xs font-bold w-6 text-center opacity-60">{lang.shortLabel}</span>
             <span className="flex-1 text-left">{lang.label}</span>
             {isCurrentLang(lang.code) && <Check className="h-4 w-4 text-primary shrink-0" />}
-          </button>
+          </Button>
         ))}
       </div>
     </div>

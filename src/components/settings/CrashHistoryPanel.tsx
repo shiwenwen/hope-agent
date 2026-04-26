@@ -257,8 +257,9 @@ export default function CrashHistoryPanel() {
               const isExpanded = expandedIdx === idx
               return (
                 <div key={idx} className="rounded-lg border bg-card">
-                  <button
-                    className="w-full flex items-center gap-3 px-4 py-3 text-left"
+                  <Button
+                    variant="ghost"
+                    className="h-auto w-full justify-start gap-3 rounded-lg px-4 py-3 text-left font-normal"
                     onClick={() => setExpandedIdx(isExpanded ? null : idx)}
                   >
                     <div className="flex-1 min-w-0">
@@ -291,7 +292,7 @@ export default function CrashHistoryPanel() {
                     ) : (
                       <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
                     )}
-                  </button>
+                  </Button>
 
                   {isExpanded && entry.diagnosis_result && (
                     <div className="px-4 pb-4 space-y-3 border-t">
