@@ -121,31 +121,66 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 - **失败不 panic**：tokio 任务 panic 只杀自身不杀 runtime，但依旧要用 `match` + `app_warn!` 记录而非 `unwrap()`——否则日志静默消失
 - **共享 AtomicBool 串行化**：Dreaming 等「可能被多路触发」的任务在入口拿全局 `AtomicBool` 做互斥，防 idle-trigger 和手动触发叠跑
 
+### Primary / Secondary 协作（多进程并存）
+
+`init_runtime()` 起手就调 [`runtime_lock::acquire_or_secondary`](../../crates/ha-core/src/runtime_lock.rs)，在 `~/.hope-agent/runtime.lock` 上抢一把 OS 级 advisory exclusive lock：
+
+- **Unix**：`flock(LOCK_EX | LOCK_NB)`，文件 fd 带 `O_CLOEXEC` 防 Guardian fork 继承
+- **Windows**：`OpenOptions::share_mode(0)`（`FILE_SHARE_NONE`）+ `FILE_FLAG_NO_INHERIT_HANDLE`
+- **共同**：进程退出 / panic / SIGKILL / 断电时 OS 自动释放，无 heartbeat 调度依赖
+
+第一个抢到的进程是 **Primary**，第二个起来的是 **Secondary**。模式不参与（first-come-first-served）：单跑 ACP 时 ACP 自然成为 Primary 并完成 cleanup；桌面 + ACP 共存时桌面通常先抢，ACP 退让为 Secondary。
+
+**Primary-only 子系统**——这些会写共享 SQLite 状态或竞争外部资源，多进程并发会互相破坏：
+
+| 子系统 | Primary-only 原因 |
+|--------|------------------|
+| `subagent::cleanup_orphan_runs` | 否则 mark live runs 失败 |
+| `team::cleanup::cleanup_orphan_teams` | 同上的级联 |
+| `session::cleanup_orphan_incognito` | **硬 DELETE incognito 会话** + cascade messages |
+| `cron::start_scheduler` | 两个 scheduler tick 会双 claim 同一 cron job |
+| `async_jobs::replay_pending_jobs` | 否则把 Primary 还在跑的 async 工具标 Interrupted |
+| `async_jobs` / `recap` retention 循环 | 跨进程并行扫 spool 文件互相删 |
+| Daily ask_user purge 循环 | 撞同一 SQLite |
+| Dreaming idle-trigger 循环 | `DREAMING_RUNNING` AtomicBool 仅进程内互斥 |
+| Channel auto-start | 同一 Telegram bot account 被两个进程抢 webhook |
+| MCP watchdog 循环 | 两个 watchdog 重复重连同一 MCP server |
+| ACP backend auto-discover | 抢 `acp_runs` 行 |
+
+**Tier-agnostic（所有 tier 都跑）**：
+
+| 子系统 | 理由 |
+|--------|------|
+| `init_runtime()`（DB / OnceLock 注入） | 进程内单例，多进程各持各的引用 |
+| `build_app_state()` | 仅桌面调用（Tauri AppState） |
+| Channel 入站 dispatcher（自带独立线程） | EventBus 单订阅者 |
+| Channel approval / ask_user listener | EventBus 多订阅者无害；按 `channel_account_id` 路由 |
+| MCP `init_global`（仅 catalog 注册） | 幂等；catalog snippet 所有模式都要看到 |
+| Manual API（`run-now` / `dreaming::manual_run` / `start_account` 按钮） | 走原子 SQL claim 等 race-safe 入口 |
+
+**incognito 双重防御**：除 `runtime_lock::is_primary()` gate 之外，[`purge_orphan_incognito_sessions`](../../crates/ha-core/src/session/db.rs#L1561) SQL 还过滤 `AND updated_at < now-60s`——即便锁逻辑回归，刚刚创建或写入的活会话也不会被删。
+
+**合法 cleanup 场景仍正常工作**：Guardian 重启 child / launchd 重启 daemon / 物理断电后下次启动 / `kill -9` 后下次启动——这些场景下"上一进程"的 fd 已被 OS 关闭，lock 自动释放，下次启动的进程抢到 lock 成为新 Primary，跑 cleanup 清前一次残骸。
+
 ### 跨模式能力对照
 
-三种模式共享 `init_runtime()`，差异集中在后台任务层；ACP 还跳过桌面专属的 EventBus → 前端桥与内嵌 HTTP server。
+三种模式共享 `init_runtime()`，差异在后台任务层和 Primary 选举结果。
 
 | 子系统 / 调用 | 桌面 GUI | `hope-agent server` | `hope-agent acp` |
 |---------------|:-------:|:-------------------:|:----------------:|
-| `init_runtime()`（DB + OnceLock + channel registry + ACP control plane） | ✓ | ✓ | ✓ |
+| `init_runtime("role")`（DB + OnceLock + lock 选举） | ✓ | ✓ | ✓ |
 | `build_app_state()`（构造 Tauri `AppState`） | ✓ | ✗ | ✗ |
 | `start_background_tasks()` | ✓ | ✓ | ✗ |
 | `start_minimal_background_tasks()` | ✗ | ✗ | ✓ |
-| Cron 调度器（Layer B 独立线程） | ✓ | ✓ | ✗ |
-| Channel 入站 dispatcher（Layer B 独立线程） | ✓ | ✓ | ✓ |
+| Channel 入站 dispatcher | ✓ | ✓ | ✓ |
 | Channel approval / ask_user listener | ✓ | ✓ | ✓ |
-| Channel auto-start（启用账号） | ✓ | ✓ | ✗ |
-| Dreaming idle-trigger 循环（每分钟） | ✓ | ✓ | ✗ |
-| Daily ask_user / async_jobs / recap retention 循环 | ✓ | ✓ | ✗ |
-| `async_jobs::replay_pending_jobs`（一次性） | ✓ | ✓ | ✓ |
-| MCP `init_global` | ✓ | ✓ | ✓ |
-| MCP watchdog 循环 | ✓ | ✓ | ✗ |
-| ACP backend auto-discover | ✓ | ✓ | ✗（自身就是 ACP backend） |
+| MCP `init_global`（catalog） | ✓ | ✓ | ✓ |
+| **Primary-only 子系统**（cron / channel auto-start / dreaming / retention / MCP watchdog / async_jobs replay / ACP discover / incognito purge / 三件套 cleanup） | 抢到 lock 时 ✓ | 抢到 lock 时 ✓ | 抢到 lock 时 ✓（典型 ACP-only 场景） |
 | EventBus → Tauri 前端桥 | ✓ | ✗ | ✗ |
 | 内嵌 HTTP server（`ha_server::start_server`） | ✓ | ✓（独立运行而非内嵌） | ✗ |
 | ACP stdio 主循环 | ✗ | ✗ | ✓ |
 
-ACP 的"少做"是设计：单次会话进程不需要 daily 循环或 watchdog（IDE 重启即重置），而 channel auto-start 没有 IM 出站通道也无意义。详细 rationale 见 [`start_minimal_background_tasks` 顶部注释](../../crates/ha-core/src/app_init.rs)。
+ACP minimal 的"少做"主要是后台 tier 选择（不跑 cron / dreaming / channel auto-start / watchdog 这些长跑循环），加上 Primary-only gate 兜底。
 
 ---
 

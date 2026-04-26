@@ -1,14 +1,19 @@
-//! Hermetic tests for `runtime_lock`.
+//! Tests for `runtime_lock`.
 //!
 //! Cargo runs each integration test file as its own binary, so the
 //! module-level `OnceLock` state in `runtime_lock` doesn't bleed into
 //! other test files. Within this file we keep a single `#[test]` so
-//! that parallel test functions don't race on `std::env::HOME` or on
-//! the shared `TIER` / `LOCK_FILE` statics.
+//! parallel test functions don't race on `std::env::HOME` or on the
+//! shared `TIER` / `LOCK_FILE` statics.
 //!
 //! True multi-process semantics (cross-process contention, crash
-//! release, kill -9 release) are exercised by the `#[ignore]`
-//! subprocess smoke tests added in commit C9.
+//! release, kill -9 release) are exercised by the manual smoke
+//! checklist in the PR description rather than an `#[ignore]`
+//! subprocess fixture — `cargo test`'s default test runner consumes
+//! stdout in a way that makes spawning the test binary as a probe
+//! flaky, and the build-time cost of an example binary or
+//! `[[bin]]` shim isn't worth it for an opt-in `--ignored` lane.
+//! See `PR description → manual smoke checklist § 1-4`.
 
 use std::sync::Arc;
 
@@ -41,9 +46,9 @@ fn runtime_lock_full_lifecycle() {
     assert!(holder.started_at_unix > 1_735_689_600); // 2025-01-01
 
     // ── Parallel callers in one process all see the same tier. File
-    //    locks are per-process, so we cannot directly observe
-    //    contention here — that's what subprocess tests in C9 do. What
-    //    we can assert is that the TIER OnceLock is consistent. ──
+    //    locks are per-process, so contention is not directly
+    //    observable here — see PR manual smoke checklist for the
+    //    cross-process scenarios. ──
     let observed = Arc::new(std::sync::Mutex::new(Vec::<Tier>::new()));
     let mut handles = Vec::new();
     for _ in 0..8 {
