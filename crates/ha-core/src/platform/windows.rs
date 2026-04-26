@@ -116,19 +116,24 @@ pub(super) fn try_acquire_exclusive_lock(path: &Path) -> io::Result<Option<fs::F
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    // FILE_SHARE_NONE (share_mode 0) gives a kernel-enforced exclusive
-    // open: any second process trying to open the same path gets
-    // ERROR_SHARING_VIOLATION. The handle is released automatically when
-    // the process exits or panics, matching flock(LOCK_EX) semantics.
-    // FILE_FLAG_NO_INHERIT_HANDLE keeps spawned children from holding the
-    // handle alive past their parent's death.
+    // FILE_SHARE_READ keeps the open kernel-exclusive against other
+    // *writers* — any second process trying to open the same path with
+    // write access gets ERROR_SHARING_VIOLATION, which is the only
+    // exclusion we need (the holder body is the only thing written). We
+    // can't use FILE_SHARE_NONE: it would also block read-only opens from
+    // the same process, breaking `current_holder()`'s diagnostic read.
+    // The handle is released automatically when the process exits or
+    // panics, matching flock(LOCK_EX) semantics. FILE_FLAG_NO_INHERIT_HANDLE
+    // keeps spawned children from holding the handle alive past their
+    // parent's death.
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
     const FILE_FLAG_NO_INHERIT_HANDLE: u32 = 0x0000_0080;
     let result = fs::OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
-        .share_mode(0)
+        .share_mode(FILE_SHARE_READ)
         .custom_flags(FILE_FLAG_NO_INHERIT_HANDLE)
         .open(path);
 

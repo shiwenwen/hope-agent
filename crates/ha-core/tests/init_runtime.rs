@@ -19,20 +19,19 @@ use ha_core::globals::{
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn init_runtime_full_lifecycle() {
-    // Sandbox: redirect ~/.hope-agent into a tempdir for this test process.
+    // Sandbox: redirect the data dir into a tempdir for this test
+    // process. HA_DATA_DIR is honored by `paths::root_dir()` directly,
+    // unlike HOME/USERPROFILE which `dirs::home_dir()` ignores on Windows.
     let tmp = tempfile::tempdir().expect("tempdir");
-    // dirs::home_dir() reads $HOME on Unix, %USERPROFILE% on Windows.
-    // Both: this test only runs in the test binary, the env change dies
-    // with the process.
-    std::env::set_var("HOME", tmp.path());
-    #[cfg(windows)]
-    std::env::set_var("USERPROFILE", tmp.path());
+    std::env::set_var("HA_DATA_DIR", tmp.path());
 
-    // Sanity: paths::root_dir() should now point inside the tempdir.
+    // Sanity: paths::root_dir() should now point at the tempdir itself
+    // (HA_DATA_DIR is used as-is, no `.hope-agent` suffix).
     let root = ha_core::paths::root_dir().expect("root_dir resolves");
-    assert!(
-        root.starts_with(tmp.path()),
-        "expected paths::root_dir() inside tempdir, got {root:?}"
+    assert_eq!(
+        root,
+        tmp.path(),
+        "expected paths::root_dir() == HA_DATA_DIR, got {root:?}"
     );
     ha_core::paths::ensure_dirs().expect("ensure_dirs in tempdir");
 

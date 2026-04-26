@@ -22,9 +22,10 @@ use ha_core::runtime_lock::{self, Tier};
 #[test]
 fn runtime_lock_full_lifecycle() {
     let tmp = tempfile::tempdir().expect("tempdir");
-    std::env::set_var("HOME", tmp.path());
-    #[cfg(windows)]
-    std::env::set_var("USERPROFILE", tmp.path());
+    // HA_DATA_DIR is honored by `paths::root_dir()` directly. Setting
+    // HOME doesn't work on Windows because `dirs::home_dir()` ignores
+    // the env var there.
+    std::env::set_var("HA_DATA_DIR", tmp.path());
     ha_core::paths::ensure_dirs().expect("ensure_dirs");
 
     // ── First call: fresh data dir, lock free → Primary. ──
