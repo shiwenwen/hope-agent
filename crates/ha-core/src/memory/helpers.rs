@@ -1,4 +1,6 @@
 use super::types::*;
+use super::EmbeddingConfig;
+use anyhow::{anyhow, Result};
 
 /// Clean each word (keep alphanumeric / `_` / `-`), wrap non-empty results in
 /// double quotes for FTS5 MATCH literal matching, and OR-join them. Returns
@@ -65,6 +67,37 @@ pub fn load_multimodal_config() -> MultimodalConfig {
 /// Load embedding cache config from config.json.
 pub fn load_embedding_cache_config() -> EmbeddingCacheConfig {
     crate::config::cached_config().embedding_cache.clone()
+}
+
+/// Apply the current embedding config to the in-memory backend, if present.
+///
+/// Config writes happen in several shells (Tauri commands, HTTP routes, and
+/// settings tools). Keeping the hot-reload side effect here prevents server
+/// mode from lagging behind the persisted `config.json` value.
+pub fn apply_embedding_config_to_backend(config: &EmbeddingConfig, source: &str) -> Result<()> {
+    let backend =
+        crate::get_memory_backend().ok_or_else(|| anyhow!("Memory backend not initialized"))?;
+
+    if config.enabled {
+        let provider = crate::memory::create_embedding_provider(config)?;
+        backend.set_embedder(provider);
+        app_info!(
+            "memory",
+            "embedding",
+            "Embedding provider applied after config save (source={})",
+            source
+        );
+    } else {
+        backend.clear_embedder();
+        app_info!(
+            "memory",
+            "embedding",
+            "Embedding provider cleared after config save (source={})",
+            source
+        );
+    }
+
+    Ok(())
 }
 
 /// Extract keywords from a query, filtering English + Chinese stopwords for

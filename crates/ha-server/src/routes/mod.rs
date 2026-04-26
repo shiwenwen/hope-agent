@@ -20,6 +20,7 @@ pub mod dreaming;
 pub mod filesystem;
 pub mod generated_images;
 pub mod health;
+pub mod local_embedding;
 pub mod local_llm;
 pub mod logging;
 pub mod mcp;

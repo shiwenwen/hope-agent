@@ -102,8 +102,9 @@ pub struct PullProgress {
     pub model_id: String,
     /// Phase string from Ollama (`"pulling manifest"`, `"downloading"`,
     /// `"verifying digest"`, `"writing manifest"`, `"success"`, …) plus our
-    /// own post-download phases: `"register-provider"`, `"done"`. Stays a
-    /// raw String so unknown future phases pass through unmodified.
+    /// own post-download phases: `"register-provider"`,
+    /// `"configure-embedding"`, `"done"`. Stays a raw String so unknown
+    /// future phases pass through unmodified.
     pub phase: String,
     /// 0..=100, only set when both completed and total are known.
     pub percent: Option<u8>,

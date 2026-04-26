@@ -378,6 +378,12 @@ fn build_router_with_cors(
             "/memory/local-embedding-models",
             get(routes::memory::list_local_embedding_models),
         )
+        // Local Ollama embedding assistant
+        .route(
+            "/local-embedding/models",
+            get(routes::local_embedding::list_models),
+        )
+        .route("/local-embedding/pull", post(routes::local_embedding::pull))
         // Config
         .route("/config/user", get(routes::config::get_user_config))
         .route("/config/user", put(routes::config::save_user_config))

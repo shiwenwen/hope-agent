@@ -203,6 +203,26 @@ impl SqliteMemoryBackend {
 
     /// Ensure the vec0 virtual table exists with the correct dimensions.
     pub(crate) fn ensure_vec_table(&self, conn: &Connection, dims: u32) -> Result<()> {
+        let existing_sql: Option<String> = conn
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memories_vec'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let expected_dim = format!("float[{}]", dims);
+        if let Some(sql) = existing_sql {
+            if !sql.contains(&expected_dim) {
+                app_warn!(
+                    "memory",
+                    "embedding",
+                    "Recreating memories_vec for embedding dimension change to {}",
+                    dims
+                );
+                conn.execute_batch("DROP TABLE IF EXISTS memories_vec;")?;
+            }
+        }
+
         let sql = format!(
             "CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec USING vec0(rowid INTEGER PRIMARY KEY, embedding float[{}])",
             dims
@@ -599,4 +619,33 @@ pub(crate) fn row_to_entry(row: &rusqlite::Row) -> rusqlite::Result<MemoryEntry>
         attachment_path: row.get("attachment_path").ok().flatten(),
         attachment_mime: row.get("attachment_mime").ok().flatten(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn vec_table_sql(conn: &Connection) -> String {
+        conn.query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'memories_vec'",
+            [],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("memories_vec sql")
+    }
+
+    #[test]
+    fn ensure_vec_table_recreates_when_dimensions_change() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let db_path = dir.path().join("memory.db");
+        let backend = SqliteMemoryBackend::open(&db_path).expect("open backend");
+        let conn = backend.write_conn().expect("write conn");
+
+        backend.ensure_vec_table(&conn, 384).expect("create 384");
+        assert!(vec_table_sql(&conn).contains("float[384]"));
+
+        backend.ensure_vec_table(&conn, 768).expect("recreate 768");
+        assert!(vec_table_sql(&conn).contains("float[768]"));
+        assert!(!vec_table_sql(&conn).contains("float[384]"));
+    }
 }

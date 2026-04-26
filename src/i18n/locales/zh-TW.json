@@ -1938,6 +1938,32 @@
         "installFailed": "安裝失敗：{{message}}",
         "pullFailed": "下載失敗：{{message}}"
       }
+    },
+    "localEmbedding": {
+      "title": "本地 Embedding 助手",
+      "subtitle": "一鍵安裝 Ollama 小型 Embedding 模型並啟用向量搜尋",
+      "detecting": "正在偵測本地 Embedding 模型…",
+      "recommended": "推薦",
+      "installed": "已下載",
+      "dimensions": "{{n}} 維",
+      "contextWindow": "{{n}} 上下文",
+      "showAlternatives": "查看其他 Embedding 模型",
+      "hideAlternatives": "收起 Embedding 模型",
+      "buttons": {
+        "activate": "安裝並啟用 {{model}}",
+        "enable": "啟用 {{model}}",
+        "downloadOllama": "下載 Ollama"
+      },
+      "install": {
+        "title": "正在設定本地 Embedding"
+      },
+      "phases": {
+        "configureEmbedding": "正在設定向量搜尋"
+      },
+      "error": {
+        "activateFailed": "啟用本地 Embedding 失敗：{{message}}"
+      },
+      "reembedHint": "Embedding 維度已變更，請使用「重新生成全部向量」更新現有記憶。"
     }
   },
   "tz": {

@@ -20,7 +20,7 @@ use crate::security::ssrf::{check_url, SsrfPolicy};
 pub mod types;
 pub use types::*;
 
-const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
+pub const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
 #[cfg(unix)]
 const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
@@ -176,6 +176,65 @@ async fn ping_ollama() -> bool {
         .await
         .map(|r| r.status().is_success())
         .unwrap_or(false)
+}
+
+#[derive(Debug, Deserialize)]
+struct TagsResponse {
+    models: Vec<TagModel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TagModel {
+    name: Option<String>,
+    model: Option<String>,
+}
+
+/// Return the model names currently present in the local Ollama store.
+/// An unreachable daemon is treated as an empty list so callers can still
+/// render their catalog while surfacing daemon status separately.
+pub async fn list_ollama_model_names() -> Result<Vec<String>> {
+    let resp = ping_client()
+        .get(format!("{OLLAMA_BASE_URL}/api/tags"))
+        .send()
+        .await
+        .context("GET /api/tags")?;
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err(anyhow!("Ollama /api/tags returned {status}: {body}"));
+    }
+    let tags = resp
+        .json::<TagsResponse>()
+        .await
+        .context("parse /api/tags")?;
+    Ok(tags
+        .models
+        .into_iter()
+        .filter_map(|m| m.model.or(m.name))
+        .collect())
+}
+
+#[derive(Debug, Deserialize)]
+struct VersionResponse {
+    version: String,
+}
+
+/// Return the local Ollama daemon version, when it is reachable.
+pub async fn detect_ollama_version() -> Result<Option<String>> {
+    let resp = ping_client()
+        .get(format!("{OLLAMA_BASE_URL}/api/version"))
+        .send()
+        .await
+        .context("GET /api/version")?;
+    if !resp.status().is_success() {
+        return Ok(None);
+    }
+    Ok(Some(
+        resp.json::<VersionResponse>()
+            .await
+            .context("parse /api/version")?
+            .version,
+    ))
 }
 
 // ── Ollama lifecycle ──────────────────────────────────────────────

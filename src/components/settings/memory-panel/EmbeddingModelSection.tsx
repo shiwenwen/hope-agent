@@ -4,8 +4,10 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Download, Loader2, Check, Zap, Wifi, Sparkles } from "lucide-react"
+import { toast } from "sonner"
 import TestResultDisplay, { parseTestResult } from "../TestResultDisplay"
 import type { useMemoryData } from "./useMemoryData"
+import LocalEmbeddingAssistantCard from "./LocalEmbeddingAssistantCard"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 
@@ -26,6 +28,7 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
     embeddingTestResult, setEmbeddingTestResult,
     embeddingSaving,
     embeddingSaveStatus,
+    reloadEmbeddingConfig,
     batchLoading,
     saveEmbeddingConfig,
     handleReembedAll,
@@ -227,6 +230,27 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
           ))}
         </div>
       )}
+
+      <LocalEmbeddingAssistantCard
+        onActivated={(config) => {
+          const dimsChanged =
+            embeddingConfig.apiDimensions != null &&
+            config.apiDimensions != null &&
+            embeddingConfig.apiDimensions !== config.apiDimensions
+          const replacedEnabledEmbedding =
+            embeddingConfig.enabled &&
+            (embeddingConfig.providerType !== config.providerType ||
+              (embeddingConfig.apiBaseUrl ?? null) !== (config.apiBaseUrl ?? null) ||
+              (embeddingConfig.apiModel ?? null) !== (config.apiModel ?? null) ||
+              (embeddingConfig.localModelId ?? null) !== (config.localModelId ?? null))
+          setEmbeddingConfig(config)
+          setEmbeddingDirty(false)
+          void reloadEmbeddingConfig()
+          if ((dimsChanged || replacedEnabledEmbedding) && totalCount > 0) {
+            toast.info(t("settings.localEmbedding.reembedHint"))
+          }
+        }}
+      />
 
       {/* Test & Save buttons */}
       <div className="flex items-center gap-2 mt-4">

@@ -1938,6 +1938,32 @@
         "installFailed": "Ошибка установки: {{message}}",
         "pullFailed": "Ошибка загрузки: {{message}}"
       }
+    },
+    "localEmbedding": {
+      "title": "Local Embedding Assistant",
+      "subtitle": "Install a small Ollama embedding model and enable vector search",
+      "detecting": "Detecting local embedding models…",
+      "recommended": "Recommended",
+      "installed": "Downloaded",
+      "dimensions": "{{n}} dimensions",
+      "contextWindow": "{{n}} context",
+      "showAlternatives": "Other embedding models",
+      "hideAlternatives": "Hide embedding models",
+      "buttons": {
+        "activate": "Install & enable {{model}}",
+        "enable": "Enable {{model}}",
+        "downloadOllama": "Download Ollama"
+      },
+      "install": {
+        "title": "Setting up local embedding"
+      },
+      "phases": {
+        "configureEmbedding": "Configuring vector search"
+      },
+      "error": {
+        "activateFailed": "Failed to enable local embedding: {{message}}"
+      },
+      "reembedHint": "Embedding dimensions changed. Use Re-embed All to update existing memories."
     }
   },
   "tz": {
