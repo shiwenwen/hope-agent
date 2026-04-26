@@ -80,24 +80,6 @@
 
 ---
 
-### F-005 前端字节/容量格式化在 6+ 处重复
-
-- **来源**：2026-04-26 本地小模型助手 `/simplify` review
-- **现象**：前端"把 MB / bytes 格式化成 'X.X GB'"的小函数散落在至少 6 个文件，本期新增 [`LocalLlmAssistantCard.tsx::formatGb` + `formatSize`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) 是第 7 处。其它已知点：
-  - [`src/components/settings/dashboard/types.ts`](../../src/components/dashboard/types.ts)
-  - [`src/components/settings/BrowserPanel.tsx`](../../src/components/settings/BrowserPanel.tsx)
-  - [`src/components/chat/message/FileCard.tsx`](../../src/components/chat/message/FileCard.tsx)
-  - [`src/components/log-panel/constants.ts`](../../src/components/log-panel/constants.ts)
-  - `SystemMetricsSection.tsx`
-- **为什么留**：每处函数都很短（3-5 行），抽到 `src/lib/format.ts` 价值有限；存量债，本期不展开。
-- **改的话要做什么**：
-  1. 在 [`src/lib/format.ts`](../../src/lib/format.ts)（新建）加 `formatBytes(bytes: number, opts?)` + `formatBytesFromMb(mb: number)`
-  2. 全仓 grep `\.toFixed.*GB|toFixed.*MB` 替换调用点
-- **影响面**：纯整洁度。语义差异极小，不会引入 bug。
-- **触发时机建议**：下一次新加 file-size / capacity 显示组件时顺手抽；或者独立"前端 utility 整理"小 PR 一次清掉。
-
----
-
 ### F-009 EventBus 桥接闭包样板在 4 处重复
 
 - **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
@@ -110,17 +92,6 @@
 - **改的话要做什么**：在 [`crates/ha-core/src/event_bus.rs`](../../crates/ha-core/src/event_bus.rs) 给 `EventBus` trait 加默认方法 `fn emit_progress<T: Serialize>(&self, name: &str) -> impl Fn(&T) + Send + Sync` 返回桥接闭包；4 个调用点都改成 `bus.emit_progress(EVENT_*_PROGRESS)`，省掉 `move |p| bus.emit(NAME, json!(p))` 一行。
 - **影响面**：纯整洁度，0 行为变化。
 - **触发时机建议**：下次新增第 5 个 long-running command（例如 model fine-tune progress）时顺势抽；或独立 "EventBus helper" 小 PR。
-
----
-
-### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
-
-- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
-- **现象**：[`useChatStream.ts:307-359`](../../src/components/chat/hooks/useChatStream.ts) 的 `onEvent` 闭包内部 try/catch 包嵌套 `event.type === "session_created" && event.session_id` 早返回 + `streamId && endedStreamIdsRef.current.get(sid) === streamId` 早返回 + `_oc_seq` dedup + `handleStreamEvent(...)` dispatch + catch 兜底文本拼接，单函数 ~50 行。
-- **为什么留**：本期 PR 主题是"切换调用方 API"，没动 onEvent 内部逻辑；按 AGENTS.md "review 决定不改的清理登记到 followups"。
-- **改的话要做什么**：拆成几个 named handler：`handleSessionCreated`、`handleStreamDelta`、`fallbackTextAppend`，主 `onEvent` 退化为 `try { dispatch(JSON.parse(raw)) } catch { fallbackTextAppend(raw) }`。
-- **影响面**：纯可读性。
-- **触发时机建议**：下次有人为了别的事真要动这段逻辑时顺手收掉。
 
 ---
 
@@ -158,6 +129,22 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-012 修复
+- **修复方式**：[`useChatStream.ts`](../../src/components/chat/hooks/useChatStream.ts) 的 `onEvent` 现在拆为 `handleSessionCreated`、`shouldDropStreamEvent`、`dispatchStreamEvent`、`appendRawStreamText` 等本地 helper；保留 `__pending__` cache rename、loading session 更新、`_oc_seq` cursor 去重、ended stream 丢弃与 raw fallback 行为。
+
+---
+
+### F-005 前端字节/容量格式化在 6+ 处重复
+
+- **来源**：2026-04-26 本地小模型助手 `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-005 修复
+- **修复方式**：新增 [`src/lib/format.ts`](../../src/lib/format.ts) 统一 `formatBytes`、`formatBytesFromMb`、`formatGbFromMb`；替换 dashboard、BrowserPanel、FileCard、log panel、SkillDetailView、本地 LLM / embedding 卡片、project 上传与 logo 限制错误文案里的重复容量格式化，并新增 [`src/lib/format.test.ts`](../../src/lib/format.test.ts) 覆盖单位转换。
+
+---
 
 ### F-014 `docs/architecture/` 缺中心化 transport mode 文档
 

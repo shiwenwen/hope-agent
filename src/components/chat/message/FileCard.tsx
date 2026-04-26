@@ -16,15 +16,8 @@ import {
 import { getTransport } from "@/lib/transport-provider"
 import { IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
+import { formatBytes } from "@/lib/format"
 import type { MediaItem } from "@/types/chat"
-
-/** Format a byte count into a short human string. */
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
-  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} MB`
-  return `${(n / (1024 * 1024 * 1024)).toFixed(1)} GB`
-}
 
 type IconKey =
   | "image"

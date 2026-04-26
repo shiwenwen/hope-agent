@@ -1,10 +1,11 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { formatBytes } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react"
 import { LEVEL_COLORS } from "./constants"
-import { formatTime, formatSize } from "./constants"
+import { formatTime } from "./constants"
 import type { LogEntry, LogFileInfo } from "../types"
 
 type ViewMode = "structured" | "files"
@@ -164,7 +165,7 @@ export default function LogTable({
                 )}
               >
                 <p className="font-medium truncate">{file.name}</p>
-                <p className="text-muted-foreground">{formatSize(file.sizeBytes)}</p>
+                <p className="text-muted-foreground">{formatBytes(file.sizeBytes)}</p>
               </button>
             ))}
           </div>

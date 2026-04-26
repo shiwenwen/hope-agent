@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { formatBytes } from "@/lib/format"
 import type { ProjectFile } from "@/types/project"
 import { MAX_PROJECT_FILE_BYTES } from "@/types/project"
 
@@ -81,7 +82,13 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
 
       if (file.size > MAX_PROJECT_FILE_BYTES) {
         setError(
-          `File too large: ${(file.size / 1024 / 1024).toFixed(1)} MB (max ${(MAX_PROJECT_FILE_BYTES / 1024 / 1024).toFixed(0)} MB)`,
+          `File too large: ${formatBytes(file.size, {
+            unit: "MB",
+            fractionDigits: 1,
+          })} (max ${formatBytes(MAX_PROJECT_FILE_BYTES, {
+            unit: "MB",
+            fractionDigits: 0,
+          })})`,
         )
         return null
       }

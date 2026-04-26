@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { formatBytes } from "@/lib/format"
 import { IconTip } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import {
@@ -23,7 +24,7 @@ import {
   Settings2,
   Trash2,
 } from "lucide-react"
-import { LEVELS, LEVEL_COLORS, formatSize } from "./constants"
+import { LEVELS, LEVEL_COLORS } from "./constants"
 import type { LogStats } from "../types"
 
 type ViewMode = "structured" | "files"
@@ -87,7 +88,7 @@ export default function LogActionBar({
           </span>
           {stats.dbSizeBytes > 0 && (
             <span className="text-xs text-muted-foreground">
-              ({formatSize(stats.dbSizeBytes)})
+              ({formatBytes(stats.dbSizeBytes)})
             </span>
           )}
           {LEVELS.map((level) => {
