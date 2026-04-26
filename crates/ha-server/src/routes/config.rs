@@ -111,6 +111,24 @@ pub async fn save_compact_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/session-title` -- get LLM session title config.
+pub async fn get_session_title_config(
+) -> Result<Json<ha_core::session_title::SessionTitleConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.session_title))
+}
+
+/// `PUT /api/config/session-title` -- save LLM session title config.
+pub async fn save_session_title_config(
+    Json(body): Json<ConfigBody<ha_core::session_title::SessionTitleConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("session_title", "http"), |store| {
+        store.session_title = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Async Tools Config ──────────────────────────────────────────
 
 /// `GET /api/config/async-tools` -- get async tool execution config.

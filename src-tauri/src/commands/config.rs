@@ -71,6 +71,23 @@ pub async fn save_compact_config(config: context_compact::CompactConfig) -> Resu
 }
 
 #[tauri::command]
+pub async fn get_session_title_config() -> Result<ha_core::session_title::SessionTitleConfig, String>
+{
+    Ok(ha_core::config::cached_config().session_title.clone())
+}
+
+#[tauri::command]
+pub async fn save_session_title_config(
+    config: ha_core::session_title::SessionTitleConfig,
+) -> Result<(), String> {
+    ha_core::config::mutate_config(("session_title", "settings-ui"), |store| {
+        store.session_title = config;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_notification_config() -> Result<ha_core::config::NotificationConfig, String> {
     let store = ha_core::config::load_config().map_err(|e| e.to_string())?;
     Ok(store.notification)

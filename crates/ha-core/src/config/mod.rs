@@ -445,6 +445,9 @@ pub struct AppConfig {
     /// Context compaction configuration
     #[serde(default)]
     pub compact: crate::context_compact::CompactConfig,
+    /// LLM-generated session title configuration
+    #[serde(default)]
+    pub session_title: crate::session_title::SessionTitleConfig,
     /// Notification configuration
     #[serde(default)]
     pub notification: NotificationConfig,
@@ -632,6 +635,7 @@ impl Default for AppConfig {
             ssrf: crate::security::ssrf::SsrfConfig::default(),
             skill_env: std::collections::HashMap::new(),
             compact: crate::context_compact::CompactConfig::default(),
+            session_title: crate::session_title::SessionTitleConfig::default(),
             notification: NotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),

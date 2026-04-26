@@ -1300,6 +1300,12 @@
     "chatAutoExpandThinkingDesc": "Kembangkan blok pemikiran secara automatik dalam gelembung sembang. Apabila dimatikan, klik untuk kembangkan secara manual.",
     "toolCallNarration": "Umumkan panggilan alat",
     "toolCallNarrationDesc": "Apabila diaktifkan, arahkan model untuk mendahului setiap panggilan alat dengan pengumuman satu ayat (gaya Claude Code). Sesetengah model (cth. GPT-5.4) terlebih laksanakan ini dan mengulang niat yang sama merentas panggilan berturut-turut, menyebabkan pertindihan yang ketara. Lalai matikan.",
+    "sessionTitle": "Jana tajuk sembang automatik",
+    "sessionTitleDesc": "Gunakan tajuk mesej pertama dengan segera, kemudian jana tajuk ringkas selepas balasan pertama pembantu.",
+    "sessionTitleModel": "Model tajuk",
+    "sessionTitleUseChatModel": "Guna model sembang",
+    "sessionTitleChatModelHint": "Menggunakan model sembang utama untuk jana tajuk sekali sahaja.",
+    "sessionTitleCustomModelHint": "Menggunakan penyedia/model yang dipilih untuk jana tajuk.",
     "awareness": {
       "title": "Behavior Awareness",
       "desc": "Beri sembang ini pandangan dinamik tentang apa yang pengguna lakukan dalam sesi selari lain.",

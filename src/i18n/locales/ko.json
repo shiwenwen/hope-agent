@@ -1300,6 +1300,12 @@
     "chatAutoExpandThinkingDesc": "채팅 버블의 사고 블록을 자동으로 확장합니다. 끄면 클릭하여 수동으로 확장.",
     "toolCallNarration": "도구 호출 사전 안내",
     "toolCallNarrationDesc": "켜면 모든 도구 호출 전에 한 문장으로 예고하도록 모델에 지시합니다(Claude Code 스타일). 일부 모델(예: GPT-5.4)은 이를 과하게 적용해 연속된 도구 호출 간에 동일한 의도를 반복하여 가시적인 중복을 만듭니다. 기본값은 꺼짐.",
+    "sessionTitle": "채팅 제목 자동 생성",
+    "sessionTitleDesc": "새 채팅은 첫 메시지 제목을 즉시 사용하고, 첫 응답 후 간결한 제목을 생성합니다.",
+    "sessionTitleModel": "제목 모델",
+    "sessionTitleUseChatModel": "채팅 모델 사용",
+    "sessionTitleChatModelHint": "기본 채팅 모델로 제목을 한 번 생성합니다.",
+    "sessionTitleCustomModelHint": "선택한 공급자/모델로 제목을 생성합니다.",
     "awareness": {
       "title": "행동 인식",
       "desc": "이 대화에 사용자가 다른 병렬 세션에서 하는 작업을 동적으로 보여줍니다.",

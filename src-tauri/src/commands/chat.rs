@@ -226,14 +226,9 @@ pub async fn chat(
         Some(current_agent_id.clone()),
     );
 
-    // Auto-generate title from first user message if session has no title.
+    // Auto-generate fallback title from first user message if session has no title.
     // Prefer the displayed text so titles read naturally ("/drawio ..." rather than the expanded form).
-    if let Ok(Some(meta)) = db.get_session(&sid) {
-        if meta.title.is_none() && meta.message_count <= 1 {
-            let title = session::auto_title(persisted_content);
-            let _ = db.update_session_title(&sid, &title);
-        }
-    }
+    let _ = session::ensure_first_message_title(&db, &sid, persisted_content);
 
     // Emit session_created now that title is set, so frontend's reloadSessions() gets the title
     if let Some(ref new_sid) = new_session_created {

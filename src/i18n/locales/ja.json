@@ -1300,6 +1300,12 @@
     "chatAutoExpandThinkingDesc": "チャットバブル内の思考ブロックを自動展開。オフの場合はクリックで手動展開。",
     "toolCallNarration": "ツール呼び出しを事前説明",
     "toolCallNarrationDesc": "ONにすると、各ツール呼び出しの前に一文でアナウンスするよう指示します（Claude Code 方式）。一部のモデル（GPT-5.4 など）は連続した呼び出しで同じ意図を繰り返し、目に見える重複が発生します。既定 OFF。",
+    "sessionTitle": "チャット名を自動生成",
+    "sessionTitleDesc": "新しいチャットでは最初のメッセージを一時タイトルにし、最初の返信後に簡潔なタイトルを生成します。",
+    "sessionTitleModel": "タイトル用モデル",
+    "sessionTitleUseChatModel": "チャットモデルを使用",
+    "sessionTitleChatModelHint": "メインのチャットモデルで一度だけタイトルを生成します。",
+    "sessionTitleCustomModelHint": "選択したプロバイダー/モデルでタイトルを生成します。",
     "awareness": {
       "title": "行動認識",
       "desc": "この会話に、他の並行セッションでユーザーが行っていることの動的ビューを提供します。",

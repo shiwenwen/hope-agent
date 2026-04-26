@@ -19,6 +19,7 @@ fn risk_level(category: &str) -> &'static str {
 
         // ── MEDIUM ─────────────────────────────────────────────
         "compact"
+        | "session_title"
         | "memory_extract"
         | "memory_selection"
         | "memory_budget"
@@ -138,6 +139,7 @@ fn read_category(category: &str) -> Result<Value> {
         })),
         "security.ssrf" => Ok(serde_json::to_value(&cfg.ssrf)?),
         "compact" => Ok(serde_json::to_value(&cfg.compact)?),
+        "session_title" => Ok(serde_json::to_value(&cfg.session_title)?),
         "notification" => Ok(serde_json::to_value(&cfg.notification)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
@@ -230,6 +232,7 @@ fn get_all_overview() -> Result<String> {
             "reactiveMicrocompactEnabled": cfg.compact.reactive_microcompact_enabled,
             "reactiveTriggerRatio": cfg.compact.reactive_trigger_ratio,
         },
+        "sessionTitle": cfg.session_title,
         "asyncTools": { "enabled": cfg.async_tools.enabled },
         "deferredTools": { "enabled": cfg.deferred_tools.enabled },
         "awareness": { "enabled": cfg.awareness.enabled },
@@ -254,7 +257,7 @@ fn get_all_overview() -> Result<String> {
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout"
         ],
         "medium": [
-            "compact", "memory_extract", "memory_selection", "memory_budget",
+            "compact", "session_title", "memory_extract", "memory_selection", "memory_budget",
             "embedding_cache", "dedup", "hybrid_search", "temporal_decay",
             "mmr", "recap", "awareness", "web_fetch", "web_search",
             "deferred_tools", "async_tools", "approval",
@@ -307,6 +310,10 @@ pub(crate) async fn tool_update_settings(args: &Value) -> Result<String> {
         return update_user_config(values);
     }
 
+    if category == "session_title" {
+        return update_session_title_config(values);
+    }
+
     update_app_config(category, values)
 }
 
@@ -332,6 +339,20 @@ fn update_user_config(values: &Value) -> Result<String> {
         "category": "user",
         "updated": true,
         "settings": uc_json,
+    }))?)
+}
+
+fn update_session_title_config(values: &Value) -> Result<String> {
+    config::mutate_config(("session_title", "skill"), |store| {
+        merge_field(&mut store.session_title, values)
+    })?;
+
+    let updated_value = read_category("session_title")?;
+    Ok(serde_json::to_string_pretty(&json!({
+        "category": "session_title",
+        "riskLevel": risk_level("session_title"),
+        "updated": true,
+        "settings": updated_value,
     }))?)
 }
 
@@ -392,6 +413,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "security.ssrf" => merge_field(&mut store.ssrf, values)?,
         "compact" => merge_field(&mut store.compact, values)?,
+        "session_title" => merge_field(&mut store.session_title, values)?,
         "notification" => merge_field(&mut store.notification, values)?,
         "image_generate" => merge_field(&mut store.image_generate, values)?,
         "canvas" => merge_field(&mut store.canvas, values)?,

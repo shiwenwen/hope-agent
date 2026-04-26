@@ -1,6 +1,6 @@
 ---
 name: ha-settings
-description: "Manage Hope Agent application settings through conversation. Use when the user wants to view or change any app configuration: theme, language, proxy, temperature, notifications, tool timeout, context compaction, web search, memory, embedding, recap, behavior awareness, plan mode, ask-user-question timeout, tool-result disk spill threshold, embedded server, ACP control plane, per-skill env vars, or any other setting visible in the Settings UI. Trigger phrases: 'change settings', 'configure proxy', 'set theme to dark', 'turn off notifications', 'adjust temperature', 'show my settings', 'bind the server to all interfaces', 'set API key'. Trigger even when the user doesn't explicitly say 'settings' — any intent to adjust app behavior qualifies."
+description: "Manage Hope Agent application settings through conversation. Use when the user wants to view or change any app configuration: theme, language, proxy, temperature, notifications, tool timeout, context compaction, automatic session titles, web search, memory, embedding, recap, behavior awareness, plan mode, ask-user-question timeout, tool-result disk spill threshold, embedded server, ACP control plane, per-skill env vars, or any other setting visible in the Settings UI. Trigger phrases: 'change settings', 'configure proxy', 'set theme to dark', 'turn off notifications', 'adjust temperature', 'show my settings', 'bind the server to all interfaces', 'set API key'. Trigger even when the user doesn't explicitly say 'settings' — any intent to adjust app behavior qualifies."
 always: true
 ---
 
@@ -70,6 +70,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | Category | Fields |
 |----------|--------|
 | `compact` | `enabled`, `cacheTtlSecs`, thresholds |
+| `session_title` | `enabled`, `providerId`, `modelId` (null provider/model = use the chat model). When enabled, new sessions keep the first-message fallback title immediately, then run one LLM call after the first assistant reply to generate a concise title. Manual renames are never overwritten. |
 | `memory_extract` | `enabled`, `cooldownSecs`, `tokenThreshold` |
 | `memory_selection` | `enabled`, `candidateThreshold`, `maxSelected` |
 | `memory_budget` | `totalChars` (int, default 10000), `coreMemoryFileChars` (int, default 8000 — cap per `memory.md` file), `sqliteEntryMaxChars` (int, default 500 — cap per rendered SQLite bullet), `sqliteSections.{userProfile,aboutUser,preferences,projectContext,references}` (defaults 1500/2000/2000/3000/1500; `userProfile` was renamed from `aboutYou` and the system-prompt heading from `## About You` to `## User Profile` — the old `aboutYou` key is still accepted for back-compat). Priority order: Guidelines > Agent `memory.md` > Global `memory.md` > SQLite. Reducing `totalChars` may hide parts of `memory.md` from the system prompt; full content is still retrievable via `recall_memory` / `memory_get`. |

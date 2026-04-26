@@ -27,6 +27,27 @@ pub fn auto_title(content: &str) -> String {
     }
 }
 
+/// Set the immediate fallback title from the first user-visible message.
+/// Returns the title when a write happened.
+pub fn ensure_first_message_title(
+    db: &super::SessionDB,
+    session_id: &str,
+    content: &str,
+) -> Result<Option<String>> {
+    if let Some(meta) = db.get_session(session_id)? {
+        if meta.title.is_none() && meta.message_count <= 1 {
+            let title = auto_title(content);
+            db.update_session_title_with_source(
+                session_id,
+                &title,
+                crate::session_title::TITLE_SOURCE_FIRST_MESSAGE,
+            )?;
+            return Ok(Some(title));
+        }
+    }
+    Ok(None)
+}
+
 // ── Database path helper ─────────────────────────────────────────
 
 /// Get the database file path: ~/.hope-agent/sessions.db
