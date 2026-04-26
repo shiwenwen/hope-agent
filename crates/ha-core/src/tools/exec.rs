@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde_json::Value;
+use std::process::Stdio;
 #[cfg(unix)]
 use std::sync::OnceLock;
 
@@ -121,6 +122,66 @@ async fn handle_exec_approval_timeout(
     }
 }
 
+#[derive(Debug)]
+enum ExecWaitError {
+    Wait(std::io::Error),
+    Timeout { timeout_secs: u64 },
+}
+
+async fn spawn_exec_waiter(
+    session_id: String,
+    mut cmd: tokio::process::Command,
+    timeout_secs: u64,
+    max_output: usize,
+) -> Result<tokio::task::JoinHandle<Result<String>>> {
+    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+    #[cfg(unix)]
+    cmd.process_group(0);
+    cmd.kill_on_drop(true);
+    let child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(e) => {
+            let mut registry = get_registry().lock().await;
+            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
+            return Err(anyhow::anyhow!("Failed to execute command: {}", e));
+        }
+    };
+    let pid = child.id();
+    let cancelled_before_pid_registered = {
+        let mut registry = get_registry().lock().await;
+        let already_exited = registry
+            .get_session(&session_id)
+            .map(|session| session.exited)
+            .unwrap_or(true);
+        registry.set_pid(&session_id, pid);
+        already_exited
+    };
+    if cancelled_before_pid_registered {
+        if let Some(pid) = pid {
+            crate::platform::terminate_process_tree(pid);
+        }
+    }
+
+    Ok(tokio::spawn(async move {
+        let result = match tokio::time::timeout(
+            std::time::Duration::from_secs(timeout_secs),
+            child.wait_with_output(),
+        )
+        .await
+        {
+            Ok(Ok(output)) => Ok(output),
+            Ok(Err(e)) => Err(ExecWaitError::Wait(e)),
+            Err(_) => {
+                if let Some(pid) = pid {
+                    crate::platform::terminate_process_tree(pid);
+                }
+                Err(ExecWaitError::Timeout { timeout_secs })
+            }
+        };
+        finish_exec_sync(&session_id, result, max_output).await
+    }))
+}
+
 pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
     let command = args
         .get("command")
@@ -217,6 +278,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     let session_id = create_session_id();
     let session = ProcessSession {
         id: session_id.clone(),
+        parent_session_id: ctx.session_id.clone(),
         command: command.to_string(),
         pid: None,
         cwd: session_cwd.clone(),
@@ -502,50 +564,12 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
 
     // ── Normal execution path ──────────────────────────────────
 
-    // If background=true, spawn and return immediately
-    if background {
-        let sid = session_id.clone();
-        let timeout = timeout_secs;
-        tokio::spawn(async move {
-            let result =
-                tokio::time::timeout(std::time::Duration::from_secs(timeout), cmd.output()).await;
-            let mut registry = get_registry().lock().await;
-            match result {
-                Ok(Ok(output)) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-                    let exit_code = output.status.code().unwrap_or(-1);
-                    registry.append_output(&sid, "stdout", &stdout);
-                    if !stderr.is_empty() {
-                        registry.append_output(&sid, "stderr", &format!("[stderr] {}", stderr));
-                    }
-                    let status = if exit_code == 0 {
-                        ProcessStatus::Completed
-                    } else {
-                        ProcessStatus::Failed
-                    };
-                    registry.mark_exited(&sid, Some(exit_code), None, status);
-                }
-                Ok(Err(e)) => {
-                    registry.append_output(&sid, "stderr", &format!("Failed to execute: {}", e));
-                    registry.mark_exited(&sid, None, None, ProcessStatus::Failed);
-                }
-                Err(_) => {
-                    registry.append_output(
-                        &sid,
-                        "stderr",
-                        &format!("Command timed out after {}s", timeout),
-                    );
-                    registry.mark_exited(
-                        &sid,
-                        None,
-                        Some("SIGKILL".to_string()),
-                        ProcessStatus::Failed,
-                    );
-                }
-            }
-        });
+    let mut exec_handle =
+        spawn_exec_waiter(session_id.clone(), cmd, timeout_secs, max_output).await?;
 
+    // If background=true, return immediately after the process is spawned and
+    // registered. The detached waiter updates the process registry on exit.
+    if background {
         {
             let mut registry = get_registry().lock().await;
             if let Some(s) = registry.get_session_mut(&session_id) {
@@ -559,56 +583,47 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
         ));
     }
 
-    // Non-background: run with yield_ms support
-    let cmd_future =
-        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), cmd.output());
-
     // If yield_ms is specified (and not default 10s for non-background), use it
     let wants_yield = args.get("yield_ms").is_some();
 
     if wants_yield {
-        // Wait yield_ms, if not done, background it
+        // Wait yield_ms, if not done, leave the already-spawned waiter
+        // detached and mark the session as backgrounded.
         let yield_duration = std::time::Duration::from_millis(yield_ms);
-        let sid = session_id.clone();
 
-        match tokio::time::timeout(yield_duration, cmd_future).await {
-            Ok(result) => {
-                // Command finished within yield window
-                return finish_exec_sync(&sid, result, max_output).await;
-            }
+        match tokio::time::timeout(yield_duration, &mut exec_handle).await {
+            Ok(joined) => return joined.map_err(|e| anyhow::anyhow!("Exec task failed: {}", e))?,
             Err(_) => {
                 // yield_ms elapsed, command still running — background it
                 {
                     let mut registry = get_registry().lock().await;
-                    if let Some(s) = registry.get_session_mut(&sid) {
+                    if let Some(s) = registry.get_session_mut(&session_id) {
                         s.backgrounded = true;
                     }
                 }
 
                 return Ok(format!(
                     "Command still running after {}ms (session {}). Use process(action=\"poll\", session_id=\"{}\") to check status.",
-                    yield_ms, sid, sid
+                    yield_ms, session_id, session_id
                 ));
             }
         }
     }
 
     // Standard synchronous execution
-    let result = cmd_future.await;
-    finish_exec_sync(&session_id, result, max_output).await
+    exec_handle
+        .await
+        .map_err(|e| anyhow::anyhow!("Exec task failed: {}", e))?
 }
 
 /// Finish a synchronous exec and return result
 async fn finish_exec_sync(
     session_id: &str,
-    result: std::result::Result<
-        std::result::Result<std::process::Output, std::io::Error>,
-        tokio::time::error::Elapsed,
-    >,
+    result: std::result::Result<std::process::Output, ExecWaitError>,
     max_output: usize,
 ) -> Result<String> {
     match result {
-        Ok(Ok(output)) => {
+        Ok(output) => {
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
             let exit_code = output.status.code().unwrap_or(-1);
@@ -650,14 +665,13 @@ async fn finish_exec_sync(
 
             Ok(result_text)
         }
-        Ok(Err(e)) => {
+        Err(ExecWaitError::Wait(e)) => {
             let mut registry = get_registry().lock().await;
             registry.mark_exited(session_id, None, None, ProcessStatus::Failed);
             Err(anyhow::anyhow!("Failed to execute command: {}", e))
         }
-        Err(_) => {
+        Err(ExecWaitError::Timeout { timeout_secs }) => {
             let mut registry = get_registry().lock().await;
-            let timeout = DEFAULT_EXEC_TIMEOUT_SECS;
             registry.mark_exited(
                 session_id,
                 None,
@@ -666,7 +680,7 @@ async fn finish_exec_sync(
             );
             Err(anyhow::anyhow!(
                 "Command timed out after {}s. If this command is expected to take longer, re-run with a higher timeout (e.g., exec timeout=3600).",
-                timeout
+                timeout_secs
             ))
         }
     }

@@ -61,6 +61,46 @@ pub async fn cancel_runtime_task(
     }
 }
 
+/// Cancel active runtime work associated with a chat session. `None` is a
+/// process-wide emergency stop and intentionally skips cron jobs, which are
+/// scheduled runtime work rather than work owned by the visible chat turn.
+pub async fn cancel_runtime_tasks_for_session(
+    session_id: Option<&str>,
+) -> anyhow::Result<Vec<CancelRuntimeTaskResult>> {
+    let mut results = Vec::new();
+
+    if let Some(db) = crate::async_jobs::get_async_jobs_db() {
+        for job in db.list_running()? {
+            let matches_session = session_id
+                .map(|sid| job.session_id.as_deref() == Some(sid))
+                .unwrap_or(true);
+            if matches_session {
+                results.push(cancel_async_job(&job.job_id)?);
+            }
+        }
+    }
+
+    if let Some(db) = crate::get_session_db() {
+        let runs = match session_id {
+            Some(sid) => db.list_active_subagent_runs(sid)?,
+            None => db.list_all_active_subagent_runs()?,
+        };
+        for run in runs {
+            results.push(cancel_subagent(&run.run_id)?);
+        }
+    }
+
+    let process_ids = {
+        let registry = crate::process_registry::get_registry().lock().await;
+        registry.list_running_ids_for_parent_session(session_id)
+    };
+    for process_id in process_ids {
+        results.push(cancel_process(&process_id).await?);
+    }
+
+    Ok(results)
+}
+
 fn cancel_async_job(id: &str) -> anyhow::Result<CancelRuntimeTaskResult> {
     let Some(db) = crate::async_jobs::get_async_jobs_db() else {
         return Ok(CancelRuntimeTaskResult::new(

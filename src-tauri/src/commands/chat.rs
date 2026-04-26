@@ -632,8 +632,29 @@ pub async fn chat(
 }
 
 #[tauri::command]
-pub async fn stop_chat(state: State<'_, AppState>) -> Result<(), CmdError> {
+pub async fn stop_chat(
+    session_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
     state.chat_cancel.store(true, Ordering::SeqCst);
+    match ha_core::runtime_tasks::cancel_runtime_tasks_for_session(session_id.as_deref()).await {
+        Ok(results) => {
+            app_info!(
+                "chat",
+                "stop_chat",
+                "Stop chat requested; runtime cancellations attempted: {}",
+                results.len()
+            );
+        }
+        Err(e) => {
+            app_warn!(
+                "chat",
+                "stop_chat",
+                "Stop chat runtime cancellation failed: {}",
+                e
+            );
+        }
+    }
     Ok(())
 }
 
