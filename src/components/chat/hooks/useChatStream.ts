@@ -207,7 +207,9 @@ export function useChatStream({
 
   async function handleStop() {
     try {
-      await getTransport().call("stop_chat")
+      await getTransport().call("stop_chat", {
+        sessionId: currentSessionIdRef.current ?? currentSessionId ?? null,
+      })
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
     }
