@@ -139,17 +139,6 @@
 
 ---
 
-### F-014 `docs/architecture/` 缺中心化 transport mode 文档
-
-- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
-- **现象**：[`useChatStreamReattach.ts:55-66`](../../src/components/chat/hooks/useChatStreamReattach.ts) 的 docstring 是仓库**首次**正式文字化"Tauri 模式 vs HTTP 模式行为差异"。其它地方对 transport 模式的判断散落在 [`isTauriMode()`](../../src/lib/transport.ts) 调用点 + 两个 transport adapter 实现 + `transport-provider.ts` 选 adapter 逻辑，没有架构级综述。新人接手或调试 transport 相关 bug 必须读多个源才能拼出全图。
-- **为什么留**：F-010 已经明确保留 `startChat` 合成 `session_created`，并删除 `/ws/chat/{id}` 死路径；剩下的是把这些约定整理成一篇权威综述，适合独立文档 PR。
-- **改的话要做什么**：在 [`docs/architecture/`](../README.md) 新建 `transport-modes.md`，覆盖：(a) 三种运行模式的事件流向图；(b) 每个 Transport 方法在两种模式下的实现路径；(c) `chat:stream_delta` 双写架构 + reattach 角色（Tauri 兜底 vs HTTP 主路径）；(d) 列出所有 EventBus 事件名 + 用途；(e) 决策记录 "为什么 startChat 不是 streamCall 通用原语"。回填到 `docs/README.md` 索引。
-- **影响面**：纯文档债。无功能影响。
-- **触发时机建议**：下一次继续做 transport 文档整理时优先收掉；F-010 已落地，当前可以安全写。
-
----
-
 ### F-015 `src/components/settings/` 大批原生 `<button>` / `<input>` / `<textarea>` 未走 shadcn
 
 - **来源**：2026-04-26 焦点轮廓视觉降噪手动审查
@@ -169,6 +158,14 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-014 `docs/architecture/` 缺中心化 transport mode 文档
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **关闭**：2026-04-26 / 本次 F-014 修复
+- **修复方式**：新增 [`docs/architecture/transport-modes.md`](../architecture/transport-modes.md)，集中说明 Tauri / HTTP / ACP 三种入口、`getTransport()` 选择逻辑、`Transport` 方法矩阵、`chat:stream_delta` 双写与 reattach 角色、`/ws/events` EventBus 桥、主要 EventBus 事件目录，以及 `startChat` 不是通用 `streamCall` 的决策记录。同步回填 [`docs/README.md`](../README.md) 索引。
+
+---
 
 ### F-010 HTTP `startChat` 用合成 `session_created` 事件 vs 显式 return shape 的取舍
 

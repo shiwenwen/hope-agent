@@ -11,6 +11,7 @@
 | --------------------------------------------- | -------------------------------------------------------------------------------------- |
 | [系统架构总览](architecture/overview.md)            | 技术栈、架构全景图、核心数据流、模块依赖、存储架构                                                              |
 | [前后端分离架构](architecture/backend-separation.md) | 三层架构设计（核心库/HTTP 服务/桌面壳）、运行模式、EventBus、Transport 层、Guardian 保活、HTTP API 端点、初始化流程、多客户端支持 |
+| [Transport 运行模式](architecture/transport-modes.md) | Tauri / HTTP / ACP 三种入口、Transport 方法差异、chat streaming 路径、EventBus 事件目录 |
 | [进程与并发模型](architecture/process-model.md)      | 四层进程清单：二进制运行模式 · 独立 OS 线程 · 长驻 tokio 任务 · 动态子进程；Guardian 父子协议、退出路径、排查指引 |
 | [API 参考](architecture/api-reference.md) | Tauri 命令 ↔ HTTP/WS 完整对照（383 Tauri / 387 HTTP / 378 COMMAND_MAP）、EventBus 事件清单、Transport 方法对照、已知不对齐项（0 漏写 + 5 合法非 REST），新增接口 checklist |
 
@@ -102,5 +103,4 @@
 | ------------------------------------------- | -------------------------------------------------------------------------------- |
 | [三项目统一维度对比 v2.1](research/unified-comparison.md) | Hope Agent vs Claude Code vs OpenClaw 全维度对比（16 维度评分 + Actionable 差距清单），基线 2026-04-15 |
 | [2026 Q2 演进路线图](research/roadmap-2026q2.md) | 四阶段路线图：Phase A 架构补课 → Phase B 记忆升级 → Phase C 多 Agent 与 MCP → Phase D 体验生态补足，总计 20–26 周 |
-
 
