@@ -85,6 +85,7 @@ interface DesktopOpenResult {
 
 const EVENT_LOCAL_LLM_INSTALL_PROGRESS = "local_llm:install_progress"
 const EVENT_LOCAL_LLM_PULL_PROGRESS = "local_llm:pull_progress"
+const MAX_DIALOG_LOG_LINES = 240
 
 const PHASE_KEY: Record<string, string> = {
   starting: "settings.localLlm.phases.starting",
@@ -104,6 +105,10 @@ function formatGb(mb: number): string {
 function formatSize(mb: number): string {
   if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`
   return `${mb} MB`
+}
+
+function formatLogLine(message: string): string {
+  return `[${new Date().toLocaleTimeString()}] ${message}`
 }
 
 function reasonText(
@@ -159,6 +164,16 @@ export default function LocalLlmAssistantCard({
   const [dialogLogs, setDialogLogs] = useState<string[]>([])
   const [dialogDone, setDialogDone] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
+
+  const appendDialogLog = useCallback((message: string) => {
+    const trimmed = message.trim()
+    if (!trimmed) return
+    const line = formatLogLine(trimmed)
+    setDialogLogs((prev) => {
+      if (prev[prev.length - 1] === line) return prev
+      return [...prev.slice(-(MAX_DIALOG_LOG_LINES - 1)), line]
+    })
+  }, [])
 
   const refresh = useCallback(async () => {
     setRefreshing(true)
@@ -218,10 +233,12 @@ export default function LocalLlmAssistantCard({
       const p = parsePayload<InstallProgressPayload>(raw)
       if (p.kind === "step") {
         setDialogFrame({ phase: p.message, message: p.message })
+        appendDialogLog(p.message)
       } else if (p.kind === "log") {
-        setDialogLogs((prev) => [...prev.slice(-200), p.message])
+        appendDialogLog(p.message)
       } else if (p.kind === "error") {
         setDialogError(p.message)
+        appendDialogLog(p.message)
       }
     }
 
@@ -234,14 +251,17 @@ export default function LocalLlmAssistantCard({
           phase: "starting",
           message: t("settings.localLlm.buttons.startOllama"),
         })
+        appendDialogLog(t("settings.localLlm.buttons.startOllama"))
         await getTransport().call("local_llm_start_ollama")
       })
       setDialogDone(true)
+      appendDialogLog(t("settings.localLlm.phases.done"))
       await refresh()
       setTimeout(() => setDialogOpen(false), 800)
     } catch (e) {
       const msg = String(e)
       setDialogError(msg)
+      appendDialogLog(msg)
       setError(
         t(
           installed
@@ -255,7 +275,7 @@ export default function LocalLlmAssistantCard({
     } finally {
       setBusy(null)
     }
-  }, [refresh, t])
+  }, [appendDialogLog, refresh, t])
 
   const installModel = useCallback(
     async (model: ModelCandidate) => {
@@ -275,11 +295,14 @@ export default function LocalLlmAssistantCard({
 
       const handleProgress = (raw: unknown) => {
         const p = parsePayload<PullProgressPayload>(raw)
+        const label = phaseLabel(p.phase) || p.phase
+        const progressSuffix = p.percent == null ? "" : ` ${Math.round(p.percent)}%`
         setDialogFrame({
           phase: p.phase,
-          message: phaseLabel(p.phase) || p.phase,
+          message: label,
           percent: p.percent ?? null,
         })
+        appendDialogLog(`${label}${progressSuffix}`)
       }
 
       try {
@@ -287,6 +310,7 @@ export default function LocalLlmAssistantCard({
           getTransport().call("local_llm_pull_and_activate", { model }),
         )
         setDialogDone(true)
+        appendDialogLog(t("settings.localLlm.phases.done"))
         // Hold the 100% / checkmark frame briefly so users register the
         // success state before we reload.
         setTimeout(() => {
@@ -296,12 +320,13 @@ export default function LocalLlmAssistantCard({
       } catch (e) {
         const msg = String(e)
         setDialogError(msg)
+        appendDialogLog(msg)
         setError(t("settings.localLlm.error.pullFailed", { message: msg }))
       } finally {
         setBusy(null)
       }
     },
-    [onProviderInstalled, phaseLabel, t],
+    [appendDialogLog, onProviderInstalled, phaseLabel, t],
   )
 
   const openDownloadPage = useCallback(() => {
