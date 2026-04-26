@@ -8,7 +8,7 @@
 
 import type {
   Transport,
-  ChatStream,
+  ChatStartArgs,
   PickedImage,
   DirListing,
   FileSearchResponse,
@@ -595,6 +595,8 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
         return record.checkpoint;
       case "plan_rollback":
         return record.message;
+      case "searxng_docker_deploy":
+        return record.url;
     }
   }
   return value;
@@ -772,32 +774,29 @@ export class HttpTransport implements Transport {
     return (await response.json()) as T;
   }
 
-  // ----- openChatStream -----
+  // ----- startChat -----
 
-  openChatStream(
-    sessionId: string | null,
+  async startChat(
+    args: ChatStartArgs,
     onEvent: (event: string) => void,
-  ): ChatStream {
-    const path = sessionId
-      ? `/ws/chat/${encodeURIComponent(sessionId)}`
-      : "/ws/chat";
-    const ws = new WebSocket(this.wsUrl(path));
-
-    ws.onmessage = (ev) => {
-      if (typeof ev.data === "string") {
-        onEvent(ev.data);
-      }
-    };
-
-    ws.onerror = (err) => {
-      console.error("[HttpTransport] Chat WebSocket error", err);
-    };
-
-    return {
-      close() {
-        ws.close();
-      },
-    };
+  ): Promise<string> {
+    // Stream deltas arrive via /ws/events → useChatStreamReattach. We only
+    // bridge `session_created` so the in-hook __pending__ cache key gets
+    // renamed in place — POST /api/chat returns the real sessionId in its
+    // body, so synthesizing the event after the response is sufficient.
+    const resp = await this.call<{ sessionId: string; response: string }>(
+      "chat",
+      args,
+    );
+    if (!args.sessionId) {
+      onEvent(
+        JSON.stringify({
+          type: "session_created",
+          session_id: resp.sessionId,
+        }),
+      );
+    }
+    return resp.response;
   }
 
   // ----- media -----

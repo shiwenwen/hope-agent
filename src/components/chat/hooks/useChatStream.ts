@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { Channel } from "@tauri-apps/api/core"
+import type { ChatAttachment } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { loadNotificationConfig, isAgentNotifyEnabled, notify } from "@/lib/notifications"
@@ -240,12 +240,7 @@ export function useChatStream({
     setLoading(true)
 
     // Process attached files: images → base64 data, non-images → save to disk via Rust
-    const attachments: {
-      name: string
-      mime_type: string
-      data?: string
-      file_path?: string
-    }[] = []
+    const attachments: ChatAttachment[] = []
 
     // Expand `@path` mentions into file_path attachments. Working dir resolves
     // from the current session (committed) or the draft picker (new chat).
@@ -305,8 +300,7 @@ export function useChatStream({
     let targetSessionId = currentSessionId
 
     try {
-      const onEvent = new Channel<string>()
-      onEvent.onmessage = (raw) => {
+      const onEvent = (raw: string) => {
         try {
           const event = JSON.parse(raw)
 
@@ -382,20 +376,22 @@ export function useChatStream({
       const modelOverride = activeModel
         ? `${activeModel.providerId}::${activeModel.modelId}`
         : undefined
-      await getTransport().call<string>("chat", {
-        message: text,
-        attachments,
-        sessionId: currentSessionId,
-        incognito: currentSessionId ? undefined : incognitoEnabled,
-        modelOverride,
-        agentId: currentAgentId,
-        toolPermissionMode: toolPermissionModeRef.current,
-        planMode: planMode && planMode !== "off" ? planMode : undefined,
-        temperatureOverride: temperatureOverride ?? undefined,
-        displayText: options?.displayText?.trim() || undefined,
-        workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
+      await getTransport().startChat(
+        {
+          message: text,
+          attachments,
+          sessionId: currentSessionId,
+          incognito: currentSessionId ? undefined : incognitoEnabled,
+          modelOverride,
+          agentId: currentAgentId,
+          toolPermissionMode: toolPermissionModeRef.current,
+          planMode: planMode && planMode !== "off" ? planMode : undefined,
+          temperatureOverride: temperatureOverride ?? undefined,
+          displayText: options?.displayText?.trim() || undefined,
+          workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
+        },
         onEvent,
-      })
+      )
     } catch (e) {
       const sid = targetSessionId || "__pending__"
       updateSessionMessages(sid, (prev) => {
