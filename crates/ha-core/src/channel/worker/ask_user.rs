@@ -520,18 +520,6 @@ fn parse_marker(tok: &str) -> Option<(usize, usize)> {
     Some((qi - 1, oi))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse_marker;
-
-    #[test]
-    fn parse_marker_rejects_unicode_without_panicking() {
-        assert_eq!(parse_marker("你好"), None);
-        assert_eq!(parse_marker("1好"), None);
-        assert_eq!(parse_marker("10c"), Some((9, 2)));
-    }
-}
-
 // ── Callback handler (button-capable channels) ────────────────────
 
 /// Check whether a callback data string belongs to an ask_user flow.
@@ -672,4 +660,16 @@ pub fn try_dispatch_interactive_callback(data: &str, source: &'static str) -> bo
         return true;
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_marker;
+
+    #[test]
+    fn parse_marker_rejects_unicode_without_panicking() {
+        assert_eq!(parse_marker("你好"), None);
+        assert_eq!(parse_marker("1好"), None);
+        assert_eq!(parse_marker("10c"), Some((9, 2)));
+    }
 }
