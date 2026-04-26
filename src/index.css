@@ -118,6 +118,21 @@
     -webkit-user-select: text;
     user-select: text;
   }
+  /* Tame the heavy UA default focus ring on raw interactives. shadcn
+     primitives provide their own focus reaction (ring/border); plain
+     <button>/<a>/[role=button] fall back to a soft 1px outline on
+     keyboard nav only — matches desktop-app feel, preserves a11y. */
+  button:focus,
+  [role="button"]:focus,
+  a:focus {
+    outline: none;
+  }
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible {
+    outline: 1px solid color-mix(in srgb, var(--color-ring) 40%, transparent);
+    outline-offset: 1px;
+  }
 }
 
 /* Smooth streaming bubble growth — height + padding transitions */
