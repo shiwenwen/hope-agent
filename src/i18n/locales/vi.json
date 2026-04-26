@@ -1907,20 +1907,20 @@
       "showAlternatives": "Lựa chọn khác",
       "hideAlternatives": "Thu gọn",
       "hardware": {
-        "macOs": "macOS · {{memory}} GB bộ nhớ thống nhất · ngân sách ≈ {{budget}} GB",
-        "dgpu": "{{gpu}} · {{vram}} GB VRAM · ngân sách ≈ {{budget}} GB",
-        "ramFallback": "{{memory}} GB RAM · ngân sách ≈ {{budget}} GB",
+        "macOs": "macOS · {{memory}} GB bộ nhớ thống nhất · tính 60% ≈ {{budget}} GB để tránh chiếm quá nhiều!",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · tính 60% ≈ {{budget}} GB để tránh chiếm quá nhiều!",
+        "ramFallback": "{{memory}} GB RAM · tính 60% ≈ {{budget}} GB để tránh chiếm quá nhiều!",
         "insufficient": "Cấu hình hơi thấp — tạm thời dùng nhà cung cấp đám mây."
       },
       "buttons": {
-        "installOllama": "Cài Ollama",
+        "installOllama": "Cài và khởi động một chạm",
         "downloadOllama": "Tải từ ollama.com",
         "recheck": "Phát hiện lại",
         "startOllama": "Khởi động Ollama",
         "installModel": "Cài và chạy {{model}}"
       },
       "install": {
-        "title": "Đang cài Ollama",
+        "title": "Đang cài và khởi động Ollama một chạm",
         "cannotCancel": "Đang cài, không thể hủy"
       },
       "phases": {

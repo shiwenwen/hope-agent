@@ -1907,20 +1907,20 @@
       "showAlternatives": "Calon lain",
       "hideAlternatives": "Tutup calon",
       "hardware": {
-        "macOs": "macOS · {{memory}} GB memori bersepadu · belanjawan ≈ {{budget}} GB",
-        "dgpu": "{{gpu}} · {{vram}} GB VRAM · belanjawan ≈ {{budget}} GB",
-        "ramFallback": "{{memory}} GB RAM · belanjawan ≈ {{budget}} GB",
+        "macOs": "macOS · {{memory}} GB memori bersepadu · 60% ≈ {{budget}} GB untuk elak guna terlalu banyak!",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · 60% ≈ {{budget}} GB untuk elak guna terlalu banyak!",
+        "ramFallback": "{{memory}} GB RAM · 60% ≈ {{budget}} GB untuk elak guna terlalu banyak!",
         "insufficient": "Spesifikasi terlalu rendah — gunakan penyedia awan buat masa ini."
       },
       "buttons": {
-        "installOllama": "Pasang Ollama",
+        "installOllama": "Pasang dan mula sekali klik",
         "downloadOllama": "Muat turun dari ollama.com",
         "recheck": "Imbas semula",
         "startOllama": "Mulakan Ollama",
         "installModel": "Pasang & lancarkan {{model}}"
       },
       "install": {
-        "title": "Memasang Ollama",
+        "title": "Memasang dan memulakan Ollama sekali klik",
         "cannotCancel": "Sedang memasang — tidak boleh batal"
       },
       "phases": {

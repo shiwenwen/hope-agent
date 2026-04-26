@@ -15,10 +15,12 @@ import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
+import { cn } from "@/lib/utils"
 import {
   InstallProgressDialog,
   type ProgressFrame,
 } from "@/components/settings/local-llm/InstallProgressDialog"
+import { IconTip } from "@/components/ui/tooltip"
 
 // ── Wire types (mirror ha_core::local_llm::types) ─────────────────
 
@@ -127,8 +129,10 @@ function reasonText(
 
 export default function LocalLlmAssistantCard({
   onProviderInstalled,
+  compact = false,
 }: {
   onProviderInstalled: () => void
+  compact?: boolean
 }) {
   const { t } = useTranslation()
   const [recommendation, setRecommendation] = useState<ModelRecommendation | null>(null)
@@ -213,14 +217,30 @@ export default function LocalLlmAssistantCard({
       }
     })
 
+    let installed = false
     try {
       await getTransport().call("local_llm_install_ollama")
+      installed = true
+      setDialogFrame({
+        phase: "starting",
+        message: t("settings.localLlm.buttons.startOllama"),
+      })
+      await getTransport().call("local_llm_start_ollama")
       setDialogDone(true)
       await refresh()
     } catch (e) {
       const msg = String(e)
       setDialogError(msg)
-      setError(t("settings.localLlm.error.installFailed", { message: msg }))
+      setError(
+        t(
+          installed
+            ? "settings.localLlm.error.startFailed"
+            : "settings.localLlm.error.installFailed",
+          {
+            message: msg,
+          },
+        ),
+      )
     } finally {
       unlisten()
       setBusy(null)
@@ -292,6 +312,9 @@ export default function LocalLlmAssistantCard({
 
   const recommended = chosen ?? recommendation.recommended
   const insufficient = !recommended
+  const actionButtonClassName = compact
+    ? "h-auto min-h-8 px-2.5 py-1.5 text-xs whitespace-normal"
+    : undefined
 
   // Decide which primary action is exposed.
   const renderAction = () => {
@@ -300,7 +323,12 @@ export default function LocalLlmAssistantCard({
     if (ollama.phase === "not-installed") {
       if (!ollama.installScriptSupported) {
         return (
-          <Button variant="default" size="sm" onClick={openDownloadPage}>
+          <Button
+            variant="default"
+            size="sm"
+            className={actionButtonClassName}
+            onClick={openDownloadPage}
+          >
             <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
             {t("settings.localLlm.buttons.downloadOllama")}
           </Button>
@@ -310,6 +338,7 @@ export default function LocalLlmAssistantCard({
         <Button
           variant="default"
           size="sm"
+          className={actionButtonClassName}
           onClick={() => void installOllama()}
           disabled={busy !== null}
         >
@@ -328,6 +357,7 @@ export default function LocalLlmAssistantCard({
         <Button
           variant="default"
           size="sm"
+          className={actionButtonClassName}
           onClick={() => void startOllama()}
           disabled={busy !== null}
         >
@@ -345,6 +375,7 @@ export default function LocalLlmAssistantCard({
       <Button
         variant="default"
         size="sm"
+        className={actionButtonClassName}
         onClick={() => recommended && void installModel(recommended)}
         disabled={busy !== null || !recommended}
       >
@@ -362,47 +393,76 @@ export default function LocalLlmAssistantCard({
 
   return (
     <>
-      <div className="rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-card p-4 space-y-3">
+      <div
+        className={cn(
+          "rounded-xl border border-primary/30 bg-gradient-to-br from-primary/5 to-card",
+          compact ? "p-3 space-y-2" : "p-4 space-y-3",
+        )}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <div
+              className={cn(
+                "rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0",
+                compact ? "w-8 h-8" : "w-9 h-9",
+              )}
+            >
               <Sparkles className="h-4 w-4" />
             </div>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-foreground">
                 {t("settings.localLlm.title")}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">
-                {t("settings.localLlm.subtitle")}
-              </div>
+              {compact ? (
+                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-0.5 min-w-0">
+                  <Cpu className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{reasonText(recommendation, t)}</span>
+                </div>
+              ) : (
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  {t("settings.localLlm.subtitle")}
+                </div>
+              )}
             </div>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7 shrink-0"
-            onClick={() => void refresh()}
-            disabled={refreshing}
-            title={t("common.refresh")}
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
-          </Button>
+          <IconTip label={t("common.refresh")}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => void refresh()}
+              disabled={refreshing}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} />
+            </Button>
+          </IconTip>
         </div>
 
-        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-          <Cpu className="h-3 w-3" />
-          <span className="truncate">{reasonText(recommendation, t)}</span>
-        </div>
+        {!compact && (
+          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+            <Cpu className="h-3 w-3" />
+            <span className="truncate">{reasonText(recommendation, t)}</span>
+          </div>
+        )}
 
         {recommended ? (
-          <div className="rounded-lg border border-border/60 bg-card p-3">
-            <div className="flex items-start justify-between gap-3">
+          <div
+            className={cn("rounded-lg border border-border/60 bg-card", compact ? "p-2.5" : "p-3")}
+          >
+            <div
+              className={cn(
+                "gap-3",
+                compact
+                  ? "flex flex-col sm:flex-row sm:items-center sm:justify-between"
+                  : "flex items-start justify-between",
+              )}
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-foreground">
                     {recommended.displayName}
                   </span>
-                  <span className="text-[10px] uppercase tracking-wide text-primary bg-primary/10 px-1.5 py-0.5 rounded">
+                  <span className="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/25 px-1.5 py-0.5 rounded">
                     {t("settings.localLlm.recommended")}
                   </span>
                 </div>
@@ -423,16 +483,25 @@ export default function LocalLlmAssistantCard({
                     </>
                   )}
                   <span>·</span>
-                  <span className="font-mono text-[10px] text-muted-foreground/70">
+                  <span
+                    className={cn(
+                      "font-mono text-[10px] text-muted-foreground/70",
+                      compact && "hidden sm:inline",
+                    )}
+                  >
                     {recommended.id}
                   </span>
                 </div>
               </div>
-              {ollama?.phase === "running" && (
-                <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-[11px] shrink-0">
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {t("settings.localLlm.ready")}
-                </span>
+              {compact ? (
+                <div className="shrink-0 self-start sm:self-auto">{renderAction()}</div>
+              ) : (
+                ollama?.phase === "running" && (
+                  <span className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1 text-[11px] shrink-0">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {t("settings.localLlm.ready")}
+                  </span>
+                )
               )}
             </div>
 
@@ -478,12 +547,17 @@ export default function LocalLlmAssistantCard({
             )}
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-border bg-card/40 p-3 text-[11px] text-muted-foreground">
+          <div
+            className={cn(
+              "rounded-lg border border-dashed border-amber-500/30 bg-amber-500/10 text-[11px] text-amber-700 dark:text-amber-300",
+              compact ? "p-2.5" : "p-3",
+            )}
+          >
             {t("settings.localLlm.hardware.insufficient")}
           </div>
         )}
 
-        <div className="flex items-center justify-end">{renderAction()}</div>
+        {!compact && <div className="flex items-center justify-end">{renderAction()}</div>}
 
         {error && <p className="text-[11px] text-destructive whitespace-pre-wrap">{error}</p>}
       </div>

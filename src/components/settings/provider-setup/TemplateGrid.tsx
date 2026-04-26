@@ -3,6 +3,8 @@ import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import ProviderIcon from "@/components/common/ProviderIcon"
+import LocalLlmAssistantCard from "@/components/settings/local-llm/LocalLlmAssistantCard"
+import { hasLocalOllamaProvider } from "@/components/settings/local-llm/provider-detection"
 import { ArrowLeft, CheckCircle2, Globe, Loader2, Search, Settings2 } from "lucide-react"
 import { PROVIDER_TEMPLATES } from "./templates"
 import { RemoteConnectDialog } from "./RemoteConnectDialog"
@@ -27,6 +29,9 @@ interface TemplateGridProps {
   onCancel?: () => void
   /** Hide the "Connect to remote server" shortcut (onboarding moves it to its own step). */
   hideRemoteConnect?: boolean
+  /** Render the one-click local model assistant as a first-class provider option. */
+  showLocalLlmAssistant?: boolean
+  onLocalLlmInstalled?: () => void
 }
 
 export function TemplateGrid({
@@ -37,6 +42,8 @@ export function TemplateGrid({
   onRemoteConnected,
   onCancel,
   hideRemoteConnect = false,
+  showLocalLlmAssistant = false,
+  onLocalLlmInstalled,
 }: TemplateGridProps) {
   const { t } = useTranslation()
   const [searchQuery, setSearchQuery] = useState("")
@@ -53,6 +60,18 @@ export function TemplateGrid({
     () => hasConfiguredCodexProvider(configuredProviders),
     [configuredProviders],
   )
+  const normalizedSearchQuery = searchQuery.trim().toLowerCase()
+  const localLlmSearchText = [
+    t("settings.localLlm.title"),
+    t("settings.localLlm.subtitle"),
+    "ollama qwen gemma local 本地 小模型",
+  ]
+    .join(" ")
+    .toLowerCase()
+  const shouldShowLocalLlmAssistant =
+    showLocalLlmAssistant &&
+    !hasLocalOllamaProvider(configuredProviders) &&
+    (!normalizedSearchQuery || localLlmSearchText.includes(normalizedSearchQuery))
 
   async function handleCodexAuth() {
     setCodexLoading(true)
@@ -65,15 +84,15 @@ export function TemplateGrid({
     }
   }
 
-  const filteredTemplates = searchQuery.trim()
+  const filteredTemplates = normalizedSearchQuery
     ? PROVIDER_TEMPLATES.filter((tmpl) => {
         const name = t(`provider_templates.${tmpl.key}.name`, { defaultValue: tmpl.name })
         const desc = t(`provider_templates.${tmpl.key}.description`, {
           defaultValue: tmpl.description,
         })
         return (
-          name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          desc.toLowerCase().includes(searchQuery.toLowerCase())
+          name.toLowerCase().includes(normalizedSearchQuery) ||
+          desc.toLowerCase().includes(normalizedSearchQuery)
         )
       })
     : PROVIDER_TEMPLATES
@@ -97,9 +116,7 @@ export function TemplateGrid({
           </Button>
         )}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <h1 className="text-sm font-semibold tracking-tight text-foreground mt-5">
-            Hope Agent
-          </h1>
+          <h1 className="text-sm font-semibold tracking-tight text-foreground mt-5">Hope Agent</h1>
         </div>
       </div>
 
@@ -148,9 +165,7 @@ export function TemplateGrid({
 
           <div className="flex items-center gap-3 mt-4">
             <div className="flex-1 h-px bg-border" />
-            <span className="text-xs text-muted-foreground">
-              {t("provider.orSelectProvider")}
-            </span>
+            <span className="text-xs text-muted-foreground">{t("provider.orSelectProvider")}</span>
             <div className="flex-1 h-px bg-border" />
           </div>
         </div>
@@ -171,6 +186,15 @@ export function TemplateGrid({
         {/* Template Grid */}
         <div className="px-6 pb-6 max-w-3xl mx-auto w-full">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {shouldShowLocalLlmAssistant && (
+              <div className="col-span-2 sm:col-span-3">
+                <LocalLlmAssistantCard
+                  compact
+                  onProviderInstalled={onLocalLlmInstalled ?? (() => {})}
+                />
+              </div>
+            )}
+
             {filteredTemplates.map((template) => (
               <button
                 key={template.key}

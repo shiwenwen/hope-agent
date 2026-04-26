@@ -1907,20 +1907,20 @@
       "showAlternatives": "다른 후보 보기",
       "hideAlternatives": "후보 접기",
       "hardware": {
-        "macOs": "macOS · {{memory}} GB 통합 메모리 · 예산 ≈ {{budget}} GB",
-        "dgpu": "{{gpu}} · {{vram}} GB VRAM · 예산 ≈ {{budget}} GB",
-        "ramFallback": "{{memory}} GB RAM · 예산 ≈ {{budget}} GB",
+        "macOs": "macOS · {{memory}} GB 통합 메모리 · 60% 기준 약 {{budget}} GB, 과도한 점유를 방지합니다!",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · 60% 기준 약 {{budget}} GB, 과도한 점유를 방지합니다!",
+        "ramFallback": "{{memory}} GB RAM · 60% 기준 약 {{budget}} GB, 과도한 점유를 방지합니다!",
         "insufficient": "사양이 부족합니다. 당분간 클라우드 Provider를 사용하세요."
       },
       "buttons": {
-        "installOllama": "Ollama 설치",
+        "installOllama": "원클릭 설치 및 시작",
         "downloadOllama": "ollama.com에서 다운로드",
         "recheck": "다시 감지",
         "startOllama": "Ollama 시작",
         "installModel": "{{model}} 설치 및 시작"
       },
       "install": {
-        "title": "Ollama 설치 중",
+        "title": "Ollama 원클릭 설치 및 시작 중",
         "cannotCancel": "설치 중에는 취소할 수 없습니다"
       },
       "phases": {

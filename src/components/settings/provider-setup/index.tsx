@@ -3,7 +3,13 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import type { TestResult } from "@/components/settings/TestResultDisplay"
 import { logger } from "@/lib/logger"
-import type { ApiType, ModelConfig, ProviderConfig, ProviderTemplate, ThinkingStyleType } from "./types"
+import type {
+  ApiType,
+  ModelConfig,
+  ProviderConfig,
+  ProviderTemplate,
+  ThinkingStyleType,
+} from "./types"
 import { TemplateGrid } from "./TemplateGrid"
 import { TemplateConfig } from "./TemplateConfig"
 import { CustomWizard } from "./CustomWizard"
@@ -17,6 +23,8 @@ export default function ProviderSetup({
   onCodexAuth,
   onCancel,
   hideRemoteConnect = false,
+  showLocalLlmAssistant = false,
+  onLocalLlmInstalled,
   embedded = false,
 }: {
   onComplete: () => void
@@ -24,6 +32,9 @@ export default function ProviderSetup({
   onCancel?: () => void
   /** Hide the "Connect to remote server" shortcut (onboarding moves it to its own step). */
   hideRemoteConnect?: boolean
+  /** Show the one-click local model assistant inside the provider chooser. */
+  showLocalLlmAssistant?: boolean
+  onLocalLlmInstalled?: () => void
   /**
    * True when rendered inside another wizard (e.g. onboarding) that already
    * owns the window chrome. Suppresses `data-tauri-drag-region` on internal
@@ -157,6 +168,8 @@ export default function ProviderSetup({
         onRemoteConnected={onComplete}
         onCancel={onCancel}
         hideRemoteConnect={hideRemoteConnect}
+        showLocalLlmAssistant={showLocalLlmAssistant}
+        onLocalLlmInstalled={onLocalLlmInstalled}
         configuredProviders={configuredProviders}
       />
     )

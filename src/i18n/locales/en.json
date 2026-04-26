@@ -1907,20 +1907,20 @@
       "showAlternatives": "Other candidates",
       "hideAlternatives": "Hide candidates",
       "hardware": {
-        "macOs": "macOS · {{memory}} GB unified memory · budget ≈ {{budget}} GB",
-        "dgpu": "{{gpu}} · {{vram}} GB VRAM · budget ≈ {{budget}} GB",
-        "ramFallback": "{{memory}} GB RAM · budget ≈ {{budget}} GB",
+        "macOs": "macOS · {{memory}} GB unified memory · 60% budget ≈ {{budget}} GB to avoid overuse!",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · 60% budget ≈ {{budget}} GB to avoid overuse!",
+        "ramFallback": "{{memory}} GB RAM · 60% budget ≈ {{budget}} GB to avoid overuse!",
         "insufficient": "Hardware too modest — keep using a cloud provider for now."
       },
       "buttons": {
-        "installOllama": "Install Ollama",
+        "installOllama": "One-click install & start",
         "downloadOllama": "Download from ollama.com",
         "recheck": "Re-check",
         "startOllama": "Start Ollama",
         "installModel": "Install & launch {{model}}"
       },
       "install": {
-        "title": "Installing Ollama",
+        "title": "One-click installing and starting Ollama",
         "cannotCancel": "Installing — cancellation is unavailable"
       },
       "phases": {

@@ -25,6 +25,7 @@ const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
 const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
 const OLLAMA_PROVIDER_NAME: &str = "Ollama (local)";
+const RECOMMENDATION_BUDGET_PERCENT: u64 = 60;
 /// Hard ceiling on a single NDJSON line during `/api/pull`. Ollama's frames
 /// stay well under 1 KiB; this bound only fires on a malicious or broken
 /// peer that streams without newlines.
@@ -84,8 +85,7 @@ pub fn detect_hardware() -> HardwareInfo {
         (BudgetSource::SystemMemory, s.total_memory_mb)
     };
 
-    // Half the chosen axis, minus a 1 GiB buffer for runtime overhead.
-    let budget_mb = base_mb.saturating_div(2).saturating_sub(1024);
+    let budget_mb = recommendation_budget_mb(base_mb);
 
     HardwareInfo {
         os: s.os.clone(),
@@ -95,6 +95,16 @@ pub fn detect_hardware() -> HardwareInfo {
         budget_source,
         budget_mb,
     }
+}
+
+fn recommendation_budget_mb(base_mb: u64) -> u64 {
+    // Use 60% of the chosen axis, minus a 1 GiB buffer for Ollama runtime and
+    // KV-cache fluctuation. This keeps recommendations useful without letting
+    // a local model crowd out the rest of the desktop.
+    base_mb
+        .saturating_mul(RECOMMENDATION_BUDGET_PERCENT)
+        .saturating_div(100)
+        .saturating_sub(1024)
 }
 
 /// Walk the catalog (descending size) and return the first model that fits
@@ -588,7 +598,7 @@ mod tests {
 
     #[test]
     fn recommends_largest_fitting_model() {
-        // 32 GiB Mac → budget = 32 GiB / 2 - 1 GiB ≈ 15360 MiB.
+        // 32 GiB Mac → budget is capped below qwen3.6:27b in this fixture.
         // gemma4:e4b (9830 MiB) is the largest entry that fits; the next
         // step up (qwen3.6:27b @ 17408) overshoots.
         let rec = recommend_model(&budget_hw(15 * 1024, BudgetSource::UnifiedMemory));
@@ -617,5 +627,10 @@ mod tests {
         assert!(is_local_ollama_url("http://localhost:11434/v1"));
         assert!(is_local_ollama_url("http://ollama.local:11434"));
         assert!(!is_local_ollama_url("https://api.openai.com"));
+    }
+
+    #[test]
+    fn recommendation_budget_uses_sixty_percent_with_buffer() {
+        assert_eq!(recommendation_budget_mb(32 * 1024), 18_636);
     }
 }

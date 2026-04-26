@@ -1907,20 +1907,20 @@
       "showAlternatives": "Diğer adaylar",
       "hideAlternatives": "Adayları gizle",
       "hardware": {
-        "macOs": "macOS · {{memory}} GB birleşik bellek · bütçe ≈ {{budget}} GB",
-        "dgpu": "{{gpu}} · {{vram}} GB VRAM · bütçe ≈ {{budget}} GB",
-        "ramFallback": "{{memory}} GB RAM · bütçe ≈ {{budget}} GB",
+        "macOs": "macOS · {{memory}} GB birleşik bellek · %60 ≈ {{budget}} GB, aşırı kullanımı önler!",
+        "dgpu": "{{gpu}} · {{vram}} GB VRAM · %60 ≈ {{budget}} GB, aşırı kullanımı önler!",
+        "ramFallback": "{{memory}} GB RAM · %60 ≈ {{budget}} GB, aşırı kullanımı önler!",
         "insufficient": "Donanım yetersiz — şimdilik bulut sağlayıcısı kullanın."
       },
       "buttons": {
-        "installOllama": "Ollama'yı Kur",
+        "installOllama": "Tek tıkla kur ve başlat",
         "downloadOllama": "ollama.com'dan indir",
         "recheck": "Yeniden algıla",
         "startOllama": "Ollama'yı Başlat",
         "installModel": "{{model}} kur ve başlat"
       },
       "install": {
-        "title": "Ollama kuruluyor",
+        "title": "Ollama tek tıkla kuruluyor ve başlatılıyor",
         "cannotCancel": "Kurulum sürerken iptal edilemez"
       },
       "phases": {

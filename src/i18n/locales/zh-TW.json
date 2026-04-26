@@ -1907,20 +1907,20 @@
       "showAlternatives": "查看其他候選",
       "hideAlternatives": "收起候選",
       "hardware": {
-        "macOs": "macOS · {{memory}} GB 統一記憶體 · 預算約 {{budget}} GB",
-        "dgpu": "{{gpu}} · {{vram}} GB 顯記憶體 · 預算約 {{budget}} GB",
-        "ramFallback": "{{memory}} GB 記憶體 · 預算約 {{budget}} GB",
+        "macOs": "macOS · {{memory}} GB 統一記憶體 · 按 60% 計算約 {{budget}} GB，避免資源占用過多！",
+        "dgpu": "{{gpu}} · {{vram}} GB 顯記憶體 · 按 60% 計算約 {{budget}} GB，避免資源占用過多！",
+        "ramFallback": "{{memory}} GB 記憶體 · 按 60% 計算約 {{budget}} GB，避免資源占用過多！",
         "insufficient": "機器配置較低，建議繼續使用雲端 Provider"
       },
       "buttons": {
-        "installOllama": "安裝 Ollama",
+        "installOllama": "一鍵安裝啟動",
         "downloadOllama": "前往 ollama.com 下載",
         "recheck": "已安裝，重新偵測",
         "startOllama": "啟動 Ollama",
         "installModel": "安裝並啟用 {{model}}"
       },
       "install": {
-        "title": "正在安裝 Ollama",
+        "title": "正在一鍵安裝啟動 Ollama",
         "cannotCancel": "安裝進行中，暫不支援取消"
       },
       "phases": {

@@ -1907,20 +1907,20 @@
       "showAlternatives": "بدائل أخرى",
       "hideAlternatives": "إخفاء البدائل",
       "hardware": {
-        "macOs": "macOS · {{memory}} غيغابايت ذاكرة موحدة · الميزانية ≈ {{budget}} غيغابايت",
-        "dgpu": "{{gpu}} · {{vram}} غيغابايت VRAM · الميزانية ≈ {{budget}} غيغابايت",
-        "ramFallback": "{{memory}} غيغابايت ذاكرة · الميزانية ≈ {{budget}} غيغابايت",
+        "macOs": "macOS · {{memory}} غيغابايت ذاكرة موحدة · 60% ≈ {{budget}} غيغابايت لتجنب استهلاك زائد!",
+        "dgpu": "{{gpu}} · {{vram}} غيغابايت VRAM · 60% ≈ {{budget}} غيغابايت لتجنب استهلاك زائد!",
+        "ramFallback": "{{memory}} غيغابايت ذاكرة · 60% ≈ {{budget}} غيغابايت لتجنب استهلاك زائد!",
         "insufficient": "العتاد محدود — استخدم مزوّدًا سحابيًا في الوقت الحالي."
       },
       "buttons": {
-        "installOllama": "تثبيت Ollama",
+        "installOllama": "تثبيت وتشغيل بنقرة واحدة",
         "downloadOllama": "التنزيل من ollama.com",
         "recheck": "إعادة الكشف",
         "startOllama": "تشغيل Ollama",
         "installModel": "تثبيت وتشغيل {{model}}"
       },
       "install": {
-        "title": "جارٍ تثبيت Ollama",
+        "title": "جارٍ تثبيت Ollama وتشغيله بنقرة واحدة",
         "cannotCancel": "التثبيت قيد التنفيذ — لا يمكن الإلغاء"
       },
       "phases": {

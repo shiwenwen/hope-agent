@@ -31,7 +31,8 @@ pub struct HardwareInfo {
     pub gpu: Option<GpuInfo>,
     /// Which axis the recommender should use as the budget.
     pub budget_source: BudgetSource,
-    /// Half of the chosen axis, in MiB. Recommendations must fit in here.
+    /// 60% of the chosen axis minus a runtime buffer, in MiB. Recommendations
+    /// must fit in here.
     pub budget_mb: u64,
 }
 
