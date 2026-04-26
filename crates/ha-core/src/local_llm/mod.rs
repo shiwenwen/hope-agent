@@ -14,12 +14,14 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::provider::{ApiType, ModelConfig, ProviderConfig, ThinkingStyle};
+#[cfg(unix)]
 use crate::security::ssrf::{check_url, SsrfPolicy};
 
 pub mod types;
 pub use types::*;
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
+#[cfg(unix)]
 const OLLAMA_INSTALL_URL: &str = "https://ollama.com/install.sh";
 const PROVIDER_SOURCE: &str = "local-llm-wizard";
 const OLLAMA_PROVIDER_NAME: &str = "Ollama (local)";
