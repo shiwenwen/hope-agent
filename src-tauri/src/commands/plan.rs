@@ -1,3 +1,4 @@
+use crate::commands::CmdError;
 use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo};
 use ha_core::app_info;
 use ha_core::ask_user::AskUserQuestionAnswer;
@@ -6,7 +7,7 @@ use ha_core::ask_user::AskUserQuestionAnswer;
 pub async fn get_plan_mode(
     session_id: String,
     app_state: tauri::State<'_, crate::AppState>,
-) -> Result<String, String> {
+) -> Result<String, CmdError> {
     if let Ok(Some(meta)) = app_state.session_db.get_session(&session_id) {
         if meta.plan_mode == "off" {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
@@ -30,7 +31,7 @@ pub async fn set_plan_mode(
     session_id: String,
     state: String,
     app_state: tauri::State<'_, crate::AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     let plan_state = PlanModeState::from_str(&state);
     let is_executing = plan_state == PlanModeState::Executing;
 
@@ -64,20 +65,19 @@ pub async fn set_plan_mode(
     }
     // Persist to DB
     let db = &app_state.session_db;
-    db.update_session_plan_mode(&session_id, &state)
-        .map_err(|e| e.to_string())?;
+    db.update_session_plan_mode(&session_id, &state)?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn get_plan_content(session_id: String) -> Result<Option<String>, String> {
-    plan::load_plan_file(&session_id).map_err(|e| e.to_string())
+pub async fn get_plan_content(session_id: String) -> Result<Option<String>, CmdError> {
+    plan::load_plan_file(&session_id).map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn save_plan_content(session_id: String, content: String) -> Result<(), String> {
+pub async fn save_plan_content(session_id: String, content: String) -> Result<(), CmdError> {
     // Save file
-    plan::save_plan_file(&session_id, &content).map_err(|e| e.to_string())?;
+    plan::save_plan_file(&session_id, &content)?;
     // Parse steps and update in-memory state
     let steps = plan::parse_plan_steps(&content);
     plan::update_plan_steps(&session_id, steps).await;
@@ -88,7 +88,7 @@ pub async fn save_plan_content(session_id: String, content: String) -> Result<()
 pub async fn get_plan_steps(
     session_id: String,
     app_state: tauri::State<'_, crate::AppState>,
-) -> Result<Vec<PlanStep>, String> {
+) -> Result<Vec<PlanStep>, CmdError> {
     if let Ok(Some(session_meta)) = app_state.session_db.get_session(&session_id) {
         if session_meta.plan_mode == "off" {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
@@ -114,7 +114,7 @@ pub async fn update_plan_step_status(
     session_id: String,
     step_index: usize,
     status: String,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     let step_status = PlanStepStatus::from_str(&status);
     plan::update_step_status(&session_id, step_index, step_status, None).await;
 
@@ -163,10 +163,10 @@ pub async fn update_plan_step_status(
 #[tauri::command]
 pub async fn get_pending_ask_user_group(
     session_id: String,
-) -> Result<Option<ha_core::ask_user::AskUserQuestionGroup>, String> {
+) -> Result<Option<ha_core::ask_user::AskUserQuestionGroup>, CmdError> {
     ha_core::ask_user::find_live_pending_group_for_session(&session_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 /// Submit the user's answers to an `ask_user_question` tool call.
@@ -174,38 +174,38 @@ pub async fn get_pending_ask_user_group(
 pub async fn respond_ask_user_question(
     request_id: String,
     answers: Vec<AskUserQuestionAnswer>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     ha_core::ask_user::submit_ask_user_question_response(&request_id, answers)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn get_plan_versions(session_id: String) -> Result<Vec<PlanVersionInfo>, String> {
-    plan::list_plan_versions(&session_id).map_err(|e| e.to_string())
+pub async fn get_plan_versions(session_id: String) -> Result<Vec<PlanVersionInfo>, CmdError> {
+    plan::list_plan_versions(&session_id).map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn load_plan_version_content(file_path: String) -> Result<String, String> {
-    plan::load_plan_version(&file_path).map_err(|e| e.to_string())
+pub async fn load_plan_version_content(file_path: String) -> Result<String, CmdError> {
+    plan::load_plan_version(&file_path).map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn restore_plan_version(session_id: String, file_path: String) -> Result<(), String> {
-    let content = plan::load_plan_version(&file_path).map_err(|e| e.to_string())?;
-    plan::save_plan_file(&session_id, &content).map_err(|e| e.to_string())?;
+pub async fn restore_plan_version(session_id: String, file_path: String) -> Result<(), CmdError> {
+    let content = plan::load_plan_version(&file_path)?;
+    plan::save_plan_file(&session_id, &content)?;
     let steps = plan::parse_plan_steps(&content);
     plan::update_plan_steps(&session_id, steps).await;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn plan_rollback(session_id: String) -> Result<String, String> {
+pub async fn plan_rollback(session_id: String) -> Result<String, CmdError> {
     let checkpoint = plan::get_checkpoint_ref(&session_id)
         .await
-        .ok_or_else(|| "No git checkpoint found for this plan execution".to_string())?;
+        .ok_or_else(|| CmdError::msg("No git checkpoint found for this plan execution"))?;
 
-    let msg = plan::rollback_to_checkpoint(&checkpoint).map_err(|e| e.to_string())?;
+    let msg = plan::rollback_to_checkpoint(&checkpoint)?;
 
     // Clear checkpoint ref after rollback
     let mut map = plan::store().write().await;
@@ -217,12 +217,12 @@ pub async fn plan_rollback(session_id: String) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn get_plan_checkpoint(session_id: String) -> Result<Option<String>, String> {
+pub async fn get_plan_checkpoint(session_id: String) -> Result<Option<String>, CmdError> {
     Ok(plan::get_checkpoint_ref(&session_id).await)
 }
 
 #[tauri::command]
-pub async fn get_plan_file_path(session_id: String) -> Result<Option<String>, String> {
+pub async fn get_plan_file_path(session_id: String) -> Result<Option<String>, CmdError> {
     if let Some(meta) = plan::get_plan_meta(&session_id).await {
         if !meta.file_path.is_empty() {
             return Ok(Some(meta.file_path));
@@ -232,7 +232,7 @@ pub async fn get_plan_file_path(session_id: String) -> Result<Option<String>, St
 }
 
 #[tauri::command]
-pub async fn cancel_plan_subagent(session_id: String) -> Result<(), String> {
+pub async fn cancel_plan_subagent(session_id: String) -> Result<(), CmdError> {
     if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
         if let Some(cancels) = crate::get_subagent_cancels() {
             cancels.cancel(&run_id);
@@ -244,7 +244,7 @@ pub async fn cancel_plan_subagent(session_id: String) -> Result<(), String> {
             );
             Ok(())
         } else {
-            Err("Cancel registry not initialized".to_string())
+            Err(CmdError::msg("Cancel registry not initialized"))
         }
     } else {
         Ok(()) // No active plan sub-agent — nothing to cancel

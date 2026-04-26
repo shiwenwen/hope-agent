@@ -6,19 +6,49 @@
  * standalone web app (HTTP / WebSocket).
  */
 
-import type { MediaItem } from "@/types/chat";
+import type { MediaItem, ToolPermissionMode } from "@/types/chat";
 
-/** A handle returned by `openChatStream` to control the stream lifetime. */
-export interface ChatStream {
-  /** Close the stream and release resources. */
-  close(): void;
+/**
+ * One entry in `ChatStartArgs.attachments`. Snake-case fields are the
+ * wire form — both Tauri IPC and `POST /api/chat` serialize this object
+ * as-is. `data` and `file_path` are mutually-exclusive: inline images
+ * carry base64 in `data`; everything else is persisted to disk and
+ * referenced by absolute `file_path`.
+ */
+export interface ChatAttachment {
+  name: string;
+  mime_type: string;
+  data?: string;
+  file_path?: string;
+}
+
+/**
+ * Args accepted by {@link Transport.startChat}. Mirrors the parameters of
+ * the Tauri `chat` command and the `POST /api/chat` body.
+ */
+export interface ChatStartArgs {
+  message: string;
+  attachments: ReadonlyArray<ChatAttachment>;
+  sessionId: string | null;
+  incognito?: boolean;
+  modelOverride?: string;
+  agentId?: string;
+  toolPermissionMode?: ToolPermissionMode;
+  planMode?: string;
+  temperatureOverride?: number;
+  displayText?: string;
+  workingDir?: string | null;
+  // Tauri's invoke serializes extra unknown fields without complaint, and
+  // HTTP's POST body is plain JSON — keep this open so HTTP impl can
+  // pass-through without an unsafe `as Record<string, unknown>` cast.
+  [key: string]: unknown;
 }
 
 /**
  * Transport defines the three communication primitives the app needs:
  *
  * 1. `call` – request/response (command invocation)
- * 2. `openChatStream` – streaming chat events for a session
+ * 2. `startChat` – run a chat turn and stream events for it
  * 3. `listen` – subscribe to backend-pushed events
  */
 export interface Transport {
@@ -40,16 +70,18 @@ export interface Transport {
   prepareFileData(buffer: ArrayBuffer, mimeType: string): Blob | number[];
 
   /**
-   * Open a streaming channel for chat events.
+   * Run a chat turn and stream its events. Resolves with the final
+   * assistant response text once the turn completes.
    *
-   * @param sessionId - The session to stream (may be `null` for new sessions).
-   * @param onEvent   - Called for every streamed event (raw JSON string).
-   * @returns A `ChatStream` handle; call `.close()` to terminate.
+   * - Tauri mode: opens a `Channel<string>` internally and forwards each
+   *   delta to `onEvent`.
+   * - HTTP mode: stream deltas arrive via the global EventBus path
+   *   (`/ws/events` → `chat:stream_delta`, consumed by
+   *   `useChatStreamReattach`). `onEvent` is invoked only for a
+   *   synthesized `session_created` event so callers' `__pending__` cache
+   *   gets renamed in place.
    */
-  openChatStream(
-    sessionId: string | null,
-    onEvent: (event: string) => void,
-  ): ChatStream;
+  startChat(args: ChatStartArgs, onEvent: (event: string) => void): Promise<string>;
 
   /**
    * Subscribe to a named backend event.

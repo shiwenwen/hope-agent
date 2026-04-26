@@ -14,11 +14,13 @@
 import { parseMentions } from "./mentionTokens";
 import { joinAbs } from "./types";
 import { logger } from "@/lib/logger";
+import type { ChatAttachment } from "@/lib/transport";
 
-export interface MentionAttachment {
-  name: string;
-  mime_type: string;
-  /** Absolute file path on the server / desktop. */
+/**
+ * Mention-derived attachment. Always carries an absolute `file_path`
+ * (mentions never inline base64 the way pasted images do).
+ */
+export interface MentionAttachment extends ChatAttachment {
   file_path: string;
 }
 

@@ -1,3 +1,4 @@
+use crate::commands::CmdError;
 use crate::AppState;
 use ha_core::team;
 use tauri::State;
@@ -6,17 +7,14 @@ use tauri::State;
 pub async fn list_teams(
     session_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<Vec<team::Team>, String> {
+) -> Result<Vec<team::Team>, CmdError> {
     if let Some(sid) = session_id {
         state
             .session_db
             .list_teams_by_session(&sid)
-            .map_err(|e| e.to_string())
+            .map_err(Into::into)
     } else {
-        state
-            .session_db
-            .list_active_teams()
-            .map_err(|e| e.to_string())
+        state.session_db.list_active_teams().map_err(Into::into)
     }
 }
 
@@ -24,22 +22,19 @@ pub async fn list_teams(
 pub async fn get_team(
     team_id: String,
     state: State<'_, AppState>,
-) -> Result<Option<team::Team>, String> {
-    state
-        .session_db
-        .get_team(&team_id)
-        .map_err(|e| e.to_string())
+) -> Result<Option<team::Team>, CmdError> {
+    state.session_db.get_team(&team_id).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_team_members(
     team_id: String,
     state: State<'_, AppState>,
-) -> Result<Vec<team::TeamMember>, String> {
+) -> Result<Vec<team::TeamMember>, CmdError> {
     state
         .session_db
         .list_team_members(&team_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -47,11 +42,11 @@ pub async fn get_team_messages(
     team_id: String,
     limit: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<(Vec<team::TeamMessage>, bool), String> {
+) -> Result<(Vec<team::TeamMessage>, bool), CmdError> {
     state
         .session_db
         .list_team_messages_latest(&team_id, limit.unwrap_or(50))
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -61,7 +56,7 @@ pub async fn get_team_messages_before(
     before_message_id: String,
     limit: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<(Vec<team::TeamMessage>, bool), String> {
+) -> Result<(Vec<team::TeamMessage>, bool), CmdError> {
     state
         .session_db
         .list_team_messages_before(
@@ -70,18 +65,18 @@ pub async fn get_team_messages_before(
             &before_message_id,
             limit.unwrap_or(50),
         )
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn get_team_tasks(
     team_id: String,
     state: State<'_, AppState>,
-) -> Result<Vec<team::TeamTask>, String> {
+) -> Result<Vec<team::TeamTask>, CmdError> {
     state
         .session_db
         .list_team_tasks(&team_id)
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -90,7 +85,7 @@ pub async fn send_user_team_message(
     to: Option<String>,
     content: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     team::messaging::send_message(
         &state.session_db,
         &team_id,
@@ -98,15 +93,14 @@ pub async fn send_user_team_message(
         to.as_deref(),
         &content,
         team::TeamMessageType::Chat,
-    )
-    .map_err(|e| e.to_string())?;
+    )?;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn list_team_templates(
     state: State<'_, AppState>,
-) -> Result<Vec<team::TeamTemplate>, String> {
+) -> Result<Vec<team::TeamTemplate>, CmdError> {
     Ok(team::templates::all_templates(&state.session_db))
 }
 
@@ -119,7 +113,7 @@ pub async fn create_team(
     members: Vec<team::CreateTeamMemberSpec>,
     template: Option<String>,
     state: State<'_, AppState>,
-) -> Result<team::Team, String> {
+) -> Result<team::Team, CmdError> {
     let (member_specs, resolved_template_id) = if !members.is_empty() {
         (members, template.clone())
     } else if let Some(ref tpl_name) = template {
@@ -127,7 +121,7 @@ pub async fn create_team(
         let tpl = templates
             .iter()
             .find(|t| t.template_id == *tpl_name || t.name.eq_ignore_ascii_case(tpl_name))
-            .ok_or_else(|| format!("Template '{}' not found", tpl_name))?;
+            .ok_or_else(|| CmdError::msg(format!("Template '{}' not found", tpl_name)))?;
         let specs = tpl
             .members
             .iter()
@@ -148,7 +142,7 @@ pub async fn create_team(
             .collect();
         (specs, Some(tpl.template_id.clone()))
     } else {
-        return Err("Either 'members' or 'template' is required".to_string());
+        return Err(CmdError::msg("Either 'members' or 'template' is required"));
     };
 
     team::coordinator::create_team(
@@ -162,38 +156,38 @@ pub async fn create_team(
         None,
     )
     .await
-    .map_err(|e| e.to_string())
+    .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn save_team_template(
     template: team::TeamTemplate,
     state: State<'_, AppState>,
-) -> Result<team::TeamTemplate, String> {
-    team::templates::save_template(&state.session_db, template).map_err(|e| e.to_string())
+) -> Result<team::TeamTemplate, CmdError> {
+    team::templates::save_template(&state.session_db, template).map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn delete_team_template(
     template_id: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
-    team::templates::delete_template(&state.session_db, &template_id).map_err(|e| e.to_string())
+) -> Result<(), CmdError> {
+    team::templates::delete_template(&state.session_db, &template_id).map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn pause_team(team_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    team::coordinator::pause_team(&state.session_db, &team_id).map_err(|e| e.to_string())
+pub async fn pause_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
+    team::coordinator::pause_team(&state.session_db, &team_id).map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn resume_team(team_id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn resume_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     team::coordinator::resume_team(&state.session_db, &team_id)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(Into::into)
 }
 
 #[tauri::command]
-pub async fn dissolve_team(team_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    team::coordinator::dissolve_team(&state.session_db, &team_id).map_err(|e| e.to_string())
+pub async fn dissolve_team(team_id: String, state: State<'_, AppState>) -> Result<(), CmdError> {
+    team::coordinator::dissolve_team(&state.session_db, &team_id).map_err(Into::into)
 }

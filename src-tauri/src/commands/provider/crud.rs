@@ -1,3 +1,4 @@
+use crate::commands::CmdError;
 use crate::provider::{self, ProviderConfig};
 use crate::AppState;
 use tauri::State;
@@ -5,7 +6,7 @@ use tauri::State;
 // ── Provider Management Commands ──────────────────────────────────
 
 #[tauri::command]
-pub async fn get_providers(_state: State<'_, AppState>) -> Result<Vec<ProviderConfig>, String> {
+pub async fn get_providers(_state: State<'_, AppState>) -> Result<Vec<ProviderConfig>, CmdError> {
     Ok(ha_core::config::cached_config().providers.clone())
 }
 
@@ -13,7 +14,7 @@ pub async fn get_providers(_state: State<'_, AppState>) -> Result<Vec<ProviderCo
 pub async fn add_provider(
     config: ProviderConfig,
     _state: State<'_, AppState>,
-) -> Result<ProviderConfig, String> {
+) -> Result<ProviderConfig, CmdError> {
     let new_provider = ProviderConfig::new(
         config.name,
         config.api_type,
@@ -31,8 +32,7 @@ pub async fn add_provider(
     ha_core::config::mutate_config(("providers.add", "ui"), |store| {
         store.providers.push(provider_with_models);
         Ok(())
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
     Ok(masked)
 }
 
@@ -40,7 +40,7 @@ pub async fn add_provider(
 pub async fn update_provider(
     config: ProviderConfig,
     _state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("providers.update", "ui"), |store| {
         let Some(existing) = store.providers.iter_mut().find(|p| p.id == config.id) else {
             return Err(anyhow::anyhow!("Provider not found: {}", config.id));
@@ -62,14 +62,14 @@ pub async fn update_provider(
         existing.allow_private_network = config.allow_private_network;
         Ok(())
     })
-    .map_err(|e| e.to_string())
+    .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn reorder_providers(
     provider_ids: Vec<String>,
     _state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("providers.reorder", "ui"), |store| {
         let mut reordered = Vec::with_capacity(provider_ids.len());
         for id in &provider_ids {
@@ -86,14 +86,14 @@ pub async fn reorder_providers(
         store.providers = reordered;
         Ok(())
     })
-    .map_err(|e| e.to_string())
+    .map_err(Into::into)
 }
 
 #[tauri::command]
 pub async fn delete_provider(
     provider_id: String,
     state: State<'_, AppState>,
-) -> Result<(), String> {
+) -> Result<(), CmdError> {
     // Capture whether the active agent needs to be torn down, then persist.
     let active_was_removed = ha_core::config::mutate_config(("providers.delete", "ui"), |store| {
         let len_before = store.providers.len();
@@ -110,8 +110,7 @@ pub async fn delete_provider(
             store.active_model = None;
         }
         Ok(removed_active)
-    })
-    .map_err(|e| e.to_string())?;
+    })?;
 
     if active_was_removed {
         *state.agent.lock().await = None;
@@ -120,6 +119,6 @@ pub async fn delete_provider(
 }
 
 #[tauri::command]
-pub async fn has_providers(_state: State<'_, AppState>) -> Result<bool, String> {
+pub async fn has_providers(_state: State<'_, AppState>) -> Result<bool, CmdError> {
     Ok(!ha_core::config::cached_config().providers.is_empty())
 }

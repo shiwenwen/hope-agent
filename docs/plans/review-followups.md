@@ -30,22 +30,6 @@
 
 ## Open
 
-### F-001 Tauri 命令错误类型未统一
-
-- **来源**：2026-04-26 本地小模型助手 `/simplify` review
-- **现象**：所有 Tauri 命令返回 `Result<T, String>`，每条命令尾巴都重复一行 `.map_err(|e| e.to_string())` 把 `anyhow::Error` 降成 `String`。`#[tauri::command]` 要求返回值实现 `Serialize`，`anyhow::Error` 不实现，所以不能直接 `?`。
-- **为什么留**：ha-server 那边已经有等价的 [`AppError`](../../crates/ha-server/src/error.rs) + `impl<E> From<E> for AppError where E: Into<anyhow::Error>` 让 `?` 直接 work；Tauri 这边没有，统一要动几百条命令的签名 + `invoke_handler!` 注册。属于独立"统一错误类型"重构 PR 的范畴，本期不在 scope。
-- **改的话要做什么**：
-  1. 在 [`src-tauri/src/commands/mod.rs`](../../src-tauri/src/commands/mod.rs) 引入 `pub struct CmdError(pub String);`
-  2. 给 `CmdError` 加 `impl<E> From<E> for CmdError where E: Into<anyhow::Error>`
-  3. 给 `CmdError` 加 `impl Serialize`（serialize 成纯字符串，与 `Result<T, String>` 在 IPC wire 上等价，前端零迁移）
-  4. 把 [`src-tauri/src/lib.rs`](../../src-tauri/src/lib.rs) 注册的所有命令的返回类型从 `Result<T, String>` 换成 `Result<T, CmdError>`
-  5. 删掉所有 `.map_err(|e| e.to_string())`、`.map_err(|e| format!("..."))`，改用 `?`
-- **影响面**：纯代码整洁度，无功能 bug、无性能影响。
-- **触发时机建议**："Tauri 命令错误类型统一" 独立 PR；或当某条命令需要返回结构化错误（带 code / category）时连带做。
-
----
-
 ### F-002 Provider 写入路径未单一化（add_provider 缺 upsert 语义）
 
 - **来源**：2026-04-26 本地小模型助手 `/simplify` review
@@ -156,8 +140,99 @@
 
 ---
 
+### F-009 EventBus 桥接闭包样板在 4 处重复
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **现象**：把 ha-core 长任务的 progress callback 桥接到 EventBus 的样板（"取 bus → 闭包 emit"）目前在 4 处复制：
+  - [`crates/ha-server/src/routes/local_llm.rs::install_ollama`](../../crates/ha-server/src/routes/local_llm.rs) + `pull`
+  - [`crates/ha-server/src/routes/searxng.rs::deploy`](../../crates/ha-server/src/routes/searxng.rs)
+  - [`src-tauri/src/commands/local_llm.rs::local_llm_install_ollama`](../../src-tauri/src/commands/local_llm.rs) + `local_llm_pull_and_activate`
+  - [`src-tauri/src/commands/docker.rs::searxng_docker_deploy`](../../src-tauri/src/commands/docker.rs)
+- **为什么留**：跨 ha-server / src-tauri 两个 crate 抽 helper 涉及 trait 设计选择（free function vs `EventBus` trait method 默认实现）；本期 PR 的 scope 只是"消除前端裸 Channel"，再展开会扩大 diff。
+- **改的话要做什么**：在 [`crates/ha-core/src/event_bus.rs`](../../crates/ha-core/src/event_bus.rs) 给 `EventBus` trait 加默认方法 `fn emit_progress<T: Serialize>(&self, name: &str) -> impl Fn(&T) + Send + Sync` 返回桥接闭包；4 个调用点都改成 `bus.emit_progress(EVENT_*_PROGRESS)`，省掉 `move |p| bus.emit(NAME, json!(p))` 一行。
+- **影响面**：纯整洁度，0 行为变化。
+- **触发时机建议**：下次新增第 5 个 long-running command（例如 model fine-tune progress）时顺势抽；或独立 "EventBus helper" 小 PR。
+
+---
+
+### F-010 HTTP `startChat` 用合成 `session_created` 事件 vs 显式 return shape 的取舍
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **现象**：[`src/lib/transport-http.ts::startChat`](../../src/lib/transport-http.ts) 在 HTTP 模式下，POST `/api/chat` 返回后**手动合成**一个 `{type:"session_created", session_id:...}` 事件喂给 `onEvent` 回调，目的是让 [`useChatStream.ts`](../../src/components/chat/hooks/useChatStream.ts) 内部 `__pending__` cache key 替换逻辑统一走 onEvent 分支。语义上接口"看起来 generic"但 HTTP 实现行为隐式特化，签名留下"似 stream 实非 stream"的疑义。**还要顺便核实** [`crates/ha-server/src/ws/chat_stream.rs`](../../crates/ha-server/src/ws/chat_stream.rs) 的 `/ws/chat/{session_id}` 路由：前端 `openChatStream` 已删，server 端 `WsSink` 仍 broadcast 到这个路由，可能成为死路径——若 reattach `/ws/events` 能完整覆盖，可一并清理。
+- **为什么留**：换成"显式 return `{sessionId, response}` 让调用方自己改 cache"会把 transport 抽象的好处折损（hook 要自己 if (isHttp) 分支）；当前文档已显式说明 HTTP 模式仅合成 `session_created`，合约是诚实的。死路径核实涉及 axum router 注册顺序梳理，独立小工作。
+- **改的话要做什么**：(a) 评估是否换成"`startChat` 直接 return `ChatResponse`，cache rename 由 hook 自己做"。(b) 验证 `/ws/chat/{id}` 路由的所有消费者是否都已切到 `/ws/events`，无消费者则删 [`ws/chat_stream.rs`](../../crates/ha-server/src/ws/chat_stream.rs) + lib.rs 路由注册。
+- **影响面**：当前无 bug，无性能差异；属于架构清晰度问题。
+- **触发时机建议**：HTTP `startChat` 出现第二种"必须前置交付"的事件（例如 chat 命令同步阶段 error）时回头重设计；或独立 "chat stream 路径清理" PR。
+
+---
+
+### F-011 短期 EventBus 订阅 + `try/finally off()` 模式应抽 `withEventListener` helper
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **现象**：前端"调用一次长任务前订阅 EventBus、调用结束后取消订阅"的模式现在有 3 处：
+  - [`src/components/settings/web-search-panel/SearxngDocker.tsx::handleDeploy`](../../src/components/settings/web-search-panel/SearxngDocker.tsx)（本期新增）
+  - [`src/components/settings/local-llm/LocalLlmAssistantCard.tsx`](../../src/components/settings/local-llm/LocalLlmAssistantCard.tsx) install + pull 两处
+- **为什么留**：3 处刚好是抽 helper 的拐点（再多一处就该抽了），但 3 处之间订阅事件名 / handler 形态都不一样，抽完每个调用点节省也只有 2 行，性价比不高。本期不抽。
+- **改的话要做什么**：在 [`src/lib/transport.ts`](../../src/lib/transport.ts) 加：
+  ```ts
+  export async function withEventListener<T>(
+    eventName: string,
+    handler: (payload: unknown) => void,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const off = getTransport().listen(eventName, handler);
+    try { return await fn(); } finally { off(); }
+  }
+  ```
+  3 处调用点改成单层调用。
+- **影响面**：纯整洁度。
+- **触发时机建议**：再新增一处同模式时顺手抽；或与 F-009 一起做"event helpers" 小 PR。
+
+---
+
+### F-012 `useChatStream.ts::onEvent` 嵌套 try/catch + 多重 if 应 flatten
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **现象**：[`useChatStream.ts:307-359`](../../src/components/chat/hooks/useChatStream.ts) 的 `onEvent` 闭包内部 try/catch 包嵌套 `event.type === "session_created" && event.session_id` 早返回 + `streamId && endedStreamIdsRef.current.get(sid) === streamId` 早返回 + `_oc_seq` dedup + `handleStreamEvent(...)` dispatch + catch 兜底文本拼接，单函数 ~50 行。
+- **为什么留**：本期 PR 主题是"切换调用方 API"，没动 onEvent 内部逻辑；按 AGENTS.md "review 决定不改的清理登记到 followups"。
+- **改的话要做什么**：拆成几个 named handler：`handleSessionCreated`、`handleStreamDelta`、`fallbackTextAppend`，主 `onEvent` 退化为 `try { dispatch(JSON.parse(raw)) } catch { fallbackTextAppend(raw) }`。
+- **影响面**：纯可读性。
+- **触发时机建议**：下次有人为了别的事真要动这段逻辑时顺手收掉。
+
+---
+
+### F-013 EventBus 事件名常量散落，应有 events 常量模块
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **现象**：EventBus 事件名当前混合两种风格：
+  - **常量**：[`crates/ha-core/src/chat_engine/stream_broadcast.rs::EVENT_CHAT_STREAM_DELTA`](../../crates/ha-core/src/chat_engine/stream_broadcast.rs)、本期新增 [`crates/ha-core/src/docker/mod.rs::EVENT_SEARXNG_DEPLOY_PROGRESS`](../../crates/ha-core/src/docker/mod.rs)
+  - **字面量**：`local_llm:install_progress` / `local_llm:pull_progress`（在 4 处出现）；前端 [`useChatStreamReattach.ts:17`](../../src/components/chat/hooks/useChatStreamReattach.ts) 重新声明的 `EVENT_CHAT_STREAM_DELTA` 与 ha-core 常量值各自维护
+- **为什么留**：跨前端（TS）/ 后端（Rust）同步常量需要 codegen 或 wire-format 文档约定，引入新约束。本期把刚碰到的 searxng 升成常量已经是最低成本的"按碰到逐步收"。
+- **改的话要做什么**：候选方案：
+  - **A**：每个子系统在自己 mod 顶部定义 `pub const EVENT_*: &str = "..."`（已经 chat / searxng 在做）；前端继续维护独立常量但加注释指向 Rust 同名定义。Rust 端集中调用，前端只 listen 时用一次，漂移风险低
+  - **B**：用 `build.rs` 生成 TS const 文件，从 Rust 单一来源。需要新增 build pipeline 复杂度
+- **影响面**：纯整洁度。事件名漂移会被 watchdog 测试快速发现（事件不到达 → UI 不更新），是 "fail loud" 类型的 bug。
+- **触发时机建议**：等再积累 2-3 个新事件名（看 local_llm 之外）时一次性把所有 `local_llm:*` / 其它字面量升成常量；不必单独立 PR。
+
+---
+
+### F-014 `docs/architecture/` 缺中心化 transport mode 文档
+
+- **来源**：2026-04-26 `transport-streaming-unify` `/simplify` review
+- **现象**：[`useChatStreamReattach.ts:55-66`](../../src/components/chat/hooks/useChatStreamReattach.ts) 的 docstring 是仓库**首次**正式文字化"Tauri 模式 vs HTTP 模式行为差异"。其它地方对 transport 模式的判断散落在 [`isTauriMode()`](../../src/lib/transport.ts) 调用点 + 两个 transport adapter 实现 + `transport-provider.ts` 选 adapter 逻辑，没有架构级综述。新人接手或调试 transport 相关 bug 必须读多个源才能拼出全图。
+- **为什么留**：架构文档需要先把"打算保留的" vs "打算简化掉的"区分清楚（参见 F-010 关于 `/ws/chat/{id}` 死路径），再写权威文档；现在写容易立刻过时。
+- **改的话要做什么**：在 [`docs/architecture/`](../README.md) 新建 `transport-modes.md`，覆盖：(a) 三种运行模式的事件流向图；(b) 每个 Transport 方法在两种模式下的实现路径；(c) `chat:stream_delta` 双写架构 + reattach 角色（Tauri 兜底 vs HTTP 主路径）；(d) 列出所有 EventBus 事件名 + 用途；(e) 决策记录 "为什么 startChat 不是 streamCall 通用原语"。回填到 `docs/README.md` 索引。
+- **影响面**：纯文档债。无功能影响。
+- **触发时机建议**：F-010 决策落地（startChat 合约 / `/ws/chat/{id}` 死路径处置）后再写，避免文档与代码不同步。
+
+---
+
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
 
-_(暂无)_
+### F-001 Tauri 命令错误类型未统一
+
+- **来源**：2026-04-26 本地小模型助手 `/simplify` review
+- **关闭**：2026-04-26 / branch `worktree-tauri-cmd-error-unify`
+- **修复方式**：新增 [`src-tauri/src/commands/error.rs`](../../src-tauri/src/commands/error.rs) 定义 `CmdError(pub String)`，挂 `impl<E: Into<anyhow::Error>> From<E>` + `impl Serialize`（输出纯字符串，IPC wire 与原 `Result<T, String>` 等价）；把 `src-tauri/src/commands/` 下 31 个文件的命令签名统一改成 `Result<T, CmdError>`，291 处 `.map_err(|e| e.to_string())?` 删成 `?`，剩余 `.map_err(|e| format!(...))` 改为 `CmdError::msg(format!(...))`，`Err("..".to_string())` / `.ok_or_else(|| "..".to_string())` 等串字面量误差类全部走 `CmdError::msg(..)`。`tauri_wrappers.rs` 不属于"命令尾巴 boilerplate"范畴，保持 `Result<T, String>` 不动。前端零变化。

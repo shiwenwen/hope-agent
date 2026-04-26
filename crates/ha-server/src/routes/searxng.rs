@@ -4,25 +4,34 @@
 //! deploy progress tracking, lifecycle) lives in ha-core so these handlers
 //! stay under ~15 lines each.
 
+use std::sync::Arc;
+
+use axum::extract::State;
 use axum::Json;
 use serde_json::{json, Value};
 
 use crate::error::AppError;
+use crate::AppContext;
 
 /// `GET /api/searxng/status` — combined Docker + SearXNG container status.
 pub async fn status() -> Result<Json<ha_core::docker::SearxngDockerStatus>, AppError> {
     Ok(Json(ha_core::docker::status().await))
 }
 
-/// `POST /api/searxng/deploy` — deploy the SearXNG container, blocking until
-/// the deploy completes. Progress messages are dropped on the floor in
-/// server mode (the desktop shell forwards them to a `Channel<String>`; the
-/// equivalent for HTTP would be a WebSocket which we can add later if the
-/// UI needs live deploy logs over the network).
-pub async fn deploy() -> Result<Json<Value>, AppError> {
-    let url = ha_core::docker::deploy(|_line| {})
-        .await
-        .map_err(|e| AppError::internal(e.to_string()))?;
+/// `POST /api/searxng/deploy` — deploy the SearXNG container, blocking
+/// until the deploy completes. Progress is emitted to the shared
+/// `EventBus` under [`ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS`];
+/// browsers receive the stream via `/ws/events`.
+pub async fn deploy(State(ctx): State<Arc<AppContext>>) -> Result<Json<Value>, AppError> {
+    let bus = ctx.event_bus.clone();
+    let url = ha_core::docker::deploy(move |progress| {
+        bus.emit(
+            ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS,
+            json!(progress),
+        );
+    })
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true, "url": url })))
 }
 

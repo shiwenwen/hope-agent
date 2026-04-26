@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import { Channel } from "@tauri-apps/api/core"
+import { parsePayload } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
@@ -112,28 +112,19 @@ export function SearxngDockerSection({
     setDeployStep(null)
     setDeployLogs([])
     setError(null)
+    const off = getTransport().listen("searxng:deploy_progress", (raw) => {
+      const parsed = parsePayload<{ step?: string; log?: string }>(raw)
+      if (parsed.step) setDeployStep(parsed.step)
+      if (parsed.log) setDeployLogs((prev) => [...prev.slice(-50), parsed.log!])
+    })
     try {
-      const channel = new Channel<string>()
-      channel.onmessage = (msg) => {
-        try {
-          const parsed = JSON.parse(msg)
-          if (parsed.step) {
-            setDeployStep(parsed.step)
-          }
-          if (parsed.log) {
-            setDeployLogs((prev) => [...prev.slice(-50), parsed.log])
-          }
-        } catch {
-          // Legacy: plain step string
-          setDeployStep(msg)
-        }
-      }
-      const url = await getTransport().call<string>("searxng_docker_deploy", { channel })
+      const url = await getTransport().call<string>("searxng_docker_deploy")
       onUrlSet(url)
       await refreshStatus()
     } catch (e) {
       setError(String(e))
     } finally {
+      off()
       setDeploying(false)
       setDeployStep(null)
     }
