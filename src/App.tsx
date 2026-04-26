@@ -42,6 +42,7 @@ export default function App() {
     | "skills"
     | "profile"
     | "agents"
+    | "modelConfig"
     | "channels"
     | "calendar"
     | "dashboard"
@@ -313,6 +314,7 @@ export default function App() {
                   setAgentIdForSettings(undefined)
                   setView("agents")
                 }}
+                onOpenModelConfig={() => setView("modelConfig")}
                 onOpenSkills={() => setView("skills")}
                 onOpenChannels={() => setView("channels")}
                 onOpenProfile={() => {
@@ -360,6 +362,14 @@ export default function App() {
                   onCodexReauth={handleCodexAuth}
                   initialSection="agents"
                   initialAgentId={agentIdForSettings}
+                />
+              )}
+              {view === "modelConfig" && (
+                <SettingsView
+                  onBack={() => setView("chat")}
+                  onCodexAuth={handleCodexAuth}
+                  onCodexReauth={handleCodexAuth}
+                  initialSection="modelConfig"
                 />
               )}
               {view === "channels" && (

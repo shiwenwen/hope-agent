@@ -23,6 +23,7 @@ import {
   MessageCircle,
   CalendarDays,
   BarChart3,
+  Server,
   Sun,
   Moon,
   SunMoon,
@@ -34,10 +35,20 @@ import { useTheme } from "@/hooks/useTheme"
 import { SUPPORTED_LANGUAGES, isFollowingSystem, setFollowSystemLanguage, setLanguage } from "@/i18n/i18n"
 
 interface IconSidebarProps {
-  view: "chat" | "settings" | "skills" | "profile" | "agents" | "channels" | "calendar" | "dashboard"
+  view:
+    | "chat"
+    | "settings"
+    | "skills"
+    | "profile"
+    | "agents"
+    | "modelConfig"
+    | "channels"
+    | "calendar"
+    | "dashboard"
   onOpenSettings: (section?: SettingsSection) => void
   onOpenChat: () => void
   onOpenAgents: () => void
+  onOpenModelConfig: () => void
   onOpenChannels: () => void
   onOpenSkills: () => void
   onOpenProfile: () => void
@@ -53,6 +64,7 @@ export default function IconSidebar({
   onOpenSettings,
   onOpenChat,
   onOpenAgents,
+  onOpenModelConfig,
   onOpenChannels,
   onOpenSkills,
   onOpenProfile,
@@ -143,6 +155,25 @@ export default function IconSidebar({
               onClick={onOpenAgents}
             >
               <Bot className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        </div>
+
+        {/* Model configuration entry */}
+        <div className="w-full flex justify-center mt-1">
+          <IconTip label={t("settings.modelConfig")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "modelConfig"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={onOpenModelConfig}
+            >
+              <Server className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>
