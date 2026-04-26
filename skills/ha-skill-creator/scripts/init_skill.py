@@ -25,16 +25,17 @@ from pathlib import Path
 
 MAX_SKILL_NAME_LENGTH = 64
 ALLOWED_RESOURCES = {"scripts", "references", "assets"}
-ALLOWED_INSTALL_KINDS = {"brew", "node", "go", "uv", "download"}
+ALLOWED_INSTALL_KINDS = {"brew", "node", "go", "uv"}
 ALLOWED_CONTEXTS = {"fork", "inline"}
 
 SKILL_TEMPLATE = """---
 name: {skill_name}
-# Short "what it is" (what the skill does). Keep <= 80 chars if possible.
-description: "TODO one-sentence summary of what this skill does"
-# Optional: trigger hint rendered AFTER description in the catalog. Keep
-# `description` terse and put "use when X / user mentions Y" here.
-whenToUse: "TODO concrete trigger — e.g. user asks about PR review or CI status"
+# Primary discovery field. Include both what it does and when to use it.
+description: "TODO one-sentence summary of what this skill does and when to use it"
+# Optional Claude/Hope trigger hint rendered AFTER description in the catalog.
+# Keep the most important trigger words in `description` too for OpenAI/Codex
+# and AgentSkills portability.
+when_to_use: "TODO concrete trigger — e.g. user asks about PR review or CI status"
 
 # Extra slash-command names. Canonical name comes from `name:` above;
 # these add additional entry points. Remove this line for most skills.
@@ -49,7 +50,7 @@ whenToUse: "TODO concrete trigger — e.g. user asks about PR review or CI statu
 #   env: [MY_API_TOKEN]   # env vars that must be set and non-empty
 #   os: [darwin, linux]   # restrict platforms
 #   config: [webSearch.provider]  # AppConfig paths that must be truthy
-# always: false           # true = skip prerequisite checks entirely
+# always: false           # true = skip prerequisite checks; not locked/unclosable
 # primaryEnv: MY_API_TOKEN  # env var satisfied by the provider apiKey
 
 {invocation_block}{execution_block}{install_block}
@@ -65,7 +66,7 @@ right tool vs ad-hoc exec/read. Be concrete.]
 ## When to Use
 
 [TODO: Plain-English trigger list — the model reads this when deciding
-whether to activate. Mirror the frontmatter `whenToUse` and expand with
+whether to activate. Mirror the frontmatter `when_to_use` and expand with
 examples.]
 
 ## Workflow
@@ -207,7 +208,7 @@ def build_invocation_block(user_invocable: bool) -> str:
         "# the slash menu (model activation still works).\n"
         "user-invocable: true\n"
         "# Optional: hint shown next to the / command in the UI.\n"
-        "# argumentHint: \"<query>\"\n"
+        "# argument-hint: \"<query>\"\n"
     )
 
 
@@ -250,8 +251,6 @@ def build_install_block(kinds: list[str]) -> str:
             stubs.append("  - kind: go\n    module: github.com/TODO/tool@latest")
         elif kind == "uv":
             stubs.append("  - kind: uv\n    package: TODO")
-        elif kind == "download":
-            stubs.append("  - kind: download\n    # TODO: configure download spec")
     return "\n".join(stubs) + "\n"
 
 
@@ -361,7 +360,7 @@ def main() -> None:
     parser.add_argument(
         "--install",
         default="",
-        help="Comma-separated install kinds to stub: brew,node,go,uv,download",
+        help="Comma-separated install kinds to stub: brew,node,go,uv",
     )
     parser.add_argument(
         "--examples",

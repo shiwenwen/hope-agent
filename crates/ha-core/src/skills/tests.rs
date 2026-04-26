@@ -239,12 +239,12 @@ Body
     }
 
     #[test]
-    fn test_bundled_core_skills_are_always_available() {
+    fn test_bundled_core_skills_skip_requirement_checks() {
         for name in ["ha-settings", "ha-skill-creator", "ha-find-skills"] {
             let parsed = parse_bundled_skill_frontmatter(name);
             assert!(
                 parsed.requires.always,
-                "{} should declare always: true in its bundled SKILL.md",
+                "{} should declare always: true to skip dependency checks",
                 name
             );
         }
@@ -382,6 +382,28 @@ Body."#;
     }
 
     #[test]
+    fn test_parse_openclaw_metadata_standard_gates() {
+        let content = r#"---
+name: github
+description: "Use gh for GitHub issues"
+metadata:
+  openclaw:
+    always: true
+    primaryEnv: GITHUB_TOKEN
+    os: [darwin, linux]
+    requires:
+      env: [GITHUB_TOKEN]
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert!(parsed.requires.always);
+        assert_eq!(parsed.requires.primary_env.as_deref(), Some("GITHUB_TOKEN"));
+        assert_eq!(parsed.requires.os, vec!["darwin", "linux"]);
+        assert_eq!(parsed.requires.env, vec!["GITHUB_TOKEN"]);
+    }
+
+    #[test]
     fn test_parse_openclaw_lift_does_not_override_top_level() {
         // If a SKILL.md sets BOTH top-level and metadata.openclaw.requires,
         // the explicit top-level value wins and the namespace is ignored —
@@ -438,6 +460,23 @@ Body."#;
             parsed.display.related_skills,
             vec!["test-driven-development", "writing-plans"]
         );
+    }
+
+    #[test]
+    fn test_parse_hermes_platforms_as_os_requirements() {
+        let content = r#"---
+name: imessage
+description: "Send iMessages"
+platforms: [macos]
+metadata:
+  hermes:
+    tags: [apple]
+---
+
+Body."#;
+        let parsed = parse_frontmatter(content).unwrap();
+        assert_eq!(parsed.requires.os, vec!["macos"]);
+        assert_eq!(parsed.display.tags, vec!["apple"]);
     }
 
     #[test]

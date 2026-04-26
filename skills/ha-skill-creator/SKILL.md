@@ -14,7 +14,7 @@ Hope Agent skills are modular, self-contained packages that extend the AI assist
 
 ### Skill Loading (Three-Tier Progressive Disclosure)
 
-1. **Metadata** (name + description + whenToUse) — always in context (~100 words)
+1. **Catalog metadata** (name + description, plus optional Claude-style when_to_use) — injected only when the skill is eligible and visible (~100 words)
 2. **SKILL.md body** — loaded when the skill triggers (ideal <500 lines)
 3. **Bundled resources** — loaded on demand (scripts can be executed directly, no need to read into context)
 
@@ -86,8 +86,8 @@ skill-name/
 ---
 # ── Required ──
 name: my-skill                          # Skill identifier (lowercase + hyphens)
-description: "Short summary of what the skill does."
-whenToUse: "Trigger hint — when the model should activate this skill"
+description: "Short summary of what the skill does and when to use it."
+when_to_use: "Optional Claude-style trigger hint — duplicate the key trigger words in description for OpenAI/AgentSkills portability"
 
 # ── Optional: Identity ──
 aliases: [alt-name-1, alt-name-2]       # Extra slash-command names for the same skill
@@ -99,7 +99,7 @@ requires:
   env: [GITHUB_TOKEN]                   # Required environment variables
   os: [darwin, linux]                   # Supported operating systems
   config: [webSearch.provider]          # Config paths that must be truthy
-always: false                           # true = skip all prerequisite checks
+always: false                           # true = skip prerequisite checks; not locked/unclosable
 primaryEnv: MY_API_KEY                  # Primary env var (can be satisfied by apiKey)
 
 # ── Optional: Invocation Control ──
@@ -111,15 +111,15 @@ skillKey: custom-key                    # Custom config lookup key
 command-dispatch: tool                  # "tool" or "prompt"
 command-tool: exec                      # Tool to bind when dispatch=tool
 command-arg-mode: raw                   # Argument passing mode
-argumentHint: "<query>"                 # UI placeholder hint (alias: command-arg-placeholder)
+argument-hint: "<query>"                # Claude canonical UI placeholder hint (aliases: argumentHint, command-arg-placeholder)
 command-arg-options: [on, off]          # Fixed argument options
 command-prompt-template: "..."          # Template with $ARGUMENTS expansion
 
 # ── Optional: Execution Mode ──
 context: inline                         # "fork" = sub-agent, "inline" = main conversation (see guidance below)
-allowed-tools: [read, grep, glob]       # Tool whitelist during execution
+allowed-tools: [read, grep, glob]       # Tool whitelist for fork / skill-tool execution; slash inline currently does not enforce it
 agent: code-reviewer                    # Sub-agent type to use when context=fork (optional)
-effort: medium                          # Reasoning effort for forked sub-agent (low|medium|high)
+effort: medium                          # Reasoning effort for forked sub-agent (low|medium|high|xhigh|none)
 
 # ── Optional: Dependency Installation ──
 install:
@@ -262,8 +262,9 @@ Determine name, description, and the minimum set of extra fields.
 
 | Archetype | Fields to fill |
 |---|---|
-| Minimal in-context skill | `name`, `description`, `whenToUse` |
-| Slash command skill | + `user-invocable`, `argumentHint` |
+| Minimal portable skill | `name`, `description` |
+| Claude/Hope trigger split | + `when_to_use` |
+| Slash command skill | + `user-invocable`, `argument-hint` |
 | Depends on external CLI | + `requires.bins`, `install` (for auto-install) |
 | Shell-heavy workflow | + `context: fork`, `allowed-tools` |
 | Analysis-only skill | + `context: fork`, `allowed-tools: [read, grep, glob]` |

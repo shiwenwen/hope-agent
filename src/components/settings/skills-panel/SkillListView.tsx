@@ -116,7 +116,7 @@ export default function SkillListView({
           <div className="flex items-center gap-1 mt-0.5 flex-wrap">
             {skill.always && (
               <span className="text-[9px] px-1 py-0 rounded bg-green-500/10 text-green-600 font-medium">
-                {t("settings.skillAlways")}
+                {t("settings.skillSkipsRequirements")}
               </span>
             )}
             {skill.has_install && (

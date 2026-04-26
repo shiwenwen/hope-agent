@@ -889,7 +889,7 @@
     "skillEnvClear": "Clear",
     "skillEnvPlaceholder": "Enter value for {{key}}",
     "skillAnyBins": "Any of these binaries",
-    "skillAlways": "Always Available",
+    "skillSkipsRequirements": "Skips dependency checks",
     "skillInvocationPolicy": "Invocation Policy",
     "skillUserInvocable": "User invocable",
     "skillModelInvocable": "Model invocable",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "All bundled skills are core capabilities that are always enabled — there's nothing to configure here. Click Next to continue.",
-      "locked": "Core skill — always on, can't be disabled",
-      "lockedBadge": "Core"
+      "empty": "No skills were found. Click Next to continue.",
+      "locked": "Dependency checks skipped",
+      "lockedBadge": "No dependency checks"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

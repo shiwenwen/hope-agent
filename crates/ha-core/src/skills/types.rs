@@ -225,7 +225,8 @@ pub struct SkillRequires {
     /// Config paths that must be truthy (e.g. "webSearch.provider").
     #[serde(default)]
     pub config: Vec<String>,
-    /// When true, skip all requirement checks — always eligible.
+    /// When true, skip requirement checks. This does not make the skill
+    /// locked, undeletable, or always injected.
     #[serde(default)]
     pub always: bool,
     /// Primary env var name that can be satisfied by skill's apiKey config.
@@ -252,7 +253,8 @@ impl SkillRequires {
 /// Installation spec for a skill dependency.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillInstallSpec {
-    /// Install method: "brew", "node", "go", "uv", "download".
+    /// Install method: "brew", "node", "go", or "uv". The historical
+    /// "download" value is parsed but rejected by the installer.
     pub kind: String,
     /// Brew formula name.
     #[serde(default)]

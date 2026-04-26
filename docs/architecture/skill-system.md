@@ -2,7 +2,7 @@
 
 > 返回 [文档索引](../README.md)
 >
-> 更新时间：2026-04-17
+> 更新时间：2026-04-26
 
 ## 目录
 
@@ -21,11 +21,11 @@
 - [缓存与版本追踪](#缓存与版本追踪)（含缓存状态机图）
 - [健康检查](#健康检查)
 - [配置项](#配置项)
-- [Tauri 命令一览](#tauri-命令一览)
+- [Tauri 命令与 HTTP 路由一览](#tauri-命令与-http-路由一览)
 - [前端 UI](#前端-ui)（含组件结构图 + SkillProgressBlock）
 - [数据流全景](#数据流全景)（含全链路注入时序图 + fork 时序图）
 - [内置技能](#内置技能)
-- [与 OpenClaw / Claude Code 对比](#与-openclaw--claude-code-对比)
+- [生态兼容对比](#生态兼容对比)
 - [编写第一个 Skill](#编写第一个-skill)
 
 ---
@@ -41,6 +41,12 @@
 3. **渐进降级（Progressive Degradation）**：当技能数量超过 token 预算时，自动从 Full 格式降级到 Compact 格式再到截断
 4. **Channel-Agnostic**：技能命令通过 `CommandAction` 枚举分发，桌面端/Telegram/Discord 等渠道统一处理
 5. **Rust 后端驱动**：所有核心逻辑（发现、检查、缓存、prompt 生成、fork 调度）在 Rust 后端完成，前端仅负责展示
+
+**当前语义勘误（2026-04-26）：**
+
+- `always: true` 是 Hope Agent 的扩展字段，语义是**跳过 requirements / 依赖检查**，不是“不可关闭”、不是“始终注入 prompt”、也不是 Skill 标准元字段。全局 Settings、首次引导页和 Agent 级 deny 都允许关闭这类 skill。
+- Requirements 目前只影响 **prompt 注入 / 健康状态**。如果用户或模型已经知道 skill 名称，`/skill-name` 或 `skill({ name })` 路径不会在执行前再次强制校验 requirements；这属于当前实现边界。
+- `paths:` skill 在 `conditionalSkillsEnabled=false` 时不会被激活，因此仍保持隐藏；该开关是紧急停用条件激活机制，不是“让 paths skill 常驻显示”。
 
 **激活路径对照表：**
 
@@ -74,11 +80,11 @@ graph TB
         FORK[skills/fork_helper<br/>spawn + extract]
         ACT[skills/activation<br/>paths 条件激活]
         SKTOOL[tools/skill/<br/>skill 工具 inline/fork]
-        CMDS[commands/skills.rs<br/>Tauri 命令]
+        CMDS[skills/commands.rs<br/>共享命令层]
         SP[system_prompt.rs<br/>系统提示词]
         SLASH[slash_commands/<br/>斜杠命令]
         SUB[subagent::spawn_subagent]
-        PROV[provider.rs<br/>持久化]
+        CFGAPI[config/mod.rs<br/>持久化]
     end
 
     subgraph 存储层
@@ -111,8 +117,8 @@ graph TB
     ACT --> SESSDB
 
     SKILLS --> FS
-    CMDS --> PROV
-    PROV --> CONFIG
+    CMDS --> CFGAPI
+    CFGAPI --> CONFIG
 
     SP --> PROMPT
     PROMPT --> LLM
@@ -124,16 +130,18 @@ graph TB
 
 | 文件 | 职责 |
 |------|------|
-| `crates/ha-core/src/skills/` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查 |
+| `crates/ha-core/src/skills/` | 核心模块：类型定义、frontmatter 解析、requirements 检查、prompt 生成、缓存、健康检查、draft/auto-review |
 | `crates/ha-core/src/skills/fork_helper.rs` | 共享 fork helper：`spawn_skill_fork` + `extract_fork_result`，两个激活入口都走它 |
 | `crates/ha-core/src/skills/activation.rs` | `paths:` 条件激活：内存 cache + SQLite 持久化 + gitignore 匹配 |
+| `crates/ha-core/src/skills/commands.rs` | Tauri / HTTP 共用 command-layer：列表、详情、启用禁用、env、安装、draft 审核、Quick Import 探测 |
 | `crates/ha-core/src/tools/skill/` | `skill` 工具：`mod.rs` 分发 + `inline.rs` 读 SKILL.md + `fork.rs` 子 Agent 执行 |
-| `src-tauri/src/commands/skills.rs` | 14 个 Tauri 命令：CRUD + 安装 + 健康检查 |
+| `src-tauri/src/commands/skills.rs` | 桌面 Tauri 命令薄壳：参数转换 + 调用 `ha_core::skills::commands` |
+| `crates/ha-server/src/routes/skills.rs` | HTTP 路由薄壳：REST API + 远程安装 `allowRemoteInstall` 闸门 |
 | `crates/ha-core/src/system_prompt/` | 系统提示词构建，调用 `build_skills_prompt(..., activated_conditional)` 注入技能段落 |
-| `crates/ha-core/src/provider/` | `AppConfig` 持久化技能配置（budget/allowlist/disabled/env） |
+| `crates/ha-core/src/config/mod.rs` | `AppConfig` 持久化技能配置（budget/allowlist/disabled/env/auto-review/remote install） |
 | `crates/ha-core/src/slash_commands/` | 斜杠命令系统，动态注册 user-invocable 技能为 `/skillname` 命令；fork 分支复用 `skills::spawn_skill_fork` |
 | `crates/ha-core/src/subagent/` | 子 Agent spawn + `SubagentEvent.skill_name` 辨别字段 |
-| `src/components/settings/SkillsPanel.tsx` | 前端技能管理面板（列表 + 详情 + 安装 + 健康状态） |
+| `src/components/settings/skills-panel/` | 前端技能管理面板（列表 + 详情 + 安装 + env + draft 审核 + Quick Import） |
 | `src/components/chat/SkillProgressBlock.tsx` | 对话流中 `skill` 工具的专用渲染器（琥珀 🧩 图标，inline/fork 自动区分） |
 
 ---
@@ -198,11 +206,7 @@ block-beta
 ```markdown
 ---
 name: github
-description: "GitHub operations via gh CLI"
-requires:
-  bins: [git, gh]
-  env: [GITHUB_TOKEN]
-  os: [darwin, linux]
+description: "GitHub operations via the gh CLI. Use when working with issues, pull requests, releases, or repository metadata."
 ---
 
 # GitHub Skill
@@ -215,26 +219,40 @@ When the user asks about GitHub operations, use the `gh` CLI.
 - ...
 ```
 
+### 字段来源与标准兼容
+
+本节按 2026-04-26 核对过的上游文档划分字段来源，避免把 Hope Agent 的便利扩展误写成跨生态标准。
+
+| 层级 | 上游来源 | 标准/约定字段 | Hope Agent 处理 |
+|------|----------|----------------|-----------------|
+| AgentSkills 开放标准 | [AgentSkills Specification](https://agentskills.io/specification) | `name`、`description` 必需；`license`、`compatibility`、`metadata`、实验性的 `allowed-tools` 可选 | `name` / `description` 是核心发现字段；`license` 用于展示；`metadata` 只解析已知 vendor 子集；`compatibility` 当前不参与运行时逻辑 |
+| OpenAI Codex | [Codex Skills](https://developers.openai.com/codex/skills)、[openai/skills](https://github.com/openai/skills) | Codex 基于 AgentSkills；`SKILL.md` 里主要读取 `name` + `description` 做触发；`agents/openai.yaml` 承载 UI / policy / dependencies | 为最大可移植性，新 skill 应把触发信息优先写进 `description`。Hope Agent 当前不解析 `agents/openai.yaml` |
+| Claude Code | [Claude Code Skills](https://code.claude.com/docs/en/skills) | 在 AgentSkills 上扩展 `when_to_use`、`argument-hint`、`arguments`、`disable-model-invocation`、`user-invocable`、`allowed-tools`、`model`、`effort`、`context`、`agent`、`hooks`、`paths`、`shell` | Hope Agent 实现其中一部分，并保留旧别名：`whenToUse` / `when-to-use` / `when_to_use`，`argumentHint` / `argument-hint` / `argument_hint`。新文档推荐上游 canonical 拼写 |
+| OpenClaw | [OpenClaw Skills](https://docs.openclaw.ai/tools/skills) | `metadata.openclaw.requires`、`metadata.openclaw.primaryEnv`、`metadata.openclaw.always`、`metadata.openclaw.os`、`metadata.openclaw.install`、`homepage` 等 | 当前兼容子集：在顶层未声明时提升 `metadata.openclaw.requires` / `install`，读取 `always` / `primaryEnv` / `os` / `emoji`；根级 `always` / `primaryEnv` 是 Hope Agent 历史 shorthand，不是 OpenClaw 标准位置 |
+| Hermes Agent | [Hermes Skills System](https://hermes-agent.nousresearch.com/docs/user-guide/features/skills)、[Creating Skills](https://hermes-agent.nousresearch.com/docs/developer-guide/creating-skills) | 顶层 `version` / `author` / `license` / `platforms`，`metadata.hermes.tags` / `related_skills` / toolset 条件 / config，`required_environment_variables` | 当前兼容子集：展示 `version` / `author` / `license`，把 `platforms` 映射到 OS requirements，读取 `metadata.hermes.tags` / `related_skills` / `emoji`，可提升 `requires` / `install`；toolset 条件和 secure setup 尚未实现 |
+
+写新的一方 skill 时，默认遵循 **AgentSkills / OpenAI Codex 最小可移植集**：`name`、`description`、Markdown body，必要时加 `license` / `metadata`。只有确实依赖 Hope Agent 行为时，才使用 `requires`、`install`、`always`、`status` 等 Hope 扩展；只有为了导入兼容时，才依赖 `metadata.openclaw.*` / `metadata.hermes.*`。
+
 ### 完整 Frontmatter 字段
 
 | 字段 | 类型 | 必需 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `name` | string | **是** | — | 技能标识符，全局唯一 |
-| `description` | string | 否 | `""` | "这是什么"——技能用途描述，显示在 prompt 和 UI 中 |
-| `whenToUse` | string | 否 | — | "什么时候用"——触发提示。写了之后 catalog 渲染为 `- name: <desc> — when: <whenToUse>`；留空则回退到只展示 description。解析时接受 `when-to-use:` / `when_to_use:` 三种拼写 |
+| `name` | string | **是** | — | AgentSkills 标准必需。技能标识符，全局唯一；为最大兼容性，目录名也应等于 `name`。Hope 解析缺失或为空时整个 skill 不加载 |
+| `description` | string | **标准必需** | `""` | AgentSkills / OpenAI Codex / Claude 都把它作为主要发现字段；应同时写清“做什么”和“什么时候用”。Hope 为容错允许缺失但不推荐 |
+| `when_to_use` | string | 否 | — | Claude Code 扩展字段；Hope 也接受旧别名 `whenToUse` / `when-to-use`。写了之后 catalog 渲染为 `- name: <desc> — when: <when_to_use>`；不是 AgentSkills / OpenAI Codex 标准，跨生态时优先把触发语义放进 `description` |
 | `aliases` | string[] | 否 | `[]` | 附加斜杠命令名（如 `[pr-review, reviewpr]`）。每个 alias 都注册到斜杠 catalog，与其他命令冲突时静默跳过，不覆盖 canonical name 或内置命令 |
 | `skillKey` | string | 否 | 等于 `name` | 自定义配置查找键 |
-| `always` | bool | 否 | `false` | 为 `true` 时跳过所有 requirements 检查 |
+| `always` | bool | 否 | `false` | **Hope Agent 扩展字段**。为 `true` 时跳过所有 requirements 检查；不代表不可关闭、不代表总是注入 prompt。UI 徽标显示为“跳过依赖检查” |
 | `primaryEnv` | string | 否 | — | 主环境变量名，可被 skill apiKey 配置满足 |
 | `user-invocable` | bool | 否 | `true` | 是否注册为斜杠命令 |
 | `disable-model-invocation` | bool | 否 | `false` | 为 `true` 时不注入 prompt（仅用户可调用） |
 | `command-dispatch` | string | 否 | — | 命令分发方式：`"tool"`（直接调工具）或 `"prompt"`（模板展开后发给 LLM） |
 | `command-tool` | string | 否 | — | 当 `command-dispatch` 为 `"tool"` 时，绑定的工具名 |
 | `command-arg-mode` | string | 否 | — | 参数传递模式。`"raw"` = 原样转发给工具；未设 = 尝试解析为 JSON，失败回退 `{"query": ...}` |
-| `command-arg-placeholder` / `argumentHint` | string | 否 | `"[args]"` | UI 斜杠菜单里的参数占位提示。两种拼写等价，后一种是 Anthropic 通用写法，建议新 skill 用 `argumentHint` |
+| `argument-hint` | string | 否 | `"[args]"` | Claude Code canonical 字段。Hope 兼容 `argumentHint` / `argument_hint` / `command-arg-placeholder` 旧拼写，用于 UI 斜杠菜单参数占位提示 |
 | `command-arg-options` | string[] | 否 | — | 固定参数选项（斜杠菜单弹出下拉）|
 | `command-prompt-template` | string | 否 | (body) | `command-dispatch: "prompt"` 时的模板字符串，支持 `$ARGUMENTS` 替换。未设时用 SKILL.md body |
-| `allowed-tools` | string[] | 否 | `[]` | 激活后子 Agent / 主对话可见的工具白名单；空列表 = 全部可用 |
+| `allowed-tools` / `allowed_tools` | string[] | 否 | `[]` | AgentSkills 标为实验字段，Claude Code 语义是“预批准工具”而非硬禁用其它工具。Hope 当前在 `skill` 工具 fork 路径和子 Agent 中按硬白名单执行，斜杠 inline 和 `command-dispatch: tool` 未强制执行（见已知 Gap） |
 | `context` | string | 否 | — | 执行模式。`"fork"` 在子 Agent 中跑，结果只回一段摘要；未设则 inline 执行 |
 | `agent` | string | 否 | — | **仅 fork 模式生效**：指定 fork 时使用的 Agent id（`~/.hope-agent/agents/{id}/`）。无效 id 自动 fallback 到父 Agent 并记 warn |
 | `effort` | string | 否 | — | **仅 fork 模式生效**：推理强度 `low` / `medium` / `high` / `xhigh` / `none`，映射到 provider 的 `reasoning_effort` 或 `thinking.budget_tokens` |
@@ -242,6 +260,9 @@ When the user asks about GitHub operations, use the `gh` CLI.
 | `status` | string | 否 | `"active"` | 生命周期：`active` / `draft` / `archived`；非 active 项对模型完全透明 |
 | `authored-by` | string | 否 | `"user"` | 信息字段：`"user"`（人类作者）或 `"auto-review"`（auto_review 管线自动创建） |
 | `rationale` | string | 否 | — | 自动创建时记录的理由，供 Draft 审核 UI 展示 |
+| `license` | string | 否 | — | AgentSkills 标准可选字段；Hope 用于 UI 展示和 proprietary badge |
+| `version` / `author` | string | 否 | — | Hermes / OpenAI skill catalog 常见展示字段；不会影响激活逻辑 |
+| `metadata.openclaw.*` / `metadata.hermes.*` | object | 否 | — | 兼容 vendor skill 的子集：可提取 emoji/tags/related_skills，也可在顶层未声明时提升 OpenClaw/Hermes 的 requires/install；OpenClaw `always` / `primaryEnv` / `os` 会进入 requirements。不要把 Hope 的根级扩展误写成上游标准 |
 
 ### `requires:` 块
 
@@ -252,6 +273,8 @@ When the user asks about GitHub operations, use the `gh` CLI.
 | `env` | string[] | AND | 所有列出的环境变量必须已设置且非空 |
 | `os` | string[] | ANY | 支持的操作系统（`darwin`/`linux`/`windows`/`mac`/`macos`），空 = 全平台 |
 | `config` | string[] | AND | 需要为 truthy 的配置路径（如 `webSearch.provider`） |
+
+Hermes 顶层 `platforms: [macos, linux]` 会被映射到同一组 OS requirements；OpenClaw 的 `metadata.openclaw.os` 也会进入该检查。Windows 兼容 `windows` 与 OpenClaw 常见的 `win32`。
 
 **示例 — 复合 requirements：**
 
@@ -268,7 +291,7 @@ requires:
 
 ### `install:` 块
 
-声明依赖的安装方式，前端 SkillsPanel 会显示安装按钮：
+声明依赖的安装方式，前端 SkillsPanel 会显示安装按钮。当前可执行的 `kind` 是 `brew` / `node` / `go` / `uv`；`download` 在类型注释里保留但执行层会返回 `Unsupported install kind`，不要在新 skill 里使用。
 
 ```yaml
 install:
@@ -294,7 +317,7 @@ install:
 | `node` | `package` | `npm install -g {package}` |
 | `go` | `module` | `go install {module}` |
 | `uv` | `package` | `uv tool install {package}` |
-| `download` | *(保留)* | HTTP 下载 + 解压 |
+| `download` | *(保留，不可执行)* | 当前会被拒绝：`Unsupported install kind: download` |
 
 安装完成后自动验证 `bins` 中列出的二进制是否存在于 PATH。
 
@@ -414,6 +437,26 @@ check_requirements_detail(req, configured_env) -> RequirementsDetail {
 
 用于前端健康检查显示，明确告知用户缺少什么。
 
+### `always: true` 的准确边界
+
+`always` 这个字段历史上名字取得过宽，容易误解。当前实现的唯一强语义是：
+
+```rust
+if req.always {
+    return true; // 跳过 OS / bins / anyBins / env / config 检查
+}
+```
+
+它**不会**：
+
+- 阻止用户在 Settings / 首次引导页里全局关闭该 skill
+- 绕过 `AppConfig.disabled_skills`
+- 绕过 Agent 级 `capabilities.skills.deny`
+- 绕过 `status: draft|archived`
+- 让声明了 `paths:` 的 skill 在未激活前进入 catalog
+
+因此文案和 UI 统一称为“跳过依赖检查”。如果未来确实需要“不可关闭的系统技能”，应新增独立字段（例如 `locked: true` + 后端 `toggle_skill` 强制校验），不要复用 `always`。
+
 ---
 
 ## `skill` 工具与激活路径
@@ -429,6 +472,8 @@ check_requirements_detail(req, configured_env) -> RequirementsDetail {
 - 工具执行层统一分发 **inline / fork**，`context: fork` 在斜杠命令和模型自主两条路径**都生效**
 - 标记 `internal: true + always_load: true`：跳过审批、deferred_tools 场景也恒定可见
 - 系统提示词明确引导"用 `skill` 工具，不要 `read` SKILL.md"；`read` 仍可用于作者查看 / diff 原文
+
+**查找边界**：`skill` 工具内部用 `get_invocable_skills(extra_dirs, disabled_skills)` 查找，这会过滤全局禁用、`user-invocable: false` 和 `status != active`，但不会再次执行 requirements 检查。Requirements 主要在 prompt 注入与健康检查阶段生效。
 
 ### 工具 schema
 
@@ -457,7 +502,7 @@ check_requirements_detail(req, configured_env) -> RequirementsDetail {
 
 ```mermaid
 flowchart TD
-    TOOL(["skill tool call<br/>{name, args?}"]) --> LOOKUP["skills::get_invocable_skills<br/>按 name 查找 SkillEntry"]
+    TOOL(["skill tool call<br/>{name, args?}"]) --> LOOKUP["skills::get_invocable_skills<br/>过滤 disabled/status/user-invocable<br/>按 name 查找 SkillEntry"]
     LOOKUP --> FOUND{"找到?"}
     FOUND -->|否| ERR(["返回错误<br/>Skill 'X' not found; available: ..."])
     FOUND -->|是| DIM{"disable_model_<br/>invocation?"}
@@ -545,8 +590,8 @@ pub async fn extract_fork_result(
 
 #### 已知 Gap
 
-1. **`allowed-tools` 未过滤**：`skill` 工具路径把 allowed-tools 通过 `ToolExecContext.skill_allowed_tools` 贯通到执行层收紧工具白名单；斜杠内联路径目前只把 SKILL.md 作为 user message 注入，LLM 后续仍握有 agent 的全部工具。如果 skill 声明了 `allowed-tools: Read, Write` 想收紧能力，斜杠路径不会生效
-2. **`requires` 未校验**：`skill` 工具路径会 `check_requirements` 验 env / bins；斜杠路径没做
+1. **`allowed-tools` 未全路径过滤**：`skill` 工具 fork 路径和子 Agent 会把 allowed-tools 通过 `ToolExecContext.skill_allowed_tools` 贯通到执行层收紧工具白名单；斜杠内联路径目前只把 SKILL.md 作为 user message 注入，LLM 后续仍握有 Agent 的全部工具。`command-dispatch: tool` 直接执行绑定工具时也未套用 skill 的 allowed-tools
+2. **`requires` 只管注入，不管执行**：prompt 注入和健康检查会 `check_requirements`，但 `skill({name})` 与 `/skillname` 执行路径不会再次校验 env / bins / os / config。通常模型看不到未满足 requirements 的 skill，但用户手输或模型猜中名称时仍可能激活
 3. **Learning Tracker 未埋点**：缺 `record_learning_event(SkillUsed)` 调用，Dashboard Top Skills 会低报斜杠触发的激活
 4. **SKILL.md 大小无上限**：极端大 skill（≥50KB）内联后会占用相当 token；目前未加保护
 
@@ -797,7 +842,7 @@ let matcher = GitignoreBuilder::new(base)
 
 ### Kill switch
 
-`AppConfig.conditional_skills_enabled: bool`（默认 `true`）。设为 `false` 时 `maybe_activate_conditional_skills` 直接 no-op，所有 `paths:` skill 变回"默认隐藏"状态（不会激活）——紧急回滚用，不需要改 SKILL.md。
+`AppConfig.conditional_skills_enabled: bool`（默认 `true`）。设为 `false` 时 `maybe_activate_conditional_skills` 直接 no-op，所有 `paths:` skill 保持"默认隐藏"状态（不会激活、不会常驻注入）——这是紧急停用条件激活机制的开关，不是把 `paths:` 技能改成全局可见。
 
 ### 用法示例
 
@@ -837,9 +882,9 @@ Only activate the skill most relevant to the current task — do not activate mo
 - ...
 ```
 
-当 skill 声明了 `whenToUse` frontmatter 字段时，catalog 行渲染为
-`- name: <description> — when: <whenToUse>`；未声明则回退到 `- name: <description>`。
-拆分的好处：`description` 可以保持短（"这是什么"），触发判断完全落在 `whenToUse` 里
+当 skill 声明了 `when_to_use` frontmatter 字段时，catalog 行渲染为
+`- name: <description> — when: <when_to_use>`；未声明则回退到 `- name: <description>`。
+拆分的好处：`description` 可以保持短（"这是什么"），触发判断落在 `when_to_use` 里。注意：这是 Claude Code 扩展，不是 AgentSkills / OpenAI Codex 标准；写跨生态 skill 时仍应把关键触发语义前置到 `description`。
 （"什么时候用"），不需要为了触发率把两件事塞进同一句，也能减小 full format 超出
 `max_chars` 触发降级的概率。
 
@@ -876,15 +921,15 @@ flowchart TD
 
 ### 过滤管道
 
-技能从发现到注入 prompt 经过 **8** 层过滤（Phase 4 在原来 6 层基础上新增 status 和 conditional 两层）：
+技能从发现到注入 prompt 经过多层过滤。实现上 Agent 过滤发生在 `system_prompt::sections::build_skills_section`，其余过滤发生在 `skills::prompt::build_skills_prompt`：
 
 ```mermaid
 flowchart LR
-    ALL(["全部技能"]) --> F0["1. status<br/>active only"]
+    ALL(["全部技能"]) --> F0["1. Agent<br/>FilterConfig<br/>allow/deny"]
     F0 --> F1["2. disabled_skills<br/>用户禁用"]
     F1 --> F2["3. disable_model<br/>_invocation"]
-    F2 --> F3["4. Bundled<br/>Allowlist"]
-    F3 --> F4["5. Agent<br/>FilterConfig<br/>allow/deny"]
+    F2 --> F3["4. status<br/>active only"]
+    F3 --> F4["5. Bundled<br/>Allowlist"]
     F4 --> F5["6. Requirements<br/>检查"]
     F5 --> F55["7. paths<br/>条件激活"]
     F55 --> F6["8. max_count<br/>数量上限"]
@@ -896,12 +941,12 @@ flowchart LR
 
 | 层 | 过滤规则 |
 |----|----------|
-| 1. status | 只保留 `SkillStatus::Active`；`Draft` / `Archived` 对模型透明（Draft 由用户在设置面板审核后转 Active）|
+| 1. Agent FilterConfig | 当前 Agent `capabilities.skills.allow/deny` |
 | 2. disabled_skills | `AppConfig.disabled_skills` 显式禁用列表 |
 | 3. disable_model_invocation | `disable-model-invocation: true` 只允许用户 `/command` |
-| 4. Bundled Allowlist | `AppConfig.skill_allow_bundled` 非空时限制 bundled 来源 |
-| 5. Agent FilterConfig | 当前 Agent `capabilities.skills.allow/deny` |
-| 6. Requirements | `bins` / `anyBins` / `env` / `os` / `config` / `always` |
+| 4. status | 只保留 `SkillStatus::Active`；`Draft` / `Archived` 对模型透明（Draft 由用户在设置面板审核后转 Active）|
+| 5. Bundled Allowlist | `AppConfig.skill_allow_bundled` 非空时限制 bundled 来源 |
+| 6. Requirements | `bins` / `anyBins` / `env` / `os` / `config`；`always: true` 表示跳过本层检查 |
 | 7. paths 条件激活 | 声明 `paths:` 的 skill 必须在 `activated_skill_names(session_id)` 里 |
 | 8. max_count | `skillPromptBudget.maxCount` 数量上限（默认 150）|
 
@@ -1066,17 +1111,21 @@ sequenceDiagram
     BE->>BE: handle_skill_command()
     BE->>BE: 查找 skill entry<br/>(按 normalize 后字符串同时匹配 name 和 aliases)
 
-    alt command_dispatch == "tool"
-        BE-->>CS: PassThrough: "Use the {tool} tool..."
-    else 默认
-        BE-->>CS: PassThrough: "Read skill file at..."
+    alt context: fork
+        BE-->>CS: SkillFork { run_id, skill_name }
+    else command_dispatch == "tool"
+        BE-->>CS: DisplayOnly: 直接执行绑定工具
+    else command_dispatch == "prompt"
+        BE-->>CS: PassThrough: 展开 command-prompt-template
+    else 默认 inline
+        BE-->>CS: PassThrough: 已内联 SKILL.md 全文
     end
 
     CS->>LLM: 将 PassThrough 消息发送给模型
-    LLM->>LLM: read SKILL.md → 执行技能指令
+    LLM->>LLM: 直接按已加载的 skill 内容执行
 ```
 
-当 `command-dispatch: tool` + `command-tool: exec` 时，技能命令直接告知 LLM 使用特定工具执行。
+当 `command-dispatch: tool` + `command-tool: exec` 时，后端直接执行绑定工具并返回 `DisplayOnly`，不再多走一轮 LLM。`command-arg-mode: raw` 会把原始参数包装成 `{ "command": "<args>" }`；否则先尝试把参数解析为 JSON，失败后包装成 `{ "query": "<args>" }`。
 
 ### 前端菜单
 
@@ -1189,7 +1238,7 @@ pub struct SkillStatusEntry {
     pub missing_env: Vec<String>,   // 缺失的环境变量
     pub missing_config: Vec<String>, // 缺失的配置路径
     pub has_install: bool,       // 是否有安装引导
-    pub always: bool,            // 是否始终可用
+    pub always: bool,            // 是否跳过依赖检查
 }
 ```
 
@@ -1199,7 +1248,7 @@ SkillsPanel 列表中每个技能显示状态标签：
 
 | 条件 | 标签 | 颜色 |
 |------|------|------|
-| `always == true` | "始终可用" | 绿色 |
+| `always == true` | "跳过依赖检查" | 绿色 |
 | `has_install == true` | "安装" | 蓝色 |
 | `disable_model_invocation == true` | "模型可调用: ✗" | 橙色 |
 | env 未配置 | ⚠️ 图标 | 橙色 |
@@ -1219,7 +1268,7 @@ SkillsPanel 列表中每个技能显示状态标签：
   // 是否检查 requirements（默认 true）
   "skillEnvCheck": true,
   // paths: 条件激活 kill switch（默认 true）
-  // false 时所有 paths: skill 当作全局 skill 对待（不激活即常驻）
+  // false 时不再根据文件路径激活 paths: skill；它们会保持隐藏
   "conditionalSkillsEnabled": true,
   // 用户配置的技能环境变量
   "skillEnv": {
@@ -1235,7 +1284,22 @@ SkillsPanel 列表中每个技能显示状态标签：
     "maxCandidatesPerRoot": 300
   },
   // Bundled 技能允许列表（空 = 全部允许）
-  "skillAllowBundled": []
+  "skillAllowBundled": [],
+  // Skills 子配置：自动 review / HTTP 远程安装闸门
+  "skills": {
+    "allowRemoteInstall": false,
+    "autoReview": {
+      "enabled": true,
+      "promotion": "draft",
+      "cooldownSecs": 600,
+      "tokenThreshold": 10000,
+      "messageThreshold": 15,
+      "reviewModel": null,
+      "candidateLimit": 24,
+      "timeoutSecs": 90,
+      "retentionDays": 180
+    }
+  }
 }
 ```
 
@@ -1243,19 +1307,23 @@ SkillsPanel 列表中每个技能显示状态标签：
 
 ```jsonc
 {
-  "skills": {
-    "allow": ["github", "docker"],  // 白名单（非空时仅允许这些）
-    "deny": ["dangerous-skill"]     // 黑名单
-  },
-  "behavior": {
-    "skillEnvCheck": true  // 覆盖全局设置
+  "capabilities": {
+    "skills": {
+      "allow": ["github", "docker"],  // 白名单（非空时仅允许这些）
+      "deny": ["dangerous-skill"]     // 黑名单
+    },
+    "skillEnvCheck": true             // 是否做 requirements 检查（默认 true）
   }
 }
 ```
 
+Agent 设置页只展示“全局已启用”的 skill；Agent 级开关只能继续收紧，不能重新打开全局关闭的 skill。
+
 ---
 
-## Tauri 命令一览
+## Tauri 命令与 HTTP 路由一览
+
+Tauri 与 HTTP 都只做薄适配，核心逻辑在 `ha_core::skills::commands`。HTTP 路由挂在 `/api` 前缀下；除健康检查外受 server Bearer Token 鉴权保护。
 
 | 命令 | 参数 | 返回 | 说明 |
 |------|------|------|------|
@@ -1264,6 +1332,7 @@ SkillsPanel 列表中每个技能显示状态标签：
 | `get_extra_skills_dirs` | — | `Vec<String>` | 获取额外技能目录列表 |
 | `add_extra_skills_dir` | `dir` | — | 添加技能目录 |
 | `remove_extra_skills_dir` | `dir` | — | 移除技能目录 |
+| `discover_preset_skill_sources` | — | `Vec<PresetSkillSource>` | Quick Import：探测 Claude Code / Anthropic marketplace / OpenClaw / Hermes 等已安装 skill 目录 |
 | `toggle_skill` | `name, enabled` | — | 启用/禁用技能 |
 | `get_skill_env_check` | — | `bool` | 获取环境检查开关 |
 | `set_skill_env_check` | `enabled` | — | 设置环境检查开关 |
@@ -1273,6 +1342,29 @@ SkillsPanel 列表中每个技能显示状态标签：
 | `get_skills_env_status` | — | `HashMap<String, HashMap<String, bool>>` | 批量获取所有技能的环境变量配置状态 |
 | `get_skills_status` | — | `Vec<SkillStatusEntry>` | 获取所有技能的健康状态 |
 | `install_skill_dependency` | `skill_name, spec_index` | `String` | 安装技能依赖（返回日志）。Spawn 核心在 [`ha_core::skills::commands::install_skill_dependency`](../../crates/ha-core/src/skills/commands.rs)，两端共享。HTTP 等价路由 `POST /api/skills/{name}/install` 需要 `skills.allowRemoteInstall = true` 才不会返 403 —— 该开关默认关闭，因为它在 API Key 视角下等价于远程 RCE。Tauri 桌面不受开关限制 |
+| `list_draft_skills` | — | `Vec<SkillSummary>` | 列出 `status: draft` 的技能，供人工审核 |
+| `activate_draft_skill` | `name` | — | 把 managed draft 提升为 `active` |
+| `discard_draft_skill` | `name` | — | 删除 managed draft skill |
+| `trigger_skill_review_now` | `session_id` | JSON report | 手动触发 auto-review 管线 |
+
+对应 HTTP 路由：
+
+| 路由 | 方法 | 说明 |
+|------|------|------|
+| `/api/skills` | GET | 列表 |
+| `/api/skills/{name}` | GET | 详情 |
+| `/api/skills/{name}/toggle` | POST | 启用/禁用 |
+| `/api/skills/extra-dirs` | GET/POST/DELETE | 额外目录 |
+| `/api/skills/preset-sources` | GET | Quick Import 探测 |
+| `/api/skills/env-check` | GET/PUT | requirements 检查开关 |
+| `/api/skills/env-status` | GET | env 批量状态 |
+| `/api/skills/status` | GET | 健康状态 |
+| `/api/skills/{name}/env` | GET/POST/DELETE | 单 skill env |
+| `/api/skills/{name}/install` | POST | 依赖安装，需 `skills.allowRemoteInstall=true` |
+| `/api/skills/drafts` | GET | draft 列表 |
+| `/api/skills/{name}/activate` | POST | 激活 draft |
+| `/api/skills/{name}/draft` | DELETE | 丢弃 draft |
+| `/api/skills/review/run` | POST | 手动 auto-review |
 
 ---
 
@@ -1436,12 +1528,14 @@ sequenceDiagram
         FE->>CS: 显示 SkillProgressBlock
         Note over SUB: 子 Agent 执行完成<br/>EventBus injection<br/>push 结果到主对话 user message
     else command_dispatch: tool
-        BE-->>FE: PassThrough: "Use the {tool} tool: create issue"
+        BE-->>FE: CommandResult<br/>DisplayOnly: 工具执行结果
+    else command_dispatch: prompt
+        BE-->>FE: PassThrough:<br/>展开 command-prompt-template
     else 默认 inline
-        BE-->>FE: PassThrough:<br/>"Use skill 'github'. Activate via `skill` tool..."
+        BE-->>FE: PassThrough:<br/>[SYSTEM: skill 已加载] + SKILL.md 全文
         FE->>CS: handleCommandAction
         CS->>LLM: 将消息发送给模型
-        LLM->>LLM: 调 skill 工具 → 执行
+        LLM->>LLM: 直接按 skill 内容执行
     end
 ```
 
@@ -1459,25 +1553,38 @@ sequenceDiagram
 
 ### 当前内置技能列表
 
-| 技能 | 说明 | 关联工具 |
-|------|------|----------|
-| `oc-skill-creator` | 创建、编辑、改进或审计 Hope Agent 技能。提供：脚手架脚本 `scripts/init_skill.py`（一键生成目录 + 带所有 frontmatter 字段 stub 的 SKILL.md 模板）、完整评估工作流（`agents/grader` + `comparator` + `analyzer`、`references/schemas`、`scripts/` 聚合脚本、`eval-viewer/` 可视化查看器），以及自检测试 `scripts/test_quick_validate.py` / `test_package_skill.py`（`python -m unittest` 直跑） | — |
-| `oc-settings` | 通过自然语言对话调整应用设置。指导模型使用 `get_settings` / `update_settings` 工具读取和修改 30+ 个配置分类（主题、语言、代理、温度、通知、搜索、记忆等），不直接编辑配置文件 | `get_settings`, `update_settings` |
+| 技能 | 类别 | 可见性 | 说明 |
+|------|------|--------|------|
+| `ha-settings` | meta | `always: true`（跳过依赖检查） | 通过自然语言查看 / 修改 Hope Agent 设置，指导模型使用 `get_settings` / `update_settings` / settings backup 工具，不直接编辑配置文件 |
+| `ha-skill-creator` | meta | `always: true`（跳过依赖检查） | 创建、编辑、改进、审核 Hope Agent skill；包含格式规范、评估思路和 frontmatter 指南 |
+| `ha-find-skills` | meta | `always: true`（跳过依赖检查） | 当当前 catalog 没有合适能力时，指导模型发现并安装第三方 skill；安装第三方代码必须先显式确认 |
+| `systematic-debugging` | 编程方法论 | `paths:` 代码文件触发 | Debug / test failure / 异常行为的 4 阶段根因调查流程 |
+| `test-driven-development` | 编程方法论 | `paths:` 代码文件触发 | Feature / bugfix 的 RED-GREEN-REFACTOR test-first 流程 |
+| `writing-plans` | 编程方法论 | `paths:` 代码文件触发 | 多步骤实现计划，要求拆成小任务、明确文件路径和验证方式 |
+| `subagent-driven-development` | 编程方法论 | `paths:` 代码文件触发 | 把独立实现任务拆给子 Agent，并做 spec compliance / code quality 两段 review |
+| `code-review` | 编程方法论 | `paths:` 代码文件触发 | 提交前质量门、静态安全扫描、独立 reviewer subagent、auto-fix loop |
+| `meeting-notes` | 办公方法论 | 全局可见 | 会议记录 / standup / 1:1 纪要模板：议程、决策、行动项、开放问题 |
+| `email-draft` | 办公方法论 | 全局可见 | 邮件起草、润色、翻译和回复，输出 subject / greeting / body / sign-off |
+| `status-report` | 办公方法论 | 全局可见 | 周报 / 月报 / 项目进展，覆盖 shipped / in-flight / blocked / metrics |
+| `mermaid-diagram` | 办公方法论 | 全局可见 | Mermaid flowchart / sequence / ER / state / gantt 等图表，聊天端可原生渲染 |
 
 ### settings 技能工具
 
-`get_settings` 和 `update_settings` 是两个 deferred 工具（通过 `tool_search` 发现），封装了现有 config API：
+`get_settings` / `update_settings` / settings backup 工具是 deferred 工具（通过 `tool_search` 发现），`ha-settings` 只提供何时、如何安全调用它们的工作流：
 
 - **`get_settings(category)`**：读取指定分类的当前设置，返回 JSON。`category: "all"` 返回所有分类概览
 - **`update_settings(category, values)`**：更新指定分类的设置，采用 partial merge 语义（递归深合并），只传需要修改的字段
+- **`list_settings_backups()` / `restore_settings_backup(id)`**：查看和回滚自动设置快照。回滚属于高风险操作，必须显式确认
 
 安全限制：
 - `active_model` / `fallback_models` 为只读分类
-- 不允许修改 Provider 列表、Channel 配置、API Key 等涉及凭据的设置
+- 不允许修改 Provider 列表 / API Key 等涉及凭据的设置；高风险分类（例如 Channel / Dangerous Mode / remote install）必须二次确认
 
 ---
 
-## 与 OpenClaw / Claude Code 对比
+## 生态兼容对比
+
+字段级来源以 [字段来源与标准兼容](#字段来源与标准兼容) 为准；下表只比较运行时行为和管理能力。
 
 | 维度 | Hope Agent | Claude Code | OpenClaw |
 |------|-------------|-------------|----------|
@@ -1488,14 +1595,14 @@ sequenceDiagram
 | **`agent:` 路由** | ✓（`agent_loader::load_agent` + fallback 父 Agent）| ✓（built-in agent types）| — |
 | **`effort:` 路由** | ✓（`SpawnParams.reasoning_effort` → 4 provider）| ✓（`low`/`medium`/`high`/int）| — |
 | **`aliases:` 多 slash 入口** | ✓（canonical + alias 同查找函数；alias 冲突静默跳过）| ✓（`aliases` 字段）| — |
-| **`whenToUse:` 独立字段** | ✓（catalog 渲染 `- name: desc — when: trigger`）| ✓（`whenToUse` 字段）| — |
-| **`argumentHint` 统一命名** | ✓（作为 `command-arg-placeholder` 别名接受）| ✓（canonical 名字）| — |
+| **`when_to_use:` 独立字段** | ✓（也兼容旧拼写 `whenToUse` / `when-to-use`）| ✓（Claude Code 扩展字段）| — |
+| **`argument-hint` 统一命名** | ✓（也兼容 `argumentHint` / `command-arg-placeholder`）| ✓（Claude Code canonical 字段）| — |
 | **`paths:` 条件激活** | ✓（`ignore::GitignoreBuilder` + SQLite 持久化）| ✓（`paths:` frontmatter）| — |
 | **Prompt 注入** | 懒加载：名称+描述，`skill` 工具激活 | 懒加载：名称+描述，SkillTool 激活 | 懒加载：名称+路径，`read` 加载 |
 | **预算管理** | 三层降级 Full → Compact → 二分截断 | 1% context window 硬限 | 三层降级 Full → Compact → 二分截断 |
-| **Requirements** | bins/anyBins/env/os/config/always/primaryEnv | (用户代码限制)| 同 Hope Agent |
+| **Requirements** | bins/anyBins/env/os/config/primaryEnv；`always` 为 HA 扩展（跳过检查） | 无通用 requirements 标准 | 同 Hope Agent（兼容导入） |
 | **调用策略** | user-invocable + disable-model-invocation | user-invocable + disable-model-invocation | 同 Hope Agent |
-| **安装引导** | brew/node/go/uv/download + **GUI 一键安装** | 无内置 | brew/node/go/uv/download + CLI |
+| **安装引导** | brew/node/go/uv + **GUI 一键安装**（`download` 保留但不可执行） | 无内置 | brew/node/go/uv/download + CLI |
 | **健康检查** | `get_skills_status` + **GUI 状态徽章** | 无系统性检查 | `openclaw skills check` CLI |
 | **缓存** | AtomicU64 版本 + 30s TTL + per-session activation | Skill search（实验特性）| chokidar 文件 watcher |
 | **Skill 命令** | 动态注册为斜杠命令（**Channel-Agnostic**）| 动态注册为 `/skill` | 动态注册为斜杠命令 |
@@ -1503,7 +1610,7 @@ sequenceDiagram
 | **插件集成** | 嵌套 `skills/` 检测 | 无 | Plugin manifest 声明 |
 | **Skill 进度 UI** | `SkillProgressBlock` 🧩 独立渲染 | `SkillTool/UI.tsx` 子 Agent 内嵌 | — |
 | **Draft 审核** | ✓（`status: draft` + auto_review 管线）| — | — |
-| **Skill Marketplace** | — | Skill Search（ant 内部实验）| ClawHub 集成 |
+| **Skill Marketplace / Import** | Quick Import 探测本机 Claude Code / Anthropic marketplace / OpenClaw / Hermes 目录；`ha-find-skills` 可指导外部查找 | Skill Search（实验特性）| ClawHub 集成 |
 
 **Hope Agent 独有或优于 Claude Code 的点：**
 
@@ -1513,6 +1620,7 @@ sequenceDiagram
 4. **Channel-Agnostic skill 命令**（CommandAction 统一分发到桌面 / Telegram / Discord）
 5. **SQLite 持久化的 `paths:` 激活**（App 重启恢复，Claude Code 只在内存）
 6. **Draft 审核管线**（自主创建的 skill 进 `status: draft` 等用户审核，不直接生效）
+7. **跨生态 Quick Import**（只探测路径，真正添加仍走 `extraSkillsDirs` 的显式用户操作）
 
 **Claude Code 领先的点（未来可借鉴）：**
 
@@ -1529,7 +1637,7 @@ sequenceDiagram
 推荐用脚手架脚本一键生成骨架——带全部 frontmatter 字段 stub + 按需的 `scripts/` / `references/` / `assets/` 子目录：
 
 ```bash
-python ~/Code/Hope Agent/skills/oc-skill-creator/scripts/init_skill.py my-tool \
+python skills/ha-skill-creator/scripts/init_skill.py my-tool \
   --resources scripts,references \
   --context fork \
   --examples
@@ -1591,7 +1699,7 @@ command-dispatch: tool
 command-tool: exec
 ```
 
-**始终可用（跳过所有检查）：**
+**跳过依赖检查（不代表不可关闭）：**
 ```yaml
 always: true
 ```
@@ -1645,7 +1753,7 @@ pub struct SkillEntry {
     pub command_dispatch: Option<String>,
     pub command_tool: Option<String>,
     pub command_arg_mode: Option<String>,          // "raw" 等
-    pub command_arg_placeholder: Option<String>,   // == argumentHint
+    pub command_arg_placeholder: Option<String>,   // == argument-hint / argumentHint
     pub command_arg_options: Option<Vec<String>>,
     pub command_prompt_template: Option<String>,
     pub install: Vec<SkillInstallSpec>,
@@ -1682,13 +1790,13 @@ pub struct SkillRequires {
     pub env: Vec<String>,         // AND
     pub os: Vec<String>,          // ANY
     pub config: Vec<String>,      // AND
-    pub always: bool,
+    pub always: bool,                    // 跳过 requirements 检查；不是 locked
     pub primary_env: Option<String>,
 }
 
 // 安装规格
 pub struct SkillInstallSpec {
-    pub kind: String,             // brew | node | go | uv | download
+    pub kind: String,             // brew | node | go | uv；download 保留但不可执行
     pub formula: Option<String>,
     pub package: Option<String>,
     pub go_module: Option<String>,
@@ -1717,7 +1825,7 @@ pub struct SkillStatusEntry {
     pub missing_env: Vec<String>,
     pub missing_config: Vec<String>,
     pub has_install: bool,
-    pub always: bool,
+    pub always: bool,             // 跳过 requirements 检查；不是 locked
 }
 ```
 
@@ -1737,7 +1845,7 @@ interface SkillSummary {
   disable_model_invocation?: boolean
   has_install?: boolean
   any_bins?: string[]
-  always?: boolean
+  always?: boolean                // 跳过 requirements 检查；不是 locked
   allowed_tools?: string[]
   context_mode?: string           // "fork" | undefined
   agent?: string

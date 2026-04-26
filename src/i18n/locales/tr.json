@@ -855,7 +855,7 @@
     "skillEnvClear": "Temizle",
     "skillEnvPlaceholder": "{{key}} değerini girin",
     "skillAnyBins": "Bu binarilerden herhangi biri",
-    "skillAlways": "Her zaman kullanılabilir",
+    "skillSkipsRequirements": "Bağımlılık denetimlerini atlar",
     "skillInvocationPolicy": "Çağrı politikası",
     "skillUserInvocable": "Kullanıcı tarafından çağrılabilir",
     "skillModelInvocable": "Model tarafından çağrılabilir",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "Uygulamayla birlikte gelen yetenekler temel özelliklerdir ve her zaman etkindir — burada yapılandıracak bir şey yok. Devam etmek için Sonraki'ye tıklayın.",
-      "locked": "Temel yetenek — her zaman açık, kapatılamaz",
-      "lockedBadge": "Temel"
+      "empty": "Yetenek bulunamadı. Devam etmek için Sonraki'ye tıklayın.",
+      "locked": "Bağımlılık denetimleri atlandı",
+      "lockedBadge": "Bağımlılık denetimi yok"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

@@ -13,17 +13,15 @@ pub fn run(step: u32, total: u32) -> Result<()> {
 
     let extra = load_config()?.extra_skills_dirs.clone();
     let skills = load_all_skills_with_extra(&extra);
-    // Keep only bundled, non-`always:true` skills. Core skills like
-    // `ha-settings` / `ha-skill-creator` set `requires.always = true` so
-    // the model never loses config-management. Filtering by name here
-    // would miss those — frontmatter is the source of truth.
+    // `requires.always = true` means "skip dependency checks", not "locked".
+    // Keep CLI behavior aligned with the GUI wizard and Settings -> Skills.
     let bundled: Vec<_> = skills
         .into_iter()
-        .filter(|s| s.source == "bundled" && !s.requires.always)
+        .filter(|s| s.source == "bundled")
         .collect();
 
     if bundled.is_empty() {
-        print_skipped("No optional bundled skills detected");
+        print_skipped("No bundled skills detected");
         return Ok(());
     }
 

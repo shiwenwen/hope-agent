@@ -23,6 +23,7 @@ pub fn check_requirements(
             os == current
                 || (os == "darwin" && current == "macos")
                 || (os == "mac" && current == "macos")
+                || (os == "win32" && current == "windows")
         });
         if !ok {
             return false;
@@ -92,6 +93,7 @@ pub fn check_requirements_detail(
             os == current
                 || (os == "darwin" && current == "macos")
                 || (os == "mac" && current == "macos")
+                || (os == "win32" && current == "windows")
         });
         if !ok {
             detail.eligible = false;

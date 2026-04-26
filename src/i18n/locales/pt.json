@@ -855,7 +855,7 @@
     "skillEnvClear": "Limpar",
     "skillEnvPlaceholder": "Insira o valor de {{key}}",
     "skillAnyBins": "Qualquer um destes binários",
-    "skillAlways": "Sempre disponível",
+    "skillSkipsRequirements": "Ignora verificações de dependências",
     "skillInvocationPolicy": "Política de invocação",
     "skillUserInvocable": "Invocável pelo usuário",
     "skillModelInvocable": "Invocável pelo modelo",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "As habilidades incluídas são recursos essenciais e já estão sempre ativas — não há nada para configurar aqui. Clique em Próximo para continuar.",
-      "locked": "Habilidade essencial — sempre ativa, não pode ser desativada",
-      "lockedBadge": "Essencial"
+      "empty": "Nenhuma habilidade encontrada. Clique em Próximo para continuar.",
+      "locked": "Verificações de dependências ignoradas",
+      "lockedBadge": "Sem verificações de dependências"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

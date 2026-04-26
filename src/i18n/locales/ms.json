@@ -855,7 +855,7 @@
     "skillEnvClear": "Kosongkan",
     "skillEnvPlaceholder": "Masukkan nilai untuk {{key}}",
     "skillAnyBins": "Mana-mana binari ini",
-    "skillAlways": "Sentiasa tersedia",
+    "skillSkipsRequirements": "Langkau semakan kebergantungan",
     "skillInvocationPolicy": "Polisi panggilan",
     "skillUserInvocable": "Boleh dipanggil pengguna",
     "skillModelInvocable": "Boleh dipanggil model",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "Kemahiran terbina dalam ialah keupayaan teras yang sentiasa aktif — tiada apa yang perlu ditetapkan di sini. Klik Seterusnya untuk teruskan.",
-      "locked": "Kemahiran teras — sentiasa aktif, tidak boleh dimatikan",
-      "lockedBadge": "Teras"
+      "empty": "Tiada kemahiran ditemui. Klik Seterusnya untuk teruskan.",
+      "locked": "Semakan kebergantungan dilangkau",
+      "lockedBadge": "Tanpa semakan kebergantungan"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

@@ -889,7 +889,7 @@
     "skillEnvClear": "清除",
     "skillEnvPlaceholder": "输入 {{key}} 的值",
     "skillAnyBins": "以下任一工具",
-    "skillAlways": "始终可用",
+    "skillSkipsRequirements": "跳过依赖检查",
     "skillInvocationPolicy": "调用策略",
     "skillUserInvocable": "用户可调用",
     "skillModelInvocable": "模型可调用",
@@ -3006,9 +3006,9 @@
     "skills": {
       "title": "内置技能",
       "subtitle": "以下是随应用发布的技能。取消勾选你不想让 AI 使用的项。",
-      "empty": "本应用的内置技能都是核心能力，默认自动启用，不需要你在这里选择。点击「下一步」继续。",
-      "locked": "核心技能，始终启用，不可关闭",
-      "lockedBadge": "核心"
+      "empty": "未找到技能。点击「下一步」继续。",
+      "locked": "已跳过依赖检查",
+      "lockedBadge": "免依赖检查"
     },
     "server": {
       "title": "你想如何使用 Hope Agent?",

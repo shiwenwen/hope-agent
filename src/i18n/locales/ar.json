@@ -855,7 +855,7 @@
     "skillEnvClear": "مسح",
     "skillEnvPlaceholder": "أدخل قيمة لـ {{key}}",
     "skillAnyBins": "أي من هذه البرامج الثنائية",
-    "skillAlways": "متاحة دائماً",
+    "skillSkipsRequirements": "يتجاوز فحوصات الاعتماديات",
     "skillInvocationPolicy": "سياسة الاستدعاء",
     "skillUserInvocable": "يمكن للمستخدم استدعاؤها",
     "skillModelInvocable": "يمكن للنموذج استدعاؤها",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "المهارات المضمَّنة جميعها قدرات أساسية مفعَّلة دائمًا — لا يوجد ما يحتاج إلى إعداد هنا. اضغط «التالي» للمتابعة.",
-      "locked": "مهارة أساسية — مفعَّلة دائمًا ولا يمكن تعطيلها",
-      "lockedBadge": "أساسي"
+      "empty": "لم يتم العثور على أي مهارات. اضغط «التالي» للمتابعة.",
+      "locked": "تم تجاوز فحوصات الاعتماديات",
+      "lockedBadge": "بلا فحوصات اعتماديات"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

@@ -32,11 +32,9 @@ interface SkillsStepProps {
  * Step 7 — allow-list bundled/imported skills and, optionally, import
  * extra skill directories exactly the way Settings → Skills does.
  *
- * `always: true` skills (ha-settings, ha-skill-creator, etc.) are shown
- * in the list as locked rows — toggling them off would break core
- * wiring, so the user sees they exist but can't uncheck them. Every
- * other skill (bundled non-core, extra imported dirs, managed installs,
- * shared `~/.agents/skills/`) is freely toggleable.
+ * `always: true` skills skip environment / dependency checks, but they are
+ * still user-toggleable. Settings -> Skills and Agent skill filters apply the
+ * same way, so the wizard should not create a separate "locked" model.
  */
 export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
   const { t } = useTranslation()
@@ -55,26 +53,10 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
           .call<string[]>("get_extra_skills_dirs")
           .catch(() => [] as string[]),
       ])
-      // Locked rows pinned first so "these are guaranteed" reads before
-      // the optional list.
-      const sorted = [...list].sort((a, b) => {
-        const la = a.always ? 0 : 1
-        const lb = b.always ? 0 : 1
-        if (la !== lb) return la - lb
-        return a.name.localeCompare(b.name)
-      })
+      const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name))
       setSkills(sorted)
       setExtraDirs(dirs)
       setError(null)
-      // Evict any locked names a stale draft might have smuggled in, so
-      // the onChange effect emits a clean list.
-      setDisabled((prev) => {
-        const lockedNames = sorted.filter((s) => s.always).map((s) => s.name)
-        if (!lockedNames.some((n) => prev.has(n))) return prev
-        const next = new Set(prev)
-        for (const n of lockedNames) next.delete(n)
-        return next
-      })
     } catch (e) {
       logger.warn("onboarding", "SkillsStep", "get_skills failed", e)
       setError(String(e))
@@ -213,24 +195,21 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
       {skills && skills.length > 0 && (
         <ul className="space-y-0.5 max-h-[360px] overflow-y-auto pr-1">
           {skills.map((s) => {
-            const locked = s.always === true
-            const enabled = locked || !disabled.has(s.name)
+            const skipsRequirements = s.always === true
+            const enabled = !disabled.has(s.name)
             const row = (
               <div
                 className={cn(
                   "flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm transition-colors",
-                  locked && "cursor-not-allowed",
-                  !locked &&
-                    (enabled
-                      ? "text-foreground hover:bg-secondary/60 cursor-pointer"
-                      : "text-muted-foreground/50 hover:bg-secondary/40 cursor-pointer"),
+                  enabled
+                    ? "text-foreground hover:bg-secondary/60 cursor-pointer"
+                    : "text-muted-foreground/50 hover:bg-secondary/40 cursor-pointer",
                 )}
-                onClick={() => !locked && toggle(s.name)}
+                onClick={() => toggle(s.name)}
               >
                 <Switch
                   checked={enabled}
-                  disabled={locked}
-                  onCheckedChange={() => !locked && toggle(s.name)}
+                  onCheckedChange={() => toggle(s.name)}
                   onClick={(e) => e.stopPropagation()}
                 />
                 <div className="flex-1 min-w-0">
@@ -243,9 +222,9 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
                     >
                       {s.name}
                     </span>
-                    {locked && (
+                    {skipsRequirements && (
                       <span className="text-[9px] px-1 py-0 rounded bg-green-500/10 text-green-600 font-medium shrink-0">
-                        {t("settings.skillAlways")}
+                        {t("settings.skillSkipsRequirements")}
                       </span>
                     )}
                   </div>
@@ -264,13 +243,7 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
             )
             return (
               <li key={s.name}>
-                {locked ? (
-                  <IconTip label={t("onboarding.skills.locked")}>
-                    <div>{row}</div>
-                  </IconTip>
-                ) : (
-                  row
-                )}
+                {row}
               </li>
             )
           })}

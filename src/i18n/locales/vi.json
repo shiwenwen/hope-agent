@@ -855,7 +855,7 @@
     "skillEnvClear": "Xóa",
     "skillEnvPlaceholder": "Nhập giá trị cho {{key}}",
     "skillAnyBins": "Bất kỳ binary nào dưới đây",
-    "skillAlways": "Luôn khả dụng",
+    "skillSkipsRequirements": "Bỏ qua kiểm tra phụ thuộc",
     "skillInvocationPolicy": "Chính sách gọi",
     "skillUserInvocable": "Người dùng có thể gọi",
     "skillModelInvocable": "Mô hình có thể gọi",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "Các kỹ năng đi kèm đều là năng lực cốt lõi và luôn được bật — không có gì cần cấu hình ở đây. Nhấn Tiếp theo để tiếp tục.",
-      "locked": "Kỹ năng cốt lõi — luôn bật, không thể tắt",
-      "lockedBadge": "Cốt lõi"
+      "empty": "Không tìm thấy kỹ năng nào. Nhấn Tiếp theo để tiếp tục.",
+      "locked": "Đã bỏ qua kiểm tra phụ thuộc",
+      "lockedBadge": "Không kiểm tra phụ thuộc"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

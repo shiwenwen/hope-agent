@@ -855,7 +855,7 @@
     "skillEnvClear": "Очистить",
     "skillEnvPlaceholder": "Введите значение для {{key}}",
     "skillAnyBins": "Любой из этих бинарей",
-    "skillAlways": "Всегда доступно",
+    "skillSkipsRequirements": "Пропускает проверки зависимостей",
     "skillInvocationPolicy": "Политика вызова",
     "skillUserInvocable": "Вызывается пользователем",
     "skillModelInvocable": "Вызывается моделью",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "Встроенные навыки — это базовые возможности, которые всегда включены; здесь ничего настраивать не нужно. Нажмите «Далее», чтобы продолжить.",
-      "locked": "Базовый навык — всегда включён, отключить нельзя",
-      "lockedBadge": "Базовый"
+      "empty": "Навыки не найдены. Нажмите «Далее», чтобы продолжить.",
+      "locked": "Проверки зависимостей пропущены",
+      "lockedBadge": "Без проверок зависимостей"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

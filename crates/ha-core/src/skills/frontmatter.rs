@@ -531,7 +531,8 @@ pub(super) fn parse_requires(yaml_block: &str) -> SkillRequires {
         }
     }
 
-    // Parse root-level `always:` and `primaryEnv:` (outside requires block)
+    // Parse root-level `always:`, `primaryEnv:`, and Hermes `platforms:`
+    // (outside requires block).
     for line in yaml_block.lines() {
         let indent = line.len() - line.trim_start().len();
         if indent != 0 {
@@ -549,6 +550,11 @@ pub(super) fn parse_requires(yaml_block: &str) -> SkillRequires {
             let val = unquote(rest.trim());
             if !val.is_empty() {
                 req.primary_env = Some(val);
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("platforms:") {
+            let items = parse_yaml_inline_list(rest.trim());
+            if !items.is_empty() {
+                req.os = items;
             }
         }
     }
@@ -768,6 +774,9 @@ pub(super) struct MetadataNamespaces {
 /// metadata:
 ///   openclaw:
 ///     emoji: "🐙"
+///     always: true
+///     primaryEnv: GITHUB_TOKEN
+///     os: [darwin, linux]
 ///     requires:
 ///       bins: [gh]
 ///       anyBins:
@@ -890,6 +899,29 @@ pub(super) fn parse_metadata_namespaces(yaml_block: &str) -> MetadataNamespaces 
                                 "hermes" => out.hermes_emoji = Some(v),
                                 _ => {}
                             }
+                        }
+                    }
+                    "always" if vendor == "openclaw" => {
+                        if let Some(v) = parse_bool_value(val) {
+                            out.openclaw_requires
+                                .get_or_insert_with(SkillRequires::default)
+                                .always = v;
+                        }
+                    }
+                    "primaryEnv" | "primary_env" if vendor == "openclaw" => {
+                        let v = unquote(val);
+                        if !v.is_empty() {
+                            out.openclaw_requires
+                                .get_or_insert_with(SkillRequires::default)
+                                .primary_env = Some(v);
+                        }
+                    }
+                    "os" if vendor == "openclaw" => {
+                        let items = parse_yaml_inline_list(val);
+                        if !items.is_empty() {
+                            out.openclaw_requires
+                                .get_or_insert_with(SkillRequires::default)
+                                .os = items;
                         }
                     }
                     "tags" if vendor == "hermes" => {

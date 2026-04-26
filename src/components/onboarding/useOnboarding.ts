@@ -48,6 +48,9 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
         language?: string | null
         aiExperience?: string | null
         responseStyle?: string | null
+        serverMode?: string | null
+        remoteServerUrl?: string | null
+        remoteApiKey?: string | null
       }>("get_user_config")
       .catch(() => null),
     t.call<string>("get_theme").catch(() => null),
@@ -58,8 +61,21 @@ async function seedDraftFromCurrentConfig(): Promise<OnboardingDraft> {
     t.call<Array<{ name: string; enabled?: boolean }>>("get_skills").catch(() => []),
   ])
 
+  // Default first-run onboarding to local mode. If the user has already
+  // configured a remote server in Settings, hydrate that exact choice below.
+  draft.serverMode = "local"
+
   if (userCfg) {
     if (userCfg.language) draft.language = userCfg.language
+    if (userCfg.serverMode === "remote") {
+      draft.serverMode = "remote"
+      draft.remote = {
+        url: userCfg.remoteServerUrl ?? "",
+        apiKey: userCfg.remoteApiKey ?? "",
+      }
+    } else {
+      draft.serverMode = "local"
+    }
     const profile: ProfileDraft = {}
     if (userCfg.name) profile.name = userCfg.name
     if (userCfg.timezone) profile.timezone = userCfg.timezone
@@ -152,7 +168,7 @@ interface UseOnboardingReturn {
  */
 export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingReturn {
   const [step, setStep] = useState(0)
-  const [draft, setDraft] = useState<OnboardingDraft>({})
+  const [draft, setDraft] = useState<OnboardingDraft>({ serverMode: "local" })
   const [skipped, setSkipped] = useState<Set<OnboardingStepKey>>(new Set())
   const [busy, setBusy] = useState(false)
   const hydratedRef = useRef(false)

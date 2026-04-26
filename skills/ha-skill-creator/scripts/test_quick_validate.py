@@ -104,7 +104,7 @@ class TestQuickValidateExtendedSchema(TestCase):
             """---
 name: full
 description: "exercises every supported key"
-whenToUse: "when the user asks about the full schema"
+when_to_use: "when the user asks about the full schema"
 aliases: [full-alt, full2]
 user-invocable: true
 disable-model-invocation: false
@@ -113,7 +113,7 @@ command-dispatch: tool
 command-tool: exec
 command-arg-mode: raw
 command-arg-placeholder: "<query>"
-argumentHint: "<query>"
+argument-hint: "<query>"
 command-arg-options: [on, off]
 command-prompt-template: "Run $ARGUMENTS"
 context: fork

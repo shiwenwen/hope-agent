@@ -855,7 +855,7 @@
     "skillEnvClear": "クリア",
     "skillEnvPlaceholder": "{{key}} の値を入力",
     "skillAnyBins": "以下のいずれかのバイナリ",
-    "skillAlways": "常に利用可能",
+    "skillSkipsRequirements": "依存関係チェックをスキップ",
     "skillInvocationPolicy": "呼び出しポリシー",
     "skillUserInvocable": "ユーザー呼び出し可",
     "skillModelInvocable": "モデル呼び出し可",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "同梱されている技能はすべてコア機能で、既定で有効になっています。ここで選択する必要はありません。「次へ」で続行してください。",
-      "locked": "コア技能 — 常に有効、無効化できません",
-      "lockedBadge": "コア"
+      "empty": "スキルが見つかりませんでした。「次へ」で続行してください。",
+      "locked": "依存関係チェックをスキップ済み",
+      "lockedBadge": "依存関係チェックなし"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

@@ -855,7 +855,7 @@
     "skillEnvClear": "지우기",
     "skillEnvPlaceholder": "{{key}} 의 값 입력",
     "skillAnyBins": "다음 바이너리 중 하나",
-    "skillAlways": "항상 사용 가능",
+    "skillSkipsRequirements": "의존성 검사 건너뛰기",
     "skillInvocationPolicy": "호출 정책",
     "skillUserInvocable": "사용자 호출 가능",
     "skillModelInvocable": "모델 호출 가능",
@@ -3052,9 +3052,9 @@
     "skills": {
       "title": "Bundled skills",
       "subtitle": "These ship with the app. Uncheck any you don't want available to the AI.",
-      "empty": "번들된 기능은 모두 코어 기능이며 기본적으로 활성화되어 있어 여기서 선택할 필요가 없습니다. '다음'을 눌러 계속 진행하세요.",
-      "locked": "코어 기능 — 항상 활성화되며 끌 수 없습니다",
-      "lockedBadge": "코어"
+      "empty": "스킬을 찾을 수 없습니다. 다음을 눌러 계속하세요.",
+      "locked": "의존성 검사 건너뜀",
+      "lockedBadge": "의존성 검사 없음"
     },
     "server": {
       "title": "How would you like to access Hope Agent?",

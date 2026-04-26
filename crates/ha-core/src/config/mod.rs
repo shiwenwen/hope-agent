@@ -395,8 +395,9 @@ pub struct AppConfig {
     #[serde(default = "default_skill_env_check")]
     pub skill_env_check: bool,
     /// Kill switch for `paths:` conditional skill activation. Default true.
-    /// When false, every `paths:` skill behaves like a global one (always in
-    /// the catalog) — use to roll back the feature without editing SKILL.md.
+    /// When false, file/path-aware tools stop activating `paths:` skills, so
+    /// those skills remain hidden unless they have already been activated for
+    /// the session.
     #[serde(default = "default_conditional_skills_enabled")]
     pub conditional_skills_enabled: bool,
     /// Embedding model configuration for memory vector search

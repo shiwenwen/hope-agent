@@ -306,7 +306,7 @@ export default function SkillDetailView({
             <div className="flex flex-wrap gap-2">
               {skill.requires?.always && (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-500/10 text-green-600 font-medium">
-                  {t("settings.skillAlways")}
+                  {t("settings.skillSkipsRequirements")}
                 </span>
               )}
               {skill.requires?.any_bins && skill.requires.any_bins.length > 0 && (
