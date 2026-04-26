@@ -27,7 +27,7 @@ jobs:
         run: pnpm lint
 
       - name: TypeScript typecheck
-        run: pnpm tsc --noEmit
+        run: pnpm typecheck
 
       - name: Vitest
         run: pnpm test

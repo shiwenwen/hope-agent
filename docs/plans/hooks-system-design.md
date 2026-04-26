@@ -2263,7 +2263,7 @@ PR 合并前，逐项手动试：
 ### 18.6 每阶段退出条件
 
 - 所有 Phase 1 PR 必须 §17.1 单元测试 + §17.2 集成测试绿。
-- Phase 1.4 结束跑一遍 `cargo fmt --all --check` / `cargo clippy ... -D warnings` / `cargo test -p ha-core -p ha-server` / `npx tsc --noEmit` / `npm run lint`（AGENTS.md 提交前检查）。
+- Phase 1.4 结束跑一遍 `cargo fmt --all --check` / `cargo clippy ... -D warnings` / `cargo test -p ha-core -p ha-server` / `pnpm typecheck` / `pnpm lint`（AGENTS.md 提交前检查）。
 - CHANGELOG.md 每 PR 更新 "Added / Changed / Fixed"。
 - README / README.en 在 Phase 1.4 之后同步提到 "Hooks (Claude Code compatible)" 一行特性。
 

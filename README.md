@@ -105,7 +105,7 @@ pnpm install
 pnpm tauri dev         # 桌面开发模式（前端 + Rust 热重载）
 
 # 其他常用命令
-pnpm tsc --noEmit      # 前端类型检查
+pnpm typecheck         # 前端类型检查（tsc -b）
 pnpm lint              # Lint
 pnpm tauri build       # 打生产包
 ```
