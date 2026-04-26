@@ -103,7 +103,7 @@ export function AvatarCropDialog({ imageSrc, onConfirm, onCancel, open }: Avatar
         </AlertDialogHeader>
 
         {/* Crop area */}
-        <div className="relative w-full" style={{ height: 320 }}>
+        <div className="relative h-80 w-full">
           <Cropper
             image={imageSrc}
             crop={crop}

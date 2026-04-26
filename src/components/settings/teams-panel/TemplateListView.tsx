@@ -4,6 +4,7 @@ import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import { ChevronRight, Copy, Loader2, Plus, Users2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   TEAM_EVENT_CHANNEL,
   TEAM_EVENT_TYPES,
@@ -80,12 +81,8 @@ export default function TemplateListView({ onEdit }: TemplateListViewProps) {
       <div className="w-full max-w-4xl mx-auto">
         <div className="flex items-center justify-between mb-5">
           <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              {t("settings.teams")}
-            </h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              {t("settings.teamsDesc")}
-            </p>
+            <h2 className="text-lg font-semibold text-foreground">{t("settings.teams")}</h2>
+            <p className="text-xs text-muted-foreground mt-1">{t("settings.teamsDesc")}</p>
           </div>
           <Button size="sm" onClick={() => onEdit("__new__")}>
             <Plus className="h-3.5 w-3.5 mr-1" />
@@ -96,12 +93,8 @@ export default function TemplateListView({ onEdit }: TemplateListViewProps) {
         {templates.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-secondary/10 p-8 text-center">
             <Users2 className="h-8 w-8 mx-auto text-muted-foreground/50 mb-2" />
-            <p className="text-sm text-muted-foreground">
-              {t("settings.teamsEmptyTitle")}
-            </p>
-            <p className="text-xs text-muted-foreground/70 mt-1">
-              {t("settings.teamsEmptyDesc")}
-            </p>
+            <p className="text-sm text-muted-foreground">{t("settings.teamsEmptyTitle")}</p>
+            <p className="text-xs text-muted-foreground/70 mt-1">{t("settings.teamsEmptyDesc")}</p>
           </div>
         ) : (
           <div className="space-y-2">
@@ -141,23 +134,26 @@ export default function TemplateListView({ onEdit }: TemplateListViewProps) {
                       )}
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleClone(tpl)
-                    }}
-                    disabled={cloning === tpl.templateId}
-                    title={t("settings.teamCloneTemplate")}
-                  >
-                    {cloning === tpl.templateId ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Copy className="h-3.5 w-3.5" />
-                    )}
-                  </Button>
+                  <IconTip label={t("settings.teamCloneTemplate")}>
+                    <span className="inline-flex">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleClone(tpl)
+                        }}
+                        disabled={cloning === tpl.templateId}
+                      >
+                        {cloning === tpl.templateId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+                    </span>
+                  </IconTip>
                   <ChevronRight className="h-4 w-4 text-muted-foreground/50" />
                 </div>
               </div>

@@ -2,12 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import {
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
-} from "@/components/ui/tabs"
+import { IconTip } from "@/components/ui/tooltip"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   Select,
   SelectContent,
@@ -117,9 +113,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   const [granularity, setGranularity] = useState<Granularity>("day")
   const [autoRefresh, setAutoRefresh] = useState<AutoRefreshInterval>("off")
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
-  const [agents, setAgents] = useState<
-    { id: string; name: string; emoji?: string | null }[]
-  >([])
+  const [agents, setAgents] = useState<{ id: string; name: string; emoji?: string | null }[]>([])
   const tabsRef = useRef<HTMLDivElement>(null)
 
   const agentNameMap = useMemo(() => {
@@ -132,10 +126,9 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
 
   const loadOverview = useCallback(async () => {
     try {
-      const data = await getTransport().call<OverviewStatsWithDelta>(
-        "dashboard_overview_delta",
-        { filter },
-      )
+      const data = await getTransport().call<OverviewStatsWithDelta>("dashboard_overview_delta", {
+        filter,
+      })
       setOverview(data)
     } catch (e) {
       logger.error("dashboard", "loadOverview", `Failed: ${e}`)
@@ -155,57 +148,43 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       try {
         switch (tab) {
           case "insights": {
-            const d = await getTransport().call<DashboardInsights>(
-              "dashboard_insights",
-              { filter },
-            )
+            const d = await getTransport().call<DashboardInsights>("dashboard_insights", { filter })
             setInsightsData(d)
             break
           }
           case "tokens": {
-            const td = await getTransport().call<DashboardTokenData>(
-              "dashboard_token_usage",
-              { filter },
-            )
+            const td = await getTransport().call<DashboardTokenData>("dashboard_token_usage", {
+              filter,
+            })
             setTokenData(td)
             break
           }
           case "tools": {
-            const tld = await getTransport().call<ToolUsageStats[]>(
-              "dashboard_tool_usage",
-              { filter },
-            )
+            const tld = await getTransport().call<ToolUsageStats[]>("dashboard_tool_usage", {
+              filter,
+            })
             setToolData(tld)
             break
           }
           case "sessions": {
-            const sd = await getTransport().call<DashboardSessionData>(
-              "dashboard_sessions",
-              { filter },
-            )
+            const sd = await getTransport().call<DashboardSessionData>("dashboard_sessions", {
+              filter,
+            })
             setSessionData(sd)
             break
           }
           case "errors": {
-            const ed = await getTransport().call<DashboardErrorData>(
-              "dashboard_errors",
-              { filter },
-            )
+            const ed = await getTransport().call<DashboardErrorData>("dashboard_errors", { filter })
             setErrorData(ed)
             break
           }
           case "tasks": {
-            const tkd = await getTransport().call<DashboardTaskData>(
-              "dashboard_tasks",
-              { filter },
-            )
+            const tkd = await getTransport().call<DashboardTaskData>("dashboard_tasks", { filter })
             setTaskData(tkd)
             break
           }
           case "system": {
-            const sm = await getTransport().call<SystemMetrics>(
-              "dashboard_system_metrics",
-            )
+            const sm = await getTransport().call<SystemMetrics>("dashboard_system_metrics")
             setSystemMetrics(sm)
             setSystemHistory((prev) => {
               const point: SystemHistoryPoint = {
@@ -372,10 +351,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div
-        className="shrink-0 border-b px-6 py-3 flex items-center gap-3"
-        data-tauri-drag-region
-      >
+      <div className="shrink-0 border-b px-6 py-3 flex items-center gap-3" data-tauri-drag-region>
         <Button variant="ghost" size="icon" className="h-8 w-8" onClick={onBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
@@ -388,10 +364,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
         <div className="flex-1" />
 
         {/* Auto refresh selector */}
-        <Select
-          value={autoRefresh}
-          onValueChange={(v) => setAutoRefresh(v as AutoRefreshInterval)}
-        >
+        <Select value={autoRefresh} onValueChange={(v) => setAutoRefresh(v as AutoRefreshInterval)}>
           <SelectTrigger className="h-8 w-[120px] text-xs">
             <div className="flex items-center gap-1.5">
               {autoRefresh === "off" ? (
@@ -410,27 +383,33 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
           </SelectContent>
         </Select>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleExport}
-          disabled={!canExport}
-          title={t("dashboard.export") as string}
-        >
-          <Download className="h-4 w-4" />
-        </Button>
+        <IconTip label={t("dashboard.export") as string}>
+          <span className="inline-flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={handleExport}
+              disabled={!canExport}
+            >
+              <Download className="h-4 w-4" />
+            </Button>
+          </span>
+        </IconTip>
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          onClick={handleRefresh}
-          disabled={loading}
-          title={t("dashboard.refresh") as string}
-        >
-          <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-        </Button>
+        <IconTip label={t("dashboard.refresh") as string}>
+          <span className="inline-flex">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={handleRefresh}
+              disabled={loading}
+            >
+              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+            </Button>
+          </span>
+        </IconTip>
       </div>
 
       {/* Filter bar */}
@@ -492,18 +471,14 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
             <InsightsSection
               data={insightsData}
               loading={loading}
-              onDrillDownModel={(modelId) =>
-                setFilter((f) => ({ ...f, modelId }))
-              }
+              onDrillDownModel={(modelId) => setFilter((f) => ({ ...f, modelId }))}
             />
           </TabsContent>
           <TabsContent value="tokens">
             <TokenUsageSection
               data={tokenData}
               loading={loading}
-              onDrillDown={(modelId) =>
-                setFilter((f) => ({ ...f, modelId: modelId }))
-              }
+              onDrillDown={(modelId) => setFilter((f) => ({ ...f, modelId: modelId }))}
             />
           </TabsContent>
           <TabsContent value="tools">
@@ -514,9 +489,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
               data={sessionData}
               loading={loading}
               agentNameMap={agentNameMap}
-              onDrillDown={(agentId) =>
-                setFilter((f) => ({ ...f, agentId: agentId }))
-              }
+              onDrillDown={(agentId) => setFilter((f) => ({ ...f, agentId: agentId }))}
             />
           </TabsContent>
           <TabsContent value="errors">
@@ -526,11 +499,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
             <TaskSection data={taskData} loading={loading} />
           </TabsContent>
           <TabsContent value="system">
-            <SystemMetricsSection
-              data={systemMetrics}
-              history={systemHistory}
-              loading={loading}
-            />
+            <SystemMetricsSection data={systemMetrics} history={systemHistory} loading={loading} />
           </TabsContent>
           <TabsContent value="recap">
             <RecapTab />

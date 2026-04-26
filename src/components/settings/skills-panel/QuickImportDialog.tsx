@@ -43,9 +43,7 @@ export default function QuickImportDialog({ open, onClose, onImported }: Props) 
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const list = await getTransport().call<PresetSkillSource[]>(
-        "discover_preset_skill_sources",
-      )
+      const list = await getTransport().call<PresetSkillSource[]>("discover_preset_skill_sources")
       setSources(list)
     } catch (e) {
       logger.error("settings", "QuickImportDialog::discover", "discover failed", e)
@@ -119,12 +117,9 @@ export default function QuickImportDialog({ open, onClose, onImported }: Props) 
                             className="flex items-center gap-2 px-2 py-1.5 rounded bg-secondary/30 text-xs"
                           >
                             <FolderOpen className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                            <code
-                              className="flex-1 truncate text-foreground/80"
-                              title={c.path}
-                            >
-                              {c.path}
-                            </code>
+                            <IconTip label={c.path}>
+                              <code className="flex-1 truncate text-foreground/80">{c.path}</code>
+                            </IconTip>
                             <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium shrink-0">
                               {t("settings.skillsImport.skillCount", {
                                 count: c.skillCount,

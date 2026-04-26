@@ -1,0 +1,91 @@
+// @vitest-environment jsdom
+
+import { afterEach, describe, expect, test, vi } from "vitest"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
+
+import type { Message } from "@/types/chat"
+import MessageList from "./MessageList"
+
+vi.mock("react-i18next", () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+  }),
+}))
+
+vi.mock("@/components/common/useVirtualFeed", () => ({
+  useVirtualFeed: vi.fn(({ rows }) => ({
+    scrollRef: { current: null },
+    virtualizer: {
+      measureElement: vi.fn(),
+      scrollToIndex: vi.fn(),
+    },
+    virtualItems: rows.map((row: { key: string }, index: number) => ({
+      index,
+      key: row.key,
+      start: index * 100,
+    })),
+    totalSize: rows.length * 100,
+  })),
+}))
+
+vi.mock("./MessageBubble", () => ({
+  default: ({ msg }: { msg: Message }) => <div data-testid="message-bubble">{msg.content}</div>,
+}))
+
+afterEach(() => {
+  cleanup()
+  vi.clearAllMocks()
+})
+
+function baseMessage(patch: Partial<Message>): Message {
+  return {
+    role: "assistant",
+    content: "",
+    timestamp: "2026-04-26T00:00:00.000Z",
+    ...patch,
+  } as Message
+}
+
+describe("MessageList virtualization surface", () => {
+  test("renders virtualized non-meta messages and load-more row", () => {
+    const onLoadMore = vi.fn()
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "assistant", content: "hidden meta", isMeta: true }),
+          baseMessage({ role: "user", content: "visible user message", dbId: 1 }),
+        ]}
+        loading={false}
+        agents={[]}
+        hasMore
+        loadingMore={false}
+        onLoadMore={onLoadMore}
+        sessionId="s1"
+      />,
+    )
+
+    expect(screen.getByText("visible user message")).toBeTruthy()
+    expect(screen.queryByText("hidden meta")).toBeNull()
+
+    fireEvent.click(screen.getByRole("button", { name: "chat.loadMore" }))
+    expect(onLoadMore).toHaveBeenCalledTimes(1)
+  })
+
+  test("uses the incognito empty state for empty private sessions", () => {
+    render(
+      <MessageList
+        messages={[]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+        incognito
+      />,
+    )
+
+    expect(screen.getByText("chat.incognitoEmptyTitle")).toBeTruthy()
+    expect(screen.queryByText("chat.howCanIHelp")).toBeNull()
+  })
+})
