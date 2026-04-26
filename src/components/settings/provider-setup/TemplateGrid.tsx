@@ -1,10 +1,14 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import ProviderIcon from "@/components/common/ProviderIcon"
 import LocalLlmAssistantCard from "@/components/settings/local-llm/LocalLlmAssistantCard"
-import { hasLocalOllamaProvider } from "@/components/settings/local-llm/provider-detection"
+import {
+  hasKnownLocalBackend,
+  type KnownLocalBackend,
+} from "@/components/settings/local-llm/provider-detection"
+import { getTransport } from "@/lib/transport-provider"
 import { ArrowLeft, CheckCircle2, Globe, Loader2, Search, Settings2 } from "lucide-react"
 import { PROVIDER_TEMPLATES } from "./templates"
 import { RemoteConnectDialog } from "./RemoteConnectDialog"
@@ -50,6 +54,7 @@ export function TemplateGrid({
   const [codexLoading, setCodexLoading] = useState(false)
   const [codexError, setCodexError] = useState("")
   const [remoteOpen, setRemoteOpen] = useState(false)
+  const [knownLocalBackends, setKnownLocalBackends] = useState<KnownLocalBackend[] | null>(null)
   const configuredLabel = t("onboarding.summary.providerDone")
 
   const configuredTemplateKeys = useMemo(
@@ -68,10 +73,28 @@ export function TemplateGrid({
   ]
     .join(" ")
     .toLowerCase()
+  const ollamaConfigured =
+    knownLocalBackends === null ||
+    hasKnownLocalBackend(configuredProviders, knownLocalBackends, "ollama")
   const shouldShowLocalLlmAssistant =
     showLocalLlmAssistant &&
-    !hasLocalOllamaProvider(configuredProviders) &&
+    !ollamaConfigured &&
     (!normalizedSearchQuery || localLlmSearchText.includes(normalizedSearchQuery))
+
+  useEffect(() => {
+    let cancelled = false
+    getTransport()
+      .call<KnownLocalBackend[]>("local_llm_known_backends")
+      .then((backends) => {
+        if (!cancelled) setKnownLocalBackends(backends)
+      })
+      .catch(() => {
+        if (!cancelled) setKnownLocalBackends(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   async function handleCodexAuth() {
     setCodexLoading(true)

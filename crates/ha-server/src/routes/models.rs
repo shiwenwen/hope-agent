@@ -8,9 +8,19 @@ use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use ha_core::provider::{self, ActiveModel, AvailableModel};
+use ha_core::provider::{self, ActiveModel, AvailableModel, ProviderWriteError};
 
 use crate::error::AppError;
+
+fn provider_write_error(err: ProviderWriteError) -> AppError {
+    match err {
+        ProviderWriteError::NotFound(_) | ProviderWriteError::ModelNotFound { .. } => {
+            AppError::not_found(err.to_string())
+        }
+        ProviderWriteError::UnknownLocalBackend(_) => AppError::bad_request(err.to_string()),
+        ProviderWriteError::Config(err) => AppError::internal(err.to_string()),
+    }
+}
 
 // ── Request / Response types ───────────────────────────────────
 
@@ -67,26 +77,8 @@ pub async fn get_active_model() -> Result<Json<Value>, AppError> {
 pub async fn set_active_model(
     Json(body): Json<SetActiveModelBody>,
 ) -> Result<Json<Value>, AppError> {
-    let mut store = ha_core::config::load_config()?;
-
-    let provider_cfg = store
-        .providers
-        .iter()
-        .find(|p| p.id == body.provider_id)
-        .ok_or_else(|| AppError::not_found(format!("Provider not found: {}", body.provider_id)))?;
-
-    if !provider_cfg.models.iter().any(|m| m.id == body.model_id) {
-        return Err(AppError::not_found(format!(
-            "Model not found: {}",
-            body.model_id
-        )));
-    }
-
-    store.active_model = Some(ActiveModel {
-        provider_id: body.provider_id,
-        model_id: body.model_id,
-    });
-    ha_core::config::save_config(&store)?;
+    provider::set_active_model(body.provider_id, body.model_id, "http")
+        .map_err(provider_write_error)?;
     Ok(Json(json!({ "updated": true })))
 }
 

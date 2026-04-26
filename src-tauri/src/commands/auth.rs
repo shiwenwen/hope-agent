@@ -1,7 +1,7 @@
 use crate::agent::{self, AssistantAgent};
 use crate::commands::CmdError;
 use crate::oauth;
-use crate::provider::{self, ActiveModel, ApiType, ProviderConfig};
+use crate::provider::{self, ActiveModelUpdate, ApiType, ProviderConfig};
 use crate::AppState;
 use ha_core::{app_info, app_warn};
 use serde::Serialize;
@@ -10,18 +10,10 @@ use tauri::State;
 #[tauri::command]
 pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     let provider = ProviderConfig::new_default_anthropic(api_key);
-    let provider_id = provider.id.clone();
     let model_id = provider.models[0].id.clone();
     let agent = AssistantAgent::new_from_provider(&provider, &model_id);
 
-    ha_core::config::mutate_config(("initialize_agent", "onboarding"), |store| {
-        store.providers.push(provider);
-        store.active_model = Some(ActiveModel {
-            provider_id,
-            model_id,
-        });
-        Ok(())
-    })?;
+    ha_core::provider::add_and_activate_provider(provider, model_id, "onboarding")?;
     *state.agent.lock().await = Some(agent);
     Ok(())
 }
@@ -79,14 +71,10 @@ pub async fn finalize_codex_auth(state: State<'_, AppState>) -> Result<(), CmdEr
     // Ensure Codex provider exists in store
     let default_model_id = "gpt-5.4".to_string();
     let model_for_agent = default_model_id.clone();
-    ha_core::config::mutate_config(("codex_auth", "oauth-finalize"), |store| {
-        let codex_provider_id = provider::ensure_codex_provider(store);
-        store.active_model = Some(ActiveModel {
-            provider_id: codex_provider_id,
-            model_id: model_for_agent.clone(),
-        });
-        Ok(())
-    })?;
+    provider::ensure_codex_provider_persisted(
+        ActiveModelUpdate::Always(model_for_agent.clone()),
+        "oauth-finalize",
+    )?;
 
     let agent = AssistantAgent::new_openai(&token.access_token, &account_id, &default_model_id);
     *state.agent.lock().await = Some(agent);
@@ -143,16 +131,10 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Cmd
                     // Ensure Codex provider exists and fall back to Codex
                     // `gpt-5.4` only when no active_model is set. Respect any
                     // already-chosen active model (including non-Codex).
-                    ha_core::config::mutate_config(("codex_auth", "session-restore"), |store| {
-                        let codex_provider_id = provider::ensure_codex_provider(store);
-                        if store.active_model.is_none() {
-                            store.active_model = Some(ActiveModel {
-                                provider_id: codex_provider_id,
-                                model_id: "gpt-5.4".to_string(),
-                            });
-                        }
-                        Ok(())
-                    })?;
+                    provider::ensure_codex_provider_persisted(
+                        ActiveModelUpdate::IfMissing("gpt-5.4".to_string()),
+                        "session-restore",
+                    )?;
 
                     // Create agent based on the active model's provider type
                     {
@@ -227,17 +209,7 @@ pub async fn logout_codex(state: State<'_, AppState>) -> Result<(), CmdError> {
     *state.agent.lock().await = None;
     *state.codex_token.lock().await = None;
 
-    // Remove Codex provider from store
-    ha_core::config::mutate_config(("codex_logout", "ui"), |store| {
-        store.providers.retain(|p| p.api_type != ApiType::Codex);
-        if let Some(ref active) = store.active_model {
-            // If active model was from a Codex provider, clear it
-            if !store.providers.iter().any(|p| p.id == active.provider_id) {
-                store.active_model = None;
-            }
-        }
-        Ok(())
-    })?;
+    provider::delete_providers_by_api_type(ApiType::Codex, "ui")?;
 
     oauth::clear_token()?;
     Ok(())

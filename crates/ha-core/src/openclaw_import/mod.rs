@@ -163,12 +163,7 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
         let to_push: Vec<crate::provider::ProviderConfig> =
             chosen_providers.iter().map(|r| r.config.clone()).collect();
         let n = to_push.len();
-        crate::config::mutate_config(("providers.add", "openclaw-import"), move |cfg| {
-            for p in to_push {
-                cfg.providers.push(p);
-            }
-            Ok(())
-        })?;
+        crate::provider::add_many_providers(to_push, "openclaw-import")?;
         app_info!(
             "openclaw_import",
             "import",

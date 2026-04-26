@@ -263,6 +263,7 @@ pub fn run() {
             commands::local_llm::local_llm_detect_hardware,
             commands::local_llm::local_llm_recommend_model,
             commands::local_llm::local_llm_detect_ollama,
+            commands::local_llm::local_llm_known_backends,
             commands::local_llm::local_llm_install_ollama,
             commands::local_llm::local_llm_start_ollama,
             commands::local_llm::local_llm_pull_and_activate,

@@ -14,6 +14,7 @@ use tokio::sync::Mutex as TokioMutex;
 
 use ha_core::agent;
 use ha_core::oauth::{self, AuthStatus, TokenData};
+use ha_core::provider::{ActiveModelUpdate, ApiType};
 
 use crate::error::AppError;
 
@@ -65,13 +66,11 @@ pub async fn finalize_codex_auth() -> Result<Json<Value>, AppError> {
             AppError::internal("Failed to extract account ID from Codex token".to_string())
         })?;
 
-    let mut store = ha_core::config::load_config()?;
-    let codex_provider_id = ha_core::provider::ensure_codex_provider(&mut store);
-    store.active_model = Some(ha_core::provider::ActiveModel {
-        provider_id: codex_provider_id,
-        model_id: "gpt-5.4".to_string(),
-    });
-    ha_core::config::save_config(&store)?;
+    ha_core::provider::ensure_codex_provider_persisted(
+        ActiveModelUpdate::Always("gpt-5.4".to_string()),
+        "oauth-finalize-http",
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
 
     // Persist token for subsequent sessions.
     oauth::save_token(&token).map_err(|e| AppError::internal(e.to_string()))?;
@@ -129,19 +128,8 @@ pub async fn logout_codex() -> Result<Json<Value>, AppError> {
         *lock = None;
     }
 
-    // Remove Codex provider from store, same as Tauri `logout_codex`.
-    {
-        let mut store = ha_core::config::load_config()?;
-        store
-            .providers
-            .retain(|p| p.api_type != ha_core::provider::ApiType::Codex);
-        if let Some(ref active) = store.active_model {
-            if !store.providers.iter().any(|p| p.id == active.provider_id) {
-                store.active_model = None;
-            }
-        }
-        ha_core::config::save_config(&store)?;
-    }
+    ha_core::provider::delete_providers_by_api_type(ApiType::Codex, "http")
+        .map_err(|e| AppError::internal(e.to_string()))?;
 
     oauth::clear_token().map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "ok": true })))
@@ -190,22 +178,11 @@ pub async fn try_restore_session() -> Result<Json<Value>, AppError> {
     // Ensure the Codex provider row exists so subsequent `chat` calls can
     // find it. Avoid a disk write + autosave snapshot when nothing actually
     // changed — this handler fires on every server-mode startup.
-    {
-        let mut store = ha_core::config::load_config()?;
-        let provider_count_before = store.providers.len();
-        let codex_provider_id = ha_core::provider::ensure_codex_provider(&mut store);
-        let mut dirty = store.providers.len() != provider_count_before;
-        if store.active_model.is_none() {
-            store.active_model = Some(ha_core::provider::ActiveModel {
-                provider_id: codex_provider_id,
-                model_id: "gpt-5.4".to_string(),
-            });
-            dirty = true;
-        }
-        if dirty {
-            ha_core::config::save_config(&store)?;
-        }
-    }
+    ha_core::provider::ensure_codex_provider_persisted(
+        ActiveModelUpdate::IfMissing("gpt-5.4".to_string()),
+        "session-restore-http",
+    )
+    .map_err(|e| AppError::internal(e.to_string()))?;
 
     Ok(Json(json!({ "restored": true })))
 }
