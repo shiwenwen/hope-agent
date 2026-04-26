@@ -383,7 +383,6 @@ fn build_router_with_cors(
             "/local-embedding/models",
             get(routes::local_embedding::list_models),
         )
-        .route("/local-embedding/pull", post(routes::local_embedding::pull))
         // Local model background jobs
         .route(
             "/local-model-jobs",
@@ -1145,12 +1144,7 @@ fn build_router_with_cors(
             "/local-llm/ollama-status",
             get(routes::local_llm::get_ollama_status),
         )
-        .route(
-            "/local-llm/install",
-            post(routes::local_llm::install_ollama),
-        )
         .route("/local-llm/start", post(routes::local_llm::start))
-        .route("/local-llm/pull", post(routes::local_llm::pull))
         // SearXNG Docker
         .route("/searxng/status", get(routes::searxng::status))
         .route("/searxng/deploy", post(routes::searxng::deploy))

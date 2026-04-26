@@ -117,25 +117,6 @@
 
 ---
 
-### F-017 旧 `local_llm:install_progress` / `local_llm:pull_progress` / `local_embedding:pull_progress` 事件路径已无前端监听
-
-- **来源**：2026-04-26 Task Center / Local Model Jobs `/simplify` review
-- **现象**：新 Task Center 落地后，安装/拉取走 `local_model_job:*` 事件总线。但旧的：
-  - `crates/ha-server/src/routes/local_llm.rs` `install_ollama` / `pull_and_activate` 端点
-  - `src-tauri/src/commands/local_llm.rs` 同名 Tauri 命令
-  - `crates/ha-core/src/local_llm/mod.rs::EVENT_LOCAL_*` 常量 + emit 调用
-  - `crates/ha-core/src/local_embedding.rs::EVENT_LOCAL_*` 同上
-  仍在生产中可被调用，前端代码已 100% 切到新路径，没有任何 listener 在监听这三个事件名了（grep 验证）。
-- **为什么留**：删除涉及 ha-core / ha-server / src-tauri 三处源 + `docs/architecture/api-reference.md` + `CHANGELOG.md` 同步，且需要确认确实没有外部调用方（如 hope-agent CLI / 第三方 SDK / 自动化脚本）。本期已经把新路径打磨好，老路径短期共存对运行没影响。
-- **改的话要做什么**：
-  1. grep `local_llm_install_ollama` / `local_llm_pull_and_activate` / `local_embedding_pull_and_activate` 的所有外部使用面（CLI 子命令、文档示例、SDK）
-  2. 确认零外部用户后，从 ha-server `router.rs`、src-tauri `invoke_handler!`、ha-core 三处删除函数与 EVENT 常量
-  3. 同步更新 [`docs/architecture/api-reference.md`](../../docs/architecture/api-reference.md) 与 `CHANGELOG.md`
-- **影响面**：当前为 dead code，二进制大小 / 编译时间 / 可读性轻微负担，无 runtime 风险。
-- **触发时机建议**：下一次清理 deprecated 命令时一并；或者切到 1.0 之前做 API 收敛时收掉。
-
----
-
 ### F-018 SQLite 写在 tokio worker 上同步串行成为高频进度场景的瓶颈
 
 - **来源**：2026-04-26 Task Center / Local Model Jobs `/simplify` review
@@ -153,6 +134,21 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-017 旧 `local_llm:install_progress` / `local_llm:pull_progress` / `local_embedding:pull_progress` 事件路径已无前端监听
+
+- **来源**：2026-04-26 Task Center / Local Model Jobs `/simplify` review
+- **关闭**：2026-04-26
+- **修复方式**：grep 全仓库确认前端 100% 已切到 `local_model_job:*` 事件总线、外部消费面零调用后，删除旧路径所有源码与文档。具体：
+  - **ha-core**：删除 `EVENT_LOCAL_LLM_INSTALL_PROGRESS` / `EVENT_LOCAL_LLM_PULL_PROGRESS` / `EVENT_LOCAL_EMBEDDING_PULL_PROGRESS` 三个常量；删除非 cancellable 包装函数 `local_llm::install_ollama_via_script` / `local_llm::pull_and_activate` / `local_embedding::pull_and_activate`；windows stub 合并到 `install_ollama_via_script_cancellable`；`*_cancellable` 版本仅保留给 `local_model_jobs` 调用
+  - **ha-server**：[`routes/local_llm.rs`](../../crates/ha-server/src/routes/local_llm.rs) / [`routes/local_embedding.rs`](../../crates/ha-server/src/routes/local_embedding.rs) 删 `install` / `pull` handler 与对应 imports，砍到只剩硬件 / Ollama 状态 / 模型目录探测；[`router 注册`](../../crates/ha-server/src/lib.rs) 去掉 `/local-llm/install` / `/local-llm/pull` / `/local-embedding/pull` 三条路由
+  - **src-tauri**：[`commands/local_llm.rs`](../../src-tauri/src/commands/local_llm.rs) / [`commands/local_embedding.rs`](../../src-tauri/src/commands/local_embedding.rs) 删 `local_llm_install_ollama` / `local_llm_pull_and_activate` / `local_embedding_pull_and_activate` 三条命令；[`invoke_handler!`](../../src-tauri/src/lib.rs) 注册表去三行
+  - **前端**：[`src/lib/transport-http.ts`](../../src/lib/transport-http.ts) COMMAND_MAP 删除三条路由映射
+  - **文档**：[`docs/architecture/api-reference.md`](../../docs/architecture/api-reference.md) 事件表用 `local_model_job:*` 替换，新增「Local model background jobs」表与 8 条 routes / 同时把 Local LLM assistant 表收敛到 5 条探测命令；[`docs/architecture/transport-modes.md`](../../docs/architecture/transport-modes.md) 事件矩阵同步替换；[`AGENTS.md`](../../AGENTS.md) 「本地 LLM 助手」段把"进度走 EventBus"改成"后台任务统一接口"；docker.rs / docker command shim 内残留的旧函数引用注释一并清理
+  - 验证：`cargo check -p ha-core -p ha-server` / `cargo check -p hope-agent` / `pnpm typecheck` 全绿
+- **影响面**：dead-code 移除，无 runtime 行为变更。
+
+---
 
 ### F-015 `src/components/settings/` 大批原生 `<button>` / `<input>` / `<textarea>` 未走 shadcn
 

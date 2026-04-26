@@ -142,9 +142,7 @@ Tauri 桌面没有 `/ws/events`，但同一个 EventBus 会在 `src-tauri/src/se
 | ACP | `acp_control_event` | ACP 运行生命周期。 |
 | Skills | `skills:auto_review_complete` | Skill draft 自动审核完成。 |
 | Recap | `recap_progress` | 深度复盘进度。 |
-| Local LLM | `local_llm:install_progress` | Ollama 安装脚本进度。 |
-| Local LLM | `local_llm:pull_progress` | Ollama 模型拉取进度。 |
-| Local Embedding | `local_embedding:pull_progress` | 本地 embedding 模型拉取进度。 |
+| Local model jobs | `local_model_job:created` / `:updated` / `:log` / `:completed` | 后台本地模型任务（Ollama 安装、模型拉取、Embedding 拉取）的全生命周期事件。 |
 | Docker | `searxng:deploy_progress` | SearXNG Docker 部署进度。 |
 | Weather | `weather-cache-updated` | 天气缓存刷新。 |
 | Canvas | `canvas_show` / `canvas_hide` / `canvas_reload` / `canvas_deleted` | Canvas 面板生命周期。 |

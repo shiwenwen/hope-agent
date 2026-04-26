@@ -32,8 +32,6 @@ const OLLAMA_PROVIDER_NAME: &str = "Ollama (local)";
 const RECOMMENDATION_BUDGET_PERCENT: u64 = 60;
 const START_OLLAMA_TIMEOUT_SECS: u64 = 30;
 const OLLAMA_BINARY_CHECK_TIMEOUT_SECS: u64 = 3;
-pub const EVENT_LOCAL_LLM_INSTALL_PROGRESS: &str = "local_llm:install_progress";
-pub const EVENT_LOCAL_LLM_PULL_PROGRESS: &str = "local_llm:pull_progress";
 #[cfg(unix)]
 const INSTALL_PHASE_DOWNLOAD: &str = "download-installer";
 #[cfg(unix)]
@@ -393,14 +391,6 @@ fn spawn_ollama_serve(binary: &Path) -> Result<()> {
 /// users are routed to the download page in the UI, see
 /// [`OllamaStatus::install_script_supported`].
 #[cfg(unix)]
-pub async fn install_ollama_via_script<F>(on_progress: F) -> Result<()>
-where
-    F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
-{
-    install_ollama_via_script_cancellable(on_progress, CancellationToken::new()).await
-}
-
-#[cfg(unix)]
 pub async fn install_ollama_via_script_cancellable<F>(
     on_progress: F,
     cancel_token: CancellationToken,
@@ -676,13 +666,15 @@ async fn wait_with_log_tail(
 
 #[cfg(not(unix))]
 pub async fn install_ollama_via_script_cancellable<F>(
-    on_progress: F,
+    _on_progress: F,
     _cancel_token: CancellationToken,
 ) -> Result<()>
 where
     F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
 {
-    install_ollama_via_script(on_progress).await
+    Err(anyhow!(
+        "Bundled installer is not supported on Windows. Please download Ollama from https://ollama.com/download"
+    ))
 }
 
 #[cfg(unix)]
@@ -758,16 +750,6 @@ fn authorization_was_denied(detail: &str) -> bool {
         || lower.contains("authentication failed")
         || lower.contains("authorization failed")
         || lower.contains("dismissed")
-}
-
-#[cfg(windows)]
-pub async fn install_ollama_via_script<F>(_on_progress: F) -> Result<()>
-where
-    F: Fn(&InstallScriptProgress) + Send + Sync + 'static,
-{
-    Err(anyhow!(
-        "Bundled installer is not supported on Windows. Please download Ollama from https://ollama.com/download"
-    ))
 }
 
 // ── Model pull ────────────────────────────────────────────────────
@@ -1035,13 +1017,6 @@ fn is_local_ollama_url(url: &str) -> bool {
 /// Pull the requested model, register the local-Ollama provider, and mark
 /// it active. Progress frames are emitted for both the pull phase and the
 /// post-pull bookkeeping phases.
-pub async fn pull_and_activate<F>(model: ModelCandidate, on_progress: F) -> Result<(String, String)>
-where
-    F: Fn(&PullProgress) + Send + Sync + 'static,
-{
-    pull_and_activate_cancellable(model, on_progress, CancellationToken::new()).await
-}
-
 pub async fn pull_and_activate_cancellable<F>(
     model: ModelCandidate,
     on_progress: F,

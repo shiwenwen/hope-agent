@@ -10,8 +10,7 @@ pub async fn searxng_docker_status() -> Result<docker::SearxngDockerStatus, CmdE
 
 /// Deploy the SearXNG container. Progress is emitted via the shared
 /// `EventBus` under [`ha_core::docker::EVENT_SEARXNG_DEPLOY_PROGRESS`];
-/// the frontend listens for those events instead of receiving a Tauri
-/// Channel (matches the `local_llm_install_ollama` pattern).
+/// the frontend listens for those events instead of receiving a Tauri Channel.
 #[tauri::command]
 pub async fn searxng_docker_deploy() -> Result<String, CmdError> {
     let bus = ha_core::get_event_bus()

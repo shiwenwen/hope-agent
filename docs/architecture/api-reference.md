@@ -113,8 +113,7 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `acp_control_event` | ACP 运行生命周期 |
 | `skills:auto_review_complete` | skills 草稿审核完成 |
 | `recap_progress` | `/recap` 深度复盘进度 |
-| `local_llm:install_progress` | Ollama 安装脚本逐行输出（`{ kind: "step"\|"log"\|"error", message }`） |
-| `local_llm:pull_progress` | Ollama `/api/pull` 流式进度（`{ modelId, phase, percent, bytesCompleted, bytesTotal }`） |
+| `local_model_job:created` / `:updated` / `:log` / `:completed` | 后台本地模型任务（Ollama 安装、模型拉取、Embedding 拉取）的全生命周期事件，payload 见 `LocalModelJobSnapshot` / `LocalModelJobLogEntry` |
 
 ### Canvas
 
@@ -511,16 +510,30 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 
 ### Local LLM assistant
 
-进度走 EventBus：`local_llm:install_progress` / `local_llm:pull_progress`（前端用 `transport.listen` 订阅）。Windows 不支持 `local_llm_install_ollama`，需引导用户去 ollama.com 手动安装。
+只暴露轻量级探测接口；安装、模型拉取与 Embedding 拉取统一走「Local model background jobs」（见下表），通过 `local_model_job:*` 事件订阅进度。Windows 不支持脚本安装 Ollama，需引导用户去 ollama.com 手动安装。
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `local_llm_detect_hardware` | `GET /api/local-llm/hardware` | ✅ |
 | `local_llm_recommend_model` | `GET /api/local-llm/recommendation` | ✅ |
 | `local_llm_detect_ollama` | `GET /api/local-llm/ollama-status` | ✅ |
-| `local_llm_install_ollama` | `POST /api/local-llm/install` | ✅ |
 | `local_llm_start_ollama` | `POST /api/local-llm/start` | ✅ |
-| `local_llm_pull_and_activate` | `POST /api/local-llm/pull` | ✅ |
+| `local_embedding_list_models` | `GET /api/local-embedding/models` | ✅ |
+
+### Local model background jobs
+
+本地模型安装 / 拉取的统一后台任务接口，进度走 `local_model_job:created` / `:updated` / `:log` / `:completed` 事件。前端用 `transport.listen` 订阅；ha-core `~/.hope-agent/local_model_jobs.db` 持久化。
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `local_model_job_start_chat_model` | `POST /api/local-model-jobs/chat-model` | ✅ |
+| `local_model_job_start_embedding` | `POST /api/local-model-jobs/embedding` | ✅ |
+| `local_model_job_list` | `GET /api/local-model-jobs` | ✅ |
+| `local_model_job_get` | `GET /api/local-model-jobs/{id}` | ✅ |
+| `local_model_job_logs` | `GET /api/local-model-jobs/{id}/logs` | ✅ |
+| `local_model_job_cancel` | `POST /api/local-model-jobs/{id}/cancel` | ✅ |
+| `local_model_job_retry` | `POST /api/local-model-jobs/{id}/retry` | ✅ |
+| `local_model_job_clear` | `DELETE /api/local-model-jobs/{id}` | ✅ |
 
 ### Skills
 

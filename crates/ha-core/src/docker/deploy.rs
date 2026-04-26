@@ -12,9 +12,7 @@ use super::{
 ///
 /// `on_progress` is invoked with one [`DeployProgress`] frame per
 /// step/log line. Callers typically forward each frame to the shared
-/// `EventBus` under [`EVENT_SEARXNG_DEPLOY_PROGRESS`] — matches the
-/// `local_llm_install_ollama` pattern (see
-/// `local_llm/mod.rs::install_ollama_via_script`).
+/// `EventBus` under [`EVENT_SEARXNG_DEPLOY_PROGRESS`].
 pub async fn deploy<F>(on_progress: F) -> Result<String>
 where
     F: Fn(&DeployProgress) + Send + Sync,

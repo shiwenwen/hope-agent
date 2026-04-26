@@ -60,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **桌面自动更新（GitHub Releases）**：Tauri 桌面壳接入 `tauri-plugin-updater`，公钥固定在 `src-tauri/updater.pub.pem`，GitHub Release workflow 注入签名私钥后自动生成并上传 `latest.json` updater 工件。前端 About 面板新增"检查更新 / 安装更新"入口，支持在设置里直接检查 GitHub Releases、下载并安装新版；应用内版本显示也改为优先读取运行时桌面版本，减少前端构建常量与实际安装包版本漂移。
 - **`HA_DATA_DIR` 环境变量重定向数据目录**：[`paths::root_dir()`](crates/ha-core/src/paths.rs) 新增 `HA_DATA_DIR` env 覆盖（取 path 原值，无 `.hope-agent` 后缀），优先于 `dirs::home_dir().join(".hope-agent")`。便携模式（U 盘 / 自定义数据盘）以及跨平台集成测试都受益——Windows 上 `dirs::home_dir()` 走 `SHGetKnownFolderPath` 不读 `%USERPROFILE%`，HOME 重定向无效，HA_DATA_DIR 是统一干净入口。
 
+### Removed
+
+- **删除已失活的旧本地模型安装命令与事件常量**：上一版引入「后台模型安装任务中心」后，旧 `local_llm_install_ollama` / `local_llm_pull_and_activate` / `local_embedding_pull_and_activate` 三个 Tauri 命令、对应 HTTP 路由 `/api/local-llm/install` / `/api/local-llm/pull` / `/api/local-embedding/pull` 以及它们 emit 的 `local_llm:install_progress` / `local_llm:pull_progress` / `local_embedding:pull_progress` 事件常量已经没有任何前端 listener。本次彻底删除：ha-core `EVENT_LOCAL_LLM_*` / `EVENT_LOCAL_EMBEDDING_*` 常量与非 cancellable wrapper（`pull_and_activate` / `install_ollama_via_script`）下线，仅保留 `*_cancellable` 版本给 `local_model_jobs` 使用；ha-server `routes/local_llm.rs` / `routes/local_embedding.rs` 砍到只剩硬件探测 / Ollama 状态探测 / 模型目录列举；src-tauri `commands/local_llm.rs` / `commands/local_embedding.rs` 同步精简，`invoke_handler!` 注册表去掉三行；前端 `transport-http.ts` COMMAND_MAP 同步删除三条。统一入口为 `/api/local-model-jobs/*` + `local_model_job:*` 事件，详见 [`docs/architecture/api-reference.md`](docs/architecture/api-reference.md)。关闭 [F-017](docs/plans/review-followups.md#closed)。
+
 ### Fixed
 
 - **后台模型安装弹层和任务日志的事件漏收兜底**：对话模型与 Embedding 模型安装弹层现在把 `local_model_job:*` 事件路径和 `local_model_job_get` 轮询路径合并到同一套终态处理逻辑；即使 HTTP `/ws/events` 重连或 EventBus lag 漏掉 completed 事件，轮询拿到终态 snapshot 后也会清理 busy 状态、刷新 Provider / Embedding 配置并更新页面。任务中心日志面板每次重新展开都会重新拉取后端日志，避免折叠期间产生的日志在 UI 中缺失。

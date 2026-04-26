@@ -14,7 +14,6 @@ use crate::local_llm::{
 use crate::memory::{EmbeddingConfig, EmbeddingProviderType};
 use tokio_util::sync::CancellationToken;
 
-pub const EVENT_LOCAL_EMBEDDING_PULL_PROGRESS: &str = "local_embedding:pull_progress";
 const PROVIDER_SOURCE: &str = "local-embedding-wizard";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -166,16 +165,6 @@ pub fn save_embedding_config_for_model(model: &OllamaEmbeddingModel) -> Result<E
         model.dimensions
     );
     Ok(config)
-}
-
-pub async fn pull_and_activate<F>(
-    requested: OllamaEmbeddingModel,
-    on_progress: F,
-) -> Result<EmbeddingConfig>
-where
-    F: Fn(&PullProgress) + Send + Sync + 'static,
-{
-    pull_and_activate_cancellable(requested, on_progress, CancellationToken::new()).await
 }
 
 pub async fn pull_and_activate_cancellable<F>(
