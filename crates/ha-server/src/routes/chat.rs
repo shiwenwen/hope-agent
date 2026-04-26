@@ -296,24 +296,53 @@ pub async fn stop_chat(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<StopChatRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let cancels = ctx.chat_cancels.read().unwrap();
-    if let Some(sid) = body.session_id.as_deref() {
-        if let Some(cancel) = cancels.get(sid) {
-            cancel.store(true, Ordering::SeqCst);
-            return Ok(Json(json!({ "stopped": true, "scope": "session" })));
+    let mut stopped = false;
+    let mut stopped_count = 0usize;
+    let mut active_session_ids = Vec::new();
+    {
+        let cancels = ctx.chat_cancels.read().unwrap();
+        if let Some(sid) = body.session_id.as_deref() {
+            if let Some(cancel) = cancels.get(sid) {
+                cancel.store(true, Ordering::SeqCst);
+                stopped = true;
+                stopped_count = 1;
+            }
+        } else {
+            for (sid, cancel) in cancels.iter() {
+                cancel.store(true, Ordering::SeqCst);
+                active_session_ids.push(sid.clone());
+                stopped_count += 1;
+            }
+            stopped = stopped_count > 0;
         }
-        return Ok(Json(
-            json!({ "stopped": false, "reason": "no active chat for session" }),
-        ));
     }
-    let mut count = 0usize;
-    for cancel in cancels.values() {
-        cancel.store(true, Ordering::SeqCst);
-        count += 1;
+
+    let runtime_cancellations = if let Some(sid) = body.session_id.as_deref() {
+        ha_core::runtime_tasks::cancel_runtime_tasks_for_session(Some(sid)).await?
+    } else if active_session_ids.is_empty() {
+        ha_core::runtime_tasks::cancel_runtime_tasks_for_session(None).await?
+    } else {
+        let mut out = Vec::new();
+        for sid in active_session_ids {
+            out.extend(ha_core::runtime_tasks::cancel_runtime_tasks_for_session(Some(&sid)).await?);
+        }
+        out
+    };
+
+    if body.session_id.is_some() {
+        return Ok(Json(json!({
+            "stopped": stopped,
+            "scope": "session",
+            "reason": if stopped { Value::Null } else { json!("no active chat for session") },
+            "runtimeCancellations": runtime_cancellations,
+        })));
     }
-    Ok(Json(
-        json!({ "stopped": true, "scope": "all", "count": count }),
-    ))
+    Ok(Json(json!({
+        "stopped": stopped,
+        "scope": "all",
+        "count": stopped_count,
+        "runtimeCancellations": runtime_cancellations,
+    })))
 }
 
 #[derive(Debug, Deserialize)]

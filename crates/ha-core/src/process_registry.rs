@@ -9,6 +9,7 @@ use uuid::Uuid;
 #[allow(dead_code)]
 pub struct ProcessSession {
     pub id: String,
+    pub parent_session_id: Option<String>,
     pub command: String,
     pub pid: Option<u32>,
     pub cwd: String,
@@ -70,9 +71,31 @@ impl ProcessRegistry {
         self.sessions.get_mut(id)
     }
 
+    pub fn set_pid(&mut self, id: &str, pid: Option<u32>) {
+        if let Some(session) = self.sessions.get_mut(id) {
+            session.pid = pid;
+        }
+    }
+
     #[allow(dead_code)]
     pub fn list_running(&self) -> Vec<&ProcessSession> {
         self.sessions.values().filter(|s| !s.exited).collect()
+    }
+
+    pub fn list_running_ids_for_parent_session(
+        &self,
+        parent_session_id: Option<&str>,
+    ) -> Vec<String> {
+        self.sessions
+            .values()
+            .filter(|s| {
+                !s.exited
+                    && parent_session_id
+                        .map(|sid| s.parent_session_id.as_deref() == Some(sid))
+                        .unwrap_or(true)
+            })
+            .map(|s| s.id.clone())
+            .collect()
     }
 
     #[allow(dead_code)]
@@ -92,6 +115,9 @@ impl ProcessRegistry {
         status: ProcessStatus,
     ) {
         if let Some(session) = self.sessions.get_mut(id) {
+            if session.exited {
+                return;
+            }
             session.exited = true;
             session.exit_code = exit_code;
             session.exit_signal = exit_signal;

@@ -174,6 +174,28 @@ impl SessionDB {
         Ok(runs)
     }
 
+    /// List all active (non-terminal) sub-agent runs.
+    pub fn list_all_active_subagent_runs(&self) -> Result<Vec<crate::subagent::SubagentRun>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT run_id, parent_session_id, parent_agent_id, child_agent_id, child_session_id,
+                    task, status, result, error, depth, model_used, started_at, finished_at, duration_ms,
+                    label, attachment_count, input_tokens, output_tokens
+             FROM subagent_runs
+             WHERE status IN ('spawning', 'running')
+             ORDER BY started_at DESC",
+        )?;
+        let rows = stmt.query_map([], Self::row_to_subagent_run)?;
+        let mut runs = Vec::new();
+        for row in rows {
+            runs.push(row?);
+        }
+        Ok(runs)
+    }
+
     /// Count active sub-agent runs for a parent session.
     pub fn count_active_subagent_runs(&self, parent_session_id: &str) -> Result<usize> {
         let conn = self
