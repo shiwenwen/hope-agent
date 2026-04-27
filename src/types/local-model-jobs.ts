@@ -60,11 +60,28 @@ export function isLocalModelJobActive(job: LocalModelJobSnapshot): boolean {
 }
 
 export function isLocalModelJobVisible(job: LocalModelJobSnapshot): boolean {
-  return isLocalModelJobActive(job) || job.status === "paused"
+  return (
+    isLocalModelJobActive(job) ||
+    job.status === "paused" ||
+    job.status === "interrupted" ||
+    job.status === "failed"
+  )
+}
+
+export function isLocalModelJobResumable(job: LocalModelJobSnapshot): boolean {
+  return job.status === "paused" || job.status === "interrupted" || job.status === "failed"
 }
 
 export function isLocalModelJobTerminal(job: LocalModelJobSnapshot): boolean {
   return !isLocalModelJobActive(job)
+}
+
+export function localModelJobPercent(job: LocalModelJobSnapshot): number | null {
+  if (job.percent != null) return job.percent
+  const completed = job.bytesCompleted ?? null
+  const total = job.bytesTotal ?? null
+  if (completed == null || total == null || total <= 0) return null
+  return Math.max(0, Math.min(100, (completed / total) * 100))
 }
 
 const PHASE_KEY: Record<string, string> = {
@@ -108,7 +125,7 @@ export function localModelJobToProgressFrame(
   return {
     phase: job.phase,
     message: phaseLabel(job.phase) || job.phase,
-    percent: job.percent ?? null,
+    percent: localModelJobPercent(job),
     bytesCompleted: job.bytesCompleted ?? null,
     bytesTotal: job.bytesTotal ?? null,
   }

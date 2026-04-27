@@ -3134,6 +3134,8 @@
     "activeSummary_other": "{{count}} 个本地模型任务正在运行",
     "pausedSummary": "{{count}} 个本地模型任务已暂停",
     "pausedSummary_other": "{{count}} 个本地模型任务已暂停",
+    "pendingSummary": "{{count}} 个本地模型任务可继续",
+    "pendingSummary_other": "{{count}} 个本地模型任务可继续",
     "emptyTitle": "暂无本地模型任务",
     "emptyDescription": "Ollama 安装、模型下载和模型启动会显示在这里。",
     "kind": {
@@ -3184,6 +3186,11 @@
       "description": "这个任务可以继续在后台安装，也可以现在取消。",
       "taskTitle": "关闭任务窗口？",
       "taskDescription": "这个任务可以继续在后台运行，也可以现在取消。"
+    },
+    "cancelConfirm": {
+      "title": "取消本地模型任务？",
+      "description": "将停止 {{model}} 并删除这条任务记录。",
+      "action": "取消任务"
     },
     "logs": {
       "empty": "暂无日志"

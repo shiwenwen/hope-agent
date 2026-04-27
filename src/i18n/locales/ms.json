@@ -3134,6 +3134,8 @@
     "activeSummary_other": "{{count}} local model tasks are running",
     "pausedSummary": "{{count}} local model task is paused",
     "pausedSummary_other": "{{count}} local model tasks are paused",
+    "pendingSummary": "{{count}} local model task can continue",
+    "pendingSummary_other": "{{count}} local model tasks can continue",
     "emptyTitle": "No local model tasks",
     "emptyDescription": "Ollama installs, model downloads, and model starts will appear here.",
     "kind": {
@@ -3184,6 +3186,11 @@
       "description": "This task can continue in the background, or you can cancel it now.",
       "taskTitle": "Close task window?",
       "taskDescription": "This task can continue in the background, or you can cancel it now."
+    },
+    "cancelConfirm": {
+      "title": "Cancel local model task?",
+      "description": "This will stop {{model}} and delete this task record.",
+      "action": "Cancel task"
     },
     "logs": {
       "empty": "No logs yet"

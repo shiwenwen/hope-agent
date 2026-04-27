@@ -380,7 +380,7 @@ impl LocalModelJobsDB {
         conn.execute(
             "UPDATE local_model_jobs
                 SET status='cancelled', phase='cancelled', updated_at=?1, completed_at=?1
-              WHERE job_id=?2 AND status IN ('running','cancelling','paused')",
+              WHERE job_id=?2 AND status IN ('running','cancelling','paused','failed','interrupted')",
             params![now, job_id],
         )?;
         drop(conn);
@@ -717,13 +717,18 @@ pub fn retry_job(
     job_id: &str,
     on_chat_complete: Option<ChatCompletionHook>,
 ) -> Result<LocalModelJobSnapshot> {
-    let job = require_db()?
+    let db = require_db()?.clone();
+    let job = db
         .load(job_id)?
         .ok_or_else(|| anyhow!("Local model job not found: {job_id}"))?;
     if !job.status.is_terminal() {
         return Err(anyhow!("Only terminal jobs can be retried"));
     }
-    match job.kind {
+    let hide_original_after_retry = matches!(
+        job.status,
+        LocalModelJobStatus::Paused | LocalModelJobStatus::Failed | LocalModelJobStatus::Interrupted
+    );
+    let next_job = match job.kind {
         LocalModelJobKind::ChatModel => {
             let model = local_llm::model_catalog()
                 .into_iter()
@@ -757,7 +762,28 @@ pub fn retry_job(
                 crate::memory::reembed_job::ReembedMode::KeepExisting,
             )
         }
+    }?;
+
+    if hide_original_after_retry {
+        match db.mark_cancelled(job_id) {
+            Ok(Some(cancelled)) => emit_snapshot(EVENT_LOCAL_MODEL_JOB_UPDATED, &cancelled),
+            Ok(None) => app_warn!(
+                "local_model_jobs",
+                "retry",
+                "Retried local model job but original job was not found: {}",
+                job_id
+            ),
+            Err(e) => app_warn!(
+                "local_model_jobs",
+                "retry",
+                "Retried local model job but failed to hide original job {}: {}",
+                job_id,
+                e
+            ),
+        }
     }
+
+    Ok(next_job)
 }
 
 pub(crate) fn spawn_job<F, Fut>(
@@ -1316,18 +1342,12 @@ pub(crate) fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &Can
             (last_phase, Some(msg), None)
         }
     };
-    update_job(
-        job_id,
-        final_status,
-        &phase,
-        if final_status == LocalModelJobStatus::Completed {
-            Some(100)
-        } else {
-            None
-        },
-        error,
-        result_json,
-    );
+    let final_percent = if final_status == LocalModelJobStatus::Completed {
+        Some(100)
+    } else {
+        job_before.as_ref().and_then(|job| job.percent)
+    };
+    update_job(job_id, final_status, &phase, final_percent, error, result_json);
 }
 
 fn update_job(

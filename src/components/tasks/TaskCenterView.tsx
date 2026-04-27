@@ -22,6 +22,7 @@ import {
   formatLocalModelJobLogLine,
   isLocalModelJobActive,
   LOCAL_MODEL_JOB_EVENTS,
+  localModelJobPercent,
   phaseTranslationKey,
   type LocalModelJobLogEntry,
   type LocalModelJobSnapshot,
@@ -226,7 +227,7 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
           <div className="space-y-3">
             {sortedJobs.map((job) => {
               const active = isLocalModelJobActive(job)
-              const percent = job.percent ?? null
+              const percent = localModelJobPercent(job)
               const expanded = Boolean(expandedLogs[job.jobId])
               const jobLogs = logs[job.jobId] ?? []
               return (

@@ -40,9 +40,11 @@ import { formatBytes, formatDurationCompact } from "@/lib/format"
 import {
   formatLocalModelJobLogLine,
   isLocalModelJobActive,
+  isLocalModelJobResumable,
   isLocalModelJobTerminal,
   isLocalModelJobVisible,
   LOCAL_MODEL_JOB_EVENTS,
+  localModelJobPercent,
   localModelJobToProgressFrame,
   phaseTranslationKey,
   type LocalModelJobLogEntry,
@@ -153,6 +155,7 @@ export default function LocalModelsPanel() {
   const [manualTag, setManualTag] = useState("")
 
   const [pendingDelete, setPendingDelete] = useState<LocalOllamaModel | null>(null)
+  const [pendingCancelJob, setPendingCancelJob] = useState<LocalModelJobSnapshot | null>(null)
   const [pendingEmbeddingDefault, setPendingEmbeddingDefault] = useState<LocalOllamaModel | null>(null)
 
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -164,6 +167,8 @@ export default function LocalModelsPanel() {
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
   const latestJobByIdRef = useRef<Map<string, LocalModelJobSnapshot>>(new Map())
+  const hiddenCancelledJobIdsRef = useRef<Set<string>>(new Set())
+  const clearAfterCancelJobIdsRef = useRef<Set<string>>(new Set())
   const handledTerminalJobs = useRef<Set<string>>(new Set())
   const refreshedTerminalJobs = useRef<Set<string>>(new Set())
   const jobTransferRef = useRef<
@@ -255,14 +260,10 @@ export default function LocalModelsPanel() {
   const upsertActiveJob = useCallback((job: LocalModelJobSnapshot) => {
     latestJobByIdRef.current.set(job.jobId, job)
     setActiveJobs((prev) => {
-      if (!isLocalModelJobActive(job)) {
-        if (job.status === "paused") {
-          const idx = prev.findIndex((item) => item.jobId === job.jobId)
-          if (idx === -1) return [job, ...prev]
-          const next = [...prev]
-          next[idx] = job
-          return next
-        }
+      if (hiddenCancelledJobIdsRef.current.has(job.jobId)) {
+        return prev.filter((item) => item.jobId !== job.jobId)
+      }
+      if (!isLocalModelJobVisible(job)) {
         return prev.filter((item) => item.jobId !== job.jobId)
       }
       const idx = prev.findIndex((item) => item.jobId === job.jobId)
@@ -276,7 +277,11 @@ export default function LocalModelsPanel() {
   const refreshActiveJobs = useCallback(async () => {
     try {
       const jobs = await getTransport().call<LocalModelJobSnapshot[]>("local_model_job_list")
-      setActiveJobs(jobs.filter(isLocalModelJobVisible))
+      setActiveJobs(
+        jobs.filter(
+          (job) => isLocalModelJobVisible(job) && !hiddenCancelledJobIdsRef.current.has(job.jobId),
+        ),
+      )
     } catch (e) {
       logger.warn("local-llm", "LocalModelsPanel::refreshActiveJobs", "Failed to load jobs", e)
     }
@@ -358,6 +363,21 @@ export default function LocalModelsPanel() {
     }
   }, [])
 
+  const removeVisibleJob = useCallback((jobId: string) => {
+    latestJobByIdRef.current.delete(jobId)
+    setActiveJobs((prev) => prev.filter((item) => item.jobId !== jobId))
+  }, [])
+
+  const clearJobRecord = useCallback(
+    async (jobId: string) => {
+      await getTransport().call("local_model_job_clear", { jobId })
+      hiddenCancelledJobIdsRef.current.delete(jobId)
+      clearAfterCancelJobIdsRef.current.delete(jobId)
+      removeVisibleJob(jobId)
+    },
+    [removeVisibleJob],
+  )
+
   const handleTerminalJob = useCallback(
     (job: LocalModelJobSnapshot) => {
       if (!isLocalModelJobTerminal(job)) return
@@ -405,6 +425,15 @@ export default function LocalModelsPanel() {
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (clearAfterCancelJobIdsRef.current.has(job.jobId) && isLocalModelJobTerminal(job)) {
+        void clearJobRecord(job.jobId).catch((e) => {
+          logger.warn("local-llm", "LocalModelsPanel::clearCancelledJob", "Failed to clear cancelled job", {
+            jobId: job.jobId,
+            error: String(e),
+          })
+        })
+        return
+      }
       upsertActiveJob(job)
       refreshAfterTerminalJob(job)
       setCurrentJob((current) => {
@@ -434,7 +463,14 @@ export default function LocalModelsPanel() {
       unlistenCompleted()
       unlistenLog()
     }
-  }, [appendDialogLog, handleTerminalJob, phaseLabel, refreshAfterTerminalJob, upsertActiveJob])
+  }, [
+    appendDialogLog,
+    clearJobRecord,
+    handleTerminalJob,
+    phaseLabel,
+    refreshAfterTerminalJob,
+    upsertActiveJob,
+  ])
 
   const runModelAction = useCallback(
     async (modelId: string, action: () => Promise<unknown>, successKey: string) => {
@@ -629,7 +665,7 @@ export default function LocalModelsPanel() {
   }, [currentJob, upsertActiveJob])
 
   const runJobAction = useCallback(
-    async (job: LocalModelJobSnapshot, action: "pause" | "cancel" | "resume") => {
+    async (job: LocalModelJobSnapshot, action: "pause" | "resume") => {
       const actionKey = `${job.jobId}:${action}`
       setActioning((prev) => ({ ...prev, [actionKey]: true }))
       try {
@@ -639,6 +675,10 @@ export default function LocalModelsPanel() {
         const nextJob = await getTransport().call<LocalModelJobSnapshot>(command, {
           jobId: job.jobId,
         })
+        if (action === "resume") {
+          latestJobByIdRef.current.delete(job.jobId)
+          setActiveJobs((prev) => prev.filter((item) => item.jobId !== job.jobId))
+        }
         upsertActiveJob(nextJob)
       } catch (e) {
         const message = String(e)
@@ -654,6 +694,35 @@ export default function LocalModelsPanel() {
     },
     [upsertActiveJob],
   )
+
+  const confirmCancelJob = useCallback(async () => {
+    const job = pendingCancelJob
+    if (!job) return
+    const actionKey = `${job.jobId}:cancel`
+    setActioning((prev) => ({ ...prev, [actionKey]: true }))
+    try {
+      if (isLocalModelJobActive(job)) {
+        hiddenCancelledJobIdsRef.current.add(job.jobId)
+        clearAfterCancelJobIdsRef.current.add(job.jobId)
+        await getTransport().call<LocalModelJobSnapshot>("local_model_job_cancel", {
+          jobId: job.jobId,
+        })
+        removeVisibleJob(job.jobId)
+      } else {
+        await clearJobRecord(job.jobId)
+      }
+      setPendingCancelJob(null)
+    } catch (e) {
+      const message = String(e)
+      logger.error("local-llm", "LocalModelsPanel::confirmCancelJob", "Local model job cancel failed", {
+        jobId: job.jobId,
+        error: message,
+      })
+      toast.error(message)
+    } finally {
+      setActioning((prev) => ({ ...prev, [actionKey]: false }))
+    }
+  }, [clearJobRecord, pendingCancelJob, removeVisibleJob])
 
   const confirmDelete = useCallback(async () => {
     const model = pendingDelete
@@ -690,6 +759,15 @@ export default function LocalModelsPanel() {
     : []
 
   const installedEmpty = !loading && models.length === 0
+  const activeJobCount = sortedActiveJobs.filter(isLocalModelJobActive).length
+  const pausedJobCount = sortedActiveJobs.filter((job) => job.status === "paused").length
+  const actionableJobCount = sortedActiveJobs.filter(isLocalModelJobResumable).length
+  const jobSummaryText =
+    activeJobCount > 0
+      ? t("localModelJobs.activeSummary", { count: activeJobCount })
+      : actionableJobCount > 0 && pausedJobCount !== actionableJobCount
+        ? t("localModelJobs.pendingSummary", { count: actionableJobCount })
+        : t("localModelJobs.pausedSummary", { count: pausedJobCount })
   const jobTransferSummary = useCallback(
     (job: LocalModelJobSnapshot) => {
       const parts: string[] = []
@@ -777,66 +855,66 @@ export default function LocalModelsPanel() {
       </div>
 
       {sortedActiveJobs.length > 0 && (
-        <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-3">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-              {sortedActiveJobs.some(isLocalModelJobActive) ? (
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
+        <div className="mb-4 rounded-lg border border-primary/20 bg-primary/5 p-4">
+          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2 text-sm font-medium text-foreground">
+              {activeJobCount > 0 ? (
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+              ) : actionableJobCount > 0 && pausedJobCount !== actionableJobCount ? (
+                <AlertTriangle className="h-4 w-4 shrink-0 text-primary" />
               ) : (
-                <Pause className="h-4 w-4 text-primary" />
+                <Pause className="h-4 w-4 shrink-0 text-primary" />
               )}
-              {sortedActiveJobs.some(isLocalModelJobActive)
-                ? t("localModelJobs.activeSummary", { count: sortedActiveJobs.length })
-                : t("localModelJobs.pausedSummary", { count: sortedActiveJobs.length })}
+              <span className="truncate">{jobSummaryText}</span>
             </div>
-            <span className="text-xs text-muted-foreground">{t("localModelJobs.subtitle")}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{t("localModelJobs.subtitle")}</span>
           </div>
-          <div className="grid gap-2 lg:grid-cols-2">
+          <div className="grid items-stretch gap-3 lg:grid-cols-2">
             {sortedActiveJobs.map((job) => {
-              const percent = job.percent ?? null
+              const percent = localModelJobPercent(job)
               const transferSummary = jobTransferSummary(job)
               const active = isLocalModelJobActive(job)
-              const paused = job.status === "paused"
+              const resumable = isLocalModelJobResumable(job)
+              const statusText = active
+                ? phaseLabel(job.phase)
+                : t(`localModelJobs.status.${job.status}`)
               return (
                 <div
                   key={job.jobId}
-                  className="rounded-md border border-border/70 bg-card p-3 text-left transition-colors hover:bg-secondary/60"
+                  className="flex h-full min-h-[156px] cursor-pointer flex-col rounded-md border border-border/70 bg-card p-4 text-left transition-colors hover:bg-secondary/60"
                   onClick={() => openJobDialog(job)}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                  <div className="flex min-w-0 items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
                       <div className="truncate text-sm font-medium text-foreground">
                         {job.displayName}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                        <span className="font-mono">{job.modelId}</span>
+                      <div className="mt-2 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
+                        <span className="min-w-0 truncate font-mono">{job.modelId}</span>
                         <span>·</span>
-                        <span>{t(`localModelJobs.kind.${job.kind}`)}</span>
+                        <span className="shrink-0">{t(`localModelJobs.kind.${job.kind}`)}</span>
                         <span>·</span>
-                        <span>
-                          {paused ? t("localModelJobs.status.paused") : phaseLabel(job.phase)}
-                        </span>
-                        {transferSummary && (
-                          <>
-                            <span>·</span>
-                            <span className="tabular-nums">{transferSummary}</span>
-                          </>
-                        )}
+                        <span className="shrink-0">{statusText}</span>
                       </div>
                     </div>
                     {percent != null && (
-                      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                      <span className="w-10 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                         {Math.round(percent)}%
                       </span>
                     )}
                   </div>
-                  <Progress
-                    value={percent}
-                    indeterminate={active && percent == null}
-                    className="mt-3 h-1.5"
-                  />
+                  <div className="mt-4 space-y-2">
+                    <Progress
+                      value={percent}
+                      indeterminate={active && percent == null}
+                      className="h-1.5"
+                    />
+                    <div className="min-h-4 truncate text-xs tabular-nums text-muted-foreground">
+                      {transferSummary}
+                    </div>
+                  </div>
                   <div
-                    className="mt-3 flex flex-wrap justify-end gap-2"
+                    className="mt-auto flex flex-wrap justify-end gap-2 pt-4"
                     onClick={(event) => event.stopPropagation()}
                   >
                     {active && (
@@ -855,7 +933,7 @@ export default function LocalModelsPanel() {
                         {t("localModelJobs.actions.pause")}
                       </Button>
                     )}
-                    {paused && (
+                    {resumable && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -871,13 +949,29 @@ export default function LocalModelsPanel() {
                         {t("localModelJobs.actions.resume")}
                       </Button>
                     )}
-                    {(active || paused) && (
+                    {active && (
                       <Button
                         variant="ghost"
                         size="sm"
                         className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
                         disabled={actioning[`${job.jobId}:pause`] || actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]}
-                        onClick={() => void runJobAction(job, "cancel")}
+                        onClick={() => setPendingCancelJob(job)}
+                      >
+                        {actioning[`${job.jobId}:cancel`] ? (
+                          <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+                        ) : (
+                          <Square className={ACTION_ICON_CLASS} />
+                        )}
+                        {t("localModelJobs.actions.cancel")}
+                      </Button>
+                    )}
+                    {resumable && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
+                        disabled={actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]}
+                        onClick={() => setPendingCancelJob(job)}
                       >
                         {actioning[`${job.jobId}:cancel`] ? (
                           <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
@@ -1410,6 +1504,28 @@ export default function LocalModelsPanel() {
             <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
             <AlertDialogAction onClick={() => void confirmEmbeddingDefault()}>
               {t("settings.embeddingModels.confirmSwitchAction")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!pendingCancelJob} onOpenChange={(open) => !open && setPendingCancelJob(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("localModelJobs.cancelConfirm.title")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("localModelJobs.cancelConfirm.description", {
+                model: pendingCancelJob?.displayName ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => void confirmCancelJob()}
+            >
+              {t("localModelJobs.cancelConfirm.action")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
