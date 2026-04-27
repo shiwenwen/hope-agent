@@ -506,7 +506,7 @@ pub async fn memory_embedding_get() -> Result<Json<ha_core::memory::MemoryEmbedd
 #[serde(rename_all = "camelCase")]
 pub struct MemoryEmbeddingSetDefaultBody {
     pub model_config_id: String,
-    pub reembed: bool,
+    pub mode: ha_core::memory::ReembedMode,
 }
 
 pub async fn memory_embedding_set_default(
@@ -514,7 +514,7 @@ pub async fn memory_embedding_set_default(
 ) -> Result<Json<ha_core::memory::MemoryEmbeddingSetDefaultResult>, AppError> {
     Ok(Json(ha_core::memory::set_memory_embedding_default(
         &body.model_config_id,
-        body.reembed,
+        body.mode,
         "http",
     )?))
 }

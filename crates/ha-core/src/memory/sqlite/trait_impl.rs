@@ -798,6 +798,38 @@ impl MemoryBackend for SqliteMemoryBackend {
         self.reembed_entries(&entries)
     }
 
+    fn reembed_all_with_progress(
+        &self,
+        cancel: &tokio_util::sync::CancellationToken,
+        on_progress: &mut dyn FnMut(usize, usize),
+        batch_size: usize,
+    ) -> Result<usize> {
+        let batch_size = batch_size.max(1);
+        let entries = self.list(None, None, 100000, 0)?;
+        let total = entries.len();
+        on_progress(0, total);
+        let mut done = 0usize;
+        for chunk in entries.chunks(batch_size) {
+            if cancel.is_cancelled() {
+                return Err(anyhow::anyhow!("Reembed job cancelled"));
+            }
+            let n = self.reembed_entries(chunk)?;
+            done += n;
+            on_progress(done, total);
+        }
+        Ok(done)
+    }
+
+    fn clear_all_embeddings(&self) -> Result<usize> {
+        let conn = self.write_conn()?;
+        let updated = conn.execute(
+            "UPDATE memories SET embedding = NULL, embedding_signature = NULL",
+            [],
+        )?;
+        let _ = conn.execute("DELETE FROM memories_vec", []);
+        Ok(updated)
+    }
+
     fn set_embedder(&self, provider: Arc<dyn EmbeddingProvider>) {
         let dims = provider.dimensions();
         self.embedding_dims

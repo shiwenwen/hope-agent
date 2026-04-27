@@ -564,7 +564,7 @@ export default function LocalModelsPanel() {
     if (!model || !configId) return
     await runModelAction(
       model.id,
-      () => getTransport().call("memory_embedding_set_default", { modelConfigId: configId, reembed: true }),
+      () => getTransport().call("memory_embedding_set_default", { modelConfigId: configId, mode: "keep_existing" }),
       "settings.localModels.toast.embeddingSet",
     )
     setPendingEmbeddingDefault(null)

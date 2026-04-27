@@ -82,6 +82,7 @@ pub enum LocalModelJobKind {
     EmbeddingModel,
     OllamaInstall,
     OllamaPull,
+    MemoryReembed,
 }
 
 impl LocalModelJobKind {
@@ -91,6 +92,7 @@ impl LocalModelJobKind {
             Self::EmbeddingModel => "embedding_model",
             Self::OllamaInstall => "ollama_install",
             Self::OllamaPull => "ollama_pull",
+            Self::MemoryReembed => "memory_reembed",
         }
     }
 
@@ -100,6 +102,7 @@ impl LocalModelJobKind {
             "embedding_model" => Some(Self::EmbeddingModel),
             "ollama_install" => Some(Self::OllamaInstall),
             "ollama_pull" => Some(Self::OllamaPull),
+            "memory_reembed" => Some(Self::MemoryReembed),
             _ => None,
         }
     }
@@ -722,10 +725,17 @@ pub fn retry_job(
                 display_name: Some(job.display_name),
             })
         }
+        LocalModelJobKind::MemoryReembed => {
+            let _ = on_chat_complete;
+            crate::memory::reembed_job::start_memory_reembed_job(
+                &job.model_id,
+                crate::memory::reembed_job::ReembedMode::KeepExisting,
+            )
+        }
     }
 }
 
-fn spawn_job<F, Fut>(
+pub(crate) fn spawn_job<F, Fut>(
     kind: LocalModelJobKind,
     model_id: String,
     display_name: String,
@@ -1083,7 +1093,7 @@ fn handle_pull_progress(
     append_log(job_id, "log", &format!("{}{}", progress.phase, suffix));
 }
 
-fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &CancellationToken) {
+pub(crate) fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &CancellationToken) {
     let job_before = get_job(job_id).ok().flatten();
     let status_before = job_before.as_ref().map(|job| job.status);
     let paused = matches!(status_before, Some(LocalModelJobStatus::Paused));
@@ -1171,7 +1181,7 @@ fn update_job(
     );
 }
 
-fn update_job_with_bytes(
+pub(crate) fn update_job_with_bytes(
     job_id: &str,
     status: LocalModelJobStatus,
     phase: &str,
@@ -1244,7 +1254,7 @@ fn update_job_with_bytes(
     }
 }
 
-fn append_log(job_id: &str, kind: &str, message: &str) {
+pub(crate) fn append_log(job_id: &str, kind: &str, message: &str) {
     let Some(db) = get_local_model_jobs_db() else {
         return;
     };

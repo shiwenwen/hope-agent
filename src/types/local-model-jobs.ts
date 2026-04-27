@@ -1,4 +1,9 @@
-export type LocalModelJobKind = "chat_model" | "embedding_model" | "ollama_install" | "ollama_pull"
+export type LocalModelJobKind =
+  | "chat_model"
+  | "embedding_model"
+  | "ollama_install"
+  | "ollama_pull"
+  | "memory_reembed"
 
 export type LocalModelJobStatus =
   | "running"
@@ -77,6 +82,8 @@ const PHASE_KEY: Record<string, string> = {
   success: "settings.localLlm.phases.success",
   "register-provider": "settings.localLlm.phases.registerProvider",
   "configure-embedding": "settings.localEmbedding.phases.configureEmbedding",
+  "reembed-keep": "settings.embedding.reembedJob.phaseKeep",
+  "reembed-fresh": "settings.embedding.reembedJob.phaseFresh",
   done: "settings.localLlm.phases.done",
 }
 

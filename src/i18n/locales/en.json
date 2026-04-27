@@ -1995,7 +1995,7 @@
       "confirmSwitchDesc": "This will set {{model}} as the default memory model and rebuild all memory vectors. Vector search may be temporarily incomplete while rebuilding.",
       "confirmSwitchAction": "Confirm and rebuild",
       "defaultSet": "Default memory model updated",
-      "reembedFailed": "The default model changed, but vector rebuild failed. Retry rebuilding later.",
+      "reembedFailed": "The default model changed, but starting the rebuild failed. Retry from the rebuild card.",
       "deleted": "Embedding model config deleted",
       "deleteTitle": "Delete embedding model config?",
       "deleteDesc": "This will delete the config for {{model}}. The current default memory model cannot be deleted directly.",
@@ -2003,6 +2003,49 @@
       "name": "Config name",
       "providerType": "Provider type",
       "testOk": "Embedding connection test passed"
+    },
+    "embeddingActivation": {
+      "title": "Choose an embedding model",
+      "description": "Vector search needs an embedding model. Pick one to enable and rebuild memory vectors.",
+      "empty": "No embedding model is configured yet. Add one to enable vector search.",
+      "gotoConfig": "Configure embedding models",
+      "confirm": "Enable and rebuild"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "Rebuild mode",
+        "keepExisting": "Keep current vectors during rebuild",
+        "keepExistingDesc": "Old vectors stay searchable; the new model overwrites them entry by entry.",
+        "deleteAll": "Clear all memory vectors first",
+        "deleteAllDesc": "Wipe every memory's vector before rebuilding. Search will only return keyword matches until the rebuild finishes."
+      },
+      "reembedJob": {
+        "title": "Memory vector rebuild",
+        "idle": "{{count}} memories under the active model. Trigger a manual rebuild any time.",
+        "idleDisabled": "Enable vector search and add memories before rebuilding.",
+        "running": "Rebuilding memory vectors",
+        "progress": "{{done}} / {{total}} memories",
+        "phaseKeep": "Rebuilding (keep existing)",
+        "phaseFresh": "Rebuilding from scratch",
+        "cancelling": "Cancelling…",
+        "completed": "Rebuild completed",
+        "failed": "Rebuild failed",
+        "interrupted": "Rebuild interrupted by app restart",
+        "cancelled": "Rebuild cancelled",
+        "retry": "Retry rebuild",
+        "cancel": "Cancel rebuild",
+        "dismiss": "Dismiss",
+        "startNow": "Rebuild now",
+        "status": {
+          "running": "Running",
+          "cancelling": "Cancelling",
+          "completed": "Completed",
+          "failed": "Failed",
+          "interrupted": "Interrupted",
+          "cancelled": "Cancelled",
+          "paused": "Paused"
+        }
+      }
     },
     "localModels": {
       "tab": "Local Models",

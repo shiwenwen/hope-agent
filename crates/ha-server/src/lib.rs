@@ -360,6 +360,7 @@ fn build_router_with_cors(
         .route("/memory/{id}/pin", post(routes::memory::toggle_pin))
         .route("/memory/delete-batch", post(routes::memory::delete_batch))
         .route("/memory/reembed", post(routes::memory::reembed))
+        .route("/memory/reembed-start", post(routes::memory::reembed_start))
         .route("/memory/export", post(routes::memory::export_memory))
         .route(
             "/memory/import",

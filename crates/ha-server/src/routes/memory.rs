@@ -210,7 +210,9 @@ pub struct ReembedBody {
 }
 
 /// `POST /api/memory/reembed` — regenerate embeddings for a subset of (or
-/// all) memories.
+/// all) memories. Synchronous; kept for CLI / scripted use. The desktop UI
+/// instead uses `POST /api/memory/reembed-start` which spawns a cancellable
+/// background `MemoryReembed` job.
 pub async fn reembed(Json(body): Json<ReembedBody>) -> Result<Json<Value>, AppError> {
     let backend = get_backend()?;
     let count = match body.ids {
@@ -218,6 +220,31 @@ pub async fn reembed(Json(body): Json<ReembedBody>) -> Result<Json<Value>, AppEr
         _ => backend.reembed_all()?,
     };
     Ok(Json(json!({ "updated": count })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReembedStartBody {
+    #[serde(default)]
+    pub mode: ha_core::memory::ReembedMode,
+}
+
+/// `POST /api/memory/reembed-start` — spawn a cancellable background reembed
+/// job under the currently active memory embedding model. Returns the job
+/// snapshot; subsequent progress comes through the standard
+/// `local_model_job:*` event stream.
+pub async fn reembed_start(
+    Json(body): Json<ReembedStartBody>,
+) -> Result<Json<ha_core::local_model_jobs::LocalModelJobSnapshot>, AppError> {
+    let model_id = ha_core::config::cached_config()
+        .memory_embedding
+        .model_config_id
+        .clone()
+        .ok_or_else(|| {
+            AppError::bad_request("No memory embedding model is currently active".to_string())
+        })?;
+    let snapshot = ha_core::memory::start_memory_reembed_job(&model_id, body.mode)?;
+    Ok(Json(snapshot))
 }
 
 /// `GET /api/memory/global-md` — read the user's global `memory.md` file.

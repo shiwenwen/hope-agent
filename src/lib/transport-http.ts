@@ -191,6 +191,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   memory_embedding_get:            { method: "GET",    path: "/api/config/memory-embedding" },
   memory_embedding_set_default:    { method: "POST",   path: "/api/config/memory-embedding/default" },
   memory_embedding_disable:        { method: "POST",   path: "/api/config/memory-embedding/disable" },
+  memory_reembed_start:            { method: "POST",   path: "/api/memory/reembed-start" },
   get_embedding_cache_config:      { method: "GET",    path: "/api/config/embedding-cache" },
   save_embedding_cache_config:     { method: "PUT",    path: "/api/config/embedding-cache" },
   get_dedup_config:                { method: "GET",    path: "/api/config/dedup" },
