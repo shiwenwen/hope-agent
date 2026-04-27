@@ -85,6 +85,11 @@ interface ChatInputProps {
   onIncognitoChange?: (enabled: boolean) => void
   // Working directory
   workingDir?: string | null
+  /** True when `workingDir` is inherited from the parent project rather than
+   *  set on the session itself; used to suppress the "clear" affordance in
+   *  WorkingDirectoryButton (clearing a session value that is already null
+   *  is a no-op the user can't observe). */
+  workingDirInherited?: boolean
   workingDirSaving?: boolean
   onWorkingDirChange?: (workingDir: string | null) => void
   // Plan mode
@@ -124,6 +129,7 @@ export default function ChatInput({
   incognitoDisabledReason,
   onIncognitoChange,
   workingDir,
+  workingDirInherited = false,
   workingDirSaving = false,
   onWorkingDirChange,
   planState = "off",
@@ -242,6 +248,7 @@ export default function ChatInput({
         <WorkingDirectoryButton
           sessionId={currentSessionId ?? null}
           workingDir={workingDir ?? null}
+          inherited={workingDirInherited}
           saving={workingDirSaving}
           onChange={onWorkingDirChange}
         />
@@ -284,6 +291,7 @@ export default function ChatInput({
           <WorkingDirectoryButton
             sessionId={currentSessionId ?? null}
             workingDir={workingDir ?? null}
+            inherited={workingDirInherited}
             saving={workingDirSaving}
             variant="menu"
             onPicked={() => setShowOverflowMenu(false)}

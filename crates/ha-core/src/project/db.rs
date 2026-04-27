@@ -44,7 +44,8 @@ impl ProjectDB {
                 created_at        INTEGER NOT NULL,
                 updated_at        INTEGER NOT NULL,
                 archived          INTEGER NOT NULL DEFAULT 0,
-                logo              TEXT
+                logo              TEXT,
+                working_dir       TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_projects_archived
                 ON projects(archived, updated_at DESC);
@@ -74,6 +75,13 @@ impl ProjectDB {
             conn.execute_batch("ALTER TABLE projects ADD COLUMN logo TEXT;")?;
         }
 
+        let has_working_dir = conn
+            .prepare("SELECT working_dir FROM projects LIMIT 1")
+            .is_ok();
+        if !has_working_dir {
+            conn.execute_batch("ALTER TABLE projects ADD COLUMN working_dir TEXT;")?;
+        }
+
         Ok(())
     }
 
@@ -90,6 +98,7 @@ impl ProjectDB {
         let now = chrono::Utc::now().timestamp_millis();
 
         let logo = validate_logo(input.logo.as_deref())?;
+        let working_dir = crate::util::canonicalize_working_dir(input.working_dir.as_deref())?;
 
         let conn = self
             .session_db
@@ -99,8 +108,9 @@ impl ProjectDB {
 
         conn.execute(
             "INSERT INTO projects (id, name, description, instructions, emoji, color,
-                default_agent_id, default_model_id, created_at, updated_at, archived, logo)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11)",
+                default_agent_id, default_model_id, created_at, updated_at, archived, logo,
+                working_dir)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12)",
             params![
                 id,
                 name,
@@ -113,6 +123,7 @@ impl ProjectDB {
                 now,
                 now,
                 logo.as_deref(),
+                working_dir.as_deref(),
             ],
         )?;
 
@@ -128,6 +139,7 @@ impl ProjectDB {
                 .map(str::to_string),
             default_model_id: normalize_optional(input.default_model_id.as_deref())
                 .map(str::to_string),
+            working_dir,
             created_at: now,
             updated_at: now,
             archived: false,
@@ -144,7 +156,8 @@ impl ProjectDB {
         let row = conn
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
-                        default_agent_id, default_model_id, created_at, updated_at, archived, logo
+                        default_agent_id, default_model_id, created_at, updated_at, archived, logo,
+                        working_dir
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -156,6 +169,13 @@ impl ProjectDB {
     /// Patch a project. Fields set to `Some(_)` are updated; empty strings
     /// (after trimming) clear the corresponding column to `NULL`.
     pub fn update(&self, id: &str, patch: UpdateProjectInput) -> Result<Project> {
+        // Run filesystem-touching validations BEFORE taking the SQLite lock so
+        // a slow `canonicalize` can't block other DB ops.
+        let validated_working_dir = match patch.working_dir.as_deref() {
+            Some(raw) => Some(crate::util::canonicalize_working_dir(Some(raw))?),
+            None => None,
+        };
+
         let conn = self
             .session_db
             .conn
@@ -229,6 +249,13 @@ impl ProjectDB {
             "default_model_id",
             &patch.default_model_id,
         );
+
+        if let Some(validated) = validated_working_dir {
+            let idx = params_vec.len() + 1;
+            sets.push(format!("working_dir = ?{}", idx));
+            params_vec.push(Box::new(validated));
+        }
+
         if let Some(archived) = patch.archived {
             let idx = params_vec.len() + 1;
             sets.push(format!("archived = ?{}", idx));
@@ -256,7 +283,8 @@ impl ProjectDB {
         let project = conn
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
-                        default_agent_id, default_model_id, created_at, updated_at, archived, logo
+                        default_agent_id, default_model_id, created_at, updated_at, archived, logo,
+                        working_dir
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -357,7 +385,7 @@ impl ProjectDB {
         let sql = format!(
             "SELECT p.id, p.name, p.description, p.instructions, p.emoji, p.color,
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
-                    p.logo,
+                    p.logo, p.working_dir,
                     (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
                     (SELECT COUNT(*) FROM project_files f WHERE f.project_id = p.id) AS file_count
              FROM projects p
@@ -371,8 +399,8 @@ impl ProjectDB {
             let project = row_to_project(row)?;
             Ok(ProjectMeta {
                 project,
-                session_count: row.get::<_, i64>(12).unwrap_or(0) as u32,
-                file_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
+                session_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
+                file_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
                 memory_count: 0,
             })
         })?;
@@ -542,6 +570,7 @@ fn row_to_project(row: &rusqlite::Row) -> rusqlite::Result<Project> {
         updated_at: row.get(9)?,
         archived: row.get::<_, i64>(10).unwrap_or(0) != 0,
         logo: row.get::<_, Option<String>>(11).unwrap_or(None),
+        working_dir: row.get::<_, Option<String>>(12).unwrap_or(None),
     })
 }
 

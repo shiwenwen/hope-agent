@@ -90,6 +90,14 @@
       "recentSessions": "最近對話",
       "recentFiles": "最近檔案",
       "openHome": "開啟專案首頁"
+    },
+    "workingDir": {
+      "label": "專案工作目錄",
+      "placeholder": "未設定（會話可單獨覆寫）",
+      "pick": "選擇目錄",
+      "clear": "清除",
+      "hint": "專案下的會話預設使用此目錄；會話級設定會覆寫此項。",
+      "invalid": "無效的工作目錄"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "此目錄為空",
       "fileLabel": "檔案",
       "selectCurrent": "選擇此目錄",
-      "truncated": "僅顯示前若干條——該目錄條目過多，瀏覽器無法全部展示。"
+      "truncated": "僅顯示前若干條——該目錄條目過多，瀏覽器無法全部展示。",
+      "titleBarSession": "目前工作目錄",
+      "titleBarInherited": "繼承自專案"
     },
     "modelsCount": "{{count}} 個模型",
     "attachPhotosAndFiles": "添加照片和文件",

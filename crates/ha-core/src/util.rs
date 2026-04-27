@@ -178,6 +178,33 @@ pub fn extract_json_span(text: &str, preferred_open: Option<char>) -> Option<&st
     None
 }
 
+/// Canonicalize and validate a user-supplied working directory.
+///
+/// Returns:
+/// - `Ok(None)` for `None`, an empty string, or a whitespace-only string
+///   (caller treats this as "clear the selection")
+/// - `Ok(Some(absolute_path))` after `canonicalize` succeeds and the result
+///   is confirmed to be an existing directory
+/// - `Err(_)` when the path cannot be resolved or does not point to a directory
+///
+/// Shared by session-level (`SessionDB::update_session_working_dir`) and
+/// project-level (`ProjectDB::create` / `ProjectDB::update`) entry points so
+/// the error wording and resolution semantics stay aligned.
+pub fn canonicalize_working_dir(input: Option<&str>) -> anyhow::Result<Option<String>> {
+    let trimmed = match input.map(str::trim) {
+        Some(p) if !p.is_empty() => p,
+        _ => return Ok(None),
+    };
+    let path = std::path::Path::new(trimmed);
+    let canon = path
+        .canonicalize()
+        .map_err(|e| anyhow::anyhow!("Cannot resolve working directory '{}': {}", trimmed, e))?;
+    if !canon.is_dir() {
+        anyhow::bail!("Working directory '{}' is not a directory", canon.display());
+    }
+    Ok(Some(canon.to_string_lossy().to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

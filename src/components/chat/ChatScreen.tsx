@@ -274,6 +274,21 @@ export default function ChatScreen({
     moveSessionToProject,
   } = useProjects()
 
+  const sessionWorkingDir = currentSessionMeta?.workingDir ?? null
+  const projectWorkingDir = useMemo(
+    () =>
+      currentSessionMeta?.projectId
+        ? (projects.find((p) => p.id === currentSessionMeta.projectId)?.workingDir ?? null)
+        : null,
+    [projects, currentSessionMeta?.projectId],
+  )
+  const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
+  const workingDirSource: "session" | "project" | undefined = sessionWorkingDir
+    ? "session"
+    : projectWorkingDir
+      ? "project"
+      : undefined
+
   // Wrap moveSessionToProject so the sidebar also reloads — otherwise the
   // moved session keeps rendering under the old "Unassigned" group until
   // the user manually refreshes.
@@ -980,6 +995,8 @@ export default function ChatScreen({
             setSearchFocusSignal((n) => n + 1)
           }}
           searchOpen={searchBarOpen}
+          effectiveWorkingDir={effectiveWorkingDir}
+          workingDirSource={workingDirSource}
         />
 
         {activeTeamId && !showTeamPanel && (
@@ -1087,9 +1104,10 @@ export default function ChatScreen({
               incognitoDisabledReason={incognitoDisabledReason}
               onIncognitoChange={handleIncognitoChange}
               workingDir={
-                session.currentSessionId
-                  ? (currentSessionMeta?.workingDir ?? null)
-                  : draftWorkingDir
+                session.currentSessionId ? effectiveWorkingDir : draftWorkingDir
+              }
+              workingDirInherited={
+                session.currentSessionId ? workingDirSource === "project" : false
               }
               workingDirSaving={workingDirSaving}
               onWorkingDirChange={handleWorkingDirChange}

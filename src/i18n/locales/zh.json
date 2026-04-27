@@ -90,6 +90,14 @@
       "recentSessions": "最近会话",
       "recentFiles": "最近文件",
       "openHome": "打开项目主页"
+    },
+    "workingDir": {
+      "label": "项目工作目录",
+      "placeholder": "未设置（会话可单独覆盖）",
+      "pick": "选择目录",
+      "clear": "清除",
+      "hint": "项目下的会话默认使用该目录；会话级设置会覆盖此项。",
+      "invalid": "无效的工作目录"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "此目录为空",
       "fileLabel": "文件",
       "selectCurrent": "选择此目录",
-      "truncated": "仅显示前若干条——该目录条目过多，浏览器无法全部展示。"
+      "truncated": "仅显示前若干条——该目录条目过多，浏览器无法全部展示。",
+      "titleBarSession": "当前工作目录",
+      "titleBarInherited": "继承自项目"
     },
     "modelsCount": "{{count}} 个模型",
     "attachPhotosAndFiles": "添加照片和文件",

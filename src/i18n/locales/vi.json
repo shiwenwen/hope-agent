@@ -90,6 +90,14 @@
       "recentSessions": "Phiên gần đây",
       "recentFiles": "Tập tin gần đây",
       "openHome": "Mở trang chủ dự án"
+    },
+    "workingDir": {
+      "label": "Thư mục làm việc của dự án",
+      "placeholder": "Chưa đặt (phiên có thể ghi đè)",
+      "pick": "Chọn thư mục",
+      "clear": "Xóa",
+      "hint": "Các phiên trong dự án này mặc định dùng thư mục này; cài đặt cấp phiên sẽ ghi đè.",
+      "invalid": "Thư mục làm việc không hợp lệ"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "Thư mục này trống",
       "fileLabel": "tệp",
       "selectCurrent": "Chọn thư mục này",
-      "truncated": "Chỉ hiển thị các mục đầu tiên — thư mục này quá lớn để trình duyệt hiển thị hết."
+      "truncated": "Chỉ hiển thị các mục đầu tiên — thư mục này quá lớn để trình duyệt hiển thị hết.",
+      "titleBarSession": "Thư mục làm việc",
+      "titleBarInherited": "Kế thừa từ dự án"
     },
     "modelsCount": "{{count}} mô hình",
     "attachPhotosAndFiles": "Thêm ảnh và tệp",

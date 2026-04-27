@@ -90,6 +90,14 @@
       "recentSessions": "최근 세션",
       "recentFiles": "최근 파일",
       "openHome": "프로젝트 홈 열기"
+    },
+    "workingDir": {
+      "label": "프로젝트 작업 디렉터리",
+      "placeholder": "설정 안 됨 (세션에서 재정의 가능)",
+      "pick": "디렉터리 선택",
+      "clear": "지우기",
+      "hint": "이 프로젝트의 세션은 기본적으로 이 디렉터리를 사용합니다. 세션 수준 설정이 이를 재정의합니다.",
+      "invalid": "잘못된 작업 디렉터리"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "이 디렉터리는 비어 있습니다",
       "fileLabel": "파일",
       "selectCurrent": "이 디렉터리 선택",
-      "truncated": "첫 항목만 표시합니다 — 이 디렉터리는 브라우저에 모두 표시하기에 너무 큽니다."
+      "truncated": "첫 항목만 표시합니다 — 이 디렉터리는 브라우저에 모두 표시하기에 너무 큽니다.",
+      "titleBarSession": "작업 디렉터리",
+      "titleBarInherited": "프로젝트에서 상속됨"
     },
     "modelsCount": "모델 {{count}}개",
     "attachPhotosAndFiles": "사진 및 파일 추가",

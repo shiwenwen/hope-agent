@@ -35,6 +35,11 @@ pub struct Project {
     /// When set, new sessions created inside this project default to this model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model_id: Option<String>,
+    /// Default working directory for sessions in this project. Resolved at
+    /// system-prompt build time as the fallback when the session itself has
+    /// no `working_dir` set (session-level overrides project-level).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub working_dir: Option<String>,
     /// Unix milliseconds.
     pub created_at: i64,
     pub updated_at: i64,
@@ -73,6 +78,10 @@ pub struct CreateProjectInput {
     pub default_agent_id: Option<String>,
     #[serde(default)]
     pub default_model_id: Option<String>,
+    /// Optional default working directory for sessions in this project.
+    /// Empty string is normalized to `NULL` by the DB layer.
+    #[serde(default)]
+    pub working_dir: Option<String>,
 }
 
 /// Patch DTO. `None` means "do not change this field". Clearing a field is
@@ -100,6 +109,9 @@ pub struct UpdateProjectInput {
     pub default_agent_id: Option<String>,
     #[serde(default)]
     pub default_model_id: Option<String>,
+    /// Patch the project default working directory. Empty string clears it.
+    #[serde(default)]
+    pub working_dir: Option<String>,
     #[serde(default)]
     pub archived: Option<bool>,
 }

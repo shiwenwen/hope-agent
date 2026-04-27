@@ -4,11 +4,7 @@ import { useTranslation } from "react-i18next"
 import { FileText, FolderOpen } from "lucide-react"
 import { IconTip } from "@/components/ui/tooltip"
 import { logger } from "@/lib/logger"
-
-function basename(filePath: string): string {
-  const parts = filePath.replace(/\\/g, "/").split("/")
-  return parts[parts.length - 1] || filePath
-}
+import { basename } from "@/lib/path"
 
 function FileAttachments({ files }: { files: string[] }) {
   const { t } = useTranslation()

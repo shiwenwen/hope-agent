@@ -1,17 +1,22 @@
-import { useState } from "react"
 import { FolderCheck, FolderPlus, Loader2, X } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { toast } from "sonner"
 import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { isTauriMode } from "@/lib/transport"
-import { getTransport } from "@/lib/transport-provider"
-import { logger } from "@/lib/logger"
+import { basename } from "@/lib/path"
 import ServerDirectoryBrowser from "./ServerDirectoryBrowser"
+import { useDirectoryPicker } from "./useDirectoryPicker"
 
 interface WorkingDirectoryButtonProps {
   sessionId: string | null
   workingDir: string | null | undefined
+  /**
+   * `workingDir` came from the parent project (session itself has no
+   * override). Hides the clear affordance because clearing a value the
+   * session never owned would be a silent no-op; the path is still shown
+   * so `@`-mention and label stay coherent.
+   */
+  inherited?: boolean
   saving?: boolean
   disabled?: boolean
   variant?: "toolbar" | "menu"
@@ -23,15 +28,10 @@ interface WorkingDirectoryButtonProps {
   onChange: (workingDir: string | null) => void
 }
 
-function basename(path: string): string {
-  const normalized = path.replace(/[\\/]+$/, "")
-  const parts = normalized.split(/[\\/]/).filter(Boolean)
-  return parts.length > 0 ? parts[parts.length - 1] : normalized || path
-}
-
 export default function WorkingDirectoryButton({
   sessionId,
   workingDir,
+  inherited = false,
   saving = false,
   disabled = false,
   variant = "toolbar",
@@ -39,31 +39,21 @@ export default function WorkingDirectoryButton({
   onChange,
 }: WorkingDirectoryButtonProps) {
   const { t } = useTranslation()
-  const [browserOpen, setBrowserOpen] = useState(false)
   const hasSelection = typeof workingDir === "string" && workingDir.length > 0
+  const showClear = hasSelection && !inherited
 
-  const handlePick = async () => {
+  const { pick, browserOpen, setBrowserOpen, handleBrowserSelect } = useDirectoryPicker({
+    onPicked: (path) => {
+      onChange(path)
+      onPicked?.()
+    },
+    errorTitle: t("chat.workingDir.invalid"),
+    loggerSource: "WorkingDirectoryButton::pickLocalDirectory",
+  })
+
+  const handlePick = () => {
     if (disabled || saving) return
-    if (isTauriMode()) {
-      try {
-        const picked = await getTransport().pickLocalDirectory()
-        if (!picked) return
-        onChange(picked)
-        onPicked?.()
-      } catch (e) {
-        logger.error(
-          "chat",
-          "WorkingDirectoryButton::pickLocalDirectory",
-          "native directory picker failed",
-          e,
-        )
-        toast.error(t("chat.workingDir.invalid"), {
-          description: e instanceof Error ? e.message : String(e),
-        })
-      }
-    } else {
-      setBrowserOpen(true)
-    }
+    void pick()
   }
 
   const handleClear = (e: React.MouseEvent) => {
@@ -73,7 +63,9 @@ export default function WorkingDirectoryButton({
   }
 
   const tooltipLabel = hasSelection
-    ? `${t("chat.workingDir.current")}: ${workingDir}`
+    ? inherited
+      ? `${t("chat.workingDir.titleBarInherited")}: ${workingDir}`
+      : `${t("chat.workingDir.current")}: ${workingDir}`
     : sessionId
       ? t("chat.workingDir.select")
       : t("chat.workingDir.selectPreset")
@@ -107,11 +99,7 @@ export default function WorkingDirectoryButton({
             open={browserOpen}
             initialPath={workingDir ?? null}
             onOpenChange={setBrowserOpen}
-            onSelect={(path) => {
-              setBrowserOpen(false)
-              onChange(path)
-              onPicked?.()
-            }}
+            onSelect={handleBrowserSelect}
           />
         )}
       </div>
@@ -131,7 +119,7 @@ export default function WorkingDirectoryButton({
             hasSelection
               ? "text-primary hover:text-primary"
               : "text-muted-foreground hover:text-foreground",
-            hasSelection && !saving && "rounded-r-none",
+            showClear && !saving && "rounded-r-none",
           )}
         >
           {saving ? (
@@ -144,7 +132,7 @@ export default function WorkingDirectoryButton({
           <span className="truncate">{label}</span>
         </button>
       </IconTip>
-      {hasSelection && !saving && (
+      {showClear && !saving && (
         <IconTip label={t("chat.workingDir.clear")}>
           <button
             type="button"
@@ -164,10 +152,7 @@ export default function WorkingDirectoryButton({
           open={browserOpen}
           initialPath={workingDir ?? null}
           onOpenChange={setBrowserOpen}
-          onSelect={(path) => {
-            setBrowserOpen(false)
-            onChange(path)
-          }}
+          onSelect={handleBrowserSelect}
         />
       )}
     </div>

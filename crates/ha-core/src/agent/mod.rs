@@ -1153,8 +1153,8 @@ impl AssistantAgent {
             }
         }
         let force_sandbox = caps.sandbox;
-        let session_working_dir = crate::session::lookup_session_meta(self.session_id.as_deref())
-            .and_then(|meta| meta.working_dir);
+        let session_working_dir =
+            crate::session::effective_session_working_dir(self.session_id.as_deref());
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,

@@ -90,6 +90,14 @@
       "recentSessions": "Son oturumlar",
       "recentFiles": "Son dosyalar",
       "openHome": "Proje ana sayfasını aç"
+    },
+    "workingDir": {
+      "label": "Proje çalışma dizini",
+      "placeholder": "Ayarlanmadı (oturumlar geçersiz kılabilir)",
+      "pick": "Dizin seç",
+      "clear": "Temizle",
+      "hint": "Bu projedeki oturumlar varsayılan olarak bu dizini kullanır; oturum düzeyindeki ayar onu geçersiz kılar.",
+      "invalid": "Geçersiz çalışma dizini"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "Bu dizin boş",
       "fileLabel": "dosya",
       "selectCurrent": "Bu dizini seç",
-      "truncated": "Yalnızca ilk girdiler gösteriliyor — bu dizin tarayıcının tamamını göstermesi için çok büyük."
+      "truncated": "Yalnızca ilk girdiler gösteriliyor — bu dizin tarayıcının tamamını göstermesi için çok büyük.",
+      "titleBarSession": "Çalışma dizini",
+      "titleBarInherited": "Projeden devralındı"
     },
     "modelsCount": "{{count}} model",
     "attachPhotosAndFiles": "Fotoğraf ve dosya ekle",

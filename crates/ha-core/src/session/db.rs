@@ -1477,22 +1477,7 @@ impl SessionDB {
         session_id: &str,
         working_dir: Option<String>,
     ) -> Result<Option<String>> {
-        let canonical = match working_dir.as_deref().map(str::trim) {
-            Some(p) if !p.is_empty() => {
-                let path = std::path::Path::new(p);
-                let canon = path.canonicalize().map_err(|e| {
-                    anyhow::anyhow!("Cannot resolve working directory '{}': {}", p, e)
-                })?;
-                if !canon.is_dir() {
-                    return Err(anyhow::anyhow!(
-                        "Working directory '{}' is not a directory",
-                        canon.display()
-                    ));
-                }
-                Some(canon.to_string_lossy().to_string())
-            }
-            _ => None,
-        };
+        let canonical = crate::util::canonicalize_working_dir(working_dir.as_deref())?;
         let conn = self
             .conn
             .lock()

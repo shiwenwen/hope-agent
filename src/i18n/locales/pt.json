@@ -90,6 +90,14 @@
       "recentSessions": "Sessões recentes",
       "recentFiles": "Arquivos recentes",
       "openHome": "Abrir página do projeto"
+    },
+    "workingDir": {
+      "label": "Diretório de trabalho do projeto",
+      "placeholder": "Não definido (as sessões podem substituir)",
+      "pick": "Escolher diretório",
+      "clear": "Limpar",
+      "hint": "As sessões deste projeto usam este diretório por padrão; a configuração de sessão substitui.",
+      "invalid": "Diretório de trabalho inválido"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "Este diretório está vazio",
       "fileLabel": "arquivo",
       "selectCurrent": "Selecionar este diretório",
-      "truncated": "Apenas as primeiras entradas são exibidas — este diretório é grande demais para o navegador."
+      "truncated": "Apenas as primeiras entradas são exibidas — este diretório é grande demais para o navegador.",
+      "titleBarSession": "Diretório de trabalho",
+      "titleBarInherited": "Herdado do projeto"
     },
     "modelsCount": "{{count}} modelos",
     "attachPhotosAndFiles": "Adicionar fotos e arquivos",

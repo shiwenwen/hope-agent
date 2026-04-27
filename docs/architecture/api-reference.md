@@ -190,6 +190,8 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `read_project_file_content_cmd` | `GET /api/projects/{projectId}/files/{fileId}/content` | ✅ |
 | `list_project_memories_cmd` | `GET /api/projects/{id}/memories` | ✅ |
 
+`Project` 现支持 `workingDir: string | null` 字段，作为该项目下会话的默认工作目录。`create_project_cmd` / `update_project_cmd` 透传该字段，落库前做 canonicalize + is_dir 校验（空串等价于清除）。运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，在 `agent/config.rs` 构建系统提示前 lazy resolve，无快照——编辑项目工作目录后未单独设置的已有会话立即跟随；前端 `ChatTitleBar` 据此显示生效路径并区分来源。详见 [`AGENTS.md`](../../AGENTS.md) 「项目（Project）容器」段。
+
 ### Sessions
 
 | Tauri Command | HTTP | 状态 |

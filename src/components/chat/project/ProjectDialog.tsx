@@ -15,6 +15,7 @@ import {
   CircleSlash,
   FileText,
   FolderKanban,
+  FolderOpen,
   ImagePlus,
   Loader2,
   Palette,
@@ -41,6 +42,9 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
+import { isTauriMode } from "@/lib/transport"
+import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
+import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 
 import type {
   CreateProjectInput,
@@ -122,6 +126,7 @@ export default function ProjectDialog({
   const [logo, setLogo] = useState<string>("")
   const [color, setColor] = useState<string>("")
   const [defaultAgentId, setDefaultAgentId] = useState<string>("")
+  const [workingDir, setWorkingDir] = useState<string>("")
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [logoError, setLogoError] = useState("")
 
@@ -144,6 +149,7 @@ export default function ProjectDialog({
       setLogo(initialProject.logo ?? "")
       setColor(initialProject.color ?? "")
       setDefaultAgentId(initialProject.defaultAgentId ?? "")
+      setWorkingDir(initialProject.workingDir ?? "")
     } else {
       setName("")
       setDescription("")
@@ -152,6 +158,7 @@ export default function ProjectDialog({
       setLogo("")
       setColor("")
       setDefaultAgentId("")
+      setWorkingDir("")
     }
   }, [open, mode, initialProject])
 
@@ -176,6 +183,26 @@ export default function ProjectDialog({
     setLogoError("")
   }
 
+  const {
+    pick: pickWorkingDir,
+    browserOpen: dirBrowserOpen,
+    setBrowserOpen: setDirBrowserOpen,
+    handleBrowserSelect: handleWorkingDirSelect,
+  } = useDirectoryPicker({
+    onPicked: setWorkingDir,
+    errorTitle: t("project.workingDir.invalid"),
+    loggerSource: "ProjectDialog::pickWorkingDir",
+  })
+
+  function handlePickWorkingDir() {
+    if (saving) return
+    void pickWorkingDir()
+  }
+
+  function clearWorkingDir() {
+    setWorkingDir("")
+  }
+
   async function handleSave() {
     if (!name.trim()) {
       setError(t("project.projectName") + " ?")
@@ -193,6 +220,7 @@ export default function ProjectDialog({
           logo: logo || null,
           color: color || null,
           defaultAgentId: defaultAgentId || null,
+          workingDir: workingDir.trim() || null,
         })
         if (created) {
           setSaveStatus("saved")
@@ -209,6 +237,7 @@ export default function ProjectDialog({
           logo: logo,
           color: color,
           defaultAgentId: defaultAgentId,
+          workingDir: workingDir.trim(),
         })
         if (updated) {
           setSaveStatus("saved")
@@ -429,6 +458,46 @@ export default function ProjectDialog({
               </div>
 
               <div className="space-y-1.5">
+                <Label className="flex items-center gap-2">
+                  <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                  {t("project.workingDir.label")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t("project.workingDir.hint")}
+                </p>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="project-working-dir"
+                    value={workingDir}
+                    readOnly
+                    placeholder={t("project.workingDir.placeholder")}
+                    className="h-10 flex-1 font-mono text-xs"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handlePickWorkingDir}
+                    disabled={saving}
+                  >
+                    {t("project.workingDir.pick")}
+                  </Button>
+                  {workingDir && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      onClick={clearWorkingDir}
+                      disabled={saving}
+                      aria-label={t("project.workingDir.clear")}
+                      className="h-9 w-9"
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
                 <Label htmlFor="project-instructions" className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
                   {t("project.projectInstructions")}
@@ -454,6 +523,15 @@ export default function ProjectDialog({
             </div>
           </div>
         </div>
+
+        {!isTauriMode() && (
+          <ServerDirectoryBrowser
+            open={dirBrowserOpen}
+            initialPath={workingDir || null}
+            onOpenChange={setDirBrowserOpen}
+            onSelect={handleWorkingDirSelect}
+          />
+        )}
 
         <DialogFooter className="border-t border-border/70 bg-background px-6 py-4">
           <Button

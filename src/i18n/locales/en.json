@@ -90,6 +90,14 @@
       "recentSessions": "Recent sessions",
       "recentFiles": "Recent files",
       "openHome": "Open project home"
+    },
+    "workingDir": {
+      "label": "Working Directory",
+      "placeholder": "Not set (sessions can override)",
+      "pick": "Pick directory",
+      "clear": "Clear",
+      "hint": "Sessions in this project default to this directory; session-level setting overrides it.",
+      "invalid": "Invalid working directory"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "This directory is empty",
       "fileLabel": "file",
       "selectCurrent": "Select this directory",
-      "truncated": "Only the first entries are shown — this directory is larger than the browser can display."
+      "truncated": "Only the first entries are shown — this directory is larger than the browser can display.",
+      "titleBarSession": "Working directory",
+      "titleBarInherited": "Inherited from project"
     },
     "modelsCount": "{{count}} models",
     "attachPhotosAndFiles": "Add photos and files",

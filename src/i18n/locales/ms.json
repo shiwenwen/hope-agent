@@ -90,6 +90,14 @@
       "recentSessions": "Sesi terkini",
       "recentFiles": "Fail terkini",
       "openHome": "Buka laman projek"
+    },
+    "workingDir": {
+      "label": "Direktori kerja projek",
+      "placeholder": "Tidak ditetapkan (sesi boleh menimpa)",
+      "pick": "Pilih direktori",
+      "clear": "Kosongkan",
+      "hint": "Sesi dalam projek ini menggunakan direktori ini secara lalai; tetapan peringkat sesi akan menimpanya.",
+      "invalid": "Direktori kerja tidak sah"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "Direktori ini kosong",
       "fileLabel": "fail",
       "selectCurrent": "Pilih direktori ini",
-      "truncated": "Hanya entri pertama dipaparkan — direktori ini terlalu besar untuk pelayar memaparkan keseluruhannya."
+      "truncated": "Hanya entri pertama dipaparkan — direktori ini terlalu besar untuk pelayar memaparkan keseluruhannya.",
+      "titleBarSession": "Direktori kerja",
+      "titleBarInherited": "Diwarisi daripada projek"
     },
     "modelsCount": "{{count}} model",
     "attachPhotosAndFiles": "Tambah foto dan fail",

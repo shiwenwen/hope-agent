@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { useAppVersion } from "@/lib/appMeta"
+import { basename } from "@/lib/path"
 import { IconTip } from "@/components/ui/tooltip"
 import {
   Settings,
@@ -13,6 +14,7 @@ import {
   Check,
   X,
   FileText,
+  FolderCheck,
   Loader2,
   Search,
   Ghost,
@@ -50,6 +52,14 @@ interface ChatTitleBarProps {
   onToggleSearch?: () => void
   /** Whether the in-session search bar is currently open (controls active styling). */
   searchOpen?: boolean
+  /**
+   * Currently effective working directory for this session — session-level
+   * value if set, otherwise the parent project's default. `null` when neither
+   * is set, in which case the chip is hidden.
+   */
+  effectiveWorkingDir?: string | null
+  /** Source of the effective path; only read when `effectiveWorkingDir` is set. */
+  workingDirSource?: "session" | "project"
 }
 
 export default function ChatTitleBar({
@@ -71,6 +81,8 @@ export default function ChatTitleBar({
   onCommandAction,
   onToggleSearch,
   searchOpen,
+  effectiveWorkingDir,
+  workingDirSource,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -207,6 +219,27 @@ export default function ChatTitleBar({
                 <Ghost className="h-3 w-3" />
                 {t("chat.incognito")}
               </span>
+            )}
+            {effectiveWorkingDir && (
+              <IconTip
+                label={
+                  workingDirSource === "project"
+                    ? `${t("chat.workingDir.titleBarInherited")}: ${effectiveWorkingDir}`
+                    : `${t("chat.workingDir.titleBarSession")}: ${effectiveWorkingDir}`
+                }
+              >
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 shrink-0 text-[11px] px-1.5 py-0.5 rounded font-mono max-w-[260px]",
+                    workingDirSource === "project"
+                      ? "text-muted-foreground bg-muted/60"
+                      : "text-primary bg-primary/10",
+                  )}
+                >
+                  <FolderCheck className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{basename(effectiveWorkingDir)}</span>
+                </span>
+              </IconTip>
             )}
           </>
         )}

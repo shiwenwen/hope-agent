@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **项目（Project）级默认工作目录**：`Project` 上新增 `working_dir` 字段，可在 ProjectDialog 直接选择目录（Tauri 走原生选择器、HTTP 模式走 `ServerDirectoryBrowser`）。会话级工作目录优先；会话未单独设置时运行时回退到项目级，**无需复制快照**——修改项目工作目录后，已有会话立即跟随。会话顶部 `ChatTitleBar` 新增工作目录芯片，区分「会话设置」与「继承自项目」两种来源。会话级与项目级的 canonicalize + is_dir 校验复用同一 helper，错误文案对齐。
+
 ### Changed
 
 - **本地模型任务卡交互收敛与恢复体验修复**：本地模型页顶部任务区现在会展示运行中、已暂停、已中断和失败的任务，重启后被标记为 `interrupted` 的下载任务不会再直接消失，并可继续恢复。暂停/中断状态会保留并展示已下载百分比；旧记录若丢失 `percent` 也会用 `bytes_completed / bytes_total` 反推进度。任务卡布局重排为固定层级，进度、传输信息和按钮对齐更稳定。操作收敛为运行中显示「暂停 / 取消」，已暂停/中断/失败显示「继续 / 取消」；取消统一二次确认，确认后停止任务并删除任务记录，避免重复恢复产生多条可见任务。

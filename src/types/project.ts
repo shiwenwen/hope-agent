@@ -17,6 +17,11 @@ export interface Project {
   color?: string | null
   defaultAgentId?: string | null
   defaultModelId?: string | null
+  /**
+   * Default working directory for sessions in this project. Used as a
+   * fallback when the session itself has no `workingDir` set.
+   */
+  workingDir?: string | null
   /** Unix milliseconds. */
   createdAt: number
   updatedAt: number
@@ -57,6 +62,8 @@ export interface CreateProjectInput {
   color?: string | null
   defaultAgentId?: string | null
   defaultModelId?: string | null
+  /** Optional default working directory for sessions in this project. */
+  workingDir?: string | null
 }
 
 /**
@@ -73,6 +80,8 @@ export interface UpdateProjectInput {
   color?: string
   defaultAgentId?: string
   defaultModelId?: string
+  /** Empty string clears the project default working directory. */
+  workingDir?: string
   archived?: boolean
 }
 

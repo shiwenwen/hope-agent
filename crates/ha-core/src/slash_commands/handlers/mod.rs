@@ -174,8 +174,7 @@ async fn handle_skill_command(
                 session_id: session_id.map(String::from),
                 agent_id: Some(agent_id.to_string()),
                 home_dir: dirs::home_dir().map(|p| p.to_string_lossy().to_string()),
-                session_working_dir: crate::session::lookup_session_meta(session_id)
-                    .and_then(|meta| meta.working_dir),
+                session_working_dir: crate::session::effective_session_working_dir(session_id),
                 require_approval: vec![], // Skill-triggered tools auto-approve
                 ..Default::default()
             };

@@ -90,6 +90,14 @@
       "recentSessions": "最近のセッション",
       "recentFiles": "最近のファイル",
       "openHome": "プロジェクトホームを開く"
+    },
+    "workingDir": {
+      "label": "プロジェクト作業ディレクトリ",
+      "placeholder": "未設定（セッションごとに上書き可能）",
+      "pick": "ディレクトリを選択",
+      "clear": "クリア",
+      "hint": "このプロジェクトのセッションは既定でこのディレクトリを使用します。セッション側で設定した場合はそちらが優先されます。",
+      "invalid": "無効な作業ディレクトリ"
     }
   },
   "chat": {
@@ -170,7 +178,9 @@
       "empty": "このディレクトリは空です",
       "fileLabel": "ファイル",
       "selectCurrent": "このディレクトリを選択",
-      "truncated": "先頭のエントリのみ表示しています — このディレクトリは大きすぎて全件を表示できません。"
+      "truncated": "先頭のエントリのみ表示しています — このディレクトリは大きすぎて全件を表示できません。",
+      "titleBarSession": "作業ディレクトリ",
+      "titleBarInherited": "プロジェクトから継承"
     },
     "modelsCount": "{{count}} モデル",
     "attachPhotosAndFiles": "写真とファイルを追加",
