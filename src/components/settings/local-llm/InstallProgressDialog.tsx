@@ -70,8 +70,8 @@ export function InstallProgressDialog({
     const total = frame?.bytesTotal ?? null
     if (!running || completed == null || completed < 0) {
       previousBytesRef.current = null
-      setTransfer({})
-      return
+      const timeout = window.setTimeout(() => setTransfer({}), 0)
+      return () => window.clearTimeout(timeout)
     }
 
     const now = Date.now()
@@ -88,7 +88,8 @@ export function InstallProgressDialog({
 
     const etaSeconds =
       total != null && total > completed ? (total - completed) / speedBps : undefined
-    setTransfer({ speedBps, etaSeconds })
+    const timeout = window.setTimeout(() => setTransfer({ speedBps, etaSeconds }), 0)
+    return () => window.clearTimeout(timeout)
   }, [frame?.bytesCompleted, frame?.bytesTotal, running])
 
   const transferSummary = (() => {

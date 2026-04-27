@@ -50,7 +50,10 @@ export function useMemoryStats() {
   }, [])
 
   useEffect(() => {
-    void loadEmbedding()
+    const timeout = window.setTimeout(() => {
+      void loadEmbedding()
+    }, 0)
+    return () => window.clearTimeout(timeout)
   }, [loadEmbedding])
 
   function updateStats(statsData: MemoryStats | null) {

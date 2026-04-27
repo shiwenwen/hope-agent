@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import ProviderSettings from "@/components/settings/ProviderSettings"
@@ -11,22 +10,19 @@ export default function ModelConfigPanel({
   onAddProvider,
   onEditProvider,
   onCodexReauth,
-  initialTab,
+  tab,
+  onTabChange,
 }: {
   onAddProvider: () => void
   onEditProvider: (provider: ProviderConfig) => void
   onCodexReauth?: () => void
-  initialTab?: string
+  tab: string
+  onTabChange: (tab: string) => void
 }) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState(initialTab ?? "providers")
-
-  useEffect(() => {
-    if (initialTab) setTab(initialTab)
-  }, [initialTab])
 
   return (
-    <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <Tabs value={tab} onValueChange={onTabChange} className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="px-6 pt-4 pb-2 shrink-0">
         <TabsList className="w-fit">
           <TabsTrigger value="providers">{t("settings.providers")}</TabsTrigger>

@@ -205,7 +205,7 @@ export default function SettingsView({
   const [activeSection, setActiveSection] = useState<SettingsSection>(
     initialSection ?? "modelConfig",
   )
-  const [modelConfigTab, setModelConfigTab] = useState<string | undefined>(undefined)
+  const [modelConfigTab, setModelConfigTab] = useState("providers")
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
 
@@ -305,7 +305,8 @@ export default function SettingsView({
                   onAddProvider={() => setAddingProvider(true)}
                   onEditProvider={(p) => setEditingProvider(p)}
                   onCodexReauth={onCodexReauth}
-                  initialTab={modelConfigTab}
+                  tab={modelConfigTab}
+                  onTabChange={setModelConfigTab}
                 />
               ))}
             {activeSection === "skills" && <SkillsPanel />}
