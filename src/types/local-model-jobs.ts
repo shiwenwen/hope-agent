@@ -3,6 +3,7 @@ export type LocalModelJobKind =
   | "embedding_model"
   | "ollama_install"
   | "ollama_pull"
+  | "ollama_preload"
   | "memory_reembed"
 
 export type LocalModelJobStatus =
@@ -74,6 +75,9 @@ const PHASE_KEY: Record<string, string> = {
   authorize: "settings.localLlm.phases.authorize",
   "install-ollama": "settings.localLlm.phases.installOllama",
   "start-ollama": "localModelJobs.phases.startOllama",
+  "loading-model": "localModelJobs.phases.loadingModel",
+  "loaded-waiting": "localModelJobs.phases.loadedWaiting",
+  "verifying-load": "localModelJobs.phases.verifyingLoad",
   paused: "localModelJobs.phases.paused",
   "pulling manifest": "settings.localLlm.phases.pullingManifest",
   downloading: "settings.localLlm.phases.downloading",

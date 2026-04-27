@@ -18,6 +18,9 @@ use super::{ensure_ollama_provider_with_model_config, start_ollama, OLLAMA_BASE_
 const OLLAMA_LIBRARY_ORIGIN: &str = "https://www.ollama.com";
 const CACHE_TTL_SECS: i64 = 24 * 60 * 60;
 const PROVIDER_SOURCE: &str = "local-llm-manager";
+const OLLAMA_API_TIMEOUT_SECS: u64 = 15;
+const OLLAMA_KEEP_ALIVE_LOAD_TIMEOUT_SECS: u64 = 10 * 60;
+const OLLAMA_KEEP_ALIVE_UNLOAD_TIMEOUT_SECS: u64 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -193,9 +196,9 @@ fn now_secs() -> i64 {
     Utc::now().timestamp()
 }
 
-fn ollama_client() -> Result<reqwest::Client> {
+fn ollama_client(timeout: Duration) -> Result<reqwest::Client> {
     crate::provider::apply_proxy_for_url(
-        reqwest::Client::builder().timeout(Duration::from_secs(15)),
+        reqwest::Client::builder().timeout(timeout),
         OLLAMA_BASE_URL,
     )
     .build()
@@ -240,7 +243,7 @@ async fn fetch_ollama_json<T>(path: &str) -> Result<T>
 where
     T: serde::de::DeserializeOwned,
 {
-    let resp = match ollama_client()?
+    let resp = match ollama_client(Duration::from_secs(OLLAMA_API_TIMEOUT_SECS))?
         .get(format!("{OLLAMA_BASE_URL}{path}"))
         .send()
         .await
@@ -266,11 +269,11 @@ where
     }
 }
 
-async fn post_ollama_json<T>(path: &str, body: Value) -> Result<T>
+async fn post_ollama_json<T>(path: &str, body: Value, timeout: Duration) -> Result<T>
 where
     T: serde::de::DeserializeOwned,
 {
-    let resp = match ollama_client()?
+    let resp = match ollama_client(timeout)?
         .post(format!("{OLLAMA_BASE_URL}{path}"))
         .json(&body)
         .send()
@@ -279,6 +282,12 @@ where
         Ok(resp) => resp,
         Err(e) => {
             log_ollama_request_error("POST", path, &e);
+            if e.is_timeout() && (path == "/api/generate" || path == "/api/embed") {
+                return Err(anyhow!(
+                    "Ollama model load timed out after {} seconds via {path}. The model may still be loading or may be too large for this machine; wait a bit and refresh, or choose a smaller model.",
+                    timeout.as_secs()
+                ));
+            }
             return Err(e).with_context(|| format!("POST {path}"));
         }
     };
@@ -301,6 +310,7 @@ async fn show_ollama_model(model_id: &str) -> Result<ShowModelResponse> {
     post_ollama_json(
         "/api/show",
         serde_json::json!({ "model": model_id, "verbose": false }),
+        Duration::from_secs(OLLAMA_API_TIMEOUT_SECS),
     )
     .await
 }
@@ -375,6 +385,28 @@ fn keep_alive_endpoint_for_capabilities(capabilities: &[String]) -> OllamaKeepAl
         OllamaKeepAliveEndpoint::Embed
     } else {
         OllamaKeepAliveEndpoint::Generate
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum KeepAliveIntent {
+    Load,
+    Unload,
+}
+
+impl KeepAliveIntent {
+    fn keep_alive_value(self) -> i64 {
+        match self {
+            Self::Load => -1,
+            Self::Unload => 0,
+        }
+    }
+
+    fn request_timeout(self) -> Duration {
+        match self {
+            Self::Load => Duration::from_secs(OLLAMA_KEEP_ALIVE_LOAD_TIMEOUT_SECS),
+            Self::Unload => Duration::from_secs(OLLAMA_KEEP_ALIVE_UNLOAD_TIMEOUT_SECS),
+        }
     }
 }
 
@@ -541,6 +573,14 @@ pub async fn list_local_ollama_models() -> Result<Vec<LocalOllamaModel>> {
     Ok(models)
 }
 
+pub async fn is_ollama_model_running(model_id: &str) -> Result<bool> {
+    let ps: PsResponse = fetch_ollama_json("/api/ps").await?;
+    Ok(ps
+        .models
+        .into_iter()
+        .any(|m| m.model.as_deref() == Some(model_id) || m.name.as_deref() == Some(model_id)))
+}
+
 struct UsageIndex<'a> {
     provider_id: Option<String>,
     provider_model_ids: HashSet<&'a str>,
@@ -618,7 +658,7 @@ pub async fn preload_ollama_model(model_id: &str) -> Result<OllamaModelActionRes
         model_id
     );
     start_ollama().await?;
-    keep_alive_ollama_model(model_id, -1).await?;
+    keep_alive_ollama_model(model_id, KeepAliveIntent::Load).await?;
     crate::app_info!(
         "local_llm",
         "preload",
@@ -639,7 +679,7 @@ pub async fn stop_ollama_model(model_id: &str) -> Result<OllamaModelActionResult
         model_id
     );
     start_ollama().await?;
-    keep_alive_ollama_model(model_id, 0).await?;
+    keep_alive_ollama_model(model_id, KeepAliveIntent::Unload).await?;
     crate::app_info!(
         "local_llm",
         "stop_model",
@@ -652,16 +692,19 @@ pub async fn stop_ollama_model(model_id: &str) -> Result<OllamaModelActionResult
     })
 }
 
-async fn keep_alive_ollama_model(model_id: &str, keep_alive: i64) -> Result<()> {
+async fn keep_alive_ollama_model(model_id: &str, intent: KeepAliveIntent) -> Result<()> {
     let show = show_ollama_model(model_id).await?;
     let endpoint = keep_alive_endpoint_for_capabilities(&show.capabilities);
+    let timeout = intent.request_timeout();
+    let keep_alive = intent.keep_alive_value();
     crate::app_info!(
         "local_llm",
         "keep_alive",
-        "Apply Ollama keep_alive: model={} endpoint={} keep_alive={} capabilities={:?}",
+        "Apply Ollama keep_alive: model={} endpoint={} keep_alive={} timeout_secs={} capabilities={:?}",
         model_id,
         endpoint.as_str(),
         keep_alive,
+        timeout.as_secs(),
         show.capabilities
     );
     match endpoint {
@@ -669,6 +712,7 @@ async fn keep_alive_ollama_model(model_id: &str, keep_alive: i64) -> Result<()> 
             let _: Value = post_ollama_json(
                 "/api/generate",
                 keep_alive_request_body(OllamaKeepAliveEndpoint::Generate, model_id, keep_alive),
+                timeout,
             )
             .await?;
         }
@@ -676,6 +720,7 @@ async fn keep_alive_ollama_model(model_id: &str, keep_alive: i64) -> Result<()> 
             let _: Value = post_ollama_json(
                 "/api/embed",
                 keep_alive_request_body(OllamaKeepAliveEndpoint::Embed, model_id, keep_alive),
+                timeout,
             )
             .await?;
         }
@@ -721,7 +766,7 @@ pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResul
         model_id
     );
     start_ollama().await?;
-    match keep_alive_ollama_model(model_id, 0).await {
+    match keep_alive_ollama_model(model_id, KeepAliveIntent::Unload).await {
         Ok(()) => {
             crate::app_info!(
                 "local_llm",
@@ -740,7 +785,7 @@ pub async fn delete_ollama_model(model_id: &str) -> Result<LocalModelDeleteResul
             );
         }
     }
-    let resp = match ollama_client()?
+    let resp = match ollama_client(Duration::from_secs(OLLAMA_API_TIMEOUT_SECS))?
         .delete(format!("{OLLAMA_BASE_URL}/api/delete"))
         .json(&serde_json::json!({ "model": model_id }))
         .send()

@@ -2057,7 +2057,7 @@
         "setMemoryDefault": "Set as default memory model"
       },
       "jobs": {
-        "title": "正在下载 {{model}}"
+        "title": "模型任務：{{model}}"
       },
       "delete": {
         "title": "删除本地模型？",
@@ -3126,18 +3126,19 @@
   },
   "localModelJobs": {
     "title": "本地模型管理",
-    "subtitle": "模型安裝任務會在背景繼續執行。",
-    "activeSummary": "{{count}} 個模型安裝任務正在執行",
-    "activeSummary_other": "{{count}} 個模型安裝任務正在執行",
-    "pausedSummary": "{{count}} 個模型安裝任務已暫停",
-    "pausedSummary_other": "{{count}} 個模型安裝任務已暫停",
-    "emptyTitle": "暫無模型安裝任務",
-    "emptyDescription": "Ollama 安裝和模型下載會顯示在這裡。",
+    "subtitle": "本地模型任務會在背景繼續執行。",
+    "activeSummary": "{{count}} 個本地模型任務正在執行",
+    "activeSummary_other": "{{count}} 個本地模型任務正在執行",
+    "pausedSummary": "{{count}} 個本地模型任務已暫停",
+    "pausedSummary_other": "{{count}} 個本地模型任務已暫停",
+    "emptyTitle": "暫無本地模型任務",
+    "emptyDescription": "Ollama 安裝、模型下載和模型啟動會顯示在這裡。",
     "kind": {
       "chat_model": "對話模型",
       "embedding_model": "Embedding 模型",
       "ollama_install": "Ollama 安裝",
-      "ollama_pull": "Ollama 模型"
+      "ollama_pull": "Ollama 模型",
+      "ollama_preload": "啟動模型"
     },
     "status": {
       "running": "執行中",
@@ -3152,6 +3153,9 @@
       "queued": "排隊中",
       "checkingOllama": "檢查 Ollama",
       "startOllama": "啟動 Ollama",
+      "loadingModel": "載入模型",
+      "loadedWaiting": "模型已載入，等待預熱完成",
+      "verifyingLoad": "確認模型載入狀態",
       "paused": "已暫停",
       "cancelling": "正在取消",
       "cancelled": "已取消",
@@ -3161,6 +3165,8 @@
     "actions": {
       "backgroundInstall": "背景安裝",
       "cancelInstall": "取消安裝",
+      "backgroundTask": "背景執行",
+      "cancelTask": "取消任務",
       "keepWatching": "繼續查看",
       "viewLogs": "查看日誌",
       "hideLogs": "收起日誌",
@@ -3172,7 +3178,9 @@
     },
     "close": {
       "title": "關閉安裝視窗？",
-      "description": "這個任務可以繼續在背景安裝，也可以現在取消。"
+      "description": "這個任務可以繼續在背景安裝，也可以現在取消。",
+      "taskTitle": "關閉任務視窗？",
+      "taskDescription": "這個任務可以繼續在背景執行，也可以現在取消。"
     },
     "logs": {
       "empty": "暫無日誌"

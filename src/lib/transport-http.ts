@@ -372,6 +372,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   local_model_job_start_embedding: { method: "POST",   path: "/api/local-model-jobs/embedding" },
   local_model_job_start_ollama_install:{ method: "POST", path: "/api/local-model-jobs/ollama-install" },
   local_model_job_start_ollama_pull:{ method: "POST",  path: "/api/local-model-jobs/ollama-pull" },
+  local_model_job_start_ollama_preload:{ method: "POST", path: "/api/local-model-jobs/ollama-preload" },
   local_model_job_list:            { method: "GET",    path: "/api/local-model-jobs" },
   local_model_job_get:             { method: "GET",    path: "/api/local-model-jobs/{jobId}" },
   local_model_job_logs:            { method: "GET",    path: "/api/local-model-jobs/{jobId}/logs" },

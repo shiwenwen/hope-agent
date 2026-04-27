@@ -2057,7 +2057,7 @@
         "setMemoryDefault": "Set as default memory model"
       },
       "jobs": {
-        "title": "Downloading {{model}}"
+        "title": "Model task: {{model}}"
       },
       "delete": {
         "title": "Delete local model?",
@@ -3126,18 +3126,19 @@
   },
   "localModelJobs": {
     "title": "إدارة النماذج المحلية",
-    "subtitle": "Model installation tasks keep running in the background.",
-    "activeSummary": "{{count}} model install task is running",
-    "activeSummary_other": "{{count}} model install tasks are running",
-    "pausedSummary": "{{count}} model install task is paused",
-    "pausedSummary_other": "{{count}} model install tasks are paused",
-    "emptyTitle": "No model install tasks",
-    "emptyDescription": "Ollama and model downloads will appear here.",
+    "subtitle": "Local model tasks keep running in the background.",
+    "activeSummary": "{{count}} local model task is running",
+    "activeSummary_other": "{{count}} local model tasks are running",
+    "pausedSummary": "{{count}} local model task is paused",
+    "pausedSummary_other": "{{count}} local model tasks are paused",
+    "emptyTitle": "No local model tasks",
+    "emptyDescription": "Ollama installs, model downloads, and model starts will appear here.",
     "kind": {
       "chat_model": "Chat model",
       "embedding_model": "Embedding model",
       "ollama_install": "Ollama install",
-      "ollama_pull": "Ollama model"
+      "ollama_pull": "Ollama model",
+      "ollama_preload": "Model start"
     },
     "status": {
       "running": "Running",
@@ -3152,6 +3153,9 @@
       "queued": "Queued",
       "checkingOllama": "Checking Ollama",
       "startOllama": "Starting Ollama",
+      "loadingModel": "Loading model",
+      "loadedWaiting": "Model loaded, finishing warmup",
+      "verifyingLoad": "Verifying model load",
       "paused": "Paused",
       "cancelling": "Cancelling",
       "cancelled": "Cancelled",
@@ -3161,6 +3165,8 @@
     "actions": {
       "backgroundInstall": "Install in background",
       "cancelInstall": "Cancel install",
+      "backgroundTask": "Run in background",
+      "cancelTask": "Cancel task",
       "keepWatching": "Keep watching",
       "viewLogs": "View logs",
       "hideLogs": "Hide logs",
@@ -3172,7 +3178,9 @@
     },
     "close": {
       "title": "Close install window?",
-      "description": "This task can continue in the background, or you can cancel it now."
+      "description": "This task can continue in the background, or you can cancel it now.",
+      "taskTitle": "Close task window?",
+      "taskDescription": "This task can continue in the background, or you can cancel it now."
     },
     "logs": {
       "empty": "No logs yet"

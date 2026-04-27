@@ -34,6 +34,14 @@ pub async fn local_model_job_start_ollama_pull(
 }
 
 #[tauri::command]
+pub async fn local_model_job_start_ollama_preload(
+    model_id: String,
+    display_name: Option<String>,
+) -> Result<LocalModelJobSnapshot, CmdError> {
+    local_model_jobs::start_ollama_preload_job(model_id, display_name).map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn local_model_job_list() -> Result<Vec<LocalModelJobSnapshot>, CmdError> {
     local_model_jobs::list_jobs().map_err(Into::into)
 }

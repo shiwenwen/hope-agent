@@ -134,6 +134,7 @@ export default function LocalModelsPanel() {
   const [dialogDone, setDialogDone] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
+  const latestJobByIdRef = useRef<Map<string, LocalModelJobSnapshot>>(new Map())
   const handledTerminalJobs = useRef<Set<string>>(new Set())
   const refreshedTerminalJobs = useRef<Set<string>>(new Set())
   const jobTransferRef = useRef<
@@ -206,6 +207,7 @@ export default function LocalModelsPanel() {
   }, [refresh])
 
   const upsertActiveJob = useCallback((job: LocalModelJobSnapshot) => {
+    latestJobByIdRef.current.set(job.jobId, job)
     setActiveJobs((prev) => {
       if (!isLocalModelJobActive(job)) {
         if (job.status === "paused") {
@@ -314,21 +316,6 @@ export default function LocalModelsPanel() {
     }
   }, [])
 
-  const openJobDialog = useCallback(
-    (job: LocalModelJobSnapshot) => {
-      setCurrentJob(job)
-      setDialogOpen(true)
-      setDialogTitle(t("settings.localModels.jobs.title", { model: job.displayName }))
-      setDialogSubtitle(job.modelId)
-      setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
-      setDialogLogs([])
-      setDialogDone(isLocalModelJobTerminal(job) && !job.error)
-      setDialogError(job.error ?? null)
-      void hydrateJobLogs(job.jobId)
-    },
-    [hydrateJobLogs, phaseLabel, t],
-  )
-
   const handleTerminalJob = useCallback(
     (job: LocalModelJobSnapshot) => {
       if (!isLocalModelJobTerminal(job)) return
@@ -351,6 +338,26 @@ export default function LocalModelsPanel() {
       void refresh()
     },
     [refresh],
+  )
+
+  const openJobDialog = useCallback(
+    (job: LocalModelJobSnapshot) => {
+      const latest = latestJobByIdRef.current.get(job.jobId) ?? job
+      setCurrentJob(latest)
+      setDialogOpen(true)
+      setDialogTitle(t("settings.localModels.jobs.title", { model: latest.displayName }))
+      setDialogSubtitle(latest.modelId)
+      setDialogFrame(localModelJobToProgressFrame(latest, phaseLabel))
+      setDialogLogs([])
+      setDialogDone(isLocalModelJobTerminal(latest) && !latest.error)
+      setDialogError(latest.error ?? null)
+      if (isLocalModelJobTerminal(latest)) {
+        handleTerminalJob(latest)
+        refreshAfterTerminalJob(latest)
+      }
+      void hydrateJobLogs(latest.jobId)
+    },
+    [handleTerminalJob, hydrateJobLogs, phaseLabel, refreshAfterTerminalJob, t],
   )
 
   useEffect(() => {
@@ -502,6 +509,30 @@ export default function LocalModelsPanel() {
       }
     },
     [upsertActiveJob],
+  )
+
+  const startPreloadJob = useCallback(
+    async (model: LocalOllamaModel) => {
+      setActioning((prev) => ({ ...prev, [model.id]: true }))
+      try {
+        const job = await getTransport().call<LocalModelJobSnapshot>(
+          "local_model_job_start_ollama_preload",
+          { modelId: model.id, displayName: model.name || model.id },
+        )
+        upsertActiveJob(job)
+        openJobDialog(job)
+      } catch (e) {
+        const message = String(e)
+        logger.error("local-llm", "LocalModelsPanel::startPreloadJob", "Failed to start preload job", {
+          modelId: model.id,
+          error: message,
+        })
+        toast.error(message)
+      } finally {
+        setActioning((prev) => ({ ...prev, [model.id]: false }))
+      }
+    },
+    [openJobDialog, upsertActiveJob],
   )
 
   const cancelCurrentJob = useCallback(() => {
@@ -810,6 +841,10 @@ export default function LocalModelsPanel() {
             models.map((model) => {
               const completionCapable = isCompletionCapable(model)
               const embeddingCapable = isEmbeddingCapable(model)
+              const preloading = sortedActiveJobs.some(
+                (job) => job.kind === "ollama_preload" && job.modelId === model.id && isLocalModelJobActive(job),
+              )
+              const rowBusy = actioning[model.id] || preloading
               return (
               <div key={model.id} className="rounded-lg border border-border bg-card p-4">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -882,7 +917,7 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[model.id]}
+                        disabled={rowBusy}
                         onClick={() =>
                           void runModelAction(
                             model.id,
@@ -899,16 +934,14 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[model.id]}
-                        onClick={() =>
-                          void runModelAction(
-                            model.id,
-                            () => getTransport().call("local_llm_preload_model", { modelId: model.id }),
-                            "settings.localModels.toast.preloaded",
-                          )
-                        }
+                        disabled={rowBusy}
+                        onClick={() => void startPreloadJob(model)}
                       >
-                        <Play className={ACTION_ICON_CLASS} />
+                        {rowBusy ? (
+                          <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+                        ) : (
+                          <Play className={ACTION_ICON_CLASS} />
+                        )}
                         {t("settings.localModels.actions.preload")}
                       </Button>
                     )}
@@ -917,7 +950,7 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[model.id]}
+                        disabled={rowBusy}
                         onClick={() =>
                           void runModelAction(
                             model.id,
@@ -935,7 +968,7 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[model.id]}
+                        disabled={rowBusy}
                         onClick={() =>
                           void runModelAction(
                             model.id,
@@ -953,7 +986,7 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[model.id]}
+                        disabled={rowBusy}
                         onClick={() =>
                           void runModelAction(
                             model.id,
@@ -971,7 +1004,7 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[model.id]}
+                        disabled={rowBusy}
                         onClick={() => setPendingEmbeddingDefault(model)}
                       >
                         <Brain className={ACTION_ICON_CLASS} />
@@ -981,7 +1014,7 @@ export default function LocalModelsPanel() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      disabled={actioning[model.id]}
+                      disabled={rowBusy}
                       className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
                       onClick={() => setPendingDelete(model)}
                     >
@@ -1226,6 +1259,10 @@ export default function LocalModelsPanel() {
         cancellable={false}
         onBackground={() => setDialogOpen(false)}
         onCancelTask={currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined}
+        backgroundLabel={t("localModelJobs.actions.backgroundTask")}
+        cancelLabel={t("localModelJobs.actions.cancelTask")}
+        closeTitle={t("localModelJobs.close.taskTitle")}
+        closeDescription={t("localModelJobs.close.taskDescription")}
       />
 
       <AlertDialog

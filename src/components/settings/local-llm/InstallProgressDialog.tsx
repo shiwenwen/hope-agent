@@ -37,6 +37,10 @@ export function InstallProgressDialog({
   cancellable,
   onBackground,
   onCancelTask,
+  backgroundLabel,
+  cancelLabel,
+  closeTitle,
+  closeDescription,
 }: {
   open: boolean
   onOpenChange?: (open: boolean) => void
@@ -49,6 +53,10 @@ export function InstallProgressDialog({
   cancellable?: boolean
   onBackground?: () => void
   onCancelTask?: () => void
+  backgroundLabel?: string
+  cancelLabel?: string
+  closeTitle?: string
+  closeDescription?: string
 }) {
   const { t } = useTranslation()
   const tailRef = useRef<HTMLDivElement | null>(null)
@@ -64,6 +72,10 @@ export function InstallProgressDialog({
   const running = !done && !error
   const shouldConfirmClose = running && Boolean(onBackground || onCancelTask)
   const canClose = Boolean(done || error || cancellable || shouldConfirmClose)
+  const backgroundText = backgroundLabel ?? t("localModelJobs.actions.backgroundInstall")
+  const cancelText = cancelLabel ?? t("localModelJobs.actions.cancelInstall")
+  const closeTitleText = closeTitle ?? t("localModelJobs.close.title")
+  const closeDescriptionText = closeDescription ?? t("localModelJobs.close.description")
 
   useEffect(() => {
     const completed = frame?.bytesCompleted ?? null
@@ -195,12 +207,12 @@ export function InstallProgressDialog({
               <div className="flex justify-end gap-2 pt-1">
                 {onCancelTask && (
                   <Button type="button" variant="destructive" size="sm" onClick={cancelTask}>
-                    {t("localModelJobs.actions.cancelInstall")}
+                    {cancelText}
                   </Button>
                 )}
                 {onBackground && (
                   <Button type="button" variant="secondary" size="sm" onClick={background}>
-                    {t("localModelJobs.actions.backgroundInstall")}
+                    {backgroundText}
                   </Button>
                 )}
               </div>
@@ -212,19 +224,19 @@ export function InstallProgressDialog({
       <AlertDialog open={confirmCloseOpen} onOpenChange={setConfirmCloseOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("localModelJobs.close.title")}</AlertDialogTitle>
-            <AlertDialogDescription>{t("localModelJobs.close.description")}</AlertDialogDescription>
+            <AlertDialogTitle>{closeTitleText}</AlertDialogTitle>
+            <AlertDialogDescription>{closeDescriptionText}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t("localModelJobs.actions.keepWatching")}</AlertDialogCancel>
             {onCancelTask && (
               <Button type="button" variant="destructive" onClick={cancelTask}>
-                {t("localModelJobs.actions.cancelInstall")}
+                {cancelText}
               </Button>
             )}
             {onBackground && (
               <AlertDialogAction onClick={background}>
-                {t("localModelJobs.actions.backgroundInstall")}
+                {backgroundText}
               </AlertDialogAction>
             )}
           </AlertDialogFooter>

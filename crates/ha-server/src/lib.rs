@@ -406,6 +406,10 @@ fn build_router_with_cors(
             post(routes::local_model_jobs::start_ollama_pull),
         )
         .route(
+            "/local-model-jobs/ollama-preload",
+            post(routes::local_model_jobs::start_ollama_preload),
+        )
+        .route(
             "/local-model-jobs/{id}",
             get(routes::local_model_jobs::get_job).delete(routes::local_model_jobs::clear_job),
         )

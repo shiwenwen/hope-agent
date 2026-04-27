@@ -10,11 +10,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tokio_util::sync::CancellationToken;
 
 const PROGRESS_THROTTLE_MS: u128 = 250;
 const GLOBAL_LOG_MESSAGE_MAX_BYTES: usize = 2048;
+const PRELOAD_POLL_INTERVAL: Duration = Duration::from_secs(1);
+const PRELOAD_MAX_LOADING_PERCENT: u8 = 90;
 
 use crate::agent::AssistantAgent;
 use crate::local_embedding::{self, OllamaEmbeddingModel};
@@ -82,6 +84,7 @@ pub enum LocalModelJobKind {
     EmbeddingModel,
     OllamaInstall,
     OllamaPull,
+    OllamaPreload,
     MemoryReembed,
 }
 
@@ -92,6 +95,7 @@ impl LocalModelJobKind {
             Self::EmbeddingModel => "embedding_model",
             Self::OllamaInstall => "ollama_install",
             Self::OllamaPull => "ollama_pull",
+            Self::OllamaPreload => "ollama_preload",
             Self::MemoryReembed => "memory_reembed",
         }
     }
@@ -102,6 +106,7 @@ impl LocalModelJobKind {
             "embedding_model" => Some(Self::EmbeddingModel),
             "ollama_install" => Some(Self::OllamaInstall),
             "ollama_pull" => Some(Self::OllamaPull),
+            "ollama_preload" => Some(Self::OllamaPreload),
             "memory_reembed" => Some(Self::MemoryReembed),
             _ => None,
         }
@@ -695,6 +700,19 @@ pub fn start_ollama_pull_job(request: OllamaPullRequest) -> Result<LocalModelJob
     )
 }
 
+pub fn start_ollama_preload_job(
+    model_id: String,
+    display_name: Option<String>,
+) -> Result<LocalModelJobSnapshot> {
+    let display_name = display_name.unwrap_or_else(|| model_id.clone());
+    spawn_job(
+        LocalModelJobKind::OllamaPreload,
+        model_id.clone(),
+        display_name,
+        move |job_id, token| run_ollama_preload_job(job_id, model_id, token),
+    )
+}
+
 pub fn retry_job(
     job_id: &str,
     on_chat_complete: Option<ChatCompletionHook>,
@@ -724,6 +742,10 @@ pub fn retry_job(
                 model_id: job.model_id,
                 display_name: Some(job.display_name),
             })
+        }
+        LocalModelJobKind::OllamaPreload => {
+            let _ = on_chat_complete;
+            start_ollama_preload_job(job.model_id, Some(job.display_name))
         }
         LocalModelJobKind::MemoryReembed => {
             // Retry always uses KeepExisting: a partially-failed DeleteAll
@@ -892,6 +914,133 @@ async fn run_ollama_pull_job(
         Err(e) => Err(e),
     };
     finish_job(&job_id, final_result, &cancel_token);
+}
+
+async fn run_ollama_preload_job(job_id: String, model_id: String, cancel_token: CancellationToken) {
+    let final_result = match run_common_setup(&job_id, &cancel_token).await {
+        Ok(()) => preload_ollama_model_for_job(&job_id, &model_id, &cancel_token).await,
+        Err(e) => Err(e),
+    };
+    finish_job(&job_id, final_result, &cancel_token);
+}
+
+async fn preload_ollama_model_for_job(
+    job_id: &str,
+    model_id: &str,
+    cancel_token: &CancellationToken,
+) -> Result<Value> {
+    if local_llm::is_ollama_model_running(model_id).await? {
+        append_log(job_id, "step", "Model is already loaded");
+        update_job(
+            job_id,
+            LocalModelJobStatus::Running,
+            "done",
+            Some(100),
+            None,
+            None,
+        );
+        return Ok(json!({
+            "modelId": model_id,
+            "loaded": true,
+            "alreadyRunning": true
+        }));
+    }
+
+    append_log(job_id, "step", &format!("Load model {model_id}"));
+    update_job(
+        job_id,
+        LocalModelJobStatus::Running,
+        "loading-model",
+        Some(10),
+        None,
+        None,
+    );
+
+    let mut preload = Box::pin(local_llm::preload_ollama_model(model_id));
+    let mut poll_count = 0u8;
+    let mut observed_running = false;
+    let mut last_progress: (&'static str, u8) = ("loading-model", 10);
+    loop {
+        tokio::select! {
+            result = &mut preload => {
+                result?;
+                emit_preload_progress(job_id, "verifying-load", 95, &mut last_progress);
+                if !local_llm::is_ollama_model_running(model_id).await? {
+                    return Err(anyhow!(
+                        "Ollama finished the model load request, but {model_id} is not listed by /api/ps"
+                    ));
+                }
+                append_log(job_id, "step", "Model loaded");
+                emit_preload_progress(job_id, "done", 100, &mut last_progress);
+                return Ok(json!({
+                    "modelId": model_id,
+                    "loaded": true,
+                    "alreadyRunning": false
+                }));
+            }
+            _ = cancel_token.cancelled() => {
+                unload_after_preload_cancel(job_id, model_id, observed_running).await;
+                return Err(anyhow!("Local model job was cancelled"));
+            }
+            _ = tokio::time::sleep(PRELOAD_POLL_INTERVAL) => {
+                if local_llm::is_ollama_model_running(model_id).await.unwrap_or(false) {
+                    if !observed_running {
+                        observed_running = true;
+                        append_log(job_id, "step", "Model is loaded; waiting for Ollama warmup to finish");
+                    }
+                    emit_preload_progress(job_id, "loaded-waiting", 95, &mut last_progress);
+                } else {
+                    poll_count = poll_count.saturating_add(1);
+                    let percent = 10u8.saturating_add(poll_count).min(PRELOAD_MAX_LOADING_PERCENT);
+                    emit_preload_progress(job_id, "loading-model", percent, &mut last_progress);
+                }
+            }
+        }
+    }
+}
+
+async fn unload_after_preload_cancel(job_id: &str, model_id: &str, observed_running: bool) {
+    let should_unload = observed_running
+        || local_llm::is_ollama_model_running(model_id)
+            .await
+            .unwrap_or(false);
+    if !should_unload {
+        return;
+    }
+    append_log(
+        job_id,
+        "step",
+        "Cancellation observed; unloading model from Ollama",
+    );
+    if let Err(e) = local_llm::stop_ollama_model(model_id).await {
+        crate::app_warn!(
+            "local_model_jobs",
+            "preload_cancel",
+            "Failed to unload model {} after preload cancellation: {}",
+            model_id,
+            e
+        );
+    }
+}
+
+fn emit_preload_progress(
+    job_id: &str,
+    phase: &'static str,
+    percent: u8,
+    last: &mut (&'static str, u8),
+) {
+    if *last == (phase, percent) {
+        return;
+    }
+    *last = (phase, percent);
+    update_job(
+        job_id,
+        LocalModelJobStatus::Running,
+        phase,
+        Some(percent),
+        None,
+        None,
+    );
 }
 
 async fn install_ollama_only(job_id: &str, cancel_token: &CancellationToken) -> Result<Value> {

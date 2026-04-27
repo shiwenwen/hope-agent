@@ -279,6 +279,7 @@ pub fn run() {
             commands::local_model_jobs::local_model_job_start_embedding,
             commands::local_model_jobs::local_model_job_start_ollama_install,
             commands::local_model_jobs::local_model_job_start_ollama_pull,
+            commands::local_model_jobs::local_model_job_start_ollama_preload,
             commands::local_model_jobs::local_model_job_list,
             commands::local_model_jobs::local_model_job_get,
             commands::local_model_jobs::local_model_job_logs,

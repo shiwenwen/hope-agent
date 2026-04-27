@@ -28,6 +28,13 @@ pub struct StartOllamaPullBody {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct StartOllamaPreloadBody {
+    pub model_id: String,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LogsQuery {
     #[serde(alias = "after_seq")]
     pub after_seq: Option<i64>,
@@ -59,6 +66,16 @@ pub async fn start_ollama_pull(
     Json(body): Json<StartOllamaPullBody>,
 ) -> Result<Json<LocalModelJobSnapshot>, AppError> {
     Ok(Json(local_model_jobs::start_ollama_pull_job(body.request)?))
+}
+
+/// `POST /api/local-model-jobs/ollama-preload`
+pub async fn start_ollama_preload(
+    Json(body): Json<StartOllamaPreloadBody>,
+) -> Result<Json<LocalModelJobSnapshot>, AppError> {
+    Ok(Json(local_model_jobs::start_ollama_preload_job(
+        body.model_id,
+        body.display_name,
+    )?))
 }
 
 /// `GET /api/local-model-jobs`
