@@ -933,6 +933,23 @@ async fn install_ollama_only(job_id: &str, cancel_token: &CancellationToken) -> 
         ));
     }
 
+    if status.phase != OllamaPhase::Running {
+        append_log(job_id, "step", "Start Ollama");
+        update_job(
+            job_id,
+            LocalModelJobStatus::Running,
+            "start-ollama",
+            Some(80),
+            None,
+            None,
+        );
+        tokio::select! {
+            result = start_ollama() => result?,
+            _ = cancel_token.cancelled() => return Err(anyhow!("Local model job was cancelled")),
+        }
+        status = local_llm::detect_ollama().await;
+    }
+
     update_job(
         job_id,
         LocalModelJobStatus::Running,

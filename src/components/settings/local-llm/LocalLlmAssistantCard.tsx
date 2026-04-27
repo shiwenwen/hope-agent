@@ -9,8 +9,8 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
-  Sparkles,
 } from "lucide-react"
+import { Ollama } from "@lobehub/icons"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 import { openExternalUrl } from "@/lib/openExternalUrl"
@@ -350,7 +350,7 @@ export default function LocalLlmAssistantCard({
           {busy ? (
             <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
           ) : (
-            <Download className="h-3.5 w-3.5 mr-1.5" />
+            <Ollama size={14} className="h-3.5 w-3.5 mr-1.5 shrink-0" />
           )}
           {t("settings.localLlm.buttons.installOllama")}
         </Button>
@@ -369,9 +369,9 @@ export default function LocalLlmAssistantCard({
           {busy ? (
             <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
           ) : (
-            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+            <Ollama size={14} className="h-3.5 w-3.5 mr-1.5 shrink-0" />
           )}
-          {t("settings.localLlm.buttons.startOllama")}
+          {t("settings.localLlm.buttons.installOllama")}
         </Button>
       )
     }
@@ -412,7 +412,7 @@ export default function LocalLlmAssistantCard({
                 compact ? "w-8 h-8" : "w-9 h-9",
               )}
             >
-              <Sparkles className="h-4 w-4" />
+              <Ollama size={16} className="h-4 w-4" />
             </div>
             <div className="min-w-0">
               <div className="text-sm font-semibold text-foreground">

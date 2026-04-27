@@ -582,7 +582,6 @@ export default function LocalModelsPanel() {
     : []
 
   const installedEmpty = !loading && models.length === 0
-  const ollamaRunning = ollama?.phase === "running"
   const jobTransferSummary = useCallback(
     (job: LocalModelJobSnapshot) => {
       const parts: string[] = []
@@ -632,10 +631,9 @@ export default function LocalModelsPanel() {
           ) : (
             <span
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs",
-                ollamaRunning
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                  : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300",
+                ACTION_BUTTON_CLASS,
+                "inline-flex h-8 items-center justify-center gap-1.5 rounded-md border px-3 text-xs font-medium",
+                "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
               )}
             >
               <Ollama size={14} className="h-3.5 w-3.5" />
