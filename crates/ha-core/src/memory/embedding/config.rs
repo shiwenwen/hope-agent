@@ -219,12 +219,22 @@ pub struct MemoryEmbeddingSetDefaultResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct EmbeddingModelTemplateModel {
+    pub id: String,
+    pub name: String,
+    pub dimensions: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct EmbeddingModelTemplate {
     pub name: String,
     pub provider_type: EmbeddingProviderType,
     pub base_url: String,
     pub default_model: String,
     pub default_dimensions: u32,
+    #[serde(default)]
+    pub models: Vec<EmbeddingModelTemplateModel>,
 }
 
 /// Local embedding model definition (built-in presets).
@@ -272,63 +282,132 @@ pub fn embedding_presets() -> Vec<EmbeddingPreset> {
 }
 
 pub fn embedding_model_templates() -> Vec<EmbeddingModelTemplate> {
+    fn model(id: &str, name: &str, dimensions: u32) -> EmbeddingModelTemplateModel {
+        EmbeddingModelTemplateModel {
+            id: id.to_string(),
+            name: name.to_string(),
+            dimensions,
+        }
+    }
+
+    fn template(
+        name: &str,
+        provider_type: EmbeddingProviderType,
+        base_url: &str,
+        models: Vec<EmbeddingModelTemplateModel>,
+    ) -> EmbeddingModelTemplate {
+        let default = models
+            .first()
+            .expect("embedding model templates must include at least one model");
+        EmbeddingModelTemplate {
+            name: name.to_string(),
+            provider_type,
+            base_url: base_url.to_string(),
+            default_model: default.id.clone(),
+            default_dimensions: default.dimensions,
+            models,
+        }
+    }
+
     vec![
-        EmbeddingModelTemplate {
-            name: "OpenAI".to_string(),
-            provider_type: EmbeddingProviderType::OpenaiCompatible,
-            base_url: "https://api.openai.com".to_string(),
-            default_model: "text-embedding-3-small".to_string(),
-            default_dimensions: 1536,
-        },
-        EmbeddingModelTemplate {
-            name: "Google Gemini".to_string(),
-            provider_type: EmbeddingProviderType::Google,
-            base_url: "https://generativelanguage.googleapis.com".to_string(),
-            default_model: "gemini-embedding-001".to_string(),
-            default_dimensions: 768,
-        },
-        EmbeddingModelTemplate {
-            name: "Jina AI".to_string(),
-            provider_type: EmbeddingProviderType::OpenaiCompatible,
-            base_url: "https://api.jina.ai".to_string(),
-            default_model: "jina-embeddings-v3".to_string(),
-            default_dimensions: 1024,
-        },
-        EmbeddingModelTemplate {
-            name: "Cohere".to_string(),
-            provider_type: EmbeddingProviderType::OpenaiCompatible,
-            base_url: "https://api.cohere.com".to_string(),
-            default_model: "embed-multilingual-v3.0".to_string(),
-            default_dimensions: 1024,
-        },
-        EmbeddingModelTemplate {
-            name: "SiliconFlow".to_string(),
-            provider_type: EmbeddingProviderType::OpenaiCompatible,
-            base_url: "https://api.siliconflow.cn".to_string(),
-            default_model: "BAAI/bge-m3".to_string(),
-            default_dimensions: 1024,
-        },
-        EmbeddingModelTemplate {
-            name: "Voyage AI".to_string(),
-            provider_type: EmbeddingProviderType::OpenaiCompatible,
-            base_url: "https://api.voyageai.com".to_string(),
-            default_model: "voyage-3".to_string(),
-            default_dimensions: 1024,
-        },
-        EmbeddingModelTemplate {
-            name: "Mistral".to_string(),
-            provider_type: EmbeddingProviderType::OpenaiCompatible,
-            base_url: "https://api.mistral.ai".to_string(),
-            default_model: "mistral-embed".to_string(),
-            default_dimensions: 1024,
-        },
-        EmbeddingModelTemplate {
-            name: "Ollama".to_string(),
-            provider_type: EmbeddingProviderType::OpenaiCompatible,
-            base_url: "http://127.0.0.1:11434".to_string(),
-            default_model: "embeddinggemma:300m".to_string(),
-            default_dimensions: 768,
-        },
+        template(
+            "OpenAI",
+            EmbeddingProviderType::OpenaiCompatible,
+            "https://api.openai.com",
+            vec![
+                model("text-embedding-3-small", "text-embedding-3-small", 1536),
+                model("text-embedding-3-large", "text-embedding-3-large", 3072),
+            ],
+        ),
+        template(
+            "Google Gemini",
+            EmbeddingProviderType::Google,
+            "https://generativelanguage.googleapis.com",
+            vec![
+                model("gemini-embedding-2", "gemini-embedding-2", 3072),
+                model("gemini-embedding-2", "gemini-embedding-2", 1536),
+                model("gemini-embedding-2", "gemini-embedding-2", 768),
+                model("gemini-embedding-001", "gemini-embedding-001", 768),
+                model("gemini-embedding-001", "gemini-embedding-001", 1536),
+                model("gemini-embedding-001", "gemini-embedding-001", 3072),
+            ],
+        ),
+        template(
+            "Jina AI",
+            EmbeddingProviderType::OpenaiCompatible,
+            "https://api.jina.ai",
+            vec![
+                model(
+                    "jina-embeddings-v5-text-small",
+                    "jina-embeddings-v5-text-small",
+                    1024,
+                ),
+                model(
+                    "jina-embeddings-v5-text-nano",
+                    "jina-embeddings-v5-text-nano",
+                    768,
+                ),
+                model("jina-embeddings-v4", "jina-embeddings-v4", 2048),
+                model("jina-embeddings-v3", "jina-embeddings-v3", 1024),
+            ],
+        ),
+        template(
+            "Cohere",
+            EmbeddingProviderType::OpenaiCompatible,
+            "https://api.cohere.ai/compatibility",
+            vec![
+                model("embed-v4.0", "embed-v4.0", 1536),
+                model("embed-multilingual-v3.0", "embed-multilingual-v3.0", 1024),
+                model("embed-english-v3.0", "embed-english-v3.0", 1024),
+            ],
+        ),
+        template(
+            "SiliconFlow",
+            EmbeddingProviderType::OpenaiCompatible,
+            "https://api.siliconflow.cn",
+            vec![
+                model("BAAI/bge-m3", "BAAI/bge-m3", 1024),
+                model(
+                    "Qwen/Qwen3-Embedding-0.6B",
+                    "Qwen/Qwen3-Embedding-0.6B",
+                    1024,
+                ),
+                model("Qwen/Qwen3-Embedding-4B", "Qwen/Qwen3-Embedding-4B", 2560),
+                model("Qwen/Qwen3-Embedding-8B", "Qwen/Qwen3-Embedding-8B", 4096),
+            ],
+        ),
+        template(
+            "Voyage AI",
+            EmbeddingProviderType::OpenaiCompatible,
+            "https://api.voyageai.com",
+            vec![
+                model("voyage-4-large", "voyage-4-large", 1024),
+                model("voyage-4", "voyage-4", 1024),
+                model("voyage-4-lite", "voyage-4-lite", 1024),
+                model("voyage-code-3", "voyage-code-3", 1024),
+                model("voyage-finance-2", "voyage-finance-2", 1024),
+                model("voyage-law-2", "voyage-law-2", 1024),
+            ],
+        ),
+        template(
+            "Mistral",
+            EmbeddingProviderType::OpenaiCompatible,
+            "https://api.mistral.ai",
+            vec![
+                model("mistral-embed", "mistral-embed", 1024),
+                model("codestral-embed", "codestral-embed", 3072),
+            ],
+        ),
+        template(
+            "Ollama",
+            EmbeddingProviderType::OpenaiCompatible,
+            "http://127.0.0.1:11434",
+            vec![
+                model("embeddinggemma:300m", "embeddinggemma:300m", 768),
+                model("nomic-embed-text", "nomic-embed-text", 768),
+                model("mxbai-embed-large", "mxbai-embed-large", 1024),
+            ],
+        ),
     ]
 }
 

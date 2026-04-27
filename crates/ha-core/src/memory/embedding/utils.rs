@@ -4,14 +4,24 @@
 pub(crate) fn max_input_tokens(model: &str) -> usize {
     match model {
         "text-embedding-3-small" | "text-embedding-3-large" | "text-embedding-ada-002" => 8191,
-        "gemini-embedding-001" | "text-embedding-004" => 2048,
+        "gemini-embedding-2" => 8192,
+        "gemini-embedding-001"
+        | "text-embedding-004"
+        | "text-embedding-005"
+        | "text-multilingual-embedding-002" => 2048,
         "gemini-embedding-2-preview" => 8192,
-        "voyage-3" | "voyage-code-3" | "voyage-4-large" => 32000,
-        "voyage-3-lite" => 16000,
-        "mistral-embed" => 8192,
+        "voyage-4-large" | "voyage-4" | "voyage-4-lite" | "voyage-code-3" | "voyage-finance-2"
+        | "voyage-3.5" | "voyage-3.5-lite" | "voyage-3" | "voyage-3-lite" => 32000,
+        "voyage-law-2" => 16000,
+        "mistral-embed" | "codestral-embed" => 8192,
+        "jina-embeddings-v4" => 32768,
+        "jina-embeddings-v5-text-small" => 32768,
+        "jina-embeddings-v5-text-nano" => 8192,
         "jina-embeddings-v3" => 8192,
-        "embed-multilingual-v3.0" => 512,
-        "nomic-embed-text" => 8192,
+        "embed-v4.0" => 128000,
+        "embed-english-v3.0" | "embed-multilingual-v3.0" => 512,
+        "nomic-embed-text" | "mxbai-embed-large" | "embeddinggemma:300m" => 8192,
+        m if m.starts_with("Qwen/Qwen3-Embedding") => 32768,
         m if m.starts_with("BAAI/bge") => 512,
         _ => 8192, // safe default
     }

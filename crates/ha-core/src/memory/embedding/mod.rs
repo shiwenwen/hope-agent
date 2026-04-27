@@ -12,8 +12,8 @@ pub(crate) mod utils;
 pub use config::{
     embedding_model_templates, embedding_presets, list_local_models_with_status,
     local_embedding_models, memory_embedding_state, resolve_memory_embedding_config,
-    EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate, EmbeddingPreset,
-    EmbeddingProviderType, LocalEmbeddingModel, MemoryEmbeddingSelection,
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate, EmbeddingModelTemplateModel,
+    EmbeddingPreset, EmbeddingProviderType, LocalEmbeddingModel, MemoryEmbeddingSelection,
     MemoryEmbeddingSetDefaultResult, MemoryEmbeddingState,
 };
 pub use factory::create_embedding_provider;

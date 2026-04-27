@@ -21,12 +21,19 @@ export interface EmbeddingModelConfig {
   source?: string | null
 }
 
+export interface EmbeddingModelTemplateModel {
+  id: string
+  name: string
+  dimensions: number
+}
+
 export interface EmbeddingModelTemplate {
   name: string
   providerType: EmbeddingProviderType
   baseUrl: string
   defaultModel: string
   defaultDimensions: number
+  models?: EmbeddingModelTemplateModel[]
 }
 
 export type EmbeddingPreset = EmbeddingModelTemplate

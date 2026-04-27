@@ -298,7 +298,7 @@ pub trait EmbeddingProvider: Send + Sync {
     fn dimensions(&self) -> u32;
 
     /// Whether this provider supports multimodal embedding (image/audio → vector).
-    /// Only Gemini embedding-2-preview supports this.
+    /// Only Gemini embedding-2 supports this.
     fn supports_multimodal(&self) -> bool {
         false
     }

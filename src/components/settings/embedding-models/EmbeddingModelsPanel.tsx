@@ -43,23 +43,85 @@ import {
   embeddingProviderLabel,
   type EmbeddingModelConfig,
   type EmbeddingModelTemplate,
+  type EmbeddingModelTemplateModel,
   type EmbeddingProviderType,
   type MemoryEmbeddingSetDefaultResult,
   type MemoryEmbeddingState,
 } from "@/types/embedding-models"
 
 const PROVIDER_TYPES: EmbeddingProviderType[] = ["openai-compatible", "google"]
+const CUSTOM_TEMPLATE_VALUE = "__custom_template__"
+const CUSTOM_MODEL_VALUE = "__custom_model__"
 
-function emptyConfig(template?: EmbeddingModelTemplate): EmbeddingModelConfig {
+function templateKey(template: EmbeddingModelTemplate): string {
+  return `${template.providerType}::${template.baseUrl}::${template.name}`
+}
+
+function normalizeBaseUrl(url?: string | null): string {
+  return (url ?? "").trim().replace(/\/+$/, "").toLowerCase()
+}
+
+function templateModels(template: EmbeddingModelTemplate): EmbeddingModelTemplateModel[] {
+  return template.models?.length
+    ? template.models
+    : [
+        {
+          id: template.defaultModel,
+          name: template.defaultModel,
+          dimensions: template.defaultDimensions,
+        },
+      ]
+}
+
+function findMatchingTemplate(
+  templates: EmbeddingModelTemplate[],
+  config: EmbeddingModelConfig | null,
+): EmbeddingModelTemplate | null {
+  if (!config) return null
+  return (
+    templates.find(
+      (template) =>
+        template.providerType === config.providerType &&
+        normalizeBaseUrl(template.baseUrl) === normalizeBaseUrl(config.apiBaseUrl),
+    ) ?? null
+  )
+}
+
+function findMatchingTemplateModel(
+  template: EmbeddingModelTemplate | null,
+  config: EmbeddingModelConfig | null,
+): EmbeddingModelTemplateModel | null {
+  if (!template || !config?.apiModel) return null
+  return (
+    templateModels(template).find(
+      (model) =>
+        model.id === config.apiModel &&
+        (!config.apiDimensions || model.dimensions === config.apiDimensions),
+    ) ?? null
+  )
+}
+
+function configNameForTemplateModel(
+  template: EmbeddingModelTemplate,
+  model: EmbeddingModelTemplateModel,
+): string {
+  return `${template.name} · ${model.name} (${model.dimensions}d)`
+}
+
+function emptyConfig(
+  template?: EmbeddingModelTemplate,
+  selectedModel?: EmbeddingModelTemplateModel,
+): EmbeddingModelConfig {
   if (template) {
+    const model = selectedModel ?? templateModels(template)[0]
     return {
       id: "",
-      name: template.name,
+      name: configNameForTemplateModel(template, model),
       providerType: template.providerType,
       apiBaseUrl: template.baseUrl,
       apiKey: template.name === "Ollama" ? "ollama" : "",
-      apiModel: template.defaultModel,
-      apiDimensions: template.defaultDimensions,
+      apiModel: model.id,
+      apiDimensions: model.dimensions,
       source: template.name === "Ollama" ? "ollama" : "template",
     }
   }
@@ -125,6 +187,61 @@ export default function EmbeddingModelsPanel() {
       }),
     [activeId, models],
   )
+
+  const selectedTemplate = useMemo(
+    () => findMatchingTemplate(templates, editing),
+    [editing, templates],
+  )
+  const selectedTemplateModels = useMemo(
+    () => (selectedTemplate ? templateModels(selectedTemplate) : []),
+    [selectedTemplate],
+  )
+  const selectedTemplateModel = useMemo(
+    () => findMatchingTemplateModel(selectedTemplate, editing),
+    [editing, selectedTemplate],
+  )
+  const selectedTemplateModelIndex = useMemo(
+    () =>
+      selectedTemplateModel
+        ? selectedTemplateModels.findIndex(
+            (model) =>
+              model.id === selectedTemplateModel.id &&
+              model.dimensions === selectedTemplateModel.dimensions,
+          )
+        : -1,
+    [selectedTemplateModel, selectedTemplateModels],
+  )
+  const showCustomModelInput = !selectedTemplate || selectedTemplateModelIndex < 0
+
+  function applyTemplate(template: EmbeddingModelTemplate | null) {
+    if (!editing) return
+    if (!template) {
+      setEditing({ ...editing, source: editing.source === "ollama" ? "ollama" : "custom" })
+      return
+    }
+    const next = emptyConfig(template)
+    setEditing({
+      ...editing,
+      name: editing.id ? editing.name : next.name,
+      providerType: next.providerType,
+      apiBaseUrl: next.apiBaseUrl,
+      apiKey: template.name === "Ollama" ? "ollama" : editing.apiKey,
+      apiModel: next.apiModel,
+      apiDimensions: next.apiDimensions,
+      source: next.source,
+    })
+  }
+
+  function applyTemplateModel(model: EmbeddingModelTemplateModel | null) {
+    if (!editing || !selectedTemplate || !model) return
+    setEditing({
+      ...editing,
+      name: editing.id ? editing.name : configNameForTemplateModel(selectedTemplate, model),
+      apiModel: model.id,
+      apiDimensions: model.dimensions,
+      source: selectedTemplate.name === "Ollama" ? "ollama" : "template",
+    })
+  }
 
   async function saveEditing() {
     if (!editing) return
@@ -304,19 +421,50 @@ export default function EmbeddingModelsPanel() {
           </DialogHeader>
           {editing && (
             <div className="grid gap-4 py-2">
-              <div className="grid gap-1.5">
-                <Label>{t("settings.embeddingModels.name")}</Label>
-                <Input
-                  value={editing.name}
-                  onChange={(e) => setEditing({ ...editing, name: e.target.value })}
-                />
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-1.5">
+                  <Label>{t("team.template")}</Label>
+                  <Select
+                    value={selectedTemplate ? templateKey(selectedTemplate) : CUSTOM_TEMPLATE_VALUE}
+                    onValueChange={(value) => {
+                      const template =
+                        value === CUSTOM_TEMPLATE_VALUE
+                          ? null
+                          : templates.find((item) => templateKey(item) === value) ?? null
+                      applyTemplate(template)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={CUSTOM_TEMPLATE_VALUE}>{t("common.custom")}</SelectItem>
+                      {templates.map((template) => (
+                        <SelectItem key={templateKey(template)} value={templateKey(template)}>
+                          {template.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid gap-1.5">
+                  <Label>{t("settings.embeddingModels.name")}</Label>
+                  <Input
+                    value={editing.name}
+                    onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+                  />
+                </div>
               </div>
               <div className="grid gap-1.5">
                 <Label>{t("settings.embeddingModels.providerType")}</Label>
                 <Select
                   value={editing.providerType}
                   onValueChange={(value) =>
-                    setEditing({ ...editing, providerType: value as EmbeddingProviderType })
+                    setEditing({
+                      ...editing,
+                      providerType: value as EmbeddingProviderType,
+                      source: editing.source === "ollama" ? "ollama" : "custom",
+                    })
                   }
                 >
                   <SelectTrigger>
@@ -335,7 +483,13 @@ export default function EmbeddingModelsPanel() {
                 <Label>Base URL</Label>
                 <Input
                   value={editing.apiBaseUrl ?? ""}
-                  onChange={(e) => setEditing({ ...editing, apiBaseUrl: e.target.value })}
+                  onChange={(e) =>
+                    setEditing({
+                      ...editing,
+                      apiBaseUrl: e.target.value,
+                      source: editing.source === "ollama" ? "ollama" : "custom",
+                    })
+                  }
                   placeholder="https://api.openai.com"
                 />
               </div>
@@ -348,15 +502,68 @@ export default function EmbeddingModelsPanel() {
                   placeholder="sk-..."
                 />
               </div>
-              <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
+              {selectedTemplate && (
                 <div className="grid gap-1.5">
                   <Label>{t("settings.memoryModel")}</Label>
-                  <Input
-                    value={editing.apiModel ?? ""}
-                    onChange={(e) => setEditing({ ...editing, apiModel: e.target.value })}
-                    placeholder="text-embedding-3-small"
-                  />
+                  <Select
+                    value={
+                      selectedTemplateModelIndex >= 0
+                        ? String(selectedTemplateModelIndex)
+                        : CUSTOM_MODEL_VALUE
+                    }
+                    onValueChange={(value) => {
+                      if (value === CUSTOM_MODEL_VALUE) {
+                        setEditing({
+                          ...editing,
+                          apiModel: "",
+                          apiDimensions: null,
+                          source: editing.source === "ollama" ? "ollama" : "custom",
+                        })
+                        return
+                      }
+                      applyTemplateModel(selectedTemplateModels[Number(value)] ?? null)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {selectedTemplateModels.map((model, index) => (
+                        <SelectItem
+                          key={`${model.id}-${model.dimensions}-${index}`}
+                          value={String(index)}
+                        >
+                          {model.name} · {model.dimensions}d
+                        </SelectItem>
+                      ))}
+                      <SelectItem value={CUSTOM_MODEL_VALUE}>{t("common.custom")}</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+              )}
+              <div
+                className={
+                  showCustomModelInput
+                    ? "grid gap-4 sm:grid-cols-[1fr_140px]"
+                    : "grid gap-1.5 sm:max-w-[140px]"
+                }
+              >
+                {showCustomModelInput && (
+                  <div className="grid gap-1.5">
+                    <Label>{t("settings.memoryModel")}</Label>
+                    <Input
+                      value={editing.apiModel ?? ""}
+                      onChange={(e) =>
+                        setEditing({
+                          ...editing,
+                          apiModel: e.target.value,
+                          source: editing.source === "ollama" ? "ollama" : "custom",
+                        })
+                      }
+                      placeholder="text-embedding-3-small"
+                    />
+                  </div>
+                )}
                 <div className="grid gap-1.5">
                   <Label>{t("settings.memoryDimensions")}</Label>
                   <Input
@@ -366,6 +573,7 @@ export default function EmbeddingModelsPanel() {
                       setEditing({
                         ...editing,
                         apiDimensions: e.target.value ? Number(e.target.value) : null,
+                        source: editing.source === "ollama" ? "ollama" : "custom",
                       })
                     }
                     placeholder="1536"

@@ -481,7 +481,7 @@ impl ApiEmbeddingProvider {
     }
 
     /// Multimodal embed via Gemini `embedContent` with inline data (image/audio).
-    /// Only works with gemini-embedding-2-preview.
+    /// Only works with gemini-embedding-2.
     fn call_google_multimodal(&self, input: &MultimodalInput) -> Result<Vec<f32>> {
         use base64::Engine;
 
