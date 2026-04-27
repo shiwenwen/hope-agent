@@ -235,7 +235,10 @@ pub async fn chat(
     // Create per-session cancel flag
     let cancel = Arc::new(AtomicBool::new(false));
     {
-        let mut cancels = ctx.chat_cancels.write().unwrap();
+        let mut cancels = ctx
+            .chat_cancels
+            .write()
+            .map_err(|_| AppError::internal("chat cancel registry lock poisoned"))?;
         cancels.insert(sid.clone(), cancel.clone());
     }
 
@@ -273,7 +276,11 @@ pub async fn chat(
 
     // Clean up per-session cancel flag
     {
-        ctx.chat_cancels.write().unwrap().remove(&sid);
+        let mut cancels = ctx
+            .chat_cancels
+            .write()
+            .map_err(|_| AppError::internal("chat cancel registry lock poisoned"))?;
+        cancels.remove(&sid);
     }
 
     let result = result.map_err(AppError::internal)?;
@@ -300,7 +307,10 @@ pub async fn stop_chat(
     let mut stopped_count = 0usize;
     let mut active_session_ids = Vec::new();
     {
-        let cancels = ctx.chat_cancels.read().unwrap();
+        let cancels = ctx
+            .chat_cancels
+            .read()
+            .map_err(|_| AppError::internal("chat cancel registry lock poisoned"))?;
         if let Some(sid) = body.session_id.as_deref() {
             if let Some(cancel) = cancels.get(sid) {
                 cancel.store(true, Ordering::SeqCst);

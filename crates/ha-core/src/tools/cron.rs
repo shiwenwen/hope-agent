@@ -170,7 +170,7 @@ pub(crate) fn tool_manage_cron<'a>(
                     };
                     lines.push(format!(
                         "  - [{}] {} ({}) | Next: {} | Status: {}{}",
-                        &job.id[..8],
+                        crate::truncate_utf8(&job.id, 8),
                         job.name,
                         schedule_summary(&job.schedule),
                         next,

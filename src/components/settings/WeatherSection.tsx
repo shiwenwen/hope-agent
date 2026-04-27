@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { MapPin, Search, Cloud, RefreshCw, CircleAlert, Loader2, LocateFixed } from "lucide-react"
 
 interface UserConfig {
@@ -50,13 +51,16 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
   const [searchResults, setSearchResults] = useState<GeocodeResult[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showDropdown, setShowDropdown] = useState(false)
-  
+
   const [currentWeather, setCurrentWeather] = useState<WeatherData | null>(null)
   const [isLoadingWeather, setIsLoadingWeather] = useState(false)
   const [weatherError, setWeatherError] = useState(false)
-  
+
   const [isLocating, setIsLocating] = useState(false)
-  const [locateMessage, setLocateMessage] = useState<{ text: string; type: "info" | "error" } | null>(null)
+  const [locateMessage, setLocateMessage] = useState<{
+    text: string
+    type: "info" | "error"
+  } | null>(null)
 
   const searchRef = useRef<HTMLDivElement>(null)
 
@@ -66,7 +70,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
       setSearchQuery(config.weatherCity)
     }
   }, [config.weatherCity])
-  
+
   const weatherEnabled = config.weatherEnabled ?? true
 
   // Fetch weather when coordinates or enabled state change
@@ -75,10 +79,14 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
       setCurrentWeather(null)
       return
     }
-    
+
     // Only fetch if we have somewhat valid coords
-    if (config.weatherLatitude !== undefined && config.weatherLatitude !== null &&
-        config.weatherLongitude !== undefined && config.weatherLongitude !== null) {
+    if (
+      config.weatherLatitude !== undefined &&
+      config.weatherLatitude !== null &&
+      config.weatherLongitude !== undefined &&
+      config.weatherLongitude !== null
+    ) {
       const timer = setTimeout(() => {
         fetchWeather()
       }, 500)
@@ -89,7 +97,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.weatherLatitude, config.weatherLongitude, weatherEnabled])
-  
+
   // Close dropdown on click outside
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -135,7 +143,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
       const weather: WeatherData = await getTransport().call("preview_weather", {
         lat: config.weatherLatitude,
         lon: config.weatherLongitude,
-        city
+        city,
       })
       setCurrentWeather(weather)
     } catch (e) {
@@ -199,9 +207,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
         <div className="flex items-center justify-between">
           <div className="space-y-0.5">
             <Label htmlFor="weather-enable">{t("settings.weatherEnabled")}</Label>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.weatherEnabledDesc")}
-            </p>
+            <p className="text-xs text-muted-foreground">{t("settings.weatherEnabledDesc")}</p>
           </div>
           <Switch
             id="weather-enable"
@@ -231,22 +237,25 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                     <Loader2 className="w-3.5 h-3.5 absolute right-3 top-3 animate-spin text-muted-foreground" />
                   )}
                 </div>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  title={t("settings.weatherDetectLocation")}
-                  onClick={handleDetectLocation}
-                  disabled={isLocating}
-                >
-                  {isLocating ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <LocateFixed className="w-4 h-4" />
-                  )}
-                </Button>
+                <IconTip label={t("settings.weatherDetectLocation")}>
+                  <span className="inline-flex shrink-0">
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="h-9 w-9"
+                      onClick={handleDetectLocation}
+                      disabled={isLocating}
+                    >
+                      {isLocating ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <LocateFixed className="w-4 h-4" />
+                      )}
+                    </Button>
+                  </span>
+                </IconTip>
               </div>
-              
+
               {/* Dropdown */}
               {showDropdown && searchQuery.trim().length > 1 && (
                 <div className="absolute z-10 top-full mt-1 w-full bg-popover border rounded-md shadow-md max-h-48 overflow-y-auto">
@@ -256,12 +265,18 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                     </div>
                   ) : (
                     searchResults.map((res, i) => (
-                      <div 
-                        key={i} 
+                      <div
+                        key={i}
                         className="px-3 py-2 text-sm hover:bg-accent cursor-pointer flex justify-between items-center"
                         onClick={() => handleSelectCity(res)}
                       >
-                        <span>{res.name} <span className="text-muted-foreground text-xs ml-1">{res.admin1 && `${res.admin1}, `}{res.country}</span></span>
+                        <span>
+                          {res.name}{" "}
+                          <span className="text-muted-foreground text-xs ml-1">
+                            {res.admin1 && `${res.admin1}, `}
+                            {res.country}
+                          </span>
+                        </span>
                         <span className="text-xs text-muted-foreground">
                           {res.latitude.toFixed(2)}, {res.longitude.toFixed(2)}
                         </span>
@@ -274,12 +289,14 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
 
             {/* Location detection feedback */}
             {locateMessage && (
-              <div className={cn(
-                "text-xs px-2 py-1.5 rounded-md",
-                locateMessage.type === "info"
-                  ? "bg-muted text-muted-foreground"
-                  : "bg-destructive/10 text-destructive"
-              )}>
+              <div
+                className={cn(
+                  "text-xs px-2 py-1.5 rounded-md",
+                  locateMessage.type === "info"
+                    ? "bg-muted text-muted-foreground"
+                    : "bg-destructive/10 text-destructive",
+                )}
+              >
                 {locateMessage.text}
               </div>
             )}
@@ -287,8 +304,10 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
             {/* Coordinates display (manual overrides) */}
             <div className="grid grid-cols-2 gap-3 pb-2">
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">{t("settings.weatherLatitude")}</Label>
-                <Input 
+                <Label className="text-xs text-muted-foreground">
+                  {t("settings.weatherLatitude")}
+                </Label>
+                <Input
                   type="number"
                   step="0.0001"
                   value={config.weatherLatitude ?? ""}
@@ -300,8 +319,10 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                 />
               </div>
               <div className="space-y-1">
-                <Label className="text-xs text-muted-foreground">{t("settings.weatherLongitude")}</Label>
-                <Input 
+                <Label className="text-xs text-muted-foreground">
+                  {t("settings.weatherLongitude")}
+                </Label>
+                <Input
                   type="number"
                   step="0.0001"
                   value={config.weatherLongitude ?? ""}
@@ -313,7 +334,7 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                 />
               </div>
             </div>
-            
+
             {/* Weather Preview Box */}
             <div className="mt-2 bg-muted/30 p-3 rounded-md border text-sm flex items-start gap-3">
               <Cloud className="w-5 h-5 text-muted-foreground mt-0.5" />
@@ -332,12 +353,47 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                 ) : currentWeather ? (
                   <div className="text-xs text-muted-foreground pt-2 pb-1">
                     <div className="grid grid-cols-2 gap-y-2 gap-x-4">
-                      <div className="flex items-center justify-between gap-1.5"><span className="opacity-80 flex items-center gap-1">🌡️ <span>{t("settings.weatherTemp")}</span></span> <span>{currentWeather.temperature.toFixed(1)}°C</span></div>
-                      <div className="flex items-center justify-between gap-1.5"><span className="opacity-80 flex items-center gap-1">🧑‍🦱 <span>{t("settings.weatherFeelsLike")}</span></span> <span>{currentWeather.apparentTemperature.toFixed(1)}°C</span></div>
-                      <div className="flex items-center justify-between gap-1.5"><span className="opacity-80 flex items-center gap-1">☁️ <span>{t("settings.weatherCond")}</span></span> <span>{currentWeather.weatherDescription}</span></div>
-                      <div className="flex items-center justify-between gap-1.5"><span className="opacity-80 flex items-center gap-1">💧 <span>{t("settings.weatherHumidity")}</span></span> <span>{currentWeather.humidity}%</span></div>
-                      <div className="flex items-center justify-between gap-1.5"><span className="opacity-80 flex items-center gap-1">💨 <span>{t("settings.weatherWind")}</span></span> <span>{currentWeather.windSpeed.toFixed(1)} km/h</span></div>
-                      <div className="flex items-center justify-between gap-1.5"><span className="opacity-80 flex items-center gap-1">⏱️ <span>{t("settings.weatherUpdated")}</span></span> <span>{new Date(currentWeather.time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span></div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="opacity-80 flex items-center gap-1">
+                          🌡️ <span>{t("settings.weatherTemp")}</span>
+                        </span>{" "}
+                        <span>{currentWeather.temperature.toFixed(1)}°C</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="opacity-80 flex items-center gap-1">
+                          🧑‍🦱 <span>{t("settings.weatherFeelsLike")}</span>
+                        </span>{" "}
+                        <span>{currentWeather.apparentTemperature.toFixed(1)}°C</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="opacity-80 flex items-center gap-1">
+                          ☁️ <span>{t("settings.weatherCond")}</span>
+                        </span>{" "}
+                        <span>{currentWeather.weatherDescription}</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="opacity-80 flex items-center gap-1">
+                          💧 <span>{t("settings.weatherHumidity")}</span>
+                        </span>{" "}
+                        <span>{currentWeather.humidity}%</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="opacity-80 flex items-center gap-1">
+                          💨 <span>{t("settings.weatherWind")}</span>
+                        </span>{" "}
+                        <span>{currentWeather.windSpeed.toFixed(1)} km/h</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="opacity-80 flex items-center gap-1">
+                          ⏱️ <span>{t("settings.weatherUpdated")}</span>
+                        </span>{" "}
+                        <span>
+                          {new Date(currentWeather.time).toLocaleTimeString([], {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ) : (
@@ -346,18 +402,20 @@ export function WeatherSection({ config, update }: WeatherSectionProps) {
                   </div>
                 )}
               </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="h-7 w-7 shrink-0" 
-                title={t("settings.weatherRefresh")}
-                onClick={() => fetchWeather()}
-                disabled={isLoadingWeather || config.weatherLatitude == null}
-              >
-                <RefreshCw className={cn("w-3.5 h-3.5", isLoadingWeather && "animate-spin")} />
-              </Button>
+              <IconTip label={t("settings.weatherRefresh")}>
+                <span className="inline-flex shrink-0">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => fetchWeather()}
+                    disabled={isLoadingWeather || config.weatherLatitude == null}
+                  >
+                    <RefreshCw className={cn("w-3.5 h-3.5", isLoadingWeather && "animate-spin")} />
+                  </Button>
+                </span>
+              </IconTip>
             </div>
-
           </div>
         )}
       </div>

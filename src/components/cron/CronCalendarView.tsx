@@ -396,10 +396,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
             </div>
 
             {/* Days grid — 6 rows stretch to fill remaining height */}
-            <div
-              className="grid grid-cols-7 flex-1 min-h-0 gap-px bg-border/30 rounded-lg overflow-hidden"
-              style={{ gridTemplateRows: "repeat(6, minmax(0, 1fr))" }}
-            >
+            <div className="grid grid-cols-7 grid-rows-6 flex-1 min-h-0 gap-px bg-border/30 rounded-lg overflow-hidden">
               {cells.map((day, i) => (
                 <button
                   key={i}
@@ -435,11 +432,11 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
                                     ? "bg-red-500"
                                     : statusColor(evt.status)
                               return (
-                                <span
-                                  key={j}
-                                  className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor}`}
-                                  title={evt.jobName}
-                                />
+                                <IconTip key={j} label={evt.jobName}>
+                                  <span
+                                    className={`inline-block w-1.5 h-1.5 rounded-full ${dotColor}`}
+                                  />
+                                </IconTip>
                               )
                             })}
                           {eventsByDay.get(day)!.length > 4 && (

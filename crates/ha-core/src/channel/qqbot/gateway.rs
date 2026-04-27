@@ -216,8 +216,7 @@ pub async fn run_qq_gateway(
 
         // 5. Send IDENTIFY or RESUME
         let mut use_resume = saved_session_id.is_some() && last_seq > 0;
-        if use_resume {
-            let session_id = saved_session_id.as_ref().unwrap();
+        if let Some(session_id) = saved_session_id.as_ref().filter(|_| use_resume) {
             let resume_payload = serde_json::json!({
                 "op": opcode::RESUME,
                 "d": {

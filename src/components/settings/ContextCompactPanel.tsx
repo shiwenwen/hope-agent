@@ -7,11 +7,15 @@ import { Button } from "@/components/ui/button"
 import { Slider } from "@/components/ui/slider"
 import { Textarea } from "@/components/ui/textarea"
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-  IconTip,
-} from "@/components/ui/tooltip"
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { Tooltip, TooltipContent, TooltipTrigger, IconTip } from "@/components/ui/tooltip"
 import { ChevronDown, ChevronRight, Loader2, Check } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
@@ -136,7 +140,8 @@ export default function ContextCompactPanel() {
   const [providers, setProviders] = useState<ProviderOption[]>([])
 
   useEffect(() => {
-    getTransport().call<CompactConfig>("get_compact_config")
+    getTransport()
+      .call<CompactConfig>("get_compact_config")
       .then((c) => {
         setConfig(c)
         setSavedJson(JSON.stringify(c))
@@ -144,12 +149,14 @@ export default function ContextCompactPanel() {
       .catch((e) =>
         logger.error("settings", "ContextCompactPanel::load", "Failed to load compact config", e),
       )
-    getTransport().call<{ name: string; description: string }[]>("list_builtin_tools")
+    getTransport()
+      .call<{ name: string; description: string }[]>("list_builtin_tools")
       .then(setAvailableTools)
-      .catch(() => { })
-    getTransport().call<ProviderOption[]>("get_providers")
+      .catch(() => {})
+    getTransport()
+      .call<ProviderOption[]>("get_providers")
       .then(setProviders)
-      .catch(() => { })
+      .catch(() => {})
   }, [])
 
   const isDirty = config ? JSON.stringify(config) !== savedJson : false
@@ -222,16 +229,18 @@ export default function ContextCompactPanel() {
             </Button>
             {pruningOpen && (
               <div className="px-3 pb-3 pt-1 space-y-3 border-t border-border/30">
-                <p className="text-xs text-muted-foreground">{t("settings.contextCompactToolPolicyDesc")}</p>
+                <p className="text-xs text-muted-foreground">
+                  {t("settings.contextCompactToolPolicyDesc")}
+                </p>
                 {/* Tool list */}
                 <div className="rounded-lg border border-border/50 overflow-hidden">
                   {availableTools.map((tool, idx) => {
                     const policies = config.toolPolicies || {}
-                    const policy = (policies[tool.name] === "eager" || policies[tool.name] === "protect")
-                      ? policies[tool.name]
-                      : "default"
-                    const displayName =
-                      t(`tools.${tool.name}`, { defaultValue: "" }) || tool.name
+                    const policy =
+                      policies[tool.name] === "eager" || policies[tool.name] === "protect"
+                        ? policies[tool.name]
+                        : "default"
+                    const displayName = t(`tools.${tool.name}`, { defaultValue: "" }) || tool.name
                     return (
                       <div
                         key={tool.name}
@@ -242,33 +251,47 @@ export default function ContextCompactPanel() {
                       >
                         <Tooltip>
                           <TooltipTrigger asChild>
-                            <span className="text-xs truncate flex-1 min-w-0 cursor-default">{displayName}</span>
+                            <span className="text-xs truncate flex-1 min-w-0 cursor-default">
+                              {displayName}
+                            </span>
                           </TooltipTrigger>
                           <TooltipContent side="top">
                             <span className="font-mono text-[10px]">{tool.name}</span>
                           </TooltipContent>
                         </Tooltip>
-                        <select
-                          className={cn(
-                            "h-6 rounded border border-border bg-background px-1.5 text-[11px] shrink-0",
-                            policy === "eager" && "text-red-600 dark:text-red-400",
-                            policy === "protect" && "text-green-600 dark:text-green-400",
-                          )}
+                        <Select
                           value={policy}
-                          onChange={(e) => {
+                          onValueChange={(value) => {
                             const next = { ...policies }
-                            if (e.target.value === "default") {
+                            if (value === "default") {
                               delete next[tool.name]
                             } else {
-                              next[tool.name] = e.target.value
+                              next[tool.name] = value
                             }
                             update({ toolPolicies: next })
                           }}
                         >
-                          <option value="default">{t("settings.contextCompactPolicyDefault")}</option>
-                          <option value="eager">{t("settings.contextCompactPolicyEager")}</option>
-                          <option value="protect">{t("settings.contextCompactPolicyProtect")}</option>
-                        </select>
+                          <SelectTrigger
+                            className={cn(
+                              "h-6 w-[92px] shrink-0 rounded px-1.5 text-[11px]",
+                              policy === "eager" && "text-red-600 dark:text-red-400",
+                              policy === "protect" && "text-green-600 dark:text-green-400",
+                            )}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="default">
+                              {t("settings.contextCompactPolicyDefault")}
+                            </SelectItem>
+                            <SelectItem value="eager">
+                              {t("settings.contextCompactPolicyEager")}
+                            </SelectItem>
+                            <SelectItem value="protect">
+                              {t("settings.contextCompactPolicyProtect")}
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
                       </div>
                     )
                   })}
@@ -343,28 +366,33 @@ export default function ContextCompactPanel() {
                         </span>
                       </IconTip>
                     </label>
-                    <select
-                      className="h-7 w-56 rounded-md border border-border bg-background px-2 text-sm text-right truncate"
-                      value={config.summarizationModel ?? ""}
-                      onChange={(e) =>
-                        update({ summarizationModel: e.target.value || null })
+                    <Select
+                      value={config.summarizationModel ?? "__default__"}
+                      onValueChange={(value) =>
+                        update({ summarizationModel: value === "__default__" ? null : value })
                       }
                     >
-                      <option value="">
-                        {t("settings.contextCompactSummarizationModelDefault")}
-                      </option>
-                      {providers
-                        .filter((p) => p.enabled !== false && p.models.length > 0)
-                        .map((p) => (
-                          <optgroup key={p.id} label={p.name}>
-                            {p.models.map((m) => (
-                              <option key={`${p.id}:${m.id}`} value={`${p.id}:${m.id}`}>
-                                {m.name}
-                              </option>
-                            ))}
-                          </optgroup>
-                        ))}
-                    </select>
+                      <SelectTrigger className="h-7 w-56 text-sm [&>span]:text-right">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__default__">
+                          {t("settings.contextCompactSummarizationModelDefault")}
+                        </SelectItem>
+                        {providers
+                          .filter((p) => p.enabled !== false && p.models.length > 0)
+                          .map((p) => (
+                            <SelectGroup key={p.id}>
+                              <SelectLabel>{p.name}</SelectLabel>
+                              {p.models.map((m) => (
+                                <SelectItem key={`${p.id}:${m.id}`} value={`${p.id}:${m.id}`}>
+                                  {m.name}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <p className="text-[10px] text-muted-foreground/60">
                     {config.summarizationModel
@@ -390,33 +418,37 @@ export default function ContextCompactPanel() {
                   onChange={(v) => update({ preserveRecentTurns: v })}
                 />
                 <div className="flex items-center justify-between gap-2">
-                  <label className="text-sm">
-                    {t("settings.contextCompactIdentifierPolicy")}
-                  </label>
-                  <select
-                    className="h-7 w-32 rounded-md border border-border bg-background px-2 text-sm text-right"
+                  <label className="text-sm">{t("settings.contextCompactIdentifierPolicy")}</label>
+                  <Select
                     value={config.identifierPolicy}
-                    onChange={(e) => update({ identifierPolicy: e.target.value })}
+                    onValueChange={(value) => update({ identifierPolicy: value })}
                   >
-                    <option value="strict">
-                      {t("settings.contextCompactIdentifierPolicyStrict")}
-                    </option>
-                    <option value="off">{t("settings.contextCompactIdentifierPolicyOff")}</option>
-                    <option value="custom">
-                      {t("settings.contextCompactIdentifierPolicyCustom")}
-                    </option>
-                  </select>
+                    <SelectTrigger className="h-7 w-32 text-sm [&>span]:text-right">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="strict">
+                        {t("settings.contextCompactIdentifierPolicyStrict")}
+                      </SelectItem>
+                      <SelectItem value="off">
+                        {t("settings.contextCompactIdentifierPolicyOff")}
+                      </SelectItem>
+                      <SelectItem value="custom">
+                        {t("settings.contextCompactIdentifierPolicyCustom")}
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 {config.identifierPolicy === "custom" && (
                   <div className="space-y-1">
-                    <label className="text-sm">{t("settings.contextCompactIdentifierInstructions")}</label>
+                    <label className="text-sm">
+                      {t("settings.contextCompactIdentifierInstructions")}
+                    </label>
                     <Textarea
                       className="min-h-[60px] resize-y"
                       placeholder={t("settings.contextCompactIdentifierInstructionsPlaceholder")}
                       value={config.identifierInstructions ?? ""}
-                      onChange={(e) =>
-                        update({ identifierInstructions: e.target.value || null })
-                      }
+                      onChange={(e) => update({ identifierInstructions: e.target.value || null })}
                     />
                   </div>
                 )}

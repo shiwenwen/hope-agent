@@ -508,106 +508,105 @@ export default function ChatInput({
         {/* Toolbar */}
         <div className="flex items-end justify-between gap-2 px-2 pb-2">
           <div className="flex items-center gap-1 flex-wrap min-w-0">
-          <div className={CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>{renderInlineAddControls()}</div>
+            <div className={CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS}>{renderInlineAddControls()}</div>
 
-          <div className={CHAT_INPUT_OVERFLOW_MENU_CLASS}>
-            <DropdownMenu.Root open={showOverflowMenu} onOpenChange={setShowOverflowMenu}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenu.Trigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={t("chat.moreActions")}
-                      className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0 data-[state=open]:bg-transparent"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenu.Trigger>
-                </TooltipTrigger>
-                <TooltipContent>{t("chat.moreActions")}</TooltipContent>
-              </Tooltip>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content
-                  className="z-50 min-w-[180px] overflow-hidden rounded-xl border border-border/60 bg-white p-1.5 text-popover-foreground shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150 dark:bg-popover/95"
-                  side="top"
-                  align="start"
-                  sideOffset={8}
-                >
-                  <div className="flex flex-col gap-0.5">{renderOverflowMenuItems()}</div>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          </div>
+            <div className={CHAT_INPUT_OVERFLOW_MENU_CLASS}>
+              <DropdownMenu.Root open={showOverflowMenu} onOpenChange={setShowOverflowMenu}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <DropdownMenu.Trigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={t("chat.moreActions")}
+                        className="h-8 w-8 rounded-lg bg-transparent text-muted-foreground hover:bg-transparent hover:text-foreground focus-visible:ring-0 data-[state=open]:bg-transparent"
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenu.Trigger>
+                  </TooltipTrigger>
+                  <TooltipContent>{t("chat.moreActions")}</TooltipContent>
+                </Tooltip>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="z-50 min-w-[180px] overflow-hidden rounded-xl border border-border/60 bg-white p-1.5 text-popover-foreground shadow-[0_8px_30px_rgb(0,0,0,0.12)] backdrop-blur-xl animate-in fade-in-0 zoom-in-95 slide-in-from-bottom-1 duration-150 dark:bg-popover/95"
+                    side="top"
+                    align="start"
+                    sideOffset={8}
+                  >
+                    <div className="flex flex-col gap-0.5">{renderOverflowMenuItems()}</div>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </div>
 
-          {/* Model Selector + Think Mode */}
-          <ModelPicker
-            availableModels={availableModels}
-            activeModel={activeModel}
-            reasoningEffort={reasoningEffort}
-            onModelChange={onModelChange}
-            onEffortChange={onEffortChange}
-            currentModelInfo={currentModelInfo}
-          />
+            {/* Model Selector + Think Mode */}
+            <ModelPicker
+              availableModels={availableModels}
+              activeModel={activeModel}
+              reasoningEffort={reasoningEffort}
+              onModelChange={onModelChange}
+              onEffortChange={onEffortChange}
+              currentModelInfo={currentModelInfo}
+            />
 
-          {/* Temperature Control */}
-          <TemperatureSlider
-            sessionTemperature={sessionTemperature}
-            onSessionTemperatureChange={onSessionTemperatureChange}
-          />
+            {/* Temperature Control */}
+            <TemperatureSlider
+              sessionTemperature={sessionTemperature}
+              onSessionTemperatureChange={onSessionTemperatureChange}
+            />
 
-          <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
+            <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
 
-          {/* Plan Mode Toggle */}
-          <IconTip label={planState === "off" ? t("planMode.enter") : t("planMode.indicator")}>
-            <button
-              onClick={() => {
-                if (planState === "off") {
-                  onEnterPlanMode?.()
-                } else if (planState === "planning") {
-                  onExitPlanMode?.()
-                } else {
-                  onTogglePlanPanel?.()
-                }
-              }}
-              className={cn(
-                "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
-                planState === "planning"
-                  ? "text-blue-600 bg-blue-500/10"
-                  : planState === "review"
-                    ? "text-purple-600 bg-purple-500/10"
-                    : planState === "executing"
-                      ? "text-green-600 bg-green-500/10"
-                      : planState === "paused"
-                        ? "text-yellow-600 bg-yellow-500/10"
-                        : planState === "completed"
-                          ? "text-green-600 bg-green-500/10"
-                          : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <ClipboardList className="h-3.5 w-3.5 shrink-0" />
-              {planState !== "off" && (
-                <span>
-                  {planState === "planning"
-                    ? t("planMode.indicator")
+            {/* Plan Mode Toggle */}
+            <IconTip label={planState === "off" ? t("planMode.enter") : t("planMode.indicator")}>
+              <button
+                onClick={() => {
+                  if (planState === "off") {
+                    onEnterPlanMode?.()
+                  } else if (planState === "planning") {
+                    onExitPlanMode?.()
+                  } else {
+                    onTogglePlanPanel?.()
+                  }
+                }}
+                className={cn(
+                  "flex items-center gap-1 bg-transparent text-xs font-medium px-2 py-1 rounded-lg cursor-pointer transition-colors hover:bg-secondary shrink-0 whitespace-nowrap",
+                  planState === "planning"
+                    ? "text-blue-600 bg-blue-500/10"
                     : planState === "review"
-                      ? t("planMode.review.badge")
-                      : planState === "paused"
-                        ? t("planMode.paused.badge")
-                        : planState === "completed"
-                          ? t("planMode.completed")
-                          : `${planProgress}%`}
-                </span>
-              )}
-            </button>
-          </IconTip>
+                      ? "text-purple-600 bg-purple-500/10"
+                      : planState === "executing"
+                        ? "text-green-600 bg-green-500/10"
+                        : planState === "paused"
+                          ? "text-yellow-600 bg-yellow-500/10"
+                          : planState === "completed"
+                            ? "text-green-600 bg-green-500/10"
+                            : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <ClipboardList className="h-3.5 w-3.5 shrink-0" />
+                {planState !== "off" && (
+                  <span>
+                    {planState === "planning"
+                      ? t("planMode.indicator")
+                      : planState === "review"
+                        ? t("planMode.review.badge")
+                        : planState === "paused"
+                          ? t("planMode.paused.badge")
+                          : planState === "completed"
+                            ? t("planMode.completed")
+                            : `${planProgress}%`}
+                  </span>
+                )}
+              </button>
+            </IconTip>
 
-          {/* Tool Permission Mode */}
-          <ToolPermissionToggle
-            toolPermissionMode={toolPermissionMode}
-            onToolPermissionChange={onToolPermissionChange}
-          />
-
+            {/* Tool Permission Mode */}
+            <ToolPermissionToggle
+              toolPermissionMode={toolPermissionMode}
+              onToolPermissionChange={onToolPermissionChange}
+            />
           </div>
 
           {/* Send & Stop — kept in its own column so toolbar wrapping never
@@ -621,6 +620,7 @@ export default function ChatInput({
                     variant="destructive"
                     className="h-8 w-8 rounded-full shrink-0"
                     onClick={onStop}
+                    aria-label={t("chat.stopReply")}
                   >
                     <Square className="h-4 w-4 fill-white stroke-white" />
                   </Button>
@@ -634,6 +634,7 @@ export default function ChatInput({
                 className="h-8 w-8 rounded-full shrink-0"
                 onClick={onSend}
                 disabled={!input.trim() || (loading && !!pendingMessage)}
+                aria-label={loading && input.trim() ? t("chat.queueMessage") : t("chat.send")}
               >
                 <Send className="h-4 w-4" />
               </Button>

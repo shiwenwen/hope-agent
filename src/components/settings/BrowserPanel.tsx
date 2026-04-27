@@ -6,6 +6,7 @@ import { logger } from "@/lib/logger"
 import { formatBytes } from "@/lib/format"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Select,
   SelectTrigger,
@@ -254,15 +255,18 @@ export default function BrowserPanel() {
                 <div className="text-xs text-muted-foreground truncate">{statusText}</div>
               )}
             </div>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => void refresh()}
-              disabled={loading || !!busy}
-              title={t("settings.browser.refresh")}
-            >
-              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
-            </Button>
+            <IconTip label={t("settings.browser.refresh")}>
+              <span className="inline-flex">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void refresh()}
+                  disabled={loading || !!busy}
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+                </Button>
+              </span>
+            </IconTip>
             {connected && (
               <Button size="sm" variant="outline" onClick={onDisconnect} disabled={busy !== null}>
                 {busy === "disconnect" ? (
@@ -447,20 +451,25 @@ export default function BrowserPanel() {
                         {formatBytes(p.sizeBytes)} · {formatRelative(p.lastUsedAt, t)}
                       </div>
                     </div>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => setPendingDelete(p)}
-                      disabled={p.isActive}
-                      title={
+                    <IconTip
+                      label={
                         p.isActive
                           ? t("settings.browser.deleteDisabledActive")
                           : t("settings.browser.delete")
                       }
                     >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </Button>
+                      <span className="inline-flex">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => setPendingDelete(p)}
+                          disabled={p.isActive}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </span>
+                    </IconTip>
                   </div>
                 ))}
               </div>
