@@ -2086,45 +2086,45 @@
       }
     },
     "embeddingActivation": {
-      "title": "选择嵌入模型",
-      "description": "向量搜索需要一个嵌入模型。选一个启用并重建记忆向量。",
-      "empty": "尚未配置任何嵌入模型，需要先配置才能启用向量搜索。",
-      "gotoConfig": "去配置嵌入模型",
-      "confirm": "启用并重建"
+      "title": "埋め込みモデルを選択",
+      "description": "ベクトル検索には埋め込みモデルが必要です。有効化してメモリベクトルを再構築するモデルを選択してください。",
+      "empty": "埋め込みモデルがまだ設定されていません。ベクトル検索を有効にするには先に追加してください。",
+      "gotoConfig": "埋め込みモデルを設定",
+      "confirm": "有効化して再構築"
     },
     "embedding": {
       "reembedMode": {
-        "label": "重建模式",
-        "keepExisting": "保留现有向量并增量重建",
-        "keepExistingDesc": "旧向量在重建过程中保持可搜索，新模型会逐条覆盖。",
-        "deleteAll": "先清空全部记忆向量",
-        "deleteAllDesc": "重建前清空每条记忆的向量字段。重建完成前向量搜索只返回关键词匹配。"
+        "label": "再構築モード",
+        "keepExisting": "現在のベクトルを残したまま再構築",
+        "keepExistingDesc": "古いベクトルは検索可能なまま、新しいモデルが1件ずつ上書きします。",
+        "deleteAll": "先にすべてのメモリベクトルを消去",
+        "deleteAllDesc": "再構築前に各メモリのベクトルを消去します。完了するまではキーワード一致のみ返されます。"
       },
       "reembedJob": {
-        "title": "记忆向量重建",
-        "idle": "活动模型已覆盖 {{count}} 条记忆，可随时手动重建。",
-        "idleDisabled": "启用向量搜索并添加记忆后才能重建。",
-        "running": "正在重建记忆向量",
-        "progress": "{{done}} / {{total}} 条记忆",
-        "phaseKeep": "重建中（保留现有）",
-        "phaseFresh": "重建中（清空后重建）",
-        "cancelling": "正在取消…",
-        "completed": "重建完成",
-        "failed": "重建失败",
-        "interrupted": "应用重启时被打断",
-        "cancelled": "重建已取消",
-        "retry": "重试重建",
-        "cancel": "取消重建",
-        "dismiss": "关闭",
-        "startNow": "立即重建",
+        "title": "メモリベクトルの再構築",
+        "idle": "アクティブなモデルで {{count}} 件のメモリを扱っています。いつでも手動で再構築できます。",
+        "idleDisabled": "再構築するには、ベクトル検索を有効にしてメモリを追加してください。",
+        "running": "メモリベクトルを再構築中",
+        "progress": "{{done}} / {{total}} 件のメモリ",
+        "phaseKeep": "既存を残して再構築中",
+        "phaseFresh": "最初から再構築中",
+        "cancelling": "キャンセル中…",
+        "completed": "再構築が完了しました",
+        "failed": "再構築に失敗しました",
+        "interrupted": "アプリの再起動により再構築が中断されました",
+        "cancelled": "再構築をキャンセルしました",
+        "retry": "再構築を再試行",
+        "cancel": "再構築をキャンセル",
+        "dismiss": "閉じる",
+        "startNow": "今すぐ再構築",
         "status": {
-          "running": "进行中",
-          "cancelling": "取消中",
-          "completed": "已完成",
-          "failed": "已失败",
-          "interrupted": "已中断",
-          "cancelled": "已取消",
-          "paused": "已暂停"
+          "running": "実行中",
+          "cancelling": "キャンセル中",
+          "completed": "完了",
+          "failed": "失敗",
+          "interrupted": "中断",
+          "cancelled": "キャンセル済み",
+          "paused": "一時停止"
         }
       }
     }

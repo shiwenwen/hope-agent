@@ -23,6 +23,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   // ── Sub-hooks ──
   const extract = useMemoryExtract({ agentId, isAgentMode })
   const statsHook = useMemoryStats()
+  const reloadEmbeddingConfig = statsHook.reloadEmbeddingConfig
 
   // ── Core state ──
   const [view, setView] = useState<MemoryView>("list")
@@ -87,9 +88,9 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         logger.warn("settings", "MemoryPanel::loadReembedJob", "Failed to load jobs", e),
       )
 
-    const handleSnapshot = (raw: unknown) => {
+    const handleSnapshot = (raw: unknown): LocalModelJobSnapshot | null => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
-      if (job.kind !== "memory_reembed") return
+      if (job.kind !== "memory_reembed") return null
       setReembedJob((current) => {
         // Pick the snapshot we want to track: a new spawn replaces a terminal
         // predecessor; updates to a job we're already tracking stay; a stale
@@ -118,6 +119,20 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         }
         return next
       })
+      return job
+    }
+
+    const handleCompletedSnapshot = (raw: unknown) => {
+      const job = handleSnapshot(raw)
+      if (job?.status !== "completed" || cancelled) return
+      void reloadEmbeddingConfig().catch((e) =>
+        logger.warn(
+          "settings",
+          "MemoryPanel::reloadEmbeddingAfterReembed",
+          "Failed to reload embedding config",
+          e,
+        ),
+      )
     }
 
     const unlistenCreated = getTransport().listen(
@@ -130,7 +145,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     )
     const unlistenCompleted = getTransport().listen(
       LOCAL_MODEL_JOB_EVENTS.completed,
-      handleSnapshot,
+      handleCompletedSnapshot,
     )
     return () => {
       cancelled = true
@@ -138,7 +153,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       unlistenUpdated()
       unlistenCompleted()
     }
-  }, [])
+  }, [reloadEmbeddingConfig])
 
   const dismissReembedJob = useCallback(() => {
     const job = reembedJob

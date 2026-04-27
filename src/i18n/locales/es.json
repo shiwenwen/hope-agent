@@ -2086,45 +2086,45 @@
       }
     },
     "embeddingActivation": {
-      "title": "选择嵌入模型",
-      "description": "向量搜索需要一个嵌入模型。选一个启用并重建记忆向量。",
-      "empty": "尚未配置任何嵌入模型，需要先配置才能启用向量搜索。",
-      "gotoConfig": "去配置嵌入模型",
-      "confirm": "启用并重建"
+      "title": "Elegir un modelo de embeddings",
+      "description": "La búsqueda vectorial necesita un modelo de embeddings. Elige uno para activar y reconstruir los vectores de memoria.",
+      "empty": "Aún no hay ningún modelo de embeddings configurado. Añade uno para activar la búsqueda vectorial.",
+      "gotoConfig": "Configurar modelos de embeddings",
+      "confirm": "Activar y reconstruir"
     },
     "embedding": {
       "reembedMode": {
-        "label": "重建模式",
-        "keepExisting": "保留现有向量并增量重建",
-        "keepExistingDesc": "旧向量在重建过程中保持可搜索，新模型会逐条覆盖。",
-        "deleteAll": "先清空全部记忆向量",
-        "deleteAllDesc": "重建前清空每条记忆的向量字段。重建完成前向量搜索只返回关键词匹配。"
+        "label": "Modo de reconstrucción",
+        "keepExisting": "Mantener los vectores actuales durante la reconstrucción",
+        "keepExistingDesc": "Los vectores antiguos siguen disponibles para búsqueda; el nuevo modelo los sobrescribe entrada por entrada.",
+        "deleteAll": "Borrar primero todos los vectores de memoria",
+        "deleteAllDesc": "Borra el vector de cada memoria antes de reconstruir. La búsqueda solo devolverá coincidencias por palabras clave hasta que termine la reconstrucción."
       },
       "reembedJob": {
-        "title": "记忆向量重建",
-        "idle": "活动模型已覆盖 {{count}} 条记忆，可随时手动重建。",
-        "idleDisabled": "启用向量搜索并添加记忆后才能重建。",
-        "running": "正在重建记忆向量",
-        "progress": "{{done}} / {{total}} 条记忆",
-        "phaseKeep": "重建中（保留现有）",
-        "phaseFresh": "重建中（清空后重建）",
-        "cancelling": "正在取消…",
-        "completed": "重建完成",
-        "failed": "重建失败",
-        "interrupted": "应用重启时被打断",
-        "cancelled": "重建已取消",
-        "retry": "重试重建",
-        "cancel": "取消重建",
-        "dismiss": "关闭",
-        "startNow": "立即重建",
+        "title": "Reconstrucción de vectores de memoria",
+        "idle": "{{count}} memorias usan el modelo activo. Puedes reconstruirlas manualmente cuando quieras.",
+        "idleDisabled": "Activa la búsqueda vectorial y añade memorias antes de reconstruir.",
+        "running": "Reconstruyendo vectores de memoria",
+        "progress": "{{done}} / {{total}} memorias",
+        "phaseKeep": "Reconstruyendo sin borrar los existentes",
+        "phaseFresh": "Reconstruyendo desde cero",
+        "cancelling": "Cancelando…",
+        "completed": "Reconstrucción completada",
+        "failed": "Error al reconstruir",
+        "interrupted": "Reconstrucción interrumpida por reinicio de la app",
+        "cancelled": "Reconstrucción cancelada",
+        "retry": "Reintentar reconstrucción",
+        "cancel": "Cancelar reconstrucción",
+        "dismiss": "Cerrar",
+        "startNow": "Reconstruir ahora",
         "status": {
-          "running": "进行中",
-          "cancelling": "取消中",
-          "completed": "已完成",
-          "failed": "已失败",
-          "interrupted": "已中断",
-          "cancelled": "已取消",
-          "paused": "已暂停"
+          "running": "En curso",
+          "cancelling": "Cancelando",
+          "completed": "Completado",
+          "failed": "Fallido",
+          "interrupted": "Interrumpido",
+          "cancelled": "Cancelado",
+          "paused": "En pausa"
         }
       }
     }

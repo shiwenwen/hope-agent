@@ -37,17 +37,12 @@ use crate::local_model_jobs::{
 pub const PHASE_REEMBED_KEEP: &str = "reembed-keep";
 pub const PHASE_REEMBED_FRESH: &str = "reembed-fresh";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReembedMode {
+    #[default]
     KeepExisting,
     DeleteAll,
-}
-
-impl Default for ReembedMode {
-    fn default() -> Self {
-        Self::KeepExisting
-    }
 }
 
 impl ReembedMode {

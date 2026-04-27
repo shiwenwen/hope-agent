@@ -784,8 +784,9 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn reembed_all(&self) -> Result<usize> {
-        let entries = self.list(None, None, 100000, 0)?;
-        self.reembed_entries(&entries)
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let mut on_progress = |_done: usize, _total: usize| {};
+        self.reembed_all_with_progress(&cancel, &mut on_progress, 16)
     }
 
     fn reembed_batch(&self, ids: &[i64]) -> Result<usize> {
