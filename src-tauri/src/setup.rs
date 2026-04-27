@@ -52,9 +52,28 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             .paste()
             .select_all()
             .build()?;
-        let view_submenu = SubmenuBuilder::new(app, "View")
-            .item(&PredefinedMenuItem::fullscreen(app, None)?)
-            .build()?;
+        let mut view_builder =
+            SubmenuBuilder::new(app, "View").item(&PredefinedMenuItem::fullscreen(app, None)?);
+        #[cfg(debug_assertions)]
+        {
+            let reload_webview = MenuItemBuilder::with_id("dev_reload_webview", "Reload WebView")
+                .accelerator("CmdOrCtrl+R")
+                .build(app)?;
+            let force_reload_webview =
+                MenuItemBuilder::with_id("dev_force_reload_webview", "Force Reload WebView")
+                    .accelerator("CmdOrCtrl+Shift+R")
+                    .build(app)?;
+            let open_web_inspector =
+                MenuItemBuilder::with_id("dev_open_web_inspector", "Open Web Inspector")
+                    .accelerator("CmdOrCtrl+Option+I")
+                    .build(app)?;
+            view_builder = view_builder
+                .separator()
+                .item(&reload_webview)
+                .item(&force_reload_webview)
+                .item(&open_web_inspector);
+        }
+        let view_submenu = view_builder.build()?;
         let window_submenu = SubmenuBuilder::new(app, "Window")
             .minimize()
             .item(&PredefinedMenuItem::maximize(app, None)?)
@@ -90,6 +109,61 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                 "hide_quit" => {
                     if let Some(window) = app_handle.get_webview_window("main") {
                         let _ = window.hide();
+                    }
+                }
+                #[cfg(debug_assertions)]
+                "dev_reload_webview" => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                        if let Err(e) = window.reload() {
+                            app_warn!("window", "dev_reload_webview", "reload failed: {}", e);
+                        }
+                    }
+                }
+                #[cfg(debug_assertions)]
+                "dev_force_reload_webview" => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                        match window.url() {
+                            Ok(mut url) => {
+                                let nonce = std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_millis().to_string())
+                                    .unwrap_or_else(|_| "0".to_string());
+                                url.query_pairs_mut().append_pair("__ha_reload", &nonce);
+                                if let Err(e) = window.navigate(url) {
+                                    app_warn!(
+                                        "window",
+                                        "dev_force_reload_webview",
+                                        "cache-busting navigate failed: {}",
+                                        e
+                                    );
+                                    let _ = window.reload();
+                                }
+                            }
+                            Err(e) => {
+                                app_warn!(
+                                    "window",
+                                    "dev_force_reload_webview",
+                                    "reading current url failed: {}",
+                                    e
+                                );
+                                let _ = window.reload();
+                            }
+                        }
+                    }
+                }
+                #[cfg(debug_assertions)]
+                "dev_open_web_inspector" => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                        window.open_devtools();
                     }
                 }
                 _ => {}
