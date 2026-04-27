@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **记忆向量搜索交互重做**：把"切模型必触发同步重建 + spinner 没进度"的一次性阻塞操作改成可观测的后台任务。开关闭环——历史里有用过的模型直接静默启用并触发重建；没有则弹 `EmbeddingActivationDialog` 让用户在原页面挑一个或跳转去配置嵌入模型，不再"开关 ON 但未真正启用"的半启用状态。切模型对话框新增"保留旧向量增量重建 / 清空全部记忆向量后重建"两种模式选择。底部新增 `ReembedJobCard` 常驻状态卡片，展示进度（已处理 N / 总 M）、取消按钮、终态时的 Retry / Dismiss，刷新页面或重启应用都能恢复显示（沿用 `local_model_jobs` 的 `replay_interrupted_jobs` 机制）。后端：`local_model_jobs` 增 `MemoryReembed` job kind，`memory/reembed_job.rs` 暴露 `start_memory_reembed_job(model_config_id, ReembedMode)`，全局只允许一个 reembed 运行（spawn 新任务前先 cancel 已有的），`memory/sqlite/backend.rs` 加 `reembed_all_with_progress` 与 `clear_all_embeddings` 支持 cancel + 进度回调。新增 Tauri 命令 `memory_reembed_start` 与 HTTP `POST /api/memory/reembed-start`；`memory_embedding_set_default` 参数从 `reembed: bool` 改为 `mode: ReembedMode`（破坏性，已同步更新所有调用方）。
+
 ### Documentation
 
 - **新增架构文档《本地模型加载与 Embedding 配置》**：补齐 Ollama 本地模型管理、后台安装任务、模型库搜索、Provider 写入、Embedding 模型配置、记忆向量签名隔离、启动/停止模型以及删除清理策略的完整技术文档。[`docs/architecture/local-model-loading.md`](docs/architecture/local-model-loading.md) 明确两类模型（LLM 服务对话、Embedding 服务向量检索）、快捷卡与本地模型 Tab 的职责边界、4 类后台 job 的副作用语义、`/api/generate` 与 `/api/embed` 的 `keep_alive` 选择规则、`embeddingModels` / `memoryEmbedding` 配置模型、切换默认记忆模型必须重建向量的原因，以及 Tauri/HTTP/前端三端接口对照。同步更新 [`docs/README.md`](docs/README.md) 索引和 [`api-reference.md`](docs/architecture/api-reference.md) 的 Local LLM / Memory config 接口表。

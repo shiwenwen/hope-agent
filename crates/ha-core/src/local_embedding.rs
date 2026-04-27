@@ -197,7 +197,11 @@ pub fn save_and_set_default_for_model(
     model: &OllamaEmbeddingModel,
 ) -> Result<MemoryEmbeddingSetDefaultResult> {
     let config = save_embedding_model_config_for_model(model)?;
-    crate::memory::set_memory_embedding_default(&config.id, true, PROVIDER_SOURCE)
+    crate::memory::set_memory_embedding_default(
+        &config.id,
+        crate::memory::ReembedMode::KeepExisting,
+        PROVIDER_SOURCE,
+    )
 }
 
 pub async fn pull_and_activate_cancellable<F>(

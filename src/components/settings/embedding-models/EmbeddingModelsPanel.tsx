@@ -161,7 +161,7 @@ export default function EmbeddingModelsPanel() {
     try {
       const result = await getTransport().call<MemoryEmbeddingSetDefaultResult>(
         "memory_embedding_set_default",
-        { modelConfigId: pendingDefault.id, reembed: true },
+        { modelConfigId: pendingDefault.id, mode: "keep_existing" },
       )
       setMemoryState(result.state)
       await load()

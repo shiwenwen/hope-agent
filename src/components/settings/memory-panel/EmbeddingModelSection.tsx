@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Brain, CheckCircle2, Loader2, Settings, Zap } from "lucide-react"
+import { Brain, Loader2, Settings } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import { cn } from "@/lib/utils"
 import type { useMemoryData } from "./useMemoryData"
 import LocalEmbeddingAssistantCard from "./LocalEmbeddingAssistantCard"
 import type { MemoryEmbeddingSetDefaultResult } from "./types"
@@ -31,6 +32,7 @@ import {
 } from "@/types/embedding-models"
 
 type MemoryData = ReturnType<typeof useMemoryData>
+type ReembedMode = "keep_existing" | "delete_all"
 
 interface EmbeddingModelSectionProps {
   data: MemoryData
@@ -39,15 +41,13 @@ interface EmbeddingModelSectionProps {
 export default function EmbeddingModelSection({ data }: EmbeddingModelSectionProps) {
   const { t } = useTranslation()
   const {
-    totalCount,
     embeddingModels,
     memoryEmbeddingState,
     setMemoryEmbeddingState,
     reloadEmbeddingConfig,
-    batchLoading,
-    handleReembedAll,
   } = data
   const [pendingModelId, setPendingModelId] = useState<string | null>(null)
+  const [pendingMode, setPendingMode] = useState<ReembedMode>("keep_existing")
   const [switching, setSwitching] = useState(false)
 
   const currentId = memoryEmbeddingState.selection.enabled
@@ -58,13 +58,18 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
     [embeddingModels, pendingModelId],
   )
 
+  function startSwitch(modelId: string) {
+    setPendingMode("keep_existing")
+    setPendingModelId(modelId)
+  }
+
   async function confirmSwitchDefault() {
     if (!pendingModelId) return
     setSwitching(true)
     try {
       const result = await getTransport().call<MemoryEmbeddingSetDefaultResult>(
         "memory_embedding_set_default",
-        { modelConfigId: pendingModelId, reembed: true },
+        { modelConfigId: pendingModelId, mode: pendingMode },
       )
       setMemoryEmbeddingState(result.state)
       await reloadEmbeddingConfig()
@@ -122,7 +127,7 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
             <Select
               value={currentId ?? ""}
               onValueChange={(value) => {
-                if (value && value !== currentId) setPendingModelId(value)
+                if (value && value !== currentId) startSwitch(value)
               }}
             >
               <SelectTrigger className="w-full">
@@ -163,42 +168,50 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
             )}
           </div>
         )}
-
-        {memoryEmbeddingState.selection.enabled && totalCount > 0 && (
-          <div className="flex items-center justify-between border-t border-border/60 pt-4">
-            <div>
-              <div className="text-sm font-medium">{t("settings.memoryReembedAll")}</div>
-              <div className="text-xs text-muted-foreground">
-                {t("settings.memoryCount", { count: totalCount })}
-              </div>
-            </div>
-            <Button variant="outline" size="sm" disabled={batchLoading} onClick={handleReembedAll}>
-              {batchLoading ? (
-                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-              ) : memoryEmbeddingState.needsReembed ? (
-                <Zap className="mr-1.5 h-3.5 w-3.5" />
-              ) : (
-                <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-              )}
-              {t("settings.memoryReembedAll")}
-            </Button>
-          </div>
-        )}
       </div>
 
-      <AlertDialog open={!!pendingModel} onOpenChange={(open) => !open && setPendingModelId(null)}>
+      <AlertDialog
+        open={!!pendingModel}
+        onOpenChange={(open) => !open && setPendingModelId(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>{t("settings.embeddingModels.confirmSwitchTitle")}</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t("settings.embeddingModels.confirmSwitchTitle")}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               {t("settings.embeddingModels.confirmSwitchDesc", {
                 model: pendingModel?.name ?? "",
               })}
             </AlertDialogDescription>
           </AlertDialogHeader>
+
+          <div className="space-y-2 py-2">
+            <div className="text-xs font-medium text-foreground">
+              {t("settings.embedding.reembedMode.label")}
+            </div>
+            <ModeOption
+              active={pendingMode === "keep_existing"}
+              label={t("settings.embedding.reembedMode.keepExisting")}
+              description={t("settings.embedding.reembedMode.keepExistingDesc")}
+              onSelect={() => setPendingMode("keep_existing")}
+              disabled={switching}
+            />
+            <ModeOption
+              active={pendingMode === "delete_all"}
+              label={t("settings.embedding.reembedMode.deleteAll")}
+              description={t("settings.embedding.reembedMode.deleteAllDesc")}
+              onSelect={() => setPendingMode("delete_all")}
+              disabled={switching}
+            />
+          </div>
+
           <AlertDialogFooter>
             <AlertDialogCancel disabled={switching}>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction disabled={switching} onClick={() => void confirmSwitchDefault()}>
+            <AlertDialogAction
+              disabled={switching}
+              onClick={() => void confirmSwitchDefault()}
+            >
               {switching && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {t("settings.embeddingModels.confirmSwitchAction")}
             </AlertDialogAction>
@@ -206,5 +219,37 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
         </AlertDialogContent>
       </AlertDialog>
     </>
+  )
+}
+
+function ModeOption({
+  active,
+  label,
+  description,
+  onSelect,
+  disabled,
+}: {
+  active: boolean
+  label: string
+  description: string
+  onSelect: () => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      disabled={disabled}
+      className={cn(
+        "flex w-full flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
+        active
+          ? "border-primary bg-primary/10"
+          : "border-border hover:bg-secondary",
+        disabled && "opacity-60",
+      )}
+    >
+      <span className="text-sm font-medium">{label}</span>
+      <span className="mt-0.5 text-xs text-muted-foreground">{description}</span>
+    </button>
   )
 }

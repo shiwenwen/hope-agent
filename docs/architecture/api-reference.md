@@ -309,7 +309,8 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `memory_delete` | `DELETE /api/memory/{id}` | ✅ |
 | `memory_toggle_pin` | `POST /api/memory/{id}/pin` | ✅ |
 | `memory_delete_batch` | `POST /api/memory/delete-batch` | ✅ |
-| `memory_reembed` | `POST /api/memory/reembed` | ✅ |
+| `memory_reembed` | `POST /api/memory/reembed` | ✅ (CLI / 同步) |
+| `memory_reembed_start` | `POST /api/memory/reembed-start` | ✅ |
 | `memory_export` | `POST /api/memory/export` | ✅ |
 | `memory_import` | `POST /api/memory/import` | ✅ |
 | `memory_find_similar` | `POST /api/memory/find-similar` | ✅ |
