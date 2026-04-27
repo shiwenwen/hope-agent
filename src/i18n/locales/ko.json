@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "계획 모드 진입",
+    "toggleLabel": "계획",
     "indicator": "계획 모드",
     "plan": "실행 계획",
     "openPanel": "패널에서 보기",

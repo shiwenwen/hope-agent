@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "Войти в Plan Mode",
+    "toggleLabel": "План",
     "indicator": "Режим планирования",
     "plan": "План выполнения",
     "openPanel": "Открыть в панели",

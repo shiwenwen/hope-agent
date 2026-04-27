@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "Plan Mode'a gir",
+    "toggleLabel": "Plan",
     "indicator": "Plan Mode",
     "plan": "Yürütme planı",
     "openPanel": "Panelde görüntüle",

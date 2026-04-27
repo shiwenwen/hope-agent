@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "الدخول إلى Plan Mode",
+    "toggleLabel": "خطة",
     "indicator": "وضع التخطيط",
     "plan": "خطة التنفيذ",
     "openPanel": "عرض في اللوحة",

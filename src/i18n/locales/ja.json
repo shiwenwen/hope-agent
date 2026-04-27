@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "プランモードに入る",
+    "toggleLabel": "計画",
     "indicator": "プランモード",
     "plan": "実行プラン",
     "openPanel": "パネルで表示",

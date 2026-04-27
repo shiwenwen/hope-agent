@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "Masuk Plan Mode",
+    "toggleLabel": "Pelan",
     "indicator": "Plan Mode",
     "plan": "Pelan pelaksanaan",
     "openPanel": "Lihat dalam panel",

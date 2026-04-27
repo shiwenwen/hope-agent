@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "進入計劃模式",
+    "toggleLabel": "計劃",
     "indicator": "計劃模式",
     "plan": "執行計劃",
     "openPanel": "在面板中查看",

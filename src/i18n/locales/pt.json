@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "Entrar em Plan Mode",
+    "toggleLabel": "Plano",
     "indicator": "Plan Mode",
     "plan": "Plano de execução",
     "openPanel": "Ver no painel",

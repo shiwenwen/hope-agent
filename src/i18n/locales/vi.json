@@ -2698,6 +2698,7 @@
   },
   "planMode": {
     "enter": "Vào Plan Mode",
+    "toggleLabel": "Kế hoạch",
     "indicator": "Plan Mode",
     "plan": "Kế hoạch thực thi",
     "openPanel": "Xem trong bảng điều khiển",

@@ -218,6 +218,23 @@ export default function ChatInput({
   const currentModelInfo = availableModels.find(
     (m) => m.providerId === activeModel?.providerId && m.modelId === activeModel?.modelId,
   )
+  const planToggleLabel = t("planMode.toggleLabel")
+  const planToggleTip = (() => {
+    switch (planState) {
+      case "off":
+        return t("planMode.enter")
+      case "planning":
+        return t("planMode.indicator")
+      case "review":
+        return t("planMode.review.badge")
+      case "executing":
+        return `${t("planMode.executing")} ${planProgress}%`
+      case "paused":
+        return t("planMode.paused.badge")
+      case "completed":
+        return t("planMode.completed")
+    }
+  })()
 
   const overflowMenuItemClass =
     "flex w-full items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-foreground/80 outline-none transition-all duration-150 hover:bg-secondary/60 hover:text-foreground focus-visible:bg-secondary/60 focus-visible:text-foreground disabled:pointer-events-none disabled:opacity-50"
@@ -567,8 +584,9 @@ export default function ChatInput({
             <AwarenessToggle sessionId={currentSessionId ?? null} disabled={incognitoEnabled} />
 
             {/* Plan Mode Toggle */}
-            <IconTip label={planState === "off" ? t("planMode.enter") : t("planMode.indicator")}>
+            <IconTip label={planToggleTip}>
               <button
+                aria-label={planToggleTip}
                 onClick={() => {
                   if (planState === "off") {
                     onEnterPlanMode?.()
@@ -594,19 +612,7 @@ export default function ChatInput({
                 )}
               >
                 <ClipboardList className="h-3.5 w-3.5 shrink-0" />
-                {planState !== "off" && (
-                  <span>
-                    {planState === "planning"
-                      ? t("planMode.indicator")
-                      : planState === "review"
-                        ? t("planMode.review.badge")
-                        : planState === "paused"
-                          ? t("planMode.paused.badge")
-                          : planState === "completed"
-                            ? t("planMode.completed")
-                            : `${planProgress}%`}
-                  </span>
-                )}
+                <span>{planToggleLabel}</span>
               </button>
             </IconTip>
 
