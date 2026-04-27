@@ -91,12 +91,32 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
       if (job.kind !== "memory_reembed") return
       setReembedJob((current) => {
-        // Keep the most recent (or active) job. A new spawn supersedes any
-        // terminal predecessor; updates to the currently tracked job stay.
-        if (!current) return job
-        if (current.jobId === job.jobId) return job
-        if (isLocalModelJobTerminal(current)) return job
-        return current
+        // Pick the snapshot we want to track: a new spawn replaces a terminal
+        // predecessor; updates to a job we're already tracking stay; a stale
+        // event for an unrelated active job is dropped.
+        const next = (() => {
+          if (!current) return job
+          if (current.jobId === job.jobId) return job
+          if (isLocalModelJobTerminal(current)) return job
+          return current
+        })()
+        if (next === current) return current
+        // Skip the re-render when the tracked job is the same and nothing
+        // observable changed — the backend emits per-batch progress and
+        // status snapshots can repeat unchanged on completion.
+        if (
+          current &&
+          next.jobId === current.jobId &&
+          next.status === current.status &&
+          next.phase === current.phase &&
+          (next.percent ?? null) === (current.percent ?? null) &&
+          (next.bytesCompleted ?? null) === (current.bytesCompleted ?? null) &&
+          (next.bytesTotal ?? null) === (current.bytesTotal ?? null) &&
+          (next.error ?? null) === (current.error ?? null)
+        ) {
+          return current
+        }
+        return next
       })
     }
 
@@ -385,10 +405,12 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   async function handleReembedAll() {
     setBatchLoading(true)
     try {
-      const job = await getTransport().call<LocalModelJobSnapshot>("memory_reembed_start", {
+      // Drive `reembedJob` through the `local_model_job:created` event so the
+      // subscription is the single source of truth. Discarding the awaited
+      // snapshot avoids a brief double-update on slow IPC.
+      await getTransport().call<LocalModelJobSnapshot>("memory_reembed_start", {
         mode: "keep_existing",
       })
-      setReembedJob(job)
     } catch (e) {
       logger.error("settings", "MemoryPanel::reembedAll", "Failed to start reembed job", e)
       toast.error(String(e))
@@ -539,7 +561,6 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
     // Reembed job state
     reembedJob,
-    setReembedJob,
     dismissReembedJob,
     handleToggleAutoExtract: extract.handleToggleAutoExtract,
     handleUpdateExtractModel: extract.handleUpdateExtractModel,

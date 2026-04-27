@@ -19,14 +19,23 @@
 //! (it is keyed by `(hash, model, signature)` and `prune_embedding_cache_to_signature`
 //! has already been called by `set_memory_embedding_default`).
 
+use std::sync::{Arc, Mutex};
+
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::local_model_jobs::{
     self, append_log, finish_job, spawn_job, update_job_with_bytes, LocalModelJobKind,
-    LocalModelJobSnapshot, LocalModelJobStatus,
+    LocalModelJobSnapshot, LocalModelJobStatus, ProgressThrottle,
 };
+
+/// Phase strings used in `update_job_with_bytes` and looked up by
+/// `src/types/local-model-jobs.ts::PHASE_KEY` for i18n display. Drift between
+/// the two sides silently breaks the localized phase label, so keep these as
+/// the single Rust source of truth.
+pub const PHASE_REEMBED_KEEP: &str = "reembed-keep";
+pub const PHASE_REEMBED_FRESH: &str = "reembed-fresh";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -38,6 +47,22 @@ pub enum ReembedMode {
 impl Default for ReembedMode {
     fn default() -> Self {
         Self::KeepExisting
+    }
+}
+
+impl ReembedMode {
+    fn phase(self) -> &'static str {
+        match self {
+            Self::KeepExisting => PHASE_REEMBED_KEEP,
+            Self::DeleteAll => PHASE_REEMBED_FRESH,
+        }
+    }
+
+    fn step_message(self) -> &'static str {
+        match self {
+            Self::KeepExisting => "Re-embedding memories (keep existing)",
+            Self::DeleteAll => "Re-embedding memories (fresh)",
+        }
     }
 }
 
@@ -67,7 +92,6 @@ pub fn start_memory_reembed_job(
         ));
     }
 
-    // Cancel any in-flight reembed before spawning the new one.
     if let Ok(jobs) = local_model_jobs::list_jobs() {
         for job in jobs {
             if job.kind == LocalModelJobKind::MemoryReembed && !job.status.is_terminal() {
@@ -88,17 +112,14 @@ pub fn start_memory_reembed_job(
         }
     }
 
-    let model_id_for_runner = model_config_id.to_string();
     let signature = model.signature();
-    let signature_for_runner = signature.clone();
 
     spawn_job(
         LocalModelJobKind::MemoryReembed,
         model_config_id.to_string(),
         model.name.clone(),
         move |job_id, token| async move {
-            let final_result = run_reembed(&job_id, mode, &signature_for_runner, &token).await;
-            let _ = model_id_for_runner; // kept for potential future logging
+            let final_result = run_reembed(&job_id, mode, &signature, &token).await;
             finish_job(&job_id, final_result, &token);
         },
     )
@@ -112,37 +133,26 @@ async fn run_reembed(
 ) -> Result<serde_json::Value> {
     let backend =
         crate::get_memory_backend().ok_or_else(|| anyhow!("Memory backend not initialized"))?;
+    let phase = mode.phase();
 
     update_job_with_bytes(
         job_id,
         LocalModelJobStatus::Running,
-        match mode {
-            ReembedMode::KeepExisting => "reembed-keep",
-            ReembedMode::DeleteAll => "reembed-fresh",
-        },
+        phase,
         Some(0),
         Some(0),
         None,
         None,
         None,
     );
-    append_log(
-        job_id,
-        "step",
-        match mode {
-            ReembedMode::KeepExisting => "Re-embedding memories (keep existing)",
-            ReembedMode::DeleteAll => "Re-embedding memories (fresh)",
-        },
-    );
+    append_log(job_id, "step", mode.step_message());
 
-    // The progress callback runs on the same blocking task; we hop work onto
-    // `spawn_blocking` so the runner future stays cooperative. Capturing
-    // `job_id` + `phase` by clone keeps the closure `'static`.
+    // Hop the blocking sqlite work to spawn_blocking so the runner future stays
+    // cooperative. Wrap the per-batch progress callback in the same
+    // `ProgressThrottle` the other jobs use so a fast batch API doesn't flood
+    // the EventBus + jobs DB at full chunk-cadence.
     let job_id_owned = job_id.to_string();
-    let phase: &'static str = match mode {
-        ReembedMode::KeepExisting => "reembed-keep",
-        ReembedMode::DeleteAll => "reembed-fresh",
-    };
+    let throttle = Arc::new(Mutex::new(ProgressThrottle::default()));
     let cancel_clone = cancel.clone();
     let backend_clone = backend.clone();
 
@@ -153,12 +163,24 @@ async fn run_reembed(
             } else {
                 ((done as u64 * 100) / total as u64).min(100) as u8
             };
+            let bytes_completed = done as u64;
+            // Always emit the terminal frame; otherwise let the throttle
+            // coalesce mid-flight bursts.
+            let terminal = total > 0 && done >= total;
+            let should_emit = terminal
+                || throttle
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .should_emit(phase, Some(percent), Some(bytes_completed));
+            if !should_emit {
+                return;
+            }
             update_job_with_bytes(
                 &job_id_owned,
                 LocalModelJobStatus::Running,
                 phase,
                 Some(percent),
-                Some(done as u64),
+                Some(bytes_completed),
                 Some(total as u64),
                 None,
                 None,
@@ -171,7 +193,6 @@ async fn run_reembed(
 
     let count = count_result?;
 
-    // Persist last_reembedded_signature so `needsReembed` clears in the UI.
     let signature_for_save = signature.to_string();
     crate::config::mutate_config(
         ("memory_embedding.reembedded", "memory_reembed_job"),

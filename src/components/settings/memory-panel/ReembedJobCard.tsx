@@ -10,6 +10,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Progress } from "@/components/ui/progress"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import {
@@ -42,7 +43,6 @@ export default function ReembedJobCard({ data }: ReembedJobCardProps) {
   const { t } = useTranslation()
   const {
     reembedJob,
-    setReembedJob,
     dismissReembedJob,
     memoryEmbeddingState,
     totalCount,
@@ -129,11 +129,10 @@ export default function ReembedJobCard({ data }: ReembedJobCardProps) {
               variant="outline"
               size="sm"
               onClick={() => {
+                // The new job snapshot arrives via `local_model_job:created` —
+                // useMemoryData's subscription replaces the terminal one.
                 void getTransport()
-                  .call<LocalModelJobSnapshot>("local_model_job_retry", {
-                    jobId: reembedJob.jobId,
-                  })
-                  .then((next) => setReembedJob(next))
+                  .call("local_model_job_retry", { jobId: reembedJob.jobId })
                   .catch((e) => {
                     logger.error("settings", "ReembedJobCard::retry", "Failed to retry", e)
                     toast.error(String(e))
@@ -220,8 +219,8 @@ function CancelButton({
 
 function ProgressBar({ job }: { job: LocalModelJobSnapshot }) {
   const { t } = useTranslation()
-  // We persist done/total entry counts through bytesCompleted/bytesTotal so
-  // the existing progress UI surfaces a real "N / M memories" indicator.
+  // done/total entry counts ride on bytesCompleted/bytesTotal so the standard
+  // local-model-job channel surfaces a real "N / M memories" indicator.
   const done = job.bytesCompleted ?? 0
   const total = job.bytesTotal ?? 0
   const percent =
@@ -230,12 +229,7 @@ function ProgressBar({ job }: { job: LocalModelJobSnapshot }) {
       : (job.percent ?? 0)
   return (
     <div className="mt-3">
-      <div className="h-1.5 w-full overflow-hidden rounded bg-secondary">
-        <div
-          className="h-full bg-primary transition-[width] duration-200 ease-out"
-          style={{ width: `${percent}%` }}
-        />
-      </div>
+      <Progress value={percent} />
       <div className="mt-1 flex items-center justify-between text-[11px] text-muted-foreground">
         <span>{t("settings.embedding.reembedJob.progress", { done, total })}</span>
         <span className="font-mono">{percent}%</span>

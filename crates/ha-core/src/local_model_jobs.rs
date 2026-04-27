@@ -726,6 +726,9 @@ pub fn retry_job(
             })
         }
         LocalModelJobKind::MemoryReembed => {
+            // Retry always uses KeepExisting: a partially-failed DeleteAll
+            // already cleared the rows, so KeepExisting reembeds the same
+            // empty vectors. The chat-completion hook is irrelevant here.
             let _ = on_chat_complete;
             crate::memory::reembed_job::start_memory_reembed_job(
                 &job.model_id,
@@ -1022,7 +1025,7 @@ fn handle_install_progress(job_id: &str, progress: &InstallScriptProgress) {
 }
 
 #[derive(Default)]
-struct ProgressThrottle {
+pub(crate) struct ProgressThrottle {
     last_emit: Option<Instant>,
     last_phase: Option<String>,
     last_percent: Option<u8>,
@@ -1030,7 +1033,7 @@ struct ProgressThrottle {
 }
 
 impl ProgressThrottle {
-    fn should_emit(
+    pub(crate) fn should_emit(
         &mut self,
         phase: &str,
         percent: Option<u8>,

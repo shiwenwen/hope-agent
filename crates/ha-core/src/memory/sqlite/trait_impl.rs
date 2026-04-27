@@ -805,17 +805,35 @@ impl MemoryBackend for SqliteMemoryBackend {
         batch_size: usize,
     ) -> Result<usize> {
         let batch_size = batch_size.max(1);
-        let entries = self.list(None, None, 100000, 0)?;
-        let total = entries.len();
+        // Page through the table with a fresh `list` query per page so peak
+        // memory stays bounded and there is no silent truncation cap. Total
+        // is read once up front for an accurate progress denominator.
+        const PAGE_SIZE: usize = 500;
+        let total = self.count(None)?;
         on_progress(0, total);
         let mut done = 0usize;
-        for chunk in entries.chunks(batch_size) {
+        let mut offset = 0usize;
+        loop {
             if cancel.is_cancelled() {
                 return Err(anyhow::anyhow!("Reembed job cancelled"));
             }
-            let n = self.reembed_entries(chunk)?;
-            done += n;
-            on_progress(done, total);
+            let page = self.list(None, None, PAGE_SIZE, offset)?;
+            if page.is_empty() {
+                break;
+            }
+            let page_len = page.len();
+            for chunk in page.chunks(batch_size) {
+                if cancel.is_cancelled() {
+                    return Err(anyhow::anyhow!("Reembed job cancelled"));
+                }
+                let n = self.reembed_entries(chunk)?;
+                done += n;
+                on_progress(done, total);
+            }
+            offset += page_len;
+            if page_len < PAGE_SIZE {
+                break;
+            }
         }
         Ok(done)
     }

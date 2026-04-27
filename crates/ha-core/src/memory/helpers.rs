@@ -350,6 +350,10 @@ pub fn set_memory_embedding_default(
         }
     }
 
+    // `reembedded` stays in the response shape for wire compatibility but is
+    // always 0 now: the actual reembed runs as a background job (see
+    // `start_memory_reembed_job`). Counts come through the standard
+    // `local_model_job:*` event stream instead.
     Ok(MemoryEmbeddingSetDefaultResult {
         state: get_memory_embedding_state(),
         reembedded: 0,
