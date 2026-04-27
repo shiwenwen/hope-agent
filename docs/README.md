@@ -25,6 +25,7 @@
 | ---------------------------------------------- | --------------------------------------------------- | ---------------------------------------------- |
 | [Chat Engine](architecture/chat-engine.md)     | 对话编排入口、流式事件协议、Failover 集成、记忆提取门控                    | `chat_engine/`                                 |
 | [Provider 系统](architecture/provider-system.md) | 4 种 API 类型、28 个 Provider 模板、Failover 策略、Thinking 系统 | `provider/`, `failover.rs`, `agent/providers/` |
+| [本地模型加载](architecture/local-model-loading.md) | Ollama 本地模型搜索/下载/加载/删除、后台任务、Provider 注册、Embedding 配置与记忆向量重建 | `local_llm/`, `local_model_jobs.rs`, `local_embedding.rs`, `memory/embedding/` |
 | [提示词系统](architecture/prompt-system.md)         | System Prompt 13 段组装、32 个工具描述、行为指导                  | `system_prompt/`                               |
 | [工具系统](architecture/tool-system.md)            | 工具定义、Tool Loop 并发/串行执行、结果持久化、四维权限控制                 | `tools/`                                       |
 | [上下文压缩](architecture/context-compact.md)       | 5 层渐进式压缩、API-Round 分组保护、后压缩文件恢复                     | `context_compact/`                             |
@@ -103,4 +104,3 @@
 | ------------------------------------------- | -------------------------------------------------------------------------------- |
 | [三项目统一维度对比 v2.1](research/unified-comparison.md) | Hope Agent vs Claude Code vs OpenClaw 全维度对比（16 维度评分 + Actionable 差距清单），基线 2026-04-15 |
 | [2026 Q2 演进路线图](research/roadmap-2026q2.md) | 四阶段路线图：Phase A 架构补课 → Phase B 记忆升级 → Phase C 多 Agent 与 MCP → Phase D 体验生态补足，总计 20–26 周 |
-

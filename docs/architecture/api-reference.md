@@ -324,6 +324,14 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `get_embedding_config` | `GET /api/config/embedding` | ✅ |
 | `save_embedding_config` | `PUT /api/config/embedding` | ✅ |
 | `get_embedding_presets` | `GET /api/config/embedding/presets` | ✅ |
+| `embedding_model_config_list` | `GET /api/config/embedding-models` | ✅ |
+| `embedding_model_config_templates` | `GET /api/config/embedding-models/templates` | ✅ |
+| `embedding_model_config_save` | `PUT /api/config/embedding-models` | ✅ |
+| `embedding_model_config_delete` | `POST /api/config/embedding-models/delete` | ✅ |
+| `embedding_model_config_test` | `POST /api/config/embedding-models/test` | ✅ |
+| `memory_embedding_get` | `GET /api/config/memory-embedding` | ✅ |
+| `memory_embedding_set_default` | `POST /api/config/memory-embedding/default` | ✅ |
+| `memory_embedding_disable` | `POST /api/config/memory-embedding/disable` | ✅ |
 | `get_embedding_cache_config` | `GET /api/config/embedding-cache` | ✅ |
 | `save_embedding_cache_config` | `PUT /api/config/embedding-cache` | ✅ |
 | `get_dedup_config` | `GET /api/config/dedup` | ✅ |
@@ -510,14 +518,24 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 
 ### Local LLM assistant
 
-只暴露轻量级探测接口；安装、模型拉取与 Embedding 拉取统一走「Local model background jobs」（见下表），通过 `local_model_job:*` 事件订阅进度。Windows 不支持脚本安装 Ollama，需引导用户去 ollama.com 手动安装。
+轻量级探测、已安装模型管理、Ollama Library 搜索与模型加载控制接口。长耗时安装和模型拉取统一走「Local model background jobs」（见下表），通过 `local_model_job:*` 事件订阅进度。Windows 不支持脚本安装 Ollama，需引导用户去 ollama.com 手动安装。
 
 | Tauri Command | HTTP | 状态 |
 |---|---|---|
 | `local_llm_detect_hardware` | `GET /api/local-llm/hardware` | ✅ |
 | `local_llm_recommend_model` | `GET /api/local-llm/recommendation` | ✅ |
 | `local_llm_detect_ollama` | `GET /api/local-llm/ollama-status` | ✅ |
+| `local_llm_known_backends` | `GET /api/local-llm/known-backends` | ✅ |
 | `local_llm_start_ollama` | `POST /api/local-llm/start` | ✅ |
+| `local_llm_list_models` | `GET /api/local-llm/models` | ✅ |
+| `local_llm_search_library` | `GET /api/local-llm/library/search` | ✅ |
+| `local_llm_get_library_model` | `POST /api/local-llm/library/model` | ✅ |
+| `local_llm_preload_model` | `POST /api/local-llm/preload` | ✅ |
+| `local_llm_stop_model` | `POST /api/local-llm/stop-model` | ✅ |
+| `local_llm_delete_model` | `POST /api/local-llm/delete-model` | ✅ |
+| `local_llm_add_provider_model` | `POST /api/local-llm/provider-model` | ✅ |
+| `local_llm_set_default_model` | `POST /api/local-llm/default-model` | ✅ |
+| `local_llm_add_embedding_config` | `POST /api/local-llm/embedding-config` | ✅ |
 | `local_embedding_list_models` | `GET /api/local-embedding/models` | ✅ |
 
 ### Local model background jobs
@@ -528,10 +546,13 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 |---|---|---|
 | `local_model_job_start_chat_model` | `POST /api/local-model-jobs/chat-model` | ✅ |
 | `local_model_job_start_embedding` | `POST /api/local-model-jobs/embedding` | ✅ |
+| `local_model_job_start_ollama_install` | `POST /api/local-model-jobs/ollama-install` | ✅ |
+| `local_model_job_start_ollama_pull` | `POST /api/local-model-jobs/ollama-pull` | ✅ |
 | `local_model_job_list` | `GET /api/local-model-jobs` | ✅ |
 | `local_model_job_get` | `GET /api/local-model-jobs/{id}` | ✅ |
 | `local_model_job_logs` | `GET /api/local-model-jobs/{id}/logs` | ✅ |
 | `local_model_job_cancel` | `POST /api/local-model-jobs/{id}/cancel` | ✅ |
+| `local_model_job_pause` | `POST /api/local-model-jobs/{id}/pause` | ✅ |
 | `local_model_job_retry` | `POST /api/local-model-jobs/{id}/retry` | ✅ |
 | `local_model_job_clear` | `DELETE /api/local-model-jobs/{id}` | ✅ |
 
