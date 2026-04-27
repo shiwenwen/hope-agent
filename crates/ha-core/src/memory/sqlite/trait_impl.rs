@@ -806,37 +806,42 @@ impl MemoryBackend for SqliteMemoryBackend {
         batch_size: usize,
     ) -> Result<usize> {
         let batch_size = batch_size.max(1);
-        // Page through the table with a fresh `list` query per page so peak
-        // memory stays bounded and there is no silent truncation cap. Total
-        // is read once up front for an accurate progress denominator.
-        const PAGE_SIZE: usize = 500;
-        let total = self.count(None)?;
+        // Snapshot the ids up front. Offset pagination over
+        // `pinned DESC, updated_at DESC` can drift while embedding network
+        // calls are in flight, causing rows to be skipped silently.
+        let ids = {
+            let conn = self.read_conn()?;
+            let mut stmt =
+                conn.prepare("SELECT id FROM memories ORDER BY pinned DESC, updated_at DESC")?;
+            let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        let total = ids.len();
         on_progress(0, total);
-        let mut done = 0usize;
-        let mut offset = 0usize;
-        loop {
+        let mut processed = 0usize;
+        let mut reembedded = 0usize;
+
+        for chunk in ids.chunks(batch_size) {
             if cancel.is_cancelled() {
                 return Err(anyhow::anyhow!("Reembed job cancelled"));
             }
-            let page = self.list(None, None, PAGE_SIZE, offset)?;
-            if page.is_empty() {
-                break;
-            }
-            let page_len = page.len();
-            for chunk in page.chunks(batch_size) {
+
+            let mut entries = Vec::with_capacity(chunk.len());
+            for id in chunk {
                 if cancel.is_cancelled() {
                     return Err(anyhow::anyhow!("Reembed job cancelled"));
                 }
-                let n = self.reembed_entries(chunk)?;
-                done += n;
-                on_progress(done, total);
+                if let Some(entry) = self.get(*id)? {
+                    entries.push(entry);
+                }
             }
-            offset += page_len;
-            if page_len < PAGE_SIZE {
-                break;
-            }
+
+            reembedded += self.reembed_entries(&entries)?;
+            processed += chunk.len();
+            on_progress(processed, total);
         }
-        Ok(done)
+
+        Ok(reembedded)
     }
 
     fn clear_all_embeddings(&self) -> Result<usize> {

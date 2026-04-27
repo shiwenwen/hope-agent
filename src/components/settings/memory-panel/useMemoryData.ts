@@ -93,12 +93,14 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       if (job.kind !== "memory_reembed") return null
       setReembedJob((current) => {
         // Pick the snapshot we want to track: a new spawn replaces a terminal
-        // predecessor; updates to a job we're already tracking stay; a stale
-        // event for an unrelated active job is dropped.
+        // predecessor, or a predecessor that is already cancelling; updates
+        // to a job we're already tracking stay; a stale event for an unrelated
+        // active job is dropped.
         const next = (() => {
           if (!current) return job
           if (current.jobId === job.jobId) return job
           if (isLocalModelJobTerminal(current)) return job
+          if (current.status === "cancelling" && job.createdAt >= current.createdAt) return job
           return current
         })()
         if (next === current) return current
