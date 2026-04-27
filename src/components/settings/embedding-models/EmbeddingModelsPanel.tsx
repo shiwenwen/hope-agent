@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/select"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import LocalEmbeddingAssistantCard from "@/components/settings/memory-panel/LocalEmbeddingAssistantCard"
 import {
   embeddingProviderLabel,
   type EmbeddingModelConfig,
@@ -307,6 +308,17 @@ export default function EmbeddingModelsPanel() {
     }
   }
 
+  function handleLocalEmbeddingActivated(result: MemoryEmbeddingSetDefaultResult) {
+    setMemoryState(result.state)
+    void load().then(() => {
+      if (result.reembedError) {
+        toast.warning(t("settings.embeddingModels.reembedFailed"))
+      } else {
+        toast.success(t("settings.localEmbedding.activated"))
+      }
+    })
+  }
+
   return (
     <div className="flex-1 overflow-y-auto px-6 pb-6 pt-2">
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -320,6 +332,10 @@ export default function EmbeddingModelsPanel() {
           <Plus className="mr-1.5 h-4 w-4" />
           {t("settings.embeddingModels.custom")}
         </Button>
+      </div>
+
+      <div className="mb-5">
+        <LocalEmbeddingAssistantCard onActivated={handleLocalEmbeddingActivated} />
       </div>
 
       <div className="mb-5 flex flex-wrap gap-2">
