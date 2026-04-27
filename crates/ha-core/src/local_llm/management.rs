@@ -899,7 +899,7 @@ async fn fetch_library_html(path_and_query: &str) -> Result<String> {
     )
     .build()
     .context("build Ollama library client")?;
-    Ok(client
+    client
         .get(&url)
         .send()
         .await
@@ -907,7 +907,7 @@ async fn fetch_library_html(path_and_query: &str) -> Result<String> {
         .error_for_status()?
         .text()
         .await
-        .context("read Ollama library HTML")?)
+        .context("read Ollama library HTML")
 }
 
 pub async fn search_ollama_library(query: &str) -> Result<OllamaLibrarySearchResponse> {
