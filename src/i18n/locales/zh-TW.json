@@ -2013,14 +2013,15 @@
       "searchPlaceholder": "搜索 Ollama 模型，例如 qwen、gemma、embedding",
       "searchHint": "搜索 Ollama 模型库，找到可下载的模型。",
       "noSearchResults": "没有匹配的模型。",
-      "detailPlaceholder": "选择一个模型系列查看可下载的 tag。",
+      "detailPlaceholder": "选择一个模型系列查看可下载的版本/规格。",
       "emptyInstalled": "还没有本地模型",
-      "emptyInstalledDesc": "从模型库下载，或手动输入 Ollama tag。",
+      "emptyInstalledDesc": "从模型库下载，或手动输入 Ollama 模型名。",
       "cacheStale": "实时搜索不可用，正在显示缓存结果。",
       "cloudOnly": "仅云端",
+      "largeModelWarning": "大模型 - 可能超过本机 {{budget}} 预算",
       "downloads": "{{count}} 次下载",
-      "tags": "{{count}} 个 tag",
-      "manualTitle": "通过 Ollama tag 下载",
+      "tags": "{{count}} 个版本/规格",
+      "manualTitle": "通过 Ollama 模型名下载",
       "ollama": {
         "not-installed": "未安装 Ollama",
         "installed": "已安装 Ollama",
@@ -2047,6 +2048,8 @@
         "downloadProvider": "下載並加入 Provider",
         "downloadDefault": "下载并设默认",
         "downloadEmbedding": "下载并用于记忆",
+        "viewTags": "查看版本/规格",
+        "hideTags": "收起版本/规格",
         "installOllama": "安裝 Ollama",
         "preload": "啟動模型",
         "stop": "停止模型",
@@ -2082,7 +2085,7 @@
       "errors": {
         "refreshFailed": "刷新本地模型失败",
         "searchFailed": "搜索 Ollama 模型库失败",
-        "detailFailed": "加载模型 tag 失败"
+        "detailFailed": "加载模型版本失败"
       }
     },
     "embeddingActivation": {

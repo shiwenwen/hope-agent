@@ -51,7 +51,24 @@ export interface ModelCandidate {
   reasoning: boolean
 }
 
+export type BudgetSource = "unified-memory" | "dedicated-vram" | "system-memory"
+
+export interface GpuInfo {
+  name: string
+  vramMb?: number | null
+}
+
+export interface HardwareInfo {
+  os: string
+  totalMemoryMb: number
+  availableMemoryMb: number
+  gpu?: GpuInfo | null
+  budgetSource: BudgetSource
+  budgetMb: number
+}
+
 export interface ModelRecommendation {
+  hardware?: HardwareInfo
   recommended?: ModelCandidate | null
   alternatives: ModelCandidate[]
   reason?: string

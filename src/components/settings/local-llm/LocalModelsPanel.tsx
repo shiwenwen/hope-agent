@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
+  AlertTriangle,
   Brain,
   Database,
   Download,
@@ -70,6 +71,7 @@ const JOB_ACTION_COMMANDS = {
 const CAPABILITY_FILTERS = ["all", "embedding", "vision", "tools", "thinking"] as const
 const ACTION_BUTTON_CLASS = "shrink-0 whitespace-nowrap"
 const ACTION_ICON_CLASS = "mr-2 h-3.5 w-3.5 shrink-0"
+const APPROX_Q4_MB_PER_BILLION_PARAMS = 560
 
 function sizeLabel(bytes?: number | null): string {
   return bytes ? formatBytes(bytes, { maxUnit: "GB", trimTrailingZeros: true }) : "-"
@@ -82,6 +84,33 @@ function contextLabel(value?: number | null): string {
 
 function candidateSizeLabel(sizeMb: number): string {
   return formatBytes(sizeMb * 1024 * 1024, { maxUnit: "GB", trimTrailingZeros: true })
+}
+
+function exceedsBudgetMb(sizeMb?: number | null, budgetMb?: number | null): boolean {
+  return sizeMb != null && budgetMb != null && sizeMb > budgetMb
+}
+
+function exceedsBudgetBytes(sizeBytes?: number | null, budgetMb?: number | null): boolean {
+  return sizeBytes != null && budgetMb != null && sizeBytes > budgetMb * 1024 * 1024
+}
+
+function approximateSizeMbFromLibraryLabel(label: string): number | null {
+  const diskSize = label.match(/(\d+(?:\.\d+)?)\s*(tb|gb|mb)\b/i)
+  if (diskSize) {
+    const value = Number(diskSize[1])
+    const unit = diskSize[2].toLowerCase()
+    if (unit === "tb") return value * 1024 * 1024
+    if (unit === "gb") return value * 1024
+    return value
+  }
+
+  const parameterSize = label.match(/(\d+(?:\.\d+)?)\s*b\b/i)
+  if (!parameterSize) return null
+  return Number(parameterSize[1]) * APPROX_Q4_MB_PER_BILLION_PARAMS
+}
+
+function librarySizeExceedsBudget(label: string, budgetMb?: number | null): boolean {
+  return exceedsBudgetMb(approximateSizeMbFromLibraryLabel(label), budgetMb)
 }
 
 function modelMatchesFilter(model: OllamaLibraryModel, filter: string): boolean {
@@ -143,6 +172,23 @@ export default function LocalModelsPanel() {
   const [jobTransferStats, setJobTransferStats] = useState<
     Record<string, { speedBps?: number; etaSeconds?: number }>
   >({})
+  const localBudgetMb = recommendation?.hardware?.budgetMb ?? null
+  const localBudgetLabel = localBudgetMb ? candidateSizeLabel(localBudgetMb) : "-"
+
+  const renderLargeWarning = useCallback(
+    (className?: string) => (
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive",
+          className,
+        )}
+      >
+        <AlertTriangle className="h-3 w-3 shrink-0" />
+        {t("settings.localModels.largeModelWarning", { budget: localBudgetLabel })}
+      </span>
+    ),
+    [localBudgetLabel, t],
+  )
 
   const filteredSearchModels = useMemo(
     () => (searchResult?.models ?? []).filter((model) => modelMatchesFilter(model, capabilityFilter)),
@@ -296,10 +342,6 @@ export default function LocalModelsPanel() {
       return nextStats
     })
   }, [activeJobs])
-
-  const refreshAll = useCallback(async () => {
-    await Promise.all([refresh(), refreshActiveJobs()])
-  }, [refresh, refreshActiveJobs])
 
   const hydrateJobLogs = useCallback(async (jobId: string) => {
     try {
@@ -455,26 +497,9 @@ export default function LocalModelsPanel() {
     }
   }, [ollama, openOllamaDownloadPage, upsertActiveJob])
 
-  const searchLibrary = useCallback(async () => {
-    setSearching(true)
-    try {
-      const result = await getTransport().call<OllamaLibrarySearchResponse>(
-        "local_llm_search_library",
-        { query },
-      )
-      setSearchResult(result)
-      setSelectedDetail(null)
-    } catch (e) {
-      logger.error("local-llm", "LocalModelsPanel::searchLibrary", "Search failed", e)
-      toast.error(t("settings.localModels.errors.searchFailed"))
-    } finally {
-      setSearching(false)
-    }
-  }, [query, t])
-
   const loadLibraryModel = useCallback(
-    async (model: string) => {
-      setSearching(true)
+    async (model: string, silent = false) => {
+      if (!silent) setSearching(true)
       try {
         const detail = await getTransport().call<OllamaLibraryModelDetail>(
           "local_llm_get_library_model",
@@ -483,13 +508,65 @@ export default function LocalModelsPanel() {
         setSelectedDetail(detail)
       } catch (e) {
         logger.error("local-llm", "LocalModelsPanel::loadLibraryModel", "Load detail failed", e)
-        toast.error(t("settings.localModels.errors.detailFailed"))
+        if (!silent) {
+          toast.error(t("settings.localModels.errors.detailFailed"))
+        }
       } finally {
-        setSearching(false)
+        if (!silent) setSearching(false)
       }
     },
     [t],
   )
+
+  const toggleLibraryModel = useCallback(
+    async (model: string) => {
+      if (selectedDetail?.model.name === model) {
+        setSelectedDetail(null)
+        return
+      }
+      await loadLibraryModel(model)
+    },
+    [loadLibraryModel, selectedDetail?.model.name],
+  )
+
+  const loadLibrary = useCallback(async (libraryQuery: string, silent = false) => {
+    setSearching(true)
+    try {
+      const result = await getTransport().call<OllamaLibrarySearchResponse>(
+        "local_llm_search_library",
+        { query: libraryQuery },
+      )
+      setSearchResult(result)
+      const firstModel = result.models[0]?.name
+      if (firstModel) {
+        await loadLibraryModel(firstModel, true)
+      } else {
+        setSelectedDetail(null)
+      }
+    } catch (e) {
+      logger.error("local-llm", "LocalModelsPanel::searchLibrary", "Search failed", e)
+      if (!silent) {
+        toast.error(t("settings.localModels.errors.searchFailed"))
+      }
+    } finally {
+      setSearching(false)
+    }
+  }, [loadLibraryModel, t])
+
+  const searchLibrary = useCallback(
+    async () => {
+      await loadLibrary(query)
+    },
+    [loadLibrary, query],
+  )
+
+  useEffect(() => {
+    void loadLibrary("", true)
+  }, [loadLibrary])
+
+  const refreshAll = useCallback(async () => {
+    await Promise.all([refresh(), refreshActiveJobs(), loadLibrary(query, true)])
+  }, [loadLibrary, query, refresh, refreshActiveJobs])
 
   const startPullJob = useCallback(
     async (request: OllamaPullRequest) => {
@@ -845,185 +922,189 @@ export default function LocalModelsPanel() {
                 (job) => job.kind === "ollama_preload" && job.modelId === model.id && isLocalModelJobActive(job),
               )
               const rowBusy = actioning[model.id] || preloading
+              const largeModel = exceedsBudgetBytes(model.sizeBytes, localBudgetMb)
               return (
-              <div key={model.id} className="rounded-lg border border-border bg-card p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-sm font-semibold text-foreground">{model.id}</span>
-                      {completionCapable && (
-                        <span className="rounded border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300">
-                          {t("settings.localModels.badges.llm")}
-                        </span>
-                      )}
-                      {embeddingCapable && (
-                        <span className="rounded border border-purple-500/25 bg-purple-500/10 px-1.5 py-0.5 text-[10px] text-purple-700 dark:text-purple-300">
-                          {t("settings.localModels.badges.embedding")}
-                        </span>
-                      )}
-                      {model.running && (
-                        <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">
-                          {t("settings.localModels.badges.running")}
-                        </span>
-                      )}
-                      {model.usage.providerModel && (
-                        <span className="rounded border border-sky-500/25 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
-                          {t("settings.localModels.badges.provider")}
-                        </span>
-                      )}
-                      {model.usage.embeddingConfig && !model.usage.embeddingModel && (
-                        <span className="rounded border border-cyan-500/25 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-700 dark:text-cyan-300">
-                          {t("settings.localModels.badges.embeddingConfig")}
-                        </span>
-                      )}
-                      {model.usage.activeModel && (
-                        <span className="rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
-                          {t("settings.localModels.badges.default")}
-                        </span>
-                      )}
-                      {model.usage.embeddingModel && (
-                        <span className="rounded border border-fuchsia-500/25 bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-700 dark:text-fuchsia-300">
-                          {t("settings.localModels.badges.memory")}
-                        </span>
-                      )}
-                    </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span>{sizeLabel(model.sizeBytes)}</span>
-                      <span>·</span>
-                      <span>{contextLabel(model.contextWindow)}</span>
-                      {model.details?.family && (
-                        <>
-                          <span>·</span>
-                          <span>{model.details.family}</span>
-                        </>
-                      )}
-                      {model.details?.quantizationLevel && (
-                        <>
-                          <span>·</span>
-                          <span>{model.details.quantizationLevel}</span>
-                        </>
-                      )}
-                      {model.capabilities.length > 0 && (
-                        <>
-                          <span>·</span>
-                          <span>{model.capabilities.join(", ")}</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 flex-wrap items-center gap-2">
-                    {model.running ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={ACTION_BUTTON_CLASS}
-                        disabled={rowBusy}
-                        onClick={() =>
-                          void runModelAction(
-                            model.id,
-                            () => getTransport().call("local_llm_stop_model", { modelId: model.id }),
-                            "settings.localModels.toast.stopped",
-                          )
-                        }
-                      >
-                        <Square className={ACTION_ICON_CLASS} />
-                        {t("settings.localModels.actions.stop")}
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={ACTION_BUTTON_CLASS}
-                        disabled={rowBusy}
-                        onClick={() => void startPreloadJob(model)}
-                      >
-                        {rowBusy ? (
-                          <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
-                        ) : (
-                          <Play className={ACTION_ICON_CLASS} />
+                <div key={model.id} className="rounded-lg border border-border bg-card p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-sm font-semibold text-foreground">{model.id}</span>
+                        {completionCapable && (
+                          <span className="rounded border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300">
+                            {t("settings.localModels.badges.llm")}
+                          </span>
                         )}
-                        {t("settings.localModels.actions.preload")}
-                      </Button>
-                    )}
-                    {completionCapable && !model.usage.providerModel && (
+                        {embeddingCapable && (
+                          <span className="rounded border border-purple-500/25 bg-purple-500/10 px-1.5 py-0.5 text-[10px] text-purple-700 dark:text-purple-300">
+                            {t("settings.localModels.badges.embedding")}
+                          </span>
+                        )}
+                        {model.running && (
+                          <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">
+                            {t("settings.localModels.badges.running")}
+                          </span>
+                        )}
+                        {model.usage.providerModel && (
+                          <span className="rounded border border-sky-500/25 bg-sky-500/10 px-1.5 py-0.5 text-[10px] text-sky-700 dark:text-sky-300">
+                            {t("settings.localModels.badges.provider")}
+                          </span>
+                        )}
+                        {model.usage.embeddingConfig && !model.usage.embeddingModel && (
+                          <span className="rounded border border-cyan-500/25 bg-cyan-500/10 px-1.5 py-0.5 text-[10px] text-cyan-700 dark:text-cyan-300">
+                            {t("settings.localModels.badges.embeddingConfig")}
+                          </span>
+                        )}
+                        {model.usage.activeModel && (
+                          <span className="rounded border border-primary/25 bg-primary/10 px-1.5 py-0.5 text-[10px] text-primary">
+                            {t("settings.localModels.badges.default")}
+                          </span>
+                        )}
+                        {model.usage.embeddingModel && (
+                          <span className="rounded border border-fuchsia-500/25 bg-fuchsia-500/10 px-1.5 py-0.5 text-[10px] text-fuchsia-700 dark:text-fuchsia-300">
+                            {t("settings.localModels.badges.memory")}
+                          </span>
+                        )}
+                        {largeModel && renderLargeWarning()}
+                      </div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        <span className={cn(largeModel && "font-medium text-destructive")}>
+                          {sizeLabel(model.sizeBytes)}
+                        </span>
+                        <span>·</span>
+                        <span>{contextLabel(model.contextWindow)}</span>
+                        {model.details?.family && (
+                          <>
+                            <span>·</span>
+                            <span>{model.details.family}</span>
+                          </>
+                        )}
+                        {model.details?.quantizationLevel && (
+                          <>
+                            <span>·</span>
+                            <span>{model.details.quantizationLevel}</span>
+                          </>
+                        )}
+                        {model.capabilities.length > 0 && (
+                          <>
+                            <span>·</span>
+                            <span>{model.capabilities.join(", ")}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      {model.running ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          disabled={rowBusy}
+                          onClick={() =>
+                            void runModelAction(
+                              model.id,
+                              () => getTransport().call("local_llm_stop_model", { modelId: model.id }),
+                              "settings.localModels.toast.stopped",
+                            )
+                          }
+                        >
+                          <Square className={ACTION_ICON_CLASS} />
+                          {t("settings.localModels.actions.stop")}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          disabled={rowBusy}
+                          onClick={() => void startPreloadJob(model)}
+                        >
+                          {rowBusy ? (
+                            <Loader2 className={cn(ACTION_ICON_CLASS, "animate-spin")} />
+                          ) : (
+                            <Play className={ACTION_ICON_CLASS} />
+                          )}
+                          {t("settings.localModels.actions.preload")}
+                        </Button>
+                      )}
+                      {completionCapable && !model.usage.providerModel && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          disabled={rowBusy}
+                          onClick={() =>
+                            void runModelAction(
+                              model.id,
+                              () => getTransport().call("local_llm_add_provider_model", { modelId: model.id }),
+                              "settings.localModels.toast.providerAdded",
+                            )
+                          }
+                        >
+                          <Database className={ACTION_ICON_CLASS} />
+                          {t("settings.localModels.actions.addProvider")}
+                        </Button>
+                      )}
+                      {completionCapable && model.usage.providerModel && !model.usage.activeModel && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          disabled={rowBusy}
+                          onClick={() =>
+                            void runModelAction(
+                              model.id,
+                              () => getTransport().call("local_llm_set_default_model", { modelId: model.id }),
+                              "settings.localModels.toast.defaultSet",
+                            )
+                          }
+                        >
+                          <Star className={ACTION_ICON_CLASS} />
+                          {t("settings.localModels.actions.setDefault")}
+                        </Button>
+                      )}
+                      {embeddingCapable && !model.usage.embeddingConfig && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          disabled={rowBusy}
+                          onClick={() =>
+                            void runModelAction(
+                              model.id,
+                              () => getTransport().call("local_llm_add_embedding_config", { modelId: model.id }),
+                              "settings.localModels.toast.embeddingConfigAdded",
+                            )
+                          }
+                        >
+                          <Brain className={ACTION_ICON_CLASS} />
+                          {t("settings.localModels.actions.addEmbeddingConfig")}
+                        </Button>
+                      )}
+                      {embeddingCapable && model.usage.embeddingConfig && !model.usage.embeddingModel && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          disabled={rowBusy}
+                          onClick={() => setPendingEmbeddingDefault(model)}
+                        >
+                          <Brain className={ACTION_ICON_CLASS} />
+                          {t("settings.localModels.actions.setMemoryDefault")}
+                        </Button>
+                      )}
                       <Button
-                        variant="outline"
+                        variant="ghost"
                         size="sm"
-                        className={ACTION_BUTTON_CLASS}
                         disabled={rowBusy}
-                        onClick={() =>
-                          void runModelAction(
-                            model.id,
-                            () => getTransport().call("local_llm_add_provider_model", { modelId: model.id }),
-                            "settings.localModels.toast.providerAdded",
-                          )
-                        }
+                        className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
+                        onClick={() => setPendingDelete(model)}
                       >
-                        <Database className={ACTION_ICON_CLASS} />
-                        {t("settings.localModels.actions.addProvider")}
+                        <Trash2 className={ACTION_ICON_CLASS} />
+                        {t("common.delete")}
                       </Button>
-                    )}
-                    {completionCapable && model.usage.providerModel && !model.usage.activeModel && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={ACTION_BUTTON_CLASS}
-                        disabled={rowBusy}
-                        onClick={() =>
-                          void runModelAction(
-                            model.id,
-                            () => getTransport().call("local_llm_set_default_model", { modelId: model.id }),
-                            "settings.localModels.toast.defaultSet",
-                          )
-                        }
-                      >
-                        <Star className={ACTION_ICON_CLASS} />
-                        {t("settings.localModels.actions.setDefault")}
-                      </Button>
-                    )}
-                    {embeddingCapable && !model.usage.embeddingConfig && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={ACTION_BUTTON_CLASS}
-                        disabled={rowBusy}
-                        onClick={() =>
-                          void runModelAction(
-                            model.id,
-                            () => getTransport().call("local_llm_add_embedding_config", { modelId: model.id }),
-                            "settings.localModels.toast.embeddingConfigAdded",
-                          )
-                        }
-                      >
-                        <Brain className={ACTION_ICON_CLASS} />
-                        {t("settings.localModels.actions.addEmbeddingConfig")}
-                      </Button>
-                    )}
-                    {embeddingCapable && model.usage.embeddingConfig && !model.usage.embeddingModel && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className={ACTION_BUTTON_CLASS}
-                        disabled={rowBusy}
-                        onClick={() => setPendingEmbeddingDefault(model)}
-                      >
-                        <Brain className={ACTION_ICON_CLASS} />
-                        {t("settings.localModels.actions.setMemoryDefault")}
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={rowBusy}
-                      className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
-                      onClick={() => setPendingDelete(model)}
-                    >
-                      <Trash2 className={ACTION_ICON_CLASS} />
-                      {t("common.delete")}
-                    </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
               )
             })
           )}
@@ -1077,145 +1158,192 @@ export default function LocalModelsPanel() {
             )}
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.9fr)]">
+          <div className="space-y-4">
             <div className="space-y-2">
-              {!searchResult && recommendedModels.length > 0 ? (
-                recommendedModels.map((model) => {
-                  const isRecommended = recommendation?.recommended?.id === model.id
+              {recommendedModels.map((model) => {
+                const isRecommended = recommendation?.recommended?.id === model.id
+                const largeModel = exceedsBudgetMb(model.sizeMb, localBudgetMb)
+                return (
+                  <div key={model.id} className="rounded-lg border border-border bg-card p-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-semibold text-foreground">
+                            {model.displayName}
+                          </span>
+                          {isRecommended && (
+                            <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
+                              {t("settings.localLlm.recommended")}
+                            </span>
+                          )}
+                          {model.reasoning && (
+                            <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              {t("settings.localLlm.reasoning")}
+                            </span>
+                          )}
+                          {largeModel && renderLargeWarning()}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                          <span className="font-mono">{model.id}</span>
+                          <span className={cn(largeModel && "font-medium text-destructive")}>
+                            {candidateSizeLabel(model.sizeMb)}
+                          </span>
+                          <span>
+                            {t("settings.localLlm.contextWindow", {
+                              n: model.contextWindow.toLocaleString(),
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex min-w-fit shrink-0 flex-wrap justify-end gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          onClick={() =>
+                            void startPullJob({
+                              modelId: model.id,
+                              displayName: model.displayName,
+                            })
+                          }
+                        >
+                          <Download className={ACTION_ICON_CLASS} />
+                          {t("settings.localModels.actions.download")}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+              {filteredSearchModels.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                  {searching && !searchResult ? (
+                    <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+                  ) : searchResult ? (
+                    t("settings.localModels.noSearchResults")
+                  ) : (
+                    t("settings.localModels.searchHint")
+                  )}
+                </div>
+              ) : (
+                filteredSearchModels.map((model) => {
+                  const shownSizes = model.sizes.slice(0, 6)
+                  const hasLargeSize = shownSizes.some((size) =>
+                    librarySizeExceedsBudget(size, localBudgetMb),
+                  )
+                  const expanded = selectedDetail?.model.name === model.name
                   return (
-                    <div key={model.id} className="rounded-lg border border-border bg-card p-3">
+                    <div
+                      key={model.name}
+                      className={cn(
+                        "rounded-lg border bg-card p-3",
+                        expanded ? "border-primary/50 bg-primary/5" : "border-border",
+                      )}
+                    >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">
-                              {model.displayName}
-                            </span>
-                            {isRecommended && (
-                              <span className="rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-300">
-                                {t("settings.localLlm.recommended")}
+                            <span className="text-sm font-semibold text-foreground">{model.name}</span>
+                            {model.capabilities.map((cap) => (
+                              <span key={cap} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                {cap}
                               </span>
-                            )}
-                            {model.reasoning && (
-                              <span className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                {t("settings.localLlm.reasoning")}
-                              </span>
-                            )}
+                            ))}
+                            {hasLargeSize && renderLargeWarning()}
                           </div>
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{model.description}</p>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                            <span className="font-mono">{model.id}</span>
-                            <span>{candidateSizeLabel(model.sizeMb)}</span>
-                            <span>
-                              {t("settings.localLlm.contextWindow", {
-                                n: model.contextWindow.toLocaleString(),
-                              })}
-                            </span>
+                            {shownSizes.map((size) => {
+                              const largeSize = librarySizeExceedsBudget(size, localBudgetMb)
+                              return (
+                                <span
+                                  key={size}
+                                  className={cn(
+                                    largeSize &&
+                                      "rounded border border-destructive/30 bg-destructive/10 px-1 text-destructive",
+                                  )}
+                                >
+                                  {size}
+                                </span>
+                              )
+                            })}
+                            {model.pullCount && <span>{t("settings.localModels.downloads", { count: model.pullCount })}</span>}
+                            {model.tagCount != null && <span>{t("settings.localModels.tags", { count: model.tagCount })}</span>}
                           </div>
                         </div>
-                        <div className="flex min-w-fit shrink-0 flex-wrap justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className={ACTION_BUTTON_CLASS}
-                            onClick={() =>
-                              void startPullJob({
-                                modelId: model.id,
-                                displayName: model.displayName,
-                              })
-                            }
-                          >
-                            <Download className={ACTION_ICON_CLASS} />
-                            {t("settings.localModels.actions.download")}
-                          </Button>
-                        </div>
+                        <Button
+                          variant={expanded ? "default" : "outline"}
+                          size="sm"
+                          className={ACTION_BUTTON_CLASS}
+                          onClick={() => void toggleLibraryModel(model.name)}
+                        >
+                          {expanded
+                            ? t("settings.localModels.actions.hideTags")
+                            : t("settings.localModels.actions.viewTags")}
+                        </Button>
                       </div>
+                      {expanded && (
+                        <div className="mt-3 border-t border-border/70 pt-3">
+                          {selectedDetail.summary && (
+                            <p className="mb-3 text-xs text-muted-foreground">{selectedDetail.summary}</p>
+                          )}
+                          <div className="space-y-2">
+                            {selectedDetail.tags.map((tag) => {
+                              const largeModel = exceedsBudgetBytes(tag.sizeBytes, localBudgetMb)
+                              return (
+                                <div
+                                  key={tag.id}
+                                  className={cn(
+                                    "rounded-md border p-3",
+                                    largeModel ? "border-destructive/40 bg-destructive/5" : "border-border/70",
+                                  )}
+                                >
+                                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                    <div className="min-w-0">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-mono text-xs font-medium text-foreground">{tag.id}</span>
+                                        {largeModel && renderLargeWarning()}
+                                      </div>
+                                      <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                                        <span className={cn(largeModel && "font-medium text-destructive")}>
+                                          {tag.sizeLabel ?? "-"}
+                                        </span>
+                                        <span>{tag.contextLabel ?? "-"}</span>
+                                        {tag.inputTypes.length > 0 && <span>{tag.inputTypes.join(", ")}</span>}
+                                        {tag.cloudOnly && (
+                                          <span className="text-amber-600 dark:text-amber-400">
+                                            {t("settings.localModels.cloudOnly")}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex min-w-fit shrink-0 flex-wrap justify-end gap-2">
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className={ACTION_BUTTON_CLASS}
+                                        disabled={tag.cloudOnly}
+                                        onClick={() =>
+                                          void startPullJob({
+                                            modelId: tag.id,
+                                            displayName: tag.id,
+                                          })
+                                        }
+                                      >
+                                        <Download className={ACTION_ICON_CLASS} />
+                                        {t("settings.localModels.actions.download")}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )
                 })
-              ) : filteredSearchModels.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-                  {searchResult ? t("settings.localModels.noSearchResults") : t("settings.localModels.searchHint")}
-                </div>
-              ) : (
-                filteredSearchModels.map((model) => (
-                  <Button
-                    key={model.name}
-                    variant="outline"
-                    className="h-auto w-full justify-start rounded-lg bg-card p-3 text-left font-normal"
-                    onClick={() => void loadLibraryModel(model.name)}
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold text-foreground">{model.name}</span>
-                        {model.capabilities.map((cap) => (
-                          <span key={cap} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                            {cap}
-                          </span>
-                        ))}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{model.description}</p>
-                      <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                        {model.sizes.slice(0, 6).map((size) => (
-                          <span key={size}>{size}</span>
-                        ))}
-                        {model.pullCount && <span>{t("settings.localModels.downloads", { count: model.pullCount })}</span>}
-                        {model.tagCount != null && <span>{t("settings.localModels.tags", { count: model.tagCount })}</span>}
-                      </div>
-                    </div>
-                  </Button>
-                ))
-              )}
-            </div>
-
-            <div className="rounded-lg border border-border bg-card p-4">
-              {selectedDetail ? (
-                <div className="space-y-3">
-                  <div>
-                    <div className="text-sm font-semibold">{selectedDetail.model.name}</div>
-                    <p className="mt-1 text-xs text-muted-foreground">{selectedDetail.summary}</p>
-                  </div>
-                  <div className="space-y-2">
-                    {selectedDetail.tags.map((tag) => (
-                      <div key={tag.id} className="rounded-md border border-border/70 p-3">
-                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                          <div className="min-w-0">
-                            <div className="font-mono text-xs font-medium text-foreground">{tag.id}</div>
-                            <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                              <span>{tag.sizeLabel ?? "-"}</span>
-                              <span>{tag.contextLabel ?? "-"}</span>
-                              {tag.inputTypes.length > 0 && <span>{tag.inputTypes.join(", ")}</span>}
-                              {tag.cloudOnly && (
-                                <span className="text-amber-600 dark:text-amber-400">
-                                  {t("settings.localModels.cloudOnly")}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex min-w-fit shrink-0 flex-wrap justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className={ACTION_BUTTON_CLASS}
-                              disabled={tag.cloudOnly}
-                              onClick={() =>
-                                void startPullJob({
-                                  modelId: tag.id,
-                                  displayName: tag.id,
-                                })
-                              }
-                            >
-                              <Download className={ACTION_ICON_CLASS} />
-                              {t("settings.localModels.actions.download")}
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <div className="flex min-h-[240px] items-center justify-center text-center text-sm text-muted-foreground">
-                  {t("settings.localModels.detailPlaceholder")}
-                </div>
               )}
             </div>
           </div>

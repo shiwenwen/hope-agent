@@ -2013,14 +2013,15 @@
       "searchPlaceholder": "Search Ollama models, e.g. qwen, gemma, embedding",
       "searchHint": "Search the Ollama Library to find downloadable models.",
       "noSearchResults": "No matching models.",
-      "detailPlaceholder": "Select a model family to view downloadable tags.",
+      "detailPlaceholder": "Select a model family to view downloadable versions.",
       "emptyInstalled": "No local models yet",
-      "emptyInstalledDesc": "Download a model from the Library tab or enter an Ollama tag manually.",
+      "emptyInstalledDesc": "Download a model from the Library tab or enter an Ollama model name manually.",
       "cacheStale": "Showing cached library results because the live search is unavailable.",
       "cloudOnly": "Cloud only",
+      "largeModelWarning": "Large model - may exceed {{budget}} local budget",
       "downloads": "{{count}} downloads",
-      "tags": "{{count}} tags",
-      "manualTitle": "Download by Ollama tag",
+      "tags": "{{count}} versions",
+      "manualTitle": "Download by Ollama model name",
       "ollama": {
         "not-installed": "Ollama not installed",
         "installed": "Ollama installed",
@@ -2047,6 +2048,8 @@
         "downloadProvider": "Download & add to Provider",
         "downloadDefault": "Download & default",
         "downloadEmbedding": "Download & use for memory",
+        "viewTags": "View versions",
+        "hideTags": "Hide versions",
         "installOllama": "Install Ollama",
         "preload": "Start model",
         "stop": "Stop model",
@@ -2082,7 +2085,7 @@
       "errors": {
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
-        "detailFailed": "Failed to load model tags"
+        "detailFailed": "Failed to load model versions"
       }
     },
     "embeddingActivation": {
