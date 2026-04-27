@@ -2084,6 +2084,49 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model tags"
       }
+    },
+    "embeddingActivation": {
+      "title": "埋め込みモデルを選択",
+      "description": "ベクトル検索には埋め込みモデルが必要です。有効化してメモリベクトルを再構築するモデルを選択してください。",
+      "empty": "埋め込みモデルがまだ設定されていません。ベクトル検索を有効にするには先に追加してください。",
+      "gotoConfig": "埋め込みモデルを設定",
+      "confirm": "有効化して再構築"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "再構築モード",
+        "keepExisting": "現在のベクトルを残したまま再構築",
+        "keepExistingDesc": "古いベクトルは検索可能なまま、新しいモデルが1件ずつ上書きします。",
+        "deleteAll": "先にすべてのメモリベクトルを消去",
+        "deleteAllDesc": "再構築前に各メモリのベクトルを消去します。完了するまではキーワード一致のみ返されます。"
+      },
+      "reembedJob": {
+        "title": "メモリベクトルの再構築",
+        "idle": "アクティブなモデルで {{count}} 件のメモリを扱っています。いつでも手動で再構築できます。",
+        "idleDisabled": "再構築するには、ベクトル検索を有効にしてメモリを追加してください。",
+        "running": "メモリベクトルを再構築中",
+        "progress": "{{done}} / {{total}} 件のメモリ",
+        "phaseKeep": "既存を残して再構築中",
+        "phaseFresh": "最初から再構築中",
+        "cancelling": "キャンセル中…",
+        "completed": "再構築が完了しました",
+        "failed": "再構築に失敗しました",
+        "interrupted": "アプリの再起動により再構築が中断されました",
+        "cancelled": "再構築をキャンセルしました",
+        "retry": "再構築を再試行",
+        "cancel": "再構築をキャンセル",
+        "dismiss": "閉じる",
+        "startNow": "今すぐ再構築",
+        "status": {
+          "running": "実行中",
+          "cancelling": "キャンセル中",
+          "completed": "完了",
+          "failed": "失敗",
+          "interrupted": "中断",
+          "cancelled": "キャンセル済み",
+          "paused": "一時停止"
+        }
+      }
     }
   },
   "tz": {

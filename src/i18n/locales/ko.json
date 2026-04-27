@@ -2084,6 +2084,49 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model tags"
       }
+    },
+    "embeddingActivation": {
+      "title": "임베딩 모델 선택",
+      "description": "벡터 검색에는 임베딩 모델이 필요합니다. 활성화하고 메모리 벡터를 다시 만들 모델을 선택하세요.",
+      "empty": "아직 설정된 임베딩 모델이 없습니다. 벡터 검색을 사용하려면 먼저 추가하세요.",
+      "gotoConfig": "임베딩 모델 설정",
+      "confirm": "활성화하고 재빌드"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "재빌드 모드",
+        "keepExisting": "현재 벡터를 유지한 채 재빌드",
+        "keepExistingDesc": "기존 벡터는 계속 검색 가능하며 새 모델이 항목별로 덮어씁니다.",
+        "deleteAll": "먼저 모든 메모리 벡터 지우기",
+        "deleteAllDesc": "재빌드 전에 각 메모리의 벡터를 지웁니다. 완료 전에는 키워드 일치만 반환됩니다."
+      },
+      "reembedJob": {
+        "title": "메모리 벡터 재빌드",
+        "idle": "활성 모델이 {{count}}개의 메모리를 처리 중입니다. 언제든 수동으로 재빌드할 수 있습니다.",
+        "idleDisabled": "재빌드하려면 벡터 검색을 켜고 메모리를 추가하세요.",
+        "running": "메모리 벡터 재빌드 중",
+        "progress": "{{done}} / {{total}}개 메모리",
+        "phaseKeep": "기존 벡터 유지하며 재빌드 중",
+        "phaseFresh": "처음부터 재빌드 중",
+        "cancelling": "취소 중…",
+        "completed": "재빌드 완료",
+        "failed": "재빌드 실패",
+        "interrupted": "앱 재시작으로 재빌드가 중단됨",
+        "cancelled": "재빌드 취소됨",
+        "retry": "재빌드 재시도",
+        "cancel": "재빌드 취소",
+        "dismiss": "닫기",
+        "startNow": "지금 재빌드",
+        "status": {
+          "running": "진행 중",
+          "cancelling": "취소 중",
+          "completed": "완료됨",
+          "failed": "실패함",
+          "interrupted": "중단됨",
+          "cancelled": "취소됨",
+          "paused": "일시 중지됨"
+        }
+      }
     }
   },
   "tz": {

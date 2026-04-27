@@ -1,11 +1,17 @@
 import { useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
+import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import type { MemoryEntry, MemorySearchQuery, NewMemory, AgentInfo, MemoryView } from "./types"
 import { useMemoryExtract } from "./useMemoryExtract"
 import { useMemoryStats } from "./useMemoryStats"
+import {
+  isLocalModelJobTerminal,
+  LOCAL_MODEL_JOB_EVENTS,
+  type LocalModelJobSnapshot,
+} from "@/types/local-model-jobs"
 
 interface UseMemoryDataParams {
   agentId?: string
@@ -17,6 +23,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   // ── Sub-hooks ──
   const extract = useMemoryExtract({ agentId, isAgentMode })
   const statsHook = useMemoryStats()
+  const reloadEmbeddingConfig = statsHook.reloadEmbeddingConfig
 
   // ── Core state ──
   const [view, setView] = useState<MemoryView>("list")
@@ -40,6 +47,13 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [batchLoading, setBatchLoading] = useState(false)
 
+  // ── Reembed job tracking ──
+  // We watch the global LocalModelJobs stream filtered to `memory_reembed`
+  // jobs so the embedding settings page can render a single status card
+  // that survives navigation, refreshes, and even app restarts (interrupted
+  // jobs replay through the same event channel).
+  const [reembedJob, setReembedJob] = useState<LocalModelJobSnapshot | null>(null)
+
   // ── Import-from-AI dialog state ──
   const [importFromAIOpen, setImportFromAIOpen] = useState(false)
 
@@ -56,6 +70,104 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         .catch(() => {})
     }
   }, [isAgentMode])
+
+  // ── Reembed job: hydrate + subscribe ──
+  useEffect(() => {
+    let cancelled = false
+
+    void getTransport()
+      .call<LocalModelJobSnapshot[]>("local_model_job_list")
+      .then((jobs) => {
+        if (cancelled) return
+        // Pick the most recent memory_reembed job. Snapshots are returned in
+        // descending createdAt order so the first match is the freshest one.
+        const latest = jobs.find((job) => job.kind === "memory_reembed") ?? null
+        setReembedJob(latest)
+      })
+      .catch((e) =>
+        logger.warn("settings", "MemoryPanel::loadReembedJob", "Failed to load jobs", e),
+      )
+
+    const handleSnapshot = (raw: unknown): LocalModelJobSnapshot | null => {
+      const job = parsePayload<LocalModelJobSnapshot>(raw)
+      if (job.kind !== "memory_reembed") return null
+      setReembedJob((current) => {
+        // Pick the snapshot we want to track: a new spawn replaces a terminal
+        // predecessor, or a predecessor that is already cancelling; updates
+        // to a job we're already tracking stay; a stale event for an unrelated
+        // active job is dropped.
+        const next = (() => {
+          if (!current) return job
+          if (current.jobId === job.jobId) return job
+          if (isLocalModelJobTerminal(current)) return job
+          if (current.status === "cancelling" && job.createdAt >= current.createdAt) return job
+          return current
+        })()
+        if (next === current) return current
+        // Skip the re-render when the tracked job is the same and nothing
+        // observable changed — the backend emits per-batch progress and
+        // status snapshots can repeat unchanged on completion.
+        if (
+          current &&
+          next.jobId === current.jobId &&
+          next.status === current.status &&
+          next.phase === current.phase &&
+          (next.percent ?? null) === (current.percent ?? null) &&
+          (next.bytesCompleted ?? null) === (current.bytesCompleted ?? null) &&
+          (next.bytesTotal ?? null) === (current.bytesTotal ?? null) &&
+          (next.error ?? null) === (current.error ?? null)
+        ) {
+          return current
+        }
+        return next
+      })
+      return job
+    }
+
+    const handleCompletedSnapshot = (raw: unknown) => {
+      const job = handleSnapshot(raw)
+      if (job?.status !== "completed" || cancelled) return
+      void reloadEmbeddingConfig().catch((e) =>
+        logger.warn(
+          "settings",
+          "MemoryPanel::reloadEmbeddingAfterReembed",
+          "Failed to reload embedding config",
+          e,
+        ),
+      )
+    }
+
+    const unlistenCreated = getTransport().listen(
+      LOCAL_MODEL_JOB_EVENTS.created,
+      handleSnapshot,
+    )
+    const unlistenUpdated = getTransport().listen(
+      LOCAL_MODEL_JOB_EVENTS.updated,
+      handleSnapshot,
+    )
+    const unlistenCompleted = getTransport().listen(
+      LOCAL_MODEL_JOB_EVENTS.completed,
+      handleCompletedSnapshot,
+    )
+    return () => {
+      cancelled = true
+      unlistenCreated()
+      unlistenUpdated()
+      unlistenCompleted()
+    }
+  }, [reloadEmbeddingConfig])
+
+  const dismissReembedJob = useCallback(() => {
+    const job = reembedJob
+    if (!job) return
+    if (!isLocalModelJobTerminal(job)) return
+    void getTransport()
+      .call("local_model_job_clear", { jobId: job.jobId })
+      .catch((e) =>
+        logger.warn("settings", "MemoryPanel::dismissReembedJob", "Failed to clear job", e),
+      )
+    setReembedJob(null)
+  }, [reembedJob])
 
   // ── Build scope for queries ──
   const buildScope = useCallback((): { kind: "global" } | { kind: "agent"; id: string } | null => {
@@ -310,9 +422,15 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
   async function handleReembedAll() {
     setBatchLoading(true)
     try {
-      await getTransport().call("memory_reembed", { ids: null })
+      // Drive `reembedJob` through the `local_model_job:created` event so the
+      // subscription is the single source of truth. Discarding the awaited
+      // snapshot avoids a brief double-update on slow IPC.
+      await getTransport().call<LocalModelJobSnapshot>("memory_reembed_start", {
+        mode: "keep_existing",
+      })
     } catch (e) {
-      logger.error("settings", "MemoryPanel::reembedAll", "Failed to re-embed all", e)
+      logger.error("settings", "MemoryPanel::reembedAll", "Failed to start reembed job", e)
+      toast.error(String(e))
     } finally {
       setBatchLoading(false)
     }
@@ -457,6 +575,10 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     handleImport,
     startEdit,
     startAdd,
+
+    // Reembed job state
+    reembedJob,
+    dismissReembedJob,
     handleToggleAutoExtract: extract.handleToggleAutoExtract,
     handleUpdateExtractModel: extract.handleUpdateExtractModel,
     handleUpdateTokenThreshold: extract.handleUpdateTokenThreshold,

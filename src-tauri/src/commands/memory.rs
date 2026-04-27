@@ -349,10 +349,23 @@ pub async fn memory_embedding_get() -> Result<memory::MemoryEmbeddingState, CmdE
 #[tauri::command]
 pub async fn memory_embedding_set_default(
     model_config_id: String,
-    reembed: bool,
+    mode: memory::ReembedMode,
 ) -> Result<memory::MemoryEmbeddingSetDefaultResult, CmdError> {
-    memory::set_memory_embedding_default(&model_config_id, reembed, "settings-ui")
-        .map_err(Into::into)
+    memory::set_memory_embedding_default(&model_config_id, mode, "settings-ui").map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn memory_reembed_start(
+    mode: memory::ReembedMode,
+) -> Result<ha_core::local_model_jobs::LocalModelJobSnapshot, CmdError> {
+    let model_id = ha_core::config::cached_config()
+        .memory_embedding
+        .model_config_id
+        .clone()
+        .ok_or_else(|| {
+            CmdError::msg("No memory embedding model is currently active".to_string())
+        })?;
+    memory::start_memory_reembed_job(&model_id, mode).map_err(Into::into)
 }
 
 #[tauri::command]

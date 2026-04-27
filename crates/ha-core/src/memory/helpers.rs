@@ -1,8 +1,8 @@
 use super::types::*;
 use super::{
-    memory_embedding_state, resolve_memory_embedding_config, EmbeddingConfig, EmbeddingModelConfig,
-    EmbeddingModelTemplate, MemoryEmbeddingSelection, MemoryEmbeddingSetDefaultResult,
-    MemoryEmbeddingState,
+    memory_embedding_state, resolve_memory_embedding_config, start_memory_reembed_job,
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate, MemoryEmbeddingSelection,
+    MemoryEmbeddingSetDefaultResult, MemoryEmbeddingState, ReembedMode,
 };
 use anyhow::{anyhow, Result};
 
@@ -219,7 +219,7 @@ pub fn save_legacy_embedding_config(
     model.id = format!("legacy-embedding-{}", &signature[..12]);
     let model = model.normalize_for_save();
     let saved = save_embedding_model_config(model, source)?;
-    Ok(set_memory_embedding_default(&saved.id, true, source)?.state)
+    Ok(set_memory_embedding_default(&saved.id, ReembedMode::KeepExisting, source)?.state)
 }
 
 pub fn delete_embedding_model_config(id: &str, source: &str) -> Result<()> {
@@ -263,17 +263,27 @@ pub fn disable_memory_embedding(source: &str) -> Result<MemoryEmbeddingState> {
     Ok(get_memory_embedding_state())
 }
 
+/// Persist the user's choice of memory embedding model and kick off a
+/// background reembed job under [`ReembedMode`].
+///
+/// Side effects:
+/// 1. The runtime embedder is swapped immediately, so subsequent searches use
+///    the new model. Old vectors stay searchable until the reembed job
+///    overwrites them (KeepExisting) or are wiped before the job starts
+///    (DeleteAll).
+/// 2. `MemoryEmbeddingSelection.{enabled,model_config_id,active_signature}` are
+///    written via `mutate_config`.
+/// 3. `embedding_cache` rows whose signature does not match the new model are
+///    pruned synchronously — the table is small.
+/// 4. A new `MemoryReembed` background job is spawned. Any pre-existing
+///    in-flight reembed is cancelled first to keep the invariant of "at most
+///    one reembed running globally". The function returns immediately; UI
+///    progress comes through `local_model_job:*` events.
 pub fn set_memory_embedding_default(
     model_config_id: &str,
-    reembed: bool,
+    mode: ReembedMode,
     source: &str,
 ) -> Result<MemoryEmbeddingSetDefaultResult> {
-    if !reembed {
-        return Err(anyhow!(
-            "Changing the memory embedding model requires reembed=true"
-        ));
-    }
-
     let store = crate::config::cached_config();
     let model = store
         .embedding_models
@@ -287,9 +297,10 @@ pub fn set_memory_embedding_default(
     app_info!(
         "memory",
         "embedding",
-        "Switch memory embedding model requested: id={} name={} source={}",
+        "Switch memory embedding model requested: id={} name={} mode={:?} source={}",
         model.id,
         model.name,
+        mode,
         source
     );
 
@@ -301,52 +312,51 @@ pub fn set_memory_embedding_default(
         Ok(())
     })?;
 
-    let mut reembedded = 0usize;
-    let mut reembed_error = None;
     if let Some(backend) = crate::get_memory_backend() {
-        match backend.reembed_all() {
-            Ok(count) => {
-                reembedded = count;
-                let sig = signature.clone();
-                crate::config::mutate_config(("memory_embedding.reembedded", source), |store| {
-                    store.memory_embedding.last_reembedded_signature = Some(sig.clone());
-                    Ok(())
-                })?;
-                if let Ok(pruned) = backend.prune_embedding_cache_to_signature(&signature) {
-                    if pruned > 0 {
-                        app_info!(
-                            "memory",
-                            "embedding",
-                            "Pruned {} stale embedding_cache rows after model switch",
-                            pruned
-                        );
-                    }
-                }
+        if let Ok(pruned) = backend.prune_embedding_cache_to_signature(&signature) {
+            if pruned > 0 {
                 app_info!(
                     "memory",
                     "embedding",
-                    "Memory embedding switched and reembedded: id={} count={} source={}",
-                    model_config_id,
-                    count,
-                    source
+                    "Pruned {} stale embedding_cache rows after model switch",
+                    pruned
                 );
-            }
-            Err(e) => {
-                let msg = e.to_string();
-                app_warn!(
-                    "memory",
-                    "embedding",
-                    "Failed to reembed after switching memory embedding model: {}",
-                    msg
-                );
-                reembed_error = Some(msg);
             }
         }
     }
 
+    let mut reembed_error = None;
+    match start_memory_reembed_job(model_config_id, mode) {
+        Ok(snapshot) => {
+            app_info!(
+                "memory",
+                "embedding",
+                "Memory reembed job spawned: id={} model={} mode={:?} source={}",
+                snapshot.job_id,
+                model_config_id,
+                mode,
+                source
+            );
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            app_warn!(
+                "memory",
+                "embedding",
+                "Failed to spawn memory reembed job: {}",
+                msg
+            );
+            reembed_error = Some(msg);
+        }
+    }
+
+    // `reembedded` stays in the response shape for wire compatibility but is
+    // always 0 now: the actual reembed runs as a background job (see
+    // `start_memory_reembed_job`). Counts come through the standard
+    // `local_model_job:*` event stream instead.
     Ok(MemoryEmbeddingSetDefaultResult {
         state: get_memory_embedding_state(),
-        reembedded,
+        reembedded: 0,
         reembed_error,
     })
 }

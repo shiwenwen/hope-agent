@@ -2084,6 +2084,49 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model tags"
       }
+    },
+    "embeddingActivation": {
+      "title": "Pilih model pembenaman",
+      "description": "Carian vektor memerlukan model pembenaman. Pilih satu untuk mengaktifkan dan membina semula vektor memori.",
+      "empty": "Belum ada model pembenaman dikonfigurasi. Tambah satu untuk mengaktifkan carian vektor.",
+      "gotoConfig": "Konfigurasikan model pembenaman",
+      "confirm": "Aktifkan dan bina semula"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "Mod bina semula",
+        "keepExisting": "Kekalkan vektor semasa semasa bina semula",
+        "keepExistingDesc": "Vektor lama kekal boleh dicari; model baharu akan menimpanya satu demi satu.",
+        "deleteAll": "Kosongkan semua vektor memori dahulu",
+        "deleteAllDesc": "Padam vektor setiap memori sebelum bina semula. Carian hanya memulangkan padanan kata kunci sehingga bina semula selesai."
+      },
+      "reembedJob": {
+        "title": "Bina semula vektor memori",
+        "idle": "{{count}} memori menggunakan model aktif. Anda boleh membina semula secara manual pada bila-bila masa.",
+        "idleDisabled": "Aktifkan carian vektor dan tambah memori sebelum membina semula.",
+        "running": "Membina semula vektor memori",
+        "progress": "{{done}} / {{total}} memori",
+        "phaseKeep": "Membina semula sambil mengekalkan yang sedia ada",
+        "phaseFresh": "Membina semula dari awal",
+        "cancelling": "Membatalkan…",
+        "completed": "Bina semula selesai",
+        "failed": "Bina semula gagal",
+        "interrupted": "Bina semula terganggu kerana aplikasi dimulakan semula",
+        "cancelled": "Bina semula dibatalkan",
+        "retry": "Cuba bina semula lagi",
+        "cancel": "Batalkan bina semula",
+        "dismiss": "Tutup",
+        "startNow": "Bina semula sekarang",
+        "status": {
+          "running": "Sedang berjalan",
+          "cancelling": "Membatalkan",
+          "completed": "Selesai",
+          "failed": "Gagal",
+          "interrupted": "Terganggu",
+          "cancelled": "Dibatalkan",
+          "paused": "Dijeda"
+        }
+      }
     }
   },
   "tz": {

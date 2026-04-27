@@ -316,6 +316,7 @@ pub fn run() {
             commands::memory::memory_embedding_get,
             commands::memory::memory_embedding_set_default,
             commands::memory::memory_embedding_disable,
+            commands::memory::memory_reembed_start,
             commands::config::get_compact_config,
             commands::config::save_compact_config,
             commands::config::get_session_title_config,

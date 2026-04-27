@@ -784,8 +784,9 @@ impl MemoryBackend for SqliteMemoryBackend {
     }
 
     fn reembed_all(&self) -> Result<usize> {
-        let entries = self.list(None, None, 100000, 0)?;
-        self.reembed_entries(&entries)
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let mut on_progress = |_done: usize, _total: usize| {};
+        self.reembed_all_with_progress(&cancel, &mut on_progress, 16)
     }
 
     fn reembed_batch(&self, ids: &[i64]) -> Result<usize> {
@@ -796,6 +797,61 @@ impl MemoryBackend for SqliteMemoryBackend {
             }
         }
         self.reembed_entries(&entries)
+    }
+
+    fn reembed_all_with_progress(
+        &self,
+        cancel: &tokio_util::sync::CancellationToken,
+        on_progress: &mut dyn FnMut(usize, usize),
+        batch_size: usize,
+    ) -> Result<usize> {
+        let batch_size = batch_size.max(1);
+        // Snapshot the ids up front. Offset pagination over
+        // `pinned DESC, updated_at DESC` can drift while embedding network
+        // calls are in flight, causing rows to be skipped silently.
+        let ids = {
+            let conn = self.read_conn()?;
+            let mut stmt =
+                conn.prepare("SELECT id FROM memories ORDER BY pinned DESC, updated_at DESC")?;
+            let rows = stmt.query_map([], |row| row.get::<_, i64>(0))?;
+            rows.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+        let total = ids.len();
+        on_progress(0, total);
+        let mut processed = 0usize;
+        let mut reembedded = 0usize;
+
+        for chunk in ids.chunks(batch_size) {
+            if cancel.is_cancelled() {
+                return Err(anyhow::anyhow!("Reembed job cancelled"));
+            }
+
+            let mut entries = Vec::with_capacity(chunk.len());
+            for id in chunk {
+                if cancel.is_cancelled() {
+                    return Err(anyhow::anyhow!("Reembed job cancelled"));
+                }
+                if let Some(entry) = self.get(*id)? {
+                    entries.push(entry);
+                }
+            }
+
+            reembedded += self.reembed_entries(&entries)?;
+            processed += chunk.len();
+            on_progress(processed, total);
+        }
+
+        Ok(reembedded)
+    }
+
+    fn clear_all_embeddings(&self) -> Result<usize> {
+        let conn = self.write_conn()?;
+        let updated = conn.execute(
+            "UPDATE memories SET embedding = NULL, embedding_signature = NULL",
+            [],
+        )?;
+        let _ = conn.execute("DELETE FROM memories_vec", []);
+        Ok(updated)
     }
 
     fn set_embedder(&self, provider: Arc<dyn EmbeddingProvider>) {

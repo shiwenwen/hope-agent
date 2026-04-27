@@ -2084,6 +2084,49 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model tags"
       }
+    },
+    "embeddingActivation": {
+      "title": "Elegir un modelo de embeddings",
+      "description": "La búsqueda vectorial necesita un modelo de embeddings. Elige uno para activar y reconstruir los vectores de memoria.",
+      "empty": "Aún no hay ningún modelo de embeddings configurado. Añade uno para activar la búsqueda vectorial.",
+      "gotoConfig": "Configurar modelos de embeddings",
+      "confirm": "Activar y reconstruir"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "Modo de reconstrucción",
+        "keepExisting": "Mantener los vectores actuales durante la reconstrucción",
+        "keepExistingDesc": "Los vectores antiguos siguen disponibles para búsqueda; el nuevo modelo los sobrescribe entrada por entrada.",
+        "deleteAll": "Borrar primero todos los vectores de memoria",
+        "deleteAllDesc": "Borra el vector de cada memoria antes de reconstruir. La búsqueda solo devolverá coincidencias por palabras clave hasta que termine la reconstrucción."
+      },
+      "reembedJob": {
+        "title": "Reconstrucción de vectores de memoria",
+        "idle": "{{count}} memorias usan el modelo activo. Puedes reconstruirlas manualmente cuando quieras.",
+        "idleDisabled": "Activa la búsqueda vectorial y añade memorias antes de reconstruir.",
+        "running": "Reconstruyendo vectores de memoria",
+        "progress": "{{done}} / {{total}} memorias",
+        "phaseKeep": "Reconstruyendo sin borrar los existentes",
+        "phaseFresh": "Reconstruyendo desde cero",
+        "cancelling": "Cancelando…",
+        "completed": "Reconstrucción completada",
+        "failed": "Error al reconstruir",
+        "interrupted": "Reconstrucción interrumpida por reinicio de la app",
+        "cancelled": "Reconstrucción cancelada",
+        "retry": "Reintentar reconstrucción",
+        "cancel": "Cancelar reconstrucción",
+        "dismiss": "Cerrar",
+        "startNow": "Reconstruir ahora",
+        "status": {
+          "running": "En curso",
+          "cancelling": "Cancelando",
+          "completed": "Completado",
+          "failed": "Fallido",
+          "interrupted": "Interrumpido",
+          "cancelled": "Cancelado",
+          "paused": "En pausa"
+        }
+      }
     }
   },
   "tz": {

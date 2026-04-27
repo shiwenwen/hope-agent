@@ -2084,6 +2084,49 @@
         "searchFailed": "搜索 Ollama 模型库失败",
         "detailFailed": "加载模型 tag 失败"
       }
+    },
+    "embeddingActivation": {
+      "title": "選擇嵌入模型",
+      "description": "向量搜尋需要一個嵌入模型。選一個來啟用並重建記憶向量。",
+      "empty": "尚未設定任何嵌入模型，需要先設定才能啟用向量搜尋。",
+      "gotoConfig": "前往設定嵌入模型",
+      "confirm": "啟用並重建"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "重建模式",
+        "keepExisting": "保留現有向量並增量重建",
+        "keepExistingDesc": "舊向量在重建過程中保持可搜尋，新模型會逐筆覆寫。",
+        "deleteAll": "先清空全部記憶向量",
+        "deleteAllDesc": "重建前清空每筆記憶的向量欄位。重建完成前，向量搜尋只會回傳關鍵字符合結果。"
+      },
+      "reembedJob": {
+        "title": "記憶向量重建",
+        "idle": "活動模型已覆蓋 {{count}} 筆記憶，可隨時手動重建。",
+        "idleDisabled": "啟用向量搜尋並新增記憶後才能重建。",
+        "running": "正在重建記憶向量",
+        "progress": "{{done}} / {{total}} 筆記憶",
+        "phaseKeep": "重建中（保留現有）",
+        "phaseFresh": "重建中（清空後重建）",
+        "cancelling": "正在取消…",
+        "completed": "重建完成",
+        "failed": "重建失敗",
+        "interrupted": "應用程式重啟時被中斷",
+        "cancelled": "重建已取消",
+        "retry": "重試重建",
+        "cancel": "取消重建",
+        "dismiss": "關閉",
+        "startNow": "立即重建",
+        "status": {
+          "running": "進行中",
+          "cancelling": "取消中",
+          "completed": "已完成",
+          "failed": "已失敗",
+          "interrupted": "已中斷",
+          "cancelled": "已取消",
+          "paused": "已暫停"
+        }
+      }
     }
   },
   "tz": {

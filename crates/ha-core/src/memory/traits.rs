@@ -192,6 +192,30 @@ pub trait MemoryBackend: Send + Sync {
     /// Regenerate embeddings for specific memories.
     fn reembed_batch(&self, ids: &[i64]) -> Result<usize>;
 
+    /// Cancel-aware variant of [`reembed_all`] with progress callbacks.
+    ///
+    /// Default impl falls back to `reembed_all` (no progress, no cancel) so
+    /// out-of-tree backends compile unchanged. The SQLite backend overrides
+    /// this to chunk work into `batch_size` slices, checking `cancel` before
+    /// each slice and invoking `on_progress(done, total)` after.
+    fn reembed_all_with_progress(
+        &self,
+        _cancel: &tokio_util::sync::CancellationToken,
+        _on_progress: &mut dyn FnMut(usize, usize),
+        _batch_size: usize,
+    ) -> Result<usize> {
+        self.reembed_all()
+    }
+
+    /// Clear stored embeddings for every memory entry (and any vector index
+    /// rows). Caller is expected to follow up with a re-embed pass under the
+    /// new active model. Returns the number of memory rows touched.
+    ///
+    /// Default impl is a no-op for backends without vector storage.
+    fn clear_all_embeddings(&self) -> Result<usize> {
+        Ok(0)
+    }
+
     // ── Embedder management (default no-op for backends without vector support) ──
 
     /// Set the embedding provider for vector search.

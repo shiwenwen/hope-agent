@@ -458,7 +458,6 @@ impl SqliteMemoryBackend {
 
     /// Re-generate embeddings for a set of entries and update the DB.
     pub(crate) fn reembed_entries(&self, entries: &[MemoryEntry]) -> Result<usize> {
-        let conn = self.write_conn()?;
         let dims = self
             .embedding_dims
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -467,7 +466,7 @@ impl SqliteMemoryBackend {
         }
         let signature = crate::memory::helpers::active_embedding_signature()
             .ok_or_else(|| anyhow::anyhow!("No active memory embedding model configured"))?;
-        let _ = self.ensure_vec_table(&conn, dims);
+        let mut updates: Vec<(i64, Vec<u8>)> = Vec::new();
 
         // Try async Batch API for bulk re-embedding (cheaper + faster for large batches)
         let guard = self.embedder.read().unwrap_or_else(|e| e.into_inner());
@@ -500,9 +499,6 @@ impl SqliteMemoryBackend {
                 if let Some(embedder) = guard.as_ref() {
                     match embedder.embed_batch_async(&batch_items) {
                         Ok(results) => {
-                            let mut count = 0usize;
-                            // Use a transaction for batch embedding updates (significant perf improvement)
-                            let _ = conn.execute_batch("BEGIN");
                             for (id_str, emb) in &results {
                                 let id: i64 = id_str.parse().unwrap_or(0);
                                 if id == 0 {
@@ -510,22 +506,11 @@ impl SqliteMemoryBackend {
                                 }
                                 let emb_bytes: Vec<u8> =
                                     emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                                let _ = conn.execute(
-                                    "UPDATE memories SET embedding = ?1, embedding_signature = ?2 WHERE id = ?3",
-                                    params![emb_bytes, signature.as_str(), id],
-                                );
-                                let _ = conn.execute(
-                                    "DELETE FROM memories_vec WHERE rowid = ?1",
-                                    params![id],
-                                );
-                                let _ = conn.execute(
-                                    "INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)",
-                                    params![id, emb_bytes],
-                                );
-                                count += 1;
+                                updates.push((id, emb_bytes));
                             }
 
-                            // Handle multimodal entries with synchronous fallback
+                            // Handle multimodal entries with synchronous fallback before taking the
+                            // SQLite writer lock, because providers may perform network I/O here.
                             for entry in entries.iter().filter(|e| e.attachment_path.is_some()) {
                                 if let Some(emb) = self.generate_multimodal_embedding(
                                     &entry.content,
@@ -534,21 +519,11 @@ impl SqliteMemoryBackend {
                                 ) {
                                     let emb_bytes: Vec<u8> =
                                         emb.iter().flat_map(|f| f.to_le_bytes()).collect();
-                                    let _ = conn.execute(
-                                        "UPDATE memories SET embedding = ?1, embedding_signature = ?2 WHERE id = ?3",
-                                        params![emb_bytes, signature.as_str(), entry.id],
-                                    );
-                                    let _ = conn.execute(
-                                        "DELETE FROM memories_vec WHERE rowid = ?1",
-                                        params![entry.id],
-                                    );
-                                    let _ = conn.execute("INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)", params![entry.id, emb_bytes]);
-                                    count += 1;
+                                    updates.push((entry.id, emb_bytes));
                                 }
                             }
-                            let _ = conn.execute_batch("COMMIT");
 
-                            return Ok(count);
+                            return self.write_reembedded_entries(&updates, &signature, dims);
                         }
                         Err(e) => {
                             if let Some(logger) = crate::get_logger() {
@@ -573,7 +548,6 @@ impl SqliteMemoryBackend {
         }
 
         // Synchronous fallback: embed one by one
-        let mut count = 0usize;
         for entry in entries {
             let emb = if let (Some(ref att_path), Some(ref att_mime)) =
                 (&entry.attachment_path, &entry.attachment_mime)
@@ -584,22 +558,53 @@ impl SqliteMemoryBackend {
             };
             if let Some(emb) = emb {
                 let emb_bytes: Vec<u8> = emb.iter().flat_map(|f| f.to_le_bytes()).collect();
+                updates.push((entry.id, emb_bytes));
+            }
+        }
+        self.write_reembedded_entries(&updates, &signature, dims)
+    }
+
+    fn write_reembedded_entries(
+        &self,
+        updates: &[(i64, Vec<u8>)],
+        signature: &str,
+        dims: u32,
+    ) -> Result<usize> {
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let conn = self.write_conn()?;
+        self.ensure_vec_table(&conn, dims)?;
+
+        conn.execute_batch("BEGIN")?;
+        let write_result = (|| -> Result<usize> {
+            let mut count = 0usize;
+            for (id, emb_bytes) in updates {
                 conn.execute(
                     "UPDATE memories SET embedding = ?1, embedding_signature = ?2 WHERE id = ?3",
-                    params![emb_bytes, signature.as_str(), entry.id],
+                    params![emb_bytes, signature, id],
                 )?;
-                let _ = conn.execute(
-                    "DELETE FROM memories_vec WHERE rowid = ?1",
-                    params![entry.id],
-                );
+                let _ = conn.execute("DELETE FROM memories_vec WHERE rowid = ?1", params![id]);
                 let _ = conn.execute(
                     "INSERT INTO memories_vec(rowid, embedding) VALUES (?1, ?2)",
-                    params![entry.id, emb_bytes],
+                    params![id, emb_bytes],
                 );
                 count += 1;
             }
+            Ok(count)
+        })();
+
+        match write_result {
+            Ok(count) => {
+                conn.execute_batch("COMMIT")?;
+                Ok(count)
+            }
+            Err(e) => {
+                let _ = conn.execute_batch("ROLLBACK");
+                Err(e)
+            }
         }
-        Ok(count)
     }
 }
 
