@@ -413,71 +413,15 @@ sequenceDiagram
 
 ## Guardian 保活机制
 
-```mermaid
-stateDiagram-v2
-    [*] --> Guardian: hope-agent (release)
-    Guardian --> SpawnChild: 启动子进程
+Guardian 父子进程在桌面 Release 默认启用：父进程监工、child 以 `--child-mode` 跑 Tauri；child 异常退出时父按指数退避重启，第 5 次崩溃触发备份 + LLM Self-Diagnosis + Auto-Fix，第 8 次放弃。完整状态图、退出码协议、参数表、Crash Journal schema、Self-Diagnosis prompt 与 fallback、Auto-Fix 覆盖范围全部归档在 **[reliability.md](reliability.md)**——本文不复述以避免双份维护。
 
-    SpawnChild --> WaitExit: 等待退出
-    WaitExit --> NormalQuit: exit 0
-    WaitExit --> RestartRequested: exit 42
-    WaitExit --> CrashDetected: 其他 exit code
-
-    NormalQuit --> [*]
-    RestartRequested --> SpawnChild: 立即重启
-
-    CrashDetected --> RecordCrash: 记录 crash journal
-    RecordCrash --> CheckThreshold: crash_count >= 5?
-    CheckThreshold --> SelfDiagnosis: 是
-    CheckThreshold --> Backoff: 否
-    SelfDiagnosis --> Backup: 创建备份
-    Backup --> LLMDiagnosis: LLM 分析崩溃原因
-    LLMDiagnosis --> AutoFix: 尝试自动修复
-    AutoFix --> Backoff
-
-    Backoff --> CheckMax: crash_count >= 8?
-    CheckMax --> GiveUp: 是 → exit 1
-    CheckMax --> SpawnChild: 否 → 重启
-    GiveUp --> [*]
-```
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| `max_crashes` | 8 | 最大连续崩溃次数 |
-| `diagnosis_threshold` | 5 | 触发自修复的崩溃次数 |
-| `crash_window_secs` | 600 | 超过此时间无崩溃重置计数器 |
-| `backoff_delays` | [1, 3, 9, 15, 30] | 指数退避延迟（秒） |
+`hope-agent server` 由 launchd / systemd 托管重启，**不要再叠 Guardian**；`hope-agent acp` 由 IDE 控制生命周期，也不走 Guardian。
 
 ---
 
 ## 系统服务注册
 
-### macOS (launchd)
-
-```
-~/Library/LaunchAgents/ai.hopeagent.server.plist
-```
-
-| 配置项 | 值 |
-|--------|-----|
-| Label | `ai.hopeagent.server` |
-| KeepAlive | `true`（进程消失自动拉起） |
-| RunAtLoad | `true`（开机自启） |
-| ProgramArguments | `[exe_path, "server", "--bind", addr]` |
-| StandardOutPath | `~/.hope-agent/logs/server.stdout.log` |
-| StandardErrorPath | `~/.hope-agent/logs/server.stderr.log` |
-
-### Linux (systemd)
-
-```
-~/.config/systemd/user/hope-agent.service
-```
-
-| 配置项 | 值 |
-|--------|-----|
-| Restart | `on-failure` |
-| RestartSec | `3` |
-| WantedBy | `default.target` |
+`hope-agent server install` 把进程登记给 OS 服务管理器：macOS launchd LaunchAgent（`KeepAlive=true`）、Linux systemd user unit（`Restart=on-failure`）、Windows Task Scheduler（`onlogon`，无自动重启）。完整 plist / unit 键值、ExecStart 转义规则、和 Guardian 的互斥关系见 **[reliability.md §Layer 3](reliability.md#4-layer-3--操作系统服务保活)**——避免与单一权威源同步漂移，本节不复述参数表。
 
 ---
 

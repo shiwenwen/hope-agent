@@ -37,7 +37,7 @@ Release 桌面默认启用 [`ha_core::guardian::run_guardian`](../../crates/ha-c
 - **`exit(42)` = 立即重启**：child 主动 `std::process::exit(EXIT_CODE_RESTART)` 请求无冷却重启（crash_count 不累加），用于 auto-fix / 配置热切换等场景
 - **恢复标记传递**：崩溃恢复重启前父 `Command` 注入 `HOPE_AGENT_RECOVERED=1` + `HOPE_AGENT_CRASH_COUNT=N`，child 可据此做「上次是崩溃恢复」UI 提示
 
-其余参数表（指数退避、备份路径、crash_journal 等）见 [backend-separation.md §Guardian 保活机制](backend-separation.md)，本文不复述。
+> 完整参数表、退出码协议细节、Self-Diagnosis prompt 与 Auto-Fix 覆盖范围、Crash Journal schema 见 [reliability.md](reliability.md)，本文不复述。
 
 **不适用范围**：`hope-agent server` 由 launchd / systemd 托管重启，`hope-agent acp` 由 IDE 控制生命周期，两者都绕开 Guardian；`config.guardian.enabled = false` 或 Debug 构建也跳过父子分离。
 
@@ -306,7 +306,8 @@ onboarding hard-fail（未配置则退出码 2）
 
 ## 关联文档
 
-- [前后端分离架构](backend-separation.md)——三 crate 职责切分、Guardian 保活参数表、系统服务安装细节
+- [可靠性与崩溃自愈](reliability.md)——Guardian 三层保活全景、Crash Journal、Self-Diagnosis、Auto-Fix、子系统 watchdog
+- [前后端分离架构](backend-separation.md)——三 crate 职责切分、系统服务安装细节
 - [Cron 调度](cron.md)——Layer B 独立线程 + 2 worker threads runtime
 - [IM 渠道系统](im-channel.md)——Layer C worker + Layer D 子进程混合
 - [ACP 协议](acp.md)——Layer A `acp` 模式 + Layer D ACP runtime 上下游
