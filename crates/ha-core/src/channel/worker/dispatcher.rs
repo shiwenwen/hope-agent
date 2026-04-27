@@ -447,14 +447,7 @@ async fn handle_inbound_message(
         store.notification.enabled && agent_notify != Some(false)
     };
     let image_gen_config =
-        if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
-        {
-            let mut cfg = store.image_generate.clone();
-            crate::tools::image_generate::backfill_providers(&mut cfg);
-            Some(cfg)
-        } else {
-            None
-        };
+        crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
     let canvas_enabled = store.canvas.enabled;
 
     // 8. Create ChannelStreamSink + spawn streaming background task
@@ -508,7 +501,14 @@ async fn handle_inbound_message(
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
+        denied_tools: Vec::new(),
+        subagent_depth: 0,
+        steer_run_id: None,
         auto_approve_tools: account.auto_approve_tools,
+        follow_global_reasoning_effort: true,
+        post_turn_effects: true,
+        abort_on_cancel: false,
+        persist_final_error_event: true,
         source: crate::chat_engine::stream_seq::ChatSource::Channel,
         event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(
             session_id.clone(),

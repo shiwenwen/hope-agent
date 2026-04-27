@@ -25,6 +25,26 @@ pub enum ChatSource {
     Http,
     /// IM channel worker replying to an inbound message (Slack / 等).
     Channel,
+    /// Background sub-agent child session execution.
+    Subagent,
+    /// Background parent response to an auto-delivered sub-agent result.
+    ParentInjection,
+}
+
+impl ChatSource {
+    /// Sources whose deltas reach a user-facing GUI via the global stream
+    /// broadcast bus (`chat:stream_delta` + `chat:stream_end`). Channel,
+    /// Subagent, and ParentInjection only use their per-call event_sink.
+    pub fn broadcasts_to_user_ui(&self) -> bool {
+        matches!(self, Self::Desktop | Self::Http)
+    }
+
+    /// Sources tracked by the stream_seq registry (so reload-recovery can
+    /// dedupe deltas via session_id+seq). Background sub-agent runs don't
+    /// need this — they have no UI counterpart waiting to reattach.
+    pub fn tracks_seq(&self) -> bool {
+        matches!(self, Self::Desktop | Self::Http | Self::Channel)
+    }
 }
 
 struct Entry {
@@ -114,6 +134,7 @@ pub fn active_counts() -> ActiveChatCounts {
             ChatSource::Desktop => out.desktop += 1,
             ChatSource::Http => out.http += 1,
             ChatSource::Channel => out.channel += 1,
+            ChatSource::Subagent | ChatSource::ParentInjection => {}
         }
     }
     out.total = out.desktop + out.http + out.channel;

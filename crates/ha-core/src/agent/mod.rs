@@ -175,12 +175,21 @@ impl AssistantAgent {
     /// Uses the first effective auth profile for the API key. For explicit
     /// profile selection (e.g. during profile rotation), use
     /// [`new_from_provider_with_profile`].
+    ///
+    /// This synchronous constructor is intentionally non-Codex only. Codex uses
+    /// OAuth and may need an async refresh before each request; use
+    /// [`try_new_from_provider`] for code paths that may receive a Codex
+    /// provider.
     pub fn new_from_provider(config: &ProviderConfig, model_id: &str) -> Self {
+        assert!(
+            config.api_type != ApiType::Codex,
+            "Codex providers require AssistantAgent::try_new_from_provider"
+        );
         let profiles = config.effective_profiles();
         if let Some(profile) = profiles.first() {
             return Self::new_from_provider_with_profile(config, model_id, profile);
         }
-        // Fallback for Codex or empty-key providers
+        // Fallback for empty-key API-compatible providers.
         let api_key = config.api_key.clone();
         let base_url = config.base_url.clone();
         Self::build_from_key(config, model_id, &api_key, &base_url)
@@ -193,9 +202,63 @@ impl AssistantAgent {
         model_id: &str,
         profile: &AuthProfile,
     ) -> Self {
+        assert!(
+            config.api_type != ApiType::Codex,
+            "Codex providers require AssistantAgent::try_new_from_provider_with_profile"
+        );
         let api_key = profile.api_key.clone();
         let base_url = config.resolve_base_url(profile).to_string();
         Self::build_from_key(config, model_id, &api_key, &base_url)
+    }
+
+    /// Async provider constructor that is safe for every provider type.
+    ///
+    /// Codex loads and refreshes OAuth credentials from disk instead of reading
+    /// the placeholder `api_key` field from config.
+    pub async fn try_new_from_provider(config: &ProviderConfig, model_id: &str) -> Result<Self> {
+        Self::try_new_from_provider_with_profile(config, model_id, None).await
+    }
+
+    /// Async profile-specific provider constructor that is safe for every
+    /// provider type. Codex ignores API-key profiles and uses OAuth.
+    pub async fn try_new_from_provider_with_profile(
+        config: &ProviderConfig,
+        model_id: &str,
+        profile: Option<&AuthProfile>,
+    ) -> Result<Self> {
+        Self::try_new_from_provider_with_codex_hint(config, model_id, profile, None).await
+    }
+
+    /// Like [`try_new_from_provider_with_profile`] but accepts an in-memory
+    /// `(access_token, account_id)` hint that will be used for Codex providers
+    /// when present, before falling back to disk via `load_fresh_codex_token`.
+    /// Used by the desktop entry point so a valid token cached in memory after
+    /// OAuth still works when the on-disk copy could not be written.
+    pub async fn try_new_from_provider_with_codex_hint(
+        config: &ProviderConfig,
+        model_id: &str,
+        profile: Option<&AuthProfile>,
+        codex_token_hint: Option<(String, String)>,
+    ) -> Result<Self> {
+        if config.api_type == ApiType::Codex {
+            let (access_token, account_id) = match codex_token_hint {
+                Some(hint) if !hint.0.is_empty() => hint,
+                _ => crate::oauth::load_fresh_codex_token().await?,
+            };
+            let provider = LlmProvider::Codex {
+                access_token,
+                account_id,
+                model: model_id.to_string(),
+            };
+            return Ok(Self::build_from_resolved_provider(
+                config, model_id, provider,
+            ));
+        }
+
+        Ok(match profile {
+            Some(profile) => Self::new_from_provider_with_profile(config, model_id, profile),
+            None => Self::new_from_provider(config, model_id),
+        })
     }
 
     /// Internal: build an AssistantAgent from resolved api_key and base_url.
@@ -221,12 +284,16 @@ impl AssistantAgent {
                 base_url: base_url.to_string(),
                 model: model_id.to_string(),
             },
-            ApiType::Codex => LlmProvider::Codex {
-                access_token: api_key.to_string(),
-                account_id: String::new(),
-                model: model_id.to_string(),
-            },
+            ApiType::Codex => panic!("Codex providers require async OAuth construction"),
         };
+        Self::build_from_resolved_provider(config, model_id, provider)
+    }
+
+    fn build_from_resolved_provider(
+        config: &ProviderConfig,
+        model_id: &str,
+        provider: LlmProvider,
+    ) -> Self {
         // Look up context_window from the provider's model config
         let context_window = config
             .model_config(model_id)

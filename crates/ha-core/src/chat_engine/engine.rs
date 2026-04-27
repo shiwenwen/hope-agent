@@ -31,14 +31,16 @@ struct ChatRoundOk {
 /// `chat:*` bus; IM channel turns have a separate `channel:*` lifecycle.
 struct StreamLifecycle {
     session_id: String,
-    stream_id: String,
+    stream_id: Option<String>,
     source: stream_seq::ChatSource,
     finished: bool,
 }
 
 impl StreamLifecycle {
     fn begin(session_id: &str, source: stream_seq::ChatSource) -> Self {
-        let stream_id = stream_seq::begin(session_id, source);
+        let stream_id = source
+            .tracks_seq()
+            .then(|| stream_seq::begin(session_id, source));
         Self {
             session_id: session_id.to_string(),
             stream_id,
@@ -51,10 +53,12 @@ impl StreamLifecycle {
         if self.finished {
             return;
         }
-        if self.source != stream_seq::ChatSource::Channel {
-            stream_broadcast::broadcast_stream_end(&self.session_id, &self.stream_id);
+        if let Some(ref stream_id) = self.stream_id {
+            if self.source.broadcasts_to_user_ui() {
+                stream_broadcast::broadcast_stream_end(&self.session_id, stream_id);
+            }
+            stream_seq::end(&self.session_id);
         }
-        stream_seq::end(&self.session_id);
         self.finished = true;
     }
 }
@@ -75,7 +79,7 @@ fn emit_stream_event(
     source: stream_seq::ChatSource,
     event: &str,
 ) {
-    if source == stream_seq::ChatSource::Channel {
+    if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
         return;
     }
@@ -100,7 +104,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         session_db: db,
         model_chain,
         providers,
-        mut codex_token,
+        codex_token,
         resolved_temperature,
         web_search_enabled,
         notification_enabled,
@@ -113,7 +117,14 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         plan_agent_mode,
         plan_mode_allow_paths,
         skill_allowed_tools,
+        denied_tools,
+        subagent_depth,
+        steer_run_id,
         auto_approve_tools,
+        follow_global_reasoning_effort,
+        post_turn_effects,
+        abort_on_cancel,
+        persist_final_error_event,
         source,
         event_sink,
     } = params;
@@ -136,8 +147,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             .iter()
             .any(|p| p.id == m.provider_id && p.api_type == ApiType::Codex)
     });
+    let mut codex_token = codex_token;
     if chain_needs_codex {
         let current = codex_token.as_ref().map(|(t, _)| t.as_str()).unwrap_or("");
+        // Refresh on-disk token if stale; if a refresh produced a new pair,
+        // also update the in-memory hint we thread down to the agent builder
+        // — the disk write inside refresh may have failed, but the new token
+        // is still valid in this process.
         if let Some(pair) = crate::oauth::ensure_fresh_codex_token(current).await {
             codex_token = Some(pair);
         }
@@ -258,7 +274,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             // call clones; the original chat_engine values stay borrowable
             // for the next compaction-retry iteration.
             let providers_ref = &providers;
-            let codex_token_ref = &codex_token;
             let compact_config_ref = &compact_config;
             let agent_id_ref = &agent_id;
             let session_id_ref = &session_id;
@@ -273,6 +288,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let event_sink_ref = &event_sink;
             let db_ref = &db;
             let model_ref_for_op = model_ref;
+            let codex_token_ref = &codex_token;
 
             let exec_result = execute_with_failover(
                 prov,
@@ -280,29 +296,24 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 FailoverPolicy::chat_engine_default(),
                 Some(&on_rotate),
                 |profile| {
+                    let profile_owned = profile.cloned();
                     // Sync setup: build + configure + restore. If build
                     // fails (e.g. Codex without token), surface as Unknown
                     // so the executor exhausts and we move to next model.
-                    let agent_built = build_agent_from_snapshot(
-                        model_ref_for_op,
-                        providers_ref,
-                        codex_token_ref,
-                        compact_config_ref,
-                        profile,
-                        session_id_ref,
-                    );
-
                     // Per-call clones for the streaming callback's `move ||`.
                     let event_sink_for_cb = event_sink_ref.clone();
                     let session_for_cb = session_id_ref.clone();
                     let source_for_cb = source;
                     let cancel_for_op = cancel_ref.clone();
+                    let cancel_for_check = cancel_for_op.clone();
 
                     let agent_id_owned = agent_id_ref.clone();
                     let session_id_owned = session_id_ref.clone();
                     let image_gen_owned = image_gen_config.clone();
                     let extra_ctx_owned = extra_system_context_ref.clone();
                     let skill_tools_owned = skill_allowed_tools_ref.clone();
+                    let denied_tools_owned = denied_tools.clone();
+                    let steer_run_id_owned = steer_run_id.clone();
                     let plan_mode_owned = plan_agent_mode_ref.clone();
                     let plan_paths_owned = plan_mode_allow_paths_ref.clone();
                     let message_owned = message_ref.clone();
@@ -313,13 +324,24 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let db_owned = db_ref.clone();
                     let provider_id_for_err = model_ref_for_op.provider_id.clone();
                     let model_id_for_err = model_ref_for_op.model_id.clone();
+                    let codex_token_owned = codex_token_ref.clone();
 
                     async move {
-                        let mut agent = agent_built.ok_or_else(|| {
+                        let mut agent = build_agent_from_snapshot(
+                            model_ref_for_op,
+                            providers_ref,
+                            codex_token_owned,
+                            compact_config_ref,
+                            profile_owned.as_ref(),
+                            session_id_ref,
+                        )
+                        .await
+                        .map_err(|e| {
                             anyhow::anyhow!(
-                                "Cannot build agent for {}::{}",
+                                "Cannot build agent for {}::{}: {}",
                                 provider_id_for_err,
-                                model_id_for_err
+                                model_id_for_err,
+                                e
                             )
                         })?;
                         configure_agent(
@@ -333,9 +355,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             resolved_temperature,
                             extra_ctx_owned.as_deref(),
                             &skill_tools_owned,
+                            &denied_tools_owned,
+                            subagent_depth,
+                            steer_run_id_owned,
                             plan_mode_owned.as_ref(),
                             plan_paths_owned.as_ref(),
                             auto_approve_tools,
+                            follow_global_reasoning_effort,
                         );
                         restore_agent_context(&db_owned, &session_id_owned, &agent);
 
@@ -362,6 +388,12 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 },
                             )
                             .await;
+
+                        if abort_on_cancel
+                            && cancel_for_check.load(std::sync::atomic::Ordering::SeqCst)
+                        {
+                            return Err(anyhow::anyhow!("chat cancelled by caller"));
+                        }
 
                         match chat_result {
                             Ok((response, thinking)) => Ok(ChatRoundOk {
@@ -415,101 +447,103 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // keep the stop button/sidebar spinner alive.
                     stream_lifecycle.finish();
 
-                    crate::session_title::maybe_schedule_after_success(
-                        db.clone(),
-                        session_id.clone(),
-                        agent_id.clone(),
-                        model_ref.clone(),
-                        providers.clone(),
-                    );
+                    if post_turn_effects {
+                        crate::session_title::maybe_schedule_after_success(
+                            db.clone(),
+                            session_id.clone(),
+                            agent_id.clone(),
+                            model_ref.clone(),
+                            providers.clone(),
+                        );
 
-                    {
-                        let usage_snapshot = persister.usage();
-                        let round_tokens = {
-                            let input = usage_snapshot.input_tokens.unwrap_or(0);
-                            let output = usage_snapshot.output_tokens.unwrap_or(0);
-                            (input + output) as u32
-                        };
-                        let round_messages = agent
-                            .get_conversation_history()
-                            .len()
-                            .saturating_sub(history_len_before)
-                            as u32;
-                        agent.accumulate_extraction_stats(round_tokens, round_messages);
-                    }
-
-                    let idle_timeout = schedule_memory_extraction_after_turn(
-                        &agent_id,
-                        &session_id,
-                        model_ref,
-                        &agent,
-                    );
-
-                    // Phase B'1: skill auto-review — same as pre-Phase-3.
-                    {
-                        let round_tokens = {
-                            let u = persister.usage();
-                            let input = u.input_tokens.unwrap_or(0);
-                            let output = u.output_tokens.unwrap_or(0);
-                            (input + output) as usize
-                        };
-                        let round_messages = agent
-                            .get_conversation_history()
-                            .len()
-                            .saturating_sub(history_len_before);
-                        let cfg = crate::config::cached_config()
-                            .skills
-                            .auto_review
-                            .clone()
-                            .sanitize();
-                        if let Some(gate) = crate::skills::auto_review::touch_and_maybe_trigger(
-                            &session_id,
-                            round_tokens,
-                            round_messages,
-                            &cfg,
-                        ) {
-                            let session_id_for_review = session_id.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = crate::skills::auto_review::run_review_cycle(
-                                    &session_id_for_review,
-                                    crate::skills::auto_review::ReviewTrigger::PostTurn,
-                                    gate,
-                                    None,
-                                )
-                                .await
-                                {
-                                    app_warn!(
-                                        "skills",
-                                        "auto_review",
-                                        "post-turn review cycle failed: {}",
-                                        e
-                                    );
-                                }
-                                crate::skills::auto_review::sweep_stale(7 * 24 * 3600);
-                            });
+                        {
+                            let usage_snapshot = persister.usage();
+                            let round_tokens = {
+                                let input = usage_snapshot.input_tokens.unwrap_or(0);
+                                let output = usage_snapshot.output_tokens.unwrap_or(0);
+                                (input + output) as u32
+                            };
+                            let round_messages = agent
+                                .get_conversation_history()
+                                .len()
+                                .saturating_sub(history_len_before)
+                                as u32;
+                            agent.accumulate_extraction_stats(round_tokens, round_messages);
                         }
-                    }
 
-                    if idle_timeout > 0 {
-                        let tokens_remain = agent
-                            .tokens_since_extraction
-                            .load(std::sync::atomic::Ordering::SeqCst);
-                        let msgs_remain = agent
-                            .messages_since_extraction
-                            .load(std::sync::atomic::Ordering::SeqCst);
-                        if tokens_remain > 0 || msgs_remain > 0 {
-                            let updated_at = db
-                                .get_session(&session_id)
-                                .ok()
-                                .flatten()
-                                .map(|s| s.updated_at)
-                                .unwrap_or_default();
-                            crate::memory_extract::schedule_idle_extraction(
-                                agent_id.clone(),
-                                session_id.clone(),
-                                updated_at,
-                                idle_timeout,
-                            );
+                        let idle_timeout = schedule_memory_extraction_after_turn(
+                            &agent_id,
+                            &session_id,
+                            model_ref,
+                            &agent,
+                        );
+
+                        // Phase B'1: skill auto-review — same as pre-Phase-3.
+                        {
+                            let round_tokens = {
+                                let u = persister.usage();
+                                let input = u.input_tokens.unwrap_or(0);
+                                let output = u.output_tokens.unwrap_or(0);
+                                (input + output) as usize
+                            };
+                            let round_messages = agent
+                                .get_conversation_history()
+                                .len()
+                                .saturating_sub(history_len_before);
+                            let cfg = crate::config::cached_config()
+                                .skills
+                                .auto_review
+                                .clone()
+                                .sanitize();
+                            if let Some(gate) = crate::skills::auto_review::touch_and_maybe_trigger(
+                                &session_id,
+                                round_tokens,
+                                round_messages,
+                                &cfg,
+                            ) {
+                                let session_id_for_review = session_id.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = crate::skills::auto_review::run_review_cycle(
+                                        &session_id_for_review,
+                                        crate::skills::auto_review::ReviewTrigger::PostTurn,
+                                        gate,
+                                        None,
+                                    )
+                                    .await
+                                    {
+                                        app_warn!(
+                                            "skills",
+                                            "auto_review",
+                                            "post-turn review cycle failed: {}",
+                                            e
+                                        );
+                                    }
+                                    crate::skills::auto_review::sweep_stale(7 * 24 * 3600);
+                                });
+                            }
+                        }
+
+                        if idle_timeout > 0 {
+                            let tokens_remain = agent
+                                .tokens_since_extraction
+                                .load(std::sync::atomic::Ordering::SeqCst);
+                            let msgs_remain = agent
+                                .messages_since_extraction
+                                .load(std::sync::atomic::Ordering::SeqCst);
+                            if tokens_remain > 0 || msgs_remain > 0 {
+                                let updated_at = db
+                                    .get_session(&session_id)
+                                    .ok()
+                                    .flatten()
+                                    .map(|s| s.updated_at)
+                                    .unwrap_or_default();
+                                crate::memory_extract::schedule_idle_extraction(
+                                    agent_id.clone(),
+                                    session_id.clone(),
+                                    updated_at,
+                                    idle_timeout,
+                                );
+                            }
                         }
                     }
 
@@ -551,16 +585,18 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let mut compact_agent = match build_agent_from_snapshot(
                         model_ref,
                         &providers,
-                        &codex_token,
+                        codex_token.clone(),
                         &compact_config,
                         last_profile.as_ref(),
                         &session_id,
-                    ) {
-                        Some(a) => a,
-                        None => {
+                    )
+                    .await
+                    {
+                        Ok(a) => a,
+                        Err(e) => {
                             last_error = Some(format!(
-                                "Cannot build agent for emergency compaction on {}::{}",
-                                model_ref.provider_id, model_ref.model_id
+                                "Cannot build agent for emergency compaction on {}::{}: {}",
+                                model_ref.provider_id, model_ref.model_id, e
                             ));
                             break;
                         }
@@ -576,9 +612,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         resolved_temperature,
                         extra_system_context.as_deref(),
                         &skill_allowed_tools,
+                        &denied_tools,
+                        subagent_depth,
+                        steer_run_id.clone(),
                         plan_agent_mode.as_ref(),
                         plan_mode_allow_paths.as_ref(),
                         auto_approve_tools,
+                        follow_global_reasoning_effort,
                     );
                     restore_agent_context(&db, &session_id, &compact_agent);
 
@@ -664,7 +704,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         session_id,
         final_error
     );
-    let _ = db.append_message(&session_id, &session::NewMessage::event(&final_error));
+    if persist_final_error_event {
+        let _ = db.append_message(&session_id, &session::NewMessage::event(&final_error));
+    }
     Err(final_error)
 }
 
@@ -682,9 +724,13 @@ fn configure_agent(
     temperature: Option<f64>,
     extra_system_context: Option<&str>,
     skill_allowed_tools: &[String],
+    denied_tools: &[String],
+    subagent_depth: u32,
+    steer_run_id: Option<String>,
     plan_agent_mode: Option<&crate::agent::PlanAgentMode>,
     plan_mode_allow_paths: Option<&Vec<String>>,
     auto_approve_tools: bool,
+    follow_global_reasoning_effort: bool,
 ) {
     agent.set_agent_id(agent_id);
     agent.set_session_id(session_id);
@@ -699,6 +745,13 @@ fn configure_agent(
     if !skill_allowed_tools.is_empty() {
         agent.set_skill_allowed_tools(skill_allowed_tools.to_vec());
     }
+    if !denied_tools.is_empty() {
+        agent.set_denied_tools(denied_tools.to_vec());
+    }
+    agent.set_subagent_depth(subagent_depth);
+    if let Some(run_id) = steer_run_id {
+        agent.set_steer_run_id(run_id);
+    }
     if let Some(mode) = plan_agent_mode {
         agent.set_plan_agent_mode(mode.clone());
     }
@@ -708,9 +761,11 @@ fn configure_agent(
     if auto_approve_tools {
         agent.set_auto_approve_tools(true);
     }
-    // Main-chat path: let provider tool loops re-read the live global effort
-    // so UI toggles apply to the next API request, not only the next turn.
-    agent.set_follow_global_reasoning_effort(true);
+    if follow_global_reasoning_effort {
+        // Main-chat path: let provider tool loops re-read the live global effort
+        // so UI toggles apply to the next API request, not only the next turn.
+        agent.set_follow_global_reasoning_effort(true);
+    }
 }
 
 #[cfg(test)]

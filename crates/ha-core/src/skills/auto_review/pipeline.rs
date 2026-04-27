@@ -194,7 +194,20 @@ async fn query_review_agent(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        if let Some(agent) = build_review_agent_from_model_ref(model_ref) {
+        let built = match build_review_agent_from_model_ref(model_ref).await {
+            Ok(opt) => opt,
+            Err(e) => {
+                app_warn!(
+                    "skills",
+                    "auto_review",
+                    "review_model '{}' build failed; falling back: {}",
+                    model_ref,
+                    e
+                );
+                None
+            }
+        };
+        if let Some(agent) = built {
             let fut = agent.side_query(instruction, 4096);
             let res = tokio::time::timeout(timeout, fut)
                 .await
@@ -219,6 +232,7 @@ async fn query_review_agent(
 
     let config = cached_config();
     let (agent, _model_id) = crate::recap::report::build_analysis_agent(&config)
+        .await
         .context("build fallback analysis agent for auto-review")?;
     let fut = agent.side_query(instruction, 4096);
     let res = tokio::time::timeout(timeout, fut)
@@ -230,11 +244,18 @@ async fn query_review_agent(
 /// Parse a `providerId:modelId` override (e.g. `"anthropic:claude-haiku-4-5"`)
 /// and build a fresh `AssistantAgent` for it. Returns `None` when the provider
 /// / model isn't configured; callers fall back to the usual chain.
-fn build_review_agent_from_model_ref(model_ref: &str) -> Option<AssistantAgent> {
-    let (provider_id, model_id) = model_ref.split_once(':')?;
+async fn build_review_agent_from_model_ref(model_ref: &str) -> Result<Option<AssistantAgent>> {
+    let Some((provider_id, model_id)) = model_ref.split_once(':') else {
+        return Ok(None);
+    };
     let config = cached_config();
-    let prov = crate::provider::find_provider(&config.providers, provider_id.trim())?;
-    Some(AssistantAgent::new_from_provider(prov, model_id.trim()).with_failover_context(prov))
+    let Some(prov) = crate::provider::find_provider(&config.providers, provider_id.trim()) else {
+        return Ok(None);
+    };
+    let agent = AssistantAgent::try_new_from_provider(prov, model_id.trim())
+        .await?
+        .with_failover_context(prov);
+    Ok(Some(agent))
 }
 
 fn parse_review_response(text: &str) -> Result<ReviewDecision> {

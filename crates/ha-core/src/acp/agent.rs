@@ -540,12 +540,48 @@ impl AcpAgent {
             ));
         }
 
-        let first = &model_chain[0];
-        let prov = provider::find_provider(&store.providers, &first.provider_id)
-            .ok_or_else(|| anyhow::anyhow!("Provider '{}' not found", first.provider_id))?;
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()?;
 
-        let mut agent =
-            AssistantAgent::new_from_provider(prov, &first.model_id).with_failover_context(prov);
+        // Iterate the chain and pick the first model that actually constructs.
+        // The session-shell agent built here only needs *some* working model;
+        // run_agent_chat re-builds per-attempt at chat time.
+        let mut agent = None;
+        let mut last_error = String::new();
+        for candidate in &model_chain {
+            let Some(prov) = provider::find_provider(&store.providers, &candidate.provider_id)
+            else {
+                continue;
+            };
+            match rt.block_on(AssistantAgent::try_new_from_provider(
+                prov,
+                &candidate.model_id,
+            )) {
+                Ok(a) => {
+                    agent = Some(a.with_failover_context(prov));
+                    break;
+                }
+                Err(e) => {
+                    last_error = e.to_string();
+                    app_warn!(
+                        "acp",
+                        "build_agent",
+                        "Build agent failed for {}::{}, trying next model: {}",
+                        candidate.provider_id,
+                        candidate.model_id,
+                        last_error
+                    );
+                }
+            }
+        }
+        let mut agent = agent.ok_or_else(|| {
+            anyhow::anyhow!(
+                "All models failed to build for agent '{}': {}",
+                agent_id,
+                last_error
+            )
+        })?;
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
         agent.set_compact_config(store.compact.clone());
@@ -562,16 +598,9 @@ impl AcpAgent {
             &store.web_search,
         ));
         agent.set_notification_enabled(store.notification.enabled);
-        let image_gen_config = if crate::tools::image_generate::has_configured_provider_from_config(
+        agent.set_image_generate_config(crate::tools::image_generate::resolve_image_gen_config(
             &store.image_generate,
-        ) {
-            let mut cfg = store.image_generate.clone();
-            crate::tools::image_generate::backfill_providers(&mut cfg);
-            Some(cfg)
-        } else {
-            None
-        };
-        agent.set_image_generate_config(image_gen_config);
+        ));
         agent.set_canvas_enabled(store.canvas.enabled);
 
         // Resolve temperature: agent > global
@@ -656,8 +685,38 @@ impl AcpAgent {
 
             let mut retry_count: u32 = 0;
             loop {
-                let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
-                    .with_failover_context(prov);
+                let build_result = rt.block_on(AssistantAgent::try_new_from_provider(
+                    prov,
+                    &model_ref.model_id,
+                ));
+                let mut agent = match build_result {
+                    Ok(a) => a.with_failover_context(prov),
+                    Err(e) => {
+                        last_error = e.to_string();
+                        let reason = failover::classify_error(&last_error);
+                        if reason.is_retryable() && retry_count < MAX_RETRIES {
+                            retry_count += 1;
+                            let delay = failover::retry_delay_ms(
+                                retry_count - 1,
+                                RETRY_BASE_MS,
+                                RETRY_MAX_MS,
+                            );
+                            rt.block_on(tokio::time::sleep(std::time::Duration::from_millis(
+                                delay,
+                            )));
+                            continue;
+                        }
+                        app_warn!(
+                            "acp",
+                            "build_agent",
+                            "Build agent failed for {}::{}, trying next model: {}",
+                            model_ref.provider_id,
+                            model_ref.model_id,
+                            last_error
+                        );
+                        break;
+                    }
+                };
                 agent.set_agent_id(&agent_id);
                 agent.set_session_id(&session_id_owned);
                 agent.set_compact_config(store.compact.clone());

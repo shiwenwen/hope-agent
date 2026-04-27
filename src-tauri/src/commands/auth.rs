@@ -11,7 +11,7 @@ use tauri::State;
 pub async fn initialize_agent(api_key: String, state: State<'_, AppState>) -> Result<(), CmdError> {
     let provider = ProviderConfig::new_default_anthropic(api_key);
     let model_id = provider.models[0].id.clone();
-    let agent = AssistantAgent::new_from_provider(&provider, &model_id);
+    let agent = AssistantAgent::try_new_from_provider(&provider, &model_id).await?;
 
     ha_core::provider::add_and_activate_provider(provider, model_id, "onboarding")?;
     *state.agent.lock().await = Some(agent);
@@ -151,10 +151,11 @@ pub async fn try_restore_session(state: State<'_, AppState>) -> Result<bool, Cmd
                                     );
                                     *state.agent.lock().await = Some(agent);
                                 } else {
-                                    let agent = AssistantAgent::new_from_provider(
+                                    let agent = AssistantAgent::try_new_from_provider(
                                         provider,
                                         &active.model_id,
-                                    );
+                                    )
+                                    .await?;
                                     *state.agent.lock().await = Some(agent);
                                 }
                             }
@@ -195,7 +196,14 @@ pub(crate) async fn try_restore_non_codex_session(state: &State<'_, AppState>) -
                 let provider_clone = provider.clone();
                 let model_id = active.model_id.clone();
                 drop(store);
-                let agent = AssistantAgent::new_from_provider(&provider_clone, &model_id);
+                let agent =
+                    match AssistantAgent::try_new_from_provider(&provider_clone, &model_id).await {
+                        Ok(agent) => agent,
+                        Err(e) => {
+                            app_warn!("app", "session", "Failed to restore provider agent: {}", e);
+                            return false;
+                        }
+                    };
                 *state.agent.lock().await = Some(agent);
                 return true;
             }

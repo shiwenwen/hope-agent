@@ -42,7 +42,7 @@ impl RecapContext {
     pub async fn from_globals(cancel: CancellationToken) -> Result<Self> {
         let config = (*crate::config::cached_config()).clone();
         let recap_db = super::api::recap_db()?;
-        let (agent, analysis_model) = build_analysis_agent(&config)?;
+        let (agent, analysis_model) = build_analysis_agent(&config).await?;
         let session_db = crate::require_session_db()?.clone();
         let log_db = crate::require_log_db()?.clone();
         let cron_db = crate::require_cron_db()?.clone();
@@ -62,25 +62,24 @@ impl RecapContext {
 /// Build an `AssistantAgent` for recap analysis, preferring the
 /// configured `recap.analysisAgent` provider, falling back to the active
 /// model and finally the first enabled provider.
-pub fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, String)> {
+pub async fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, String)> {
     // Honour explicit recap.analysisAgent if set.
     if let Some(target) = config.recap.analysis_agent.as_ref() {
         if let Some(prov) = find_provider(&config.providers, target) {
             if let Some(model) = prov.models.first() {
-                return Ok((
-                    AssistantAgent::new_from_provider(prov, &model.id).with_failover_context(prov),
-                    model.id.clone(),
-                ));
+                let agent = AssistantAgent::try_new_from_provider(prov, &model.id)
+                    .await?
+                    .with_failover_context(prov);
+                return Ok((agent, model.id.clone()));
             }
         }
     }
     if let Some(active) = config.active_model.as_ref() {
         if let Some(prov) = find_provider(&config.providers, &active.provider_id) {
-            return Ok((
-                AssistantAgent::new_from_provider(prov, &active.model_id)
-                    .with_failover_context(prov),
-                active.model_id.clone(),
-            ));
+            let agent = AssistantAgent::try_new_from_provider(prov, &active.model_id)
+                .await?
+                .with_failover_context(prov);
+            return Ok((agent, active.model_id.clone()));
         }
     }
     for prov in &config.providers {
@@ -88,10 +87,10 @@ pub fn build_analysis_agent(config: &AppConfig) -> Result<(AssistantAgent, Strin
             continue;
         }
         if let Some(model) = prov.models.first() {
-            return Ok((
-                AssistantAgent::new_from_provider(prov, &model.id).with_failover_context(prov),
-                model.id.clone(),
-            ));
+            let agent = AssistantAgent::try_new_from_provider(prov, &model.id)
+                .await?
+                .with_failover_context(prov);
+            return Ok((agent, model.id.clone()));
         }
     }
     Err(anyhow!(

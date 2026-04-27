@@ -58,7 +58,18 @@ pub fn rebuild_active_agent_hook(
                 );
                 return;
             };
-            let agent = AssistantAgent::new_from_provider(&provider, &model_id);
+            let agent = match AssistantAgent::try_new_from_provider(&provider, &model_id).await {
+                Ok(agent) => agent,
+                Err(e) => {
+                    crate::app_warn!(
+                        "local_model_jobs",
+                        "completion_hook",
+                        "Failed to rebuild agent after local model job completion: {}",
+                        e
+                    );
+                    return;
+                }
+            };
             *agent_cell.lock().await = Some(agent);
         });
     })
@@ -726,7 +737,9 @@ pub fn retry_job(
     }
     let hide_original_after_retry = matches!(
         job.status,
-        LocalModelJobStatus::Paused | LocalModelJobStatus::Failed | LocalModelJobStatus::Interrupted
+        LocalModelJobStatus::Paused
+            | LocalModelJobStatus::Failed
+            | LocalModelJobStatus::Interrupted
     );
     let next_job = match job.kind {
         LocalModelJobKind::ChatModel => {
@@ -1347,7 +1360,14 @@ pub(crate) fn finish_job(job_id: &str, result: Result<Value>, cancel_token: &Can
     } else {
         job_before.as_ref().and_then(|job| job.percent)
     };
-    update_job(job_id, final_status, &phase, final_percent, error, result_json);
+    update_job(
+        job_id,
+        final_status,
+        &phase,
+        final_percent,
+        error,
+        result_json,
+    );
 }
 
 fn update_job(

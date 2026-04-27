@@ -67,7 +67,7 @@ pub async fn run_cycle(trigger: DreamTrigger) -> DreamReport {
 
     // 3. Build an agent capable of side_query. Cheap — reuses cached
     //    prompt prefix when possible via the existing recap helper.
-    let agent = match build_dreaming_agent(&cfg) {
+    let agent = match build_dreaming_agent(&cfg).await {
         Ok(a) => a,
         Err(e) => {
             return skipped(
@@ -213,7 +213,7 @@ fn skipped(trigger: DreamTrigger, started: Instant, note: &str) -> DreamReport {
 /// Build an `AssistantAgent` for the narrative side_query.
 /// Honours `DreamingConfig.narrative_model` when set (format:
 /// `providerId:modelId`), falls back to the same heuristic as /recap.
-fn build_dreaming_agent(cfg: &DreamingConfig) -> anyhow::Result<AssistantAgent> {
+async fn build_dreaming_agent(cfg: &DreamingConfig) -> anyhow::Result<AssistantAgent> {
     let app_cfg = crate::config::cached_config();
 
     // Explicit dedicated model.
@@ -224,16 +224,16 @@ fn build_dreaming_agent(cfg: &DreamingConfig) -> anyhow::Result<AssistantAgent> 
                 .iter()
                 .find(|p| p.id == prov_id && p.enabled)
             {
-                return Ok(
-                    AssistantAgent::new_from_provider(prov, model_id).with_failover_context(prov)
-                );
+                return Ok(AssistantAgent::try_new_from_provider(prov, model_id)
+                    .await?
+                    .with_failover_context(prov));
             }
         }
     }
 
     // Fall back to the existing recap builder, which already has the
     // active-model / first-enabled-provider fallbacks wired up.
-    let (agent, _model_id) = crate::recap::report::build_analysis_agent(&app_cfg)?;
+    let (agent, _model_id) = crate::recap::report::build_analysis_agent(&app_cfg).await?;
     Ok(agent)
 }
 

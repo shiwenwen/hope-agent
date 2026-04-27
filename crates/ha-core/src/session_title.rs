@@ -123,8 +123,9 @@ async fn generate_and_update_title(
     }
 
     let prompt = build_title_prompt(&messages);
-    let mut agent =
-        AssistantAgent::new_from_provider(&provider, &model_id).with_failover_context(&provider);
+    let mut agent = AssistantAgent::try_new_from_provider(&provider, &model_id)
+        .await?
+        .with_failover_context(&provider);
     agent.set_agent_id(&agent_id);
     agent.set_session_id(&session_id);
 

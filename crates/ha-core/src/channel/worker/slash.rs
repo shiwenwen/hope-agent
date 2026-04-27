@@ -366,8 +366,10 @@ async fn set_active_model_core(provider_id: &str, model_id: &str) -> Result<(), 
             *cached_agent.lock().await = Some(agent);
         }
     } else {
-        let agent =
-            AssistantAgent::new_from_provider(&provider, model_id).with_failover_context(&provider);
+        let agent = AssistantAgent::try_new_from_provider(&provider, model_id)
+            .await
+            .map_err(|e| e.to_string())?
+            .with_failover_context(&provider);
         *cached_agent.lock().await = Some(agent);
     }
 

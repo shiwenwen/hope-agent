@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::agent::AssistantAgent;
 use crate::context_compact::CompactConfig;
-use crate::provider::{self, ActiveModel, ApiType, AuthProfile, ProviderConfig};
+use crate::provider::{self, ActiveModel, AuthProfile, ProviderConfig};
 use crate::session::{self, SessionDB};
 
 // ── Agent Construction ──────────────────────────────────────────────
@@ -12,24 +12,24 @@ use crate::session::{self, SessionDB};
 /// When `profile` is `Some`, the agent is constructed with that specific
 /// auth profile's API key and base_url override. When `None`, the first
 /// effective profile (or legacy `api_key`) is used.
-pub(super) fn build_agent_from_snapshot(
+pub(super) async fn build_agent_from_snapshot(
     model: &ActiveModel,
     providers: &[ProviderConfig],
-    codex_token: &Option<(String, String)>,
+    codex_token_hint: Option<(String, String)>,
     compact_config: &CompactConfig,
     profile: Option<&AuthProfile>,
     session_id: &str,
-) -> Option<AssistantAgent> {
-    let prov = provider::find_provider(providers, &model.provider_id)?;
+) -> anyhow::Result<AssistantAgent> {
+    let prov = provider::find_provider(providers, &model.provider_id)
+        .ok_or_else(|| anyhow::anyhow!("Provider {} not found", model.provider_id))?;
 
-    let agent = if prov.api_type == ApiType::Codex {
-        let (access_token, account_id) = codex_token.as_ref()?;
-        AssistantAgent::new_openai(access_token, account_id, &model.model_id)
-    } else if let Some(profile) = profile {
-        AssistantAgent::new_from_provider_with_profile(prov, &model.model_id, profile)
-    } else {
-        AssistantAgent::new_from_provider(prov, &model.model_id)
-    };
+    let agent = AssistantAgent::try_new_from_provider_with_codex_hint(
+        prov,
+        &model.model_id,
+        profile,
+        codex_token_hint,
+    )
+    .await?;
 
     let mut agent = agent.with_failover_context(prov);
     agent.set_compact_config(compact_config.clone());
@@ -41,7 +41,7 @@ pub(super) fn build_agent_from_snapshot(
         }
     }
 
-    Some(agent)
+    Ok(agent)
 }
 
 // ── Helper functions (moved from commands/chat.rs) ──────────────────

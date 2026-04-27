@@ -151,6 +151,13 @@ pub async fn spawn_subagent(
         let extra_system_context_exec = extra_system_context.clone();
         let skill_allowed_tools_exec = skill_allowed_tools.clone();
         let reasoning_effort_exec = reasoning_effort.clone();
+        let child_session_id_exec = child_session_id_clone.clone();
+
+        let _ = db.append_message(
+            &child_session_id_exec,
+            &crate::session::NewMessage::user(&task),
+        );
+
         let exec_result = std::panic::AssertUnwindSafe(tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
             execute_subagent(
@@ -160,6 +167,8 @@ pub async fn spawn_subagent(
                 model_override_exec,
                 cancel_exec,
                 run_id_exec,
+                child_session_id_exec,
+                db.clone(),
                 attachments_exec,
                 parent_session_id.clone(),
                 plan_agent_mode_exec,
@@ -212,16 +221,16 @@ pub async fn spawn_subagent(
             }
         };
 
-        // Save messages to child session so they're visible when clicking into it
-        let _ = db.append_message(&child_session_id, &crate::session::NewMessage::user(&task));
-        let reply_text = result_text
-            .as_deref()
-            .or(error_text.as_deref())
-            .unwrap_or("(no response)");
-        let _ = db.append_message(
-            &child_session_id,
-            &crate::session::NewMessage::assistant(reply_text),
-        );
+        if !matches!(status, SubagentStatus::Completed) {
+            let reply_text = error_text
+                .as_deref()
+                .or(result_text.as_deref())
+                .unwrap_or("(no response)");
+            let _ = db.append_message(
+                &child_session_id,
+                &crate::session::NewMessage::event(reply_text),
+            );
+        }
 
         // Update DB — guaranteed to run even after panic
         let _ = db.update_subagent_status(
@@ -341,6 +350,8 @@ fn execute_subagent(
     model_override: Option<String>,
     cancel: Arc<AtomicBool>,
     run_id: String,
+    child_session_id: String,
+    session_db: Arc<SessionDB>,
     attachments: Vec<crate::agent::Attachment>,
     parent_session_id: String,
     plan_agent_mode: Option<crate::agent::PlanAgentMode>,
@@ -350,13 +361,7 @@ fn execute_subagent(
     reasoning_effort: Option<String>,
 ) -> impl std::future::Future<Output = Result<(String, Option<String>)>> + Send {
     async move {
-        use crate::agent::AssistantAgent;
-        use crate::failover;
         use crate::provider;
-
-        const MAX_RETRIES: u32 = 2;
-        const RETRY_BASE_MS: u64 = 1000;
-        const RETRY_MAX_MS: u64 = 10_000;
 
         let store = crate::config::cached_config();
 
@@ -424,126 +429,67 @@ fn execute_subagent(
         &task, depth_info
     );
 
-        let mut last_error = String::new();
-        for model_ref in model_chain.iter() {
-            let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
-                Some(p) => p,
-                None => continue,
-            };
-
-            let model_label = format!("{}::{}", model_ref.provider_id, model_ref.model_id);
-            let mut retry_count: u32 = 0;
-
-            loop {
-                // Check cancellation before each attempt
-                if cancel.load(Ordering::SeqCst) {
-                    return Err(anyhow::anyhow!("Sub-agent cancelled"));
-                }
-
-                let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
-                    .with_failover_context(prov);
-                agent.set_agent_id(&agent_id);
-                // Use custom system context if provided (e.g., PLAN_MODE_SYSTEM_PROMPT), otherwise use default
-                if let Some(ref ctx) = extra_system_context_override {
-                    agent.set_extra_system_context(format!("{}\n\n{}", ctx, extra_context));
-                } else {
-                    agent.set_extra_system_context(extra_context.clone());
-                }
-                agent.set_subagent_depth(depth);
-                agent.set_steer_run_id(run_id.clone());
-                // Apply plan agent mode if configured (for plan creation sub-agents)
-                if let Some(ref mode) = plan_agent_mode {
-                    agent.set_plan_agent_mode(mode.clone());
-                    agent.set_plan_mode_allow_paths(plan_mode_allow_paths.clone());
-                }
-                // Apply skill-level tool restriction (for fork-mode skills)
-                if !skill_allowed_tools.is_empty() {
-                    agent.set_skill_allowed_tools(skill_allowed_tools.clone());
-                }
-                // Apply denied_tools from parent agent's subagent config
-                let mut denied = Vec::new();
-                if let Ok(parent_def) = crate::agent_loader::load_agent(&agent_id) {
-                    if !parent_def.config.subagents.denied_tools.is_empty() {
-                        denied.extend(parent_def.config.subagents.denied_tools.clone());
-                    }
-                }
-                // Inherit plan mode tool restrictions from parent session
-                // (prevents subagents from bypassing plan mode safety)
-                // Skip if this sub-agent has its own plan_agent_mode (it IS the plan agent)
-                if plan_agent_mode.is_none() {
-                    let parent_plan_state = crate::plan::get_plan_state(&parent_session_id).await;
-                    if matches!(
-                        parent_plan_state,
-                        crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review
-                    ) {
-                        for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
-                            let t = tool.to_string();
-                            if !denied.contains(&t) {
-                                denied.push(t);
-                            }
-                        }
-                    }
-                }
-                if !denied.is_empty() {
-                    agent.set_denied_tools(denied);
-                }
-
-                let cancel_clone = cancel.clone();
-                let effort_ref = reasoning_effort.as_deref();
-                match agent
-                    .chat(&task, &attachments, effort_ref, cancel_clone, |_delta| {})
-                    .await
-                {
-                    Ok((response, _thinking)) => {
-                        return Ok((response, Some(model_label)));
-                    }
-                    Err(e) => {
-                        last_error = e.to_string();
-                        let reason = failover::classify_error(&last_error);
-
-                        if reason.is_terminal() {
-                            return Err(anyhow::anyhow!("{}", last_error));
-                        }
-
-                        if reason.is_retryable() && retry_count < MAX_RETRIES {
-                            retry_count += 1;
-                            let delay = std::cmp::min(
-                                RETRY_BASE_MS * 2u64.pow(retry_count - 1),
-                                RETRY_MAX_MS,
-                            );
-                            app_warn!(
-                                "subagent",
-                                "retry",
-                                "Model {} failed ({:?}), retry {}/{} in {}ms: {}",
-                                model_label,
-                                reason,
-                                retry_count,
-                                MAX_RETRIES,
-                                delay,
-                                last_error
-                            );
-                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                            continue;
-                        }
-
-                        // Non-retryable or exhausted retries — try next model
-                        app_warn!(
-                            "subagent",
-                            "failover",
-                            "Model {} failed ({:?}), moving to next model: {}",
-                            model_label,
-                            reason,
-                            last_error
-                        );
-                        break;
+        let mut denied = agent_def.config.subagents.denied_tools.clone();
+        if plan_agent_mode.is_none() {
+            let parent_plan_state = crate::plan::get_plan_state(&parent_session_id).await;
+            if matches!(
+                parent_plan_state,
+                crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review
+            ) {
+                for tool in crate::plan::PLAN_MODE_DENIED_TOOLS {
+                    let t = tool.to_string();
+                    if !denied.contains(&t) {
+                        denied.push(t);
                     }
                 }
             }
         }
 
-        Err(anyhow::anyhow!(
-            "All models failed for sub-agent: {}",
-            last_error
-        ))
+        let extra_system_context = if let Some(ctx) = extra_system_context_override {
+            Some(format!("{}\n\n{}", ctx, extra_context))
+        } else {
+            Some(extra_context)
+        };
+
+        let image_gen_config =
+            crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
+
+        let result = crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
+            session_id: child_session_id,
+            agent_id: agent_id.clone(),
+            message: task,
+            attachments,
+            session_db,
+            model_chain,
+            providers: store.providers.clone(),
+            codex_token: None,
+            resolved_temperature: agent_def.config.model.temperature.or(store.temperature),
+            web_search_enabled: crate::tools::web_search::has_enabled_provider(&store.web_search),
+            notification_enabled: false,
+            image_gen_config,
+            canvas_enabled: store.canvas.enabled,
+            compact_config: store.compact.clone(),
+            extra_system_context,
+            reasoning_effort,
+            cancel,
+            plan_agent_mode,
+            plan_mode_allow_paths: Some(plan_mode_allow_paths),
+            skill_allowed_tools,
+            denied_tools: denied,
+            subagent_depth: depth,
+            steer_run_id: Some(run_id),
+            auto_approve_tools: false,
+            follow_global_reasoning_effort: false,
+            post_turn_effects: false,
+            abort_on_cancel: true,
+            persist_final_error_event: false,
+            source: crate::chat_engine::stream_seq::ChatSource::Subagent,
+            event_sink: Arc::new(crate::chat_engine::NoopEventSink),
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("All models failed for sub-agent: {}", e))?;
+
+        let model_used = result.model_used.as_ref().map(ToString::to_string);
+        Ok((result.response, model_used))
     } // async move
 }

@@ -76,6 +76,14 @@ pub trait EventSink: Send + Sync + 'static {
     fn send(&self, event: &str);
 }
 
+/// EventSink that drops every event. Used by callers that don't have a
+/// real-time UI consumer (HTTP one-shot, cron, subagent fork-and-forget).
+pub struct NoopEventSink;
+
+impl EventSink for NoopEventSink {
+    fn send(&self, _event: &str) {}
+}
+
 /// EventSink for IM channel worker — pushes streaming events via the global EventBus
 /// AND forwards them to a background task for progressive Telegram message editing.
 ///
@@ -176,9 +184,24 @@ pub struct ChatEngineParams {
     pub plan_mode_allow_paths: Option<Vec<String>>,
     /// Skill-level tool restriction (set when a skill with `allowed-tools` is activated)
     pub skill_allowed_tools: Vec<String>,
+    /// Tools denied by the caller's execution policy.
+    pub denied_tools: Vec<String>,
+    /// Current sub-agent nesting depth for tool schema filtering and child spawns.
+    pub subagent_depth: u32,
+    /// Sub-agent run id whose steer mailbox should be drained each tool round.
+    pub steer_run_id: Option<String>,
 
     /// When true, all tool calls are auto-approved (IM channel auto-approve mode).
     pub auto_approve_tools: bool,
+    /// Whether provider loops should re-read global reasoning effort mid-turn.
+    pub follow_global_reasoning_effort: bool,
+    /// Whether to schedule title/memory/skill-review follow-ups after success.
+    pub post_turn_effects: bool,
+    /// Whether a caller-triggered cancel should discard the partial response and
+    /// return an error to the caller instead of persisting a final assistant row.
+    pub abort_on_cancel: bool,
+    /// Whether run_chat_engine should persist its own final error event.
+    pub persist_final_error_event: bool,
 
     /// Which caller opened this stream. Drives the `activeChatCounts`
     /// breakdown surfaced in `/api/server/status`.

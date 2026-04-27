@@ -372,12 +372,32 @@ async fn run_agent_for_session(agent_id: &str, message: &str, session_id: &str) 
             None => continue,
         };
 
-        let model_label = format!("{}::{}", model_ref.provider_id, model_ref.model_id);
+        let model_label = model_ref.to_string();
         let mut retry_count: u32 = 0;
 
         loop {
-            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
-                .with_failover_context(prov);
+            let mut agent =
+                match AssistantAgent::try_new_from_provider(prov, &model_ref.model_id).await {
+                    Ok(a) => a.with_failover_context(prov),
+                    Err(e) => {
+                        last_error = e.to_string();
+                        let reason = failover::classify_error(&last_error);
+                        if reason.is_retryable() && retry_count < 2 {
+                            retry_count += 1;
+                            let delay = failover::retry_delay_ms(retry_count - 1, 1000, 10_000);
+                            tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                            continue;
+                        }
+                        app_warn!(
+                            "tool",
+                            "sessions_send",
+                            "Build agent failed for {}, trying next model: {}",
+                            model_label,
+                            last_error
+                        );
+                        break;
+                    }
+                };
             agent.set_agent_id(agent_id);
             agent.set_session_id(session_id);
             agent.set_extra_system_context(

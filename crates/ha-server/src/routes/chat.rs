@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use ha_core::agent::Attachment;
-use ha_core::chat_engine::{ChatEngineParams, EventSink};
+use ha_core::chat_engine::{ChatEngineParams, EventSink, NoopEventSink};
 use ha_core::provider::{self, ActiveModel};
 use ha_core::session;
 use ha_core::tools;
@@ -105,18 +105,6 @@ pub struct SystemPromptBody {
     pub session_id: Option<String>,
 }
 
-// ── HTTP EventSink ──────────────────────────────────────────────
-
-/// HTTP mode delivers chat stream deltas through the global EventBus
-/// (`chat:stream_delta` over `/ws/events`). `run_chat_engine` still requires a
-/// per-call sink because desktop and channel modes use it directly, so HTTP
-/// passes a no-op sink and lets the shared EventBus broadcast path do the work.
-struct NoopSink;
-
-impl EventSink for NoopSink {
-    fn send(&self, _event: &str) {}
-}
-
 // ── Handlers ───────────────────────────────────────────────────
 
 /// `POST /api/chat` — run chat engine, streaming events via WebSocket.
@@ -206,17 +194,8 @@ pub async fn chat(
     // Resolve feature flags from store
     let web_search_enabled = ha_core::tools::web_search::has_enabled_provider(&store.web_search);
     let notification_enabled = store.notification.enabled;
-    let image_gen_config = {
-        if ha_core::tools::image_generate::has_configured_provider_from_config(
-            &store.image_generate,
-        ) {
-            let mut cfg = store.image_generate.clone();
-            ha_core::tools::image_generate::backfill_providers(&mut cfg);
-            Some(cfg)
-        } else {
-            None
-        }
-    };
+    let image_gen_config =
+        ha_core::tools::image_generate::resolve_image_gen_config(&store.image_generate);
     let canvas_enabled = store.canvas.enabled;
     let compact_config = store.compact.clone();
 
@@ -244,7 +223,7 @@ pub async fn chat(
 
     // HTTP stream delivery uses `/ws/events` via `chat:stream_delta`; the
     // EventBus bridge performs the HTTP attachment URL rewrite there.
-    let event_sink: Arc<dyn EventSink> = Arc::new(NoopSink);
+    let event_sink: Arc<dyn EventSink> = Arc::new(NoopEventSink);
 
     let engine_params = ChatEngineParams {
         session_id: sid.clone(),
@@ -267,7 +246,14 @@ pub async fn chat(
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
+        denied_tools: Vec::new(),
+        subagent_depth: 0,
+        steer_run_id: None,
         auto_approve_tools: false,
+        follow_global_reasoning_effort: true,
+        post_turn_effects: true,
+        abort_on_cancel: false,
+        persist_final_error_event: true,
         source: ha_core::chat_engine::stream_seq::ChatSource::Http,
         event_sink,
     };

@@ -23,6 +23,19 @@ pub fn has_configured_provider_from_config(config: &ImageGenConfig) -> bool {
         .any(|p| p.enabled && p.api_key.as_ref().map_or(false, |k| !k.is_empty()))
 }
 
+/// Build the image-gen config snapshot to pass to `run_chat_engine` /
+/// `AssistantAgent`. Returns `None` when no provider has an API key
+/// configured. Performs the same `backfill_providers` step every entry path
+/// would otherwise repeat inline.
+pub fn resolve_image_gen_config(config: &ImageGenConfig) -> Option<ImageGenConfig> {
+    if !has_configured_provider_from_config(config) {
+        return None;
+    }
+    let mut cfg = config.clone();
+    super::backfill_providers(&mut cfg);
+    Some(cfg)
+}
+
 /// Get the display name for a provider entry.
 pub fn provider_display_name(entry: &ImageGenProviderEntry) -> String {
     super::resolve_provider(&entry.id)

@@ -7,12 +7,6 @@ use super::db::CronDB;
 use super::delivery::{deliver_results, DeliveryOutcome};
 use super::types::*;
 
-struct CronNoopSink;
-
-impl crate::chat_engine::EventSink for CronNoopSink {
-    fn send(&self, _event: &str) {}
-}
-
 /// Public wrapper for execute_job, callable from Tauri commands.
 pub async fn execute_job_public(
     cron_db: &Arc<CronDB>,
@@ -290,14 +284,7 @@ pub async fn build_and_run_agent_with_context(
         store.notification.enabled && agent_notify_on_complete != Some(false);
 
     let image_gen_config =
-        if crate::tools::image_generate::has_configured_provider_from_config(&store.image_generate)
-        {
-            let mut cfg = store.image_generate.clone();
-            crate::tools::image_generate::backfill_providers(&mut cfg);
-            Some(cfg)
-        } else {
-            None
-        };
+        crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
 
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.to_string(),
@@ -333,11 +320,18 @@ pub async fn build_and_run_agent_with_context(
         plan_agent_mode: None,
         plan_mode_allow_paths: None,
         skill_allowed_tools: Vec::new(),
+        denied_tools: Vec::new(),
+        subagent_depth: 0,
+        steer_run_id: None,
         auto_approve_tools: false,
+        follow_global_reasoning_effort: true,
+        post_turn_effects: true,
+        abort_on_cancel: false,
+        persist_final_error_event: true,
         // Cron is a background/non-interactive runner. Reuse the channel bucket
         // until the status UI grows a dedicated cron source.
         source: crate::chat_engine::stream_seq::ChatSource::Channel,
-        event_sink: Arc::new(CronNoopSink),
+        event_sink: Arc::new(crate::chat_engine::NoopEventSink),
     };
 
     match crate::chat_engine::run_chat_engine(engine_params).await {

@@ -118,7 +118,7 @@ async fn run_summary(query: &str, context: &str, cfg: &RecallSummaryConfig) -> R
         context = context,
     );
     let config = crate::config::cached_config();
-    let (agent, _model_id) = crate::recap::report::build_analysis_agent(&config)?;
+    let (agent, _model_id) = crate::recap::report::build_analysis_agent(&config).await?;
     let fut = agent.side_query(&prompt, cfg.max_tokens);
     let result = tokio::time::timeout(Duration::from_secs(cfg.timeout_secs), fut)
         .await

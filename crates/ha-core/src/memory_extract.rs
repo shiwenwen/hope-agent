@@ -234,7 +234,8 @@ async fn do_extraction(
         // Fallback: create temp agent (no cache sharing). Use side_query so
         // Codex hydrates OAuth from disk through build_llm_provider instead
         // of sending the placeholder provider token from config.
-        let mut agent = AssistantAgent::new_from_provider(provider_config, model_id)
+        let mut agent = AssistantAgent::try_new_from_provider(provider_config, model_id)
+            .await?
             .with_failover_context(provider_config);
         agent.set_agent_id(agent_id);
         agent.set_session_id(session_id);
@@ -421,7 +422,8 @@ pub async fn flush_before_compact(
         .replace("{EXISTING}", &existing_summary)
         .replace("{MESSAGES}", &messages_text);
 
-    let mut agent = AssistantAgent::new_from_provider(provider_config, model_id)
+    let mut agent = AssistantAgent::try_new_from_provider(provider_config, model_id)
+        .await?
         .with_failover_context(provider_config);
     agent.set_agent_id(agent_id);
     agent.set_session_id(session_id);

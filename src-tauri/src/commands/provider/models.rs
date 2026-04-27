@@ -38,7 +38,7 @@ pub(crate) async fn set_active_model_core(
             *state.agent.lock().await = Some(agent);
         }
     } else {
-        let agent = AssistantAgent::new_from_provider(&provider, model_id);
+        let agent = AssistantAgent::try_new_from_provider(&provider, model_id).await?;
         *state.agent.lock().await = Some(agent);
     }
     Ok(())

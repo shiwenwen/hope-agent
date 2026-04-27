@@ -537,6 +537,12 @@ pub struct ActiveModel {
     pub model_id: String,
 }
 
+impl std::fmt::Display for ActiveModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}::{}", self.provider_id, self.model_id)
+    }
+}
+
 // ── Flat model list item for frontend ─────────────────────────────
 
 /// A model entry combining provider info, for the frontend model selector

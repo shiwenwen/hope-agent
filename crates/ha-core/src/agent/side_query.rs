@@ -359,18 +359,44 @@ mod tests {
     }
 
     #[test]
-    fn direct_codex_side_query_hydrates_placeholder_provider_auth() {
+    #[should_panic(expected = "Codex providers require AssistantAgent::try_new_from_provider")]
+    fn sync_codex_provider_constructor_panics() {
         let provider = ProviderConfig::new(
             "Codex".to_string(),
             ApiType::Codex,
             ApiType::Codex.default_base_url().to_string(),
             String::new(),
         );
-        let agent = AssistantAgent::new_from_provider(&provider, "gpt-5.5");
+        let _ = AssistantAgent::new_from_provider(&provider, "gpt-5.5");
+    }
 
-        assert!(codex_direct_needs_oauth_hydration(&agent.provider));
-
+    #[test]
+    fn hydrated_codex_side_query_does_not_need_oauth_hydration() {
         let hydrated = AssistantAgent::new_openai("token", "account", "gpt-5.5");
         assert!(!codex_direct_needs_oauth_hydration(&hydrated.provider));
+    }
+
+    #[test]
+    fn empty_codex_provider_needs_oauth_hydration() {
+        let placeholder = LlmProvider::Codex {
+            access_token: String::new(),
+            account_id: String::new(),
+            model: "gpt-5.5".to_string(),
+        };
+        assert!(codex_direct_needs_oauth_hydration(&placeholder));
+
+        let token_only = LlmProvider::Codex {
+            access_token: "token".to_string(),
+            account_id: String::new(),
+            model: "gpt-5.5".to_string(),
+        };
+        assert!(codex_direct_needs_oauth_hydration(&token_only));
+
+        let account_only = LlmProvider::Codex {
+            access_token: String::new(),
+            account_id: "account".to_string(),
+            model: "gpt-5.5".to_string(),
+        };
+        assert!(codex_direct_needs_oauth_hydration(&account_only));
     }
 }

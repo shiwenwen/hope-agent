@@ -8,6 +8,24 @@ use super::{
     PENDING_INJECTIONS, SESSION_IDLE_NOTIFY,
 };
 
+struct ParentInjectionSink {
+    parent_session_id: String,
+    run_id: String,
+}
+
+impl crate::chat_engine::EventSink for ParentInjectionSink {
+    fn send(&self, event: &str) {
+        emit_parent_stream_event(&ParentAgentStreamEvent {
+            event_type: "delta".into(),
+            parent_session_id: self.parent_session_id.clone(),
+            run_id: self.run_id.clone(),
+            push_message: None,
+            delta: Some(event.to_string()),
+            error: None,
+        });
+    }
+}
+
 /// A deferred injection task that was cancelled and needs to be retried.
 #[derive(Clone)]
 pub(super) struct PendingInjection {
@@ -103,8 +121,6 @@ pub(crate) async fn inject_and_run_parent(
     push_message: String,
     session_db: Arc<crate::session::SessionDB>,
 ) {
-    use crate::agent::AssistantAgent;
-    use crate::failover;
     use crate::provider;
 
     // 0. Skip if the parent agent already fetched this result via check/result tool
@@ -274,10 +290,6 @@ pub(crate) async fn inject_and_run_parent(
         return;
     }
 
-    const MAX_RETRIES: u32 = 2;
-    const RETRY_BASE_MS: u64 = 1000;
-    const RETRY_MAX_MS: u64 = 10_000;
-
     let mut last_error = String::new();
     let mut succeeded = false;
 
@@ -304,134 +316,88 @@ pub(crate) async fn inject_and_run_parent(
         let _ = session_db.append_message(&parent_session_id, &user_msg);
     }
 
-    'outer: for model_ref in &model_chain {
-        let prov = match provider::find_provider(&store.providers, &model_ref.provider_id) {
-            Some(p) => p,
-            None => continue,
-        };
-        let model_label = format!("{}::{}", model_ref.provider_id, model_ref.model_id);
-        let mut retry_count = 0u32;
+    if cancel.load(Ordering::SeqCst) {
+        app_info!(
+            "subagent",
+            "inject",
+            "Injection cancelled before attempt for session {}",
+            &parent_session_id
+        );
+    } else {
+        let parent_agent_def = crate::agent_loader::load_agent(&parent_agent_id).ok();
+        let image_gen_config =
+            crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
 
-        loop {
-            // Check cancel before each attempt
-            if cancel.load(Ordering::SeqCst) {
+        match crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
+            session_id: parent_session_id.clone(),
+            agent_id: parent_agent_id.clone(),
+            message: push_message.clone(),
+            attachments: Vec::new(),
+            session_db: session_db.clone(),
+            model_chain,
+            providers: store.providers.clone(),
+            codex_token: None,
+            resolved_temperature: parent_agent_def
+                .as_ref()
+                .and_then(|def| def.config.model.temperature)
+                .or(store.temperature),
+            web_search_enabled: crate::tools::web_search::has_enabled_provider(&store.web_search),
+            notification_enabled: false,
+            image_gen_config,
+            canvas_enabled: store.canvas.enabled,
+            compact_config: store.compact.clone(),
+            extra_system_context: None,
+            reasoning_effort: crate::agent::live_reasoning_effort(None).await,
+            cancel: cancel.clone(),
+            plan_agent_mode: None,
+            plan_mode_allow_paths: None,
+            skill_allowed_tools: Vec::new(),
+            denied_tools: Vec::new(),
+            subagent_depth: 0,
+            steer_run_id: None,
+            auto_approve_tools: false,
+            follow_global_reasoning_effort: false,
+            post_turn_effects: false,
+            abort_on_cancel: true,
+            persist_final_error_event: false,
+            source: crate::chat_engine::stream_seq::ChatSource::ParentInjection,
+            event_sink: Arc::new(ParentInjectionSink {
+                parent_session_id: parent_session_id.clone(),
+                run_id: run_id.clone(),
+            }),
+        })
+        .await
+        {
+            Ok(result) => {
+                // run_chat_engine returning Ok means the reply was persisted.
+                // Mark succeeded unconditionally — even if cancel flipped to
+                // true after Ok was produced (user started new chat in the
+                // narrow post-return window), re-queueing would write a
+                // duplicate sub-agent completion to the parent conversation.
+                let model_label = result
+                    .model_used
+                    .as_ref()
+                    .map(ToString::to_string)
+                    .unwrap_or_else(|| "(unknown model)".to_string());
                 app_info!(
                     "subagent",
                     "inject",
-                    "Injection cancelled before attempt for session {}",
-                    &parent_session_id
+                    "Parent agent {} responded via model {}",
+                    &parent_agent_id,
+                    model_label
                 );
-                break 'outer;
+                succeeded = true;
             }
-
-            let mut agent = AssistantAgent::new_from_provider(prov, &model_ref.model_id)
-                .with_failover_context(prov);
-            agent.set_agent_id(&parent_agent_id);
-            agent.set_session_id(&parent_session_id);
-
-            // Restore parent conversation history from DB
-            if let Ok(Some(json_str)) = session_db.load_context(&parent_session_id) {
-                if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
-                    if !history.is_empty() {
-                        agent.set_conversation_history(history);
-                    }
-                }
-            }
-
-            let cancel_for_chat = cancel.clone();
-            let parent_sid_for_cb = parent_session_id.clone();
-            let run_id_for_cb = run_id.clone();
-
-            let persister = crate::chat_engine::persister::StreamPersister::new();
-            let persist_cb = persister.build_callback(&session_db, parent_session_id.clone());
-            let chat_start = std::time::Instant::now();
-
-            match agent
-                .chat(&push_message, &[], None, cancel_for_chat, move |delta| {
-                    persist_cb(delta);
-                    emit_parent_stream_event(&ParentAgentStreamEvent {
-                        event_type: "delta".into(),
-                        parent_session_id: parent_sid_for_cb.clone(),
-                        run_id: run_id_for_cb.clone(),
-                        push_message: None,
-                        delta: Some(delta.to_string()),
-                        error: None,
-                    });
-                })
-                .await
-            {
-                Ok((response, thinking)) => {
-                    // Cancelled mid-chat: skip the final assistant row so
-                    // the user's new chat takes over. Intermediate rows
-                    // written by the callback stay — they anchor to the
-                    // push user_msg and accurately reflect what executed.
-                    if cancel.load(Ordering::SeqCst) {
-                        app_info!(
-                            "subagent",
-                            "inject",
-                            "Injection cancelled during execution for session {}",
-                            &parent_session_id
-                        );
-                        break 'outer;
-                    }
-                    let duration_ms = chat_start.elapsed().as_millis() as u64;
-                    persister.flush_remaining_thinking(&session_db, &parent_session_id);
-                    let assistant_msg =
-                        persister.build_assistant_message(&response, thinking, duration_ms);
-                    let _ = session_db.append_message(&parent_session_id, &assistant_msg);
-                    // Save updated conversation history
-                    let history = agent.get_conversation_history();
-                    if let Ok(json_str) = serde_json::to_string(&history) {
-                        let _ = session_db.save_context(&parent_session_id, &json_str);
-                    }
+            Err(e) => {
+                if cancel.load(Ordering::SeqCst) {
                     app_info!(
                         "subagent",
                         "inject",
-                        "Parent agent {} responded via model {}",
-                        &parent_agent_id,
-                        model_label
+                        "Injection cancelled (error path) for session {}",
+                        &parent_session_id
                     );
-                    succeeded = true;
-                    break 'outer;
-                }
-                Err(e) => {
-                    if cancel.load(Ordering::SeqCst) {
-                        app_info!(
-                            "subagent",
-                            "inject",
-                            "Injection cancelled (error path) for session {}",
-                            &parent_session_id
-                        );
-                        break 'outer;
-                    }
-                    last_error = e.to_string();
-                    let reason = failover::classify_error(&last_error);
-                    if reason.is_terminal() {
-                        app_error!(
-                            "subagent",
-                            "inject",
-                            "Terminal error from {}: {}",
-                            model_label,
-                            last_error
-                        );
-                        break 'outer;
-                    }
-                    if reason.is_retryable() && retry_count < MAX_RETRIES {
-                        retry_count += 1;
-                        let delay =
-                            std::cmp::min(RETRY_BASE_MS * 2u64.pow(retry_count - 1), RETRY_MAX_MS);
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                        continue;
-                    }
-                    app_warn!(
-                        "subagent",
-                        "inject",
-                        "Model {} failed ({:?}), trying next: {}",
-                        model_label,
-                        reason,
-                        last_error
-                    );
-                    break;
+                } else {
+                    last_error = e;
                 }
             }
         }
@@ -446,8 +412,11 @@ pub(crate) async fn inject_and_run_parent(
         );
     }
 
-    // 6. Emit final event
-    let was_cancelled = cancel.load(Ordering::SeqCst);
+    // 6. Emit final event. Order matters: a successful Ok already persisted
+    // the reply, so even if cancel was set after the run completed, we must
+    // not re-queue (would duplicate the sub-agent completion in the parent
+    // conversation).
+    let was_cancelled = !succeeded && cancel.load(Ordering::SeqCst);
     if was_cancelled {
         // Re-queue for retry after the user's chat completes
         if let Ok(mut queue) = PENDING_INJECTIONS.lock() {

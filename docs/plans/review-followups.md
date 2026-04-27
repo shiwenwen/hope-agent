@@ -30,6 +30,41 @@
 
 ## Open
 
+### F-021 `acp/agent.rs` 每 RPC 新建 tokio runtime + Codex token 每 retry 重复 load
+
+- **来源**：2026-04-27 chat-engine subagent 收敛 PR `/simplify` review（efficiency agent）
+- **现象**：
+  - [`crates/ha-core/src/acp/agent.rs::build_agent`](../../crates/ha-core/src/acp/agent.rs) 在每次 RPC 请求里 `tokio::runtime::Builder::new_current_thread().enable_all().build()?` 新建一个 runtime 只为 `block_on` 一次 `try_new_from_provider`。`build_agent` 与 `run_agent_chat` 各自 build 自己的 runtime——同一个 "new session → prompt" 序列会发两次 runtime 分配 / 销毁
+  - `run_agent_chat` 的 `model_chain × retry` 循环里每次 attempt 都会跑一次 `try_new_from_provider`，对 Codex 走的是 `oauth::load_fresh_codex_token()`——内部**没有**进程级缓存，每次都是 disk read（可能再叠 token endpoint roundtrip）。N model × M retry 次失败可重试场景下放大很明显
+- **为什么留**：
+  - 收敛 runtime 需要把 `Runtime` 实例挂到 `AcpAgent` 上，构造 / shutdown 顺序要重排——ACP 入口是 sync stdio 主循环，没有外层 runtime 可借（`Handle::try_current()` / `block_in_place` 都不可行），改动有顺序敏感性
+  - `oauth::load_fresh_codex_token` 加 in-memory cache 涉及锁 / TTL 选择 / refresh-when-near-expiry 边界，得跟 `ensure_fresh_codex_token` 已有的"prime 后写盘"路径协调，不是单点替换
+  - ACP 是低频调用路径（每个 RPC ~人手速度），实际产线压力低，不阻塞 chat-engine 收敛主目标
+- **改的话要做什么**：
+  1. 在 [`AcpAgent::new`](../../crates/ha-core/src/acp/agent.rs) 持有 `Arc<tokio::runtime::Runtime>`，`build_agent` / `run_agent_chat` 改成 `&self.rt` 复用；构造在 `new` 里失败也 `Result<Self>` 回报
+  2. 在 [`crates/ha-core/src/oauth.rs`](../../crates/ha-core/src/oauth.rs) 加进程级 `OnceCell<Mutex<Option<TokenCache>>>` 缓存，`load_fresh_codex_token` 优先读缓存；写盘路径（`refresh_access_token` / `save_token`）同步 invalidate 缓存。或者在 `AcpAgent::run_agent_chat` 顶部一次性 `load_fresh_codex_token` 然后逐 retry 直接构造 `LlmProvider::Codex { ... }`，绕过外层 `try_new_from_provider`
+- **影响面**：纯效率，无可见 bug。runtime 浪费每次 ~ms 级（本地默认 num_workers=1），token reload 在网络抖动期会放大失败 latency。Codex 用户在 ACP 模式失败重试时最容易感知
+- **触发时机建议**：下一次动 ACP（新协议字段、prompt routing 改动）或 Codex OAuth 流程（refresh logic / 新 grant）时顺手收掉；或独立 "ACP runtime / OAuth caching" 重构 PR
+
+---
+
+### F-020 `ChatEngineParams` 7 个新 boolean / option 字段应收敛成 `ExecutionMode` 枚举
+
+- **来源**：2026-04-27 chat-engine subagent 收敛 PR `/simplify` review（quality agent）
+- **现象**：[`crates/ha-core/src/chat_engine/types.rs::ChatEngineParams`](../../crates/ha-core/src/chat_engine/types.rs) 在本期为统一 subagent / parent injection 路径加了 7 个新字段：`denied_tools`、`subagent_depth`、`steer_run_id`、`follow_global_reasoning_effort`、`post_turn_effects`、`abort_on_cancel`、`persist_final_error_event`。实际只有两个语义轴：
+  - **Foreground**（4 处：[`src-tauri/src/commands/chat.rs`](../../src-tauri/src/commands/chat.rs)、[`crates/ha-server/src/routes/chat.rs`](../../crates/ha-server/src/routes/chat.rs)、[`crates/ha-core/src/channel/worker/dispatcher.rs`](../../crates/ha-core/src/channel/worker/dispatcher.rs)、[`crates/ha-core/src/cron/executor.rs`](../../crates/ha-core/src/cron/executor.rs)）— 全部 `follow_global_reasoning_effort: true, post_turn_effects: true, abort_on_cancel: false, persist_final_error_event: true`
+  - **Background**（2 处：[`crates/ha-core/src/subagent/spawn.rs`](../../crates/ha-core/src/subagent/spawn.rs)、[`crates/ha-core/src/subagent/injection.rs`](../../crates/ha-core/src/subagent/injection.rs)）— 全部反向：`false, false, true, false`
+- **为什么留**：4 个 boolean 完美关联，确实可以收敛成 `enum ExecutionMode { Foreground, Background { abort_on_cancel: bool } }` + `denied_tools / subagent_depth / steer_run_id` 也只在 Background 非默认。但改动要触达 ha-core / ha-server / src-tauri 三个 crate 的 6 个调用点，本期 `/simplify` 已经在做 subagent 收敛 + ChatSource 谓词抽取 + image_gen helper 抽取等多项整理，再叠加 enum 重构会让 PR 进一步膨胀，超出 simplify 单次合理范围
+- **改的话要做什么**：
+  1. 在 [`crates/ha-core/src/chat_engine/types.rs`](../../crates/ha-core/src/chat_engine/types.rs) 新增 `pub enum ExecutionMode { Foreground, Background { abort_on_cancel: bool, denied_tools: Vec<String>, subagent_depth: u32, steer_run_id: Option<String> } }`
+  2. 把 `follow_global_reasoning_effort` / `post_turn_effects` / `persist_final_error_event` 三个固定相关字段从 `ChatEngineParams` 删除，由 `mode.is_foreground()` 推导
+  3. 给 `ChatEngineParams` 加 `pub fn foreground(...)` / `pub fn background(...)` 构造函数，6 个调用点全部改成 builder 风格
+  4. 同步更新 [`docs/architecture/chat-engine.md`](../../docs/architecture/chat-engine.md) 如果有的话
+- **影响面**：纯整洁度。当前所有调用点都正确，但 `false / true` 字面量噪声大，新增第 7 个 caller（例如未来 ACP 走 chat_engine）时容易漏字段（编译错保住但语义对不齐 review 才能抓）
+- **触发时机建议**：下次有第 7 个 chat_engine 调用点要新加（例如 ACP 改走 `run_chat_engine` 复用主路径），或下次需要再加第 8 个 mode-related boolean / option 字段时一次性收掉；不要单独立 PR
+
+---
+
 ### F-019 SSE 解析器在 4 处 LLM / IM stream 重复实现
 
 - **来源**：2026-04-26 F-004 重新核查时分流出来

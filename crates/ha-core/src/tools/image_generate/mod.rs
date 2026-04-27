@@ -26,7 +26,7 @@ pub use types::backfill_providers;
 // Public helpers
 pub use helpers::{
     effective_model, has_configured_provider, has_configured_provider_from_config,
-    provider_display_name,
+    provider_display_name, resolve_image_gen_config,
 };
 // Tool entry point
 pub(crate) use generate::tool_image_generate;
