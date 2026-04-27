@@ -280,7 +280,7 @@ export default function IconSidebar({
 
         <div className="flex-1" />
 
-        <div className="py-3 flex flex-col gap-2">
+        <div className="py-3 flex flex-col items-center gap-2">
           {/* Server runtime health — always visible so users can catch port
               conflicts, high WS load, etc. without opening Settings. */}
           <ServerStatusIndicator onOpen={() => onOpenSettings("server")} />
