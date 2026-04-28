@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo-alpha.png" alt="Hope Agent" width="200">
+  <img src="alpha-logo.png" alt="Hope Agent" width="200">
 </p>
 
 <h1 align="center">Hope Agent</h1>
