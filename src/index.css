@@ -230,6 +230,43 @@
   animation: text-shimmer 2.5s ease-in-out infinite;
 }
 
+/* Stable rolling digits for live tool summary counters */
+.tool-count-number {
+  display: inline-grid;
+  grid-auto-flow: column;
+  justify-content: end;
+  min-width: 2ch;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  vertical-align: -0.08em;
+}
+
+.tool-count-digit {
+  display: inline-block;
+  width: 1ch;
+  height: 1em;
+  overflow: hidden;
+  contain: layout paint;
+}
+
+.tool-count-digit-placeholder {
+  visibility: hidden;
+}
+
+.tool-count-digit-reel {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+  transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.tool-count-digit-reel > span {
+  display: block;
+  height: 1em;
+  line-height: 1;
+  text-align: center;
+}
+
 /* Respect reduced motion preferences */
 @media (prefers-reduced-motion: reduce) {
   *,

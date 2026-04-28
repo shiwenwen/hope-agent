@@ -53,6 +53,58 @@ const GROUP_ICONS: Record<ExecutionToolGroupLabelKey, React.ComponentType<{ clas
   skill: Puzzle,
 }
 
+const DIGITS = Array.from("0123456789")
+
+function RollingNumber({ value }: { value: string }) {
+  const slotCount = Math.max(2, value.length)
+  const padded = value.padStart(slotCount, "0")
+  const firstVisibleIndex = padded.length - value.length
+
+  return (
+    <span className="tool-count-number" role="text" aria-label={value}>
+      {Array.from(padded).map((digit, idx) => {
+        const digitValue = Number(digit)
+        const isPlaceholder = idx < firstVisibleIndex
+
+        return (
+          <span
+            key={`${slotCount}-${idx}`}
+            className={cn(
+              "tool-count-digit",
+              isPlaceholder && "tool-count-digit-placeholder",
+            )}
+            aria-hidden="true"
+          >
+            <span
+              className="tool-count-digit-reel"
+              style={{ transform: `translateY(-${digitValue}em)` }}
+            >
+              {DIGITS.map((item) => (
+                <span key={item}>{item}</span>
+              ))}
+            </span>
+          </span>
+        )
+      })}
+    </span>
+  )
+}
+
+function StableNumericLabel({ text }: { text: string }) {
+  const parts = text.split(/(\d+)/g)
+
+  return (
+    <>
+      {parts.map((part, idx) => {
+        if (/^\d+$/.test(part)) {
+          return <RollingNumber key={idx} value={part} />
+        }
+        return part
+      })}
+    </>
+  )
+}
+
 /** Check if a read tool call targets a SKILL.md file, return skill name if so */
 function getSkillName(tool: ToolCall): string | null {
   if (tool.name !== "read") return null
@@ -291,7 +343,9 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
                     <span className="absolute -right-0.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-muted-foreground/60 ring-1 ring-card animate-pulse" />
                   )}
                 </span>
-                <span>{segment.label}</span>
+                <span className="whitespace-nowrap">
+                  <StableNumericLabel text={segment.label} />
+                </span>
               </span>
             )
           })}
