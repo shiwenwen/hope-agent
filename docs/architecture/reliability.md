@@ -531,6 +531,8 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 - **执行失败 → 任务级指数退避**，连续失败 N 次自动 disable 任务（不是 disable 整个 scheduler）
 - **scheduler 线程 panic** → tokio runtime 内 `tokio::spawn` 自杀，独立 OS 线程也跟着退；下一次 process 重启（Guardian / launchd）会重新拉起整套
 
+**已知缺口**：cron scheduler 当前**没有**通过 `runtime_lock::is_primary()` 做 Primary/Secondary gate——多进程并存（例如桌面端开着同时 `hope-agent server` 也在跑）时两边 scheduler 都会 tick。靠上面"幂等 claim"的原子 SQL 兜底数据正确性，但 spawn 多次 worker / 重复抢锁是浪费的，远期需要在 scheduler 入口加 `is_primary()` 闸。这是已知缺口、不是已修问题。
+
 ### 8.4 tokio 任务 panic 不杀进程
 
 通用约定（[`process-model.md §Layer C`](process-model.md#layer-c--长驻-tokio-任务复用主-runtime)）：
@@ -548,6 +550,19 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 - 单次 chat 请求失败 → failover 决策 → 不影响进程
 - 一整 chat session 失败 → 错误返回前端 → 不影响进程
 - 进程崩 → Guardian 接手 → 重启后所有未完成 chat 视为"中断"，前端拿不到结果但不会数据损坏
+
+### 8.6 runtime_tasks · 统一取消接口
+
+[`runtime_tasks.rs`](../../crates/ha-core/src/runtime_tasks.rs) 把"取消一个跑着的后台任务"抽成单一入口 `cancel_runtime_task(kind, id)`，覆盖 4 种 `RuntimeTaskKind`：
+
+| kind | 含义 | id 语义 |
+|------|------|---------|
+| `AsyncJob` | async-capable 工具 detach 出去的 job | `async_jobs.db` 里的 `job_id` |
+| `Subagent` | sub-agent / team member 子会话运行 | subagent runs 表的 `run_id` |
+| `Process` | `exec` 创建的后台 PTY 会话 | `process_sessions` 的 `session_id` |
+| `Cron` | 正在执行中的某次 cron tick | `cron_jobs.id` |
+
+调用方包括前端「取消」按钮、`runtime_cancel` 工具（[`crates/ha-core/src/tools/runtime_cancel.rs`](../../crates/ha-core/src/tools/runtime_cancel.rs)，`always_load + internal`）和后端清理路径。取消是 best-effort——已经终态的任务不再二次写入；正在跑的任务通过各子模块自有的 cancel token / kill 信号收尾。把 4 类后台任务的 cancel 收口到一处，前端不用再为每种类型记一套 invoke 名，模型也只需要学一个工具就能管全部 background work。
 
 ---
 
@@ -612,3 +627,5 @@ Guardian 处理"整个进程崩了"。下一档是"进程活着但**某个子系
 - [IM 渠道系统](im-channel.md)——12 个 channel worker 的独立失败隔离与重连
 - [Cron 调度](cron.md)——任务级失败退避与 scheduler 自身的 panic 恢复
 - [日志系统](logging.md)——`app_warn!` / `app_error!` 约定（业务路径必须主动记录而非 `unwrap()`）
+- `runtime_lock`（[`crates/ha-core/src/runtime_lock.rs`](../../crates/ha-core/src/runtime_lock.rs)）——Primary/Secondary 选举 + advisory lock，决定哪个进程承担 cron / channel 等单实例后台任务
+- `runtime_tasks`（[`crates/ha-core/src/runtime_tasks.rs`](../../crates/ha-core/src/runtime_tasks.rs)）——`RuntimeTaskKind` 4 类（async_job / subagent / process / cron）统一 cancel 入口，前端 / `runtime_cancel` 工具共享同一 dispatch

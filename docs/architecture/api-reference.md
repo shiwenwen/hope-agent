@@ -6,27 +6,27 @@
 
 Hope Agent 前端通过 `Transport` 抽象层和后端通信，内部根据运行环境自动在 Tauri IPC 和 HTTP/WebSocket 之间切换。本文档把两条通道上的**每一条接口**列成一一对应的表格，并标记对齐状态。
 
-## 数据来源（截至 2026-04-24）
+## 数据来源（截至 2026-04-28）
 
 | 源 | 位置 | 数量 |
 |---|---|---|
-| Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **383** |
-| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **387** |
-| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **378** |
+| Tauri 命令 | `src-tauri/src/lib.rs` 的 `tauri::generate_handler!` | **431** |
+| HTTP 路由 | `crates/ha-server/src/lib.rs` 的 `.route(...)` | **430** |
+| 前端 COMMAND_MAP | `src/lib/transport-http.ts::COMMAND_MAP` | **424** |
 | WebSocket 端点 | `crates/ha-server/src/ws/` | **1** |
-| EventBus 事件 | 全代码 `emit_event` 调用 | **52+** |
+| EventBus 事件 | 全代码 `emit_event` 调用 | **55+** |
 
 ## 对齐情况摘要
 
 | 分类 | 数量 | 说明 |
 |---|---|---|
-| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 378 | 常规请求/响应命令（所有 COMMAND_MAP 条目都有 Tauri 命令对应） |
-| 🔧 特殊 multipart 处理（不在 COMMAND_MAP 但 HTTP 已实现） | 1 | `save_avatar` |
+| ✅ 两端完全对齐（在 COMMAND_MAP 中） | 424 | 常规请求/响应命令（所有 COMMAND_MAP 条目都有 Tauri 命令对应） |
+| 🔧 特殊处理（不在 COMMAND_MAP 但 HTTP 已实现） | 3 | `save_avatar` multipart、`fs_list_dir` / `fs_search_files` query-string GET（HTTP 走 `HttpTransport.listServerDirectory` / `searchFiles` 自定义方法） |
 | 🖥️ Desktop-only（Tauri 专属，HTTP 无对应） | 4 | 权限 / 沙箱本地探测 |
 | ❌ HTTP 路由存在但 COMMAND_MAP 漏写 | 0 | — |
 | ❌ HTTP 路由完全缺失 | 0 | — |
 
-Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop-only 权限 + `save_avatar` multipart）；HTTP 路由侧 387 - 378 = 9 条非 REST endpoint（`/api/health` / `/api/server/status` / `/api/filesystem/list-dir` / `/api/avatars/{...}` multipart / `/api/auth` 登录系列 / `/api/chat` 流式等）本身不映射到单条 Tauri 命令，它们的对齐状态在各自功能域章节单独说明。新增 Tauri 命令时须同步补 HTTP 路由 + COMMAND_MAP，保持差集不变——详见下文"新增接口 checklist"与"验证脚本"两节。
+Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 权限/沙箱 + `save_avatar` multipart + `fs_list_dir` / `fs_search_files` query-string GET）；HTTP 路由侧 430 - 424 = 6 条非 REST endpoint（`/api/health` / `/api/server/status` / `/api/filesystem/list-dir` / `/api/filesystem/search-files` / `/api/avatars/{...}` multipart / `/api/chat` 流式等）本身不映射到单条 Tauri 命令，它们的对齐状态在各自功能域章节单独说明。新增 Tauri 命令时须同步补 HTTP 路由 + COMMAND_MAP，保持差集不变——详见下文"新增接口 checklist"与"验证脚本"两节。
 
 ## 运行模式与 Transport 切换
 
@@ -101,7 +101,16 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `core_memory_updated` / `memory_extracted` | tools/memory.rs 及自动提取 |
 | `dreaming:cycle_complete` | dreaming 固化周期 |
 | `cron:run_completed` | cron/executor.rs |
-| `async_tool_job:completed` / `async_tool_job:failed` | 异步 tool 执行器 |
+| `async_tool_job:completed` / `async_tool_job:updated` / `async_tool_job:mark_injected_failed` | 异步 tool 执行器（与 [`transport-modes.md`](transport-modes.md) 保持一致；`updated` 覆盖运行中状态变化，`mark_injected_failed` 覆盖结果注入主对话失败） |
+
+### 项目（Project CRUD）
+
+| 事件名 | 触发点 | Payload 关键字段 |
+|---|---|---|
+| `project:created` / `project:updated` / `project:deleted` | `src-tauri/src/commands/project.rs` 调 `bus.emit(...)` | `{ projectId }` |
+| `project:file_uploaded` / `project:file_deleted` | 同上文件子命令 | `{ projectId, fileId }` |
+
+> 这些事件经 EventBus 广播，HTTP / Tauri 两条桥都会转发，前端在 server 模式下也能收到（虽然 `bus.emit` 调用点目前只落在 src-tauri 的命令薄壳里）。
 
 ### 配置与系统
 
@@ -133,14 +142,20 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `mcp:servers_changed` | CRUD 写入完成 | `{}` — 触发前端重拉列表（debounced） |
 | `mcp:server_log` | 预留（stderr / 生命周期） | `{ id, name, level, line }` |
 
+### Slash 命令副作用
+
+| 事件名 | 触发点 | Payload |
+|---|---|---|
+| `slash:model_switched` / `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | `crates/ha-core/src/channel/worker/slash.rs` 经 `bus.emit(...)` | model 名 / effort 字段 / sessionId 等（具体见各调用点） |
+
+> 这些事件经 EventBus 广播，HTTP / Tauri 两条桥都会转发。
+
 ### 仅 Tauri 直发（不经 EventBus）
 
 | 事件名 | 触发点 |
 |---|---|
-| `new-session` / `open-settings` | 菜单与快捷键 |
-| `chord-first-pressed` / `chord-timeout` / `shortcut-triggered` | 全局快捷键 |
-| `slash:model_switched` / `slash:effort_changed` / `slash:plan_changed` / `slash:session_cleared` | Slash 命令副作用 |
-| `project:created` / `updated` / `deleted` / `file_uploaded` / `file_deleted` | 项目 CRUD |
+| `new-session` / `open-settings` | 菜单与快捷键（`src-tauri/src/tray.rs` / `setup.rs` 调 `app_handle.emit(...)`） |
+| `chord-first-pressed` / `chord-timeout` / `shortcut-triggered` | 全局快捷键（`src-tauri/src/shortcuts.rs`） |
 
 ## 前端 Transport 抽象
 
@@ -441,6 +456,17 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `dashboard_error_list` | `POST /api/dashboard/error-list` | ✅ |
 | `dashboard_agent_list` | `POST /api/dashboard/agent-list` | ✅ |
 
+#### Dashboard Learning
+
+`session.db.learning_events` 表 + `dashboard::learning` 查询，支持 7/14/30/60/90 天窗口。埋点来自 `skills::author` CRUD 与 `tool_recall_memory` 命中等。前端 Dashboard "Learning" Tab 消费。
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `dashboard_learning_overview` | `POST /api/dashboard/learning/overview` | ✅ |
+| `dashboard_learning_timeline` | `POST /api/dashboard/learning/timeline` | ✅ |
+| `dashboard_top_skills` | `POST /api/dashboard/learning/top-skills` | ✅ |
+| `dashboard_recall_stats` | `POST /api/dashboard/learning/recall-stats` | ✅ |
+
 ### Async / Deferred tools + Memory selection
 
 | Tauri Command | HTTP | 状态 |
@@ -490,7 +516,7 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `save_notification_config` | `PUT /api/config/notification` | ✅ |
 | `get_server_config` | `GET /api/config/server` | ✅ |
 | `save_server_config` | `PUT /api/config/server` | ✅ |
-| `get_server_runtime_status` | `GET /api/server/status` | ✅ (免鉴权) — 返回 `{ boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, localDesktopClient, activeChatStreams, activeChatCounts: { desktop, http, channel, total } }`；`activeChatStreams` 现在等于 `activeChatCounts.total`（在跑的 `run_chat_engine` 数量），不再是 WS 订阅者数；`localDesktopClient` 在 Tauri 命令恒 `true`（桌面 webview 通过 IPC 与后端通信，不走 WS），HTTP 路由恒 `false`，前端把它计入"活跃连接" |
+| `get_server_runtime_status` | `GET /api/server/status` | ✅ (免鉴权) — 返回 `{ boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, localDesktopClient, activeChatStreams, activeChatCounts: { desktop, http, channel, total } }`。`activeChatStreams` 是 `activeChatCounts.total` 的 back-compat 别名（在跑的 `run_chat_engine` 数量）。`chatWsCount` 当前仍是独立的 `Arc<AtomicU32>` 计数器（`crates/ha-core/src/server_status.rs::chat_ws_counter`），per-session chat WS 端点已下线但 counter 字段未拆——历史遗留，目前没有 handler 在递增，实测恒为 0。`localDesktopClient` 在 Tauri 命令恒 `true`（桌面 webview 通过 IPC 与后端通信，不走 WS），HTTP 路由恒 `false`，前端把它计入"活跃连接" |
 | `get_proxy_config` | `GET /api/config/proxy` | ✅ |
 | `save_proxy_config` | `PUT /api/config/proxy` | ✅ |
 | `get_shortcut_config` | `GET /api/config/shortcuts` | ✅ |
@@ -591,10 +617,6 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `activate_draft_skill` | `POST /api/skills/{name}/activate` | ✅ |
 | `discard_draft_skill` | `DELETE /api/skills/{name}/draft` | ✅ |
 | `trigger_skill_review_now` | `POST /api/skills/review/run` | ✅ |
-| `dashboard_learning_overview` | `POST /api/dashboard/learning/overview` | ✅ |
-| `dashboard_learning_timeline` | `POST /api/dashboard/learning/timeline` | ✅ |
-| `dashboard_top_skills` | `POST /api/dashboard/learning/top-skills` | ✅ |
-| `dashboard_recall_stats` | `POST /api/dashboard/learning/recall-stats` | ✅ |
 
 ### Slash commands
 
@@ -801,7 +823,7 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 
 ## 已知不对齐项
 
-截至 2026-04-24 三端差集仍稳定为 5 条（§7.3 的 4 条 Desktop-only + `save_avatar` multipart），没有"HTTP 漏写 COMMAND_MAP"或"HTTP 路由缺失"的破口。COMMAND_MAP 里的每一条都能在 `tauri::generate_handler!` 里找到对应命令；反向差 5 条均已在下表登记。
+截至 2026-04-28 三端差集稳定为 7 条（§7.3 的 4 条 Desktop-only + `save_avatar` multipart + `fs_list_dir` / `fs_search_files` 两条 query-string GET），没有"HTTP 漏写 COMMAND_MAP"或"HTTP 路由缺失"的破口。COMMAND_MAP 里的每一条都能在 `tauri::generate_handler!` 里找到对应命令；反向差 7 条均已在下表登记。
 
 ### §7.3 Desktop-only（Tauri 专属，合法缺失，4 条）
 
@@ -813,6 +835,16 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `check_sandbox_available` | Linux bubblewrap 本地探测 |
 
 前端必须在 `supportsLocalFileOps()` 或等价的运行模式判定保护下调用，HTTP 模式应 gate 住相关 UI。
+
+### §7.3.1 不进 COMMAND_MAP 的合法非 REST 命令（3 条）
+
+| Tauri Command | HTTP 端点 | 原因 |
+|---|---|---|
+| `save_avatar` | `POST /api/avatars` | multipart/form-data，HTTP 走 `HttpTransport.call()` 特殊分支 |
+| `fs_list_dir` | `GET /api/filesystem/list-dir?path=<abs>` | query-string GET，HTTP 走 `HttpTransport.listServerDirectory()` 自定义方法（详见 Filesystem 域） |
+| `fs_search_files` | `GET /api/filesystem/search-files?root=<abs>&q=<q>&limit=<n>` | 同上，走 `HttpTransport.searchFiles()` |
+
+这三条都是 HTTP 端有路由且前端两侧都能调用，只是不通过通用的 `COMMAND_MAP` JSON 路径。
 
 ### §7.4 命名/返回值语义差异
 
@@ -842,27 +874,29 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 以下 shell 段落可在项目根运行，本文档对照表的数据正确性依赖它们：
 
 ```bash
-# 1. Tauri 命令总数（截至 2026-04-24：383）
+# 1. Tauri 命令总数（截至 2026-04-28：431）
 awk 'BEGIN{flag=0} /tauri::generate_handler!\[/{flag=1;next} flag&&/^[[:space:]]*\]\)/{flag=0} flag' \
     src-tauri/src/lib.rs | grep -vE '^[[:space:]]*//|^[[:space:]]*$' | \
     grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u | wc -l
 
-# 2. HTTP 路由总数（截至 2026-04-24：387）
+# 2. HTTP 路由总数（截至 2026-04-28：430）
 grep -cE '^[[:space:]]+\.route\(' crates/ha-server/src/lib.rs
 
-# 3. COMMAND_MAP 条目数（截至 2026-04-24：378，不含闭合 `}` 的行）
+# 3. COMMAND_MAP 条目数（截至 2026-04-28：424，不含闭合 `}` 的行）
 awk '/^const COMMAND_MAP/,/^};/' src/lib/transport-http.ts | \
     grep -cE '^[[:space:]]+[a-z_][a-zA-Z0-9_]*:[[:space:]]*\{'
 
-# 4. 差集：Tauri 有、COMMAND_MAP 无（应与 §7.3 + save_avatar 总和一致）
+# 4. 差集：Tauri 有、COMMAND_MAP 无（应与 §7.3 + §7.3.1 总和一致）
 comm -23 \
   <(awk 'BEGIN{flag=0} /tauri::generate_handler!\[/{flag=1;next} flag&&/^[[:space:]]*\]\)/{flag=0} flag' \
       src-tauri/src/lib.rs | grep -vE '^[[:space:]]*//|^[[:space:]]*$' | \
       grep -oE '::[a-z_][a-zA-Z0-9_]*,?[[:space:]]*$' | tr -d ':, ' | sort -u) \
   <(awk '/^const COMMAND_MAP/,/^};/' src/lib/transport-http.ts | \
       grep -oE '^[[:space:]]+[a-z_][a-zA-Z0-9_]*:' | tr -d ': ' | sort -u)
-# 期望：5 行（check_all_permissions / check_permission / request_permission
-#         / check_sandbox_available / save_avatar）
+# 期望：7 行
+#   check_all_permissions / check_permission / request_permission
+#   / check_sandbox_available  （§7.3 Desktop-only）
+#   / save_avatar / fs_list_dir / fs_search_files  （§7.3.1 非 REST 路径）
 ```
 
 ## 运行模式快速回顾

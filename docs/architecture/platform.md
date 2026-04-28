@@ -22,7 +22,9 @@
 | `default_shell_command_tokio(cmdline)` | 同上 std 版，返回 `tokio::process::Command` | 同上 std 版，返回 `tokio::process::Command` |
 | `os_version_string() -> String` | macOS 优先 `sw_vers -productVersion` → `"macOS 14.2.1"` 形态；其他 Unix 走 `sysinfo::System::long_os_version()` 兜底；都失败时 `"unknown"` | `sysinfo::long_os_version()` + `kernel_version()` 拼成 `"Windows 11 (26100)"` 形态；都缺失时 `"Windows (unknown build)"` |
 | `write_secure_file(path, bytes) -> io::Result<()>` | `OpenOptions::create_new + mode(0o600) + write_all + sync_all` → `fs::set_permissions(0o600)`（防 umask 干扰）→ `rename(tmp, path)`，原子 + 0600 + fsync | 同样 temp file → `sync_all`；rename 前 `if path.exists() { remove_file }`（Windows rename 目标存在会失败）；NTFS DACL 继承自 `~/.hope-agent/` 目录（用户 profile 下默认仅 owner + SYSTEM/Administrators 可读） |
+| `try_acquire_exclusive_lock(path) -> io::Result<Option<File>>` | `flock(LOCK_EX \| LOCK_NB)` 在 `O_CLOEXEC` 打开的文件上加非阻塞独占锁，`fork` 子进程不继承锁 fd；返回 `Ok(None)` 表示已被其他进程持有 | `OpenOptions::share_mode(0)`（`FILE_SHARE_NONE`）走内核独占打开 + `FILE_FLAG_NO_INHERIT_HANDLE`，`Err(io::ErrorKind::PermissionDenied)` 自动映射为 `Ok(None)` 表示锁已被占 |
 | `find_chrome_executable() -> Option<PathBuf>` | 返回 `None`（`chromiumoxide` 自己的 `which` 已覆盖 macOS `.app` 与常见 Linux 路径） | 扫 `%ProgramFiles%` / `%ProgramFiles(x86)%` / `%LOCALAPPDATA%` × `Google\Chrome\Application\chrome.exe` / `Microsoft\Edge\Application\msedge.exe` / `Chromium\Application\chrome.exe`；用环境变量而不是硬编码 `C:\Program Files`，覆盖本地化 / ARM / 备用磁盘 / 用户级安装 |
+| `detect_dedicated_gpu() -> Option<DetectedGpu>` | 优先 `nvidia-smi --query-gpu=name,memory.total` 拿权威 VRAM；失败时 macOS 直接返回 `None`（统一内存由 RAM 兜底），Linux 解析 `lspci` VGA/3D 行只回名字、VRAM 留空 | 优先 `nvidia-smi`；失败回落 PowerShell `Win32_VideoController`。注意 `AdapterRAM` 是 32 位字段在 ≥4 GiB 卡上会绕回，此时按 4096 MiB 保守下限上报。供 `local_llm` 选模型预算用 |
 
 ## 实现细节备忘
 
@@ -65,7 +67,9 @@
 | `default_shell_command_tokio` | [`tools/exec.rs`](../../crates/ha-core/src/tools/exec.rs) 工具 shell 命令执行 |
 | `os_version_string` | [`agent/errors.rs`](../../crates/ha-core/src/agent/errors.rs) 错误报告 / 诊断；`self_diagnosis` 日志 |
 | `write_secure_file` | [`mcp/credentials.rs`](../../crates/ha-core/src/mcp/credentials.rs) MCP OAuth token 凭据 0600 原子落盘（**当前唯一调用方**）。注意：主 LLM OAuth `oauth.rs::save_token()` 当前直接用 `std::fs::write` 写 `~/.hope-agent/credentials/auth.json`，**未走** `write_secure_file`——见下文「已知缺口」 |
+| `try_acquire_exclusive_lock` | `runtime_lock.rs` 全局单实例守门：桌面 / `hope-agent server` / `hope-agent acp` 三种运行模式启动时拿同一把锁，防止启动恢复 / "global only-one" 后台循环跑两份 |
 | `find_chrome_executable` | [`browser_state.rs`](../../crates/ha-core/src/browser_state.rs) Browser 工具自动定位 Chrome / Edge |
+| `detect_dedicated_gpu` | [`local_llm/`](../../crates/ha-core/src/local_llm/) 本地 LLM 选模型预算：Windows / Linux 优先 dGPU VRAM 的 50%，探测失败回落系统内存的 50% |
 
 ## 已知缺口（技术债）
 
@@ -78,6 +82,6 @@
 
 | 文件 | 职责 |
 |---|---|
-| [`crates/ha-core/src/platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | 门面：8 个 `pub fn` 入口 + 跨平台 doc 注释，编译期按 `#[cfg(unix)]` / `#[cfg(windows)]` route 到对应 impl |
+| [`crates/ha-core/src/platform/mod.rs`](../../crates/ha-core/src/platform/mod.rs) | 门面：10 个 `pub fn` 入口 + 跨平台 doc 注释，编译期按 `#[cfg(unix)]` / `#[cfg(windows)]` route 到对应 impl |
 | [`crates/ha-core/src/platform/unix.rs`](../../crates/ha-core/src/platform/unix.rs) | Unix 实现：`libc::kill` / `sh -c` / `OpenOptions::mode(0o600)` / `sw_vers` 兜底 / `chromiumoxide` 走自己的 which |
 | [`crates/ha-core/src/platform/windows.rs`](../../crates/ha-core/src/platform/windows.rs) | Windows 实现：`taskkill /F /T` / `cmd /C raw_arg` / NTFS DACL 继承 / winreg 读 Internet Settings + `OnceLock` 缓存 / `%ProgramFiles%` 三路扫 Chrome |

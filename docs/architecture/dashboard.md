@@ -3,7 +3,7 @@
 
 ## 概述
 
-Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 6 个文件，采用「筛选器 + 查询函数」的管道式架构。
+Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）的聚合分析查询，为前端 recharts 图表提供标准化 JSON 数据。模块拆分为 8 个文件，采用「筛选器 + 查询函数」的管道式架构。
 
 核心设计原则：
 - **自动排除非用户数据**：所有 session 级查询自动注入 `is_cron = 0 AND parent_session_id IS NULL`，排除定时任务会话和子 Agent 会话
@@ -16,11 +16,13 @@ Dashboard 模块提供跨三个 SQLite 数据库（SessionDB、LogDB、CronDB）
 | 文件 | 职责 |
 |------|------|
 | `mod.rs` | 模块入口，re-export 公开 API |
-| `types.rs` | 全部数据结构定义（20 个 struct） |
+| `types.rs` | 全部数据结构定义（20+ 个 struct） |
 | `queries.rs` | 7 个聚合查询函数 |
 | `detail_queries.rs` | 5 个详情列表查询函数 |
 | `filters.rs` | 筛选器构建（session / log 两套） |
 | `cost.rs` | 模型定价表与成本计算引擎 |
+| `insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
+| `learning.rs` | Learning Tracker 4 个查询 + 12 个事件常量（埋点写入 `session.db.learning_events`） |
 
 ## 数据源架构
 
@@ -245,6 +247,52 @@ fn build_session_filter(
 - `query_message_list` 的 content 字段通过 `SUBSTR(m.content, 1, 200)` 截取前 200 字符预览
 - `query_error_list` 仅返回 `level IN ('error', 'warn')` 的日志条目
 
+## Insights 聚合查询（insights.rs）
+
+`insights.rs` 在 `queries.rs` 之上做更复杂的同环比 / 趋势 / 健康度聚合，对应前端 Dashboard Insights Tab 的高阶图表。所有查询同样消费 `DashboardFilter`，自动复用 `build_session_filter` 排除 cron / subagent 噪声。
+
+| 函数 | 返回 | 说明 |
+|------|------|------|
+| `query_overview_with_delta` | `OverviewWithDelta` | 当前窗口与上一个等长窗口的对比，输出 sessions / messages / tool_calls / errors / cost / tokens 同环比百分比 |
+| `query_cost_trend` | `CostTrend` | 按天聚合的成本曲线 + 累计费用 + 峰值日 + 日均，按模型分组明细 |
+| `query_activity_heatmap` | `ActivityHeatmap` | 7×24 网格活跃度数据（周一到周日 × 0–23 时） |
+| `query_hourly_distribution` | `HourlyDistribution` | 24 小时消息分布 + 峰值时段标记 |
+| `query_top_sessions` | `Vec<TopSession>` | 按 token 消耗 / 工具调用排序的 Top N 会话清单 |
+| `query_model_efficiency` | `Vec<ModelEfficiency>` | 每模型 tokens/msg、cost/1k、avg_ttft，用于横向对比性价比 |
+| `query_health_score` | `HealthScore` | 四维加权健康度（成本控制 / 错误率 / 工具效率 / 响应速度），输出 0–100 总分 + 状态徽章 |
+| `query_insights` | `InsightsBundle` | Orchestrator：一次调用并行返回上面 7 个查询结果，供前端单 invoke 拉齐 |
+
+`query_insights` 是面向前端的统一入口，避免单 Tab 多次 invoke；其余 7 个查询在 Recap 模块复用为 `QuantitativeStats` 的数据源（详见 [recap.md](recap.md)）。
+
+## Learning Tracker（learning.rs）
+
+Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 的 `learning_events` 表，再由 `learning.rs` 提供时间窗口聚合查询，对应前端 Dashboard Learning Tab。
+
+### 事件常量（12 个）
+
+| 类别 | 常量 | 触发埋点 |
+|------|------|----------|
+| Skill 生命周期 | `EVT_SKILL_CREATED` / `EVT_SKILL_PATCHED` / `EVT_SKILL_ACTIVATED` / `EVT_SKILL_DISCARDED` / `EVT_SKILL_USED` | `skills::author` CRUD + skill 激活 / 丢弃，详见 [skill-system.md](skill-system.md) |
+| 记忆召回 | `EVT_RECALL_HIT` / `EVT_RECALL_SUMMARY_USED` | `tool_recall_memory` 命中 + 召回摘要被注入 system prompt，详见 [memory.md](memory.md) |
+| MCP 工具 | `EVT_MCP_TOOL_CALLED` / `EVT_MCP_TOOL_FAILED` | 每次 MCP 工具调用成功 / 失败，meta 含 `{ server, tool, durationMs, error? }` |
+
+剩余三个常量是用于按事件类型分组聚合的查询辅助 key（见 `learning.rs` 头部）。
+
+### 查询函数
+
+| 函数 | 返回 | 说明 |
+|------|------|------|
+| `query_learning_overview(db, window_days)` | `LearningOverview` | 时间窗口内各类事件计数汇总（skills_created / patched / activated / discarded / used / recall_hits / recall_summary_used 等），支持 7 / 14 / 30 / 60 / 90 天窗口 |
+| `query_skill_timeline(db, window_days)` | `Vec<TimelinePoint>` | 按天聚合 skill 事件曲线，区分 created / activated / used 三条 |
+| `query_top_skills(db, window_days, limit)` | `Vec<SkillUsage>` | 时间窗口内被使用次数最多的 skill TopN，按 `EVT_SKILL_USED` 计数排序 |
+| `query_recall_stats(db, window_days)` | `RecallStats` | 记忆召回命中率 + 召回摘要使用次数 |
+
+### 数据源
+
+- 写：`learning::emit(db, kind, ref_id, meta)` 单点入口，所有埋点经此写入 `session.db.learning_events` 表，schema 含 `(id, kind, ref_id, ts, meta_json)`
+- 读：上述 4 个查询函数按 `kind IN (...)` + `ts >= now - window_days` 做窗口聚合
+- 表归属在 `session.db` 而非独立库，避免新增 SQLite 文件；与 sessions / messages 共享连接池
+
 ## 成本估算引擎
 
 ### 计算流程
@@ -402,5 +450,7 @@ sequenceDiagram
 | `crates/ha-core/src/dashboard/queries.rs` | 7 个聚合查询（overview / token / tool / session / error / task / system） |
 | `crates/ha-core/src/dashboard/detail_queries.rs` | 5 个详情列表查询（session / message / tool_call / error / agent） |
 | `crates/ha-core/src/dashboard/cost.rs` | 模型定价表与成本计算公式 |
+| `crates/ha-core/src/dashboard/insights.rs` | 8 个深度洞察查询（同环比 / 趋势 / 热力图 / 健康度 / orchestrator） |
+| `crates/ha-core/src/dashboard/learning.rs` | Learning Tracker 4 个查询 + 12 个事件常量（`EVT_SKILL_*` / `EVT_RECALL_*` / `EVT_MCP_*`） + `emit` 写入 `session.db.learning_events` |
 | `src-tauri/src/commands/dashboard.rs` | - | Tauri 命令注册层（invoke 入口） |
 | `src/components/dashboard/` | - | 前端 recharts 图表组件 |

@@ -76,7 +76,7 @@ graph TB
     subgraph 后端
         PM[plan.rs<br/>六态状态机 + 文件 I/O<br/>+ Git Checkpoint + 版本管理<br/>+ 子 Agent 注册表]
         SC[slash_commands<br/>/plan 命令 6 子命令]
-        CP[commands/plan.rs<br/>12 个 Tauri 命令]
+        CP[commands/plan.rs<br/>15 个 Tauri 命令]
         CH[commands/chat.rs<br/>双模式分发<br/>+ 工具限制 + 提示词注入]
         TQ[tools/ask_user_question.rs<br/>交互问答 + session 路由]
         TS[tools/submit_plan.rs<br/>计划提交 + session 路由]
@@ -1086,7 +1086,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 | 文件 | 用途 |
 |------|------|
 | `crates/ha-core/src/plan/` | 核心：六态状态机 + 文件 I/O + 解析 + 常量 + 路径权限 + Git Checkpoint + 版本管理 + 问答注册 + 子 Agent 注册表 + spawn_plan_subagent |
-| `src-tauri/src/commands/plan.rs` | 11 个 Tauri 命令 |
+| `src-tauri/src/commands/plan.rs` | 15 个 Tauri 命令 |
 | `crates/ha-core/src/slash_commands/handlers/plan.rs` | /plan 斜杠命令处理（6 子命令） |
 | `crates/ha-core/src/tools/ask_user_question.rs` | ask_user_question 交互问答工具 |
 | `crates/ha-core/src/tools/submit_plan.rs` | submit_plan 计划提交工具 |
@@ -1112,7 +1112,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 | 文件 | 改动点 |
 |------|--------|
 | `crates/ha-core/src/lib.rs` | `pub mod plan` 模块导出 |
-| `src-tauri/src/lib.rs` | 注册 12 个 Tauri 命令（含 cancel_plan_subagent） |
+| `src-tauri/src/lib.rs` | 注册 15 个 Tauri 命令（含 get_pending_ask_user_group / get_plan_file_path / cancel_plan_subagent） |
 | `crates/ha-core/src/paths.rs` | `plans_dir()` + 项目本地路径解析 |
 | `crates/ha-core/src/agent_config.rs` | `AgentModelConfig.plan_model` 字段 |
 | `crates/ha-core/src/session/db.rs` | 迁移（plan_mode + plan_steps 列）+ 读写方法 |

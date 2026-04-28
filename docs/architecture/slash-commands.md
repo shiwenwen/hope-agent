@@ -12,17 +12,22 @@ crates/ha-core/src/slash_commands/
 ├── types.rs        # 数据结构（SlashCommandDef / CommandResult / CommandAction）
 ├── parser.rs       # 解析器（"/" 前缀 → 命令名 + 参数）
 ├── registry.rs     # 命令注册表（所有内置命令定义）
-└── handlers/       # 命令处理器
+└── handlers/       # 命令处理器（12 个子文件）
     ├── mod.rs      # dispatch 分发入口
     ├── session.rs  # 会话类命令
     ├── model.rs    # 模型类命令
     ├── memory.rs   # 记忆类命令
     ├── agent.rs    # Agent 类命令
+    ├── team.rs     # /team 子命令（create/status/pause/resume/dissolve）
     ├── plan.rs     # 计划模式命令
     ├── recap.rs    # /recap 深度复盘
     ├── context.rs  # /context 上下文窗口明细
+    ├── awareness.rs # /awareness 行为感知开关
+    ├── project.rs  # /project 项目切换（IM 渠道禁用）
     └── utility.rs  # 工具类命令
 ```
+
+> **命令规模**：内置 26 条 + 动态技能命令（运行时合并）。
 
 ### 处理流程
 
@@ -113,6 +118,7 @@ sequenceDiagram
 | 命令 | 参数 | 说明 | 副作用 (Action) |
 |---|---|---|---|
 | `/model` | `[name]` 可选 | 无参数：列出所有可用模型（标记当前活跃模型）；有参数：模糊匹配切换模型 | `SwitchModel` 或 `DisplayOnly` |
+| `/models` | 无 | 列出所有可用模型（与 `/model` 无参等价，独立条目方便记忆） | `DisplayOnly` |
 | `/think` | `<level>` 必需 | 设置推理思考强度 | `SetEffort` |
 
 **`/model` 模糊匹配优先级**：精确 ID → 精确名称 → 前缀匹配 → 包含匹配。歧义时列出所有候选项。
@@ -141,6 +147,7 @@ sequenceDiagram
 |---|---|---|---|
 | `/agent` | `<name>` 必需 | 模糊匹配切换 Agent（自动创建新会话）。**IM 渠道禁用**——IM 的运行 agent 由 channel-account / topic / group 配置决定，每条入站消息重算，如果允许 `/agent` 会出现「会话标签是新 agent、实际跑的是 channel 配置 agent」的幻觉切换 | `SwitchAgent` |
 | `/agents` | 无 | 列出所有可用 Agent（含 emoji、名称、描述） | `DisplayOnly` |
+| `/team` | `[create\|status\|pause\|resume\|dissolve]` 可选 | Agent Team 管理：无参 = `status`；`create` 实例化模板；`pause` / `resume` 暂停/恢复运行中 team；`dissolve` 解散并清理子会话 | `DisplayOnly` |
 
 ### 🔧 Utility — 实用工具
 
@@ -401,12 +408,14 @@ Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
 | `/plan` | Session | `[子命令]` | 是 | 计划模式 |
 | `/project` | Session | `[name]` | 否 | 进入/选择项目（IM 禁用） |
 | `/model` | Model | `[name]` | 否 | 切换/列出模型 |
+| `/models` | Model | 无 | 否 | 列出所有可用模型 |
 | `/think` | Model | `<level>` | 否 | 设置思考强度 |
 | `/remember` | Memory | `<text>` | 否 | 保存记忆 |
 | `/forget` | Memory | `<query>` | 否 | 删除记忆 |
 | `/memories` | Memory | 无 | 否 | 列出记忆 |
 | `/agent` | Agent | `<name>` | 否 | 切换 Agent（IM 禁用） |
 | `/agents` | Agent | 无 | 否 | 列出 Agent |
+| `/team` | Agent | `[子命令]` | 否 | Agent Team 管理（create/status/pause/resume/dissolve） |
 | `/help` | Utility | 无 | 否 | 显示所有命令 |
 | `/status` | Utility | 无 | 否 | 会话状态 |
 | `/export` | Utility | 无 | 是 | 导出 Markdown |

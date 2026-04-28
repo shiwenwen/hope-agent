@@ -29,7 +29,7 @@ ACP（Agent Client Protocol）是一个标准化的 IDE-Agent 通信协议，允
 - **零桥接**：纯 Rust 实现，不经过 Node.js 中间层，直接驱动 `AssistantAgent`
 - **会话互通**：共享 `SessionDB`（SQLite），IDE 创建的会话在桌面端可见，反之亦然
 - **完整 Failover**：复用桌面端的模型链降级策略（RateLimit 重试 + 多模型降级）
-- **29 个内置工具**：IDE 端可使用 Hope Agent 全部工具能力（exec、read、write、browser 等）
+- **~50 个内置工具**：IDE 端可使用 Hope Agent 全部工具能力（exec、read、write、browser 等；具体数字以代码为准，详见 [tool-system.md](tool-system.md)）
 
 ---
 
@@ -53,7 +53,7 @@ graph TB
 
     subgraph "Hope Agent Core"
         ASSISTANT["AssistantAgent<br/>agent/mod.rs"]
-        TOOLS["29 内置工具<br/>tools/"]
+        TOOLS["~50 内置工具<br/>tools/"]
         PROVIDERS["4 种 LLM Provider<br/>agent/providers/"]
         FAILOVER["Failover 降级<br/>failover.rs"]
     end
@@ -394,7 +394,7 @@ graph LR
 read, read_file     → "read"
 write, edit         → "edit"
 delete, remove      → "delete"
-search, find, grep  → "search"
+search, find        → "search"
 exec, run, bash     → "execute"
 fetch, http         → "fetch"
 其他                → "other"
@@ -638,7 +638,7 @@ hope-agent acp --help
 | 文件数量 | 68+ 文件 | **7 文件** |
 | 会话互通 | 无（独立存储） | **✅ 共享 SessionDB** |
 | Failover | 多模型降级 | **✅ 完整复用** |
-| Tool 数量 | ~15 | **29 内置工具** |
+| Tool 数量 | ~15 | **~50 内置工具**（具体以代码为准，详见 [tool-system.md](tool-system.md)） |
 | 历史重放 | 支持 | **✅ 支持（含工具结果）** |
 | Mode 切换 | 支持 | **✅ 支持（映射到 Agent）** |
 | 审批机制 | 有 | 计划中 (Phase 3) |
@@ -648,7 +648,7 @@ hope-agent acp --help
 
 1. **桌面端 ↔ IDE 会话无缝切换**：在 macOS 桌面端创建的会话可在 Zed 中继续，反之亦然
 2. **零部署成本**：同一个二进制，无需额外安装 Node.js 或配置 bridge
-3. **工具能力更强**：29 个内置工具 vs OpenClaw 的 ~15 个，包括 browser、canvas、image_generate 等独特工具
+3. **工具能力更强**：~50 个内置工具 vs OpenClaw 的 ~15 个，包括 browser、canvas、image_generate 等独特工具
 4. **Agent 系统集成**：ACP Modes 直接映射到 Hope Agent 的多 Agent 系统，每个 Agent 有独立的人设、技能和行为配置
 
 ---

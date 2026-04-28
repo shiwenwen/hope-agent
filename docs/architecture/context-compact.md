@@ -31,6 +31,7 @@ flowchart TD
 | `mod.rs` | 模块入口、常量定义、re-exports |
 | `types.rs` | 数据类型（CompactResult, TokenEstimateCalibrator, SummarizationSplit 等） |
 | `config.rs` | 配置结构 CompactConfig（全部可配置参数） |
+| `engine.rs` | `ContextEngine` / `CompactionProvider` trait 抽象 + `DefaultContextEngine` 实现（委派到 `compact_if_needed` / `emergency_compact`，是上层调用方的稳定入口） |
 | `estimation.rs` | Token 估算（chars/4 启发式、图片估算、消息字符计数） |
 | `compact.rs` | 主入口 + Tier 0 微压缩 + Tier 4 紧急压缩 |
 | `truncation.rs` | Tier 1 工具结果截断（head+tail、结构边界检测） |
@@ -376,6 +377,7 @@ calibrated_estimate = raw_estimate × calibration_factor
 | `crates/ha-core/src/context_compact/mod.rs` | 模块入口、硬编码常量、摘要 prompt 模板、re-exports |
 | `crates/ha-core/src/context_compact/types.rs` | CompactResult, CompactDetails, PruneResult, SummarizationSplit, TokenEstimateCalibrator |
 | `crates/ha-core/src/context_compact/config.rs` | CompactConfig 结构（全部可配置参数及默认值） |
+| `crates/ha-core/src/context_compact/engine.rs` | `ContextEngine` / `CompactionProvider` trait + `DefaultContextEngine` 默认实现（行为零变化，方便后续替换/扩展整套压缩策略） |
 | `crates/ha-core/src/context_compact/estimation.rs` | Token 估算（chars/4）、消息字符计数、工具结果提取辅助函数 |
 | `crates/ha-core/src/context_compact/compact.rs` | 主入口 `compact_if_needed()` + Tier 0 `microcompact()` + Tier 4 `emergency_compact()` |
 | `crates/ha-core/src/context_compact/truncation.rs` | Tier 1 `truncate_tool_results()`、head+tail 截断、结构边界检测、智能尾部检测 |
