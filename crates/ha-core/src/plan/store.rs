@@ -25,7 +25,7 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) -> bool {
     let mut map = store().write().await;
     if state == PlanModeState::Off {
         map.remove(session_id);
-        return true;
+        true
     } else if let Some(meta) = map.get_mut(session_id) {
         // Reject illegal transitions (e.g. Completed → Executing) to keep
         // concurrent writers from re-running already-completed steps or
