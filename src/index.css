@@ -246,6 +246,219 @@
   cursor: zoom-in;
 }
 
+/* Streamdown's default code block chrome is roomy for chat. Keep the
+   controls, but tighten the header and code body to suit short snippets. */
+.markdown-content [data-streamdown="code-block"] {
+  position: relative;
+  margin-block: 0.5rem;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--color-muted) 42%, transparent);
+  padding: 0;
+}
+
+.markdown-content [data-streamdown="code-block-header"] {
+  height: 1.75rem;
+  min-height: 1.75rem;
+  padding-inline: 0.625rem 4.75rem;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  font-size: 0.6875rem;
+  line-height: 1;
+}
+
+.markdown-content [data-streamdown="code-block-header"] > span {
+  margin-left: 0;
+}
+
+.markdown-content [data-streamdown="code-block"] > div:has(> [data-streamdown="code-block-actions"]) {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.375rem;
+  height: 1.25rem;
+  margin-top: 0;
+}
+
+.markdown-content [data-streamdown="code-block-actions"] {
+  gap: 0.125rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.markdown-content [data-streamdown="code-block-actions"] button {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  padding: 0;
+}
+
+.markdown-content [data-streamdown="code-block-actions"] button:hover {
+  background: color-mix(in srgb, var(--color-accent) 80%, transparent);
+}
+
+.markdown-content [data-streamdown="code-block-actions"] svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
+.markdown-content [data-streamdown="code-block-body"] {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.markdown-content [data-streamdown="code-block-body"] pre {
+  margin: 0;
+}
+
+.markdown-content [data-streamdown="code-block-body"] pre > code > span::before {
+  width: 1.5rem;
+  margin-right: 0.75rem;
+  font-size: 0.75rem;
+}
+
+/* Compact markdown defaults for chat-sized surfaces. */
+.markdown-content > div > div {
+  gap: 0;
+}
+
+.markdown-content > div > div > :not(:last-child) {
+  margin-bottom: 0.625rem;
+}
+
+.markdown-content > div > div > * + * {
+  margin-top: 0.625rem;
+}
+
+.markdown-content p {
+  margin-block: 0.375rem;
+}
+
+.markdown-content [data-streamdown^="heading-"] {
+  margin-block: 0.875rem 0.375rem;
+  line-height: 1.25;
+}
+
+.markdown-content [data-streamdown="heading-1"] {
+  font-size: 1.5rem;
+}
+
+.markdown-content [data-streamdown="heading-2"] {
+  font-size: 1.25rem;
+}
+
+.markdown-content [data-streamdown="heading-3"] {
+  font-size: 1.125rem;
+}
+
+.markdown-content [data-streamdown="heading-4"],
+.markdown-content [data-streamdown="heading-5"],
+.markdown-content [data-streamdown="heading-6"] {
+  font-size: 1rem;
+}
+
+.markdown-content [data-streamdown="horizontal-rule"] {
+  margin-block: 0.75rem;
+}
+
+.markdown-content [data-streamdown="blockquote"] {
+  margin-block: 0.5rem;
+  padding-left: 0.75rem;
+}
+
+.markdown-content [data-streamdown="ordered-list"],
+.markdown-content [data-streamdown="unordered-list"] {
+  margin-block: 0.375rem;
+}
+
+.markdown-content [data-streamdown="list-item"] {
+  padding-block: 0.125rem;
+}
+
+.markdown-content [data-streamdown="list-item"] > p {
+  margin-block: 0;
+}
+
+.markdown-content [data-streamdown="table-wrapper"],
+.markdown-content [data-streamdown="mermaid-block"] {
+  margin-block: 0.625rem;
+  gap: 0;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  padding: 0;
+}
+
+.markdown-content [data-streamdown="table-wrapper"] > div:first-child,
+.markdown-content [data-streamdown="mermaid-block"] > div:first-child {
+  min-height: 1.75rem;
+  padding: 0.25rem 0.5rem;
+}
+
+.markdown-content [data-streamdown="table-wrapper"] > div:nth-child(2),
+.markdown-content [data-streamdown="mermaid-block"] > div:last-child {
+  border-inline: 0;
+  border-bottom: 0;
+  border-radius: 0;
+}
+
+.markdown-content [data-streamdown="table-wrapper"] > div:nth-child(2) {
+  max-height: min(28rem, 70vh);
+}
+
+.markdown-content [data-streamdown="table-header-cell"],
+.markdown-content [data-streamdown="table-cell"] {
+  padding: 0.375rem 0.625rem;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+.markdown-content [data-streamdown="table-header-cell"] {
+  font-weight: 600;
+}
+
+.markdown-content [data-streamdown="mermaid-block"] > div:has(> [data-streamdown="mermaid-block-actions"]) {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.375rem;
+  height: 1.25rem;
+  margin-top: 0;
+}
+
+.markdown-content [data-streamdown="mermaid-block-actions"] {
+  gap: 0.125rem;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.markdown-content [data-streamdown="mermaid-block-actions"] button {
+  display: inline-flex;
+  width: 1.5rem;
+  height: 1.5rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.375rem;
+  padding: 0;
+}
+
+.markdown-content [data-streamdown="mermaid-block-actions"] button:hover {
+  background: color-mix(in srgb, var(--color-accent) 80%, transparent);
+}
+
+.markdown-content [data-streamdown="mermaid-block-actions"] svg {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
 /* ── Starry sky background (dark mode only) ── */
 .starry-sky-container {
   position: fixed;
