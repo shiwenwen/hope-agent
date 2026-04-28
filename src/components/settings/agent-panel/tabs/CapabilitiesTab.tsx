@@ -92,7 +92,7 @@ export default function CapabilitiesTab({
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap cursor-pointer select-none">
               <Switch
                 checked={config.capabilities.maxToolRounds === 0}
-                onCheckedChange={(checked) => updateCapabilities({ maxToolRounds: checked ? 0 : 20 })}
+                onCheckedChange={(checked) => updateCapabilities({ maxToolRounds: checked ? 0 : 50 })}
               />
               {t("settings.agentUnlimited")}
             </label>
