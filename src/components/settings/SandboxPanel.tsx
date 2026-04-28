@@ -318,7 +318,7 @@ export default function SandboxPanel() {
         </div>
 
         {/* Save button */}
-        <div className="flex items-center gap-2 pt-2">
+        <div className="flex items-center justify-end gap-2 pt-2">
           <Button
             onClick={save}
             disabled={(!isDirty && saveStatus === "idle") || saving}

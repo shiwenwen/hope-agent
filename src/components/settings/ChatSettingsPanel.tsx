@@ -240,7 +240,7 @@ export default function ChatSettingsPanel() {
                   </p>
                 </div>
               )}
-              <div className="px-3 pb-3">
+              <div className="flex justify-end px-3 pb-3">
                 <Button
                   variant="default"
                   size="sm"
