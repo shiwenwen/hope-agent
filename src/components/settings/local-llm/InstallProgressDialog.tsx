@@ -217,6 +217,13 @@ export function InstallProgressDialog({
                 )}
               </div>
             )}
+            {done && !error && (
+              <div className="flex justify-end pt-1">
+                <Button type="button" size="sm" onClick={requestClose}>
+                  {t("common.done")}
+                </Button>
+              </div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
