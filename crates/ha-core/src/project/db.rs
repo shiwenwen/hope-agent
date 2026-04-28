@@ -807,7 +807,9 @@ mod tests {
 
         // Migration must succeed without panicking.
         let project_db = ProjectDB::new(session_db.clone());
-        project_db.migrate().expect("migrate should not fail on old schema");
+        project_db
+            .migrate()
+            .expect("migrate should not fail on old schema");
 
         // Both new columns now queryable.
         let conn = session_db.conn.lock().unwrap();
