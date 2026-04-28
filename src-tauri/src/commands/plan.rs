@@ -228,6 +228,9 @@ pub async fn get_plan_file_path(session_id: String) -> Result<Option<String>, Cm
             return Ok(Some(meta.file_path));
         }
     }
+    if let Some(path) = plan::find_plan_file(&session_id)? {
+        return Ok(Some(path.to_string_lossy().to_string()));
+    }
     Ok(None)
 }
 

@@ -56,6 +56,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // First ensure meta exists, then update title and steps
     plan::set_plan_state(&effective_sid, PlanModeState::Review).await;
+    plan::update_plan_steps(&effective_sid, steps.clone()).await;
     {
         let store_ref = plan::store();
         let mut map = store_ref.write().await;

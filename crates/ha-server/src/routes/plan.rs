@@ -255,6 +255,8 @@ pub async fn get_plan_file_path(Path(session_id): Path<String>) -> Result<Json<V
         } else {
             None
         }
+    } else if let Some(path) = plan::find_plan_file(&session_id)? {
+        Some(path.to_string_lossy().to_string())
     } else {
         None
     };

@@ -2,6 +2,7 @@ import { useState, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
+import { IconTip } from "@/components/ui/tooltip"
 import { Check, ChevronRight, ClipboardList, FolderOpen, PanelRight } from "lucide-react"
 
 /** Collapsible Q&A summary for ask_user_question tool results */
@@ -83,13 +84,22 @@ export function SubmitPlanResult({
         {title || t("planMode.panelTitle")}
       </span>
       <div className="flex items-center gap-1.5 shrink-0">
-        <PanelRight className="h-3.5 w-3.5 text-muted-foreground" />
-        <button
-          onClick={(e) => { e.stopPropagation(); handleRevealFile() }}
-          className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
-        >
-          <FolderOpen className="h-3.5 w-3.5" />
-        </button>
+        <IconTip label={t("planMode.openPanel")}>
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenPanel?.() }}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+          >
+            <PanelRight className="h-3.5 w-3.5" />
+          </button>
+        </IconTip>
+        <IconTip label={t("chat.revealInFolder")}>
+          <button
+            onClick={(e) => { e.stopPropagation(); handleRevealFile() }}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
+          >
+            <FolderOpen className="h-3.5 w-3.5" />
+          </button>
+        </IconTip>
       </div>
     </div>
   )

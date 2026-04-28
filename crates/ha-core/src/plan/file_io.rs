@@ -12,6 +12,56 @@ pub(crate) fn plans_dir() -> Result<std::path::PathBuf> {
     crate::paths::plans_dir()
 }
 
+pub fn find_plan_file(session_id: &str) -> Result<Option<std::path::PathBuf>> {
+    let store_ref = store();
+    if let Ok(map) = store_ref.try_read() {
+        if let Some(meta) = map.get(session_id) {
+            if !meta.file_path.is_empty() {
+                let path = std::path::PathBuf::from(&meta.file_path);
+                if path.exists() {
+                    return Ok(Some(path));
+                }
+            }
+        }
+    }
+
+    let dir = plans_dir()?;
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Ok(None);
+    };
+    let short_id = crate::truncate_utf8(session_id, 8);
+    let prefix = format!("plan-{}-", short_id);
+    let mut latest: Option<(String, std::path::PathBuf)> = None;
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !name.starts_with(&prefix) || !name.ends_with(".md") {
+            continue;
+        }
+        let stem = name.trim_end_matches(".md");
+        if stem
+            .rsplit_once("-v")
+            .is_some_and(|(_, suffix)| suffix.chars().all(|c| c.is_ascii_digit()))
+        {
+            continue;
+        }
+        if latest
+            .as_ref()
+            .is_none_or(|(latest_name, _)| name > latest_name.as_str())
+        {
+            latest = Some((name.to_string(), path));
+        }
+    }
+
+    Ok(latest.map(|(_, path)| path))
+}
+
 /// Scan `dir` for backups of `plan_path` (files named `{stem}-v{N}.md`) and
 /// return the largest `N` found, or 0 when no backups exist. Used to seed
 /// the version counter after a restart so we don't clobber older versions.
@@ -46,19 +96,10 @@ fn max_disk_version(dir: &std::path::Path, plan_path: &std::path::Path) -> u32 {
 /// Build the plan file path for a session. Uses a mapping stored in PlanMeta.file_path.
 /// If no existing path, generates a new one with readable name.
 pub(crate) fn plan_file_path(session_id: &str) -> Result<std::path::PathBuf> {
-    // We need direct access to the OnceLock store to avoid circular dependency with store()
-    // since store() calls PLAN_STORE.get_or_init which is the same thing.
-    let store_ref = store();
-    if let Ok(map) = store_ref.try_read() {
-        if let Some(meta) = map.get(session_id) {
-            if !meta.file_path.is_empty() {
-                let p = std::path::PathBuf::from(&meta.file_path);
-                if p.exists() {
-                    return Ok(p);
-                }
-            }
-        }
+    if let Some(path) = find_plan_file(session_id)? {
+        return Ok(path);
     }
+
     // Generate new path: plan-{short_id}-{date}-{nano}.md
     // UTC + nanosecond suffix avoids same-second collisions across concurrent
     // sessions and stays stable across timezone changes.

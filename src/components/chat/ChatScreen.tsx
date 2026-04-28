@@ -1144,7 +1144,7 @@ export default function ChatScreen({
           }
           planState={planMode.planState}
           planSteps={planMode.planSteps}
-          onOpenPlanPanel={() => planMode.setShowPanel(true)}
+          onOpenPlanPanel={planMode.openPlanPanel}
           onApprovePlan={handlePlanApprove}
           onExitPlan={planMode.exitPlanMode}
           onPausePlan={planMode.pauseExecution}

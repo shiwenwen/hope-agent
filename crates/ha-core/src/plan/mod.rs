@@ -32,8 +32,8 @@ pub use store::{
 
 // File I/O
 pub use file_io::{
-    delete_plan_file, list_plan_versions, load_plan_file, load_plan_version, save_plan_file,
-    save_result_file,
+    delete_plan_file, find_plan_file, list_plan_versions, load_plan_file, load_plan_version,
+    save_plan_file, save_result_file,
 };
 
 // Parser

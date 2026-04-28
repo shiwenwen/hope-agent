@@ -3,6 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import type { AskUserQuestionGroup } from "../ask-user/AskUserQuestionBlock"
+import { detectPlanContent } from "./planParser"
 
 export type PlanModeState = "off" | "planning" | "review" | "executing" | "paused" | "completed"
 
@@ -53,6 +54,13 @@ function normalizePlanSteps(value: unknown): PlanStep[] {
   return Array.isArray(value) ? (value as PlanStep[]) : []
 }
 
+function parsePlanStepsFromContent(content: string): PlanStep[] {
+  return detectPlanContent(content).steps.map((step) => ({
+    ...step,
+    description: "",
+  }))
+}
+
 export interface UsePlanModeReturn {
   planState: PlanModeState
   setPlanState: React.Dispatch<React.SetStateAction<PlanModeState>>
@@ -73,6 +81,7 @@ export interface UsePlanModeReturn {
   approvePlan: () => Promise<void>
   pauseExecution: () => Promise<void>
   resumeExecution: () => Promise<void>
+  openPlanPanel: () => Promise<void>
 }
 
 export function usePlanMode(
@@ -165,6 +174,44 @@ export function usePlanMode(
     }
   }, [currentSessionId, setPlanState])
 
+  const openPlanPanel = useCallback(async () => {
+    if (!currentSessionId) {
+      setShowPanel(true)
+      return
+    }
+
+    try {
+      const [rawState, rawSteps, rawContent] = await Promise.all([
+        getTransport().call<unknown>("get_plan_mode", { sessionId: currentSessionId }),
+        getTransport().call<unknown>("get_plan_steps", { sessionId: currentSessionId }),
+        getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId }),
+      ])
+      const content = normalizePlanContent(rawContent)
+      let steps = normalizePlanSteps(rawSteps)
+      if (steps.length === 0 && content.trim()) {
+        steps = parsePlanStepsFromContent(content)
+      }
+
+      let state = normalizePlanModeState(rawState)
+      if (state === "off" && content.trim()) {
+        state = "review"
+        getTransport()
+          .call("set_plan_mode", { sessionId: currentSessionId, state })
+          .catch(() => {})
+      }
+
+      setPlanState(state)
+      setPlanSteps(steps)
+      setPlanContent(content)
+      if (state !== "off" && (state === "planning" || content.trim() || steps.length > 0)) {
+        setShowPanel(true)
+      }
+    } catch (e) {
+      logger.error("plan", "usePlanMode::openPanel", "Failed to open plan panel", e)
+      setShowPanel(true)
+    }
+  }, [currentSessionId, setPlanState])
+
   // Sync state when session changes
   const planStateRef = useRef(planState)
   useEffect(() => {
@@ -247,8 +294,11 @@ export function usePlanMode(
       .then(([rawState, rawSteps, rawContent]) => {
         if (cancelled) return
         const s = normalizePlanModeState(rawState)
-        const steps = normalizePlanSteps(rawSteps)
+        let steps = normalizePlanSteps(rawSteps)
         const content = normalizePlanContent(rawContent)
+        if (steps.length === 0 && content.trim()) {
+          steps = parsePlanStepsFromContent(content)
+        }
         const hasPlanData = !!content?.trim() || (steps || []).length > 0
         if (s !== "off" && s !== "planning" && !hasPlanData) {
           setPlanState("off")
@@ -261,15 +311,22 @@ export function usePlanMode(
             .catch(() => {})
           return
         }
-        setPlanState(s)
+        let restoredState = s
+        if (s === "off" && content.trim()) {
+          restoredState = "review"
+          getTransport()
+            .call("set_plan_mode", { sessionId: currentSessionId, state: restoredState })
+            .catch(() => {})
+        }
+        setPlanState(restoredState)
         setPlanSteps(steps || [])
         setPlanContent(content || "")
-        if (s === "off") {
+        if (restoredState === "off") {
           setShowPanel(false)
           setPlanCardInfo(null)
         }
         // Only auto-show panel when plan content exists (not during initial planning)
-        if (s !== "off" && content) setShowPanel(true)
+        if (restoredState !== "off" && content) setShowPanel(true)
       })
       .catch(() => {
         if (cancelled) return
@@ -428,5 +485,6 @@ export function usePlanMode(
     approvePlan,
     pauseExecution,
     resumeExecution,
+    openPlanPanel,
   }
 }
