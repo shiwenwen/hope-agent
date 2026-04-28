@@ -135,21 +135,41 @@ export class TauriTransport implements Transport {
   listen(eventName: string, handler: (payload: unknown) => void): () => void {
     let unlisten: (() => void) | undefined;
     let cancelled = false;
+    let cleanedUp = false;
+
+    const cleanup = (fn: () => void) => {
+      try {
+        void Promise.resolve(fn()).catch((err) => {
+          console.warn(`[transport] TauriTransport::listen: failed to unlisten ${eventName}`, err);
+        });
+      } catch (err) {
+        console.warn(`[transport] TauriTransport::listen: failed to unlisten ${eventName}`, err);
+      }
+    };
 
     tauriListen(eventName, (event) => {
       handler(event.payload);
     }).then((fn) => {
       if (cancelled) {
         // The caller already unsubscribed before the async setup finished.
-        fn();
+        if (!cleanedUp) {
+          cleanedUp = true;
+          cleanup(fn);
+        }
       } else {
         unlisten = fn;
       }
+    }).catch((err) => {
+      console.warn(`[transport] TauriTransport::listen: failed to listen ${eventName}`, err);
     });
 
     return () => {
+      if (cleanedUp) return;
       cancelled = true;
-      unlisten?.();
+      if (!unlisten) return;
+      cleanedUp = true;
+      cleanup(unlisten);
+      unlisten = undefined;
     };
   }
 }
