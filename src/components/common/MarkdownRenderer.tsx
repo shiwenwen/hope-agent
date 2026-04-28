@@ -1,4 +1,11 @@
-import { useState, useEffect, useRef, useMemo, type AnchorHTMLAttributes } from "react"
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useMemo,
+  type AnchorHTMLAttributes,
+} from "react"
 import { Streamdown, type AnimateOptions, type PluginConfig } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
@@ -104,6 +111,11 @@ const markdownComponents = { a: MarkdownLink }
 const CATCHUP_THRESHOLD = 60
 /** Max chars per frame when catching up, prevents jarring jumps */
 const MAX_STEP = 8
+const STREAMING_HEIGHT_GUARD_PX = 2
+
+function getStreamingContentHeight(el: HTMLElement): number {
+  return Math.ceil(el.getBoundingClientRect().height + STREAMING_HEIGHT_GUARD_PX)
+}
 
 interface MarkdownRendererProps {
   content: string
@@ -166,7 +178,7 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
 
   // Smooth height transition: mount ResizeObserver once when streaming starts,
   // let it detect height changes on its own to avoid breaking CSS transitions
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current
     const contentEl = contentRef.current
     if (!container || !contentEl || !isStreaming) {
@@ -174,10 +186,10 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
       return
     }
 
-    container.style.height = `${contentEl.offsetHeight}px`
+    container.style.height = `${getStreamingContentHeight(contentEl)}px`
 
     const observer = new ResizeObserver(() => {
-      const h = contentEl.offsetHeight
+      const h = getStreamingContentHeight(contentEl)
       if (container.style.height !== `${h}px`) {
         container.style.height = `${h}px`
       }
