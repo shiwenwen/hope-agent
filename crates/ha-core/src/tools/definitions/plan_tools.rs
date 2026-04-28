@@ -137,7 +137,7 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
 pub fn get_submit_plan_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBMIT_PLAN.into(),
-        description: "Submit the final implementation plan after gathering requirements through ask_user_question. The plan should be structured as markdown with phased checklists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
+        description: "Submit the final implementation plan after gathering requirements through ask_user_question. The plan should be structured as markdown with concise sections and regular ordered/unordered lists, not checkbox task lists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
         internal: true,
         deferred: false,
         always_load: false,
@@ -151,7 +151,7 @@ pub fn get_submit_plan_tool() -> ToolDefinition {
                 },
                 "content": {
                     "type": "string",
-                    "description": "Full plan content in markdown format. Must include: ## Background section, then ### Phase N: <title> headers with - [ ] checklist items"
+                    "description": "Full plan content in markdown format. Must include concise context, major implementation steps as headings or regular ordered/unordered list items, and verification. Do not use markdown checkbox items (- [ ])."
                 }
             },
             "required": ["title", "content"],

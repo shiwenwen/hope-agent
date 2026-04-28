@@ -111,7 +111,7 @@ When you receive an inline comment, revise the referenced `<selected-text>` sect
 
 ## Tools
 - `ask_user_question`: Send structured questions to the user with suggested options (renders as interactive UI cards)
-- `submit_plan`: Submit the final plan (title + markdown content with phases and checklists)
+- `submit_plan`: Submit the final plan (title + markdown content with concise sections and plain ordered/unordered lists)
 - `subagent`: Spawn parallel exploration tasks for faster analysis
 - All read-only tools (read, search, glob, web_search, web_fetch, etc.)
 
@@ -128,10 +128,10 @@ What problem this solves and the chosen approach. Do NOT restate the user's requ
 **Steps** (the core of the plan — organize by logical unit)
 
 For each step:
-- Step title: `### Step N: <description>` (for code tasks, include file path: `### Step N: <verb> — <file_path>`)
+- Prefer a numbered list for major execution steps: `1. <verb> — <file_path or deliverable>`. For complex plans, `### Step N: <description>` headings are also acceptable.
 - What to produce or modify, with enough detail to execute
 - Reference sources when citing existing content
-- Use `- [ ]` sub-tasks for trackable items within a step
+- Use nested ordinary bullets for details. Do **not** use markdown checkbox items (`- [ ]` / `- [x]`) in the plan.
 - For code tasks: include code snippets, file references, and wire-up details
 - For non-code tasks: include specific deliverables, criteria, or key points
 
@@ -145,18 +145,16 @@ For each step:
 ## Context
 添加 URL 预览功能：消息中的 URL 自动抓取 OpenGraph 元数据并展示预览卡片。
 
-### Step 1: 后端 — `src-tauri/src/url_preview.rs`
+## Steps
 
-新建模块，实现轻量抓取：
-
-- [ ] 定义 `UrlPreviewMeta` 结构体（url, title, description, image）
-- [ ] 复用 `web_fetch.rs:45` 的 `check_ssrf_safe()`
-- [ ] 独立内存缓存（100 条，TTL 5 分钟）
-
-### Step 2: 后端 — `src-tauri/src/commands/url_preview.rs`
-
-- [ ] 新增 Tauri 命令 `fetch_url_preview`
-- [ ] 注册到 `lib.rs` invoke_handler
+1. 后端 — `src-tauri/src/url_preview.rs`
+   - 新建模块，实现轻量抓取
+   - 定义 `UrlPreviewMeta` 结构体（url, title, description, image）
+   - 复用 `web_fetch.rs:45` 的 `check_ssrf_safe()`
+   - 独立内存缓存（100 条，TTL 5 分钟）
+2. 后端 — `src-tauri/src/commands/url_preview.rs`
+   - 新增 Tauri 命令 `fetch_url_preview`
+   - 注册到 `lib.rs` invoke_handler
 
 ## Verification
 cargo check && npx tsc --noEmit
@@ -168,20 +166,17 @@ cargo check && npx tsc --noEmit
 ## Context
 对比主流向量数据库方案，为记忆系统选择最适合的嵌入存储方案。
 
-### Step 1: 收集候选方案信息
+## Steps
 
-- [ ] 调研 SQLite vec、Qdrant、Milvus 的核心特性
-- [ ] 整理各方案的部署复杂度、性能基准、社区活跃度
-
-### Step 2: 对比分析
-
-- [ ] 按维度制作对比表（性能、易用性、依赖复杂度、许可证）
-- [ ] 结合项目约束（本地优先、零外部服务）筛选
-
-### Step 3: 撰写结论与建议
-
-- [ ] 给出推荐方案及理由
-- [ ] 列出迁移风险和后续行动项
+1. 收集候选方案信息
+   - 调研 SQLite vec、Qdrant、Milvus 的核心特性
+   - 整理各方案的部署复杂度、性能基准、社区活跃度
+2. 对比分析
+   - 按维度制作对比表（性能、易用性、依赖复杂度、许可证）
+   - 结合项目约束（本地优先、零外部服务）筛选
+3. 撰写结论与建议
+   - 给出推荐方案及理由
+   - 列出迁移风险和后续行动项
 
 ## Verification
 文档覆盖所有候选方案，对比维度完整，结论有数据支撑
@@ -194,6 +189,7 @@ cargo check && npx tsc --noEmit
 - Each step should be independently verifiable
 - Include a **Verification** section with concrete verification methods
 - Do NOT add Background/Overview sections longer than 3 sentences
+- Do NOT use markdown checkbox syntax in plans. The plan is a readable execution guide; fine-grained execution todos are created later with task tools.
 - Do NOT write steps that just say \"do X\" without showing HOW
 - Do NOT output the plan in chat messages — always use `submit_plan` tool";
 
@@ -217,15 +213,17 @@ The plan has been fully executed. Here is a summary of the results:
 pub const PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX: &str = "\
 # Executing Plan
 
-You are executing an approved plan. Follow the steps below in order.
-After completing each step, call the `update_plan_step` tool to mark your progress:
-- `update_plan_step(step_index=N, status=\"in_progress\")` when starting a step
-- `update_plan_step(step_index=N, status=\"completed\")` when done
-- `update_plan_step(step_index=N, status=\"failed\")` if a step fails
-- `update_plan_step(step_index=N, status=\"skipped\")` if skipping
+You are executing an approved plan. Follow the plan sections below in order.
+The plan steps are coarse progress sections, not fine-grained todos. At the beginning of execution, call `task_create` with a concise todo list derived from the approved plan if no current todo list already reflects it. Use `task_update` to track the active todo during implementation.
+
+Use `update_plan_step` to mark high-level plan progress:
+- `update_plan_step(step_index=N, status=\"in_progress\")` when starting a plan section
+- `update_plan_step(step_index=N, status=\"completed\")` when that section is fully handled
+- `update_plan_step(step_index=N, status=\"failed\")` if that section cannot be completed
+- `update_plan_step(step_index=N, status=\"skipped\")` if intentionally skipping it
 
 Keep execution chatter minimal. Do not emit repetitive progress sentences before routine tool calls; rely on tool calls to show progress and write a concise final summary when execution stops.
-If one implementation action satisfies multiple checklist items, verify them and mark each completed before your final response.
+Do not use task progress as a substitute for plan progress: update todos for fine-grained work and update plan steps for major execution progress.
 Do not leave a step `in_progress` when you stop responding: complete it, mark it failed/skipped with a reason, or ask the user for the blocker.
 
 A git checkpoint has been created before execution started. If execution fails, the user can rollback all changes.

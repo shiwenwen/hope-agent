@@ -27,7 +27,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     // Parse steps from markdown content
     let steps = plan::parse_plan_steps(&content);
     if steps.is_empty() {
-        return "Error: plan content must contain at least one step in checklist format (- [ ] step)".to_string();
+        return "Error: plan content must contain at least one executable step as a markdown heading or regular ordered/unordered list item".to_string();
     }
 
     // Save plan file under the effective (parent) session

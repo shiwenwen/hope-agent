@@ -3,22 +3,66 @@ mod tests {
     use crate::plan::*;
 
     #[test]
-    fn test_parse_plan_steps() {
+    fn test_parse_plan_steps_from_headings() {
         let md = "\
-### Phase 1: Analysis
-- [ ] Read config files at src/config.ts
-- [x] Analyze CSS variables in theme.css
-### Phase 2: Implementation
-- [ ] Add ThemeProvider component
-- [ ] Create toggle button";
+## Context
+Add theme switching without changing unrelated settings.
+
+## Steps
+### Step 1: Analysis
+- Read config files at src/config.ts
+- Analyze CSS variables in theme.css
+
+### Step 2: Implementation
+1. Add ThemeProvider component
+2. Create toggle button
+
+## Verification
+1. Run typecheck";
         let steps = parse_plan_steps(md);
-        assert_eq!(steps.len(), 4);
-        assert_eq!(steps[0].phase, "Phase 1: Analysis");
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].phase, "Steps");
+        assert_eq!(steps[0].title, "Step 1: Analysis");
+        assert_eq!(steps[0].status, PlanStepStatus::Pending);
+        assert_eq!(steps[1].phase, "Steps");
+        assert_eq!(steps[1].title, "Step 2: Implementation");
+        assert_eq!(steps[1].index, 1);
+        assert_eq!(steps[2].phase, "Verification");
+        assert_eq!(steps[2].title, "Verification");
+    }
+
+    #[test]
+    fn test_parse_plan_steps_from_ordered_list() {
+        let md = "\
+## Context
+Small change.
+
+## Execution Plan
+1. Update parser to read ordinary list items.
+   - Keep nested bullets as details, not progress rows.
+2. Update prompt wording to avoid checkboxes.
+
+## Verification
+1. Run cargo check";
+        let steps = parse_plan_steps(md);
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].phase, "Execution Plan");
+        assert_eq!(steps[0].title, "Update parser to read ordinary list items.");
+        assert_eq!(steps[1].title, "Update prompt wording to avoid checkboxes.");
+        assert_eq!(steps[2].phase, "Verification");
+        assert_eq!(steps[2].title, "Run cargo check");
+    }
+
+    #[test]
+    fn test_parse_legacy_checklists_only_as_fallback() {
+        let md = "\
+- [ ] Read config files at src/config.ts
+- [x] Analyze CSS variables in theme.css";
+        let steps = parse_plan_steps(md);
+        assert_eq!(steps.len(), 2);
         assert_eq!(steps[0].title, "Read config files at src/config.ts");
         assert_eq!(steps[0].status, PlanStepStatus::Pending);
         assert_eq!(steps[1].status, PlanStepStatus::Completed);
-        assert_eq!(steps[2].phase, "Phase 2: Implementation");
-        assert_eq!(steps[2].index, 2);
     }
 
     #[test]
