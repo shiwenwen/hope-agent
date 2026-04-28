@@ -337,7 +337,7 @@ function MessageBubbleInner({
                                   {t("chat.lastRoundInputTokens")}
                                 </span>
                                 <span className="font-medium text-foreground tabular-nums">
-                                  {formatTokens(lastInputTokens)}
+                                  ⚡️{t("chat.statusCacheHit")} {formatTokens(lastInputTokens)}
                                 </span>
                               </div>
                             )}
