@@ -43,6 +43,7 @@ interface PlanPanelProps {
   onResume?: () => void
   onRequestChanges?: (feedback: string) => void
   panelWidth?: number
+  embedded?: boolean
 }
 
 export function PlanPanel({
@@ -59,11 +60,14 @@ export function PlanPanel({
   onResume,
   onRequestChanges,
   panelWidth,
+  embedded = false,
 }: PlanPanelProps) {
   const { t } = useTranslation()
   const desktopMode = isTauriMode()
   const [showVersions, setShowVersions] = useState(false)
-  const [versions, setVersions] = useState<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>([])
+  const [versions, setVersions] = useState<
+    { version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]
+  >([])
   const [loadingVersions, setLoadingVersions] = useState(false)
   const [hasCheckpoint, setHasCheckpoint] = useState(false)
   const [rollingBack, setRollingBack] = useState(false)
@@ -153,9 +157,9 @@ export function PlanPanel({
     if (!sessionId) return
     setLoadingVersions(true)
     try {
-      const v = await getTransport().call<{ version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]>(
-        "get_plan_versions", { sessionId }
-      )
+      const v = await getTransport().call<
+        { version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]
+      >("get_plan_versions", { sessionId })
       setVersions(v)
       setShowVersions(true)
     } catch (e) {
@@ -169,7 +173,8 @@ export function PlanPanel({
   useEffect(() => {
     if (!sessionId) return
     if (planState === "executing" || planState === "paused" || planState === "completed") {
-      getTransport().call<string | null>("get_plan_checkpoint", { sessionId })
+      getTransport()
+        .call<string | null>("get_plan_checkpoint", { sessionId })
         .then((ref) => setHasCheckpoint(!!ref))
         .catch(() => setHasCheckpoint(false))
     } else {
@@ -191,15 +196,18 @@ export function PlanPanel({
     }
   }, [sessionId])
 
-  const handleRestoreVersion = useCallback(async (filePath: string) => {
-    if (!sessionId) return
-    try {
-      await getTransport().call("restore_plan_version", { sessionId, filePath })
-      setShowVersions(false)
-    } catch (e) {
-      logger.error("plan", "PlanPanel::restoreVersion", "Failed to restore plan version", e)
-    }
-  }, [sessionId])
+  const handleRestoreVersion = useCallback(
+    async (filePath: string) => {
+      if (!sessionId) return
+      try {
+        await getTransport().call("restore_plan_version", { sessionId, filePath })
+        setShowVersions(false)
+      } catch (e) {
+        logger.error("plan", "PlanPanel::restoreVersion", "Failed to restore plan version", e)
+      }
+    },
+    [sessionId],
+  )
 
   // Highlight selected text with <mark> wrapper
   const highlightSelection = useCallback((range: Range) => {
@@ -297,82 +305,102 @@ export function PlanPanel({
   }, [planState, onRequestChanges, clearHighlight])
 
   // Submit comment: format as quoted selection + comment and send to model
-  const handleCommentSubmit = useCallback((comment: string) => {
-    if (!commentPopover || !onRequestChanges) return
-    const feedback = [
-      `<plan-inline-comment>`,
-      `The user selected the following section from the current plan and requests a revision:`,
-      ``,
-      `<selected-text>`,
-      commentPopover.selectedText,
-      `</selected-text>`,
-      ``,
-      `<revision-request>`,
-      comment,
-      `</revision-request>`,
-      ``,
-      `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
-      `</plan-inline-comment>`,
-    ].join("\n")
-    onRequestChanges(feedback)
-    clearHighlight()
-    setCommentPopover(null)
-    window.getSelection()?.removeAllRanges()
-  }, [commentPopover, onRequestChanges, clearHighlight])
-
-  const groupedPhases = useMemo(
-    () => groupStepsByPhase(planSteps),
-    [planSteps]
+  const handleCommentSubmit = useCallback(
+    (comment: string) => {
+      if (!commentPopover || !onRequestChanges) return
+      const feedback = [
+        `<plan-inline-comment>`,
+        `The user selected the following section from the current plan and requests a revision:`,
+        ``,
+        `<selected-text>`,
+        commentPopover.selectedText,
+        `</selected-text>`,
+        ``,
+        `<revision-request>`,
+        comment,
+        `</revision-request>`,
+        ``,
+        `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
+        `</plan-inline-comment>`,
+      ].join("\n")
+      onRequestChanges(feedback)
+      clearHighlight()
+      setCommentPopover(null)
+      window.getSelection()?.removeAllRanges()
+    },
+    [commentPopover, onRequestChanges, clearHighlight],
   )
+
+  const groupedPhases = useMemo(() => groupStepsByPhase(planSteps), [planSteps])
 
   const allDone =
     planSteps.length > 0 &&
     planSteps.every(
-      (s) =>
-        s.status === "completed" ||
-        s.status === "skipped" ||
-        s.status === "failed"
+      (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed",
     )
 
-  const showProgressBar = planState === "executing" || planState === "paused" || planState === "completed" || allDone
+  const showProgressBar =
+    planState === "executing" || planState === "paused" || planState === "completed" || allDone
   // Show markdown content in review and planning states (read-only)
   const showMarkdown = planContent && (planState === "review" || planState === "planning")
   // Show step list in executing/paused/completed states
-  const showStepList = planState === "executing" || planState === "paused" || planState === "completed"
+  const showStepList =
+    planState === "executing" || planState === "paused" || planState === "completed"
 
   // Title bar icon color based on state
-  const iconColor = planState === "completed" ? "text-green-500"
-    : planState === "executing" ? "text-blue-500"
-    : planState === "paused" ? "text-yellow-500"
-    : planState === "review" ? "text-purple-500"
-    : "text-blue-500"
+  const iconColor =
+    planState === "completed"
+      ? "text-green-500"
+      : planState === "executing"
+        ? "text-blue-500"
+        : planState === "paused"
+          ? "text-yellow-500"
+          : planState === "review"
+            ? "text-purple-500"
+            : "text-blue-500"
 
   // Whether inline commenting is enabled
   const canComment = (planState === "review" || planState === "planning") && !!onRequestChanges
   const panelShellClass = maximized
     ? "fixed inset-0 z-50 flex flex-col bg-background"
     : cn(
-        "flex h-full flex-col shrink-0 bg-background animate-in slide-in-from-right-2 duration-200",
-        desktopMode
-          ? "max-w-[40vw]"
-          : "max-w-[42vw] border-l border-border/70 bg-background/95",
+        "flex h-full min-h-0 flex-col shrink-0 overflow-hidden animate-in slide-in-from-right-2 duration-200",
+        embedded
+          ? "w-full rounded-xl border border-border/70 bg-card shadow-sm"
+          : desktopMode
+            ? "max-w-[40vw] bg-background"
+            : "max-w-[42vw] border-l border-border/70 bg-background/95",
       )
   const headerClass = cn(
     "flex items-center gap-2 px-3 border-b shrink-0",
-    desktopMode ? "py-2 border-border bg-secondary/30" : "h-10 border-border/70 bg-background/95",
-    maximized && desktopMode && "pt-8",
+    embedded
+      ? "h-11 border-border/60 bg-card/95 px-4"
+      : desktopMode
+        ? "py-2 border-border bg-secondary/30"
+        : "h-10 border-border/70 bg-background/95",
+    maximized && desktopMode && "h-[72px] items-end pb-2 pt-7",
   )
   const actionBarClass = cn(
     "px-3 py-3 border-t border-border shrink-0 space-y-2",
-    desktopMode ? "bg-secondary/20" : "bg-background/95",
+    embedded ? "bg-card/95" : desktopMode ? "bg-secondary/20" : "bg-background/95",
   )
 
   // Detached: show compact placeholder
   if (detached) {
     return (
-      <div className="flex flex-col w-[200px] shrink-0 bg-background animate-in slide-in-from-right-2 duration-200">
+      <div
+        className={cn(
+          "flex flex-col shrink-0 animate-in slide-in-from-right-2 duration-200",
+          embedded
+            ? "h-full w-full overflow-hidden rounded-xl border border-border/70 bg-card shadow-sm"
+            : "w-[200px] bg-background",
+        )}
+      >
         <div
-          className="flex items-center gap-2 px-3 py-2 border-b border-border bg-secondary/30 shrink-0"
+          className={cn(
+            "flex items-center gap-2 px-3 py-2 border-b border-border shrink-0",
+            embedded ? "bg-card/95" : "bg-secondary/30",
+          )}
           data-tauri-drag-region={desktopMode ? true : undefined}
         >
           <ClipboardList className={cn("h-4 w-4", iconColor)} />
@@ -388,7 +416,10 @@ export function PlanPanel({
             </IconTip>
             <IconTip label={t("common.close")}>
               <button
-                onClick={() => { handleReattach(); onClose() }}
+                onClick={() => {
+                  handleReattach()
+                  onClose()
+                }}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
                 <X className="h-3.5 w-3.5" />
@@ -397,9 +428,7 @@ export function PlanPanel({
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center p-4">
-          <p className="text-xs text-muted-foreground text-center">
-            {t("planMode.popOutActive")}
-          </p>
+          <p className="text-xs text-muted-foreground text-center">{t("planMode.popOutActive")}</p>
         </div>
       </div>
     )
@@ -408,13 +437,10 @@ export function PlanPanel({
   return (
     <div
       className={panelShellClass}
-      style={maximized ? undefined : { width: panelWidth ?? 400 }}
+      style={maximized ? undefined : embedded ? { width: "100%" } : { width: panelWidth ?? 400 }}
     >
       {/* Title bar */}
-      <div
-        className={headerClass}
-        data-tauri-drag-region={desktopMode ? true : undefined}
-      >
+      <div className={headerClass} data-tauri-drag-region={desktopMode ? true : undefined}>
         <ClipboardList className={cn("h-4 w-4", iconColor)} />
         <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
         <div className="flex items-center gap-0.5">
@@ -426,7 +452,11 @@ export function PlanPanel({
                 onClick={handleLoadVersions}
                 disabled={loadingVersions}
               >
-                {loadingVersions ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <History className="h-3.5 w-3.5" />}
+                {loadingVersions ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <History className="h-3.5 w-3.5" />
+                )}
               </button>
             </IconTip>
           )}
@@ -446,7 +476,11 @@ export function PlanPanel({
                 onClick={() => setMaximized((v) => !v)}
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
               >
-                {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+                {maximized ? (
+                  <Minimize2 className="h-3.5 w-3.5" />
+                ) : (
+                  <Maximize2 className="h-3.5 w-3.5" />
+                )}
               </button>
             </IconTip>
           )}
@@ -474,9 +508,11 @@ export function PlanPanel({
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500 ease-out",
-                planState === "completed" || allDone ? "bg-green-500"
-                  : planState === "paused" ? "bg-yellow-500"
-                  : "bg-blue-500"
+                planState === "completed" || allDone
+                  ? "bg-green-500"
+                  : planState === "paused"
+                    ? "bg-yellow-500"
+                    : "bg-blue-500",
               )}
               style={{ width: `${progress}%` }}
             />
@@ -504,7 +540,9 @@ export function PlanPanel({
       {showVersions && (
         <div className="px-3 py-2 border-b border-border/50 bg-secondary/30">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-medium text-muted-foreground">{t("planMode.versionHistory")}</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              {t("planMode.versionHistory")}
+            </span>
             <button
               className="p-0.5 rounded hover:bg-secondary text-muted-foreground"
               onClick={() => setShowVersions(false)}
@@ -518,7 +556,7 @@ export function PlanPanel({
                 key={v.version}
                 className={cn(
                   "flex items-center gap-2 px-2 py-1.5 rounded text-xs",
-                  v.isCurrent ? "bg-blue-500/10 text-blue-600" : "hover:bg-secondary/60"
+                  v.isCurrent ? "bg-blue-500/10 text-blue-600" : "hover:bg-secondary/60",
                 )}
               >
                 <span className="font-medium">v{v.version}</span>
@@ -526,7 +564,9 @@ export function PlanPanel({
                   {v.modifiedAt ? new Date(v.modifiedAt).toLocaleString() : ""}
                 </span>
                 {v.isCurrent ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600">{t("planMode.currentVersion")}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600">
+                    {t("planMode.currentVersion")}
+                  </span>
                 ) : (
                   <button
                     className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
@@ -538,14 +578,20 @@ export function PlanPanel({
               </div>
             ))}
             {versions.length === 0 && (
-              <div className="text-xs text-muted-foreground text-center py-3">{t("planMode.noVersions")}</div>
+              <div className="text-xs text-muted-foreground text-center py-3">
+                {t("planMode.noVersions")}
+              </div>
             )}
           </div>
         </div>
       )}
 
       {/* Main content area */}
-      <div className="flex-1 overflow-y-auto relative" ref={contentRef} onMouseUp={canComment ? handleMouseUp : undefined}>
+      <div
+        className="flex-1 overflow-y-auto relative"
+        ref={contentRef}
+        onMouseUp={canComment ? handleMouseUp : undefined}
+      >
         {/* Read-only markdown content (planning + review states) */}
         {showMarkdown && (
           <div className={cn("px-3 py-3", canComment && "select-text cursor-text")}>
@@ -611,10 +657,7 @@ export function PlanPanel({
         {/* Review: approve or exit */}
         {planState === "review" && (
           <>
-            <Button
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
-              onClick={onApprove}
-            >
+            <Button className="w-full bg-blue-500 text-white hover:bg-blue-600" onClick={onApprove}>
               <Play className="h-4 w-4 mr-2" />
               {t("planMode.approveAndExecute")}
             </Button>
@@ -659,7 +702,11 @@ export function PlanPanel({
                 onClick={handleRollback}
                 disabled={rollingBack}
               >
-                {rollingBack ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                {rollingBack ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                )}
                 {t("planMode.rollback")}
               </Button>
             )}
@@ -683,7 +730,11 @@ export function PlanPanel({
                 onClick={handleRollback}
                 disabled={rollingBack}
               >
-                {rollingBack ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <RotateCcw className="h-4 w-4 mr-2" />}
+                {rollingBack ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                )}
                 {t("planMode.rollback")}
               </Button>
             )}

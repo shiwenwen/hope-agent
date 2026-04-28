@@ -81,7 +81,7 @@ export default function ChatScreen({
   const [panelWidth, setPanelWidth] = useState(288)
 
   // Right panel widths (resizable)
-  const [planPanelWidth, setPlanPanelWidth] = useState(400)
+  const [planPanelWidth, setPlanPanelWidth] = useState(520)
   const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
 
   // Context compact state
@@ -132,8 +132,7 @@ export default function ChatScreen({
     [session.sessions, session.currentSessionId],
   )
   const isSubagentSession = useMemo(
-    () =>
-      !!session.sessions.find((s) => s.id === session.currentSessionId)?.parentSessionId,
+    () => !!session.sessions.find((s) => s.id === session.currentSessionId)?.parentSessionId,
     [session.sessions, session.currentSessionId],
   )
   const currentSessionMeta = useMemo(
@@ -200,9 +199,7 @@ export default function ChatScreen({
           }>("get_agent_config", { id: agentId })
           const primary = cfg.model?.primary
           if (primary) {
-            const exists = availableModels.some(
-              (m) => `${m.providerId}::${m.modelId}` === primary,
-            )
+            const exists = availableModels.some((m) => `${m.providerId}::${m.modelId}` === primary)
             if (exists) {
               const [providerId, modelId] = primary.split("::")
               if (providerId && modelId) {
@@ -469,12 +466,7 @@ export default function ChatScreen({
         session.updateSessionMeta(sid, (prev) =>
           prev.workingDir === previous ? prev : { ...prev, workingDir: previous },
         )
-        logger.error(
-          "chat",
-          "ChatScreen::setWorkingDir",
-          "Failed to update working directory",
-          err,
-        )
+        logger.error("chat", "ChatScreen::setWorkingDir", "Failed to update working directory", err)
         toast.error(t("chat.workingDir.invalid"), {
           description: err instanceof Error ? err.message : String(err),
         })
@@ -938,6 +930,33 @@ export default function ChatScreen({
       planMode.planContent.trim().length > 0 ||
       planMode.planSteps.length > 0)
 
+  const handlePlanPanelDragStart = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startWidth = planPanelWidth
+      const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
+      const onMouseMove = (ev: MouseEvent) => {
+        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
+        setPlanPanelWidth(newWidth)
+      }
+      const iframes = document.querySelectorAll("iframe")
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove)
+        document.removeEventListener("mouseup", onMouseUp)
+        document.body.style.cursor = ""
+        document.body.style.userSelect = ""
+        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+      }
+      document.addEventListener("mousemove", onMouseMove)
+      document.addEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+    },
+    [planPanelWidth],
+  )
+
   return (
     <>
       {/* Sidebar */}
@@ -1067,8 +1086,8 @@ export default function ChatScreen({
         content={systemPromptContent}
       />
 
-      {/* Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      {/* Conversation workspace */}
+      <div className="flex-1 flex flex-col min-w-0 bg-background">
         <ChatTitleBar
           agentName={session.agentName}
           currentAgentId={session.currentAgentId}
@@ -1103,191 +1122,180 @@ export default function ChatScreen({
           onChangeAgent={handleChangeAgent}
         />
 
-        {activeTeamId && !showTeamPanel && (
-          <div className="px-3 py-1 border-b border-border">
-            <TeamMiniIndicator teamId={activeTeamId} onClick={() => setShowTeamPanel(true)} />
-          </div>
-        )}
-
-        {searchBarOpen && session.currentSessionId && (
-          <SessionSearchBar
-            sessionId={session.currentSessionId}
-            onJumpTo={session.jumpToMessage}
-            onClose={() => setSearchBarOpen(false)}
-            focusSignal={searchFocusSignal}
-          />
-        )}
-
-        <CrashRecoveryBanner />
-
-        <MessageList
-          messages={session.messages}
-          loading={session.loading}
-          agents={session.agents}
-          hasMore={session.hasMore}
-          loadingMore={session.loadingMore}
-          onLoadMore={session.handleLoadMore}
-          sessionId={session.currentSessionId}
-          incognito={incognitoEnabled}
-          pendingScrollTarget={session.pendingScrollTarget}
-          onScrollTargetHandled={session.clearPendingScrollTarget}
-          pendingQuestionGroup={planMode.pendingQuestionGroup}
-          onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
-          planCardData={
-            planMode.planCardInfo
-              ? {
-                  title: planMode.planCardInfo.title,
-                  steps: planMode.planSteps,
-                  sessionId: session.currentSessionId || "",
-                }
-              : null
-          }
-          planState={planMode.planState}
-          planSteps={planMode.planSteps}
-          onOpenPlanPanel={planMode.openPlanPanel}
-          onApprovePlan={handlePlanApprove}
-          onExitPlan={planMode.exitPlanMode}
-          onPausePlan={planMode.pauseExecution}
-          onResumePlan={planMode.resumeExecution}
-          planSubagentRunning={planMode.planSubagentRunning}
-          onSwitchModel={handleMessageSwitchModel}
-          onViewSystemPrompt={loadSystemPrompt}
-          onSwitchSession={(sid) => {
-            void session.handleSwitchSession(sid)
-          }}
-        />
-
-        {/* Memory extraction toast */}
-        {!isCronSession && !isSubagentSession && (
-          <>
-            {memoryToast && (
-              <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">
-                <Brain className="h-3.5 w-3.5 shrink-0" />
-                <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
-                <button
-                  onClick={() => setMemoryToast(null)}
-                  className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
-                >
-                  ×
-                </button>
+        <div className="flex-1 flex min-h-0 overflow-hidden">
+          <div className="flex-1 flex flex-col min-w-0">
+            {activeTeamId && !showTeamPanel && (
+              <div className="px-3 py-1 border-b border-border">
+                <TeamMiniIndicator teamId={activeTeamId} onClick={() => setShowTeamPanel(true)} />
               </div>
             )}
 
-            <ChatInput
-              input={stream.input}
-              onInputChange={stream.setInput}
-              onSend={() => stream.handleSend()}
+            {searchBarOpen && session.currentSessionId && (
+              <SessionSearchBar
+                sessionId={session.currentSessionId}
+                onJumpTo={session.jumpToMessage}
+                onClose={() => setSearchBarOpen(false)}
+                focusSignal={searchFocusSignal}
+              />
+            )}
+
+            <CrashRecoveryBanner />
+
+            <MessageList
+              messages={session.messages}
               loading={session.loading}
-              availableModels={availableModels}
-              activeModel={activeModel}
-              reasoningEffort={reasoningEffort}
-              onModelChange={handleModelChange}
-              onEffortChange={handleEffortChange}
-              attachedFiles={stream.attachedFiles}
-              onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
-              onRemoveFile={(index) =>
-                stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+              agents={session.agents}
+              hasMore={session.hasMore}
+              loadingMore={session.loadingMore}
+              onLoadMore={session.handleLoadMore}
+              sessionId={session.currentSessionId}
+              incognito={incognitoEnabled}
+              pendingScrollTarget={session.pendingScrollTarget}
+              onScrollTargetHandled={session.clearPendingScrollTarget}
+              pendingQuestionGroup={planMode.pendingQuestionGroup}
+              onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
+              planCardData={
+                planMode.planCardInfo
+                  ? {
+                      title: planMode.planCardInfo.title,
+                      steps: planMode.planSteps,
+                      sessionId: session.currentSessionId || "",
+                    }
+                  : null
               }
-              pendingMessage={stream.pendingMessage}
-              onCancelPending={() => {
-                stream.setInput(stream.pendingMessage || "")
-                stream.setPendingMessage(null)
-              }}
-              onDiscardPending={() => {
-                stream.setPendingMessage(null)
-              }}
-              onStop={stream.handleStop}
-              currentSessionId={session.currentSessionId}
-              currentAgentId={session.currentAgentId}
-              onCommandAction={handleCommandAction}
-              toolPermissionMode={stream.toolPermissionMode}
-              onToolPermissionChange={stream.setToolPermissionMode}
-              sessionTemperature={sessionTemperature}
-              onSessionTemperatureChange={setSessionTemperature}
-              incognitoEnabled={incognitoEnabled}
-              incognitoDisabledReason={incognitoDisabledReason}
-              onIncognitoChange={handleIncognitoChange}
-              workingDir={
-                session.currentSessionId ? effectiveWorkingDir : draftWorkingDir
-              }
-              workingDirInherited={
-                session.currentSessionId ? workingDirSource === "project" : false
-              }
-              workingDirSaving={workingDirSaving}
-              onWorkingDirChange={handleWorkingDirChange}
               planState={planMode.planState}
-              planProgress={planMode.progress}
-              onEnterPlanMode={planMode.enterPlanMode}
-              onExitPlanMode={planMode.exitPlanMode}
-              onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+              planSteps={planMode.planSteps}
+              onOpenPlanPanel={planMode.openPlanPanel}
+              onApprovePlan={handlePlanApprove}
+              onExitPlan={planMode.exitPlanMode}
+              onPausePlan={planMode.pauseExecution}
+              onResumePlan={planMode.resumeExecution}
+              planSubagentRunning={planMode.planSubagentRunning}
+              onSwitchModel={handleMessageSwitchModel}
+              onViewSystemPrompt={loadSystemPrompt}
+              onSwitchSession={(sid) => {
+                void session.handleSwitchSession(sid)
+              }}
             />
-          </>
-        )}
+
+            {/* Memory extraction toast */}
+            {!isCronSession && !isSubagentSession && (
+              <>
+                {memoryToast && (
+                  <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">
+                    <Brain className="h-3.5 w-3.5 shrink-0" />
+                    <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
+                    <button
+                      onClick={() => setMemoryToast(null)}
+                      className="ml-auto text-muted-foreground/60 hover:text-muted-foreground"
+                    >
+                      ×
+                    </button>
+                  </div>
+                )}
+
+                <ChatInput
+                  input={stream.input}
+                  onInputChange={stream.setInput}
+                  onSend={() => stream.handleSend()}
+                  loading={session.loading}
+                  availableModels={availableModels}
+                  activeModel={activeModel}
+                  reasoningEffort={reasoningEffort}
+                  onModelChange={handleModelChange}
+                  onEffortChange={handleEffortChange}
+                  attachedFiles={stream.attachedFiles}
+                  onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
+                  onRemoveFile={(index) =>
+                    stream.setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
+                  }
+                  pendingMessage={stream.pendingMessage}
+                  onCancelPending={() => {
+                    stream.setInput(stream.pendingMessage || "")
+                    stream.setPendingMessage(null)
+                  }}
+                  onDiscardPending={() => {
+                    stream.setPendingMessage(null)
+                  }}
+                  onStop={stream.handleStop}
+                  currentSessionId={session.currentSessionId}
+                  currentAgentId={session.currentAgentId}
+                  onCommandAction={handleCommandAction}
+                  toolPermissionMode={stream.toolPermissionMode}
+                  onToolPermissionChange={stream.setToolPermissionMode}
+                  sessionTemperature={sessionTemperature}
+                  onSessionTemperatureChange={setSessionTemperature}
+                  incognitoEnabled={incognitoEnabled}
+                  incognitoDisabledReason={incognitoDisabledReason}
+                  onIncognitoChange={handleIncognitoChange}
+                  workingDir={session.currentSessionId ? effectiveWorkingDir : draftWorkingDir}
+                  workingDirInherited={
+                    session.currentSessionId ? workingDirSource === "project" : false
+                  }
+                  workingDirSaving={workingDirSaving}
+                  onWorkingDirChange={handleWorkingDirChange}
+                  planState={planMode.planState}
+                  planProgress={planMode.progress}
+                  onEnterPlanMode={planMode.enterPlanMode}
+                  onExitPlanMode={planMode.exitPlanMode}
+                  onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+                />
+              </>
+            )}
+          </div>
+
+          {/* Plan workspace (right side, integrated under the shared title bar) */}
+          {shouldShowPlanPanel && (
+            <div
+              className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
+              style={{ width: planPanelWidth }}
+            >
+              <div
+                className="group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center"
+                onMouseDown={handlePlanPanelDragStart}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("planMode.resizePanel", "Resize plan panel")}
+              >
+                <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
+              </div>
+              <PlanPanel
+                planState={planMode.planState}
+                planSteps={planMode.planSteps}
+                planContent={planMode.planContent}
+                progress={planMode.progress}
+                completedCount={planMode.completedCount}
+                sessionId={session.currentSessionId}
+                onApprove={handlePlanApprove}
+                onExit={planMode.exitPlanMode}
+                onClose={() => planMode.setShowPanel(false)}
+                onPause={planMode.pauseExecution}
+                onResume={planMode.resumeExecution}
+                onRequestChanges={handleRequestChanges}
+                embedded
+              />
+            </div>
+          )}
+
+          {/* Canvas Preview Panel */}
+          <CanvasPanel
+            panelWidth={canvasPanelWidth}
+            onPanelWidthChange={setCanvasPanelWidth}
+            currentSessionId={currentSessionId}
+          />
+
+          {/* Team Panel */}
+          {activeTeamId && showTeamPanel && (
+            <TeamPanel
+              teamId={activeTeamId}
+              panelWidth={teamPanelWidth}
+              onPanelWidthChange={setTeamPanelWidth}
+              onClose={() => setShowTeamPanel(false)}
+              onSwitchSession={session.handleSwitchSession}
+            />
+          )}
+        </div>
       </div>
-
-      {/* Plan Panel (right side) */}
-      {shouldShowPlanPanel && (
-        <>
-          <div
-            className="w-1 shrink-0 cursor-col-resize hover:bg-primary/30 active:bg-primary/50 transition-colors"
-            onMouseDown={(e) => {
-              e.preventDefault()
-              const startX = e.clientX
-              const startWidth = planPanelWidth
-              const onMouseMove = (ev: MouseEvent) => {
-                const newWidth = Math.min(800, Math.max(280, startWidth - (ev.clientX - startX)))
-                setPlanPanelWidth(newWidth)
-              }
-              const iframes = document.querySelectorAll("iframe")
-              iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
-              const onMouseUp = () => {
-                document.removeEventListener("mousemove", onMouseMove)
-                document.removeEventListener("mouseup", onMouseUp)
-                document.body.style.cursor = ""
-                document.body.style.userSelect = ""
-                iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
-              }
-              document.addEventListener("mousemove", onMouseMove)
-              document.addEventListener("mouseup", onMouseUp)
-              document.body.style.cursor = "col-resize"
-              document.body.style.userSelect = "none"
-            }}
-          />
-          <PlanPanel
-            planState={planMode.planState}
-            planSteps={planMode.planSteps}
-            planContent={planMode.planContent}
-            progress={planMode.progress}
-            completedCount={planMode.completedCount}
-            sessionId={session.currentSessionId}
-            onApprove={handlePlanApprove}
-            onExit={planMode.exitPlanMode}
-            onClose={() => planMode.setShowPanel(false)}
-            onPause={planMode.pauseExecution}
-            onResume={planMode.resumeExecution}
-            onRequestChanges={handleRequestChanges}
-            panelWidth={planPanelWidth}
-          />
-        </>
-      )}
-
-      {/* Canvas Preview Panel */}
-      <CanvasPanel
-        panelWidth={canvasPanelWidth}
-        onPanelWidthChange={setCanvasPanelWidth}
-        currentSessionId={currentSessionId}
-      />
-
-      {/* Team Panel */}
-      {activeTeamId && showTeamPanel && (
-        <TeamPanel
-          teamId={activeTeamId}
-          panelWidth={teamPanelWidth}
-          onPanelWidthChange={setTeamPanelWidth}
-          onClose={() => setShowTeamPanel(false)}
-          onSwitchSession={session.handleSwitchSession}
-        />
-      )}
     </>
   )
 }
