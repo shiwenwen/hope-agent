@@ -149,10 +149,10 @@ pub async fn move_session_to_project_cmd(
 
 #[tauri::command]
 pub async fn list_project_files_cmd(
-    id: String,
+    project_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<ProjectFile>, CmdError> {
-    state.project_db.list_files(&id).map_err(Into::into)
+    state.project_db.list_files(&project_id).map_err(Into::into)
 }
 
 #[tauri::command]
