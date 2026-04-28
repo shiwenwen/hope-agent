@@ -549,7 +549,7 @@ export function PlanPanel({
         {/* Read-only markdown content (planning + review states) */}
         {showMarkdown && (
           <div className={cn("px-3 py-3", canComment && "select-text cursor-text")}>
-            <div className="prose prose-sm dark:prose-invert max-w-none">
+            <div className="text-sm leading-relaxed">
               <MarkdownRenderer content={planContent} />
             </div>
           </div>

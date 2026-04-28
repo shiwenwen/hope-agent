@@ -131,7 +131,7 @@ export default function PlanDetachedWindow() {
         <div className="flex-1 overflow-y-auto">
           {showMarkdown && (
             <div className="px-3 py-3">
-              <div className="prose prose-sm dark:prose-invert max-w-none">
+              <div className="text-sm leading-relaxed">
                 <MarkdownRenderer content={planContent} />
               </div>
             </div>
