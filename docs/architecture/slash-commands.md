@@ -106,6 +106,7 @@ sequenceDiagram
 | `/stop` | 无 | 停止当前流式回复 | `StopStream` |
 | `/rename` | `<title>` 必需 | 重命名当前会话标题 | `DisplayOnly` |
 | `/plan` | `[exit\|show\|approve\|pause\|resume]` | 进入/管理计划模式（详见下方） | 多种 |
+| `/project` | `[name]` 可选 | 无参：弹出项目选择器（桌面端 markdown 列表 + sidebar 项目树）；有参：模糊匹配项目名进入并在该项目下新建会话。**IM 渠道禁用**（详见下方） | `ShowProjectPicker` 或 `EnterProject` |
 
 ### 🤖 Model — 模型控制
 
@@ -138,7 +139,7 @@ sequenceDiagram
 
 | 命令 | 参数 | 说明 | 副作用 (Action) |
 |---|---|---|---|
-| `/agent` | `<name>` 必需 | 模糊匹配切换 Agent（自动创建新会话） | `SwitchAgent` |
+| `/agent` | `<name>` 必需 | 模糊匹配切换 Agent（自动创建新会话）。**IM 渠道禁用**——IM 的运行 agent 由 channel-account / topic / group 配置决定，每条入站消息重算，如果允许 `/agent` 会出现「会话标签是新 agent、实际跑的是 channel 配置 agent」的幻觉切换 | `SwitchAgent` |
 | `/agents` | 无 | 列出所有可用 Agent（含 emoji、名称、描述） | `DisplayOnly` |
 
 ### 🔧 Utility — 实用工具
@@ -275,6 +276,41 @@ stateDiagram-v2
 
 ---
 
+## `/project` 子命令详解
+
+`/project` 在桌面端用于把当前对话从「散会话」切到「项目下的会话」。命令处理器：[`handlers/project.rs`](../../crates/ha-core/src/slash_commands/handlers/project.rs)。
+
+| 用法 | 行为 | Action |
+|---|---|---|
+| `/project` | 列出全部未归档项目，桌面端弹「项目选择器」（markdown 列表 + 项目名 / emoji / 会话数 / 描述），用户继续键入 `/project <name>` 进入；同时 sidebar 项目树本来就可视，可选直接点 | `ShowProjectPicker { projects }` |
+| `/project <name>` | 模糊匹配（精确名 → 精确 id → 前缀 → 包含；歧义/无果直接报错） | `EnterProject { project_id }` |
+
+**前端处理**（[ChatScreen.tsx:861-884](src/components/chat/ChatScreen.tsx#L861-L884)）：
+
+- `ShowProjectPicker`：渲染为 event 气泡 markdown 列表，附 `> /project <项目名>` 提示框
+- `EnterProject`：调 `handleNewChatInProject(project_id)` —— 在该项目下**新建会话**（agent 走 5 级解析链，详见 AGENTS.md「Agent 解析链」）；同步把 `draftIncognito` 关掉（项目与无痕互斥）
+
+**IM 渠道禁用**：
+
+- 注册表常量 `IM_DISABLED_COMMANDS = &["project"]`（[registry.rs:6](../../crates/ha-core/src/slash_commands/registry.rs#L6)）让命令从 IM slash 菜单（Discord / Telegram / Slack 同步阶段）剔除
+- handler 进入时再 self-check `session.channel_info.is_some()` —— 用户硬键入 `/project xxx` 也会直接返回 `DisplayOnly` 提示「在 IM 渠道不可用」，不会走到模糊匹配
+- 双层防御原因：IM session 已经绑定到 channel-account，不能再认领项目（项目 ↔ IM channel 是 0..1 ↔ 0..1，由项目侧 `bound_channel` 字段单向绑定，详见 AGENTS.md「绑定 IM Channel」）
+
+---
+
+## IM 渠道禁用清单
+
+部分桌面专属命令在 IM 渠道里既不显示菜单也不响应执行。**入口**：`crates/ha-core/src/slash_commands/registry.rs::IM_DISABLED_COMMANDS`。
+
+| 命令 | 禁用原因 |
+|---|---|
+| `/project` | IM session 已绑定 channel-account，不能再被项目认领 |
+| `/agent` | IM dispatcher 每条入站消息从 channel-account / topic / group 配置重算 agent_id（[`channel/worker/dispatcher.rs::resolved_agent_id`](../../crates/ha-core/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一轮入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override |
+
+新增此类命令时同时改两处：(1) `IM_DISABLED_COMMANDS` 常量 让 IM 同步阶段不下发菜单；(2) handler 内自检 `session.channel_info`，处理用户绕过菜单硬键入的情况。
+
+---
+
 ## CommandAction 类型一览
 
 `CommandResult.action` 字段告诉前端需要执行什么副作用：
@@ -283,7 +319,7 @@ stateDiagram-v2
 |---|---|---|---|---|
 | `NewSession` | 切换到新创建的会话 | `/new` | ✅ 更新 channel_db 映射到新 session | — |
 | `SessionCleared` | 会话消息已清空 | `/clear` | ✅ DB 已清理 + 回复确认 | `slash:session_cleared` |
-| `SwitchAgent` | 切换 Agent 并创建新会话 | `/agent <name>` | ✅ 更新 channel_db 映射到新 session | — |
+| `SwitchAgent` | 切换 Agent 并创建新会话 | `/agent <name>` | 🚫 命令 IM 禁用，不会到达此 action | — |
 | `PassThrough` | 将消息传递给 LLM 处理 | `/search`, 技能命令 | ✅ 以转换后的指令作为 LLM 输入 | — |
 | `DisplayOnly` | 仅显示内容，无副作用 | `/help`, `/status`, `/usage`, `/memories` 等 | ✅ 直接回复 content | — |
 | `SwitchModel` | 切换活跃模型 | `/model <name>` | ✅ 调用 `set_active_model_core` 持久化切换 | `slash:model_switched` |
@@ -302,10 +338,14 @@ stateDiagram-v2
 | `ShowPlan` | 在面板中显示计划 | `/plan show` | ✅ 将 plan 内容作为回复返回 | `slash:plan_changed` |
 | `PausePlan` | 暂停计划执行 | `/plan pause` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
 | `ResumePlan` | 恢复计划执行 | `/plan resume` | ✅ DB 状态已持久化 + 回复确认 | `slash:plan_changed` |
+| `ShowProjectPicker` | 渲染项目选择器（markdown 列表） | `/project`（无参） | 🚫 命令 IM 禁用，不会到达此 action | — |
+| `EnterProject` | 进入项目并在该项目下新建会话 | `/project <name>` | 🚫 命令 IM 禁用，不会到达此 action | — |
 
 > **前端事件说明**：Channel 执行状态变更类命令后，会通过 `EventBus` 发送 `slash:*` 事件通知前端 UI 同步更新（如模型选择器、effort 指示器、消息列表等）。桌面模式通过 Tauri `handle.emit()` 转发到 WebView，HTTP 模式通过 WebSocket 推送。前端在 `ChatScreen.tsx` 中统一监听这些事件。
 >
 > **⚡ 标注说明**：`/permission` 在 Channel 中不适用，因为 Channel 对话固定使用 auto-approve 模式，不需要交互式权限审批。
+>
+> **🚫 标注说明**：`ShowProjectPicker` / `EnterProject` 在 Channel 中**完全不会到达**——`/project` 在 `IM_DISABLED_COMMANDS` 列表里，slash 同步阶段就被剔除；handler 还会再用 `session.channel_info` 自检兜底。
 
 ---
 
@@ -359,12 +399,13 @@ Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
 | `/stop` | Session | 无 | 否 | 停止当前回复 |
 | `/rename` | Session | `<title>` | 是 | 重命名对话 |
 | `/plan` | Session | `[子命令]` | 是 | 计划模式 |
+| `/project` | Session | `[name]` | 否 | 进入/选择项目（IM 禁用） |
 | `/model` | Model | `[name]` | 否 | 切换/列出模型 |
 | `/think` | Model | `<level>` | 否 | 设置思考强度 |
 | `/remember` | Memory | `<text>` | 否 | 保存记忆 |
 | `/forget` | Memory | `<query>` | 否 | 删除记忆 |
 | `/memories` | Memory | 无 | 否 | 列出记忆 |
-| `/agent` | Agent | `<name>` | 否 | 切换 Agent |
+| `/agent` | Agent | `<name>` | 否 | 切换 Agent（IM 禁用） |
 | `/agents` | Agent | 无 | 否 | 列出 Agent |
 | `/help` | Utility | 无 | 否 | 显示所有命令 |
 | `/status` | Utility | 无 | 否 | 会话状态 |

@@ -65,7 +65,7 @@ pub async fn dispatch(
         }
 
         // ── Agent ──
-        "agent" => agent::handle_agent(session_db()?, args),
+        "agent" => agent::handle_agent(session_db()?, session_id, args),
         "agents" => agent::handle_agents(),
 
         // ── Plan ──

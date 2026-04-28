@@ -113,6 +113,10 @@ pub(super) async fn dispatch_slash_for_channel(
         }
 
         // Agent switch also creates a new session.
+        // NOTE: `/agent` is in `IM_DISABLED_COMMANDS` and the handler self-checks
+        // `session.channel_info`, so this branch is currently unreachable from IM
+        // channels. Kept as defense-in-depth in case future config opens a
+        // controlled IM agent-switch path.
         Some(CommandAction::SwitchAgent {
             session_id: new_sid,
             ..

@@ -5,7 +5,31 @@ use crate::slash_commands::types::{CommandAction, CommandResult};
 use std::sync::Arc;
 
 /// /agent <name> — Switch to a different agent.
-pub fn handle_agent(session_db: &Arc<SessionDB>, args: &str) -> Result<CommandResult, String> {
+///
+/// IM channels are forbidden from invoking `/agent` because the IM dispatcher
+/// resolves agent_id from `channel_account` config on every inbound message
+/// (see `channel/worker/dispatcher.rs::resolved_agent_id`), not from the
+/// session's stored agent_id. Allowing `/agent` in IM would silently desync:
+/// the new session's stored agent_id is the matched one, but subsequent
+/// inbound messages would still run under the channel-account agent — a
+/// hallucinated switch. The IM_DISABLED_COMMANDS list in `registry.rs` keeps
+/// the menu in sync with this runtime check.
+pub fn handle_agent(
+    session_db: &Arc<SessionDB>,
+    session_id: Option<&str>,
+    args: &str,
+) -> Result<CommandResult, String> {
+    if let Some(sid) = session_id {
+        if let Ok(Some(meta)) = session_db.get_session(sid) {
+            if meta.channel_info.is_some() {
+                return Ok(CommandResult {
+                    content: "`/agent` is not available in IM channels. The active agent for an IM chat is decided by the channel-account / topic / group settings — change it under **Settings → IM Channel → <account> → Agent** (or per-topic / per-group override).".into(),
+                    action: Some(CommandAction::DisplayOnly),
+                });
+            }
+        }
+    }
+
     let query = args.trim();
     if query.is_empty() {
         return Err("Usage: /agent <name>".into());

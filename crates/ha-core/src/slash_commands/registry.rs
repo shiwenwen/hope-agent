@@ -3,7 +3,7 @@ use super::types::{CommandCategory, SlashCommandDef};
 /// Commands that should not be exposed in IM channels (Discord / Telegram /
 /// Slack slash-command menus). The handler layer also self-checks via
 /// `session.channel_info` to refuse execution if a user types one anyway.
-pub const IM_DISABLED_COMMANDS: &[&str] = &["project"];
+pub const IM_DISABLED_COMMANDS: &[&str] = &["project", "agent"];
 
 /// Whether a command is suppressed from the IM channel slash-command menu.
 pub fn is_im_disabled(name: &str) -> bool {
