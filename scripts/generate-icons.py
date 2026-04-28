@@ -35,7 +35,7 @@ import tempfile
 from pathlib import Path
 
 try:
-    from PIL import Image, ImageChops
+    from PIL import Image, ImageChops, ImageFilter
 except ImportError:
     sys.exit("Pillow required: pip install Pillow")
 
@@ -43,7 +43,20 @@ except ImportError:
 ICNS_CANVAS = 1024
 ICNS_CONTENT = 824  # 100px margin each side per Big Sur template
 SQUIRCLE_N = 5.0  # superellipse exponent (approximates "continuous corner")
-SQUIRCLE_SUPERSAMPLE = 4
+SQUIRCLE_SUPERSAMPLE = 8
+
+# Professional macOS icon polish. These are deliberately subtle: the artwork
+# should still lead, while the shadow and edge treatment keep the icon from
+# feeling flat on light/dark Dock backgrounds.
+ICNS_SHADOW_LAYERS = [
+    # dx, dy, blur, opacity
+    (0, 30, 44, 34),  # broad ambient grounding shadow
+    (0, 18, 24, 42),  # main soft shadow
+    (0, 5, 10, 26),   # contact shadow near the icon edge
+]
+ICNS_INNER_EDGE_OPACITY = 18
+ICNS_TOP_HIGHLIGHT_OPACITY = 16
+ICNS_BOTTOM_SHADE_OPACITY = 12
 
 # Apple-prescribed iconset slot sizes (name → pixel size)
 ICNS_SLOTS = [
@@ -156,32 +169,121 @@ def build_ico(src: Image.Image, dest: Path) -> None:
     src.save(dest, format="ICO", sizes=ICO_SIZES)
 
 
+def alpha_mask_on_canvas(mask: Image.Image, x: int, y: int) -> Image.Image:
+    canvas_mask = Image.new("L", (ICNS_CANVAS, ICNS_CANVAS), 0)
+    canvas_mask.paste(mask, (x, y))
+    return canvas_mask
+
+
+def add_shadow(canvas: Image.Image, mask: Image.Image, offset: int) -> None:
+    for dx, dy, blur, opacity in ICNS_SHADOW_LAYERS:
+        alpha = alpha_mask_on_canvas(mask, offset + dx, offset + dy)
+        alpha = alpha.filter(ImageFilter.GaussianBlur(blur))
+        alpha = alpha.point(lambda p, o=opacity: p * o // 255)
+        shadow = Image.new("RGBA", (ICNS_CANVAS, ICNS_CANVAS), (0, 0, 0, 255))
+        shadow.putalpha(alpha)
+        canvas.alpha_composite(shadow)
+
+
+def clipped_vertical_alpha(size: int, mask: Image.Image, top: int, bottom: int) -> Image.Image:
+    alpha = Image.new("L", (size, size), 0)
+    px = alpha.load()
+    for y in range(size):
+        t = y / max(size - 1, 1)
+        value = int(top + (bottom - top) * t)
+        if value:
+            for x in range(size):
+                px[x, y] = value
+    return ImageChops.multiply(alpha, mask)
+
+
+def polish_content(content: Image.Image, mask: Image.Image) -> Image.Image:
+    polished = content.copy()
+
+    # A very slight top lift and bottom shade give the white tile depth without
+    # making the generated source look glossy.
+    top_highlight = Image.new("RGBA", content.size, (255, 255, 255, 255))
+    top_highlight.putalpha(
+        clipped_vertical_alpha(ICNS_CONTENT, mask, ICNS_TOP_HIGHLIGHT_OPACITY, 0)
+    )
+    polished.alpha_composite(top_highlight)
+
+    bottom_shade = Image.new("RGBA", content.size, (0, 0, 0, 255))
+    bottom_shade.putalpha(
+        clipped_vertical_alpha(ICNS_CONTENT, mask, 0, ICNS_BOTTOM_SHADE_OPACITY)
+    )
+    polished.alpha_composite(bottom_shade)
+
+    inner_edge = ImageChops.subtract(mask, mask.filter(ImageFilter.MinFilter(3)))
+    inner_edge = inner_edge.point(lambda p: p * ICNS_INNER_EDGE_OPACITY // 255)
+    edge = Image.new("RGBA", content.size, (0, 0, 0, 255))
+    edge.putalpha(inner_edge)
+    polished.alpha_composite(edge)
+
+    return polished
+
+
 def build_icns_source(src: Image.Image) -> Image.Image:
-    """Apple Big Sur template: 824 squircle centered in 1024 with transparent margin."""
+    """Apple Big Sur template: polished 824 squircle centered in 1024."""
     content = src.resize((ICNS_CONTENT, ICNS_CONTENT), Image.LANCZOS)
     mask = squircle_mask(ICNS_CONTENT)
     r, g, b, a = content.split()
     content.putalpha(ImageChops.multiply(a, mask))
+    content = polish_content(content, mask)
     canvas = Image.new("RGBA", (ICNS_CANVAS, ICNS_CANVAS), (0, 0, 0, 0))
     offset = (ICNS_CANVAS - ICNS_CONTENT) // 2
+    add_shadow(canvas, mask, offset)
     canvas.paste(content, (offset, offset), content)
     return canvas
 
 
 def build_icns(src: Image.Image, dest: Path) -> bool:
-    if shutil.which("iconutil") is None:
-        print("warning: iconutil not found (macOS-only) — skipping icon.icns", file=sys.stderr)
-        return False
     icns_src = build_icns_source(src)
+    if shutil.which("iconutil") is None:
+        print("warning: iconutil not found (macOS-only) — falling back to Tauri CLI", file=sys.stderr)
+    else:
+        with tempfile.TemporaryDirectory() as tmp:
+            iconset = Path(tmp) / "icon.iconset"
+            iconset.mkdir()
+            for name, size in ICNS_SLOTS:
+                icns_src.resize((size, size), Image.LANCZOS).save(iconset / name, "PNG", optimize=True)
+            try:
+                subprocess.run(
+                    ["iconutil", "-c", "icns", str(iconset), "-o", str(dest)],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                return True
+            except subprocess.CalledProcessError:
+                print("warning: iconutil rejected the iconset — falling back to Tauri CLI", file=sys.stderr)
+
+    pnpm = shutil.which("pnpm")
+    if pnpm is None:
+        print("warning: pnpm not found — skipping icon.icns", file=sys.stderr)
+        return False
+
     with tempfile.TemporaryDirectory() as tmp:
-        iconset = Path(tmp) / "icon.iconset"
-        iconset.mkdir()
-        for name, size in ICNS_SLOTS:
-            icns_src.resize((size, size), Image.LANCZOS).save(iconset / name, "PNG", optimize=True)
-        subprocess.run(
-            ["iconutil", "-c", "icns", str(iconset), "-o", str(dest)],
-            check=True,
-        )
+        tmp_dir = Path(tmp)
+        template = tmp_dir / "macos-template.png"
+        out_dir = tmp_dir / "tauri-icons"
+        out_dir.mkdir()
+        icns_src.save(template, "PNG")
+        try:
+            subprocess.run(
+                [pnpm, "exec", "tauri", "icon", str(template), "-o", str(out_dir)],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except subprocess.CalledProcessError:
+            print("warning: Tauri CLI failed — skipping icon.icns", file=sys.stderr)
+            return False
+        generated = out_dir / "icon.icns"
+        if not generated.is_file():
+            print("warning: Tauri CLI did not produce icon.icns", file=sys.stderr)
+            return False
+        shutil.copy2(generated, dest)
     return True
 
 

@@ -16,7 +16,7 @@ import {
   type LucideIcon,
 } from "lucide-react"
 
-import logoUrl from "@/assets/logo.png"
+import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
 
@@ -144,9 +144,9 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
       {/* Hero */}
       <div className="flex flex-col items-center text-center gap-3">
         <img
-          src={logoUrl}
+          src={alphaLogoUrl}
           alt="Hope Agent"
-          className="h-20 w-20 rounded-2xl shadow-lg ring-1 ring-border/50"
+          className="h-20 w-20 object-contain"
           draggable={false}
         />
         <h2 className="text-2xl font-semibold tracking-tight">

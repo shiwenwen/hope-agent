@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next"
 import { Check, Globe, Monitor, Moon, Sun } from "lucide-react"
 
-import logoUrl from "@/assets/logo.png"
+import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { setLanguage, setFollowSystemLanguage, SUPPORTED_LANGUAGES } from "@/i18n/i18n"
 import { cn } from "@/lib/utils"
 import { setThemePreference, type ThemeMode } from "@/hooks/useTheme"
@@ -63,9 +63,9 @@ export function WelcomeStep({
     <div className="px-8 py-10 space-y-8">
       <div className="flex flex-col items-center text-center gap-4">
         <img
-          src={logoUrl}
+          src={alphaLogoUrl}
           alt="Hope Agent"
-          className="h-20 w-20 rounded-2xl shadow-md"
+          className="h-20 w-20 object-contain"
           draggable={false}
         />
         <h1 className="text-3xl font-semibold tracking-tight">

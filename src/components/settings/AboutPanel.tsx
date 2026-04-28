@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import type { LucideIcon } from "lucide-react"
 import { Brain, Download, ExternalLink, Globe, Loader2, Monitor, RefreshCw } from "lucide-react"
-import logoUrl from "@/assets/logo.png"
+import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { Button } from "@/components/ui/button"
 import { HOPE_AGENT_URLS, useAppVersion } from "@/lib/appMeta"
 import {
@@ -154,11 +154,11 @@ export default function AboutPanel() {
             </div>
 
             <div className="mt-5 flex items-center gap-4">
-              <div className="flex h-20 w-20 items-center justify-center rounded-[22px] border border-border/70 bg-secondary/30 p-2">
+              <div className="flex h-[100px] w-[100px] items-center justify-center">
                 <img
-                  src={logoUrl}
+                  src={alphaLogoUrl}
                   alt="Hope Agent"
-                  className="h-full w-full rounded-[18px] object-cover"
+                  className="h-full w-full object-contain"
                   draggable={false}
                 />
               </div>
