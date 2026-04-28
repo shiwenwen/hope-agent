@@ -53,8 +53,6 @@ impl ProjectDB {
             );
             CREATE INDEX IF NOT EXISTS idx_projects_archived
                 ON projects(archived, updated_at DESC);
-            CREATE INDEX IF NOT EXISTS idx_projects_bound_channel
-                ON projects(bound_channel_id, bound_channel_account_id);
 
             CREATE TABLE IF NOT EXISTS project_files (
                 id                 TEXT PRIMARY KEY,
@@ -89,17 +87,27 @@ impl ProjectDB {
         }
 
         // Migration: add IM channel binding columns.
+        // The index is created unconditionally below — keep ALTER + index
+        // in separate batches so the index reference is never evaluated
+        // before the columns exist (regression: pre-bound_channel installs
+        // hit `CREATE INDEX … no such column` if both ran in one batch).
         let has_bound_channel = conn
             .prepare("SELECT bound_channel_id FROM projects LIMIT 1")
             .is_ok();
         if !has_bound_channel {
             conn.execute_batch(
                 "ALTER TABLE projects ADD COLUMN bound_channel_id TEXT;
-                 ALTER TABLE projects ADD COLUMN bound_channel_account_id TEXT;
-                 CREATE INDEX IF NOT EXISTS idx_projects_bound_channel
-                     ON projects(bound_channel_id, bound_channel_account_id);",
+                 ALTER TABLE projects ADD COLUMN bound_channel_account_id TEXT;",
             )?;
         }
+
+        // Idempotent — columns guaranteed to exist by this point (either
+        // from the initial CREATE TABLE on fresh installs or the ALTER
+        // above on upgrades).
+        conn.execute_batch(
+            "CREATE INDEX IF NOT EXISTS idx_projects_bound_channel
+                 ON projects(bound_channel_id, bound_channel_account_id);",
+        )?;
 
         Ok(())
     }
@@ -751,5 +759,80 @@ fn normalize_optional(value: Option<&str>) -> Option<&str> {
     match value {
         Some(v) if !v.trim().is_empty() => Some(v),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    /// Regression: pre-bound_channel installs would panic on startup with
+    /// `no such column: bound_channel_id` because the initial CREATE TABLE
+    /// batch contained a CREATE INDEX that referenced columns added by a
+    /// later ALTER TABLE migration. Migration must be idempotent and safe
+    /// to run against an old schema with neither column.
+    #[test]
+    fn migrate_pre_bound_channel_schema() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("sessions.db");
+        let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
+
+        // Simulate an old install: hand-create the projects table without
+        // the new bound_channel_* columns, plus the legacy indexes only.
+        {
+            let conn = session_db.conn.lock().unwrap();
+            // Drop any auto-created projects table from SessionDB::open so
+            // we're really starting from "old shape".
+            conn.execute_batch(
+                "DROP TABLE IF EXISTS project_files;
+                 DROP TABLE IF EXISTS projects;
+                 CREATE TABLE projects (
+                    id                TEXT PRIMARY KEY,
+                    name              TEXT NOT NULL,
+                    description       TEXT,
+                    instructions      TEXT,
+                    emoji             TEXT,
+                    color             TEXT,
+                    default_agent_id  TEXT,
+                    default_model_id  TEXT,
+                    created_at        INTEGER NOT NULL,
+                    updated_at        INTEGER NOT NULL,
+                    archived          INTEGER NOT NULL DEFAULT 0
+                 );",
+            )
+            .unwrap();
+        }
+
+        // Migration must succeed without panicking.
+        let project_db = ProjectDB::new(session_db.clone());
+        project_db.migrate().expect("migrate should not fail on old schema");
+
+        // Both new columns now queryable.
+        let conn = session_db.conn.lock().unwrap();
+        conn.prepare("SELECT bound_channel_id, bound_channel_account_id FROM projects LIMIT 1")
+            .expect("new columns should exist after migration");
+        // Index exists.
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_projects_bound_channel'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1, "idx_projects_bound_channel should exist");
+    }
+
+    /// Migration must also be idempotent — running it twice (subsequent
+    /// app boots) is a no-op.
+    #[test]
+    fn migrate_idempotent_on_fresh_schema() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("sessions.db");
+        let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
+        let project_db = ProjectDB::new(session_db);
+        project_db.migrate().expect("first migrate");
+        project_db.migrate().expect("second migrate (idempotent)");
     }
 }
