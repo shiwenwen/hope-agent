@@ -272,11 +272,31 @@ export function useChatSession({
     }
   }, [currentSessionId, purgeIncognitoSession])
 
-  // Load agent list
+  // Load agent list. Also pulls the global `default_agent_id` so the
+  // implicit "current agent" state matches what the user configured in
+  // settings — without this, `currentAgentId` is stuck at the hardcoded
+  // "default" until the user switches manually, defeating the setting.
   const reloadAgents = useCallback(async () => {
     try {
-      const list = await getTransport().call<AgentSummaryForSidebar[]>("list_agents")
+      const [list, defaultId] = await Promise.all([
+        getTransport().call<AgentSummaryForSidebar[]>("list_agents"),
+        getTransport()
+          .call<string | null>("get_default_agent_id")
+          .catch(() => null),
+      ])
       setAgents(list)
+      // Only reseed the implicit selection while no concrete session is
+      // active. Once the user is inside a session we already track its
+      // agent_id and don't want to clobber it.
+      if (!currentSessionIdRef.current) {
+        const id =
+          typeof defaultId === "string" && defaultId.trim().length > 0
+            ? defaultId
+            : "default"
+        setCurrentAgentId(id)
+        const match = list.find((a) => a.id === id)
+        if (match) setAgentName(match.name)
+      }
     } catch (e) {
       logger.error("ui", "ChatScreen::loadAgents", "Failed to load agents", e)
     }
@@ -294,6 +314,13 @@ export function useChatSession({
     }
     window.addEventListener("agents-changed", handler)
     return () => window.removeEventListener("agents-changed", handler)
+  }, [reloadAgents])
+
+  // Pick up changes to the global default agent from the settings panel.
+  useEffect(() => {
+    return getTransport().listen("config:changed", () => {
+      void reloadAgents()
+    })
   }, [reloadAgents])
 
   // Listen for cron job completions to refresh unread counts + send notification
@@ -599,10 +626,16 @@ export function useChatSession({
   const handleNewChatInProject = useCallback(
     async (projectId: string, defaultAgentId?: string | null, incognito = false) => {
       try {
-        const agentId =
-          defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : currentAgentId
+        // When the caller does not supply an explicit agentId, leave it
+        // undefined so `create_session_cmd` runs the resolver chain
+        // (project.default_agent_id → AppConfig.default_agent_id →
+        // hardcoded "default"). Falling back to the in-UI `currentAgentId`
+        // here would pin the new session to whichever agent the user happened
+        // to be chatting with last, bypassing project / global defaults.
+        const explicitAgent =
+          defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : undefined
         const created = await getTransport().call<SessionMeta>("create_session_cmd", {
-          agentId,
+          agentId: explicitAgent,
           projectId,
           // Project + incognito are mutually exclusive; backend coerces but
           // we strip here too so the optimistic UI stays consistent.
@@ -610,33 +643,36 @@ export function useChatSession({
         })
         setMessages([])
         setCurrentSessionId(created.id)
+        setSessions((prev) =>
+          prev.some((s) => s.id === created.id) ? prev : [created, ...prev],
+        )
         setLoading(false)
         setHasMore(false)
         setCurrentAgentId(created.agentId)
-        const currentAgents = await getTransport()
-          .call<AgentSummaryForSidebar[]>("list_agents")
-          .catch(() => [] as AgentSummaryForSidebar[])
-        const agent = currentAgents.find((a) => a.id === created.agentId)
-        if (agent) {
-          setAgentName(agent.name)
-        }
-        // Apply the agent's configured model (best-effort).
+        const agent = agents.find((a) => a.id === created.agentId)
+        if (agent) setAgentName(agent.name)
+        // Apply the agent's configured model. If the agent has no preferred
+        // model (or it's not currently available), fall back to the global
+        // active model so the title bar still shows something sensible.
+        let appliedAgentModel = false
         try {
           const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
             id: created.agentId,
           })
-          if (agentConfig.model.primary) {
+          const primary = agentConfig.model.primary
+          if (primary) {
             const modelExists = availableModels.some(
-              (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
+              (m) => `${m.providerId}::${m.modelId}` === primary,
             )
             if (modelExists) {
-              applyModelForDisplay(agentConfig.model.primary)
+              applyModelForDisplay(primary)
+              appliedAgentModel = true
             }
           }
         } catch {
           // ignore
         }
-        if (globalActiveModelRef.current) {
+        if (!appliedAgentModel && globalActiveModelRef.current) {
           setActiveModel(globalActiveModelRef.current)
         }
       } catch (e) {
@@ -645,7 +681,7 @@ export function useChatSession({
       }
     },
     [
-      currentAgentId,
+      agents,
       availableModels,
       applyModelForDisplay,
       globalActiveModelRef,

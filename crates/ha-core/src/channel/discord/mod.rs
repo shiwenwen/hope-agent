@@ -67,6 +67,7 @@ impl DiscordPlugin {
         // Convert to Discord Application Command format (type 1 = CHAT_INPUT)
         let discord_commands: Vec<serde_json::Value> = commands
             .iter()
+            .filter(|cmd| !crate::slash_commands::registry::is_im_disabled(&cmd.name))
             .map(|cmd| {
                 let mut command = serde_json::json!({
                     "name": cmd.name,

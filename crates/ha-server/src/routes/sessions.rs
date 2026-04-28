@@ -92,6 +92,12 @@ pub struct SessionWorkingDirBody {
     pub working_dir: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAgentBody {
+    pub agent_id: String,
+}
+
 // ── Response wrapper for paginated lists ────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -194,6 +200,20 @@ pub async fn set_session_working_dir(
 ) -> Result<Json<Value>, AppError> {
     ctx.session_db
         .update_session_working_dir(&id, body.working_dir)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "updated": true })))
+}
+
+/// `PATCH /api/sessions/:id/agent` — switch the agent bound to a session.
+/// Only allowed before the session has any user/assistant messages — the core
+/// layer enforces this and returns 400 otherwise.
+pub async fn update_session_agent(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Json(body): Json<SessionAgentBody>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db
+        .update_session_agent(&id, &body.agent_id)
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(json!({ "updated": true })))
 }

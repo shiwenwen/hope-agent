@@ -40,8 +40,10 @@ export default function ChatSidebar({
   hasMoreSessions,
   loadingMoreSessions,
   onLoadMoreSessions,
-  onOpenProject,
+  onOpenProjectSettings,
   onAddProject,
+  onNewChatInProject,
+  onArchiveProject,
   onMoveSessionToProject,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
@@ -121,7 +123,11 @@ export default function ChatSidebar({
       selectedAgentId === null ? sessions : sessions.filter((s) => s.agentId === selectedAgentId)
     switch (sessionFilter) {
       case "session":
-        return list.filter((s) => !s.isCron && !s.parentSessionId && !s.channelInfo)
+        // Project-bound sessions render under their project group above —
+        // exclude them here to avoid duplicate rows.
+        return list.filter(
+          (s) => !s.isCron && !s.parentSessionId && !s.channelInfo && !s.projectId,
+        )
       case "cron":
         return list.filter((s) => s.isCron)
       case "subagent":
@@ -312,10 +318,29 @@ export default function ChatSidebar({
             {(projects.length > 0 || onAddProject) && (
               <ProjectSection
                 projects={projects}
+                sessions={sessions}
+                agents={agents}
+                currentSessionId={currentSessionId}
+                loadingSessionIds={loadingSessionIds}
                 expanded={projectsExpanded}
                 setExpanded={setProjectsExpanded}
                 onAddProject={() => onAddProject?.()}
-                onOpenProject={(p) => onOpenProject?.(p)}
+                onOpenProjectSettings={(p) => onOpenProjectSettings?.(p)}
+                onNewChatInProject={(pid, opts) => onNewChatInProject?.(pid, opts)}
+                onArchiveProject={(pid, archived) => onArchiveProject?.(pid, archived)}
+                onSwitchSession={onSwitchSession}
+                onDeleteSession={handleDeleteClick}
+                onMarkAllRead={onMarkAllRead}
+                renamingSessionId={renamingSessionId}
+                renameValue={renameValue}
+                renameInputRef={renameInputRef}
+                onStartRename={startRename}
+                onRenameValueChange={setRenameValue}
+                onCommitRename={commitRename}
+                onCancelRename={cancelRename}
+                onMoveSessionToProject={onMoveSessionToProject}
+                getAgentInfo={getAgentInfo}
+                formatRelativeTime={formatRelativeTime}
               />
             )}
 

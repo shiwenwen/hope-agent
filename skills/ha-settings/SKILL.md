@@ -64,6 +64,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `image_generate` | `provider`, `model` |
 | `temperature` | `temperature` (0.0–2.0, null = API default) |
 | `tool_timeout` | `toolTimeout` (seconds, 0 = unlimited) |
+| `default_agent` | `defaultAgentId` (string id; `null` / empty falls back to hardcoded `"default"` agent) |
 
 ### MEDIUM risk — behavioral changes (cost, context, output quality)
 

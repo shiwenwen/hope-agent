@@ -224,6 +224,10 @@ fn default_conditional_skills_enabled() -> bool {
     true
 }
 
+fn default_default_agent_id() -> Option<String> {
+    Some("default".to_string())
+}
+
 pub(crate) fn default_tool_timeout() -> u64 {
     300
 }
@@ -384,6 +388,10 @@ pub struct AppConfig {
     /// When the primary model fails, these are tried in order.
     #[serde(default)]
     pub fallback_models: Vec<ActiveModel>,
+    /// Global default agent id used when neither the explicit caller nor a
+    /// session/project/channel specifies one. Defaults to `"default"`.
+    #[serde(default = "default_default_agent_id")]
+    pub default_agent_id: Option<String>,
     /// Extra directories to scan for skills
     #[serde(default)]
     pub extra_skills_dirs: Vec<String>,
@@ -625,6 +633,7 @@ impl Default for AppConfig {
             providers: Vec::new(),
             active_model: None,
             fallback_models: Vec::new(),
+            default_agent_id: default_default_agent_id(),
             extra_skills_dirs: Vec::new(),
             disabled_skills: Vec::new(),
             skill_env_check: true,

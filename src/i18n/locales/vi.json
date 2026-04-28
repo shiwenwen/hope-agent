@@ -59,6 +59,12 @@
     "removeFromProject": "Gỡ khỏi dự án",
     "unassigned": "Chưa gán",
     "newChatInProject": "Phiên mới trong dự án",
+    "openProjectSettings": "Cài đặt dự án",
+    "noSessionsHint": "Nhấp để tạo phiên đầu tiên",
+    "boundChannel": "Kênh IM đã liên kết",
+    "bindChannelLabel": "Liên kết với kênh IM",
+    "bindChannelHelp": "Sau khi liên kết, các cuộc hội thoại từ cuộc trò chuyện IM này sẽ tự động thuộc về dự án này.",
+    "unbindChannel": "Hủy liên kết",
     "tabOverview": "Tổng quan",
     "tabSessions": "Phiên",
     "tabFiles": "Tập tin",
@@ -1459,6 +1465,9 @@
     "system": "Hệ thống",
     "systemAutostart": "Khởi động khi đăng nhập",
     "systemAutostartDesc": "Tự động khởi động Hope Agent khi bạn đăng nhập vào máy tính",
+    "defaultAgentTitle": "Agent mặc định",
+    "defaultAgentLabel": "Agent mặc định",
+    "defaultAgentDesc": "Sử dụng khi không chỉ định Agent: Dự án → Kênh IM → giá trị mặc định này.",
     "configBackupsTitle": "Lịch sử cấu hình",
     "configBackupsDesc": "Mọi thay đổi cấu hình được chụp snapshot tự động. Có thể khôi phục về bất kỳ phiên bản trước (giữ 50 mục gần nhất).",
     "configBackupsEmpty": "Chưa có lịch sử",
@@ -2014,6 +2023,49 @@
       "providerType": "Provider type",
       "testOk": "Embedding connection test passed"
     },
+    "embeddingActivation": {
+      "title": "Chọn mô hình embedding",
+      "description": "Tìm kiếm vector cần một mô hình embedding. Chọn một mô hình để bật và xây dựng lại vector bộ nhớ.",
+      "empty": "Chưa có mô hình embedding nào được cấu hình. Hãy thêm một mô hình để bật tìm kiếm vector.",
+      "gotoConfig": "Cấu hình mô hình embedding",
+      "confirm": "Bật và xây dựng lại"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "Chế độ xây dựng lại",
+        "keepExisting": "Giữ vector hiện tại trong khi xây dựng lại",
+        "keepExistingDesc": "Vector cũ vẫn có thể tìm kiếm; mô hình mới sẽ ghi đè từng mục.",
+        "deleteAll": "Xóa tất cả vector bộ nhớ trước",
+        "deleteAllDesc": "Xóa vector của từng bộ nhớ trước khi xây dựng lại. Tìm kiếm chỉ trả về kết quả khớp từ khóa cho đến khi hoàn tất."
+      },
+      "reembedJob": {
+        "title": "Xây dựng lại vector bộ nhớ",
+        "idle": "{{count}} bộ nhớ đang dùng mô hình hiện tại. Bạn có thể xây dựng lại thủ công bất cứ lúc nào.",
+        "idleDisabled": "Bật tìm kiếm vector và thêm bộ nhớ trước khi xây dựng lại.",
+        "running": "Đang xây dựng lại vector bộ nhớ",
+        "progress": "{{done}} / {{total}} bộ nhớ",
+        "phaseKeep": "Đang xây dựng lại và giữ mục hiện có",
+        "phaseFresh": "Đang xây dựng lại từ đầu",
+        "cancelling": "Đang hủy…",
+        "completed": "Xây dựng lại hoàn tất",
+        "failed": "Xây dựng lại thất bại",
+        "interrupted": "Xây dựng lại bị gián đoạn do ứng dụng khởi động lại",
+        "cancelled": "Đã hủy xây dựng lại",
+        "retry": "Thử xây dựng lại",
+        "cancel": "Hủy xây dựng lại",
+        "dismiss": "Đóng",
+        "startNow": "Xây dựng lại ngay",
+        "status": {
+          "running": "Đang chạy",
+          "cancelling": "Đang hủy",
+          "completed": "Hoàn tất",
+          "failed": "Thất bại",
+          "interrupted": "Bị gián đoạn",
+          "cancelled": "Đã hủy",
+          "paused": "Tạm dừng"
+        }
+      }
+    },
     "localModels": {
       "tab": "Local Models",
       "title": "Local Models",
@@ -2096,49 +2148,6 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
-      }
-    },
-    "embeddingActivation": {
-      "title": "Chọn mô hình embedding",
-      "description": "Tìm kiếm vector cần một mô hình embedding. Chọn một mô hình để bật và xây dựng lại vector bộ nhớ.",
-      "empty": "Chưa có mô hình embedding nào được cấu hình. Hãy thêm một mô hình để bật tìm kiếm vector.",
-      "gotoConfig": "Cấu hình mô hình embedding",
-      "confirm": "Bật và xây dựng lại"
-    },
-    "embedding": {
-      "reembedMode": {
-        "label": "Chế độ xây dựng lại",
-        "keepExisting": "Giữ vector hiện tại trong khi xây dựng lại",
-        "keepExistingDesc": "Vector cũ vẫn có thể tìm kiếm; mô hình mới sẽ ghi đè từng mục.",
-        "deleteAll": "Xóa tất cả vector bộ nhớ trước",
-        "deleteAllDesc": "Xóa vector của từng bộ nhớ trước khi xây dựng lại. Tìm kiếm chỉ trả về kết quả khớp từ khóa cho đến khi hoàn tất."
-      },
-      "reembedJob": {
-        "title": "Xây dựng lại vector bộ nhớ",
-        "idle": "{{count}} bộ nhớ đang dùng mô hình hiện tại. Bạn có thể xây dựng lại thủ công bất cứ lúc nào.",
-        "idleDisabled": "Bật tìm kiếm vector và thêm bộ nhớ trước khi xây dựng lại.",
-        "running": "Đang xây dựng lại vector bộ nhớ",
-        "progress": "{{done}} / {{total}} bộ nhớ",
-        "phaseKeep": "Đang xây dựng lại và giữ mục hiện có",
-        "phaseFresh": "Đang xây dựng lại từ đầu",
-        "cancelling": "Đang hủy…",
-        "completed": "Xây dựng lại hoàn tất",
-        "failed": "Xây dựng lại thất bại",
-        "interrupted": "Xây dựng lại bị gián đoạn do ứng dụng khởi động lại",
-        "cancelled": "Đã hủy xây dựng lại",
-        "retry": "Thử xây dựng lại",
-        "cancel": "Hủy xây dựng lại",
-        "dismiss": "Đóng",
-        "startNow": "Xây dựng lại ngay",
-        "status": {
-          "running": "Đang chạy",
-          "cancelling": "Đang hủy",
-          "completed": "Hoàn tất",
-          "failed": "Thất bại",
-          "interrupted": "Bị gián đoạn",
-          "cancelled": "Đã hủy",
-          "paused": "Tạm dừng"
-        }
       }
     }
   },

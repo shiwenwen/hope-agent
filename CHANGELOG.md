@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **项目（Project）侧边栏一等公民改造**：原"点击项目 → 弹 ProjectOverviewDialog"的弹层交互整体重构。侧边栏的项目行现在直接展开为可折叠的树状会话列表（`ProjectSection.tsx` 重写为 `ProjectGroup` 嵌套渲染，复用 `SessionItem`，展开状态按 `localStorage` 持久化）；hover 显示「新建对话」+「设置」两个图标按钮（复用 `AgentSection` 的 `group/agent` 模式）；右键菜单提供新建对话 / 设置 / 归档；主区域 SessionList 自动排除已挂项目的会话避免重复。`ChatTitleBar` 在项目会话标题栏前缀新增项目 chip，点击直达项目设置；同侧 Agent 名换成可点击的 `AgentSwitcher` dropdown，仅在 `messages.length === 0` 时可切换。
+- **`/project [name]` 斜杠命令**：无参时返回 `CommandAction::ShowProjectPicker` 渲染项目列表（前端 markdown event 消息形态），有参时模糊匹配项目名直接 `EnterProject`（等价于在该项目下新建会话）；IM 渠道（Discord / Telegram）的命令同步阶段过滤掉 `/project`，handler 层用 `session.channel_info` 自检兜底拒绝。
+- **项目可绑定一个 IM Channel Account**：`Project` 新增 `bound_channel: Option<{ channel_id, account_id }>` 字段（schema migration 自动加列 + 索引）。绑定后，channel worker `resolve_or_create_session` 路径在创建新会话时自动注入 `project_id`，并按 5 级解析链解析 agent_id：**显式参数 → project.default_agent_id → channel_account.agent_id → AppConfig.default_agent_id → 硬编码 "default"**（统一 helper：`crate::agent::resolver::resolve_default_agent_id`）。`/status` 在项目会话里追加项目摘要段（含 Agent Source 来源行）。绑定/解绑入口在 `ProjectSettingsSheet` Overview tab。
+- **全局默认 Agent 设置**：`AppConfig.default_agent_id` 替代散落的硬编码 `"default"`。设置页「常规 → 系统」新增「默认 Agent」select 控件；新 Tauri 命令 `get_default_agent_id` / `set_default_agent_id`；HTTP `GET/PUT /api/config/default-agent`；ha-settings 技能登记为 LOW 风险。`create_session_cmd` 接入 resolver 链。
+- **`PATCH /api/sessions/:id/agent` + Tauri `update_session_agent_cmd`**：标题栏 Agent dropdown 切换的后端入口。SQL 层校验 `message_count == 0`，已发消息的会话拒绝切换（前端 disabled 仅 UX 防御）。
 - **项目（Project）级默认工作目录**：`Project` 上新增 `working_dir` 字段，可在 ProjectDialog 直接选择目录（Tauri 走原生选择器、HTTP 模式走 `ServerDirectoryBrowser`）。会话级工作目录优先；会话未单独设置时运行时回退到项目级，**无需复制快照**——修改项目工作目录后，已有会话立即跟随。会话顶部 `ChatTitleBar` 新增工作目录芯片，区分「会话设置」与「继承自项目」两种来源。会话级与项目级的 canonicalize + is_dir 校验复用同一 helper，错误文案对齐。
 
 ### Changed

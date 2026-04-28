@@ -22,10 +22,19 @@ export interface Project {
    * fallback when the session itself has no `workingDir` set.
    */
   workingDir?: string | null
+  /** IM channel binding. Sessions surfaced from this (channel, account) pair
+   *  auto-route into this project. */
+  boundChannel?: BoundChannel | null
   /** Unix milliseconds. */
   createdAt: number
   updatedAt: number
   archived: boolean
+}
+
+/** Reference to one IM channel account that a project is bound to. */
+export interface BoundChannel {
+  channelId: string
+  accountId: string
 }
 
 /** Project enriched with counts that drive the sidebar badges. */
@@ -64,6 +73,8 @@ export interface CreateProjectInput {
   defaultModelId?: string | null
   /** Optional default working directory for sessions in this project. */
   workingDir?: string | null
+  /** Optional IM channel binding. */
+  boundChannel?: BoundChannel | null
 }
 
 /**
@@ -82,6 +93,9 @@ export interface UpdateProjectInput {
   defaultModelId?: string
   /** Empty string clears the project default working directory. */
   workingDir?: string
+  /** Patch the IM channel binding. Pass `null` to clear it; omit field to
+   *  leave it unchanged. */
+  boundChannel?: BoundChannel | null
   archived?: boolean
 }
 

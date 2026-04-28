@@ -15,7 +15,7 @@ fn risk_level(category: &str) -> &'static str {
     match category {
         // ── LOW ────────────────────────────────────────────────
         "user" | "theme" | "language" | "ui_effects" | "notification" | "canvas" | "image"
-        | "pdf" | "image_generate" | "temperature" | "tool_timeout" => "low",
+        | "pdf" | "image_generate" | "temperature" | "tool_timeout" | "default_agent" => "low",
 
         // ── MEDIUM ─────────────────────────────────────────────
         "compact"
@@ -130,6 +130,7 @@ fn read_category(category: &str) -> Result<Value> {
         }
         "theme" => Ok(json!({ "theme": cfg.theme })),
         "language" => Ok(json!({ "language": cfg.language })),
+        "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
         "web_search" => Ok(serde_json::to_value(&cfg.web_search)?),
@@ -218,6 +219,7 @@ fn get_all_overview() -> Result<String> {
         "theme": cfg.theme,
         "language": cfg.language,
         "uiEffectsEnabled": cfg.ui_effects_enabled,
+        "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
         "approvalTimeoutSecs": cfg.approval_timeout_secs,
@@ -254,7 +256,8 @@ fn get_all_overview() -> Result<String> {
     let risk_levels = json!({
         "low": [
             "user", "theme", "language", "ui_effects", "notification",
-            "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout"
+            "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
+            "default_agent"
         ],
         "medium": [
             "compact", "session_title", "memory_extract", "memory_selection", "memory_budget",
@@ -371,6 +374,18 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "language" => {
             if let Some(v) = values.get("language").and_then(|v| v.as_str()) {
                 store.language = v.to_string();
+            }
+        }
+        "default_agent" => {
+            if let Some(v) = values.get("defaultAgentId") {
+                if v.is_null() {
+                    store.default_agent_id = None;
+                } else if let Some(s) = v.as_str() {
+                    store.default_agent_id =
+                        crate::agent::resolver::normalize_default_agent_id(Some(s));
+                } else {
+                    bail!("default_agent.defaultAgentId must be a string or null");
+                }
             }
         }
         "ui_effects" => {

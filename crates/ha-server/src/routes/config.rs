@@ -38,6 +38,35 @@ pub async fn save_user_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Default Agent ───────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultAgentBody {
+    #[serde(default)]
+    pub agent_id: Option<String>,
+}
+
+/// `GET /api/config/default-agent` — return the global default agent id.
+/// Body is the raw scalar (`"my-agent"` or `null`) to match the Tauri
+/// command's `Option<String>` return shape.
+pub async fn get_default_agent_id() -> Result<Json<Option<String>>, AppError> {
+    let id = ha_core::config::cached_config().default_agent_id.clone();
+    Ok(Json(id))
+}
+
+/// `PUT /api/config/default-agent` — update the global default agent id.
+pub async fn set_default_agent_id(
+    Json(body): Json<DefaultAgentBody>,
+) -> Result<Json<Value>, AppError> {
+    let normalized = ha_core::agent::resolver::normalize_default_agent_id(body.agent_id.as_deref());
+    ha_core::config::mutate_config(("default_agent", "http"), |store| {
+        store.default_agent_id = normalized;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Web Search Config ───────────────────────────────────────────
 
 /// `GET /api/config/web-search` -- get web search config.

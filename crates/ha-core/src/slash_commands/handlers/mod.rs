@@ -4,6 +4,7 @@ pub mod context;
 pub mod memory;
 pub mod model;
 pub mod plan;
+pub mod project;
 pub mod recap;
 pub mod session;
 pub mod team;
@@ -69,6 +70,9 @@ pub async fn dispatch(
 
         // ── Plan ──
         "plan" => plan::handle_plan(session_db()?, session_id, args).await,
+
+        // ── Project ──
+        "project" => project::handle_project(session_db()?, session_id, args),
 
         // ── Team ──
         "team" => team::handle_team(args),

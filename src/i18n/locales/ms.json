@@ -59,6 +59,12 @@
     "removeFromProject": "Buang dari projek",
     "unassigned": "Tidak ditugaskan",
     "newChatInProject": "Sesi baharu dalam projek",
+    "openProjectSettings": "Tetapan projek",
+    "noSessionsHint": "Klik untuk membuat sesi pertama",
+    "boundChannel": "Saluran IM yang terikat",
+    "bindChannelLabel": "Ikatkan saluran IM",
+    "bindChannelHelp": "Selepas diikat, perbualan dari sembang IM ini akan menyertai projek ini secara automatik.",
+    "unbindChannel": "Lepaskan ikatan",
     "tabOverview": "Ringkasan",
     "tabSessions": "Sesi",
     "tabFiles": "Fail",
@@ -1459,6 +1465,9 @@
     "system": "Sistem",
     "systemAutostart": "Mulakan pada log masuk",
     "systemAutostartDesc": "Mulakan Hope Agent secara automatik apabila anda log masuk ke komputer anda",
+    "defaultAgentTitle": "Agent lalai",
+    "defaultAgentLabel": "Agent lalai",
+    "defaultAgentDesc": "Digunakan apabila tiada Agent dinyatakan, jatuh balik melalui Projek → saluran IM → lalai ini.",
     "configBackupsTitle": "Sejarah konfigurasi",
     "configBackupsDesc": "Setiap perubahan tetapan diambil snapshot secara automatik. Boleh roll back ke mana-mana versi sebelumnya (50 terkini disimpan).",
     "configBackupsEmpty": "Tiada sejarah lagi",
@@ -2014,6 +2023,49 @@
       "providerType": "Provider type",
       "testOk": "Embedding connection test passed"
     },
+    "embeddingActivation": {
+      "title": "Pilih model pembenaman",
+      "description": "Carian vektor memerlukan model pembenaman. Pilih satu untuk mengaktifkan dan membina semula vektor memori.",
+      "empty": "Belum ada model pembenaman dikonfigurasi. Tambah satu untuk mengaktifkan carian vektor.",
+      "gotoConfig": "Konfigurasikan model pembenaman",
+      "confirm": "Aktifkan dan bina semula"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "Mod bina semula",
+        "keepExisting": "Kekalkan vektor semasa semasa bina semula",
+        "keepExistingDesc": "Vektor lama kekal boleh dicari; model baharu akan menimpanya satu demi satu.",
+        "deleteAll": "Kosongkan semua vektor memori dahulu",
+        "deleteAllDesc": "Padam vektor setiap memori sebelum bina semula. Carian hanya memulangkan padanan kata kunci sehingga bina semula selesai."
+      },
+      "reembedJob": {
+        "title": "Bina semula vektor memori",
+        "idle": "{{count}} memori menggunakan model aktif. Anda boleh membina semula secara manual pada bila-bila masa.",
+        "idleDisabled": "Aktifkan carian vektor dan tambah memori sebelum membina semula.",
+        "running": "Membina semula vektor memori",
+        "progress": "{{done}} / {{total}} memori",
+        "phaseKeep": "Membina semula sambil mengekalkan yang sedia ada",
+        "phaseFresh": "Membina semula dari awal",
+        "cancelling": "Membatalkan…",
+        "completed": "Bina semula selesai",
+        "failed": "Bina semula gagal",
+        "interrupted": "Bina semula terganggu kerana aplikasi dimulakan semula",
+        "cancelled": "Bina semula dibatalkan",
+        "retry": "Cuba bina semula lagi",
+        "cancel": "Batalkan bina semula",
+        "dismiss": "Tutup",
+        "startNow": "Bina semula sekarang",
+        "status": {
+          "running": "Sedang berjalan",
+          "cancelling": "Membatalkan",
+          "completed": "Selesai",
+          "failed": "Gagal",
+          "interrupted": "Terganggu",
+          "cancelled": "Dibatalkan",
+          "paused": "Dijeda"
+        }
+      }
+    },
     "localModels": {
       "tab": "Local Models",
       "title": "Local Models",
@@ -2096,49 +2148,6 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
-      }
-    },
-    "embeddingActivation": {
-      "title": "Pilih model pembenaman",
-      "description": "Carian vektor memerlukan model pembenaman. Pilih satu untuk mengaktifkan dan membina semula vektor memori.",
-      "empty": "Belum ada model pembenaman dikonfigurasi. Tambah satu untuk mengaktifkan carian vektor.",
-      "gotoConfig": "Konfigurasikan model pembenaman",
-      "confirm": "Aktifkan dan bina semula"
-    },
-    "embedding": {
-      "reembedMode": {
-        "label": "Mod bina semula",
-        "keepExisting": "Kekalkan vektor semasa semasa bina semula",
-        "keepExistingDesc": "Vektor lama kekal boleh dicari; model baharu akan menimpanya satu demi satu.",
-        "deleteAll": "Kosongkan semua vektor memori dahulu",
-        "deleteAllDesc": "Padam vektor setiap memori sebelum bina semula. Carian hanya memulangkan padanan kata kunci sehingga bina semula selesai."
-      },
-      "reembedJob": {
-        "title": "Bina semula vektor memori",
-        "idle": "{{count}} memori menggunakan model aktif. Anda boleh membina semula secara manual pada bila-bila masa.",
-        "idleDisabled": "Aktifkan carian vektor dan tambah memori sebelum membina semula.",
-        "running": "Membina semula vektor memori",
-        "progress": "{{done}} / {{total}} memori",
-        "phaseKeep": "Membina semula sambil mengekalkan yang sedia ada",
-        "phaseFresh": "Membina semula dari awal",
-        "cancelling": "Membatalkan…",
-        "completed": "Bina semula selesai",
-        "failed": "Bina semula gagal",
-        "interrupted": "Bina semula terganggu kerana aplikasi dimulakan semula",
-        "cancelled": "Bina semula dibatalkan",
-        "retry": "Cuba bina semula lagi",
-        "cancel": "Batalkan bina semula",
-        "dismiss": "Tutup",
-        "startNow": "Bina semula sekarang",
-        "status": {
-          "running": "Sedang berjalan",
-          "cancelling": "Membatalkan",
-          "completed": "Selesai",
-          "failed": "Gagal",
-          "interrupted": "Terganggu",
-          "cancelled": "Dibatalkan",
-          "paused": "Dijeda"
-        }
       }
     }
   },

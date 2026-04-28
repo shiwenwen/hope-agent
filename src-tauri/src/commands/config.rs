@@ -9,6 +9,21 @@ use crate::AppState;
 use anyhow::Context;
 
 #[tauri::command]
+pub async fn get_default_agent_id() -> Result<Option<String>, CmdError> {
+    Ok(ha_core::config::cached_config().default_agent_id.clone())
+}
+
+#[tauri::command]
+pub async fn set_default_agent_id(agent_id: Option<String>) -> Result<(), CmdError> {
+    let normalized = ha_core::agent::resolver::normalize_default_agent_id(agent_id.as_deref());
+    ha_core::config::mutate_config(("default_agent", "settings-ui"), |store| {
+        store.default_agent_id = normalized;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_web_search_config() -> Result<tools::web_search::WebSearchConfig, CmdError> {
     let store = ha_core::config::load_config()?;
     let mut config = store.web_search;

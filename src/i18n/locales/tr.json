@@ -59,6 +59,12 @@
     "removeFromProject": "Projeden kaldır",
     "unassigned": "Atanmamış",
     "newChatInProject": "Projede yeni oturum",
+    "openProjectSettings": "Proje ayarları",
+    "noSessionsHint": "İlk oturumu oluşturmak için tıklayın",
+    "boundChannel": "Bağlı IM kanalı",
+    "bindChannelLabel": "Bir IM kanalı bağla",
+    "bindChannelHelp": "Bağlandıktan sonra bu IM sohbetinden gelen konuşmalar otomatik olarak bu projeye katılır.",
+    "unbindChannel": "Bağı kaldır",
     "tabOverview": "Genel bakış",
     "tabSessions": "Oturumlar",
     "tabFiles": "Dosyalar",
@@ -1459,6 +1465,9 @@
     "system": "Sistem",
     "systemAutostart": "Oturum açıldığında başlat",
     "systemAutostartDesc": "Bilgisayarınızda oturum açtığınızda Hope Agent'ı otomatik olarak başlat",
+    "defaultAgentTitle": "Varsayılan Agent",
+    "defaultAgentLabel": "Varsayılan Agent",
+    "defaultAgentDesc": "Bir Agent belirtilmediğinde Proje → IM kanalı → bu varsayılana geri döner.",
     "configBackupsTitle": "Yapılandırma geçmişi",
     "configBackupsDesc": "Her ayar değişikliği otomatik olarak anlık görüntülenir. Son 50 tutulan sürümlerden herhangi birine geri dönebilirsiniz.",
     "configBackupsEmpty": "Henüz geçmiş yok",
@@ -2014,6 +2023,49 @@
       "providerType": "Provider type",
       "testOk": "Embedding connection test passed"
     },
+    "embeddingActivation": {
+      "title": "Embedding modeli seç",
+      "description": "Vektör araması için bir embedding modeli gerekir. Etkinleştirip bellek vektörlerini yeniden oluşturmak için bir model seçin.",
+      "empty": "Henüz yapılandırılmış embedding modeli yok. Vektör aramasını etkinleştirmek için önce bir tane ekleyin.",
+      "gotoConfig": "Embedding modellerini yapılandır",
+      "confirm": "Etkinleştir ve yeniden oluştur"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "Yeniden oluşturma modu",
+        "keepExisting": "Yeniden oluştururken mevcut vektörleri koru",
+        "keepExistingDesc": "Eski vektörler aranabilir kalır; yeni model onları kayıt kayıt üzerine yazar.",
+        "deleteAll": "Önce tüm bellek vektörlerini temizle",
+        "deleteAllDesc": "Yeniden oluşturmadan önce her belleğin vektörünü siler. İşlem bitene kadar arama yalnızca anahtar kelime eşleşmeleri döndürür."
+      },
+      "reembedJob": {
+        "title": "Bellek vektörlerini yeniden oluştur",
+        "idle": "{{count}} bellek aktif modeli kullanıyor. İstediğiniz zaman elle yeniden oluşturabilirsiniz.",
+        "idleDisabled": "Yeniden oluşturmadan önce vektör aramasını etkinleştirin ve bellek ekleyin.",
+        "running": "Bellek vektörleri yeniden oluşturuluyor",
+        "progress": "{{done}} / {{total}} bellek",
+        "phaseKeep": "Mevcutları koruyarak yeniden oluşturuluyor",
+        "phaseFresh": "Sıfırdan yeniden oluşturuluyor",
+        "cancelling": "İptal ediliyor…",
+        "completed": "Yeniden oluşturma tamamlandı",
+        "failed": "Yeniden oluşturma başarısız",
+        "interrupted": "Uygulama yeniden başlatıldığı için işlem kesildi",
+        "cancelled": "Yeniden oluşturma iptal edildi",
+        "retry": "Yeniden dene",
+        "cancel": "Yeniden oluşturmayı iptal et",
+        "dismiss": "Kapat",
+        "startNow": "Şimdi yeniden oluştur",
+        "status": {
+          "running": "Çalışıyor",
+          "cancelling": "İptal ediliyor",
+          "completed": "Tamamlandı",
+          "failed": "Başarısız",
+          "interrupted": "Kesildi",
+          "cancelled": "İptal edildi",
+          "paused": "Duraklatıldı"
+        }
+      }
+    },
     "localModels": {
       "tab": "Local Models",
       "title": "Local Models",
@@ -2096,49 +2148,6 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
-      }
-    },
-    "embeddingActivation": {
-      "title": "Embedding modeli seç",
-      "description": "Vektör araması için bir embedding modeli gerekir. Etkinleştirip bellek vektörlerini yeniden oluşturmak için bir model seçin.",
-      "empty": "Henüz yapılandırılmış embedding modeli yok. Vektör aramasını etkinleştirmek için önce bir tane ekleyin.",
-      "gotoConfig": "Embedding modellerini yapılandır",
-      "confirm": "Etkinleştir ve yeniden oluştur"
-    },
-    "embedding": {
-      "reembedMode": {
-        "label": "Yeniden oluşturma modu",
-        "keepExisting": "Yeniden oluştururken mevcut vektörleri koru",
-        "keepExistingDesc": "Eski vektörler aranabilir kalır; yeni model onları kayıt kayıt üzerine yazar.",
-        "deleteAll": "Önce tüm bellek vektörlerini temizle",
-        "deleteAllDesc": "Yeniden oluşturmadan önce her belleğin vektörünü siler. İşlem bitene kadar arama yalnızca anahtar kelime eşleşmeleri döndürür."
-      },
-      "reembedJob": {
-        "title": "Bellek vektörlerini yeniden oluştur",
-        "idle": "{{count}} bellek aktif modeli kullanıyor. İstediğiniz zaman elle yeniden oluşturabilirsiniz.",
-        "idleDisabled": "Yeniden oluşturmadan önce vektör aramasını etkinleştirin ve bellek ekleyin.",
-        "running": "Bellek vektörleri yeniden oluşturuluyor",
-        "progress": "{{done}} / {{total}} bellek",
-        "phaseKeep": "Mevcutları koruyarak yeniden oluşturuluyor",
-        "phaseFresh": "Sıfırdan yeniden oluşturuluyor",
-        "cancelling": "İptal ediliyor…",
-        "completed": "Yeniden oluşturma tamamlandı",
-        "failed": "Yeniden oluşturma başarısız",
-        "interrupted": "Uygulama yeniden başlatıldığı için işlem kesildi",
-        "cancelled": "Yeniden oluşturma iptal edildi",
-        "retry": "Yeniden dene",
-        "cancel": "Yeniden oluşturmayı iptal et",
-        "dismiss": "Kapat",
-        "startNow": "Şimdi yeniden oluştur",
-        "status": {
-          "running": "Çalışıyor",
-          "cancelling": "İptal ediliyor",
-          "completed": "Tamamlandı",
-          "failed": "Başarısız",
-          "interrupted": "Kesildi",
-          "cancelled": "İptal edildi",
-          "paused": "Duraklatıldı"
-        }
       }
     }
   },

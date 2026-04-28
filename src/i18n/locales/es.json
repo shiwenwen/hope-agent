@@ -59,6 +59,12 @@
     "removeFromProject": "Quitar del proyecto",
     "unassigned": "Sin asignar",
     "newChatInProject": "Nueva sesión en el proyecto",
+    "openProjectSettings": "Configuración del proyecto",
+    "noSessionsHint": "Haz clic para crear la primera sesión",
+    "boundChannel": "Canal IM vinculado",
+    "bindChannelLabel": "Vincular un canal IM",
+    "bindChannelHelp": "Una vez vinculado, las conversaciones de este chat IM se unirán automáticamente a este proyecto.",
+    "unbindChannel": "Desvincular",
     "tabOverview": "Resumen",
     "tabSessions": "Sesiones",
     "tabFiles": "Archivos",
@@ -1459,6 +1465,9 @@
     "system": "Sistema",
     "systemAutostart": "Iniciar al arrancar la sesión",
     "systemAutostartDesc": "Inicia Hope Agent automáticamente al iniciar sesión en tu ordenador",
+    "defaultAgentTitle": "Agente predeterminado",
+    "defaultAgentLabel": "Agente predeterminado",
+    "defaultAgentDesc": "Se usa cuando no se especifica un Agent: Proyecto → canal IM → este valor predeterminado.",
     "configBackupsTitle": "Historial de configuración",
     "configBackupsDesc": "Cada cambio de configuración se captura automáticamente en un snapshot. Puedes revertir a cualquier versión previa (se conservan las últimas 50).",
     "configBackupsEmpty": "Aún no hay historial",
@@ -2014,6 +2023,49 @@
       "providerType": "Provider type",
       "testOk": "Embedding connection test passed"
     },
+    "embeddingActivation": {
+      "title": "Elegir un modelo de embeddings",
+      "description": "La búsqueda vectorial necesita un modelo de embeddings. Elige uno para activar y reconstruir los vectores de memoria.",
+      "empty": "Aún no hay ningún modelo de embeddings configurado. Añade uno para activar la búsqueda vectorial.",
+      "gotoConfig": "Configurar modelos de embeddings",
+      "confirm": "Activar y reconstruir"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "Modo de reconstrucción",
+        "keepExisting": "Mantener los vectores actuales durante la reconstrucción",
+        "keepExistingDesc": "Los vectores antiguos siguen disponibles para búsqueda; el nuevo modelo los sobrescribe entrada por entrada.",
+        "deleteAll": "Borrar primero todos los vectores de memoria",
+        "deleteAllDesc": "Borra el vector de cada memoria antes de reconstruir. La búsqueda solo devolverá coincidencias por palabras clave hasta que termine la reconstrucción."
+      },
+      "reembedJob": {
+        "title": "Reconstrucción de vectores de memoria",
+        "idle": "{{count}} memorias usan el modelo activo. Puedes reconstruirlas manualmente cuando quieras.",
+        "idleDisabled": "Activa la búsqueda vectorial y añade memorias antes de reconstruir.",
+        "running": "Reconstruyendo vectores de memoria",
+        "progress": "{{done}} / {{total}} memorias",
+        "phaseKeep": "Reconstruyendo sin borrar los existentes",
+        "phaseFresh": "Reconstruyendo desde cero",
+        "cancelling": "Cancelando…",
+        "completed": "Reconstrucción completada",
+        "failed": "Error al reconstruir",
+        "interrupted": "Reconstrucción interrumpida por reinicio de la app",
+        "cancelled": "Reconstrucción cancelada",
+        "retry": "Reintentar reconstrucción",
+        "cancel": "Cancelar reconstrucción",
+        "dismiss": "Cerrar",
+        "startNow": "Reconstruir ahora",
+        "status": {
+          "running": "En curso",
+          "cancelling": "Cancelando",
+          "completed": "Completado",
+          "failed": "Fallido",
+          "interrupted": "Interrumpido",
+          "cancelled": "Cancelado",
+          "paused": "En pausa"
+        }
+      }
+    },
     "localModels": {
       "tab": "Local Models",
       "title": "Local Models",
@@ -2096,49 +2148,6 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
-      }
-    },
-    "embeddingActivation": {
-      "title": "Elegir un modelo de embeddings",
-      "description": "La búsqueda vectorial necesita un modelo de embeddings. Elige uno para activar y reconstruir los vectores de memoria.",
-      "empty": "Aún no hay ningún modelo de embeddings configurado. Añade uno para activar la búsqueda vectorial.",
-      "gotoConfig": "Configurar modelos de embeddings",
-      "confirm": "Activar y reconstruir"
-    },
-    "embedding": {
-      "reembedMode": {
-        "label": "Modo de reconstrucción",
-        "keepExisting": "Mantener los vectores actuales durante la reconstrucción",
-        "keepExistingDesc": "Los vectores antiguos siguen disponibles para búsqueda; el nuevo modelo los sobrescribe entrada por entrada.",
-        "deleteAll": "Borrar primero todos los vectores de memoria",
-        "deleteAllDesc": "Borra el vector de cada memoria antes de reconstruir. La búsqueda solo devolverá coincidencias por palabras clave hasta que termine la reconstrucción."
-      },
-      "reembedJob": {
-        "title": "Reconstrucción de vectores de memoria",
-        "idle": "{{count}} memorias usan el modelo activo. Puedes reconstruirlas manualmente cuando quieras.",
-        "idleDisabled": "Activa la búsqueda vectorial y añade memorias antes de reconstruir.",
-        "running": "Reconstruyendo vectores de memoria",
-        "progress": "{{done}} / {{total}} memorias",
-        "phaseKeep": "Reconstruyendo sin borrar los existentes",
-        "phaseFresh": "Reconstruyendo desde cero",
-        "cancelling": "Cancelando…",
-        "completed": "Reconstrucción completada",
-        "failed": "Error al reconstruir",
-        "interrupted": "Reconstrucción interrumpida por reinicio de la app",
-        "cancelled": "Reconstrucción cancelada",
-        "retry": "Reintentar reconstrucción",
-        "cancel": "Cancelar reconstrucción",
-        "dismiss": "Cerrar",
-        "startNow": "Reconstruir ahora",
-        "status": {
-          "running": "En curso",
-          "cancelling": "Cancelando",
-          "completed": "Completado",
-          "failed": "Fallido",
-          "interrupted": "Interrumpido",
-          "cancelled": "Cancelado",
-          "paused": "En pausa"
-        }
       }
     }
   },

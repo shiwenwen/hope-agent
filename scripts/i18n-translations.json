@@ -336,7 +336,10 @@
       "openclawImportFieldVibe": "パーソナリティ・バイブ",
       "openclawImportFiles": "ワークスペースファイル",
       "openclawImportSuccess": "{{count}} 件の Agent を正常にインポートしました",
-      "openclawImportPartial": "{{total}} 件中 {{success}} 件の Agent をインポート"
+      "openclawImportPartial": "{{total}} 件中 {{success}} 件の Agent をインポート",
+      "defaultAgentTitle": "デフォルト Agent",
+      "defaultAgentLabel": "デフォルト Agent",
+      "defaultAgentDesc": "Agent が指定されていない場合の既定値（プロジェクト → IM チャネル → この設定の順にフォールバック）"
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -418,7 +421,13 @@
         "recentSessions": "最近のセッション",
         "recentFiles": "最近のファイル",
         "openHome": "プロジェクトホームを開く"
-      }
+      },
+      "openProjectSettings": "プロジェクト設定",
+      "noSessionsHint": "クリックして最初のセッションを作成",
+      "boundChannel": "バインドされた IM チャネル",
+      "bindChannelLabel": "IM チャネルをバインド",
+      "bindChannelHelp": "バインドすると、この IM チャットからの会話は自動的にこのプロジェクトに追加されます。",
+      "unbindChannel": "バインド解除"
     },
     "provider": {
       "allowPrivateNetwork": "プライベートネットワークを許可",
@@ -956,7 +965,10 @@
       "openclawImportFieldVibe": "퍼스널리티 스타일",
       "openclawImportFiles": "워크스페이스 파일",
       "openclawImportSuccess": "{{count}}개 agent을 성공적으로 가져왔습니다",
-      "openclawImportPartial": "{{total}}개 중 {{success}}개 agent 가져옴"
+      "openclawImportPartial": "{{total}}개 중 {{success}}개 agent 가져옴",
+      "defaultAgentTitle": "기본 Agent",
+      "defaultAgentLabel": "기본 Agent",
+      "defaultAgentDesc": "Agent가 지정되지 않은 경우 사용 (프로젝트 → IM 채널 → 이 기본값 순으로 대체)"
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -1038,7 +1050,13 @@
         "recentSessions": "최근 세션",
         "recentFiles": "최근 파일",
         "openHome": "프로젝트 홈 열기"
-      }
+      },
+      "openProjectSettings": "프로젝트 설정",
+      "noSessionsHint": "클릭하여 첫 세션 만들기",
+      "boundChannel": "바인딩된 IM 채널",
+      "bindChannelLabel": "IM 채널 바인딩",
+      "bindChannelHelp": "바인딩하면 이 IM 대화에서의 대화가 자동으로 이 프로젝트에 합류합니다.",
+      "unbindChannel": "바인딩 해제"
     },
     "provider": {
       "allowPrivateNetwork": "사설 네트워크 허용",
@@ -1576,7 +1594,10 @@
       "openclawImportFieldVibe": "個性描述",
       "openclawImportFiles": "工作區檔案",
       "openclawImportSuccess": "成功匯入 {{count}} 個 Agent",
-      "openclawImportPartial": "已匯入 {{total}} 個中的 {{success}} 個 Agent"
+      "openclawImportPartial": "已匯入 {{total}} 個中的 {{success}} 個 Agent",
+      "defaultAgentTitle": "預設 Agent",
+      "defaultAgentLabel": "預設 Agent",
+      "defaultAgentDesc": "未指定 Agent 時，依「專案 → IM 頻道 → 此預設值」順序回退"
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -1658,7 +1679,13 @@
         "recentSessions": "最近對話",
         "recentFiles": "最近檔案",
         "openHome": "開啟專案首頁"
-      }
+      },
+      "openProjectSettings": "專案設定",
+      "noSessionsHint": "點擊建立第一個對話",
+      "boundChannel": "已綁定的 IM 頻道",
+      "bindChannelLabel": "綁定 IM 頻道",
+      "bindChannelHelp": "綁定後，此 IM 群組發起的對話會自動加入此專案。",
+      "unbindChannel": "解除綁定"
     },
     "provider": {
       "allowPrivateNetwork": "允許私有網路",
@@ -2196,7 +2223,10 @@
       "openclawImportFieldVibe": "Kişilik tarzı",
       "openclawImportFiles": "Çalışma alanı dosyaları",
       "openclawImportSuccess": "{{count}} agent başarıyla içe aktarıldı",
-      "openclawImportPartial": "{{total}} agent'ın {{success}} tanesi içe aktarıldı"
+      "openclawImportPartial": "{{total}} agent'ın {{success}} tanesi içe aktarıldı",
+      "defaultAgentTitle": "Varsayılan Agent",
+      "defaultAgentLabel": "Varsayılan Agent",
+      "defaultAgentDesc": "Bir Agent belirtilmediğinde Proje → IM kanalı → bu varsayılana geri döner."
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -2278,7 +2308,13 @@
         "recentSessions": "Son oturumlar",
         "recentFiles": "Son dosyalar",
         "openHome": "Proje ana sayfasını aç"
-      }
+      },
+      "openProjectSettings": "Proje ayarları",
+      "noSessionsHint": "İlk oturumu oluşturmak için tıklayın",
+      "boundChannel": "Bağlı IM kanalı",
+      "bindChannelLabel": "Bir IM kanalı bağla",
+      "bindChannelHelp": "Bağlandıktan sonra bu IM sohbetinden gelen konuşmalar otomatik olarak bu projeye katılır.",
+      "unbindChannel": "Bağı kaldır"
     },
     "provider": {
       "allowPrivateNetwork": "Özel ağa izin ver",
@@ -2816,7 +2852,10 @@
       "openclawImportFieldVibe": "Cá tính",
       "openclawImportFiles": "Tập tin workspace",
       "openclawImportSuccess": "Đã nhập thành công {{count}} agent",
-      "openclawImportPartial": "Đã nhập {{success}} trong {{total}} agent"
+      "openclawImportPartial": "Đã nhập {{success}} trong {{total}} agent",
+      "defaultAgentTitle": "Agent mặc định",
+      "defaultAgentLabel": "Agent mặc định",
+      "defaultAgentDesc": "Sử dụng khi không chỉ định Agent: Dự án → Kênh IM → giá trị mặc định này."
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -2898,7 +2937,13 @@
         "recentSessions": "Phiên gần đây",
         "recentFiles": "Tập tin gần đây",
         "openHome": "Mở trang chủ dự án"
-      }
+      },
+      "openProjectSettings": "Cài đặt dự án",
+      "noSessionsHint": "Nhấp để tạo phiên đầu tiên",
+      "boundChannel": "Kênh IM đã liên kết",
+      "bindChannelLabel": "Liên kết với kênh IM",
+      "bindChannelHelp": "Sau khi liên kết, các cuộc hội thoại từ cuộc trò chuyện IM này sẽ tự động thuộc về dự án này.",
+      "unbindChannel": "Hủy liên kết"
     },
     "provider": {
       "allowPrivateNetwork": "Cho phép mạng nội bộ",
@@ -3436,7 +3481,10 @@
       "openclawImportFieldVibe": "Estilo da personalidade",
       "openclawImportFiles": "Arquivos de workspace",
       "openclawImportSuccess": "{{count}} agent(s) importados com sucesso",
-      "openclawImportPartial": "Importados {{success}} de {{total}} agents"
+      "openclawImportPartial": "Importados {{success}} de {{total}} agents",
+      "defaultAgentTitle": "Agent padrão",
+      "defaultAgentLabel": "Agent padrão",
+      "defaultAgentDesc": "Usado quando nenhum Agent é especificado, recuando por Projeto → canal IM → este padrão."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -3518,7 +3566,13 @@
         "recentSessions": "Sessões recentes",
         "recentFiles": "Arquivos recentes",
         "openHome": "Abrir página do projeto"
-      }
+      },
+      "openProjectSettings": "Configurações do projeto",
+      "noSessionsHint": "Clique para criar a primeira sessão",
+      "boundChannel": "Canal IM vinculado",
+      "bindChannelLabel": "Vincular um canal IM",
+      "bindChannelHelp": "Após vincular, as conversas deste chat IM se juntarão automaticamente a este projeto.",
+      "unbindChannel": "Desvincular"
     },
     "provider": {
       "allowPrivateNetwork": "Permitir rede privada",
@@ -4056,7 +4110,10 @@
       "openclawImportFieldVibe": "Стиль личности",
       "openclawImportFiles": "Файлы рабочей области",
       "openclawImportSuccess": "Успешно импортировано {{count}} agent(ов)",
-      "openclawImportPartial": "Импортировано {{success}} из {{total}} agents"
+      "openclawImportPartial": "Импортировано {{success}} из {{total}} agents",
+      "defaultAgentTitle": "Агент по умолчанию",
+      "defaultAgentLabel": "Агент по умолчанию",
+      "defaultAgentDesc": "Используется, когда агент не указан: Проект → IM-канал → это значение по умолчанию."
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -4138,7 +4195,13 @@
         "recentSessions": "Недавние сессии",
         "recentFiles": "Недавние файлы",
         "openHome": "Открыть главную проекта"
-      }
+      },
+      "openProjectSettings": "Настройки проекта",
+      "noSessionsHint": "Нажмите, чтобы создать первую сессию",
+      "boundChannel": "Привязанный IM-канал",
+      "bindChannelLabel": "Привязать IM-канал",
+      "bindChannelHelp": "После привязки разговоры из этого IM-чата будут автоматически добавляться в этот проект.",
+      "unbindChannel": "Отвязать"
     },
     "provider": {
       "allowPrivateNetwork": "Разрешить частную сеть",
@@ -4676,7 +4739,10 @@
       "openclawImportFieldVibe": "الطابع الشخصي",
       "openclawImportFiles": "ملفات مساحة العمل",
       "openclawImportSuccess": "تم استيراد {{count}} Agent بنجاح",
-      "openclawImportPartial": "تم استيراد {{success}} من {{total}} Agents"
+      "openclawImportPartial": "تم استيراد {{success}} من {{total}} Agents",
+      "defaultAgentTitle": "الوكيل الافتراضي",
+      "defaultAgentLabel": "الوكيل الافتراضي",
+      "defaultAgentDesc": "يُستخدم عندما لا يتم تحديد وكيل (المشروع → قناة IM → هذا الإعداد الافتراضي)."
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -4758,7 +4824,13 @@
         "recentSessions": "جلسات حديثة",
         "recentFiles": "ملفات حديثة",
         "openHome": "فتح الصفحة الرئيسية للمشروع"
-      }
+      },
+      "openProjectSettings": "إعدادات المشروع",
+      "noSessionsHint": "انقر لإنشاء الجلسة الأولى",
+      "boundChannel": "قناة IM مرتبطة",
+      "bindChannelLabel": "ربط قناة IM",
+      "bindChannelHelp": "بعد الربط، ستنضم المحادثات من محادثة IM هذه تلقائيًا إلى هذا المشروع.",
+      "unbindChannel": "إلغاء الربط"
     },
     "provider": {
       "allowPrivateNetwork": "السماح بالشبكة الخاصة",
@@ -5296,7 +5368,10 @@
       "openclawImportFieldVibe": "Estilo de personalidad",
       "openclawImportFiles": "Archivos de workspace",
       "openclawImportSuccess": "Se importaron correctamente {{count}} agent(s)",
-      "openclawImportPartial": "Se importaron {{success}} de {{total}} agents"
+      "openclawImportPartial": "Se importaron {{success}} de {{total}} agents",
+      "defaultAgentTitle": "Agente predeterminado",
+      "defaultAgentLabel": "Agente predeterminado",
+      "defaultAgentDesc": "Se usa cuando no se especifica un Agent: Proyecto → canal IM → este valor predeterminado."
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -5378,7 +5453,13 @@
         "recentSessions": "Sesiones recientes",
         "recentFiles": "Archivos recientes",
         "openHome": "Abrir página del proyecto"
-      }
+      },
+      "openProjectSettings": "Configuración del proyecto",
+      "noSessionsHint": "Haz clic para crear la primera sesión",
+      "boundChannel": "Canal IM vinculado",
+      "bindChannelLabel": "Vincular un canal IM",
+      "bindChannelHelp": "Una vez vinculado, las conversaciones de este chat IM se unirán automáticamente a este proyecto.",
+      "unbindChannel": "Desvincular"
     },
     "provider": {
       "allowPrivateNetwork": "Permitir red privada",
@@ -5916,7 +5997,10 @@
       "openclawImportFieldVibe": "Personality Vibe",
       "openclawImportFiles": "Fail ruang kerja",
       "openclawImportSuccess": "Berjaya import {{count}} agent",
-      "openclawImportPartial": "Diimport {{success}} daripada {{total}} agent"
+      "openclawImportPartial": "Diimport {{success}} daripada {{total}} agent",
+      "defaultAgentTitle": "Agent lalai",
+      "defaultAgentLabel": "Agent lalai",
+      "defaultAgentDesc": "Digunakan apabila tiada Agent dinyatakan, jatuh balik melalui Projek → saluran IM → lalai ini."
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",
@@ -5998,7 +6082,13 @@
         "recentSessions": "Sesi terkini",
         "recentFiles": "Fail terkini",
         "openHome": "Buka laman projek"
-      }
+      },
+      "openProjectSettings": "Tetapan projek",
+      "noSessionsHint": "Klik untuk membuat sesi pertama",
+      "boundChannel": "Saluran IM yang terikat",
+      "bindChannelLabel": "Ikatkan saluran IM",
+      "bindChannelHelp": "Selepas diikat, perbualan dari sembang IM ini akan menyertai projek ini secara automatik.",
+      "unbindChannel": "Lepaskan ikatan"
     },
     "provider": {
       "allowPrivateNetwork": "Benarkan rangkaian peribadi",

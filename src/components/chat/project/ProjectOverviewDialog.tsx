@@ -1,28 +1,51 @@
 /**
- * Project home dialog — tabbed view of a single project.
+ * Project settings sheet (formerly `ProjectOverviewDialog`).
  *
- * Tabs: Overview | Sessions | Files | Instructions
+ * Slides in from the right as a non-modal-feeling drawer. Tabs:
+ * Overview | Files | Instructions. The old "Sessions" tab is gone — the
+ * sidebar now renders project sessions inline as a nested tree node, so
+ * having the same list inside this sheet is redundant.
  *
- * Keeps everything inside a Dialog so we don't have to touch the main
- * ChatScreen routing. Clicking "New session in project" closes the dialog
- * and delegates to the caller, which knows how to wire the session flow.
+ * The Overview tab also surfaces the IM-channel binding for this project.
+ *
+ * The component is exported under its original name so existing imports in
+ * `ChatScreen.tsx` keep working without churn; rename to
+ * `ProjectSettingsSheet` is left as a follow-up.
  */
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { MessageSquarePlus, Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react"
+import { Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
 import type { Project, ProjectMeta, UpdateProjectInput } from "@/types/project"
-import type { SessionMeta } from "@/types/chat"
 
 import ProjectFilesPanel from "./ProjectFilesPanel"
+import ProjectIcon from "./ProjectIcon"
+
+/** Sentinel value for "unbound" in the Radix Select — empty strings are
+ *  rejected by Radix, so we map None ↔ this constant at the boundary. */
+const UNBOUND_SENTINEL = "__none__"
 
 interface ProjectOverviewDialogProps {
   open: boolean
@@ -32,7 +55,11 @@ interface ProjectOverviewDialogProps {
   onDelete: (project: Project) => void
   onArchive: (project: Project, archived: boolean) => void
   onNewSessionInProject: (projectId: string, defaultAgentId?: string | null) => void
-  onOpenSession: (sessionId: string) => void
+  /**
+   * Kept in the API for compatibility but no longer used — the Sessions tab
+   * was removed because the sidebar now lists project sessions inline.
+   */
+  onOpenSession?: (sessionId: string) => void
   onUpdateProject: (id: string, patch: UpdateProjectInput) => Promise<Project | null>
 }
 
@@ -44,47 +71,34 @@ export default function ProjectOverviewDialog({
   onDelete,
   onArchive,
   onNewSessionInProject,
-  onOpenSession,
   onUpdateProject,
 }: ProjectOverviewDialogProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState("overview")
-  const [sessions, setSessions] = useState<SessionMeta[]>([])
-  const [loadingSessions, setLoadingSessions] = useState(false)
   const [instructionsDraft, setInstructionsDraft] = useState("")
   const [savingInstructions, setSavingInstructions] = useState(false)
   const [instructionsSaveStatus, setInstructionsSaveStatus] = useState<"idle" | "saved" | "failed">(
     "idle",
   )
+  const [channels, setChannels] = useState<ChannelAccountConfig[]>([])
+  const [savingChannel, setSavingChannel] = useState(false)
 
   useEffect(() => {
     if (!open || !project) return
     setTab("overview")
     setInstructionsDraft(project.instructions ?? "")
     setInstructionsSaveStatus("idle")
-    void loadSessions(project.id)
+    void loadChannels()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, project?.id])
 
-  async function loadSessions(pid: string) {
-    setLoadingSessions(true)
+  async function loadChannels() {
     try {
-      const result = await getTransport().call<[SessionMeta[], number]>(
-        "list_project_sessions_cmd",
-        { id: pid, limit: 50, offset: 0 },
-      )
-      // Tauri returns a tuple; HTTP returns `{ sessions, total }`.
-      if (Array.isArray(result)) {
-        setSessions(result[0] ?? [])
-      } else {
-        const r = result as unknown as { sessions?: SessionMeta[] }
-        setSessions(r.sessions ?? [])
-      }
+      const accounts = await getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
+      setChannels(accounts ?? [])
     } catch (e) {
-      logger.warn("chat", "ProjectOverviewDialog", "loadSessions failed", e)
-      setSessions([])
-    } finally {
-      setLoadingSessions(false)
+      logger.warn("chat", "ProjectOverviewDialog", "loadChannels failed", e)
+      setChannels([])
     }
   }
 
@@ -102,67 +116,93 @@ export default function ProjectOverviewDialog({
     }
   }
 
+  async function handleSaveBoundChannel(value: { channelId: string; accountId: string } | null) {
+    if (!project) return
+    setSavingChannel(true)
+    try {
+      // Patch boundChannel: `null` clears, an object sets. The backend
+      // double-Option pattern interprets these distinctly.
+      await onUpdateProject(project.id, { boundChannel: value })
+    } finally {
+      setSavingChannel(false)
+    }
+  }
+
+  const boundChannelLabel = useMemo(() => {
+    if (!project?.boundChannel) return null
+    const acc = channels.find(
+      (c) =>
+        c.id === project.boundChannel?.accountId && c.channelId === project.boundChannel?.channelId,
+    )
+    return acc?.label ?? `${project.boundChannel.channelId} / ${project.boundChannel.accountId}`
+  }, [project?.boundChannel, channels])
+
   if (!project) return null
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            {project.logo ? (
-              <img src={project.logo} alt="" className="h-8 w-8 rounded-md object-cover shrink-0" />
-            ) : (
-              <span className="text-2xl">{project.emoji ?? "📁"}</span>
-            )}
-            <span className="flex-1 truncate">{project.name}</span>
-            <IconTip label={t("common.edit")}>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onEdit(project)}
-                className="h-8 w-8 p-0"
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        className="w-full sm:max-w-[560px] p-0 flex flex-col"
+        // Wider than the default 384px — Project files / instructions need room.
+      >
+        <SheetHeader className="px-5 pt-5 pb-3 border-b border-border">
+          <div className="flex items-start gap-3">
+            <ProjectIcon project={project} size="lg" />
+            <div className="flex-1 min-w-0 pt-0.5">
+              <SheetTitle className="truncate">{project.name}</SheetTitle>
+              {project.description && (
+                <SheetDescription className="line-clamp-2">{project.description}</SheetDescription>
+              )}
+            </div>
+            <div className="flex items-center gap-0.5 mr-7">
+              <IconTip label={t("common.edit")}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onEdit(project)}
+                  className="h-8 w-8 p-0"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
+              <IconTip
+                label={
+                  project.archived
+                    ? t("project.unarchiveProject")
+                    : t("project.archiveProject")
+                }
               >
-                <Pencil className="h-3.5 w-3.5" />
-              </Button>
-            </IconTip>
-            <IconTip
-              label={project.archived ? t("project.unarchiveProject") : t("project.archiveProject")}
-            >
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onArchive(project, !project.archived)}
-                className="h-8 w-8 p-0 text-muted-foreground"
-              >
-                {project.archived ? (
-                  <ArchiveRestore className="h-3.5 w-3.5" />
-                ) : (
-                  <Archive className="h-3.5 w-3.5" />
-                )}
-              </Button>
-            </IconTip>
-            <IconTip label={t("common.delete")}>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => onDelete(project)}
-                className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </Button>
-            </IconTip>
-          </DialogTitle>
-          {project.description && (
-            <p className="text-sm text-muted-foreground">{project.description}</p>
-          )}
-        </DialogHeader>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onArchive(project, !project.archived)}
+                  className="h-8 w-8 p-0 text-muted-foreground"
+                >
+                  {project.archived ? (
+                    <ArchiveRestore className="h-3.5 w-3.5" />
+                  ) : (
+                    <Archive className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </IconTip>
+              <IconTip label={t("common.delete")}>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onDelete(project)}
+                  className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
+            </div>
+          </div>
+        </SheetHeader>
 
         <Tabs value={tab} onValueChange={setTab} className="flex-1 flex flex-col overflow-hidden">
-          <TabsList className="shrink-0">
+          <TabsList className="shrink-0 mx-5 mt-3 self-start">
             <TabsTrigger value="overview">{t("project.tabOverview")}</TabsTrigger>
-            <TabsTrigger value="sessions">
-              {t("project.tabSessions")} · {project.sessionCount}
-            </TabsTrigger>
             <TabsTrigger value="files">
               {t("project.tabFiles")} · {project.fileCount}
             </TabsTrigger>
@@ -170,12 +210,70 @@ export default function ProjectOverviewDialog({
           </TabsList>
 
           {/* Overview */}
-          <TabsContent value="overview" className="flex-1 overflow-y-auto space-y-4 pt-3">
+          <TabsContent value="overview" className="flex-1 overflow-y-auto px-5 py-3 space-y-4">
             <div className="grid grid-cols-3 gap-3">
               <StatCard label={t("project.overview.totalSessions")} value={project.sessionCount} />
               <StatCard label={t("project.overview.totalFiles")} value={project.fileCount} />
               <StatCard label={t("project.overview.totalMemories")} value={project.memoryCount} />
             </div>
+
+            {/* Bound IM channel */}
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
+                  {t("project.bindChannelLabel")}
+                </div>
+                {project.boundChannel && (
+                  <button
+                    onClick={() => handleSaveBoundChannel(null)}
+                    disabled={savingChannel}
+                    className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+                  >
+                    {t("project.unbindChannel")}
+                  </button>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {t("project.bindChannelHelp")}
+              </p>
+              <Select
+                value={project.boundChannel?.accountId ?? UNBOUND_SENTINEL}
+                disabled={savingChannel}
+                onValueChange={(v) => {
+                  if (v === UNBOUND_SENTINEL) {
+                    void handleSaveBoundChannel(null)
+                    return
+                  }
+                  const account = channels.find((c) => c.id === v)
+                  if (account) {
+                    void handleSaveBoundChannel({
+                      channelId: account.channelId,
+                      accountId: account.id,
+                    })
+                  }
+                }}
+              >
+                <SelectTrigger className="w-full h-8 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={UNBOUND_SENTINEL}>
+                    — {t("project.unbindChannel")} —
+                  </SelectItem>
+                  {channels.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.label} ({c.channelId})
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {boundChannelLabel && (
+                <div className="text-[11px] text-emerald-600 dark:text-emerald-400">
+                  ✓ {t("project.boundChannel")}: {boundChannelLabel}
+                </div>
+              )}
+            </div>
+
             <Button
               onClick={() => {
                 onNewSessionInProject(project.id, project.defaultAgentId)
@@ -183,52 +281,25 @@ export default function ProjectOverviewDialog({
               }}
               className="w-full"
             >
-              <MessageSquarePlus className="mr-2 h-4 w-4" />
               {t("project.newChatInProject")}
             </Button>
           </TabsContent>
 
-          {/* Sessions */}
-          <TabsContent value="sessions" className="flex-1 overflow-y-auto pt-3">
-            {loadingSessions ? (
-              <p className="text-sm text-muted-foreground text-center py-4">...</p>
-            ) : sessions.length === 0 ? (
-              <p className="text-sm text-muted-foreground text-center py-8">
-                {t("project.sessionsInProject", { count: 0 })}
-              </p>
-            ) : (
-              <div className="space-y-1">
-                {sessions.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => {
-                      onOpenSession(s.id)
-                      onOpenChange(false)
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-md hover:bg-accent/40 transition-colors"
-                  >
-                    <div className="text-sm truncate">{s.title || "Untitled"}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {new Date(s.updatedAt).toLocaleString()} · {s.messageCount}
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </TabsContent>
-
           {/* Files */}
-          <TabsContent value="files" className="flex-1 overflow-hidden pt-3">
+          <TabsContent value="files" className="flex-1 overflow-hidden px-5 py-3">
             <ProjectFilesPanel projectId={project.id} />
           </TabsContent>
 
           {/* Instructions */}
-          <TabsContent value="instructions" className="flex-1 overflow-y-auto pt-3 space-y-3">
+          <TabsContent
+            value="instructions"
+            className="flex-1 overflow-y-auto px-5 py-3 space-y-3"
+          >
             <p className="text-xs text-muted-foreground">{t("project.projectInstructionsHint")}</p>
             <Textarea
               value={instructionsDraft}
               onChange={(e) => setInstructionsDraft(e.target.value)}
-              rows={10}
+              rows={12}
               className="font-mono text-sm"
               placeholder={t("project.projectInstructionsPlaceholder")}
             />
@@ -260,8 +331,8 @@ export default function ProjectOverviewDialog({
             </div>
           </TabsContent>
         </Tabs>
-      </DialogContent>
-    </Dialog>
+      </SheetContent>
+    </Sheet>
   )
 }
 

@@ -54,6 +54,7 @@ impl TelegramPlugin {
 
         let bot_commands: Vec<teloxide::types::BotCommand> = commands
             .iter()
+            .filter(|cmd| !crate::slash_commands::registry::is_im_disabled(&cmd.name))
             .map(|cmd| teloxide::types::BotCommand {
                 command: cmd.name.clone(),
                 description: cmd.description_en(),

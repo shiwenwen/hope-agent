@@ -161,6 +161,61 @@ export default function ChatScreen({
     [handleNewChat],
   )
 
+  /**
+   * Title-bar agent switch handler. Backend rejects the switch when the
+   * session already has user/assistant messages (defense layer); the UI
+   * additionally hides the dropdown via `disabled` once messages exist, so
+   * we only really get called for empty sessions.
+   *
+   * Branches:
+   *  - Existing session (already materialized) → call backend so the change
+   *    is persisted across reloads.
+   *  - Draft session (no `currentSessionId` yet) → just update front-end
+   *    state; the agent_id is baked in when the first message materializes
+   *    the session.
+   */
+  const handleChangeAgent = useCallback(
+    async (agentId: string) => {
+      if (!agentId || agentId === session.currentAgentId) return
+      const transport = getTransport()
+      try {
+        if (session.currentSessionId) {
+          await transport.call("update_session_agent_cmd", {
+            sessionId: session.currentSessionId,
+            agentId,
+          })
+        }
+        const agent = session.agents.find((a) => a.id === agentId)
+        session.setCurrentAgentId(agentId)
+        if (agent) session.setAgentName(agent.name)
+        // Apply the new agent's preferred model (best-effort).
+        try {
+          const cfg = await transport.call<{
+            model?: { primary?: string | null }
+          }>("get_agent_config", { id: agentId })
+          const primary = cfg.model?.primary
+          if (primary) {
+            const exists = availableModels.some(
+              (m) => `${m.providerId}::${m.modelId}` === primary,
+            )
+            if (exists) {
+              const [providerId, modelId] = primary.split("::")
+              if (providerId && modelId) {
+                setActiveModel({ providerId, modelId })
+              }
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+        await session.reloadSessions()
+      } catch (err) {
+        logger.warn("chat", "ChatScreen::handleChangeAgent", "failed", err)
+      }
+    },
+    [session, availableModels, setActiveModel],
+  )
+
   // ── Team ──────────────────────────────────────────────────
   const activeTeamId = useActiveTeam(currentSessionId ?? null)
   const [showTeamPanel, setShowTeamPanel] = useState(false)
@@ -803,6 +858,30 @@ export default function ChatScreen({
           session.setMessages((prev) => [...prev, contextMsg])
           break
         }
+        case "showProjectPicker": {
+          // Render a markdown list of projects so the user can either click
+          // back to /project <name> or visually pick from the sidebar's
+          // project tree. A full clickable picker card is a follow-up.
+          const lines = [t("project.openProject") + ":"]
+          for (const p of action.projects) {
+            const icon = p.emoji ? `${p.emoji} ` : "📁 "
+            lines.push(`- ${icon}**${p.name}** · ${p.sessionCount}`)
+          }
+          lines.push("")
+          lines.push(`> \`/project <${t("project.projectName")}>\``)
+          const pickerMsg: Message = {
+            role: "event",
+            content: lines.join("\n"),
+            timestamp: new Date().toISOString(),
+          }
+          session.setMessages((prev) => [...prev, pickerMsg])
+          break
+        }
+        case "enterProject": {
+          setDraftIncognito(false)
+          void handleNewChatInProject(action.projectId, undefined, false)
+          break
+        }
       }
     },
     [
@@ -813,6 +892,7 @@ export default function ChatScreen({
       handleEffortChange,
       planMode,
       loadSystemPrompt,
+      handleNewChatInProject,
       t,
     ],
   )
@@ -873,8 +953,19 @@ export default function ChatScreen({
         hasMoreSessions={session.hasMoreSessions}
         loadingMoreSessions={session.loadingMoreSessions}
         onLoadMoreSessions={session.handleLoadMoreSessions}
-        onOpenProject={openProjectOverview}
+        onOpenProjectSettings={openProjectOverview}
         onAddProject={openCreateProject}
+        onNewChatInProject={(projectId, opts) => {
+          // Project + incognito are mutually exclusive — backend coerces to
+          // false anyway; we strip here for UI consistency. Using the
+          // project's default_agent (resolved server-side) by passing
+          // `undefined` to handleNewChatInProject.
+          setDraftIncognito(false)
+          void handleNewChatInProject(projectId, undefined, opts?.incognito ?? false)
+        }}
+        onArchiveProject={(projectId, archived) => {
+          void archiveProject(projectId, archived)
+        }}
         onMoveSessionToProject={handleMoveSessionToProject}
       />
 
@@ -997,6 +1088,14 @@ export default function ChatScreen({
           searchOpen={searchBarOpen}
           effectiveWorkingDir={effectiveWorkingDir}
           workingDirSource={workingDirSource}
+          project={
+            session.currentSessionId
+              ? (projects.find((p) => p.id === currentSessionMeta?.projectId) ?? null)
+              : null
+          }
+          onOpenProjectSettings={openProjectOverview}
+          agents={session.agents}
+          onChangeAgent={handleChangeAgent}
         />
 
         {activeTeamId && !showTeamPanel && (

@@ -118,6 +118,13 @@ pub enum CommandAction {
     /// Desktop: renders a segmented bar + per-category detail card.
     /// IM channels: falls back to `CommandResult.content` markdown.
     ShowContextBreakdown { breakdown: ContextBreakdown },
+    /// Show an interactive project picker card. Desktop renders a clickable
+    /// list; IM channels fall back to text since `/project` is forbidden in
+    /// IM context anyway.
+    ShowProjectPicker { projects: Vec<ProjectPickerItem> },
+    /// Enter a project — frontend should create a new session inside the
+    /// project (using its `default_agent_id` if set) and switch to it.
+    EnterProject { project_id: String },
 }
 
 /// Structured per-category context window usage snapshot.
@@ -199,6 +206,7 @@ impl SlashCommandDef {
             "recap" => "Generate a deep analysis recap report",
             "context" => "Show context window breakdown",
             "awareness" => "Toggle behavior awareness",
+            "project" => "Switch to or pick a project",
             _ => "Command",
         }
         .to_string()
@@ -213,4 +221,21 @@ pub struct ModelPickerItem {
     pub provider_name: String,
     pub model_id: String,
     pub model_name: String,
+}
+
+/// A single project entry for the project picker card surfaced by `/project`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProjectPickerItem {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emoji: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub logo: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub session_count: u32,
 }

@@ -59,6 +59,12 @@
     "removeFromProject": "프로젝트에서 제거",
     "unassigned": "미할당",
     "newChatInProject": "프로젝트에 새 세션",
+    "openProjectSettings": "프로젝트 설정",
+    "noSessionsHint": "클릭하여 첫 세션 만들기",
+    "boundChannel": "바인딩된 IM 채널",
+    "bindChannelLabel": "IM 채널 바인딩",
+    "bindChannelHelp": "바인딩하면 이 IM 대화에서의 대화가 자동으로 이 프로젝트에 합류합니다.",
+    "unbindChannel": "바인딩 해제",
     "tabOverview": "개요",
     "tabSessions": "세션",
     "tabFiles": "파일",
@@ -1459,6 +1465,9 @@
     "system": "시스템",
     "systemAutostart": "로그인 시 실행",
     "systemAutostartDesc": "컴퓨터에 로그인할 때 Hope Agent 자동 시작",
+    "defaultAgentTitle": "기본 Agent",
+    "defaultAgentLabel": "기본 Agent",
+    "defaultAgentDesc": "Agent가 지정되지 않은 경우 사용 (프로젝트 → IM 채널 → 이 기본값 순으로 대체)",
     "configBackupsTitle": "설정 기록",
     "configBackupsDesc": "설정 변경 시마다 자동으로 스냅샷을 찍습니다. 이전 버전으로 언제든지 롤백할 수 있습니다 (최근 50개 유지).",
     "configBackupsEmpty": "아직 기록이 없습니다",
@@ -2014,6 +2023,49 @@
       "providerType": "Provider type",
       "testOk": "Embedding connection test passed"
     },
+    "embeddingActivation": {
+      "title": "임베딩 모델 선택",
+      "description": "벡터 검색에는 임베딩 모델이 필요합니다. 활성화하고 메모리 벡터를 다시 만들 모델을 선택하세요.",
+      "empty": "아직 설정된 임베딩 모델이 없습니다. 벡터 검색을 사용하려면 먼저 추가하세요.",
+      "gotoConfig": "임베딩 모델 설정",
+      "confirm": "활성화하고 재빌드"
+    },
+    "embedding": {
+      "reembedMode": {
+        "label": "재빌드 모드",
+        "keepExisting": "현재 벡터를 유지한 채 재빌드",
+        "keepExistingDesc": "기존 벡터는 계속 검색 가능하며 새 모델이 항목별로 덮어씁니다.",
+        "deleteAll": "먼저 모든 메모리 벡터 지우기",
+        "deleteAllDesc": "재빌드 전에 각 메모리의 벡터를 지웁니다. 완료 전에는 키워드 일치만 반환됩니다."
+      },
+      "reembedJob": {
+        "title": "메모리 벡터 재빌드",
+        "idle": "활성 모델이 {{count}}개의 메모리를 처리 중입니다. 언제든 수동으로 재빌드할 수 있습니다.",
+        "idleDisabled": "재빌드하려면 벡터 검색을 켜고 메모리를 추가하세요.",
+        "running": "메모리 벡터 재빌드 중",
+        "progress": "{{done}} / {{total}}개 메모리",
+        "phaseKeep": "기존 벡터 유지하며 재빌드 중",
+        "phaseFresh": "처음부터 재빌드 중",
+        "cancelling": "취소 중…",
+        "completed": "재빌드 완료",
+        "failed": "재빌드 실패",
+        "interrupted": "앱 재시작으로 재빌드가 중단됨",
+        "cancelled": "재빌드 취소됨",
+        "retry": "재빌드 재시도",
+        "cancel": "재빌드 취소",
+        "dismiss": "닫기",
+        "startNow": "지금 재빌드",
+        "status": {
+          "running": "진행 중",
+          "cancelling": "취소 중",
+          "completed": "완료됨",
+          "failed": "실패함",
+          "interrupted": "중단됨",
+          "cancelled": "취소됨",
+          "paused": "일시 중지됨"
+        }
+      }
+    },
     "localModels": {
       "tab": "Local Models",
       "title": "Local Models",
@@ -2096,49 +2148,6 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
-      }
-    },
-    "embeddingActivation": {
-      "title": "임베딩 모델 선택",
-      "description": "벡터 검색에는 임베딩 모델이 필요합니다. 활성화하고 메모리 벡터를 다시 만들 모델을 선택하세요.",
-      "empty": "아직 설정된 임베딩 모델이 없습니다. 벡터 검색을 사용하려면 먼저 추가하세요.",
-      "gotoConfig": "임베딩 모델 설정",
-      "confirm": "활성화하고 재빌드"
-    },
-    "embedding": {
-      "reembedMode": {
-        "label": "재빌드 모드",
-        "keepExisting": "현재 벡터를 유지한 채 재빌드",
-        "keepExistingDesc": "기존 벡터는 계속 검색 가능하며 새 모델이 항목별로 덮어씁니다.",
-        "deleteAll": "먼저 모든 메모리 벡터 지우기",
-        "deleteAllDesc": "재빌드 전에 각 메모리의 벡터를 지웁니다. 완료 전에는 키워드 일치만 반환됩니다."
-      },
-      "reembedJob": {
-        "title": "메모리 벡터 재빌드",
-        "idle": "활성 모델이 {{count}}개의 메모리를 처리 중입니다. 언제든 수동으로 재빌드할 수 있습니다.",
-        "idleDisabled": "재빌드하려면 벡터 검색을 켜고 메모리를 추가하세요.",
-        "running": "메모리 벡터 재빌드 중",
-        "progress": "{{done}} / {{total}}개 메모리",
-        "phaseKeep": "기존 벡터 유지하며 재빌드 중",
-        "phaseFresh": "처음부터 재빌드 중",
-        "cancelling": "취소 중…",
-        "completed": "재빌드 완료",
-        "failed": "재빌드 실패",
-        "interrupted": "앱 재시작으로 재빌드가 중단됨",
-        "cancelled": "재빌드 취소됨",
-        "retry": "재빌드 재시도",
-        "cancel": "재빌드 취소",
-        "dismiss": "닫기",
-        "startNow": "지금 재빌드",
-        "status": {
-          "running": "진행 중",
-          "cancelling": "취소 중",
-          "completed": "완료됨",
-          "failed": "실패함",
-          "interrupted": "중단됨",
-          "cancelled": "취소됨",
-          "paused": "일시 중지됨"
-        }
       }
     }
   },

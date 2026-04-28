@@ -121,6 +121,10 @@ fn build_router_with_cors(
             patch(routes::sessions::set_session_working_dir),
         )
         .route(
+            "/sessions/{id}/agent",
+            patch(routes::sessions::update_session_agent),
+        )
+        .route(
             "/sessions/{id}/purge-if-incognito",
             post(routes::sessions::purge_session_if_incognito),
         )
@@ -432,6 +436,14 @@ fn build_router_with_cors(
         // Config
         .route("/config/user", get(routes::config::get_user_config))
         .route("/config/user", put(routes::config::save_user_config))
+        .route(
+            "/config/default-agent",
+            get(routes::config::get_default_agent_id),
+        )
+        .route(
+            "/config/default-agent",
+            put(routes::config::set_default_agent_id),
+        )
         .route(
             "/config/web-search",
             get(routes::config::get_web_search_config),

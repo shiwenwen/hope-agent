@@ -19,10 +19,14 @@ export interface ChatSidebarProps {
   hasMoreSessions?: boolean
   loadingMoreSessions?: boolean
   onLoadMoreSessions?: () => void
-  /** Triggered when the user clicks a project row in the sidebar. */
-  onOpenProject?: (project: ProjectMeta) => void
+  /** Triggered by the gear button / right-click → "Settings" entry on a project row. */
+  onOpenProjectSettings?: (project: ProjectMeta) => void
   /** Triggered by the "+ New Project" sidebar button. */
   onAddProject?: () => void
+  /** Triggered by the hover "+" button or right-click → "New chat" on a project row. */
+  onNewChatInProject?: (projectId: string, opts?: { incognito?: boolean }) => void
+  /** Triggered by the right-click → "Archive / Unarchive" entry on a project row. */
+  onArchiveProject?: (projectId: string, archived: boolean) => void
   /**
    * Triggered by the per-session "Move to project" context-menu entry.
    * Passing `projectId=null` removes the session from its current project.

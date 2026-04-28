@@ -72,19 +72,15 @@ pub fn handle_status(
     // Session info
     if let Some(sid) = session_id {
         lines.push(format!("- **Session ID**: `{}`", sid));
-        if let Ok(messages) = session_db.load_session_messages(sid) {
-            let user_count = messages
-                .iter()
-                .filter(|m| m.role == MessageRole::User)
-                .count();
-            let assistant_count = messages
-                .iter()
-                .filter(|m| m.role == MessageRole::Assistant)
-                .count();
+        if let Ok((user_count, assistant_count)) = session_db.count_user_assistant_messages(sid) {
             lines.push(format!(
                 "- **Messages**: {} user, {} assistant",
                 user_count, assistant_count
             ));
+        }
+        if let Some(project_lines) = render_project_section(session_db, sid) {
+            lines.push(String::new());
+            lines.extend(project_lines);
         }
     } else {
         lines.push("- **Session**: none (new chat)".into());
@@ -94,6 +90,73 @@ pub fn handle_status(
         content: lines.join("\n"),
         action: Some(CommandAction::DisplayOnly),
     })
+}
+
+fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<String>> {
+    let meta = session_db.get_session(sid).ok().flatten()?;
+    let project_id = meta.project_id.as_deref()?;
+    let project_db = crate::require_project_db().ok()?;
+    let project = project_db.get(project_id).ok().flatten()?;
+
+    let mut lines = vec![
+        "**Current Project**".to_string(),
+        format!("- **Name**: {}", project.name),
+    ];
+    if let Some(desc) = project
+        .description
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!("- **Description**: {}", truncate(desc, 200)));
+    }
+    if let Some(default_agent) = project.default_agent_id.as_deref() {
+        lines.push(format!("- **Default Agent**: `{}`", default_agent));
+    }
+    if let Some(working_dir) = project.working_dir.as_deref() {
+        lines.push(format!("- **Working Directory**: `{}`", working_dir));
+    }
+    if let Some(bound) = project.bound_channel.as_ref() {
+        lines.push(format!(
+            "- **Bound IM Channel**: `{}` / `{}`",
+            bound.channel_id, bound.account_id
+        ));
+    }
+    if let Some(instructions) = project
+        .instructions
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        lines.push(format!(
+            "- **Instructions**: {}",
+            truncate(instructions, 200)
+        ));
+    }
+
+    let cfg = crate::config::cached_config();
+    let channel_account = meta
+        .channel_info
+        .as_ref()
+        .and_then(|ci| cfg.channels.find_account(&ci.account_id))
+        .cloned();
+    let (_, source) = crate::agent::resolver::resolve_default_agent_id_with_source(
+        Some(&project),
+        channel_account.as_ref(),
+    );
+    lines.push(format!("- **Agent Source**: {}", source.label()));
+    Some(lines)
+}
+
+/// Char-bounded truncate with ellipsis suffix. Used for status / display.
+fn truncate(s: &str, max_chars: usize) -> String {
+    let mut out = String::new();
+    for (i, ch) in s.chars().enumerate() {
+        if i >= max_chars {
+            out.push('…');
+            break;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 /// /export — Export conversation as Markdown.

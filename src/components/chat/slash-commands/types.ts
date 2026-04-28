@@ -36,6 +36,8 @@ export type CommandAction =
   | { type: "resumePlan" }
   | { type: "viewSystemPrompt" }
   | { type: "showContextBreakdown"; breakdown: ContextBreakdown }
+  | { type: "showProjectPicker"; projects: ProjectPickerItem[] }
+  | { type: "enterProject"; projectId: string }
 
 /** Per-category context window usage snapshot (mirrors Rust `ContextBreakdown`). */
 export interface ContextBreakdown {
@@ -65,6 +67,18 @@ export interface ModelPickerItem {
   providerName: string
   modelId: string
   modelName: string
+}
+
+/** A project entry surfaced by the `/project` picker. Mirrors Rust
+ *  `ProjectPickerItem`. */
+export interface ProjectPickerItem {
+  id: string
+  name: string
+  emoji?: string | null
+  logo?: string | null
+  color?: string | null
+  description?: string | null
+  sessionCount: number
 }
 
 /** Matches Rust CommandResult struct */

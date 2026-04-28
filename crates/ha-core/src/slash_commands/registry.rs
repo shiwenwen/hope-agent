@@ -1,5 +1,15 @@
 use super::types::{CommandCategory, SlashCommandDef};
 
+/// Commands that should not be exposed in IM channels (Discord / Telegram /
+/// Slack slash-command menus). The handler layer also self-checks via
+/// `session.channel_info` to refuse execution if a user types one anyway.
+pub const IM_DISABLED_COMMANDS: &[&str] = &["project"];
+
+/// Whether a command is suppressed from the IM channel slash-command menu.
+pub fn is_im_disabled(name: &str) -> bool {
+    IM_DISABLED_COMMANDS.contains(&name)
+}
+
 /// Returns all available slash command definitions.
 pub fn all_commands() -> Vec<SlashCommandDef> {
     vec![
@@ -51,6 +61,17 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             args_optional: false,
             arg_placeholder: Some("<title>".into()),
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
+            name: "project".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.project.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[project name]".into()),
+            // Dynamic — front-end fetches via `ShowProjectPicker` action.
             arg_options: None,
             description_raw: None,
         },

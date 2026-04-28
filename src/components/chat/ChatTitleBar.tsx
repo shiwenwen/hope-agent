@@ -24,7 +24,16 @@ import { formatCacheUsageDisplay, formatCompactTokenCount } from "./cacheUsageDi
 import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
 import { INCOGNITO_BADGE_LABEL_CLASSES } from "./input/incognitoStyles"
 import { logger } from "@/lib/logger"
-import type { Message, AvailableModel, ActiveModel, SessionMeta } from "@/types/chat"
+import AgentSwitcher from "./AgentSwitcher"
+import ProjectIcon from "./project/ProjectIcon"
+import type {
+  Message,
+  AvailableModel,
+  ActiveModel,
+  SessionMeta,
+  AgentSummaryForSidebar,
+} from "@/types/chat"
+import type { ProjectMeta } from "@/types/project"
 
 interface ChatTitleBarProps {
   agentName: string
@@ -60,6 +69,18 @@ interface ChatTitleBarProps {
   effectiveWorkingDir?: string | null
   /** Source of the effective path; only read when `effectiveWorkingDir` is set. */
   workingDirSource?: "session" | "project"
+  /** Project this session belongs to. Surface a chip linking to its settings. */
+  project?: ProjectMeta | null
+  /** Triggered by the project chip click — opens the settings sheet. */
+  onOpenProjectSettings?: (project: ProjectMeta) => void
+  /** Available agents for the title-bar agent switcher. */
+  agents?: AgentSummaryForSidebar[]
+  /**
+   * Triggered when the user picks a different agent from the title-bar
+   * dropdown. Only invoked while `messages.length === 0` — once messages
+   * exist, the dropdown is hidden.
+   */
+  onChangeAgent?: (agentId: string) => void
 }
 
 export default function ChatTitleBar({
@@ -83,6 +104,10 @@ export default function ChatTitleBar({
   searchOpen,
   effectiveWorkingDir,
   workingDirSource,
+  project,
+  onOpenProjectSettings,
+  agents = [],
+  onChangeAgent,
 }: ChatTitleBarProps) {
   const { t } = useTranslation()
   const appVersion = useAppVersion()
@@ -170,9 +195,28 @@ export default function ChatTitleBar({
       data-tauri-drag-region
     >
       <div className="flex items-end gap-2 min-w-0 pb-1.5">
-        <span className="text-sm font-medium text-foreground shrink-0">
-          {agentName || t("chat.mainAgent")}
-        </span>
+        {project && (
+          <>
+            <button
+              onClick={() => onOpenProjectSettings?.(project)}
+              className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
+              title={project.description ?? project.name}
+            >
+              <ProjectIcon project={project} size="xs" />
+              <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
+            </button>
+            <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
+          </>
+        )}
+        <AgentSwitcher
+          agents={agents}
+          currentAgentId={currentAgentId}
+          agentName={agentName || t("chat.mainAgent")}
+          // Allow switching only before any messages exist — system prompt
+          // and history are pinned to the agent once a message is sent.
+          disabled={messages.length > 0 || !onChangeAgent}
+          onSelect={(agentId) => onChangeAgent?.(agentId)}
+        />
         {currentSessionId && (
           <>
             <span className="text-muted-foreground/40 text-sm shrink-0">/</span>

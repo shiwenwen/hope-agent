@@ -1496,6 +1496,74 @@ impl SessionDB {
         Ok(canonical)
     }
 
+    /// Return `(user_count, assistant_count)` for a session without loading
+    /// the message bodies. Used by `/status` and other quick stats paths
+    /// where the full conversation isn't needed.
+    pub fn count_user_assistant_messages(&self, session_id: &str) -> Result<(i64, i64)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT role, COUNT(*) FROM messages
+             WHERE session_id = ?1 AND role IN ('user', 'assistant')
+             GROUP BY role",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })?;
+        let mut user = 0;
+        let mut assistant = 0;
+        for r in rows {
+            let (role, n) = r?;
+            match role.as_str() {
+                "user" => user = n,
+                "assistant" => assistant = n,
+                _ => {}
+            }
+        }
+        Ok((user, assistant))
+    }
+
+    /// Change the agent bound to a session. Only allowed when the session has
+    /// no user/assistant messages yet — switching agent mid-conversation would
+    /// leave the system prompt and message history out of sync. Front-end
+    /// should disable the control once messages exist; this is the SQL-level
+    /// defense.
+    pub fn update_session_agent(&self, session_id: &str, agent_id: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM messages WHERE session_id = ?1 AND role IN ('user', 'assistant')",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        if count > 0 {
+            return Err(anyhow::anyhow!(
+                "cannot change agent for session {}: already has {} messages",
+                session_id,
+                count
+            ));
+        }
+        let updated = conn.execute(
+            "UPDATE sessions SET agent_id = ?1 WHERE id = ?2",
+            params![agent_id, session_id],
+        )?;
+        if updated == 0 {
+            return Err(anyhow::anyhow!("session {} not found", session_id));
+        }
+        app_info!(
+            "session",
+            "update_session_agent",
+            "session={} agent_id={}",
+            session_id,
+            agent_id
+        );
+        Ok(())
+    }
+
     /// Persist plan step statuses to DB for crash recovery.
     pub fn save_plan_steps(&self, session_id: &str, steps_json: &str) -> Result<()> {
         let conn = self

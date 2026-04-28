@@ -11,7 +11,20 @@ pub async fn create_session_cmd(
     incognito: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<session::SessionMeta, CmdError> {
-    let agent_id = agent_id.unwrap_or_else(|| "default".to_string());
+    // Caller-supplied agent_id wins. Otherwise resolve via the standard
+    // precedence chain: project default → global default → hardcoded "default".
+    // Channel-level fallback is irrelevant here (this command is only invoked
+    // from desktop / web, never from the IM channel worker path).
+    let agent_id = match agent_id {
+        Some(id) if !id.trim().is_empty() => id,
+        _ => {
+            let project = match project_id.as_deref() {
+                Some(pid) => state.project_db.get(pid).ok().flatten(),
+                None => None,
+            };
+            ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
+        }
+    };
     state
         .session_db
         .create_session_with_project(&agent_id, project_id.as_deref(), incognito)
@@ -111,6 +124,21 @@ pub async fn set_session_working_dir(
         .session_db
         .update_session_working_dir(&session_id, working_dir)
         .map(|_| ())
+        .map_err(Into::into)
+}
+
+/// Switch the agent bound to a session. Only valid before the session has
+/// any user/assistant messages — see `SessionDB::update_session_agent`.
+/// Used by the title-bar agent switcher in the UI.
+#[tauri::command]
+pub async fn update_session_agent_cmd(
+    session_id: String,
+    agent_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .update_session_agent(&session_id, &agent_id)
         .map_err(Into::into)
 }
 

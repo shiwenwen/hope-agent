@@ -192,6 +192,8 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 
 `Project` 现支持 `workingDir: string | null` 字段，作为该项目下会话的默认工作目录。`create_project_cmd` / `update_project_cmd` 透传该字段，落库前做 canonicalize + is_dir 校验（空串等价于清除）。运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，在 `agent/config.rs` 构建系统提示前 lazy resolve，无快照——编辑项目工作目录后未单独设置的已有会话立即跟随；前端 `ChatTitleBar` 据此显示生效路径并区分来源。详见 [`AGENTS.md`](../../AGENTS.md) 「项目（Project）容器」段。
 
+`Project` 还支持 `boundChannel: { channelId, accountId } | null` —— 把项目绑定到一个 IM channel account。绑定后，channel worker `resolve_or_create_session` 在创建新会话前会查 `projects` 表并自动注入 `project_id`；同一 (channelId, accountId) 同时只能被一个项目认领（`projects` 表有 `idx_projects_bound_channel` 索引 + 写入路径冲突检测）。`update_project_cmd` 的 patch 用 double-Option：字段缺省=不变，`null`=解绑，对象=设置/重置绑定目标。前端编辑入口在 `ProjectSettingsSheet` 的 Overview tab。
+
 ### Sessions
 
 | Tauri Command | HTTP | 状态 |
@@ -201,6 +203,7 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `get_session_cmd` | `GET /api/sessions/{id}` | ✅ |
 | `set_session_incognito` | `PATCH /api/sessions/{sessionId}/incognito` | ✅ |
 | `set_session_working_dir` | `PATCH /api/sessions/{sessionId}/working-dir` | ✅ |
+| `update_session_agent_cmd` | `PATCH /api/sessions/{sessionId}/agent` | ✅ |
 | `purge_session_if_incognito` | `POST /api/sessions/{sessionId}/purge-if-incognito` | ✅ |
 | `search_sessions_cmd` | `GET /api/sessions/search` | ✅ |
 | `search_session_messages_cmd` | `GET /api/sessions/{sessionId}/messages/search` | ✅ |
@@ -219,6 +222,8 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 | `set_dangerous_skip_all_approvals` | `POST /api/security/dangerous-skip-all-approvals` | ✅ |
 
 `create_session_cmd` 与 `chat` 在自动创建新会话时都支持可选 `incognito: boolean`，返回的 `SessionMeta` 也会包含 `incognito` 字段；主聊天 UI 将 incognito 视为“新会话预设”，只在尚未 materialize session 的草稿态提供入口，已有会话不再暴露切换按钮。`set_session_incognito` 保留给兼容调用和非主 UI 适配，但不应作为常规会话内开关使用。当请求同时带了 `project_id` 时 `incognito` 被强制为 `false`（互斥）。`list_sessions_cmd` / `search_sessions_cmd` / `list_project_sessions_cmd` 接受可选 `active_session_id` 参数：默认会过滤掉所有 incognito 会话，`active_session_id` 让正在打开的那个无痕会话仍出现在 sidebar / 搜索结果里。`purge_session_if_incognito` 在前端 `handleSwitchSession / handleNewChat / handleNewChatInProject` 切走当前 session 之前调用，仅当目标 session 当前为 incognito 时硬删，否则 no-op。
+
+`update_session_agent_cmd` 接受 `{ agentId: string }`，后端在 SQL 层校验 `messages` 表中该 session 没有 `role IN ('user','assistant')` 的记录，否则返回 400。前端 `ChatTitleBar` 的 `AgentSwitcher` dropdown 在 `messages.length > 0` 时会把触发器降级为只读 `<span>`，作为 UX 防御层。
 
 `set_session_working_dir` 接受 `{ workingDir: string | null }`，后端 `canonicalize` 路径并校验是否为存在的目录，返回 `{ updated: true, workingDir: <canonical> }`；`null` 或空串清除选择。该字段以 `SessionMeta.workingDir` 呈现，被 `system_prompt::build` 注入到 "# Working Directory" 段落（位于 Project / Project Files 之后、Memory 之前）。执行层也会把它作为 path-aware 工具的默认根：`read` / `write` / `edit` / `ls` / `grep` / `find` / `apply_patch` 的相对路径，以及 `exec.cwd` 的相对路径，均按「显式绝对路径 > Session working dir > Agent home」解析；`exec` 无 `cwd` 时再回退到用户 home。与 Project / Incognito 正交：三者可同时启用。在 HTTP 模式下前端没有原生目录选择器，改走 `GET /api/filesystem/list-dir`（见 Filesystem 域）的服务端目录浏览器。
 
@@ -356,6 +361,10 @@ Tauri ↔ COMMAND_MAP 差集稳定在 5 条合法非 REST 命令（4 条 Desktop
 |---|---|---|
 | `get_user_config` | `GET /api/config/user` | ✅ |
 | `save_user_config` | `PUT /api/config/user` | ✅ |
+| `get_default_agent_id` | `GET /api/config/default-agent` | ✅ |
+| `set_default_agent_id` | `PUT /api/config/default-agent` | ✅ |
+
+`get_default_agent_id` 返回 `Option<String>`（HTTP body 为标量 `"my-agent"` 或 `null`）；`set_default_agent_id` 接受 `{ agentId: string | null }`，空串 / null 清除全局默认（resolver 链路回退到硬编码 `"default"`）。新建会话时按「显式参数 → project.default_agent_id → channel_account.agent_id → AppConfig.default_agent_id → "default"」链路解析（统一 helper：`crate::agent::resolver::resolve_default_agent_id`）。
 
 ### Context compaction
 

@@ -11,6 +11,7 @@ pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http}
 pub(crate) use events::MEDIA_ITEMS_PREFIX;
 mod llm_adapter;
 mod providers;
+pub mod resolver;
 mod side_query;
 mod streaming_adapter;
 mod streaming_loop;

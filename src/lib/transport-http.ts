@@ -60,6 +60,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   get_session_cmd:                 { method: "GET",    path: "/api/sessions/{sessionId}" },
   set_session_incognito:           { method: "PATCH",  path: "/api/sessions/{sessionId}/incognito" },
   set_session_working_dir:         { method: "PATCH",  path: "/api/sessions/{sessionId}/working-dir" },
+  update_session_agent_cmd:        { method: "PATCH",  path: "/api/sessions/{sessionId}/agent" },
   purge_session_if_incognito:      { method: "POST",   path: "/api/sessions/{sessionId}/purge-if-incognito" },
   search_sessions_cmd:             { method: "GET",    path: "/api/sessions/search" },
   search_session_messages_cmd:     { method: "GET",    path: "/api/sessions/{sessionId}/messages/search" },
@@ -159,6 +160,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- User config --
   get_user_config:                 { method: "GET",    path: "/api/config/user" },
   save_user_config:                { method: "PUT",    path: "/api/config/user" },
+  get_default_agent_id:            { method: "GET",    path: "/api/config/default-agent" },
+  set_default_agent_id:            { method: "PUT",    path: "/api/config/default-agent" },
 
   // -- Memory --
   memory_search:                   { method: "POST",   path: "/api/memory/search" },
