@@ -140,7 +140,7 @@
     "filterSessions": "Сессии",
     "filterCron": "Задачи Cron",
     "filterChannel": "Канал",
-    "filterSubagent": "Делегированные",
+    "filterSubagent": "Sub-Agent",
     "markAllRead": "Отметить всё как прочитанное",
     "markAsRead": "Отметить как прочитанное",
     "pendingInteractionHint": "Ожидание вашего ответа",

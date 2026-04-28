@@ -140,7 +140,7 @@
     "filterSessions": "Oturumlar",
     "filterCron": "Cron",
     "filterChannel": "Kanal",
-    "filterSubagent": "Devredilen",
+    "filterSubagent": "Sub-Agent",
     "markAllRead": "Tümünü okundu olarak işaretle",
     "markAsRead": "Okundu olarak işaretle",
     "pendingInteractionHint": "Yanıtınız bekleniyor",

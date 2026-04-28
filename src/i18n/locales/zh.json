@@ -140,7 +140,7 @@
     "filterSessions": "会话",
     "filterCron": "定时任务",
     "filterChannel": "渠道",
-    "filterSubagent": "委派任务",
+    "filterSubagent": "子Agent",
     "markAllRead": "全部已读",
     "markAsRead": "标记已读",
     "pendingInteractionHint": "等待您的回应",

@@ -140,7 +140,7 @@
     "filterSessions": "Phiên",
     "filterCron": "Cron",
     "filterChannel": "Kênh",
-    "filterSubagent": "Đã ủy quyền",
+    "filterSubagent": "Sub-Agent",
     "markAllRead": "Đánh dấu tất cả là đã đọc",
     "markAsRead": "Đánh dấu là đã đọc",
     "pendingInteractionHint": "Đang chờ phản hồi của bạn",

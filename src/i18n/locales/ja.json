@@ -140,7 +140,7 @@
     "filterSessions": "セッション",
     "filterCron": "定期タスク",
     "filterChannel": "チャネル",
-    "filterSubagent": "委任",
+    "filterSubagent": "Sub-Agent",
     "markAllRead": "すべて既読にする",
     "markAsRead": "既読にする",
     "pendingInteractionHint": "応答をお待ちしています",

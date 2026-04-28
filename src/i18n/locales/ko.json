@@ -140,7 +140,7 @@
     "filterSessions": "세션",
     "filterCron": "예약 작업",
     "filterChannel": "채널",
-    "filterSubagent": "위임",
+    "filterSubagent": "Sub-Agent",
     "markAllRead": "모두 읽음으로 표시",
     "markAsRead": "읽음으로 표시",
     "pendingInteractionHint": "응답을 기다리는 중",

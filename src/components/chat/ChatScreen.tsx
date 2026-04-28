@@ -131,6 +131,11 @@ export default function ChatScreen({
     () => session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false,
     [session.sessions, session.currentSessionId],
   )
+  const isSubagentSession = useMemo(
+    () =>
+      !!session.sessions.find((s) => s.id === session.currentSessionId)?.parentSessionId,
+    [session.sessions, session.currentSessionId],
+  )
   const currentSessionMeta = useMemo(
     () =>
       session.currentSessionId
@@ -1153,7 +1158,7 @@ export default function ChatScreen({
         />
 
         {/* Memory extraction toast */}
-        {!isCronSession && (
+        {!isCronSession && !isSubagentSession && (
           <>
             {memoryToast && (
               <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">

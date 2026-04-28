@@ -140,7 +140,7 @@
     "filterSessions": "Sessions",
     "filterCron": "Cron",
     "filterChannel": "Channel",
-    "filterSubagent": "Delegated",
+    "filterSubagent": "Sub-Agent",
     "markAllRead": "Mark all as read",
     "markAsRead": "Mark as read",
     "pendingInteractionHint": "Waiting for your response",
