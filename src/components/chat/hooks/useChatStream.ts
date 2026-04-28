@@ -76,7 +76,10 @@ export interface UseChatStreamReturn {
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   toolPermissionMode: ToolPermissionMode
   setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
-  handleSend: (directText?: string, options?: { hidden?: boolean; displayText?: string }) => Promise<void>
+  handleSend: (
+    directText?: string,
+    options?: { hidden?: boolean; displayText?: string; planMode?: string },
+  ) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
     requestId: string,
@@ -219,7 +222,10 @@ export function useChatStream({
    * Send a message. If `directText` is provided, use it directly instead of the input box.
    * This avoids flashing text in the input (used by Plan Mode approve).
    */
-  async function handleSend(directText?: string, options?: { hidden?: boolean; displayText?: string }) {
+  async function handleSend(
+    directText?: string,
+    options?: { hidden?: boolean; displayText?: string; planMode?: string },
+  ) {
     const rawText = directText ?? input
     if (!rawText.trim()) return
 
@@ -402,6 +408,7 @@ export function useChatStream({
       const modelOverride = activeModel
         ? `${activeModel.providerId}::${activeModel.modelId}`
         : undefined
+      const effectivePlanMode = options?.planMode ?? planMode
       await getTransport().startChat(
         {
           message: text,
@@ -411,7 +418,7 @@ export function useChatStream({
           modelOverride,
           agentId: currentAgentId,
           toolPermissionMode: toolPermissionModeRef.current,
-          planMode: planMode && planMode !== "off" ? planMode : undefined,
+          planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
           workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,

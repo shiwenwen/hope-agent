@@ -2720,6 +2720,7 @@
     "exitWithout": "プランを終了",
     "showPlan": "プランを表示",
     "executing": "プラン実行中...",
+    "executionIdle": "計画の実行は待機中です",
     "stepsCompleted": "ステップ完了",
     "completed": "完了",
     "placeholder": "達成したいことを記述してください...",

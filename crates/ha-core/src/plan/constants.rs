@@ -224,6 +224,10 @@ After completing each step, call the `update_plan_step` tool to mark your progre
 - `update_plan_step(step_index=N, status=\"failed\")` if a step fails
 - `update_plan_step(step_index=N, status=\"skipped\")` if skipping
 
+Keep execution chatter minimal. Do not emit repetitive progress sentences before routine tool calls; rely on tool calls to show progress and write a concise final summary when execution stops.
+If one implementation action satisfies multiple checklist items, verify them and mark each completed before your final response.
+Do not leave a step `in_progress` when you stop responding: complete it, mark it failed/skipped with a reason, or ask the user for the blocker.
+
 A git checkpoint has been created before execution started. If execution fails, the user can rollback all changes.
 
 If you discover the plan needs changes during execution, use the `amend_plan` tool:

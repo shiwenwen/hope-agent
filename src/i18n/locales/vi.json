@@ -2720,6 +2720,7 @@
     "exitWithout": "Thoát kế hoạch",
     "showPlan": "Hiển thị kế hoạch",
     "executing": "Đang thực thi kế hoạch...",
+    "executionIdle": "Thực thi kế hoạch đang chờ tiếp tục",
     "stepsCompleted": "bước đã hoàn thành",
     "completed": "Hoàn thành",
     "placeholder": "Mô tả điều bạn muốn đạt được...",

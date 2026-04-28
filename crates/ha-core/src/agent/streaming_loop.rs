@@ -29,6 +29,19 @@ use crate::tools::{self, ToolExecContext};
 /// request body — only in the budget calculator.
 const MAX_OUTPUT_TOKENS: u32 = 16384;
 
+fn final_round_handoff_guidance(max_rounds: u32) -> String {
+    format!(
+        "# Tool-Call Limit Reached\n\n\
+         This is the final allowed response for this user turn: the tool-call \
+         limit of {} rounds has been reached and tools are now unavailable. \
+         Tell the user this limit was reached, summarize what is done, list \
+         what remains, and ask them to send a new message such as \"继续\" \
+         if they want you to continue. Do not claim the whole task is complete \
+         unless every required item has actually been verified.",
+        max_rounds
+    )
+}
+
 // ── Tool execution helpers (private to streaming_loop, no other caller).
 
 /// Log tool execution input.
@@ -229,6 +242,7 @@ impl AssistantAgent {
         } else {
             max_rounds_cfg
         };
+        let round_limit_enabled = max_rounds_cfg != 0;
         let mut round_count: u32 = 0;
         let mut natural_exit = false;
         let mut collected_text = String::new();
@@ -265,13 +279,24 @@ impl AssistantAgent {
             }
 
             let is_final_round = round + 1 == max_rounds;
+            let final_round_system_prompt;
+            let round_system_prompt = if round_limit_enabled && is_final_round {
+                final_round_system_prompt = format!(
+                    "{}\n\n{}",
+                    system_prompt,
+                    final_round_handoff_guidance(max_rounds)
+                );
+                final_round_system_prompt.as_str()
+            } else {
+                system_prompt.as_str()
+            };
             let api_messages = crate::context_compact::prepare_messages_for_api(&messages);
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
 
             let req = RoundRequest {
-                system_prompt: &system_prompt,
+                system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
                 tool_schemas: &tool_schemas,
@@ -436,8 +461,9 @@ impl AssistantAgent {
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);
-        let rounds_exhausted = !natural_exit && !cancelled && round_count == max_rounds;
-        if rounds_exhausted {
+        let hit_round_limit = round_limit_enabled && !cancelled && round_count == max_rounds;
+        let rounds_exhausted = hit_round_limit && !natural_exit;
+        if hit_round_limit {
             let notice = emit_max_rounds_notice(on_delta, max_rounds);
             collected_text.push_str(&notice);
         }
@@ -482,6 +508,7 @@ impl AssistantAgent {
                         "provider": provider_label,
                         "text_length": collected_text.len(),
                         "total_rounds": round_count,
+                        "hit_round_limit": hit_round_limit,
                         "history_length": history_len,
                         "cancelled": cancelled,
                         "rounds_exhausted": rounds_exhausted,

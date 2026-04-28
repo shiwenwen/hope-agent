@@ -2720,6 +2720,7 @@
     "exitWithout": "Salir del plan",
     "showPlan": "Mostrar plan",
     "executing": "Ejecutando plan...",
+    "executionIdle": "La ejecución del plan está esperando continuar",
     "stepsCompleted": "pasos completados",
     "completed": "Completado",
     "placeholder": "Describe lo que quieres lograr...",

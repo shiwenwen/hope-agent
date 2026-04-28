@@ -254,7 +254,7 @@ pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str)
 /// emitted as a text_delta so the UI sees it immediately.
 pub(super) fn build_max_rounds_notice(max_rounds: u32) -> String {
     format!(
-        "\n\n---\n⚠️ 已达到工具调用轮次上限（{} 轮），本次回复已被强制中止。\n可在设置 → Agent → 能力中调大 `max_tool_rounds`，或重新发起请求让我换个思路再试。",
+        "\n\n---\n⚠️ 已达到工具调用轮次上限（{} 轮），本轮已停止继续调用工具。\n如果任务还没完成，请发送“继续”，我会接着当前进度执行；也可以在设置 → Agent → 能力中调大 `max_tool_rounds`。",
         max_rounds
     )
 }

@@ -39,13 +39,24 @@ pub async fn set_plan_mode(
     Json(body): Json<SetModeBody>,
 ) -> Result<Json<Value>, AppError> {
     let plan_state = PlanModeState::from_str(&body.state);
-    let is_executing = plan_state == PlanModeState::Executing;
-
-    if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
-        if let Some(ref_name) = plan::get_checkpoint_ref(&session_id).await {
-            plan::cleanup_checkpoint(&ref_name);
-        }
-    }
+    let previous_state = plan::get_plan_state(&session_id).await;
+    let persisted_plan_mode = session_db()?
+        .get_session(&session_id)
+        .map_err(|e| AppError::internal(e.to_string()))?
+        .map(|meta| meta.plan_mode);
+    let checkpoint_exists = plan::get_checkpoint_ref(&session_id).await.is_some();
+    let should_create_checkpoint = plan::should_create_execution_checkpoint(
+        &plan_state,
+        &previous_state,
+        persisted_plan_mode.as_deref(),
+        checkpoint_exists,
+    );
+    let checkpoint_to_cleanup =
+        if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
+            plan::get_checkpoint_ref(&session_id).await
+        } else {
+            None
+        };
 
     if plan_state == PlanModeState::Off {
         if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
@@ -55,13 +66,22 @@ pub async fn set_plan_mode(
         }
     }
 
-    plan::set_plan_state(&session_id, plan_state).await;
+    if !plan::set_plan_state(&session_id, plan_state.clone()).await {
+        return Err(AppError::bad_request(format!(
+            "Invalid plan mode transition to '{}'",
+            plan_state.as_str()
+        )));
+    }
 
-    if is_executing {
+    if let Some(ref_name) = checkpoint_to_cleanup {
+        plan::cleanup_checkpoint(&ref_name);
+    }
+
+    if should_create_checkpoint {
         plan::create_checkpoint_for_session(&session_id).await;
     }
     session_db()?
-        .update_session_plan_mode(&session_id, &body.state)
+        .update_session_plan_mode(&session_id, plan_state.as_str())
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "updated": true })))
 }

@@ -21,10 +21,11 @@ pub async fn get_plan_state(session_id: &str) -> PlanModeState {
         .unwrap_or(PlanModeState::Off)
 }
 
-pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
+pub async fn set_plan_state(session_id: &str, state: PlanModeState) -> bool {
     let mut map = store().write().await;
     if state == PlanModeState::Off {
         map.remove(session_id);
+        return true;
     } else if let Some(meta) = map.get_mut(session_id) {
         // Reject illegal transitions (e.g. Completed → Executing) to keep
         // concurrent writers from re-running already-completed steps or
@@ -38,7 +39,7 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
                 meta.state.as_str(),
                 state.as_str()
             );
-            return;
+            return false;
         }
         // Record paused_at_step when transitioning to Paused
         if state == PlanModeState::Paused {
@@ -59,6 +60,7 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
         }
         meta.state = state;
         meta.updated_at = chrono::Utc::now().to_rfc3339();
+        true
     } else {
         // Create a new PlanMeta entry
         let file_path = plan_file_path(session_id)
@@ -79,7 +81,26 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) {
                 checkpoint_ref: None,
             },
         );
+        true
     }
+}
+
+pub fn should_create_execution_checkpoint(
+    requested_state: &PlanModeState,
+    previous_state: &PlanModeState,
+    persisted_plan_mode: Option<&str>,
+    checkpoint_exists: bool,
+) -> bool {
+    if requested_state != &PlanModeState::Executing || checkpoint_exists {
+        return false;
+    }
+    if matches!(
+        previous_state,
+        PlanModeState::Executing | PlanModeState::Paused
+    ) {
+        return false;
+    }
+    !matches!(persisted_plan_mode, Some("executing" | "paused"))
 }
 
 pub async fn get_plan_meta(session_id: &str) -> Option<PlanMeta> {

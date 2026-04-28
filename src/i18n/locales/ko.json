@@ -2720,6 +2720,7 @@
     "exitWithout": "계획 종료",
     "showPlan": "계획 표시",
     "executing": "계획 실행 중...",
+    "executionIdle": "계획 실행 대기 중",
     "stepsCompleted": "단계 완료",
     "completed": "완료",
     "placeholder": "달성하고 싶은 것을 설명하세요...",

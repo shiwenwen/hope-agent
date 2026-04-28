@@ -33,14 +33,26 @@ pub async fn set_plan_mode(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<(), CmdError> {
     let plan_state = PlanModeState::from_str(&state);
-    let is_executing = plan_state == PlanModeState::Executing;
-
-    // Clean up checkpoint on successful completion or exit
-    if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
-        if let Some(ref_name) = plan::get_checkpoint_ref(&session_id).await {
-            plan::cleanup_checkpoint(&ref_name);
-        }
-    }
+    let previous_state = plan::get_plan_state(&session_id).await;
+    let persisted_plan_mode = app_state
+        .session_db
+        .get_session(&session_id)
+        .ok()
+        .flatten()
+        .map(|meta| meta.plan_mode);
+    let checkpoint_exists = plan::get_checkpoint_ref(&session_id).await.is_some();
+    let should_create_checkpoint = plan::should_create_execution_checkpoint(
+        &plan_state,
+        &previous_state,
+        persisted_plan_mode.as_deref(),
+        checkpoint_exists,
+    );
+    let checkpoint_to_cleanup =
+        if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
+            plan::get_checkpoint_ref(&session_id).await
+        } else {
+            None
+        };
 
     // Cancel active plan sub-agent when exiting plan mode or transitioning away from Planning
     if plan_state == PlanModeState::Off {
@@ -57,15 +69,25 @@ pub async fn set_plan_mode(
         }
     }
 
-    plan::set_plan_state(&session_id, plan_state).await;
+    if !plan::set_plan_state(&session_id, plan_state.clone()).await {
+        return Err(CmdError::msg(format!(
+            "Invalid plan mode transition to '{}'",
+            plan_state.as_str()
+        )));
+    }
+
+    // Clean up checkpoint on successful completion or exit
+    if let Some(ref_name) = checkpoint_to_cleanup {
+        plan::cleanup_checkpoint(&ref_name);
+    }
 
     // Create git checkpoint AFTER PlanMeta entry exists in the store
-    if is_executing {
+    if should_create_checkpoint {
         plan::create_checkpoint_for_session(&session_id).await;
     }
     // Persist to DB
     let db = &app_state.session_db;
-    db.update_session_plan_mode(&session_id, &state)?;
+    db.update_session_plan_mode(&session_id, plan_state.as_str())?;
     Ok(())
 }
 

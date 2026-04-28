@@ -41,7 +41,9 @@ interface PlanPanelProps {
   onClose: () => void
   onPause?: () => void
   onResume?: () => void
+  onContinue?: () => void
   onRequestChanges?: (feedback: string) => void
+  isExecutionActive?: boolean
   panelWidth?: number
   embedded?: boolean
 }
@@ -58,7 +60,9 @@ export function PlanPanel({
   onClose,
   onPause,
   onResume,
+  onContinue,
   onRequestChanges,
+  isExecutionActive = false,
   panelWidth,
   embedded = false,
 }: PlanPanelProps) {
@@ -671,13 +675,23 @@ export function PlanPanel({
         {planState === "executing" && !allDone && (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-blue-600">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span>{t("planMode.executing")}</span>
+              {isExecutionActive ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4" />
+              )}
+              <span>{isExecutionActive ? t("planMode.executing") : t("planMode.executionIdle")}</span>
             </div>
-            {onPause && (
+            {isExecutionActive && onPause && (
               <Button size="sm" variant="outline" onClick={onPause} className="gap-1.5">
                 <Pause className="h-3.5 w-3.5" />
                 {t("planMode.pause")}
+              </Button>
+            )}
+            {!isExecutionActive && onContinue && (
+              <Button size="sm" variant="outline" onClick={onContinue} className="gap-1.5">
+                <Play className="h-3.5 w-3.5" />
+                {t("planMode.resume")}
               </Button>
             )}
           </div>

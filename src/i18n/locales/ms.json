@@ -2720,6 +2720,7 @@
     "exitWithout": "Keluar dari pelan",
     "showPlan": "Tunjuk pelan",
     "executing": "Melaksanakan pelan...",
+    "executionIdle": "Pelaksanaan pelan sedang menunggu untuk diteruskan",
     "stepsCompleted": "langkah selesai",
     "completed": "Selesai",
     "placeholder": "Terangkan apa yang anda mahu capai...",

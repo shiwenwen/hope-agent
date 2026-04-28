@@ -2720,6 +2720,7 @@
     "exitWithout": "Plandan çık",
     "showPlan": "Planı göster",
     "executing": "Plan yürütülüyor...",
+    "executionIdle": "Plan yürütmesi devam etmeyi bekliyor",
     "stepsCompleted": "adım tamamlandı",
     "completed": "Tamamlandı",
     "placeholder": "Neyi başarmak istediğinizi açıklayın...",

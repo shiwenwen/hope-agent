@@ -26,8 +26,8 @@ pub use constants::{
 // Store
 pub use store::store;
 pub use store::{
-    get_plan_meta, get_plan_state, restore_from_db, set_plan_state, update_plan_steps,
-    update_step_status,
+    get_plan_meta, get_plan_state, restore_from_db, set_plan_state,
+    should_create_execution_checkpoint, update_plan_steps, update_step_status,
 };
 
 // File I/O

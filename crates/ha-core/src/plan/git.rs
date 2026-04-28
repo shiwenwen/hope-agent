@@ -97,10 +97,19 @@ pub fn create_git_checkpoint(session_id: &str) -> Option<String> {
 
 /// Create a checkpoint and store it in the plan's metadata.
 pub async fn create_checkpoint_for_session(session_id: &str) {
+    if get_checkpoint_ref(session_id).await.is_some() {
+        return;
+    }
+
     if let Some(ref_name) = create_git_checkpoint(session_id) {
         let mut map = store().write().await;
         if let Some(meta) = map.get_mut(session_id) {
-            meta.checkpoint_ref = Some(ref_name);
+            if meta.checkpoint_ref.is_none() {
+                meta.checkpoint_ref = Some(ref_name);
+            } else {
+                drop(map);
+                cleanup_checkpoint(&ref_name);
+            }
         }
     }
 }

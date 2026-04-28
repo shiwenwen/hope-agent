@@ -2720,6 +2720,7 @@
     "exitWithout": "الخروج من الخطة",
     "showPlan": "عرض الخطة",
     "executing": "جاري تنفيذ الخطة...",
+    "executionIdle": "تنفيذ الخطة ينتظر المتابعة",
     "stepsCompleted": "خطوات مكتملة",
     "completed": "مكتمل",
     "placeholder": "صِف ما تريد تحقيقه...",

@@ -2720,6 +2720,7 @@
     "exitWithout": "退出計劃",
     "showPlan": "顯示計劃",
     "executing": "正在按計劃執行...",
+    "executionIdle": "計劃執行正在等待繼續",
     "stepsCompleted": "步完成",
     "completed": "執行完成",
     "placeholder": "描述你想要實現的功能...",

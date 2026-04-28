@@ -11,7 +11,9 @@ pub async fn handle_plan(
 
     match args.trim() {
         "" | "enter" => {
-            plan::set_plan_state(sid, PlanModeState::Planning).await;
+            if !plan::set_plan_state(sid, PlanModeState::Planning).await {
+                return Err("Invalid plan mode transition to planning".to_string());
+            }
             db.update_session_plan_mode(sid, "planning")
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {
@@ -25,7 +27,9 @@ pub async fn handle_plan(
             if let Some(ref_name) = plan::get_checkpoint_ref(sid).await {
                 plan::cleanup_checkpoint(&ref_name);
             }
-            plan::set_plan_state(sid, PlanModeState::Off).await;
+            if !plan::set_plan_state(sid, PlanModeState::Off).await {
+                return Err("Invalid plan mode transition to off".to_string());
+            }
             db.update_session_plan_mode(sid, "off")
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {
@@ -35,11 +39,28 @@ pub async fn handle_plan(
         }
         "approve" => {
             let plan_content = plan::load_plan_file(sid).ok().flatten();
-            plan::set_plan_state(sid, PlanModeState::Executing).await;
+            let previous_state = plan::get_plan_state(sid).await;
+            let persisted_plan_mode = db
+                .get_session(sid)
+                .ok()
+                .flatten()
+                .map(|meta| meta.plan_mode);
+            let checkpoint_exists = plan::get_checkpoint_ref(sid).await.is_some();
+            let should_create_checkpoint = plan::should_create_execution_checkpoint(
+                &PlanModeState::Executing,
+                &previous_state,
+                persisted_plan_mode.as_deref(),
+                checkpoint_exists,
+            );
+            if !plan::set_plan_state(sid, PlanModeState::Executing).await {
+                return Err("Invalid plan mode transition to executing".to_string());
+            }
             db.update_session_plan_mode(sid, "executing")
                 .map_err(|e| e.to_string())?;
             // Create git checkpoint AFTER PlanMeta entry exists in the store
-            plan::create_checkpoint_for_session(sid).await;
+            if should_create_checkpoint {
+                plan::create_checkpoint_for_session(sid).await;
+            }
             Ok(CommandResult {
                 content: String::new(),
                 action: Some(CommandAction::ApprovePlan { plan_content }),
@@ -60,7 +81,9 @@ pub async fn handle_plan(
             if current != PlanModeState::Executing {
                 return Err("Can only pause when plan is executing".to_string());
             }
-            plan::set_plan_state(sid, PlanModeState::Paused).await;
+            if !plan::set_plan_state(sid, PlanModeState::Paused).await {
+                return Err("Invalid plan mode transition to paused".to_string());
+            }
             db.update_session_plan_mode(sid, "paused")
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {
@@ -73,7 +96,9 @@ pub async fn handle_plan(
             if current != PlanModeState::Paused {
                 return Err("Can only resume when plan is paused".to_string());
             }
-            plan::set_plan_state(sid, PlanModeState::Executing).await;
+            if !plan::set_plan_state(sid, PlanModeState::Executing).await {
+                return Err("Invalid plan mode transition to executing".to_string());
+            }
             db.update_session_plan_mode(sid, "executing")
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {

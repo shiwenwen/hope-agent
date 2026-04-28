@@ -55,7 +55,9 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
     }
 
     // First ensure meta exists, then update title and steps
-    plan::set_plan_state(&effective_sid, PlanModeState::Review).await;
+    if !plan::set_plan_state(&effective_sid, PlanModeState::Review).await {
+        return "Error: invalid plan state transition to review".to_string();
+    }
     plan::update_plan_steps(&effective_sid, steps.clone()).await;
     {
         let store_ref = plan::store();
