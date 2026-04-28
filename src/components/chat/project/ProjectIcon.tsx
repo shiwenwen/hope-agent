@@ -15,11 +15,14 @@ import { PROJECT_COLOR_MAP } from "./colors"
 
 type IconSize = "xs" | "sm" | "md" | "lg"
 
-const SIZE_PRESETS: Record<IconSize, { box: string; emoji: string; lucide: string }> = {
-  xs: { box: "w-3.5 h-3.5", emoji: "text-[11px]", lucide: "h-3 w-3" },
-  sm: { box: "w-6 h-6", emoji: "text-sm", lucide: "h-3.5 w-3.5" },
-  md: { box: "w-8 h-8", emoji: "text-xl", lucide: "h-4 w-4" },
-  lg: { box: "w-10 h-10", emoji: "text-3xl", lucide: "h-5 w-5" },
+const SIZE_PRESETS: Record<
+  IconSize,
+  { box: string; emoji: string; lucide: string; radius: string }
+> = {
+  xs: { box: "w-3.5 h-3.5", emoji: "text-[11px]", lucide: "h-3 w-3", radius: "rounded-sm" },
+  sm: { box: "w-6 h-6", emoji: "text-sm", lucide: "h-3.5 w-3.5", radius: "rounded-md" },
+  md: { box: "w-8 h-8", emoji: "text-xl", lucide: "h-4 w-4", radius: "rounded-md" },
+  lg: { box: "w-10 h-10", emoji: "text-3xl", lucide: "h-5 w-5", radius: "rounded-lg" },
 }
 
 interface ProjectIconProps {
@@ -44,7 +47,7 @@ export default function ProjectIcon({
   const wrapperClass = cn(
     preset.box,
     "shrink-0 overflow-hidden flex items-center justify-center",
-    withColorChip && "rounded-md",
+    preset.radius,
     colorClass,
     className,
   )
