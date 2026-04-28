@@ -188,6 +188,27 @@ export default function ChatTitleBar({
         (x) => x.providerId === activeModel.providerId && x.modelId === activeModel.modelId,
       )
     : null
+  const workingDirChip = effectiveWorkingDir ? (
+    <IconTip
+      label={
+        workingDirSource === "project"
+          ? `${t("chat.workingDir.titleBarInherited")}: ${effectiveWorkingDir}`
+          : `${t("chat.workingDir.titleBarSession")}: ${effectiveWorkingDir}`
+      }
+    >
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 shrink-0 text-[11px] px-1.5 py-0.5 rounded font-mono max-w-[260px]",
+          workingDirSource === "project"
+            ? "text-muted-foreground bg-muted/60"
+            : "text-primary bg-primary/10",
+        )}
+      >
+        <FolderCheck className="h-3 w-3 shrink-0" />
+        <span className="truncate">{basename(effectiveWorkingDir)}</span>
+      </span>
+    </IconTip>
+  ) : null
 
   return (
     <div
@@ -197,14 +218,17 @@ export default function ChatTitleBar({
       <div className="flex items-end gap-2 min-w-0 pb-1.5">
         {project && (
           <>
-            <button
-              onClick={() => onOpenProjectSettings?.(project)}
-              className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
-              title={project.description ?? project.name}
-            >
-              <ProjectIcon project={project} size="xs" />
-              <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
-            </button>
+            <div className="inline-flex items-center gap-1 shrink-0 min-w-0">
+              <button
+                onClick={() => onOpenProjectSettings?.(project)}
+                className="inline-flex items-center gap-1 shrink-0 text-[12px] px-1.5 py-0.5 rounded hover:bg-accent/40 transition-colors"
+                title={project.description ?? project.name}
+              >
+                <ProjectIcon project={project} size="xs" />
+                <span className="truncate max-w-[140px] text-foreground/80">{project.name}</span>
+              </button>
+              {workingDirChip}
+            </div>
             <span className="text-muted-foreground/40 text-sm shrink-0">/</span>
           </>
         )}
@@ -264,27 +288,7 @@ export default function ChatTitleBar({
                 {t("chat.incognito")}
               </span>
             )}
-            {effectiveWorkingDir && (
-              <IconTip
-                label={
-                  workingDirSource === "project"
-                    ? `${t("chat.workingDir.titleBarInherited")}: ${effectiveWorkingDir}`
-                    : `${t("chat.workingDir.titleBarSession")}: ${effectiveWorkingDir}`
-                }
-              >
-                <span
-                  className={cn(
-                    "inline-flex items-center gap-1 shrink-0 text-[11px] px-1.5 py-0.5 rounded font-mono max-w-[260px]",
-                    workingDirSource === "project"
-                      ? "text-muted-foreground bg-muted/60"
-                      : "text-primary bg-primary/10",
-                  )}
-                >
-                  <FolderCheck className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{basename(effectiveWorkingDir)}</span>
-                </span>
-              </IconTip>
-            )}
+            {!project && workingDirChip}
           </>
         )}
       </div>
