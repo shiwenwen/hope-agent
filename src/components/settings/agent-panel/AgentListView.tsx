@@ -14,6 +14,7 @@ import {
 import type { AgentSummary, AgentConfig } from "./types"
 import { DEFAULT_PERSONALITY } from "./types"
 import OpenClawImportDialog from "./OpenClawImportDialog"
+import DefaultAgentSection from "./DefaultAgentSection"
 
 // ── Agent Create View ───────────────────────────────────────────
 
@@ -254,6 +255,10 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
           ))}
         </div>
       )}
+
+      <div className="mt-6 border-t border-border pt-4">
+        <DefaultAgentSection agents={agents} loading={loading} />
+      </div>
     </div>
   )
 }
