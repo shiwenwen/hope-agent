@@ -18,6 +18,8 @@ Cron 系统提供定时调度能力，支持一次性（At）、固定间隔（E
 | `cron/schedule.rs` | `compute_next_run` 三种调度计算、cron 表达式验证、`backoff_delay_ms` 指数退避、时间戳灵活解析 |
 | `cron/scheduler.rs` | `start_scheduler` 后台调度循环 + 启动恢复 + 追赶执行 |
 | `cron/executor.rs` | `execute_job` 任务执行 + `build_and_run_agent` 含 failover + `record_failure` + 事件发射 |
+| `cron/delivery.rs` | `deliver_to_targets` 把执行结果文本 fan-out 到 IM 渠道会话（每 target 10s 超时保护） |
+| `cron/cancel.rs` | 任务级 cancel token 注册 / 触发 / 清理，供 `stop_running_job` 等取消路径使用 |
 | `cron/db.rs` | `CronDB` SQLite 持久化（CRUD、claim、running 标记、calendar 查询、启动恢复） |
 
 ## 数据模型
@@ -68,6 +70,19 @@ serde tag 区分，目前仅一种类型：
 | `created_at` | `String` | 创建时间（RFC 3339） |
 | `updated_at` | `String` | 最后更新时间 |
 | `notify_on_complete` | `bool` | 完成后是否发送桌面通知（默认 `true`，`default_true` 函数） |
+| `delivery_targets` | `Vec<CronDeliveryTarget>` | IM 渠道 fan-out 目标列表。空 = 仅落入隔离会话不发送；非空 = 任务收尾时把 final assistant 文本投递到列出的 IM 会话（每 target 10s 超时保护，详见 `cron/delivery.rs`） |
+
+### CronDeliveryTarget（IM 渠道投递目标）
+
+每条 `delivery_targets` 元素描述一个 IM 渠道会话的投递坐标，serde `rename_all = "camelCase"`：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `channel_id` | `String` | Channel 插件 id，例如 `"telegram"` / `"feishu"` / `"slack"` |
+| `account_id` | `String` | 发送方 `ChannelAccountConfig.id`，决定用哪个账号发出 |
+| `chat_id` | `String` | 目标 `ChannelConversation.chat_id`（群 / 私聊） |
+| `thread_id` | `Option<String>` | 可选话题 / 线程 id（飞书 topic、Slack thread 等） |
+| `label` | `Option<String>` | 缓存的人类可读标签，仅用于 UI 显示，不参与发送时寻址 |
 
 ### CronRunLog（执行日志）
 
@@ -93,6 +108,7 @@ serde tag 区分，目前仅一种类型：
 | `payload` | `CronPayload` | 执行内容 |
 | `max_failures` | `Option<u32>` | 最大失败数（默认 5） |
 | `notify_on_complete` | `Option<bool>` | 通知开关（默认 true） |
+| `delivery_targets` | `Option<Vec<CronDeliveryTarget>>` | IM 投递目标。`None` = 不下发（IM 会话内创建任务时由 `deliver_to_targets` 隐式推断当前会话）；`Some([])` = 显式关闭 fan-out；`Some([..])` = 投递到列出的 IM 会话 |
 
 ### CalendarEvent（日历视图）
 

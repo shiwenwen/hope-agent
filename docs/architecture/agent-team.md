@@ -1,5 +1,5 @@
 # Agent Team 多 Agent 协作系统
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-16
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-28
 
 ## 概述
 
@@ -29,7 +29,7 @@ crates/ha-core/src/team/
 ├── coordinator.rs    # 核心编排：create_team/add_member/dissolve/pause/resume
 ├── messaging.rs      # 消息发送 + SUBAGENT_MAILBOX 投递
 ├── tasks.rs          # 任务看板 CRUD + 依赖解析 + 系统消息
-├── templates.rs      # 4 个内置模板 + 用户模板 CRUD
+├── templates.rs      # 用户模板 CRUD（无内置模板，全部由 Settings → Teams 配置）
 ├── events.rs         # EventBus 事件发射 helper
 └── cleanup.rs        # 启动孤儿清理
 ```
@@ -38,10 +38,10 @@ crates/ha-core/src/team/
 
 | 文件 | 职责 |
 |------|------|
-| `tools/team.rs` | `team` 工具处理器，12 个 action 的参数解析与调度 |
+| `tools/team.rs` | `team` 工具处理器，13 个 action 的参数解析与调度 |
 | `slash_commands/handlers/team.rs` | `/team` 斜杠命令 → PassThrough 到 LLM |
-| `src-tauri/src/commands/team.rs` | 11 个 Tauri IPC 命令 |
-| `crates/ha-server/src/routes/team.rs` | 10 个 HTTP REST 端点 |
+| `src-tauri/src/commands/team.rs` | 14 个 Tauri IPC 命令 |
+| `crates/ha-server/src/routes/team.rs` | 13 个 HTTP REST 端点 |
 
 ### 前端组件
 
@@ -146,11 +146,11 @@ Paused ←→ Working（通过 resume 恢复）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `template_id` | TEXT PK | 标识符（内置以 `builtin-` 开头） |
+| `template_id` | TEXT PK | 标识符（UUID 或用户自定义） |
 | `name` | TEXT | 模板名称 |
 | `description` | TEXT | 模板描述 |
 | `members_json` | TEXT | `TeamTemplateMember[]` JSON |
-| `builtin` | INTEGER | 1 = 内置（不可删除），0 = 用户自定义 |
+| `builtin` | INTEGER | 历史字段保留兼容旧 schema；当前所有模板均为用户自定义（值为 0），不再发行内置模板 |
 
 ## 核心流程
 
@@ -263,7 +263,7 @@ emit("team_event", type="member_completed")
 
 ## 工具 API
 
-`team` 工具使用 action-based dispatch，共 12 个 action：
+`team` 工具使用 action-based dispatch，共 13 个 action：
 
 | Action | 参数 | 说明 |
 |--------|------|------|
@@ -279,19 +279,48 @@ emit("team_event", type="member_completed")
 | `status` | team_id | 团队全量状态摘要 |
 | `pause` | team_id | 暂停所有成员 |
 | `resume` | team_id | 恢复暂停成员 |
+| `list_templates` | — | 列出已保存的用户预设模板（来自 `team_templates` 表） |
 
 工具注册为 `deferred`（通过 `tool_search` 发现），不在默认工具列表中。
 
-## 内置模板
+## 用户自定义预设
 
-| 模板 | 成员配置 |
-|------|---------|
-| Full-Stack Feature | Frontend (Worker) + Backend (Worker) + Tester (Reviewer) |
-| Code Review | Writer (Worker) + Reviewer (Reviewer) + Tester (Reviewer) |
-| Research & Implement | Researcher (Worker) + Implementer (Worker) |
-| Large Refactor | Analyst (Worker) + Refactorer-1 (Worker) + Refactorer-2 (Worker) + Tester (Reviewer) |
+历史上随应用发行 4 个内置模板（Full-Stack Feature / Code Review / Research & Implement / Large Refactor），现已**全部移除**——固定模板很难匹配每个团队的实际工作流，硬编码反而成为干扰。
 
-模板支持用户自定义保存，通过 `team_templates` 表持久化。
+当前仓库不再注入任何内置模板。`templates::all_templates()` 直接读取 `team_templates` 表，没有就返回空——LLM 调用 `team(action="list_templates")` 拿到的也是同一份用户配置。
+
+### 配置入口
+
+**Settings → Teams** 面板（GUI）：
+
+- 添加 / 编辑 / 删除模板，定义成员名 + Agent + 角色 + 默认任务描述
+- 模板保存后即可在 `team(action="create", template="<name>")` 引用，或通过 `TeamCreateDialog` 的"使用模板"路径一键铺开成员
+- 模板与 Agent 的依赖松耦合：删除某个 Agent 后引用它的模板会在创建时报错（成员级 fallback 后续可补）
+
+### 工具/命令访问
+
+| 入口 | 用法 |
+|------|------|
+| `team(action="list_templates")` | LLM 工具：列出用户已保存的预设 |
+| `list_team_templates` (Tauri) / `GET /api/team-templates` | 前端读取模板列表 |
+| `save_team_template` (Tauri) / `POST /api/team-templates` | 保存或更新模板 |
+| `delete_team_template` (Tauri) / `DELETE /api/team-templates/:id` | 删除模板 |
+
+### 数据流
+
+```
+Settings → Teams 面板编辑
+  ↓
+save_team_template / delete_team_template
+  ↓
+team_templates 表 INSERT/DELETE
+  ↓
+emit_team_event("template_saved" / "template_deleted")
+  ↓
+前端 useTeam hook 刷新模板列表
+```
+
+> 既往 release notes 的"4 个内置模板"为已废弃描述，本节为单一真相源。
 
 ## Agent 配置
 
@@ -355,10 +384,13 @@ emit("team_event", type="member_completed")
 | `list_teams` | 列出团队（按 session 过滤或全部活跃） |
 | `get_team` | 获取团队详情 |
 | `get_team_members` | 获取成员列表 |
-| `get_team_messages` | 获取消息（默认 100 条） |
+| `get_team_messages` | 获取最新消息（默认 50 条），返回 `[messages, hasMore]` |
+| `get_team_messages_before` | 按复合游标加载更早的消息（无限滚动），返回 `[messages, hasMore]` |
 | `get_team_tasks` | 获取任务列表 |
 | `send_user_team_message` | 用户手动发消息给团队 |
-| `list_team_templates` | 列出所有模板（内置 + 用户） |
+| `list_team_templates` | 列出用户保存的模板 |
+| `save_team_template` | 保存或更新用户模板 |
+| `delete_team_template` | 删除用户模板 |
 | `create_team` | 创建团队（成员列表或模板） |
 | `pause_team` | 暂停团队 |
 | `resume_team` | 恢复团队 |
@@ -372,13 +404,16 @@ emit("team_event", type="member_completed")
 | POST | `/api/teams` | 创建团队 |
 | GET | `/api/teams/:id` | 获取团队 |
 | GET | `/api/teams/:id/members` | 获取成员 |
-| GET | `/api/teams/:id/messages` | 获取消息 |
+| GET | `/api/teams/:id/messages` | 获取最新消息 |
+| GET | `/api/teams/:id/messages/before` | 按游标加载更早的消息 |
 | POST | `/api/teams/:id/messages` | 发送消息 |
 | GET | `/api/teams/:id/tasks` | 获取任务 |
 | POST | `/api/teams/:id/pause` | 暂停 |
 | POST | `/api/teams/:id/resume` | 恢复 |
 | POST | `/api/teams/:id/dissolve` | 解散 |
-| GET | `/api/team-templates` | 列出模板 |
+| GET | `/api/team-templates` | 列出用户模板 |
+| POST | `/api/team-templates` | 保存或更新模板 |
+| DELETE | `/api/team-templates/:id` | 删除模板 |
 
 ## 边界情况
 

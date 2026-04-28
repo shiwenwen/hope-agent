@@ -25,6 +25,7 @@
 - [会话管理](#会话管理)
   - [channel_conversations 表](#channel_conversations-表)
   - [会话映射策略](#会话映射策略)
+- [Project 绑定与 IM 禁用命令](#project-绑定与-im-禁用命令)
 - [Worker 分发器](#worker-分发器)
 - [Telegram 插件实现](#telegram-插件实现)
   - [架构](#telegram-架构)
@@ -51,7 +52,7 @@ IM Channel 系统是 Hope Agent 的多渠道即时通讯接入层，允许用户
 
 ### 核心特性
 
-- **统一抽象**：9 个内置渠道 + 自定义扩展，共用一套 ChannelId / 配置格式 / 能力声明
+- **统一抽象**：12 个内置渠道 + 自定义扩展，共用一套 ChannelId / 配置格式 / 能力声明
 - **Rust 原生**：基于 tokio 异步运行时，零 Node.js 依赖
 - **插件化架构**：一个 `ChannelPlugin` trait 定义所有渠道行为，新增渠道只需实现该 trait
 - **完整 Agent 能力**：复用 `AssistantAgent` 的全部工具（30+ 内置工具）和 Failover 降级策略
@@ -471,7 +472,15 @@ crates/ha-core/src/channel/
 ├── config.rs           ChannelStoreConfig（配置存储）
 ├── db.rs               ChannelDB（channel_conversations 表操作）
 ├── registry.rs         ChannelRegistry（插件注册 + 账户生命周期）
-├── worker.rs           入站消息分发器（MsgContext → Agent → Reply）
+├── worker/             入站消息分发器（MsgContext → Agent → Reply）
+│   ├── mod.rs          worker 入口 + spawn_dispatcher
+│   ├── dispatcher.rs   主分发循环（权限校验、agent_id 重算、媒体降级）
+│   ├── approval.rs     工具审批 EventBus 监听 + 按钮/文本回执
+│   ├── ask_user.rs     ask_user_question 工具的 IM 适配
+│   ├── slash.rs        斜杠命令拦截 + dispatch_slash_for_channel
+│   ├── streaming.rs    ChannelStreamSink（流式 text_delta 累积 + 推送）
+│   ├── media.rs        媒体附件下载 / 出站附件 partition 与降级
+│   └── tests.rs        worker 单元测试
 ├── ws.rs               共享 WebSocket 工具（WsConnection + 重连退避）
 ├── cancel.rs           流式取消注册表
 ├── process_manager.rs  外部子进程管理（Signal/iMessage 共享）
@@ -624,6 +633,46 @@ CREATE TABLE channel_conversations (
   }
 }
 ```
+
+---
+
+## Project 绑定与 IM 禁用命令
+
+### Project.bound_channel — 项目认领 IM 渠道
+
+项目侧通过 `Project.bound_channel: Option<{channel_id, account_id}>` 单向认领一个 IM channel account。绑定后，该 (channel, account) 下的所有 IM 入站消息在新建会话时自动归属到该项目。
+
+- **写入 contract（双层 patch）**：`UpdateProjectInput.bound_channel` 是 `Option<Option<BoundChannel>>` —— 字段缺省（`None`）= 不变，`Some(None)` = 解绑，`Some(Some(...))` = 设置/换绑
+- **唯一性约束**：同一 (channel_id, account_id) 同时只允许被一个未归档项目认领。DB 索引兜底，写入冲突时返回错误，前端「绑定 IM Channel」select 也据此过滤掉已被占用的 account
+- **会话路由**：[`channel/db.rs::resolve_or_create_session`](../../crates/ha-core/src/channel/db.rs) 在创建新会话前查 `projects WHERE bound_channel_id = ? AND bound_channel_account_id = ? AND archived = 0`，命中即把 `project_id` 注入 `create_session_with_project`，并按 5 级 agent 解析链覆盖 `agent_id`：
+
+  ```
+  显式参数 → project.default_agent_id → channel_account.agent_id → AppConfig.default_agent_id → "default"
+  ```
+
+  统一入口 [`crate::agent::resolver::resolve_default_agent_id`](../../crates/ha-core/src/agent/resolver.rs)（`_with_source` 版本带 tag 给 `/status` 显示命中位置）
+
+- **`/status` 输出**：项目会话尾部追加项目摘要段并标注 Agent Source 来源（command / project / channel-account / app-config / default）
+
+### IM 渠道禁用命令
+
+部分桌面专属斜杠命令在 IM 渠道里既不下发菜单也不执行。**入口**：[`crates/ha-core/src/slash_commands/registry.rs::IM_DISABLED_COMMANDS`](../../crates/ha-core/src/slash_commands/registry.rs)。
+
+```rust
+pub const IM_DISABLED_COMMANDS: &[&str] = &["project", "agent"];
+```
+
+| 命令 | 禁用原因 | 引入 commit |
+|---|---|---|
+| `/agent` | IM dispatcher 每条入站消息都从 channel-account / topic / group 配置重算 `agent_id`（[`channel/worker/dispatcher.rs`](../../crates/ha-core/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一条入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override | `48fa4986` |
+| `/project` | IM session 已绑定 channel-account，不能再被另一个项目认领；项目 ↔ IM channel 关系由项目侧 `bound_channel` 字段单向维护（0..1 ↔ 0..1），不允许从 IM 内部反向切换 | `0fe6ec0a` |
+
+**双层防御**：
+
+1. **同步阶段过滤** —— Discord Application Commands、Telegram bot menu、Slack slash 同步阶段都先过 `IM_DISABLED_COMMANDS`，禁用命令不下发到平台菜单
+2. **handler 自检** —— 用户硬键入 `/project xxx` 或 `/agent xxx` 仍能到达分发器，[`handlers/project.rs`](../../crates/ha-core/src/slash_commands/handlers/project.rs) 与 [`handlers/agent.rs`](../../crates/ha-core/src/slash_commands/handlers/agent.rs) 入口检测 `session.channel_info.is_some()` 直接返回 `DisplayOnly` 提示「在 IM 渠道不可用」，不会走到模糊匹配 / 实际切换
+
+新增此类命令时同时改两处：(1) `IM_DISABLED_COMMANDS` 常量让 IM 同步阶段不下发菜单；(2) handler 内自检 `session.channel_info`，处理用户绕过菜单硬键入的情况。
 
 ---
 
@@ -1060,7 +1109,7 @@ interface ChannelAccountConfig {
   "label": "MyBot#1234",
   "credentials": { "token": "MTIzNDU2Nzg5MDEyMzQ1Njc4OQ.Xxxxxx.xxxx" },
   "settings": {},
-  "security": { "dmPolicy": "open", "groupPolicy": "open" }
+  "security": { "dmPolicy": "open", "groupAllowlist": [], "userAllowlist": [], "adminIds": [] }
 }
 ```
 
@@ -1243,7 +1292,7 @@ registry.register_plugin(Arc::new(channel::{channel_name}::{Channel}Plugin::new(
 | `crates/ha-core/src/channel/config.rs` | 配置存储 |
 | `crates/ha-core/src/channel/db.rs` | 会话映射 DB |
 | `crates/ha-core/src/channel/registry.rs` | 插件注册表 |
-| `crates/ha-core/src/channel/worker.rs` | 入站分发器 |
+| `crates/ha-core/src/channel/worker/` | 入站分发器目录（`mod.rs` / `dispatcher.rs` / `approval.rs` / `ask_user.rs` / `slash.rs` / `streaming.rs` / `media.rs` / `tests.rs`） |
 | `crates/ha-core/src/channel/cancel.rs` | 流式取消注册表 |
 | `crates/ha-core/src/channel/process_manager.rs` | 外部子进程管理（Signal/iMessage 共享） |
 | `crates/ha-core/src/channel/webhook_server.rs` | 嵌入式 Webhook HTTP 服务器（axum, Google Chat/LINE 共享） |

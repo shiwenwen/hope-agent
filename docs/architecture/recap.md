@@ -154,7 +154,7 @@ EventBus 流式进度事件，前端实时展示：
 
 1. 从 SessionDB 按日期范围和筛选条件查询会话列表
 2. 排除消息数 < 2 的会话
-3. 上限 `max_sessions_per_report`（默认 200）
+3. 上限 `max_sessions_per_report`（默认 500）
 
 ### 提取流程
 
@@ -179,7 +179,7 @@ EventBus 流式进度事件，前端实时展示：
 - 会话新增消息 → `last_message_ts` 变化 → 缓存失效，重新提取
 - 切换分析模型 → `analysis_model` 变化 → 重新提取
 - 升级 schema → `schema_version` 变化 → 重新提取
-- 保留期：`cache_retention_days`（默认 90 天），后台任务启动时 + 每 24h 清理过期 facet
+- 保留期：`cache_retention_days`（默认 180 天），后台任务启动时 + 每 24h 清理过期 facet
 
 ## Facet 汇总（aggregate）
 
@@ -271,7 +271,7 @@ EventBus 流式进度事件，前端实时展示：
 
 ### 保留期清理
 
-后台任务（启动 + 每 24h）按 `cache_retention_days`（默认 90 天）清理过期 facet。`cache_retention_days = 0` 禁用清理。
+后台任务（启动 + 每 24h）按 `cache_retention_days`（默认 180 天）清理过期 facet。`cache_retention_days = 0` 禁用清理。
 
 ## API
 
@@ -322,9 +322,9 @@ EventBus 流式进度事件，前端实时展示：
 pub struct RecapConfig {
     pub analysis_agent: Option<String>,  // 分析 Agent ID（None = 回退 active_model）
     pub default_range_days: u32,         // 无历史报告时的默认范围（默认 30）
-    pub max_sessions_per_report: u32,    // 单次报告最大会话数（默认 200）
+    pub max_sessions_per_report: u32,    // 单次报告最大会话数（默认 500）
     pub facet_concurrency: u8,           // Facet 提取并发度（默认 4）
-    pub cache_retention_days: u32,       // 缓存保留天数（默认 90，0 = 禁用清理）
+    pub cache_retention_days: u32,       // 缓存保留天数（默认 180，0 = 禁用清理）
 }
 ```
 
@@ -377,4 +377,4 @@ started → extractingFacets(progress%) → aggregatingDashboard
 - Cron 定时自动生成尚未接入
 - `hope-agent recap --export` CLI 子命令尚未实现
 - HTML 导出的 Markdown 渲染器为极简实现（不支持表格、引用块等）
-- 单次报告最多 200 个会话（可配置）
+- 单次报告最多 500 个会话（可配置）

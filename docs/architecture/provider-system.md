@@ -73,7 +73,7 @@ graph LR
 
 **`src/components/settings/provider-setup/templates/`**
 
-36 个内置 Provider 模板，166 个预设模型，分为四个模板文件：
+36 个内置 Provider 模板，~165 个预设模型（实测 international 38 + china 48 + infrastructure 70 + local 9 = 165；按 `grep -c '^\s*id:' src/components/settings/provider-setup/templates/{international,china,infrastructure,local}.ts` 复核），分为四个模板文件：
 
 - `international.ts` — 国际 Provider（8 个）
 - `china.ts` — 国内 Provider（10 个）
@@ -264,6 +264,40 @@ graph LR
 | **vLLM** | `vllm` | openai-chat | `your-model-id` | Your Model | 128K | 8,192 | ❌ | 高性能本地推理引擎 |
 | **LM Studio** | `lm-studio` | openai-chat | `your-model-id` | Your Model | 128K | 8,192 | ❌ | 桌面端本地推理 |
 | **SGLang** | `sglang` | openai-chat | `your-model-id` | Your Model | 128K | 8,192 | ❌ | 高性能本地推理引擎 |
+
+### 1.3 Provider Write Contract（强制）
+
+所有 Provider 列表与 `active_model` 写入必须走 `crates/ha-core/src/provider/crud.rs` 提供的 helper，禁止在 Tauri / HTTP / onboarding / importer / local_llm 等任何路径里直接 `providers.push` / `retain` / 手写 `active_model`：
+
+| Helper | 语义 |
+|---|---|
+| `add_provider(cfg)` | 生成新 id 并 append 到列表尾部（前端「新增后取最后一项」依赖此语义，不要破坏） |
+| `update_provider(id, mutator)` | 按 id 找到现有 Provider 并修改字段 |
+| `delete_provider(id)` | 删除 Provider，并清理可能挂在其上的 `active_model` |
+| `reorder_providers(order)` | 按给定 id 序列重排 |
+| `set_active_model(provider_id, model_id)` | 唯一允许修改 `active_model` 的入口 |
+| `add_and_activate_provider(cfg)` | 添加并把 active model 切到首个模型（onboarding 用） |
+| `add_many_providers(cfgs)` | 批量导入（importer 用） |
+| `ensure_codex_provider_persisted()` | Codex Provider 构造期失败保活（commit `99bc84a7`，配合 OAuth 重新登录） |
+| `upsert_known_local_provider_model(kind, ...)` | 本地 LLM 安装路径专用：按 [Local Backend Catalog](#14-local-backend-catalog) 的 host/port 去重，补模型、启用 Provider、设置 `allow_private_network`、切 active model |
+
+Tauri / HTTP 命令一律只做薄壳，业务路径必须走以上 helper。CR / review 阶段一旦看到直接操作 `cfg.providers` 数组或 `active_model` 字段，必须打回。
+
+### 1.4 Local Backend Catalog
+
+本地后端目录硬编码在 `crates/ha-core/src/provider/local.rs`，当前条目：
+
+| Kind | Host / Port | 备注 |
+|---|---|---|
+| `ollama` | `localhost:11434`（额外接受 `ollama.local`） | 本地大模型默认入口 |
+| `litellm` | `localhost:4000` | 统一 LLM 代理网关 |
+| `vllm` | `localhost:8000` | 高性能推理 |
+| `lm-studio` | `localhost:1234` | 桌面端本地推理 |
+| `sglang` | `localhost:30000` | 高性能推理 |
+
+匹配规则固定为「`apiType` 一致 + host/port 命中」，URL path 一律忽略——所以 `http://localhost:11434/v1` 也算 Ollama。Tauri 命令 `local_llm_known_backends` 与 HTTP `GET /api/local-llm/known-backends` 同步暴露此 catalog；前端判断"是否已配置本地后端"必须消费这个目录，禁止再写硬编码 regex。
+
+本地 LLM 一键安装、模型拉取、Embedding 拉取等流程详见 [local-model-loading.md](./local-model-loading.md)。
 
 ---
 
@@ -487,7 +521,9 @@ Provider 通过 `on_delta` 回调实时推送 JSON 事件：
 
 与 OpenAI Responses API 相同的请求/响应格式，额外特性：
 - **OAuth 认证**：`Authorization: Bearer {access_token}` + `chatgpt-account-id` header
-- **重试逻辑**：最多 3 次指数退避重试（1s → 2s → 4s）
+- **重试 / 降级**：Codex 调用同样走 `failover::executor::execute_with_failover` + `chat_engine_default` policy（max_retries=2，退避基数与上限统一），不再有 Codex 自管的「3 次 1s/2s/4s」逻辑
+- **不参与 auth profile 轮换**：executor 内部硬编码 Codex Provider 跳过 profile 选择/轮换；Codex 凭据失败直接经标准失败路径走下一模型
+- **构造期失败保活**：Codex Provider 在 `crates/ha-core/src/provider/helpers.rs::ensure_codex_provider_persisted`（commit `99bc84a7`）保证 token 缺失或构造异常时配置仍持久化，下次手动登录补回即可，不会被静默移除
 - **共享 SSE 解析**：调用 `parse_openai_sse()`（与 Responses API 共享）
 
 ---
@@ -619,7 +655,7 @@ let mut input = Self::normalize_history_for_responses(&self.conversation_history
 
 ### 7.1 错误分类
 
-**`crates/ha-core/src/failover.rs`**
+**`crates/ha-core/src/failover/{mod,executor}.rs`**
 
 ```mermaid
 flowchart TD
@@ -932,28 +968,9 @@ sequenceDiagram
 
 ## 9. 上下文管理
 
-### 9.1 4 层渐进式压缩
+### 9.1 上下文压缩
 
-**`crates/ha-core/src/context_compact/`**
-
-```mermaid
-flowchart TD
-  CHECK["compact_if_needed()"]
-  CHECK --> T1{"Tier 1<br/>工具结果截断"}
-  T1 -->|"超长 tool_result"| TRUNC["head + '...truncated...' + tail<br/>结构感知边界切割"]
-  T1 -->|"仍然超标"| T2{"Tier 2<br/>上下文裁剪"}
-
-  T2 -->|"软裁剪"| SOFT["截断旧的大消息<br/>保留 head+tail"]
-  T2 -->|"硬裁剪"| HARD["替换为 [message removed]"]
-  T2 -->|"仍然超标"| T3{"Tier 3<br/>LLM 摘要"}
-
-  T3 --> FLUSH["Memory Flush（可选）<br/>压缩前提取重要记忆"]
-  FLUSH --> SUMM["非流式 LLM 调用<br/>生成摘要"]
-  SUMM --> APPLY["apply_summary()<br/>替换旧消息为摘要"]
-
-  T3 -->|"API 返回 ContextOverflow"| T4{"Tier 4<br/>溢出恢复"}
-  T4 --> EMERG["emergency_compact()"] --> RETRY["自动重试 API 调用"]
-```
+上下文压缩详见 [context-compact.md](./context-compact.md)。本系统采用 **5 层渐进式**结构：Tier 0 反应式微压缩（每轮工具结束后清理 `tool_policies=eager` 的旧工具结果，cache-safe）+ Tier 1 工具结果截断 + Tier 2 上下文裁剪（软/硬）+ Tier 3 LLM 摘要 + Tier 4 ContextOverflow 应急恢复。Provider 系统作为消费方，只需保证消息格式标准化与 Token 计量准确，触发条件、cache-TTL 节流、压缩策略全部由 `context_compact` 模块负责。
 
 ### 9.2 Summarization 消息格式处理
 
@@ -1059,11 +1076,11 @@ flowchart TD
 | 内容构建 | `crates/ha-core/src/agent/content.rs` | 各 Provider 的用户消息格式构建 |
 | 事件发射 | `crates/ha-core/src/agent/events.rs` | text_delta、thinking_delta、tool_call 等 |
 | 上下文管理 | `crates/ha-core/src/agent/context.rs` | history 标准化、push_user_message、run_compaction |
-| 上下文压缩 | `crates/ha-core/src/context_compact/` | 4 层压缩 + 摘要构建 |
-| Failover | `crates/ha-core/src/failover.rs` | 错误分类、重试策略 |
+| 上下文压缩 | `crates/ha-core/src/context_compact/` | 5 层渐进式压缩 + 摘要构建 |
+| Failover | `crates/ha-core/src/failover/{mod,executor}.rs` | 错误分类、统一执行器（policy + provider 选择 + 退避 + Codex 不轮换） |
 | Session DB | `crates/ha-core/src/session/` | SQLite 持久化、消息 FTS 搜索 |
 | Chat 命令（桌面） | `src-tauri/src/commands/chat.rs` | Tauri 命令层：主流程编排、模型链迭代、上下文保存恢复 |
 | Chat 路由（HTTP） | `crates/ha-server/src/routes/chat.rs` | HTTP/WS 入口：REST API + WebSocket 流式推送 |
-| 前端模板 | `src/components/settings/provider-setup/templates/` | 36 个 Provider 模板（166 个预设模型） |
+| 前端模板 | `src/components/settings/provider-setup/templates/` | 36 个 Provider 模板（~165 个预设模型） |
 | 前端 Hook | `src/components/chat/useChatStream.ts` | 事件处理、delta 批量刷新 |
 | Dashboard 定价 | `crates/ha-core/src/dashboard/` | `estimate_cost()` 50+ 模型定价规则 |

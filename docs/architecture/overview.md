@@ -1,6 +1,6 @@
 # Hope Agent 系统架构总览
 
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-05
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-28
 
 ## 系统定位
 
@@ -42,12 +42,12 @@ graph TD
     HTTP --> OcServer
 
     subgraph TauriShell["src-tauri (桌面薄壳)"]
-        Commands["150+ Tauri Commands"]
+        Commands["~430 Tauri Commands"]
         TauriSetup["setup.rs<br/>内嵌 HTTP 服务"]
     end
 
     subgraph OcServer["ha-server (HTTP/WS)"]
-        Router["axum Router<br/>43 REST 端点"]
+        Router["axum Router<br/>~430 REST 端点"]
         WSHandler["WebSocket<br/>/ws/events"]
     end
 
@@ -58,20 +58,25 @@ graph TD
     subgraph OcCore["ha-core (核心业务逻辑，零 Tauri 依赖)"]
         ChatEngine["Chat Engine"]
         ChatEngine --> Agent["Agent (4 种 API)"]
-        ChatEngine --> Tools["Tools (37 个)"]
+        ChatEngine --> Tools["Tools (~50 个)"]
         ChatEngine --> Memory["Memory"]
         ChatEngine --> PlanMode["Plan Mode"]
+        ChatEngine --> Project["Project / Working Dir"]
         EventBus["EventBus<br/>(broadcast)"]
         Channel["Channel (12 渠道)"]
         Cron["Cron"]
         ACP["ACP (stdio)"]
+        LocalLLM["Local LLM<br/>(Ollama backend)"]
         Channel & Cron & ACP --> ChatEngine
+        LocalLLM -.->|"Provider 注册"| Agent
     end
 
     EventBus -.->|"subscriber"| IPC
     EventBus -.->|"subscriber"| WSHandler
 
 ```
+
+> Tauri 命令、HTTP 端点、工具数量是会增长的活数据，截至 2026-04-28 分别为 ~434 / ~431 / ~49；以 [API 参考](api-reference.md) 为单一真相源，其它文档不重复维护精确数字。
 
 ## 核心数据流
 
@@ -130,19 +135,24 @@ graph LR
     Agent --> Provider["Provider (4 种 API)"]
     Provider --> Failover["Failover"]
     Agent --> ToolLoop["Tool Loop"]
-    ToolLoop --> Tools["Tools (37 个)"]
+    ToolLoop --> Tools["Tools (~50 个 + MCP 动态)"]
     Agent --> SideQuery["Side Query Cache"]
     Agent --> ContextCompact["Context Compact (5 层)"]
 
     ChatEngine --> SessionDB["Session DB<br/>(消息持久化 + FTS5)"]
     ChatEngine --> Memory["Memory<br/>(记忆注入 + 自动提取)"]
     ChatEngine --> SystemPrompt["System Prompt<br/>(13 段组装)"]
+    ChatEngine --> ProjectCtx["Project / Working Dir"]
+    ChatEngine --> Awareness["Behavior Awareness"]
     ChatEngine --> PlanMode["Plan Mode (六态 FSM)"]
     PlanMode --> Subagent["Subagent (spawn + inject)"]
+    Subagent --> Team["Agent Team"]
 
     Channel["Channel"] --> ChatEngine
     Cron["Cron"] --> ChatEngine
     ACP["ACP"] --> ChatEngine
+    LocalLLM["Local LLM"] -.->|"Ollama Provider 注册"| Provider
+    MCP["MCP 客户端"] -.->|"动态工具命名空间"| ToolLoop
     Dashboard["Dashboard"] --> SessionDB
     Dashboard --> LogDB["Log DB"]
     Dashboard --> CronDB["Cron DB"]
@@ -150,41 +160,103 @@ graph LR
 
 ```
 
+## 项目（Project）与会话工作目录
+
+侧边栏将「会话」和「项目」并列为一等节点，项目是会话分组容器并承载持久化的项目级上下文：
+
+- **三层文件注入**：项目目录清单恒注入；< 4KB 小文件按 8KB 预算内联；其余通过 `project_read_file` 工具按需读取（强制限制在 `project_extracted_dir` 内）
+- **记忆优先级**：Project > Agent > Global，预算紧张时项目记忆最先保留；属项目的会话默认把自动提取的记忆写入 Project scope
+- **默认工作目录**：`Project.working_dir` 是该项目下会话的默认工作目录；运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，**lazy resolve**——改项目工作目录立即对未单独设置的已有会话生效。合并入口 `session::helpers::effective_session_working_dir`，被 system prompt、`exec` / `read` / `write` 的相对路径解析共同消费
+- **绑定 IM Channel**：`Project.bound_channel` 让项目认领一个 IM channel account，channel worker 创建新会话时自动注入 `project_id`，按"项目 → channel account → AppConfig → 默认"5 级链解析 agent
+- **`/project [name]` 斜杠命令**：无参列项目选择器，有参直接进入对应项目新会话
+- **删除级联**：unassign 会话 → 删项目行 + `project_files`（FK）→ `rm -rf projects/{id}/` → 删项目记忆（跨 `memory.db` 单独执行）
+
+详见 [Project 系统](project.md)。
+
+## 本地模型加载
+
+`local_llm/` 模块通过 Ollama 的 OpenAI 兼容端点（`http://127.0.0.1:11434/v1/chat/completions`）将本地模型注册为 Provider，启用 `allow_private_network`。模型目录硬编码 Qwen3.6 / Gemma 4 默认量化的 on-disk 大小，根据可用内存（macOS 50% 统一内存 / Windows + Linux 优先 dGPU VRAM 50%）从大到小推荐适配模型；Ollama 进程不由 app 接管。安装、模型拉取、Embedding 拉取统一走 `local_model_jobs.rs` 后台任务表，事件通道 `local_model_job:created` / `:updated` / `:log` / `:completed`。详见 [本地模型加载](local-model-loading.md)。
+
 ## 存储架构
 
 | 数据库 | 路径 | 用途 |
 |--------|------|------|
-| sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Subagent/ACP 运行记录 |
+| sessions.db | `~/.hope-agent/sessions.db` | 会话、消息、Subagent/ACP/Team 运行记录 |
 | memory.db | `~/.hope-agent/memory.db` | 记忆条目 + FTS5 + vec0 向量 + embedding cache |
 | logs.db | `~/.hope-agent/logs.db` | 结构化日志（可查询/过滤） |
 | cron.db | `~/.hope-agent/cron.db` | 定时任务 + 执行日志 |
+| async_jobs.db | `~/.hope-agent/async_jobs.db` | 异步工具任务（exec / web_search / image_generate 后台化） |
+| local_model_jobs.db | `~/.hope-agent/local_model_jobs.db` | 本地模型安装 / 拉取后台任务 |
+| local_llm_library_cache.db | `~/.hope-agent/local_llm_library_cache.db` | Ollama Library 搜索 / Tag 元数据缓存 |
+| recap/recap.db | `~/.hope-agent/recap/recap.db` | 会话深度复盘缓存 |
+| canvas/canvas.db | `~/.hope-agent/canvas/canvas.db` | Canvas 画布数据 |
 | config.json | `~/.hope-agent/config.json` | Provider 配置、模型链、全局设置 |
 | agent.json | `~/.hope-agent/agents/{id}/agent.json` | 每 Agent 独立配置 |
+| projects/ | `~/.hope-agent/projects/{id}/` | 项目工作目录（含 extracted_dir、project_files、记忆） |
+| credentials/ | `~/.hope-agent/credentials/` | OAuth token、MCP server 凭据（0600 原子写） |
 
-所有路径通过 `paths.rs` 集中管理，统一在 `~/.hope-agent/` 目录下。
+所有路径通过 `paths.rs` 集中管理，统一在 `~/.hope-agent/` 目录下。配置读写**强制走** `cached_config()` / `mutate_config()`，禁止重新引入 `Mutex<AppConfig>` 或 load+save 手动克隆模式（详见 [配置系统](config-system.md)）。
 
 ## 文档导航
 
-各模块详细架构见对应文档：
+各模块详细架构见对应文档（与 [文档索引](../README.md) 一致）：
+
+### 系统架构
+
+| 模块 | 文档 |
+|------|------|
+| 三层架构 / EventBus / Transport | [前后端分离架构](backend-separation.md) |
+| Tauri / HTTP / ACP 三种入口 | [Transport 运行模式](transport-modes.md) |
+| 进程清单 / Guardian 协议 | [进程与并发模型](process-model.md) |
+| Tauri ↔ HTTP 命令对照 | [API 参考](api-reference.md) |
+
+### 核心模块
 
 | 模块 | 文档 |
 |------|------|
 | 对话编排 & 流式输出 | [Chat Engine](chat-engine.md) |
 | Provider & Failover | [Provider 系统](provider-system.md) |
+| 本地模型加载（Ollama） | [本地模型加载](local-model-loading.md) |
 | 提示词 13 段组装 | [提示词系统](prompt-system.md) |
 | 工具定义/执行/权限 | [工具系统](tool-system.md) |
 | 上下文压缩 5 层 | [上下文压缩](context-compact.md) |
 | 会话 & 消息持久化 | [Session 系统](session.md) |
+| 项目容器 & 默认工作目录 | [Project 系统](project.md) |
 | 记忆检索 & 提取 | [记忆系统](memory.md) |
+
+### Agent 能力
+
+| 模块 | 文档 |
+|------|------|
 | Plan 六态状态机 | [Plan Mode](plan-mode.md) |
+| Ask User 结构化问答 | [Ask User](ask-user.md) |
 | 技能发现 & 隔离 | [技能系统](skill-system.md) |
-| IM 渠道插件 | [IM Channel](im-channel.md) |
-| 图像生成 | [图像生成](image-generation.md) |
-| 斜杠命令 | [斜杠命令](slash-commands.md) |
-| Side Query 缓存 | [Side Query](side-query.md) |
 | 子 Agent 系统 | [Subagent](subagent.md) |
+| 多 Agent 协作 | [Agent Team](agent-team.md) |
+| Side Query 缓存 | [Side Query](side-query.md) |
+| 跨会话行为感知 | [行为感知](behavior-awareness.md) |
+| 错误分类 & Profile 轮换 | [Failover 系统](failover.md) |
+
+### 接入层
+
+| 模块 | 文档 |
+|------|------|
+| IM 渠道插件 | [IM Channel](im-channel.md) |
+| ACP IDE 直连 | [ACP 协议](acp.md) |
+| 斜杠命令 | [斜杠命令](slash-commands.md) |
+| MCP 客户端 | [MCP 客户端](mcp.md) |
+
+### 基础设施
+
+| 模块 | 文档 |
+|------|------|
+| 图像生成 | [图像生成](image-generation.md) |
 | 定时任务 | [Cron 调度](cron.md) |
 | Docker 沙箱 | [Docker Sandbox](sandbox.md) |
 | 数据大盘 | [Dashboard](dashboard.md) |
+| Recap 深度复盘 | [Recap](recap.md) |
 | 日志系统 | [Logging](logging.md) |
-| ACP IDE 直连 | [ACP 协议](acp.md) |
+| 可靠性 / Guardian / Crash Journal | [可靠性与崩溃自愈](reliability.md) |
+| 配置读写 contract | [配置系统](config-system.md) |
+| SSRF / Dangerous Mode / 凭据 | [安全子系统](security.md) |
+| 跨平台抽象层 | [跨平台抽象层](platform.md) |

@@ -12,7 +12,7 @@
   - [Agent Home 与 Session Working Directory](#agent-home-与-session-working-directory)
 - [Per-Tool 描述系统](#per-tool-描述系统)
   - [设计理念](#设计理念)
-  - [工具描述清单（32 个工具）](#工具描述清单32-个工具)
+  - [工具描述清单（36 个工具）](#工具描述清单36-个工具)
   - [动态过滤机制](#动态过滤机制)
 - [Plan Mode 提示词](#plan-mode-提示词)
   - [5 阶段规划 Prompt](#5-阶段规划-prompt)
@@ -22,7 +22,7 @@
 - [Human-in-the-loop（人机协作硬约束）](#human-in-the-loop人机协作硬约束)
 - [Memory Guidelines（记忆指导）](#memory-guidelines记忆指导)
 - [上下文压缩提示词](#上下文压缩提示词)
-  - [4 层渐进式压缩](#4-层渐进式压缩)
+  - [上下文压缩](#上下文压缩-1)
   - [Summarization System Prompt](#summarization-system-prompt)
   - [标识符保留策略](#标识符保留策略)
 - [条件注入段](#条件注入段)
@@ -193,7 +193,7 @@ The following project context files have been loaded:
 2. **详细指南**：每个工具包含使用指南、最佳实践、常见陷阱
 3. **工具优先级**：`exec` 工具明确标注「优先使用专用工具」规则，防止模型绕过专用工具直接用 shell
 
-### 工具描述清单（32 个工具）
+### 工具描述清单（36 个工具）
 
 工具描述以 `TOOL_DESC_*` 常量定义，通过 `TOOL_DESCRIPTIONS` 数组映射：
 
@@ -231,6 +231,10 @@ The following project context files have been loaded:
 |              | manage_cron        | `TOOL_DESC_MANAGE_CRON`        | 定时任务管理                                             |
 |              | send_notification  | `TOOL_DESC_SEND_NOTIFICATION`  | 系统通知                                                 |
 |              | ask_user_question  | `TOOL_DESC_ASK_USER_QUESTION`  | 结构化交互问答；**WHEN / WHEN NOT / HOW 三段触发规则**   |
+|              | get_weather        | `TOOL_DESC_GET_WEATHER`        | 天气查询                                                 |
+|              | task_create        | `TOOL_DESC_TASK_CREATE`        | 计划任务创建                                             |
+|              | task_update        | `TOOL_DESC_TASK_UPDATE`        | 任务状态/字段更新                                        |
+|              | task_list          | `TOOL_DESC_TASK_LIST`          | 列出当前任务                                             |
 
 **代码位置**：`crates/ha-core/src/system_prompt/constants.rs`
 
@@ -387,23 +391,9 @@ Phase 5: Review & Refinement   → 用户审核，inline comment 修订
 
 ## 上下文压缩提示词
 
-### 4 层渐进式压缩
+### 上下文压缩
 
-上下文压缩系统在对话历史逼近上下文窗口限制时自动触发：
-
-```mermaid
-flowchart TD
-    T1["Tier 1: Tool Result Truncation — 遍历所有工具结果，超过预算的做 head+tail 截断"] --> C1{"context 仍过大?"}
-    C1 -- Yes --> T2["Tier 2: Context Pruning — 按优先级（越老越大优先）soft-trim 旧工具结果，不够再 hard-clear 替换为占位符"]
-    C1 -- No --> Done["完成"]
-    T2 --> C2{"context 仍过大?"}
-    C2 -- Yes --> T3["Tier 3: LLM Summarization — 调用模型总结旧消息"]
-    C2 -- No --> Done
-    T3 --> C3{"ContextOverflow?"}
-    C3 -- Yes --> T4["Tier 4: Emergency Compaction — 清空所有工具结果 + 只保留最近 N 轮对话"]
-    C3 -- No --> Done
-
-```
+上下文压缩详见 [context-compact.md](./context-compact.md)。本系统采用 **5 层渐进式**结构（Tier 0 反应式微压缩 + Tier 1-4），Prompt System 仅在压缩动作发生时复用 `SUMMARIZATION_SYSTEM_PROMPT` 等常量参与第 3 层 LLM 摘要的提示词构建，本节不再复述触发条件与每层细节。
 
 **代码位置**：`crates/ha-core/src/context_compact/mod.rs`
 
@@ -543,7 +533,7 @@ including UUIDs, hashes, IDs, tokens, hostnames, IPs, ports, URLs, and file name
 | 文件                                            | 内容                                                                      |
 | ----------------------------------------------- | ------------------------------------------------------------------------- |
 | `crates/ha-core/src/system_prompt/build.rs`     | **核心**：三模式组装（结构化/自定义/OpenClaw）、13 段拼接逻辑             |
-| `crates/ha-core/src/system_prompt/constants.rs` | 33 个工具描述常量、`HUMAN_IN_THE_LOOP_GUIDANCE` 等行为指导常量            |
+| `crates/ha-core/src/system_prompt/constants.rs` | 36 条 `TOOL_DESCRIPTIONS` 映射（由 36 个 `TOOL_DESC_*` 常量提供，`ASK_USER_QUESTION` 等供 system prompt 复用）、`HUMAN_IN_THE_LOOP_GUIDANCE` 等行为指导常量 |
 | `crates/ha-core/src/system_prompt/sections.rs`  | 各 section builder（personality/tools/skills/runtime/subagent/acp）       |
 | `crates/ha-core/src/agent_config.rs`            | Agent 配置结构（personality/tools/skills/memory/subagents/openclaw_mode） |
 | `crates/ha-core/src/agent_loader.rs`            | Agent 加载（agent.json + md 文件 + OpenClaw 模板）                        |

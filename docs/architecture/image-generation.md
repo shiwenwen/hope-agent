@@ -562,6 +562,6 @@ ImageGenProviderEntry { id: "myprovider".to_string(), ..Default::default() },
 ### 4. 文档
 
 - `CHANGELOG.md` 记录
-- `CLAUDE.md` / `AGENTS.md` / `.agent/rules/default.md` 更新 Provider 数量
+- 更新 `AGENTS.md`（`CLAUDE.md` 已通过 `@AGENTS.md` 引用同一份内容） Provider 数量
 
 **无需修改**：`tool_image_generate()`、`build_success_result()`、`validate_capabilities()`、`get_image_generate_tool_dynamic()`——这些函数通过 trait 和 capabilities 自动适配新 Provider。

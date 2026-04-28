@@ -1,5 +1,5 @@
 # 记忆系统架构
-> 返回 [文档索引](../README.md) | 更新时间：2026-04-16
+> 返回 [文档索引](../README.md) | 更新时间：2026-04-28
 
 ## 概述
 
@@ -262,63 +262,55 @@ rrf_score = vector_weight / (k + rank_vec) + text_weight / (k + rank_fts)
 - 半衰期：`half_life_days`（默认 30 天），超过半衰期后得分减半
 - **pinned 记忆豁免**：置顶记忆不受时间衰减影响，始终保持原始得分
 
-## Embedding 提供者
+## Embedding 配置模型
 
-### 提供者类型
+> **重要变更**：旧版基于 `embedding.providerType=Auto` 自动优先级机制已全部移除。当前是**多模型显式配置 + 用户选活跃模型**，由两组独立配置驱动：
+> - `AppConfig.embedding_models: Vec<EmbeddingModelConfig>` — 用户已配置的多个 embedding 模型
+> - `AppConfig.memory_embedding: MemoryEmbeddingSelection { enabled, model_config_id }` — 当前给"记忆"用哪个模型
+
+### EmbeddingModelConfig
+
+每条配置一个独立的 embedding 模型实例。字段精简为：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | `String` | 模型配置 id（被 `memory_embedding.model_config_id` 引用） |
+| `name` | `String` | 显示名 |
+| `provider_type` | `EmbeddingProviderType` | `Local` / `OpenaiCompatible` / `Google` |
+| `model_id` / `dimensions` / `base_url` / `api_key` | … | 各 provider 自身配置 |
+| `template_id` | `Option<String>` | 创建自哪个模板预设（GUI 一键安装路径用于回溯） |
+
+`provider_type` 枚举只剩 3 类（不再有 `Auto`）：
 
 | 类型 | 说明 | 示例 |
-|------|------|------|
-| `Local` (fastembed) | 本地 ONNX 模型，零 API 成本 | bge-small-en, multilingual-e5-small |
-| `OpenaiCompatible` | OpenAI `/v1/embeddings` 兼容 API | OpenAI, Jina, Cohere, SiliconFlow, Voyage, Mistral, Ollama |
+|---|---|---|
+| `Local` (fastembed) | 本地 ONNX 模型，零 API 成本 | bge-small-en / multilingual-e5-small |
+| `OpenaiCompatible` | OpenAI `/v1/embeddings` 兼容 | OpenAI / Jina / Cohere / SiliconFlow / Voyage / Mistral / Ollama 等 |
 | `Google` | Google Gemini Embedding API（独立格式） | gemini-embedding-001 |
-| `Auto` | 自动选择最佳可用提供者 | 优先本地，退化到 API |
 
-### 自动选择流程
+> Voyage / Mistral 单独 ProviderType 已**不存在**——它们都是 `OpenaiCompatible` 类型下的预设模板（`template_id`）。
 
-```mermaid
-flowchart TD
-    Start["provider_type = Auto"] --> Scan["扫描可用提供者"]
-    Scan --> L{"本地 ONNX<br/>可用?"}
-    L -- Yes --> Local["Local (fastembed)<br/>优先级 10<br/>零 API 成本"]
-    L -- No --> O{"OpenAI API Key<br/>可用?"}
-    O -- Yes --> OpenAI["OpenAI Compatible<br/>优先级 20"]
-    O -- No --> G{"Google API Key<br/>可用?"}
-    G -- Yes --> Google["Google Gemini<br/>优先级 30"]
-    G -- No --> V{"Voyage API Key<br/>可用?"}
-    V -- Yes --> Voyage["Voyage AI<br/>优先级 40"]
-    V -- No --> M{"Mistral API Key<br/>可用?"}
-    M -- Yes --> Mistral["Mistral Embed<br/>优先级 50"]
-    M -- No --> None["无可用提供者<br/>仅 FTS5 检索"]
-    Local --> Use["使用选中的提供者"]
-    OpenAI --> Use
-    Google --> Use
-    Voyage --> Use
-    Mistral --> Use
+### MemoryEmbeddingSelection
+
+```rust
+pub struct MemoryEmbeddingSelection {
+    pub enabled: bool,                       // 总开关
+    pub model_config_id: Option<String>,     // 引用 embedding_models[].id
+}
 ```
 
-### 自动选择优先级
+`set_memory_embedding_default(id)` 是切换活跃模型的单一入口：
 
-当 `provider_type = Auto` 时，按以下优先级选择：
+1. 写 `memory_embedding.model_config_id`
+2. 调用 `prune_embedding_cache_to_signature(new_signature)` 清理 `embedding_cache`（防止旧 signature 命中）
+3. 标记 `needsReembed` 指示器（前端弹"模型变了，要不要重建向量"）
 
-1. **Local**（优先级 10）— 本地 ONNX 模型，零成本
-2. **OpenAI**（优先级 20）— 复用 LLM API Key
-3. **Google**（优先级 30）— Gemini embedding
-4. **Voyage**（优先级 40）— Voyage AI
-5. **Mistral**（优先级 50）— Mistral embed
+### 模板选择器（commit ae804aca / 52b27de4）
 
-### 本地模型
+`recommended_remote_embedding_models()` 返回内建预设模板列表（来源：[`config/mod.rs`](../../crates/ha-core/src/config/mod.rs)），覆盖：
 
-| 模型 ID | 名称 | 维度 | 大小 | 最低内存 | 语言 |
-|---------|------|------|------|----------|------|
-| `multilingual-e5-small` | Multilingual E5 Small | 384d | 90MB | 8GB | 多语言 |
-| `bge-small-zh-v1.5` | BGE Small Chinese v1.5 | 384d | 33MB | 4GB | 中文 |
-| `bge-small-en-v1.5` | BGE Small English v1.5 | 384d | 33MB | 4GB | 英文 |
-| `bge-large-en-v1.5` | BGE Large English v1.5 | 1024d | 335MB | 16GB | 英文 |
-
-### API 预设模板
-
-| 预设 | 提供者类型 | 默认模型 | 默认维度 |
-|------|-----------|---------|---------|
+| 模板 | provider_type | 默认模型 | 维度 |
+|---|---|---|---|
 | OpenAI | OpenaiCompatible | text-embedding-3-small | 1536 |
 | Google Gemini | Google | gemini-embedding-001 | 768 |
 | Jina AI | OpenaiCompatible | jina-embeddings-v3 | 1024 |
@@ -327,6 +319,21 @@ flowchart TD
 | Voyage AI | OpenaiCompatible | voyage-3 | 1024 |
 | Mistral | OpenaiCompatible | mistral-embed | 1024 |
 | Ollama | OpenaiCompatible | nomic-embed-text | 768 |
+
+Settings → "embedding quick card"（commit f64cab52）作为快速入口，首次使用引导用户挑模板（commit 52b27de4 `prompt before embedding model setup`）。
+
+### 本地模型
+
+`local_embedding_models()` 返回内建本地候选：
+
+| 模型 ID | 名称 | 维度 | 大小 | 最低内存 | 语言 |
+|---|---|---|---|---|---|
+| `multilingual-e5-small` | Multilingual E5 Small | 384d | 90MB | 8GB | 多语言 |
+| `bge-small-zh-v1.5` | BGE Small Chinese v1.5 | 384d | 33MB | 4GB | 中文 |
+| `bge-small-en-v1.5` | BGE Small English v1.5 | 384d | 33MB | 4GB | 英文 |
+| `bge-large-en-v1.5` | BGE Large English v1.5 | 1024d | 335MB | 16GB | 英文 |
+
+下载/加载经 `local_embedding.rs` 走 `local_model_jobs.rs` 后台任务体系（详见 [本地模型加载](local-model-loading.md)）。
 
 ### 多模态支持
 
@@ -346,6 +353,174 @@ flowchart TD
 - 失败时退化为全量注入（无记忆丢失）
 
 选择 prompt 格式：向 LLM 提供用户当前消息 + 候选记忆列表（id: preview），要求返回 JSON 数组 `[3, 7, 1]`。
+
+## 无痕会话（Incognito）联动
+
+`sessions.incognito = 1` 时，记忆系统全部被动行为短路。详细行为见 [Session 系统 §无痕会话](session.md#无痕会话incognito)。
+
+| 路径 | incognito=1 行为 |
+|---|---|
+| `format_prompt_summary()` 注入 SQLite 记忆 | 跳过整段 |
+| `refresh_active_memory_suffix()` Active Memory | `agent/mod.rs` 入口短路（清空 suffix 不调 side_query） |
+| `memory_extract` 自动提取（inline / idle / flush-before-compact 三触发） | 全部跳过 |
+| Awareness suffix（跨会话） | 入口短路（不参与候选采集，不向 peer 置脏位） |
+| Dreaming scanner | 候选过滤掉无痕 session 的 source_session_id |
+
+**关闭即焚的记忆侧防御**：`update_session_incognito` 在 `project_id IS NOT NULL` 或 `channel_info IS NOT NULL` 时直接 `Err`——避免无痕态把项目记忆 / IM 记忆强行隔离的状态裂缝。
+
+> 用户显式调 `save_memory` / `recall_memory` 工具仍然工作——"无痕"只是关闭被动行为，不剥夺用户主动权。
+
+## Memory Budget 4 级优先级
+
+`effective_memory_budget(agent, global)` 是 system prompt 注入预算的单一入口，按以下优先级消费总字符预算：
+
+1. **Guidelines**（最高，不可裁剪）— Memory 工具使用指南静态文本
+2. **Agent memory.md** — `~/.hope-agent/agents/{id}/memory.md` 截断到 `MAX_FILE_CHARS`
+3. **Global memory.md** — `~/.hope-agent/memory.md` 截断到 `MAX_FILE_CHARS`
+4. **SQLite 记忆**（最易被裁）— `format_prompt_summary` 输出，按 `Project > Agent > Global > pinned 优先`
+
+> **重要约束**：`recall_memory` / `memory_get` 工具返回**完整原文**，预算仅约束 system prompt 注入路径。模型在工具调用里看到的内容不被预算裁。
+
+## Recall Summary 召回摘要
+
+> 源：[`memory/recall_summary.rs`](../../crates/ha-core/src/memory/recall_summary.rs)
+
+混合检索可能一次返回十几条相关记忆原文，全部塞进 system prompt 既费 token 又冗长。Recall Summary 在召回命中数较多时再走一次 bounded side_query，把那批记忆**压成一段 ≤400 字符的洞察段落**再注入。
+
+### 触发条件
+
+- 命中数 ≥ `min_hits`（默认 3）
+- 总字符量 > 预算（避免短结果做无意义压缩）
+- opt-in：`memorySelection.recall_summary.enabled` 为 true（默认关）
+
+### 失败回退
+
+side_query 失败 / 超时 / 输出无效 → 回退为原始命中列表的拼接（不丢记忆）。
+
+### 与 LLM 语义选择的区别
+
+| 路径 | 输入 | 输出 |
+|---|---|---|
+| LLM 语义选择 | 候选 ≤5 条 id | id 数组（哪几条最相关）—— 还是逐条注入 |
+| Recall Summary | 已选定的命中记忆全文 | 单段 ≤400 字符的合成摘要 —— 注入一段 |
+
+两个路径独立 opt-in，可以叠加用：先选最相关 5 条，再压成一段。
+
+## 反省式记忆（COMBINED_EXTRACT_PROMPT）
+
+主动记忆提取除了"事实抽取"还要做"用户画像更新"。两件事如果分两次 side_query 跑，token 翻倍 + 时序复杂。`COMBINED_EXTRACT_PROMPT` 让一次 side_query 同时返回 facts + profile：
+
+```jsonc
+// LLM 返回结构（伪 JSON）
+{
+  "facts":   [{ "type": "...", "content": "..." }, ...],
+  "profile": { "summary": "...", "preferences": [...] }
+}
+```
+
+- `facts` 走原 add_with_dedup 流程入库
+- `profile` 渲染成 system prompt 的独立 `## User Profile` 段（不用 "About You"——"You" 在 LLM system prompt 里默认指 assistant，会引发角色混淆）
+- 配置：`enable_reflection`（默认 true）；关闭时回退到只抽 facts
+
+## Dreaming 离线固化
+
+> 源：[`memory/dreaming/`](../../crates/ha-core/src/memory/dreaming/)（含 `config.rs` / `narrative.rs` / `pipeline.rs` / `promotion.rs` / `scanner.rs` / `scoring.rs` / `triggers.rs` 7 个文件）
+
+主对话热路径的自动提取（`memory_extract.rs`）只看最近一段对话，对全库的"哪些记忆值得 pin / 哪些可以归档"无概念。Dreaming 是**离线 LLM 评估器**，扫候选记忆 + 让 LLM 打分 + 自动 pin 高分项 + 写"梦境日记"留给用户审阅。
+
+### 三种触发
+
+| 触发 | 来源 | 用途 |
+|---|---|---|
+| `idle` | 进程空闲一段时间后 | 后台机会主义 |
+| `cron` | 用户定时任务 | 计划性夜间巡查 |
+| `manual` | UI 手动点 / 工具调用 | 立即跑一次 |
+
+### 流程
+
+1. **Scanner** 扫 `memories` 表选候选（按时间衰减、近期访问、tags 等组合规则）
+2. **Scoring** bounded side_query 让小模型对候选打分（重要性 / 时效性 / 关联度）
+3. **Promotion** 按打分阈值决定：高分 → `pinned = 1`；低分 → 标 archive 或保留
+4. **Narrative** 把本轮评估结果渲染为 markdown diary，落 `~/.hope-agent/memory/dreams/{date}.md`
+
+### 并发保护
+
+`DREAMING_RUNNING: AtomicBool` + RAII guard 确保同进程任意时刻最多一轮 dreaming：
+
+```rust
+struct DreamGuard;
+impl Drop for DreamGuard {
+    fn drop(&mut self) {
+        DREAMING_RUNNING.store(false, Ordering::Release);
+    }
+}
+```
+
+无法 acquire guard 时直接 skip 本轮，不阻塞 scheduler。
+
+### 默认关闭
+
+Dreaming 默认是 opt-in（`config.dreaming.enabled = false`）；启用后 idle 触发节流和 cron 调度都由 [Cron 系统](cron.md) 走主调度通道。
+
+## Active Memory 主动召回
+
+> 源：[`agent/active_memory.rs`](../../crates/ha-core/src/agent/active_memory.rs)
+
+被动 system prompt 注入对"用户偶尔提到一次但当前问题相关"的记忆覆盖不够，因为预算有限会被裁掉。Active Memory 在每轮 user turn 之前调 `refresh_active_memory_suffix(user_text)` **针对当前提问主动召回一组相关记忆**，作为独立 cache block 注入。
+
+### 调用时机与预算
+
+- 每轮 user turn 进入时调用，不是流式进行中
+- 内部走 bounded `side_query` 让小模型从候选集挑相关项，**严格预算**（不命中预算就放弃，不阻塞主流程）
+- 命中后渲染成 `## Active Memory` markdown 段落
+
+### 三级 scope 候选
+
+按 Project → Agent → Global 顺序取候选并合并去重（项目相关在前），交给 side_query 评估相关性。Memory Budget 4 级优先级（见下方"Memory Budget"）裁剪整体规模。
+
+### 15s TTL 缓存
+
+同一会话里连续 15s 内的 turn 复用上一次召回结果，避免短时间多次提问反复跑 side_query。Cache 按 `session_id` 隔离。
+
+### 独立 cache block 注入
+
+注入位置在 system prompt 中是**独立 cache block**（与静态前缀分开）——这样静态前缀缓存仍然命中，Active Memory 段单独失效，不会因为每轮变更整段失效造成 prompt cache miss 雪崩。
+
+### 与 Reflection 的关系
+
+Active Memory **只读**——不写记忆、不主动提取。写入路径见下方"反省式记忆"。
+
+## 内存向量重建（后台任务）
+
+> 源：[`memory/reembed_job.rs`](../../crates/ha-core/src/memory/reembed_job.rs)（commit `af377a7b` / `6d89bfb7` / `2a055ef1` / `de0797ad`）
+
+切换活跃 embedding 模型后，存量记忆的向量按旧维度/旧 signature 算的，需要按新模型批量重建。`start_memory_reembed_job(model_config_id, mode)` 包装成 `LocalModelJobKind::MemoryReembed` 走统一后台任务体系（详见 [本地模型加载](local-model-loading.md)），UI 看到的就是与模型下载同体系的进度条 + 取消按钮。
+
+### 双模式
+
+| 模式 | 行为 | 中途搜索可用？ |
+|---|---|---|
+| `KeepExisting` | 原行原地覆写 `embedding` 字段，按 batch 推进 | ✅ 旧向量仍可用，搜索不中断 |
+| `DeleteAll` | 启动时先 `clear_all_embeddings()` 全清空再开始填充 | ❌ 重建期间纯 FTS5 / 不命中 vec0 |
+
+`DeleteAll` 适用：模型升级 + 维度变化 + 不能容忍新旧混存的场景（部分失败后留下"半旧半新"风险）。`KeepExisting` 是默认。
+
+### 并发互斥
+
+**Invariant：任何时刻最多一个 `MemoryReembed` 在非终态**。新 spawn 前先把已有 active 的 reembed 调 `cancel_job` 收尾，让之前的 runner 在下一个 batch boundary 退出，SQLite write 连接 mutex 串行化重叠。
+
+### Phase key（与前端 i18n 同步）
+
+```rust
+pub const PHASE_REEMBED_KEEP:  &str = "reembed-keep";
+pub const PHASE_REEMBED_FRESH: &str = "reembed-fresh";
+```
+
+前端 [`src/types/local-model-jobs.ts::PHASE_KEY`](../../src/types/local-model-jobs.ts) 必须保持同名，drift 会让本地化 phase label 默默降级为原始字符串。
+
+### needsReembed 指示器清除
+
+成功完成时写 `last_reembedded_signature = current_model.signature()`，前端按 `last_reembedded_signature == active_model.signature()` 判定是否还需要重建（红点消失）。
 
 ## 系统提示注入
 
@@ -554,11 +729,19 @@ flowchart TD
 | `crates/ha-core/src/memory/embedding/local_provider.rs` | 本地 ONNX 模型提供者（fastembed-rs） |
 | `crates/ha-core/src/memory/embedding/api_provider.rs` | API embedding 提供者（OpenAI 兼容 + Google） |
 | `crates/ha-core/src/memory/embedding/fallback_provider.rs` | Fallback 提供者（主备切换） |
-| `crates/ha-core/src/memory/embedding/factory.rs` | Embedding 提供者工厂（Auto 模式选择逻辑） |
+| `crates/ha-core/src/memory/embedding/factory.rs` | Embedding 提供者工厂（按 EmbeddingModelConfig 实例化具体 provider） |
 | `crates/ha-core/src/memory/mmr.rs` | MMR 多样性重排实现 |
 | `crates/ha-core/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
+| `crates/ha-core/src/memory/recall_summary.rs` | 召回结果压缩为 ≤400 字符洞察段（opt-in） |
+| `crates/ha-core/src/memory/reembed_job.rs` | 内存向量重建后台任务（KeepExisting / DeleteAll 双模式 + 取消） |
+| `crates/ha-core/src/memory/dreaming/` | 离线 LLM 评估器（scanner / scoring / promotion / narrative / triggers / pipeline） |
 | `crates/ha-core/src/memory/import.rs` | 批量导入/导出（JSON + Markdown） |
 | `crates/ha-core/src/memory/helpers.rs` | 辅助函数（加载配置等） |
-| `crates/ha-core/src/memory_extract.rs` | 自动记忆提取逻辑 |
+| `crates/ha-core/src/memory_extract.rs` | 自动记忆提取逻辑（含 COMBINED_EXTRACT_PROMPT 反省式） |
+| `crates/ha-core/src/agent/active_memory.rs` | Active Memory 主动召回（15s TTL + 三级 scope + bounded side_query） |
+| `crates/ha-core/src/local_embedding.rs` | 本地 embedding 模型一键安装入口（走 `local_model_jobs.rs`） |
 | `crates/ha-core/src/project/` | 项目系统（types / db / files），提供项目记忆的上层容器 |
-| `crates/ha-core/src/context_compact/engine.rs` | ContextEngine trait，`system_prompt_addition()` 钩子预留 Active Memory 扩展点 |
+| `crates/ha-core/src/context_compact/engine.rs` | ContextEngine trait，`system_prompt_addition()` 钩子已被 Active Memory 占用 |
+| `src/components/sidebar/IconSidebar.tsx` | 记忆侧边栏入口（commit `9644311a`），点击进入记忆管理页 |
+| `src/components/memory/VectorSearchStatus.tsx` | 检索流水线状态指示器（commit `6e0483e6`，区分 vec0 可用 vs 降级到 FTS5-only） |
+| `src/types/local-model-jobs.ts` | `PHASE_KEY` 与 reembed_job.rs 的 `PHASE_REEMBED_*` 一一对应（drift 会让 i18n phase label 降级为原字符串） |
