@@ -220,6 +220,26 @@ sequenceDiagram
 - **重试保证**：被取消的注入进入 `PENDING_INJECTIONS`，`ChatSessionGuard::drop()` 时 `flush_pending_injections` 每次只取一个重试（串行），下一个在 `CleanupGuard::drop()` 时触发
 - **跳过已读**：`mark_run_fetched(run_id)` 在 check/result 工具中调用，注入前和等待中均检查 `FETCHED_RUN_IDS`
 
+### 异步工具任务复用注入管道
+
+异步工具任务（`async_jobs`，覆盖 `exec` / `web_search` / `image_generate` 等被标记 `async_capable=true` 的工具的后台化执行）作为该注入管道的**第二个消费者**：finished tool job 完成后由 `crates/ha-core/src/async_jobs/injection.rs::dispatch_injection` 把任务结果格式化为 push message，并把 `job_id` 当作伪 `run_id` 传给 `subagent::injection::inject_and_run_parent`，复用同一套 idle-wait / 取消 / 重试机制。
+
+| 维度 | SubagentRun | 异步工具任务（async_jobs） |
+|------|------|------|
+| 注入入口 | `spawn::execute_subagent` 完成后 spawn 注入 | `async_jobs::injection::dispatch_injection` |
+| 传入的 `run_id` | 真实 `SubagentRun.run_id`（UUID v4） | `AsyncJob.job_id`（伪 run_id） |
+| `child_agent_id` 标签 | 子 Agent 的真实 ID | `tool_job:<tool_name>`，前端据此区分 |
+| 共享机制 | `inject_and_run_parent` / `INJECTING_SESSIONS` / `PENDING_INJECTIONS` / `SESSION_IDLE_NOTIFY` / `INJECTION_CANCELS` |
+| 进程内去重 | `FETCHED_RUN_IDS`（check/result 标记） | `dispatching_set()`（in-flight HashSet）+ `mark_injected` DB flag |
+
+设计要点：
+
+- **零重复**：注入路径只此一处，`subagent::injection::inject_and_run_parent` 不感知调用方是 SubagentRun 还是 async_jobs，所有"等空闲 → 取消 cancel → 串行重试"语义自动继承
+- **前端识别**：`child_agent_id` 前缀 `tool_job:` 让前端可以按 prefix 区分两类来源（真实子 Agent vs 异步工具任务）展示不同 UI
+- **持久化分离**：SubagentRun 落 `session.db.subagent_runs`，async_jobs 落独立 `~/.hope-agent/async_jobs.db` + spool 目录；只有"注入"这一段共享代码
+
+来源：`crates/ha-core/src/async_jobs/injection.rs`、`crates/ha-core/src/subagent/injection.rs`。
+
 ## 取消注册表
 
 `SubagentCancelRegistry` 基于 `HashMap<String, Arc<AtomicBool>>` 的内存注册表（`Mutex` 保护）。

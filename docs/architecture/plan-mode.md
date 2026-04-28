@@ -76,7 +76,7 @@ graph TB
     subgraph 后端
         PM[plan.rs<br/>六态状态机 + 文件 I/O<br/>+ Git Checkpoint + 版本管理<br/>+ 子 Agent 注册表]
         SC[slash_commands<br/>/plan 命令 6 子命令]
-        CP[commands/plan.rs<br/>12 个 Tauri 命令]
+        CP[commands/plan.rs<br/>15 个 Tauri 命令]
         CH[commands/chat.rs<br/>双模式分发<br/>+ 工具限制 + 提示词注入]
         TQ[tools/ask_user_question.rs<br/>交互问答 + session 路由]
         TS[tools/submit_plan.rs<br/>计划提交 + session 路由]
@@ -686,6 +686,8 @@ flowchart LR
 
 ## Tauri 命令一览
 
+`src-tauri/src/commands/plan.rs` 共 **15 个** Tauri 命令：
+
 | 命令 | 参数 | 返回 | 说明 |
 |------|------|------|------|
 | `get_plan_mode` | session_id | String | 获取当前 plan mode 状态 |
@@ -694,12 +696,15 @@ flowchart LR
 | `save_plan_content` | session_id, content | () | 保存 plan 文件 + 解析 steps |
 | `get_plan_steps` | session_id | Vec\<PlanStep\> | 获取步骤列表 |
 | `update_plan_step_status` | session_id, step_index, status | () | 更新步骤状态（含自动完成检测） |
+| `get_pending_ask_user_group` | session_id | Option\<AskUserQuestionGroup\> | 获取当前会话挂起的问答组（重启 / 重新挂载用） |
 | `respond_ask_user_question` | request_id, answers | () | 回复交互问答 |
 | `get_plan_versions` | session_id | Vec\<PlanVersionInfo\> | 列出版本历史 |
 | `load_plan_version_content` | file_path | String | 读取指定版本内容 |
 | `restore_plan_version` | session_id, file_path | () | 恢复旧版本 |
 | `plan_rollback` | session_id | String | Git Checkpoint 回滚 |
 | `get_plan_checkpoint` | session_id | Option\<String\> | 获取 Checkpoint 分支名 |
+| `get_plan_file_path` | session_id | Option\<String\> | 获取当前计划文件的绝对路径（前端打开/外链用） |
+| `cancel_plan_subagent` | session_id | () | 退出 Plan Mode 时取消活跃的计划子 Agent |
 
 ---
 
@@ -1040,6 +1045,15 @@ ALTER TABLE sessions ADD COLUMN plan_steps TEXT;
 
 Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOLS`，防止工具限制逃逸。
 
+### 执行层 plan_mode_allowed_tools 白名单（defense-in-depth）
+
+工具限制采用两道防线：
+
+1. **Schema 过滤（first line）**：按 `AgentConfig.capabilities.tools` + `denied_tools` 在 system_prompt / tool_schemas 阶段直接收紧暴露给模型的工具集，模型在 API 层面看不到被禁用工具的 schema
+2. **执行层白名单（second line）**：`crates/ha-core/src/tools/execution.rs` 的 `ToolExecContext.plan_mode_allowed_tools` 在运行时再做一次白名单校验——非空时仅匹配的工具可以执行，否则返回 `Plan Mode restriction: tool '...' is not allowed during planning. Allowed: ...`
+
+校验入口在 `tools/mod.rs:137` 的 `tool_visible_with_filters`（被 `is_tool_visible` 复用）和 `execution.rs:181` 的 `tool_visibility_error`，两层组合形成 defense-in-depth：即使模型通过历史上下文记住了被禁工具名并尝试调用，也会在执行前被拦截。来源：`crates/ha-core/src/tools/execution.rs:101,155,181`、`crates/ha-core/src/tools/mod.rs:137`。
+
 ### 内部工具不需审批
 
 `update_plan_step` 和 `amend_plan` 标记为 `internal: true`，不触发用户审批流程。
@@ -1086,7 +1100,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 | 文件 | 用途 |
 |------|------|
 | `crates/ha-core/src/plan/` | 核心：六态状态机 + 文件 I/O + 解析 + 常量 + 路径权限 + Git Checkpoint + 版本管理 + 问答注册 + 子 Agent 注册表 + spawn_plan_subagent |
-| `src-tauri/src/commands/plan.rs` | 11 个 Tauri 命令 |
+| `src-tauri/src/commands/plan.rs` | 15 个 Tauri 命令 |
 | `crates/ha-core/src/slash_commands/handlers/plan.rs` | /plan 斜杠命令处理（6 子命令） |
 | `crates/ha-core/src/tools/ask_user_question.rs` | ask_user_question 交互问答工具 |
 | `crates/ha-core/src/tools/submit_plan.rs` | submit_plan 计划提交工具 |
@@ -1112,7 +1126,7 @@ Planning/Review 状态下 spawn 的子 Agent 自动继承 `PLAN_MODE_DENIED_TOOL
 | 文件 | 改动点 |
 |------|--------|
 | `crates/ha-core/src/lib.rs` | `pub mod plan` 模块导出 |
-| `src-tauri/src/lib.rs` | 注册 12 个 Tauri 命令（含 cancel_plan_subagent） |
+| `src-tauri/src/lib.rs` | 注册 15 个 Tauri 命令（含 get_pending_ask_user_group / get_plan_file_path / cancel_plan_subagent） |
 | `crates/ha-core/src/paths.rs` | `plans_dir()` + 项目本地路径解析 |
 | `crates/ha-core/src/agent_config.rs` | `AgentModelConfig.plan_model` 字段 |
 | `crates/ha-core/src/session/db.rs` | 迁移（plan_mode + plan_steps 列）+ 读写方法 |

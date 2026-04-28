@@ -30,7 +30,7 @@ crates/ha-core/src/awareness/
     dirty.rs        DirtyBits 脏位广播
     collect.rs      从 SessionDB + RecapDb 聚合候选
     render.rs       生成 markdown suffix
-    awareness.rs    SessionAwareness —— 动态感知器（三层触发 + hash 判重）
+    session.rs      SessionAwareness —— 动态感知器（三层触发 + hash 判重）
     llm_digest.rs   LLM 抽取 prompt 构建
     peek_tool.rs    peek_sessions deferred 工具
     build.rs        静态预热块（baked into system prompt）
@@ -68,6 +68,18 @@ AssistantAgent::chat_*(message)
    │
    └─ ⑤ tool loop（每轮 touch_active_session 保持 active）
 ```
+
+---
+
+## 与无痕会话（Incognito）的联动
+
+session `incognito=true` 时整个 refresh 路径在入口处直接短路：
+
+- `AssistantAgent::refresh_awareness_suffix(user_text)` 第一行检查 `self.session_is_incognito()`，命中即清空 `awareness_suffix` 并 `return`，**不参与候选收集，不做 LLM digest**，也不会因当前会话发起 `on_other_session_activity` 给 peer 置脏位
+- 前端 `AwarenessToggle`（`src/components/chat/input/AwarenessToggle.tsx`）在输入栏接收 `disabled` prop；`ChatInput.tsx:584` 在无痕开启时传入 `disabled={incognitoEnabled}`，控件灰化但**不改写** `sessions.awareness_config_json` 列
+- 这样设计的好处：用户关闭无痕后，原有的会话级 awareness 配置自动恢复，不会因为短暂进入无痕而丢失偏好
+
+来源：`crates/ha-core/src/agent/mod.rs:704-710`、`src/components/chat/input/ChatInput.tsx:584`、`src/components/chat/input/AwarenessToggle.tsx:38`。
 
 ---
 
