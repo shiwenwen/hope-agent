@@ -142,6 +142,17 @@ pub async fn chat(
         }
     }
 
+    let _active_turn_guard = ha_core::chat_engine::active_turn::try_acquire(
+        &sid,
+        ha_core::chat_engine::stream_seq::ChatSource::Http,
+    )
+    .map_err(|e| {
+        AppError::conflict_with_code(
+            ha_core::chat_engine::stream_seq::ACTIVE_STREAM_ERROR_CODE,
+            e.to_string(),
+        )
+    })?;
+
     // Prefer display_text for DB/title, fall back to the LLM-bound message.
     let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
 

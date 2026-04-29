@@ -81,8 +81,14 @@ pub(crate) async fn tool_task_create(args: &Value, session_id: Option<&str>) -> 
         Err(e) => return e,
     };
 
+    // Group every task created in one tool call under a shared batch_id so the
+    // chat input task panel can render them together (see frontend
+    // `taskProgress.ts::batchForAnchor`).
+    let batch_id = uuid::Uuid::new_v4().to_string();
     for (idx, (content, active_form)) in items.iter().enumerate() {
-        if let Err(e) = db.create_task(&sid, content, active_form.as_deref()) {
+        if let Err(e) =
+            db.create_task_with_batch(&sid, content, active_form.as_deref(), Some(&batch_id))
+        {
             return format!(
                 "Error: failed to create task #{} of {}: {}",
                 idx + 1,

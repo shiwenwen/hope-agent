@@ -342,6 +342,7 @@ impl SessionDB {
                 session_id TEXT NOT NULL,
                 content TEXT NOT NULL,
                 active_form TEXT,
+                batch_id TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -354,6 +355,10 @@ impl SessionDB {
             .is_ok();
         if !has_active_form {
             conn.execute_batch("ALTER TABLE tasks ADD COLUMN active_form TEXT;")?;
+        }
+        let has_batch_id = conn.prepare("SELECT batch_id FROM tasks LIMIT 1").is_ok();
+        if !has_batch_id {
+            conn.execute_batch("ALTER TABLE tasks ADD COLUMN batch_id TEXT;")?;
         }
 
         // Migration: Agent Team tables

@@ -23,6 +23,23 @@ import {
 import { useApprovals } from "./useApprovals"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { useNotificationListeners } from "./useNotificationListeners"
+import type { SessionStreamState } from "./useChatStreamReattach"
+
+const ACTIVE_STREAM_ERROR_CODE = "active_stream"
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === "string") return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function isActiveStreamError(error: unknown): boolean {
+  return errorText(error).includes(ACTIVE_STREAM_ERROR_CODE)
+}
 
 export interface UseChatStreamOptions {
   messages: Message[]
@@ -306,6 +323,7 @@ export function useChatStream({
     ])
 
     let targetSessionId = currentSessionId
+    let keepExistingStreamLoading = false
 
     try {
       const targetSid = () => targetSessionId || "__pending__"
@@ -427,17 +445,76 @@ export function useChatStream({
       )
     } catch (e) {
       const sid = targetSessionId || "__pending__"
-      updateSessionMessages(sid, (prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last && last.role === "assistant" && last.content === "" && !last.toolCalls?.length) {
-          updated.pop()
+      if (isActiveStreamError(e) && sid !== "__pending__") {
+        // active_stream rejects before the backend persists anything, so the
+        // optimistic user + assistant messages we just appended must be rolled
+        // back. Other errors may have already saved server-side, so we keep
+        // the user message visible there.
+        keepExistingStreamLoading = true
+        updateSessionMessages(sid, (prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (
+            last &&
+            last.role === "assistant" &&
+            !last.content &&
+            !last.toolCalls?.length &&
+            !last.contentBlocks?.length
+          ) {
+            updated.pop()
+          }
+          const maybeUser = updated[updated.length - 1]
+          if (
+            maybeUser &&
+            maybeUser.role === "user" &&
+            maybeUser.content === displayed &&
+            maybeUser.timestamp === now
+          ) {
+            updated.pop()
+          }
+          return updated
+        })
+        try {
+          const state = await getTransport().call<SessionStreamState>(
+            "get_session_stream_state",
+            { sessionId: sid },
+          )
+          const streamId = state.streamId || undefined
+          if (streamId) endedStreamIdsRef.current.delete(sid)
+          const cursorKey = streamCursorKey(sid, streamId)
+          if (!lastSeqRef.current.has(cursorKey)) {
+            lastSeqRef.current.set(cursorKey, Number(state.lastSeq) || 0)
+          }
+        } catch (stateError) {
+          logger.warn(
+            "chat",
+            "useChatStream::active_stream",
+            "Failed to refresh active stream state",
+            stateError,
+          )
         }
-        updated.push({ role: "event", content: `${e}` })
-        return updated
-      })
+      } else {
+        updateSessionMessages(sid, (prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (
+            last &&
+            last.role === "assistant" &&
+            last.content === "" &&
+            !last.toolCalls?.length
+          ) {
+            updated.pop()
+          }
+          updated.push({ role: "event", content: `${e}` })
+          return updated
+        })
+      }
       // Notify on error for non-current sessions
-      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+      if (
+        !keepExistingStreamLoading &&
+        targetSessionId &&
+        currentSessionIdRef.current !== targetSessionId
+      ) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const sessionTitle =
@@ -462,13 +539,25 @@ export function useChatStream({
         }
         return updated
       })
-      loadingSessionsRef.current.delete(sid)
-      setLoadingSessionIds(new Set(loadingSessionsRef.current))
-      if (currentSessionIdRef.current === sid) {
-        setLoading(false)
+      if (keepExistingStreamLoading && sid !== "__pending__") {
+        loadingSessionsRef.current.add(sid)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        if (currentSessionIdRef.current === sid) {
+          setLoading(true)
+        }
+      } else {
+        loadingSessionsRef.current.delete(sid)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        if (currentSessionIdRef.current === sid) {
+          setLoading(false)
+        }
       }
       // Notify on completion for non-current sessions
-      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+      if (
+        !keepExistingStreamLoading &&
+        targetSessionId &&
+        currentSessionIdRef.current !== targetSessionId
+      ) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName

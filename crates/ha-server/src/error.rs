@@ -7,6 +7,7 @@ use serde_json::json;
 pub struct AppError {
     pub status: StatusCode,
     pub message: String,
+    pub code: Option<&'static str>,
 }
 
 impl AppError {
@@ -14,6 +15,7 @@ impl AppError {
         Self {
             status: StatusCode::NOT_FOUND,
             message: msg.into(),
+            code: None,
         }
     }
 
@@ -21,6 +23,7 @@ impl AppError {
         Self {
             status: StatusCode::BAD_REQUEST,
             message: msg.into(),
+            code: None,
         }
     }
 
@@ -28,6 +31,7 @@ impl AppError {
         Self {
             status: StatusCode::FORBIDDEN,
             message: msg.into(),
+            code: None,
         }
     }
 
@@ -35,13 +39,25 @@ impl AppError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: msg.into(),
+            code: None,
+        }
+    }
+
+    pub fn conflict_with_code(code: &'static str, msg: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            message: msg.into(),
+            code: Some(code),
         }
     }
 }
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let body = axum::Json(json!({ "error": self.message }));
+        let body = match self.code {
+            Some(code) => axum::Json(json!({ "error": self.message, "code": code })),
+            None => axum::Json(json!({ "error": self.message })),
+        };
         (self.status, body).into_response()
     }
 }
@@ -55,6 +71,7 @@ where
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: err.into().to_string(),
+            code: None,
         }
     }
 }

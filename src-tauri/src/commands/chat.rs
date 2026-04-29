@@ -66,7 +66,6 @@ pub async fn chat(
     let effort_ref_str = effort.clone();
     let db = state.session_db.clone();
     let cancel = state.chat_cancel.clone();
-    cancel.store(false, Ordering::SeqCst); // Reset cancel flag
     let logger = state.logger.clone();
     // NOTE: _chat_session_guard is set later after session_id is resolved
 
@@ -106,6 +105,12 @@ pub async fn chat(
             );
         }
     }
+
+    let _active_turn_guard = crate::chat_engine::active_turn::try_acquire(
+        &sid,
+        crate::chat_engine::stream_seq::ChatSource::Desktop,
+    )?;
+    cancel.store(false, Ordering::SeqCst); // Reset only for the turn we accepted.
 
     // Mark this session as active — cancels any running subagent injection and blocks new ones
     let _chat_session_guard = crate::subagent::ChatSessionGuard::new(&sid);

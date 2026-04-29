@@ -37,16 +37,18 @@ struct StreamLifecycle {
 }
 
 impl StreamLifecycle {
-    fn begin(session_id: &str, source: stream_seq::ChatSource) -> Self {
+    fn begin(session_id: &str, source: stream_seq::ChatSource) -> Result<Self, String> {
         let stream_id = source
             .tracks_seq()
-            .then(|| stream_seq::begin(session_id, source));
-        Self {
+            .then(|| stream_seq::begin(session_id, source))
+            .transpose()
+            .map_err(|e| e.to_string())?;
+        Ok(Self {
             session_id: session_id.to_string(),
             stream_id,
             source,
             finished: false,
-        }
+        })
     }
 
     fn finish(&mut self) {
@@ -159,7 +161,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         }
     }
 
-    let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source);
+    let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source)?;
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -777,7 +779,8 @@ mod stream_lifecycle_tests {
         let sid = "test-chat-engine-stream-lifecycle-finish";
 
         {
-            let mut lifecycle = StreamLifecycle::begin(sid, stream_seq::ChatSource::Desktop);
+            let mut lifecycle =
+                StreamLifecycle::begin(sid, stream_seq::ChatSource::Desktop).unwrap();
             assert!(stream_seq::is_active(sid));
 
             lifecycle.finish();

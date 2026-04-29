@@ -326,6 +326,7 @@ export interface Task {
   sessionId: string
   content: string
   activeForm?: string | null
+  batchId?: string | null
   status: TaskStatus
   createdAt: string
   updatedAt: string

@@ -37,6 +37,7 @@ function normalizeTask(value: unknown): Task | null {
     sessionId: typeof value.sessionId === "string" ? value.sessionId : "",
     content: typeof value.content === "string" ? value.content : "",
     activeForm: typeof value.activeForm === "string" ? value.activeForm : null,
+    batchId: typeof value.batchId === "string" ? value.batchId : null,
     status,
     createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
     updatedAt: typeof value.updatedAt === "string" ? value.updatedAt : "",
@@ -73,26 +74,40 @@ export function createTaskProgressSnapshot(tasks: Task[]): TaskProgressSnapshot 
 }
 
 const CURRENT_TASK_BATCH_WINDOW_MS = 2_000
+const RECENT_COMPLETED_BATCH_MS = 30_000
+
+function batchForAnchor(tasks: Task[], anchor: Task): Task[] {
+  if (anchor.batchId) {
+    const batch = tasks.filter((task) => task.batchId === anchor.batchId)
+    if (batch.length > 0) return batch
+  }
+
+  const anchorCreatedAt = Date.parse(anchor.createdAt)
+  if (!Number.isFinite(anchorCreatedAt)) return [anchor]
+
+  const batch = tasks.filter((task) => {
+    const createdAt = Date.parse(task.createdAt)
+    return Number.isFinite(createdAt) && Math.abs(createdAt - anchorCreatedAt) <= CURRENT_TASK_BATCH_WINDOW_MS
+  })
+  return batch.length > 0 ? batch : [anchor]
+}
 
 export function selectCurrentTaskBatch(tasks: Task[]): Task[] {
   if (tasks.length <= 1) return tasks
 
-  const timestamps = tasks
-    .map((task) => Date.parse(task.createdAt))
-    .filter(Number.isFinite)
-  if (timestamps.length === 0) return tasks
-
-  const latestCreatedAt = Math.max(...timestamps)
-  const latestBatch = tasks.filter((task) => {
-    const createdAt = Date.parse(task.createdAt)
-    return Number.isFinite(createdAt) && latestCreatedAt - createdAt <= CURRENT_TASK_BATCH_WINDOW_MS
-  })
-  if (latestBatch.length >= 2) return latestBatch
-
   const activeTasks = tasks.filter((task) => task.status !== "completed")
-  if (activeTasks.length > 0) return activeTasks
+  if (activeTasks.length > 0) {
+    const anchor = activeTasks.reduce((latest, task) => task.id > latest.id ? task : latest)
+    return batchForAnchor(tasks, anchor)
+  }
 
-  return latestBatch.length > 0 ? latestBatch : tasks
+  const anchor = tasks.reduce((latest, task) => task.id > latest.id ? task : latest)
+  const updatedAt = Date.parse(anchor.updatedAt || anchor.createdAt)
+  if (Number.isFinite(updatedAt) && Date.now() - updatedAt <= RECENT_COMPLETED_BATCH_MS) {
+    return batchForAnchor(tasks, anchor)
+  }
+
+  return tasks
 }
 
 export function createCurrentTaskProgressSnapshot(tasks: Task[]): TaskProgressSnapshot {
