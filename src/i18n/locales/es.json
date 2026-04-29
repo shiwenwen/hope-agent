@@ -2730,6 +2730,8 @@
     "stepsDetected": "pasos detectados",
     "noSteps": "Sin pasos",
     "executeCommand": "Empieza a ejecutar el plan. Completa cada paso en orden, llamando a update_plan_step para registrar el progreso.",
+    "executionApproved": "Plan aprobado. Iniciando la ejecución.",
+    "executionResumed": "Continuando la ejecución del plan.",
     "planning": "Creando plan...",
     "pause": "Pausar",
     "resume": "Reanudar",

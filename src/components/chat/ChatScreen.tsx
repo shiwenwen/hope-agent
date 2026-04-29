@@ -842,7 +842,10 @@ export default function ChatScreen({
           break
         case "approvePlan":
           await planMode.approvePlan()
-          stream.handleSend(t("planMode.executeCommand"), { planMode: "executing" })
+          stream.handleSend(t("planMode.executeCommand"), {
+            planMode: "executing",
+            displayText: t("planMode.executionApproved"),
+          })
           break
         case "showPlan":
           planMode.setPlanContent(action.planContent)
@@ -911,11 +914,17 @@ export default function ChatScreen({
   const handlePlanApprove = useCallback(async () => {
     await planMode.approvePlan()
     // Send a short trigger — the full plan is already in the system prompt (Executing state)
-    stream.handleSend(t("planMode.executeCommand"), { planMode: "executing" })
+    stream.handleSend(t("planMode.executeCommand"), {
+      planMode: "executing",
+      displayText: t("planMode.executionApproved"),
+    })
   }, [planMode, stream, t])
 
   const handlePlanContinue = useCallback(async () => {
-    stream.handleSend(t("planMode.executeCommand"), { planMode: "executing" })
+    stream.handleSend(t("planMode.executeCommand"), {
+      planMode: "executing",
+      displayText: t("planMode.executionResumed"),
+    })
   }, [stream, t])
 
   const handleMessageSwitchModel = useCallback(

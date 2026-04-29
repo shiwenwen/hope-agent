@@ -78,7 +78,7 @@ export interface UseChatStreamReturn {
   setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
   handleSend: (
     directText?: string,
-    options?: { hidden?: boolean; displayText?: string; planMode?: string },
+    options?: { displayText?: string; planMode?: string },
   ) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
@@ -224,7 +224,7 @@ export function useChatStream({
    */
   async function handleSend(
     directText?: string,
-    options?: { hidden?: boolean; displayText?: string; planMode?: string },
+    options?: { displayText?: string; planMode?: string },
   ) {
     const rawText = directText ?? input
     if (!rawText.trim()) return
@@ -244,7 +244,7 @@ export function useChatStream({
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
-    setMessages((prev) => [...prev, { role: "user", content: displayed, timestamp: now, ...(options?.hidden && { isMeta: true }) }])
+    setMessages((prev) => [...prev, { role: "user", content: displayed, timestamp: now }])
     setLoading(true)
 
     // Process attached files: images → base64 data, non-images → save to disk via Rust
@@ -390,7 +390,7 @@ export function useChatStream({
       // Track loading state for this session
       const freshMessages = [
         ...messages,
-        { role: "user" as const, content: displayed, timestamp: now, ...(options?.hidden && { isMeta: true }) },
+        { role: "user" as const, content: displayed, timestamp: now },
         {
           role: "assistant" as const,
           content: "",

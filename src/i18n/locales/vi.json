@@ -2730,6 +2730,8 @@
     "stepsDetected": "bước được phát hiện",
     "noSteps": "Không có bước",
     "executeCommand": "Bắt đầu thực thi kế hoạch. Hoàn thành từng bước theo thứ tự, gọi update_plan_step để theo dõi tiến độ.",
+    "executionApproved": "Kế hoạch đã được phê duyệt. Bắt đầu thực thi.",
+    "executionResumed": "Tiếp tục thực thi kế hoạch.",
     "planning": "Đang tạo kế hoạch...",
     "pause": "Tạm dừng",
     "resume": "Tiếp tục",

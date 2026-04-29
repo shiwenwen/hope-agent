@@ -2730,6 +2730,8 @@
     "stepsDetected": "langkah dikesan",
     "noSteps": "Tiada langkah",
     "executeCommand": "Mula melaksanakan pelan. Selesaikan setiap langkah mengikut urutan, memanggil update_plan_step untuk menjejak kemajuan.",
+    "executionApproved": "Pelan diluluskan. Memulakan pelaksanaan.",
+    "executionResumed": "Meneruskan pelaksanaan pelan.",
     "planning": "Mencipta pelan...",
     "pause": "Jeda",
     "resume": "Sambung",

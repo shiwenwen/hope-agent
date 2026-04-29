@@ -2730,6 +2730,8 @@
     "stepsDetected": "ステップを検出",
     "noSteps": "ステップがありません",
     "executeCommand": "プランの実行を開始。各ステップを順に完了し、update_plan_step を呼んで進捗を追跡してください。",
+    "executionApproved": "プランが承認されました。実行を開始します。",
+    "executionResumed": "プランの実行を続行します。",
     "planning": "プラン作成中...",
     "pause": "一時停止",
     "resume": "再開",

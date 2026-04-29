@@ -2730,6 +2730,8 @@
     "stepsDetected": "adım tespit edildi",
     "noSteps": "Adım yok",
     "executeCommand": "Planı yürütmeye başlayın. Her adımı sırayla tamamlayın ve ilerlemeyi takip etmek için update_plan_step çağırın.",
+    "executionApproved": "Plan onaylandı. Yürütme başlatılıyor.",
+    "executionResumed": "Plan yürütmesine devam ediliyor.",
     "planning": "Plan oluşturuluyor...",
     "pause": "Duraklat",
     "resume": "Devam et",

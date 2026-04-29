@@ -2730,6 +2730,8 @@
     "stepsDetected": "단계 감지됨",
     "noSteps": "단계가 없습니다",
     "executeCommand": "계획 실행을 시작하세요. 각 단계를 순서대로 완료하고 update_plan_step 을 호출하여 진행 상황을 추적하세요.",
+    "executionApproved": "계획이 승인되었습니다. 실행을 시작합니다.",
+    "executionResumed": "계획 실행을 계속합니다.",
     "planning": "계획 작성 중...",
     "pause": "일시 정지",
     "resume": "재개",
