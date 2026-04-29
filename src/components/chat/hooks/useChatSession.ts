@@ -385,11 +385,12 @@ export function useChatSession({
     })
   }, [reloadSessions])
 
-  // Compute total unread count — exclude channel sessions (IM messages don't count as unread)
+  // Compute total unread count — channel and sub-agent sessions don't surface
+  // global unread indicators in the primary chat entry.
   const totalUnreadCount = useMemo(
     () =>
       sessions.reduce((sum, s) => {
-        if (s.channelInfo || s.id === currentSessionId) return sum
+        if (s.channelInfo || s.parentSessionId || s.id === currentSessionId) return sum
         return sum + s.unreadCount
       }, 0),
     [sessions, currentSessionId],
