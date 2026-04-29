@@ -23,6 +23,8 @@ export const TOOL_SUBAGENT = "subagent" as const
 export const TOOL_TASK_CREATE = "task_create" as const
 export const TOOL_TASK_UPDATE = "task_update" as const
 export const TOOL_TASK_LIST = "task_list" as const
+export const TOOL_MCP_RESOURCE = "mcp_resource" as const
+export const TOOL_MCP_PROMPT = "mcp_prompt" as const
 
 /**
  * @deprecated Use the `internal` flag from `list_builtin_tools` API response instead.
@@ -61,4 +63,6 @@ export const TOOL_I18N_KEY: Record<string, string> = {
   [TOOL_TASK_CREATE]: "TaskCreate",
   [TOOL_TASK_UPDATE]: "TaskUpdate",
   [TOOL_TASK_LIST]: "TaskList",
+  [TOOL_MCP_RESOURCE]: "McpResource",
+  [TOOL_MCP_PROMPT]: "McpPrompt",
 }

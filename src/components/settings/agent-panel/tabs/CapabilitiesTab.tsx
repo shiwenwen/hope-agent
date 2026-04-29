@@ -55,6 +55,9 @@ export default function CapabilitiesTab({
   const enabledToolCount = injectableTools.filter(
     (tool) => !config.capabilities.tools.deny.includes(tool.name),
   ).length
+  const approvalTools = injectableTools.filter(
+    (tool) => tool.name !== "mcp_resource" && tool.name !== "mcp_prompt",
+  )
 
   const updateCapabilities = (patch: Partial<AgentConfig["capabilities"]>) =>
     updateConfig({ capabilities: { ...config.capabilities, ...patch } })
@@ -225,7 +228,7 @@ export default function CapabilitiesTab({
           {!config.capabilities.requireApproval.includes("*") &&
             config.capabilities.requireApproval.length > 0 && (
               <div className="rounded-lg border border-border/50 overflow-hidden">
-                {injectableTools.map((tool, idx) => {
+                {approvalTools.map((tool, idx) => {
                   const isRequired = config.capabilities.requireApproval.includes(tool.name)
                   return (
                     <div
