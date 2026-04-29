@@ -87,9 +87,11 @@ export default function SessionItem({
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
   const hasPending =
     !isActive && !session.channelInfo && pendingInteractionCount > 0
+  const showUnread = !session.channelInfo && !session.parentSessionId
+  const displayUnreadCount = showUnread ? session.unreadCount : 0
 
   const handleMarkAsRead = useCallback(async () => {
-    if (session.unreadCount === 0) return
+    if (displayUnreadCount === 0) return
     try {
       await getTransport().call("mark_session_read_cmd", {
         sessionId: session.id,
@@ -98,7 +100,7 @@ export default function SessionItem({
     } catch (err) {
       logger.error("chat", "ChatSidebar::markSessionRead", "Failed to mark session as read", err)
     }
-  }, [session.id, session.unreadCount, onMarkAllRead])
+  }, [session.id, displayUnreadCount, onMarkAllRead])
 
   return (
     <ContextMenu>
@@ -139,7 +141,7 @@ export default function SessionItem({
                 <Bot className="h-3.5 w-3.5" />
               )}
             </div>
-            {!isActive && !session.channelInfo && session.unreadCount > 0 && (
+            {!isActive && displayUnreadCount > 0 && (
               <span
                 className="absolute -top-1 -right-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background pointer-events-none leading-none"
                 style={{
@@ -149,7 +151,7 @@ export default function SessionItem({
                     "0 2px 6px rgba(220, 38, 38, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.25)",
                 }}
               >
-                {session.unreadCount > 99 ? "99+" : session.unreadCount}
+                {displayUnreadCount > 99 ? "99+" : displayUnreadCount}
               </span>
             )}
             {hasPending && (
@@ -286,7 +288,7 @@ export default function SessionItem({
         </ContextMenuItem>
         <ContextMenuItem
           onClick={handleMarkAsRead}
-          disabled={session.unreadCount === 0}
+          disabled={displayUnreadCount === 0}
         >
           <CheckCheck className="h-4 w-4 mr-2" />
           {t("chat.markAsRead")}
