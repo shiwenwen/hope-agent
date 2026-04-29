@@ -68,6 +68,8 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
     )
   }
 
+  const fallbackTaskLabel = String(t("settings.browser.untitledTab", { defaultValue: "Untitled" }))
+
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/40 text-xs">
       <button
@@ -88,8 +90,12 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
         <ul className="space-y-0.5 px-2 pb-2">
           {tasks.map((tk) => {
             const { Icon, cls } = STATUS_ICON[tk.status] ?? STATUS_ICON.pending
+            const content = typeof tk.content === "string" ? tk.content.trim() : ""
+            const activeForm = typeof tk.activeForm === "string" ? tk.activeForm.trim() : ""
             const label =
-              tk.status === "in_progress" && tk.activeForm ? tk.activeForm : tk.content
+              tk.status === "in_progress"
+                ? activeForm || content || fallbackTaskLabel
+                : content || activeForm || fallbackTaskLabel
             return (
               <li
                 key={tk.id}

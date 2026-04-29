@@ -51,6 +51,13 @@ fn collect_task_items(tasks_arr: &[Value]) -> Result<Vec<(String, Option<String>
     Ok(items)
 }
 
+fn non_empty_string_arg(args: &Value, key: &str) -> Option<String> {
+    args.get(key)
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 const ERR_TASKS_REQUIRED: &str = "Error: 'tasks' must be a non-empty array of \
 {content, activeForm?}. Single-task calls still use the array form, e.g. \
 tasks: [{content: \"Fix bug #42\"}].";
@@ -107,14 +114,8 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
         },
         None => None,
     };
-    let content = args
-        .get("content")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
-    let active_form = args
-        .get("activeForm")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_string());
+    let content = non_empty_string_arg(args, "content");
+    let active_form = non_empty_string_arg(args, "activeForm");
     if status.is_none() && content.is_none() && active_form.is_none() {
         return "Error: at least one of 'status', 'content', or 'activeForm' must be provided"
             .to_string();
