@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Ghost } from "lucide-react"
+import { ArrowDownToLine, Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MessageBubble from "./MessageBubble"
@@ -8,6 +8,7 @@ import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
+import { getLatestUserTurnKey } from "./chatScrollKeys"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
@@ -158,8 +159,18 @@ export default function MessageList({
   )
 
   const lastMsg = messages[messages.length - 1]
+  const latestUserTurnKey = getLatestUserTurnKey(messages)
   const followKey = `${messages.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.contentBlocks?.length ?? 0}`
-  const { scrollRef, virtualizer, virtualItems, totalSize } = useVirtualFeed({
+  const {
+    scrollRef,
+    virtualizer,
+    virtualItems,
+    totalSize,
+    isAutoFollowPaused,
+    hasUnseenOutput,
+    resumeAutoFollow,
+    pauseAutoFollow,
+  } = useVirtualFeed({
     rows,
     getRowKey,
     estimateSize,
@@ -169,6 +180,7 @@ export default function MessageList({
     paddingEnd: 24,
     followOutput: loading,
     followKey,
+    forceFollowKey: latestUserTurnKey,
     resetKey: sessionId ?? "draft-session",
     canAnchorRow,
     onStartReached: onLoadMore,
@@ -189,14 +201,21 @@ export default function MessageList({
     }
   }, [contextMenu])
 
+  const handledScrollTargetRef = useRef<number | null>(null)
   useEffect(() => {
-    if (pendingScrollTarget === null || pendingScrollTarget === undefined) return
+    if (pendingScrollTarget === null || pendingScrollTarget === undefined) {
+      handledScrollTargetRef.current = null
+      return
+    }
+    if (handledScrollTargetRef.current === pendingScrollTarget) return
     const targetIndex = rows.findIndex(
       (row) => row.type === "message" && row.msg.dbId === pendingScrollTarget,
     )
     if (targetIndex < 0) return
 
     const target = pendingScrollTarget
+    handledScrollTargetRef.current = target
+    pauseAutoFollow(false)
     virtualizer.scrollToIndex(targetIndex, { align: "center" })
     const frame = requestAnimationFrame(() => {
       setHighlightMessageId(target)
@@ -212,7 +231,9 @@ export default function MessageList({
         highlightTimerRef.current = null
       }
     }
-  }, [onScrollTargetHandled, pendingScrollTarget, rows, virtualizer])
+  }, [onScrollTargetHandled, pauseAutoFollow, pendingScrollTarget, rows, virtualizer])
+
+  const showJumpToLatest = isAutoFollowPaused && (loading || hasUnseenOutput)
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, index: number) => {
@@ -335,24 +356,40 @@ export default function MessageList({
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto px-4">
-      <div className="relative w-full" style={{ height: totalSize }}>
-        {virtualItems.map((virtualRow) => {
-          const row = rows[virtualRow.index]
-          if (!row) return null
-          return (
-            <div
-              key={virtualRow.key}
-              ref={virtualizer.measureElement}
-              data-index={virtualRow.index}
-              className="absolute left-0 top-0 w-full"
-              style={{ transform: `translateY(${virtualRow.start}px)` }}
-            >
-              {renderRow(row)}
-            </div>
-          )
-        })}
+    <div className="relative flex-1 min-h-0">
+      <div ref={scrollRef} className="h-full overflow-y-auto px-4">
+        <div className="relative w-full" style={{ height: totalSize }}>
+          {virtualItems.map((virtualRow) => {
+            const row = rows[virtualRow.index]
+            if (!row) return null
+            return (
+              <div
+                key={virtualRow.key}
+                ref={virtualizer.measureElement}
+                data-index={virtualRow.index}
+                className="absolute left-0 top-0 w-full"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {renderRow(row)}
+              </div>
+            )
+          })}
+        </div>
       </div>
+
+      {showJumpToLatest && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-20 flex justify-center px-4">
+          <button
+            type="button"
+            onClick={() => resumeAutoFollow("smooth")}
+            className="pointer-events-auto inline-flex h-9 items-center gap-2 rounded-full border border-border/70 bg-background/95 px-3 text-sm font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
+            aria-label={t("chat.jumpToLatest")}
+          >
+            <ArrowDownToLine className="h-4 w-4" />
+            <span>{t("chat.jumpToLatest")}</span>
+          </button>
+        </div>
+      )}
 
       {/* Right-click context menu for assistant messages */}
       {contextMenu && (

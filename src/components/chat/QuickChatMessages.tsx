@@ -1,10 +1,12 @@
 import { useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { ExternalLink } from "lucide-react"
+import { ArrowDownToLine, ExternalLink } from "lucide-react"
 import type { Message } from "@/types/chat"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
+import { IconTip } from "@/components/ui/tooltip"
 import LoadMoreRow from "./LoadMoreRow"
+import { getLatestUserTurnKey } from "./chatScrollKeys"
 
 interface QuickChatMessagesProps {
   messages: Message[]
@@ -71,12 +73,21 @@ export default function QuickChatMessages({
   )
 
   const lastMsg = messages[messages.length - 1]
+  const latestUserTurnKey = getLatestUserTurnKey(messages)
   const followKey = `${rows.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.toolCalls?.length ?? 0}`
   const canAnchorRow = useCallback(
     (row: QuickChatRow) => row.type === "message",
     [],
   )
-  const { scrollRef, virtualizer, virtualItems, totalSize } = useVirtualFeed({
+  const {
+    scrollRef,
+    virtualizer,
+    virtualItems,
+    totalSize,
+    isAutoFollowPaused,
+    hasUnseenOutput,
+    resumeAutoFollow,
+  } = useVirtualFeed({
     rows,
     getRowKey,
     estimateSize,
@@ -86,12 +97,14 @@ export default function QuickChatMessages({
     paddingEnd: 12,
     followOutput: loading,
     followKey,
+    forceFollowKey: latestUserTurnKey,
     resetKey: sessionId ?? "quick-chat",
     canAnchorRow,
     onStartReached: onLoadMore,
     canLoadMore: hasMore,
     loadingMore,
   })
+  const showJumpToLatest = isAutoFollowPaused && (loading || hasUnseenOutput)
 
   if (messages.length === 0) {
     return null
@@ -163,24 +176,41 @@ export default function QuickChatMessages({
   }
 
   return (
-    <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0 px-4">
-      <div className="relative w-full" style={{ height: totalSize }}>
-        {virtualItems.map((virtualRow) => {
-          const row = rows[virtualRow.index]
-          if (!row) return null
-          return (
-            <div
-              key={virtualRow.key}
-              ref={virtualizer.measureElement}
-              data-index={virtualRow.index}
-              className="absolute left-0 top-0 w-full"
-              style={{ transform: `translateY(${virtualRow.start}px)` }}
-            >
-              {renderRow(row)}
-            </div>
-          )
-        })}
+    <div className="relative flex-1 min-h-0">
+      <div ref={scrollRef} className="h-full overflow-y-auto px-4">
+        <div className="relative w-full" style={{ height: totalSize }}>
+          {virtualItems.map((virtualRow) => {
+            const row = rows[virtualRow.index]
+            if (!row) return null
+            return (
+              <div
+                key={virtualRow.key}
+                ref={virtualizer.measureElement}
+                data-index={virtualRow.index}
+                className="absolute left-0 top-0 w-full"
+                style={{ transform: `translateY(${virtualRow.start}px)` }}
+              >
+                {renderRow(row)}
+              </div>
+            )
+          })}
+        </div>
       </div>
+
+      {showJumpToLatest && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-4">
+          <IconTip label={t("chat.jumpToLatest")}>
+            <button
+              type="button"
+              onClick={() => resumeAutoFollow("smooth")}
+              className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
+              aria-label={t("chat.jumpToLatest")}
+            >
+              <ArrowDownToLine className="h-4 w-4" />
+            </button>
+          </IconTip>
+        </div>
+      )}
     </div>
   )
 }
