@@ -129,7 +129,11 @@ async fn execute_tool_with_cancel(
     args: &serde_json::Value,
     ctx: &ToolExecContext,
     cancel: &Arc<AtomicBool>,
-) -> (String, u64, super::streaming_adapter::ToolDispatchSideOutput) {
+) -> (
+    String,
+    u64,
+    super::streaming_adapter::ToolDispatchSideOutput,
+) {
     let sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
         Arc::new(tokio::sync::Mutex::new(None));
     let mut local_ctx = ctx.clone();

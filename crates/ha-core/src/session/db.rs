@@ -1286,7 +1286,14 @@ impl SessionDB {
         duration_ms: Option<i64>,
         is_error: bool,
     ) -> Result<()> {
-        self.update_tool_result_with_metadata(session_id, call_id, result, duration_ms, is_error, None)
+        self.update_tool_result_with_metadata(
+            session_id,
+            call_id,
+            result,
+            duration_ms,
+            is_error,
+            None,
+        )
     }
 
     /// Same as [`Self::update_tool_result`] plus a JSON-string `tool_metadata`

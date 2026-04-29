@@ -104,7 +104,10 @@ pub async fn read_for_diff_metadata(path: &str) -> Option<(String, bool)> {
     if metadata.len() as usize > MAX_METADATA_CONTENT_BYTES {
         return Some((String::new(), true));
     }
-    tokio::fs::read_to_string(path).await.ok().map(|s| (s, false))
+    tokio::fs::read_to_string(path)
+        .await
+        .ok()
+        .map(|s| (s, false))
 }
 
 #[cfg(test)]
