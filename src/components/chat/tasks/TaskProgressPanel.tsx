@@ -37,7 +37,7 @@ export default function TaskProgressPanel({
       className={cn(
         "overflow-hidden animate-in fade-in-0 slide-in-from-bottom-1 duration-200",
         variant === "embedded"
-          ? "rounded-t-2xl border-b border-border/70 bg-secondary/20"
+          ? "rounded-t-2xl border-b border-border/70 bg-white dark:bg-card"
           : "rounded-2xl border border-border/80 bg-card/95 shadow-sm",
         className,
       )}

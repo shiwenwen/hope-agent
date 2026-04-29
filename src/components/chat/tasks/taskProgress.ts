@@ -148,9 +148,8 @@ export function taskProgressSnapshotFromTasks(value: unknown): TaskProgressSnaps
 
 export function shouldShowTaskProgressPanel(
   snapshot: TaskProgressSnapshot | null | undefined,
-  loading: boolean,
 ): snapshot is TaskProgressSnapshot {
-  return !!snapshot && snapshot.total > 0 && (loading || snapshot.remaining > 0)
+  return !!snapshot && snapshot.total > 0 && snapshot.remaining > 0
 }
 
 export function getTaskDisplayLabel(task: Task, fallback: string): string {

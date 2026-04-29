@@ -267,7 +267,7 @@ export default function ChatInput({
     onIncognitoChange(next)
   }
 
-  const visibleTaskProgress = shouldShowTaskProgressPanel(taskProgressSnapshot, loading)
+  const visibleTaskProgress = shouldShowTaskProgressPanel(taskProgressSnapshot)
     ? taskProgressSnapshot
     : null
 

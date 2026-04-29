@@ -6,6 +6,7 @@ import {
   getTaskDisplayLabel,
   parseTaskToolResult,
   selectCurrentTaskBatch,
+  shouldShowTaskProgressPanel,
 } from "./taskProgress"
 
 function task(patch: Partial<Task>): Task {
@@ -108,6 +109,15 @@ describe("task progress parsing", () => {
       inProgress: true,
     })
     expect(getTaskDisplayLabel(tasks[1], "Untitled")).toBe("Running tests")
+  })
+
+  test("hides the input task panel once every task is completed", () => {
+    const snapshot = createTaskProgressSnapshot([
+      task({ id: 1, content: "Write code", status: "completed" }),
+      task({ id: 2, content: "Review", status: "completed" }),
+    ])
+
+    expect(shouldShowTaskProgressPanel(snapshot)).toBe(false)
   })
 
   test("selects the latest task creation batch for current progress", () => {
