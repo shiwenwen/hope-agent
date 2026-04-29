@@ -1,8 +1,11 @@
 use anyhow::Result;
 use serde_json::Value;
 
-use super::{get_bool, get_str, require_browser, IMAGE_BASE64_PREFIX};
+use super::{get_bool, get_str, require_browser};
+use crate::agent::MEDIA_ITEMS_PREFIX;
+use crate::attachments::{self, MediaItem, MediaKind};
 use crate::browser_state::{get_browser_state, ElementRef};
+use crate::tools::image_markers;
 
 /// JavaScript injected into the page to extract an accessibility-like element tree
 const SNAPSHOT_JS: &str = r#"(() => {
@@ -153,8 +156,10 @@ const SNAPSHOT_JS: &str = r#"(() => {
 
 pub(super) async fn action_take_snapshot() -> Result<String> {
     require_browser().await?;
-    let state = get_browser_state().lock().await;
-    let page = state.get_active_page()?;
+    let page = {
+        let state = get_browser_state().lock().await;
+        state.get_active_page()?.clone()
+    };
 
     let json_str: String = page
         .evaluate(SNAPSHOT_JS)
@@ -266,7 +271,6 @@ pub(super) async fn action_take_snapshot() -> Result<String> {
         );
     }
 
-    drop(state);
     let mut state = get_browser_state().lock().await;
     state.element_refs = new_refs;
     state.snapshot_url = Some(url.to_string());
@@ -278,13 +282,18 @@ pub(super) async fn action_take_snapshot() -> Result<String> {
 // Screenshot
 // ══════════════════════════════════════════════════════════════════
 
-pub(super) async fn action_take_screenshot(args: &Value) -> Result<String> {
+pub(super) async fn action_take_screenshot(
+    args: &Value,
+    session_id: Option<&str>,
+) -> Result<String> {
     require_browser().await?;
     let format = get_str(args, "format").unwrap_or("png");
     let full_page = get_bool(args, "full_page").unwrap_or(false);
 
-    let state = get_browser_state().lock().await;
-    let page = state.get_active_page()?;
+    let page = {
+        let state = get_browser_state().lock().await;
+        state.get_active_page()?.clone()
+    };
 
     use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
     use chromiumoxide::page::ScreenshotParams;
@@ -304,11 +313,6 @@ pub(super) async fn action_take_screenshot(args: &Value) -> Result<String> {
         .await
         .map_err(|e| anyhow::anyhow!("Screenshot failed: {}", e))?;
 
-    let b64_data = base64::Engine::encode(
-        &base64::engine::general_purpose::STANDARD,
-        &screenshot_bytes,
-    );
-
     let url = page
         .url()
         .await
@@ -322,13 +326,45 @@ pub(super) async fn action_take_screenshot(args: &Value) -> Result<String> {
         "image/png"
     };
 
-    Ok(format!(
-        "{}{}__{}__\nScreenshot captured (url: {}, format: {}{})",
-        IMAGE_BASE64_PREFIX,
-        mime,
-        b64_data,
+    let caption = format!(
+        "Screenshot captured (url: {}, format: {}{})",
         url,
         format,
         if full_page { ", full page" } else { "" }
-    ))
+    );
+    let ext = if mime == "image/jpeg" { "jpg" } else { "png" };
+    let display_filename = format!("browser_screenshot.{ext}");
+
+    match attachments::save_attachment_bytes(session_id, &display_filename, &screenshot_bytes) {
+        Ok(saved_path) => {
+            let item = MediaItem::from_saved_path(
+                session_id,
+                &saved_path,
+                &display_filename,
+                mime.to_string(),
+                screenshot_bytes.len() as u64,
+                MediaKind::Image,
+                Some(caption.clone()),
+            );
+            let items_json =
+                serde_json::to_string(&vec![item]).unwrap_or_else(|_| "[]".to_string());
+            let file_marker = image_markers::build_image_file_marker(mime, &saved_path, &caption);
+            Ok(format!("{MEDIA_ITEMS_PREFIX}{items_json}\n{file_marker}"))
+        }
+        Err(e) => {
+            app_warn!(
+                "tool",
+                "browser",
+                "Failed to save browser screenshot as attachment; falling back to inline base64: {}",
+                e
+            );
+            let b64_data = base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                &screenshot_bytes,
+            );
+            Ok(image_markers::build_image_base64_marker(
+                mime, &b64_data, &caption,
+            ))
+        }
+    }
 }

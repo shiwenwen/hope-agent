@@ -528,7 +528,7 @@ pub async fn execute_tool_with_context(
                     .await
             }
             TOOL_MANAGE_CRON => cron::tool_manage_cron(args, ctx.session_id.as_deref()).await,
-            TOOL_BROWSER => browser::tool_browser(args).await,
+            TOOL_BROWSER => browser::tool_browser(args, ctx.session_id.as_deref()).await,
             TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
             TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
             TOOL_TEAM => team::tool_team(args, ctx).await,
@@ -639,17 +639,19 @@ pub async fn execute_tool_with_context(
     // If the result exceeds the threshold, write it to disk and return
     // a preview with a path reference so the model can `read` the full file.
     match result {
-        Ok(output) if output.len() > disk_persist_threshold() => {
+        Ok(output) if should_persist_large_result(&output) => {
+            if crate::tools::image_markers::has_valid_image_markers(&output) {
+                app_info!(
+                    "tool",
+                    "disk_persist",
+                    "Tool '{}' result {}B contains valid image marker; preserving inline for provider vision",
+                    name,
+                    output.len()
+                );
+                return Ok(output);
+            }
             match persist_large_result(&output, ctx.session_id.as_deref(), name) {
                 Ok(path) => {
-                    let head = crate::truncate_utf8(&output, 2000);
-                    // Find a valid UTF-8 char boundary for tail extraction
-                    let mut tail_start = output.len().saturating_sub(1000);
-                    while tail_start > 0 && !output.is_char_boundary(tail_start) {
-                        tail_start += 1;
-                    }
-                    let tail = &output[tail_start..];
-                    let omitted = output.len().saturating_sub(head.len() + tail.len());
                     app_info!(
                         "tool",
                         "disk_persist",
@@ -658,12 +660,7 @@ pub async fn execute_tool_with_context(
                         output.len(),
                         path
                     );
-                    Ok(format!(
-                        "{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}\n\n\
-                         [Full result ({total}B) saved to: {path}]\n\
-                         [Use read tool with this path to access full content]",
-                        total = output.len(),
-                    ))
+                    Ok(build_persisted_large_result_preview(&output, &path))
                 }
                 Err(e) => {
                     // Fall back to returning the full result if persistence fails
@@ -690,6 +687,47 @@ fn disk_persist_threshold() -> usize {
     crate::config::cached_config()
         .tool_result_disk_threshold
         .unwrap_or(50_000)
+}
+
+fn should_persist_large_result(output: &str) -> bool {
+    let threshold = disk_persist_threshold();
+    threshold > 0 && output.len() > threshold
+}
+
+fn build_persisted_large_result_preview(output: &str, path: &str) -> String {
+    let (media_header, output_body) = split_media_items_header(output);
+
+    if crate::tools::image_markers::contains_image_marker(output_body) {
+        let preview = format!(
+            "[Large tool result ({total}B) saved to: {path}]\n\
+             [Inline preview omitted because the result contains image marker data that must not be truncated.]\n\
+             [Use read tool with this path to access full content]",
+            total = output.len(),
+        );
+        return format!("{media_header}{preview}");
+    }
+
+    let head = crate::truncate_utf8(output_body, 2000);
+    let tail = crate::util::truncate_utf8_tail(output_body, 1000);
+    let omitted = output_body.len().saturating_sub(head.len() + tail.len());
+    let preview = format!(
+        "{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}\n\n\
+         [Full result ({total}B) saved to: {path}]\n\
+         [Use read tool with this path to access full content]",
+        total = output.len(),
+    );
+    format!("{media_header}{preview}")
+}
+
+fn split_media_items_header(output: &str) -> (&str, &str) {
+    let Some(rest) = output.strip_prefix(crate::agent::MEDIA_ITEMS_PREFIX) else {
+        return ("", output);
+    };
+    let Some(newline_idx) = rest.find('\n') else {
+        return ("", output);
+    };
+    let split_at = crate::agent::MEDIA_ITEMS_PREFIX.len() + newline_idx + 1;
+    (&output[..split_at], &output[split_at..])
 }
 
 /// Write a large tool result to disk and return the file path.
@@ -824,7 +862,8 @@ fn persist_large_result(
 
 #[cfg(test)]
 mod tests {
-    use super::ToolExecContext;
+    use super::{build_persisted_large_result_preview, ToolExecContext};
+    use crate::tools::browser::IMAGE_BASE64_PREFIX;
     use std::path::Path;
 
     #[test]
@@ -852,5 +891,45 @@ mod tests {
             .to_string();
         assert_eq!(ctx.resolve_path("src/main.rs"), expected);
         assert_eq!(ctx.resolve_path("/var/tmp/file.txt"), "/var/tmp/file.txt");
+    }
+
+    #[test]
+    fn preserves_valid_image_marker_results_inline_for_provider_vision() {
+        let output = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+
+        assert!(crate::tools::image_markers::has_valid_image_markers(
+            &output
+        ));
+    }
+
+    #[test]
+    fn persisted_preview_omits_image_marker_prefix_for_malformed_image_results() {
+        let output = format!(
+            "{}image/png__not-base64__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+
+        let preview = build_persisted_large_result_preview(&output, "/tmp/browser_1.txt");
+
+        assert!(!preview.contains(IMAGE_BASE64_PREFIX));
+        assert!(preview.contains("Large tool result"));
+        assert!(preview.contains("/tmp/browser_1.txt"));
+    }
+
+    #[test]
+    fn persisted_preview_preserves_media_items_header() {
+        let output = format!(
+            "{}[]\n{}",
+            crate::agent::MEDIA_ITEMS_PREFIX,
+            "x".repeat(10_000)
+        );
+
+        let preview = build_persisted_large_result_preview(&output, "/tmp/tool.txt");
+
+        assert!(preview.starts_with(crate::agent::MEDIA_ITEMS_PREFIX));
+        assert!(preview.contains("/tmp/tool.txt"));
     }
 }

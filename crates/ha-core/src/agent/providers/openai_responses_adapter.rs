@@ -18,7 +18,9 @@ use serde_json::{json, Value};
 
 use super::super::api_types::{FunctionCallItem, ResponsesRequest, SseEvent};
 use super::super::config::build_api_url;
-use super::super::events::{build_responses_tool_result, emit_text_delta, emit_thinking_delta};
+use super::super::events::{
+    emit_text_delta, emit_thinking_delta, expand_responses_image_markers_for_api,
+};
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
@@ -493,7 +495,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         // system items in the input array. These live OUTSIDE `instructions`
         // so suffix churn never invalidates the static instruction prefix
         // (which OpenAI auto-caches).
-        let mut api_input: Vec<Value> = req.history_for_api.to_vec();
+        let mut api_input: Vec<Value> = expand_responses_image_markers_for_api(req.history_for_api);
         if let Some(active_suffix) = req.active_memory_suffix {
             if !active_suffix.is_empty() {
                 api_input.insert(
@@ -730,11 +732,7 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
         executed: &[ExecutedTool],
     ) {
         // Per executed tool: function_call item + function_call_output item.
-        // If the tool returned __IMAGE_BASE64__ markers, build_responses_tool_result
-        // additionally returns image input items (one per image), pushed unstamped
-        // because they're orphan user-role messages, not part of a tool-round pair.
         for et in executed {
-            let (text_output, image_items) = build_responses_tool_result(&et.clean_result);
             crate::context_compact::push_and_stamp(
                 history,
                 json!({
@@ -751,13 +749,10 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 json!({
                     "type": "function_call_output",
                     "call_id": et.call_id,
-                    "output": text_output,
+                    "output": et.clean_result,
                 }),
                 round,
             );
-            for img_item in image_items {
-                history.push(img_item);
-            }
         }
     }
 

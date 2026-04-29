@@ -612,6 +612,7 @@ sequenceDiagram
 - **存储路径**：`~/.hope-agent/tool_results/{session_id}/{tool_name}_{timestamp}.txt`
 - **上下文内容**：head 2KB + `[...N bytes omitted...]` + tail 1KB + 路径引用
 - **访问方式**：模型可通过 read 工具读取完整文件
+- **视觉输出例外**：包含图片 marker 的工具结果不能按普通文本 head/tail 截断；合法图片 marker 保持完整交给 Provider 视觉输入，非法/损坏 marker 只返回纯文本落盘引用，避免把半截 base64 当图片发送
 
 ```mermaid
 flowchart TD
@@ -619,6 +620,145 @@ flowchart TD
     B -- 是 --> C["写入磁盘:<br/>~/.hope-agent/tool_results/sess_abc/read_1712345678.txt"]
     C --> D["返回给模型:<br/>[前 2000 字符]<br/>[...197000 bytes omitted...]<br/>[后 1000 字符]<br/>[Full result saved to: ...]<br/>[Use read tool to access full content]"]
     B -- 否 --> E["原文返回给模型"]
+```
+
+## 视觉工具输出协议
+
+视觉工具输出分两条通道，职责不能混用：
+
+| 通道 | 协议 | 消费方 | 作用 |
+| --- | --- | --- | --- |
+| UI / IM 文件资产 | `__MEDIA_ITEMS__[...]` | 前端、HTTP 资源路由、IM channel worker | 展示图片/文件卡片、下载、转发；包含 logical `url`、本地 `localPath`、MIME、大小、kind |
+| Provider 视觉输入 | `__IMAGE_BASE64__...` / `__IMAGE_FILE__...` | `agent/events.rs` → 各 Provider adapter | 在发 API 前转换成 Anthropic/OpenAI/Codex 支持的标准图片输入 |
+
+### `__MEDIA_ITEMS__`
+
+工具结果可以用 `__MEDIA_ITEMS__` 前缀携带结构化附件元数据：
+
+```text
+__MEDIA_ITEMS__[{"url":"/api/attachments/<session>/<file>","localPath":"/abs/path","name":"...","mimeType":"image/png","sizeBytes":123,"kind":"image"}]
+普通 tool_result 文本
+```
+
+`agent/events.rs::extract_media_items()` 会把该前缀从 tool_result 文本里剥离，并把 `media_items[]` 挂到 `tool_result` 流式事件上。Tauri 前端可以使用 `localPath`，HTTP/Web 模式的 EventBus 桥会去掉 `localPath` 并给 `/api/attachments/...` 补 token。
+
+`__MEDIA_ITEMS__` 只服务 UI / IM / 文件下载。它不会自动让模型“看见图片”；模型视觉输入必须走下面的图片 marker。
+
+### `__IMAGE_BASE64__`
+
+旧的内联图片协议：
+
+```text
+__IMAGE_BASE64__image/png__<base64>__
+Screenshot captured (...)
+```
+
+`agent/events.rs` 在写入 Provider 历史时识别该 marker，并转换为：
+
+- Anthropic：`{ type: "image", source: { type: "base64", media_type, data } }`
+- OpenAI Chat：`{ type: "image_url", image_url: { url: "data:image/...;base64,..." } }`
+- OpenAI Responses / Codex：追加 `{ type: "input_image", image_url: "data:image/...;base64,..." }`
+
+约束：
+
+- MIME 必须是 `image/*`
+- base64 必须完整且可解码
+- marker 一旦被截断、混入 `[...bytes omitted...]`、缺少分隔符，必须降级为普通文本，不得生成 Provider 图片输入
+
+### `__IMAGE_FILE__`
+
+新的文件引用图片协议：
+
+```text
+__IMAGE_FILE__{"mime":"image/png","path":"/Users/.../.hope-agent/attachments/<session>/browser_screenshot.png"}
+Screenshot captured (...)
+```
+
+它解决“图片原始文件要保存，但 Provider 不能直接读取本地路径”的问题：工具先把图片 bytes 保存为受管文件，再把路径 marker 写入 tool_result；Provider 发送前由 Hope Agent 读取该路径、校验、编码为 base64，再转换成标准图片输入。
+
+安全边界：
+
+- 只允许 Hope Agent 受管媒体目录下的路径，例如 `~/.hope-agent/attachments/` 和 `~/.hope-agent/tool_results/`
+- 路径必须 canonicalize 后仍在允许目录内，防止 `../` 或 symlink 逃逸
+- 文件 MIME 必须由魔数校验为图片，且与 marker 声明 MIME 一致
+- 文件大小必须受上限保护，避免把超大本地文件读入 Provider 请求
+- 任意工具结果伪造的普通 `/Users/...` 路径不得被自动读取
+
+### 与落盘/压缩的关系
+
+图片 marker 是机器可解析载荷，不是普通文本：
+
+- 大结果落盘不能对 marker 做 head/tail 截断后再保留 marker 前缀
+- 合法图片 marker 要么完整保留给 Provider 转换，要么迁移为 `__IMAGE_FILE__` 文件引用
+- 非法图片 marker 或包含 marker 的普通落盘预览只允许返回纯文本路径引用，不能再生成 `image_url`
+- Tier 1/2 上下文压缩同样不得制造“半截 marker”；如果要裁剪视觉结果，应移除图片载荷并保留文本说明/文件路径
+
+关键实现：
+
+| 文件 | 职责 |
+| --- | --- |
+| `crates/ha-core/src/tools/image_markers.rs` | 解析/校验 `__IMAGE_BASE64__` 与 `__IMAGE_FILE__`，文件路径安全检查，按需读取并编码图片 |
+| `crates/ha-core/src/agent/events.rs` | 把图片 marker 转换为各 Provider 的标准图片输入；解析失败时降级普通文本 |
+| `crates/ha-core/src/tools/execution.rs` | 大工具结果落盘；对图片 marker 做完整性保护，避免截断后继续作为图片发送 |
+| `crates/ha-core/src/context_compact/truncation.rs` | Tier 1 截断时保护图片 marker，避免压缩阶段制造半截图片载荷 |
+| `crates/ha-core/src/tools/browser/snapshot.rs` | browser 截图保存为 session attachment，并用 `__MEDIA_ITEMS__` + `__IMAGE_FILE__` 同时服务 UI 和模型视觉 |
+
+### 端到端流程图
+
+```mermaid
+flowchart TD
+    Start["Tool dispatch<br/>execute_tool_with_context"] --> Run["工具实现返回 raw result 字符串"]
+
+    Run --> IsLarge{"raw result 超过<br/>toolResultDiskThreshold?"}
+    IsLarge -- 否 --> Inline["完整 raw result<br/>返回 streaming_loop"]
+    IsLarge -- 是 --> HasImageMarker{"包含图片 marker?<br/>__IMAGE_BASE64__ / __IMAGE_FILE__"}
+
+    HasImageMarker -- 否 --> PersistText["写入 ~/.hope-agent/tool_results/<session>/...txt"]
+    PersistText --> TextPreview["返回 head + omitted + tail + 路径引用"]
+
+    HasImageMarker -- 是 --> MarkerValid{"marker 结构、MIME、base64/路径<br/>全部合法?"}
+    MarkerValid -- 是 --> PreserveVisual["保留完整 marker<br/>禁止 head/tail 截断"]
+    MarkerValid -- 否 --> PersistVisualText["写入 tool_results<br/>返回纯文本路径引用<br/>不保留 marker 前缀"]
+
+    Inline --> StripMedia["streaming_loop 调<br/>extract_media_items()<br/>剥离 __MEDIA_ITEMS__ 前缀"]
+    TextPreview --> StripMedia
+    PersistVisualText --> StripMedia
+    PreserveVisual --> StripMedia
+
+    StripMedia --> HasMedia{"结果以<br/>__MEDIA_ITEMS__ 开头?"}
+    HasMedia -- 是 --> MediaHeader["结构化附件元数据<br/>url / localPath / mime / size / kind"]
+    HasMedia -- 否 --> NoMedia["无 UI 附件元数据"]
+
+    MediaHeader --> EmitEvent["emit tool_result 事件"]
+    NoMedia --> EmitEvent
+
+    EmitEvent --> EventPayload["event.result = 文本/marker<br/>event.media_items = UI 附件元数据"]
+    EventPayload --> PersistDb["SessionDB 更新 messages.tool_result<br/>附带 duration/is_error/tool_metadata"]
+    EventPayload --> Frontend{"前端通道"}
+    Frontend -- Tauri --> TauriUi["保留 localPath<br/>convertFileSrc 展示/打开文件"]
+    Frontend -- HTTP/Web --> HttpUi["EventBus 桥移除 localPath<br/>/api/attachments/... 补 token"]
+
+    EmitEvent --> History["ExecutedTool.clean_result<br/>原样写入 provider history"]
+    History --> ProviderParse{"构造 API request 时<br/>临时解析图片 marker?"}
+
+    ProviderParse -- 无 marker --> PlainToolResult["按普通文本 tool_result<br/>发给模型"]
+    ProviderParse -- __IMAGE_BASE64__ --> ValidateB64{"校验 image/* MIME<br/>和完整 base64"}
+    ProviderParse -- __IMAGE_FILE__ --> ValidateFile{"canonicalize 路径<br/>限制在受管目录<br/>魔数校验 MIME<br/>大小上限"}
+
+    ValidateB64 -- 失败 --> PlainFallback["降级普通文本<br/>不生成 image_url"]
+    ValidateFile -- 失败 --> PlainFallback
+    ValidateB64 -- 通过 --> ProviderImage["转换为 Provider 标准图片输入"]
+    ValidateFile -- 通过 --> ReadEncode["读取本地图片 bytes<br/>编码 base64"]
+    ReadEncode --> ProviderImage
+
+    ProviderImage --> ApiRequest["Anthropic / OpenAI Chat / Responses / Codex API 请求<br/>不把临时 base64 写回 context_json"]
+    PlainToolResult --> ApiRequest
+    PlainFallback --> ApiRequest
+
+    ApiRequest --> Compact["下一轮前上下文压缩<br/>truncate_tool_results / pruning"]
+    Compact --> CompactRule{"遇到图片 marker?"}
+    CompactRule -- 是 --> CompactVisual["不得制造半截 marker<br/>移除载荷或保留完整文件引用"]
+    CompactRule -- 否 --> CompactText["普通文本按预算截断/清理"]
 ```
 
 ---

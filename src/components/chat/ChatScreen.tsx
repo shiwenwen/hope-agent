@@ -34,6 +34,7 @@ import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
+import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useModelState } from "./hooks/useModelState"
@@ -688,6 +689,10 @@ export default function ChatScreen({
 
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
+  const taskProgressSnapshot = useTaskProgressSnapshot(
+    session.currentSessionId,
+    session.messages,
+  )
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -1302,6 +1307,7 @@ export default function ChatScreen({
                   onEnterPlanMode={planMode.enterPlanMode}
                   onExitPlanMode={planMode.exitPlanMode}
                   onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+                  taskProgressSnapshot={taskProgressSnapshot}
                 />
               </>
             )}

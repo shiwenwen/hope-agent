@@ -41,6 +41,11 @@ import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./IncognitoToggle"
 import WorkingDirectoryButton from "./WorkingDirectoryButton"
+import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
+import {
+  shouldShowTaskProgressPanel,
+  type TaskProgressSnapshot,
+} from "@/components/chat/tasks/taskProgress"
 import { Switch } from "@/components/ui/switch"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
@@ -98,6 +103,8 @@ interface ChatInputProps {
   onEnterPlanMode?: () => void
   onExitPlanMode?: () => void
   onTogglePlanPanel?: () => void
+  // Session-scoped Todo progress
+  taskProgressSnapshot?: TaskProgressSnapshot | null
 }
 
 export default function ChatInput({
@@ -137,6 +144,7 @@ export default function ChatInput({
   onEnterPlanMode,
   onExitPlanMode,
   onTogglePlanPanel,
+  taskProgressSnapshot,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -258,6 +266,10 @@ export default function ChatInput({
     }
     onIncognitoChange(next)
   }
+
+  const visibleTaskProgress = shouldShowTaskProgressPanel(taskProgressSnapshot, loading)
+    ? taskProgressSnapshot
+    : null
 
   const renderInlineAddControls = () => (
     <>
@@ -417,6 +429,10 @@ export default function ChatInput({
           onHover={mention.setSelectedIndex}
         />
 
+        {visibleTaskProgress && (
+          <TaskProgressPanel snapshot={visibleTaskProgress} variant="embedded" />
+        )}
+
         {/* Attached files preview (rendered above textarea) */}
         <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
 
@@ -470,7 +486,7 @@ export default function ChatInput({
         {/* Plan Mode Banner */}
         {planState === "planning" && (
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}
+            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!visibleTaskProgress && attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}
           >
             <ClipboardList className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1">{t("planMode.restricted")}</span>

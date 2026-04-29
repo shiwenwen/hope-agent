@@ -54,43 +54,6 @@ const GROUP_ICONS: Record<ExecutionToolGroupLabelKey, React.ComponentType<{ clas
   skill: Puzzle,
 }
 
-const DIGITS = Array.from("0123456789")
-
-function RollingNumber({ value }: { value: string }) {
-  const slotCount = Math.max(2, value.length)
-  const padded = value.padStart(slotCount, "0")
-  const firstVisibleIndex = padded.length - value.length
-
-  return (
-    <span className="tool-count-number" role="text" aria-label={value}>
-      {Array.from(padded).map((digit, idx) => {
-        const digitValue = Number(digit)
-        const isPlaceholder = idx < firstVisibleIndex
-
-        return (
-          <span
-            key={`${slotCount}-${idx}`}
-            className={cn(
-              "tool-count-digit",
-              isPlaceholder && "tool-count-digit-placeholder",
-            )}
-            aria-hidden="true"
-          >
-            <span
-              className="tool-count-digit-reel"
-              style={{ transform: `translateY(-${digitValue}em)` }}
-            >
-              {DIGITS.map((item) => (
-                <span key={item}>{item}</span>
-              ))}
-            </span>
-          </span>
-        )
-      })}
-    </span>
-  )
-}
-
 function StableNumericLabel({ text }: { text: string }) {
   const parts = text.split(/(\d+)/g)
 
@@ -98,7 +61,11 @@ function StableNumericLabel({ text }: { text: string }) {
     <>
       {parts.map((part, idx) => {
         if (/^\d+$/.test(part)) {
-          return <RollingNumber key={idx} value={part} />
+          return (
+            <span key={`${idx}-${part}`} className="tool-count-number">
+              {part}
+            </span>
+          )
         }
         return part
       })}

@@ -18,6 +18,7 @@ mod find;
 mod grep;
 pub(crate) mod image;
 pub mod image_generate;
+pub(crate) mod image_markers;
 pub(crate) mod job_status;
 mod ls;
 mod memory;
