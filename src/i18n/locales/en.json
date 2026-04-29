@@ -2167,14 +2167,20 @@
         "detailFailed": "Failed to load model versions"
       }
     },
-    "skillsAutoReviewEnabled": {
-      "label": "Auto-summarize and create skills",
-      "description": "Once chat hits the cooldown + threshold, let the model review the convo and auto-create/patch skills (on by default).",
-      "hint": "Turn off to suppress the pipeline entirely — nothing auto-creates or auto-patches skills."
+    "skillsTab": {
+      "manage": "Skills",
+      "evolution": "Self-Evolution"
+    },
+    "skillsEvolutionHero": {
+      "title": "Distill what you keep doing into reusable skills",
+      "body": "Hope Agent doesn't stay still. Every so often it replays your chats, turns the things you keep doing into reusable skills — so the next time it comes up, the agent already knows how.",
+      "note": "On by default · grows more capable the more you use it. Turn off to keep things as-is — no new skills will form on their own.",
+      "statusOn": "Evolving",
+      "statusOff": "Paused"
     },
     "skillsAutoReview": {
-      "label": "Auto-activate created skills",
-      "description": "Skip the manual review step — auto-created skills become Active immediately.",
+      "label": "Auto-activate new skills",
+      "description": "Skip the draft step — newly distilled skills go live immediately.",
       "hint": "Off (default): new skills land as drafts and need your approval first."
     }
   },

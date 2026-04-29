@@ -2167,14 +2167,20 @@
         "detailFailed": "Failed to load model versions"
       }
     },
-    "skillsAutoReviewEnabled": {
-      "label": "Tự động tóm tắt và tạo kỹ năng",
-      "description": "Khi chat đạt cooldown và ngưỡng, mô hình sẽ xem lại cuộc hội thoại và tự động tạo/sửa kỹ năng (bật mặc định).",
-      "hint": "Tắt sẽ vô hiệu hóa toàn bộ pipeline — không có kỹ năng nào được tạo hoặc sửa tự động."
+    "skillsTab": {
+      "manage": "Kỹ năng",
+      "evolution": "Tự tiến hóa"
+    },
+    "skillsEvolutionHero": {
+      "title": "Biến những việc bạn lặp lại thành kỹ năng có thể tái sử dụng",
+      "body": "Hope Agent không đứng yên. Thi thoảng sẽ xem lại các cuộc trò chuyện và chắt lọc những việc bạn lặp lại thành kỹ năng có thể tái sử dụng — lần sau gặp lại là đã biết cách rồi.",
+      "note": "Bật mặc định · càng dùng càng hợp với bạn. Tắt đi không ảnh hưởng tới các cuộc trò chuyện, chỉ là kỹ năng mới sẽ không tự tích lũy thêm.",
+      "statusOn": "Đang tiến hóa",
+      "statusOff": "Đã tạm dừng"
     },
     "skillsAutoReview": {
-      "label": "Tự động kích hoạt kỹ năng mới tạo",
-      "description": "Bỏ qua bước xem xét — kỹ năng tự động tạo sẽ kích hoạt ngay.",
+      "label": "Tự động kích hoạt kỹ năng mới",
+      "description": "Bỏ qua bước nháp — kỹ năng được chắt lọc sẽ hoạt động ngay.",
       "hint": "Tắt (mặc định): kỹ năng mới sẽ là bản nháp và cần bạn phê duyệt trước."
     }
   },

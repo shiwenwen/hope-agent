@@ -2167,14 +2167,20 @@
         "detailFailed": "Failed to load model versions"
       }
     },
-    "skillsAutoReviewEnabled": {
-      "label": "Yetenekleri otomatik özetle ve oluştur",
-      "description": "Sohbet bekleme süresi ve eşiğe ulaştığında model konuşmayı gözden geçirir ve yetenekleri otomatik oluşturur/düzenler (varsayılan açık).",
-      "hint": "Kapatıldığında akış tamamen susturulur — hiçbir yetenek otomatik oluşturulmaz veya değiştirilmez."
+    "skillsTab": {
+      "manage": "Yetenekler",
+      "evolution": "Kendiliğinden Evrim"
+    },
+    "skillsEvolutionHero": {
+      "title": "Tekrar ettiğin şeyleri yeniden kullanılabilir yeteneklere çevir",
+      "body": "Hope Agent yerinde durmaz. Arada sohbetleri gözden geçirir, tekrar ettiğin şeyleri yeniden kullanılabilir yeteneklere dönüştürür — bir dahaki sefere konu zaten öğrenilmiş olur.",
+      "note": "Varsayılan açık · kullandıkça daha iyi uyum sağlar. Kapatınca günlük sohbet etkilenmez, yalnızca yeni yetenekler kendiliğinden birikmez.",
+      "statusOn": "Evrimleşiyor",
+      "statusOff": "Duraklatıldı"
     },
     "skillsAutoReview": {
-      "label": "Oluşturulan yetenekleri otomatik etkinleştir",
-      "description": "Manuel inceleme adımını atla — otomatik oluşturulan yetenekler hemen etkinleşir.",
+      "label": "Yeni yetenekleri otomatik etkinleştir",
+      "description": "Taslak adımını atla — damıtılan yetenekler anında devreye girer.",
       "hint": "Kapalı (varsayılan): yeni yetenekler taslak olarak kaydedilir ve önce onayınızı gerektirir."
     }
   },

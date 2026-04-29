@@ -2167,14 +2167,20 @@
         "detailFailed": "Failed to load model versions"
       }
     },
-    "skillsAutoReviewEnabled": {
-      "label": "스킬 자동 요약 및 생성",
-      "description": "쿨다운과 임계값에 도달하면 모델이 대화를 검토해 스킬을 자동 생성/수정합니다(기본 켜짐).",
-      "hint": "끄면 파이프라인 전체가 중단되어 스킬이 자동 생성/수정되지 않습니다."
+    "skillsTab": {
+      "manage": "스킬",
+      "evolution": "자기 진화"
+    },
+    "skillsEvolutionHero": {
+      "title": "반복하는 일을, 재사용 가능한 스킬로",
+      "body": "Hope Agent는 멈춰 있지 않습니다. 틈틈이 대화를 돌아보며 반복되는 작업을 재사용 가능한 스킬로 정제합니다 — 다음에 같은 상황이 오면 이미 알고 있습니다.",
+      "note": "기본 켜짐 · 쓸수록 더 잘 맞춰집니다. 끄더라도 일상 대화에는 영향이 없고, 다만 새 스킬이 자동으로 쌓이지 않을 뿐입니다.",
+      "statusOn": "진화 중",
+      "statusOff": "일시 중지"
     },
     "skillsAutoReview": {
-      "label": "생성된 스킬 자동 활성화",
-      "description": "검토 단계 건너뛰기 — 자동 생성된 스킬이 즉시 활성화됩니다.",
+      "label": "새 스킬 자동 활성화",
+      "description": "초안 검토 건너뛰기 — 추출된 스킬이 즉시 활성화됩니다.",
       "hint": "꺼짐(기본값): 새 스킬은 초안으로 저장되며 먼저 승인이 필요합니다."
     }
   },

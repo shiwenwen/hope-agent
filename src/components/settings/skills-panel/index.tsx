@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import {
@@ -10,11 +12,13 @@ import { SKILLS_EVENTS } from "@/types/skills"
 import type { SkillSummary } from "../types"
 import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
+import SkillEvolutionView from "./SkillEvolutionView"
 import SkillDetailView from "./SkillDetailView"
 import DraftReviewSection from "./DraftReviewSection"
 import QuickImportDialog from "./QuickImportDialog"
 
 export default function SkillsPanel() {
+  const { t } = useTranslation()
   const { drafts } = useDraftSkillsStore()
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [draftPending, setDraftPending] = useState<
@@ -299,24 +303,40 @@ export default function SkillsPanel() {
           />
         </div>
       )}
-      <SkillListView
-        skills={visibleSkills}
-        extraDirs={extraDirs}
-        loading={loading}
-        skillEnvCheck={skillEnvCheck}
-        autoReviewEnabled={autoReviewEnabled}
-        autoReviewPromotion={autoReviewPromotion}
-        envStatus={envStatus}
-        onToggleSkill={handleToggleSkill}
-        onSelectSkill={handleSelectSkill}
-        onOpenDir={handleOpenDir}
-        onAddDir={handleAddDir}
-        onRemoveDir={handleRemoveDir}
-        onSetSkillEnvCheck={handleSetSkillEnvCheck}
-        onSetAutoReviewEnabled={handleSetAutoReviewEnabled}
-        onSetAutoReviewPromotion={handleSetAutoReviewPromotion}
-        onQuickImport={() => setQuickImportOpen(true)}
-      />
+      <Tabs defaultValue="manage" className="flex-1 flex flex-col min-h-0">
+        <div className="px-6 pt-4 shrink-0">
+          <TabsList>
+            <TabsTrigger value="manage">{t("settings.skillsTab.manage")}</TabsTrigger>
+            <TabsTrigger value="evolution">
+              {t("settings.skillsTab.evolution")}
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="manage" className="flex-1 min-h-0 outline-none">
+          <SkillListView
+            skills={visibleSkills}
+            extraDirs={extraDirs}
+            loading={loading}
+            skillEnvCheck={skillEnvCheck}
+            envStatus={envStatus}
+            onToggleSkill={handleToggleSkill}
+            onSelectSkill={handleSelectSkill}
+            onOpenDir={handleOpenDir}
+            onAddDir={handleAddDir}
+            onRemoveDir={handleRemoveDir}
+            onSetSkillEnvCheck={handleSetSkillEnvCheck}
+            onQuickImport={() => setQuickImportOpen(true)}
+          />
+        </TabsContent>
+        <TabsContent value="evolution" className="flex-1 min-h-0 outline-none">
+          <SkillEvolutionView
+            autoReviewEnabled={autoReviewEnabled}
+            autoReviewPromotion={autoReviewPromotion}
+            onSetAutoReviewEnabled={handleSetAutoReviewEnabled}
+            onSetAutoReviewPromotion={handleSetAutoReviewPromotion}
+          />
+        </TabsContent>
+      </Tabs>
       <QuickImportDialog
         open={quickImportOpen}
         onClose={() => setQuickImportOpen(false)}

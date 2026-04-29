@@ -2167,14 +2167,20 @@
         "detailFailed": "Failed to load model versions"
       }
     },
-    "skillsAutoReviewEnabled": {
-      "label": "Ringkas dan cipta kemahiran secara automatik",
-      "description": "Apabila sembang mencapai cooldown dan ambang, model akan menyemak perbualan dan mencipta/mengubah kemahiran secara automatik (dihidupkan secara lalai).",
-      "hint": "Matikan untuk menyenyapkan keseluruhan saluran — tiada kemahiran akan dicipta atau diubah secara automatik."
+    "skillsTab": {
+      "manage": "Kemahiran",
+      "evolution": "Evolusi Diri"
+    },
+    "skillsEvolutionHero": {
+      "title": "Tukar perkara yang anda ulangi menjadi kemahiran boleh guna semula",
+      "body": "Hope Agent tidak berdiam diri. Sekali-sekala menyemak semula sembang dan menyuling perkara yang anda ulang-ulang menjadi kemahiran yang boleh digunakan semula — kali berikutnya, perkara itu sudah dipelajari.",
+      "note": "Dihidupkan secara lalai · semakin kerap digunakan, semakin sesuai dengan anda. Jika dimatikan, perbualan harian tidak terjejas, cuma kemahiran baharu tidak lagi terkumpul secara automatik.",
+      "statusOn": "Berkembang",
+      "statusOff": "Dijeda"
     },
     "skillsAutoReview": {
-      "label": "Aktifkan kemahiran dibuat secara automatik",
-      "description": "Langkau langkah semakan — kemahiran dibuat secara automatik aktif serta-merta.",
+      "label": "Aktifkan kemahiran baharu secara automatik",
+      "description": "Langkau langkah draf — kemahiran yang disuling terus aktif.",
       "hint": "Mati (lalai): kemahiran baharu disimpan sebagai draf dan perlukan kelulusan anda."
     }
   },

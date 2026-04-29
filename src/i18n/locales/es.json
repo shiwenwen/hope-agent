@@ -2167,15 +2167,21 @@
         "detailFailed": "Failed to load model versions"
       }
     },
-    "skillsAutoReviewEnabled": {
-      "label": "Resumir y crear habilidades automáticamente",
-      "description": "Cuando el chat alcanza el cooldown y el umbral, el modelo revisa la conversación y crea/edita habilidades automáticamente (activado por defecto).",
-      "hint": "Si lo apagas, todo el pipeline queda en silencio: nada se crea ni se modifica de forma automática."
+    "skillsTab": {
+      "manage": "Habilidades",
+      "evolution": "Auto-evolución"
+    },
+    "skillsEvolutionHero": {
+      "title": "Convierte lo que repites en habilidades reutilizables",
+      "body": "Hope Agent no se queda quieto. De vez en cuando repasa los chats y destila lo que repites una y otra vez en habilidades reutilizables — la próxima vez que aparezca, ya está aprendido.",
+      "note": "Activado por defecto · cada vez se ajusta mejor a ti. Al desactivarlo no afecta las conversaciones, simplemente dejan de acumularse nuevas habilidades.",
+      "statusOn": "Evolucionando",
+      "statusOff": "En pausa"
     },
     "skillsAutoReview": {
-      "label": "Activar habilidades creadas automáticamente",
-      "description": "Omitir el paso de revisión — las habilidades creadas automáticamente se activan inmediatamente.",
-      "hint": "Desactivado (predeterminado): las nuevas habilidades quedan como borradores y necesitan tu aprobación."
+      "label": "Activar nuevas habilidades automáticamente",
+      "description": "Omite el paso de borrador — las habilidades destiladas se activan al instante.",
+      "hint": "Desactivado (predeterminado): las nuevas habilidades quedan como borrador y necesitan tu aprobación."
     }
   },
   "tz": {
