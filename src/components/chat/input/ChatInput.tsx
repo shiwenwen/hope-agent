@@ -400,7 +400,7 @@ export default function ChatInput({
 
   return (
     <div className="px-3 pb-3 pt-2">
-      <div className="relative rounded-2xl border border-border bg-card">
+      <div className="relative rounded-2xl border border-border bg-white dark:bg-card">
         {/* Slash Command Menu */}
         {slash.isOpen && (
           <SlashCommandMenu
