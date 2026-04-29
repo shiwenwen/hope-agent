@@ -13,6 +13,8 @@ import {
   startPeriodicUpdateCheck,
 } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { initDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
+import { SKILLS_EVENTS } from "@/types/skills"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -199,6 +201,33 @@ export default function App() {
       unlistenCompleted()
     }
   }, [t, view])
+
+  useEffect(() => {
+    initDraftSkillsStore()
+  }, [])
+
+  useEffect(() => {
+    if (view === "loading" || view === "onboarding" || view === "setup") return
+
+    const handler = (raw: unknown) => {
+      const report = parsePayload<{
+        outcome?: string
+        skill_id?: string | null
+      }>(raw)
+      if (report.outcome !== "created") return
+      const name = report.skill_id || t("skills.toast.unnamedSkill")
+      toast.info(t("skills.toast.draftCreated", { name }), {
+        action: {
+          label: t("skills.toast.review"),
+          onClick: () => handleOpenSettings("skills"),
+        },
+      })
+    }
+    const unlisten = getTransport().listen(SKILLS_EVENTS.autoReviewComplete, handler)
+    return () => {
+      unlisten()
+    }
+  }, [t, view, handleOpenSettings])
 
   // Auto-check for desktop updates on startup
   const updateCheckRef = useRef(false)

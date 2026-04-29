@@ -30,6 +30,33 @@
 
 ## Open
 
+### F-022 SkillsPanel 三个 Switch handler 失败处理风格不一致
+
+- **来源**：2026-04-29 Skill 自动审核 UI 信号 PR `/simplify` review（reuse agent）
+- **现象**：[`src/components/settings/skills-panel/index.tsx`](../../src/components/settings/skills-panel/index.tsx) 在同一个面板里有三个 Switch handler，失败处理风格不齐：
+  - `handleSetAutoReviewPromotion`（line ~228）和 `handleSetAutoReviewEnabled`（line ~253）：本期新加，**乐观更新 + 失败 rollback** —— `setAutoReview…(v) → call → catch → setAutoReview…(previous)`，后端写失败 UI 自动滚回旧值
+  - `handleSetSkillEnvCheck`（line ~217）：早期代码，**乐观更新 + 不 rollback** —— `setSkillEnvCheck(v) → await call(...)`，后端如果抛异常 UI 已经切到新值但 config 没存，状态永久不一致直到下次 reload
+- **为什么留**：本期 PR 主题是"auto-review UI 信号 + 自动激活开关"，`handleSetSkillEnvCheck` 是 pre-existing 不相关代码。AGENTS.md 风格"a bug fix doesn't need surrounding cleanup"——本 PR 给新代码加 rollback 是新代码本应做对的事，去补一个 pre-existing handler 算超范围
+- **改的话要做什么**：
+  1. 把 `handleSetSkillEnvCheck` 改成同样的 try/catch + rollback：
+     ```ts
+     async function handleSetSkillEnvCheck(v: boolean) {
+       const previous = skillEnvCheck
+       setSkillEnvCheck(v)
+       try {
+         await getTransport().call("set_skill_env_check", { enabled: v })
+       } catch (e) {
+         logger.error("settings", "SkillsPanel::setSkillEnvCheck", "Failed to update", e)
+         setSkillEnvCheck(previous)
+       }
+     }
+     ```
+  2. 顺手扫一遍 [`src/components/settings/`](../../src/components/settings/) 下其它 panel 的 Switch handler，是否也有同样的"乐观更新无 rollback"模式（特别是 ToolSettingsPanel / ChatSettingsPanel / PlanSettingsPanel 这类直接 await call 的）；如果范围大可以抽 `useOptimisticToggle(value, setter, callback)` 共用 hook
+- **影响面**：纯一致性 + 边缘 bug。后端 `set_skill_env_check` 走 `mutate_config` 几乎不会失败（除非配置文件磁盘异常），实际触发概率低；触发时用户看到 Switch 显示开但实际行为没切换，要刷新或重新点才会自愈
+- **触发时机建议**：下一次动 SkillsPanel（加新 Switch / Setting）时顺手收掉；或独立"settings panel optimistic-toggle 一致化"小 PR 把全 settings 目录扫一遍
+
+---
+
 ### F-021 `acp/agent.rs` 每 RPC 新建 tokio runtime + Codex token 每 retry 重复 load
 
 - **来源**：2026-04-27 chat-engine subagent 收敛 PR `/simplify` review（efficiency agent）

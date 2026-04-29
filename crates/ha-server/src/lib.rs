@@ -951,6 +951,16 @@ fn build_router_with_cors(
             delete(routes::skills::discard_draft_skill),
         )
         .route(
+            "/skills/auto-review/promotion",
+            get(routes::skills::get_auto_review_promotion)
+                .put(routes::skills::set_auto_review_promotion),
+        )
+        .route(
+            "/skills/auto-review/enabled",
+            get(routes::skills::get_auto_review_enabled)
+                .put(routes::skills::set_auto_review_enabled),
+        )
+        .route(
             "/skills/extra-dirs",
             get(routes::skills::get_extra_skills_dirs),
         )

@@ -2166,6 +2166,16 @@
         "searchFailed": "搜索 Ollama 模型库失败",
         "detailFailed": "加载模型版本失败"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "自動總結生成技能",
+      "description": "聊天累積到一定量後，讓模型回看對話並自動建立／修改技能（預設開啟）。",
+      "hint": "關閉後整條流水線靜默 —— 不再自動生成或修改任何技能。"
+    },
+    "skillsAutoReview": {
+      "label": "自動啟用新建技能",
+      "description": "跳過審核步驟 —— 自動建立的技能立即生效。",
+      "hint": "關閉（預設）：新技能會落為草稿，需要你審核後才生效。"
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "檔案過大，僅渲染前 256KB",
     "noDiffData": "無 diff 資料",
     "resizePanel": "調整 diff 面板寬度"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "已自動建立草稿技能：{{name}}。點擊審核。",
+      "review": "審核",
+      "unnamedSkill": "(未命名技能)"
+    }
   }
 }

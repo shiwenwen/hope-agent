@@ -617,6 +617,10 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `activate_draft_skill` | `POST /api/skills/{name}/activate` | ✅ |
 | `discard_draft_skill` | `DELETE /api/skills/{name}/draft` | ✅ |
 | `trigger_skill_review_now` | `POST /api/skills/review/run` | ✅ |
+| `get_skills_auto_review_promotion` | `GET /api/skills/auto-review/promotion` | ✅ |
+| `set_skills_auto_review_promotion` | `PUT /api/skills/auto-review/promotion` | ✅ |
+| `get_skills_auto_review_enabled` | `GET /api/skills/auto-review/enabled` | ✅ |
+| `set_skills_auto_review_enabled` | `PUT /api/skills/auto-review/enabled` | ✅ |
 
 ### Slash commands
 

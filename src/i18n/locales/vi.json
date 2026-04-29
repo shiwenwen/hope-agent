@@ -2166,6 +2166,16 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "Tự động tóm tắt và tạo kỹ năng",
+      "description": "Khi chat đạt cooldown và ngưỡng, mô hình sẽ xem lại cuộc hội thoại và tự động tạo/sửa kỹ năng (bật mặc định).",
+      "hint": "Tắt sẽ vô hiệu hóa toàn bộ pipeline — không có kỹ năng nào được tạo hoặc sửa tự động."
+    },
+    "skillsAutoReview": {
+      "label": "Tự động kích hoạt kỹ năng mới tạo",
+      "description": "Bỏ qua bước xem xét — kỹ năng tự động tạo sẽ kích hoạt ngay.",
+      "hint": "Tắt (mặc định): kỹ năng mới sẽ là bản nháp và cần bạn phê duyệt trước."
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
     "noDiffData": "Không có dữ liệu diff",
     "resizePanel": "Thay đổi kích thước bảng diff"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Đã tự động tạo kỹ năng nháp: {{name}}. Nhấp để xem xét.",
+      "review": "Xem xét",
+      "unnamedSkill": "(kỹ năng không tên)"
+    }
   }
 }

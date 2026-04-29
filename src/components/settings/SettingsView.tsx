@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { useDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
 import {
   ArrowLeft,
   Bot,
@@ -202,6 +203,7 @@ export default function SettingsView({
 }) {
   const { t } = useTranslation()
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
+  const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
   const [activeSection, setActiveSection] = useState<SettingsSection>(
     initialSection ?? "modelConfig",
   )
@@ -264,6 +266,9 @@ export default function SettingsView({
                   <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
                 </span>
+              )}
+              {section.id === "skills" && skillDraftUnseen > 0 && (
+                <span className="relative flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
               )}
             </Button>
           ))}

@@ -2166,6 +2166,16 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "Auto-summarize and create skills",
+      "description": "Once chat hits the cooldown + threshold, let the model review the convo and auto-create/patch skills (on by default).",
+      "hint": "Turn off to suppress the pipeline entirely — nothing auto-creates or auto-patches skills."
+    },
+    "skillsAutoReview": {
+      "label": "Auto-activate created skills",
+      "description": "Skip the manual review step — auto-created skills become Active immediately.",
+      "hint": "Off (default): new skills land as drafts and need your approval first."
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "File too large, only the first 256KB is rendered",
     "noDiffData": "No diff data",
     "resizePanel": "Resize diff panel"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Auto-created draft skill: {{name}}. Click to review.",
+      "review": "Review",
+      "unnamedSkill": "(unnamed skill)"
+    }
   }
 }

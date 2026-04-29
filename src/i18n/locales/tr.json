@@ -2166,6 +2166,16 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "Yetenekleri otomatik özetle ve oluştur",
+      "description": "Sohbet bekleme süresi ve eşiğe ulaştığında model konuşmayı gözden geçirir ve yetenekleri otomatik oluşturur/düzenler (varsayılan açık).",
+      "hint": "Kapatıldığında akış tamamen susturulur — hiçbir yetenek otomatik oluşturulmaz veya değiştirilmez."
+    },
+    "skillsAutoReview": {
+      "label": "Oluşturulan yetenekleri otomatik etkinleştir",
+      "description": "Manuel inceleme adımını atla — otomatik oluşturulan yetenekler hemen etkinleşir.",
+      "hint": "Kapalı (varsayılan): yeni yetenekler taslak olarak kaydedilir ve önce onayınızı gerektirir."
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
     "noDiffData": "Diff verisi yok",
     "resizePanel": "Diff panelini yeniden boyutlandır"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Taslak yetenek otomatik oluşturuldu: {{name}}. İncelemek için tıklayın.",
+      "review": "İncele",
+      "unnamedSkill": "(adsız yetenek)"
+    }
   }
 }

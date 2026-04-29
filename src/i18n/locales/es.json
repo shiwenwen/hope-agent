@@ -2166,6 +2166,16 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "Resumir y crear habilidades automáticamente",
+      "description": "Cuando el chat alcanza el cooldown y el umbral, el modelo revisa la conversación y crea/edita habilidades automáticamente (activado por defecto).",
+      "hint": "Si lo apagas, todo el pipeline queda en silencio: nada se crea ni se modifica de forma automática."
+    },
+    "skillsAutoReview": {
+      "label": "Activar habilidades creadas automáticamente",
+      "description": "Omitir el paso de revisión — las habilidades creadas automáticamente se activan inmediatamente.",
+      "hint": "Desactivado (predeterminado): las nuevas habilidades quedan como borradores y necesitan tu aprobación."
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",
     "noDiffData": "Sin datos de diff",
     "resizePanel": "Redimensionar panel de diff"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Habilidad borrador creada automáticamente: {{name}}. Haz clic para revisar.",
+      "review": "Revisar",
+      "unnamedSkill": "(habilidad sin nombre)"
+    }
   }
 }

@@ -2166,6 +2166,16 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "스킬 자동 요약 및 생성",
+      "description": "쿨다운과 임계값에 도달하면 모델이 대화를 검토해 스킬을 자동 생성/수정합니다(기본 켜짐).",
+      "hint": "끄면 파이프라인 전체가 중단되어 스킬이 자동 생성/수정되지 않습니다."
+    },
+    "skillsAutoReview": {
+      "label": "생성된 스킬 자동 활성화",
+      "description": "검토 단계 건너뛰기 — 자동 생성된 스킬이 즉시 활성화됩니다.",
+      "hint": "꺼짐(기본값): 새 스킬은 초안으로 저장되며 먼저 승인이 필요합니다."
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "파일이 너무 커 처음 256KB만 표시합니다",
     "noDiffData": "diff 데이터 없음",
     "resizePanel": "diff 패널 크기 조절"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "초안 스킬이 자동 생성되었습니다: {{name}}. 클릭하여 검토하세요.",
+      "review": "검토",
+      "unnamedSkill": "(이름 없는 스킬)"
+    }
   }
 }

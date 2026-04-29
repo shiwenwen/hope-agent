@@ -160,3 +160,30 @@ pub async fn trigger_skill_review_now(session_id: String) -> Result<serde_json::
         .await
         .map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn get_skills_auto_review_promotion(_state: State<'_, AppState>) -> Result<bool, CmdError>
+{
+    Ok(core::get_auto_review_promotion())
+}
+
+#[tauri::command]
+pub async fn set_skills_auto_review_promotion(
+    auto: bool,
+    _state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    core::set_auto_review_promotion(auto, SOURCE).map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn get_skills_auto_review_enabled(_state: State<'_, AppState>) -> Result<bool, CmdError> {
+    Ok(core::get_auto_review_enabled())
+}
+
+#[tauri::command]
+pub async fn set_skills_auto_review_enabled(
+    enabled: bool,
+    _state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    core::set_auto_review_enabled(enabled, SOURCE).map_err(Into::into)
+}

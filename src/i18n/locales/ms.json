@@ -2166,6 +2166,16 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "Ringkas dan cipta kemahiran secara automatik",
+      "description": "Apabila sembang mencapai cooldown dan ambang, model akan menyemak perbualan dan mencipta/mengubah kemahiran secara automatik (dihidupkan secara lalai).",
+      "hint": "Matikan untuk menyenyapkan keseluruhan saluran — tiada kemahiran akan dicipta atau diubah secara automatik."
+    },
+    "skillsAutoReview": {
+      "label": "Aktifkan kemahiran dibuat secara automatik",
+      "description": "Langkau langkah semakan — kemahiran dibuat secara automatik aktif serta-merta.",
+      "hint": "Mati (lalai): kemahiran baharu disimpan sebagai draf dan perlukan kelulusan anda."
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
     "noDiffData": "Tiada data diff",
     "resizePanel": "Saiz semula panel diff"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Kemahiran draf dibuat secara automatik: {{name}}. Klik untuk semak.",
+      "review": "Semak",
+      "unnamedSkill": "(kemahiran tanpa nama)"
+    }
   }
 }

@@ -19,6 +19,8 @@ interface SkillListViewProps {
   extraDirs: string[]
   loading: boolean
   skillEnvCheck: boolean
+  autoReviewEnabled: boolean
+  autoReviewPromotion: boolean
   envStatus: Record<string, Record<string, boolean>>
   onToggleSkill: (name: string, enabled: boolean) => void
   onSelectSkill: (name: string) => void
@@ -26,6 +28,8 @@ interface SkillListViewProps {
   onAddDir: () => void
   onRemoveDir: (dir: string) => void
   onSetSkillEnvCheck: (v: boolean) => void
+  onSetAutoReviewEnabled: (v: boolean) => void
+  onSetAutoReviewPromotion: (v: boolean) => void
   onQuickImport?: () => void
 }
 
@@ -34,6 +38,8 @@ export default function SkillListView({
   extraDirs,
   loading,
   skillEnvCheck,
+  autoReviewEnabled,
+  autoReviewPromotion,
   envStatus,
   onToggleSkill,
   onSelectSkill,
@@ -41,6 +47,8 @@ export default function SkillListView({
   onAddDir,
   onRemoveDir,
   onSetSkillEnvCheck,
+  onSetAutoReviewEnabled,
+  onSetAutoReviewPromotion,
   onQuickImport,
 }: SkillListViewProps) {
   const { t } = useTranslation()
@@ -305,6 +313,47 @@ export default function SkillListView({
           </div>
         </div>
         <Switch checked={skillEnvCheck} onCheckedChange={onSetSkillEnvCheck} />
+      </div>
+
+      {/* Auto-review master switch */}
+      <div className="flex items-center justify-between px-1 mb-5">
+        <div className="pr-4">
+          <div className="text-sm text-foreground">
+            {t("settings.skillsAutoReviewEnabled.label")}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {t("settings.skillsAutoReviewEnabled.description")}
+          </div>
+          <div className="text-xs text-muted-foreground/70 mt-0.5">
+            {t("settings.skillsAutoReviewEnabled.hint")}
+          </div>
+        </div>
+        <Switch checked={autoReviewEnabled} onCheckedChange={onSetAutoReviewEnabled} />
+      </div>
+
+      {/* Auto-review promotion toggle (gated by master switch) */}
+      <div
+        className={cn(
+          "flex items-center justify-between px-1 mb-5 transition-opacity",
+          !autoReviewEnabled && "opacity-50",
+        )}
+      >
+        <div className="pr-4">
+          <div className="text-sm text-foreground">
+            {t("settings.skillsAutoReview.label")}
+          </div>
+          <div className="text-xs text-muted-foreground">
+            {t("settings.skillsAutoReview.description")}
+          </div>
+          <div className="text-xs text-muted-foreground/70 mt-0.5">
+            {t("settings.skillsAutoReview.hint")}
+          </div>
+        </div>
+        <Switch
+          checked={autoReviewPromotion}
+          onCheckedChange={onSetAutoReviewPromotion}
+          disabled={!autoReviewEnabled}
+        />
       </div>
 
       <div className="border-t border-border mb-4" />

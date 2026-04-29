@@ -2166,6 +2166,16 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsAutoReviewEnabled": {
+      "label": "スキルの自動要約・生成",
+      "description": "クールダウンと閾値に達するとモデルが会話を振り返り、スキルを自動作成・修正します（既定でオン）。",
+      "hint": "オフにするとパイプライン全体が停止し、スキルの自動作成・修正は一切行われません。"
+    },
+    "skillsAutoReview": {
+      "label": "新規スキルを自動有効化",
+      "description": "確認ステップをスキップ — 自動作成されたスキルは即座に有効になります。",
+      "hint": "オフ（デフォルト）：新規スキルはドラフトとして保存され、承認が必要です。"
     }
   },
   "tz": {
@@ -3468,5 +3478,12 @@
     "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
     "noDiffData": "差分データがありません",
     "resizePanel": "差分パネルのサイズを変更"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "ドラフトスキルが自動作成されました：{{name}}。クリックして確認。",
+      "review": "確認",
+      "unnamedSkill": "(無名スキル)"
+    }
   }
 }
