@@ -75,7 +75,7 @@ function FeedHarness({
   followOutput?: boolean
   resetKey?: string
 }) {
-  const feed = useVirtualFeed({
+  const { scrollRef, isAutoFollowPaused, hasUnseenOutput, resumeAutoFollow } = useVirtualFeed({
     rows,
     getRowKey: (row) => row.id,
     estimateSize: () => 40,
@@ -88,10 +88,10 @@ function FeedHarness({
 
   return (
     <div>
-      <div ref={feed.scrollRef} data-testid="scroller" />
-      <span data-testid="paused">{String(feed.isAutoFollowPaused)}</span>
-      <span data-testid="unseen">{String(feed.hasUnseenOutput)}</span>
-      <button type="button" onClick={() => feed.resumeAutoFollow("auto")}>
+      <div ref={scrollRef} data-testid="scroller" />
+      <span data-testid="paused">{String(isAutoFollowPaused)}</span>
+      <span data-testid="unseen">{String(hasUnseenOutput)}</span>
+      <button type="button" onClick={() => resumeAutoFollow("auto")}>
         jump
       </button>
     </div>
