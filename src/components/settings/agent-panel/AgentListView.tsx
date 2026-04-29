@@ -47,7 +47,7 @@ function AgentCreateView({
         model: { primary: null, fallbacks: [] },
         personality: { ...DEFAULT_PERSONALITY },
         capabilities: {
-          maxToolRounds: 50,
+          maxToolRounds: 0,
           requireApproval: ["*"],
           sandbox: false,
           skillEnvCheck: true,
