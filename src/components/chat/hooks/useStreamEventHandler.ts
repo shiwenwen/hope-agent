@@ -1,7 +1,14 @@
 import type React from "react"
-import type { ContentBlock, FallbackEvent, MediaItem, Message } from "@/types/chat"
+import type { ContentBlock, FallbackEvent, MediaItem, Message, ToolMetadata } from "@/types/chat"
 import { mergeUsageFromEvent } from "../chatUtils"
 import { hasToolError } from "../message/executionStatus"
+
+/** Extract a structured tool_metadata payload from a stream event when present. */
+function extractToolMetadata(event: Record<string, unknown>): ToolMetadata | undefined {
+  const raw = event.tool_metadata
+  if (!raw || typeof raw !== "object") return undefined
+  return raw as ToolMetadata
+}
 
 export interface StreamEventHandlerDeps {
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
@@ -278,6 +285,7 @@ export function handleStreamEvent(
           Array.isArray(event.media_items) && (event.media_items as MediaItem[]).length
             ? (event.media_items as MediaItem[])
             : undefined
+        const toolMetadata = extractToolMetadata(event)
         const calls = [...(last.toolCalls || [])]
         const idx = calls.findIndex((c) => c.callId === event.call_id)
         const resolvedDurationMs = (event.duration_ms as number | undefined) ?? (
@@ -293,6 +301,7 @@ export function handleStreamEvent(
             isError,
             ...(mediaItems && { mediaItems }),
             ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+            ...(toolMetadata ? { metadata: toolMetadata } : {}),
           }
         }
         const blocks: ContentBlock[] = [...(last.contentBlocks || [])]
@@ -302,7 +311,14 @@ export function handleStreamEvent(
         if (blockIdx >= 0) {
           const block = blocks[blockIdx] as {
             type: "tool_call"
-            tool: { callId: string; name: string; arguments: string; result?: string; mediaItems?: MediaItem[] }
+            tool: {
+              callId: string
+              name: string
+              arguments: string
+              result?: string
+              mediaItems?: MediaItem[]
+              metadata?: ToolMetadata
+            }
           }
           blocks[blockIdx] = {
             type: "tool_call",
@@ -314,6 +330,7 @@ export function handleStreamEvent(
                 : hasToolError({ result: event.result as string | undefined }),
               ...(mediaItems && { mediaItems }),
               ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+              ...(toolMetadata ? { metadata: toolMetadata } : {}),
             },
           }
         }

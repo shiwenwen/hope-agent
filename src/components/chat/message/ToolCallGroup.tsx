@@ -12,9 +12,10 @@ import {
   Info,
   AlertCircle,
   Puzzle,
+  GitCompare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
-import type { ToolCall } from "@/types/chat"
+import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
 import ExecToolResultCard from "@/components/chat/message/ExecToolResultCard"
@@ -150,7 +151,13 @@ function formatRawCall(tool: ToolCall): string {
 }
 
 /** Single item inside a group — shows label + expandable result */
-function GroupItem({ tool }: { tool: ToolCall }) {
+function GroupItem({
+  tool,
+  onOpenDiff,
+}: {
+  tool: ToolCall
+  onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
+}) {
   const { t } = useTranslation()
   const [showResult, setShowResult] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
@@ -171,6 +178,34 @@ function GroupItem({ tool }: { tool: ToolCall }) {
     [elapsedMs],
   )
   const canExpand = tool.name === "exec" || (!isRunning && !!tool.result)
+
+  const fileChangeSummary = useMemo<{
+    linesAdded: number
+    linesRemoved: number
+    payload: FileChangeMetadata | FileChangesMetadata
+  } | null>(() => {
+    const meta = tool.metadata
+    if (!meta) return null
+    if (meta.kind === "file_change") {
+      return {
+        linesAdded: meta.linesAdded,
+        linesRemoved: meta.linesRemoved,
+        payload: meta,
+      }
+    }
+    if (meta.kind === "file_changes") {
+      const totals = meta.changes.reduce(
+        (acc, c) => {
+          acc.linesAdded += c.linesAdded
+          acc.linesRemoved += c.linesRemoved
+          return acc
+        },
+        { linesAdded: 0, linesRemoved: 0 },
+      )
+      return { ...totals, payload: meta }
+    }
+    return null
+  }, [tool.metadata])
 
   useEffect(() => {
     if (!isRunning || !startedAtMs) return
@@ -208,15 +243,44 @@ function GroupItem({ tool }: { tool: ToolCall }) {
         </span>
         <span className="text-muted-foreground/60 truncate font-mono">{fullTarget}</span>
         {/* Inline result preview when collapsed */}
-        {!showResult && preview && (
+        {!showResult && preview && !fileChangeSummary && (
           <span className="text-muted-foreground/30 truncate ml-auto pl-2 max-w-[40%]">
             {preview}
           </span>
         )}
+        {fileChangeSummary && (
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums">
+            <span className="text-emerald-600 dark:text-emerald-400">
+              +{fileChangeSummary.linesAdded}
+            </span>
+            <span className="text-rose-600 dark:text-rose-400">
+              -{fileChangeSummary.linesRemoved}
+            </span>
+          </span>
+        )}
         {elapsedText && (
-          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
+          <span
+            className={cn(
+              "shrink-0 text-[10px] text-muted-foreground/60 tabular-nums",
+              !fileChangeSummary && "ml-auto",
+            )}
+          >
             {t("tools.elapsed", { time: elapsedText })}
           </span>
+        )}
+        {fileChangeSummary && onOpenDiff && (
+          <IconTip label={t("diffPanel.openDiff", "查看 diff")}>
+            <span
+              role="button"
+              className="shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              onClick={(e) => {
+                e.stopPropagation()
+                onOpenDiff(fileChangeSummary.payload)
+              }}
+            >
+              <GitCompare className="h-3 w-3" />
+            </span>
+          </IconTip>
         )}
         <IconTip label={t("tools.rawCall", "查看原始调用")}>
           <span
@@ -270,9 +334,10 @@ function GroupItem({ tool }: { tool: ToolCall }) {
 interface ToolCallGroupProps {
   tools: ToolCall[]
   shimmer?: boolean
+  onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
 }
 
-export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
+export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGroupProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [now, setNow] = useState(() => Date.now())
@@ -374,7 +439,7 @@ export default function ToolCallGroup({ tools, shimmer }: ToolCallGroupProps) {
       >
         <div className="ml-3 border-l border-border/40 pl-0.5">
           {tools.map((tool) => (
-            <GroupItem key={tool.callId} tool={tool} />
+            <GroupItem key={tool.callId} tool={tool} onOpenDiff={onOpenDiff} />
           ))}
         </div>
       </div>

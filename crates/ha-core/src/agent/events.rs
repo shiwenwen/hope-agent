@@ -66,6 +66,7 @@ pub(super) fn emit_tool_result(
     duration_ms: u64,
     is_error: bool,
     media_items: &[MediaItem],
+    tool_metadata: Option<&serde_json::Value>,
 ) {
     let mut event = json!({
         "type": "tool_result",
@@ -77,6 +78,9 @@ pub(super) fn emit_tool_result(
     });
     if !media_items.is_empty() {
         event["media_items"] = json!(media_items);
+    }
+    if let Some(md) = tool_metadata {
+        event["tool_metadata"] = md.clone();
     }
     emit_event(on_delta, &event);
 }

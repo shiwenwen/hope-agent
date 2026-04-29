@@ -3440,5 +3440,14 @@
       "remoteTitle": "Sambung jauh",
       "remoteDesc": "Sudah ada pelayan Hope Agent di tempat lain? Masukkan alamatnya dan langkau persediaan tempatan."
     }
+  },
+  "diffPanel": {
+    "title": "Perubahan fail",
+    "openDiff": "Buka diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
+    "noDiffData": "Tiada data diff",
+    "resizePanel": "Saiz semula panel diff"
   }
 }

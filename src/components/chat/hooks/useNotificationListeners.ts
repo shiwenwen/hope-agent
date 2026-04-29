@@ -9,6 +9,7 @@ import type {
   Message,
   MediaItem,
   ParentAgentStreamEvent,
+  ToolMetadata,
 } from "@/types/chat"
 
 export interface UseNotificationListenersDeps {
@@ -131,6 +132,10 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                   Array.isArray(ev.media_items) && (ev.media_items as MediaItem[]).length
                     ? (ev.media_items as MediaItem[])
                     : undefined
+                const toolMetadata: ToolMetadata | undefined =
+                  ev.tool_metadata && typeof ev.tool_metadata === "object"
+                    ? (ev.tool_metadata as ToolMetadata)
+                    : undefined
                 const current = last.toolCalls.find((tc) => tc.callId === ev.call_id)
                 const resolvedDurationMs = ev.duration_ms ?? (
                   current?.startedAtMs ? Date.now() - current.startedAtMs : undefined
@@ -146,6 +151,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                         isError,
                         ...(mediaItems && { mediaItems }),
                         ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+                        ...(toolMetadata ? { metadata: toolMetadata } : {}),
                       }
                     : tc,
                 )
@@ -159,6 +165,7 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                           isError,
                           ...(mediaItems && { mediaItems }),
                           ...(resolvedDurationMs != null ? { durationMs: resolvedDurationMs } : {}),
+                          ...(toolMetadata ? { metadata: toolMetadata } : {}),
                         },
                       }
                     : b,

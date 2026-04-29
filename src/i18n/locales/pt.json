@@ -3440,5 +3440,14 @@
       "remoteTitle": "Conectar ao remoto",
       "remoteDesc": "Já possui um servidor Hope Agent rodando? Aponte este app para ele e pule a configuração local."
     }
+  },
+  "diffPanel": {
+    "title": "Alterações de arquivo",
+    "openDiff": "Abrir diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "Arquivo muito grande, somente os primeiros 256KB são renderizados",
+    "noDiffData": "Sem dados de diff",
+    "resizePanel": "Redimensionar painel de diff"
   }
 }

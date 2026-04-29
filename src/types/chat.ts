@@ -28,6 +28,41 @@ export interface MediaItem {
   caption?: string
 }
 
+/**
+ * Structured side-output emitted by file-mutating tools (write / edit /
+ * apply_patch) and the file-reading tool (read). Drives the right-side diff
+ * panel and the `+N -M` summary in tool call headers. `null` `before` /
+ * `after` flags create / delete actions respectively. `truncated` indicates
+ * the embedded snapshot was capped (single-side limit, currently 256KB on
+ * the backend) — the line counts stay accurate either way.
+ */
+export interface FileChangeMetadata {
+  kind: "file_change"
+  path: string
+  action: "create" | "edit" | "delete"
+  linesAdded: number
+  linesRemoved: number
+  before: string | null
+  after: string | null
+  language: string
+  truncated: boolean
+}
+
+/** Aggregate side-output for tools that touch multiple files in one call (apply_patch). */
+export interface FileChangesMetadata {
+  kind: "file_changes"
+  changes: FileChangeMetadata[]
+}
+
+/** Side-output for the read tool — used to render the "已浏览 N 个文件" aggregate. */
+export interface FileReadMetadata {
+  kind: "file_read"
+  path: string
+  lines: number
+}
+
+export type ToolMetadata = FileChangeMetadata | FileChangesMetadata | FileReadMetadata
+
 export interface ToolCall {
   callId: string
   name: string
@@ -38,6 +73,9 @@ export interface ToolCall {
   mediaItems?: MediaItem[]
   durationMs?: number
   startedAtMs?: number
+  /** Structured side-output (see {@link ToolMetadata}). Absent on legacy
+   *  rows persisted before the diff-panel feature shipped. */
+  metadata?: ToolMetadata
 }
 
 export interface MessageUsage {
@@ -205,6 +243,8 @@ export interface SessionMessage {
   toolDurationMs?: number | null
   isError?: boolean | null
   thinking?: string | null
+  /** JSON string with structured tool side-output (see {@link ToolMetadata}). */
+  toolMetadata?: string | null
 }
 
 /**

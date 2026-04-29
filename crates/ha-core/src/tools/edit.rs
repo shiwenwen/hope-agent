@@ -1,6 +1,7 @@
 use anyhow::Result;
-use serde_json::Value;
+use serde_json::{json, Value};
 
+use super::diff_util::{compute_line_delta, detect_language, truncate_for_metadata};
 use super::extract_string_param;
 
 pub(crate) async fn tool_edit(args: &Value, ctx: &super::ToolExecContext) -> Result<String> {
@@ -67,6 +68,9 @@ pub(crate) async fn tool_edit(args: &Value, ctx: &super::ToolExecContext) -> Res
     let new_content = content.replacen(old_text, new_text, 1);
 
     let write_result = tokio::fs::write(&path, &new_content).await;
+    if write_result.is_ok() {
+        emit_file_change_metadata(ctx, &path, &content, &new_content).await;
+    }
 
     if let Err(ref e) = write_result {
         // Post-write recovery: if write returned an error but the file on disk actually
@@ -96,4 +100,30 @@ pub(crate) async fn tool_edit(args: &Value, ctx: &super::ToolExecContext) -> Res
         "Successfully edited {} (replaced 1 occurrence)",
         path
     ))
+}
+
+async fn emit_file_change_metadata(
+    ctx: &super::ToolExecContext,
+    path: &str,
+    before: &str,
+    after: &str,
+) {
+    if ctx.metadata_sink.is_none() {
+        return;
+    }
+    let (added, removed) = compute_line_delta(before, after);
+    let (before_t, before_trunc) = truncate_for_metadata(before);
+    let (after_t, after_trunc) = truncate_for_metadata(after);
+    ctx.emit_metadata(json!({
+        "kind": "file_change",
+        "path": path,
+        "action": "edit",
+        "linesAdded": added,
+        "linesRemoved": removed,
+        "before": before_t,
+        "after": after_t,
+        "language": detect_language(path),
+        "truncated": before_trunc || after_trunc,
+    }))
+    .await;
 }

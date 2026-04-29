@@ -1,7 +1,8 @@
 use anyhow::Result;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::Path;
 
+use super::diff_util::{compute_line_delta, detect_language, truncate_for_metadata};
 use super::extract_string_param;
 
 // ── Apply Patch Tool ──────────────────────────────────────────────
@@ -313,6 +314,7 @@ pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext)
     let mut added: Vec<String> = Vec::new();
     let mut modified: Vec<String> = Vec::new();
     let mut deleted: Vec<String> = Vec::new();
+    let mut metadata_changes: Vec<Value> = Vec::new();
 
     for hunk in &hunks {
         match hunk {
@@ -327,13 +329,34 @@ pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext)
                 tokio::fs::write(&resolved_path, contents)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to write new file '{}': {}", path, e))?;
+                if ctx.metadata_sink.is_some() {
+                    metadata_changes.push(build_change_payload(
+                        &resolved_path,
+                        "create",
+                        None,
+                        Some(contents.as_str()),
+                    ));
+                }
                 added.push(resolved_path);
             }
             PatchHunkKind::Delete { path } => {
                 let resolved_path = ctx.resolve_path(path);
+                let before = if ctx.metadata_sink.is_some() {
+                    tokio::fs::read_to_string(&resolved_path).await.ok()
+                } else {
+                    None
+                };
                 tokio::fs::remove_file(&resolved_path)
                     .await
                     .map_err(|e| anyhow::anyhow!("Failed to delete file '{}': {}", path, e))?;
+                if ctx.metadata_sink.is_some() {
+                    metadata_changes.push(build_change_payload(
+                        &resolved_path,
+                        "delete",
+                        before.as_deref(),
+                        None,
+                    ));
+                }
                 deleted.push(resolved_path);
             }
             PatchHunkKind::Update {
@@ -362,15 +385,39 @@ pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext)
                     tokio::fs::remove_file(&resolved_path).await.map_err(|e| {
                         anyhow::anyhow!("Failed to remove old file '{}': {}", path, e)
                     })?;
+                    if ctx.metadata_sink.is_some() {
+                        metadata_changes.push(build_change_payload(
+                            &resolved_new_path,
+                            "edit",
+                            Some(&content),
+                            Some(&new_content),
+                        ));
+                    }
                     modified.push(format!("{} -> {}", resolved_path, resolved_new_path));
                 } else {
                     tokio::fs::write(&resolved_path, &new_content)
                         .await
                         .map_err(|e| anyhow::anyhow!("Failed to write '{}': {}", path, e))?;
+                    if ctx.metadata_sink.is_some() {
+                        metadata_changes.push(build_change_payload(
+                            &resolved_path,
+                            "edit",
+                            Some(&content),
+                            Some(&new_content),
+                        ));
+                    }
                     modified.push(resolved_path);
                 }
             }
         }
+    }
+
+    if !metadata_changes.is_empty() {
+        ctx.emit_metadata(json!({
+            "kind": "file_changes",
+            "changes": metadata_changes,
+        }))
+        .await;
     }
 
     let mut summary_parts = Vec::new();
@@ -388,4 +435,46 @@ pub(crate) async fn tool_apply_patch(args: &Value, ctx: &super::ToolExecContext)
         "Patch applied successfully.\n{}",
         summary_parts.join("\n")
     ))
+}
+
+/// Build a `file_change`-shaped JSON object covering create / edit / delete.
+/// Delete sets `after = null`; create sets `before = null`. The frontend
+/// renders `after = null` as a fully-red "deleted" view and `before = null`
+/// as a fully-green "created" view.
+fn build_change_payload(
+    path: &str,
+    action: &str,
+    before: Option<&str>,
+    after: Option<&str>,
+) -> Value {
+    let before_for_delta = before.unwrap_or("");
+    let after_for_delta = after.unwrap_or("");
+    let (added, removed) = compute_line_delta(before_for_delta, after_for_delta);
+
+    let (before_value, before_trunc) = match before {
+        Some(b) => {
+            let (truncated, trunc) = truncate_for_metadata(b);
+            (Value::String(truncated), trunc)
+        }
+        None => (Value::Null, false),
+    };
+    let (after_value, after_trunc) = match after {
+        Some(a) => {
+            let (truncated, trunc) = truncate_for_metadata(a);
+            (Value::String(truncated), trunc)
+        }
+        None => (Value::Null, false),
+    };
+
+    json!({
+        "kind": "file_change",
+        "path": path,
+        "action": action,
+        "linesAdded": added,
+        "linesRemoved": removed,
+        "before": before_value,
+        "after": after_value,
+        "language": detect_language(path),
+        "truncated": before_trunc || after_trunc,
+    })
 }

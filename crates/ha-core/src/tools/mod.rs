@@ -10,6 +10,7 @@ pub(crate) mod browser;
 pub mod canvas;
 mod cron;
 mod definitions;
+pub(crate) mod diff_util;
 mod edit;
 mod exec;
 mod execution;

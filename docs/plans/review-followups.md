@@ -134,6 +134,50 @@
 
 ---
 
+### F-022 Diff 面板缺 Shiki 行级语法高亮 + 大 diff 虚拟列表
+
+- **来源**：2026-04-29 文件操作摘要 + 右侧 Diff 面板 feature 实现
+- **现象**：[`src/components/chat/diff-panel/UnifiedDiffView.tsx`](../../src/components/chat/diff-panel/UnifiedDiffView.tsx) / [`SplitDiffView.tsx`](../../src/components/chat/diff-panel/SplitDiffView.tsx) 当前直接渲染纯文本 diff 行，没有按 `metadata.language` 做语法高亮。Plan 文件 [`diff-plan-foamy-wave.md`](../../../.claude/plans/diff-plan-foamy-wave.md) 第 16 条原本要求新建 `diff-panel/diffShiki.ts` 复用项目 Shiki 实例。同时大文件 diff（>1000 行）当前一次性渲染所有行，没有虚拟列表
+- **为什么留**：Shiki 行级 token 高亮要先解决"对每行单独高亮 vs 对整文件高亮再按行切"的取舍 + Shiki 实例在 streamdown 内的访问方式不直接 + 大文件性能优化（虚拟列表 / `requestIdleCallback` 分批）。本期 MVP 优先把 diff 面板可用打通，纯文本 diff 已能满足"看改了什么"的最低需求
+- **改的话要做什么**：
+  1. 找到 streamdown / [`src/lib/`](../../src/lib/) 下现有 Shiki 实例并暴露稳定 API（可能需新建 `src/lib/shiki/highlight-line.ts`）
+  2. 新建 `src/components/chat/diff-panel/diffShiki.ts`：`highlightLine(text, language) -> React.ReactNode`，fallback 返回 `<span>{text}</span>`
+  3. UnifiedDiffView / SplitDiffView 在渲染单行时先经 `highlightLine`
+  4. 对 >1000 行 diff 加虚拟列表（建议 `@tanstack/react-virtual`，当前未在依赖里）
+- **影响面**：纯视觉。当前 diff 在多语言大文件场景可读性较差（语法着色缺失）；超大 diff（数千行）一次性渲染可能引起卡顿，但项目内 256KB 截断阈值已经把单边压住，实际触发概率低
+- **触发时机建议**：下次有用户报告 diff 阅读体验差 / 大 diff 卡顿时；或独立"diff 面板增强 + 虚拟列表"PR
+
+---
+
+### F-023 `file_read` metadata 已 emit 但前端 grouping UI 未实现
+
+- **来源**：2026-04-29 文件操作摘要 + 右侧 Diff 面板 feature 实现
+- **现象**：[`crates/ha-core/src/tools/read.rs`](../../crates/ha-core/src/tools/read.rs) 已 emit `kind: "file_read", path, lines"` 元数据，前端 [`src/types/chat.ts`](../../src/types/chat.ts) 也定义了 `FileReadMetadata` 类型；但 [`src/components/chat/message/MessageContent.tsx`](../../src/components/chat/message/MessageContent.tsx) 中没有 grouping 逻辑——连续相邻 read 仍每条一行展示，没有折叠成截图样式的"已浏览 N 个文件"。Plan 文件第 12 条原本要求新建 `ToolCallList.tsx` 中间组件做 grouping，落地时被砍
+- **为什么留**：grouping 涉及 contentBlocks 循环里识别相邻同类 ToolCall + 维持 callId 顺序 + 展开列表交互。本期主要功能（diff 面板）已实现完整；read 聚合是体验优化，单条 read 显示也能接受
+- **改的话要做什么**：
+  1. 新建 `src/components/chat/message/FileReadAggregate.tsx`：接收 `paths: string[]`，渲染折叠/展开 UI（展开列出每个 path）
+  2. 在 [`MessageContent.tsx`](../../src/components/chat/message/MessageContent.tsx) 渲染 contentBlocks 时，把相邻 `metadata.kind === "file_read"` 的 ToolCall 折成 `<FileReadAggregate>`
+  3. 注意保留 callId 顺序，避免 streaming 中途插入新 read 时渲染抖动
+  4. i18n key `tool.fileRead.aggregateLabel`（本期 plan 第 19 条已计划但未落实，12 语言需补）
+- **影响面**：纯视觉。当前连续 read 多个文件占多行显示，chat 偏冗长；用户已习惯当前样式，无 bug
+- **触发时机建议**：下次动 MessageContent / ToolCallBlock 渲染层时一并实现；或独立"chat 工具调用紧凑视图"PR
+
+---
+
+### F-024 DiffPanel 与 CanvasPanel 互斥未实现
+
+- **来源**：2026-04-29 文件操作摘要 + 右侧 Diff 面板 feature 实现
+- **现象**：[`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) 在 useEffect 中实现了"DiffPanel 打开自动关 PlanPanel"互斥，但**没有**与 CanvasPanel 的互斥。三面板同时打开会导致主 chat 区被挤压到不可用宽度。Plan 文件第 18 条原本要求三面板互斥
+- **为什么留**：CanvasPanel 自管 visibility（不像 PlanPanel 暴露 `setShowPanel` API），改动需要先重构 CanvasPanel 的 state ownership。本期落地时为避免冲击 CanvasPanel 现有契约，权衡后只做了 DiffPanel ↔ PlanPanel
+- **改的话要做什么**：
+  1. CanvasPanel 把 `showPanel` state 提到 ChatScreen 上层管理（或暴露 imperative `onClose` ref）
+  2. ChatScreen 的 useEffect 加入第三向互斥：openDiff → close PlanPanel + close CanvasPanel；openCanvas → close DiffPanel + close PlanPanel；openPlan → close DiffPanel + close CanvasPanel
+  3. 或更优：抽 `useExclusivePanel(panelId)` hook 统一管理三面板 mutex（PlanPanel / CanvasPanel / DiffPanel 注册到同 registry）
+- **影响面**：可见 bug。极端场景（用户 Plan + Canvas + Diff 全打开）chat 主区被挤压；日常使用罕见
+- **触发时机建议**：下次动 CanvasPanel state ownership / 新增第四个 side panel 时一并收掉；或独立"side panel mutex 统一"重构 PR
+
+---
+
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。

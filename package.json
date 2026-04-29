@@ -54,6 +54,7 @@
     "antd": "^6.3.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "diff": "^9.0.0",
     "es-toolkit": "^1.45.1",
     "i18next": "^26.0.3",
     "katex": "^0.16.38",

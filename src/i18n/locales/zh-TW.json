@@ -3440,5 +3440,14 @@
       "remoteTitle": "連線遠端服務",
       "remoteDesc": "已有一台運行 Hope Agent 服務的機器？填寫位址連上後即可使用，跳過後續本機設定。"
     }
+  },
+  "diffPanel": {
+    "title": "檔案變更",
+    "openDiff": "查看 diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "檔案過大，僅渲染前 256KB",
+    "noDiffData": "無 diff 資料",
+    "resizePanel": "調整 diff 面板寬度"
   }
 }

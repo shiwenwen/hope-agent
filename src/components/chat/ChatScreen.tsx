@@ -34,6 +34,8 @@ import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
+import { useDiffPanel } from "./diff-panel/useDiffPanel"
+import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
@@ -83,6 +85,9 @@ export default function ChatScreen({
   // Right panel widths (resizable)
   const [planPanelWidth, setPlanPanelWidth] = useState(520)
   const [canvasPanelWidth, setCanvasPanelWidth] = useState(480)
+
+  // Right side diff panel (write/edit/apply_patch metadata viewer)
+  const diffPanel = useDiffPanel()
 
   // Context compact state
   const [compacting, setCompacting] = useState(false)
@@ -497,6 +502,14 @@ export default function ChatScreen({
   useEffect(() => {
     setSearchBarOpen(false)
   }, [currentSessionId])
+
+  // The diff panel holds change metadata from a specific tool call in the
+  // outgoing session — keeping it open across switches would render the
+  // previous session's file content alongside a different message list.
+  const closeDiff = diffPanel.closeDiff
+  useEffect(() => {
+    closeDiff()
+  }, [currentSessionId, closeDiff])
 
   // Cmd/Ctrl+F: open in-session search bar (or re-focus its input if
   // already open). Only active when a session is loaded.
@@ -961,6 +974,42 @@ export default function ChatScreen({
     [planPanelWidth],
   )
 
+  const handleDiffPanelDragStart = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startWidth = diffPanel.panelWidth
+      const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
+      const onMouseMove = (ev: MouseEvent) => {
+        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
+        diffPanel.setPanelWidth(newWidth)
+      }
+      const iframes = document.querySelectorAll("iframe")
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+      const onMouseUp = () => {
+        document.removeEventListener("mousemove", onMouseMove)
+        document.removeEventListener("mouseup", onMouseUp)
+        document.body.style.cursor = ""
+        document.body.style.userSelect = ""
+        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+      }
+      document.addEventListener("mousemove", onMouseMove)
+      document.addEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = "col-resize"
+      document.body.style.userSelect = "none"
+    },
+    [diffPanel],
+  )
+
+  // Three right-side panels (PlanPanel / CanvasPanel / DiffPanel) are
+  // mutually exclusive at the visual level — opening one closes the others
+  // but keeps their internal state so re-toggling restores the prior view.
+  useEffect(() => {
+    if (diffPanel.showPanel) {
+      planMode.setShowPanel(false)
+    }
+  }, [diffPanel.showPanel, planMode])
+
   return (
     <>
       {/* Sidebar */}
@@ -1180,6 +1229,7 @@ export default function ChatScreen({
               onSwitchSession={(sid) => {
                 void session.handleSwitchSession(sid)
               }}
+              onOpenDiff={diffPanel.openDiff}
             />
 
             {/* Memory extraction toast */}
@@ -1247,6 +1297,31 @@ export default function ChatScreen({
               </>
             )}
           </div>
+
+          {/* Diff panel (right side; mutually exclusive with PlanPanel) */}
+          {diffPanel.showPanel && diffPanel.activeChanges.length > 0 && (
+            <div
+              className="relative flex h-full min-h-0 shrink-0 min-w-[360px] max-w-[55%] p-3 pl-2"
+              style={{ width: diffPanel.panelWidth }}
+            >
+              <div
+                className="group absolute left-0 top-3 bottom-3 z-10 flex w-3 cursor-col-resize items-center justify-center"
+                onMouseDown={handleDiffPanelDragStart}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label={t("diffPanel.resizePanel", "Resize diff panel")}
+              >
+                <div className="h-full w-px rounded-full bg-transparent transition-colors group-hover:bg-primary/35 group-active:bg-primary/50" />
+              </div>
+              <DiffPanel
+                changes={diffPanel.activeChanges}
+                activeIndex={diffPanel.activeIndex}
+                onActiveIndexChange={diffPanel.setActiveIndex}
+                onClose={diffPanel.closeDiff}
+                embedded
+              />
+            </div>
+          )}
 
           {/* Plan workspace (right side, integrated under the shared title bar) */}
           {shouldShowPlanPanel && (

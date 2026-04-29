@@ -3440,5 +3440,14 @@
       "remoteTitle": "Kết nối từ xa",
       "remoteDesc": "Đã có máy chủ Hope Agent chạy ở nơi khác? Nhập địa chỉ và bỏ qua cấu hình cục bộ."
     }
+  },
+  "diffPanel": {
+    "title": "Thay đổi tệp",
+    "openDiff": "Mở diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
+    "noDiffData": "Không có dữ liệu diff",
+    "resizePanel": "Thay đổi kích thước bảng diff"
   }
 }

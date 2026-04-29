@@ -44,6 +44,10 @@ interface MessageListProps {
   onViewSystemPrompt?: () => void
   /** Jump to another session (e.g. a sub-agent's child session). */
   onSwitchSession?: (sessionId: string) => void
+  /** Open the right-side diff panel for a file change payload. */
+  onOpenDiff?: (
+    metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
+  ) => void
 }
 
 type ChatRow =
@@ -84,6 +88,7 @@ export default function MessageList({
   onSwitchModel,
   onViewSystemPrompt,
   onSwitchSession,
+  onOpenDiff,
 }: MessageListProps) {
   const { t } = useTranslation()
   const [hoveredMsgIndex, setHoveredMsgIndex] = useState<number | null>(null)
@@ -285,6 +290,7 @@ export default function MessageList({
               onSwitchSession={onSwitchSession}
               onSwitchModel={onSwitchModel}
               onViewSystemPrompt={onViewSystemPrompt}
+              onOpenDiff={onOpenDiff}
             />
           </div>
         )

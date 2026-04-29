@@ -3440,5 +3440,14 @@
       "failed": "失败",
       "partial": "已导入（有警告）"
     }
+  },
+  "diffPanel": {
+    "title": "文件改动",
+    "openDiff": "查看 diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "文件过大，仅渲染前 256KB",
+    "noDiffData": "无 diff 数据",
+    "resizePanel": "调整 diff 面板宽度"
   }
 }

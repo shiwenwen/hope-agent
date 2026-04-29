@@ -328,6 +328,7 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
                 offset + lines_read
             ));
         }
+        emit_file_read_metadata(ctx, &path, total_lines).await;
         return Ok(result);
     }
 
@@ -398,5 +399,19 @@ pub(crate) async fn tool_read_file(args: &Value, ctx: &super::ToolExecContext) -
         ));
     }
 
+    emit_file_read_metadata(ctx, &path, total_lines).await;
+
     Ok(aggregated)
+}
+
+async fn emit_file_read_metadata(ctx: &super::ToolExecContext, path: &str, total_lines: usize) {
+    if ctx.metadata_sink.is_none() {
+        return;
+    }
+    ctx.emit_metadata(serde_json::json!({
+        "kind": "file_read",
+        "path": path,
+        "lines": total_lines as u32,
+    }))
+    .await;
 }

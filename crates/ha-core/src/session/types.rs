@@ -156,6 +156,12 @@ pub struct SessionMessage {
     /// `input_tokens_details.cached_tokens` / `prompt_tokens_details.cached_tokens`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tokens_cache_read: Option<i64>,
+    /// Structured tool side-output JSON (e.g. file change before/after
+    /// snapshots, line deltas). `None` for non-tool rows or when the tool
+    /// produced no metadata. The frontend parses this to render the right
+    /// side diff panel + `+N -M` summaries in tool call headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_metadata: Option<String>,
 }
 
 // ── NewMessage (for inserting) ───────────────────────────────────
@@ -182,6 +188,9 @@ pub struct NewMessage {
     pub tokens_in_last: Option<i64>,
     pub tokens_cache_creation: Option<i64>,
     pub tokens_cache_read: Option<i64>,
+    /// JSON string with structured tool side-output (see
+    /// [`SessionMessage::tool_metadata`]).
+    pub tool_metadata: Option<String>,
 }
 
 impl NewMessage {
@@ -207,6 +216,7 @@ impl NewMessage {
             tokens_in_last: None,
             tokens_cache_creation: None,
             tokens_cache_read: None,
+            tool_metadata: None,
         }
     }
 
@@ -232,6 +242,7 @@ impl NewMessage {
             tokens_in_last: None,
             tokens_cache_creation: None,
             tokens_cache_read: None,
+            tool_metadata: None,
         }
     }
 
@@ -264,6 +275,7 @@ impl NewMessage {
             tokens_in_last: None,
             tokens_cache_creation: None,
             tokens_cache_read: None,
+            tool_metadata: None,
         }
     }
 
@@ -289,6 +301,7 @@ impl NewMessage {
             tokens_in_last: None,
             tokens_cache_creation: None,
             tokens_cache_read: None,
+            tool_metadata: None,
         }
     }
 
@@ -319,6 +332,7 @@ impl NewMessage {
             tokens_in_last: None,
             tokens_cache_creation: None,
             tokens_cache_read: None,
+            tool_metadata: None,
         }
     }
 
@@ -344,6 +358,14 @@ impl NewMessage {
             tokens_in_last: None,
             tokens_cache_creation: None,
             tokens_cache_read: None,
+            tool_metadata: None,
         }
+    }
+
+    /// Attach a JSON-string `tool_metadata` payload to this message. Returns
+    /// `self` for builder chaining; passing `None` is a no-op.
+    pub fn with_tool_metadata(mut self, metadata: Option<String>) -> Self {
+        self.tool_metadata = metadata;
+        self
     }
 }

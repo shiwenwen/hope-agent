@@ -3440,5 +3440,14 @@
       "remoteTitle": "リモート接続",
       "remoteDesc": "別の場所で動いている Hope Agent サーバーがありますか？URL を入力すれば以降のローカル設定はスキップできます。"
     }
+  },
+  "diffPanel": {
+    "title": "ファイルの変更",
+    "openDiff": "差分を表示",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
+    "noDiffData": "差分データがありません",
+    "resizePanel": "差分パネルのサイズを変更"
   }
 }

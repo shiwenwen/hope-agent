@@ -36,10 +36,11 @@ import {
   Paperclip,
   Cable,
   Plug,
+  GitCompare,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { parseMcpToolName } from "@/lib/mcp"
-import type { ToolCall } from "@/types/chat"
+import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
 import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
@@ -234,7 +235,19 @@ function formatRawCall(tool: ToolCall): string {
   }
 }
 
-export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimmer?: boolean }) {
+export interface ToolCallBlockProps {
+  tool: ToolCall
+  shimmer?: boolean
+  /**
+   * Open the right-side diff panel for a `file_change` / `file_changes`
+   * payload coming from this tool call. Wired up by ChatScreen so the
+   * existing folded ToolCallBlock + tool group rendering remain untouched
+   * for tools that don't carry diff metadata.
+   */
+  onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
+}
+
+export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [showRaw, setShowRaw] = useState(false)
@@ -291,6 +304,47 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
       : TOOL_ICONS[tool.name] || Wrench
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
+
+  // Diff summary and "open diff" button surface only when the tool emitted
+  // structured side-output. Legacy rows persisted before the diff panel
+  // shipped have `metadata === undefined` and stay on the original layout.
+  const fileChangeSummary = useMemo<{
+    linesAdded: number
+    linesRemoved: number
+    payload: FileChangeMetadata | FileChangesMetadata
+  } | null>(() => {
+    const meta = tool.metadata
+    if (!meta) return null
+    if (meta.kind === "file_change") {
+      return {
+        linesAdded: meta.linesAdded,
+        linesRemoved: meta.linesRemoved,
+        payload: meta,
+      }
+    }
+    if (meta.kind === "file_changes") {
+      const totals = meta.changes.reduce(
+        (acc, c) => {
+          acc.linesAdded += c.linesAdded
+          acc.linesRemoved += c.linesRemoved
+          return acc
+        },
+        { linesAdded: 0, linesRemoved: 0 },
+      )
+      return { ...totals, payload: meta }
+    }
+    return null
+  }, [tool.metadata])
+
+  const handleOpenDiff = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (fileChangeSummary && onOpenDiff) {
+        onOpenDiff(fileChangeSummary.payload)
+      }
+    },
+    [fileChangeSummary, onOpenDiff],
+  )
 
   const askUserOutcome = useMemo(
     () =>
@@ -375,10 +429,37 @@ export default function ToolCallBlock({ tool, shimmer }: { tool: ToolCall; shimm
         <span className="text-muted-foreground/60 truncate font-mono text-[11px]">
           {displayArgs}
         </span>
+        {fileChangeSummary && (
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] tabular-nums">
+            <span className="text-emerald-600 dark:text-emerald-400">
+              +{fileChangeSummary.linesAdded}
+            </span>
+            <span className="text-rose-600 dark:text-rose-400">
+              -{fileChangeSummary.linesRemoved}
+            </span>
+          </span>
+        )}
         {elapsedText && (
-          <span className="ml-auto shrink-0 text-[10px] text-muted-foreground/60 tabular-nums">
+          <span
+            className={cn(
+              "shrink-0 text-[10px] text-muted-foreground/60 tabular-nums",
+              !fileChangeSummary && "ml-auto",
+            )}
+          >
             {t("tools.elapsed", { time: elapsedText })}
           </span>
+        )}
+
+        {fileChangeSummary && onOpenDiff && (
+          <IconTip label={t("diffPanel.openDiff", "查看 diff")}>
+            <span
+              role="button"
+              className="shrink-0 p-0.5 rounded hover:bg-secondary text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              onClick={handleOpenDiff}
+            >
+              <GitCompare className="h-3 w-3" />
+            </span>
+          </IconTip>
         )}
 
         <IconTip label={t("tools.rawCall", "查看原始调用")}>

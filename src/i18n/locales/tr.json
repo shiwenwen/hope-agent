@@ -3440,5 +3440,14 @@
       "remoteTitle": "Uzak sunucuya bağlan",
       "remoteDesc": "Başka bir yerde çalışan bir Hope Agent sunucunuz mu var? Adresini verip yerel kurulumu atlayın."
     }
+  },
+  "diffPanel": {
+    "title": "Dosya değişiklikleri",
+    "openDiff": "Diff'i aç",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
+    "noDiffData": "Diff verisi yok",
+    "resizePanel": "Diff panelini yeniden boyutlandır"
   }
 }

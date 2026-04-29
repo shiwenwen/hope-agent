@@ -240,7 +240,7 @@ function leadingWhitespace(line: string): number {
 }
 
 function stripOrderedMarker(trimmed: string): string | null {
-  const match = trimmed.match(/^\d+[\.)]\s+(.+)/)
+  const match = trimmed.match(/^\d+[.)]\s+(.+)/)
   return match?.[1]?.trim() || null
 }
 

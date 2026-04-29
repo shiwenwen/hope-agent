@@ -87,6 +87,7 @@ impl SessionDB {
                 tokens_in_last INTEGER,
                 tokens_cache_creation INTEGER,
                 tokens_cache_read INTEGER,
+                tool_metadata TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
@@ -211,6 +212,17 @@ impl SessionDB {
             .is_ok();
         if !has_tokens_cache_read {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN tokens_cache_read INTEGER;")?;
+        }
+
+        // Migration: structured tool side-output metadata (file change diffs,
+        // line deltas, etc.) consumed by the right-side diff panel and the
+        // tool-call header `+N -M` summary. Older rows stay NULL and the
+        // frontend falls back to its pre-diff-panel rendering.
+        let has_tool_metadata = conn
+            .prepare("SELECT tool_metadata FROM messages LIMIT 1")
+            .is_ok();
+        if !has_tool_metadata {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN tool_metadata TEXT;")?;
         }
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
@@ -903,7 +915,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read
+                    tokens_cache_creation, tokens_cache_read, tool_metadata
              FROM messages
              WHERE session_id = ?1
              ORDER BY id ASC",
@@ -949,7 +961,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read
+                    tokens_cache_creation, tokens_cache_read, tool_metadata
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
@@ -999,7 +1011,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read
+                    tokens_cache_creation, tokens_cache_read, tool_metadata
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
@@ -1085,7 +1097,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read
+                    tokens_cache_creation, tokens_cache_read, tool_metadata
              FROM messages
              WHERE session_id = ?1 AND id >= ?2 AND id < ?3
              ORDER BY id ASC",
@@ -1204,6 +1216,7 @@ impl SessionDB {
             tokens_in_last: row.get(18)?,
             tokens_cache_creation: row.get(19)?,
             tokens_cache_read: row.get(20)?,
+            tool_metadata: row.get::<_, Option<String>>(21).ok().flatten(),
         })
     }
 
@@ -1225,8 +1238,8 @@ impl SessionDB {
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
                 tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                tokens_cache_creation, tokens_cache_read)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                tokens_cache_creation, tokens_cache_read, tool_metadata)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -1248,6 +1261,7 @@ impl SessionDB {
                 msg.tokens_in_last,
                 msg.tokens_cache_creation,
                 msg.tokens_cache_read,
+                msg.tool_metadata,
             ],
         )?;
 
@@ -1272,21 +1286,55 @@ impl SessionDB {
         duration_ms: Option<i64>,
         is_error: bool,
     ) -> Result<()> {
+        self.update_tool_result_with_metadata(session_id, call_id, result, duration_ms, is_error, None)
+    }
+
+    /// Same as [`Self::update_tool_result`] plus a JSON-string `tool_metadata`
+    /// payload (file change diff snapshots, line deltas, etc.). When
+    /// `metadata` is `None` the column is left untouched so a previously
+    /// stored value (e.g. from a partial replay) survives.
+    pub fn update_tool_result_with_metadata(
+        &self,
+        session_id: &str,
+        call_id: &str,
+        result: &str,
+        duration_ms: Option<i64>,
+        is_error: bool,
+        metadata: Option<&str>,
+    ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3
-             WHERE session_id = ?4 AND tool_call_id = ?5",
-            params![
-                result,
-                duration_ms,
-                if is_error { 1i64 } else { 0i64 },
-                session_id,
-                call_id
-            ],
-        )?;
+        match metadata {
+            Some(md) => {
+                conn.execute(
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, tool_metadata = ?4
+                     WHERE session_id = ?5 AND tool_call_id = ?6",
+                    params![
+                        result,
+                        duration_ms,
+                        if is_error { 1i64 } else { 0i64 },
+                        md,
+                        session_id,
+                        call_id
+                    ],
+                )?;
+            }
+            None => {
+                conn.execute(
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3
+                     WHERE session_id = ?4 AND tool_call_id = ?5",
+                    params![
+                        result,
+                        duration_ms,
+                        if is_error { 1i64 } else { 0i64 },
+                        session_id,
+                        call_id
+                    ],
+                )?;
+            }
+        }
         Ok(())
     }
 
@@ -2036,7 +2084,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read
+                    tokens_cache_creation, tokens_cache_read, tool_metadata
              FROM messages
              WHERE session_id = ?1 AND id <= ?2
              ORDER BY id DESC
@@ -2060,7 +2108,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read
+                    tokens_cache_creation, tokens_cache_read, tool_metadata
              FROM messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC

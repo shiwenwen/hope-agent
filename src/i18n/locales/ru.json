@@ -3440,5 +3440,14 @@
       "remoteTitle": "Подключиться к удалённому",
       "remoteDesc": "Уже есть сервер Hope Agent? Укажите его адрес, и локальная настройка будет пропущена."
     }
+  },
+  "diffPanel": {
+    "title": "Изменения в файлах",
+    "openDiff": "Открыть diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "Файл слишком большой, отображаются только первые 256КБ",
+    "noDiffData": "Нет данных diff",
+    "resizePanel": "Изменить размер панели diff"
   }
 }

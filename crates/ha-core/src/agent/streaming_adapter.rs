@@ -89,6 +89,15 @@ pub(crate) struct ExecutedTool {
     pub clean_result: String,
 }
 
+/// Side-output captured from a single tool dispatch (metadata, plus any
+/// trailing fields we add later). Travels alongside the result + duration to
+/// the streaming loop and the persister so the diff panel sees the same shape
+/// from both the live event channel and the SQLite history.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ToolDispatchSideOutput {
+    pub metadata: Option<serde_json::Value>,
+}
+
 #[async_trait]
 pub(crate) trait StreamingChatAdapter: Send + Sync {
     /// Provider format tag — drives `build_full_system_prompt(model, label)`,

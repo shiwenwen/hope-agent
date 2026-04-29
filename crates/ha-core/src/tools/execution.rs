@@ -1,5 +1,7 @@
 use serde_json::Value;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Mutex as AsyncMutex;
 use tokio::time::timeout;
 
 use super::project_read_file;
@@ -108,6 +110,19 @@ pub struct ToolExecContext {
     /// recursion: even if the tool is async-capable and the policy is
     /// `always-background`, this single re-dispatch runs synchronously.
     pub bypass_async_dispatch: bool,
+    /// Per-dispatch sink for structured tool metadata (e.g. file change
+    /// before/after snapshots, line deltas). The orchestrator constructs a
+    /// fresh `Arc<Mutex<None>>` for **each** tool dispatch, attaches the same
+    /// `Arc` clone to the `ToolExecContext` clone passed into the tool, and
+    /// drains the value after the tool returns. Tools call
+    /// [`ToolExecContext::emit_metadata`] to push their JSON.
+    ///
+    /// Why an `Arc<Mutex<...>>` despite the "no Mutex on this struct" rule
+    /// above: the rule prevents *cross-dispatch* sharing where each `clone()`
+    /// would silently get its own lock. Here every dispatch independently
+    /// constructs a single sink and shares it only with the helpers it spawns
+    /// for that dispatch — exactly the pattern the rule allows.
+    pub metadata_sink: Option<Arc<AsyncMutex<Option<Value>>>>,
 }
 
 impl ToolExecContext {
@@ -188,6 +203,15 @@ impl ToolExecContext {
             ));
         }
         None
+    }
+
+    /// Push tool-emitted metadata into the per-dispatch sink. No-op when no
+    /// sink is wired up (the common case for `execute_tool` direct callers
+    /// that don't care about structured side outputs).
+    pub async fn emit_metadata(&self, value: Value) {
+        if let Some(sink) = &self.metadata_sink {
+            *sink.lock().await = Some(value);
+        }
     }
 }
 

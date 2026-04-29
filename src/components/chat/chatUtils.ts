@@ -216,6 +216,14 @@ export function parseSessionMessages(
           if (paths.length > 0) mediaUrls = paths
         }
       }
+      let toolMetadata: ToolCall["metadata"]
+      if (msg.toolMetadata) {
+        try {
+          toolMetadata = JSON.parse(msg.toolMetadata) as ToolCall["metadata"]
+        } catch {
+          toolMetadata = undefined
+        }
+      }
       const tool: ToolCall = {
         callId: msg.toolCallId,
         name: msg.toolName || "",
@@ -227,6 +235,7 @@ export function parseSessionMessages(
         mediaUrls,
         mediaItems,
         durationMs: msg.toolDurationMs || undefined,
+        ...(toolMetadata ? { metadata: toolMetadata } : {}),
       }
       // Check if already exists in pendingTools (merge result)
       const existing = pendingTools.find((c) => c.callId === msg.toolCallId)
@@ -240,6 +249,7 @@ export function parseSessionMessages(
         if (msg.toolName && !existing.name) existing.name = msg.toolName
         if (msg.toolArguments && !existing.arguments) existing.arguments = msg.toolArguments
         if (msg.toolDurationMs != null) existing.durationMs = msg.toolDurationMs
+        if (toolMetadata) existing.metadata = toolMetadata
         // Update matching block too
         const blockIdx = pendingBlocks.findIndex(
           (b) => b.type === "tool_call" && b.tool.callId === msg.toolCallId,

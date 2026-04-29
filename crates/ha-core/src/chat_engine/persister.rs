@@ -128,8 +128,22 @@ impl StreamPersister {
                         .get("is_error")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false);
-                    let _ =
-                        db.update_tool_result(&session_id, call_id, result, duration_ms, is_error);
+                    // Persist any structured tool side-output (file change
+                    // before/after, line deltas) on the same row as the
+                    // result so history reload feeds the diff panel without
+                    // an extra roundtrip.
+                    let metadata_json: Option<String> = event
+                        .get("tool_metadata")
+                        .filter(|v| !v.is_null())
+                        .and_then(|v| serde_json::to_string(v).ok());
+                    let _ = db.update_tool_result_with_metadata(
+                        &session_id,
+                        call_id,
+                        result,
+                        duration_ms,
+                        is_error,
+                        metadata_json.as_deref(),
+                    );
                 }
                 _ => {}
             }

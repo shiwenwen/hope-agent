@@ -3440,5 +3440,14 @@
       "remoteTitle": "Connect to remote",
       "remoteDesc": "Already have a Hope Agent server running elsewhere? Point this app at it and skip the local setup."
     }
+  },
+  "diffPanel": {
+    "title": "File changes",
+    "openDiff": "Open diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "File too large, only the first 256KB is rendered",
+    "noDiffData": "No diff data",
+    "resizePanel": "Resize diff panel"
   }
 }

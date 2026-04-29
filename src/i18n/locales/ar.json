@@ -3440,5 +3440,14 @@
       "remoteTitle": "الاتصال بخادم بعيد",
       "remoteDesc": "لديك خادم Hope Agent يعمل في مكان آخر؟ أدخل عنوانه وتجاوز الإعداد المحلي."
     }
+  },
+  "diffPanel": {
+    "title": "تغييرات الملفات",
+    "openDiff": "فتح الفرق",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",
+    "noDiffData": "لا توجد بيانات للفرق",
+    "resizePanel": "تغيير حجم لوحة الفرق"
   }
 }

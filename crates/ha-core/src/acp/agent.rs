@@ -984,7 +984,18 @@ fn persist_tool_event_inline(db: &Arc<SessionDB>, session_id: &str, delta: &str)
                     .get("is_error")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                let _ = db.update_tool_result(session_id, call_id, result, duration_ms, is_error);
+                let metadata_json: Option<String> = event
+                    .get("tool_metadata")
+                    .filter(|v| !v.is_null())
+                    .and_then(|v| serde_json::to_string(v).ok());
+                let _ = db.update_tool_result_with_metadata(
+                    session_id,
+                    call_id,
+                    result,
+                    duration_ms,
+                    is_error,
+                    metadata_json.as_deref(),
+                );
             }
             Some("tool_call") => {
                 let call_id = event.get("call_id").and_then(|v| v.as_str()).unwrap_or("");

@@ -119,17 +119,25 @@ fn log_tool_output(call_id: &str, name: &str, result: &str, elapsed_ms: u64, rou
     }
 }
 
-/// Execute a tool with cancel-flag racing. Returns `(result_string, elapsed_ms)`.
+/// Execute a tool with cancel-flag racing. Returns `(result_string,
+/// elapsed_ms, side_output)`. The side output carries structured metadata
+/// (file change before/after snapshots, line deltas, etc.) emitted by the
+/// tool through [`ToolExecContext::emit_metadata`]; one fresh sink is
+/// constructed per call so concurrent peers cannot clobber each other.
 async fn execute_tool_with_cancel(
     name: &str,
     args: &serde_json::Value,
     ctx: &ToolExecContext,
     cancel: &Arc<AtomicBool>,
-) -> (String, u64) {
+) -> (String, u64, super::streaming_adapter::ToolDispatchSideOutput) {
+    let sink: Arc<tokio::sync::Mutex<Option<serde_json::Value>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
+    let mut local_ctx = ctx.clone();
+    local_ctx.metadata_sink = Some(sink.clone());
     let tool_start = std::time::Instant::now();
     let cancel_clone = cancel.clone();
     let result = tokio::select! {
-        res = tools::execute_tool_with_context(name, args, ctx) => {
+        res = tools::execute_tool_with_context(name, args, &local_ctx) => {
             match res {
                 Ok(r) => r,
                 Err(e) => format!("Tool error: {}", e),
@@ -145,7 +153,12 @@ async fn execute_tool_with_cancel(
         }
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;
-    (result, elapsed_ms)
+    let metadata = sink.lock().await.take();
+    (
+        result,
+        elapsed_ms,
+        super::streaming_adapter::ToolDispatchSideOutput { metadata },
+    )
 }
 
 impl AssistantAgent {
@@ -362,10 +375,10 @@ impl AssistantAgent {
                         async move {
                             let args: serde_json::Value =
                                 serde_json::from_str(&arguments).unwrap_or(json!({}));
-                            let (result, elapsed_ms) =
+                            let (result, elapsed_ms, side) =
                                 execute_tool_with_cancel(&name, &args, &tool_ctx, &cancel_clone)
                                     .await;
-                            (call_id, name, arguments, result, elapsed_ms)
+                            (call_id, name, arguments, result, elapsed_ms, side)
                         }
                     })
                     .collect();
@@ -379,7 +392,7 @@ impl AssistantAgent {
 
                 let results = join_all(futures).await;
 
-                for (call_id, name, arguments, result, elapsed_ms) in results {
+                for (call_id, name, arguments, result, elapsed_ms, side) in results {
                     log_tool_output(&call_id, &name, &result, elapsed_ms, round);
                     let is_error = result.starts_with("Tool error:");
                     let (clean_result, media_items) = extract_media_items(&result);
@@ -391,6 +404,7 @@ impl AssistantAgent {
                         elapsed_ms,
                         is_error,
                         &media_items,
+                        side.metadata.as_ref(),
                     );
                     executed.push(ExecutedTool {
                         call_id,
@@ -413,7 +427,7 @@ impl AssistantAgent {
                 emit_tool_call(on_delta, &tc.call_id, &tc.name, &tc.arguments);
                 log_tool_input(tc, round);
 
-                let (result, elapsed_ms) =
+                let (result, elapsed_ms, side) =
                     execute_tool_with_cancel(&tc.name, &args, &tool_ctx, cancel).await;
 
                 log_tool_output(&tc.call_id, &tc.name, &result, elapsed_ms, round);
@@ -427,6 +441,7 @@ impl AssistantAgent {
                     elapsed_ms,
                     is_error,
                     &media_items,
+                    side.metadata.as_ref(),
                 );
                 executed.push(ExecutedTool {
                     call_id: tc.call_id.clone(),

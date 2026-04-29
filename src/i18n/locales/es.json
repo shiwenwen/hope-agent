@@ -3440,5 +3440,14 @@
       "remoteTitle": "Conectar a remoto",
       "remoteDesc": "¿Ya tienes un servidor Hope Agent en otro sitio? Indica su URL y omite la configuración local."
     }
+  },
+  "diffPanel": {
+    "title": "Cambios de archivo",
+    "openDiff": "Abrir diff",
+    "layoutUnified": "Unified",
+    "layoutSplit": "Split",
+    "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",
+    "noDiffData": "Sin datos de diff",
+    "resizePanel": "Redimensionar panel de diff"
   }
 }

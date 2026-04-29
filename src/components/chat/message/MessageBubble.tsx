@@ -37,6 +37,10 @@ export interface MessageBubbleProps {
   onSwitchModel?: (providerId: string, modelId: string) => void
   // View system prompt (triggered from context breakdown card)
   onViewSystemPrompt?: () => void
+  // Open the right-side diff panel for a file change payload.
+  onOpenDiff?: (
+    metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
+  ) => void
 }
 
 function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => string }) {
@@ -93,6 +97,7 @@ function MessageBubbleInner({
   onSwitchSession,
   onSwitchModel,
   onViewSystemPrompt,
+  onOpenDiff,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
@@ -236,6 +241,7 @@ function MessageBubbleInner({
               sessionId={sessionId}
               onOpenPlanPanel={onOpenPlanPanel}
               onSwitchSession={onSwitchSession}
+              onOpenDiff={onOpenDiff}
             />
           ) : msg.role === "assistant" ? (
             <AssistantLegacyContent msg={msg} loading={loading} isLast={isLast} />

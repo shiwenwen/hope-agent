@@ -626,6 +626,15 @@
         "failed": "失敗",
         "partial": "インポート完了（警告あり）"
       }
+    },
+    "diffPanel": {
+      "title": "ファイルの変更",
+      "openDiff": "差分を表示",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
+      "noDiffData": "差分データがありません",
+      "resizePanel": "差分パネルのサイズを変更"
     }
   },
   "ko": {
@@ -1255,6 +1264,15 @@
         "failed": "실패",
         "partial": "경고와 함께 가져옴"
       }
+    },
+    "diffPanel": {
+      "title": "파일 변경 사항",
+      "openDiff": "diff 보기",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "파일이 너무 커 처음 256KB만 표시합니다",
+      "noDiffData": "diff 데이터 없음",
+      "resizePanel": "diff 패널 크기 조절"
     }
   },
   "zh-TW": {
@@ -1884,6 +1902,15 @@
         "failed": "失敗",
         "partial": "已匯入（有警告）"
       }
+    },
+    "diffPanel": {
+      "title": "檔案變更",
+      "openDiff": "查看 diff",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "檔案過大，僅渲染前 256KB",
+      "noDiffData": "無 diff 資料",
+      "resizePanel": "調整 diff 面板寬度"
     }
   },
   "tr": {
@@ -2513,6 +2540,15 @@
         "failed": "Başarısız",
         "partial": "Uyarılarla içe aktarıldı"
       }
+    },
+    "diffPanel": {
+      "title": "Dosya değişiklikleri",
+      "openDiff": "Diff'i aç",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
+      "noDiffData": "Diff verisi yok",
+      "resizePanel": "Diff panelini yeniden boyutlandır"
     }
   },
   "vi": {
@@ -3142,6 +3178,15 @@
         "failed": "Thất bại",
         "partial": "Đã nhập có cảnh báo"
       }
+    },
+    "diffPanel": {
+      "title": "Thay đổi tệp",
+      "openDiff": "Mở diff",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
+      "noDiffData": "Không có dữ liệu diff",
+      "resizePanel": "Thay đổi kích thước bảng diff"
     }
   },
   "pt": {
@@ -3771,6 +3816,15 @@
         "failed": "Falhou",
         "partial": "Importado com avisos"
       }
+    },
+    "diffPanel": {
+      "title": "Alterações de arquivo",
+      "openDiff": "Abrir diff",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "Arquivo muito grande, somente os primeiros 256KB são renderizados",
+      "noDiffData": "Sem dados de diff",
+      "resizePanel": "Redimensionar painel de diff"
     }
   },
   "ru": {
@@ -4400,6 +4454,15 @@
         "failed": "Ошибка",
         "partial": "Импортировано с предупреждениями"
       }
+    },
+    "diffPanel": {
+      "title": "Изменения в файлах",
+      "openDiff": "Открыть diff",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "Файл слишком большой, отображаются только первые 256КБ",
+      "noDiffData": "Нет данных diff",
+      "resizePanel": "Изменить размер панели diff"
     }
   },
   "ar": {
@@ -5029,6 +5092,15 @@
         "failed": "فشل",
         "partial": "تم الاستيراد مع تحذيرات"
       }
+    },
+    "diffPanel": {
+      "title": "تغييرات الملفات",
+      "openDiff": "فتح الفرق",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",
+      "noDiffData": "لا توجد بيانات للفرق",
+      "resizePanel": "تغيير حجم لوحة الفرق"
     }
   },
   "es": {
@@ -5658,6 +5730,15 @@
         "failed": "Falló",
         "partial": "Importado con avisos"
       }
+    },
+    "diffPanel": {
+      "title": "Cambios de archivo",
+      "openDiff": "Abrir diff",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",
+      "noDiffData": "Sin datos de diff",
+      "resizePanel": "Redimensionar panel de diff"
     }
   },
   "ms": {
@@ -6287,6 +6368,15 @@
         "failed": "Gagal",
         "partial": "Diimport dengan amaran"
       }
+    },
+    "diffPanel": {
+      "title": "Perubahan fail",
+      "openDiff": "Buka diff",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
+      "noDiffData": "Tiada data diff",
+      "resizePanel": "Saiz semula panel diff"
     }
   },
   "zh": {
@@ -6337,6 +6427,15 @@
         "failed": "失败",
         "partial": "已导入（有警告）"
       }
+    },
+    "diffPanel": {
+      "title": "文件改动",
+      "openDiff": "查看 diff",
+      "layoutUnified": "Unified",
+      "layoutSplit": "Split",
+      "fileTooLarge": "文件过大，仅渲染前 256KB",
+      "noDiffData": "无 diff 数据",
+      "resizePanel": "调整 diff 面板宽度"
     }
   }
 }

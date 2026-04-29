@@ -1,7 +1,10 @@
 use anyhow::Result;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::path::Path;
 
+use super::diff_util::{
+    compute_line_delta, detect_language, read_for_diff_metadata, truncate_for_metadata,
+};
 use super::extract_string_param;
 
 fn nearest_existing_ancestor(path: &Path) -> Option<&Path> {
@@ -70,15 +73,65 @@ pub(crate) async fn tool_write_file(args: &Value, ctx: &super::ToolExecContext) 
             .map_err(|e| anyhow::anyhow!("Failed to create directories: {}", e))?;
     }
 
+    // Pre-write snapshot is **only** for diff metadata. Skip the read entirely
+    // when nothing is going to consume it, so plain CLI / cron writes don't
+    // pull the old file into memory. When a sink exists, read_for_diff_metadata
+    // caps the read at MAX_METADATA_CONTENT_BYTES (256 KiB) to avoid OOM on
+    // large file overwrites — oversized files surface as truncated=true and
+    // the panel renders the "file too large" hint.
+    let before_snapshot = if ctx.metadata_sink.is_some() {
+        read_for_diff_metadata(&path).await
+    } else {
+        None
+    };
+
     tokio::fs::write(&path, content)
         .await
         .map_err(|e| anyhow::anyhow!("Failed to write file '{}': {}", path, e))?;
+
+    emit_file_change_metadata(ctx, &path, before_snapshot.as_ref(), content).await;
 
     Ok(format!(
         "Successfully wrote {} bytes to {}",
         content.len(),
         path
     ))
+}
+
+async fn emit_file_change_metadata(
+    ctx: &super::ToolExecContext,
+    path: &str,
+    before: Option<&(String, bool)>,
+    after: &str,
+) {
+    if ctx.metadata_sink.is_none() {
+        return;
+    }
+    let action = if before.is_some() { "edit" } else { "create" };
+    let (before_str, before_pre_trunc) = match before {
+        Some((s, t)) => (s.as_str(), *t),
+        None => ("", false),
+    };
+    let (added, removed) = compute_line_delta(before_str, after);
+    let (before_truncated_str, before_post_trunc) = truncate_for_metadata(before_str);
+    let (after_truncated_str, after_trunc) = truncate_for_metadata(after);
+    let before_value = if before.is_some() {
+        Value::String(before_truncated_str)
+    } else {
+        Value::Null
+    };
+    ctx.emit_metadata(json!({
+        "kind": "file_change",
+        "path": path,
+        "action": action,
+        "linesAdded": added,
+        "linesRemoved": removed,
+        "before": before_value,
+        "after": after_truncated_str,
+        "language": detect_language(path),
+        "truncated": before_pre_trunc || before_post_trunc || after_trunc,
+    }))
+    .await;
 }
 
 #[cfg(all(test, unix))]

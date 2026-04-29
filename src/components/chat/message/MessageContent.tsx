@@ -8,7 +8,12 @@ import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/Subagent
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
-import type { ContentBlock, ToolCall } from "@/types/chat"
+import type {
+  ContentBlock,
+  FileChangeMetadata,
+  FileChangesMetadata,
+  ToolCall,
+} from "@/types/chat"
 import type { Message } from "@/types/chat"
 
 const TASK_TOOL_NAMES = new Set(["task_create", "task_update", "task_list"])
@@ -98,6 +103,8 @@ interface MessageContentProps {
   sessionId?: string | null
   onOpenPlanPanel?: () => void
   onSwitchSession?: (sessionId: string) => void
+  /** Open the right-side diff panel for a file change payload. */
+  onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
 }
 
 /** Renders assistant content blocks (thinking, text, tool calls) with grouping logic */
@@ -108,6 +115,7 @@ export function AssistantContentBlocks({
   sessionId,
   onOpenPlanPanel,
   onSwitchSession,
+  onOpenDiff,
 }: MessageContentProps) {
   const blocks = msg.contentBlocks!
   const elements: React.ReactNode[] = []
@@ -246,7 +254,9 @@ export function AssistantContentBlocks({
         // or spawn still in-flight without a run_id yet → render individually.
         // NO_GROUP_TOOLS prevents it from falling into the generic tool-call
         // group below.
-        elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} />)
+        elements.push(
+          <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />,
+        )
         i++
         continue
       }
@@ -274,11 +284,19 @@ export function AssistantContentBlocks({
             key={`grp-${tools[0].callId}`}
             tools={tools}
             shimmer={isLastToolGroup}
+            onOpenDiff={onOpenDiff}
           />,
         )
       } else {
         // Single tool — render individually
-        elements.push(<ToolCallBlock key={block.tool.callId} tool={block.tool} shimmer={isLastToolGroup} />)
+        elements.push(
+          <ToolCallBlock
+            key={block.tool.callId}
+            tool={block.tool}
+            shimmer={isLastToolGroup}
+            onOpenDiff={onOpenDiff}
+          />,
+        )
       }
       i = j
     } else {

@@ -1244,6 +1244,7 @@ impl AssistantAgent {
             auto_approve_tools: self.auto_approve_tools,
             async_tool_policy: caps.async_tool_policy,
             bypass_async_dispatch: false,
+            metadata_sink: None,
         }
     }
 
