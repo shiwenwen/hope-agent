@@ -1,24 +1,18 @@
 import { useState } from "react"
-import { CheckCircle, ChevronRight, Circle, ListChecks, Loader2 } from "lucide-react"
+import { ChevronRight, ListChecks } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import type { TaskStatus } from "@/types/chat"
 import {
   getTaskDisplayLabel,
   type TaskProgressSnapshot,
 } from "./taskProgress"
+import { TASK_STATUS_ICON } from "./taskStatusIcon"
 
 interface TaskProgressPanelProps {
   snapshot: TaskProgressSnapshot
   className?: string
   defaultExpanded?: boolean
   variant?: "card" | "embedded"
-}
-
-export const TASK_STATUS_ICON: Record<TaskStatus, { Icon: typeof Circle; cls: string }> = {
-  pending: { Icon: Circle, cls: "text-muted-foreground" },
-  in_progress: { Icon: Loader2, cls: "animate-spin text-blue-500" },
-  completed: { Icon: CheckCircle, cls: "text-green-500" },
 }
 
 export default function TaskProgressPanel({

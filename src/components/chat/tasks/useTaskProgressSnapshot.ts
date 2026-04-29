@@ -44,20 +44,27 @@ export function useTaskProgressSnapshot(
     () => extractLatestTaskProgressSnapshot(messages),
     [messages],
   )
-  const [eventSnapshot, setEventSnapshot] = useState<TaskProgressSnapshot | null>(null)
+  const [eventState, setEventState] = useState<{
+    sessionId: string | null
+    snapshot: TaskProgressSnapshot | null
+  }>({ sessionId, snapshot: null })
 
-  useEffect(() => {
-    setEventSnapshot(null)
-  }, [sessionId])
+  if (eventState.sessionId !== sessionId) {
+    setEventState({ sessionId, snapshot: null })
+  }
 
   useEffect(() => {
     if (!sessionId) return
     return getTransport().listen("task_updated", (raw) => {
       const payload = raw as TaskUpdatedPayload
       if (payload.sessionId !== sessionId) return
-      setEventSnapshot(taskProgressSnapshotFromTasks(payload.tasks))
+      setEventState({
+        sessionId,
+        snapshot: taskProgressSnapshotFromTasks(payload.tasks),
+      })
     })
   }, [sessionId])
 
+  const eventSnapshot = eventState.sessionId === sessionId ? eventState.snapshot : null
   return currentSnapshot(latestSnapshot(messageSnapshot, eventSnapshot))
 }

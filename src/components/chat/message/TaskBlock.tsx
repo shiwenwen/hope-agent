@@ -9,7 +9,7 @@ import {
   getTaskProgressSummaryText,
   parseTaskToolResult,
 } from "@/components/chat/tasks/taskProgress"
-import { TASK_STATUS_ICON } from "@/components/chat/tasks/TaskProgressPanel"
+import { TASK_STATUS_ICON } from "@/components/chat/tasks/taskStatusIcon"
 
 interface TaskBlockProps {
   tool: ToolCall
