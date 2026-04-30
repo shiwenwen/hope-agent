@@ -8,21 +8,17 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
 /**
- * Reusable list editor for the three pattern lists (protected paths /
- * dangerous commands / edit commands). Talks to a tuple of Tauri/HTTP
- * commands that follow the standard {get,set,reset} naming.
+ * One of the three pattern-list kinds. Each maps to the standard
+ * {get,set,reset}_<kind> Tauri/HTTP command triple, so callers only pass the
+ * discriminant — no risk of typos in three separate command-name strings.
  */
+export type PatternListKind = "protected_paths" | "dangerous_commands" | "edit_commands"
+
 interface PatternListEditorProps {
-  /** Section title shown above the list (already i18n'd by the caller). */
+  kind: PatternListKind
   title: string
-  /** Section description. */
   description: string
-  /** Inline placeholder for the "add new pattern" input. */
   inputPlaceholder: string
-  /** Tauri/HTTP command names — same on both transports. */
-  getCmd: string
-  setCmd: string
-  resetCmd: string
 }
 
 interface ListPayload {
@@ -31,12 +27,10 @@ interface ListPayload {
 }
 
 export default function PatternListEditor({
+  kind,
   title,
   description,
   inputPlaceholder,
-  getCmd,
-  setCmd,
-  resetCmd,
 }: PatternListEditorProps) {
   const { t } = useTranslation()
   const [patterns, setPatterns] = useState<string[]>([])
@@ -44,6 +38,9 @@ export default function PatternListEditor({
   const [draft, setDraft] = useState("")
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
+  const getCmd = `get_${kind}`
+  const setCmd = `set_${kind}`
+  const resetCmd = `reset_${kind}`
 
   const isPristine = useMemo(() => {
     if (patterns.length !== defaults.length) return false
@@ -75,7 +72,7 @@ export default function PatternListEditor({
       setPatterns(next)
     } catch (e) {
       logger.error("settings", "approvalPanel", `${setCmd} failed`, e)
-      toast.error(t("settings.approvalPanel.saveFailed"))
+      toast.error(t("common.saveFailed"))
     } finally {
       setBusy(false)
     }
@@ -105,7 +102,7 @@ export default function PatternListEditor({
       toast.success(t("settings.approvalPanel.restoredDefaults"))
     } catch (e) {
       logger.error("settings", "approvalPanel", `${resetCmd} failed`, e)
-      toast.error(t("settings.approvalPanel.saveFailed"))
+      toast.error(t("common.saveFailed"))
     } finally {
       setBusy(false)
     }
@@ -146,7 +143,7 @@ export default function PatternListEditor({
         />
         <Button onClick={addPattern} size="sm" disabled={busy || !draft.trim()} className="h-8">
           <Plus className="h-3.5 w-3.5 mr-1" />
-          {t("settings.approvalPanel.add")}
+          {t("common.add")}
         </Button>
       </div>
 
@@ -154,7 +151,7 @@ export default function PatternListEditor({
         {loading ? (
           <div className="flex items-center justify-center py-6 text-xs text-muted-foreground">
             <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
-            {t("settings.approvalPanel.loading")}
+            {t("common.loading")}
           </div>
         ) : patterns.length === 0 ? (
           <div className="text-center py-6 text-xs text-muted-foreground">

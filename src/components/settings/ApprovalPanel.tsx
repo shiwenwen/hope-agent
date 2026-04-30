@@ -30,30 +30,24 @@ export default function ApprovalPanel() {
         <GlobalYoloSection />
 
         <PatternListEditor
+          kind="protected_paths"
           title={t("settings.approvalPanel.protectedPathsTitle")}
           description={t("settings.approvalPanel.protectedPathsDesc")}
           inputPlaceholder={t("settings.approvalPanel.protectedPathsPlaceholder")}
-          getCmd="get_protected_paths"
-          setCmd="set_protected_paths"
-          resetCmd="reset_protected_paths"
         />
 
         <PatternListEditor
+          kind="edit_commands"
           title={t("settings.approvalPanel.editCommandsTitle")}
           description={t("settings.approvalPanel.editCommandsDesc")}
           inputPlaceholder={t("settings.approvalPanel.editCommandsPlaceholder")}
-          getCmd="get_edit_commands"
-          setCmd="set_edit_commands"
-          resetCmd="reset_edit_commands"
         />
 
         <PatternListEditor
+          kind="dangerous_commands"
           title={t("settings.approvalPanel.dangerousCommandsTitle")}
           description={t("settings.approvalPanel.dangerousCommandsDesc")}
           inputPlaceholder={t("settings.approvalPanel.dangerousCommandsPlaceholder")}
-          getCmd="get_dangerous_commands"
-          setCmd="set_dangerous_commands"
-          resetCmd="reset_dangerous_commands"
         />
 
         <SmartModeSection />

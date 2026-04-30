@@ -11,12 +11,10 @@ interface ApprovalTabProps {
 }
 
 /**
- * Tools the user can opt into approving in Default mode. Mirrors the v2 plan:
- * - Hardcoded "always-approve": write / edit / apply_patch + exec command
- *   patterns (edit/dangerous lists). Not in this list — UI never shows them.
- * - "Always-allow" (基础核心 read/grep/find/memory/cron/canvas/etc.) Not here.
- * - The remaining 17 tools below are the user-curated extras. MCP dynamic
- *   tools are controlled per-server in the MCP settings panel.
+ * Tools the user can opt into approving in Default mode. Read-only / always-
+ * allowed tools and hardcoded must-approve tools (write/edit/apply_patch +
+ * exec edit/dangerous-command matches) are excluded — only this curated set
+ * is surfaced as toggleable. MCP dynamic tools are managed per-server.
  */
 const APPROVAL_OPTIN_GROUPS: ReadonlyArray<{
   groupKey: string

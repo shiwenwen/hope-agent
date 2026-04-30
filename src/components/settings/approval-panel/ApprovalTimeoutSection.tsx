@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { Loader2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { RadioPills } from "@/components/ui/radio-pills"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
@@ -50,7 +51,7 @@ export default function ApprovalTimeoutSection() {
       logger.error("settings", "approvalTimeout", "save failed", e)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
-      toast.error(t("settings.approvalPanel.saveFailed"))
+      toast.error(t("common.saveFailed"))
     } finally {
       setSaving(false)
     }
@@ -93,24 +94,16 @@ export default function ApprovalTimeoutSection() {
           <label className="text-xs font-medium text-foreground/80">
             {t("settings.approvalPanel.timeoutAction")}
           </label>
-          <div className="mt-1.5 grid grid-cols-2 gap-1.5 max-w-xs">
-            {(["deny", "proceed"] as const).map((a) => {
-              const isActive = action === a
-              return (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => setAction(a)}
-                  className={`text-xs rounded-md px-2 py-1.5 border transition-colors ${
-                    isActive
-                      ? "bg-primary/10 border-primary/40 text-primary"
-                      : "bg-secondary/40 border-border/40 text-muted-foreground hover:border-border"
-                  }`}
-                >
-                  {t(`settings.approvalPanel.timeoutActions.${a}`)}
-                </button>
-              )
-            })}
+          <div className="mt-1.5 max-w-xs">
+            <RadioPills
+              value={action}
+              onChange={setAction}
+              cols="grid-cols-2"
+              options={(["deny", "proceed"] as const).map((a) => ({
+                value: a,
+                label: t(`settings.approvalPanel.timeoutActions.${a}`),
+              }))}
+            />
           </div>
         </div>
       </div>
@@ -130,12 +123,12 @@ export default function ApprovalTimeoutSection() {
             <Save className="h-3 w-3 mr-1" />
           )}
           {saving
-            ? t("settings.approvalPanel.saving")
+            ? t("common.saving")
             : saveStatus === "saved"
-              ? t("settings.approvalPanel.saved")
+              ? t("common.saved")
               : saveStatus === "failed"
-                ? t("settings.approvalPanel.saveFailed")
-                : t("settings.approvalPanel.save")}
+                ? t("common.saveFailed")
+                : t("common.save")}
         </Button>
       </div>
     </section>

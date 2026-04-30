@@ -101,7 +101,9 @@ const FILE_NAME: &str = "edit-commands.json";
 static CACHE: std::sync::LazyLock<super::list_store::Cache> =
     std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
 
-pub fn current_patterns() -> Vec<String> {
+/// Backed by `~/.hope-agent/permission/edit-commands.json`. Returns an
+/// `Arc` snapshot — engine hot path only pays a refcount bump.
+pub fn current_patterns() -> std::sync::Arc<Vec<String>> {
     super::list_store::load_or_defaults(&CACHE, FILE_NAME, DEFAULT_EDIT_COMMAND_PATTERNS)
 }
 

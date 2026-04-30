@@ -2361,13 +2361,7 @@
         "deny": "Block execution",
         "proceed": "Proceed"
       },
-      "save": "Save",
-      "saving": "Saving…",
-      "saved": "Saved",
-      "saveFailed": "Save failed",
-      "loading": "Loading…",
       "empty": "No entries — add a pattern to enable",
-      "add": "Add",
       "restoreDefaults": "Restore Defaults",
       "restoredDefaults": "Restored to defaults"
     }

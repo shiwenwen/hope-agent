@@ -352,11 +352,6 @@ export default function CapabilitiesTab({
           </div>
         </CollapsibleSection>
 
-        {/* Per-tool approval moved to the dedicated "Approval" tab — see
-            ApprovalTab.tsx for the new "Custom Tool Approval" switch + per-tool
-            opt-in list + default session permission mode. */}
-
-
         {/* Sandbox */}
         <div className="flex items-center justify-between px-1">
           <div>

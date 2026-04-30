@@ -52,8 +52,9 @@ static CACHE: std::sync::LazyLock<super::list_store::Cache> =
 
 /// Currently-active dangerous-command patterns. Backed by
 /// `~/.hope-agent/permission/dangerous-commands.json`; falls back to
-/// [`DEFAULT_DANGEROUS_PATTERNS`] when the file is missing.
-pub fn current_patterns() -> Vec<String> {
+/// [`DEFAULT_DANGEROUS_PATTERNS`] when the file is missing. Returns an
+/// `Arc` snapshot for cheap hot-path access.
+pub fn current_patterns() -> std::sync::Arc<Vec<String>> {
     super::list_store::load_or_defaults(&CACHE, FILE_NAME, DEFAULT_DANGEROUS_PATTERNS)
 }
 

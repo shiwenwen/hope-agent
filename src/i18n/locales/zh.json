@@ -1730,13 +1730,7 @@
         "deny": "拒绝执行",
         "proceed": "放行执行"
       },
-      "save": "保存",
-      "saving": "保存中…",
-      "saved": "已保存",
-      "saveFailed": "保存失败",
-      "loading": "加载中…",
       "empty": "暂无条目，添加新模式以启用",
-      "add": "添加",
       "restoreDefaults": "恢复默认",
       "restoredDefaults": "已恢复为默认列表"
     },

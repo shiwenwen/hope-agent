@@ -51,6 +51,10 @@ pub struct ApprovalReasonPayload {
     pub detail: Option<String>,
 }
 
+/// KEEP IN SYNC with the TS string union in
+/// [`src/components/chat/ApprovalDialog.tsx`] (`ApprovalRequest.reason.kind`).
+/// Adding a variant here without updating that union leaves the frontend
+/// without a banner — TS won't catch the drift.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalReasonKind {

@@ -42,7 +42,7 @@ export default function GlobalYoloSection() {
       )
     } catch (e) {
       logger.error("settings", "globalYolo", "set_dangerous_skip_all_approvals failed", e)
-      toast.error(t("settings.approvalPanel.saveFailed"))
+      toast.error(t("common.saveFailed"))
     } finally {
       setBusy(false)
     }

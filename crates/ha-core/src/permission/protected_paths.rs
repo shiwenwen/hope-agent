@@ -40,8 +40,9 @@ static CACHE: std::sync::LazyLock<super::list_store::Cache> =
 
 /// Currently-active protected path patterns. Backed by
 /// `~/.hope-agent/permission/protected-paths.json`; falls back to
-/// [`DEFAULT_PROTECTED_PATHS`] when the file is missing.
-pub fn current_patterns() -> Vec<String> {
+/// [`DEFAULT_PROTECTED_PATHS`] when the file is missing. Returns an `Arc`
+/// snapshot — engine hot path only pays a refcount bump, not a Vec clone.
+pub fn current_patterns() -> std::sync::Arc<Vec<String>> {
     super::list_store::load_or_defaults(&CACHE, FILE_NAME, DEFAULT_PROTECTED_PATHS)
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { ShieldAlert, ShieldCheck, FolderOpen, Clock } from "lucide-react"
@@ -64,23 +64,26 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
     }
   }, [])
 
-  // Tick the countdown once per second while a request is active. The
-  // `setRemaining` call lives inside the interval callback (microtask),
-  // not the effect body — so neither purity nor set-state-in-effect rules
-  // are triggered.
+  // Drive the countdown. setState lives inside the interval callback (not
+  // the effect body), satisfying the new react-hooks/set-state-in-effect
+  // lint. Stops itself when the timer hits zero.
   useEffect(() => {
     if (!currentId || timeoutSecs === null || timeoutSecs <= 0) return
     const startMs = Date.now()
     const total = timeoutSecs
+    let id: number | null = null
     const tick = () => {
-      const elapsed = Math.floor((Date.now() - startMs) / 1000)
-      setRemaining(Math.max(0, total - elapsed))
+      const next = Math.max(0, total - Math.floor((Date.now() - startMs) / 1000))
+      setRemaining(next)
+      if (next <= 0 && id !== null) {
+        window.clearInterval(id)
+        id = null
+      }
     }
     tick()
-    const id = window.setInterval(tick, 1000)
+    id = window.setInterval(tick, 1000)
     return () => {
-      window.clearInterval(id)
-      setRemaining(null)
+      if (id !== null) window.clearInterval(id)
     }
   }, [currentId, timeoutSecs])
 
@@ -191,10 +194,7 @@ function CountdownRing({
   autoAction: "deny" | "proceed"
 }) {
   const { t } = useTranslation()
-  const ratio = useMemo(() => {
-    if (total <= 0) return 0
-    return Math.max(0, Math.min(1, remaining / total))
-  }, [remaining, total])
+  const ratio = total <= 0 ? 0 : Math.max(0, Math.min(1, remaining / total))
   const isUrgent = remaining <= 30
   const stroke = 3
   const size = 28

@@ -5,6 +5,7 @@ import { Loader2, Save } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { RadioPills } from "@/components/ui/radio-pills"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 
@@ -63,7 +64,7 @@ export default function SmartModeSection() {
       logger.error("settings", "smartMode", "set_smart_mode_config failed", e)
       setSaveStatus("failed")
       setTimeout(() => setSaveStatus("idle"), 2000)
-      toast.error(t("settings.approvalPanel.saveFailed"))
+      toast.error(t("common.saveFailed"))
     } finally {
       setSaving(false)
     }
@@ -73,7 +74,7 @@ export default function SmartModeSection() {
     return (
       <section className="rounded-lg border border-border/50 bg-card/40 p-4 flex items-center justify-center text-xs text-muted-foreground py-6">
         <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
-        {t("settings.approvalPanel.loading")}
+        {t("common.loading")}
       </section>
     )
   }
@@ -100,24 +101,15 @@ export default function SmartModeSection() {
           <label className="text-xs font-medium text-foreground/80">
             {t("settings.approvalPanel.smartStrategy")}
           </label>
-          <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-            {STRATEGIES.map((s) => {
-              const isActive = config.strategy === s
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setConfig({ ...config, strategy: s })}
-                  className={`text-xs rounded-md px-2 py-1.5 border transition-colors ${
-                    isActive
-                      ? "bg-primary/10 border-primary/40 text-primary"
-                      : "bg-secondary/40 border-border/40 text-muted-foreground hover:border-border"
-                  }`}
-                >
-                  {t(`settings.approvalPanel.strategies.${s}`)}
-                </button>
-              )
-            })}
+          <div className="mt-1.5">
+            <RadioPills
+              value={config.strategy}
+              onChange={(s) => setConfig({ ...config, strategy: s })}
+              options={STRATEGIES.map((s) => ({
+                value: s,
+                label: t(`settings.approvalPanel.strategies.${s}`),
+              }))}
+            />
           </div>
         </div>
 
@@ -125,24 +117,15 @@ export default function SmartModeSection() {
           <label className="text-xs font-medium text-foreground/80">
             {t("settings.approvalPanel.smartFallback")}
           </label>
-          <div className="mt-1.5 grid grid-cols-3 gap-1.5">
-            {FALLBACKS.map((f) => {
-              const isActive = config.fallback === f
-              return (
-                <button
-                  key={f}
-                  type="button"
-                  onClick={() => setConfig({ ...config, fallback: f })}
-                  className={`text-xs rounded-md px-2 py-1.5 border transition-colors ${
-                    isActive
-                      ? "bg-primary/10 border-primary/40 text-primary"
-                      : "bg-secondary/40 border-border/40 text-muted-foreground hover:border-border"
-                  }`}
-                >
-                  {t(`settings.approvalPanel.fallbacks.${f}`)}
-                </button>
-              )
-            })}
+          <div className="mt-1.5">
+            <RadioPills
+              value={config.fallback}
+              onChange={(f) => setConfig({ ...config, fallback: f })}
+              options={FALLBACKS.map((f) => ({
+                value: f,
+                label: t(`settings.approvalPanel.fallbacks.${f}`),
+              }))}
+            />
           </div>
         </div>
 
@@ -190,12 +173,12 @@ export default function SmartModeSection() {
             <Save className="h-3 w-3 mr-1" />
           )}
           {saving
-            ? t("settings.approvalPanel.saving")
+            ? t("common.saving")
             : saveStatus === "saved"
-              ? t("settings.approvalPanel.saved")
+              ? t("common.saved")
               : saveStatus === "failed"
-                ? t("settings.approvalPanel.saveFailed")
-                : t("settings.approvalPanel.save")}
+                ? t("common.saveFailed")
+                : t("common.save")}
         </Button>
       </div>
     </section>

@@ -2361,13 +2361,7 @@
         "deny": "拒絕執行",
         "proceed": "放行執行"
       },
-      "save": "儲存",
-      "saving": "儲存中…",
-      "saved": "已儲存",
-      "saveFailed": "儲存失敗",
-      "loading": "載入中…",
       "empty": "暫無條目，新增模式以啟用",
-      "add": "新增",
       "restoreDefaults": "還原預設",
       "restoredDefaults": "已還原為預設清單"
     }

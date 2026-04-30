@@ -25,7 +25,7 @@ pub struct SetPatternsBody {
 
 pub async fn get_protected_paths() -> Result<Json<PatternListPayload>, AppError> {
     Ok(Json(PatternListPayload {
-        current: protected_paths::current_patterns(),
+        current: (*protected_paths::current_patterns()).clone(),
         defaults: protected_paths::defaults().to_vec(),
     }))
 }
@@ -45,7 +45,7 @@ pub async fn reset_protected_paths() -> Result<Json<Vec<String>>, AppError> {
 
 pub async fn get_dangerous_commands() -> Result<Json<PatternListPayload>, AppError> {
     Ok(Json(PatternListPayload {
-        current: dangerous_commands::current_patterns(),
+        current: (*dangerous_commands::current_patterns()).clone(),
         defaults: dangerous_commands::defaults().to_vec(),
     }))
 }
@@ -65,7 +65,7 @@ pub async fn reset_dangerous_commands() -> Result<Json<Vec<String>>, AppError> {
 
 pub async fn get_edit_commands() -> Result<Json<PatternListPayload>, AppError> {
     Ok(Json(PatternListPayload {
-        current: edit_commands::current_patterns(),
+        current: (*edit_commands::current_patterns()).clone(),
         defaults: edit_commands::defaults().to_vec(),
     }))
 }

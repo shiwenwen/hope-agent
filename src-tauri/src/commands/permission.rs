@@ -29,7 +29,7 @@ pub struct SetPatternsBody {
 #[tauri::command]
 pub fn get_protected_paths() -> Result<PatternListPayload, CmdError> {
     Ok(PatternListPayload {
-        current: protected_paths::current_patterns(),
+        current: (*protected_paths::current_patterns()).clone(),
         defaults: protected_paths::defaults().to_vec(),
     })
 }
@@ -50,7 +50,7 @@ pub fn reset_protected_paths() -> Result<Vec<String>, CmdError> {
 #[tauri::command]
 pub fn get_dangerous_commands() -> Result<PatternListPayload, CmdError> {
     Ok(PatternListPayload {
-        current: dangerous_commands::current_patterns(),
+        current: (*dangerous_commands::current_patterns()).clone(),
         defaults: dangerous_commands::defaults().to_vec(),
     })
 }
@@ -71,7 +71,7 @@ pub fn reset_dangerous_commands() -> Result<Vec<String>, CmdError> {
 #[tauri::command]
 pub fn get_edit_commands() -> Result<PatternListPayload, CmdError> {
     Ok(PatternListPayload {
-        current: edit_commands::current_patterns(),
+        current: (*edit_commands::current_patterns()).clone(),
         defaults: edit_commands::defaults().to_vec(),
     })
 }
