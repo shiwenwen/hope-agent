@@ -3,7 +3,7 @@
 //! All types here are pure serde — the runtime state (connection, catalog,
 //! retry counters) lives in `registry.rs`. Keep this file free of rmcp
 //! imports so the config layer can be deserialized in contexts where the
-//! runtime isn't initialized (e.g. unit tests, `oc-settings` read path).
+//! runtime isn't initialized (e.g. unit tests, `ha-settings` read path).
 
 use std::collections::BTreeMap;
 

@@ -122,7 +122,7 @@ fn split_envelope(raw: &str) -> (String, String) {
 }
 
 /// Render the final Dream Diary markdown to write to disk.
-/// Includes a `<!-- oc-dream-promotion: ... -->` comment per promotion
+/// Includes a `<!-- ha-dream-promotion: ... -->` comment per promotion
 /// so tooling can later grep-index which memories were pinned when.
 pub fn render_diary_markdown(output: &NarrativeOutput) -> String {
     let date = Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string();
@@ -150,7 +150,7 @@ pub fn render_diary_markdown(output: &NarrativeOutput) -> String {
         for p in &output.promotions {
             md.push_str(&format!("### {}\n\n", p.title));
             md.push_str(&format!(
-                "<!-- oc-dream-promotion: memory_id={} score={:.2} -->\n",
+                "<!-- ha-dream-promotion: memory_id={} score={:.2} -->\n",
                 p.memory_id, p.score
             ));
             if !p.rationale.is_empty() {

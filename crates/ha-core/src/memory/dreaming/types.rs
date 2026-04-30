@@ -6,7 +6,7 @@ use super::triggers::DreamTrigger;
 
 /// Summary of a single promotion decision.
 /// Emitted back to the UI / diary; also written into the Dream Diary
-/// markdown as a `<!-- oc-dream-promotion: ... -->` comment so the file
+/// markdown as a `<!-- ha-dream-promotion: ... -->` comment so the file
 /// is both human-readable and machine-indexable.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

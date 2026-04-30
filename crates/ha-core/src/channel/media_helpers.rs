@@ -275,7 +275,7 @@ mod tests {
     #[tokio::test]
     async fn materialize_filepath_reads_disk_and_infers_mime() {
         let dir = TempDir(
-            std::env::temp_dir().join(format!("oc-media-test-{}", Uuid::new_v4().simple())),
+            std::env::temp_dir().join(format!("ha-media-test-{}", Uuid::new_v4().simple())),
         );
         std::fs::create_dir_all(&dir.0).unwrap();
         let path = dir.0.join("hello.png");

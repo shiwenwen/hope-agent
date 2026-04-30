@@ -69,7 +69,7 @@ impl CapturedUsage {
 // ── EventSink trait ─────────────────────────────────────────────────
 
 /// Abstract output layer for chat events.
-/// UI chat uses a Tauri-side `ChannelSink` (in oc-tauri),
+/// UI chat uses a Tauri-side `ChannelSink` (in src-tauri),
 /// IM channel worker uses `ChannelStreamSink` (event bus emit).
 pub trait EventSink: Send + Sync + 'static {
     fn send(&self, event: &str);

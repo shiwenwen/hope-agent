@@ -268,7 +268,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       case "tokens": {
         if (!tokenData) return
         downloadCsv(
-          `oc-tokens-${ts}.csv`,
+          `ha-tokens-${ts}.csv`,
           tokenData.byModel.map((m) => ({
             model: m.modelId,
             provider: m.providerName,
@@ -283,7 +283,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       case "tools": {
         if (!toolData) return
         downloadCsv(
-          `oc-tools-${ts}.csv`,
+          `ha-tools-${ts}.csv`,
           toolData.map((r) => ({
             tool: r.toolName,
             call_count: r.callCount,
@@ -297,7 +297,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       case "sessions": {
         if (!sessionData) return
         downloadCsv(
-          `oc-sessions-${ts}.csv`,
+          `ha-sessions-${ts}.csv`,
           sessionData.byAgent.map((a) => ({
             agent_id: a.agentId,
             sessions: a.sessionCount,
@@ -310,7 +310,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       case "errors": {
         if (!errorData) return
         downloadCsv(
-          `oc-errors-${ts}.csv`,
+          `ha-errors-${ts}.csv`,
           errorData.byCategory.map((c) => ({
             category: c.category,
             count: c.count,
@@ -321,7 +321,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       case "insights": {
         if (!insightsData) return
         downloadCsv(
-          `oc-insights-topsessions-${ts}.csv`,
+          `ha-insights-topsessions-${ts}.csv`,
           insightsData.topSessions.map((s) => ({
             id: s.id,
             title: s.title ?? "",
