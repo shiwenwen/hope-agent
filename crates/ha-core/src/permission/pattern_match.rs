@@ -2,25 +2,9 @@
 //!
 //! All built-in pattern lists (protected paths / dangerous commands / edit
 //! commands) ship as `&'static [&'static str]` and are matched against
-//! ASCII-only inputs (file paths, shell commands). This module provides a
-//! zero-allocation case-insensitive substring matcher used by the command
-//! matchers, and is the single source of truth for the lookup loop so
-//! `dangerous_commands::matches` / `edit_commands::matches` don't drift.
-
-/// Return the first pattern in `patterns` whose **case-insensitive ASCII
-/// substring** appears in `haystack`. Allocation-free; the comparison
-/// folds to ASCII case via byte-level `eq_ignore_ascii_case`.
-pub fn first_substring_match_ignore_ascii_case<'a>(
-    haystack: &str,
-    patterns: &'a [&'static str],
-) -> Option<&'static str> {
-    for &pat in patterns {
-        if ascii_contains_ignore_case(haystack, pat) {
-            return Some(pat);
-        }
-    }
-    None
-}
+//! ASCII-only inputs (file paths, shell commands). The substring matcher
+//! below is allocation-free; both `dangerous_commands::matches` and
+//! `edit_commands::matches` consume it.
 
 /// `true` if `haystack` contains `needle` as a contiguous substring,
 /// ignoring ASCII case. Empty needle always matches.
@@ -64,15 +48,5 @@ mod tests {
     #[test]
     fn needle_longer_than_haystack() {
         assert!(!ascii_contains_ignore_case("ls", "ls -la"));
-    }
-
-    #[test]
-    fn first_match_returns_pattern() {
-        let pats: &[&'static str] = &["rm -rf", "git push --force"];
-        assert_eq!(
-            first_substring_match_ignore_ascii_case("RM -rf /", pats),
-            Some("rm -rf")
-        );
-        assert_eq!(first_substring_match_ignore_ascii_case("ls", pats), None);
     }
 }
