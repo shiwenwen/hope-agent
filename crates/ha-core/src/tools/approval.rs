@@ -64,6 +64,7 @@ pub enum ApprovalReasonKind {
     ProtectedPath,
     AgentCustomList,
     SmartJudge,
+    PlanModeAsk,
 }
 
 impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
@@ -93,6 +94,10 @@ impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
             SmartJudge { rationale } => Self {
                 kind: ApprovalReasonKind::SmartJudge,
                 detail: Some(rationale.clone()),
+            },
+            PlanModeAsk => Self {
+                kind: ApprovalReasonKind::PlanModeAsk,
+                detail: None,
             },
         }
     }

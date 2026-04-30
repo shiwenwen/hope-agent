@@ -2742,6 +2742,10 @@
       "smart_judge": {
         "title": "Smart-mode judge",
         "body": "The Smart-mode judge model decided this call needs human confirmation."
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode confirmation",
+        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval."
       }
     }
   },

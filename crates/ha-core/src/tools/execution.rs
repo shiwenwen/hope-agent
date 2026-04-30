@@ -56,6 +56,7 @@ pub(super) async fn resolve_tool_permission(
         global_yolo: crate::security::dangerous::is_dangerous_skip_active(),
         plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
         plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
+        plan_mode_ask_tools: &ctx.plan_mode_ask_tools,
         agent_custom_approval_enabled: ctx.agent_custom_approval_enabled,
         agent_custom_approval_tools: &ctx.agent_custom_approval_tools,
         session_id: ctx.session_id.as_deref(),
@@ -134,6 +135,11 @@ pub struct ToolExecContext {
     /// Plan mode tool whitelist: when non-empty, only these tools can execute.
     /// Enforced at execution layer as defense-in-depth (supplements schema-level filtering).
     pub plan_mode_allowed_tools: Vec<String>,
+    /// Plan mode tools that are whitelisted but still need explicit per-call
+    /// approval (`ask_tools` from the plan agent config). Defaults to `exec`
+    /// for the bundled plan agent so a planning subagent can't run shell
+    /// commands without confirmation.
+    pub plan_mode_ask_tools: Vec<String>,
     /// When true, automatically approve all tool calls (IM channel auto-approve mode).
     pub auto_approve_tools: bool,
     /// Per-session permission mode (Default / Smart / Yolo). Resolved from the

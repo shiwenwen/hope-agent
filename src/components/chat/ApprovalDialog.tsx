@@ -21,6 +21,7 @@ export interface ApprovalRequest {
       | "protected_path"
       | "agent_custom_list"
       | "smart_judge"
+      | "plan_mode_ask"
     /** Pattern / path / rationale text to display. */
     detail?: string
   }

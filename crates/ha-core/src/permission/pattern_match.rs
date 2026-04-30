@@ -6,6 +6,31 @@
 //! below is allocation-free; both `dangerous_commands::matches` and
 //! `edit_commands::matches` consume it.
 
+/// First byte index where `needle` occurs as a contiguous substring of
+/// `haystack`, ignoring ASCII case. Returns `Some(0)` for empty needles
+/// and `None` when there is no match. Used by the dangerous-command
+/// matcher to walk multi-segment patterns (`pat1.*pat2`) left-to-right.
+pub fn ascii_position_ignore_case(haystack: &str, needle: &str) -> Option<usize> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    if n.len() > h.len() {
+        return None;
+    }
+    let last = h.len() - n.len();
+    'outer: for i in 0..=last {
+        for j in 0..n.len() {
+            if !h[i + j].eq_ignore_ascii_case(&n[j]) {
+                continue 'outer;
+            }
+        }
+        return Some(i);
+    }
+    None
+}
+
 /// `true` if `haystack` contains `needle` as a contiguous substring,
 /// ignoring ASCII case. Empty needle always matches.
 pub fn ascii_contains_ignore_case(haystack: &str, needle: &str) -> bool {

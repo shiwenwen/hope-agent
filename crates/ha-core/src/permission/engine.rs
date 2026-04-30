@@ -36,6 +36,10 @@ pub struct ResolveContext<'a> {
     pub plan_mode: bool,
     /// Plan mode's whitelist of allowed tools (only consumed when `plan_mode`).
     pub plan_mode_allowed_tools: &'a [String],
+    /// Plan mode's "needs explicit ask before each call" list (only consumed
+    /// when `plan_mode`). Default plan agent puts `exec` here so the engine
+    /// still pops the approval dialog even though the tool is whitelisted.
+    pub plan_mode_ask_tools: &'a [String],
     /// Agent-level "custom tool approval" toggle.
     pub agent_custom_approval_enabled: bool,
     /// Agent-level list of tool names to require approval for (Default mode only).
@@ -87,6 +91,28 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
                     ctx.tool_name
                 ),
             };
+        }
+        // Plan Mode is a *work mode* (it restricts which tools may run),
+        // not an approval bypass. Whitelisted tools still go through the
+        // protected-path / dangerous-command / ask_tools / edit-class
+        // gates. YOLO is intentionally NOT consulted here — Plan > YOLO
+        // per the priority matrix.
+        if ctx.is_internal_tool {
+            return Decision::Allow;
+        }
+        if let Some(reason) = check_protected_path(ctx) {
+            return Decision::Ask { reason };
+        }
+        if let Some(reason) = check_dangerous_command(ctx) {
+            return Decision::Ask { reason };
+        }
+        if ctx.plan_mode_ask_tools.iter().any(|t| t == ctx.tool_name) {
+            return Decision::Ask {
+                reason: AskReason::PlanModeAsk,
+            };
+        }
+        if let Decision::Ask { reason } = resolve_edit_layer(ctx) {
+            return Decision::Ask { reason };
         }
         return Decision::Allow;
     }
@@ -262,12 +288,105 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
 }
 
 fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
-    let path = extract_path_arg(ctx.tool_name, ctx.args)?;
     let patterns = super::protected_paths::current_patterns();
-    let matched = super::protected_paths::matches(&path, &patterns)?;
-    Some(AskReason::ProtectedPath {
-        matched_path: matched,
-    })
+
+    // Standard arg-level path (read/write/edit/ls/grep/find — and the cwd of
+    // exec/process/apply_patch).
+    if let Some(path) = extract_path_arg(ctx.tool_name, ctx.args) {
+        if let Some(matched) = super::protected_paths::matches(&path, &patterns) {
+            return Some(AskReason::ProtectedPath {
+                matched_path: matched,
+            });
+        }
+    }
+
+    // `exec` ships protected paths inside its command text (e.g.
+    // `cat ~/.ssh/id_rsa`, `grep secret .env`). Cwd alone misses these,
+    // so scan whitespace-separated tokens that look path-ish and feed each
+    // through the same matcher.
+    if ctx.tool_name == "exec" {
+        if let Some(cmd) = ctx.args.get("command").and_then(|v| v.as_str()) {
+            for token in path_like_tokens_in_command(cmd) {
+                if let Some(matched) = super::protected_paths::matches(&token, &patterns) {
+                    return Some(AskReason::ProtectedPath {
+                        matched_path: matched,
+                    });
+                }
+            }
+        }
+    }
+
+    // `apply_patch` operates on multiple paths declared inside its patch
+    // body. The format is fixed (`*** Add|Delete|Update File: <path>`), so
+    // pull each declared path and check it against the protected list.
+    if ctx.tool_name == "apply_patch" {
+        if let Some(patch) = ctx.args.get("input").and_then(|v| v.as_str()) {
+            for path in paths_in_patch_directives(patch) {
+                if let Some(matched) = super::protected_paths::matches(&path, &patterns) {
+                    return Some(AskReason::ProtectedPath {
+                        matched_path: matched,
+                    });
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Pull every shell token from `command` that "looks like a path" so the
+/// protected-path matcher can scan command-line targets, not just `cwd`.
+///
+/// Heuristic — coarse on purpose:
+/// - whitespace-split (no shell-grammar parsing — we'd rather over-flag than
+///   silently miss a target hidden behind quoting)
+/// - trim a single layer of matching `'`/`"` quotes
+/// - keep tokens that contain `/` or start with `~`/`.`, since those are
+///   the shapes the protected-path pattern set is designed to match
+fn path_like_tokens_in_command(command: &str) -> Vec<std::path::PathBuf> {
+    use crate::permission::rules::expand_tilde;
+    command
+        .split_whitespace()
+        .map(|tok| {
+            let bytes = tok.as_bytes();
+            if bytes.len() >= 2 {
+                let first = bytes[0];
+                let last = bytes[bytes.len() - 1];
+                if (first == b'\'' || first == b'"') && first == last {
+                    return &tok[1..tok.len() - 1];
+                }
+            }
+            tok
+        })
+        .filter(|tok| {
+            tok.contains('/')
+                || tok.starts_with('~')
+                || tok.starts_with('.')
+                || (cfg!(windows) && tok.contains('\\'))
+        })
+        .map(expand_tilde)
+        .collect()
+}
+
+/// Pull each `*** Add|Delete|Update|Move File: <path>` directive target
+/// out of an `apply_patch` body.
+fn paths_in_patch_directives(patch: &str) -> Vec<std::path::PathBuf> {
+    use crate::permission::rules::expand_tilde;
+    let mut out = Vec::new();
+    for line in patch.lines() {
+        let trimmed = line.trim_start();
+        for prefix in [
+            "*** Add File: ",
+            "*** Delete File: ",
+            "*** Update File: ",
+            "*** Move File: ",
+        ] {
+            if let Some(path) = trimmed.strip_prefix(prefix) {
+                out.push(expand_tilde(path.trim()));
+            }
+        }
+    }
+    out
 }
 
 fn check_dangerous_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
@@ -300,6 +419,7 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
         EditTool => "edit-class tool".to_string(),
         AgentCustomList => "agent custom approval".to_string(),
         SmartJudge { rationale } => format!("smart judge: {rationale}"),
+        PlanModeAsk => "plan-mode ask_tools".to_string(),
     };
     app_warn!(
         "permission",
@@ -330,6 +450,7 @@ mod tests {
             global_yolo: false,
             plan_mode: false,
             plan_mode_allowed_tools: plan_tools,
+            plan_mode_ask_tools: &[],
             agent_custom_approval_enabled: false,
             agent_custom_approval_tools: custom_tools,
             session_id: None,
@@ -402,6 +523,75 @@ mod tests {
         c.plan_mode = true;
         c.global_yolo = true;
         assert!(matches!(resolve(&c), Decision::Deny { .. }));
+    }
+
+    #[test]
+    fn plan_whitelisted_dangerous_command_still_asks() {
+        // Regression for the codex-review P1: plan_mode used to early-Allow
+        // any whitelisted tool, so a plan agent could `exec git push --force`
+        // without the dangerous-command check firing.
+        let args = json!({"command": "git push --force"});
+        let plan: Vec<String> = vec!["exec".into()];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+        c.plan_mode = true;
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::DangerousCommand { .. },
+            } => {}
+            other => panic!("expected DangerousCommand under plan, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plan_whitelisted_protected_path_still_asks() {
+        let args = json!({"path": "~/.ssh/id_rsa"});
+        let plan: Vec<String> = vec!["read".into()];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("read", &args, SessionMode::Default, &plan, &custom);
+        c.plan_mode = true;
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath under plan, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plan_ask_tools_list_pops_dialog() {
+        // Default plan agent puts `exec` in ask_tools so each command is
+        // explicitly confirmed during planning.
+        let args = json!({"command": "ls -la"});
+        let plan: Vec<String> = vec!["exec".into()];
+        let ask: Vec<String> = vec!["exec".into()];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+        c.plan_mode = true;
+        c.plan_mode_ask_tools = &ask;
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::PlanModeAsk,
+            } => {}
+            other => panic!("expected PlanModeAsk, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn plan_whitelisted_edit_tool_still_asks() {
+        // Whitelisting `write` in the plan agent shouldn't bypass the
+        // edit-class approval — the user still wants to confirm each write.
+        let args = json!({"path": "/tmp/foo"});
+        let plan: Vec<String> = vec!["write".into()];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Default, &plan, &custom);
+        c.plan_mode = true;
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::EditTool,
+            } => {}
+            other => panic!("expected EditTool under plan, got {:?}", other),
+        }
     }
 
     #[test]
@@ -671,6 +861,54 @@ mod tests {
         c.plan_mode = true;
         c.global_yolo = true;
         assert!(matches!(resolve(&c), Decision::Deny { .. }));
+    }
+
+    #[test]
+    fn exec_command_with_protected_path_token_asks() {
+        // Regression for codex-review P1: protected-path matcher used to
+        // only inspect `cwd`, so `exec cat ~/.ssh/id_rsa` slipped through.
+        let args = json!({"command": "cat ~/.ssh/id_rsa"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn exec_command_with_quoted_protected_path_asks() {
+        let args = json!({"command": "cat \"~/.ssh/id_rsa\""});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. }
+            }
+        ));
+    }
+
+    #[test]
+    fn apply_patch_targeting_dotenv_asks() {
+        let patch = "*** Begin Patch\n*** Update File: .env\n@@ ...\n*** End Patch\n";
+        let args = json!({"input": patch});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("apply_patch", &args, SessionMode::Default, &plan, &custom);
+        // Even though apply_patch is itself in EDIT_TOOLS (would normally
+        // trigger AskReason::EditTool), the protected-path layer must fire
+        // first so AllowAlways stays disabled.
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath, got {:?}", other),
+        }
     }
 
     #[test]

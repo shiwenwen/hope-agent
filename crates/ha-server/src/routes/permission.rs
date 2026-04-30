@@ -87,11 +87,20 @@ pub async fn get_smart_mode_config() -> Result<Json<SmartModeConfig>, AppError> 
     ))
 }
 
+/// Body shape mirrors the Tauri `set_smart_mode_config(config: SmartModeConfig)`
+/// IPC contract — frontend always wraps the config object so a single
+/// `getTransport().call("set_smart_mode_config", { config })` works on
+/// both transports.
+#[derive(Debug, Deserialize)]
+pub struct SetSmartModeBody {
+    pub config: SmartModeConfig,
+}
+
 pub async fn set_smart_mode_config(
-    Json(config): Json<SmartModeConfig>,
+    Json(body): Json<SetSmartModeBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     ha_core::config::mutate_config(("permission.smart", "http"), |store| {
-        store.permission.smart = config;
+        store.permission.smart = body.config;
         Ok(())
     })?;
     Ok(Json(serde_json::json!({ "saved": true })))

@@ -3,7 +3,7 @@
 //! configuration, and Global YOLO state.
 
 use ha_core::permission::{dangerous_commands, edit_commands, protected_paths, SmartModeConfig};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::commands::CmdError;
 
@@ -14,12 +14,6 @@ pub struct PatternListPayload {
     pub current: Vec<String>,
     /// Compile-time defaults for the "Restore defaults" button preview.
     pub defaults: Vec<&'static str>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SetPatternsBody {
-    pub patterns: Vec<String>,
 }
 
 // ── Protected paths ──────────────────────────────────────────────
@@ -33,8 +27,8 @@ pub fn get_protected_paths() -> Result<PatternListPayload, CmdError> {
 }
 
 #[tauri::command]
-pub fn set_protected_paths(body: SetPatternsBody) -> Result<(), CmdError> {
-    protected_paths::save_patterns(&body.patterns)?;
+pub fn set_protected_paths(patterns: Vec<String>) -> Result<(), CmdError> {
+    protected_paths::save_patterns(&patterns)?;
     Ok(())
 }
 
@@ -54,8 +48,8 @@ pub fn get_dangerous_commands() -> Result<PatternListPayload, CmdError> {
 }
 
 #[tauri::command]
-pub fn set_dangerous_commands(body: SetPatternsBody) -> Result<(), CmdError> {
-    dangerous_commands::save_patterns(&body.patterns)?;
+pub fn set_dangerous_commands(patterns: Vec<String>) -> Result<(), CmdError> {
+    dangerous_commands::save_patterns(&patterns)?;
     Ok(())
 }
 
@@ -75,8 +69,8 @@ pub fn get_edit_commands() -> Result<PatternListPayload, CmdError> {
 }
 
 #[tauri::command]
-pub fn set_edit_commands(body: SetPatternsBody) -> Result<(), CmdError> {
-    edit_commands::save_patterns(&body.patterns)?;
+pub fn set_edit_commands(patterns: Vec<String>) -> Result<(), CmdError> {
+    edit_commands::save_patterns(&patterns)?;
     Ok(())
 }
 

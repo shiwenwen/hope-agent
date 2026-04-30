@@ -211,6 +211,40 @@ export function useChatStream({
     permissionModeRef.current = permissionMode
   }, [permissionMode])
 
+  // Seed `permissionMode` from the agent's `capabilities.defaultSessionPermissionMode`
+  // whenever the user is sitting on a fresh chat (no session row yet, no
+  // messages). Once the first message lands the session row owns the mode
+  // and the title-bar switcher updates the row directly.
+  //
+  // Skipping when there is already a session id keeps the user's manual
+  // choice intact across navigation — only "new chat" or agent swap re-seeds.
+  useEffect(() => {
+    if (currentSessionId || messages.length > 0 || !currentAgentId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const config = await getTransport().call<{
+          capabilities?: { defaultSessionPermissionMode?: SessionMode | null }
+        }>("get_agent_config", { id: currentAgentId })
+        if (cancelled) return
+        const fallback =
+          (config?.capabilities?.defaultSessionPermissionMode as SessionMode | undefined) ??
+          "default"
+        setPermissionModeState(fallback)
+      } catch (e) {
+        logger.error(
+          "chat",
+          "useChatStream",
+          "Failed to seed permission mode from agent capabilities",
+          e,
+        )
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [currentAgentId, currentSessionId, messages.length])
+
   // Load config on mount
   useEffect(() => {
     getTransport().call<{ autoSendPending?: boolean }>("get_user_config")

@@ -1232,6 +1232,10 @@ impl AssistantAgent {
                 types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools.clone(),
                 _ => Vec::new(),
             },
+            plan_mode_ask_tools: match &self.plan_agent_mode {
+                types::PlanAgentMode::PlanAgent { ask_tools, .. } => ask_tools.clone(),
+                _ => Vec::new(),
+            },
             auto_approve_tools: self.auto_approve_tools,
             session_mode,
             agent_custom_approval_enabled: caps.enable_custom_tool_approval,
