@@ -31,6 +31,42 @@ use super::{
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
 
+/// Single entry point that builds a [`permission::engine::ResolveContext`]
+/// from a [`ToolExecContext`] and runs `engine::resolve_async`. Both
+/// `execute_tool_with_context` (engine gate) and `tools::exec::tool_exec`
+/// (command-level gate) call this so the 14-field context struct lives in
+/// exactly one place — adding a new permission input only touches here.
+///
+/// Smart sessions are the only mode that consumes
+/// `AppConfig.permission.smart`; non-Smart skips the config load to keep
+/// the per-dispatch hot path at one ArcSwap::load() (or zero, for the
+/// Default/YOLO majority).
+pub(super) async fn resolve_tool_permission(
+    tool_name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    is_internal_tool: bool,
+) -> crate::permission::Decision {
+    let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
+        .then(crate::config::cached_config);
+    let resolve_ctx = crate::permission::engine::ResolveContext {
+        tool_name,
+        args,
+        session_mode: ctx.session_mode,
+        global_yolo: crate::security::dangerous::is_dangerous_skip_active(),
+        plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
+        plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
+        agent_custom_approval_enabled: ctx.agent_custom_approval_enabled,
+        agent_custom_approval_tools: &ctx.agent_custom_approval_tools,
+        session_id: ctx.session_id.as_deref(),
+        project_id: ctx.project_id.as_deref(),
+        agent_id: ctx.agent_id.as_deref(),
+        is_internal_tool,
+        smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
+    };
+    crate::permission::engine::resolve_async(&resolve_ctx).await
+}
+
 /// Load the user-configured tool timeout from config.json. Returns `None`
 /// when the user explicitly set 0 (disabled). The serde default in
 /// [`AppConfig`] provides the 300s fallback when the field is missing.
@@ -320,27 +356,8 @@ pub async fn execute_tool_with_context(
     // skill bootstrap never blocks on permission state.
     let needs_engine = !ctx.auto_approve_tools && !is_skill_read(name, args) && name != TOOL_EXEC;
     if needs_engine {
-        // Only Smart sessions consume `permission.smart`; skip the config
-        // load on the Default/YOLO hot path so the per-dispatch overhead
-        // stays at one ArcSwap::load() for those modes.
-        let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
-            .then(crate::config::cached_config);
-        let resolve_ctx = crate::permission::engine::ResolveContext {
-            tool_name: name,
-            args,
-            session_mode: ctx.session_mode,
-            global_yolo: crate::security::dangerous::is_dangerous_skip_active(),
-            plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
-            plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
-            agent_custom_approval_enabled: ctx.agent_custom_approval_enabled,
-            agent_custom_approval_tools: &ctx.agent_custom_approval_tools,
-            session_id: ctx.session_id.as_deref(),
-            project_id: ctx.project_id.as_deref(),
-            agent_id: ctx.agent_id.as_deref(),
-            is_internal_tool: super::is_internal_tool(name),
-            smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
-        };
-        let decision = crate::permission::engine::resolve_async(&resolve_ctx).await;
+        let decision =
+            resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
         match decision {
             crate::permission::Decision::Allow => {}
             crate::permission::Decision::Deny { reason } => {
