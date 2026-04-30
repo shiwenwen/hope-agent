@@ -780,7 +780,7 @@ impl SessionDB {
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
-            plan_mode: "off".to_string(),
+            plan_mode: crate::plan::PlanModeState::Off,
             permission_mode: crate::permission::SessionMode::Default,
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
@@ -1199,7 +1199,8 @@ impl SessionDB {
             parent_session_id: row.get(11)?,
             plan_mode: row
                 .get::<_, String>(12)
-                .unwrap_or_else(|_| "off".to_string()),
+                .map(|s| crate::plan::PlanModeState::from_str(&s))
+                .unwrap_or_default(),
             project_id: row.get(13)?,
             permission_mode: row
                 .get::<_, String>(14)
@@ -1471,14 +1472,18 @@ impl SessionDB {
     }
 
     /// Update the plan mode state for a session.
-    pub fn update_session_plan_mode(&self, session_id: &str, plan_mode: &str) -> Result<()> {
+    pub fn update_session_plan_mode(
+        &self,
+        session_id: &str,
+        plan_mode: crate::plan::PlanModeState,
+    ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET plan_mode = ?1 WHERE id = ?2",
-            params![plan_mode, session_id],
+            params![plan_mode.as_str(), session_id],
         )?;
         Ok(())
     }

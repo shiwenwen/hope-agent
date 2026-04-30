@@ -9,15 +9,13 @@ pub async fn get_plan_mode(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<String, CmdError> {
     if let Ok(Some(meta)) = app_state.session_db.get_session(&session_id) {
-        if meta.plan_mode == "off" {
+        if meta.plan_mode == PlanModeState::Off {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
             return Ok("off".to_string());
         }
-        if meta.plan_mode != "off" {
-            // Restore in-memory state from DB + plan file
-            plan::restore_from_db(&session_id, &meta.plan_mode).await;
-            return Ok(meta.plan_mode);
-        }
+        // Restore in-memory state from DB + plan file
+        plan::restore_from_db(&session_id, meta.plan_mode).await;
+        return Ok(meta.plan_mode.as_str().to_string());
     }
     let state = plan::get_plan_state(&session_id).await;
     if state != PlanModeState::Off {
@@ -44,7 +42,7 @@ pub async fn set_plan_mode(
     let should_create_checkpoint = plan::should_create_execution_checkpoint(
         &plan_state,
         &previous_state,
-        persisted_plan_mode.as_deref(),
+        persisted_plan_mode,
         checkpoint_exists,
     );
     let checkpoint_to_cleanup =
@@ -69,7 +67,7 @@ pub async fn set_plan_mode(
         }
     }
 
-    if !plan::set_plan_state(&session_id, plan_state.clone()).await {
+    if !plan::set_plan_state(&session_id, plan_state).await {
         return Err(CmdError::msg(format!(
             "Invalid plan mode transition to '{}'",
             plan_state.as_str()
@@ -87,7 +85,7 @@ pub async fn set_plan_mode(
     }
     // Persist to DB
     let db = &app_state.session_db;
-    db.update_session_plan_mode(&session_id, plan_state.as_str())?;
+    db.update_session_plan_mode(&session_id, plan_state)?;
     Ok(())
 }
 
@@ -112,15 +110,13 @@ pub async fn get_plan_steps(
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<Vec<PlanStep>, CmdError> {
     if let Ok(Some(session_meta)) = app_state.session_db.get_session(&session_id) {
-        if session_meta.plan_mode == "off" {
+        if session_meta.plan_mode == PlanModeState::Off {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
             return Ok(Vec::new());
         }
-        if session_meta.plan_mode != "off" {
-            plan::restore_from_db(&session_id, &session_meta.plan_mode).await;
-            if let Some(meta) = plan::get_plan_meta(&session_id).await {
-                return Ok(meta.steps);
-            }
+        plan::restore_from_db(&session_id, session_meta.plan_mode).await;
+        if let Some(meta) = plan::get_plan_meta(&session_id).await {
+            return Ok(meta.steps);
         }
     }
     if let Some(meta) = plan::get_plan_meta(&session_id).await {
@@ -163,7 +159,7 @@ pub async fn update_plan_step_status(
             plan::set_plan_state(&session_id, PlanModeState::Completed).await;
             // Persist completed state to DB for crash safety
             if let Some(session_db) = crate::get_session_db() {
-                let _ = session_db.update_session_plan_mode(&session_id, "completed");
+                let _ = session_db.update_session_plan_mode(&session_id, PlanModeState::Completed);
             }
             if let Some(app_handle) = crate::get_app_handle() {
                 use tauri::Emitter;

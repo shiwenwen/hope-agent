@@ -277,14 +277,14 @@ pub async fn chat(
     let early_plan_state = if let Some(ref pm) = plan_mode {
         let ps = crate::plan::PlanModeState::from_str(pm);
         if ps != crate::plan::PlanModeState::Off {
-            let applied = crate::plan::set_plan_state(&sid, ps.clone()).await;
+            let applied = crate::plan::set_plan_state(&sid, ps).await;
             if applied {
-                let _ = db.update_session_plan_mode(&sid, ps.as_str());
+                let _ = db.update_session_plan_mode(&sid, ps);
                 ps
             } else {
                 let current = crate::plan::get_plan_state(&sid).await;
                 if current != crate::plan::PlanModeState::Off {
-                    let _ = db.update_session_plan_mode(&sid, current.as_str());
+                    let _ = db.update_session_plan_mode(&sid, current);
                 }
                 current
             }

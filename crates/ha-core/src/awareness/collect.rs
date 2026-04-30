@@ -240,7 +240,7 @@ mod tests {
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: None,
-            plan_mode: "off".into(),
+            plan_mode: crate::plan::PlanModeState::Off,
             permission_mode: crate::permission::SessionMode::Default,
             channel_info: None,
             project_id: None,

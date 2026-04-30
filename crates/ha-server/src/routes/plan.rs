@@ -12,14 +12,12 @@ use crate::routes::helpers::session_db;
 /// `GET /api/plan/{session_id}/mode`
 pub async fn get_plan_mode(Path(session_id): Path<String>) -> Result<Json<Value>, AppError> {
     if let Ok(Some(meta)) = session_db()?.get_session(&session_id) {
-        if meta.plan_mode == "off" {
+        if meta.plan_mode == PlanModeState::Off {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
             return Ok(Json(json!({ "state": "off" })));
         }
-        if meta.plan_mode != "off" {
-            plan::restore_from_db(&session_id, &meta.plan_mode).await;
-            return Ok(Json(json!({ "state": meta.plan_mode })));
-        }
+        plan::restore_from_db(&session_id, meta.plan_mode).await;
+        return Ok(Json(json!({ "state": meta.plan_mode.as_str() })));
     }
     let state = plan::get_plan_state(&session_id).await;
     if state != PlanModeState::Off {
@@ -48,7 +46,7 @@ pub async fn set_plan_mode(
     let should_create_checkpoint = plan::should_create_execution_checkpoint(
         &plan_state,
         &previous_state,
-        persisted_plan_mode.as_deref(),
+        persisted_plan_mode,
         checkpoint_exists,
     );
     let checkpoint_to_cleanup =
@@ -66,7 +64,7 @@ pub async fn set_plan_mode(
         }
     }
 
-    if !plan::set_plan_state(&session_id, plan_state.clone()).await {
+    if !plan::set_plan_state(&session_id, plan_state).await {
         return Err(AppError::bad_request(format!(
             "Invalid plan mode transition to '{}'",
             plan_state.as_str()
@@ -81,7 +79,7 @@ pub async fn set_plan_mode(
         plan::create_checkpoint_for_session(&session_id).await;
     }
     session_db()?
-        .update_session_plan_mode(&session_id, plan_state.as_str())
+        .update_session_plan_mode(&session_id, plan_state)
         .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "updated": true })))
 }
@@ -113,15 +111,13 @@ pub async fn get_plan_steps(
     Path(session_id): Path<String>,
 ) -> Result<Json<Vec<PlanStep>>, AppError> {
     if let Ok(Some(session_meta)) = session_db()?.get_session(&session_id) {
-        if session_meta.plan_mode == "off" {
+        if session_meta.plan_mode == PlanModeState::Off {
             plan::set_plan_state(&session_id, PlanModeState::Off).await;
             return Ok(Json(Vec::new()));
         }
-        if session_meta.plan_mode != "off" {
-            plan::restore_from_db(&session_id, &session_meta.plan_mode).await;
-            if let Some(meta) = plan::get_plan_meta(&session_id).await {
-                return Ok(Json(meta.steps));
-            }
+        plan::restore_from_db(&session_id, session_meta.plan_mode).await;
+        if let Some(meta) = plan::get_plan_meta(&session_id).await {
+            return Ok(Json(meta.steps));
         }
     }
     if let Some(meta) = plan::get_plan_meta(&session_id).await {
@@ -164,7 +160,7 @@ pub async fn update_plan_step_status(
                 plan::cleanup_checkpoint(&ref_name);
             }
             plan::set_plan_state(&session_id, PlanModeState::Completed).await;
-            let _ = session_db()?.update_session_plan_mode(&session_id, "completed");
+            let _ = session_db()?.update_session_plan_mode(&session_id, PlanModeState::Completed);
             if let Some(bus) = ha_core::get_event_bus() {
                 bus.emit(
                     "plan_mode_changed",

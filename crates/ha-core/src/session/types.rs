@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::permission::SessionMode;
+use crate::plan::PlanModeState;
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -27,8 +28,11 @@ pub struct SessionMeta {
     pub is_cron: bool,
     /// If this session was created by a sub-agent spawn, stores the parent session ID.
     pub parent_session_id: Option<String>,
-    /// Plan mode state for this session: "off" | "planning" | "executing"
-    pub plan_mode: String,
+    /// Plan mode state for this session. Serialized as a snake_case string
+    /// (`off` / `planning` / `review` / `executing` / `paused` / `completed`)
+    /// matching the frontend's loose `string` type.
+    #[serde(default)]
+    pub plan_mode: PlanModeState,
     /// Per-session permission mode (`default` / `smart` / `yolo`).
     /// Persisted so the chat title bar's mode switcher is restored when
     /// switching back to a historical session. Serialized as a snake_case

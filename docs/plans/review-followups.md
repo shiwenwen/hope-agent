@@ -30,20 +30,6 @@
 
 ## Open
 
-### F-032 `SessionMeta.plan_mode` 仍是 `String`，应换 `PlanMode` enum
-
-- **来源**：2026-04-30 F-029 收尾 `/simplify` review（quality agent）
-- **现象**：[`crates/ha-core/src/session/types.rs:33`](../../crates/ha-core/src/session/types.rs) 把 `plan_mode` 存为 `String`（取值 `"off" | "planning" | "executing"`），与 F-029 之前的 `permission_mode: String` 完全同形。Plan 系统已经有相关 enum（如 `agent/types.rs::PlanAgentMode`），但 `SessionMeta` 上的字段仍走字符串
-- **为什么留**：本期 F-029 commit message 显式 scope 为 `permission_mode`，刻意没扩展。Plan domain 改动需要单独 audit DB 列读写、IM channel ensure_conversation、前端 PlanPanel 逻辑等
-- **改的话要做什么**：
-  1. 在 `permission/mode.rs` 的隔壁（或 `plan/mode.rs`）定义 `PlanMode { Off, Planning, Executing }` enum，加 serde rename_all snake_case + Default + parse_or_default
-  2. `SessionMeta.plan_mode: PlanMode`，DB 读用 parse_or_default
-  3. 检查所有 `m.plan_mode == "off"` / `"planning"` / `"executing"` 的 stringly compare（grep），改成 enum 匹配
-  4. Tauri / HTTP 命令：`set_plan_mode` 之类入参可改成 enum；前端 `PlanMode` union 类型保留不变
-- **影响面**：纯整洁。和 F-029 风险等级一致——stringly typed 字段拼写错误会 silently fall through 到默认行为
-- **触发时机建议**：下次给 Plan 加新模式（如 `"reviewing"`）时；或独立"session 元数据 stringly-typed 收口"小 PR 一次清掉
-
----
 
 ### F-022 SkillsPanel 三个 Switch handler 失败处理风格不一致
 
@@ -448,3 +434,11 @@
 - **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
 - **关闭**：2026-04-30 / commit `0dcddf5a`
 - **修复方式**：[`session::types::SessionMeta`](../../crates/ha-core/src/session/types.rs) 的 `permission_mode: String` 改成 `permission_mode: SessionMode`（已带 Default impl + snake_case serde rename）。前端 `SessionMode` union / DB TEXT 列 / JSON 编码完全不变，仅 Rust 内部强类型化。`SessionMode::parse_or_default` 仅在 DB row→struct 边界用一次（[`session/db.rs::row_to_session_meta`](../../crates/ha-core/src/session/db.rs)），消费方（`agent/config.rs` system_prompt 构造、`agent/mod.rs` ToolExecContext 构造）改成 `.map(|m| m.permission_mode)` 直接拷贝 enum (Copy)；`update_session_permission_mode` 参数改成 `SessionMode`，4 处 caller 删掉 `.as_str()` 包装。awareness 测试 fixture `"default".into()` 同步改成 `SessionMode::Default`。ha-core 771 / ha-server 18 单测全绿。
+
+---
+
+### F-032 `SessionMeta.plan_mode` 仍是 `String`，应换 `PlanModeState` enum
+
+- **来源**：2026-04-30 F-029 收尾 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit 紧跟 F-028..F-031 收尾
+- **修复方式**：发现 [`plan::PlanModeState`](../../crates/ha-core/src/plan/types.rs) enum 已存在并完整支持 `from_str`/`as_str`/serde rename_all snake_case + `is_valid_transition`，直接复用即可（不需要新建 PlanMode）。给 PlanModeState 加 `Copy` 派生（6 个 unit variant，1 字节）让消费方按值传递。`SessionMeta.plan_mode: String` → `PlanModeState`，DB row→struct 边界用 `from_str` 一次性转 enum；`update_session_plan_mode` 参数改成 `PlanModeState`，6 处 caller（slash_commands/handlers/plan.rs 5 处 + tools/plan_step.rs + tools/submit_plan.rs + ha-server/routes/plan.rs 2 处 + src-tauri/commands/plan.rs 3 处 + commands/chat.rs 2 处）改用 enum variant；`should_create_execution_checkpoint(persisted_plan_mode: Option<&str>)` 改成 `Option<PlanModeState>`；`restore_from_db(plan_mode_str: &str)` 改成 `state: PlanModeState`，删除内部 from_str 重复转换。`meta.plan_mode == "off"` 等 stringly compare 全部改成 enum 匹配。ha-core 771 / ha-server 18 单测全绿。
