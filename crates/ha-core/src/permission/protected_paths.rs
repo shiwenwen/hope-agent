@@ -70,6 +70,21 @@ pub fn defaults() -> &'static [&'static str] {
 /// - Plain leaf (`.env`) → exact filename match anywhere in the path
 /// - Glob with `*` (`*.pem`, `*secret*`) → simple star-glob match against
 ///   both the full path string and the basename
+/// `true` if `b` is a path-component separator on the current platform.
+/// Unix only honors `/`; Windows honors both `/` and `\` — and Windows path
+/// strings often mix them (e.g. `C:\Users\u\.ssh/id_rsa` from a join of a
+/// `dirs::home_dir()` `PathBuf` and a forward-slash relative literal). The
+/// boundary check has to accept either or it'll bail on legitimate prefix
+/// matches whenever the join straddles the two separators.
+#[inline]
+fn is_path_separator_byte(b: u8) -> bool {
+    if cfg!(windows) {
+        b == b'/' || b == b'\\'
+    } else {
+        b == b'/'
+    }
+}
+
 pub fn matches(path: &std::path::Path, patterns: &[String]) -> Option<String> {
     use super::rules::{expand_tilde, glob_match_simple};
     let path_str = path.to_string_lossy();
@@ -82,7 +97,7 @@ pub fn matches(path: &std::path::Path, patterns: &[String]) -> Option<String> {
             if path_str == prefix
                 || (path_str.len() > prefix.len()
                     && path_str.starts_with(prefix)
-                    && path_str.as_bytes()[prefix.len()] == b'/')
+                    && is_path_separator_byte(path_str.as_bytes()[prefix.len()]))
             {
                 return Some(pat.clone());
             }
@@ -107,7 +122,7 @@ pub fn matches(path: &std::path::Path, patterns: &[String]) -> Option<String> {
             if path_str == expanded_s
                 || (path_str.len() > expanded_s.len()
                     && path_str.starts_with(&*expanded_s)
-                    && path_str.as_bytes()[expanded_s.len()] == b'/')
+                    && is_path_separator_byte(path_str.as_bytes()[expanded_s.len()]))
             {
                 return Some(pat.clone());
             }

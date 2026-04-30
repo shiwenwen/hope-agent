@@ -164,59 +164,100 @@ pub fn expand_tilde(s: &str) -> PathBuf {
 ///
 /// Behavior:
 /// - `.` segments are dropped.
-/// - `..` segments pop the previous component when it's a normal name; when
-///   the stack is empty (or the only entry is the root prefix), the `..` is
-///   kept verbatim so a relative `../foo` doesn't lose information.
+/// - `..` segments pop the previous *normal* component; when the stack has
+///   no normal entry to pop, the `..` is kept verbatim if the path isn't
+///   rooted (so `../foo` doesn't silently lose info), or dropped if it is
+///   (you can't escape above the root).
 /// - Root prefix (`/` on Unix, `C:\` on Windows) is preserved.
 ///
 /// Used by the protected-path scanner so traversal sequences like
 /// `~/Documents/../.ssh/id_rsa` collapse to `~/.ssh/id_rsa` *before* the
 /// prefix-match runs. Without this step, a `..`-laden literal slips past
 /// every directory-prefix pattern in `DEFAULT_PROTECTED_PATHS`.
+///
+/// Implementation note: we avoid `PathBuf::push` on Windows because
+/// `Component::RootDir.as_os_str()` is `"\"` which `push` treats as an
+/// absolute path and *overwrites* any existing prefix — so a naive walk
+/// loses the `C:` drive letter and turns `C:\Users\...` into `\Users\...`.
+/// Instead, accumulate segments separately and assemble the final path as a
+/// single string with the platform's main separator.
 pub fn normalize_lexical(path: &Path) -> PathBuf {
-    use std::path::Component;
-    let mut out = PathBuf::new();
+    use std::path::{Component, MAIN_SEPARATOR_STR};
+    let mut prefix_str: Option<String> = None;
+    let mut has_root = false;
+    let mut segments: Vec<String> = Vec::new();
     for comp in path.components() {
         match comp {
-            Component::Prefix(p) => out.push(p.as_os_str()),
-            Component::RootDir => out.push(comp.as_os_str()),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                let popped = match out.components().next_back() {
-                    Some(Component::Normal(_)) => out.pop(),
-                    _ => false,
-                };
-                if !popped {
-                    out.push("..");
-                }
+            Component::Prefix(p) => {
+                prefix_str = Some(p.as_os_str().to_string_lossy().into_owned());
             }
-            Component::Normal(name) => out.push(name),
+            Component::RootDir => {
+                has_root = true;
+            }
+            Component::CurDir => {}
+            Component::ParentDir => match segments.last() {
+                Some(last) if last != ".." => {
+                    segments.pop();
+                }
+                _ => {
+                    if !has_root {
+                        segments.push("..".to_string());
+                    }
+                }
+            },
+            Component::Normal(name) => {
+                segments.push(name.to_string_lossy().into_owned());
+            }
         }
     }
-    if out.as_os_str().is_empty() {
+    let mut out = String::new();
+    if let Some(ref p) = prefix_str {
+        out.push_str(p);
+    }
+    if has_root {
+        out.push_str(MAIN_SEPARATOR_STR);
+    }
+    out.push_str(&segments.join(MAIN_SEPARATOR_STR));
+    if out.is_empty() {
         PathBuf::from(".")
     } else {
-        out
+        PathBuf::from(out)
     }
 }
 
 /// `true` if `path` starts with `prefix` at a path component boundary.
-/// E.g. `/foo/bar` starts with `/foo` but `/foo-bar` does not.
+/// E.g. `/foo/bar` starts with `/foo` but `/foo-bar` does not. On Windows
+/// either `/` or `\` counts as a boundary — Path strings frequently mix the
+/// two when a `dirs::home_dir()` `PathBuf` is joined with a forward-slash
+/// relative literal.
 pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
     let path_s = path.to_string_lossy();
     let prefix_s = prefix.to_string_lossy();
-    let path_norm = path_s.trim_end_matches('/');
-    let prefix_norm = prefix_s.trim_end_matches('/');
+    let path_norm = path_s.trim_end_matches(['/', '\\']);
+    let prefix_norm = prefix_s.trim_end_matches(['/', '\\']);
     if path_norm == prefix_norm {
         return true;
     }
     if path_norm.len() > prefix_norm.len()
         && path_norm.starts_with(prefix_norm)
-        && path_norm.as_bytes()[prefix_norm.len()] == b'/'
+        && is_path_separator_byte(path_norm.as_bytes()[prefix_norm.len()])
     {
         return true;
     }
     prefix_norm.contains('*') && glob_match_simple(prefix_norm, path_norm)
+}
+
+/// `true` if `b` is a path-component separator on the current platform.
+/// See `permission::protected_paths::is_path_separator_byte` for the
+/// rationale; mirrored here so cross-module consumers don't need to depend
+/// on the protected-paths module.
+#[inline]
+fn is_path_separator_byte(b: u8) -> bool {
+    if cfg!(windows) {
+        b == b'/' || b == b'\\'
+    } else {
+        b == b'/'
+    }
 }
 
 /// Minimal `*`-only glob matcher (no `?`, no character classes). Used for
@@ -324,5 +365,18 @@ mod tests {
         let raw = std::path::PathBuf::from("../sneaky");
         let norm = normalize_lexical(&raw);
         assert_eq!(norm, std::path::PathBuf::from("../sneaky"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn normalize_lex_preserves_drive_prefix_after_dotdot() {
+        // Regression: PathBuf::push("\\") on Windows is treated as an
+        // absolute push and *overwrites* the existing prefix, so a naive
+        // walk turned `C:\Users\u\Documents\..\.ssh\id_rsa` into
+        // `\Users\u\.ssh\id_rsa` (drive letter dropped → protected-path
+        // prefix matcher silently misses).
+        let raw = std::path::PathBuf::from("C:\\Users\\u\\Documents\\..\\.ssh\\id_rsa");
+        let norm = normalize_lexical(&raw);
+        assert_eq!(norm, std::path::PathBuf::from("C:\\Users\\u\\.ssh\\id_rsa"));
     }
 }
