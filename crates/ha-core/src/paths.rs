@@ -90,6 +90,15 @@ pub fn skills_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("skills"))
 }
 
+// ── Permission ───────────────────────────────────────────────────
+
+/// Permission system directory: ~/.hope-agent/permission/
+/// Holds `protected-paths.json`, `dangerous-commands.json`,
+/// `edit-commands.json`, `global-allowlist.json`.
+pub fn permission_dir() -> Result<PathBuf> {
+    Ok(root_dir()?.join("permission"))
+}
+
 // ── Agent Home ───────────────────────────────────────────────────
 
 /// Main agent home directory: ~/.hope-agent/home/

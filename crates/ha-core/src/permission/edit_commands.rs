@@ -96,17 +96,36 @@ pub const DEFAULT_EDIT_COMMAND_PATTERNS: &[&str] = &[
     "tee ",
 ];
 
-/// Currently-active edit-command pattern list. The GUI editor will swap this
-/// for a `Lazy<RwLock<Vec<String>>>` once user customization lands.
-pub fn current_patterns() -> &'static [&'static str] {
+const FILE_NAME: &str = "edit-commands.json";
+
+static CACHE: std::sync::LazyLock<super::list_store::Cache> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
+
+pub fn current_patterns() -> Vec<String> {
+    super::list_store::load_or_defaults(&CACHE, FILE_NAME, DEFAULT_EDIT_COMMAND_PATTERNS)
+}
+
+pub fn save_patterns(patterns: &[String]) -> anyhow::Result<()> {
+    super::list_store::save(&CACHE, FILE_NAME, patterns)
+}
+
+pub fn reset_defaults() -> anyhow::Result<Vec<String>> {
+    super::list_store::reset_to_defaults(&CACHE, FILE_NAME, DEFAULT_EDIT_COMMAND_PATTERNS)
+}
+
+pub fn defaults() -> &'static [&'static str] {
     DEFAULT_EDIT_COMMAND_PATTERNS
 }
 
 /// Same case-insensitive substring strategy as
-/// [`super::dangerous_commands::matches`]. Both share the same allocation-free
-/// helper in [`super::pattern_match`].
-pub fn matches(command: &str, patterns: &[&'static str]) -> Option<&'static str> {
-    super::pattern_match::first_substring_match_ignore_ascii_case(command, patterns)
+/// [`super::dangerous_commands::matches`].
+pub fn matches(command: &str, patterns: &[String]) -> Option<String> {
+    for pat in patterns {
+        if super::pattern_match::ascii_contains_ignore_case(command, pat) {
+            return Some(pat.clone());
+        }
+    }
+    None
 }
 
 #[cfg(test)]

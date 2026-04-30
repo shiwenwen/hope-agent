@@ -31,6 +31,67 @@ pub struct ApprovalRequest {
     /// Session ID for correlating with IM channel conversations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Optional reason emitted by the permission engine. The frontend
+    /// renders a colored banner and disables AllowAlways for strict reasons
+    /// (`protected_path` / `dangerous_command`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ApprovalReasonPayload>,
+}
+
+/// Reason payload — flat shape so the frontend can switch on `kind` without
+/// running a full enum matcher. Mirrors [`crate::permission::AskReason`] but
+/// strips internal struct fields the UI doesn't need.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ApprovalReasonPayload {
+    pub kind: ApprovalReasonKind,
+    /// Human-readable detail (matched pattern, path, rationale…). Optional —
+    /// `edit_tool` carries no extra detail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalReasonKind {
+    EditTool,
+    EditCommand,
+    DangerousCommand,
+    ProtectedPath,
+    AgentCustomList,
+    SmartJudge,
+}
+
+impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
+    fn from(value: &crate::permission::AskReason) -> Self {
+        use crate::permission::AskReason::*;
+        match value {
+            EditTool => Self {
+                kind: ApprovalReasonKind::EditTool,
+                detail: None,
+            },
+            EditCommand { matched_pattern } => Self {
+                kind: ApprovalReasonKind::EditCommand,
+                detail: Some(matched_pattern.clone()),
+            },
+            DangerousCommand { matched_pattern } => Self {
+                kind: ApprovalReasonKind::DangerousCommand,
+                detail: Some(matched_pattern.clone()),
+            },
+            ProtectedPath { matched_path } => Self {
+                kind: ApprovalReasonKind::ProtectedPath,
+                detail: Some(matched_path.clone()),
+            },
+            AgentCustomList => Self {
+                kind: ApprovalReasonKind::AgentCustomList,
+                detail: None,
+            },
+            SmartJudge { rationale } => Self {
+                kind: ApprovalReasonKind::SmartJudge,
+                detail: Some(rationale.clone()),
+            },
+        }
+    }
 }
 
 /// Approval response from frontend
@@ -198,6 +259,7 @@ pub(crate) async fn check_and_request_approval(
     command: &str,
     cwd: &str,
     session_id: Option<&str>,
+    reason: Option<ApprovalReasonPayload>,
 ) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -221,6 +283,7 @@ pub(crate) async fn check_and_request_approval(
         command: command.to_string(),
         cwd: cwd.to_string(),
         session_id: session_id.map(|s| s.to_string()),
+        reason,
     };
 
     if let Some(bus) = crate::globals::get_event_bus() {

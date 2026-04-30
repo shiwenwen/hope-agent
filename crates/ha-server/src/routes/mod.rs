@@ -29,6 +29,7 @@ pub mod memory;
 pub mod misc;
 pub mod models;
 pub mod onboarding;
+pub mod permission;
 pub mod plan;
 pub mod projects;
 pub mod providers;

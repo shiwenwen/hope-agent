@@ -2315,6 +2315,61 @@
         "get_settings": "Read application settings",
         "list_settings_backups": "List configuration backup history"
       }
+    },
+    "approvalNav": "权限",
+    "approvalPanel": {
+      "title": "權限",
+      "intro": "審批彈窗與「永遠跳過審批」的全域開關、保護路徑 / 編輯命令 / 危險命令模式列表，以及智慧審批模式設定。",
+      "yoloTitle": "全域 YOLO（跳過所有審批）",
+      "yoloDesc": "開啟後所有工具直接執行，僅 Plan 模式仍能攔截。保護路徑 / 危險命令命中只記 warn 日誌不再彈審批。",
+      "yoloEnabled": "已開啟全域 YOLO",
+      "yoloDisabled": "已關閉全域 YOLO",
+      "yoloCliActive": "⚠️ 目前 CLI 啟動參數 --dangerously-skip-all-approvals 已啟用，無法在 GUI 關閉。",
+      "protectedPathsTitle": "保護路徑",
+      "protectedPathsDesc": "命中以下路徑模式時強制審批，不可 AllowAlways 跳過。支援 ~/ 展開、目錄前綴（結尾 /）、萬用字元（*.pem）。",
+      "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
+      "editCommandsTitle": "編輯命令",
+      "editCommandsDesc": "Default 模式下 exec 命中這些命令模式需要審批，可 AllowAlways。命令為子字串比對（不區分大小寫）。",
+      "editCommandsPlaceholder": "如：rm 、git commit、npm install",
+      "dangerousCommandsTitle": "危險命令",
+      "dangerousCommandsDesc": "命中即強制審批且不可 AllowAlways。YOLO 模式可繞過但仍會寫稽核日誌。",
+      "dangerousCommandsPlaceholder": "如：rm -rf /、git push --force",
+      "smartTitle": "智慧審批模式",
+      "smartDesc": "Smart 會話模式下，由模型自評（_confidence 欄位）或獨立判官模型決定是否審批。",
+      "smartStrategy": "決策策略",
+      "smartFallback": "判官不可用時的降級",
+      "strategies": {
+        "self_confidence": "模型自評",
+        "judge_model": "獨立判官模型",
+        "both": "判官優先 + 自評兜底"
+      },
+      "fallbacks": {
+        "default": "降級為預設模式",
+        "ask": "強制彈審批",
+        "allow": "強制放行"
+      },
+      "judgeModelTitle": "判官模型設定",
+      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
+      "judgeModelPlaceholder": "Model（如 claude-haiku-4-5）",
+      "judgeExtraPromptPlaceholder": "可選：附加給判官的提示詞（白名單路徑、信任命令等）",
+      "timeoutTitle": "審批彈窗超時",
+      "timeoutDesc": "超過該時長未回應時按下方策略處理，0 表示永不超時。",
+      "timeoutSeconds": "超時秒數",
+      "timeoutHint": "0 表示無限等待",
+      "timeoutAction": "超時動作",
+      "timeoutActions": {
+        "deny": "拒絕執行",
+        "proceed": "放行執行"
+      },
+      "save": "儲存",
+      "saving": "儲存中…",
+      "saved": "已儲存",
+      "saveFailed": "儲存失敗",
+      "loading": "載入中…",
+      "empty": "暫無條目，新增模式以啟用",
+      "add": "新增",
+      "restoreDefaults": "還原預設",
+      "restoredDefaults": "已還原為預設清單"
     }
   },
   "tz": {
@@ -2656,13 +2711,45 @@
     "recoveryBannerDesc": "應用在本次啟動前發生了 {{count}} 次崩潰，已自動重啟。"
   },
   "approval": {
-    "title": "命令執行確認",
-    "workingDir": "工作目錄",
-    "command": "命令",
-    "allowOnce": "允許一次",
-    "allowAlways": "始終允許",
-    "deny": "拒絕",
-    "queueIndicator": "第 {{current}} 個，共 {{total}} 個"
+    "title": "Command Approval Required",
+    "workingDir": "Working Directory",
+    "command": "Command",
+    "allowOnce": "Allow Once",
+    "allowAlways": "Always Allow",
+    "deny": "Deny",
+    "queueIndicator": "{{current}} of {{total}}",
+    "allowAlwaysDisabled": "命中保護路徑或危險命令時無法選擇「始終允許」",
+    "countdownTooltip": "剩餘 {{seconds}} 秒，超時將自動{{action}}",
+    "countdownAction": {
+      "deny": "拒絕",
+      "proceed": "放行"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "編輯類工具",
+        "body": "預設模式下檔案寫入工具（write/edit/apply_patch）需要確認。"
+      },
+      "edit_command": {
+        "title": "編輯性 exec 命令",
+        "body": "命中編輯命令模式列表，預設模式下需要確認；可選「始終允許」記入命令前綴白名單。"
+      },
+      "dangerous_command": {
+        "title": "⚠️ 危險命令",
+        "body": "命中危險命令模式列表，必須每次確認，無法「始終允許」。"
+      },
+      "protected_path": {
+        "title": "⚠️ 保護路徑",
+        "body": "命中保護路徑列表，必須每次確認，無法「始終允許」。"
+      },
+      "agent_custom_list": {
+        "title": "Agent 自訂審批清單",
+        "body": "Agent 設定中勾選了此工具進入「自訂工具審批」清單，僅 Default 模式下生效。"
+      },
+      "smart_judge": {
+        "title": "智慧審批判官建議",
+        "body": "智慧審批模式下判官模型判定此次呼叫需要人工確認。"
+      }
+    }
   },
   "thinking": {
     "label": "思考過程",

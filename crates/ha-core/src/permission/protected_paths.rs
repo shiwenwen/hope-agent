@@ -33,9 +33,31 @@ pub const DEFAULT_PROTECTED_PATHS: &[&str] = &[
     "*.pfx",
 ];
 
-/// Currently-active protected path patterns. The GUI editor will swap this
-/// for a `Lazy<RwLock<Vec<String>>>` once user customization lands.
-pub fn current_patterns() -> &'static [&'static str] {
+const FILE_NAME: &str = "protected-paths.json";
+
+static CACHE: std::sync::LazyLock<super::list_store::Cache> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
+
+/// Currently-active protected path patterns. Backed by
+/// `~/.hope-agent/permission/protected-paths.json`; falls back to
+/// [`DEFAULT_PROTECTED_PATHS`] when the file is missing.
+pub fn current_patterns() -> Vec<String> {
+    super::list_store::load_or_defaults(&CACHE, FILE_NAME, DEFAULT_PROTECTED_PATHS)
+}
+
+/// Overwrite the user-customized list. Persists to disk + updates cache.
+pub fn save_patterns(patterns: &[String]) -> anyhow::Result<()> {
+    super::list_store::save(&CACHE, FILE_NAME, patterns)
+}
+
+/// Restore the compile-time defaults (writes them to disk too).
+pub fn reset_defaults() -> anyhow::Result<Vec<String>> {
+    super::list_store::reset_to_defaults(&CACHE, FILE_NAME, DEFAULT_PROTECTED_PATHS)
+}
+
+/// Read-only borrow of the compile-time defaults — drives the "Restore
+/// defaults" preview before the user commits.
+pub fn defaults() -> &'static [&'static str] {
     DEFAULT_PROTECTED_PATHS
 }
 
@@ -47,13 +69,13 @@ pub fn current_patterns() -> &'static [&'static str] {
 /// - Plain leaf (`.env`) → exact filename match anywhere in the path
 /// - Glob with `*` (`*.pem`, `*secret*`) → simple star-glob match against
 ///   both the full path string and the basename
-pub fn matches(path: &std::path::Path, patterns: &[&'static str]) -> Option<&'static str> {
+pub fn matches(path: &std::path::Path, patterns: &[String]) -> Option<String> {
     use super::rules::{expand_tilde, glob_match_simple};
     let path_str = path.to_string_lossy();
-    for &pat in patterns {
-        if pat.ends_with('/') {
-            // Directory prefix.
-            let expanded = expand_tilde(pat);
+    for pat in patterns {
+        let pat_str = pat.as_str();
+        if pat_str.ends_with('/') {
+            let expanded = expand_tilde(pat_str);
             let expanded_s = expanded.to_string_lossy();
             let prefix = expanded_s.trim_end_matches('/');
             if path_str == prefix
@@ -61,34 +83,32 @@ pub fn matches(path: &std::path::Path, patterns: &[&'static str]) -> Option<&'st
                     && path_str.starts_with(prefix)
                     && path_str.as_bytes()[prefix.len()] == b'/')
             {
-                return Some(pat);
+                return Some(pat.clone());
             }
-        } else if pat.contains('*') {
-            if glob_match_simple(pat, &path_str) {
-                return Some(pat);
+        } else if pat_str.contains('*') {
+            if glob_match_simple(pat_str, &path_str) {
+                return Some(pat.clone());
             }
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if glob_match_simple(pat, name) {
-                    return Some(pat);
+                if glob_match_simple(pat_str, name) {
+                    return Some(pat.clone());
                 }
             }
-        } else if !pat.contains('/') {
-            // Plain leaf — match basename only.
+        } else if !pat_str.contains('/') {
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name == pat {
-                    return Some(pat);
+                if name == pat_str {
+                    return Some(pat.clone());
                 }
             }
         } else {
-            // Absolute / non-wildcard path — exact prefix match.
-            let expanded = expand_tilde(pat);
+            let expanded = expand_tilde(pat_str);
             let expanded_s = expanded.to_string_lossy();
             if path_str == expanded_s
                 || (path_str.len() > expanded_s.len()
                     && path_str.starts_with(&*expanded_s)
                     && path_str.as_bytes()[expanded_s.len()] == b'/')
             {
-                return Some(pat);
+                return Some(pat.clone());
             }
         }
     }

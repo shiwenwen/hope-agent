@@ -161,9 +161,10 @@ fn resolve_smart_mode(_ctx: &ResolveContext<'_>) -> Decision {
 
 fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     let path = extract_path_arg(ctx.tool_name, ctx.args)?;
-    let matched = super::protected_paths::matches(&path, super::protected_paths::current_patterns())?;
+    let patterns = super::protected_paths::current_patterns();
+    let matched = super::protected_paths::matches(&path, &patterns)?;
     Some(AskReason::ProtectedPath {
-        matched_path: matched.to_string(),
+        matched_path: matched,
     })
 }
 
@@ -172,17 +173,19 @@ fn check_dangerous_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
         return None;
     }
     let cmd = ctx.args.get("command").and_then(|v| v.as_str())?;
-    let matched = super::dangerous_commands::matches(cmd, super::dangerous_commands::current_patterns())?;
+    let patterns = super::dangerous_commands::current_patterns();
+    let matched = super::dangerous_commands::matches(cmd, &patterns)?;
     Some(AskReason::DangerousCommand {
-        matched_pattern: matched.to_string(),
+        matched_pattern: matched,
     })
 }
 
 fn check_edit_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     let cmd = ctx.args.get("command").and_then(|v| v.as_str())?;
-    let matched = super::edit_commands::matches(cmd, super::edit_commands::current_patterns())?;
+    let patterns = super::edit_commands::current_patterns();
+    let matched = super::edit_commands::matches(cmd, &patterns)?;
     Some(AskReason::EditCommand {
-        matched_pattern: matched.to_string(),
+        matched_pattern: matched,
     })
 }
 

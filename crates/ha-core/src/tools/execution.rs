@@ -350,8 +350,15 @@ pub async fn execute_tool_with_context(
                     }
                 });
                 let cwd = ctx.default_path();
-                match approval::check_and_request_approval(&desc, cwd, ctx.session_id.as_deref())
-                    .await
+                let reason_payload =
+                    Some(approval::ApprovalReasonPayload::from(&reason));
+                match approval::check_and_request_approval(
+                    &desc,
+                    cwd,
+                    ctx.session_id.as_deref(),
+                    reason_payload,
+                )
+                .await
                 {
                     Ok(approval::ApprovalResponse::AllowOnce) => {
                         app_info!("tool", "approval", "Tool '{}' approved (once)", name);

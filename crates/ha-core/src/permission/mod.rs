@@ -20,6 +20,7 @@ pub mod dangerous_commands;
 pub mod edit_commands;
 pub mod engine;
 pub mod judge;
+pub(crate) mod list_store;
 pub mod mode;
 pub(crate) mod pattern_match;
 pub mod protected_paths;

@@ -1,11 +1,29 @@
+import { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
-import { ShieldAlert, FolderOpen } from "lucide-react"
+import { ShieldAlert, ShieldCheck, FolderOpen, Clock } from "lucide-react"
+import { getTransport } from "@/lib/transport-provider"
 
 export interface ApprovalRequest {
   request_id: string
   command: string
   cwd: string
+  /**
+   * Optional human-readable reason emitted by the engine when the approval
+   * is forced by a protected-path / dangerous-command match. When set, the
+   * dialog renders a red warning bar and disables the AllowAlways button.
+   */
+  reason?: {
+    kind:
+      | "edit_tool"
+      | "edit_command"
+      | "dangerous_command"
+      | "protected_path"
+      | "agent_custom_list"
+      | "smart_judge"
+    /** Pattern / path / rationale text to display. */
+    detail?: string
+  }
 }
 
 interface ApprovalDialogProps {
@@ -13,21 +31,80 @@ interface ApprovalDialogProps {
   onRespond: (requestId: string, response: "allow_once" | "allow_always" | "deny") => void
 }
 
+const AUTO_DENY_DEFAULT_SECS = 300
+
 export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogProps) {
   const { t } = useTranslation()
-
-  if (requests.length === 0) return null
-
+  const [timeoutSecs, setTimeoutSecs] = useState<number | null>(null)
+  const [autoAction, setAutoAction] = useState<"deny" | "proceed">("deny")
   const current = requests[0]
+  const currentId = current?.request_id ?? null
+  // Countdown: state is updated only inside the interval callback (not during
+  // render), satisfying react-hooks/purity + react-hooks/set-state-in-effect.
+  // The dialog shows `null` for ~1ms between mount and first tick — not
+  // user-visible.
+  const [remaining, setRemaining] = useState<number | null>(null)
+
+  // Load the approval timeout once — the dialog only needs it for the
+  // visual countdown; the actual timeout enforcement happens server-side.
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      getTransport().call<number>("get_approval_timeout").catch(() => AUTO_DENY_DEFAULT_SECS),
+      getTransport()
+        .call<"deny" | "proceed">("get_approval_timeout_action")
+        .catch(() => "deny" as const),
+    ]).then(([secs, action]) => {
+      if (cancelled) return
+      setTimeoutSecs(secs)
+      setAutoAction(action)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Tick the countdown once per second while a request is active. The
+  // `setRemaining` call lives inside the interval callback (microtask),
+  // not the effect body — so neither purity nor set-state-in-effect rules
+  // are triggered.
+  useEffect(() => {
+    if (!currentId || timeoutSecs === null || timeoutSecs <= 0) return
+    const startMs = Date.now()
+    const total = timeoutSecs
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startMs) / 1000)
+      setRemaining(Math.max(0, total - elapsed))
+    }
+    tick()
+    const id = window.setInterval(tick, 1000)
+    return () => {
+      window.clearInterval(id)
+      setRemaining(null)
+    }
+  }, [currentId, timeoutSecs])
+
+  if (!current) return null
+
   const total = requests.length
+  const reason = current.reason
+  const isStrict = reason?.kind === "protected_path" || reason?.kind === "dangerous_command"
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center">
       <div className="bg-card border border-border rounded-2xl shadow-xl max-w-md w-full mx-4 p-6 animate-in fade-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-full bg-amber-500/15 flex items-center justify-center text-amber-500 shrink-0">
-            <ShieldAlert className="h-5 w-5" />
+          <div
+            className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+              isStrict ? "bg-destructive/15 text-destructive" : "bg-amber-500/15 text-amber-500"
+            }`}
+          >
+            {isStrict ? (
+              <ShieldAlert className="h-5 w-5" />
+            ) : (
+              <ShieldCheck className="h-5 w-5" />
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <h3 className="text-sm font-semibold text-foreground">{t("approval.title")}</h3>
@@ -37,7 +114,19 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
               </span>
             )}
           </div>
+          {remaining !== null && (
+            <CountdownRing
+              remaining={remaining}
+              total={timeoutSecs ?? AUTO_DENY_DEFAULT_SECS}
+              autoAction={autoAction}
+            />
+          )}
         </div>
+
+        {/* Reason banner (protected path / dangerous / edit / agent custom) */}
+        {reason && (
+          <ReasonBanner kind={reason.kind} detail={reason.detail} t={t} />
+        )}
 
         {/* Working Directory */}
         <div className="mb-3">
@@ -76,11 +165,109 @@ export default function ApprovalDialog({ requests, onRespond }: ApprovalDialogPr
           >
             {t("approval.allowOnce")}
           </Button>
-          <Button size="sm" onClick={() => onRespond(current.request_id, "allow_always")}>
+          <Button
+            size="sm"
+            onClick={() => onRespond(current.request_id, "allow_always")}
+            disabled={isStrict}
+            title={isStrict ? t("approval.allowAlwaysDisabled") : undefined}
+          >
             {t("approval.allowAlways")}
           </Button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ── CountdownRing ───────────────────────────────────────────────────
+
+function CountdownRing({
+  remaining,
+  total,
+  autoAction,
+}: {
+  remaining: number
+  total: number
+  autoAction: "deny" | "proceed"
+}) {
+  const { t } = useTranslation()
+  const ratio = useMemo(() => {
+    if (total <= 0) return 0
+    return Math.max(0, Math.min(1, remaining / total))
+  }, [remaining, total])
+  const isUrgent = remaining <= 30
+  const stroke = 3
+  const size = 28
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const offset = c * (1 - ratio)
+  const color = isUrgent ? "stroke-destructive" : "stroke-primary"
+
+  return (
+    <div
+      className="relative shrink-0"
+      title={t("approval.countdownTooltip", {
+        seconds: remaining,
+        action: t(`approval.countdownAction.${autoAction}`),
+      })}
+    >
+      <svg width={size} height={size} className="rotate-[-90deg]">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          strokeWidth={stroke}
+          className="stroke-secondary fill-none"
+        />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          strokeWidth={stroke}
+          strokeDasharray={c}
+          strokeDashoffset={offset}
+          className={`${color} fill-none transition-[stroke-dashoffset]`}
+          strokeLinecap="round"
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center">
+        <Clock className={`h-3 w-3 ${isUrgent ? "text-destructive" : "text-muted-foreground"}`} />
+      </div>
+    </div>
+  )
+}
+
+// ── ReasonBanner ───────────────────────────────────────────────────
+
+function ReasonBanner({
+  kind,
+  detail,
+  t,
+}: {
+  kind: NonNullable<ApprovalRequest["reason"]>["kind"]
+  detail?: string
+  t: ReturnType<typeof useTranslation>["t"]
+}) {
+  const isStrict = kind === "protected_path" || kind === "dangerous_command"
+  const palette = isStrict
+    ? "border-destructive/40 bg-destructive/10 text-destructive"
+    : "border-amber-200/40 bg-amber-50/40 dark:bg-amber-950/10 text-amber-700 dark:text-amber-400"
+
+  return (
+    <div
+      className={`mb-3 rounded-md border px-2.5 py-1.5 text-[11px] flex items-start gap-2 ${palette}`}
+    >
+      <ShieldAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <span>
+        <strong className="font-medium">{t(`approval.reasons.${kind}.title`)}</strong>
+        {detail && (
+          <>
+            {" — "}
+            <code className="font-mono">{detail}</code>
+          </>
+        )}
+        <span className="block opacity-80">{t(`approval.reasons.${kind}.body`)}</span>
+      </span>
     </div>
   )
 }

@@ -45,18 +45,41 @@ pub const DEFAULT_DANGEROUS_PATTERNS: &[&str] = &[
     "kubectl delete .* --all",
 ];
 
-/// Currently-active dangerous-command pattern list. The GUI editor will swap
-/// this for a `Lazy<RwLock<Vec<String>>>` once user customization lands.
-pub fn current_patterns() -> &'static [&'static str] {
+const FILE_NAME: &str = "dangerous-commands.json";
+
+static CACHE: std::sync::LazyLock<super::list_store::Cache> =
+    std::sync::LazyLock::new(|| std::sync::RwLock::new(None));
+
+/// Currently-active dangerous-command patterns. Backed by
+/// `~/.hope-agent/permission/dangerous-commands.json`; falls back to
+/// [`DEFAULT_DANGEROUS_PATTERNS`] when the file is missing.
+pub fn current_patterns() -> Vec<String> {
+    super::list_store::load_or_defaults(&CACHE, FILE_NAME, DEFAULT_DANGEROUS_PATTERNS)
+}
+
+pub fn save_patterns(patterns: &[String]) -> anyhow::Result<()> {
+    super::list_store::save(&CACHE, FILE_NAME, patterns)
+}
+
+pub fn reset_defaults() -> anyhow::Result<Vec<String>> {
+    super::list_store::reset_to_defaults(&CACHE, FILE_NAME, DEFAULT_DANGEROUS_PATTERNS)
+}
+
+pub fn defaults() -> &'static [&'static str] {
     DEFAULT_DANGEROUS_PATTERNS
 }
 
 /// Return the first dangerous pattern that occurs as a case-insensitive
 /// substring in `command`. Patterns containing `.*` are treated as plain
-/// substrings — we keep behavior boring and predictable rather than compiling
-/// them as regex (the literal "if=.* of=/dev/" still catches the common case).
-pub fn matches(command: &str, patterns: &[&'static str]) -> Option<&'static str> {
-    super::pattern_match::first_substring_match_ignore_ascii_case(command, patterns)
+/// substrings — we keep behavior predictable rather than compiling regex
+/// (the literal "if=.* of=/dev/" still catches the common case).
+pub fn matches(command: &str, patterns: &[String]) -> Option<String> {
+    for pat in patterns {
+        if super::pattern_match::ascii_contains_ignore_case(command, pat) {
+            return Some(pat.clone());
+        }
+    }
+    None
 }
 
 #[cfg(test)]

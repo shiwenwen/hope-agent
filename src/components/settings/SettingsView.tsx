@@ -56,6 +56,7 @@ import ChannelPanel from "@/components/settings/channel-panel"
 import McpServersPanel from "@/components/settings/mcp-panel/McpServersPanel"
 import ServerPanel from "@/components/settings/ServerPanel"
 import SecurityPanel from "@/components/settings/SecurityPanel"
+import ApprovalPanel from "@/components/settings/ApprovalPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
@@ -149,6 +150,11 @@ const SECTIONS: SettingsSectionItem[] = [
     id: "notifications",
     icon: <Bell className="h-4 w-4" />,
     labelKey: "settings.notifications",
+  },
+  {
+    id: "approval",
+    icon: <ShieldCheck className="h-4 w-4" />,
+    labelKey: "settings.approvalNav",
   },
   {
     id: "permissions",
@@ -328,6 +334,7 @@ export default function SettingsView({
             {activeSection === "channels" && (
               <ChannelPanel initialChannelId={initialChannelId} />
             )}
+            {activeSection === "approval" && <ApprovalPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "security" && <SecurityPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}

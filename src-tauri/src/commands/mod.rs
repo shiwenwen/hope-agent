@@ -22,6 +22,7 @@ pub mod mcp;
 pub mod memory;
 pub mod misc;
 pub mod onboarding;
+pub mod permission;
 pub mod plan;
 pub mod project;
 pub mod provider;

@@ -348,10 +348,13 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         command
                     );
                 } else {
+                    let reason_payload =
+                        Some(super::approval::ApprovalReasonPayload::from(&reason));
                     match check_and_request_approval(
                         command,
                         &session_cwd,
                         ctx.session_id.as_deref(),
+                        reason_payload,
                     )
                     .await
                     {

@@ -1685,6 +1685,61 @@
     "agentUnlimited": "不限制",
     "agentSkills": "技能",
     "agentSkillsDesc": "全局开启的技能默认对此 Agent 可用，可单独禁用不需要的",
+    "approvalNav": "权限",
+    "approvalPanel": {
+      "title": "权限",
+      "intro": "审批弹窗与「永远跳过审批」的全局开关、保护路径 / 编辑命令 / 危险命令模式列表，以及智能审批模式配置。",
+      "yoloTitle": "全局 YOLO（跳过所有审批）",
+      "yoloDesc": "开启后所有工具直接执行，仅 Plan 模式仍能拦截。保护路径 / 危险命令命中只落 warn 日志不再弹审批。",
+      "yoloEnabled": "已开启全局 YOLO",
+      "yoloDisabled": "已关闭全局 YOLO",
+      "yoloCliActive": "⚠️ 当前 CLI 启动参数 --dangerously-skip-all-approvals 已激活，无法在 GUI 关闭。",
+      "protectedPathsTitle": "保护路径",
+      "protectedPathsDesc": "命中以下路径模式时强制审批，不可 AllowAlways 跳过。支持 ~/ 展开、目录前缀（结尾 /）、通配（*.pem）。",
+      "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
+      "editCommandsTitle": "编辑命令",
+      "editCommandsDesc": "Default 模式下 exec 命中这些命令模式需要审批，可 AllowAlways。命令为子串匹配（不区分大小写）。",
+      "editCommandsPlaceholder": "如：rm 、git commit、npm install",
+      "dangerousCommandsTitle": "危险命令",
+      "dangerousCommandsDesc": "命中即强制审批且不可 AllowAlways。YOLO 模式可绕过但仍会写审计日志。",
+      "dangerousCommandsPlaceholder": "如：rm -rf /、git push --force",
+      "smartTitle": "智能审批模式",
+      "smartDesc": "Smart 会话模式下，由模型自评（_confidence 字段）或独立判官模型决定审批与否。",
+      "smartStrategy": "决策策略",
+      "smartFallback": "判官不可用时的降级",
+      "strategies": {
+        "self_confidence": "模型自评",
+        "judge_model": "独立判官模型",
+        "both": "判官优先 + 自评兜底"
+      },
+      "fallbacks": {
+        "default": "降级为默认模式",
+        "ask": "强制弹审批",
+        "allow": "强制放行"
+      },
+      "judgeModelTitle": "判官模型配置",
+      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
+      "judgeModelPlaceholder": "Model（如 claude-haiku-4-5）",
+      "judgeExtraPromptPlaceholder": "可选：附加给判官的提示词（白名单路径、信任命令等）",
+      "timeoutTitle": "审批弹窗超时",
+      "timeoutDesc": "超过该时长未响应时按下方策略处理，0 表示永不超时。",
+      "timeoutSeconds": "超时秒数",
+      "timeoutHint": "0 表示无限等待",
+      "timeoutAction": "超时动作",
+      "timeoutActions": {
+        "deny": "拒绝执行",
+        "proceed": "放行执行"
+      },
+      "save": "保存",
+      "saving": "保存中…",
+      "saved": "已保存",
+      "saveFailed": "保存失败",
+      "loading": "加载中…",
+      "empty": "暂无条目，添加新模式以启用",
+      "add": "添加",
+      "restoreDefaults": "恢复默认",
+      "restoredDefaults": "已恢复为默认列表"
+    },
     "agentApprovalTab": "审批",
     "agentApproval": {
       "defaultModeTitle": "默认会话权限模式",
@@ -2661,8 +2716,40 @@
     "command": "命令",
     "allowOnce": "允许一次",
     "allowAlways": "始终允许",
+    "allowAlwaysDisabled": "命中保护路径或危险命令时无法选择「始终允许」",
     "deny": "拒绝",
-    "queueIndicator": "第 {{current}} 个，共 {{total}} 个"
+    "queueIndicator": "第 {{current}} 个，共 {{total}} 个",
+    "countdownTooltip": "剩余 {{seconds}} 秒，超时将自动{{action}}",
+    "countdownAction": {
+      "deny": "拒绝",
+      "proceed": "放行"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "编辑类工具",
+        "body": "默认模式下文件写入工具（write/edit/apply_patch）需要确认。"
+      },
+      "edit_command": {
+        "title": "编辑性 exec 命令",
+        "body": "命中编辑命令模式列表，默认模式下需要确认；可选「始终允许」记入命令前缀白名单。"
+      },
+      "dangerous_command": {
+        "title": "⚠️ 危险命令",
+        "body": "命中危险命令模式列表，必须每次确认，无法「始终允许」。"
+      },
+      "protected_path": {
+        "title": "⚠️ 保护路径",
+        "body": "命中保护路径列表，必须每次确认，无法「始终允许」。"
+      },
+      "agent_custom_list": {
+        "title": "Agent 自定义审批清单",
+        "body": "Agent 配置里勾选了该工具进入「自定义工具审批」清单，仅 Default 模式下生效。"
+      },
+      "smart_judge": {
+        "title": "智能审批判官建议",
+        "body": "智能审批模式下判官模型判定本次调用需要人工确认。"
+      }
+    }
   },
   "thinking": {
     "label": "思考过程",
