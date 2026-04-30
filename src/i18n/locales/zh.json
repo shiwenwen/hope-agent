@@ -238,13 +238,20 @@
     "compactNoChange": "当前上下文无需压缩",
     "compactFailed": "压缩失败",
     "viewContext": "查看上下文",
-    "toolPermission": "工具权限",
-    "toolPermissionAuto": "自动决策",
-    "toolPermissionAsk": "每次询问",
-    "toolPermissionFull": "完全授权",
-    "toolPermissionAutoDesc": "由模型决定是否需要授权",
-    "toolPermissionAskDesc": "每次工具调用都需要确认",
-    "toolPermissionFullDesc": "自动批准所有工具调用",
+    "permissionMode": {
+      "default": {
+        "label": "默认",
+        "desc": "编辑类工具与高危命令需要审批，其余直接放行"
+      },
+      "smart": {
+        "label": "智能审批",
+        "desc": "由模型自评或独立判官模型决定是否需要审批"
+      },
+      "yolo": {
+        "label": "完全放行",
+        "desc": "本会话内所有工具直接执行（保护路径仍记审计日志）"
+      }
+    },
     "statusCache": "缓存",
     "statusCacheWrite": "写入",
     "statusCacheHit": "命中",
@@ -1678,11 +1685,81 @@
     "agentUnlimited": "不限制",
     "agentSkills": "技能",
     "agentSkillsDesc": "全局开启的技能默认对此 Agent 可用，可单独禁用不需要的",
-    "agentRequireApproval": "工具审批",
-    "agentRequireApprovalDesc": "控制 AI 使用工具前是否需要你确认",
-    "agentApprovalAll": "全部审批",
-    "agentApprovalNone": "无需审批",
-    "agentApprovalCustom": "自定义",
+    "agentApprovalTab": "审批",
+    "agentApproval": {
+      "defaultModeTitle": "默认会话权限模式",
+      "defaultModeDesc": "新建会话时的初始权限模式，已存在的会话不受影响。",
+      "modes": {
+        "inherit": {
+          "label": "跟随全局",
+          "desc": "由全局默认决定（当前为「默认」模式）"
+        },
+        "default": {
+          "label": "默认",
+          "desc": "编辑类工具与高危命令需要审批"
+        },
+        "smart": {
+          "label": "智能审批",
+          "desc": "由判官模型或模型自评决定审批"
+        },
+        "yolo": {
+          "label": "完全放行",
+          "desc": "本会话所有工具直接执行（保护路径仍记审计日志）"
+        }
+      },
+      "customApprovalTitle": "自定义工具审批",
+      "customApprovalDesc": "在默认模式下，让额外勾选的工具也需要每次审批。",
+      "customApprovalHint": "提示：仅在「默认」会话模式下生效，智能审批/完全放行模式下被忽略。",
+      "groups": {
+        "shell": "Shell 与进程",
+        "browser": "浏览器",
+        "settings": "配置变更",
+        "outbound": "外发",
+        "paid": "付费 API",
+        "spawn": "外部子进程",
+        "network": "网络访问",
+        "crossSession": "跨会话只读",
+        "settingsRead": "配置查询"
+      },
+      "toolNames": {
+        "process": "后台进程管理",
+        "browser": "浏览器控制",
+        "update_settings": "修改设置",
+        "restore_settings_backup": "恢复设置备份",
+        "send_attachment": "发送附件",
+        "sessions_send": "跨会话发送",
+        "image_generate": "图像生成",
+        "acp_spawn": "ACP 子代理",
+        "web_fetch": "网页抓取",
+        "web_search": "网络搜索",
+        "peek_sessions": "窥视会话",
+        "sessions_list": "会话列表",
+        "sessions_history": "会话历史",
+        "session_status": "会话状态",
+        "agents_list": "Agent 列表",
+        "get_settings": "读取设置",
+        "list_settings_backups": "列出设置备份"
+      },
+      "toolDescs": {
+        "process": "管理 exec 后台会话（kill/write/clear/remove）",
+        "browser": "通过 CDP 驱动浏览器，UI 自动化",
+        "update_settings": "修改 AppConfig 配置",
+        "restore_settings_backup": "回滚到历史设置备份",
+        "send_attachment": "向 IM 渠道发送附件",
+        "sessions_send": "向其它会话发送消息触发其执行",
+        "image_generate": "调用付费 API 生成图像",
+        "acp_spawn": "启动外部 ACP 子代理进程",
+        "web_fetch": "抓取 URL 提取正文",
+        "web_search": "通过搜索引擎查询",
+        "peek_sessions": "查看其它会话的实时活动",
+        "sessions_list": "列出所有会话元数据",
+        "sessions_history": "读取其它会话历史消息",
+        "session_status": "查询会话当前状态",
+        "agents_list": "列出所有 Agent 配置",
+        "get_settings": "读取应用配置",
+        "list_settings_backups": "列出配置备份历史"
+      }
+    },
     "toolExecName": "执行命令",
     "toolExecDesc": "执行 Shell 命令，支持后台运行和沙箱隔离",
     "toolProcessName": "进程管理",

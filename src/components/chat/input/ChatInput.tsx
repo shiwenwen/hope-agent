@@ -20,7 +20,7 @@ import {
   FolderPlus,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/chat"
+import type { AvailableModel, ActiveModel, SessionMode } from "@/types/chat"
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
 import { useUrlPreview } from "@/hooks/useUrlPreview"
 import SlashCommandMenu from "../slash-commands/SlashCommandMenu"
@@ -36,7 +36,7 @@ import {
   AttachmentPreview,
 } from "./AttachmentBar"
 import ModelPicker from "./ModelPicker"
-import ToolPermissionToggle from "./ToolPermissionToggle"
+import PermissionModeSwitcher from "./PermissionModeSwitcher"
 import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./IncognitoToggle"
@@ -78,8 +78,8 @@ interface ChatInputProps {
   currentAgentId?: string
   onCommandAction?: (result: CommandResult) => void
   // Tool permission mode
-  toolPermissionMode: ToolPermissionMode
-  onToolPermissionChange: (mode: ToolPermissionMode) => void
+  permissionMode: SessionMode
+  onPermissionModeChange: (mode: SessionMode) => void
   // Temperature
   sessionTemperature?: number | null
   onSessionTemperatureChange?: (temp: number | null) => void
@@ -127,8 +127,8 @@ export default function ChatInput({
   currentSessionId,
   currentAgentId = "default",
   onCommandAction,
-  toolPermissionMode,
-  onToolPermissionChange,
+  permissionMode,
+  onPermissionModeChange,
   sessionTemperature,
   onSessionTemperatureChange,
   incognitoEnabled = false,
@@ -633,9 +633,9 @@ export default function ChatInput({
             </IconTip>
 
             {/* Tool Permission Mode */}
-            <ToolPermissionToggle
-              toolPermissionMode={toolPermissionMode}
-              onToolPermissionChange={onToolPermissionChange}
+            <PermissionModeSwitcher
+              permissionMode={permissionMode}
+              onPermissionModeChange={onPermissionModeChange}
             />
           </div>
 

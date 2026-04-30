@@ -25,7 +25,7 @@ export type CommandAction =
   | { type: "sessionCleared" }
   | { type: "passThrough"; message: string }
   | { type: "exportFile"; content: string; filename: string }
-  | { type: "setToolPermission"; mode: string }
+  | { type: "setPermissionMode"; mode: "default" | "smart" | "yolo" }
   | { type: "displayOnly" }
   | { type: "showModelPicker"; models: ModelPickerItem[]; activeProviderId?: string; activeModelId?: string }
   | { type: "enterPlanMode" }

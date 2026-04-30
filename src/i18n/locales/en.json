@@ -238,13 +238,20 @@
     "compactNoChange": "Context does not need compression",
     "compactFailed": "Compression failed",
     "viewContext": "View context",
-    "toolPermission": "Tool Permission",
-    "toolPermissionAuto": "Auto",
-    "toolPermissionAsk": "Ask Every Time",
-    "toolPermissionFull": "Full Approve",
-    "toolPermissionAutoDesc": "Model decides whether approval is needed",
-    "toolPermissionAskDesc": "Every tool call requires confirmation",
-    "toolPermissionFullDesc": "Automatically approve all tool calls",
+    "permissionMode": {
+      "default": {
+        "label": "Default",
+        "desc": "Edit-class tools and high-risk commands need approval; everything else runs."
+      },
+      "smart": {
+        "label": "Smart Approval",
+        "desc": "Defer approval decisions to a judge model or the model's self-confidence tag."
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "All tools run without approval in this session (protected paths still audit-log)."
+      }
+    },
     "statusCache": "Cache",
     "statusCacheWrite": "Write",
     "statusCacheHit": "Hit",
@@ -1678,11 +1685,81 @@
     "agentUnlimited": "Unlimited",
     "agentSkills": "Skills",
     "agentSkillsDesc": "Globally enabled skills are available by default. You can disable specific ones for this Agent.",
-    "agentRequireApproval": "Tool Approval",
-    "agentRequireApprovalDesc": "Control whether AI needs your confirmation before using tools",
-    "agentApprovalAll": "Approve All",
-    "agentApprovalNone": "No Approval",
-    "agentApprovalCustom": "Custom",
+    "agentApprovalTab": "Approval",
+    "agentApproval": {
+      "defaultModeTitle": "Default Session Permission Mode",
+      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
+      "modes": {
+        "inherit": {
+          "label": "Inherit Global",
+          "desc": "Follow the global default (currently \"Default\" mode)"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Edit-class tools and high-risk commands need approval"
+        },
+        "smart": {
+          "label": "Smart Approval",
+          "desc": "Judge model or model self-confidence decides approvals"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "All tools run without approval (protected paths still audit-log)"
+        }
+      },
+      "customApprovalTitle": "Custom Tool Approval",
+      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
+      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
     "toolExecName": "Execute Command",
     "toolExecDesc": "Run shell commands with background and sandbox support",
     "toolProcessName": "Process Manager",

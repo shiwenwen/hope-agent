@@ -8,7 +8,7 @@ import type {
   Message,
   ActiveModel,
   AgentSummaryForSidebar,
-  ToolPermissionMode,
+  SessionMode,
 } from "@/types/chat"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
@@ -91,8 +91,8 @@ export interface UseChatStreamReturn {
   approvalRequests: ApprovalRequest[]
   showCodexAuthExpired: boolean
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
-  toolPermissionMode: ToolPermissionMode
-  setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
+  permissionMode: SessionMode
+  setPermissionMode: React.Dispatch<React.SetStateAction<SessionMode>>
   handleSend: (
     directText?: string,
     options?: { displayText?: string; planMode?: string },
@@ -135,39 +135,35 @@ export function useChatStream({
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const pendingMessageRef = useRef<string | null>(null)
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
-  const [toolPermissionMode, setToolPermissionModeState] = useState<ToolPermissionMode>("auto")
-  const toolPermissionModeRef = useRef<ToolPermissionMode>("auto")
+  const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
+  const permissionModeRef = useRef<SessionMode>("default")
 
-  // Sync toggle changes to backend immediately — the `chat` command only
-  // snapshots the mode on entry, so without this the toggle has no effect on
-  // in-flight tool loops or non-chat paths (subagent / cron / IM channels).
-  //
-  // Also ships the current `sessionId` so the backend persists the choice to
-  // the session row; switching back to the same session later restores the
-  // toggle instead of snapping to the global singleton's value.
-  const setToolPermissionMode = useCallback<
-    React.Dispatch<React.SetStateAction<ToolPermissionMode>>
+  // Persist the new mode to the session row whenever the title-bar switcher
+  // changes it. Backend re-reads the column at the start of each tool round,
+  // so in-flight loops pick up the change without a separate global snapshot.
+  // Without a session id the choice is local-only until the first send.
+  const setPermissionMode = useCallback<
+    React.Dispatch<React.SetStateAction<SessionMode>>
   >((value) => {
-    setToolPermissionModeState((prev) => {
+    setPermissionModeState((prev) => {
       const next =
         typeof value === "function"
-          ? (value as (p: ToolPermissionMode) => ToolPermissionMode)(prev)
+          ? (value as (p: SessionMode) => SessionMode)(prev)
           : value
       if (next !== prev) {
         const sid = currentSessionIdRef.current
-        getTransport()
-          .call("set_tool_permission_mode", {
-            mode: next,
-            ...(sid ? { sessionId: sid } : {}),
-          })
-          .catch((e) => {
-            logger.error(
-              "chat",
-              "setToolPermissionMode",
-              "Failed to sync tool permission mode",
-              e,
-            )
-          })
+        if (sid) {
+          getTransport()
+            .call("set_permission_mode", { sessionId: sid, mode: next })
+            .catch((e) => {
+              logger.error(
+                "chat",
+                "setPermissionMode",
+                "Failed to sync session permission mode",
+                e,
+              )
+            })
+        }
       }
       return next
     })
@@ -212,8 +208,8 @@ export function useChatStream({
     pendingMessageRef.current = pendingMessage
   }, [pendingMessage])
   useEffect(() => {
-    toolPermissionModeRef.current = toolPermissionMode
-  }, [toolPermissionMode])
+    permissionModeRef.current = permissionMode
+  }, [permissionMode])
 
   // Load config on mount
   useEffect(() => {
@@ -435,7 +431,7 @@ export function useChatStream({
           incognito: currentSessionId ? undefined : incognitoEnabled,
           modelOverride,
           agentId: currentAgentId,
-          toolPermissionMode: toolPermissionModeRef.current,
+          permissionMode: permissionModeRef.current,
           planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
@@ -600,8 +596,8 @@ export function useChatStream({
     approvalRequests,
     showCodexAuthExpired,
     setShowCodexAuthExpired,
-    toolPermissionMode,
-    setToolPermissionMode,
+    permissionMode,
+    setPermissionMode,
     handleSend,
     handleStop,
     handleApprovalResponse,

@@ -48,7 +48,6 @@ function AgentCreateView({
         personality: { ...DEFAULT_PERSONALITY },
         capabilities: {
           maxToolRounds: 0,
-          requireApproval: ["*"],
           sandbox: false,
           skillEnvCheck: true,
           tools: { allow: [], deny: [] },

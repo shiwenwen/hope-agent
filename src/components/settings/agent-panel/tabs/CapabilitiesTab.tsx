@@ -109,7 +109,6 @@ export default function CapabilitiesTab({
   const [coreOpen, setCoreOpen] = useState(false)
   const [standardOpen, setStandardOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
-  const [approvalOpen, setApprovalOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
 
   const toolDisplayName = (name: string) => {
@@ -140,7 +139,6 @@ export default function CapabilitiesTab({
   const userToggleableTools = builtinTools.filter(
     (t) => t.tier === "standard" || t.tier === "configured",
   )
-  const approvalTools = builtinTools.filter((t) => t.internal !== true)
   // memory / mcp tools are not individually toggleable in this UI — they're
   // controlled by the global memory enabled flag and the MCP master switch.
 
@@ -354,99 +352,10 @@ export default function CapabilitiesTab({
           </div>
         </CollapsibleSection>
 
-        {/* Require Approval */}
-        <CollapsibleSection
-          title={t("settings.agentRequireApproval")}
-          description={t("settings.agentRequireApprovalDesc")}
-          badge={(() => {
-            const ra = config.capabilities.requireApproval
-            if (ra.includes("*")) return t("settings.agentApprovalAll")
-            if (ra.length === 0) return t("settings.agentApprovalNone")
-            return `${t("settings.agentApprovalCustom")} (${ra.length})`
-          })()}
-          open={approvalOpen}
-          onToggle={() => setApprovalOpen((v) => !v)}
-        >
-          <div className="flex gap-1.5 mb-3">
-            {(
-              [
-                { mode: "all", label: t("settings.agentApprovalAll") },
-                { mode: "none", label: t("settings.agentApprovalNone") },
-                { mode: "custom", label: t("settings.agentApprovalCustom") },
-              ] as const
-            ).map(({ mode, label }) => {
-              const currentMode = config.capabilities.requireApproval.includes("*")
-                ? "all"
-                : config.capabilities.requireApproval.length === 0
-                  ? "none"
-                  : "custom"
-              const isActive = currentMode === mode
-              return (
-                <Button
-                  key={mode}
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    "h-auto rounded-md px-3 py-1.5 text-xs font-normal",
-                    isActive
-                      ? "bg-primary/10 border-primary/40 text-primary hover:bg-primary/15 hover:text-primary"
-                      : "bg-secondary/40 border-border/50 text-muted-foreground hover:border-border",
-                  )}
-                  onClick={() => {
-                    if (mode === "all") {
-                      updateCapabilities({ requireApproval: ["*"] })
-                    } else if (mode === "none") {
-                      updateCapabilities({ requireApproval: [] })
-                    } else {
-                      updateCapabilities({ requireApproval: ["exec"] })
-                    }
-                  }}
-                >
-                  {label}
-                </Button>
-              )
-            })}
-          </div>
-          {!config.capabilities.requireApproval.includes("*") &&
-            config.capabilities.requireApproval.length > 0 && (
-              <div className="rounded-lg border border-border/50 overflow-hidden">
-                {approvalTools.map((tool, idx) => {
-                  const isRequired = config.capabilities.requireApproval.includes(tool.name)
-                  return (
-                    <div
-                      key={tool.name}
-                      className={cn(
-                        "flex items-center justify-between px-3 py-2 gap-3",
-                        idx > 0 && "border-t border-border/30",
-                      )}
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium text-foreground">
-                          {toolDisplayName(tool.name)}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground/60 line-clamp-1">
-                          {toolDisplayDesc(tool.name)}
-                        </div>
-                      </div>
-                      <Switch
-                        checked={isRequired}
-                        onCheckedChange={(checked) => {
-                          const newList = checked
-                            ? [...config.capabilities.requireApproval, tool.name]
-                            : config.capabilities.requireApproval.filter((t) => t !== tool.name)
-                          updateCapabilities({
-                            requireApproval: newList.length > 0 ? newList : ["exec"],
-                          })
-                        }}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-        </CollapsibleSection>
+        {/* Per-tool approval moved to the dedicated "Approval" tab — see
+            ApprovalTab.tsx for the new "Custom Tool Approval" switch + per-tool
+            opt-in list + default session permission mode. */}
 
-        <div className="border-t border-border/50" />
 
         {/* Sandbox */}
         <div className="flex items-center justify-between px-1">

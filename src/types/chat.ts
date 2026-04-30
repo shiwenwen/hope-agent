@@ -168,7 +168,17 @@ export interface ActiveModel {
   modelId: string
 }
 
-export type ToolPermissionMode = "auto" | "ask_every_time" | "full_approve"
+/**
+ * Per-session permission mode (permission system v2).
+ *
+ * - `default` — hardcoded edit-class approval (write/edit/apply_patch + edit
+ *   commands matched in exec) plus the agent's optional custom approval list.
+ * - `smart` — defers approval decisions to a configured judge model (or the
+ *   model's `_confidence` self-tag).
+ * - `yolo` — bypass approvals; protected paths and dangerous commands still
+ *   audit-warn but execute. Plan Mode can still block.
+ */
+export type SessionMode = "default" | "smart" | "yolo"
 
 export interface SessionMeta {
   id: string
@@ -191,11 +201,10 @@ export interface SessionMeta {
   isCron: boolean
   parentSessionId?: string | null
   /**
-   * Per-session tool approval mode. Persisted so the chat input's toggle
-   * (auto / ask_every_time / full_approve) is restored when switching back
-   * to a historical session.
+   * Per-session permission mode. Persisted so the chat title bar's mode
+   * switcher is restored when switching back to a historical session.
    */
-  toolPermissionMode?: ToolPermissionMode
+  permissionMode?: SessionMode
   /**
    * When set, this session belongs to a Project — project-scoped memories
    * and shared files are automatically injected into its system prompt.

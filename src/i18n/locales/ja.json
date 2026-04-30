@@ -238,13 +238,20 @@
     "compactNoChange": "コンテキストの圧縮は不要です",
     "compactFailed": "圧縮に失敗しました",
     "viewContext": "コンテキストを表示",
-    "toolPermission": "ツール権限",
-    "toolPermissionAuto": "自動判定",
-    "toolPermissionAsk": "毎回確認",
-    "toolPermissionFull": "完全承認",
-    "toolPermissionAutoDesc": "モデルが承認の要否を判断します",
-    "toolPermissionAskDesc": "すべてのツール呼び出しに確認が必要です",
-    "toolPermissionFullDesc": "すべてのツール呼び出しを自動承認します",
+    "permissionMode": {
+      "default": {
+        "label": "デフォルト",
+        "desc": "編集系ツールと高リスクコマンドは承認が必要、それ以外は実行"
+      },
+      "smart": {
+        "label": "スマート承認",
+        "desc": "ジャッジモデルまたはモデル自己評価に承認判断を委ねる"
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "このセッションのツールはすべて承認なしで実行（保護パスは監査ログ）"
+      }
+    },
     "statusCache": "キャッシュ",
     "statusCacheWrite": "書き込み",
     "statusCacheHit": "ヒット",
@@ -1678,11 +1685,6 @@
     "agentUnlimited": "無制限",
     "agentSkills": "スキル",
     "agentSkillsDesc": "グローバルに有効なスキルはデフォルトで利用可能です。個別に無効化できます",
-    "agentRequireApproval": "ツール承認",
-    "agentRequireApprovalDesc": "AIがツールを使用する前に確認が必要かどうか制御",
-    "agentApprovalAll": "すべて承認",
-    "agentApprovalNone": "承認不要",
-    "agentApprovalCustom": "カスタム",
     "toolExecName": "コマンド実行",
     "toolExecDesc": "シェルコマンドを実行、バックグラウンドとサンドボックスに対応",
     "toolProcessName": "プロセス管理",
@@ -2238,6 +2240,81 @@
       "label": "新しいスキルを自動的に有効化",
       "description": "ドラフト確認をスキップ — 抽出されたスキルが即座に有効になります。",
       "hint": "オフ（デフォルト）：新しいスキルはドラフトとして保存され、承認が必要です。"
+    },
+    "agentApprovalTab": "承認",
+    "agentApproval": {
+      "defaultModeTitle": "既定セッション権限モード",
+      "defaultModeDesc": "新しいセッションの初期権限モード。既存セッションには影響しません。",
+      "modes": {
+        "inherit": {
+          "label": "グローバルに従う",
+          "desc": "グローバル既定（現在「既定」モード）"
+        },
+        "default": {
+          "label": "既定",
+          "desc": "編集系ツールと高リスクコマンドは承認が必要"
+        },
+        "smart": {
+          "label": "スマート承認",
+          "desc": "ジャッジモデルかモデル自己評価が承認を決定"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "すべてのツールが承認なしで実行（保護パスは監査ログ）"
+        }
+      },
+      "customApprovalTitle": "カスタムツール承認",
+      "customApprovalDesc": "既定モードで、選択した追加ツールも毎回承認を必要にします。",
+      "customApprovalHint": "注意：「既定」モードのみで有効。スマート承認/YOLOでは無視されます。",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
     }
   },
   "tz": {

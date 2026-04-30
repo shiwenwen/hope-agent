@@ -31,6 +31,7 @@ import CapabilitiesTab from "./tabs/CapabilitiesTab"
 import ModelTab from "./tabs/ModelTab"
 import MemoryTab from "./tabs/MemoryTab"
 import SubagentTab from "./tabs/SubagentTab"
+import ApprovalTab from "./tabs/ApprovalTab"
 import CustomTab from "./tabs/CustomTab"
 
 interface AgentEditViewProps {
@@ -484,6 +485,10 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
 
           {activeTab === "subagent" && (
             <SubagentTab config={config} agentId={agentId} updateConfig={updateConfig} />
+          )}
+
+          {activeTab === "approval" && (
+            <ApprovalTab config={config} updateConfig={updateConfig} />
           )}
 
           {activeTab === "custom" && (

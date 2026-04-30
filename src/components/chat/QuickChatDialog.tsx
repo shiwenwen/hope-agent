@@ -199,8 +199,8 @@ export default function QuickChatDialog({
             currentSessionId={session.currentSessionId}
             currentAgentId={session.currentAgentId}
             onCommandAction={handleCommandAction}
-            toolPermissionMode={stream.toolPermissionMode}
-            onToolPermissionChange={stream.setToolPermissionMode}
+            permissionMode={stream.permissionMode}
+            onPermissionModeChange={stream.setPermissionMode}
           />
         </div>
       </div>

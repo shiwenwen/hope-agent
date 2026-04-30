@@ -19,7 +19,15 @@ export {
   DEFAULT_SQLITE_SECTION_BUDGETS,
 } from "../types"
 
-export type AgentTab = "identity" | "personality" | "capabilities" | "model" | "memory" | "subagent" | "custom"
+export type AgentTab =
+  | "identity"
+  | "personality"
+  | "capabilities"
+  | "model"
+  | "memory"
+  | "subagent"
+  | "approval"
+  | "custom"
 
 export const TONE_PRESETS = [
   { value: "formal", labelKey: "settings.agentToneFormal" },
@@ -38,4 +46,5 @@ export const TABS: { id: AgentTab; labelKey: string }[] = [
   { id: "model", labelKey: "settings.agentModel" },
   { id: "memory", labelKey: "settings.memory" },
   { id: "subagent", labelKey: "settings.subagentTitle" },
+  { id: "approval", labelKey: "settings.agentApprovalTab" },
 ]

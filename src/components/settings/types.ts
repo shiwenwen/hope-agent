@@ -234,7 +234,6 @@ export interface AgentConfig {
   personality: PersonalityConfig
   capabilities: {
     maxToolRounds: number
-    requireApproval: string[]
     sandbox: boolean
     skillEnvCheck: boolean
     tools: { allow: string[]; deny: string[] }
@@ -250,6 +249,18 @@ export interface AgentConfig {
       subagent?: boolean | null
       acpSpawn?: boolean | null
     }
+    /**
+     * Permission system v2 — when true, the tools listed in
+     * `customApprovalTools` also require approval in Default mode.
+     */
+    enableCustomToolApproval?: boolean
+    /** Per-tool extra approval list. Only consumed in Default mode. */
+    customApprovalTools?: string[]
+    /**
+     * Per-agent default permission mode for newly opened sessions.
+     * `null/undefined` falls back to the global default ("default").
+     */
+    defaultSessionPermissionMode?: "default" | "smart" | "yolo" | null
   }
   openclawMode: boolean
   notifyOnComplete?: boolean | null

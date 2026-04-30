@@ -238,13 +238,20 @@
     "compactNoChange": "컨텍스트 압축 불필요",
     "compactFailed": "압축 실패",
     "viewContext": "컨텍스트 보기",
-    "toolPermission": "도구 권한",
-    "toolPermissionAuto": "자동",
-    "toolPermissionAsk": "매번 확인",
-    "toolPermissionFull": "전체 승인",
-    "toolPermissionAutoDesc": "모델이 승인이 필요한지 결정합니다",
-    "toolPermissionAskDesc": "모든 도구 호출에 확인이 필요합니다",
-    "toolPermissionFullDesc": "모든 도구 호출을 자동으로 승인합니다",
+    "permissionMode": {
+      "default": {
+        "label": "기본",
+        "desc": "편집 도구와 고위험 명령은 승인 필요, 나머지는 바로 실행"
+      },
+      "smart": {
+        "label": "스마트 승인",
+        "desc": "판정 모델이나 모델 자체 평가가 승인 여부 결정"
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "이 세션의 모든 도구는 승인 없이 실행 (보호 경로는 감사 로그)"
+      }
+    },
     "statusCache": "캐시",
     "statusCacheWrite": "쓰기",
     "statusCacheHit": "히트",
@@ -1678,11 +1685,6 @@
     "agentUnlimited": "제한 없음",
     "agentSkills": "스킬",
     "agentSkillsDesc": "전역적으로 활성화된 스킬은 기본적으로 사용 가능합니다. 개별적으로 비활성화할 수 있습니다",
-    "agentRequireApproval": "도구 승인",
-    "agentRequireApprovalDesc": "AI가 도구를 사용하기 전에 확인이 필요한지 제어",
-    "agentApprovalAll": "전체 승인",
-    "agentApprovalNone": "승인 불필요",
-    "agentApprovalCustom": "사용자 지정",
     "toolExecName": "명령 실행",
     "toolExecDesc": "셸 명령 실행, 백그라운드 및 샌드박스 지원",
     "toolProcessName": "프로세스 관리",
@@ -2238,6 +2240,81 @@
       "label": "새 스킬 자동 활성화",
       "description": "초안 검토 건너뛰기 — 추출된 스킬이 즉시 활성화됩니다.",
       "hint": "꺼짐(기본값): 새 스킬은 초안으로 저장되며 먼저 승인이 필요합니다."
+    },
+    "agentApprovalTab": "승인",
+    "agentApproval": {
+      "defaultModeTitle": "기본 세션 권한 모드",
+      "defaultModeDesc": "새 세션의 초기 권한 모드. 기존 세션에는 영향이 없습니다.",
+      "modes": {
+        "inherit": {
+          "label": "전역 따르기",
+          "desc": "전역 기본값 (현재 「기본」 모드)"
+        },
+        "default": {
+          "label": "기본",
+          "desc": "편집 도구와 고위험 명령은 승인 필요"
+        },
+        "smart": {
+          "label": "스마트 승인",
+          "desc": "판정 모델 또는 모델 자체 평가가 승인 결정"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "모든 도구가 승인 없이 실행 (보호 경로는 감사 로그)"
+        }
+      },
+      "customApprovalTitle": "사용자 정의 도구 승인",
+      "customApprovalDesc": "기본 모드에서 추가로 선택한 도구도 매번 승인이 필요하도록 합니다.",
+      "customApprovalHint": "참고: 「기본」 모드에서만 적용되며 스마트/YOLO 모드는 무시합니다.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
     }
   },
   "tz": {
