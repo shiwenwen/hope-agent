@@ -21,12 +21,12 @@ pub mod edit_commands;
 pub mod engine;
 pub mod judge;
 pub mod mode;
+pub(crate) mod pattern_match;
 pub mod protected_paths;
 pub mod rules;
 
 pub use config::{ApprovalTimeoutAction, PermissionGlobalConfig};
 pub use mode::{JudgeModelConfig, SessionMode, SmartModeConfig, SmartStrategy};
-pub use rules::{ArgMatcher, PermissionRules, RuleSpec};
 
 /// Final disposition of a tool call after the engine consumes all rule layers.
 #[derive(Debug, Clone, PartialEq, Eq)]

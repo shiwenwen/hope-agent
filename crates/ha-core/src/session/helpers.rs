@@ -71,21 +71,6 @@ pub fn is_session_incognito(session_id: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
-/// Resolve the per-session permission mode (`default` / `smart` / `yolo`).
-/// Returns `Default` when no session id is available or the session row is
-/// missing. The string column is parsed via
-/// [`crate::permission::SessionMode::parse_or_default`].
-pub fn session_permission_mode(session_id: Option<&str>) -> crate::permission::SessionMode {
-    let mode_str = lookup_session_meta(session_id)
-        .map(|meta| meta.permission_mode)
-        .unwrap_or_default();
-    crate::permission::SessionMode::parse_or_default(&mode_str)
-}
-
-/// Resolve the project id of a session (if any).
-pub fn session_project_id(session_id: Option<&str>) -> Option<String> {
-    lookup_session_meta(session_id)?.project_id
-}
 
 /// Resolve the effective working directory for a session: session-level value
 /// if set, otherwise falling back to the parent project's default. This is the

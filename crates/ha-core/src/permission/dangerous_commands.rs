@@ -45,33 +45,18 @@ pub const DEFAULT_DANGEROUS_PATTERNS: &[&str] = &[
     "kubectl delete .* --all",
 ];
 
-/// Returns the current pattern list. Phase 2.1: falls back to defaults
-/// (file IO is wired up in Phase 3 alongside the GUI editor).
-pub fn current_patterns() -> Vec<String> {
+/// Currently-active dangerous-command pattern list. The GUI editor will swap
+/// this for a `Lazy<RwLock<Vec<String>>>` once user customization lands.
+pub fn current_patterns() -> &'static [&'static str] {
     DEFAULT_DANGEROUS_PATTERNS
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
 }
 
-/// Check whether `command` (the raw shell command string) matches any
-/// dangerous pattern. Returns the matched pattern for audit/log purposes.
-///
-/// Match strategy:
-/// - case-INSENSITIVE substring match (e.g. `DROP TABLE` should also catch
-///   `drop table`)
-/// - Patterns with `.*` are treated as plain substrings (we deliberately
-///   don't compile them as regex to keep behavior boring and predictable —
-///   the literal text "if=.* of=/dev/" still catches the common case)
-pub fn matches(command: &str, patterns: &[String]) -> Option<String> {
-    let cmd_lower = command.to_lowercase();
-    for pat in patterns {
-        let pat_lower = pat.to_lowercase();
-        if cmd_lower.contains(&pat_lower) {
-            return Some(pat.clone());
-        }
-    }
-    None
+/// Return the first dangerous pattern that occurs as a case-insensitive
+/// substring in `command`. Patterns containing `.*` are treated as plain
+/// substrings — we keep behavior boring and predictable rather than compiling
+/// them as regex (the literal "if=.* of=/dev/" still catches the common case).
+pub fn matches(command: &str, patterns: &[&'static str]) -> Option<&'static str> {
+    super::pattern_match::first_substring_match_ignore_ascii_case(command, patterns)
 }
 
 #[cfg(test)]

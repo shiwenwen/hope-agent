@@ -7,7 +7,7 @@
 //!
 //! Decision merging happens in [`super::engine`].
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -150,36 +150,30 @@ pub fn extract_domain_arg(args: &serde_json::Value) -> Option<String> {
     parsed.host_str().map(|h| h.to_lowercase())
 }
 
-/// Expand `~` (and `~/x`) to the user home directory; pass through unchanged
-/// for absolute / non-tilde paths.
+/// `~`-expansion wrapper around the canonical [`crate::tools::expand_tilde`].
+/// We need a `PathBuf` for matcher comparisons, while the canonical helper
+/// returns `String` for tool-arg parsing.
 pub fn expand_tilde(s: &str) -> PathBuf {
-    if let Some(rest) = s.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(rest);
-        }
-    }
-    if s == "~" {
-        if let Some(home) = dirs::home_dir() {
-            return home;
-        }
-    }
-    PathBuf::from(s)
+    PathBuf::from(crate::tools::expand_tilde(s))
 }
 
-/// `true` if `path` starts with the canonicalized form of `prefix`.
-/// Both sides are compared after `~` expansion + lossy string normalization.
+/// `true` if `path` starts with `prefix` at a path component boundary.
+/// E.g. `/foo/bar` starts with `/foo` but `/foo-bar` does not.
 pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
-    use std::path::Path;
     let path_s = path.to_string_lossy();
     let prefix_s = prefix.to_string_lossy();
-    let _ = Path::new(&*path_s);
     let path_norm = path_s.trim_end_matches('/');
     let prefix_norm = prefix_s.trim_end_matches('/');
-    path_norm == prefix_norm
-        || path_norm.starts_with(&format!("{}/", prefix_norm))
-        || path_norm.starts_with(prefix_norm)
-            && prefix_norm.contains('*')
-            && glob_match_simple(prefix_norm, path_norm)
+    if path_norm == prefix_norm {
+        return true;
+    }
+    if path_norm.len() > prefix_norm.len()
+        && path_norm.starts_with(prefix_norm)
+        && path_norm.as_bytes()[prefix_norm.len()] == b'/'
+    {
+        return true;
+    }
+    prefix_norm.contains('*') && glob_match_simple(prefix_norm, path_norm)
 }
 
 /// Minimal `*`-only glob matcher (no `?`, no character classes). Used for
@@ -227,8 +221,6 @@ fn domain_glob_matches(pattern: &str, host: &str) -> bool {
         host_lower == pat_lower
     }
 }
-
-use std::path::Path;
 
 #[cfg(test)]
 mod tests {

@@ -96,27 +96,17 @@ pub const DEFAULT_EDIT_COMMAND_PATTERNS: &[&str] = &[
     "tee ",
 ];
 
-/// Returns the current pattern list. Phase 2.1: falls back to defaults
-/// (file IO is wired up in Phase 3 alongside the GUI editor).
-pub fn current_patterns() -> Vec<String> {
+/// Currently-active edit-command pattern list. The GUI editor will swap this
+/// for a `Lazy<RwLock<Vec<String>>>` once user customization lands.
+pub fn current_patterns() -> &'static [&'static str] {
     DEFAULT_EDIT_COMMAND_PATTERNS
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
 }
 
-/// Check whether `command` matches any edit-command pattern.
 /// Same case-insensitive substring strategy as
-/// [`super::dangerous_commands::matches`].
-pub fn matches(command: &str, patterns: &[String]) -> Option<String> {
-    let cmd_lower = command.to_lowercase();
-    for pat in patterns {
-        let pat_lower = pat.to_lowercase();
-        if cmd_lower.contains(&pat_lower) {
-            return Some(pat.clone());
-        }
-    }
-    None
+/// [`super::dangerous_commands::matches`]. Both share the same allocation-free
+/// helper in [`super::pattern_match`].
+pub fn matches(command: &str, patterns: &[&'static str]) -> Option<&'static str> {
+    super::pattern_match::first_substring_match_ignore_ascii_case(command, patterns)
 }
 
 #[cfg(test)]

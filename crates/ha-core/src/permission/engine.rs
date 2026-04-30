@@ -7,11 +7,10 @@
 //!    audit logs for protected-path / dangerous-command hits.
 //! 3. Protected paths / dangerous commands — strict ask, no AllowAlways.
 //! 4. AllowAlways accumulators (project / session / agent_home / global).
-//!    [Phase 2.1: scaffold; lookup wired up alongside Phase 3 file IO.]
 //! 5. Session mode preset:
 //!    - Default → hardcoded edit-class + edit-command match + agent
 //!      `custom_approval_tools` extras
-//!    - Smart  → `_confidence` self-tag (Phase 4) or `judge_model` (Phase 4)
+//!    - Smart  → `_confidence` self-tag or `judge_model`
 //! 6. Default fallback — Allow.
 
 use serde_json::Value;
@@ -61,7 +60,6 @@ fn is_edit_tool(name: &str) -> bool {
 
 /// The single entry point. Returns a final [`Decision`] for one tool call.
 pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
-    // 1) Plan Mode — overrides everything (even YOLO)
     if ctx.plan_mode {
         let allowed = ctx
             .plan_mode_allowed_tools
@@ -78,14 +76,13 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         return Decision::Allow;
     }
 
-    // 1.5) Internal tools always allow — they're framework helpers that the
-    //      LLM uses to introspect or coordinate, never external IO.
+    // Internal tools are framework helpers that the LLM uses to introspect
+    // or coordinate; they never touch external IO and are exempt from
+    // approval gates regardless of mode.
     if ctx.is_internal_tool {
         return Decision::Allow;
     }
 
-    // 2) YOLO — bypass approval (with audit warn for protected paths /
-    //    dangerous commands).
     let yolo = ctx.global_yolo || ctx.session_mode == SessionMode::Yolo;
     if yolo {
         if let Some(reason) = check_protected_path(ctx) {
@@ -97,25 +94,32 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
         return Decision::Allow;
     }
 
-    // 3) Protected paths — strict ask, not AllowAlways'd-able.
     if let Some(reason) = check_protected_path(ctx) {
         return Decision::Ask { reason };
     }
-
-    // 3) Dangerous commands — strict ask.
     if let Some(reason) = check_dangerous_command(ctx) {
         return Decision::Ask { reason };
     }
 
-    // 4) AllowAlways lookup (Phase 3 wires up file-backed scopes; for now
-    //    this is a no-op).
-    // TODO(Phase 3): query allowlist::lookup(ctx) -> Option<()>
+    // AllowAlways file-backed scopes (project / session / agent_home / global)
+    // will be queried here once the GUI editor lands.
 
-    // 5) Session-mode-specific behavior.
     match ctx.session_mode {
         SessionMode::Default => resolve_default_mode(ctx),
         SessionMode::Smart => resolve_smart_mode(ctx),
-        SessionMode::Yolo => unreachable!("YOLO already short-circuited above"),
+        // Defensive: YOLO is short-circuited above, but if a future refactor
+        // skips that branch we must not panic in production — fall through
+        // to Allow with a warn so the regression is visible in logs.
+        SessionMode::Yolo => {
+            app_warn!(
+                "permission",
+                "engine",
+                "Reached fallthrough match arm for SessionMode::Yolo (tool '{}'); \
+                 expected the YOLO short-circuit above to handle this — please report.",
+                ctx.tool_name
+            );
+            Decision::Allow
+        }
     }
 }
 
@@ -150,17 +154,16 @@ fn resolve_default_mode(ctx: &ResolveContext<'_>) -> Decision {
 }
 
 fn resolve_smart_mode(_ctx: &ResolveContext<'_>) -> Decision {
-    // Phase 4: hook into self-confidence + judge model.
-    // For now Smart mode is a permissive placeholder so Phase 1/2 lands cleanly.
+    // self-confidence and judge-model branches will land here; until then
+    // Smart mode is a permissive placeholder.
     Decision::Allow
 }
 
 fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     let path = extract_path_arg(ctx.tool_name, ctx.args)?;
-    let patterns = super::protected_paths::current_patterns();
-    let matched = super::protected_paths::matches(&path, &patterns)?;
+    let matched = super::protected_paths::matches(&path, super::protected_paths::current_patterns())?;
     Some(AskReason::ProtectedPath {
-        matched_path: matched,
+        matched_path: matched.to_string(),
     })
 }
 
@@ -169,19 +172,17 @@ fn check_dangerous_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
         return None;
     }
     let cmd = ctx.args.get("command").and_then(|v| v.as_str())?;
-    let patterns = super::dangerous_commands::current_patterns();
-    let matched = super::dangerous_commands::matches(cmd, &patterns)?;
+    let matched = super::dangerous_commands::matches(cmd, super::dangerous_commands::current_patterns())?;
     Some(AskReason::DangerousCommand {
-        matched_pattern: matched,
+        matched_pattern: matched.to_string(),
     })
 }
 
 fn check_edit_command(ctx: &ResolveContext<'_>) -> Option<AskReason> {
     let cmd = ctx.args.get("command").and_then(|v| v.as_str())?;
-    let patterns = super::edit_commands::current_patterns();
-    let matched = super::edit_commands::matches(cmd, &patterns)?;
+    let matched = super::edit_commands::matches(cmd, super::edit_commands::current_patterns())?;
     Some(AskReason::EditCommand {
-        matched_pattern: matched,
+        matched_pattern: matched.to_string(),
     })
 }
 

@@ -9,7 +9,6 @@ use crate::provider::ThinkingStyle;
 #[derive(Debug, Clone)]
 pub(super) struct AgentCapsCache {
     pub agent_tool_filter: FilterConfig,
-    pub require_approval_base: Vec<String>,
     pub sandbox: bool,
     pub async_tool_policy: AsyncToolPolicy,
     /// Per-agent MCP master switch (mirrors `agent.json` `capabilities.mcpEnabled`).
@@ -33,7 +32,6 @@ impl Default for AgentCapsCache {
     fn default() -> Self {
         Self {
             agent_tool_filter: FilterConfig::default(),
-            require_approval_base: Vec::new(),
             sandbox: false,
             async_tool_policy: AsyncToolPolicy::default(),
             mcp_enabled: true,

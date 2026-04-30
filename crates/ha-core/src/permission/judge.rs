@@ -1,10 +1,8 @@
 //! Smart-mode judge model — independent `side_query` to a configured model
 //! that returns `allow` / `ask` / `deny` per tool call.
 //!
-//! See [`super::mode::JudgeModelConfig`] for configuration.
-//!
-//! **Phase 1.1**: skeleton only.
-//! **Phase 4**: real implementation with 5s timeout + 60s LRU cache.
+//! Skeleton only — the real implementation (5s timeout + LRU cache) lands
+//! when Smart mode ships. See [`super::mode::JudgeModelConfig`].
 
 use serde::{Deserialize, Serialize};
 
@@ -29,15 +27,12 @@ pub struct JudgeResponse {
 
 /// Run the judge model for one tool call. Returns `None` if the judge cannot
 /// be reached (timeout, missing config, network error) — caller should
-/// fallback per [`super::mode::SmartFallback`].
-///
-/// **Phase 1.1**: stub returns `None`.
+/// fallback per [`super::mode::SmartFallback`]. Stub for now.
 pub async fn judge(
     _config: &JudgeModelConfig,
     _tool_name: &str,
     _args: &serde_json::Value,
 ) -> Option<JudgeResponse> {
-    // TODO(Phase 4): side_query + 5s timeout + LRU cache.
     None
 }
 

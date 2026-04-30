@@ -33,58 +33,62 @@ pub const DEFAULT_PROTECTED_PATHS: &[&str] = &[
     "*.pfx",
 ];
 
-/// Returns the current pattern list. Phase 2.1: falls back to defaults
-/// (file IO is wired up in Phase 3 alongside the GUI editor).
-pub fn current_patterns() -> Vec<String> {
+/// Currently-active protected path patterns. The GUI editor will swap this
+/// for a `Lazy<RwLock<Vec<String>>>` once user customization lands.
+pub fn current_patterns() -> &'static [&'static str] {
     DEFAULT_PROTECTED_PATHS
-        .iter()
-        .map(|s| s.to_string())
-        .collect()
 }
 
 /// Check whether `path` (already `~`-expanded) matches any pattern.
-/// Returns the matched pattern (raw form) so callers can show it in audit logs.
+/// Returns the matched pattern so callers can surface it in audit logs.
 ///
 /// Pattern semantics:
 /// - Trailing `/` (`~/.ssh/`) → directory prefix match
 /// - Plain leaf (`.env`) → exact filename match anywhere in the path
 /// - Glob with `*` (`*.pem`, `*secret*`) → simple star-glob match against
-///   the full path string
-pub fn matches(path: &std::path::Path, patterns: &[String]) -> Option<String> {
+///   both the full path string and the basename
+pub fn matches(path: &std::path::Path, patterns: &[&'static str]) -> Option<&'static str> {
     use super::rules::{expand_tilde, glob_match_simple};
     let path_str = path.to_string_lossy();
-    for pat in patterns {
+    for &pat in patterns {
         if pat.ends_with('/') {
-            // Directory prefix
+            // Directory prefix.
             let expanded = expand_tilde(pat);
             let expanded_s = expanded.to_string_lossy();
             let prefix = expanded_s.trim_end_matches('/');
-            if path_str == prefix || path_str.starts_with(&format!("{prefix}/")) {
-                return Some(pat.clone());
+            if path_str == prefix
+                || (path_str.len() > prefix.len()
+                    && path_str.starts_with(prefix)
+                    && path_str.as_bytes()[prefix.len()] == b'/')
+            {
+                return Some(pat);
             }
         } else if pat.contains('*') {
-            // Star glob — try against the full path AND against the basename.
             if glob_match_simple(pat, &path_str) {
-                return Some(pat.clone());
+                return Some(pat);
             }
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if glob_match_simple(pat, name) {
-                    return Some(pat.clone());
+                    return Some(pat);
                 }
             }
         } else if !pat.contains('/') {
-            // Plain leaf — match by basename.
+            // Plain leaf — match basename only.
             if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                 if name == pat {
-                    return Some(pat.clone());
+                    return Some(pat);
                 }
             }
         } else {
-            // Path with no wildcards — exact prefix.
+            // Absolute / non-wildcard path — exact prefix match.
             let expanded = expand_tilde(pat);
             let expanded_s = expanded.to_string_lossy();
-            if path_str == expanded_s || path_str.starts_with(&format!("{expanded_s}/")) {
-                return Some(pat.clone());
+            if path_str == expanded_s
+                || (path_str.len() > expanded_s.len()
+                    && path_str.starts_with(&*expanded_s)
+                    && path_str.as_bytes()[expanded_s.len()] == b'/')
+            {
+                return Some(pat);
             }
         }
     }

@@ -82,9 +82,6 @@ pub struct ToolExecContext {
     pub agent_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)
     pub subagent_depth: u32,
-    /// Tool names that require user approval before execution.
-    /// `["*"]` means all tools require approval.
-    pub require_approval: Vec<String>,
     /// Agent-level tool filter from `agent.json` capabilities.tools.
     /// Internal system tools are exempt at this layer to preserve existing UI semantics.
     pub agent_tool_filter: crate::agent_config::FilterConfig,
@@ -327,8 +324,7 @@ pub async fn execute_tool_with_context(
             tool_name: name,
             args,
             session_mode: ctx.session_mode,
-            global_yolo: crate::config::cached_config().permission.global_yolo
-                || crate::security::dangerous::cli_flag_active(),
+            global_yolo: crate::security::dangerous::is_dangerous_skip_active(),
             plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
             plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
             agent_custom_approval_enabled: ctx.agent_custom_approval_enabled,
@@ -370,12 +366,12 @@ pub async fn execute_tool_with_context(
                                 reason
                             );
                         } else {
+                            // Multi-scope (project / session / agent_home /
+                            // global) AllowAlways persistence is wired in by
+                            // the approval dialog upgrade. For now `exec`
+                            // still uses the legacy command-prefix store
+                            // inside `tool_exec`.
                             app_info!("tool", "approval", "Tool '{}' approved (always)", name);
-                            // TODO(Phase 3): persist into the appropriate
-                            // AllowAlways scope (project / session / agent_home /
-                            // global). For now we keep the legacy global
-                            // command-prefix store for `exec` only — `exec`
-                            // takes that path inside `tool_exec`.
                         }
                     }
                     Ok(approval::ApprovalResponse::Deny) => {

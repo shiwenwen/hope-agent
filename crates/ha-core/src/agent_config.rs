@@ -223,10 +223,6 @@ pub struct CapabilitiesConfig {
     #[serde(default = "default_max_rounds")]
     pub max_tool_rounds: u32,
 
-    /// Tools that require user approval before execution
-    #[serde(default = "default_approval_tools")]
-    pub require_approval: Vec<String>,
-
     /// Whether to use Docker sandbox by default
     #[serde(default)]
     pub sandbox: bool,
@@ -328,10 +324,6 @@ fn default_max_rounds() -> u32 {
     0
 }
 
-fn default_approval_tools() -> Vec<String> {
-    vec!["*".to_string()]
-}
-
 fn default_skill_env_check() -> bool {
     true
 }
@@ -340,7 +332,6 @@ impl Default for CapabilitiesConfig {
     fn default() -> Self {
         Self {
             max_tool_rounds: default_max_rounds(),
-            require_approval: default_approval_tools(),
             sandbox: false,
             skill_env_check: default_skill_env_check(),
             tools: FilterConfig::default(),

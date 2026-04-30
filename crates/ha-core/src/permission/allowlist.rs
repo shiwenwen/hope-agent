@@ -40,12 +40,10 @@ impl AllowScope {
     }
 }
 
-// TODO(Phase 2.3): persistence helpers.
-// - load(scope, identifier) -> PermissionRules
-// - add_rule(scope, identifier, rule) -> Result<()>
-// - remove_rule(scope, identifier, rule_id) -> Result<()>
-// - in-memory session store with `Lazy<RwLock<HashMap<String, PermissionRules>>>`
-// - file-backed persistence with atomic write through `platform::write_secure_file`
+// Persistence helpers (load / add_rule / remove_rule per scope) land here
+// once the GUI / approval-dialog wiring needs them. In-memory session
+// scope: `Lazy<RwLock<HashMap<SessionId, PermissionRules>>>`. File-backed
+// scopes use `platform::write_secure_file` for atomic 0600 writes.
 
 #[cfg(test)]
 mod tests {

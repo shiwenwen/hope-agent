@@ -313,8 +313,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             tool_name: TOOL_EXEC,
             args,
             session_mode: ctx.session_mode,
-            global_yolo: crate::config::cached_config().permission.global_yolo
-                || crate::security::dangerous::cli_flag_active(),
+            global_yolo: crate::security::dangerous::is_dangerous_skip_active(),
             plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
             plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
             agent_custom_approval_enabled: ctx.agent_custom_approval_enabled,

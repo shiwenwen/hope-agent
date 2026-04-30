@@ -423,7 +423,6 @@ impl AssistantAgent {
         let caps = crate::agent_loader::load_agent(&self.agent_id)
             .map(|def| types::AgentCapsCache {
                 agent_tool_filter: def.config.capabilities.tools.clone(),
-                require_approval_base: def.config.capabilities.require_approval.clone(),
                 sandbox: def.config.capabilities.sandbox,
                 async_tool_policy: def.config.capabilities.async_tool_policy,
                 mcp_enabled: def.config.capabilities.mcp_enabled,
@@ -1196,21 +1195,29 @@ impl AssistantAgent {
     ) -> tools::ToolExecContext {
         let caps = self.agent_caps();
         let agent_tool_filter = caps.agent_tool_filter.clone();
-        let mut require_approval = caps.require_approval_base.clone();
-        // Merge plan agent ask tools (e.g., exec requires approval during planning)
-        if let types::PlanAgentMode::PlanAgent { ask_tools, .. } = &self.plan_agent_mode {
-            for tool in ask_tools {
-                if !require_approval.contains(tool) {
-                    require_approval.push(tool.clone());
-                }
-            }
-        }
         let force_sandbox = caps.sandbox;
-        let session_working_dir =
-            crate::session::effective_session_working_dir(self.session_id.as_deref());
-        let session_mode =
-            crate::session::session_permission_mode(self.session_id.as_deref());
-        let project_id = crate::session::session_project_id(self.session_id.as_deref());
+        // Pull working_dir / permission_mode / project_id from a single
+        // SessionMeta lookup — avoids 3 separate SQLite roundtrips per
+        // tool round.
+        let meta = crate::session::lookup_session_meta(self.session_id.as_deref());
+        let session_working_dir = meta
+            .as_ref()
+            .and_then(|m| m.working_dir.clone().filter(|s| !s.trim().is_empty()))
+            .or_else(|| {
+                // Fall back to the session's project default working_dir.
+                let pid = meta.as_ref()?.project_id.as_deref()?;
+                crate::get_project_db()?
+                    .get(pid)
+                    .ok()
+                    .flatten()?
+                    .working_dir
+                    .filter(|s| !s.trim().is_empty())
+            });
+        let session_mode = meta
+            .as_ref()
+            .map(|m| crate::permission::SessionMode::parse_or_default(&m.permission_mode))
+            .unwrap_or_default();
+        let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,
@@ -1219,7 +1226,6 @@ impl AssistantAgent {
             session_id: self.session_id.clone(),
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
-            require_approval,
             agent_tool_filter,
             denied_tools: self.denied_tools.clone(),
             skill_allowed_tools: self.skill_allowed_tools.clone(),
