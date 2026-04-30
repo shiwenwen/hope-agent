@@ -309,7 +309,10 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // the prefix shortcut keeps the engine from re-asking for similar
     // commands.
     if !ctx.auto_approve_tools {
-        let app_cfg = crate::config::cached_config();
+        // Only Smart sessions consume `permission.smart`; non-Smart skips
+        // the config load — keeps the exec-dispatch hot path lean.
+        let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
+            .then(crate::config::cached_config);
         let resolve_ctx = crate::permission::engine::ResolveContext {
             tool_name: TOOL_EXEC,
             args,
@@ -323,7 +326,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             project_id: ctx.project_id.as_deref(),
             agent_id: ctx.agent_id.as_deref(),
             is_internal_tool: false, // exec is never internal
-            smart_config: Some(&app_cfg.permission.smart),
+            smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
         };
         let decision = crate::permission::engine::resolve_async(&resolve_ctx).await;
         match decision {

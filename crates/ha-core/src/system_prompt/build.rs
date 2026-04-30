@@ -1,7 +1,8 @@
 use super::constants::{
     build_tool_budget_guidance, APP_INTRO, HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS,
-    MEMORY_GUIDELINES, SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
+    MEMORY_GUIDELINES, SMART_MODE_GUIDANCE, SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
 };
+use crate::permission::SessionMode;
 use super::helpers::truncate;
 use super::sections::*;
 use super::working_dir_instructions::collect_working_dir_instructions;
@@ -52,6 +53,7 @@ pub fn build(
     session_id: Option<&str>,
     incognito: bool,
     session_working_dir: Option<&str>,
+    permission_mode: SessionMode,
 ) -> String {
     let mut sections: Vec<String> = Vec::new();
 
@@ -194,6 +196,13 @@ pub fn build(
     // ⑥c Tool-call narration guidance — opt-in via `AppConfig.tool_call_narration_enabled`.
     if crate::config::cached_config().tool_call_narration_enabled {
         sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    }
+
+    // ⑥c¹ Smart-mode guidance — only when the session opted into Smart
+    // permissions. Living near the prompt tail keeps mode flips from
+    // invalidating the static prefix cache.
+    if permission_mode == SessionMode::Smart {
+        sections.push(SMART_MODE_GUIDANCE.to_string());
     }
 
     // ⑥c² Tool-call budget reminder — always injected when rounds are bounded,
@@ -690,6 +699,7 @@ mod memory_section_tests {
             None,
             false,
             Some("/srv/projects/demo"),
+            SessionMode::Default,
         );
         assert!(
             out.contains("# Working Directory"),
@@ -717,6 +727,7 @@ mod memory_section_tests {
             None,
             false,
             None,
+            SessionMode::Default,
         );
         let out_blank = build(
             &definition,
@@ -730,6 +741,7 @@ mod memory_section_tests {
             None,
             false,
             Some("   "),
+            SessionMode::Default,
         );
         assert!(
             !out_none.contains("# Working Directory"),
@@ -777,6 +789,7 @@ mod memory_section_tests {
             None,
             true,
             None,
+            SessionMode::Default,
         );
 
         assert!(out.contains("# Incognito Session"));

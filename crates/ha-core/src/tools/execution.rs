@@ -320,7 +320,11 @@ pub async fn execute_tool_with_context(
     // skill bootstrap never blocks on permission state.
     let needs_engine = !ctx.auto_approve_tools && !is_skill_read(name, args) && name != TOOL_EXEC;
     if needs_engine {
-        let app_cfg = crate::config::cached_config();
+        // Only Smart sessions consume `permission.smart`; skip the config
+        // load on the Default/YOLO hot path so the per-dispatch overhead
+        // stays at one ArcSwap::load() for those modes.
+        let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
+            .then(crate::config::cached_config);
         let resolve_ctx = crate::permission::engine::ResolveContext {
             tool_name: name,
             args,
@@ -334,7 +338,7 @@ pub async fn execute_tool_with_context(
             project_id: ctx.project_id.as_deref(),
             agent_id: ctx.agent_id.as_deref(),
             is_internal_tool: super::is_internal_tool(name),
-            smart_config: Some(&app_cfg.permission.smart),
+            smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
         };
         let decision = crate::permission::engine::resolve_async(&resolve_ctx).await;
         match decision {

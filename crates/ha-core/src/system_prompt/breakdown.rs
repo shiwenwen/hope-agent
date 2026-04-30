@@ -58,6 +58,7 @@ pub fn compute_breakdown(
         None,
         false,
         None,
+        crate::permission::SessionMode::Default,
     );
     let empty_budget = crate::memory::MemoryBudgetConfig::default();
     let without_memory = build(
@@ -72,6 +73,7 @@ pub fn compute_breakdown(
         None,
         false,
         None,
+        crate::permission::SessionMode::Default,
     );
     let memory_chars = full.len().saturating_sub(without_memory.len());
 

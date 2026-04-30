@@ -33,17 +33,14 @@ use crate::agent::AssistantAgent;
 /// this — if the judge is slow we'd rather fall back than stall the user.
 const JUDGE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// Cache TTL — repeated identical calls within this window reuse the
-/// previous verdict instead of paying for another LLM round trip.
 const JUDGE_CACHE_TTL: Duration = Duration::from_secs(60);
 
-/// Soft cap for the cache. Tool loops retrying with mutated args produce
-/// fresh keys, so a small bounded cache (cleared on overflow) is plenty.
+/// Soft cap. Tool loops retrying with mutated args produce fresh keys, so
+/// a small bounded cache (cleared on overflow) is plenty.
 const JUDGE_CACHE_CAP: usize = 256;
 
-/// Token budget for the judge reply. The expected JSON is ~50 tokens; we
-/// leave headroom for chain-of-thought reasoning models that emit hidden
-/// scratch text before the answer.
+/// Headroom over the ~50-token expected JSON to accommodate reasoning
+/// models that emit hidden scratch text before the answer.
 const JUDGE_MAX_TOKENS: u32 = 256;
 
 /// Output schema enforced on the judge model's reply.
@@ -77,7 +74,7 @@ pub async fn judge(
     }
 
     let app_cfg = crate::config::cached_config();
-    let provider_cfg = app_cfg.providers.iter().find(|p| p.id == config.provider_id)?;
+    let provider_cfg = crate::provider::find_provider(&app_cfg.providers, &config.provider_id)?;
 
     let prompt = build_prompt(config, tool_name, args);
 
@@ -163,14 +160,10 @@ fn build_prompt(config: &JudgeModelConfig, tool_name: &str, args: &Value) -> Str
 }
 
 /// Tolerates models that wrap the JSON in markdown fences or trailing text.
+/// Uses the shared bracket-balanced extractor so braces inside string
+/// literals (e.g. `"reason": "see {note}"`) don't fool the parser.
 fn parse_response(text: &str) -> Option<JudgeResponse> {
-    let trimmed = text.trim();
-    let start = trimmed.find('{')?;
-    let end = trimmed.rfind('}')?;
-    if end < start {
-        return None;
-    }
-    let json_part = &trimmed[start..=end];
+    let json_part = crate::extract_json_span(text, Some('{'))?;
     serde_json::from_str(json_part).ok()
 }
 
@@ -256,9 +249,18 @@ mod tests {
     }
 
     #[test]
+    fn parse_response_handles_braces_in_string_literal() {
+        // Naive find('{')/rfind('}') would mis-extract; the shared
+        // bracket-balanced helper tracks string state correctly.
+        let raw = r#"{"decision":"deny","reason":"contains } literal"}"#;
+        let r = parse_response(raw).expect("parse");
+        assert_eq!(r.decision, JudgeVerdict::Deny);
+        assert!(r.reason.contains("} literal"));
+    }
+
+    #[test]
     fn parse_response_rejects_garbage() {
         assert!(parse_response("nothing json here").is_none());
-        assert!(parse_response("} { reversed").is_none());
     }
 
     #[test]

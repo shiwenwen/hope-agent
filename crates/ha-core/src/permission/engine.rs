@@ -55,36 +55,13 @@ pub struct ResolveContext<'a> {
 }
 
 impl<'a> ResolveContext<'a> {
-    fn smart_strategy(&self) -> SmartStrategy {
-        self.smart_config
-            .map(|c| c.strategy)
-            .unwrap_or_default()
-    }
-
-    fn smart_fallback(&self) -> SmartFallback {
-        self.smart_config
-            .map(|c| c.fallback)
-            .unwrap_or_default()
-    }
-
-    fn smart_strategy_honors_self_confidence(&self) -> bool {
+    /// Effective Smart strategy iff session is in Smart mode. `None` for
+    /// every other mode — used to short-circuit Smart-only branches.
+    fn active_smart_strategy(&self) -> Option<SmartStrategy> {
         if self.session_mode != SessionMode::Smart {
-            return false;
+            return None;
         }
-        matches!(
-            self.smart_strategy(),
-            SmartStrategy::SelfConfidence | SmartStrategy::Both
-        )
-    }
-
-    fn smart_strategy_honors_judge_model(&self) -> bool {
-        if self.session_mode != SessionMode::Smart {
-            return false;
-        }
-        matches!(
-            self.smart_strategy(),
-            SmartStrategy::JudgeModel | SmartStrategy::Both
-        )
+        Some(self.smart_config.map(|c| c.strategy).unwrap_or_default())
     }
 }
 
@@ -184,8 +161,6 @@ fn resolve_default_mode(ctx: &ResolveContext<'_>) -> Decision {
     Decision::Allow
 }
 
-/// Edit-class tool + `exec` edit-command pattern checks. Shared by Default
-/// and Smart modes — both treat these as the floor for "must ask".
 fn resolve_edit_layer(ctx: &ResolveContext<'_>) -> Decision {
     if is_edit_tool(ctx.tool_name) {
         return Decision::Ask {
@@ -204,21 +179,20 @@ fn resolve_edit_layer(ctx: &ResolveContext<'_>) -> Decision {
 ///
 /// 1. If the model self-tagged this call with `_confidence: "high"` AND the
 ///    active strategy honors the tag (`SelfConfidence` / `Both`), allow.
-/// 2. Otherwise, fall through to Default-mode rules so the call would
-///    normally `Ask`. The async wrapper [`resolve_async`] then optionally
-///    upgrades that `Ask` to `Allow` / `Deny` via the judge model.
+/// 2. Otherwise, fall through to the edit-layer floor (shared with Default,
+///    minus `custom_approval_tools` — Smart users opted into LLM judgment,
+///    not a manual checklist). The async wrapper [`resolve_async`] then
+///    optionally upgrades that `Ask` to `Allow` / `Deny` via the judge.
 fn resolve_smart_mode(ctx: &ResolveContext<'_>) -> Decision {
-    if ctx.smart_strategy_honors_self_confidence() && has_self_confidence_high(ctx.args) {
-        return Decision::Allow;
+    if let Some(SmartStrategy::SelfConfidence | SmartStrategy::Both) = ctx.active_smart_strategy()
+    {
+        if has_self_confidence_high(ctx.args) {
+            return Decision::Allow;
+        }
     }
-    // Smart mode shares the edit-layer floor with Default but skips
-    // `custom_approval_tools` — per the design, opting into Smart means
-    // deferring per-tool decisions to LLM signals, not a manual checklist.
     resolve_edit_layer(ctx)
 }
 
-/// `true` if `args._confidence == "high"`. Models running under Smart mode
-/// can opt into auto-approval by adding this self-tag to their tool_call args.
 fn has_self_confidence_high(args: &Value) -> bool {
     args.get("_confidence")
         .and_then(|v| v.as_str())
@@ -256,7 +230,10 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
     if reason.forbids_allow_always() {
         return sync_decision;
     }
-    if !ctx.smart_strategy_honors_judge_model() {
+    if !matches!(
+        ctx.active_smart_strategy(),
+        Some(SmartStrategy::JudgeModel | SmartStrategy::Both)
+    ) {
         return sync_decision;
     }
     let Some(smart_cfg) = ctx.smart_config else {
@@ -278,14 +255,10 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
                 },
             },
         },
-        None => apply_smart_fallback(ctx.smart_fallback(), sync_decision),
-    }
-}
-
-fn apply_smart_fallback(fallback: SmartFallback, sync_decision: Decision) -> Decision {
-    match fallback {
-        SmartFallback::Default | SmartFallback::Ask => sync_decision,
-        SmartFallback::Allow => Decision::Allow,
+        None => match smart_cfg.fallback {
+            SmartFallback::Default | SmartFallback::Ask => sync_decision,
+            SmartFallback::Allow => Decision::Allow,
+        },
     }
 }
 

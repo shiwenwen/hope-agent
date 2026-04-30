@@ -292,6 +292,15 @@ When you do write updates, write so the reader can pick up cold: complete senten
 
 End-of-turn summary: one or two sentences — what changed and what's next. Nothing else.";
 
+/// Smart permission-mode guidance. Tells the model it can self-approve
+/// high-confidence calls via `_confidence: "high"` so the user isn't pinged
+/// for obviously safe ones. Lives at the prompt tail so a session-mode flip
+/// (Default ↔ Smart) only invalidates the very last cache breakpoint, not
+/// the static prefix.
+pub(super) const SMART_MODE_GUIDANCE: &str = "# Smart Permission Mode
+
+This session is running under Smart permission mode. For tool calls you are highly confident are safe (read-only, scoped to the current project, idempotent, easily reversible), you may add an extra `_confidence: \"high\"` field to the tool_call arguments to bypass the approval prompt. Use this sparingly — only when the call is clearly low-risk in the current context. Edits to protected paths (e.g. `~/.ssh`, `.env`) and dangerous shell commands (e.g. `rm -rf /`, `git push --force`) cannot be auto-approved this way.";
+
 /// Short guidance reminding the model that tool-call rounds are bounded so it
 /// wraps up gracefully instead of getting cut off mid-call. Dynamic because
 /// `max_tool_rounds` is agent-configurable. Returns `None` when rounds are

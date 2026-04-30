@@ -30,6 +30,62 @@
 
 ## Open
 
+### F-031 `ResolveContext::cache_key` JSON 序列化不规范化对象键序
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **现象**：[`crates/ha-core/src/permission/judge.rs::cache_key`](../../crates/ha-core/src/permission/judge.rs) 用 `args.to_string()` 哈希 JSON。`serde_json::Value::to_string` 不会规范化对象键序——同语义的 args（`{"path":"x","cwd":"y"}` vs `{"cwd":"y","path":"x"}`）会产生不同 cache key
+- **为什么留**：实际上模型给同一 tool 的 args 输出键序稳定（schema 决定），命中频率低；规范化要么递归排序后再序列化（多 1 次 alloc）要么写自定义 hasher（侵入性大）；当前判官缓存只是优化、不准确不会引发安全问题
+- **改的话要做什么**：
+  1. 增加 `permission::judge::canonical_args_hash(args: &Value) -> u64` 用 BTreeMap 排序对象键后序列化再哈希；
+  2. 或给 `Value` 写自定义递归 Hash（`Object` 排序键 + 每对 hash），避免 to_string alloc
+- **影响面**：纯效率。键序变体场景下 cache miss 一次（多 1 次 LLM 调用 ~5s），不影响正确性
+- **触发时机建议**：下一次有人报告 Smart 模式判官 LLM 成本高、profiler 显示重复 cache miss 时
+
+---
+
+### F-030 `ResolveContext { ... }` 14 字段构造在 execution.rs / exec.rs 重复
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **现象**：[`tools/execution.rs:323`](../../crates/ha-core/src/tools/execution.rs) 与 [`tools/exec.rs:312`](../../crates/ha-core/src/tools/exec.rs) 各自构造一份 14 字段的 `permission::engine::ResolveContext`，仅 `tool_name`、`is_internal_tool` 不同。Phase 4 又给两处都加了 `smart_config` 字段，复制粘贴面积扩大
+- **为什么留**：抽 `ResolveContext::from_tool_ctx(name, args, ctx, is_internal)` 构造函数会让 `permission::engine` 反向依赖 `tools::ToolExecContext`（layering 反向），或者要在 `tools` 模块加一个跨模块 helper；整体抽出比当前重复更复杂
+- **改的话要做什么**：
+  1. 在 [`tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs) 加 `fn make_resolve_ctx(name, args, ctx, is_internal_tool, smart_config) -> ResolveContext` 私有 helper；
+  2. 两处 caller 调 helper；新增字段时只改一处
+- **影响面**：纯整洁。当前重复字段保持完全一致（每次 Phase 改两处），未来 Phase 5/6 增字段时易漏一处
+- **触发时机建议**：下次给 ResolveContext 加新字段时；或独立"permission engine 调用点抽 helper"小 PR
+
+---
+
+### F-029 `SessionMeta.permission_mode` 仍是 `String`，应换 `SessionMode` enum
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **现象**：[`crates/ha-core/src/session/types.rs::SessionMeta`](../../crates/ha-core/src/session/types.rs) 把 `permission_mode` 存为 `String`，每次消费方（`tool_context_with_usage`、`build_system_prompt_with_session`）都要 `SessionMode::parse_or_default(&m.permission_mode)`。`SessionMode` 已存在且支持 serde
+- **为什么留**：改成 enum 需要 SessionMeta serde 同步前端 `chat.ts::SessionMode` 类型 + DB 列读写 + IM channel `ensure_conversation` 路径全部 audit；本期改动已在 4 个 commit 跨度，再叠 SessionMeta 类型改造让 PR 失焦
+- **改的话要做什么**：
+  1. `SessionMeta.permission_mode: SessionMode`（serde rename_all snake_case），DB 读时 `parse_or_default`
+  2. 删除散落的 `parse_or_default` 调用点（`tool_context_with_usage`、`build_system_prompt_with_session`、Tauri 命令）
+  3. 前端 `SessionMeta.permissionMode` 类型不需要变（已是 union）；唯一注意：DB 列保持 TEXT 不变，单一类型转换在 Rust 边界
+- **影响面**：纯整洁。stringly-typed 让消费方各自 parse；如果有人写错 `SessionMode::parse_or_default(...).as_str()` 就丢失新增的 mode（fallback Default）
+- **触发时机建议**：下次给 `SessionMode` 加新模式（如 `Strict`）时——必然要 audit 全部 parse 点
+
+---
+
+### F-028 `permission::judge` cache 与 `agent::active_memory` cache 模式重复
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（reuse agent）
+- **现象**：两处实现了几乎一致的 TTL+capped HashMap cache：
+  - [`crates/ha-core/src/permission/judge.rs::{cache,lookup_cache,insert_cache}`](../../crates/ha-core/src/permission/judge.rs)：`Mutex<HashMap<u64, (T, Instant)>>` + 256 cap + 60s TTL + 溢出清空
+  - [`crates/ha-core/src/agent/active_memory.rs::{get_cached,put_cached}`](../../crates/ha-core/src/agent/active_memory.rs)：同形 + 32 cap + 自定义 TTL + 溢出 LRU
+- **为什么留**：抽 `util::TtlCache<K, V>` 通用 helper 影响 active_memory 既有逻辑（per-session vs OnceLock global、溢出策略不同），需要单独审查；当前两处各自小，重复成本低
+- **改的话要做什么**：
+  1. 在 [`crates/ha-core/src/util.rs`](../../crates/ha-core/src/util.rs) 或新建 `util/ttl_cache.rs` 加 `pub struct TtlCache<K, V> { map: Mutex<HashMap<K, (V, Instant)>>, cap: usize, ttl: Duration }` + `get/put/evict_expired`
+  2. judge.rs 改为 `static CACHE: OnceLock<TtlCache<u64, JudgeResponse>>`
+  3. active_memory.rs 把 `cache: Mutex<HashMap<...>>` 改成 `TtlCache`，各自 cap/ttl 注入
+- **影响面**：纯整洁。当前两处都正确；未来第三个 cache 用例出现时再统一更划算
+- **触发时机建议**：下次有第 3 处需要 TTL+capped cache 时（如 awareness digest、memory_extract 之类）；或独立"cache 抽象统一"小 PR
+
+---
+
 ### F-022 SkillsPanel 三个 Switch handler 失败处理风格不一致
 
 - **来源**：2026-04-29 Skill 自动审核 UI 信号 PR `/simplify` review（reuse agent）
