@@ -168,6 +168,19 @@ fn is_deferred(name: &str, tier: &ToolTier, app_config: &AppConfig) -> bool {
 /// (it depends on `PlanAgentMode` which isn't a static fact about the tool).
 pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFate {
     let app_config = ctx.app_config;
+    // Agent-level tools allow/deny applies to every tier — including Core
+    // tools the user explicitly turned off (read / write / exec / etc.).
+    // Internal tools are exempt by `agent_tool_filter_allows` (matches the
+    // semantic in `tool_visible_with_filters` used downstream during schema
+    // emission), so framework helpers like `skill` / `tool_search` still
+    // surface even when the agent ships a tight allow-list. Without this
+    // gate the Core arm always returned `InjectEager` and `build_tools_section`
+    // (driven by tool fate) would advertise a tool that `build_tool_schemas`
+    // (driven by both fate AND `tool_visible_with_filters`) refused to send
+    // — system prompt and schema array drifting out of sync.
+    if !super::agent_tool_filter_allows(&def.name, ctx.tools_filter) {
+        return ToolFate::Hidden;
+    }
     match &def.tier {
         ToolTier::Core { subclass } => match subclass {
             // Plan-mode tools are decided by the PlanAgentMode at the call
@@ -437,6 +450,48 @@ mod tests {
         );
         let fate = resolve_tool_fate(&def, &f.ctx("default"));
         assert!(matches!(fate, ToolFate::HintOnly { .. }));
+    }
+
+    #[test]
+    fn tier_core_user_deny_hides() {
+        // Regression: user-facing Core tools (read/write/exec/...) must
+        // honor `capabilities.tools.deny`. Pre-fix the Core arm returned
+        // InjectEager unconditionally, so `build_tools_section` advertised
+        // the tool while `build_tool_schemas` (filtered downstream) refused
+        // to send the schema — system prompt drifted from the actual tool
+        // array.
+        let mut f = Fixture::new();
+        f.filter.deny.push("read".into());
+        let def = def_with_tier(
+            "read",
+            ToolTier::Core {
+                subclass: CoreSubclass::FileSystem,
+            },
+        );
+        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        assert_eq!(fate, ToolFate::Hidden);
+    }
+
+    #[test]
+    fn tier_core_internal_tool_survives_allowlist() {
+        // Internal framework tools must NOT be filtered by the agent-level
+        // `tools.allow` list — `agent_tool_filter_allows` exempts them, and
+        // the dispatcher needs to pass that exemption through.
+        let mut f = Fixture::new();
+        f.filter.allow.push("read".into()); // tight allow-list
+        let def = ToolDefinition {
+            name: "skill".into(),
+            description: "test".into(),
+            parameters: serde_json::json!({}),
+            tier: ToolTier::Core {
+                subclass: CoreSubclass::Meta,
+            },
+            internal: true,
+            concurrent_safe: false,
+            async_capable: false,
+        };
+        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        assert_eq!(fate, ToolFate::InjectEager);
     }
 
     #[test]

@@ -421,15 +421,34 @@ impl AssistantAgent {
             return cached.clone();
         }
         let caps = crate::agent_loader::load_agent(&self.agent_id)
-            .map(|def| types::AgentCapsCache {
-                agent_tool_filter: def.config.capabilities.tools.clone(),
-                sandbox: def.config.capabilities.sandbox,
-                async_tool_policy: def.config.capabilities.async_tool_policy,
-                mcp_enabled: def.config.capabilities.mcp_enabled,
-                capability_toggles: def.config.capabilities.capability_toggles.clone(),
-                memory_enabled: def.config.memory.enabled,
-                enable_custom_tool_approval: def.config.capabilities.enable_custom_tool_approval,
-                custom_approval_tools: def.config.capabilities.custom_approval_tools.clone(),
+            .map(|def| {
+                let mut capability_toggles = def.config.capabilities.capability_toggles.clone();
+                // Legacy `notify_on_complete = Some(false)` (Settings →
+                // Notifications → Per-agent override) is the same intent as
+                // `capability_toggles.send_notification = Some(false)` — both
+                // mean "this agent can't reach the desktop notification
+                // channel". The v2 dispatcher only consults the toggle, so
+                // collapse the legacy field into it whenever the toggle is
+                // unset. Pre-fix this branch was dropped via `let _ =`,
+                // making the per-agent off-switch a silent no-op.
+                if def.config.notify_on_complete == Some(false)
+                    && capability_toggles.send_notification.is_none()
+                {
+                    capability_toggles.send_notification = Some(false);
+                }
+                types::AgentCapsCache {
+                    agent_tool_filter: def.config.capabilities.tools.clone(),
+                    sandbox: def.config.capabilities.sandbox,
+                    async_tool_policy: def.config.capabilities.async_tool_policy,
+                    mcp_enabled: def.config.capabilities.mcp_enabled,
+                    capability_toggles,
+                    memory_enabled: def.config.memory.enabled,
+                    enable_custom_tool_approval: def
+                        .config
+                        .capabilities
+                        .enable_custom_tool_approval,
+                    custom_approval_tools: def.config.capabilities.custom_approval_tools.clone(),
+                }
             })
             .unwrap_or_default();
         let arc = std::sync::Arc::new(caps);

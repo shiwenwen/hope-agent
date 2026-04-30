@@ -157,6 +157,49 @@ pub fn expand_tilde(s: &str) -> PathBuf {
     PathBuf::from(crate::tools::expand_tilde(s))
 }
 
+/// Lexically resolve `..` and `.` segments without touching the filesystem.
+/// `Path::canonicalize` requires the target to exist (and resolves symlinks);
+/// the protected-path matcher must work on hypothetical paths the LLM hasn't
+/// created yet, so we do a pure-syntactic walk instead.
+///
+/// Behavior:
+/// - `.` segments are dropped.
+/// - `..` segments pop the previous component when it's a normal name; when
+///   the stack is empty (or the only entry is the root prefix), the `..` is
+///   kept verbatim so a relative `../foo` doesn't lose information.
+/// - Root prefix (`/` on Unix, `C:\` on Windows) is preserved.
+///
+/// Used by the protected-path scanner so traversal sequences like
+/// `~/Documents/../.ssh/id_rsa` collapse to `~/.ssh/id_rsa` *before* the
+/// prefix-match runs. Without this step, a `..`-laden literal slips past
+/// every directory-prefix pattern in `DEFAULT_PROTECTED_PATHS`.
+pub fn normalize_lexical(path: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for comp in path.components() {
+        match comp {
+            Component::Prefix(p) => out.push(p.as_os_str()),
+            Component::RootDir => out.push(comp.as_os_str()),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                let popped = match out.components().next_back() {
+                    Some(Component::Normal(_)) => out.pop(),
+                    _ => false,
+                };
+                if !popped {
+                    out.push("..");
+                }
+            }
+            Component::Normal(name) => out.push(name),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        out
+    }
+}
+
 /// `true` if `path` starts with `prefix` at a path component boundary.
 /// E.g. `/foo/bar` starts with `/foo` but `/foo-bar` does not.
 pub fn path_starts_with(path: &Path, prefix: &Path) -> bool {
@@ -256,5 +299,30 @@ mod tests {
     fn permission_rules_is_empty_when_default() {
         let rules = PermissionRules::default();
         assert!(rules.is_empty());
+    }
+
+    #[test]
+    fn normalize_lex_collapses_dotdot_traversal() {
+        // `~/Documents/../.ssh/id_rsa` after expand_tilde collapses to
+        // `<home>/.ssh/id_rsa` so the protected-path prefix matcher sees the
+        // real target rather than a traversal-laden surface form.
+        let raw = std::path::PathBuf::from("/Users/x/Documents/../.ssh/id_rsa");
+        let norm = normalize_lexical(&raw);
+        assert_eq!(norm, std::path::PathBuf::from("/Users/x/.ssh/id_rsa"));
+    }
+
+    #[test]
+    fn normalize_lex_drops_curdir_segments() {
+        let raw = std::path::PathBuf::from("/a/./b/./c");
+        let norm = normalize_lexical(&raw);
+        assert_eq!(norm, std::path::PathBuf::from("/a/b/c"));
+    }
+
+    #[test]
+    fn normalize_lex_keeps_leading_relative_dotdot() {
+        // No anchor → `..` stays as data so callers don't lose info.
+        let raw = std::path::PathBuf::from("../sneaky");
+        let norm = normalize_lexical(&raw);
+        assert_eq!(norm, std::path::PathBuf::from("../sneaky"));
     }
 }

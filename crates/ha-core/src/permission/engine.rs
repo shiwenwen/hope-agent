@@ -288,12 +288,17 @@ pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
 }
 
 fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
+    use super::rules::normalize_lexical;
     let patterns = super::protected_paths::current_patterns();
 
     // Standard arg-level path (read/write/edit/ls/grep/find — and the cwd of
-    // exec/process/apply_patch).
+    // exec/process/apply_patch). Lex-normalize after expand_tilde so a
+    // traversal-laden literal like `~/Documents/../.ssh/id_rsa` collapses to
+    // `~/.ssh/id_rsa` before the prefix matcher runs — otherwise the prefix
+    // mismatch ("…/Documents/../…" vs "…/.ssh") silently slips past.
     if let Some(path) = extract_path_arg(ctx.tool_name, ctx.args) {
-        if let Some(matched) = super::protected_paths::matches(&path, &patterns) {
+        let normalized = normalize_lexical(&path);
+        if let Some(matched) = super::protected_paths::matches(&normalized, &patterns) {
             return Some(AskReason::ProtectedPath {
                 matched_path: matched,
             });
@@ -341,10 +346,13 @@ fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
 /// - whitespace-split (no shell-grammar parsing — we'd rather over-flag than
 ///   silently miss a target hidden behind quoting)
 /// - trim a single layer of matching `'`/`"` quotes
-/// - keep tokens that contain `/` or start with `~`/`.`, since those are
-///   the shapes the protected-path pattern set is designed to match
+/// - keep tokens that contain a path separator, lead with `~`/`.`, OR carry
+///   a dot anywhere. The dot is the catch-all so bare filenames like
+///   `secret.pem`, `private.key`, `credentials.json` reach the leaf-glob
+///   patterns (`*.pem`, `*.key`, `*credential*`) in `DEFAULT_PROTECTED_PATHS`
+///   instead of getting filtered out before the matcher ever sees them.
 fn path_like_tokens_in_command(command: &str) -> Vec<std::path::PathBuf> {
-    use crate::permission::rules::expand_tilde;
+    use crate::permission::rules::{expand_tilde, normalize_lexical};
     command
         .split_whitespace()
         .map(|tok| {
@@ -362,16 +370,20 @@ fn path_like_tokens_in_command(command: &str) -> Vec<std::path::PathBuf> {
             tok.contains('/')
                 || tok.starts_with('~')
                 || tok.starts_with('.')
+                || tok.contains('.')
                 || (cfg!(windows) && tok.contains('\\'))
         })
-        .map(expand_tilde)
+        .map(|tok| normalize_lexical(&expand_tilde(tok)))
         .collect()
 }
 
-/// Pull each `*** Add|Delete|Update|Move File: <path>` directive target
-/// out of an `apply_patch` body.
+/// Pull each `*** Add File: ` / `*** Delete File: ` / `*** Update File: ` /
+/// `*** Move to: ` directive target out of an `apply_patch` body. Note the
+/// asymmetric naming — the parser in `tools::apply_patch` uses `*** Move to: `
+/// (not `Move File:`); the patch protected-path scan must match the same
+/// strings or rename targets slip through unchecked.
 fn paths_in_patch_directives(patch: &str) -> Vec<std::path::PathBuf> {
-    use crate::permission::rules::expand_tilde;
+    use crate::permission::rules::{expand_tilde, normalize_lexical};
     let mut out = Vec::new();
     for line in patch.lines() {
         let trimmed = line.trim_start();
@@ -379,10 +391,10 @@ fn paths_in_patch_directives(patch: &str) -> Vec<std::path::PathBuf> {
             "*** Add File: ",
             "*** Delete File: ",
             "*** Update File: ",
-            "*** Move File: ",
+            "*** Move to: ",
         ] {
             if let Some(path) = trimmed.strip_prefix(prefix) {
-                out.push(expand_tilde(path.trim()));
+                out.push(normalize_lexical(&expand_tilde(path.trim())));
             }
         }
     }
@@ -908,6 +920,99 @@ mod tests {
                 reason: AskReason::ProtectedPath { .. },
             } => {}
             other => panic!("expected ProtectedPath, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn apply_patch_move_to_directive_scanned_for_protected_path() {
+        // Regression: the directive list used to read `*** Move File: ` while
+        // the actual `apply_patch` parser emits `*** Move to: ` — so a rename
+        // landing inside `~/.ssh/` slipped past the protected-path scanner.
+        let patch = "*** Begin Patch\n\
+                     *** Update File: README.md\n\
+                     *** Move to: ~/.ssh/leaked.md\n\
+                     @@ ...\n\
+                     *** End Patch\n";
+        let args = json!({"input": patch});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("apply_patch", &args, SessionMode::Default, &plan, &custom);
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!(
+                "expected ProtectedPath for Move to: directive, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn exec_command_with_bare_pem_filename_asks() {
+        // Regression: the token filter required `/`, leading `~`, or leading
+        // `.` to keep a token, so bare leaf names like `secret.pem` /
+        // `private.key` / `credentials.json` were dropped before the
+        // *.pem / *.key / *credential* glob patterns could match.
+        for cmd in [
+            "cat secret.pem",
+            "cp private.key /tmp/",
+            "rm credentials.json",
+        ] {
+            let args = json!({ "command": cmd });
+            let plan: Vec<String> = vec![];
+            let custom: Vec<String> = vec![];
+            let c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+            match resolve(&c) {
+                Decision::Ask {
+                    reason: AskReason::ProtectedPath { .. },
+                } => {}
+                other => panic!(
+                    "expected ProtectedPath for bare-leaf command `{}`, got {:?}",
+                    cmd, other
+                ),
+            }
+        }
+    }
+
+    #[test]
+    fn exec_command_with_dotdot_traversal_to_ssh_asks() {
+        // Regression: `~/Documents/../.ssh/id_rsa` expanded to a literal
+        // containing `Documents/..`, which doesn't have `~/.ssh/` as a
+        // string prefix, so the protected-path matcher never fired. After
+        // lex-normalization the path collapses to `~/.ssh/id_rsa` and the
+        // prefix matcher pops the dialog as expected.
+        let args = json!({"command": "cat ~/Documents/../.ssh/id_rsa"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!(
+                "expected ProtectedPath after .. normalization, got {:?}",
+                other
+            ),
+        }
+    }
+
+    #[test]
+    fn read_with_dotdot_traversal_to_ssh_asks() {
+        // Same as above but exercising the arg-level path (extract_path_arg)
+        // branch, since `read` doesn't go through the command-token path.
+        let args = json!({"path": "~/Documents/../.ssh/id_rsa"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("read", &args, SessionMode::Default, &plan, &custom);
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!(
+                "expected ProtectedPath after .. normalization (arg path), got {:?}",
+                other
+            ),
         }
     }
 

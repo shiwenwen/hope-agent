@@ -248,20 +248,19 @@ pub async fn chat(
         }
     }
 
-    // Resolve model chain and notification config from current agent config
+    // Resolve model chain from current agent config. The legacy
+    // `notify_on_complete` per-agent override is consumed inside ha-core
+    // (`AssistantAgent::agent_caps`), where it folds into
+    // `capability_toggles.send_notification` so the dispatcher gates the
+    // tool consistently — no need to thread it through here.
     let agent_def = agent_loader::load_agent(&current_agent_id).ok();
     let agent_model_config = agent_def
         .as_ref()
         .map(|def| def.config.model.clone())
         .unwrap_or_default();
-    let agent_notify_on_complete = agent_def
-        .as_ref()
-        .and_then(|def| def.config.notify_on_complete);
 
     // One lock-free config snapshot for the whole request.
     let cfg = ha_core::config::cached_config();
-
-    let _ = agent_notify_on_complete;
 
     // Resolve temperature: session > agent > global
     let resolved_temperature: Option<f64> = {
