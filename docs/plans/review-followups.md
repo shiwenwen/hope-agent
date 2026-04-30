@@ -205,6 +205,68 @@
 
 ---
 
+### F-025 `commands/permission.rs` 与 `routes/permission.rs` 镜像重复
+
+- **来源**：2026-04-30 权限系统 v2 Phase 3 `/simplify` review（reuse + quality 双 agent）
+- **现象**：[`src-tauri/src/commands/permission.rs`](../../src-tauri/src/commands/permission.rs) 和 [`crates/ha-server/src/routes/permission.rs`](../../crates/ha-server/src/routes/permission.rs) 是 byte-for-byte 镜像，仅 wrapper 类型不同（`Result<T, CmdError>` vs `Result<Json<T>, AppError>`）。两份独立维护：
+  - `PatternListPayload` / `SetPatternsBody` / `GlobalYoloStatus` 三个 struct 定义重复
+  - 12 个 endpoint 一一对应，业务逻辑同（都调 `protected_paths::current_patterns()` 等）
+  - `mutate_config(("permission.smart", "settings-ui"|"http"), …)` 仅 source 标签不同
+- **为什么留**：Phase 3 范围是"前端 UI + 后端 file IO + commands/routes"打通，时间紧；这是项目级"Tauri ↔ HTTP 双暴露"的通用模式，单独动一个域意义有限——MCP / config / agents 等其它子系统也都有同样的镜像样板，应当作为"统一模式"独立 PR 推
+- **改的话要做什么**：
+  1. 在 `crates/ha-core/src/permission/` 新建 `api.rs` 模块，把所有 payload 结构体（`PatternListPayload` / `SetPatternsBody` / `GlobalYoloStatus`）+ thin worker functions（`get_protected_paths_inner() -> PatternListPayload` 等）集中
+  2. `commands/permission.rs` 退化成 `#[tauri::command]` 包装：`fn get_protected_paths() -> Result<PatternListPayload, CmdError> { permission::api::get_protected_paths().map_err(Into::into) }`
+  3. `routes/permission.rs` 同样退化成 `Json(...)` 包装
+  4. `mutate_config` 的 source 标签作为参数传入 worker function：`api::set_smart_mode_config(cfg, "settings-ui")` vs `api::set_smart_mode_config(cfg, "http")`
+  5. 顺手考虑把这个模式抽成跨域的 `crate::transport_shim::tauri!()` / `axum_route!()` 宏（或代码生成），扩到 mcp / agents / config 等 4-5 个有同样镜像的子系统
+- **影响面**：纯重构，无功能变化。当前 ~200 行重复代码 / 12 个新增 endpoint 的双倍维护成本；未来加新 endpoint 必须记得改两处
+- **触发时机建议**：等下一个新增"Tauri ↔ HTTP 双暴露"endpoint 的 PR 时累积痛感再做；或立项"transport-shim 通用化"独立重构 PR，一次清掉 mcp / agents / config / permission 4 个域的镜像
+
+---
+
+### F-026 ApprovalTab `APPROVAL_OPTIN_GROUPS` 17 工具 9 分组硬编码于 TS
+
+- **来源**：2026-04-30 权限系统 v2 Phase 3 `/simplify` review（reuse + quality）
+- **现象**：[`src/components/settings/agent-panel/tabs/ApprovalTab.tsx:21-67`](../../src/components/settings/agent-panel/tabs/ApprovalTab.tsx#L21-L67) 把 17 个可勾选审批的工具按 9 个分组（shell / browser / settings / outbound / paid / spawn / network / crossSession / settingsRead）硬编码在 TS 常量里。后端工具注册表（[`tools/definitions/`](../../crates/ha-core/src/tools/definitions/)）虽然已有 `ToolTier` 元数据，但**没有"是否出现在用户审批勾选清单 + 归属哪个分组"的字段**——所以 UI 这份清单只能写在 TS 端。
+  漂移风险：今天 Rust 加新工具 `send_email` 进 Tier 2，UI 不会自动显示在审批清单里，必须有人记得去改 ApprovalTab。TS 编译器无法捕获这个不一致
+- **为什么留**：Phase 3 simplify 不重构 schema。要做需要：
+  1. `ToolDefinition` 加 `approval_opt_in: bool` + `approval_group: Option<&'static str>` 两字段
+  2. 53 个工具定义文件每个填这俩字段（含归类决策）
+  3. `list_builtin_tools` payload 透传字段
+  4. ApprovalTab 改数据驱动（动态分组渲染 + 与现有 i18n key 对齐）
+  跨 53 个文件的注释决策不属于"清理 review"范围
+- **改的话要做什么**：
+  1. 在 `crates/ha-core/src/tools/definitions/types.rs::ToolDefinition` 加 metadata：
+     ```rust
+     /// 是否出现在 Agent「自定义工具审批」勾选清单里。Tier 2/3 中的部分工具开启。
+     pub approval_opt_in: bool,
+     /// 审批清单 UI 的分组标签 (i18n key 后缀)。
+     pub approval_group: Option<&'static str>,
+     ```
+  2. 在每个工具的 `register_*_tool()` 函数里设置这两个字段（按当前 ApprovalTab.tsx 的 17/9 分组对照填）
+  3. `list_builtin_tools` 添加这两个字段到 payload；`commands/chat.rs::list_builtin_tools` + 对应 HTTP 路由同步
+  4. ApprovalTab 改成 `useMemo(() => groupBy(builtinTools.filter(t => t.approval_opt_in), t => t.approval_group))`，删除 `APPROVAL_OPTIN_GROUPS` 常量
+  5. 更新 [`docs/architecture/tool-system.md`](../../docs/architecture/tool-system.md) 描述新元数据字段
+- **影响面**：纯一致性，无可见 bug。当前 17 个工具固定，添加新 Tier 2/3 工具时如果忘改 TS，用户在 Agent 设置里看不到该工具但功能层面仍然工作（不会崩溃，只是无法 opt-in 审批）
+- **触发时机建议**：下次新增可审批工具（Tier 2/3）时如果意识到要同时改两处，就顺手把这套 metadata schema 搭起来；或独立"tool definition metadata 扩展"重构 PR
+
+---
+
+### F-027 9 个语言 `settings.approvalPanel` block 是英文 verbatim fallback
+
+- **来源**：2026-04-30 权限系统 v2 Phase 3 `/simplify` review（reuse agent）
+- **现象**：Phase 3.4 新增的 `settings.approvalPanel.*` 文案块（~50 keys）只有 `zh.json` / `en.json` / `zh-TW.json`（部分）有原生翻译；剩下 9 个语言（`ar` / `es` / `ja` / `ko` / `ms` / `pt` / `ru` / `tr` / `vi`）通过 `node -e` 脚本批量 deep-clone 英文 block 写入 —— 这些 locale 的"权限"设置面板会渲染英文标签 / 描述 / 提示。同样的情况也部分发生在 `settings.agentApproval.*`（Phase 3.3）和 `approval.reasons.*`（Phase 3.5），但 zh / en / zh-TW / ja / ko 都已精修
+- **为什么留**：英文 fallback 不会让 UI 崩溃 / 不会丢功能；Anthropic 内部不是翻译团队 —— 用机器翻译质量参差不如等母语审稿。提交时 `pnpm i18n:check ✓` 因为 key 数量已对齐，仅文案语言不对
+- **改的话要做什么**：
+  1. 收集需要翻译的 key 集合：从 `en.json` 提 `settings.approvalPanel.*`、`settings.agentApproval.*`（zh-TW 已部分精修，但 ja / ko 也只有部分）、`approval.reasons.*` 在非 zh / en / zh-TW 的 locale 里全部
+  2. 翻译团队 / 母语志愿者按 locale 校对（约 ~70 keys × 9 语言 = 630 条）
+  3. 提交时把 zh-TW / ja / ko 的部分英文 fallback 一起替换掉
+  4. 顺带清查仓库里其它"批量 deep-clone 英文"的 i18n debt：grep `settings.*` 中相同字符串在多个非 en locale 里完全一致的 key
+- **影响面**：UX bug for 9 个语言用户。Settings 中相关 panel 看英文不会崩溃，但显著降低非英语 / 非中文用户的体验
+- **触发时机建议**：等收到非英 / 非中文用户反馈，或翻译团队 / 志愿者主动认领；不阻塞功能 PR
+
+---
+
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
