@@ -25,6 +25,12 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            s.created_at, s.updated_at,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
+           EXISTS(
+             SELECT 1 FROM messages m
+             WHERE m.session_id = s.id
+               AND m.id = (SELECT MAX(m2.id) FROM messages m2 WHERE m2.session_id = s.id)
+               AND m.is_error = 1
+           ) as has_error,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source
@@ -777,6 +783,7 @@ impl SessionDB {
             updated_at: now,
             message_count: 0,
             unread_count: 0,
+            has_error: false,
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
@@ -1172,19 +1179,19 @@ impl SessionDB {
     /// `WHERE ...`) into a `SessionMeta`. Column indices are tied to the
     /// column order declared in the constant — keep them in sync.
     fn row_to_session_meta(row: &rusqlite::Row) -> rusqlite::Result<SessionMeta> {
-        let cc_channel_id: Option<String> = row.get(16)?;
+        let cc_channel_id: Option<String> = row.get(17)?;
         let channel_info = cc_channel_id.map(|ch_id| ChannelSessionInfo {
             channel_id: ch_id,
-            account_id: row.get::<_, String>(17).unwrap_or_default(),
-            chat_id: row.get::<_, String>(18).unwrap_or_default(),
-            chat_type: row.get::<_, String>(19).unwrap_or_default(),
-            sender_name: row.get(20).ok().flatten(),
+            account_id: row.get::<_, String>(18).unwrap_or_default(),
+            chat_id: row.get::<_, String>(19).unwrap_or_default(),
+            chat_type: row.get::<_, String>(20).unwrap_or_default(),
+            sender_name: row.get(21).ok().flatten(),
         });
         Ok(SessionMeta {
             id: row.get(0)?,
             title: row.get(1)?,
             title_source: row
-                .get::<_, String>(22)
+                .get::<_, String>(23)
                 .unwrap_or_else(|_| crate::session_title::TITLE_SOURCE_MANUAL.to_string()),
             agent_id: row.get(2)?,
             provider_id: row.get(3)?,
@@ -1195,20 +1202,21 @@ impl SessionDB {
             message_count: row.get(8)?,
             unread_count: row.get(9)?,
             pending_interaction_count: 0,
-            is_cron: row.get::<_, i64>(10).unwrap_or(0) != 0,
-            parent_session_id: row.get(11)?,
+            has_error: row.get::<_, i64>(10).unwrap_or(0) != 0,
+            is_cron: row.get::<_, i64>(11).unwrap_or(0) != 0,
+            parent_session_id: row.get(12)?,
             plan_mode: row
-                .get::<_, String>(12)
+                .get::<_, String>(13)
                 .map(|s| crate::plan::PlanModeState::from_str(&s))
                 .unwrap_or_default(),
-            project_id: row.get(13)?,
+            project_id: row.get(14)?,
             permission_mode: row
-                .get::<_, String>(14)
+                .get::<_, String>(15)
                 .map(|s| crate::permission::SessionMode::parse_or_default(&s))
                 .unwrap_or_default(),
-            incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
+            incognito: row.get::<_, i64>(16).unwrap_or(0) != 0,
             channel_info,
-            working_dir: row.get(21).ok().flatten(),
+            working_dir: row.get(22).ok().flatten(),
         })
     }
 

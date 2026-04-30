@@ -237,6 +237,7 @@ mod tests {
             updated_at: "2025-01-01T00:00:00Z".into(),
             message_count: 0,
             unread_count: 0,
+            has_error: false,
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: None,

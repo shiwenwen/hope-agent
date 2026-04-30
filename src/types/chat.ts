@@ -192,6 +192,7 @@ export interface SessionMeta {
   updatedAt: string
   messageCount: number
   unreadCount: number
+  hasError: boolean
   /**
    * Number of pending interactions awaiting the user (sum of pending tool
    * approvals + pending ask_user_question groups). Drives the sidebar

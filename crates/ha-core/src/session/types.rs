@@ -20,6 +20,10 @@ pub struct SessionMeta {
     pub updated_at: String,
     pub message_count: i64,
     pub unread_count: i64,
+    /// Whether the latest persisted message is marked as an error.
+    /// Used by the sidebar to render a red exclamation indicator.
+    #[serde(default)]
+    pub has_error: bool,
     /// Number of pending interactions waiting on the user for this session
     /// (sum of pending tool approvals + pending ask_user_question groups).
     /// Populated at the command/route layer, not in `list_sessions_paged`.
@@ -363,6 +367,13 @@ impl NewMessage {
             tokens_cache_read: None,
             tool_metadata: None,
         }
+    }
+
+    /// Create an event row that should be surfaced as an error marker.
+    pub fn error_event(content: &str) -> Self {
+        let mut msg = Self::event(content);
+        msg.is_error = Some(true);
+        msg
     }
 
     /// Attach a JSON-string `tool_metadata` payload to this message. Returns

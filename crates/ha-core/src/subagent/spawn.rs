@@ -228,7 +228,7 @@ pub async fn spawn_subagent(
                 .unwrap_or("(no response)");
             let _ = db.append_message(
                 &child_session_id,
-                &crate::session::NewMessage::event(reply_text),
+                &crate::session::NewMessage::error_event(reply_text),
             );
         }
 

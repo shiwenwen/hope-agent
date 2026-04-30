@@ -402,7 +402,7 @@ pub(crate) async fn inject_and_run_parent(
     if !succeeded && !cancel.load(Ordering::SeqCst) {
         let _ = session_db.append_message(
             &parent_session_id,
-            &crate::session::NewMessage::event(&format!("[injection failed] {}", last_error)),
+            &crate::session::NewMessage::error_event(&format!("[injection failed] {}", last_error)),
         );
     }
 

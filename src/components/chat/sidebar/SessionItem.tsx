@@ -28,6 +28,7 @@ import {
   FolderKanban,
   Check,
   Ghost,
+  CircleAlert,
 } from "lucide-react"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
@@ -212,6 +213,13 @@ export default function SessionItem({
                 <IconTip label={t("chat.incognito")}>
                   <span className={INCOGNITO_BADGE_ICON_CLASSES}>
                     <Ghost className="w-2.5 h-2.5" />
+                  </span>
+                </IconTip>
+              )}
+              {!isActive && session.hasError && (
+                <IconTip label="对话失败">
+                  <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-red-500/15 text-red-500">
+                    <CircleAlert className="w-2.5 h-2.5" />
                   </span>
                 </IconTip>
               )}
