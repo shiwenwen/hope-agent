@@ -40,6 +40,7 @@
 | 文档                                          | 说明                                | 关联源码                  |
 | ------------------------------------------- | --------------------------------- | --------------------- |
 | [Plan Mode](architecture/plan-mode.md)      | 六态状态机、双 Agent 模式、计划文件管理、步骤追踪      | `plan/`               |
+| [权限/审批系统](architecture/permission-system.md) | 统一规则引擎 + Default/Smart/Yolo 三模式、Plan 正交、保护路径/危险命令/编辑命令三 list、Smart judge_model + self_confidence、审批弹窗倒计时 | `permission/`, `tools/approval.rs` |
 | [Ask User](architecture/ask-user.md)        | 通用结构化问答工具、preview 并排对比、超时回退、IM 渠道集成    | `tools/ask_user_question.rs`, `plan/questions.rs`, `channel/worker/ask_user.rs` |
 | [技能系统](architecture/skill-system.md)        | SKILL.md 发现、懒加载、工具隔离、Fork 模式      | `skills/`             |
 | [子 Agent 系统](architecture/subagent.md)      | spawn + 结果注入、Mailbox 实时引导、深度/并发控制 | `subagent/`           |
@@ -66,6 +67,7 @@
 | 文档                                        | 说明                                 | 关联源码                    |
 | ----------------------------------------- | ---------------------------------- | ----------------------- |
 | [图像生成](architecture/image-generation.md)  | 7 个 Provider、Capabilities 路由、分辨率推断 | `tools/image_generate/` |
+| [Canvas 子系统](architecture/canvas.md)     | 7 种内容类型沙盒预览、版本快照、snapshot/eval 双向通道、独立窗口、HTTP 静态托管 | `tools/canvas/`, `canvas_db.rs` |
 | [Cron 调度](architecture/cron.md)           | 定时任务调度、Agent 执行、Failover、指数退避      | `cron/`                 |
 | [Docker Sandbox](architecture/sandbox.md) | SearXNG 容器管理、代理注入、网络隔离             | `docker/`, `sandbox.rs` |
 | [Dashboard](architecture/dashboard.md)    | 跨 DB 聚合分析、成本估算、系统指标                | `dashboard/`            |
@@ -116,7 +118,6 @@
 | 首次启动向导 | `crates/ha-core/src/onboarding/` | [前后端分离架构](architecture/backend-separation.md)、[进程与并发模型](architecture/process-model.md) |
 | Agent 配置/解析链 | `crates/ha-core/src/agent_config.rs`、`agent_loader.rs`、`agent/resolver.rs` | [Project 系统](architecture/project.md#agent-解析链5-级)、[提示词系统](architecture/prompt-system.md) |
 | Backup / Autosave | `crates/ha-core/src/backup.rs` | [配置系统](architecture/config-system.md)、[可靠性与崩溃自愈](architecture/reliability.md) |
-| Canvas 子系统 | `crates/ha-core/src/canvas_db.rs`、`tools/canvas/` | [工具系统](architecture/tool-system.md) |
 | Browser 子系统（CDP） | `crates/ha-core/src/browser_state.rs`、`browser_ui.rs`、`tools/browser/` | [工具系统](architecture/tool-system.md)、[跨平台抽象层](architecture/platform.md) |
 | 主 LLM OAuth | `crates/ha-core/src/oauth.rs` | [Provider 系统](architecture/provider-system.md)（与 [MCP 客户端](architecture/mcp.md) 的 OAuth 实现互不共用） |
 | 系统权限（macOS） | `crates/ha-core/src/permissions.rs` | [跨平台抽象层](architecture/platform.md) |

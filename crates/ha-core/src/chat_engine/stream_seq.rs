@@ -10,8 +10,14 @@
 
 use serde::Serialize;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
+
+/// Wire-format error code shared by [`ActiveStreamError`] and
+/// [`super::active_turn::ActiveTurnError`]. The frontend matches on this
+/// substring to detect a duplicate-send and re-attach to the existing stream.
+pub const ACTIVE_STREAM_ERROR_CODE: &str = "active_stream";
 
 /// Which caller opened this chat stream. Surfaced in server runtime status
 /// so the tooltip can split "N active sessions" into `X desktop · Y http
@@ -47,6 +53,37 @@ impl ChatSource {
     }
 }
 
+impl fmt::Display for ChatSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Desktop => "desktop",
+            Self::Http => "http",
+            Self::Channel => "channel",
+            Self::Subagent => "subagent",
+            Self::ParentInjection => "parent_injection",
+        })
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ActiveStreamError {
+    pub session_id: String,
+    pub existing_stream_id: String,
+    pub existing_source: ChatSource,
+}
+
+impl fmt::Display for ActiveStreamError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{ACTIVE_STREAM_ERROR_CODE}: session {} already has active stream {} from {}",
+            self.session_id, self.existing_stream_id, self.existing_source
+        )
+    }
+}
+
+impl std::error::Error for ActiveStreamError {}
+
 struct Entry {
     counter: Arc<AtomicU64>,
     stream_id: String,
@@ -61,9 +98,20 @@ fn registry() -> &'static Mutex<HashMap<String, Entry>> {
 
 /// Mark the session as running. Resets the counter, records which caller
 /// opened the stream, and returns a stream identity unique to this run.
-pub fn begin(session_id: &str, source: ChatSource) -> String {
+///
+/// A second stream for the same session is rejected instead of overwriting
+/// the registry entry. Overwrite would make hot-reload recovery lose the
+/// original stream cursor and allows duplicate UI turns to hide each other.
+pub fn begin(session_id: &str, source: ChatSource) -> Result<String, ActiveStreamError> {
     let stream_id = uuid::Uuid::new_v4().to_string();
     let mut map = registry().lock().expect("stream_seq registry poisoned");
+    if let Some(existing) = map.get(session_id) {
+        return Err(ActiveStreamError {
+            session_id: session_id.to_string(),
+            existing_stream_id: existing.stream_id.clone(),
+            existing_source: existing.source,
+        });
+    }
     map.insert(
         session_id.to_string(),
         Entry {
@@ -72,7 +120,7 @@ pub fn begin(session_id: &str, source: ChatSource) -> String {
             source,
         },
     );
-    stream_id
+    Ok(stream_id)
 }
 
 /// Drop the session entry, marking it as no longer streaming.
@@ -152,7 +200,7 @@ mod tests {
     fn begin_end_roundtrip() {
         let sid = "test-stream_seq-begin_end";
         assert!(!is_active(sid));
-        begin(sid, ChatSource::Desktop);
+        begin(sid, ChatSource::Desktop).unwrap();
         assert!(is_active(sid));
         assert!(stream_id(sid).is_some());
         assert_eq!(last_seq(sid), 0);
@@ -173,10 +221,10 @@ mod tests {
         let h1 = format!("{base}-h1");
         let c1 = format!("{base}-c1");
 
-        begin(&d1, ChatSource::Desktop);
-        begin(&d2, ChatSource::Desktop);
-        begin(&h1, ChatSource::Http);
-        begin(&c1, ChatSource::Channel);
+        begin(&d1, ChatSource::Desktop).unwrap();
+        begin(&d2, ChatSource::Desktop).unwrap();
+        begin(&h1, ChatSource::Http).unwrap();
+        begin(&c1, ChatSource::Channel).unwrap();
 
         let counts = active_counts();
         // Other tests may have sessions running concurrently; assert on the
@@ -190,5 +238,16 @@ mod tests {
         end(&d2);
         end(&h1);
         end(&c1);
+    }
+
+    #[test]
+    fn begin_rejects_active_session() {
+        let sid = "test-stream_seq-rejects-active";
+        begin(sid, ChatSource::Desktop).unwrap();
+        let err = begin(sid, ChatSource::Http).unwrap_err();
+        assert_eq!(err.session_id, sid);
+        assert_eq!(err.existing_source, ChatSource::Desktop);
+        assert!(is_active(sid));
+        end(sid);
     }
 }

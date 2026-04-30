@@ -223,10 +223,6 @@ pub struct CapabilitiesConfig {
     #[serde(default = "default_max_rounds")]
     pub max_tool_rounds: u32,
 
-    /// Tools that require user approval before execution
-    #[serde(default = "default_approval_tools")]
-    pub require_approval: Vec<String>,
-
     /// Whether to use Docker sandbox by default
     #[serde(default)]
     pub sandbox: bool,
@@ -247,14 +243,85 @@ pub struct CapabilitiesConfig {
     /// Async tool backgrounding policy override. Default: model-decide.
     #[serde(default)]
     pub async_tool_policy: AsyncToolPolicy,
+
+    /// MCP integration master switch. When false, all MCP tools
+    /// (`mcp_resource` / `mcp_prompt` / dynamic `mcp__<server>__<tool>`)
+    /// are excluded from the LLM tool schema, and the system prompt
+    /// surfaces a hint to enable MCP in agent settings.
+    #[serde(default = "crate::default_true")]
+    pub mcp_enabled: bool,
+
+    /// Per-agent capability toggles for Tier 3 tools (web_search / canvas /
+    /// image_generate / send_notification / subagent / acp_spawn).
+    ///
+    /// `None` for a field means "inherit the tier's default for this agent
+    /// kind" — i.e. `default_for_main` when `agent_id == "default"`,
+    /// `default_for_others` otherwise. `Some(true/false)` is an explicit
+    /// override that survives any future changes to tier defaults.
+    #[serde(default)]
+    pub capability_toggles: CapabilityToggles,
+
+    /// Whether the agent owner has opted into "Custom Tool Approval".
+    /// When false, `custom_approval_tools` is ignored — only the hardcoded
+    /// edit-class enforcement (write / edit / apply_patch + edit-command exec
+    /// matches + protected paths + dangerous commands) requires approval.
+    /// When true and `permission_mode = default`, the tools listed in
+    /// `custom_approval_tools` ALSO require approval.
+    ///
+    /// Smart / YOLO modes ignore both this flag and the list — UI must
+    /// surface that note to avoid user confusion.
+    #[serde(default)]
+    pub enable_custom_tool_approval: bool,
+
+    /// User-curated extra approval list. Only consumed when
+    /// `enable_custom_tool_approval = true` AND the session is in
+    /// `Default` mode. Tool names that do not appear here are NOT prompted —
+    /// this list is additive on top of the hardcoded edit-class set.
+    #[serde(default)]
+    pub custom_approval_tools: Vec<String>,
+
+    /// Default permission mode for new sessions opened under this agent.
+    /// `None` falls back to the global default (currently `Default`).
+    /// Existing sessions are unaffected when this changes.
+    #[serde(default)]
+    pub default_session_permission_mode: Option<crate::permission::SessionMode>,
+}
+
+/// Per-agent capability toggle overrides. Each `None` means "fall back to
+/// the tier default" — they are NOT all-or-nothing booleans.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityToggles {
+    pub web_search: Option<bool>,
+    pub image_generate: Option<bool>,
+    pub canvas: Option<bool>,
+    pub send_notification: Option<bool>,
+    pub subagent: Option<bool>,
+    pub acp_spawn: Option<bool>,
+}
+
+impl CapabilityToggles {
+    /// Look up a tool name's per-agent override (if any). `None` means
+    /// "no explicit override, fall back to tier default".
+    pub fn override_for(&self, name: &str) -> Option<bool> {
+        use crate::tools::{
+            TOOL_ACP_SPAWN, TOOL_CANVAS, TOOL_IMAGE_GENERATE, TOOL_SEND_NOTIFICATION,
+            TOOL_SUBAGENT, TOOL_WEB_SEARCH,
+        };
+        match name {
+            TOOL_WEB_SEARCH => self.web_search,
+            TOOL_IMAGE_GENERATE => self.image_generate,
+            TOOL_CANVAS => self.canvas,
+            TOOL_SEND_NOTIFICATION => self.send_notification,
+            TOOL_SUBAGENT => self.subagent,
+            TOOL_ACP_SPAWN => self.acp_spawn,
+            _ => None,
+        }
+    }
 }
 
 fn default_max_rounds() -> u32 {
-    50
-}
-
-fn default_approval_tools() -> Vec<String> {
-    vec!["*".to_string()]
+    0
 }
 
 fn default_skill_env_check() -> bool {
@@ -265,12 +332,16 @@ impl Default for CapabilitiesConfig {
     fn default() -> Self {
         Self {
             max_tool_rounds: default_max_rounds(),
-            require_approval: default_approval_tools(),
             sandbox: false,
             skill_env_check: default_skill_env_check(),
             tools: FilterConfig::default(),
             skills: FilterConfig::default(),
             async_tool_policy: AsyncToolPolicy::default(),
+            mcp_enabled: true,
+            capability_toggles: CapabilityToggles::default(),
+            enable_custom_tool_approval: false,
+            custom_approval_tools: Vec::new(),
+            default_session_permission_mode: None,
         }
     }
 }
@@ -449,13 +520,14 @@ impl Default for MemoryConfig {
 // ── Sub-Agent Config ────────────────────────────────────────────
 
 /// Configuration for sub-agent delegation capabilities.
+///
+/// Note: whether the agent can spawn sub-agents is now controlled by
+/// `capabilities.capability_toggles.subagent` (Tier 3). The fields here
+/// configure delegation *behavior* (who's allowed, depth limits, timeouts),
+/// not the master switch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubagentConfig {
-    /// Whether this agent can spawn sub-agents
-    #[serde(default = "crate::default_true")]
-    pub enabled: bool,
-
     /// Which agents this agent is allowed to delegate to (empty = all)
     #[serde(default)]
     pub allowed_agents: Vec<String>,
@@ -508,7 +580,6 @@ fn default_subagent_timeout() -> u64 {
 impl Default for SubagentConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             allowed_agents: Vec::new(),
             denied_agents: Vec::new(),
             max_concurrent: default_max_concurrent(),

@@ -238,13 +238,20 @@
     "compactNoChange": "Konteks tidak perlu dimampatkan",
     "compactFailed": "Mampatan gagal",
     "viewContext": "Lihat konteks",
-    "toolPermission": "Kebenaran alat",
-    "toolPermissionAuto": "Auto",
-    "toolPermissionAsk": "Tanya setiap kali",
-    "toolPermissionFull": "Kelulusan penuh",
-    "toolPermissionAutoDesc": "Model membuat keputusan sama ada kelulusan diperlukan",
-    "toolPermissionAskDesc": "Setiap panggilan alat memerlukan pengesahan",
-    "toolPermissionFullDesc": "Luluskan semua panggilan alat secara automatik",
+    "permissionMode": {
+      "default": {
+        "label": "Lalai",
+        "desc": "Alat suntingan dan arahan berbahaya perlu kelulusan; selainnya dijalankan."
+      },
+      "smart": {
+        "label": "Kelulusan pintar",
+        "desc": "Model hakim atau penanda keyakinan model membuat keputusan kelulusan."
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "Semua alat dalam sesi ini berjalan tanpa kelulusan (laluan dilindungi tetap diaudit)."
+      }
+    },
     "statusCache": "Cache",
     "statusCacheWrite": "Tulis",
     "statusCacheHit": "Kena",
@@ -394,6 +401,18 @@
     "acp_spawn": "Lancarkan Agent ACP",
     "submit_plan": "Hantar pelan",
     "amend_plan": "Pinda pelan",
+    "task_create": "Cipta tugasan",
+    "task_update": "Kemas kini tugasan",
+    "task_list": "Senarai tugasan",
+    "team": "Pasukan Agent",
+    "peek_sessions": "Intip sesi lain",
+    "get_settings": "Dapatkan tetapan",
+    "update_settings": "Kemas kini tetapan",
+    "list_settings_backups": "Senarai sandaran tetapan",
+    "restore_settings_backup": "Pulihkan sandaran tetapan",
+    "mcp_resource": "Sumber MCP",
+    "mcp_prompt": "Prompt MCP",
+    "skill": "Muatkan skill",
     "ask_user": {
       "cancelled": "Pengguna membatalkan soalan",
       "no_answers": "Tiada jawapan diberikan",
@@ -794,6 +813,7 @@
       "autoApproveLabel": "Auto-approve tool calls",
       "autoApproveNeedsTrust": "Auto-approve requires Trust level = Trusted.",
       "eagerLabel": "Connect eagerly at startup",
+      "deferredToolsLabel": "Tangguhkan skema alat",
       "allowedTools": "Tool allowlist",
       "allowedToolsHint": "Empty = allow all. One original tool name per line (without the mcp__ prefix).",
       "deniedTools": "Tool denylist",
@@ -1411,7 +1431,7 @@
     "contextCompactMicrocompactEnabledDesc": "Pengosongan tanpa kos hasil alat sementara lama (ls/grep/find dsb.), berjalan sebelum lapisan pemampatan lain",
     "contextCompactMicrocompactTools": "Senarai alat mikropemampatan",
     "contextCompactMicrocompactToolsDesc": "Hasil lama daripada alat yang dipilih akan dikosongkan secara automatik",
-    "contextCompactToolPolicy": "Polisi pemampatan alat",
+    "contextCompactToolPolicy": "Polisi pemampatan hasil alat",
     "contextCompactToolPolicyDesc": "Kawal bagaimana hasil setiap alat dikendalikan semasa pemampatan konteks",
     "contextCompactPolicyEager": "Kosongkan dahulu",
     "contextCompactPolicyDefault": "Biasa",
@@ -1520,7 +1540,9 @@
     "asyncToolsInlineBytes": "Saiz keputusan dalam talian",
     "asyncToolsInlineBytesDesc": "Bait keputusan yang diselitkan dalam notifikasi selesai. Keputusan lebih besar disimpan ke spool dengan pratonton head/tail.",
     "deferredToolsEnabled": "Pemuatan alat tertangguh",
-    "deferredToolsEnabledDesc": "Hanya hantar skema alat teras pada mulanya; selebihnya ditemui melalui tool_search. Mengurangkan token skema untuk agen dengan banyak alat. Berkesan pada perbualan berikutnya.",
+    "deferredToolsEnabledDesc": "Enable tool_search-based loading. Tools remain injected until you defer them below. Takes effect on the next conversation.",
+    "deferredToolsPerToolTitle": "Deferred built-in tools",
+    "deferredToolsPerToolDesc": "Turn on only the tools whose schemas should be discovered via tool_search instead of sent up front.",
     "memorySelection": "Pemilihan memori semantik LLM",
     "memorySelectionDesc": "Apabila bilangan memori calon melebihi ambang, minta model pilih yang paling relevan untuk prompt sistem. Mengurangkan bunyi.",
     "memorySelectionThreshold": "Ambang pencetus",
@@ -1643,20 +1665,26 @@
     "agentIdentity": "Identiti",
     "agentPersonalityTab": "Personaliti",
     "agentBasicInfo": "Info Asas",
-    "agentCapabilities": "Keupayaan",
+    "agentCapabilities": "Alat & Kemahiran",
     "agentCapabilitiesTabTools": "Alat",
     "agentCapabilitiesTabSkills": "Skills",
     "agentCapabilitiesToolInjection": "Suntikan alat",
     "agentCapabilitiesToolInjectionDesc": "Pilih alat terbina dalam yang boleh digunakan oleh Agent ini (alat sistem dalaman sentiasa tersedia)",
+    "agentTierCoreTitle": "Alat teras",
+    "agentTierCoreDesc": "Keupayaan asas yang diperlukan oleh setiap ejen. Tidak boleh dilumpuhkan.",
+    "agentTierCoreBadge": "Sentiasa aktif",
+    "agentTierStandardTitle": "Alat standard",
+    "agentTierStandardDesc": "Tersedia untuk agen secara lalai, boleh dimatikan secara individu. Sesetengah keupayaan memerlukan penyedia dikonfigurasi secara global untuk benar-benar berfungsi.",
+    "agentTierConfiguredHint": "Tidak dikonfigurasi · pergi ke {{hint}}",
+    "agentMcpTitle": "MCP",
+    "agentMcpDesc": "Apabila didayakan, semua pelayan MCP yang disambungkan dan alatnya menjadi tersedia; apabila dimatikan, semua alat MCP dikecualikan.",
+    "agentMcpEnableLabel": "Dayakan MCP",
+    "agentMcpBadgeOn": "Aktif",
+    "agentMcpBadgeOff": "Mati",
     "agentMaxToolRounds": "Maks Pusingan Alat",
     "agentUnlimited": "Tiada had",
     "agentSkills": "Kemahiran",
     "agentSkillsDesc": "Kemahiran yang diaktifkan secara global tersedia secara lalai. Anda boleh melumpuhkan yang tidak diperlukan",
-    "agentRequireApproval": "Kelulusan Alat",
-    "agentRequireApprovalDesc": "Kawal sama ada AI perlu pengesahan anda sebelum menggunakan alat",
-    "agentApprovalAll": "Luluskan semua",
-    "agentApprovalNone": "Tanpa kelulusan",
-    "agentApprovalCustom": "Tersuai",
     "toolExecName": "Jalankan arahan",
     "toolExecDesc": "Jalankan arahan shell dengan sokongan latar belakang dan kotak pasir",
     "toolProcessName": "Pengurusan proses",
@@ -1703,6 +1731,52 @@
     "toolTaskUpdateDesc": "Kemas kini status atau kandungan tugasan sedia ada",
     "toolTaskListName": "Senaraikan tugasan",
     "toolTaskListDesc": "Senaraikan semua tugasan dalam sesi semasa",
+    "toolMcpResourceName": "Sumber MCP",
+    "toolMcpResourceDesc": "Baca sumber yang dihos oleh pelayan MCP yang disambungkan (fail, rekod, dsb.)",
+    "toolMcpPromptName": "Prompt MCP",
+    "toolMcpPromptDesc": "Dapatkan templat prompt yang diterbitkan oleh pelayan MCP yang disambungkan",
+    "toolImageGenerateName": "Jana Imej",
+    "toolImageGenerateDesc": "Penjanaan teks-ke-imej dan imej-ke-imej dengan failover berbilang penyedia",
+    "toolCanvasName": "Kanvas",
+    "toolCanvasDesc": "Cipta projek visual interaktif dalam panel pratonton (HTML, Markdown, carta, slaid)",
+    "toolAcpSpawnName": "Panggil Agen Luaran",
+    "toolAcpSpawnDesc": "Panggil agen ACP luaran (Claude Code, Codex CLI, dll.) untuk melaksanakan tugas",
+    "toolProjectReadFileName": "Baca Fail Projek",
+    "toolProjectReadFileDesc": "Baca fail yang dimuat naik ke projek sesi semasa",
+    "toolAskUserQuestionName": "Tanya Pengguna",
+    "toolAskUserQuestionDesc": "Hantar soalan berstruktur pelbagai pilihan atau bebas kepada pengguna",
+    "toolSendAttachmentName": "Hantar Lampiran",
+    "toolSendAttachmentDesc": "Tolak fail yang dihasilkan sebagai kad boleh muat turun ke antara muka desktop",
+    "toolAgentsListName": "Senarai Agen",
+    "toolAgentsListDesc": "Senaraikan semua agen yang tersedia dengan keterangan dan keupayaan mereka",
+    "toolSessionsListName": "Senarai Sesi",
+    "toolSessionsListDesc": "Senaraikan sesi lain (tajuk, agen, model, kiraan mesej)",
+    "toolSessionStatusName": "Status Sesi",
+    "toolSessionStatusDesc": "Tanya agen, model, kiraan mesej dan setem masa bagi sesuatu sesi",
+    "toolSessionsHistoryName": "Sejarah Sesi",
+    "toolSessionsHistoryDesc": "Paginate sejarah mesej sesuatu sesi",
+    "toolSessionsSendName": "Hantar ke Sesi",
+    "toolSessionsSendDesc": "Hantar mesej pengguna ke sesi lain (pilihan tunggu balasan)",
+    "toolPeekSessionsName": "Intip Sesi",
+    "toolPeekSessionsDesc": "Kesedaran rentas sesi — pulangkan senarai padat sesi lain",
+    "toolTeamName": "Pasukan Agen",
+    "toolTeamDesc": "Cipta dan urus pasukan agen dengan papan tugas dikongsi dan pemesejan antara ahli",
+    "toolPdfName": "PDF",
+    "toolPdfDesc": "Ekstrak teks atau analisis visual PDF (berbilang fail, julat halaman)",
+    "toolImageName": "Analisis Imej",
+    "toolImageDesc": "Analisis imej dengan model vision (laluan tempatan, URL, papan keratan, tangkapan skrin)",
+    "toolGetSettingsName": "Baca Tetapan",
+    "toolGetSettingsDesc": "Baca konfigurasi aplikasi mengikut kategori",
+    "toolUpdateSettingsName": "Kemas Kini Tetapan",
+    "toolUpdateSettingsDesc": "Kemas kini konfigurasi aplikasi dengan pengesahan berperingkat risiko",
+    "toolListSettingsBackupsName": "Senarai Sandaran Tetapan",
+    "toolListSettingsBackupsDesc": "Senaraikan sandaran tetapan yang disimpan",
+    "toolRestoreSettingsBackupName": "Pulihkan Sandaran Tetapan",
+    "toolRestoreSettingsBackupDesc": "Pulihkan tetapan daripada sandaran yang disimpan",
+    "toolMemoryGetName": "Dapatkan Memori",
+    "toolMemoryGetDesc": "Dapatkan kandungan penuh satu rekod memori melalui ID",
+    "toolUpdateCoreMemoryName": "Kemas Kini Memori Teras",
+    "toolUpdateCoreMemoryDesc": "Kemas kini fail memory.md yang disuntik ke dalam system prompt",
     "agentSandbox": "Sandbox Docker",
     "agentSandboxDesc": "Jalankan arahan dalam bekas Docker",
     "agentSkillEnvCheck": "Semakan Persekitaran",
@@ -2150,6 +2224,146 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsTab": {
+      "manage": "Kemahiran",
+      "evolution": "Evolusi Diri"
+    },
+    "skillsEvolutionHero": {
+      "title": "Tukar perkara yang anda ulangi menjadi kemahiran boleh guna semula",
+      "body": "Hope Agent tidak berdiam diri. Sekali-sekala menyemak semula sembang dan menyuling perkara yang anda ulang-ulang menjadi kemahiran yang boleh digunakan semula — kali berikutnya, perkara itu sudah dipelajari.",
+      "note": "Dihidupkan secara lalai · semakin kerap digunakan, semakin sesuai dengan anda. Jika dimatikan, perbualan harian tidak terjejas, cuma kemahiran baharu tidak lagi terkumpul secara automatik.",
+      "statusOn": "Berkembang",
+      "statusOff": "Dijeda"
+    },
+    "skillsAutoReview": {
+      "label": "Aktifkan kemahiran baharu secara automatik",
+      "description": "Langkau langkah draf — kemahiran yang disuling terus aktif.",
+      "hint": "Mati (lalai): kemahiran baharu disimpan sebagai draf dan perlukan kelulusan anda."
+    },
+    "agentApprovalTab": "Approval",
+    "agentApproval": {
+      "defaultModeTitle": "Default Session Permission Mode",
+      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
+      "modes": {
+        "inherit": {
+          "label": "Inherit Global",
+          "desc": "Follow the global default (currently \"Default\" mode)"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Edit-class tools and high-risk commands need approval"
+        },
+        "smart": {
+          "label": "Smart Approval",
+          "desc": "Judge model or model self-confidence decides approvals"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "All tools run without approval (protected paths still audit-log)"
+        }
+      },
+      "customApprovalTitle": "Custom Tool Approval",
+      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
+      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
+    "approvalNav": "Permission",
+    "approvalPanel": {
+      "title": "Permission",
+      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
+      "yoloTitle": "Global YOLO (Skip All Approvals)",
+      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
+      "yoloEnabled": "Global YOLO enabled",
+      "yoloDisabled": "Global YOLO disabled",
+      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
+      "protectedPathsTitle": "Protected Paths",
+      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
+      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
+      "editCommandsTitle": "Edit Commands",
+      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
+      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
+      "dangerousCommandsTitle": "Dangerous Commands",
+      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
+      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
+      "smartTitle": "Smart Approval Mode",
+      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
+      "smartStrategy": "Decision Strategy",
+      "smartFallback": "Fallback When Unavailable",
+      "strategies": {
+        "self_confidence": "Model Self-Tag",
+        "judge_model": "Judge Model",
+        "both": "Judge first, self-tag fallback"
+      },
+      "fallbacks": {
+        "default": "Fall back to Default mode",
+        "ask": "Force prompt",
+        "allow": "Force allow"
+      },
+      "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
+      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
+      "timeoutTitle": "Approval Dialog Timeout",
+      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
+      "timeoutSeconds": "Timeout Seconds",
+      "timeoutHint": "0 = wait forever",
+      "timeoutAction": "Timeout Action",
+      "timeoutActions": {
+        "deny": "Block execution",
+        "proceed": "Proceed"
+      },
+      "empty": "No entries — add a pattern to enable",
+      "restoreDefaults": "Restore Defaults",
+      "restoredDefaults": "Restored to defaults"
     }
   },
   "tz": {
@@ -2491,13 +2705,49 @@
     "recoveryBannerDesc": "Aplikasi mengalami kerosakan {{count}} kali sebelum permulaan ini dan telah dimulakan semula secara automatik."
   },
   "approval": {
-    "title": "Pengesahan Pelaksanaan Perintah",
-    "workingDir": "Direktori Kerja",
-    "command": "Perintah",
-    "allowOnce": "Benarkan Sekali",
-    "allowAlways": "Sentiasa Benarkan",
-    "deny": "Tolak",
-    "queueIndicator": "{{current}} daripada {{total}}"
+    "title": "Command Approval Required",
+    "workingDir": "Working Directory",
+    "command": "Command",
+    "allowOnce": "Allow Once",
+    "allowAlways": "Always Allow",
+    "deny": "Deny",
+    "queueIndicator": "{{current}} of {{total}}",
+    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
+    "countdownTooltip": "{{seconds}}s left — will auto-{{action}} on timeout",
+    "countdownAction": {
+      "deny": "deny",
+      "proceed": "proceed"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "Edit-class tool",
+        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch)."
+      },
+      "edit_command": {
+        "title": "Edit-pattern exec command",
+        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix."
+      },
+      "dangerous_command": {
+        "title": "⚠️ Dangerous command",
+        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "protected_path": {
+        "title": "⚠️ Protected path",
+        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "agent_custom_list": {
+        "title": "Agent custom approval list",
+        "body": "This tool is on the agent's custom-approval list (Default mode only)."
+      },
+      "smart_judge": {
+        "title": "Smart-mode judge",
+        "body": "The Smart-mode judge model decided this call needs human confirmation."
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode confirmation",
+        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval."
+      }
+    }
   },
   "thinking": {
     "label": "Proses pemikiran",
@@ -2730,6 +2980,8 @@
     "stepsDetected": "langkah dikesan",
     "noSteps": "Tiada langkah",
     "executeCommand": "Mula melaksanakan pelan. Selesaikan setiap langkah mengikut urutan, memanggil update_plan_step untuk menjejak kemajuan.",
+    "executionApproved": "Pelan diluluskan. Memulakan pelaksanaan.",
+    "executionResumed": "Meneruskan pelaksanaan pelan.",
     "planning": "Mencipta pelan...",
     "pause": "Jeda",
     "resume": "Sambung",
@@ -3450,5 +3702,12 @@
     "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
     "noDiffData": "Tiada data diff",
     "resizePanel": "Saiz semula panel diff"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Kemahiran draf dibuat secara automatik: {{name}}. Klik untuk semak.",
+      "review": "Semak",
+      "unnamedSkill": "(kemahiran tanpa nama)"
+    }
   }
 }

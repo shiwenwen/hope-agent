@@ -88,12 +88,12 @@ pub(super) const ANTHROPIC_MODEL: &str = "claude-sonnet-4-6";
 pub(super) const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 pub(super) const MAX_RETRIES: u32 = 3;
 pub(super) const BASE_DELAY_MS: u64 = 1000;
-pub(super) const DEFAULT_MAX_TOOL_ROUNDS: u32 = 50;
+pub(super) const DEFAULT_MAX_TOOL_ROUNDS: u32 = 0;
 
 /// Get the configured max tool rounds from the current agent.
 /// Returns 0 for unlimited.
-pub(super) fn get_max_tool_rounds() -> u32 {
-    crate::agent_loader::load_agent("default")
+pub(super) fn get_max_tool_rounds(agent_id: &str) -> u32 {
+    crate::agent_loader::load_agent(agent_id)
         .map(|def| def.config.capabilities.max_tool_rounds)
         .unwrap_or(DEFAULT_MAX_TOOL_ROUNDS)
 }
@@ -342,6 +342,10 @@ pub fn build_system_prompt_with_session(
             .as_ref()
             .and_then(|s| s.working_dir.as_deref())
             .or_else(|| project.as_ref().and_then(|p| p.working_dir.as_deref()));
+        let permission_mode = session_meta
+            .as_ref()
+            .map(|m| m.permission_mode)
+            .unwrap_or_default();
         return crate::system_prompt::build(
             &definition,
             Some(model),
@@ -354,6 +358,7 @@ pub fn build_system_prompt_with_session(
             session_id,
             incognito,
             session_working_dir,
+            permission_mode,
         );
     }
     // Fallback: legacy prompt

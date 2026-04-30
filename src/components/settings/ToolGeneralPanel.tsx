@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { WeatherSection } from "@/components/settings/WeatherSection"
 import { cn } from "@/lib/utils"
 import { Check, Loader2 } from "lucide-react"
+import { TOOL_I18N_KEY } from "@/types/tools"
 
 interface UserConfig {
   weatherEnabled?: boolean
@@ -21,6 +22,19 @@ interface ToolLimitsConfig {
   maxImages: number
   maxPdfs: number
   maxVisionPages: number
+}
+
+interface DeferredToolsConfig {
+  enabled: boolean
+  toolNames?: string[]
+}
+
+interface BuiltinTool {
+  name: string
+  description: string
+  internal?: boolean
+  tier?: "core" | "standard" | "configured" | "memory" | "mcp"
+  defer_capable?: boolean
 }
 
 type ApprovalTimeoutAction = "deny" | "proceed"
@@ -42,6 +56,8 @@ export default function ToolGeneralPanel() {
   const [diskThreshold, setDiskThreshold] = useState(50)
   const [savedDiskThreshold, setSavedDiskThreshold] = useState(50)
   const [deferredToolsEnabled, setDeferredToolsEnabled] = useState(false)
+  const [deferredToolNames, setDeferredToolNames] = useState<string[]>([])
+  const [builtinTools, setBuiltinTools] = useState<BuiltinTool[]>([])
 
   const [limits, setLimits] = useState<ToolLimitsConfig>(DEFAULT_LIMITS)
   const [savedLimitsSnapshot, setSavedLimitsSnapshot] = useState("")
@@ -79,9 +95,18 @@ export default function ToolGeneralPanel() {
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load disk threshold", e))
 
     // Load deferred tools config
-    getTransport().call<{ enabled: boolean }>("get_deferred_tools_config")
-      .then((cfg) => { if (!cancelled) setDeferredToolsEnabled(cfg?.enabled ?? false) })
+    getTransport().call<DeferredToolsConfig>("get_deferred_tools_config")
+      .then((cfg) => {
+        if (!cancelled) {
+          setDeferredToolsEnabled(cfg?.enabled ?? false)
+          setDeferredToolNames(cfg?.toolNames ?? [])
+        }
+      })
       .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load deferred tools config", e))
+
+    getTransport().call<BuiltinTool[]>("list_builtin_tools")
+      .then((tools) => { if (!cancelled) setBuiltinTools(tools) })
+      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load built-in tools", e))
 
     // Load user config
     getTransport().call<UserConfig>("get_user_config")
@@ -139,7 +164,9 @@ export default function ToolGeneralPanel() {
   const handleDeferredToolsChange = useCallback(async (enabled: boolean) => {
     setDeferredToolsEnabled(enabled)
     try {
-      await getTransport().call("save_deferred_tools_config", { config: { enabled } })
+      await getTransport().call("save_deferred_tools_config", {
+        config: { enabled, toolNames: deferredToolNames },
+      })
     } catch (e) {
       setDeferredToolsEnabled(!enabled)
       logger.error(
@@ -149,7 +176,28 @@ export default function ToolGeneralPanel() {
         e,
       )
     }
-  }, [])
+  }, [deferredToolNames])
+
+  const handleDeferredToolToggle = useCallback(async (name: string, enabled: boolean) => {
+    const previous = deferredToolNames
+    const next = enabled
+      ? [...previous.filter((n) => n !== name), name]
+      : previous.filter((n) => n !== name)
+    setDeferredToolNames(next)
+    try {
+      await getTransport().call("save_deferred_tools_config", {
+        config: { enabled: deferredToolsEnabled, toolNames: next },
+      })
+    } catch (e) {
+      setDeferredToolNames(previous)
+      logger.error(
+        "settings",
+        "ToolGeneralPanel::save",
+        "Failed to save deferred tool list",
+        e,
+      )
+    }
+  }, [deferredToolNames, deferredToolsEnabled])
 
   const saveDiskThreshold = useCallback(async (kb: number) => {
     try {
@@ -191,6 +239,16 @@ export default function ToolGeneralPanel() {
 
   const updateLimit = (key: keyof ToolLimitsConfig, value: number) => {
     setLimits((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const deferCapableTools = builtinTools.filter((tool) => tool.defer_capable)
+  const toolDisplayName = (name: string) => {
+    const key = TOOL_I18N_KEY[name]
+    return key ? t(`settings.tool${key}Name`) : name
+  }
+  const toolDisplayDesc = (tool: BuiltinTool) => {
+    const key = TOOL_I18N_KEY[tool.name]
+    return key ? t(`settings.tool${key}Desc`) : tool.description
   }
 
   return (
@@ -303,6 +361,41 @@ export default function ToolGeneralPanel() {
               onCheckedChange={handleDeferredToolsChange}
             />
           </div>
+
+          {deferredToolsEnabled && deferCapableTools.length > 0 && (
+            <div className="mx-3 rounded-lg border border-border/50 overflow-hidden">
+              <div className="px-3 py-2 border-b border-border/40 bg-secondary/20">
+                <div className="text-xs font-medium text-muted-foreground">
+                  {t("settings.deferredToolsPerToolTitle")}
+                </div>
+                <div className="text-[11px] text-muted-foreground/60 mt-0.5">
+                  {t("settings.deferredToolsPerToolDesc")}
+                </div>
+              </div>
+              {deferCapableTools.map((tool, idx) => (
+                <div
+                  key={tool.name}
+                  className={cn(
+                    "flex items-center justify-between px-3 py-2 gap-3",
+                    idx > 0 && "border-t border-border/30",
+                  )}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs font-medium text-foreground">
+                      {toolDisplayName(tool.name)}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground/60 line-clamp-1">
+                      {toolDisplayDesc(tool)}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={deferredToolNames.includes(tool.name)}
+                    onCheckedChange={(checked) => handleDeferredToolToggle(tool.name, checked)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="border-t border-border/50" />
 

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::agent_config::{AsyncToolPolicy, FilterConfig};
+use crate::agent_config::{AsyncToolPolicy, CapabilityToggles, FilterConfig};
 use crate::provider::ThinkingStyle;
 
 /// Snapshot of the fields read from `agent.json` on every chat / tool-loop
@@ -9,23 +9,36 @@ use crate::provider::ThinkingStyle;
 #[derive(Debug, Clone)]
 pub(super) struct AgentCapsCache {
     pub agent_tool_filter: FilterConfig,
-    pub require_approval_base: Vec<String>,
     pub sandbox: bool,
-    pub subagents_enabled: bool,
     pub async_tool_policy: AsyncToolPolicy,
+    /// Per-agent MCP master switch (mirrors `agent.json` `capabilities.mcpEnabled`).
+    /// When false, all MCP tools are excluded from schema + system prompt.
+    pub mcp_enabled: bool,
+    /// Tier 3 capability toggle overrides (web_search / canvas / image_generate /
+    /// send_notification / subagent / acp_spawn).
+    pub capability_toggles: CapabilityToggles,
+    /// Whether memory is enabled for this agent (mirrors `agent.json`
+    /// `memory.enabled`). Drives Tier::Memory tool injection gate.
+    pub memory_enabled: bool,
+    /// Mirrors `agent.json` `capabilities.enableCustomToolApproval`. When false,
+    /// `custom_approval_tools` is ignored.
+    pub enable_custom_tool_approval: bool,
+    /// Mirrors `agent.json` `capabilities.customApprovalTools`. Only consumed
+    /// in Default permission mode.
+    pub custom_approval_tools: Vec<String>,
 }
 
 impl Default for AgentCapsCache {
     fn default() -> Self {
-        // Mirrors previous fallbacks when `load_agent` fails:
-        // `subagents.enabled` defaulted to true, everything else to the
-        // type's Default.
         Self {
             agent_tool_filter: FilterConfig::default(),
-            require_approval_base: Vec::new(),
             sandbox: false,
-            subagents_enabled: true,
             async_tool_policy: AsyncToolPolicy::default(),
+            mcp_enabled: true,
+            capability_toggles: CapabilityToggles::default(),
+            memory_enabled: true,
+            enable_custom_tool_approval: false,
+            custom_approval_tools: Vec::new(),
         }
     }
 }
@@ -149,14 +162,6 @@ pub struct AssistantAgent {
     /// Token estimate calibrator (updated with actual API usage)
     #[allow(dead_code)]
     pub(super) token_calibrator: std::sync::Mutex<crate::context_compact::TokenEstimateCalibrator>,
-    /// Whether this agent can use the web_search tool
-    pub(super) web_search_enabled: bool,
-    /// Whether this agent can use the send_notification tool
-    pub(super) notification_enabled: bool,
-    /// Image generation config (Some = enabled with config for dynamic tool description)
-    pub(super) image_gen_config: Option<crate::tools::image_generate::ImageGenConfig>,
-    /// Whether this agent can use the canvas tool
-    pub(super) canvas_enabled: bool,
     /// Current session ID (for sub-agent context)
     pub(super) session_id: Option<String>,
     /// Cached `sessions.incognito` flag for the current session. Refreshed at

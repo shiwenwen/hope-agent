@@ -238,13 +238,20 @@
     "compactNoChange": "Contexto não precisa de compactação",
     "compactFailed": "Falha na compactação",
     "viewContext": "Ver contexto",
-    "toolPermission": "Permissão de ferramentas",
-    "toolPermissionAuto": "Automático",
-    "toolPermissionAsk": "Perguntar sempre",
-    "toolPermissionFull": "Aprovar tudo",
-    "toolPermissionAutoDesc": "O modelo decide se a aprovação é necessária",
-    "toolPermissionAskDesc": "Toda chamada de ferramenta requer confirmação",
-    "toolPermissionFullDesc": "Aprovar automaticamente todas as chamadas de ferramentas",
+    "permissionMode": {
+      "default": {
+        "label": "Padrão",
+        "desc": "Ferramentas de edição e comandos perigosos exigem aprovação; o resto é executado."
+      },
+      "smart": {
+        "label": "Aprovação inteligente",
+        "desc": "Delega a decisão a um modelo juiz ou à autoavaliação de confiança do modelo."
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "Todas as ferramentas são executadas sem aprovação (caminhos protegidos são auditados)."
+      }
+    },
     "statusCache": "Cache",
     "statusCacheWrite": "Gravação",
     "statusCacheHit": "Acerto",
@@ -394,6 +401,18 @@
     "acp_spawn": "Iniciar Agent ACP",
     "submit_plan": "Enviar plano",
     "amend_plan": "Modificar plano",
+    "task_create": "Criar tarefa",
+    "task_update": "Atualizar tarefa",
+    "task_list": "Listar tarefas",
+    "team": "Equipe de Agents",
+    "peek_sessions": "Espiar outras sessões",
+    "get_settings": "Obter configuração",
+    "update_settings": "Atualizar configuração",
+    "list_settings_backups": "Listar backups de configuração",
+    "restore_settings_backup": "Restaurar backup de configuração",
+    "mcp_resource": "Recurso MCP",
+    "mcp_prompt": "Prompt MCP",
+    "skill": "Carregar skill",
     "ask_user": {
       "cancelled": "Usuário cancelou a pergunta",
       "no_answers": "Nenhuma resposta fornecida",
@@ -794,6 +813,7 @@
       "autoApproveLabel": "Auto-approve tool calls",
       "autoApproveNeedsTrust": "Auto-approve requires Trust level = Trusted.",
       "eagerLabel": "Connect eagerly at startup",
+      "deferredToolsLabel": "Adiar schemas de ferramentas",
       "allowedTools": "Tool allowlist",
       "allowedToolsHint": "Empty = allow all. One original tool name per line (without the mcp__ prefix).",
       "deniedTools": "Tool denylist",
@@ -1411,7 +1431,7 @@
     "contextCompactMicrocompactEnabledDesc": "Limpeza de custo zero de resultados de ferramentas efêmeros antigos (ls/grep/find etc.). Roda antes das outras camadas de compactação",
     "contextCompactMicrocompactTools": "Lista de ferramentas para microcompactação",
     "contextCompactMicrocompactToolsDesc": "Resultados antigos das ferramentas selecionadas serão limpos automaticamente",
-    "contextCompactToolPolicy": "Política de compactação por ferramenta",
+    "contextCompactToolPolicy": "Política de compactação de resultados de ferramentas",
     "contextCompactToolPolicyDesc": "Controla como os resultados de cada ferramenta são tratados durante a compactação",
     "contextCompactPolicyEager": "Limpar primeiro",
     "contextCompactPolicyDefault": "Normal",
@@ -1520,7 +1540,9 @@
     "asyncToolsInlineBytes": "Tamanho do resultado inline",
     "asyncToolsInlineBytesDesc": "Bytes do resultado incluídos na notificação de conclusão. Resultados maiores vão para o spool com visualização head/tail.",
     "deferredToolsEnabled": "Carregamento diferido de ferramentas",
-    "deferredToolsEnabledDesc": "Envia apenas os esquemas das ferramentas principais; os demais são descobertos via tool_search. Reduz tokens de esquema em agentes com muitas ferramentas. Vale na próxima conversa.",
+    "deferredToolsEnabledDesc": "Enable tool_search-based loading. Tools remain injected until you defer them below. Takes effect on the next conversation.",
+    "deferredToolsPerToolTitle": "Deferred built-in tools",
+    "deferredToolsPerToolDesc": "Turn on only the tools whose schemas should be discovered via tool_search instead of sent up front.",
     "memorySelection": "Seleção semântica de memórias via LLM",
     "memorySelectionDesc": "Quando o número de memórias candidatas excede o limiar, pede ao modelo para escolher as mais relevantes para o prompt do sistema. Reduz ruído.",
     "memorySelectionThreshold": "Limiar de ativação",
@@ -1643,20 +1665,26 @@
     "agentIdentity": "Identidade",
     "agentPersonalityTab": "Personalidade",
     "agentBasicInfo": "Info Básica",
-    "agentCapabilities": "Capacidades",
+    "agentCapabilities": "Ferramentas e habilidades",
     "agentCapabilitiesTabTools": "Ferramentas",
     "agentCapabilitiesTabSkills": "Skills",
     "agentCapabilitiesToolInjection": "Injeção de ferramentas",
     "agentCapabilitiesToolInjectionDesc": "Escolha quais ferramentas integradas este Agent pode usar (ferramentas internas do sistema estão sempre disponíveis)",
+    "agentTierCoreTitle": "Ferramentas centrais",
+    "agentTierCoreDesc": "Recursos fundamentais que todo agente precisa. Não podem ser desativados.",
+    "agentTierCoreBadge": "Sempre ativo",
+    "agentTierStandardTitle": "Ferramentas padrão",
+    "agentTierStandardDesc": "Disponível para o agente por padrão; pode ser desativado individualmente. Algumas funcionalidades exigem um provedor configurado globalmente para funcionar.",
+    "agentTierConfiguredHint": "Não configurado · vá para {{hint}}",
+    "agentMcpTitle": "MCP",
+    "agentMcpDesc": "Quando habilitado, todos os servidores MCP conectados e suas ferramentas ficam disponíveis; quando desligado, todas as ferramentas MCP são excluídas.",
+    "agentMcpEnableLabel": "Habilitar MCP",
+    "agentMcpBadgeOn": "Ativado",
+    "agentMcpBadgeOff": "Desativado",
     "agentMaxToolRounds": "Máx. Rodadas de Ferramenta",
     "agentUnlimited": "Sem limite",
     "agentSkills": "Habilidades",
     "agentSkillsDesc": "Habilidades ativadas globalmente estão disponíveis por padrão. Você pode desativar as que não precisa",
-    "agentRequireApproval": "Aprovação de Ferramenta",
-    "agentRequireApprovalDesc": "Controle se a IA precisa de confirmação antes de usar ferramentas",
-    "agentApprovalAll": "Aprovar tudo",
-    "agentApprovalNone": "Sem aprovação",
-    "agentApprovalCustom": "Personalizado",
     "toolExecName": "Executar comando",
     "toolExecDesc": "Executar comandos shell com suporte a segundo plano e sandbox",
     "toolProcessName": "Gerenciar processos",
@@ -1703,6 +1731,52 @@
     "toolTaskUpdateDesc": "Atualizar o status ou conteúdo de uma tarefa existente",
     "toolTaskListName": "Listar tarefas",
     "toolTaskListDesc": "Listar todas as tarefas da sessão atual",
+    "toolMcpResourceName": "Recurso MCP",
+    "toolMcpResourceDesc": "Ler recursos hospedados por servidores MCP conectados (arquivos, registros, etc.)",
+    "toolMcpPromptName": "Prompt MCP",
+    "toolMcpPromptDesc": "Obter modelos de prompt publicados por servidores MCP conectados",
+    "toolImageGenerateName": "Gerar Imagem",
+    "toolImageGenerateDesc": "Geração texto-para-imagem e imagem-para-imagem com failover multi-provedor",
+    "toolCanvasName": "Canvas",
+    "toolCanvasDesc": "Criar projetos visuais interativos no painel de pré-visualização (HTML, Markdown, gráficos, slides)",
+    "toolAcpSpawnName": "Invocar Agente Externo",
+    "toolAcpSpawnDesc": "Invocar agentes ACP externos (Claude Code, Codex CLI, etc.) para executar tarefas",
+    "toolProjectReadFileName": "Ler Arquivo do Projeto",
+    "toolProjectReadFileDesc": "Ler arquivos enviados ao projeto da sessão atual",
+    "toolAskUserQuestionName": "Perguntar ao Usuário",
+    "toolAskUserQuestionDesc": "Enviar perguntas estruturadas de múltipla escolha ou texto livre ao usuário",
+    "toolSendAttachmentName": "Enviar Anexo",
+    "toolSendAttachmentDesc": "Enviar um arquivo gerado como cartão para download na interface de desktop",
+    "toolAgentsListName": "Listar Agentes",
+    "toolAgentsListDesc": "Listar todos os agentes disponíveis com suas descrições e capacidades",
+    "toolSessionsListName": "Lista de Sessões",
+    "toolSessionsListDesc": "Listar outras sessões (título, agente, modelo, contagem de mensagens)",
+    "toolSessionStatusName": "Status da Sessão",
+    "toolSessionStatusDesc": "Consultar o agente, modelo, contagem de mensagens e timestamps de uma sessão",
+    "toolSessionsHistoryName": "Histórico de Sessão",
+    "toolSessionsHistoryDesc": "Paginar o histórico de mensagens de uma sessão",
+    "toolSessionsSendName": "Enviar para Sessão",
+    "toolSessionsSendDesc": "Enviar uma mensagem de usuário a outra sessão (esperar resposta opcional)",
+    "toolPeekSessionsName": "Espiar Sessões",
+    "toolPeekSessionsDesc": "Consciência entre sessões — retorna uma lista compacta de sessões pares",
+    "toolTeamName": "Equipe de Agentes",
+    "toolTeamDesc": "Criar e gerenciar equipes de agentes com quadros de tarefas compartilhados e mensagens entre membros",
+    "toolPdfName": "PDF",
+    "toolPdfDesc": "Extrair texto ou analisar visualmente PDFs (multi-arquivo, intervalos de páginas)",
+    "toolImageName": "Análise de Imagem",
+    "toolImageDesc": "Analisar imagens com visão (caminhos locais, URLs, área de transferência, capturas de tela)",
+    "toolGetSettingsName": "Obter Configurações",
+    "toolGetSettingsDesc": "Ler a configuração do aplicativo por categoria",
+    "toolUpdateSettingsName": "Atualizar Configurações",
+    "toolUpdateSettingsDesc": "Atualizar configuração do aplicativo com confirmação por nível de risco",
+    "toolListSettingsBackupsName": "Listar Backups de Configurações",
+    "toolListSettingsBackupsDesc": "Enumerar backups de configurações salvos",
+    "toolRestoreSettingsBackupName": "Restaurar Backup de Configurações",
+    "toolRestoreSettingsBackupDesc": "Restaurar configurações de um backup salvo",
+    "toolMemoryGetName": "Obter Memória",
+    "toolMemoryGetDesc": "Recuperar o conteúdo completo de uma memória por ID",
+    "toolUpdateCoreMemoryName": "Atualizar Memória Central",
+    "toolUpdateCoreMemoryDesc": "Atualizar o arquivo memory.md injetado no system prompt",
     "agentSandbox": "Sandbox Docker",
     "agentSandboxDesc": "Executar comandos em container Docker",
     "agentSkillEnvCheck": "Verificação de Ambiente",
@@ -2150,6 +2224,146 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsTab": {
+      "manage": "Habilidades",
+      "evolution": "Auto-evolução"
+    },
+    "skillsEvolutionHero": {
+      "title": "Transforma o que você repete em habilidades reutilizáveis",
+      "body": "O Hope Agent não fica parado. De tempos em tempos relê os chats e destila o que você repete em habilidades reutilizáveis — na próxima vez que surgir, já está aprendido.",
+      "note": "Ligado por padrão · ajusta-se a você a cada uso. Ao desligar, as conversas seguem normais; apenas deixa de acumular novas habilidades automaticamente.",
+      "statusOn": "Evoluindo",
+      "statusOff": "Pausado"
+    },
+    "skillsAutoReview": {
+      "label": "Ativar novas habilidades automaticamente",
+      "description": "Pula a etapa de rascunho — habilidades destiladas entram em ação imediatamente.",
+      "hint": "Desativado (padrão): novas habilidades ficam como rascunho e precisam da sua aprovação."
+    },
+    "agentApprovalTab": "Approval",
+    "agentApproval": {
+      "defaultModeTitle": "Default Session Permission Mode",
+      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
+      "modes": {
+        "inherit": {
+          "label": "Inherit Global",
+          "desc": "Follow the global default (currently \"Default\" mode)"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Edit-class tools and high-risk commands need approval"
+        },
+        "smart": {
+          "label": "Smart Approval",
+          "desc": "Judge model or model self-confidence decides approvals"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "All tools run without approval (protected paths still audit-log)"
+        }
+      },
+      "customApprovalTitle": "Custom Tool Approval",
+      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
+      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
+    "approvalNav": "Permission",
+    "approvalPanel": {
+      "title": "Permission",
+      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
+      "yoloTitle": "Global YOLO (Skip All Approvals)",
+      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
+      "yoloEnabled": "Global YOLO enabled",
+      "yoloDisabled": "Global YOLO disabled",
+      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
+      "protectedPathsTitle": "Protected Paths",
+      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
+      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
+      "editCommandsTitle": "Edit Commands",
+      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
+      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
+      "dangerousCommandsTitle": "Dangerous Commands",
+      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
+      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
+      "smartTitle": "Smart Approval Mode",
+      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
+      "smartStrategy": "Decision Strategy",
+      "smartFallback": "Fallback When Unavailable",
+      "strategies": {
+        "self_confidence": "Model Self-Tag",
+        "judge_model": "Judge Model",
+        "both": "Judge first, self-tag fallback"
+      },
+      "fallbacks": {
+        "default": "Fall back to Default mode",
+        "ask": "Force prompt",
+        "allow": "Force allow"
+      },
+      "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
+      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
+      "timeoutTitle": "Approval Dialog Timeout",
+      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
+      "timeoutSeconds": "Timeout Seconds",
+      "timeoutHint": "0 = wait forever",
+      "timeoutAction": "Timeout Action",
+      "timeoutActions": {
+        "deny": "Block execution",
+        "proceed": "Proceed"
+      },
+      "empty": "No entries — add a pattern to enable",
+      "restoreDefaults": "Restore Defaults",
+      "restoredDefaults": "Restored to defaults"
     }
   },
   "tz": {
@@ -2491,13 +2705,49 @@
     "recoveryBannerDesc": "A app falhou {{count}} vez(es) antes desta inicialização e foi reiniciada automaticamente."
   },
   "approval": {
-    "title": "Confirmação de Execução",
-    "workingDir": "Diretório de Trabalho",
-    "command": "Comando",
-    "allowOnce": "Permitir uma vez",
-    "allowAlways": "Permitir sempre",
-    "deny": "Negar",
-    "queueIndicator": "{{current}} de {{total}}"
+    "title": "Command Approval Required",
+    "workingDir": "Working Directory",
+    "command": "Command",
+    "allowOnce": "Allow Once",
+    "allowAlways": "Always Allow",
+    "deny": "Deny",
+    "queueIndicator": "{{current}} of {{total}}",
+    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
+    "countdownTooltip": "{{seconds}}s left — will auto-{{action}} on timeout",
+    "countdownAction": {
+      "deny": "deny",
+      "proceed": "proceed"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "Edit-class tool",
+        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch)."
+      },
+      "edit_command": {
+        "title": "Edit-pattern exec command",
+        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix."
+      },
+      "dangerous_command": {
+        "title": "⚠️ Dangerous command",
+        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "protected_path": {
+        "title": "⚠️ Protected path",
+        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "agent_custom_list": {
+        "title": "Agent custom approval list",
+        "body": "This tool is on the agent's custom-approval list (Default mode only)."
+      },
+      "smart_judge": {
+        "title": "Smart-mode judge",
+        "body": "The Smart-mode judge model decided this call needs human confirmation."
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode confirmation",
+        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval."
+      }
+    }
   },
   "thinking": {
     "label": "Processo de raciocínio",
@@ -2730,6 +2980,8 @@
     "stepsDetected": "passos detectados",
     "noSteps": "Sem etapas",
     "executeCommand": "Comece a executar o plano. Complete cada passo em ordem, chamando update_plan_step para rastrear o progresso.",
+    "executionApproved": "Plano aprovado. Iniciando a execução.",
+    "executionResumed": "Continuando a execução do plano.",
     "planning": "Criando plano...",
     "pause": "Pausar",
     "resume": "Retomar",
@@ -3450,5 +3702,12 @@
     "fileTooLarge": "Arquivo muito grande, somente os primeiros 256KB são renderizados",
     "noDiffData": "Sem dados de diff",
     "resizePanel": "Redimensionar painel de diff"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Habilidade de rascunho criada automaticamente: {{name}}. Clique para revisar.",
+      "review": "Revisar",
+      "unnamedSkill": "(habilidade sem nome)"
+    }
   }
 }

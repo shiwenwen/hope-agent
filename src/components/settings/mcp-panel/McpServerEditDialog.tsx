@@ -68,6 +68,7 @@ type FormState = {
   trustLevel: McpTrustLevel
   autoApprove: boolean
   eager: boolean
+  deferredTools: boolean
   deniedTools: string
   allowedTools: string
 }
@@ -91,6 +92,7 @@ function initialFromSummary(s: McpServerSummary | null): FormState {
       trustLevel: "untrusted",
       autoApprove: false,
       eager: false,
+      deferredTools: false,
       deniedTools: "",
       allowedTools: "",
     }
@@ -114,6 +116,7 @@ function initialFromSummary(s: McpServerSummary | null): FormState {
     trustLevel: s.trustLevel ?? "untrusted",
     autoApprove: s.autoApprove,
     eager: s.eager,
+    deferredTools: s.deferredTools ?? false,
     deniedTools: (s.deniedTools ?? []).join("\n"),
     allowedTools: (s.allowedTools ?? []).join("\n"),
   }
@@ -161,6 +164,7 @@ function formToDraft(form: FormState): McpServerDraft {
     trustLevel: form.trustLevel,
     autoApprove: form.autoApprove,
     eager: form.eager,
+    deferredTools: form.deferredTools,
     deniedTools: splitList(form.deniedTools),
     allowedTools: splitList(form.allowedTools),
     oauth: null,
@@ -438,6 +442,15 @@ export default function McpServerEditDialog({
                     onCheckedChange={(v) => setForm({ ...form, eager: v })}
                   />
                   {t("settings.mcp.eagerLabel")}
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Switch
+                    checked={form.deferredTools}
+                    onCheckedChange={(v) =>
+                      setForm({ ...form, deferredTools: v })
+                    }
+                  />
+                  {t("settings.mcp.deferredToolsLabel")}
                 </label>
               </div>
             </div>

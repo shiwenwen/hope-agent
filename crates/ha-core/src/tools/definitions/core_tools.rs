@@ -9,16 +9,16 @@ use super::super::{
     TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND, TOOL_SESSION_STATUS, TOOL_SKILL,
     TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WRITE,
 };
-use super::types::{is_core_tool, ToolDefinition};
+use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
 pub fn get_available_tools() -> Vec<ToolDefinition> {
     let mut tools = vec![
         ToolDefinition {
             name: TOOL_EXEC.into(),
             description: "Execute a shell command. Returns stdout/stderr. Supports background execution with yield_ms/background params. Also supports `run_in_background: true` to detach the entire tool call as an async job whose result is auto-injected when ready.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: true,
             parameters: json!({
                 "type": "object",
@@ -64,9 +64,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_PROCESS.into(),
             description: "Manage running exec sessions: list, poll, log, write, kill, clear, remove.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -104,9 +104,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_RUNTIME_CANCEL.into(),
             description: "Cancel a running background task by id. Supports async tool jobs (`kind='async_job'` with job_id), sub-agent runs (`kind='subagent'` with run_id), exec process sessions (`kind='process'` with session_id), and running cron jobs (`kind='cron'` with job id). Cancellation is best-effort; completed tasks are not changed.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
-            deferred: false,
-            always_load: true,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -128,9 +128,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_READ.into(),
             description: "Read the contents of a file at the specified path. Relative paths resolve from the session working directory when set, otherwise the agent home. Supports text files with line-based pagination (offset/limit) and image files (auto-detected, returned as base64). For large files, use offset and limit to read specific sections.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -155,9 +155,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_PROJECT_READ_FILE.into(),
             description: "Read a file that has been uploaded to the CURRENT session's project. Only works when the session is attached to a project; use the `file_id` from the \"Project Files\" section of the system prompt (or `name` as a fallback). Returns extracted text with line-based pagination. Use the regular `read` tool for files outside a project.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -185,9 +185,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_WRITE.into(),
             description: "Write content to a file at the specified path. Relative paths resolve from the session working directory when set, otherwise the agent home. Creates parent directories if needed. Accepts 'file_path' as alias for 'path'.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -208,9 +208,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_EDIT.into(),
             description: "Edit a file by replacing specific text. Relative paths resolve from the session working directory when set, otherwise the agent home. More precise than write for making targeted changes. The old_text must match exactly once (including whitespace and indentation). Accepts aliases: 'file_path' for 'path', 'oldText'/'old_string' for 'old_text', 'newText'/'new_string' for 'new_text'.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -235,9 +235,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_LS.into(),
             description: "List files and directories in the specified path. Relative paths resolve from the session working directory when set, otherwise the agent home. Returns sorted names with type indicators (/ for directories, @ for symlinks). Supports ~ expansion and entry limit.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -258,9 +258,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_GREP.into(),
             description: "Search file contents using regex or literal patterns. Relative paths resolve from the session working directory when set, otherwise the agent home. Respects .gitignore. Returns matching lines with file paths and line numbers.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -301,9 +301,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_FIND.into(),
             description: "Find files by glob pattern. Relative paths resolve from the session working directory when set, otherwise the agent home. Respects .gitignore. Returns matching file paths relative to the search directory.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -328,9 +328,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_APPLY_PATCH.into(),
             description: "Apply a patch to create, modify, move, or delete files. Relative paths resolve from the session working directory when set, otherwise the agent home. Use the *** Begin Patch / *** End Patch format with Add File, Update File, Delete File, and Move to markers.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::FileSystem },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -347,9 +347,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_WEB_FETCH.into(),
             description: "Fetch and extract readable content from a URL using Mozilla Readability. Supports markdown and plain text output modes. Returns structured JSON with page content, metadata, and extraction info. Use this to read web pages, documentation, articles, or API responses.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -375,9 +375,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SAVE_MEMORY.into(),
             description: "Save information to persistent memory for future conversations. Use this when the user shares personal info, preferences, corrections to your behavior, project context, or reference materials. Memories persist across conversations and help you provide better, personalized assistance.".into(),
+            tier: ToolTier::Memory,
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -413,9 +413,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_RECALL_MEMORY.into(),
             description: "Search persistent memories by keyword or semantic query. Use this to recall previously stored information about the user, their preferences, project context, or reference materials. Set include_history=true to also search past conversation messages.".into(),
+            tier: ToolTier::Memory,
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -445,9 +445,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_UPDATE_MEMORY.into(),
             description: "Update an existing memory's content and tags by its ID. Use recall_memory first to find the memory ID. Use when a memory needs correction or its information has changed.".into(),
+            tier: ToolTier::Memory,
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -473,9 +473,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_DELETE_MEMORY.into(),
             description: "Delete a memory by its ID. Use recall_memory first to find the memory ID, then use this tool to remove it. Use when the user asks to forget something or when a memory is outdated/incorrect.".into(),
+            tier: ToolTier::Memory,
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -493,9 +493,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_MANAGE_CRON.into(),
             description: "Create, list, get, update, delete, and trigger scheduled tasks (cron jobs). Jobs run an agent turn with the given prompt on a schedule (isolated session, no prior history). Supports one-time (at), recurring (every), and cron expression schedules.\n\nUse this for reminders, follow-ups, and repeated nudges over time. If the user asks for something like \"remind me in 10 minutes\" or \"every 10 minutes for an hour\", create a scheduled task instead of simulating time with `exec`/`date`.\n\nResult delivery: a cron job's final output can be fanned out to one or more IM channel conversations (Telegram / WeChat / Slack / Feishu / Discord / etc.) via `delivery_targets`. Two workflows:\n\n1. When the user is chatting via an IM channel and creates a job without specifying `delivery_targets`, the job's output is delivered back to the same chat by default. Pass `delivery_targets=[]` to explicitly opt out.\n2. To fan out to other channels (or to discover target ids from a desktop chat), first call `action='list_channel_targets'` to enumerate available accounts and conversations, then pass the exact channel_id/account_id/chat_id triples.\n\nFailures are also delivered (as `⚠️ [Cron] {name} failed: {error}`) to the same targets.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -586,9 +586,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_BROWSER.into(),
             description: "Control a Chrome browser via DevTools Protocol. Supports navigation, element interaction (click/fill/hover/drag), screenshots, accessibility snapshots, JavaScript execution, tab management, profile isolation, and PDF export. `new_page` is the usual entry point: it first tries an existing Chrome at --remote-debugging-port=9222, then auto-launches a managed instance if needed. Managed launches use a large responsive window instead of chromiumoxide's default 800x600 viewport emulation. Use 'take_snapshot' to get element refs, then use those refs for click/fill/hover actions. Use 'list_profiles' to see available profiles and 'save_pdf' to export pages as PDF.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: false },
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -728,9 +728,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_MEMORY_GET.into(),
             description: "Retrieve a specific memory entry by its ID with full content and metadata. Use after recall_memory to get complete details of a specific memory.".into(),
+            tier: ToolTier::Memory,
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -748,9 +748,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_UPDATE_CORE_MEMORY.into(),
             description: "Update the core memory file (memory.md) that is always visible in the system prompt. Use for persistent rules, preferences, and standing instructions that the user wants you to always follow.".into(),
+            tier: ToolTier::Memory,
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -778,9 +778,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_AGENTS_LIST.into(),
             description: "List all available agents with their descriptions and capabilities. Useful for choosing which agent to delegate tasks to via subagent.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -793,9 +793,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSIONS_LIST.into(),
             description: "List all chat sessions with metadata (title, agent, model, message count). Use to discover existing sessions for cross-session communication.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -821,9 +821,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSION_STATUS.into(),
             description: "Query detailed status of a specific session including agent, model, message count, and timestamps.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -841,9 +841,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSIONS_HISTORY.into(),
             description: "Get paginated chat history from a specific session. Use to read conversation context from other sessions. Tool call details are excluded by default to reduce noise.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -873,9 +873,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_SESSIONS_SEND.into(),
             description: "Send a message to another session for cross-session communication. The message is delivered as a user message. With wait=true, blocks until the target agent responds (up to timeout_secs).".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::SessionAware },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -905,9 +905,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_IMAGE.into(),
             description: "Analyze one or more images for visual understanding. Supports multiple sources: local files, HTTP/HTTPS URLs, data URIs, system clipboard, and desktop screenshots. Up to 10 images per call — each image is sent directly to the model as raw vision data for maximum quality. Supports PNG, JPEG, GIF, WebP, BMP, TIFF. Oversized images are auto-resized.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -960,9 +960,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_PDF.into(),
             description: "Analyze PDF documents with text extraction or visual page rendering. Modes: 'auto' (default) extracts text, falls back to vision for scanned/image PDFs; 'text' for pure text extraction; 'vision' renders pages as images for the model to see directly. Supports local files, URLs, and multiple PDFs.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1002,9 +1002,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_GET_WEATHER.into(),
             description: "Get current weather and forecast for a location. Uses Open-Meteo API (free, no API key required). Defaults to the user's configured location if no location parameter is provided.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: true, default_deferred: true },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1026,9 +1026,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_GET_SETTINGS.into(),
             description: "Read application settings for a given category. Returns the current configuration as JSON. Use category 'all' for an overview of all settings.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1063,9 +1063,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
             description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Cannot modify providers or API keys for security. 'channels' config is HIGH-risk.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1103,9 +1103,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_LIST_SETTINGS_BACKUPS.into(),
             description: "List recent automatic settings backups (newest first). Every call to update_settings (or any other code path that writes config.json / user.json) creates a snapshot beforehand. Use this to show the user a rollback history; pass the returned `id` to restore_settings_backup.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1129,9 +1129,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: TOOL_RESTORE_SETTINGS_BACKUP.into(),
             description: "Roll back to a previously-captured automatic settings snapshot. Creates a fresh snapshot of the current state first so the rollback itself is reversible. HIGH risk: ALWAYS confirm with the user (show the entry's timestamp, kind, and category) before calling.".into(),
+            tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: true },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1154,9 +1154,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                           Discord / Slack / Feishu / etc. — automatically falls back to a download link when the channel \
                           doesn't support the MIME type). Copies the file into the session's attachments directory. \
                           The `path` argument is always a server-local absolute path.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Interaction },
             internal: true,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1185,9 +1185,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                           records, etc.). `action=list` to enumerate URIs, `action=read` \
                           with a specific `uri` to fetch content."
                 .into(),
+            tier: ToolTier::Mcp,
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1218,9 +1218,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                           expands a prompt by `name`, optionally filling in string \
                           `arguments`."
                 .into(),
+            tier: ToolTier::Mcp,
             internal: false,
-            deferred: false,
-            always_load: false,
+            concurrent_safe: true,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1257,9 +1257,9 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                           substitution. For inline skills it returns the SKILL.md content so \
                           you can follow its instructions; for fork skills it runs the skill \
                           in a sub-agent and returns only the final summary.".into(),
+            tier: ToolTier::Core { subclass: CoreSubclass::Meta },
             internal: true,
-            deferred: false,
-            always_load: true,
+            concurrent_safe: false,
             async_capable: false,
             parameters: json!({
                 "type": "object",
@@ -1291,14 +1291,5 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
 
     // ── Cross-Session Peek (deferred, read-only) ──
     tools.push(crate::awareness::peek_sessions_schema());
-
-    // Mark non-core tools as deferred, core tools as always_load
-    for tool in &mut tools {
-        if is_core_tool(&tool.name) {
-            tool.always_load = true;
-        } else {
-            tool.deferred = true;
-        }
-    }
     tools
 }

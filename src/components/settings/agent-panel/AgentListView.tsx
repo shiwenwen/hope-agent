@@ -47,8 +47,7 @@ function AgentCreateView({
         model: { primary: null, fallbacks: [] },
         personality: { ...DEFAULT_PERSONALITY },
         capabilities: {
-          maxToolRounds: 50,
-          requireApproval: ["*"],
+          maxToolRounds: 0,
           sandbox: false,
           skillEnvCheck: true,
           tools: { allow: [], deny: [] },
@@ -56,7 +55,6 @@ function AgentCreateView({
         },
         openclawMode: false,
         subagents: {
-          enabled: true,
           allowedAgents: [],
           deniedAgents: [],
           maxConcurrent: 5,

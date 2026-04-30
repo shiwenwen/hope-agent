@@ -14,6 +14,7 @@ pub mod qqbot;
 pub mod registry;
 pub mod signal;
 pub mod slack;
+pub mod start_watchdog;
 pub mod telegram;
 pub mod traits;
 pub mod types;

@@ -1,63 +1,28 @@
 import { useMemo, useState } from "react"
-import { ChevronRight, Circle, CheckCircle, Loader2, ListChecks } from "lucide-react"
+import { ChevronRight, ListChecks } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import type { Task, TaskStatus, ToolCall } from "@/types/chat"
+import type { ToolCall } from "@/types/chat"
+import {
+  createCurrentTaskProgressSnapshot,
+  getTaskDisplayLabel,
+  getTaskProgressSummaryText,
+  parseTaskToolResult,
+} from "@/components/chat/tasks/taskProgress"
+import { TASK_STATUS_ICON } from "@/components/chat/tasks/taskStatusIcon"
 
 interface TaskBlockProps {
   tool: ToolCall
-}
-
-const STATUS_ICON: Record<TaskStatus, { Icon: typeof Circle; cls: string }> = {
-  pending: { Icon: Circle, cls: "text-muted-foreground" },
-  in_progress: { Icon: Loader2, cls: "animate-spin text-blue-500" },
-  completed: { Icon: CheckCircle, cls: "text-green-500" },
 }
 
 export default function TaskBlock({ tool }: TaskBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(true)
 
-  const tasks = useMemo<Task[]>(() => {
-    if (!tool.result) return []
-    try {
-      const parsed = JSON.parse(tool.result)
-      return Array.isArray(parsed) ? (parsed as Task[]) : []
-    } catch {
-      return []
-    }
-  }, [tool.result])
-
-  const summary = useMemo(() => {
-    const total = tasks.length
-    const completed = tasks.filter((tk) => tk.status === "completed").length
-    const inProgress = tasks.some((tk) => tk.status === "in_progress")
-    const remaining = total - completed
-    return { total, completed, remaining, inProgress }
-  }, [tasks])
-
-  const summaryText = useMemo(() => {
-    if (tasks.length === 0) return t("executionStatus.task.empty")
-    if (summary.inProgress) {
-      return t("executionStatus.task.running", {
-        completed: summary.completed,
-        total: summary.total,
-        remaining: summary.remaining,
-      })
-    }
-    if (summary.completed === summary.total) {
-      return t("executionStatus.task.completed", {
-        completed: summary.completed,
-        total: summary.total,
-        remaining: summary.remaining,
-      })
-    }
-    return t("executionStatus.task.pending", {
-      completed: summary.completed,
-      total: summary.total,
-      remaining: summary.remaining,
-    })
-  }, [summary, t, tasks.length])
+  const rawTasks = useMemo(() => parseTaskToolResult(tool.result), [tool.result])
+  const snapshot = useMemo(() => createCurrentTaskProgressSnapshot(rawTasks), [rawTasks])
+  const tasks = snapshot.tasks
+  const summaryText = useMemo(() => getTaskProgressSummaryText(snapshot, t), [snapshot, t])
 
   if (tasks.length === 0) {
     return (
@@ -67,6 +32,8 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
       </div>
     )
   }
+
+  const fallbackTaskLabel = String(t("settings.browser.untitledTab", { defaultValue: "Untitled" }))
 
   return (
     <div className="my-1.5 rounded-lg border border-border bg-secondary/40 text-xs">
@@ -87,9 +54,8 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
       {expanded && (
         <ul className="space-y-0.5 px-2 pb-2">
           {tasks.map((tk) => {
-            const { Icon, cls } = STATUS_ICON[tk.status] ?? STATUS_ICON.pending
-            const label =
-              tk.status === "in_progress" && tk.activeForm ? tk.activeForm : tk.content
+            const { Icon, cls } = TASK_STATUS_ICON[tk.status] ?? TASK_STATUS_ICON.pending
+            const label = getTaskDisplayLabel(tk, fallbackTaskLabel)
             return (
               <li
                 key={tk.id}

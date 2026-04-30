@@ -3,16 +3,21 @@ use serde_json::json;
 use super::super::{
     TOOL_ACP_SPAWN, TOOL_IMAGE_GENERATE, TOOL_SUBAGENT, TOOL_TEAM, TOOL_TOOL_SEARCH,
 };
-use super::types::ToolDefinition;
+use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
 /// Returns the subagent tool definition (conditionally injected when enabled).
 pub fn get_subagent_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBAGENT.into(),
         description: "Spawn and manage sub-agents to delegate tasks. Sub-agents run asynchronously — their results are automatically pushed to you when complete. Use steer to redirect a running sub-agent. Use check(wait=true) as fallback if you need to actively wait for a result.".into(),
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Agents",
+        },
         internal: false,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -108,9 +113,14 @@ pub fn get_acp_spawn_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_ACP_SPAWN.into(),
         description: "Spawn and manage external ACP agents (Claude Code, Codex CLI, Gemini CLI, etc.). External agents run as separate processes with their own tools, context, and capabilities. Use for tasks that benefit from a specialized external coding agent.".into(),
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: false,
+            default_deferred: true,
+            config_hint: "Settings → Agents → ACP",
+        },
         internal: false,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -171,9 +181,11 @@ pub fn get_tool_search_tool() -> ToolDefinition {
         description: "Search for available tools by keyword query. Returns full tool schemas \
             for matched tools. Use this to discover tools not listed in the main tool catalog."
             .into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::Meta,
+        },
         internal: true,
-        deferred: false,
-        always_load: true,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -191,11 +203,6 @@ pub fn get_tool_search_tool() -> ToolDefinition {
             "additionalProperties": false
         }),
     }
-}
-
-/// Returns the image_generate tool definition (static fallback for is_internal_tool etc.).
-pub fn get_image_generate_tool() -> ToolDefinition {
-    get_image_generate_tool_dynamic(&crate::tools::image_generate::ImageGenConfig::default())
 }
 
 /// Returns the image_generate tool definition with dynamic description based on enabled providers.
@@ -332,9 +339,14 @@ pub fn get_image_generate_tool_dynamic(
     ToolDefinition {
         name: TOOL_IMAGE_GENERATE.into(),
         description,
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Tools → Image Generation",
+        },
         internal: false,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: true,
         parameters: json!({
             "type": "object",
@@ -392,9 +404,13 @@ pub fn get_team_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_TEAM.into(),
         description: "Create and manage agent teams for coordinated multi-agent parallel work. Teams have named members (each backed by a subagent), a shared task board, and inter-member messaging. Use for complex tasks that benefit from parallel specialization (e.g., frontend + backend + tester).\n\nBefore creating a team, call `action=\"list_templates\"` to see user-configured presets that may already match your task. Use `template=\"<templateId>\"` in `create` to spawn from a preset (each member can be bound to a specific Agent with its own model/identity). Fall back to inline `members=[{name, task, agent_id?, role?, description?}]` when no preset fits.".into(),
+        tier: ToolTier::Standard {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: true,
+        },
         internal: true,
-        deferred: true,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",

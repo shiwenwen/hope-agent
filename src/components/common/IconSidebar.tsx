@@ -7,6 +7,7 @@ import { IconTip } from "@/components/ui/tooltip"
 import ServerStatusIndicator from "@/components/common/ServerStatusIndicator"
 import type { SettingsSection } from "@/components/settings/types"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { useDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
 import {
   ContextMenu,
   ContextMenuContent,
@@ -83,6 +84,7 @@ export default function IconSidebar({
   const { theme, cycleTheme } = useTheme()
   const [showLangMenu, setShowLangMenu] = useState(false)
   const { pendingUpdate } = useDesktopUpdateStore()
+  const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
 
   return (
     <div className="w-[72px] shrink-0 border-r border-border bg-secondary/30 flex flex-col items-center">
@@ -204,21 +206,26 @@ export default function IconSidebar({
 
         {/* Skills entry */}
         <div className="w-full flex justify-center mt-1">
-          <IconTip label={t("settings.skills")} side="right">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "rounded-xl h-8 w-8",
-                view === "skills"
-                  ? "bg-primary/10 text-primary hover:bg-primary/20"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-              onClick={onOpenSkills}
-            >
-              <Puzzle className="h-4 w-4" />
-            </Button>
-          </IconTip>
+          <div className="relative">
+            <IconTip label={t("settings.skills")} side="right">
+              <Button
+                variant="ghost"
+                size="icon"
+                className={cn(
+                  "rounded-xl h-8 w-8",
+                  view === "skills"
+                    ? "bg-primary/10 text-primary hover:bg-primary/20"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={onOpenSkills}
+              >
+                <Puzzle className="h-4 w-4" />
+              </Button>
+            </IconTip>
+            {skillDraftUnseen > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 z-10 w-2 h-2 rounded-full bg-amber-500 border-2 border-background pointer-events-none animate-in zoom-in-0 duration-200" />
+            )}
+          </div>
         </div>
 
         {/* Memory entry */}

@@ -551,6 +551,7 @@ mod tests {
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: None,
             icon: None,

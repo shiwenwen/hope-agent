@@ -87,7 +87,7 @@ pub fn get_dangerous_mode_status() -> ha_core::security::dangerous::DangerousMod
 #[tauri::command]
 pub fn set_dangerous_skip_all_approvals(enabled: bool) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("security.dangerous", "settings-ui"), |store| {
-        store.dangerous_skip_all_approvals = enabled;
+        store.permission.global_yolo = enabled;
         Ok(())
     })?;
     Ok(())

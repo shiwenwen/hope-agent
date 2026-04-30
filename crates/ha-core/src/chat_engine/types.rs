@@ -8,7 +8,6 @@ use crate::chat_engine::stream_seq::ChatSource;
 use crate::context_compact::CompactConfig;
 use crate::provider::{ActiveModel, ProviderConfig};
 use crate::session::SessionDB;
-use crate::tools::image_generate::ImageGenConfig;
 
 // ── Shared Types ────────────────────────────────────────────────────
 
@@ -169,10 +168,6 @@ pub struct ChatEngineParams {
 
     // Agent configuration
     pub resolved_temperature: Option<f64>,
-    pub web_search_enabled: bool,
-    pub notification_enabled: bool,
-    pub image_gen_config: Option<ImageGenConfig>,
-    pub canvas_enabled: bool,
     pub compact_config: CompactConfig,
 
     // Optional

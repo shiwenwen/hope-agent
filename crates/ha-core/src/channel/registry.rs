@@ -102,8 +102,13 @@ impl ChannelRegistry {
             started_at: chrono::Utc::now(),
         };
 
-        let mut workers = self.workers.lock().await;
-        workers.insert(account.id.clone(), handle);
+        {
+            let mut workers = self.workers.lock().await;
+            workers.insert(account.id.clone(), handle);
+        }
+        // Clear any queued retry so a manual Start / UI Restart doesn't
+        // race with the watchdog firing a redundant attempt.
+        super::start_watchdog::mark_success(&account.id).await;
 
         app_info!(
             "channel",
@@ -115,8 +120,11 @@ impl ChannelRegistry {
         Ok(())
     }
 
-    /// Stop a running channel account.
+    /// Stop a running channel account. Also cancels any queued
+    /// watchdog retry — user intent always overrides the watchdog.
     pub async fn stop_account(&self, account_id: &str) -> Result<()> {
+        super::start_watchdog::cancel_pending(account_id).await;
+
         let handle = {
             let mut workers = self.workers.lock().await;
             workers.remove(account_id)

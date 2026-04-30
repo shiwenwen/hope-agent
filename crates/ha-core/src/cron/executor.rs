@@ -276,16 +276,6 @@ pub async fn build_and_run_agent_with_context(
     }
 
     let agent_def = crate::agent_loader::load_agent(agent_id).ok();
-    let agent_notify_on_complete = agent_def
-        .as_ref()
-        .and_then(|def| def.config.notify_on_complete);
-
-    let notification_enabled =
-        store.notification.enabled && agent_notify_on_complete != Some(false);
-
-    let image_gen_config =
-        crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
-
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.to_string(),
         agent_id: agent_id.to_string(),
@@ -299,10 +289,6 @@ pub async fn build_and_run_agent_with_context(
             .as_ref()
             .and_then(|def| def.config.model.temperature)
             .or(store.temperature),
-        web_search_enabled: crate::tools::web_search::has_enabled_provider(&store.web_search),
-        notification_enabled,
-        image_gen_config,
-        canvas_enabled: store.canvas.enabled,
         compact_config: store.compact.clone(),
         extra_system_context: Some(
             extra_system_context

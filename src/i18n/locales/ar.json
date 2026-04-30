@@ -238,13 +238,20 @@
     "compactNoChange": "السياق لا يحتاج إلى ضغط",
     "compactFailed": "فشل الضغط",
     "viewContext": "عرض السياق",
-    "toolPermission": "صلاحية الأدوات",
-    "toolPermissionAuto": "تلقائي",
-    "toolPermissionAsk": "السؤال في كل مرة",
-    "toolPermissionFull": "الموافقة الكاملة",
-    "toolPermissionAutoDesc": "النموذج يقرر ما إذا كانت الموافقة مطلوبة",
-    "toolPermissionAskDesc": "كل استدعاء أداة يتطلب تأكيداً",
-    "toolPermissionFullDesc": "الموافقة تلقائياً على جميع استدعاءات الأدوات",
+    "permissionMode": {
+      "default": {
+        "label": "افتراضي",
+        "desc": "أدوات التحرير والأوامر عالية الخطورة تتطلب الموافقة، والباقي يُنفّذ."
+      },
+      "smart": {
+        "label": "موافقة ذكية",
+        "desc": "نموذج حكم أو علامة ثقة النموذج الذاتية تتخذ قرار الموافقة."
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "جميع الأدوات في هذه الجلسة تعمل بدون موافقة (المسارات المحمية لا تزال تُسجّل)."
+      }
+    },
     "statusCache": "ذاكرة مؤقتة",
     "statusCacheWrite": "كتابة",
     "statusCacheHit": "إصابة",
@@ -394,6 +401,18 @@
     "acp_spawn": "تشغيل Agent ACP",
     "submit_plan": "إرسال الخطة",
     "amend_plan": "تعديل الخطة",
+    "task_create": "إنشاء مهمة",
+    "task_update": "تحديث المهمة",
+    "task_list": "قائمة المهام",
+    "team": "فريق Agent",
+    "peek_sessions": "عرض الجلسات الأخرى",
+    "get_settings": "جلب الإعدادات",
+    "update_settings": "تحديث الإعدادات",
+    "list_settings_backups": "قائمة النسخ الاحتياطية للإعدادات",
+    "restore_settings_backup": "استعادة نسخة الإعدادات",
+    "mcp_resource": "مورد MCP",
+    "mcp_prompt": "موجه MCP",
+    "skill": "تحميل skill",
     "ask_user": {
       "cancelled": "ألغى المستخدم السؤال",
       "no_answers": "لم تُقدَّم إجابات",
@@ -794,6 +813,7 @@
       "autoApproveLabel": "Auto-approve tool calls",
       "autoApproveNeedsTrust": "Auto-approve requires Trust level = Trusted.",
       "eagerLabel": "Connect eagerly at startup",
+      "deferredToolsLabel": "تأجيل مخططات الأدوات",
       "allowedTools": "Tool allowlist",
       "allowedToolsHint": "Empty = allow all. One original tool name per line (without the mcp__ prefix).",
       "deniedTools": "Tool denylist",
@@ -1411,7 +1431,7 @@
     "contextCompactMicrocompactEnabledDesc": "مسح بدون تكلفة لنتائج الأدوات المؤقتة القديمة (ls/grep/find إلخ)، يعمل قبل طبقات الضغط الأخرى",
     "contextCompactMicrocompactTools": "قائمة أدوات الضغط الدقيق",
     "contextCompactMicrocompactToolsDesc": "سيتم مسح النتائج القديمة للأدوات المحددة تلقائياً",
-    "contextCompactToolPolicy": "سياسة ضغط الأدوات",
+    "contextCompactToolPolicy": "سياسة ضغط نتائج الأدوات",
     "contextCompactToolPolicyDesc": "التحكم في كيفية معالجة نتائج كل أداة أثناء ضغط السياق",
     "contextCompactPolicyEager": "المسح أولاً",
     "contextCompactPolicyDefault": "عادي",
@@ -1520,7 +1540,9 @@
     "asyncToolsInlineBytes": "حجم النتيجة المضمنة",
     "asyncToolsInlineBytesDesc": "عدد بايتات النتيجة المدمجة داخل إشعار الإكمال. النتائج الأكبر تُحفظ في spool مع معاينة أول/آخر.",
     "deferredToolsEnabled": "تحميل الأدوات المؤجل",
-    "deferredToolsEnabledDesc": "يُرسل في البداية فقط مخططات الأدوات الأساسية، بينما تُكتشف البقية عبر tool_search. يقلل عدد رموز المخطط للعملاء الذين يملكون أدوات كثيرة. يُطبَّق من المحادثة التالية.",
+    "deferredToolsEnabledDesc": "Enable tool_search-based loading. Tools remain injected until you defer them below. Takes effect on the next conversation.",
+    "deferredToolsPerToolTitle": "Deferred built-in tools",
+    "deferredToolsPerToolDesc": "Turn on only the tools whose schemas should be discovered via tool_search instead of sent up front.",
     "memorySelection": "اختيار الذاكرة الدلالي عبر LLM",
     "memorySelectionDesc": "عندما يتجاوز عدد ذكريات المرشحة الحد، يُطلب من النموذج اختيار الأكثر صلة لإدراجها في توجيه النظام. يقلل الضوضاء.",
     "memorySelectionThreshold": "عتبة التفعيل",
@@ -1643,20 +1665,26 @@
     "agentIdentity": "الهوية",
     "agentPersonalityTab": "الشخصية",
     "agentBasicInfo": "معلومات أساسية",
-    "agentCapabilities": "القدرات",
+    "agentCapabilities": "الأدوات والمهارات",
     "agentCapabilitiesTabTools": "الأدوات",
     "agentCapabilitiesTabSkills": "المهارات",
     "agentCapabilitiesToolInjection": "حقن الأدوات",
     "agentCapabilitiesToolInjectionDesc": "اختر الأدوات المدمجة التي يمكن لهذا Agent استخدامها (أدوات النظام الداخلية متاحة دائماً)",
+    "agentTierCoreTitle": "الأدوات الأساسية",
+    "agentTierCoreDesc": "القدرات الأساسية التي يحتاجها كل وكيل. لا يمكن تعطيلها.",
+    "agentTierCoreBadge": "مفعّل دائمًا",
+    "agentTierStandardTitle": "الأدوات القياسية",
+    "agentTierStandardDesc": "متاحة للوكيل افتراضياً، يمكن إيقاف كل أداة على حدة. بعض القدرات تتطلب موفّراً مُعدّاً في الإعدادات العامة لتعمل فعلياً.",
+    "agentTierConfiguredHint": "غير مهيأ · انتقل إلى {{hint}}",
+    "agentMcpTitle": "MCP",
+    "agentMcpDesc": "عند التفعيل، تصبح جميع خوادم MCP المتصلة وأدواتها متاحة؛ عند الإيقاف، تُستبعد جميع أدوات MCP.",
+    "agentMcpEnableLabel": "تمكين MCP",
+    "agentMcpBadgeOn": "مُفعّل",
+    "agentMcpBadgeOff": "مُعطَّل",
     "agentMaxToolRounds": "الحد الأقصى لجولات الأدوات",
     "agentUnlimited": "بلا حدود",
     "agentSkills": "المهارات",
     "agentSkillsDesc": "المهارات المفعّلة عالميًا متاحة بشكل افتراضي. يمكنك تعطيل مهارات محددة لهذا الوكيل",
-    "agentRequireApproval": "موافقة الأدوات",
-    "agentRequireApprovalDesc": "التحكم في ما إذا كان الذكاء الاصطناعي يحتاج موافقتك قبل استخدام الأدوات",
-    "agentApprovalAll": "الموافقة على الكل",
-    "agentApprovalNone": "بدون موافقة",
-    "agentApprovalCustom": "مخصص",
     "toolExecName": "تنفيذ أمر",
     "toolExecDesc": "تنفيذ أوامر الطرفية مع دعم التشغيل في الخلفية والعزل",
     "toolProcessName": "إدارة العمليات",
@@ -1703,6 +1731,52 @@
     "toolTaskUpdateDesc": "تحديث حالة أو محتوى مهمة موجودة",
     "toolTaskListName": "قائمة المهام",
     "toolTaskListDesc": "عرض جميع المهام في الجلسة الحالية",
+    "toolMcpResourceName": "مورد MCP",
+    "toolMcpResourceDesc": "قراءة الموارد المستضافة من خوادم MCP المتصلة (ملفات، سجلات، إلخ)",
+    "toolMcpPromptName": "موجّه MCP",
+    "toolMcpPromptDesc": "جلب قوالب الموجّهات المنشورة من خوادم MCP المتصلة",
+    "toolImageGenerateName": "توليد صورة",
+    "toolImageGenerateDesc": "توليد من النص إلى الصورة ومن الصورة إلى الصورة مع تجاوز الفشل بين عدة موفّرين",
+    "toolCanvasName": "اللوحة",
+    "toolCanvasDesc": "إنشاء مشاريع مرئية تفاعلية في لوحة المعاينة (HTML / Markdown / مخططات / شرائح)",
+    "toolAcpSpawnName": "استدعاء وكيل خارجي",
+    "toolAcpSpawnDesc": "استدعاء وكلاء ACP الخارجيين (Claude Code وCodex CLI وغيرها) لتنفيذ المهام",
+    "toolProjectReadFileName": "قراءة ملف المشروع",
+    "toolProjectReadFileDesc": "قراءة الملفات المرفوعة إلى مشروع الجلسة الحالية",
+    "toolAskUserQuestionName": "سؤال المستخدم",
+    "toolAskUserQuestionDesc": "إرسال أسئلة منظَّمة للمستخدم (اختيار واحد / متعدد / إدخال حر)",
+    "toolSendAttachmentName": "إرسال مرفق",
+    "toolSendAttachmentDesc": "دفع ملف مُولَّد كبطاقة قابلة للتنزيل إلى واجهة سطح المكتب",
+    "toolAgentsListName": "قائمة الوكلاء",
+    "toolAgentsListDesc": "عرض جميع الوكلاء المتاحين مع أوصافهم وقدراتهم",
+    "toolSessionsListName": "قائمة الجلسات",
+    "toolSessionsListDesc": "عرض الجلسات الأخرى (العنوان، الوكيل، النموذج، عدد الرسائل)",
+    "toolSessionStatusName": "حالة الجلسة",
+    "toolSessionStatusDesc": "الاستعلام عن وكيل الجلسة ونموذجها وعدد رسائلها وطوابعها الزمنية",
+    "toolSessionsHistoryName": "سجل الجلسة",
+    "toolSessionsHistoryDesc": "تصفّح سجل رسائل جلسة ما بشكل مُرقَّم",
+    "toolSessionsSendName": "إرسال إلى جلسة",
+    "toolSessionsSendDesc": "إرسال رسالة مستخدم إلى جلسة أخرى (مع انتظار الردّ اختيارياً)",
+    "toolPeekSessionsName": "استعراض الجلسات",
+    "toolPeekSessionsDesc": "وعي عبر الجلسات — يُعيد قائمة مدمجة للجلسات الأخرى",
+    "toolTeamName": "فريق الوكلاء",
+    "toolTeamDesc": "إنشاء وإدارة فِرق الوكلاء بألواح مهام مشتركة وتراسل بين الأعضاء",
+    "toolPdfName": "PDF",
+    "toolPdfDesc": "استخراج النص أو التحليل البصري لملفات PDF (متعدّد الملفات، نطاقات صفحات)",
+    "toolImageName": "تحليل الصورة",
+    "toolImageDesc": "تحليل بصري للصور (مسارات محلية / روابط / حافظة / لقطات شاشة)",
+    "toolGetSettingsName": "قراءة الإعدادات",
+    "toolGetSettingsDesc": "قراءة إعدادات التطبيق حسب الفئة",
+    "toolUpdateSettingsName": "تحديث الإعدادات",
+    "toolUpdateSettingsDesc": "تحديث إعدادات التطبيق مع تأكيد متدرّج حسب المخاطر",
+    "toolListSettingsBackupsName": "قائمة نسخ احتياطية للإعدادات",
+    "toolListSettingsBackupsDesc": "تعداد النسخ الاحتياطية المحفوظة للإعدادات",
+    "toolRestoreSettingsBackupName": "استعادة نسخة احتياطية للإعدادات",
+    "toolRestoreSettingsBackupDesc": "استعادة الإعدادات من نسخة احتياطية محفوظة",
+    "toolMemoryGetName": "جلب ذاكرة",
+    "toolMemoryGetDesc": "جلب المحتوى الكامل لذاكرة واحدة عبر المعرّف",
+    "toolUpdateCoreMemoryName": "تحديث الذاكرة الأساسية",
+    "toolUpdateCoreMemoryDesc": "تحديث ملف memory.md الذي يُحقن في موجّه النظام",
     "agentSandbox": "صندوق Docker",
     "agentSandboxDesc": "تنفيذ الأوامر في حاوية Docker",
     "agentSkillEnvCheck": "فحص البيئة",
@@ -2150,6 +2224,146 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsTab": {
+      "manage": "المهارات",
+      "evolution": "التطور الذاتي"
+    },
+    "skillsEvolutionHero": {
+      "title": "حوّل ما تكرّره إلى مهارات قابلة لإعادة الاستخدام",
+      "body": "Hope Agent لا يقف مكانه. من حين لآخر يُعيد قراءة المحادثات ويستخلص ما يتكرّر في مهارات قابلة لإعادة الاستخدام — وفي المرة التالية يكون الأمر مُتعلَّمًا بالفعل.",
+      "note": "مفعّل افتراضيًا · يتأقلم معك أكثر مع كل استخدام. عند الإيقاف لا تتأثر المحادثات اليومية، فقط تتوقف المهارات الجديدة عن التراكم تلقائيًا.",
+      "statusOn": "يتطور",
+      "statusOff": "متوقّف مؤقتًا"
+    },
+    "skillsAutoReview": {
+      "label": "تفعيل المهارات الجديدة تلقائيًا",
+      "description": "تخطّي خطوة المسوّدة — تدخل المهارات المستخلصة الخدمة فورًا.",
+      "hint": "إيقاف (افتراضي): تظهر المهارات الجديدة كمسودات وتحتاج إلى موافقتك."
+    },
+    "agentApprovalTab": "Approval",
+    "agentApproval": {
+      "defaultModeTitle": "Default Session Permission Mode",
+      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
+      "modes": {
+        "inherit": {
+          "label": "Inherit Global",
+          "desc": "Follow the global default (currently \"Default\" mode)"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Edit-class tools and high-risk commands need approval"
+        },
+        "smart": {
+          "label": "Smart Approval",
+          "desc": "Judge model or model self-confidence decides approvals"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "All tools run without approval (protected paths still audit-log)"
+        }
+      },
+      "customApprovalTitle": "Custom Tool Approval",
+      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
+      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
+    "approvalNav": "Permission",
+    "approvalPanel": {
+      "title": "Permission",
+      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
+      "yoloTitle": "Global YOLO (Skip All Approvals)",
+      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
+      "yoloEnabled": "Global YOLO enabled",
+      "yoloDisabled": "Global YOLO disabled",
+      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
+      "protectedPathsTitle": "Protected Paths",
+      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
+      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
+      "editCommandsTitle": "Edit Commands",
+      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
+      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
+      "dangerousCommandsTitle": "Dangerous Commands",
+      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
+      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
+      "smartTitle": "Smart Approval Mode",
+      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
+      "smartStrategy": "Decision Strategy",
+      "smartFallback": "Fallback When Unavailable",
+      "strategies": {
+        "self_confidence": "Model Self-Tag",
+        "judge_model": "Judge Model",
+        "both": "Judge first, self-tag fallback"
+      },
+      "fallbacks": {
+        "default": "Fall back to Default mode",
+        "ask": "Force prompt",
+        "allow": "Force allow"
+      },
+      "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
+      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
+      "timeoutTitle": "Approval Dialog Timeout",
+      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
+      "timeoutSeconds": "Timeout Seconds",
+      "timeoutHint": "0 = wait forever",
+      "timeoutAction": "Timeout Action",
+      "timeoutActions": {
+        "deny": "Block execution",
+        "proceed": "Proceed"
+      },
+      "empty": "No entries — add a pattern to enable",
+      "restoreDefaults": "Restore Defaults",
+      "restoredDefaults": "Restored to defaults"
     }
   },
   "tz": {
@@ -2491,13 +2705,49 @@
     "recoveryBannerDesc": "تعرض التطبيق لـ {{count}} عطل(ات) قبل هذا التشغيل وأُعيد تشغيله تلقائياً."
   },
   "approval": {
-    "title": "تأكيد تنفيذ الأمر",
-    "workingDir": "مجلد العمل",
-    "command": "الأمر",
-    "allowOnce": "السماح مرة واحدة",
-    "allowAlways": "السماح دائمًا",
-    "deny": "رفض",
-    "queueIndicator": "{{current}} من {{total}}"
+    "title": "Command Approval Required",
+    "workingDir": "Working Directory",
+    "command": "Command",
+    "allowOnce": "Allow Once",
+    "allowAlways": "Always Allow",
+    "deny": "Deny",
+    "queueIndicator": "{{current}} of {{total}}",
+    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
+    "countdownTooltip": "{{seconds}}s left — will auto-{{action}} on timeout",
+    "countdownAction": {
+      "deny": "deny",
+      "proceed": "proceed"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "Edit-class tool",
+        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch)."
+      },
+      "edit_command": {
+        "title": "Edit-pattern exec command",
+        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix."
+      },
+      "dangerous_command": {
+        "title": "⚠️ Dangerous command",
+        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "protected_path": {
+        "title": "⚠️ Protected path",
+        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "agent_custom_list": {
+        "title": "Agent custom approval list",
+        "body": "This tool is on the agent's custom-approval list (Default mode only)."
+      },
+      "smart_judge": {
+        "title": "Smart-mode judge",
+        "body": "The Smart-mode judge model decided this call needs human confirmation."
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode confirmation",
+        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval."
+      }
+    }
   },
   "thinking": {
     "label": "عملية التفكير",
@@ -2730,6 +2980,8 @@
     "stepsDetected": "خطوات مكتشفة",
     "noSteps": "لا توجد خطوات",
     "executeCommand": "ابدأ تنفيذ الخطة. أكمل كل خطوة بالترتيب، واستدعِ update_plan_step لتتبع التقدم.",
+    "executionApproved": "تمت الموافقة على الخطة. جارٍ بدء التنفيذ.",
+    "executionResumed": "جارٍ متابعة تنفيذ الخطة.",
     "planning": "جاري إنشاء الخطة...",
     "pause": "إيقاف مؤقت",
     "resume": "استئناف",
@@ -3450,5 +3702,12 @@
     "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",
     "noDiffData": "لا توجد بيانات للفرق",
     "resizePanel": "تغيير حجم لوحة الفرق"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "تم إنشاء مهارة مسودة تلقائيًا: {{name}}. انقر للمراجعة.",
+      "review": "مراجعة",
+      "unnamedSkill": "(مهارة بدون اسم)"
+    }
   }
 }

@@ -1,16 +1,21 @@
 use serde_json::json;
 
 use super::super::{TOOL_CANVAS, TOOL_SEND_NOTIFICATION, TOOL_WEB_SEARCH};
-use super::types::ToolDefinition;
+use super::types::{ToolDefinition, ToolTier};
 
 /// Returns the web_search tool definition (conditionally injected when enabled).
 pub fn get_web_search_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_WEB_SEARCH.into(),
         description: "Search the web for information. Returns relevant results with titles, URLs, and snippets. Use this when the user asks about current events, recent information, or anything that requires up-to-date knowledge. Pass `run_in_background: true` for slow providers or large result sets so the conversation can continue while the search runs.".into(),
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Tools → Web Search",
+        },
         internal: false,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: true,
         async_capable: true,
         parameters: json!({
             "type": "object",
@@ -48,9 +53,14 @@ pub fn get_notification_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SEND_NOTIFICATION.into(),
         description: "Send a native desktop notification to the user. Use this to proactively alert the user about important events, task completions, or findings that need their attention.".into(),
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Tools → Notifications",
+        },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -75,9 +85,14 @@ pub fn get_canvas_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_CANVAS.into(),
         description: "Create and manage interactive canvas projects — HTML/CSS/JS live preview, documents (Markdown/code), data visualizations (Chart.js), diagrams (Mermaid), presentations (slides), and SVG graphics. Canvas content is rendered in a sandboxed preview panel visible to the user. Use snapshot to capture the current visual state for analysis.".into(),
+        tier: ToolTier::Configured {
+            default_for_main: true,
+            default_for_others: true,
+            default_deferred: false,
+            config_hint: "Settings → Tools → Canvas",
+        },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",

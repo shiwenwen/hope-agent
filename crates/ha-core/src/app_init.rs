@@ -546,20 +546,17 @@ pub async fn start_background_tasks() {
 
         // Auto-start enabled channel accounts. Two processes auto-starting
         // the same Telegram bot would fight over its webhook; users still
-        // start accounts manually via the API/UI in any tier.
+        // start accounts manually via the API/UI in any tier. Boot failures
+        // are picked up by `channel::start_watchdog` and retried in the
+        // background until success or user action.
         if let Some(registry) = CHANNEL_REGISTRY.get() {
             let registry = registry.clone();
+            channel::start_watchdog::spawn_loop(registry.clone());
             let store = crate::config::cached_config();
             tokio::spawn(async move {
                 for account in store.channels.enabled_accounts() {
                     if let Err(e) = registry.start_account(account).await {
-                        app_error!(
-                            "channel",
-                            "init",
-                            "Failed to auto-start channel account '{}': {}",
-                            account.label,
-                            e
-                        );
+                        channel::start_watchdog::register_failure(account, &e).await;
                     }
                 }
             });

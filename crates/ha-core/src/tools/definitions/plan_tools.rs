@@ -3,16 +3,16 @@ use serde_json::json;
 use super::super::{
     TOOL_AMEND_PLAN, TOOL_ASK_USER_QUESTION, TOOL_SUBMIT_PLAN, TOOL_UPDATE_PLAN_STEP,
 };
-use super::types::ToolDefinition;
+use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
 /// Tool for updating plan step status (conditionally injected during Executing state).
 pub fn get_plan_step_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_UPDATE_PLAN_STEP.into(),
         description: "Update the status of a plan step during plan execution. Call this after starting or completing each step to track progress in the Plan panel.".into(),
+        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -52,9 +52,11 @@ mockups, code comparisons or diagram snippets. Set `default_values` + `timeout_s
 answer can safely fall back (useful for cron / background / IM async flows). Do NOT use this \
 tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
             .into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::Interaction,
+        },
         internal: true,
-        deferred: false,
-        always_load: true,
+        concurrent_safe: true,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -138,9 +140,9 @@ pub fn get_submit_plan_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBMIT_PLAN.into(),
         description: "Submit the final implementation plan after gathering requirements through ask_user_question. The plan should be structured as markdown with concise sections and regular ordered/unordered lists, not checkbox task lists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
+        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -165,9 +167,9 @@ pub fn get_amend_plan_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_AMEND_PLAN.into(),
         description: "Modify the current plan during execution. Use this when you discover the plan needs changes (new steps needed, steps should be removed, or step descriptions need updating). Available actions: insert (add a new step), delete (remove a pending step), update (modify a pending step's title/description).".into(),
+        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",

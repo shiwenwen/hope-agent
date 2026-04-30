@@ -8,7 +8,7 @@ import type {
   Message,
   ActiveModel,
   AgentSummaryForSidebar,
-  ToolPermissionMode,
+  SessionMode,
 } from "@/types/chat"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
@@ -23,6 +23,23 @@ import {
 import { useApprovals } from "./useApprovals"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { useNotificationListeners } from "./useNotificationListeners"
+import type { SessionStreamState } from "./useChatStreamReattach"
+
+const ACTIVE_STREAM_ERROR_CODE = "active_stream"
+
+function errorText(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (typeof error === "string") return error
+  try {
+    return JSON.stringify(error)
+  } catch {
+    return String(error)
+  }
+}
+
+function isActiveStreamError(error: unknown): boolean {
+  return errorText(error).includes(ACTIVE_STREAM_ERROR_CODE)
+}
 
 export interface UseChatStreamOptions {
   messages: Message[]
@@ -74,11 +91,11 @@ export interface UseChatStreamReturn {
   approvalRequests: ApprovalRequest[]
   showCodexAuthExpired: boolean
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
-  toolPermissionMode: ToolPermissionMode
-  setToolPermissionMode: React.Dispatch<React.SetStateAction<ToolPermissionMode>>
+  permissionMode: SessionMode
+  setPermissionMode: React.Dispatch<React.SetStateAction<SessionMode>>
   handleSend: (
     directText?: string,
-    options?: { hidden?: boolean; displayText?: string; planMode?: string },
+    options?: { displayText?: string; planMode?: string },
   ) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
@@ -118,39 +135,35 @@ export function useChatStream({
   const [pendingMessage, setPendingMessage] = useState<string | null>(null)
   const pendingMessageRef = useRef<string | null>(null)
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
-  const [toolPermissionMode, setToolPermissionModeState] = useState<ToolPermissionMode>("auto")
-  const toolPermissionModeRef = useRef<ToolPermissionMode>("auto")
+  const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
+  const permissionModeRef = useRef<SessionMode>("default")
 
-  // Sync toggle changes to backend immediately — the `chat` command only
-  // snapshots the mode on entry, so without this the toggle has no effect on
-  // in-flight tool loops or non-chat paths (subagent / cron / IM channels).
-  //
-  // Also ships the current `sessionId` so the backend persists the choice to
-  // the session row; switching back to the same session later restores the
-  // toggle instead of snapping to the global singleton's value.
-  const setToolPermissionMode = useCallback<
-    React.Dispatch<React.SetStateAction<ToolPermissionMode>>
+  // Persist the new mode to the session row whenever the title-bar switcher
+  // changes it. Backend re-reads the column at the start of each tool round,
+  // so in-flight loops pick up the change without a separate global snapshot.
+  // Without a session id the choice is local-only until the first send.
+  const setPermissionMode = useCallback<
+    React.Dispatch<React.SetStateAction<SessionMode>>
   >((value) => {
-    setToolPermissionModeState((prev) => {
+    setPermissionModeState((prev) => {
       const next =
         typeof value === "function"
-          ? (value as (p: ToolPermissionMode) => ToolPermissionMode)(prev)
+          ? (value as (p: SessionMode) => SessionMode)(prev)
           : value
       if (next !== prev) {
         const sid = currentSessionIdRef.current
-        getTransport()
-          .call("set_tool_permission_mode", {
-            mode: next,
-            ...(sid ? { sessionId: sid } : {}),
-          })
-          .catch((e) => {
-            logger.error(
-              "chat",
-              "setToolPermissionMode",
-              "Failed to sync tool permission mode",
-              e,
-            )
-          })
+        if (sid) {
+          getTransport()
+            .call("set_permission_mode", { sessionId: sid, mode: next })
+            .catch((e) => {
+              logger.error(
+                "chat",
+                "setPermissionMode",
+                "Failed to sync session permission mode",
+                e,
+              )
+            })
+        }
       }
       return next
     })
@@ -195,8 +208,42 @@ export function useChatStream({
     pendingMessageRef.current = pendingMessage
   }, [pendingMessage])
   useEffect(() => {
-    toolPermissionModeRef.current = toolPermissionMode
-  }, [toolPermissionMode])
+    permissionModeRef.current = permissionMode
+  }, [permissionMode])
+
+  // Seed `permissionMode` from the agent's `capabilities.defaultSessionPermissionMode`
+  // whenever the user is sitting on a fresh chat (no session row yet, no
+  // messages). Once the first message lands the session row owns the mode
+  // and the title-bar switcher updates the row directly.
+  //
+  // Skipping when there is already a session id keeps the user's manual
+  // choice intact across navigation — only "new chat" or agent swap re-seeds.
+  useEffect(() => {
+    if (currentSessionId || messages.length > 0 || !currentAgentId) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const config = await getTransport().call<{
+          capabilities?: { defaultSessionPermissionMode?: SessionMode | null }
+        }>("get_agent_config", { id: currentAgentId })
+        if (cancelled) return
+        const fallback =
+          (config?.capabilities?.defaultSessionPermissionMode as SessionMode | undefined) ??
+          "default"
+        setPermissionModeState(fallback)
+      } catch (e) {
+        logger.error(
+          "chat",
+          "useChatStream",
+          "Failed to seed permission mode from agent capabilities",
+          e,
+        )
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [currentAgentId, currentSessionId, messages.length])
 
   // Load config on mount
   useEffect(() => {
@@ -224,7 +271,7 @@ export function useChatStream({
    */
   async function handleSend(
     directText?: string,
-    options?: { hidden?: boolean; displayText?: string; planMode?: string },
+    options?: { displayText?: string; planMode?: string },
   ) {
     const rawText = directText ?? input
     if (!rawText.trim()) return
@@ -244,7 +291,7 @@ export function useChatStream({
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
-    setMessages((prev) => [...prev, { role: "user", content: displayed, timestamp: now, ...(options?.hidden && { isMeta: true }) }])
+    setMessages((prev) => [...prev, { role: "user", content: displayed, timestamp: now }])
     setLoading(true)
 
     // Process attached files: images → base64 data, non-images → save to disk via Rust
@@ -306,6 +353,7 @@ export function useChatStream({
     ])
 
     let targetSessionId = currentSessionId
+    let keepExistingStreamLoading = false
 
     try {
       const targetSid = () => targetSessionId || "__pending__"
@@ -390,7 +438,7 @@ export function useChatStream({
       // Track loading state for this session
       const freshMessages = [
         ...messages,
-        { role: "user" as const, content: displayed, timestamp: now, ...(options?.hidden && { isMeta: true }) },
+        { role: "user" as const, content: displayed, timestamp: now },
         {
           role: "assistant" as const,
           content: "",
@@ -417,7 +465,7 @@ export function useChatStream({
           incognito: currentSessionId ? undefined : incognitoEnabled,
           modelOverride,
           agentId: currentAgentId,
-          toolPermissionMode: toolPermissionModeRef.current,
+          permissionMode: permissionModeRef.current,
           planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
@@ -427,17 +475,76 @@ export function useChatStream({
       )
     } catch (e) {
       const sid = targetSessionId || "__pending__"
-      updateSessionMessages(sid, (prev) => {
-        const updated = [...prev]
-        const last = updated[updated.length - 1]
-        if (last && last.role === "assistant" && last.content === "" && !last.toolCalls?.length) {
-          updated.pop()
+      if (isActiveStreamError(e) && sid !== "__pending__") {
+        // active_stream rejects before the backend persists anything, so the
+        // optimistic user + assistant messages we just appended must be rolled
+        // back. Other errors may have already saved server-side, so we keep
+        // the user message visible there.
+        keepExistingStreamLoading = true
+        updateSessionMessages(sid, (prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (
+            last &&
+            last.role === "assistant" &&
+            !last.content &&
+            !last.toolCalls?.length &&
+            !last.contentBlocks?.length
+          ) {
+            updated.pop()
+          }
+          const maybeUser = updated[updated.length - 1]
+          if (
+            maybeUser &&
+            maybeUser.role === "user" &&
+            maybeUser.content === displayed &&
+            maybeUser.timestamp === now
+          ) {
+            updated.pop()
+          }
+          return updated
+        })
+        try {
+          const state = await getTransport().call<SessionStreamState>(
+            "get_session_stream_state",
+            { sessionId: sid },
+          )
+          const streamId = state.streamId || undefined
+          if (streamId) endedStreamIdsRef.current.delete(sid)
+          const cursorKey = streamCursorKey(sid, streamId)
+          if (!lastSeqRef.current.has(cursorKey)) {
+            lastSeqRef.current.set(cursorKey, Number(state.lastSeq) || 0)
+          }
+        } catch (stateError) {
+          logger.warn(
+            "chat",
+            "useChatStream::active_stream",
+            "Failed to refresh active stream state",
+            stateError,
+          )
         }
-        updated.push({ role: "event", content: `${e}` })
-        return updated
-      })
+      } else {
+        updateSessionMessages(sid, (prev) => {
+          const updated = [...prev]
+          const last = updated[updated.length - 1]
+          if (
+            last &&
+            last.role === "assistant" &&
+            last.content === "" &&
+            !last.toolCalls?.length
+          ) {
+            updated.pop()
+          }
+          updated.push({ role: "event", content: `${e}` })
+          return updated
+        })
+      }
       // Notify on error for non-current sessions
-      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+      if (
+        !keepExistingStreamLoading &&
+        targetSessionId &&
+        currentSessionIdRef.current !== targetSessionId
+      ) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const sessionTitle =
@@ -462,13 +569,25 @@ export function useChatStream({
         }
         return updated
       })
-      loadingSessionsRef.current.delete(sid)
-      setLoadingSessionIds(new Set(loadingSessionsRef.current))
-      if (currentSessionIdRef.current === sid) {
-        setLoading(false)
+      if (keepExistingStreamLoading && sid !== "__pending__") {
+        loadingSessionsRef.current.add(sid)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        if (currentSessionIdRef.current === sid) {
+          setLoading(true)
+        }
+      } else {
+        loadingSessionsRef.current.delete(sid)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        if (currentSessionIdRef.current === sid) {
+          setLoading(false)
+        }
       }
       // Notify on completion for non-current sessions
-      if (targetSessionId && currentSessionIdRef.current !== targetSessionId) {
+      if (
+        !keepExistingStreamLoading &&
+        targetSessionId &&
+        currentSessionIdRef.current !== targetSessionId
+      ) {
         const agent = agents.find((a) => a.id === currentAgentId)
         if (isAgentNotifyEnabled(agent?.notifyOnComplete)) {
           const sessionTitle = sessions.find((s) => s.id === targetSessionId)?.title || agentName
@@ -511,8 +630,8 @@ export function useChatStream({
     approvalRequests,
     showCodexAuthExpired,
     setShowCodexAuthExpired,
-    toolPermissionMode,
-    setToolPermissionMode,
+    permissionMode,
+    setPermissionMode,
     handleSend,
     handleStop,
     handleApprovalResponse,

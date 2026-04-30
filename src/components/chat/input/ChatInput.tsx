@@ -20,7 +20,7 @@ import {
   FolderPlus,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import type { AvailableModel, ActiveModel, ToolPermissionMode } from "@/types/chat"
+import type { AvailableModel, ActiveModel, SessionMode } from "@/types/chat"
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
 import { useUrlPreview } from "@/hooks/useUrlPreview"
 import SlashCommandMenu from "../slash-commands/SlashCommandMenu"
@@ -36,11 +36,16 @@ import {
   AttachmentPreview,
 } from "./AttachmentBar"
 import ModelPicker from "./ModelPicker"
-import ToolPermissionToggle from "./ToolPermissionToggle"
+import PermissionModeSwitcher from "./PermissionModeSwitcher"
 import TemperatureSlider from "./TemperatureSlider"
 import AwarenessToggle from "./AwarenessToggle"
 import IncognitoToggle, { type IncognitoDisabledReason } from "./IncognitoToggle"
 import WorkingDirectoryButton from "./WorkingDirectoryButton"
+import TaskProgressPanel from "@/components/chat/tasks/TaskProgressPanel"
+import {
+  shouldShowTaskProgressPanel,
+  type TaskProgressSnapshot,
+} from "@/components/chat/tasks/taskProgress"
 import { Switch } from "@/components/ui/switch"
 import {
   CHAT_INPUT_INLINE_ADD_ACTIONS_CLASS,
@@ -73,8 +78,8 @@ interface ChatInputProps {
   currentAgentId?: string
   onCommandAction?: (result: CommandResult) => void
   // Tool permission mode
-  toolPermissionMode: ToolPermissionMode
-  onToolPermissionChange: (mode: ToolPermissionMode) => void
+  permissionMode: SessionMode
+  onPermissionModeChange: (mode: SessionMode) => void
   // Temperature
   sessionTemperature?: number | null
   onSessionTemperatureChange?: (temp: number | null) => void
@@ -98,6 +103,8 @@ interface ChatInputProps {
   onEnterPlanMode?: () => void
   onExitPlanMode?: () => void
   onTogglePlanPanel?: () => void
+  // Session-scoped Todo progress
+  taskProgressSnapshot?: TaskProgressSnapshot | null
 }
 
 export default function ChatInput({
@@ -120,8 +127,8 @@ export default function ChatInput({
   currentSessionId,
   currentAgentId = "default",
   onCommandAction,
-  toolPermissionMode,
-  onToolPermissionChange,
+  permissionMode,
+  onPermissionModeChange,
   sessionTemperature,
   onSessionTemperatureChange,
   incognitoEnabled = false,
@@ -137,6 +144,7 @@ export default function ChatInput({
   onEnterPlanMode,
   onExitPlanMode,
   onTogglePlanPanel,
+  taskProgressSnapshot,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -258,6 +266,10 @@ export default function ChatInput({
     }
     onIncognitoChange(next)
   }
+
+  const visibleTaskProgress = shouldShowTaskProgressPanel(taskProgressSnapshot)
+    ? taskProgressSnapshot
+    : null
 
   const renderInlineAddControls = () => (
     <>
@@ -388,7 +400,7 @@ export default function ChatInput({
 
   return (
     <div className="px-3 pb-3 pt-2">
-      <div className="relative rounded-2xl border border-border bg-card">
+      <div className="relative rounded-2xl border border-border bg-white dark:bg-card">
         {/* Slash Command Menu */}
         {slash.isOpen && (
           <SlashCommandMenu
@@ -416,6 +428,10 @@ export default function ChatInput({
           onSelect={mention.applyEntry}
           onHover={mention.setSelectedIndex}
         />
+
+        {visibleTaskProgress && (
+          <TaskProgressPanel snapshot={visibleTaskProgress} variant="embedded" />
+        )}
 
         {/* Attached files preview (rendered above textarea) */}
         <AttachmentPreview attachedFiles={attachedFiles} onRemoveFile={onRemoveFile} />
@@ -470,7 +486,7 @@ export default function ChatInput({
         {/* Plan Mode Banner */}
         {planState === "planning" && (
           <div
-            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}
+            className={`flex items-center gap-2 px-3 py-1.5 bg-blue-500/10 border-b border-blue-500/20 text-blue-600 dark:text-blue-400 text-xs animate-in fade-in slide-in-from-top-1 duration-200${!visibleTaskProgress && attachedFiles.length === 0 && !(loading && pendingMessage) ? " rounded-t-2xl" : ""}`}
           >
             <ClipboardList className="h-3.5 w-3.5 shrink-0" />
             <span className="flex-1">{t("planMode.restricted")}</span>
@@ -617,9 +633,9 @@ export default function ChatInput({
             </IconTip>
 
             {/* Tool Permission Mode */}
-            <ToolPermissionToggle
-              toolPermissionMode={toolPermissionMode}
-              onToolPermissionChange={onToolPermissionChange}
+            <PermissionModeSwitcher
+              permissionMode={permissionMode}
+              onPermissionModeChange={onPermissionModeChange}
             />
           </div>
 

@@ -12,7 +12,7 @@ mod snapshot;
 /// Image base64 prefix marker — detected by agent.rs for multimodal content
 pub const IMAGE_BASE64_PREFIX: &str = "__IMAGE_BASE64__";
 
-pub(crate) async fn tool_browser(args: &Value) -> Result<String> {
+pub(crate) async fn tool_browser(args: &Value, session_id: Option<&str>) -> Result<String> {
     let action = args
         .get("action")
         .and_then(|v| v.as_str())
@@ -30,7 +30,7 @@ pub(crate) async fn tool_browser(args: &Value) -> Result<String> {
         "go_back" => navigation::action_go_back().await,
         "go_forward" => navigation::action_go_forward().await,
         "take_snapshot" => snapshot::action_take_snapshot().await,
-        "take_screenshot" => snapshot::action_take_screenshot(args).await,
+        "take_screenshot" => snapshot::action_take_screenshot(args, session_id).await,
         "click" => interaction::action_click(args).await,
         "fill" => interaction::action_fill(args).await,
         "fill_form" => interaction::action_fill_form(args).await,

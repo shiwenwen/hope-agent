@@ -1,16 +1,16 @@
-//! Dangerous Mode — the global "nuclear button" that skips ALL tool-level
-//! approval gates.
+//! Dangerous Mode (a.k.a. "Global YOLO") — the nuclear button that skips ALL
+//! tool-level approval gates.
 //!
 //! Two independent sources feed the active state, combined with OR:
 //!   1. CLI flag `--dangerously-skip-all-approvals` (process-scoped AtomicBool,
 //!      set once in `main.rs` before any business logic runs, never persisted
 //!      to disk).
-//!   2. `AppConfig.dangerous_skip_all_approvals` (persisted to `config.json`,
-//!      toggled via the Settings UI / `update_settings(category="security")`).
+//!   2. `AppConfig.permission.global_yolo` (persisted to `config.json`,
+//!      toggled via the Settings UI / `update_settings(category="permission")`).
 //!
-//! Consumed by [`crate::tools::execution::execute_tool_with_context`] alongside
-//! `ctx.auto_approve_tools`. Orthogonal to Plan Mode: YOLO skips the approval
-//! gate, Plan Mode restricts tool types — both enforcements remain active.
+//! Consumed by [`crate::permission::engine::resolve`]. Orthogonal to Plan Mode:
+//! YOLO skips the approval gate, Plan Mode restricts tool types — both
+//! enforcements remain active simultaneously.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -25,7 +25,7 @@ pub fn cli_flag_active() -> bool {
 }
 
 fn config_flag_active() -> bool {
-    crate::config::cached_config().dangerous_skip_all_approvals
+    crate::config::cached_config().permission.global_yolo
 }
 
 pub fn is_dangerous_skip_active() -> bool {

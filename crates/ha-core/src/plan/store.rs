@@ -88,7 +88,7 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) -> bool {
 pub fn should_create_execution_checkpoint(
     requested_state: &PlanModeState,
     previous_state: &PlanModeState,
-    persisted_plan_mode: Option<&str>,
+    persisted_plan_mode: Option<PlanModeState>,
     checkpoint_exists: bool,
 ) -> bool {
     if requested_state != &PlanModeState::Executing || checkpoint_exists {
@@ -100,7 +100,10 @@ pub fn should_create_execution_checkpoint(
     ) {
         return false;
     }
-    !matches!(persisted_plan_mode, Some("executing" | "paused"))
+    !matches!(
+        persisted_plan_mode,
+        Some(PlanModeState::Executing | PlanModeState::Paused)
+    )
 }
 
 pub async fn get_plan_meta(session_id: &str) -> Option<PlanMeta> {
@@ -159,8 +162,7 @@ fn persist_steps_to_db(session_id: &str, steps: &[PlanStep]) {
 /// Restore plan state from DB on session load.
 /// First tries to load persisted step statuses from DB (crash-safe),
 /// then falls back to re-parsing the plan markdown file.
-pub async fn restore_from_db(session_id: &str, plan_mode_str: &str) {
-    let state = PlanModeState::from_str(plan_mode_str);
+pub async fn restore_from_db(session_id: &str, state: PlanModeState) {
     if state == PlanModeState::Off {
         return;
     }

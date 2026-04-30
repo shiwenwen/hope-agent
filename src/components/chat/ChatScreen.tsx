@@ -5,7 +5,7 @@ import { save } from "@tauri-apps/plugin-dialog"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Brain } from "lucide-react"
-import type { ActiveModel, AvailableModel, Message, ToolPermissionMode } from "@/types/chat"
+import type { ActiveModel, AvailableModel, Message, SessionMode } from "@/types/chat"
 import { normalizeEffortForModel } from "@/types/chat"
 import type { CommandResult } from "./slash-commands/types"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
@@ -34,6 +34,7 @@ import { useChatSession } from "./useChatSession"
 import { useChatStream } from "./useChatStream"
 import { useChatStreamReattach } from "./hooks/useChatStreamReattach"
 import { usePlanMode } from "./plan-mode/usePlanMode"
+import { useTaskProgressSnapshot } from "./tasks/useTaskProgressSnapshot"
 import { useDiffPanel } from "./diff-panel/useDiffPanel"
 import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useModelState } from "./hooks/useModelState"
@@ -639,33 +640,29 @@ export default function ChatScreen({
     draftWorkingDir,
   })
 
-  // Restore the per-session tool permission toggle on session switch. The ref
+  // Restore the per-session permission mode on session switch. The ref
   // guards against re-applying when `sessions` later reloads with the same
-  // sid — that would clobber the user's in-session edits.
-  //
-  // When `sid` becomes null (new-chat transition), also reset to "auto" so the
-  // toggle doesn't carry the previous session's `full_approve` / `ask_every_time`
-  // into a fresh chat — otherwise the first tool call would silently fall back
-  // once `session_created` arrives and the DB default ("auto") is restored.
-  const restoredTpmForSidRef = useRef<string | null>(null)
+  // sid — that would clobber the user's in-session edits. When `sid` becomes
+  // null (new-chat transition), reset to "default" so the previous session's
+  // `yolo` / `smart` doesn't bleed into a fresh chat.
+  const restoredModeForSidRef = useRef<string | null>(null)
   useEffect(() => {
     const sid = session.currentSessionId
     if (!sid) {
-      if (restoredTpmForSidRef.current !== null) {
-        stream.setToolPermissionMode("auto")
+      if (restoredModeForSidRef.current !== null) {
+        stream.setPermissionMode("default")
       }
-      restoredTpmForSidRef.current = null
+      restoredModeForSidRef.current = null
       return
     }
-    if (restoredTpmForSidRef.current === sid) return
+    if (restoredModeForSidRef.current === sid) return
     const meta = session.sessions.find((s) => s.id === sid)
     if (!meta) return // wait until the sessions list has the meta
-    const mode: ToolPermissionMode =
-      (meta.toolPermissionMode as ToolPermissionMode | undefined) ?? "auto"
-    restoredTpmForSidRef.current = sid
-    stream.setToolPermissionMode(mode)
+    const mode: SessionMode = meta.permissionMode ?? "default"
+    restoredModeForSidRef.current = sid
+    stream.setPermissionMode(mode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session.currentSessionId, session.sessions, stream.setToolPermissionMode])
+  }, [session.currentSessionId, session.sessions, stream.setPermissionMode])
 
   // ── Stream Reattach Hook ────────────────────────────────────
   // Rehydrates chat streaming after frontend reload / window reopen / browser
@@ -688,6 +685,10 @@ export default function ChatScreen({
 
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
+  const taskProgressSnapshot = useTaskProgressSnapshot(
+    session.currentSessionId,
+    session.messages,
+  )
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -814,8 +815,8 @@ export default function ChatScreen({
             logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
           }
           break
-        case "setToolPermission":
-          stream.setToolPermissionMode(action.mode as import("@/types/chat").ToolPermissionMode)
+        case "setPermissionMode":
+          stream.setPermissionMode(action.mode)
           break
         case "displayOnly":
           // Already handled above by adding event message
@@ -842,7 +843,10 @@ export default function ChatScreen({
           break
         case "approvePlan":
           await planMode.approvePlan()
-          stream.handleSend(t("planMode.executeCommand"), { planMode: "executing" })
+          stream.handleSend(t("planMode.executeCommand"), {
+            planMode: "executing",
+            displayText: t("planMode.executionApproved"),
+          })
           break
         case "showPlan":
           planMode.setPlanContent(action.planContent)
@@ -911,11 +915,17 @@ export default function ChatScreen({
   const handlePlanApprove = useCallback(async () => {
     await planMode.approvePlan()
     // Send a short trigger — the full plan is already in the system prompt (Executing state)
-    stream.handleSend(t("planMode.executeCommand"), { planMode: "executing" })
+    stream.handleSend(t("planMode.executeCommand"), {
+      planMode: "executing",
+      displayText: t("planMode.executionApproved"),
+    })
   }, [planMode, stream, t])
 
   const handlePlanContinue = useCallback(async () => {
-    stream.handleSend(t("planMode.executeCommand"), { planMode: "executing" })
+    stream.handleSend(t("planMode.executeCommand"), {
+      planMode: "executing",
+      displayText: t("planMode.executionResumed"),
+    })
   }, [stream, t])
 
   const handleMessageSwitchModel = useCallback(
@@ -1275,8 +1285,8 @@ export default function ChatScreen({
                   currentSessionId={session.currentSessionId}
                   currentAgentId={session.currentAgentId}
                   onCommandAction={handleCommandAction}
-                  toolPermissionMode={stream.toolPermissionMode}
-                  onToolPermissionChange={stream.setToolPermissionMode}
+                  permissionMode={stream.permissionMode}
+                  onPermissionModeChange={stream.setPermissionMode}
                   sessionTemperature={sessionTemperature}
                   onSessionTemperatureChange={setSessionTemperature}
                   incognitoEnabled={incognitoEnabled}
@@ -1293,6 +1303,7 @@ export default function ChatScreen({
                   onEnterPlanMode={planMode.enterPlanMode}
                   onExitPlanMode={planMode.exitPlanMode}
                   onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
+                  taskProgressSnapshot={taskProgressSnapshot}
                 />
               </>
             )}

@@ -238,13 +238,20 @@
     "compactNoChange": "Ngữ cảnh không cần nén",
     "compactFailed": "Nén thất bại",
     "viewContext": "Xem ngữ cảnh",
-    "toolPermission": "Quyền công cụ",
-    "toolPermissionAuto": "Tự động",
-    "toolPermissionAsk": "Hỏi mỗi lần",
-    "toolPermissionFull": "Phê duyệt đầy đủ",
-    "toolPermissionAutoDesc": "Mô hình quyết định liệu cần phê duyệt hay không",
-    "toolPermissionAskDesc": "Mọi lệnh gọi công cụ đều cần xác nhận",
-    "toolPermissionFullDesc": "Tự động phê duyệt mọi lệnh gọi công cụ",
+    "permissionMode": {
+      "default": {
+        "label": "Mặc định",
+        "desc": "Các công cụ chỉnh sửa và lệnh nguy hiểm cần phê duyệt, các công cụ khác chạy ngay."
+      },
+      "smart": {
+        "label": "Phê duyệt thông minh",
+        "desc": "Mô hình giám định hoặc tự đánh giá tin cậy quyết định việc phê duyệt."
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "Mọi công cụ trong phiên này chạy không cần phê duyệt (đường dẫn bảo vệ vẫn ghi log)."
+      }
+    },
     "statusCache": "Bộ nhớ đệm",
     "statusCacheWrite": "Ghi",
     "statusCacheHit": "Trúng",
@@ -394,6 +401,18 @@
     "acp_spawn": "Khởi chạy Agent ACP",
     "submit_plan": "Gửi kế hoạch",
     "amend_plan": "Sửa kế hoạch",
+    "task_create": "Tạo nhiệm vụ",
+    "task_update": "Cập nhật nhiệm vụ",
+    "task_list": "Danh sách nhiệm vụ",
+    "team": "Nhóm Agent",
+    "peek_sessions": "Xem các phiên khác",
+    "get_settings": "Lấy cài đặt",
+    "update_settings": "Cập nhật cài đặt",
+    "list_settings_backups": "Danh sách bản sao cài đặt",
+    "restore_settings_backup": "Khôi phục bản sao cài đặt",
+    "mcp_resource": "Tài nguyên MCP",
+    "mcp_prompt": "Lời nhắc MCP",
+    "skill": "Tải skill",
     "ask_user": {
       "cancelled": "Người dùng đã hủy câu hỏi",
       "no_answers": "Không có câu trả lời được cung cấp",
@@ -794,6 +813,7 @@
       "autoApproveLabel": "Auto-approve tool calls",
       "autoApproveNeedsTrust": "Auto-approve requires Trust level = Trusted.",
       "eagerLabel": "Connect eagerly at startup",
+      "deferredToolsLabel": "Tải schema công cụ trễ",
       "allowedTools": "Tool allowlist",
       "allowedToolsHint": "Empty = allow all. One original tool name per line (without the mcp__ prefix).",
       "deniedTools": "Tool denylist",
@@ -1411,7 +1431,7 @@
     "contextCompactMicrocompactEnabledDesc": "Xóa kết quả công cụ tạm thời cũ với chi phí bằng không (ls/grep/find v.v.), chạy trước các tầng nén khác",
     "contextCompactMicrocompactTools": "Danh sách công cụ nén vi mô",
     "contextCompactMicrocompactToolsDesc": "Kết quả cũ của các công cụ được chọn sẽ tự động bị xóa",
-    "contextCompactToolPolicy": "Chính sách nén công cụ",
+    "contextCompactToolPolicy": "Chính sách nén kết quả công cụ",
     "contextCompactToolPolicyDesc": "Kiểm soát cách xử lý kết quả của mỗi công cụ trong quá trình nén ngữ cảnh",
     "contextCompactPolicyEager": "Xóa trước",
     "contextCompactPolicyDefault": "Bình thường",
@@ -1520,7 +1540,9 @@
     "asyncToolsInlineBytes": "Kích thước kết quả nội tuyến",
     "asyncToolsInlineBytesDesc": "Số byte kết quả được đính kèm trong thông báo hoàn tất. Kết quả lớn hơn sẽ lưu spool và chỉ chèn xem trước head/tail.",
     "deferredToolsEnabled": "Tải công cụ trễ",
-    "deferredToolsEnabledDesc": "Chỉ gửi schema công cụ cốt lõi trước; phần còn lại được khám phá qua tool_search. Giảm token schema cho agent có nhiều công cụ. Áp dụng từ cuộc trò chuyện kế tiếp.",
+    "deferredToolsEnabledDesc": "Enable tool_search-based loading. Tools remain injected until you defer them below. Takes effect on the next conversation.",
+    "deferredToolsPerToolTitle": "Deferred built-in tools",
+    "deferredToolsPerToolDesc": "Turn on only the tools whose schemas should be discovered via tool_search instead of sent up front.",
     "memorySelection": "Chọn memory theo ngữ nghĩa bằng LLM",
     "memorySelectionDesc": "Khi số memory ứng viên vượt ngưỡng, yêu cầu mô hình chọn những memory phù hợp nhất để đưa vào system prompt. Giảm nhiễu.",
     "memorySelectionThreshold": "Ngưỡng kích hoạt",
@@ -1643,20 +1665,26 @@
     "agentIdentity": "Danh tính",
     "agentPersonalityTab": "Tính cách",
     "agentBasicInfo": "Thông tin cơ bản",
-    "agentCapabilities": "Khả năng",
+    "agentCapabilities": "Công cụ & Kỹ năng",
     "agentCapabilitiesTabTools": "Công cụ",
     "agentCapabilitiesTabSkills": "Kỹ năng",
     "agentCapabilitiesToolInjection": "Tiêm công cụ",
     "agentCapabilitiesToolInjectionDesc": "Chọn công cụ tích hợp mà Agent này có thể sử dụng (công cụ hệ thống nội bộ luôn khả dụng)",
+    "agentTierCoreTitle": "Công cụ cốt lõi",
+    "agentTierCoreDesc": "Khả năng nền tảng mà mọi agent đều cần. Không thể tắt.",
+    "agentTierCoreBadge": "Luôn bật",
+    "agentTierStandardTitle": "Công cụ tiêu chuẩn",
+    "agentTierStandardDesc": "Agent có sẵn theo mặc định, có thể tắt riêng từng cái. Một số khả năng vẫn cần cấu hình provider trong cài đặt toàn cục để thực sự hoạt động.",
+    "agentTierConfiguredHint": "Chưa cấu hình · vào {{hint}}",
+    "agentMcpTitle": "MCP",
+    "agentMcpDesc": "Khi bật, tất cả máy chủ MCP đã kết nối và công cụ của chúng đều khả dụng; khi tắt, mọi công cụ MCP đều bị loại trừ.",
+    "agentMcpEnableLabel": "Bật MCP",
+    "agentMcpBadgeOn": "Đã bật",
+    "agentMcpBadgeOff": "Đã tắt",
     "agentMaxToolRounds": "Số vòng công cụ tối đa",
     "agentUnlimited": "Không giới hạn",
     "agentSkills": "Kỹ năng",
     "agentSkillsDesc": "Các kỹ năng đã bật toàn cục sẽ có sẵn theo mặc định. Bạn có thể tắt những kỹ năng không cần thiết",
-    "agentRequireApproval": "Phê duyệt công cụ",
-    "agentRequireApprovalDesc": "Kiểm soát AI có cần sự xác nhận của bạn trước khi sử dụng công cụ",
-    "agentApprovalAll": "Phê duyệt tất cả",
-    "agentApprovalNone": "Không cần phê duyệt",
-    "agentApprovalCustom": "Tùy chỉnh",
     "toolExecName": "Thực thi lệnh",
     "toolExecDesc": "Chạy lệnh shell, hỗ trợ chạy nền và sandbox",
     "toolProcessName": "Quản lý tiến trình",
@@ -1703,6 +1731,52 @@
     "toolTaskUpdateDesc": "Cập nhật trạng thái hoặc nội dung của tác vụ hiện có",
     "toolTaskListName": "Liệt kê tác vụ",
     "toolTaskListDesc": "Liệt kê tất cả các tác vụ trong phiên hiện tại",
+    "toolMcpResourceName": "Tài nguyên MCP",
+    "toolMcpResourceDesc": "Đọc các tài nguyên do máy chủ MCP đã kết nối lưu trữ (tệp, bản ghi, v.v.)",
+    "toolMcpPromptName": "Prompt MCP",
+    "toolMcpPromptDesc": "Lấy các mẫu prompt do máy chủ MCP đã kết nối phát hành",
+    "toolImageGenerateName": "Tạo Ảnh",
+    "toolImageGenerateDesc": "Tạo ảnh từ văn bản và ảnh sang ảnh, có chuyển đổi dự phòng giữa nhiều nhà cung cấp",
+    "toolCanvasName": "Canvas",
+    "toolCanvasDesc": "Tạo dự án trực quan tương tác trong panel xem trước (HTML, Markdown, biểu đồ, slide)",
+    "toolAcpSpawnName": "Gọi Agent Bên Ngoài",
+    "toolAcpSpawnDesc": "Gọi các agent ACP bên ngoài (Claude Code, Codex CLI, v.v.) để thực thi nhiệm vụ",
+    "toolProjectReadFileName": "Đọc File Dự Án",
+    "toolProjectReadFileDesc": "Đọc các file đã tải lên dự án của phiên hiện tại",
+    "toolAskUserQuestionName": "Hỏi Người Dùng",
+    "toolAskUserQuestionDesc": "Gửi câu hỏi có cấu trúc dạng trắc nghiệm hoặc tự do cho người dùng",
+    "toolSendAttachmentName": "Gửi Đính Kèm",
+    "toolSendAttachmentDesc": "Đẩy file đã tạo dưới dạng thẻ tải xuống đến giao diện desktop",
+    "toolAgentsListName": "Danh Sách Agent",
+    "toolAgentsListDesc": "Liệt kê tất cả agent khả dụng kèm mô tả và năng lực",
+    "toolSessionsListName": "Danh Sách Phiên",
+    "toolSessionsListDesc": "Liệt kê các phiên khác (tiêu đề, agent, mô hình, số lượng tin nhắn)",
+    "toolSessionStatusName": "Trạng Thái Phiên",
+    "toolSessionStatusDesc": "Truy vấn agent, mô hình, số lượng tin nhắn và mốc thời gian của một phiên",
+    "toolSessionsHistoryName": "Lịch Sử Phiên",
+    "toolSessionsHistoryDesc": "Phân trang lịch sử tin nhắn của một phiên",
+    "toolSessionsSendName": "Gửi Đến Phiên",
+    "toolSessionsSendDesc": "Gửi tin nhắn người dùng đến phiên khác (tùy chọn chờ phản hồi)",
+    "toolPeekSessionsName": "Xem Nhanh Các Phiên",
+    "toolPeekSessionsDesc": "Nhận thức xuyên phiên — trả về danh sách gọn các phiên khác",
+    "toolTeamName": "Nhóm Agent",
+    "toolTeamDesc": "Tạo và quản lý nhóm agent với bảng nhiệm vụ chung và nhắn tin giữa các thành viên",
+    "toolPdfName": "PDF",
+    "toolPdfDesc": "Trích xuất văn bản hoặc phân tích trực quan PDF (nhiều file, dải trang)",
+    "toolImageName": "Phân Tích Ảnh",
+    "toolImageDesc": "Phân tích ảnh bằng vision model (đường dẫn cục bộ, URL, clipboard, ảnh chụp màn hình)",
+    "toolGetSettingsName": "Đọc Cài Đặt",
+    "toolGetSettingsDesc": "Đọc cấu hình ứng dụng theo danh mục",
+    "toolUpdateSettingsName": "Cập Nhật Cài Đặt",
+    "toolUpdateSettingsDesc": "Cập nhật cấu hình ứng dụng có xác nhận theo cấp độ rủi ro",
+    "toolListSettingsBackupsName": "Danh Sách Sao Lưu Cài Đặt",
+    "toolListSettingsBackupsDesc": "Liệt kê các bản sao lưu cài đặt đã lưu",
+    "toolRestoreSettingsBackupName": "Khôi Phục Sao Lưu Cài Đặt",
+    "toolRestoreSettingsBackupDesc": "Khôi phục cài đặt từ một bản sao lưu đã lưu",
+    "toolMemoryGetName": "Lấy Bộ Nhớ",
+    "toolMemoryGetDesc": "Lấy nội dung đầy đủ của một bản ghi bộ nhớ theo ID",
+    "toolUpdateCoreMemoryName": "Cập Nhật Bộ Nhớ Lõi",
+    "toolUpdateCoreMemoryDesc": "Cập nhật file memory.md được nạp vào system prompt",
     "agentSandbox": "Docker Sandbox",
     "agentSandboxDesc": "Thực thi lệnh trong container Docker",
     "agentSkillEnvCheck": "Kiểm tra môi trường",
@@ -2150,6 +2224,146 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsTab": {
+      "manage": "Kỹ năng",
+      "evolution": "Tự tiến hóa"
+    },
+    "skillsEvolutionHero": {
+      "title": "Biến những việc bạn lặp lại thành kỹ năng có thể tái sử dụng",
+      "body": "Hope Agent không đứng yên. Thi thoảng sẽ xem lại các cuộc trò chuyện và chắt lọc những việc bạn lặp lại thành kỹ năng có thể tái sử dụng — lần sau gặp lại là đã biết cách rồi.",
+      "note": "Bật mặc định · càng dùng càng hợp với bạn. Tắt đi không ảnh hưởng tới các cuộc trò chuyện, chỉ là kỹ năng mới sẽ không tự tích lũy thêm.",
+      "statusOn": "Đang tiến hóa",
+      "statusOff": "Đã tạm dừng"
+    },
+    "skillsAutoReview": {
+      "label": "Tự động kích hoạt kỹ năng mới",
+      "description": "Bỏ qua bước nháp — kỹ năng được chắt lọc sẽ hoạt động ngay.",
+      "hint": "Tắt (mặc định): kỹ năng mới sẽ là bản nháp và cần bạn phê duyệt trước."
+    },
+    "agentApprovalTab": "Approval",
+    "agentApproval": {
+      "defaultModeTitle": "Default Session Permission Mode",
+      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
+      "modes": {
+        "inherit": {
+          "label": "Inherit Global",
+          "desc": "Follow the global default (currently \"Default\" mode)"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Edit-class tools and high-risk commands need approval"
+        },
+        "smart": {
+          "label": "Smart Approval",
+          "desc": "Judge model or model self-confidence decides approvals"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "All tools run without approval (protected paths still audit-log)"
+        }
+      },
+      "customApprovalTitle": "Custom Tool Approval",
+      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
+      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
+    "approvalNav": "Permission",
+    "approvalPanel": {
+      "title": "Permission",
+      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
+      "yoloTitle": "Global YOLO (Skip All Approvals)",
+      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
+      "yoloEnabled": "Global YOLO enabled",
+      "yoloDisabled": "Global YOLO disabled",
+      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
+      "protectedPathsTitle": "Protected Paths",
+      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
+      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
+      "editCommandsTitle": "Edit Commands",
+      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
+      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
+      "dangerousCommandsTitle": "Dangerous Commands",
+      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
+      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
+      "smartTitle": "Smart Approval Mode",
+      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
+      "smartStrategy": "Decision Strategy",
+      "smartFallback": "Fallback When Unavailable",
+      "strategies": {
+        "self_confidence": "Model Self-Tag",
+        "judge_model": "Judge Model",
+        "both": "Judge first, self-tag fallback"
+      },
+      "fallbacks": {
+        "default": "Fall back to Default mode",
+        "ask": "Force prompt",
+        "allow": "Force allow"
+      },
+      "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
+      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
+      "timeoutTitle": "Approval Dialog Timeout",
+      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
+      "timeoutSeconds": "Timeout Seconds",
+      "timeoutHint": "0 = wait forever",
+      "timeoutAction": "Timeout Action",
+      "timeoutActions": {
+        "deny": "Block execution",
+        "proceed": "Proceed"
+      },
+      "empty": "No entries — add a pattern to enable",
+      "restoreDefaults": "Restore Defaults",
+      "restoredDefaults": "Restored to defaults"
     }
   },
   "tz": {
@@ -2491,13 +2705,49 @@
     "recoveryBannerDesc": "Ứng dụng đã gặp sự cố {{count}} lần trước khi khởi chạy này và đã được khởi động lại tự động."
   },
   "approval": {
-    "title": "Xác nhận thực thi lệnh",
-    "workingDir": "Thư mục làm việc",
-    "command": "Lệnh",
-    "allowOnce": "Cho phép một lần",
-    "allowAlways": "Luôn cho phép",
-    "deny": "Từ chối",
-    "queueIndicator": "{{current}} trên {{total}}"
+    "title": "Command Approval Required",
+    "workingDir": "Working Directory",
+    "command": "Command",
+    "allowOnce": "Allow Once",
+    "allowAlways": "Always Allow",
+    "deny": "Deny",
+    "queueIndicator": "{{current}} of {{total}}",
+    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
+    "countdownTooltip": "{{seconds}}s left — will auto-{{action}} on timeout",
+    "countdownAction": {
+      "deny": "deny",
+      "proceed": "proceed"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "Edit-class tool",
+        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch)."
+      },
+      "edit_command": {
+        "title": "Edit-pattern exec command",
+        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix."
+      },
+      "dangerous_command": {
+        "title": "⚠️ Dangerous command",
+        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "protected_path": {
+        "title": "⚠️ Protected path",
+        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "agent_custom_list": {
+        "title": "Agent custom approval list",
+        "body": "This tool is on the agent's custom-approval list (Default mode only)."
+      },
+      "smart_judge": {
+        "title": "Smart-mode judge",
+        "body": "The Smart-mode judge model decided this call needs human confirmation."
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode confirmation",
+        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval."
+      }
+    }
   },
   "thinking": {
     "label": "Quá trình suy nghĩ",
@@ -2730,6 +2980,8 @@
     "stepsDetected": "bước được phát hiện",
     "noSteps": "Không có bước",
     "executeCommand": "Bắt đầu thực thi kế hoạch. Hoàn thành từng bước theo thứ tự, gọi update_plan_step để theo dõi tiến độ.",
+    "executionApproved": "Kế hoạch đã được phê duyệt. Bắt đầu thực thi.",
+    "executionResumed": "Tiếp tục thực thi kế hoạch.",
     "planning": "Đang tạo kế hoạch...",
     "pause": "Tạm dừng",
     "resume": "Tiếp tục",
@@ -3450,5 +3702,12 @@
     "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
     "noDiffData": "Không có dữ liệu diff",
     "resizePanel": "Thay đổi kích thước bảng diff"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Đã tự động tạo kỹ năng nháp: {{name}}. Nhấp để xem xét.",
+      "review": "Xem xét",
+      "unnamedSkill": "(kỹ năng không tên)"
+    }
   }
 }

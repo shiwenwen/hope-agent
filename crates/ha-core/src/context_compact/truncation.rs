@@ -170,6 +170,14 @@ pub fn truncate_tool_results(
         }
         if let Some(text) = get_tool_result_text(msg) {
             if text.len() > max_chars {
+                if crate::tools::image_markers::contains_image_marker(&text) {
+                    if crate::tools::image_markers::has_valid_image_markers(&text) {
+                        continue;
+                    }
+                    set_tool_result_text(msg, "[Invalid or truncated image tool result omitted]");
+                    truncated_count += 1;
+                    continue;
+                }
                 let truncated = head_tail_truncate(&text, max_chars);
                 set_tool_result_text(msg, &truncated);
                 truncated_count += 1;

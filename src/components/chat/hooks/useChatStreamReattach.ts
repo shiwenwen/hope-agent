@@ -34,7 +34,7 @@ export interface UseChatStreamReattachDeps {
   reloadSessions: () => Promise<void>
 }
 
-interface SessionStreamState {
+export interface SessionStreamState {
   active: boolean
   lastSeq: number
   streamId?: string | null

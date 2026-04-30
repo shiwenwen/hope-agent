@@ -8,6 +8,7 @@ import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/Subagent
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
+import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
 import type {
   ContentBlock,
   FileChangeMetadata,
@@ -16,7 +17,6 @@ import type {
 } from "@/types/chat"
 import type { Message } from "@/types/chat"
 
-const TASK_TOOL_NAMES = new Set(["task_create", "task_update", "task_list"])
 const NO_GROUP_TOOLS = new Set([
   "ask_user_question",
   "submit_plan",

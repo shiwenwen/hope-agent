@@ -451,9 +451,6 @@ fn execute_subagent(
             Some(extra_context)
         };
 
-        let image_gen_config =
-            crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
-
         let result = crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: child_session_id,
             agent_id: agent_id.clone(),
@@ -464,10 +461,6 @@ fn execute_subagent(
             providers: store.providers.clone(),
             codex_token: None,
             resolved_temperature: agent_def.config.model.temperature.or(store.temperature),
-            web_search_enabled: crate::tools::web_search::has_enabled_provider(&store.web_search),
-            notification_enabled: false,
-            image_gen_config,
-            canvas_enabled: store.canvas.enabled,
             compact_config: store.compact.clone(),
             extra_system_context,
             reasoning_effort,

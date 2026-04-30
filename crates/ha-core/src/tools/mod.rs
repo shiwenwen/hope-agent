@@ -11,6 +11,7 @@ pub mod canvas;
 mod cron;
 mod definitions;
 pub(crate) mod diff_util;
+pub mod dispatch;
 mod edit;
 mod exec;
 mod execution;
@@ -18,6 +19,7 @@ mod find;
 mod grep;
 pub(crate) mod image;
 pub mod image_generate;
+pub(crate) mod image_markers;
 pub(crate) mod job_status;
 mod ls;
 mod memory;
@@ -46,15 +48,13 @@ mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
-pub use approval::{
-    set_tool_permission_mode, submit_approval_response, ApprovalResponse, ToolPermissionMode,
-};
+pub use approval::{submit_approval_response, ApprovalResponse};
 pub use definitions::{
     get_amend_plan_tool, get_ask_user_question_tool, get_available_tools, get_canvas_tool,
     get_core_tools, get_core_tools_for_provider, get_deferred_tools,
     get_image_generate_tool_dynamic, get_notification_tool, get_plan_step_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
-    is_async_capable, is_concurrent_safe, is_core_tool, is_internal_tool, ToolDefinition,
+    is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
 

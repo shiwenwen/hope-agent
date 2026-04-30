@@ -78,9 +78,9 @@ pub(crate) struct RoundOutcome {
 ///
 /// `media_items` and `is_error` are intentionally not surfaced here — the
 /// orchestrator already used them to fire `emit_tool_result` events before
-/// constructing this struct. History persistence uses `clean_result` and
-/// per-provider re-parsing for `__IMAGE_BASE64__` markers (Responses-family
-/// `build_responses_tool_result` returns separate image input items).
+/// constructing this struct. Adapters store `clean_result` verbatim in history;
+/// any `__IMAGE_BASE64__` / `__IMAGE_FILE__` marker expansion happens only on
+/// the outgoing API request so persisted history never holds expanded base64.
 pub(crate) struct ExecutedTool {
     pub call_id: String,
     pub name: String,

@@ -441,15 +441,6 @@ async fn handle_inbound_message(
         agent_temp.or(global_temp)
     };
 
-    let web_search_enabled = crate::tools::web_search::has_enabled_provider(&store.web_search);
-    let notification_enabled = {
-        let agent_notify = agent_def.as_ref().and_then(|d| d.config.notify_on_complete);
-        store.notification.enabled && agent_notify != Some(false)
-    };
-    let image_gen_config =
-        crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
-    let canvas_enabled = store.canvas.enabled;
-
     // 8. Create ChannelStreamSink + spawn streaming background task
     let (event_tx, event_rx) = mpsc::channel::<String>(512);
 
@@ -487,10 +478,6 @@ async fn handle_inbound_message(
         providers: store.providers.clone(),
         codex_token: None,
         resolved_temperature,
-        web_search_enabled,
-        notification_enabled,
-        image_gen_config,
-        canvas_enabled,
         compact_config: store.compact.clone(),
         extra_system_context: Some(channel_context),
         reasoning_effort: crate::agent::live_reasoning_effort(None).await,

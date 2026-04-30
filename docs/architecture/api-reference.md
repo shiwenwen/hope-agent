@@ -250,7 +250,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `chat` | `POST /api/chat`；流式输出经 `/ws/events` 的 `chat:stream_delta` | ✅ |
 | `stop_chat` | `POST /api/chat/stop` | ✅ |
-| `set_tool_permission_mode` | `POST /api/chat/tool-permission-mode` | ✅ |
+| `set_permission_mode` | `POST /api/chat/permission-mode` | ✅ 替代旧 `set_tool_permission_mode` |
 | `respond_to_approval` | `POST /api/chat/approval` | ✅ |
 | `save_attachment` | `POST /api/chat/attachment` | ✅ (multipart) |
 | `list_builtin_tools` | `GET /api/chat/tools` | ✅ |
@@ -617,6 +617,10 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `activate_draft_skill` | `POST /api/skills/{name}/activate` | ✅ |
 | `discard_draft_skill` | `DELETE /api/skills/{name}/draft` | ✅ |
 | `trigger_skill_review_now` | `POST /api/skills/review/run` | ✅ |
+| `get_skills_auto_review_promotion` | `GET /api/skills/auto-review/promotion` | ✅ |
+| `set_skills_auto_review_promotion` | `PUT /api/skills/auto-review/promotion` | ✅ |
+| `get_skills_auto_review_enabled` | `GET /api/skills/auto-review/enabled` | ✅ |
+| `set_skills_auto_review_enabled` | `PUT /api/skills/auto-review/enabled` | ✅ |
 
 ### Slash commands
 
@@ -737,6 +741,26 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `set_tool_result_disk_threshold` | `POST /api/config/tool-result-threshold` | ✅ |
 | `get_tool_limits` | `GET /api/config/tool-limits` | ✅ |
 | `set_tool_limits` | `POST /api/config/tool-limits` | ✅ |
+
+### Permission（v2 权限/审批引擎）
+
+详见 [`docs/architecture/permission-system.md`](permission-system.md)。
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `get_global_yolo_status` | `GET /api/permission/global-yolo` | ✅ 返回 `{ cliFlag, configFlag, active }` |
+| `set_dangerous_skip_all_approvals` | `POST /api/security/dangerous-skip-all-approvals` | ✅ 切换 `permission.global_yolo`（兼容历史路径） |
+| `get_smart_mode_config` | `GET /api/permission/smart` | ✅ 读 SmartModeConfig |
+| `set_smart_mode_config` | `POST /api/permission/smart` | ✅ 写 SmartModeConfig |
+| `get_protected_paths` | `GET /api/permission/protected-paths` | ✅ 返回 `{ current, defaults }` |
+| `set_protected_paths` | `POST /api/permission/protected-paths` | ✅ 全量替换 |
+| `reset_protected_paths` | `POST /api/permission/protected-paths/reset` | ✅ 恢复硬编码默认 |
+| `get_dangerous_commands` | `GET /api/permission/dangerous-commands` | ✅ |
+| `set_dangerous_commands` | `POST /api/permission/dangerous-commands` | ✅ |
+| `reset_dangerous_commands` | `POST /api/permission/dangerous-commands/reset` | ✅ |
+| `get_edit_commands` | `GET /api/permission/edit-commands` | ✅ |
+| `set_edit_commands` | `POST /api/permission/edit-commands` | ✅ |
+| `reset_edit_commands` | `POST /api/permission/edit-commands/reset` | ✅ |
 
 ### Crash / Recovery
 

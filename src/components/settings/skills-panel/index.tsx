@@ -1,16 +1,26 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
+import { useTranslation } from "react-i18next"
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
+import {
+  markDraftsSeen,
+  refreshDraftSkillsStore,
+  useDraftSkillsStore,
+} from "@/hooks/useDraftSkillsStore"
+import { SKILLS_EVENTS } from "@/types/skills"
 import type { SkillSummary } from "../types"
 import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
+import SkillEvolutionView from "./SkillEvolutionView"
 import SkillDetailView from "./SkillDetailView"
 import DraftReviewSection from "./DraftReviewSection"
 import QuickImportDialog from "./QuickImportDialog"
 
 export default function SkillsPanel() {
+  const { t } = useTranslation()
+  const { drafts } = useDraftSkillsStore()
   const [skills, setSkills] = useState<SkillSummary[]>([])
-  const [drafts, setDrafts] = useState<SkillSummary[]>([])
   const [draftPending, setDraftPending] = useState<
     Record<string, "activate" | "discard" | undefined>
   >({})
@@ -19,6 +29,8 @@ export default function SkillsPanel() {
   const [loading, setLoading] = useState(true)
   const [quickImportOpen, setQuickImportOpen] = useState(false)
   const [skillEnvCheck, setSkillEnvCheck] = useState(true)
+  const [autoReviewEnabled, setAutoReviewEnabled] = useState(true)
+  const [autoReviewPromotion, setAutoReviewPromotion] = useState(false)
   // Per-skill env status: skill_name -> { env_var -> is_configured }
   const [envStatus, setEnvStatus] = useState<Record<string, Record<string, boolean>>>({})
   // Env var values for the currently selected skill detail (masked from backend)
@@ -30,21 +42,13 @@ export default function SkillsPanel() {
 
   const reload = useCallback(async () => {
     try {
-      const [list, draftList, dirs, envCheck, status] = await Promise.all([
+      const [list, dirs, envCheck, status] = await Promise.all([
         getTransport().call<SkillSummary[]>("get_skills"),
-        getTransport()
-          .call<SkillSummary[]>("list_draft_skills")
-          .catch(() => [] as SkillSummary[]),
         getTransport().call<string[]>("get_extra_skills_dirs"),
         getTransport().call<boolean>("get_skill_env_check"),
         getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status"),
       ])
-      // Drafts are returned in `list_draft_skills` and also show up in
-      // `get_skills` (we want one or the other, not both). Hide draft rows
-      // from the main list so only promoted skills appear there.
-      const draftNames = new Set(draftList.map((d) => d.name))
-      setSkills(list.filter((s) => !draftNames.has(s.name)))
-      setDrafts(draftList)
+      setSkills(list)
       setExtraDirs(dirs)
       setSkillEnvCheck(envCheck)
       setEnvStatus(status)
@@ -57,17 +61,55 @@ export default function SkillsPanel() {
 
   useEffect(() => {
     reload()
-    const unlisten = getTransport().listen("skills:auto_review_complete", () => {
+    const unlisten = getTransport().listen(SKILLS_EVENTS.autoReviewComplete, () => {
       reload()
     })
     return unlisten
   }, [reload])
+
+  // Whenever the panel is open and the draft list changes (mount, store
+  // refresh, or live event), the user is implicitly "seeing" the current set —
+  // clear the unseen-count badge that drives the IconSidebar / SettingsView dots.
+  useEffect(() => {
+    markDraftsSeen()
+  }, [drafts])
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([
+      getTransport().call<boolean>("get_skills_auto_review_enabled"),
+      getTransport().call<boolean>("get_skills_auto_review_promotion"),
+    ])
+      .then(([enabled, promotion]) => {
+        if (cancelled) return
+        setAutoReviewEnabled(enabled)
+        setAutoReviewPromotion(promotion)
+      })
+      .catch((e) => {
+        logger.error(
+          "settings",
+          "SkillsPanel::loadAutoReview",
+          "Failed to load auto-review settings",
+          e,
+        )
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const draftNames = useMemo(() => new Set(drafts.map((d) => d.name)), [drafts])
+  const visibleSkills = useMemo(
+    () => skills.filter((s) => !draftNames.has(s.name)),
+    [skills, draftNames],
+  )
 
   async function handleActivateDraft(name: string) {
     setDraftPending((prev) => ({ ...prev, [name]: "activate" }))
     try {
       await getTransport().call("activate_draft_skill", { name })
       await reload()
+      refreshDraftSkillsStore()
     } catch (e) {
       logger.error("settings", "SkillsPanel::activateDraft", "Failed to activate", e)
     } finally {
@@ -80,6 +122,7 @@ export default function SkillsPanel() {
     try {
       await getTransport().call("discard_draft_skill", { name })
       await reload()
+      refreshDraftSkillsStore()
     } catch (e) {
       logger.error("settings", "SkillsPanel::discardDraft", "Failed to discard", e)
     } finally {
@@ -195,6 +238,38 @@ export default function SkillsPanel() {
     await getTransport().call("set_skill_env_check", { enabled: v })
   }
 
+  async function handleSetAutoReviewPromotion(v: boolean) {
+    const previous = autoReviewPromotion
+    setAutoReviewPromotion(v)
+    try {
+      await getTransport().call("set_skills_auto_review_promotion", { auto: v })
+    } catch (e) {
+      logger.error(
+        "settings",
+        "SkillsPanel::setAutoReviewPromotion",
+        "Failed to update auto-review promotion",
+        e,
+      )
+      setAutoReviewPromotion(previous)
+    }
+  }
+
+  async function handleSetAutoReviewEnabled(v: boolean) {
+    const previous = autoReviewEnabled
+    setAutoReviewEnabled(v)
+    try {
+      await getTransport().call("set_skills_auto_review_enabled", { enabled: v })
+    } catch (e) {
+      logger.error(
+        "settings",
+        "SkillsPanel::setAutoReviewEnabled",
+        "Failed to update auto-review enabled",
+        e,
+      )
+      setAutoReviewEnabled(previous)
+    }
+  }
+
   // ── Skill Detail View ──────────────────────────────────────────
   if (selectedSkill) {
     return (
@@ -228,20 +303,40 @@ export default function SkillsPanel() {
           />
         </div>
       )}
-      <SkillListView
-        skills={skills}
-        extraDirs={extraDirs}
-        loading={loading}
-        skillEnvCheck={skillEnvCheck}
-        envStatus={envStatus}
-        onToggleSkill={handleToggleSkill}
-        onSelectSkill={handleSelectSkill}
-        onOpenDir={handleOpenDir}
-        onAddDir={handleAddDir}
-        onRemoveDir={handleRemoveDir}
-        onSetSkillEnvCheck={handleSetSkillEnvCheck}
-        onQuickImport={() => setQuickImportOpen(true)}
-      />
+      <Tabs defaultValue="manage" className="flex-1 flex flex-col min-h-0">
+        <div className="px-6 pt-4 shrink-0">
+          <TabsList>
+            <TabsTrigger value="manage">{t("settings.skillsTab.manage")}</TabsTrigger>
+            <TabsTrigger value="evolution">
+              {t("settings.skillsTab.evolution")}
+            </TabsTrigger>
+          </TabsList>
+        </div>
+        <TabsContent value="manage" className="flex-1 min-h-0 outline-none">
+          <SkillListView
+            skills={visibleSkills}
+            extraDirs={extraDirs}
+            loading={loading}
+            skillEnvCheck={skillEnvCheck}
+            envStatus={envStatus}
+            onToggleSkill={handleToggleSkill}
+            onSelectSkill={handleSelectSkill}
+            onOpenDir={handleOpenDir}
+            onAddDir={handleAddDir}
+            onRemoveDir={handleRemoveDir}
+            onSetSkillEnvCheck={handleSetSkillEnvCheck}
+            onQuickImport={() => setQuickImportOpen(true)}
+          />
+        </TabsContent>
+        <TabsContent value="evolution" className="flex-1 min-h-0 outline-none">
+          <SkillEvolutionView
+            autoReviewEnabled={autoReviewEnabled}
+            autoReviewPromotion={autoReviewPromotion}
+            onSetAutoReviewEnabled={handleSetAutoReviewEnabled}
+            onSetAutoReviewPromotion={handleSetAutoReviewPromotion}
+          />
+        </TabsContent>
+      </Tabs>
       <QuickImportDialog
         open={quickImportOpen}
         onClose={() => setQuickImportOpen(false)}

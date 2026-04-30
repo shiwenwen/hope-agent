@@ -14,7 +14,7 @@ pub async fn handle_plan(
             if !plan::set_plan_state(sid, PlanModeState::Planning).await {
                 return Err("Invalid plan mode transition to planning".to_string());
             }
-            db.update_session_plan_mode(sid, "planning")
+            db.update_session_plan_mode(sid, PlanModeState::Planning)
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),
@@ -30,7 +30,7 @@ pub async fn handle_plan(
             if !plan::set_plan_state(sid, PlanModeState::Off).await {
                 return Err("Invalid plan mode transition to off".to_string());
             }
-            db.update_session_plan_mode(sid, "off")
+            db.update_session_plan_mode(sid, PlanModeState::Off)
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),
@@ -49,13 +49,13 @@ pub async fn handle_plan(
             let should_create_checkpoint = plan::should_create_execution_checkpoint(
                 &PlanModeState::Executing,
                 &previous_state,
-                persisted_plan_mode.as_deref(),
+                persisted_plan_mode,
                 checkpoint_exists,
             );
             if !plan::set_plan_state(sid, PlanModeState::Executing).await {
                 return Err("Invalid plan mode transition to executing".to_string());
             }
-            db.update_session_plan_mode(sid, "executing")
+            db.update_session_plan_mode(sid, PlanModeState::Executing)
                 .map_err(|e| e.to_string())?;
             // Create git checkpoint AFTER PlanMeta entry exists in the store
             if should_create_checkpoint {
@@ -84,7 +84,7 @@ pub async fn handle_plan(
             if !plan::set_plan_state(sid, PlanModeState::Paused).await {
                 return Err("Invalid plan mode transition to paused".to_string());
             }
-            db.update_session_plan_mode(sid, "paused")
+            db.update_session_plan_mode(sid, PlanModeState::Paused)
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),
@@ -99,7 +99,7 @@ pub async fn handle_plan(
             if !plan::set_plan_state(sid, PlanModeState::Executing).await {
                 return Err("Invalid plan mode transition to executing".to_string());
             }
-            db.update_session_plan_mode(sid, "executing")
+            db.update_session_plan_mode(sid, PlanModeState::Executing)
                 .map_err(|e| e.to_string())?;
             Ok(CommandResult {
                 content: String::new(),

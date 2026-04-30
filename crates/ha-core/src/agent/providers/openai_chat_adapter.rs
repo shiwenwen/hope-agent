@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use super::super::api_types::FunctionCallItem;
 use super::super::config::{apply_thinking_to_chat_body, build_api_url};
 use super::super::events::{
-    build_openai_chat_tool_result_content, emit_text_delta, emit_thinking_delta,
+    emit_text_delta, emit_thinking_delta, expand_openai_chat_image_markers_for_api,
 };
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
@@ -58,7 +58,8 @@ fn build_chat_body(
             api_messages.push(json!({ "role": "system", "content": active_suffix }));
         }
     }
-    api_messages.extend_from_slice(req.history_for_api);
+    let expanded_history = expand_openai_chat_image_markers_for_api(req.history_for_api);
+    api_messages.extend(expanded_history);
 
     let tools_array: Vec<Value> = req
         .tool_schemas
@@ -493,7 +494,7 @@ impl<'a> StreamingChatAdapter for OpenAIChatStreamingAdapter<'a> {
                 json!({
                     "role": "tool",
                     "tool_call_id": et.call_id,
-                    "content": build_openai_chat_tool_result_content(&et.clean_result),
+                    "content": et.clean_result,
                 }),
                 round,
             );

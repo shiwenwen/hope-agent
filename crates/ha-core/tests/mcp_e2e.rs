@@ -40,6 +40,7 @@ fn base_cfg(name: &str, command: &str, args: Vec<&str>) -> McpServerConfig {
         auto_approve: false,
         trust_level: McpTrustLevel::Untrusted,
         eager: false,
+        deferred_tools: false,
         project_paths: vec![],
         description: None,
         icon: None,
@@ -101,7 +102,7 @@ fn catalog_roundtrip_preserves_namespace_and_sanitization() {
         "example",
         std::sync::Arc::new(serde_json::Map::new()),
     );
-    let def = catalog::rmcp_tool_to_definition(&cfg, &tool, false);
+    let def = catalog::rmcp_tool_to_definition(&cfg, &tool);
     assert_eq!(def.name, "mcp__weird-name_ok__dash_tool_with_dots");
     assert!(def.name.len() <= 64);
     assert!(catalog::is_mcp_tool_name(&def.name));

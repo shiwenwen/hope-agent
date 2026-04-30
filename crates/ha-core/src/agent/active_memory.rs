@@ -25,13 +25,13 @@
 //! when constructing the API request.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::agent_config::ActiveMemoryConfig;
 use crate::memory::{MemoryEntry, MemoryScope, MemorySearchQuery};
+use crate::ttl_cache::TtlCache;
 
 /// Soft cap for the per-session recall cache. Large enough that typical
 /// usage never evicts inside the TTL window; small enough that the O(n)
@@ -49,30 +49,27 @@ pub struct CachedAgentConfig {
 
 /// Per-agent Active Memory runtime state: recall cache + cached agent
 /// config snapshot.
+///
+/// The recall cache stores `Option<String>` so that "we ran the
+/// side_query and got NONE" is distinct from "no entry at all" — the
+/// outer `Option` returned by `get_cached` is the cache hit/miss signal,
+/// while the inner `Option<String>` is the recalled text (or its
+/// LLM-confirmed absence).
 pub struct ActiveMemoryState {
-    /// LRU-ish cache keyed by hash(user_message). Kept small (<= 32 entries)
-    /// because this is a per-session state and users rarely revisit the
-    /// exact same phrasing after the TTL expires.
-    cache: Mutex<HashMap<u64, CachedRecall>>,
+    /// Per-state TtlCache keyed by hash(user_message). TTL is supplied
+    /// per-`get_cached` call so config changes (`cache_ttl_secs`) take
+    /// effect immediately without restamping existing entries.
+    cache: TtlCache<u64, Option<String>>,
     /// Cached config snapshot. Lazily filled on the first turn and
     /// invalidated by [`ActiveMemoryState::invalidate_config`] (called
     /// from `AssistantAgent::set_agent_id`).
     agent_config: Mutex<Option<CachedAgentConfig>>,
 }
 
-struct CachedRecall {
-    /// `None` is a valid cached value meaning "we ran the side_query for
-    /// this user message and the LLM decided nothing was worth recalling
-    /// (returned NONE / empty)". A cache miss (no entry at all) is
-    /// signalled separately by `get_cached` returning `None`.
-    text: Option<String>,
-    created_at: Instant,
-}
-
 impl ActiveMemoryState {
     pub fn new() -> Self {
         Self {
-            cache: Mutex::new(HashMap::new()),
+            cache: TtlCache::new(MAX_CACHE_ENTRIES),
             agent_config: Mutex::new(None),
         }
     }
@@ -99,45 +96,17 @@ impl ActiveMemoryState {
     /// config and may have changed.
     pub fn invalidate_config(&self) {
         *self.agent_config.lock().unwrap_or_else(|e| e.into_inner()) = None;
-        self.cache.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.cache.clear();
     }
 
     /// Return the cached recall for this user-text hash if still valid.
     /// `None` return value means "cache miss — go compute".
     pub fn get_cached(&self, hash: u64, ttl: Duration) -> Option<Option<String>> {
-        let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(entry) = guard.get(&hash) {
-            if entry.created_at.elapsed() <= ttl {
-                return Some(entry.text.clone());
-            }
-            // Expired — drop it lazily.
-            guard.remove(&hash);
-        }
-        None
+        self.cache.get(&hash, ttl)
     }
 
     pub fn put_cached(&self, hash: u64, text: Option<String>) {
-        let mut guard = self.cache.lock().unwrap_or_else(|e| e.into_inner());
-        // Cheap cap to avoid unbounded growth when users cycle through
-        // many different phrasings. When over capacity, evict the single
-        // oldest entry by `created_at` (O(n) but n <= 32, and eviction
-        // happens at most once per put).
-        if guard.len() >= MAX_CACHE_ENTRIES {
-            if let Some(oldest_key) = guard
-                .iter()
-                .min_by_key(|(_, v)| v.created_at)
-                .map(|(k, _)| *k)
-            {
-                guard.remove(&oldest_key);
-            }
-        }
-        guard.insert(
-            hash,
-            CachedRecall {
-                text,
-                created_at: Instant::now(),
-            },
-        );
+        self.cache.put(hash, text);
     }
 }
 

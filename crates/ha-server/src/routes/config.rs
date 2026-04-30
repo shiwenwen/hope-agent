@@ -296,14 +296,14 @@ pub async fn set_tool_timeout(Json(body): Json<Value>) -> Result<Json<Value>, Ap
 /// `GET /api/config/approval-timeout` -- get tool approval wait timeout (seconds).
 pub async fn get_approval_timeout() -> Result<Json<Value>, AppError> {
     let store = load_config()?;
-    Ok(Json(json!(store.approval_timeout_secs)))
+    Ok(Json(json!(store.permission.approval_timeout_secs)))
 }
 
 /// `POST /api/config/approval-timeout` -- set tool approval wait timeout (seconds).
 pub async fn set_approval_timeout(Json(body): Json<Value>) -> Result<Json<Value>, AppError> {
     let seconds = body.get("seconds").and_then(|v| v.as_u64()).unwrap_or(300);
     ha_core::config::mutate_config(("approval_timeout", "http"), |store| {
-        store.approval_timeout_secs = seconds;
+        store.permission.approval_timeout_secs = seconds;
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))
@@ -312,7 +312,7 @@ pub async fn set_approval_timeout(Json(body): Json<Value>) -> Result<Json<Value>
 /// `GET /api/config/approval-timeout-action` -- get approval timeout action.
 pub async fn get_approval_timeout_action() -> Result<Json<Value>, AppError> {
     let store = load_config()?;
-    Ok(Json(json!(store.approval_timeout_action)))
+    Ok(Json(json!(store.permission.approval_timeout_action)))
 }
 
 /// `POST /api/config/approval-timeout-action` -- set approval timeout action.
@@ -322,7 +322,7 @@ pub async fn set_approval_timeout_action(Json(body): Json<Value>) -> Result<Json
         _ => ha_core::config::ApprovalTimeoutAction::Deny,
     };
     ha_core::config::mutate_config(("approval_timeout_action", "http"), |store| {
-        store.approval_timeout_action = action;
+        store.permission.approval_timeout_action = action;
         Ok(())
     })?;
     Ok(Json(json!({ "saved": true })))
