@@ -31,7 +31,47 @@
 ## Open
 
 
-### F-022 SkillsPanel 三个 Switch handler 失败处理风格不一致
+### F-026 IM 端 `permission:mode_changed` 事件订阅方未补齐
+
+- **来源**：2026-04-30 IM channel 权限模式对齐 v2 PR
+- **现象**：`/permission yolo` 在 IM 渠道执行后，[`channel/worker/slash.rs::SetToolPermission`](../../crates/ha-core/src/channel/worker/slash.rs) 已经调用 `SessionDB::update_session_permission_mode` 写入 SQLite 并 emit `permission:mode_changed`，但桌面端 `PermissionModeSwitcher` 没订阅该事件——用户在 IM 改完后回到桌面端打开同一会话，dropdown 显示的还是改前的值，必须切走再切回来才会重新读 DB
+- **为什么留**：本期 PR 主题是命令对齐 + IM 写入闭环 + Smart 判官说明可见，事件订阅是桌面端的纯 UX 改进，没有数据正确性问题（DB 已经是新值，下一条工具调用按新模式判定）。补全订阅链路涉及前端 hooks（useChatStream / useSession），属于独立 frontend 改动
+- **改的话要做什么**：
+  1. 前端某个 hook（`useChatStream` 或新建 `usePermissionModeSync`）订阅 EventBus 事件 `permission:mode_changed`，过滤当前 sessionId 命中后更新 stream 本地的 `permissionMode` 状态
+  2. Tauri 侧 `EventBus` 转发到前端事件需在 `src-tauri/src/lib.rs::run` 的 EventBus 订阅器里把 `permission:mode_changed` 加进 forward list（参考 `slash:plan_changed` 的模式）；HTTP 模式 axum WS 端走 `crates/ha-server/` 同样加白名单
+  3. 顺便看下 IM 端 `slash:plan_changed` / `slash:effort_changed` / `slash:model_switched` 是否都已正确转发——`/permission` 这条事件名加进来时一起统一
+- **影响面**：纯 UX。改前用户切走再切回触发 `get_session` 重读即可纠正，没有持续不一致或安全问题
+- **触发时机建议**：下次做 IM ↔ 桌面端会话状态同步类工作时（cron 改动、project / agent 切换事件等）顺手补；或者独立 "EventBus → 前端事件转发完整性" 小 PR
+
+
+### F-025 IM 工具审批仅渲染 SmartJudge，其它 AskReason kind 待补
+
+- **来源**：2026-04-30 IM channel 权限模式对齐 v2 PR
+- **现象**：[`channel/worker/approval.rs::format_approval_text` / `format_text_approval`](../../crates/ha-core/src/channel/worker/approval.rs) 当前只渲染 `ApprovalReasonKind::SmartJudge` 一种 reason 的 detail；`EditCommand`（命中 edit-commands 模式）/ `DangerousCommand`（命中危险命令）/ `ProtectedPath`（命中保护路径）/ `EditTool` / `AgentCustomList` / `PlanModeAsk` 全部不在 IM 端渲染说明文字，IM 用户只看到 command preview + 三个按钮/数字回复，无法判断弹审批的具体原因
+- **为什么留**：本期对齐范围是「命令切换 + Smart 判官说明」。其它 AskReason 的 detail 文案需要逐一过 i18n、决定哪些适合在 IM 暴露（保护路径 detail 可能泄露用户隐私目录如 `~/.ssh/id_rsa` 给群成员看）、Smart fallback=Ask 时 `reason=None` 也希望加一句"Smart 未决, fallback=ask"提示——铺得有点宽
+- **改的话要做什么**：
+  1. 在 `smart_judge_line` 旁新增 `reason_line(reason: Option<&ApprovalReasonPayload>) -> String`，按 kind 分支返回对应 prefix（`💭 Smart Judge:` / `🛡 Protected Path:` / `⚠ Dangerous Command:` / `✏ Edit Command:` / 等）
+  2. 决定 `ProtectedPath` / `DangerousCommand` 的 detail 是直接 expose 还是脱敏（保护路径有可能是 `/home/user/.ssh/id_rsa` 之类敏感）
+  3. Smart 模式 + `SmartFallback::Ask` + judge 失败导致没有 rationale 的场景，渲染 "Smart Judge timed out — falling back to Ask" 之类提示
+  4. 同步加单元测试覆盖每种 kind 的渲染分支
+- **影响面**：UX 完整性。当前不影响功能正确性，IM 用户审批决策时少了上下文
+- **触发时机建议**：下一次动 IM 审批 UX（按钮文案 / 自动审批 / AllowAlways 多作用域）时一并做；或者独立 "IM AskReason renderer" 小 PR
+
+
+### F-024 IM 端 AllowAlways 按钮在四作用域 (Project / Session / AgentHome / Global) 上的语义补齐
+
+- **来源**：2026-04-30 IM channel 权限模式对齐 v2 PR（plan 阶段调研发现的存量 gap）
+- **现象**：[`permission/allowlist.rs`](../../crates/ha-core/src/permission/allowlist.rs) 已经定义了 `AllowScope ∈ Project | Session | AgentHome | Global` enum 骨架，但 IM 端 [`channel/worker/approval.rs::build_approval_buttons`](../../crates/ha-core/src/channel/worker/approval.rs) 的 `🔓 Always Allow` 按钮和文本 fallback 的 `2 - Always allow` 都仍然走兼容旧 [`is_command_allowed`](../../crates/ha-core/src/security/dangerous.rs) 路径，没有 scope 选择 UI；桌面端 `ApprovalDialog` 同样固定 "Allow Once"。AGENTS.md「AllowAlways 多作用域 v1 部分实现」段落明确这是 v1 待补
+- **为什么留**：本期主题是命令对齐与 Smart 判官说明，AllowAlways 多作用域是另一条独立的产品决策路径——IM 端尤其复杂（按钮按一下就要选作用域，需要二级菜单或 callback flow）
+- **改的话要做什么**：
+  1. 桌面端先把 `AllowScope` 落到 ApprovalDialog UI（4 个 scope chip 或 dropdown），确定 UX 后再迁 IM
+  2. IM 端可以走「按 Always Allow → 弹第二组按钮选 scope」的二步骤 callback flow（callback_data 加一阶状态机，因为 Telegram callback 是 stateless）
+  3. 4 个 scope 的文件 IO（per-project / per-session / per-agent / global allowlist 文件）需要分别落到 [`~/.hope-agent/permission/allowlist/`](../../crates/ha-core/src/permission/) 子目录
+- **影响面**：用户当前在 IM 端按 "Always Allow" 实际行为是 Global allowlist（兼容路径），跟桌面端一致。等于多作用域功能整体未上线，没有"已有功能但 IM 不全"的不一致问题
+- **触发时机建议**：等桌面端 AllowAlways 多作用域产品决策落地时一并做
+
+
+### F-023 SkillsPanel 三个 Switch handler 失败处理风格不一致
 
 - **来源**：2026-04-29 Skill 自动审核 UI 信号 PR `/simplify` review（reuse agent）
 - **现象**：[`src/components/settings/skills-panel/index.tsx`](../../src/components/settings/skills-panel/index.tsx) 在同一个面板里有三个 Switch handler，失败处理风格不齐：

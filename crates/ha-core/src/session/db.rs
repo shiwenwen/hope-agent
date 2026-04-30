@@ -1506,6 +1506,26 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Narrow read of just `sessions.permission_mode` — avoids the full
+    /// `SESSION_META_SELECT` (22+ cols, 2 COUNT subqueries, channel JOIN)
+    /// when callers only need the mode (e.g. `/permission` echo).
+    pub fn get_session_permission_mode(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<crate::permission::SessionMode>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT permission_mode FROM sessions WHERE id = ?1")?;
+        let row = match stmt.query_row(params![session_id], |row| row.get::<_, String>(0)) {
+            Ok(s) => Some(s),
+            Err(rusqlite::Error::QueryReturnedNoRows) => None,
+            Err(e) => return Err(anyhow::anyhow!("DB error: {}", e)),
+        };
+        Ok(row.map(|s| crate::permission::SessionMode::parse_or_default(&s)))
+    }
+
     /// Persist the session-scoped incognito mode flag.
     ///
     /// Refuses to enable incognito on Project / IM Channel sessions: project

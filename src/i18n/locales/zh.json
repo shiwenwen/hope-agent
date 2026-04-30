@@ -2925,7 +2925,7 @@
       "description": "搜索网络"
     },
     "permission": {
-      "description": "设置工具权限模式（auto/ask/full）"
+      "description": "设置会话权限模式（default/smart/yolo）"
     },
     "plan": {
       "description": "进入/退出计划模式"

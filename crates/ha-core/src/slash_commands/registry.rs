@@ -190,7 +190,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             has_args: true,
             args_optional: false,
             arg_placeholder: Some("<mode>".into()),
-            arg_options: Some(vec!["auto".into(), "ask".into(), "full".into()]),
+            arg_options: Some(vec!["default".into(), "smart".into(), "yolo".into()]),
             description_raw: None,
         },
         SlashCommandDef {

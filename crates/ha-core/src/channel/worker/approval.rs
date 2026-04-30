@@ -13,7 +13,9 @@ use tokio::sync::Mutex;
 use crate::channel::db::ChannelDB;
 use crate::channel::registry::ChannelRegistry;
 use crate::channel::types::{InlineButton, ReplyPayload};
-use crate::tools::approval::{submit_approval_response, ApprovalResponse};
+use crate::tools::approval::{
+    submit_approval_response, ApprovalReasonKind, ApprovalReasonPayload, ApprovalResponse,
+};
 
 use std::sync::Arc;
 
@@ -70,18 +72,44 @@ pub(crate) fn build_approval_buttons(request_id: &str) -> Vec<Vec<InlineButton>>
     ]]
 }
 
+/// Render the Smart-mode judge rationale as a one-line suffix, or empty for
+/// other AskReason kinds. Other kinds (protected path, dangerous command, …)
+/// are intentionally not surfaced to IM users yet — see review-followups.
+fn smart_judge_line(reason: Option<&ApprovalReasonPayload>) -> String {
+    let Some(r) = reason else {
+        return String::new();
+    };
+    if r.kind != ApprovalReasonKind::SmartJudge {
+        return String::new();
+    }
+    let Some(detail) = r.detail.as_deref() else {
+        return String::new();
+    };
+    let trimmed = detail.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    let snippet = crate::truncate_utf8(trimmed, 280);
+    format!("\n💭 Smart Judge: {}", snippet)
+}
+
 /// Format the approval prompt text (plain text, no HTML — works across all channels).
-fn format_approval_text(command: &str) -> String {
+fn format_approval_text(command: &str, reason: Option<&ApprovalReasonPayload>) -> String {
     let preview = crate::truncate_utf8(command, 500);
-    format!("🔐 Tool approval required\n\n{}", preview)
+    format!(
+        "🔐 Tool approval required\n\n{}{}",
+        preview,
+        smart_judge_line(reason)
+    )
 }
 
 /// Format the text-only approval prompt (for channels without buttons).
-fn format_text_approval(command: &str) -> String {
+fn format_text_approval(command: &str, reason: Option<&ApprovalReasonPayload>) -> String {
     let preview = crate::truncate_utf8(command, 500);
     format!(
-        "🔐 Tool approval required:\n{}\n\nReply:\n1 - Allow once\n2 - Always allow\n3 - Deny",
-        preview
+        "🔐 Tool approval required:\n{}{}\n\nReply:\n1 - Allow once\n2 - Always allow\n3 - Deny",
+        preview,
+        smart_judge_line(reason)
     )
 }
 
@@ -189,7 +217,10 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
             // Send the approval prompt to the IM channel
             let payload = if supports_buttons {
                 ReplyPayload {
-                    text: Some(format_approval_text(&request.command)),
+                    text: Some(format_approval_text(
+                        &request.command,
+                        request.reason.as_ref(),
+                    )),
                     buttons: build_approval_buttons(&request.request_id),
                     thread_id: conversation.thread_id.clone(),
                     ..ReplyPayload::text("")
@@ -208,7 +239,10 @@ pub fn spawn_channel_approval_listener(channel_db: Arc<ChannelDB>, registry: Arc
                 }
 
                 ReplyPayload {
-                    text: Some(format_text_approval(&request.command)),
+                    text: Some(format_text_approval(
+                        &request.command,
+                        request.reason.as_ref(),
+                    )),
                     thread_id: conversation.thread_id.clone(),
                     ..ReplyPayload::text("")
                 }
@@ -314,4 +348,65 @@ pub async fn handle_approval_callback(callback_data: &str) -> anyhow::Result<&'s
 /// Check if a callback data string is an approval callback.
 pub fn is_approval_callback(data: &str) -> bool {
     data.starts_with(APPROVAL_PREFIX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn smart(detail: Option<&str>) -> ApprovalReasonPayload {
+        ApprovalReasonPayload {
+            kind: ApprovalReasonKind::SmartJudge,
+            detail: detail.map(|s| s.to_string()),
+        }
+    }
+
+    fn other_reason() -> ApprovalReasonPayload {
+        ApprovalReasonPayload {
+            kind: ApprovalReasonKind::DangerousCommand,
+            detail: Some("rm -rf".to_string()),
+        }
+    }
+
+    #[test]
+    fn smart_judge_line_renders_for_smart_only() {
+        assert_eq!(smart_judge_line(None), "");
+        assert_eq!(smart_judge_line(Some(&other_reason())), "");
+        assert_eq!(smart_judge_line(Some(&smart(None))), "");
+        assert_eq!(smart_judge_line(Some(&smart(Some("   ")))), "");
+        let line = smart_judge_line(Some(&smart(Some("looks risky"))));
+        assert_eq!(line, "\n💭 Smart Judge: looks risky");
+    }
+
+    #[test]
+    fn smart_judge_line_truncates_long_detail() {
+        let long = "x".repeat(1000);
+        let line = smart_judge_line(Some(&smart(Some(&long))));
+        assert!(line.starts_with("\n💭 Smart Judge: "));
+        assert!(line.len() <= 320, "got len {}", line.len());
+    }
+
+    #[test]
+    fn format_approval_text_includes_smart_judge_line() {
+        let txt = format_approval_text("exec ls", Some(&smart(Some("trusted dir"))));
+        assert!(txt.starts_with("🔐 Tool approval required\n\nexec ls"));
+        assert!(txt.contains("💭 Smart Judge: trusted dir"));
+    }
+
+    #[test]
+    fn format_approval_text_omits_line_when_no_smart_reason() {
+        assert!(!format_approval_text("exec ls", None).contains("Smart Judge"));
+        assert!(!format_approval_text("exec ls", Some(&other_reason())).contains("Smart Judge"));
+    }
+
+    #[test]
+    fn format_text_approval_keeps_numeric_reply_block() {
+        let txt = format_text_approval("exec ls", Some(&smart(Some("ok per project rules"))));
+        assert!(txt.contains("💭 Smart Judge: ok per project rules"));
+        assert!(txt.contains("\nReply:\n1 - Allow once\n2 - Always allow\n3 - Deny"));
+        // Smart Judge must precede the digit list so 1/2/3 parsing isn't shifted.
+        let smart_idx = txt.find("Smart Judge").expect("has smart line");
+        let reply_idx = txt.find("Reply:").expect("has reply block");
+        assert!(smart_idx < reply_idx);
+    }
 }

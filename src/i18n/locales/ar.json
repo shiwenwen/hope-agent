@@ -2925,7 +2925,7 @@
       "description": "البحث على الويب"
     },
     "permission": {
-      "description": "تعيين وضع صلاحية الأدوات (auto/ask/full)"
+      "description": "تعيين وضع صلاحية الجلسة (default/smart/yolo)"
     },
     "plan": {
       "description": "الدخول/الخروج من Plan Mode"

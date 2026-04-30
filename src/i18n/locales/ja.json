@@ -2925,7 +2925,7 @@
       "description": "ウェブを検索"
     },
     "permission": {
-      "description": "ツール権限モードを設定 (auto/ask/full)"
+      "description": "セッション権限モードを設定 (default/smart/yolo)"
     },
     "plan": {
       "description": "プランモードに入る/終了"

@@ -2925,7 +2925,7 @@
       "description": "搜索網絡"
     },
     "permission": {
-      "description": "設置工具權限模式（auto/ask/full）"
+      "description": "設定工作階段權限模式（default/smart/yolo）"
     },
     "plan": {
       "description": "進入/退出計劃模式"

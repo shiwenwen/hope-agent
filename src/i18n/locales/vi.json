@@ -2925,7 +2925,7 @@
       "description": "Tìm kiếm trên web"
     },
     "permission": {
-      "description": "Đặt chế độ quyền công cụ (auto/ask/full)"
+      "description": "Đặt chế độ quyền phiên (default/smart/yolo)"
     },
     "plan": {
       "description": "Vào/thoát plan mode"

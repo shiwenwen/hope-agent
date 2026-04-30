@@ -2925,7 +2925,7 @@
       "description": "Web'de ara"
     },
     "permission": {
-      "description": "Araç izin modunu ayarla (auto/ask/full)"
+      "description": "Oturum izin modunu ayarla (default/smart/yolo)"
     },
     "plan": {
       "description": "Plan mode'a gir/çık"

@@ -2925,7 +2925,7 @@
       "description": "웹 검색"
     },
     "permission": {
-      "description": "도구 권한 모드 설정 (auto/ask/full)"
+      "description": "세션 권한 모드 설정 (default/smart/yolo)"
     },
     "plan": {
       "description": "계획 모드 진입/종료"

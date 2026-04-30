@@ -464,6 +464,19 @@ useEffect(() => {
 
 [`src/components/settings/approval-panel/GlobalYoloSection.tsx`](../../src/components/settings/approval-panel/GlobalYoloSection.tsx) 切换全局 YOLO；CLI flag 触发的"运行时强制 YOLO"额外渲染琥珀提示条（`status.cliFlag=true` 时）。
 
+### 斜杠命令入口 `/permission`
+
+桌面与 IM 共享同一份命令实现，处理器在 [`crates/ha-core/src/slash_commands/handlers/utility.rs`](../../crates/ha-core/src/slash_commands/handlers/utility.rs) `handle_permission`：
+
+- `/permission default | smart | yolo` —— 切换 `SessionMeta.permission_mode`，落点为 [`SessionDB::update_session_permission_mode`](../../crates/ha-core/src/session/db.rs)；
+  - 桌面端通过 `CommandAction::SetToolPermission` → `useChatStream.setPermissionMode` → `POST /api/chat/permission-mode` 写入；
+  - IM 端在 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) 的 `SetToolPermission` 分支直接调 SessionDB，并 emit EventBus 事件 `permission:mode_changed`（payload `{ sessionId, mode }`）供桌面端订阅刷新。
+- 命令必须传参：`arg_options` 在 IM 端被 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) 渲染成内联按钮（无参用户输入直接收到 default / smart / yolo 三按钮选单），桌面前端同样靠 `argOptions` 弹子菜单。
+- 查看当前模式走 `/status` 命令（输出里有 `Permission Mode` 行），或直接看桌面标题栏 `PermissionModeSwitcher` dropdown。
+- `IM_DISABLED_COMMANDS` 不含 `permission`，IM 内可直接调用。
+
+旧的 `auto / ask / full` 三档已彻底废弃——v1 期间这三个字符串值会被 `SessionMode::parse_or_default` 全部降级成 `Default`，且没有别名兼容。
+
 ---
 
 ## HTTP 路由与 Tauri 命令对照

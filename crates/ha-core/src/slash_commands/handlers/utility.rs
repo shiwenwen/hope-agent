@@ -78,6 +78,12 @@ pub fn handle_status(
                 user_count, assistant_count
             ));
         }
+        let mode = session_db
+            .get_session_permission_mode(sid)
+            .ok()
+            .flatten()
+            .unwrap_or(crate::permission::SessionMode::Default);
+        lines.push(format!("- **Permission Mode**: `{}`", mode.as_str()));
         if let Some(project_lines) = render_project_section(session_db, sid) {
             lines.push(String::new());
             lines.extend(project_lines);
@@ -238,24 +244,26 @@ pub fn handle_usage(
     })
 }
 
-/// /permission <mode> — Set tool permission mode for current session.
+/// /permission <default|smart|yolo> — Switch the session permission mode.
+/// Use `/status` to view the current mode.
 pub fn handle_permission(args: &str) -> Result<CommandResult, String> {
-    let mode = args.trim().to_lowercase();
-    let (resolved, label) = match mode.as_str() {
-        "auto" => ("auto", "Auto"),
-        "ask" | "ask_every_time" => ("ask_every_time", "Ask Every Time"),
-        "full" | "full_approve" => ("full_approve", "Full Approve"),
+    let mode_arg = args.trim().to_lowercase();
+    let resolved = match mode_arg.as_str() {
+        "default" => crate::permission::SessionMode::Default,
+        "smart" => crate::permission::SessionMode::Smart,
+        "yolo" => crate::permission::SessionMode::Yolo,
         _ => {
             return Err(format!(
-                "Invalid permission mode: `{}`. Valid: auto, ask, full",
-                mode
+                "Invalid permission mode: `{}`. Valid: default, smart, yolo",
+                mode_arg
             ));
         }
     };
+
     Ok(CommandResult {
-        content: format!("Tool permission set to **{}**.", label),
+        content: format!("Permission mode set to **{}**.", resolved.as_str()),
         action: Some(CommandAction::SetToolPermission {
-            mode: resolved.to_string(),
+            mode: resolved.as_str().to_string(),
         }),
     })
 }
@@ -295,4 +303,51 @@ fn sanitize_filename(name: &str) -> String {
         .collect::<String>()
         .trim()
         .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_modes_emit_set_action() {
+        for (input, expected) in [
+            ("default", "default"),
+            ("smart", "smart"),
+            ("yolo", "yolo"),
+            // case-insensitive — handler lowercases args
+            ("YOLO", "yolo"),
+            ("  smart  ", "smart"),
+        ] {
+            let res = handle_permission(input).expect("ok");
+            match res.action {
+                Some(CommandAction::SetToolPermission { ref mode }) => {
+                    assert_eq!(mode, expected, "input {:?}", input);
+                }
+                other => panic!("unexpected action for {:?}: {:?}", input, other),
+            }
+            assert!(res.content.contains(&format!("**{}**", expected)));
+        }
+    }
+
+    #[test]
+    fn rejects_legacy_and_unknown_aliases() {
+        for bad in [
+            "auto",
+            "ask",
+            "full",
+            "ask_every_time",
+            "full_approve",
+            "garbage",
+            "",
+        ] {
+            let err = handle_permission(bad).expect_err("should error");
+            assert!(
+                err.contains("Invalid permission mode") && err.contains("default, smart, yolo"),
+                "input {:?}, got {:?}",
+                bad,
+                err
+            );
+        }
+    }
 }

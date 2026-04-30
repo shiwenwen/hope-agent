@@ -2925,7 +2925,7 @@
       "description": "Search the web"
     },
     "permission": {
-      "description": "Set tool permission mode (auto/ask/full)"
+      "description": "Set session permission mode (default/smart/yolo)"
     },
     "plan": {
       "description": "Enter/exit plan mode"

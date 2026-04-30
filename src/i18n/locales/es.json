@@ -2925,7 +2925,7 @@
       "description": "Buscar en la web"
     },
     "permission": {
-      "description": "Ajustar el modo de permisos de herramientas (auto/ask/full)"
+      "description": "Ajustar el modo de permisos de la sesión (default/smart/yolo)"
     },
     "plan": {
       "description": "Entrar/salir del plan mode"

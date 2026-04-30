@@ -1037,6 +1037,14 @@ QQ Bot 有多种消息端点，`chat_id` 使用前缀区分：
 
 `ChannelAccountConfig.auto_approve_tools`（默认 `false`）可在渠道设置中开启。开启后该渠道的所有工具调用通过 `ToolExecContext.auto_approve_tools` 直接跳过审批门控，无需任何交互。
 
+### Smart 模式判官说明
+
+当会话处于 Smart 模式（`SessionMode::Smart`）且 `judge_model` 返回 `Ask` 时，`ApprovalReasonPayload { kind: SmartJudge, detail: rationale }` 会经 EventBus 事件 `approval_required` 一并落到 IM 端。`format_approval_text` / `format_text_approval` 在 command preview 后追加一行 `💭 Smart Judge: {rationale}`（UTF-8 安全截断到 280 字节，文本 fallback 路径置于 `Reply: 1 / 2 / 3` 数字列表前以避免破坏数字解析）。其它 `AskReason` kind（保护路径命中、危险命令命中等）当前在 IM 端只渲染基础 `command` 预览，已登记 review-followups。
+
+### `/permission` 切换会话权限模式
+
+IM 用户可在渠道内直接发 `/permission default | smart | yolo`，命令在 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) `SetToolPermission` 分支调用 `SessionDB::update_session_permission_mode` 写入 `SessionMeta.permission_mode`，并 emit `permission:mode_changed` 事件供桌面端订阅。命令必传参；`arg_options` 在支持按钮的渠道（Telegram / Discord 等）让无参 `/permission` 直接弹出 `default / smart / yolo` 三个内联按钮。查看当前模式走 `/status`（输出包含 `Permission Mode` 行）。详情见 [permission-system.md](permission-system.md)。
+
 **源码**：`crates/ha-core/src/channel/worker/approval.rs`
 
 ---

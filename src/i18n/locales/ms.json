@@ -2925,7 +2925,7 @@
       "description": "Cari di web"
     },
     "permission": {
-      "description": "Tetapkan mod kebenaran alat (auto/ask/full)"
+      "description": "Tetapkan mod kebenaran sesi (default/smart/yolo)"
     },
     "plan": {
       "description": "Masuk/keluar plan mode"

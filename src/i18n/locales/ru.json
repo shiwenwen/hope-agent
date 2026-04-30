@@ -2925,7 +2925,7 @@
       "description": "Поиск в сети"
     },
     "permission": {
-      "description": "Установить режим разрешения инструментов (auto/ask/full)"
+      "description": "Установить режим разрешений сессии (default/smart/yolo)"
     },
     "plan": {
       "description": "Войти/выйти из Plan Mode"

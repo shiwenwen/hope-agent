@@ -273,15 +273,48 @@ pub(super) async fn dispatch_slash_for_channel(
             })
         }
 
-        // ── Tool permission — not applicable in channel context ──
-        Some(CommandAction::SetToolPermission { mode }) => Ok(ChannelSlashOutcome::Reply {
-            content: format!(
-                "Tool permission `{}` is not applicable in channel context (auto-approve).",
-                mode
-            ),
-            new_session_id: None,
-            buttons: vec![],
-        }),
+        // ── Permission mode — write SessionMeta + notify frontend ──
+        // SessionDB is guaranteed available here: `handlers::dispatch` above
+        // already short-circuits with `session_db()?` on the same crate-level
+        // global, so reaching this arm implies the global is initialized.
+        Some(CommandAction::SetToolPermission { mode }) => {
+            let resolved = crate::permission::SessionMode::parse_or_default(&mode);
+            let session_db = crate::require_session_db()?;
+            if let Err(e) = session_db.update_session_permission_mode(session_id, resolved) {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Failed to update session permission mode: {}",
+                    e
+                );
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Failed to set permission mode: {}", e),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            app_info!(
+                "channel",
+                "worker",
+                "Permission mode set to {} for session {}",
+                resolved.as_str(),
+                session_id
+            );
+            if let Some(bus) = crate::get_event_bus() {
+                bus.emit(
+                    "permission:mode_changed",
+                    serde_json::json!({
+                        "sessionId": session_id,
+                        "mode": resolved.as_str(),
+                    }),
+                );
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+                buttons: vec![],
+            })
+        }
 
         // ── Plan: show plan content ──
         Some(CommandAction::ShowPlan { plan_content }) => {
