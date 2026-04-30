@@ -4,7 +4,18 @@ use serde_json::{json, Value};
 use crate::config;
 use crate::user_config;
 
-const BLOCKED_UPDATE_CATEGORIES: &[&str] = &["active_model", "fallback_models"];
+/// Categories that exist in `read_category` (and the `get_settings` enum) but are
+/// blocked from `update_settings` for security or stability reasons.
+///
+/// - `active_model` / `fallback_models`: model selection happens in the GUI, since
+///   it must coordinate with provider state and runtime agent rebuilds.
+/// - `channels`: the IM Channel `accounts[]` array carries bot tokens; per
+///   `AGENTS.md` ("强制留在 GUI 的例外") the skill is read-only here.
+/// - `mcp_servers`: the per-server config holds OAuth tokens, command paths and
+///   trust acknowledgements; writes must go through the GUI which also drives
+///   the trust dialog and 0600 credential write.
+const BLOCKED_UPDATE_CATEGORIES: &[&str] =
+    &["active_model", "fallback_models", "channels", "mcp_servers"];
 
 /// Risk classification for a settings category.
 /// The skill / model uses this to decide whether to double-confirm with the user.
@@ -28,6 +39,8 @@ fn risk_level(category: &str) -> &'static str {
         | "hybrid_search"
         | "temporal_decay"
         | "mmr"
+        | "multimodal"
+        | "dreaming"
         | "recap"
         | "awareness"
         | "web_fetch"
@@ -45,10 +58,12 @@ fn risk_level(category: &str) -> &'static str {
 
         // ── HIGH ───────────────────────────────────────────────
         "proxy" | "embedding" | "shortcuts" | "skills" | "server" | "acp_control" | "skill_env"
-        | "security" | "security.ssrf" | "channels" => "high",
+        | "security" | "security.ssrf" | "smart_mode" | "mcp_global" => "high",
 
         // Read-only categories — no risk since they can't be mutated here.
-        "active_model" | "fallback_models" | "all" => "low",
+        // `channels` and `mcp_servers` are categorized "low" for read because
+        // the response is redacted before it reaches the model.
+        "active_model" | "fallback_models" | "channels" | "mcp_servers" | "all" => "low",
 
         _ => "medium",
     }
@@ -90,10 +105,139 @@ fn side_effect_note(category: &str) -> Option<&'static str> {
              deployments. Has no effect on the Tauri desktop shell."
         ),
         "channels" => Some(
-            "Modifying channel configurations will require a restart or re-initialization of the affected IM channel listeners."
+            "Read-only via this tool. IM Channel accounts carry bot tokens (Telegram / WeChat / Feishu / QQ / Discord) and must be edited in Settings → Channels so the registry can drop and re-establish listeners under user supervision. The response from get_settings redacts credentials."
+        ),
+        "smart_mode" => Some(
+            "Affects every Smart-mode session: changing strategy / judgeModel / fallback alters which tool calls are auto-approved. JudgeModel-based strategies issue an extra side_query per approvable call (5s hard timeout, 60s TTL cache)."
+        ),
+        "mcp_global" => Some(
+            "MCP subsystem master switch + concurrency / backoff caps. Flipping enabled=false disconnects every MCP server; loosening backoff caps can cause retry storms; deniedServers prevents users from re-adding listed server names."
+        ),
+        "mcp_servers" => Some(
+            "Read-only via this tool. Server configs carry OAuth tokens, stdio command paths and trust acknowledgements; writes must go through Settings → MCP Servers which drives the trust dialog and writes credentials with 0600 permissions."
+        ),
+        "multimodal" => Some(
+            "Switching modalities or raising maxFileBytes affects which attachments embed: enabling without a multimodal-capable embedding provider will produce empty vectors."
+        ),
+        "dreaming" => Some(
+            "Dreaming runs offline LLM consolidation cycles. Disabling stops idle / cron triggers entirely; promotion thresholds gate which candidates get pinned into long-term memory."
         ),
         _ => None,
     }
+}
+
+/// Redact secret-bearing fields from a `ChannelStoreConfig` JSON tree before
+/// returning it to the model. Strips `accounts[*].credentials`, replaces
+/// `settings` with a redacted marker (some channels stash tokens there too),
+/// and leaves only structural / display fields visible.
+fn redact_channels_value(mut value: Value) -> Value {
+    if let Some(accounts) = value.get_mut("accounts").and_then(|v| v.as_array_mut()) {
+        for acc in accounts.iter_mut() {
+            if let Some(obj) = acc.as_object_mut() {
+                if obj.contains_key("credentials") {
+                    obj.insert("credentials".into(), json!("[REDACTED]"));
+                }
+                if obj.contains_key("settings") {
+                    obj.insert("settings".into(), json!("[REDACTED]"));
+                }
+            }
+        }
+    }
+    value
+}
+
+/// Redact OAuth tokens / env / headers from `mcp_servers` entries before
+/// returning to the model.
+fn redact_mcp_servers_value(mut value: Value) -> Value {
+    if let Some(arr) = value.as_array_mut() {
+        for entry in arr.iter_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                for key in ["env", "headers", "oauth"] {
+                    if obj.contains_key(key) {
+                        obj.insert(key.into(), json!("[REDACTED]"));
+                    }
+                }
+            }
+        }
+    }
+    value
+}
+
+/// Replace a non-empty string field with `"[REDACTED]"`. `null`, missing, and
+/// the empty-string sentinel are left untouched — the model still needs to
+/// distinguish "configured but cleared" (`""`) from "never set" (`null`). Any
+/// non-string non-null value (object / array / number) is also masked
+/// defensively in case a future schema swap embeds a richer secret payload.
+///
+/// Used to scrub `providers[*].api_key` style fields from web_search /
+/// image_generate read responses without dropping the structural metadata
+/// (id, enabled, baseUrl) that lets the model describe what's configured.
+fn redact_string_field(obj: &mut serde_json::Map<String, Value>, key: &str) {
+    if let Some(existing) = obj.get(key) {
+        let should_mask = match existing {
+            Value::Null => false,
+            Value::String(s) => !s.is_empty(),
+            _ => true,
+        };
+        if should_mask {
+            obj.insert(key.into(), json!("[REDACTED]"));
+        }
+    }
+}
+
+/// Redact `providers[*].api_key` / `api_key2` from a `WebSearchConfig` JSON
+/// tree. Other fields (provider id, enabled flag, base_url) are preserved.
+fn redact_web_search_value(mut value: Value) -> Value {
+    if let Some(providers) = value.get_mut("providers").and_then(|v| v.as_array_mut()) {
+        for entry in providers.iter_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                redact_string_field(obj, "apiKey");
+                redact_string_field(obj, "apiKey2");
+            }
+        }
+    }
+    value
+}
+
+/// Redact `providers[*].api_key` from an `ImageGenConfig` JSON tree.
+fn redact_image_generate_value(mut value: Value) -> Value {
+    if let Some(providers) = value.get_mut("providers").and_then(|v| v.as_array_mut()) {
+        for entry in providers.iter_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                redact_string_field(obj, "apiKey");
+            }
+        }
+    }
+    value
+}
+
+/// Redact `apiKey` from an `EmbeddedServerConfig` JSON tree. The bind
+/// address / public base URL stay visible so the model can describe how
+/// the daemon is exposed.
+fn redact_server_value(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        redact_string_field(obj, "apiKey");
+    }
+    value
+}
+
+/// Redact `backends[*].env` from an `AcpControlConfig` JSON tree — env vars
+/// frequently contain `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / similar.
+fn redact_acp_control_value(mut value: Value) -> Value {
+    if let Some(backends) = value.get_mut("backends").and_then(|v| v.as_array_mut()) {
+        for entry in backends.iter_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                if obj
+                    .get("env")
+                    .map(|v| v.as_object().is_some_and(|o| !o.is_empty()))
+                    .unwrap_or(false)
+                {
+                    obj.insert("env".into(), json!("[REDACTED]"));
+                }
+            }
+        }
+    }
+    value
 }
 
 // ── get_settings ────────────────────────────────────────────────
@@ -133,7 +277,9 @@ fn read_category(category: &str) -> Result<Value> {
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
-        "web_search" => Ok(serde_json::to_value(&cfg.web_search)?),
+        "web_search" => Ok(redact_web_search_value(serde_json::to_value(
+            &cfg.web_search,
+        )?)),
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
         "security" => Ok(json!({
             "skipAllApprovals": cfg.permission.global_yolo,
@@ -148,7 +294,9 @@ fn read_category(category: &str) -> Result<Value> {
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
             "approvalTimeoutAction": cfg.permission.approval_timeout_action,
         })),
-        "image_generate" => Ok(serde_json::to_value(&cfg.image_generate)?),
+        "image_generate" => Ok(redact_image_generate_value(serde_json::to_value(
+            &cfg.image_generate,
+        )?)),
         "canvas" => Ok(serde_json::to_value(&cfg.canvas)?),
         "image" => Ok(serde_json::to_value(&cfg.image)?),
         "pdf" => Ok(serde_json::to_value(&cfg.pdf)?),
@@ -174,8 +322,10 @@ fn read_category(category: &str) -> Result<Value> {
             "skillEnvCheck": cfg.skill_env_check,
             "allowRemoteInstall": cfg.skills.allow_remote_install,
         })),
-        "server" => Ok(serde_json::to_value(&cfg.server)?),
-        "acp_control" => Ok(serde_json::to_value(&cfg.acp_control)?),
+        "server" => Ok(redact_server_value(serde_json::to_value(&cfg.server)?)),
+        "acp_control" => Ok(redact_acp_control_value(serde_json::to_value(
+            &cfg.acp_control,
+        )?)),
         "skill_env" => Ok(serde_json::to_value(&cfg.skill_env)?),
         "tool_result_disk_threshold" => Ok(json!({
             "toolResultDiskThreshold": cfg.tool_result_disk_threshold,
@@ -192,7 +342,14 @@ fn read_category(category: &str) -> Result<Value> {
         "tool_call_narration" => Ok(json!({
             "toolCallNarrationEnabled": cfg.tool_call_narration_enabled,
         })),
-        "channels" => Ok(serde_json::to_value(&cfg.channels)?),
+        "channels" => Ok(redact_channels_value(serde_json::to_value(&cfg.channels)?)),
+        "smart_mode" => Ok(serde_json::to_value(&cfg.permission.smart)?),
+        "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
+        "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
+        "mcp_global" => Ok(serde_json::to_value(&cfg.mcp_global)?),
+        "mcp_servers" => Ok(redact_mcp_servers_value(serde_json::to_value(
+            &cfg.mcp_servers,
+        )?)),
         "teams" => {
             let db = crate::globals::get_session_db()
                 .ok_or_else(|| anyhow::anyhow!("session DB not initialized"))?;
@@ -253,6 +410,27 @@ fn get_all_overview() -> Result<String> {
             "disabled": cfg.disabled_skills,
             "allowRemoteInstall": cfg.skills.allow_remote_install,
         },
+        "smartMode": {
+            "strategy": cfg.permission.smart.strategy,
+            "fallback": cfg.permission.smart.fallback,
+            "judgeModelConfigured": cfg.permission.smart.judge_model.is_some(),
+        },
+        "mcp": {
+            "enabled": cfg.mcp_global.enabled,
+            "serverCount": cfg.mcp_servers.len(),
+            "deniedServerCount": cfg.mcp_global.denied_servers.len(),
+            "maxConcurrentCalls": cfg.mcp_global.max_concurrent_calls,
+        },
+        "multimodal": { "enabled": cfg.multimodal.enabled },
+        "dreaming": {
+            "enabled": cfg.dreaming.enabled,
+            "idleTriggerEnabled": cfg.dreaming.idle_trigger.enabled,
+            "cronTriggerEnabled": cfg.dreaming.cron_trigger.enabled,
+        },
+        "channels": {
+            "accountCount": cfg.channels.accounts.len(),
+            "defaultAgentId": cfg.channels.default_agent_id,
+        },
     });
 
     // Expose risk classification so the model can decide when to double-confirm.
@@ -265,7 +443,7 @@ fn get_all_overview() -> Result<String> {
         "medium": [
             "compact", "session_title", "memory_extract", "memory_selection", "memory_budget",
             "embedding_cache", "dedup", "hybrid_search", "temporal_decay",
-            "mmr", "recap", "awareness", "web_fetch", "web_search",
+            "mmr", "multimodal", "dreaming", "recap", "awareness", "web_fetch", "web_search",
             "deferred_tools", "async_tools", "approval",
             "tool_result_disk_threshold", "ask_user_question_timeout", "plan",
             "skills_auto_review", "recall_summary", "tool_call_narration",
@@ -273,7 +451,11 @@ fn get_all_overview() -> Result<String> {
         ],
         "high": [
             "proxy", "embedding", "shortcuts", "skills", "server",
-            "acp_control", "skill_env", "security", "security.ssrf", "channels"
+            "acp_control", "skill_env", "security", "security.ssrf",
+            "smart_mode", "mcp_global"
+        ],
+        "read_only": [
+            "active_model", "fallback_models", "channels", "mcp_servers"
         ],
     });
 
@@ -543,9 +725,10 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
                 store.tool_call_narration_enabled = v;
             }
         }
-        "channels" => {
-            merge_field(&mut store.channels, values)?;
-        }
+        "smart_mode" => merge_field(&mut store.permission.smart, values)?,
+        "multimodal" => merge_field(&mut store.multimodal, values)?,
+        "dreaming" => merge_field(&mut store.dreaming, values)?,
+        "mcp_global" => merge_field(&mut store.mcp_global, values)?,
         "teams" => {
             // Teams are DB rows, not AppConfig fields. Perform CRUD directly on the
             // team_templates table and return early (skip save_config / hot reload).
@@ -675,32 +858,25 @@ fn trigger_backend_hot_reload(category: &str, store: &config::AppConfig) {
             // SearXNG config may affect Docker container — no cached state to invalidate,
             // but weather system may use web search indirectly. No action needed.
         }
-        "channels" => {
-            // Hot reload channel listeners: restart all enabled channels, stop disabled ones.
-            if let Some(registry) = crate::get_channel_registry() {
-                let enabled_accounts = store
-                    .channels
-                    .enabled_accounts()
-                    .into_iter()
-                    .cloned()
-                    .collect::<Vec<_>>();
-                tokio::spawn(async move {
-                    let running = registry.list_running().await;
-                    for (acc_id, _) in running {
-                        let _ = registry.stop_account(&acc_id).await;
-                    }
-                    for account in enabled_accounts {
-                        if let Err(e) = registry.start_account(&account).await {
-                            crate::app_warn!(
-                                "settings",
-                                "hot_reload",
-                                "Failed to auto-restart channel account: {}",
-                                e
-                            );
-                        }
-                    }
-                });
-            }
+        "smart_mode" => {
+            // Smart mode reads PermissionGlobalConfig.smart fresh on every approval
+            // decision via cached_config(); no in-memory cache to invalidate.
+        }
+        // MCP manager reads cached_config() on each dispatch / reconnect attempt,
+        // so the new global knobs take effect on the next call. Flipping
+        // `enabled=false` does not actively disconnect existing sessions — that
+        // path is reserved for explicit "disable server" actions in Settings →
+        // MCP. Surface the rationale to ops via log when the kill switch flips.
+        "mcp_global" if !store.mcp_global.enabled => {
+            crate::app_info!(
+                "settings",
+                "hot_reload",
+                "mcp_global.enabled=false applied; existing sessions stay connected, dispatch will short-circuit on next call"
+            );
+        }
+        "multimodal" | "dreaming" => {
+            // Both are consumed lazily by their own pipelines on the next
+            // trigger; no cached state to refresh.
         }
         _ => {} // Other categories: config cache (ArcSwap) already updated by save_config
     }
@@ -791,4 +967,279 @@ pub(crate) async fn tool_restore_settings_backup(args: &Value) -> Result<String>
         "entry": entry,
         "note": "A pre-restore snapshot of the previous state was also saved so you can undo this rollback.",
     }))?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn risk_level_high_categories() {
+        for cat in [
+            "proxy",
+            "embedding",
+            "shortcuts",
+            "skills",
+            "server",
+            "acp_control",
+            "skill_env",
+            "security",
+            "security.ssrf",
+            "smart_mode",
+            "mcp_global",
+        ] {
+            assert_eq!(risk_level(cat), "high", "{cat} should be high risk");
+        }
+    }
+
+    #[test]
+    fn risk_level_medium_includes_new_categories() {
+        for cat in ["multimodal", "dreaming"] {
+            assert_eq!(risk_level(cat), "medium", "{cat} should be medium risk");
+        }
+    }
+
+    #[test]
+    fn risk_level_read_only_categories_low() {
+        // Read-only categories report `low` because the model cannot mutate them
+        // through this tool — the BLOCKED_UPDATE_CATEGORIES check rejects writes
+        // before risk_level is even consulted.
+        for cat in ["active_model", "fallback_models", "channels", "mcp_servers"] {
+            assert_eq!(risk_level(cat), "low", "{cat} should be low (read-only)");
+        }
+    }
+
+    #[test]
+    fn blocked_update_includes_channels_and_mcp_servers() {
+        for cat in ["active_model", "fallback_models", "channels", "mcp_servers"] {
+            assert!(
+                BLOCKED_UPDATE_CATEGORIES.contains(&cat),
+                "{cat} must be in BLOCKED_UPDATE_CATEGORIES"
+            );
+        }
+    }
+
+    #[test]
+    fn redact_channels_strips_credentials_and_settings() {
+        let original = json!({
+            "accounts": [
+                {
+                    "id": "acc-1",
+                    "channelId": "telegram",
+                    "label": "primary",
+                    "enabled": true,
+                    "credentials": { "token": "secret-bot-token-do-not-leak" },
+                    "settings": { "transport": "polling", "secretChat": "leak-me" },
+                    "autoApproveTools": false
+                },
+                {
+                    "id": "acc-2",
+                    "channelId": "discord",
+                    "label": "fallback",
+                    "enabled": false,
+                    "credentials": { "token": "another-token" },
+                    "settings": { "guildId": "12345" }
+                }
+            ],
+            "defaultAgentId": "default",
+            "defaultModel": null
+        });
+
+        let redacted = redact_channels_value(original);
+        let arr = redacted["accounts"].as_array().unwrap();
+        for acc in arr {
+            assert_eq!(acc["credentials"], json!("[REDACTED]"));
+            assert_eq!(acc["settings"], json!("[REDACTED]"));
+        }
+        // Non-secret fields preserved.
+        assert_eq!(arr[0]["id"], "acc-1");
+        assert_eq!(arr[0]["channelId"], "telegram");
+        assert_eq!(arr[0]["enabled"], true);
+        assert_eq!(arr[0]["autoApproveTools"], false);
+        assert_eq!(redacted["defaultAgentId"], "default");
+    }
+
+    #[test]
+    fn redact_channels_handles_missing_optional_fields() {
+        let original = json!({
+            "accounts": [
+                { "id": "acc-1", "channelId": "telegram", "label": "primary", "enabled": true }
+            ]
+        });
+        // No credentials/settings → nothing to redact, but call must not panic
+        // and the surviving fields stay intact.
+        let redacted = redact_channels_value(original);
+        assert_eq!(redacted["accounts"][0]["id"], "acc-1");
+        assert!(redacted["accounts"][0].get("credentials").is_none());
+        assert!(redacted["accounts"][0].get("settings").is_none());
+    }
+
+    #[test]
+    fn redact_channels_no_panic_on_empty_or_unexpected_shape() {
+        // Empty accounts.
+        let v = redact_channels_value(json!({ "accounts": [] }));
+        assert_eq!(v["accounts"].as_array().unwrap().len(), 0);
+        // Missing accounts key entirely.
+        let v = redact_channels_value(json!({}));
+        assert!(v.is_object());
+        // accounts not an array → leave untouched.
+        let v = redact_channels_value(json!({ "accounts": "not-an-array" }));
+        assert_eq!(v["accounts"], "not-an-array");
+    }
+
+    #[test]
+    fn redact_mcp_servers_strips_secrets() {
+        let original = json!([
+            {
+                "id": "github-mcp",
+                "name": "GitHub",
+                "enabled": true,
+                "transport": "stdio",
+                "env": { "GITHUB_TOKEN": "ghp_secretdonotleak" },
+                "headers": { "Authorization": "Bearer leakme" },
+                "oauth": { "refresh_token": "very-secret" },
+                "trust_level": "trusted"
+            },
+            {
+                "id": "no-auth",
+                "name": "PublicMcp",
+                "enabled": true
+            }
+        ]);
+
+        let redacted = redact_mcp_servers_value(original);
+        let arr = redacted.as_array().unwrap();
+        assert_eq!(arr[0]["env"], json!("[REDACTED]"));
+        assert_eq!(arr[0]["headers"], json!("[REDACTED]"));
+        assert_eq!(arr[0]["oauth"], json!("[REDACTED]"));
+        // Non-sensitive fields preserved.
+        assert_eq!(arr[0]["id"], "github-mcp");
+        assert_eq!(arr[0]["trust_level"], "trusted");
+        // Server with no secret fields untouched.
+        assert!(arr[1].get("env").is_none());
+    }
+
+    #[test]
+    fn redact_web_search_masks_provider_keys() {
+        let original = json!({
+            "providers": [
+                {"id": "Brave", "enabled": true, "apiKey": "BSA_xxx_secret", "apiKey2": null, "baseUrl": null},
+                {"id": "Searxng", "enabled": true, "apiKey": null, "apiKey2": null, "baseUrl": "http://localhost:8888"},
+                {"id": "Google", "enabled": false, "apiKey": "AIza_secret", "apiKey2": "cse_id_secret", "baseUrl": null}
+            ],
+            "defaultResultCount": 5,
+            "timeoutSeconds": 30
+        });
+        let r = redact_web_search_value(original);
+        let arr = r["providers"].as_array().unwrap();
+        // Non-empty key → redacted.
+        assert_eq!(arr[0]["apiKey"], json!("[REDACTED]"));
+        assert!(arr[0]["apiKey2"].is_null());
+        // Null key untouched.
+        assert!(arr[1]["apiKey"].is_null());
+        // Both keys redacted on the multi-key provider.
+        assert_eq!(arr[2]["apiKey"], json!("[REDACTED]"));
+        assert_eq!(arr[2]["apiKey2"], json!("[REDACTED]"));
+        // Structural fields preserved.
+        assert_eq!(arr[0]["id"], "Brave");
+        assert_eq!(arr[0]["enabled"], true);
+        assert_eq!(arr[1]["baseUrl"], "http://localhost:8888");
+        assert_eq!(r["defaultResultCount"], 5);
+    }
+
+    #[test]
+    fn redact_web_search_handles_empty_or_missing() {
+        // Empty providers array.
+        let r = redact_web_search_value(json!({ "providers": [] }));
+        assert_eq!(r["providers"].as_array().unwrap().len(), 0);
+        // Missing providers entirely.
+        let r = redact_web_search_value(json!({ "defaultResultCount": 5 }));
+        assert_eq!(r["defaultResultCount"], 5);
+        // Empty-string apiKey is not a secret — leave as-is so the model can
+        // distinguish "configured but cleared" from "never set" (null).
+        let r = redact_web_search_value(json!({
+            "providers": [{ "id": "Brave", "apiKey": "" }]
+        }));
+        assert_eq!(r["providers"][0]["apiKey"], json!(""));
+    }
+
+    #[test]
+    fn redact_image_generate_masks_provider_keys() {
+        let original = json!({
+            "providers": [
+                {"id": "openai", "enabled": true, "apiKey": "sk-secret"},
+                {"id": "stability", "enabled": false, "apiKey": null}
+            ],
+            "defaultSize": "1024x1024"
+        });
+        let r = redact_image_generate_value(original);
+        assert_eq!(r["providers"][0]["apiKey"], json!("[REDACTED]"));
+        assert!(r["providers"][1]["apiKey"].is_null());
+        assert_eq!(r["providers"][0]["enabled"], true);
+        assert_eq!(r["defaultSize"], "1024x1024");
+    }
+
+    #[test]
+    fn redact_server_masks_api_key() {
+        let r = redact_server_value(json!({
+            "bindAddr": "127.0.0.1:8420",
+            "apiKey": "long-bearer-token",
+            "publicBaseUrl": null
+        }));
+        assert_eq!(r["apiKey"], json!("[REDACTED]"));
+        assert_eq!(r["bindAddr"], "127.0.0.1:8420");
+        // Null api_key (server unauthenticated) stays null.
+        let r = redact_server_value(json!({ "bindAddr": "127.0.0.1:8420", "apiKey": null }));
+        assert!(r["apiKey"].is_null());
+    }
+
+    #[test]
+    fn redact_acp_control_masks_backend_env() {
+        let original = json!({
+            "enabled": true,
+            "backends": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "binary": "claude",
+                    "enabled": true,
+                    "env": { "ANTHROPIC_API_KEY": "sk-ant-secret", "PATH": "/usr/local/bin" }
+                },
+                {
+                    "id": "no-env",
+                    "name": "Plain",
+                    "binary": "agent",
+                    "enabled": true,
+                    "env": {}
+                }
+            ],
+            "maxConcurrentSessions": 5
+        });
+        let r = redact_acp_control_value(original);
+        assert_eq!(r["backends"][0]["env"], json!("[REDACTED]"));
+        // Empty env stays empty (nothing to leak).
+        assert_eq!(r["backends"][1]["env"], json!({}));
+        // Structural fields preserved on the redacted entry.
+        assert_eq!(r["backends"][0]["id"], "claude-code");
+        assert_eq!(r["backends"][0]["enabled"], true);
+        assert_eq!(r["enabled"], true);
+        assert_eq!(r["maxConcurrentSessions"], 5);
+    }
+
+    #[test]
+    fn side_effect_notes_present_for_new_high_risk_categories() {
+        for cat in [
+            "smart_mode",
+            "mcp_global",
+            "mcp_servers",
+            "channels",
+            "multimodal",
+            "dreaming",
+        ] {
+            assert!(
+                side_effect_note(cat).is_some(),
+                "{cat} should expose a side_effect note"
+            );
+        }
+    }
 }

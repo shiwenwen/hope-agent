@@ -588,7 +588,7 @@ pub async fn serve_canvas_project_file(
 - 读：`crate::config::cached_config().canvas`（运行期全部点都走这条，零 IO）
 - 写：[`save_canvas_config`](../../crates/ha-core/src/tools/canvas/mod.rs#L651-L655) 走 `load_config()` + `save_config()` 老 API ——这与 [配置系统](config-system.md) 推荐的 `mutate_config` 不一致，属于已知技术债，建议后续迁移以避免 lost-update。
 
-按 [AGENTS.md "设置约定"](../../AGENTS.md) 的要求，新增的配置字段必须**同时**有 GUI 入口、`oc-settings` 工具分支与 SKILL.md 风险登记。Canvas 当前 GUI 在 [`CanvasSettingsPanel.tsx`](../../src/components/settings/CanvasSettingsPanel.tsx) 已齐全。
+按 [AGENTS.md "设置约定"](../../AGENTS.md) 的要求，新增的配置字段必须**同时**有 GUI 入口、`ha-settings` 工具分支与 SKILL.md 风险登记。Canvas 当前 GUI 在 [`CanvasSettingsPanel.tsx`](../../src/components/settings/CanvasSettingsPanel.tsx) 已齐全。
 
 ---
 

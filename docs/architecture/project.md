@@ -312,7 +312,7 @@ if let Some(other) = conflict {
 |---|---|
 | Tauri `get_default_agent_id` / `set_default_agent_id` | 读 / 写 `AppConfig.default_agent_id` |
 | HTTP `GET / PUT /api/config/default-agent` | 同上 |
-| `oc-settings` 工具 `category="default_agent"` | 模型可改（LOW 风险，AGENTS.md 已登记） |
+| `ha-settings` 工具 `category="default_agent"` | 模型可改（LOW 风险，AGENTS.md 已登记） |
 | `/status` 斜杠命令 | 在项目会话里追加项目摘要段，标注 Agent Source 命中级别 |
 
 ## 工作目录解析链（session > project）
