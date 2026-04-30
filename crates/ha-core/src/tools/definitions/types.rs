@@ -143,36 +143,55 @@ impl ToolDefinition {
     /// Render this tool as a JSON metadata payload for `list_builtin_tools`
     /// (Tauri command + `GET /api/chat/tools`). Single source of truth so
     /// both transports return identically-shaped objects to the frontend.
-    pub fn to_api_metadata(&self) -> Value {
-        let (tier_label, core_subclass, default_for_main, default_for_others, config_hint) =
-            match &self.tier {
-                ToolTier::Core { subclass } => ("core", Some(subclass.as_str()), None, None, None),
-                ToolTier::Standard {
-                    default_for_main,
-                    default_for_others,
-                    ..
-                } => (
-                    "standard",
-                    None,
-                    Some(*default_for_main),
-                    Some(*default_for_others),
-                    None,
-                ),
-                ToolTier::Configured {
-                    default_for_main,
-                    default_for_others,
-                    config_hint,
-                    ..
-                } => (
-                    "configured",
-                    None,
-                    Some(*default_for_main),
-                    Some(*default_for_others),
-                    Some(*config_hint),
-                ),
-                ToolTier::Memory => ("memory", None, None, None, None),
-                ToolTier::Mcp => ("mcp", None, None, None, None),
-            };
+    ///
+    /// `app_config` is consulted only for Tier 3 (`Configured`) tools to
+    /// probe whether the global provider/feature is provisioned. The
+    /// returned `globally_configured` field is `Some(bool)` for Tier 3 and
+    /// `null` for every other tier — letting the frontend decide whether to
+    /// show the "未配置" hint without re-implementing the probe matrix.
+    pub fn to_api_metadata(&self, app_config: &crate::config::AppConfig) -> Value {
+        let (
+            tier_label,
+            core_subclass,
+            default_for_main,
+            default_for_others,
+            config_hint,
+            globally_configured,
+        ) = match &self.tier {
+            ToolTier::Core { subclass } => {
+                ("core", Some(subclass.as_str()), None, None, None, None)
+            }
+            ToolTier::Standard {
+                default_for_main,
+                default_for_others,
+                ..
+            } => (
+                "standard",
+                None,
+                Some(*default_for_main),
+                Some(*default_for_others),
+                None,
+                None,
+            ),
+            ToolTier::Configured {
+                default_for_main,
+                default_for_others,
+                config_hint,
+                ..
+            } => (
+                "configured",
+                None,
+                Some(*default_for_main),
+                Some(*default_for_others),
+                Some(*config_hint),
+                Some(super::super::dispatch::is_globally_configured(
+                    &self.name,
+                    app_config,
+                )),
+            ),
+            ToolTier::Memory => ("memory", None, None, None, None, None),
+            ToolTier::Mcp => ("mcp", None, None, None, None, None),
+        };
         json!({
             "name": self.name,
             "description": self.description,
@@ -183,6 +202,7 @@ impl ToolDefinition {
             "default_for_others": default_for_others,
             "config_hint": config_hint,
             "defer_capable": self.supports_deferred(),
+            "globally_configured": globally_configured,
         })
     }
 

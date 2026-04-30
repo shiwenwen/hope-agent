@@ -482,9 +482,10 @@ pub async fn get_system_prompt_post(
 /// `list_builtin_tools` command). Each entry carries tier metadata so the
 /// frontend can group + style by tier.
 pub async fn list_tools() -> Result<Json<Vec<Value>>, AppError> {
+    let cfg = ha_core::config::cached_config();
     let tools_json: Vec<Value> = tools::dispatch::all_dispatchable_tools()
         .iter()
-        .map(|t| t.to_api_metadata())
+        .map(|t| t.to_api_metadata(&cfg))
         .collect();
     Ok(Json(tools_json))
 }

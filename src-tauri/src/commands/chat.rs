@@ -783,8 +783,9 @@ pub async fn get_system_prompt(
 
 #[tauri::command]
 pub async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, CmdError> {
+    let cfg = ha_core::config::cached_config();
     Ok(tools::dispatch::all_dispatchable_tools()
-        .into_iter()
-        .map(|t| t.to_api_metadata())
+        .iter()
+        .map(|t| t.to_api_metadata(&cfg))
         .collect())
 }

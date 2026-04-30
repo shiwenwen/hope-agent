@@ -67,6 +67,9 @@ type BuiltinTool = {
   default_for_main?: boolean | null
   default_for_others?: boolean | null
   config_hint?: string | null
+  /** Tier 3 only — `null` for other tiers. `false` means provider/feature
+   * not yet configured globally; the UI should surface the hint banner. */
+  globally_configured?: boolean | null
 }
 
 interface CapabilitiesTabProps {
@@ -340,11 +343,13 @@ export default function CapabilitiesTab({
                         onCheckedChange={(checked) => setTier3Toggle(tool, checked)}
                       />
                     </div>
-                    {enabled && tool.config_hint && (
-                      <div className="text-[10px] text-amber-500/80 dark:text-amber-400/80 mt-0.5">
-                        {t("settings.agentTierConfiguredHint", { hint: tool.config_hint })}
-                      </div>
-                    )}
+                    {enabled &&
+                      tool.config_hint &&
+                      tool.globally_configured === false && (
+                        <div className="text-[10px] text-amber-500/80 dark:text-amber-400/80 mt-0.5">
+                          {t("settings.agentTierConfiguredHint", { hint: tool.config_hint })}
+                        </div>
+                      )}
                   </div>
                 )
               })}
