@@ -17,9 +17,7 @@
 //! `None`, letting the caller fall back per `SmartFallback`.
 
 use std::collections::hash_map::DefaultHasher;
-use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
@@ -28,6 +26,7 @@ use serde_json::Value;
 
 use super::mode::JudgeModelConfig;
 use crate::agent::AssistantAgent;
+use crate::ttl_cache::TtlCache;
 
 /// Hard timeout for the judge model side query. The chat loop blocks on
 /// this — if the judge is slow we'd rather fall back than stall the user.
@@ -69,7 +68,7 @@ pub async fn judge(
     args: &Value,
 ) -> Option<JudgeResponse> {
     let key = cache_key(tool_name, args, &config.provider_id, &config.model);
-    if let Some(cached) = lookup_cache(key) {
+    if let Some(cached) = cache().get(&key, JUDGE_CACHE_TTL) {
         return Some(cached);
     }
 
@@ -121,7 +120,7 @@ pub async fn judge(
         parsed.decision,
         start.elapsed().as_millis()
     );
-    insert_cache(key, parsed.clone());
+    cache().put(key, parsed.clone());
     Some(parsed)
 }
 
@@ -169,15 +168,9 @@ fn parse_response(text: &str) -> Option<JudgeResponse> {
 
 // ── Cache ───────────────────────────────────────────────────────────
 
-#[derive(Clone)]
-struct CachedVerdict {
-    response: JudgeResponse,
-    expires_at: Instant,
-}
-
-fn cache() -> &'static Mutex<HashMap<u64, CachedVerdict>> {
-    static CACHE: OnceLock<Mutex<HashMap<u64, CachedVerdict>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn cache() -> &'static TtlCache<u64, JudgeResponse> {
+    static CACHE: OnceLock<TtlCache<u64, JudgeResponse>> = OnceLock::new();
+    CACHE.get_or_init(|| TtlCache::new(JUDGE_CACHE_CAP))
 }
 
 fn cache_key(tool_name: &str, args: &Value, provider_id: &str, model: &str) -> u64 {
@@ -234,36 +227,6 @@ fn hash_value_canonical(v: &Value, h: &mut DefaultHasher) {
             }
         }
     }
-}
-
-fn lookup_cache(key: u64) -> Option<JudgeResponse> {
-    let mut map = cache().lock().unwrap_or_else(|e| e.into_inner());
-    let now = Instant::now();
-    if let Some(entry) = map.get(&key) {
-        if entry.expires_at > now {
-            return Some(entry.response.clone());
-        }
-    }
-    map.remove(&key);
-    None
-}
-
-fn insert_cache(key: u64, response: JudgeResponse) {
-    let mut map = cache().lock().unwrap_or_else(|e| e.into_inner());
-    if map.len() >= JUDGE_CACHE_CAP {
-        let now = Instant::now();
-        map.retain(|_, v| v.expires_at > now);
-        if map.len() >= JUDGE_CACHE_CAP {
-            map.clear();
-        }
-    }
-    map.insert(
-        key,
-        CachedVerdict {
-            response,
-            expires_at: Instant::now() + JUDGE_CACHE_TTL,
-        },
-    );
 }
 
 #[cfg(test)]
@@ -376,46 +339,16 @@ mod tests {
 
     #[test]
     fn cache_round_trip_within_ttl() {
-        let key = u64::MAX - 12345; // unique marker for this test
+        // Use a key unlikely to collide with concurrent tests since the
+        // underlying TtlCache is process-global.
+        let key = u64::MAX - 12345;
         let resp = JudgeResponse {
             decision: JudgeVerdict::Allow,
             reason: "test".to_string(),
         };
-        insert_cache(key, resp.clone());
-        let got = lookup_cache(key).expect("hit");
+        cache().put(key, resp.clone());
+        let got = cache().get(&key, JUDGE_CACHE_TTL).expect("hit");
         assert_eq!(got.decision, resp.decision);
         assert_eq!(got.reason, resp.reason);
-    }
-
-    #[test]
-    fn cache_evicts_expired_entries_on_overflow() {
-        // Fill to cap with already-expired entries; next insert should
-        // sweep them rather than blow past the cap.
-        let map = cache();
-        {
-            let mut m = map.lock().unwrap_or_else(|e| e.into_inner());
-            m.clear();
-            for i in 0..JUDGE_CACHE_CAP {
-                m.insert(
-                    i as u64,
-                    CachedVerdict {
-                        response: JudgeResponse {
-                            decision: JudgeVerdict::Ask,
-                            reason: String::new(),
-                        },
-                        expires_at: Instant::now() - Duration::from_secs(1),
-                    },
-                );
-            }
-        }
-        insert_cache(
-            999_999,
-            JudgeResponse {
-                decision: JudgeVerdict::Allow,
-                reason: String::new(),
-            },
-        );
-        let m = map.lock().unwrap_or_else(|e| e.into_inner());
-        assert!(m.len() < JUDGE_CACHE_CAP);
     }
 }
