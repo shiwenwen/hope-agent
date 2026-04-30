@@ -36,6 +36,7 @@
 //! [`judge`](crate::permission::judge) which always passes the same
 //! `JUDGE_CACHE_TTL`.
 
+use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::sync::Mutex;
@@ -46,7 +47,7 @@ pub struct TtlCache<K: Eq + Hash + Clone, V: Clone> {
     inner: Mutex<HashMap<K, Entry<V>>>,
 }
 
-struct Entry<V: Clone> {
+struct Entry<V> {
     value: V,
     created_at: Instant,
 }
@@ -65,7 +66,14 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
     /// "expired and removed" cases — callers that need to distinguish
     /// "no entry" from "tombstone" should encode that in the value type
     /// (e.g. `Option<T>` so a cached `None` survives lookup).
-    pub fn get(&self, key: &K, ttl: Duration) -> Option<V> {
+    ///
+    /// Borrowed-key form mirrors `HashMap::get`: `&str` works for
+    /// `TtlCache<String, V>` without allocating the owned key.
+    pub fn get<Q>(&self, key: &Q, ttl: Duration) -> Option<V>
+    where
+        K: Borrow<Q>,
+        Q: Eq + Hash + ?Sized,
+    {
         let mut guard = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = guard.get(key) {
             if entry.created_at.elapsed() <= ttl {
@@ -105,12 +113,16 @@ impl<K: Eq + Hash + Clone, V: Clone> TtlCache<K, V> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner()).clear();
     }
 
-    /// Current entry count, observable in tests. Includes expired entries
-    /// that haven't been swept yet — callers shouldn't rely on this for
-    /// correctness, only as a soft observability signal.
-    #[cfg(test)]
+    /// Current entry count. Includes expired entries that haven't been
+    /// swept yet — callers shouldn't rely on this for correctness, only
+    /// as a soft observability signal (metrics, debug logs, tests).
     pub fn len(&self) -> usize {
         self.inner.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// `true` when the cache holds no entries.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 

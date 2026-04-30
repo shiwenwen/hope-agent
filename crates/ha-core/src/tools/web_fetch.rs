@@ -3,9 +3,9 @@ use futures_util::StreamExt;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+use crate::ttl_cache::TtlCache;
 
 const DEFAULT_WEB_FETCH_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 const DEFAULT_WEB_FETCH_MAX_CHARS: usize = 50000;
@@ -104,13 +104,8 @@ pub(crate) async fn check_ssrf_safe(url_str: &str) -> Result<()> {
 
 // ── Web Fetch Cache ─────────────────────────────────────────────
 
-struct CacheEntry {
-    response: String,
-    inserted_at: Instant,
-}
-
-static WEB_FETCH_CACHE: Lazy<Mutex<HashMap<String, CacheEntry>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static WEB_FETCH_CACHE: Lazy<TtlCache<String, String>> =
+    Lazy::new(|| TtlCache::new(WEB_FETCH_CACHE_MAX_ENTRIES));
 
 fn cache_key(url: &str, extract_mode: &str) -> String {
     format!("{}:{}", extract_mode, url.to_lowercase().trim())
@@ -120,45 +115,14 @@ fn read_cache(key: &str, ttl_minutes: u64) -> Option<String> {
     if ttl_minutes == 0 {
         return None;
     }
-    let cache = WEB_FETCH_CACHE.lock().ok()?;
-    let entry = cache.get(key)?;
-    let elapsed = entry.inserted_at.elapsed();
-    if elapsed.as_secs() < ttl_minutes * 60 {
-        Some(entry.response.clone())
-    } else {
-        None
-    }
+    WEB_FETCH_CACHE.get(key, Duration::from_secs(ttl_minutes * 60))
 }
 
 fn write_cache(key: String, response: String, ttl_minutes: u64) {
     if ttl_minutes == 0 {
         return;
     }
-    if let Ok(mut cache) = WEB_FETCH_CACHE.lock() {
-        // Evict expired entries first
-        let now = Instant::now();
-        let ttl_secs = ttl_minutes * 60;
-        cache.retain(|_, v| now.duration_since(v.inserted_at).as_secs() < ttl_secs);
-
-        // Evict oldest if still at capacity
-        if cache.len() >= WEB_FETCH_CACHE_MAX_ENTRIES {
-            if let Some(oldest_key) = cache
-                .iter()
-                .min_by_key(|(_, v)| v.inserted_at)
-                .map(|(k, _)| k.clone())
-            {
-                cache.remove(&oldest_key);
-            }
-        }
-
-        cache.insert(
-            key,
-            CacheEntry {
-                response,
-                inserted_at: now,
-            },
-        );
-    }
+    WEB_FETCH_CACHE.put(key, response);
 }
 
 // ── Readability Extraction + HTML→Markdown ──────────────────────

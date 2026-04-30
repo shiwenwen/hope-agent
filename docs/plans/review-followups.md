@@ -30,6 +30,21 @@
 
 ## Open
 
+### F-032 `SessionMeta.plan_mode` 仍是 `String`，应换 `PlanMode` enum
+
+- **来源**：2026-04-30 F-029 收尾 `/simplify` review（quality agent）
+- **现象**：[`crates/ha-core/src/session/types.rs:33`](../../crates/ha-core/src/session/types.rs) 把 `plan_mode` 存为 `String`（取值 `"off" | "planning" | "executing"`），与 F-029 之前的 `permission_mode: String` 完全同形。Plan 系统已经有相关 enum（如 `agent/types.rs::PlanAgentMode`），但 `SessionMeta` 上的字段仍走字符串
+- **为什么留**：本期 F-029 commit message 显式 scope 为 `permission_mode`，刻意没扩展。Plan domain 改动需要单独 audit DB 列读写、IM channel ensure_conversation、前端 PlanPanel 逻辑等
+- **改的话要做什么**：
+  1. 在 `permission/mode.rs` 的隔壁（或 `plan/mode.rs`）定义 `PlanMode { Off, Planning, Executing }` enum，加 serde rename_all snake_case + Default + parse_or_default
+  2. `SessionMeta.plan_mode: PlanMode`，DB 读用 parse_or_default
+  3. 检查所有 `m.plan_mode == "off"` / `"planning"` / `"executing"` 的 stringly compare（grep），改成 enum 匹配
+  4. Tauri / HTTP 命令：`set_plan_mode` 之类入参可改成 enum；前端 `PlanMode` union 类型保留不变
+- **影响面**：纯整洁。和 F-029 风险等级一致——stringly typed 字段拼写错误会 silently fall through 到默认行为
+- **触发时机建议**：下次给 Plan 加新模式（如 `"reviewing"`）时；或独立"session 元数据 stringly-typed 收口"小 PR 一次清掉
+
+---
+
 ### F-022 SkillsPanel 三个 Switch handler 失败处理风格不一致
 
 - **来源**：2026-04-29 Skill 自动审核 UI 信号 PR `/simplify` review（reuse agent）
