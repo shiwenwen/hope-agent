@@ -278,6 +278,27 @@ pub fn build_system_prompt(agent_id: &str, model: &str, provider: &str) -> Strin
     build_system_prompt_with_session(agent_id, model, provider, None)
 }
 
+/// Smart-mode guidance appended at the end of the system prompt when the
+/// session's permission mode is `smart`. Tells the model it can auto-approve
+/// high-confidence calls by tagging args with `_confidence: "high"`.
+///
+/// Lives at the prompt's tail so a session-mode flip (Default ↔ Smart) only
+/// invalidates the very last cache breakpoint, not the static prefix.
+const SMART_MODE_GUIDANCE: &str = "# Smart Permission Mode
+
+This session is running under Smart permission mode. For tool calls you are highly confident are safe (read-only, scoped to the current project, idempotent, easily reversible), you may add an extra `_confidence: \"high\"` field to the tool_call arguments to bypass the approval prompt. Use this sparingly — only when the call is clearly low-risk in the current context. Edits to protected paths (e.g. `~/.ssh`, `.env`) and dangerous shell commands (e.g. `rm -rf /`, `git push --force`) cannot be auto-approved this way.";
+
+fn smart_mode_guidance(meta: Option<&crate::session::SessionMeta>) -> Option<&'static str> {
+    let mode_str = meta.map(|m| m.permission_mode.as_str()).unwrap_or("default");
+    if crate::permission::SessionMode::parse_or_default(mode_str)
+        == crate::permission::SessionMode::Smart
+    {
+        Some(SMART_MODE_GUIDANCE)
+    } else {
+        None
+    }
+}
+
 /// Project-aware variant of [`build_system_prompt`]. When `session_id` is
 /// supplied and its session is attached to a project, the system prompt
 /// includes a "Current Project" section, the project's shared-file catalog,
@@ -342,7 +363,7 @@ pub fn build_system_prompt_with_session(
             .as_ref()
             .and_then(|s| s.working_dir.as_deref())
             .or_else(|| project.as_ref().and_then(|p| p.working_dir.as_deref()));
-        return crate::system_prompt::build(
+        let mut prompt = crate::system_prompt::build(
             &definition,
             Some(model),
             Some(provider),
@@ -355,6 +376,13 @@ pub fn build_system_prompt_with_session(
             incognito,
             session_working_dir,
         );
+        if let Some(extra) = smart_mode_guidance(session_meta.as_ref()) {
+            if !prompt.ends_with("\n\n") {
+                prompt.push_str("\n\n");
+            }
+            prompt.push_str(extra);
+        }
+        return prompt;
     }
     // Fallback: legacy prompt
     crate::system_prompt::build_legacy(

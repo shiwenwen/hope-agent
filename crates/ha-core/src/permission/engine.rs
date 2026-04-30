@@ -15,7 +15,8 @@
 
 use serde_json::Value;
 
-use super::mode::SessionMode;
+use super::judge::{self, JudgeVerdict};
+use super::mode::{SessionMode, SmartFallback, SmartModeConfig, SmartStrategy};
 use super::rules::extract_path_arg;
 use super::{AskReason, Decision};
 
@@ -48,6 +49,43 @@ pub struct ResolveContext<'a> {
     /// `true` if the tool is internal (per `ToolDefinition.internal`); these
     /// always bypass approval regardless of mode.
     pub is_internal_tool: bool,
+    /// Smart-mode configuration snapshot. Only consumed when
+    /// `session_mode == Smart`. `None` = treat Smart like Default.
+    pub smart_config: Option<&'a SmartModeConfig>,
+}
+
+impl<'a> ResolveContext<'a> {
+    fn smart_strategy(&self) -> SmartStrategy {
+        self.smart_config
+            .map(|c| c.strategy)
+            .unwrap_or_default()
+    }
+
+    fn smart_fallback(&self) -> SmartFallback {
+        self.smart_config
+            .map(|c| c.fallback)
+            .unwrap_or_default()
+    }
+
+    fn smart_strategy_honors_self_confidence(&self) -> bool {
+        if self.session_mode != SessionMode::Smart {
+            return false;
+        }
+        matches!(
+            self.smart_strategy(),
+            SmartStrategy::SelfConfidence | SmartStrategy::Both
+        )
+    }
+
+    fn smart_strategy_honors_judge_model(&self) -> bool {
+        if self.session_mode != SessionMode::Smart {
+            return false;
+        }
+        matches!(
+            self.smart_strategy(),
+            SmartStrategy::JudgeModel | SmartStrategy::Both
+        )
+    }
 }
 
 /// Hardcoded edit-class tool names — these always require approval in
@@ -124,21 +162,14 @@ pub fn resolve(ctx: &ResolveContext<'_>) -> Decision {
 }
 
 fn resolve_default_mode(ctx: &ResolveContext<'_>) -> Decision {
-    // Hardcoded edit-class tools.
-    if is_edit_tool(ctx.tool_name) {
-        return Decision::Ask {
-            reason: AskReason::EditTool,
-        };
+    // Shared core checks (also consumed by Smart mode).
+    if let Decision::Ask { reason } = resolve_edit_layer(ctx) {
+        return Decision::Ask { reason };
     }
 
-    // exec edit-command pattern match.
-    if ctx.tool_name == "exec" {
-        if let Some(reason) = check_edit_command(ctx) {
-            return Decision::Ask { reason };
-        }
-    }
-
-    // Agent custom approval list (additive).
+    // Default-only: agent's `custom_approval_tools` opt-in list. Smart mode
+    // ignores this layer per the design — Smart users opted into LLM-driven
+    // judgment, so manual per-tool flags would just be noise.
     if ctx.agent_custom_approval_enabled
         && ctx
             .agent_custom_approval_tools
@@ -153,10 +184,109 @@ fn resolve_default_mode(ctx: &ResolveContext<'_>) -> Decision {
     Decision::Allow
 }
 
-fn resolve_smart_mode(_ctx: &ResolveContext<'_>) -> Decision {
-    // self-confidence and judge-model branches will land here; until then
-    // Smart mode is a permissive placeholder.
+/// Edit-class tool + `exec` edit-command pattern checks. Shared by Default
+/// and Smart modes — both treat these as the floor for "must ask".
+fn resolve_edit_layer(ctx: &ResolveContext<'_>) -> Decision {
+    if is_edit_tool(ctx.tool_name) {
+        return Decision::Ask {
+            reason: AskReason::EditTool,
+        };
+    }
+    if ctx.tool_name == "exec" {
+        if let Some(reason) = check_edit_command(ctx) {
+            return Decision::Ask { reason };
+        }
+    }
     Decision::Allow
+}
+
+/// Sync Smart-mode resolver. Performs the cheap (no-LLM) checks:
+///
+/// 1. If the model self-tagged this call with `_confidence: "high"` AND the
+///    active strategy honors the tag (`SelfConfidence` / `Both`), allow.
+/// 2. Otherwise, fall through to Default-mode rules so the call would
+///    normally `Ask`. The async wrapper [`resolve_async`] then optionally
+///    upgrades that `Ask` to `Allow` / `Deny` via the judge model.
+fn resolve_smart_mode(ctx: &ResolveContext<'_>) -> Decision {
+    if ctx.smart_strategy_honors_self_confidence() && has_self_confidence_high(ctx.args) {
+        return Decision::Allow;
+    }
+    // Smart mode shares the edit-layer floor with Default but skips
+    // `custom_approval_tools` — per the design, opting into Smart means
+    // deferring per-tool decisions to LLM signals, not a manual checklist.
+    resolve_edit_layer(ctx)
+}
+
+/// `true` if `args._confidence == "high"`. Models running under Smart mode
+/// can opt into auto-approval by adding this self-tag to their tool_call args.
+fn has_self_confidence_high(args: &Value) -> bool {
+    args.get("_confidence")
+        .and_then(|v| v.as_str())
+        .map(|s| s.eq_ignore_ascii_case("high"))
+        .unwrap_or(false)
+}
+
+/// Async entry point — runs [`resolve`] first, then optionally upgrades a
+/// non-strict `Ask` to `Allow` / `Deny` by consulting the Smart-mode judge
+/// model. Sync callers (tests, simple consumers) can keep using [`resolve`];
+/// the live tool dispatch path goes through this so Smart mode can do its
+/// LLM round trip.
+///
+/// Smart override is only attempted when ALL of the following hold:
+///
+/// 1. Sync result is `Decision::Ask`
+/// 2. `ctx.session_mode == SessionMode::Smart`
+/// 3. The active strategy includes the judge model
+///    (`SmartStrategy ∈ { JudgeModel, Both }`)
+/// 4. `JudgeModelConfig` is configured
+/// 5. The ask reason is not strict (protected path / dangerous command stay
+///    user-confirmed even under Smart)
+///
+/// Judge timeout / failure / malformed reply → fall back per
+/// [`SmartFallback`]:
+/// - `Default` → keep the sync `Ask` decision
+/// - `Ask` → keep `Ask` (explicit no-op)
+/// - `Allow` → upgrade to `Allow` (most permissive)
+pub async fn resolve_async(ctx: &ResolveContext<'_>) -> Decision {
+    let sync_decision = resolve(ctx);
+
+    let Decision::Ask { reason } = &sync_decision else {
+        return sync_decision;
+    };
+    if reason.forbids_allow_always() {
+        return sync_decision;
+    }
+    if !ctx.smart_strategy_honors_judge_model() {
+        return sync_decision;
+    }
+    let Some(smart_cfg) = ctx.smart_config else {
+        return sync_decision;
+    };
+    let Some(judge_cfg) = &smart_cfg.judge_model else {
+        return sync_decision;
+    };
+
+    match judge::judge(judge_cfg, ctx.tool_name, ctx.args).await {
+        Some(verdict) => match verdict.decision {
+            JudgeVerdict::Allow => Decision::Allow,
+            JudgeVerdict::Deny => Decision::Deny {
+                reason: format!("Smart judge denied: {}", verdict.reason),
+            },
+            JudgeVerdict::Ask => Decision::Ask {
+                reason: AskReason::SmartJudge {
+                    rationale: verdict.reason,
+                },
+            },
+        },
+        None => apply_smart_fallback(ctx.smart_fallback(), sync_decision),
+    }
+}
+
+fn apply_smart_fallback(fallback: SmartFallback, sync_decision: Decision) -> Decision {
+    match fallback {
+        SmartFallback::Default | SmartFallback::Ask => sync_decision,
+        SmartFallback::Allow => Decision::Allow,
+    }
 }
 
 fn check_protected_path(ctx: &ResolveContext<'_>) -> Option<AskReason> {
@@ -210,6 +340,7 @@ fn log_yolo_warn(ctx: &ResolveContext<'_>, reason: &AskReason) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::mode::JudgeModelConfig;
     use super::*;
     use serde_json::json;
 
@@ -233,6 +364,7 @@ mod tests {
             project_id: None,
             agent_id: None,
             is_internal_tool: false,
+            smart_config: None,
         }
     }
 
@@ -363,15 +495,142 @@ mod tests {
     }
 
     #[test]
-    fn smart_mode_inactive_for_custom_list() {
-        // Smart mode ignores custom_approval_tools per design.
+    fn smart_mode_ignores_custom_list() {
+        // Smart mode skips the agent's custom_approval_tools layer per design;
+        // a tool that's only on the custom list goes through.
         let args = json!({});
         let plan: Vec<String> = vec![];
         let custom: Vec<String> = vec!["browser".into()];
         let mut c = ctx("browser", &args, SessionMode::Smart, &plan, &custom);
         c.agent_custom_approval_enabled = true;
-        // Phase 4 will tighten this; for now Smart returns Allow as placeholder.
         assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn smart_mode_keeps_edit_layer() {
+        // Edit-class tools still ask in Smart — that's the floor.
+        let args = json!({"path": "/tmp/foo"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
+    }
+
+    #[test]
+    fn smart_self_confidence_high_allows() {
+        let args = json!({"path": "/tmp/foo", "_confidence": "high"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::SelfConfidence,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn smart_self_confidence_ignored_under_judge_only_strategy() {
+        // SelfConfidence flag is honored only when strategy includes self_confidence.
+        let args = json!({"path": "/tmp/foo", "_confidence": "high"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::JudgeModel,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
+    }
+
+    #[test]
+    fn smart_self_confidence_low_does_not_allow() {
+        let args = json!({"path": "/tmp/foo", "_confidence": "low"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::Both,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert!(matches!(
+            resolve(&c),
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn resolve_async_passes_through_non_ask() {
+        let args = json!({});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("read", &args, SessionMode::Default, &plan, &custom);
+        assert_eq!(resolve_async(&c).await, Decision::Allow);
+    }
+
+    #[tokio::test]
+    async fn resolve_async_keeps_strict_ask() {
+        // Protected-path Ask must NOT be smart-overridden — strict reasons stay strict.
+        let args = json!({"path": "~/.ssh/id_rsa"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::JudgeModel,
+            judge_model: Some(JudgeModelConfig {
+                provider_id: "nonexistent".to_string(),
+                model: "x".to_string(),
+                extra_prompt: None,
+            }),
+            fallback: SmartFallback::Allow,
+        };
+        let mut c = ctx("read", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        let d = resolve_async(&c).await;
+        assert!(matches!(
+            d,
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. }
+            }
+        ));
+    }
+
+    #[tokio::test]
+    async fn resolve_async_no_judge_config_keeps_sync_decision() {
+        // Smart mode + JudgeModel strategy but no judge_model config → pass through.
+        let args = json!({"path": "/tmp/foo"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::JudgeModel,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert!(matches!(
+            resolve_async(&c).await,
+            Decision::Ask {
+                reason: AskReason::EditTool
+            }
+        ));
     }
 
     #[test]
