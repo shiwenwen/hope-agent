@@ -1,13 +1,19 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, test, vi } from "vitest"
-import { cleanup, render } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import type { Message } from "@/types/chat"
+import type { ReactNode } from "react"
 import QuickChatMessages from "./QuickChatMessages"
 
 const virtualFeedMock = vi.hoisted(() => ({
+  resumeAutoFollow: vi.fn(),
   latestOptions: undefined as { forceFollowKey?: string | number | null } | undefined,
+  state: {
+    isAutoFollowPaused: false,
+    hasUnseenOutput: false,
+  },
 }))
 
 vi.mock("react-i18next", () => ({
@@ -30,9 +36,9 @@ vi.mock("@/components/common/useVirtualFeed", () => ({
         start: index * 80,
       })),
       totalSize: options.rows.length * 80,
-      isAutoFollowPaused: false,
-      hasUnseenOutput: false,
-      resumeAutoFollow: vi.fn(),
+      isAutoFollowPaused: virtualFeedMock.state.isAutoFollowPaused,
+      hasUnseenOutput: virtualFeedMock.state.hasUnseenOutput,
+      resumeAutoFollow: virtualFeedMock.resumeAutoFollow,
     }
   }),
 }))
@@ -41,10 +47,16 @@ vi.mock("@/components/common/MarkdownRenderer", () => ({
   default: ({ content }: { content: string }) => <div>{content}</div>,
 }))
 
+vi.mock("@/components/ui/tooltip", () => ({
+  IconTip: ({ children }: { children: ReactNode }) => children,
+}))
+
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
   virtualFeedMock.latestOptions = undefined
+  virtualFeedMock.state.isAutoFollowPaused = false
+  virtualFeedMock.state.hasUnseenOutput = false
 })
 
 function baseMessage(patch: Partial<Message>): Message {
@@ -57,6 +69,29 @@ function baseMessage(patch: Partial<Message>): Message {
 }
 
 describe("QuickChatMessages auto-follow", () => {
+  test("shows a round scroll-to-bottom icon action with pointer hover affordance", () => {
+    virtualFeedMock.state.isAutoFollowPaused = true
+    virtualFeedMock.state.hasUnseenOutput = true
+
+    render(
+      <QuickChatMessages
+        messages={[baseMessage({ role: "assistant", content: "streaming answer", dbId: 1 })]}
+        loading={false}
+        sessionId="s1"
+      />,
+    )
+
+    const button = screen.getByRole("button", { name: "chat.scrollToBottom" })
+    expect(button.className).toContain("h-8")
+    expect(button.className).toContain("w-8")
+    expect(button.className).toContain("rounded-full")
+    expect(button.className).toContain("cursor-pointer")
+    expect(screen.queryByText("chat.jumpToLatest")).toBeNull()
+
+    fireEvent.click(button)
+    expect(virtualFeedMock.resumeAutoFollow).toHaveBeenCalledWith("smooth")
+  })
+
   test("forces auto-follow when the latest message is a newly sent user message", () => {
     render(
       <QuickChatMessages

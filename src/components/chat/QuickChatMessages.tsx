@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDownToLine, ExternalLink } from "lucide-react"
+import { ArrowDown, ExternalLink } from "lucide-react"
 import type { Message } from "@/types/chat"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -199,14 +199,14 @@ export default function QuickChatMessages({
 
       {showJumpToLatest && (
         <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center px-4">
-          <IconTip label={t("chat.jumpToLatest")}>
+          <IconTip label={t("chat.scrollToBottom")}>
             <button
               type="button"
               onClick={() => resumeAutoFollow("smooth")}
-              className="pointer-events-auto inline-flex h-8 w-8 items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
-              aria-label={t("chat.jumpToLatest")}
+              className="pointer-events-auto inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
+              aria-label={t("chat.scrollToBottom")}
             >
-              <ArrowDownToLine className="h-4 w-4" />
+              <ArrowDown className="h-4 w-4" />
             </button>
           </IconTip>
         </div>

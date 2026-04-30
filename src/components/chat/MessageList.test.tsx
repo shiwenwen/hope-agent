@@ -118,7 +118,7 @@ describe("MessageList virtualization surface", () => {
     expect(screen.queryByText("chat.howCanIHelp")).toBeNull()
   })
 
-  test("shows a jump-to-latest action when auto-follow is paused with unseen output", () => {
+  test("shows an icon-only scroll-to-bottom action when auto-follow is paused with unseen output", () => {
     virtualFeedMock.state.isAutoFollowPaused = true
     virtualFeedMock.state.hasUnseenOutput = true
 
@@ -134,7 +134,14 @@ describe("MessageList virtualization surface", () => {
       />,
     )
 
-    fireEvent.click(screen.getByRole("button", { name: "chat.jumpToLatest" }))
+    const button = screen.getByRole("button", { name: "chat.scrollToBottom" })
+    expect(button.className).toContain("h-9")
+    expect(button.className).toContain("w-9")
+    expect(button.className).toContain("rounded-full")
+    expect(button.className).toContain("cursor-pointer")
+    expect(screen.queryByText("chat.jumpToLatest")).toBeNull()
+
+    fireEvent.click(button)
     expect(virtualFeedMock.resumeAutoFollow).toHaveBeenCalledWith("smooth")
   })
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDownToLine, Ghost } from "lucide-react"
+import { ArrowDown, Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MessageBubble from "./MessageBubble"
@@ -382,11 +382,10 @@ export default function MessageList({
           <button
             type="button"
             onClick={() => resumeAutoFollow("smooth")}
-            className="pointer-events-auto inline-flex h-9 items-center gap-2 rounded-full border border-border/70 bg-background/95 px-3 text-sm font-medium text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
-            aria-label={t("chat.jumpToLatest")}
+            className="pointer-events-auto inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-border/70 bg-background/95 text-foreground shadow-lg shadow-black/10 backdrop-blur transition-colors hover:bg-muted"
+            aria-label={t("chat.scrollToBottom")}
           >
-            <ArrowDownToLine className="h-4 w-4" />
-            <span>{t("chat.jumpToLatest")}</span>
+            <ArrowDown className="h-4 w-4" />
           </button>
         </div>
       )}
