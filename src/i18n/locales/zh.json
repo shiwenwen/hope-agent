@@ -240,7 +240,7 @@
     "viewContext": "查看上下文",
     "permissionMode": {
       "default": {
-        "label": "默认",
+        "label": "默认权限",
         "desc": "编辑类工具与高危命令需要审批，其余直接放行"
       },
       "smart": {
