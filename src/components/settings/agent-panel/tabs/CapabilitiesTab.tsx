@@ -108,7 +108,6 @@ export default function CapabilitiesTab({
   // ── Collapsible state (default collapsed to keep the tab compact) ──
   const [coreOpen, setCoreOpen] = useState(false)
   const [standardOpen, setStandardOpen] = useState(false)
-  const [configuredOpen, setConfiguredOpen] = useState(false)
   const [mcpOpen, setMcpOpen] = useState(false)
   const [approvalOpen, setApprovalOpen] = useState(false)
   const [skillsOpen, setSkillsOpen] = useState(false)
@@ -134,8 +133,13 @@ export default function CapabilitiesTab({
       t.core_subclass !== "plan_mode" &&
       t.core_subclass !== "meta",
   )
-  const standardTools = builtinTools.filter((t) => t.tier === "standard")
-  const configuredTools = builtinTools.filter((t) => t.tier === "configured")
+  // Tier 2 (Standard) and Tier 3 (Configured) share the same UI section —
+  // the only behavioral difference is which config branch holds the toggle
+  // (`tools.deny` vs `capabilityToggles`) and whether to render the
+  // "needs global provider" hint below the row.
+  const userToggleableTools = builtinTools.filter(
+    (t) => t.tier === "standard" || t.tier === "configured",
+  )
   const approvalTools = builtinTools.filter((t) => t.internal !== true)
   // memory / mcp tools are not individually toggleable in this UI — they're
   // controlled by the global memory enabled flag and the MCP master switch.
@@ -188,6 +192,14 @@ export default function CapabilitiesTab({
     if (!key) return
     const next = { ...(config.capabilities.capabilityToggles ?? {}), [key]: on }
     updateCapabilities({ capabilityToggles: next })
+  }
+
+  // ── Unified helpers for the merged "Standard tools" section ──
+  const toolEnabled = (tool: BuiltinTool) =>
+    tool.tier === "configured" ? tier3Resolved(tool) : tier2Enabled(tool)
+  const setToolEnabled = (tool: BuiltinTool, on: boolean) => {
+    if (tool.tier === "configured") setTier3Toggle(tool, on)
+    else setTier2Enabled(tool, on)
   }
 
   return (
@@ -267,60 +279,26 @@ export default function CapabilitiesTab({
           </CollapsibleSection>
         )}
 
-        {/* Tier 2: Standard */}
-        {standardTools.length > 0 && (
+        {/* Standard tools (Tier 2 + Tier 3 merged) */}
+        {userToggleableTools.length > 0 && (
           <CollapsibleSection
             title={t("settings.agentTierStandardTitle")}
             description={t("settings.agentTierStandardDesc")}
             badge={(() => {
-              const enabled = standardTools.filter(tier2Enabled).length
-              return `(${enabled}/${standardTools.length})`
+              const enabled = userToggleableTools.filter(toolEnabled).length
+              return `(${enabled}/${userToggleableTools.length})`
             })()}
             open={standardOpen}
             onToggle={() => setStandardOpen((v) => !v)}
           >
             <div className="rounded-lg border border-border/50 overflow-hidden">
-              {standardTools.map((tool, idx) => (
-                <div
-                  key={tool.name}
-                  className={cn(
-                    "flex items-center justify-between px-3 py-2 gap-3",
-                    idx > 0 && "border-t border-border/30",
-                  )}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs font-medium text-foreground">
-                      {toolDisplayName(tool.name)}
-                    </div>
-                    <div className="text-[11px] text-muted-foreground/60 line-clamp-1">
-                      {toolDisplayDesc(tool.name)}
-                    </div>
-                  </div>
-                  <Switch
-                    checked={tier2Enabled(tool)}
-                    onCheckedChange={(checked) => setTier2Enabled(tool, checked)}
-                  />
-                </div>
-              ))}
-            </div>
-          </CollapsibleSection>
-        )}
-
-        {/* Tier 3: Configured */}
-        {configuredTools.length > 0 && (
-          <CollapsibleSection
-            title={t("settings.agentTierConfiguredTitle")}
-            description={t("settings.agentTierConfiguredDesc")}
-            badge={(() => {
-              const enabled = configuredTools.filter(tier3Resolved).length
-              return `(${enabled}/${configuredTools.length})`
-            })()}
-            open={configuredOpen}
-            onToggle={() => setConfiguredOpen((v) => !v)}
-          >
-            <div className="rounded-lg border border-border/50 overflow-hidden">
-              {configuredTools.map((tool, idx) => {
-                const enabled = tier3Resolved(tool)
+              {userToggleableTools.map((tool, idx) => {
+                const enabled = toolEnabled(tool)
+                const showHint =
+                  enabled &&
+                  tool.tier === "configured" &&
+                  !!tool.config_hint &&
+                  tool.globally_configured === false
                 return (
                   <div
                     key={tool.name}
@@ -340,16 +318,14 @@ export default function CapabilitiesTab({
                       </div>
                       <Switch
                         checked={enabled}
-                        onCheckedChange={(checked) => setTier3Toggle(tool, checked)}
+                        onCheckedChange={(checked) => setToolEnabled(tool, checked)}
                       />
                     </div>
-                    {enabled &&
-                      tool.config_hint &&
-                      tool.globally_configured === false && (
-                        <div className="text-[10px] text-amber-500/80 dark:text-amber-400/80 mt-0.5">
-                          {t("settings.agentTierConfiguredHint", { hint: tool.config_hint })}
-                        </div>
-                      )}
+                    {showHint && (
+                      <div className="text-[10px] text-amber-500/80 dark:text-amber-400/80 mt-0.5">
+                        {t("settings.agentTierConfiguredHint", { hint: tool.config_hint })}
+                      </div>
+                    )}
                   </div>
                 )
               })}
