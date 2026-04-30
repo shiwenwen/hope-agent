@@ -429,6 +429,8 @@ impl AssistantAgent {
                 mcp_enabled: def.config.capabilities.mcp_enabled,
                 capability_toggles: def.config.capabilities.capability_toggles.clone(),
                 memory_enabled: def.config.memory.enabled,
+                enable_custom_tool_approval: def.config.capabilities.enable_custom_tool_approval,
+                custom_approval_tools: def.config.capabilities.custom_approval_tools.clone(),
             })
             .unwrap_or_default();
         let arc = std::sync::Arc::new(caps);
@@ -1206,6 +1208,9 @@ impl AssistantAgent {
         let force_sandbox = caps.sandbox;
         let session_working_dir =
             crate::session::effective_session_working_dir(self.session_id.as_deref());
+        let session_mode =
+            crate::session::session_permission_mode(self.session_id.as_deref());
+        let project_id = crate::session::session_project_id(self.session_id.as_deref());
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,
@@ -1225,6 +1230,10 @@ impl AssistantAgent {
                 _ => Vec::new(),
             },
             auto_approve_tools: self.auto_approve_tools,
+            session_mode,
+            agent_custom_approval_enabled: caps.enable_custom_tool_approval,
+            agent_custom_approval_tools: caps.custom_approval_tools.clone(),
+            project_id,
             async_tool_policy: caps.async_tool_policy,
             bypass_async_dispatch: false,
             metadata_sink: None,

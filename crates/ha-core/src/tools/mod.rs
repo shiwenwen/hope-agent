@@ -48,9 +48,7 @@ mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
-pub use approval::{
-    set_tool_permission_mode, submit_approval_response, ApprovalResponse, ToolPermissionMode,
-};
+pub use approval::{submit_approval_response, ApprovalResponse};
 pub use definitions::{
     get_amend_plan_tool, get_ask_user_question_tool, get_available_tools, get_canvas_tool,
     get_core_tools, get_core_tools_for_provider, get_deferred_tools,

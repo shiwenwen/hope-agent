@@ -224,8 +224,8 @@ fn build_router_with_cors(
             post(routes::runtime_tasks::cancel_runtime_task),
         )
         .route(
-            "/chat/tool-permission-mode",
-            post(routes::chat::set_tool_permission_mode),
+            "/chat/permission-mode",
+            post(routes::chat::set_permission_mode),
         )
         .route(
             "/chat/approval/{request_id}",

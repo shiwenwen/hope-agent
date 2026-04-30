@@ -14,50 +14,11 @@ use crate::process_registry::create_session_id;
 // observed across concurrent tools or across rounds has to sit outside the
 // context struct. Add new shared state here (or in a sibling module) rather
 // than reaching for `Mutex<…>` inside `ToolExecContext`.
-
-// ── Tool Permission Mode (session-level) ─────────────────────────
-
-/// Session-level tool permission mode, controlling how tool calls are approved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ToolPermissionMode {
-    /// Model decides whether approval is needed (current default behavior)
-    #[default]
-    Auto,
-    /// Every tool call requires user approval
-    AskEveryTime,
-    /// All tool calls are automatically approved (risky)
-    FullApprove,
-}
-
-impl ToolPermissionMode {
-    /// Matches the `#[serde(rename_all = "snake_case")]` encoding used when
-    /// the enum is serialized, so DB rows and JSON payloads agree.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::AskEveryTime => "ask_every_time",
-            Self::FullApprove => "full_approve",
-        }
-    }
-}
-
-/// Global session-level tool permission mode
-static TOOL_PERMISSION_MODE: OnceLock<TokioMutex<ToolPermissionMode>> = OnceLock::new();
-
-fn get_permission_mode_lock() -> &'static TokioMutex<ToolPermissionMode> {
-    TOOL_PERMISSION_MODE.get_or_init(|| TokioMutex::new(ToolPermissionMode::Auto))
-}
-
-/// Set the current session's tool permission mode
-pub async fn set_tool_permission_mode(mode: ToolPermissionMode) {
-    *get_permission_mode_lock().lock().await = mode;
-}
-
-/// Get the current session's tool permission mode
-pub async fn get_tool_permission_mode() -> ToolPermissionMode {
-    *get_permission_mode_lock().lock().await
-}
+//
+// Per-session permission mode (Default / Smart / Yolo) lives in the SQLite
+// `sessions.permission_mode` column and is read into [`ToolExecContext.session_mode`]
+// by the agent setup path. The legacy process-global `TOOL_PERMISSION_MODE`
+// static was removed in the permission system v2 redesign.
 
 // ── Command Approval System ───────────────────────────────────────
 
@@ -201,11 +162,11 @@ fn extract_command_prefix(command: &str) -> String {
 }
 
 fn approval_timeout_secs() -> u64 {
-    crate::config::cached_config().approval_timeout_secs
+    crate::config::cached_config().permission.approval_timeout_secs
 }
 
 pub(crate) fn approval_timeout_action() -> crate::config::ApprovalTimeoutAction {
-    crate::config::cached_config().approval_timeout_action
+    crate::config::cached_config().permission.approval_timeout_action
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -352,28 +313,3 @@ pub(crate) async fn check_and_request_approval(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tool_permission_mode_as_str_matches_serde() {
-        for mode in [
-            ToolPermissionMode::Auto,
-            ToolPermissionMode::AskEveryTime,
-            ToolPermissionMode::FullApprove,
-        ] {
-            let via_serde = serde_json::to_value(mode)
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string();
-            assert_eq!(
-                mode.as_str(),
-                via_serde,
-                "as_str() drifted from #[serde(rename_all = \"snake_case\")] for {:?}",
-                mode
-            );
-        }
-    }
-}

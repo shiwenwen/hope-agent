@@ -21,6 +21,12 @@ pub(super) struct AgentCapsCache {
     /// Whether memory is enabled for this agent (mirrors `agent.json`
     /// `memory.enabled`). Drives Tier::Memory tool injection gate.
     pub memory_enabled: bool,
+    /// Mirrors `agent.json` `capabilities.enableCustomToolApproval`. When false,
+    /// `custom_approval_tools` is ignored.
+    pub enable_custom_tool_approval: bool,
+    /// Mirrors `agent.json` `capabilities.customApprovalTools`. Only consumed
+    /// in Default permission mode.
+    pub custom_approval_tools: Vec<String>,
 }
 
 impl Default for AgentCapsCache {
@@ -33,6 +39,8 @@ impl Default for AgentCapsCache {
             mcp_enabled: true,
             capability_toggles: CapabilityToggles::default(),
             memory_enabled: true,
+            enable_custom_tool_approval: false,
+            custom_approval_tools: Vec::new(),
         }
     }
 }

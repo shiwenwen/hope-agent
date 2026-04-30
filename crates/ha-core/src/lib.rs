@@ -51,6 +51,7 @@ pub mod oauth;
 pub mod onboarding;
 pub mod openclaw_import;
 pub mod paths;
+pub mod permission;
 pub mod permissions;
 pub mod plan;
 pub mod platform;

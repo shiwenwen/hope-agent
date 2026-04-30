@@ -60,8 +60,8 @@ fn tool_timeout() -> Option<Duration> {
 /// branch holds an independent clone, so writes through such a lock would be
 /// invisible to peers and to subsequent rounds. State that must be shared
 /// across concurrent tools belongs in a process-global
-/// `OnceLock<TokioMutex<...>>` (see [`super::approval::TOOL_PERMISSION_MODE`]
-/// and [`super::approval::pending_approvals_per_session`] for the canonical
+/// `OnceLock<TokioMutex<...>>` (see
+/// [`super::approval::pending_approvals_per_session`] for the canonical
 /// pattern).
 #[derive(Debug, Clone, Default)]
 pub struct ToolExecContext {
@@ -103,6 +103,17 @@ pub struct ToolExecContext {
     pub plan_mode_allowed_tools: Vec<String>,
     /// When true, automatically approve all tool calls (IM channel auto-approve mode).
     pub auto_approve_tools: bool,
+    /// Per-session permission mode (Default / Smart / Yolo). Resolved from the
+    /// `sessions.permission_mode` column at agent build time. The engine
+    /// consumes this together with `global_yolo` to decide approval behavior.
+    pub session_mode: crate::permission::SessionMode,
+    /// Agent-level "custom tool approval" toggle from `agent.json`.
+    /// When false, `agent_custom_approval_tools` is ignored.
+    pub agent_custom_approval_enabled: bool,
+    /// Agent-level extra approval list. Only consumed in Default mode.
+    pub agent_custom_approval_tools: Vec<String>,
+    /// Project id (if any) for AllowAlways scope resolution.
+    pub project_id: Option<String>,
     /// Per-agent async tool backgrounding policy (mirrors AgentConfig.capabilities.async_tool_policy).
     pub async_tool_policy: AsyncToolPolicy,
     /// Internal flag set by the async-job spawner when re-dispatching an
@@ -280,30 +291,6 @@ fn is_skill_read(name: &str, args: &Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Check if a tool requires approval based on the context's require_approval list.
-fn tool_needs_approval(name: &str, args: &Value, ctx: &ToolExecContext) -> bool {
-    // Internal capability tools never need approval (flag set on ToolDefinition)
-    if super::is_internal_tool(name) {
-        return false;
-    }
-    // Reading SKILL.md files never needs approval — skills are pre-authorized
-    if name == TOOL_READ {
-        if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-            if path.ends_with("/SKILL.md") || path.ends_with("\\SKILL.md") {
-                return false;
-            }
-        }
-    }
-    if ctx.require_approval.is_empty() {
-        return false;
-    }
-    // "*" means all (non-internal) tools require approval
-    if ctx.require_approval.iter().any(|t| t == "*") {
-        return true;
-    }
-    ctx.require_approval.iter().any(|t| t == name)
-}
-
 /// Execute a tool with additional context (model info, etc.)
 pub async fn execute_tool_with_context(
     name: &str,
@@ -326,100 +313,111 @@ pub async fn execute_tool_with_context(
     let async_decision = decide_async_path(name, args, ctx);
 
     // ── Tool-level approval gate ─────────────────────────────────
-    // Check session-level permission mode and tool-level approval requirements.
-    // Note: exec tool has its own command-level approval inside tool_exec;
-    // this is the tool-level gate that applies to ALL approvable tools.
-    let perm_mode = approval::get_tool_permission_mode().await;
-    let dangerous_mode = crate::security::dangerous::is_dangerous_skip_active();
-    let needs_approval = if ctx.auto_approve_tools || dangerous_mode {
-        false
-    } else {
-        match perm_mode {
-            approval::ToolPermissionMode::FullApprove => false,
-            approval::ToolPermissionMode::AskEveryTime => {
-                // In ask_every_time mode, all non-internal tools need approval
-                // (except reading SKILL.md — pre-authorized by skill system)
-                !super::is_internal_tool(name) && name != TOOL_EXEC && !is_skill_read(name, args)
+    // Run the unified permission engine. The engine consumes:
+    //   plan_mode → YOLO → protected_paths → dangerous_commands → AllowAlways
+    //   → session_mode preset → fallback Allow
+    // and returns Allow / Ask / Deny. `exec` retains a separate command-level
+    // gate further inside `tool_exec` for legacy AllowAlways prefix matching.
+    //
+    // SKILL.md reads are pre-authorized — skip the engine entirely so the
+    // skill bootstrap never blocks on permission state.
+    let needs_engine = !ctx.auto_approve_tools && !is_skill_read(name, args) && name != TOOL_EXEC;
+    if needs_engine {
+        let resolve_ctx = crate::permission::engine::ResolveContext {
+            tool_name: name,
+            args,
+            session_mode: ctx.session_mode,
+            global_yolo: crate::config::cached_config().permission.global_yolo
+                || crate::security::dangerous::cli_flag_active(),
+            plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
+            plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
+            agent_custom_approval_enabled: ctx.agent_custom_approval_enabled,
+            agent_custom_approval_tools: &ctx.agent_custom_approval_tools,
+            session_id: ctx.session_id.as_deref(),
+            project_id: ctx.project_id.as_deref(),
+            agent_id: ctx.agent_id.as_deref(),
+            is_internal_tool: super::is_internal_tool(name),
+        };
+        let decision = crate::permission::engine::resolve(&resolve_ctx);
+        match decision {
+            crate::permission::Decision::Allow => {}
+            crate::permission::Decision::Deny { reason } => {
+                return Err(anyhow::anyhow!("Tool '{}' denied: {}", name, reason));
             }
-            approval::ToolPermissionMode::Auto => {
-                tool_needs_approval(name, args, ctx) && name != TOOL_EXEC
-            }
-        }
-    };
-    if dangerous_mode && !ctx.auto_approve_tools && !super::is_internal_tool(name) {
-        app_warn!(
-            "tool",
-            "dangerous_mode",
-            "Tool '{}' bypassed approval (DANGEROUS MODE active via {})",
-            name,
-            crate::security::dangerous::active_source()
-        );
-    }
-    if needs_approval {
-        let desc = format!("tool: {} {}", name, {
-            let s = args.to_string();
-            if s.len() > 200 {
-                format!("{}...", crate::truncate_utf8(&s, 200))
-            } else {
-                s
-            }
-        });
-        let cwd = ctx.default_path();
-        match approval::check_and_request_approval(&desc, cwd, ctx.session_id.as_deref()).await {
-            Ok(approval::ApprovalResponse::AllowOnce) => {
-                app_info!("tool", "approval", "Tool '{}' approved (once)", name);
-            }
-            Ok(approval::ApprovalResponse::AllowAlways) => {
-                if perm_mode == approval::ToolPermissionMode::Auto {
-                    app_info!("tool", "approval", "Tool '{}' approved (always)", name);
-                    approval::add_to_allowlist(&desc).await;
-                } else {
-                    app_info!(
-                        "tool",
-                        "approval",
-                        "Tool '{}' approved (ask_every_time)",
-                        name
-                    );
-                }
-            }
-            Ok(approval::ApprovalResponse::Deny) => {
-                return Err(anyhow::anyhow!("Tool '{}' execution denied by user", name));
-            }
-            Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
-                match approval::approval_timeout_action() {
-                    crate::config::ApprovalTimeoutAction::Deny => {
+            crate::permission::Decision::Ask { reason } => {
+                let desc = format!("tool: {} {}", name, {
+                    let s = args.to_string();
+                    if s.len() > 200 {
+                        format!("{}...", crate::truncate_utf8(&s, 200))
+                    } else {
+                        s
+                    }
+                });
+                let cwd = ctx.default_path();
+                match approval::check_and_request_approval(&desc, cwd, ctx.session_id.as_deref())
+                    .await
+                {
+                    Ok(approval::ApprovalResponse::AllowOnce) => {
+                        app_info!("tool", "approval", "Tool '{}' approved (once)", name);
+                    }
+                    Ok(approval::ApprovalResponse::AllowAlways) => {
+                        if reason.forbids_allow_always() {
+                            app_info!(
+                                "tool",
+                                "approval",
+                                "Tool '{}' approved once (AllowAlways unavailable: {:?})",
+                                name,
+                                reason
+                            );
+                        } else {
+                            app_info!("tool", "approval", "Tool '{}' approved (always)", name);
+                            // TODO(Phase 3): persist into the appropriate
+                            // AllowAlways scope (project / session / agent_home /
+                            // global). For now we keep the legacy global
+                            // command-prefix store for `exec` only — `exec`
+                            // takes that path inside `tool_exec`.
+                        }
+                    }
+                    Ok(approval::ApprovalResponse::Deny) => {
+                        return Err(anyhow::anyhow!("Tool '{}' execution denied by user", name));
+                    }
+                    Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
+                        match approval::approval_timeout_action() {
+                            crate::config::ApprovalTimeoutAction::Deny => {
+                                app_warn!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' approval timed out after {}s; blocking execution",
+                                    name,
+                                    timeout_secs
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Tool '{}' execution denied: approval timed out after {}s",
+                                    name,
+                                    timeout_secs
+                                ));
+                            }
+                            crate::config::ApprovalTimeoutAction::Proceed => {
+                                app_warn!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' approval timed out after {}s; proceeding by config",
+                                    name,
+                                    timeout_secs
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
                         app_warn!(
                             "tool",
                             "approval",
-                            "Tool '{}' approval timed out after {}s; blocking execution",
+                            "Tool approval check failed for '{}' ({}), proceeding",
                             name,
-                            timeout_secs
-                        );
-                        return Err(anyhow::anyhow!(
-                            "Tool '{}' execution denied: approval timed out after {}s",
-                            name,
-                            timeout_secs
-                        ));
-                    }
-                    crate::config::ApprovalTimeoutAction::Proceed => {
-                        app_warn!(
-                            "tool",
-                            "approval",
-                            "Tool '{}' approval timed out after {}s; proceeding by config",
-                            name,
-                            timeout_secs
+                            e
                         );
                     }
                 }
-            }
-            Err(e) => {
-                app_warn!(
-                    "tool",
-                    "approval",
-                    "Tool approval check failed for '{}' ({}), proceeding",
-                    name,
-                    e
-                );
             }
         }
     }

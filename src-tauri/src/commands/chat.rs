@@ -45,7 +45,7 @@ pub async fn chat(
     incognito: Option<bool>,
     model_override: Option<String>,
     agent_id: Option<String>,
-    tool_permission_mode: Option<tools::ToolPermissionMode>,
+    permission_mode: Option<ha_core::permission::SessionMode>,
     plan_mode: Option<String>,
     temperature_override: Option<f64>,
     // When set, DB stores `display_text` as the user message while `message` is still
@@ -58,9 +58,8 @@ pub async fn chat(
     on_event: tauri::ipc::Channel<String>,
     state: State<'_, AppState>,
 ) -> Result<String, CmdError> {
-    if let Some(mode) = tool_permission_mode {
-        crate::tools::set_tool_permission_mode(mode).await;
-    }
+    // Capture optional permission mode — applied below once we have a session id.
+    let permission_mode_pending = permission_mode;
 
     let effort = state.reasoning_effort.lock().await.clone();
     let effort_ref_str = effort.clone();
@@ -93,6 +92,11 @@ pub async fn chat(
     // the auto-create branch — explicit-session callers must use
     // `set_session_working_dir` to change it. Validation errors are surfaced so
     // an invalid path doesn't silently get dropped.
+    // Persist per-session permission mode if the caller supplied one.
+    if let Some(mode) = permission_mode_pending {
+        db.update_session_permission_mode(&sid, mode.as_str())?;
+    }
+
     if new_session_created.is_some() {
         if let Some(wd) = working_dir.as_ref().filter(|s| !s.trim().is_empty()) {
             db.update_session_working_dir(&sid, Some(wd.clone()))?;
@@ -662,23 +666,20 @@ pub async fn stop_chat(
     Ok(())
 }
 
-/// Set the current tool permission mode immediately and, when `session_id`
-/// is provided, persist it to the session row so the chat input's toggle is
-/// restored on revisit. The global singleton is always updated so in-flight
-/// tool loops and non-chat paths (subagent / cron / IM channels) see the new
-/// value without waiting for the next `chat` call.
+/// Persist the per-session permission mode (`default` / `smart` / `yolo`)
+/// to the session row so the chat title bar's switcher is restored on revisit.
 #[tauri::command]
-pub async fn set_tool_permission_mode(
-    session_id: Option<String>,
-    mode: tools::ToolPermissionMode,
+pub async fn set_permission_mode(
+    session_id: String,
+    mode: ha_core::permission::SessionMode,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    tools::set_tool_permission_mode(mode).await;
-    if let Some(sid) = session_id.as_deref() {
-        state
-            .session_db
-            .update_session_tool_permission_mode(sid, mode.as_str())?;
+    if session_id.is_empty() {
+        return Err(CmdError::from(anyhow::anyhow!("session_id required")));
     }
+    state
+        .session_db
+        .update_session_permission_mode(&session_id, mode.as_str())?;
     Ok(())
 }
 

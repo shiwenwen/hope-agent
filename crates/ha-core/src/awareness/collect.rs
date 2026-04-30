@@ -241,7 +241,7 @@ mod tests {
             is_cron: false,
             parent_session_id: None,
             plan_mode: "off".into(),
-            tool_permission_mode: "auto".into(),
+            permission_mode: "default".into(),
             channel_info: None,
             project_id: None,
             incognito: false,

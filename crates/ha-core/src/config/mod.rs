@@ -208,16 +208,7 @@ impl Default for AsyncToolsConfig {
     }
 }
 
-/// What to do when a tool approval request times out.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ApprovalTimeoutAction {
-    /// Block tool execution when approval timed out.
-    #[default]
-    Deny,
-    /// Continue tool execution when approval timed out.
-    Proceed,
-}
+pub use crate::permission::ApprovalTimeoutAction;
 
 // ── Default helpers ─────────────────────────────────────────────
 
@@ -234,10 +225,6 @@ fn default_default_agent_id() -> Option<String> {
 }
 
 pub(crate) fn default_tool_timeout() -> u64 {
-    300
-}
-
-pub(crate) fn default_approval_timeout() -> u64 {
     300
 }
 
@@ -490,14 +477,6 @@ pub struct AppConfig {
     /// Default 300 (5 min). Set to 0 to disable.
     #[serde(default = "default_tool_timeout")]
     pub tool_timeout: u64,
-    /// Timeout in seconds for waiting on an interactive tool approval response.
-    /// Default 300 (5 min). Set to 0 to disable and wait forever.
-    #[serde(default = "default_approval_timeout")]
-    pub approval_timeout_secs: u64,
-    /// What to do when an approval request times out.
-    /// Default: deny. Alternative: proceed.
-    #[serde(default)]
-    pub approval_timeout_action: ApprovalTimeoutAction,
     /// Threshold (bytes) for persisting large tool results to disk.
     /// Results exceeding this size are written to disk with a preview in context.
     /// Default: 50000 (50KB). Set to 0 to disable.
@@ -603,15 +582,12 @@ pub struct AppConfig {
     #[serde(default)]
     pub tool_call_narration_enabled: bool,
 
-    /// ⚠️ DANGEROUS MODE — globally skip ALL tool-level approvals. When true,
-    /// every tool (exec / write / edit / apply_patch / channel tools / browser /
-    /// canvas …) runs without any approval gate. Overrides `ctx.auto_approve_tools`,
-    /// `ToolPermissionMode`, and every other per-session / per-channel auto-approve
-    /// knob by short-circuiting the gate in `tools::execution`. Plan Mode's
-    /// tool-type whitelist remains in effect (the two are orthogonal). Intended
-    /// for fully-trusted local automation; do not enable on shared machines.
+    /// Permission / approval system. Replaces the legacy top-level fields
+    /// `approval_timeout_secs` / `approval_timeout_action` /
+    /// `dangerous_skip_all_approvals`. See
+    /// [`crate::permission::PermissionGlobalConfig`] for fields.
     #[serde(default)]
-    pub dangerous_skip_all_approvals: bool,
+    pub permission: crate::permission::PermissionGlobalConfig,
 
     /// First-run onboarding wizard state. See [`OnboardingState`].
     #[serde(default)]
@@ -667,8 +643,6 @@ impl Default for AppConfig {
             image: crate::tools::image::ImageToolConfig::default(),
             pdf: crate::tools::pdf::PdfToolConfig::default(),
             tool_timeout: default_tool_timeout(),
-            approval_timeout_secs: default_approval_timeout(),
-            approval_timeout_action: ApprovalTimeoutAction::default(),
             tool_result_disk_threshold: None,
             theme: default_theme(),
             language: default_language(),
@@ -692,7 +666,7 @@ impl Default for AppConfig {
             skills: crate::skills::SkillsConfig::default(),
             recall_summary: crate::memory::RecallSummaryConfig::default(),
             tool_call_narration_enabled: false,
-            dangerous_skip_all_approvals: false,
+            permission: crate::permission::PermissionGlobalConfig::default(),
             onboarding: OnboardingState::default(),
             mcp_servers: Vec::new(),
             mcp_global: crate::mcp::McpGlobalSettings::default(),

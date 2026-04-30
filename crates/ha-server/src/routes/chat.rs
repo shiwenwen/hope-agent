@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use ha_core::agent::Attachment;
 use ha_core::chat_engine::{ChatEngineParams, EventSink, NoopEventSink};
+use ha_core::permission::SessionMode;
 use ha_core::provider::{self, ActiveModel};
 use ha_core::session;
 use ha_core::tools;
@@ -38,8 +39,10 @@ pub struct ChatRequest {
     pub model_override: Option<String>,
     #[serde(default)]
     pub attachments: Vec<Attachment>,
+    /// Per-session permission mode. When provided, the session's
+    /// `permission_mode` column is updated before chat starts.
     #[serde(default)]
-    pub tool_permission_mode: Option<tools::ToolPermissionMode>,
+    pub permission_mode: Option<SessionMode>,
     #[serde(default)]
     pub temperature_override: Option<f64>,
     #[serde(default)]
@@ -114,9 +117,9 @@ pub async fn chat(
 ) -> Result<Json<ChatResponse>, AppError> {
     let db = ctx.session_db.clone();
 
-    if let Some(mode) = body.tool_permission_mode {
-        tools::set_tool_permission_mode(mode).await;
-    }
+    // `permission_mode` body field is consumed below after we resolve the
+    // session id (we need a session_id to persist).
+    let permission_mode_pending = body.permission_mode;
 
     // Resolve agent ID
     let agent_id = body.agent_id.unwrap_or_else(|| "default".to_string());
@@ -140,6 +143,12 @@ pub async fn chat(
             db.update_session_working_dir(&sid, Some(wd.clone()))
                 .map_err(|e| AppError::bad_request(e.to_string()))?;
         }
+    }
+
+    // Persist per-session permission mode if the body included one.
+    if let Some(mode) = permission_mode_pending {
+        db.update_session_permission_mode(&sid, mode.as_str())
+            .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
 
     let _active_turn_guard = ha_core::chat_engine::active_turn::try_acquire(
@@ -344,25 +353,22 @@ pub async fn stop_chat(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ToolPermissionModeBody {
-    pub mode: tools::ToolPermissionMode,
-    #[serde(default)]
-    pub session_id: Option<String>,
+pub struct PermissionModeBody {
+    pub mode: SessionMode,
+    pub session_id: String,
 }
 
-/// `POST /api/chat/tool-permission-mode` — set the tool permission mode.
-/// When `sessionId` is provided the choice is persisted to the session row
-/// so switching away and back restores the toggle; the global singleton is
-/// always updated so in-flight tool loops see the new value immediately.
-pub async fn set_tool_permission_mode(
+/// `POST /api/chat/permission-mode` — set the per-session permission mode.
+/// Persisted to the `sessions.permission_mode` column.
+pub async fn set_permission_mode(
     State(ctx): State<Arc<AppContext>>,
-    Json(body): Json<ToolPermissionModeBody>,
+    Json(body): Json<PermissionModeBody>,
 ) -> Result<Json<Value>, AppError> {
-    tools::set_tool_permission_mode(body.mode).await;
-    if let Some(sid) = body.session_id.as_deref() {
-        ctx.session_db
-            .update_session_tool_permission_mode(sid, body.mode.as_str())?;
+    if body.session_id.is_empty() {
+        return Err(AppError::bad_request("sessionId required"));
     }
+    ctx.session_db
+        .update_session_permission_mode(&body.session_id, body.mode.as_str())?;
     Ok(Json(json!({ "ok": true })))
 }
 

@@ -577,13 +577,13 @@ pub async fn set_tool_timeout(seconds: u64) -> Result<(), CmdError> {
 #[tauri::command]
 pub async fn get_approval_timeout() -> Result<u64, CmdError> {
     let store = ha_core::config::load_config()?;
-    Ok(store.approval_timeout_secs)
+    Ok(store.permission.approval_timeout_secs)
 }
 
 #[tauri::command]
 pub async fn set_approval_timeout(seconds: u64) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("approval_timeout", "settings-ui"), |store| {
-        store.approval_timeout_secs = seconds;
+        store.permission.approval_timeout_secs = seconds;
         Ok(())
     })
     .map_err(Into::into)
@@ -593,7 +593,7 @@ pub async fn set_approval_timeout(seconds: u64) -> Result<(), CmdError> {
 pub async fn get_approval_timeout_action(
 ) -> Result<ha_core::config::ApprovalTimeoutAction, CmdError> {
     let store = ha_core::config::load_config()?;
-    Ok(store.approval_timeout_action)
+    Ok(store.permission.approval_timeout_action)
 }
 
 #[tauri::command]
@@ -601,7 +601,7 @@ pub async fn set_approval_timeout_action(
     action: ha_core::config::ApprovalTimeoutAction,
 ) -> Result<(), CmdError> {
     ha_core::config::mutate_config(("approval_timeout_action", "settings-ui"), |store| {
-        store.approval_timeout_action = action;
+        store.permission.approval_timeout_action = action;
         Ok(())
     })
     .map_err(Into::into)

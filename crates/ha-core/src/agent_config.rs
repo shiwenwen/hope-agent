@@ -264,6 +264,31 @@ pub struct CapabilitiesConfig {
     /// override that survives any future changes to tier defaults.
     #[serde(default)]
     pub capability_toggles: CapabilityToggles,
+
+    /// Whether the agent owner has opted into "Custom Tool Approval".
+    /// When false, `custom_approval_tools` is ignored — only the hardcoded
+    /// edit-class enforcement (write / edit / apply_patch + edit-command exec
+    /// matches + protected paths + dangerous commands) requires approval.
+    /// When true and `permission_mode = default`, the tools listed in
+    /// `custom_approval_tools` ALSO require approval.
+    ///
+    /// Smart / YOLO modes ignore both this flag and the list — UI must
+    /// surface that note to avoid user confusion.
+    #[serde(default)]
+    pub enable_custom_tool_approval: bool,
+
+    /// User-curated extra approval list. Only consumed when
+    /// `enable_custom_tool_approval = true` AND the session is in
+    /// `Default` mode. Tool names that do not appear here are NOT prompted —
+    /// this list is additive on top of the hardcoded edit-class set.
+    #[serde(default)]
+    pub custom_approval_tools: Vec<String>,
+
+    /// Default permission mode for new sessions opened under this agent.
+    /// `None` falls back to the global default (currently `Default`).
+    /// Existing sessions are unaffected when this changes.
+    #[serde(default)]
+    pub default_session_permission_mode: Option<crate::permission::SessionMode>,
 }
 
 /// Per-agent capability toggle overrides. Each `None` means "fall back to
@@ -323,6 +348,9 @@ impl Default for CapabilitiesConfig {
             async_tool_policy: AsyncToolPolicy::default(),
             mcp_enabled: true,
             capability_toggles: CapabilityToggles::default(),
+            enable_custom_tool_approval: false,
+            custom_approval_tools: Vec::new(),
+            default_session_permission_mode: None,
         }
     }
 }

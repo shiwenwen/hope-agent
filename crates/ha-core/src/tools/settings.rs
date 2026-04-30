@@ -136,7 +136,7 @@ fn read_category(category: &str) -> Result<Value> {
         "web_search" => Ok(serde_json::to_value(&cfg.web_search)?),
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
         "security" => Ok(json!({
-            "skipAllApprovals": cfg.dangerous_skip_all_approvals,
+            "skipAllApprovals": cfg.permission.global_yolo,
         })),
         "security.ssrf" => Ok(serde_json::to_value(&cfg.ssrf)?),
         "compact" => Ok(serde_json::to_value(&cfg.compact)?),
@@ -145,8 +145,8 @@ fn read_category(category: &str) -> Result<Value> {
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
         "approval" => Ok(json!({
-            "approvalTimeoutSecs": cfg.approval_timeout_secs,
-            "approvalTimeoutAction": cfg.approval_timeout_action,
+            "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
+            "approvalTimeoutAction": cfg.permission.approval_timeout_action,
         })),
         "image_generate" => Ok(serde_json::to_value(&cfg.image_generate)?),
         "canvas" => Ok(serde_json::to_value(&cfg.canvas)?),
@@ -222,7 +222,7 @@ fn get_all_overview() -> Result<String> {
         "defaultAgentId": cfg.default_agent_id,
         "temperature": cfg.temperature,
         "toolTimeout": cfg.tool_timeout,
-        "approvalTimeoutSecs": cfg.approval_timeout_secs,
+        "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
         "notification": { "enabled": cfg.notification.enabled },
         "proxy": {
             "mode": cfg.proxy.mode,
@@ -242,7 +242,7 @@ fn get_all_overview() -> Result<String> {
         },
         "awareness": { "enabled": cfg.awareness.enabled },
         "security": {
-            "skipAllApprovals": cfg.dangerous_skip_all_approvals,
+            "skipAllApprovals": cfg.permission.global_yolo,
             "ssrfDefaultPolicy": cfg.ssrf.default_policy,
             "trustedHostsCount": cfg.ssrf.trusted_hosts.len(),
         },
@@ -415,10 +415,10 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         }
         "approval" => {
             if let Some(v) = values.get("approvalTimeoutSecs").and_then(|v| v.as_u64()) {
-                store.approval_timeout_secs = v;
+                store.permission.approval_timeout_secs = v;
             }
             if let Some(v) = values.get("approvalTimeoutAction") {
-                store.approval_timeout_action = serde_json::from_value(v.clone())?;
+                store.permission.approval_timeout_action = serde_json::from_value(v.clone())?;
             }
         }
         "proxy" => merge_field(&mut store.proxy, values)?,
@@ -426,7 +426,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "web_fetch" => merge_field(&mut store.web_fetch, values)?,
         "security" => {
             if let Some(v) = values.get("skipAllApprovals").and_then(|v| v.as_bool()) {
-                store.dangerous_skip_all_approvals = v;
+                store.permission.global_yolo = v;
             }
         }
         "security.ssrf" => merge_field(&mut store.ssrf, values)?,
