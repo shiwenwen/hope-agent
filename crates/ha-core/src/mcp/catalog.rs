@@ -12,7 +12,7 @@
 use rmcp::model;
 use serde_json::{json, Value};
 
-use crate::tools::ToolDefinition;
+use crate::tools::{ToolDefinition, ToolTier};
 
 use super::config::McpServerConfig;
 
@@ -67,8 +67,26 @@ pub fn is_mcp_tool_name(name: &str) -> bool {
 /// `mcp__<server>__<tool>` into its two halves. Returns `None` when
 /// the name isn't MCP-shaped or lacks the double-underscore separator
 /// between the server and tool parts.
-fn split_mcp_tool_name(name: &str) -> Option<(&str, &str)> {
+pub fn split_mcp_tool_name(name: &str) -> Option<(&str, &str)> {
     name.strip_prefix(MCP_TOOL_PREFIX)?.split_once("__")
+}
+
+/// True when the namespaced MCP tool belongs to a server whose tools should
+/// be discoverable via `tool_search` instead of eagerly injected.
+pub fn tool_belongs_to_deferred_server(name: &str, servers: &[McpServerConfig]) -> bool {
+    let Some((server, _tool)) = split_mcp_tool_name(name) else {
+        return false;
+    };
+    servers
+        .iter()
+        .any(|cfg| cfg.enabled && cfg.name == server && cfg.deferred_tools)
+}
+
+/// Whether any configured MCP server has opted its tools into deferred loading.
+pub fn has_deferred_tool_server(servers: &[McpServerConfig]) -> bool {
+    servers
+        .iter()
+        .any(|cfg| cfg.enabled && cfg.deferred_tools)
 }
 
 /// Build a short "MCP Capabilities" system-prompt section when any
@@ -195,14 +213,9 @@ fn merge_object_union(variants: &[Value]) -> (serde_json::Map<String, Value>, Ve
 // ── ToolDefinition conversion ────────────────────────────────────
 
 /// Build a [`ToolDefinition`] from an rmcp `Tool` under the naming rules
-/// for server `cfg`. `always_load` is hoisted to the caller so the
-/// "always_load_servers" global whitelist can be honored without
-/// plumbing `McpGlobalSettings` through here.
-pub fn rmcp_tool_to_definition(
-    cfg: &McpServerConfig,
-    tool: &model::Tool,
-    always_load: bool,
-) -> ToolDefinition {
+/// for server `cfg`. All MCP-derived tools are uniformly `Tier::Mcp`; the
+/// per-agent `capabilities.mcp_enabled` flag gates injection.
+pub fn rmcp_tool_to_definition(cfg: &McpServerConfig, tool: &model::Tool) -> ToolDefinition {
     let orig = tool.name.to_string();
     let name = namespaced_tool_name(&cfg.name, &orig);
     let description_owned: String = tool
@@ -239,9 +252,9 @@ pub fn rmcp_tool_to_definition(
         name,
         description: desc,
         parameters,
+        tier: ToolTier::Mcp,
         internal: false,
-        deferred: !always_load,
-        always_load,
+        concurrent_safe: false,
         async_capable,
     }
 }
@@ -273,6 +286,7 @@ mod tests {
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: None,
             icon: None,
@@ -364,21 +378,14 @@ mod tests {
         );
         tool.title = None;
         let cfg = min_cfg("example");
-        let def = rmcp_tool_to_definition(&cfg, &tool, false);
+        let def = rmcp_tool_to_definition(&cfg, &tool);
         assert_eq!(def.name, "mcp__example__my_tool");
         assert!(def.description.starts_with("[example] "));
         assert_eq!(def.parameters["type"], "object");
-        assert!(def.deferred);
-        assert!(!def.always_load);
-    }
-
-    #[test]
-    fn tool_to_definition_always_load_flag_flips_deferred() {
-        let tool = model::Tool::new("my_tool", "x", std::sync::Arc::new(serde_json::Map::new()));
-        let cfg = min_cfg("example");
-        let def = rmcp_tool_to_definition(&cfg, &tool, true);
-        assert!(!def.deferred);
-        assert!(def.always_load);
+        // All MCP-derived tools are uniformly Tier::Mcp; gating happens at
+        // agent.capabilities.mcp_enabled time.
+        assert!(matches!(def.tier, ToolTier::Mcp));
+        assert!(def.is_always_load());
     }
 
     #[test]
@@ -388,7 +395,7 @@ mod tests {
 
         // Default (no execution block) → sync-only.
         let default_tool = model::Tool::new("fast", "x", schema.clone());
-        assert!(!rmcp_tool_to_definition(&cfg, &default_tool, false).async_capable);
+        assert!(!rmcp_tool_to_definition(&cfg, &default_tool).async_capable);
 
         // `required` or `optional` → async_capable=true so the tool
         // loop's "sync budget → auto-background" branch can engage.
@@ -396,19 +403,19 @@ mod tests {
         required_tool.execution = Some(model::ToolExecution::from_raw(Some(
             model::TaskSupport::Required,
         )));
-        assert!(rmcp_tool_to_definition(&cfg, &required_tool, false).async_capable);
+        assert!(rmcp_tool_to_definition(&cfg, &required_tool).async_capable);
 
         let mut optional_tool = model::Tool::new("long_optional", "x", schema.clone());
         optional_tool.execution = Some(model::ToolExecution::from_raw(Some(
             model::TaskSupport::Optional,
         )));
-        assert!(rmcp_tool_to_definition(&cfg, &optional_tool, false).async_capable);
+        assert!(rmcp_tool_to_definition(&cfg, &optional_tool).async_capable);
 
         // Explicit `forbidden` → sync-only (same as default).
         let mut forbidden_tool = model::Tool::new("short", "x", schema);
         forbidden_tool.execution = Some(model::ToolExecution::from_raw(Some(
             model::TaskSupport::Forbidden,
         )));
-        assert!(!rmcp_tool_to_definition(&cfg, &forbidden_tool, false).async_capable);
+        assert!(!rmcp_tool_to_definition(&cfg, &forbidden_tool).async_capable);
     }
 }

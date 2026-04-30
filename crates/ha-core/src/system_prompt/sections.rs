@@ -1,28 +1,41 @@
 use super::constants::*;
 use super::helpers::{current_date, find_git_root, hostname, os_version};
 use super::working_dir_instructions::InstructionFile;
-use crate::agent_config::{FilterConfig, PersonalityConfig};
+use crate::agent_config::{AgentConfig, FilterConfig, PersonalityConfig};
 use crate::project::{Project, ProjectFile};
 use crate::skills;
+use crate::tools::dispatch::{
+    all_dispatchable_tools, resolve_tool_fate, DispatchContext, ToolFate,
+};
+use crate::tools::ToolDefinition;
 
 // ── Section Builders ─────────────────────────────────────────────
 
-/// Build tool definitions section, filtered by agent config.
-/// Only includes descriptions for tools the agent is allowed to use.
-///
-/// When `deferredTools.enabled = true`, only core/always-loaded tools get their
-/// full detailed description here. Deferred tools instead appear as a one-line
-/// catalog in `build_deferred_tools_section`, and their full schema is fetched
-/// on demand via `tool_search`. This avoids emitting every tool's description
-/// three times (here, in the deferred catalog, and in the tool_search result).
-pub(super) fn build_tools_section(filter: &FilterConfig) -> String {
-    let no_filter = filter.allow.is_empty() && filter.deny.is_empty();
-    let deferred_enabled = crate::config::cached_config().deferred_tools.enabled;
+/// Build tool definitions section, driven by `dispatch::resolve_tool_fate`.
+/// Only includes descriptions for tools the dispatcher decides to inject
+/// eagerly — tools whose fate is `InjectDeferred` move to the deferred
+/// section (one-liner), `HintOnly` move to the unconfigured-capabilities
+/// banner in `agent::build_full_system_prompt`, and `Hidden` are skipped.
+pub(super) fn build_tools_section(agent_id: &str, agent_config: &AgentConfig) -> String {
+    let app_config = crate::config::cached_config();
+    let ctx = DispatchContext {
+        agent_id,
+        mcp_enabled: agent_config.capabilities.mcp_enabled,
+        memory_enabled: agent_config.memory.enabled,
+        tools_filter: &agent_config.capabilities.tools,
+        capability_toggles: &agent_config.capabilities.capability_toggles,
+        app_config: &app_config,
+    };
+
+    let eager_names: std::collections::HashSet<&str> = all_dispatchable_tools()
+        .iter()
+        .filter(|t| matches!(resolve_tool_fate(t, &ctx), ToolFate::InjectEager))
+        .map(|t| t.name.as_str())
+        .collect();
 
     let descs: Vec<&str> = TOOL_DESCRIPTIONS
         .iter()
-        .filter(|(name, _)| no_filter || crate::tools::agent_tool_filter_allows(name, filter))
-        .filter(|(name, _)| !deferred_enabled || crate::tools::is_core_tool(name))
+        .filter(|(name, _)| eager_names.contains(name))
         .map(|(_, desc)| *desc)
         .collect();
 
@@ -40,16 +53,48 @@ pub(super) fn build_all_tools_description() -> String {
 }
 
 /// Build a section listing deferred tools (name + one-line description).
-/// Only generated when deferred tool loading is enabled.
-pub(super) fn build_deferred_tools_section() -> Option<String> {
-    let store = crate::config::cached_config();
-    if !store.deferred_tools.enabled {
+/// Driven by the dispatcher: any tool whose fate is `InjectDeferred` lands
+/// here. Only emitted when at least one tool is deferred.
+pub(super) fn build_deferred_tools_section(
+    agent_id: &str,
+    agent_config: &AgentConfig,
+) -> Option<String> {
+    let app_config = crate::config::cached_config();
+    let mcp_deferred_servers: Vec<&str> = if agent_config.capabilities.mcp_enabled {
+        app_config
+            .mcp_servers
+            .iter()
+            .filter(|s| s.enabled && s.deferred_tools)
+            .map(|s| s.name.as_str())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    if !app_config.deferred_tools.enabled && mcp_deferred_servers.is_empty() {
         return None;
     }
-    let deferred = crate::tools::get_deferred_tools();
-    if deferred.is_empty() {
+    let ctx = DispatchContext {
+        agent_id,
+        mcp_enabled: agent_config.capabilities.mcp_enabled,
+        memory_enabled: agent_config.memory.enabled,
+        tools_filter: &agent_config.capabilities.tools,
+        capability_toggles: &agent_config.capabilities.capability_toggles,
+        app_config: &app_config,
+    };
+
+    let deferred: Vec<&ToolDefinition> = if app_config.deferred_tools.enabled {
+        all_dispatchable_tools()
+            .iter()
+            .filter(|t| matches!(resolve_tool_fate(t, &ctx), ToolFate::InjectDeferred))
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    if deferred.is_empty() && mcp_deferred_servers.is_empty() {
         return None;
     }
+
     let mut lines = vec![
         "# Additional Tools (use tool_search to discover)".to_string(),
         "The following tools are available but their schemas are not loaded by default. \
@@ -65,18 +110,11 @@ pub(super) fn build_deferred_tools_section() -> Option<String> {
             .unwrap_or(&tool.description);
         lines.push(format!("- **{}**: {}", tool.name, short_desc));
     }
-    // Also include conditionally-injected deferred tools
-    let extra_names = [
-        crate::tools::TOOL_WEB_SEARCH,
-        crate::tools::TOOL_SEND_NOTIFICATION,
-        crate::tools::TOOL_IMAGE_GENERATE,
-        crate::tools::TOOL_CANVAS,
-        crate::tools::TOOL_ACP_SPAWN,
-    ];
-    for name in &extra_names {
-        if !deferred.iter().any(|t| t.name == *name) {
-            lines.push(format!("- **{}**: Use tool_search to discover", name));
-        }
+    for server in mcp_deferred_servers {
+        lines.push(format!(
+            "- **mcp__{}__***: MCP tools from `{}` are available via tool_search",
+            server, server
+        ));
     }
     Some(lines.join("\n"))
 }

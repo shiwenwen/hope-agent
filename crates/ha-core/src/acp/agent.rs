@@ -594,15 +594,6 @@ impl AcpAgent {
             }
         }
 
-        agent.set_web_search_enabled(crate::tools::web_search::has_enabled_provider(
-            &store.web_search,
-        ));
-        agent.set_notification_enabled(store.notification.enabled);
-        agent.set_image_generate_config(crate::tools::image_generate::resolve_image_gen_config(
-            &store.image_generate,
-        ));
-        agent.set_canvas_enabled(store.canvas.enabled);
-
         // Resolve temperature: agent > global
         let agent_temp = crate::agent_loader::load_agent(agent_id)
             .ok()

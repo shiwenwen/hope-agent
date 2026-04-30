@@ -177,11 +177,12 @@ pub fn build(
         }
     }
 
-    // ⑥ Tool definitions (filtered by agent config)
-    sections.push(build_tools_section(&definition.config.capabilities.tools));
+    // ⑥ Tool definitions (driven by dispatch::resolve_tool_fate)
+    sections.push(build_tools_section(&definition.id, &definition.config));
 
     // ⑥b Deferred tools listing (when deferred loading is enabled)
-    if let Some(deferred_section) = build_deferred_tools_section() {
+    if let Some(deferred_section) = build_deferred_tools_section(&definition.id, &definition.config)
+    {
         sections.push(deferred_section);
     }
 
@@ -276,8 +277,8 @@ pub fn build(
     // ⑨ Runtime info
     sections.push(build_runtime_section(model, provider, agent_home));
 
-    // ⑩ Sub-agent delegation (conditionally injected)
-    if definition.config.subagents.enabled {
+    // ⑩ Sub-agent delegation (conditionally injected — gated by Tier 3 toggle)
+    if crate::tools::subagent::subagent_capability_enabled(&definition.id, &definition.config) {
         let subagent_section =
             build_subagent_section(&definition.config.subagents, &definition.id, 0);
         if !subagent_section.is_empty() {
@@ -488,8 +489,11 @@ pub fn build_legacy(model: Option<&str>, provider: Option<&str>, incognito: bool
     // Tools
     sections.push(build_all_tools_description());
 
-    // Deferred tools listing
-    if let Some(deferred_section) = build_deferred_tools_section() {
+    // Deferred tools listing — legacy path uses default agent + default config.
+    let legacy_agent_config = crate::agent_config::AgentConfig::default();
+    if let Some(deferred_section) =
+        build_deferred_tools_section(crate::agent_loader::DEFAULT_AGENT_ID, &legacy_agent_config)
+    {
         sections.push(deferred_section);
     }
 

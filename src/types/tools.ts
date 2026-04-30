@@ -25,6 +25,41 @@ export const TOOL_TASK_UPDATE = "task_update" as const
 export const TOOL_TASK_LIST = "task_list" as const
 export const TOOL_MCP_RESOURCE = "mcp_resource" as const
 export const TOOL_MCP_PROMPT = "mcp_prompt" as const
+export const TOOL_IMAGE_GENERATE = "image_generate" as const
+export const TOOL_CANVAS = "canvas" as const
+export const TOOL_ACP_SPAWN = "acp_spawn" as const
+
+/**
+ * Hardcoded ID of the "main" agent. Mirrors `agent_loader::DEFAULT_AGENT_ID`
+ * on the Rust side. The user can change which agent picks up new chats via
+ * `AppConfig.default_agent_id`, but the literal "default" agent is always
+ * the main one (it gets richer Tier 2/3 toggle defaults).
+ */
+export const DEFAULT_AGENT_ID = "default" as const
+
+export const isMainAgent = (id: string) => id === DEFAULT_AGENT_ID
+
+/**
+ * Maps a Tier 3 tool name to the property key under
+ * `AgentConfig.capabilities.capabilityToggles`. Mirrors
+ * `CapabilityToggles::override_for` on the Rust side.
+ */
+export type CapabilityToggleKey =
+  | "webSearch"
+  | "imageGenerate"
+  | "canvas"
+  | "sendNotification"
+  | "subagent"
+  | "acpSpawn"
+
+export const TOOL_NAME_TO_TOGGLE_KEY: Record<string, CapabilityToggleKey> = {
+  [TOOL_WEB_SEARCH]: "webSearch",
+  [TOOL_IMAGE_GENERATE]: "imageGenerate",
+  [TOOL_CANVAS]: "canvas",
+  [TOOL_SEND_NOTIFICATION]: "sendNotification",
+  [TOOL_SUBAGENT]: "subagent",
+  [TOOL_ACP_SPAWN]: "acpSpawn",
+}
 
 /**
  * @deprecated Use the `internal` flag from `list_builtin_tools` API response instead.

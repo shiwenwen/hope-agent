@@ -181,9 +181,11 @@ pub fn get_job_status_tool() -> super::definitions::ToolDefinition {
             actively wait until the job reaches a terminal state (with `timeout_ms` cap). \
             Without `block`, returns the current snapshot immediately."
             .into(),
+        tier: super::definitions::ToolTier::Core {
+            subclass: super::definitions::CoreSubclass::Meta,
+        },
         internal: true,
-        deferred: false,
-        always_load: true,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",

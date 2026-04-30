@@ -198,6 +198,12 @@ pub struct McpServerConfig {
     /// tool call).
     #[serde(default)]
     pub eager: bool,
+    /// When true, this server's dynamic MCP tools are not sent eagerly in
+    /// every LLM request. They remain discoverable via `tool_search`.
+    /// Defaults to false: MCP tools are injected eagerly unless the user
+    /// explicitly opts this server into deferred loading.
+    #[serde(default)]
+    pub deferred_tools: bool,
     /// Only active when the current session's project root matches one of
     /// these absolute paths. Empty = active everywhere (global scope).
     #[serde(default)]
@@ -325,11 +331,6 @@ pub struct McpGlobalSettings {
     /// (user can still hit Reconnect manually at any time).
     #[serde(default = "default_auto_reconnect_after_circuit_secs")]
     pub auto_reconnect_after_circuit_secs: u64,
-    /// Servers whose generated tools should be `always_load=true` (i.e.
-    /// bypass deferred-tool discovery and ship with every request). Use
-    /// sparingly — these compete with the core tools for prompt budget.
-    #[serde(default)]
-    pub always_load_servers: Vec<String>,
     /// Deny list of server names (policy override; predates addition by
     /// the GUI). Enterprise deployments can ship this pre-populated.
     #[serde(default)]
@@ -345,7 +346,6 @@ impl Default for McpGlobalSettings {
             backoff_max_secs: default_backoff_max_secs(),
             consecutive_failure_circuit_breaker: default_consecutive_failure_circuit_breaker(),
             auto_reconnect_after_circuit_secs: default_auto_reconnect_after_circuit_secs(),
-            always_load_servers: Vec::new(),
             denied_servers: Vec::new(),
         }
     }
@@ -466,6 +466,7 @@ mod tests {
             auto_approve: true, // conflict
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: None,
             icon: None,
@@ -499,6 +500,7 @@ mod tests {
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: None,
             icon: None,
@@ -532,6 +534,7 @@ mod tests {
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: None,
             icon: None,

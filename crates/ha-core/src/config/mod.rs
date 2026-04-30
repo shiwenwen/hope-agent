@@ -91,14 +91,19 @@ impl Default for NotificationConfig {
 // ── Deferred Tools Config ───────────────────────────────────────
 
 /// Configuration for deferred tool loading.
-/// When enabled, only core tools are sent to the LLM per request,
-/// and remaining tools are discoverable via `tool_search`.
+/// `enabled` turns on the mechanism; `tool_names` is the explicit set of
+/// built-in tools whose schemas should be withheld from the initial LLM
+/// request and discovered via `tool_search`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeferredToolsConfig {
     /// Enable deferred tool loading (default: false, opt-in)
     #[serde(default)]
     pub enabled: bool,
+    /// Built-in tool names explicitly deferred by the user. Default empty,
+    /// meaning enabling the global switch alone does not defer any built-ins.
+    #[serde(default)]
+    pub tool_names: Vec<String>,
 }
 
 // ── Async Tools Config ──────────────────────────────────────────
@@ -756,6 +761,7 @@ mod mcp_compat_tests {
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: Some("local knowledge base".into()),
             icon: None,

@@ -236,7 +236,10 @@ fn get_all_overview() -> Result<String> {
         },
         "sessionTitle": cfg.session_title,
         "asyncTools": { "enabled": cfg.async_tools.enabled },
-        "deferredTools": { "enabled": cfg.deferred_tools.enabled },
+        "deferredTools": {
+            "enabled": cfg.deferred_tools.enabled,
+            "toolNames": cfg.deferred_tools.tool_names,
+        },
         "awareness": { "enabled": cfg.awareness.enabled },
         "security": {
             "skipAllApprovals": cfg.dangerous_skip_all_approvals,

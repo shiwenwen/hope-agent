@@ -247,6 +247,56 @@ pub struct CapabilitiesConfig {
     /// Async tool backgrounding policy override. Default: model-decide.
     #[serde(default)]
     pub async_tool_policy: AsyncToolPolicy,
+
+    /// MCP integration master switch. When false, all MCP tools
+    /// (`mcp_resource` / `mcp_prompt` / dynamic `mcp__<server>__<tool>`)
+    /// are excluded from the LLM tool schema, and the system prompt
+    /// surfaces a hint to enable MCP in agent settings.
+    #[serde(default = "crate::default_true")]
+    pub mcp_enabled: bool,
+
+    /// Per-agent capability toggles for Tier 3 tools (web_search / canvas /
+    /// image_generate / send_notification / subagent / acp_spawn).
+    ///
+    /// `None` for a field means "inherit the tier's default for this agent
+    /// kind" — i.e. `default_for_main` when `agent_id == "default"`,
+    /// `default_for_others` otherwise. `Some(true/false)` is an explicit
+    /// override that survives any future changes to tier defaults.
+    #[serde(default)]
+    pub capability_toggles: CapabilityToggles,
+}
+
+/// Per-agent capability toggle overrides. Each `None` means "fall back to
+/// the tier default" — they are NOT all-or-nothing booleans.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityToggles {
+    pub web_search: Option<bool>,
+    pub image_generate: Option<bool>,
+    pub canvas: Option<bool>,
+    pub send_notification: Option<bool>,
+    pub subagent: Option<bool>,
+    pub acp_spawn: Option<bool>,
+}
+
+impl CapabilityToggles {
+    /// Look up a tool name's per-agent override (if any). `None` means
+    /// "no explicit override, fall back to tier default".
+    pub fn override_for(&self, name: &str) -> Option<bool> {
+        use crate::tools::{
+            TOOL_ACP_SPAWN, TOOL_CANVAS, TOOL_IMAGE_GENERATE, TOOL_SEND_NOTIFICATION,
+            TOOL_SUBAGENT, TOOL_WEB_SEARCH,
+        };
+        match name {
+            TOOL_WEB_SEARCH => self.web_search,
+            TOOL_IMAGE_GENERATE => self.image_generate,
+            TOOL_CANVAS => self.canvas,
+            TOOL_SEND_NOTIFICATION => self.send_notification,
+            TOOL_SUBAGENT => self.subagent,
+            TOOL_ACP_SPAWN => self.acp_spawn,
+            _ => None,
+        }
+    }
 }
 
 fn default_max_rounds() -> u32 {
@@ -271,6 +321,8 @@ impl Default for CapabilitiesConfig {
             tools: FilterConfig::default(),
             skills: FilterConfig::default(),
             async_tool_policy: AsyncToolPolicy::default(),
+            mcp_enabled: true,
+            capability_toggles: CapabilityToggles::default(),
         }
     }
 }
@@ -449,13 +501,14 @@ impl Default for MemoryConfig {
 // ── Sub-Agent Config ────────────────────────────────────────────
 
 /// Configuration for sub-agent delegation capabilities.
+///
+/// Note: whether the agent can spawn sub-agents is now controlled by
+/// `capabilities.capability_toggles.subagent` (Tier 3). The fields here
+/// configure delegation *behavior* (who's allowed, depth limits, timeouts),
+/// not the master switch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SubagentConfig {
-    /// Whether this agent can spawn sub-agents
-    #[serde(default = "crate::default_true")]
-    pub enabled: bool,
-
     /// Which agents this agent is allowed to delegate to (empty = all)
     #[serde(default)]
     pub allowed_agents: Vec<String>,
@@ -508,7 +561,6 @@ fn default_subagent_timeout() -> u64 {
 impl Default for SubagentConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
             allowed_agents: Vec::new(),
             denied_agents: Vec::new(),
             max_concurrent: default_max_concurrent(),

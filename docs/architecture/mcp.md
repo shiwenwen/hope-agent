@@ -48,7 +48,7 @@ MCP 客户端把 hope-agent 变成一个 **MCP Host**——就像 Claude Desktop
 | **零 Tauri 依赖** | `crates/ha-core/src/mcp/` 不 `use tauri::*`；Tauri shell 和 axum server 通过 EventBus + `mcp::api` 调用 |
 | **最小握手延迟** | Lazy connect（首次工具调用触发）+ `eager: bool` opt-in 预热 |
 | **可恢复性** | Watchdog 指数退避 + 401 → `NeedsAuth` 分流 + user-triggered Reconnect |
-| **成本意识** | 工具默认 `deferred=true` 走 `tool_search` 发现，避免数十/上百工具一次性塞 system prompt |
+| **成本意识** | MCP 工具默认 eager 注入，单个 server 可设置 `deferredTools=true` 后改走 `tool_search` 发现，避免大型 server 把数十/上百工具一次性塞进每轮请求 |
 | **审计留痕** | 每次连接/断开/失败/健康检查走 `app_*!` 宏，category=`mcp`，source=`<server>:<event>` |
 
 ---
@@ -176,8 +176,7 @@ Disabled ───────────(enable)──────────
   - 已是 object 无 `type` → 注入 `type:"object"`
   - 顶层 `anyOf` / `oneOf` of object variants → 合并 `properties`（`required` 取交集）
 - `description` 前缀 `[<server>] ` 方便 LLM 归因
-- `deferred` 默认 `true` — 通过 `tool_search` 按需发现（MCP server 可能暴露几十个工具）
-- `always_load` 通过 `McpGlobalSettings.always_load_servers` 白名单激活
+- `deferredTools` 默认 `false` — 动态 MCP 工具默认直接注入，用户可在单个 server 上开启后改为通过 `tool_search` 按需发现（MCP server 可能暴露几十个工具）
 - `async_capable` 根据 `ToolExecution.task_support` 映射：
   - `Required` / `Optional` → `true`（让 tool loop 的"同步预算超时自动后台化"分支可触发）
   - `Forbidden` / 缺省 → `false`
@@ -424,7 +423,7 @@ stdio server 是任意 binary，潜在命令执行入口：
   - Transport 下拉切 4 种，动态渲染对应字段
   - 工具白/黑名单（连接后自动拉 `tools/list`）
   - **测试连接** 按钮 → `mcp_test_connection(id)` 实时显示结果 + 工具数
-  - 高级：`timeout` / `auto_approve` / `project_paths` / `always_load`
+  - 高级：`timeout` / `auto_approve` / `project_paths` / `deferredTools`
   - 保存走统一三态按钮（idle / saving / saved / failed）
 - **OAuth 子流程**：状态 `NeedsAuth` → 显示 **Authorize** 按钮 → 调 `mcp_start_oauth(id)`，后端 spawn 浏览器流程；成功后 panel 自动显示 **Sign out**
 - **从 JSON 导入**：粘贴 `claude_desktop_config.json` 的 `mcpServers` 对象，一键导入（跳过已存在 server 名）
@@ -545,7 +544,7 @@ pub struct McpOAuthConfig {
 | `consecutiveFailureCircuitBreaker` | `10` | 连续失败达到该值触发熔断；`0` 关闭熔断（无限重试） |
 | `autoReconnectAfterCircuitSecs` | `1800` | 熔断后多久系统自动再试；用户点 Reconnect 立即绕过 |
 | `deniedServers` | `[]` | 按 name 黑名单（企业预设） |
-| `alwaysLoadServers` | `[]` | 强制 `always_load=true` 的 server 名单 |
+| `deferredTools` | `false` | per-server 设置；`true` 时该 server 的动态工具不 eager 注入，改由 `tool_search` 发现 |
 
 ### Scope 分层
 

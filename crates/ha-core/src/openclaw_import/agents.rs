@@ -298,13 +298,14 @@ pub(super) fn import_single_agent(
             sandbox: req.sandbox,
             tools,
             skills,
+            capability_toggles: crate::agent_config::CapabilityToggles {
+                subagent: Some(has_subagents),
+                ..Default::default()
+            },
             ..Default::default()
         },
         openclaw_mode: true,
-        subagents: crate::agent_config::SubagentConfig {
-            enabled: has_subagents,
-            ..Default::default()
-        },
+        subagents: crate::agent_config::SubagentConfig::default(),
         ..Default::default()
     };
 

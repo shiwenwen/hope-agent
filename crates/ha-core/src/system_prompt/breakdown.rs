@@ -82,7 +82,7 @@ pub fn compute_breakdown(
     )
     .len();
 
-    let tool_descriptions_chars = build_tools_section(&definition.config.capabilities.tools).len();
+    let tool_descriptions_chars = build_tools_section(&definition.id, &definition.config).len();
 
     SystemPromptBreakdown {
         total_chars: full.len(),

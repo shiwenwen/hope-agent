@@ -108,10 +108,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         providers,
         codex_token,
         resolved_temperature,
-        web_search_enabled,
-        notification_enabled,
-        image_gen_config,
-        canvas_enabled,
         compact_config,
         extra_system_context,
         reasoning_effort,
@@ -311,7 +307,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                     let agent_id_owned = agent_id_ref.clone();
                     let session_id_owned = session_id_ref.clone();
-                    let image_gen_owned = image_gen_config.clone();
                     let extra_ctx_owned = extra_system_context_ref.clone();
                     let skill_tools_owned = skill_allowed_tools_ref.clone();
                     let denied_tools_owned = denied_tools.clone();
@@ -350,10 +345,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             &mut agent,
                             &agent_id_owned,
                             &session_id_owned,
-                            web_search_enabled,
-                            notification_enabled,
-                            image_gen_owned,
-                            canvas_enabled,
                             resolved_temperature,
                             extra_ctx_owned.as_deref(),
                             &skill_tools_owned,
@@ -607,10 +598,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         &mut compact_agent,
                         &agent_id,
                         &session_id,
-                        web_search_enabled,
-                        notification_enabled,
-                        image_gen_config.clone(),
-                        canvas_enabled,
                         resolved_temperature,
                         extra_system_context.as_deref(),
                         &skill_allowed_tools,
@@ -719,10 +706,6 @@ fn configure_agent(
     agent: &mut crate::agent::AssistantAgent,
     agent_id: &str,
     session_id: &str,
-    web_search_enabled: bool,
-    notification_enabled: bool,
-    image_gen_config: Option<crate::tools::image_generate::ImageGenConfig>,
-    canvas_enabled: bool,
     temperature: Option<f64>,
     extra_system_context: Option<&str>,
     skill_allowed_tools: &[String],
@@ -736,10 +719,6 @@ fn configure_agent(
 ) {
     agent.set_agent_id(agent_id);
     agent.set_session_id(session_id);
-    agent.set_web_search_enabled(web_search_enabled);
-    agent.set_notification_enabled(notification_enabled);
-    agent.set_image_generate_config(image_gen_config);
-    agent.set_canvas_enabled(canvas_enabled);
     agent.set_temperature(temperature);
     if let Some(ctx) = extra_system_context {
         agent.set_extra_system_context(ctx.to_string());

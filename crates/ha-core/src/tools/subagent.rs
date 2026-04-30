@@ -3,7 +3,33 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use super::ToolExecContext;
+use crate::agent_config::AgentConfig;
 use crate::subagent::{self, SpawnParams, SubagentStatus};
+
+/// Look up the dispatcher's verdict on the `subagent` Tier 3 tool for the
+/// given agent. Used by the runtime spawn gate (`tools::subagent`) and the
+/// system-prompt guidance section so both reach the same conclusion.
+pub(crate) fn subagent_capability_enabled(agent_id: &str, agent_config: &AgentConfig) -> bool {
+    let app_config = crate::config::cached_config();
+    let ctx = super::dispatch::DispatchContext {
+        agent_id,
+        mcp_enabled: agent_config.capabilities.mcp_enabled,
+        memory_enabled: agent_config.memory.enabled,
+        tools_filter: &agent_config.capabilities.tools,
+        capability_toggles: &agent_config.capabilities.capability_toggles,
+        app_config: &app_config,
+    };
+    let def = super::dispatch::all_dispatchable_tools()
+        .iter()
+        .find(|t| t.name == super::TOOL_SUBAGENT);
+    match def {
+        Some(d) => !matches!(
+            super::dispatch::resolve_tool_fate(d, &ctx),
+            super::dispatch::ToolFate::Hidden
+        ),
+        None => false,
+    }
+}
 
 /// Tool handler for the `subagent` tool.
 /// Actions: spawn, check, list, result, kill, kill_all, steer
@@ -58,10 +84,10 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
 
     let parent_agent_id = ctx.agent_id.as_deref().unwrap_or("default");
 
-    // Check agent-level permission
+    // Check agent-level permission via the dispatcher (Tier 3 subagent toggle).
     let agent_def = crate::agent_loader::load_agent(parent_agent_id).ok();
     if let Some(ref def) = agent_def {
-        if !def.config.subagents.enabled {
+        if !subagent_capability_enabled(parent_agent_id, &def.config) {
             return Err(anyhow::anyhow!(
                 "Sub-agent delegation is disabled for this agent"
             ));

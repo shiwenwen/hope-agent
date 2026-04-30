@@ -162,8 +162,9 @@ pub async fn trigger_skill_review_now(session_id: String) -> Result<serde_json::
 }
 
 #[tauri::command]
-pub async fn get_skills_auto_review_promotion(_state: State<'_, AppState>) -> Result<bool, CmdError>
-{
+pub async fn get_skills_auto_review_promotion(
+    _state: State<'_, AppState>,
+) -> Result<bool, CmdError> {
     Ok(core::get_auto_review_promotion())
 }
 

@@ -11,6 +11,7 @@ pub mod canvas;
 mod cron;
 mod definitions;
 pub(crate) mod diff_util;
+pub mod dispatch;
 mod edit;
 mod exec;
 mod execution;
@@ -55,7 +56,7 @@ pub use definitions::{
     get_core_tools, get_core_tools_for_provider, get_deferred_tools,
     get_image_generate_tool_dynamic, get_notification_tool, get_plan_step_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
-    is_async_capable, is_concurrent_safe, is_core_tool, is_internal_tool, ToolDefinition,
+    is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
 

@@ -202,12 +202,6 @@ pub async fn chat(
         ));
     }
 
-    // Resolve feature flags from store
-    let web_search_enabled = ha_core::tools::web_search::has_enabled_provider(&store.web_search);
-    let notification_enabled = store.notification.enabled;
-    let image_gen_config =
-        ha_core::tools::image_generate::resolve_image_gen_config(&store.image_generate);
-    let canvas_enabled = store.canvas.enabled;
     let compact_config = store.compact.clone();
 
     // Resolve temperature: request > agent > global
@@ -246,10 +240,6 @@ pub async fn chat(
         providers: store.providers.clone(),
         codex_token: None,
         resolved_temperature,
-        web_search_enabled,
-        notification_enabled,
-        image_gen_config,
-        canvas_enabled,
         compact_config,
         extra_system_context: None,
         reasoning_effort: Some(effort),
@@ -488,19 +478,13 @@ pub async fn get_system_prompt_post(
     Ok(Json(json!({ "system_prompt": prompt })))
 }
 
-/// `GET /api/chat/tools` — list available built-in tools.
+/// `GET /api/chat/tools` — list available built-in tools (mirrors the Tauri
+/// `list_builtin_tools` command). Each entry carries tier metadata so the
+/// frontend can group + style by tier.
 pub async fn list_tools() -> Result<Json<Vec<Value>>, AppError> {
-    let mut all = tools::get_available_tools();
-    all.push(tools::get_notification_tool());
-    let tools_json: Vec<Value> = all
-        .into_iter()
-        .map(|t| {
-            json!({
-                "name": t.name,
-                "description": t.description,
-                "internal": t.internal,
-            })
-        })
+    let tools_json: Vec<Value> = tools::dispatch::all_dispatchable_tools()
+        .iter()
+        .map(|t| t.to_api_metadata())
         .collect();
     Ok(Json(tools_json))
 }

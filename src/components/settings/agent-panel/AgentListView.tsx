@@ -56,7 +56,6 @@ function AgentCreateView({
         },
         openclawMode: false,
         subagents: {
-          enabled: true,
           allowedAgents: [],
           deniedAgents: [],
           maxConcurrent: 5,

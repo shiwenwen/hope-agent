@@ -58,6 +58,7 @@ export interface McpServerConfig {
   autoApprove: boolean;
   trustLevel: McpTrustLevel;
   eager: boolean;
+  deferredTools?: boolean;
   projectPaths?: string[];
   description?: string | null;
   icon?: string | null;
@@ -91,7 +92,6 @@ export interface McpGlobalSettings {
   backoffMaxSecs: number;
   consecutiveFailureCircuitBreaker: number;
   autoReconnectAfterCircuitSecs: number;
-  alwaysLoadServers?: string[];
   deniedServers?: string[];
 }
 

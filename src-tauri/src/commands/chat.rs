@@ -257,15 +257,7 @@ pub async fn chat(
     // One lock-free config snapshot for the whole request.
     let cfg = ha_core::config::cached_config();
 
-    // Determine if notification tool should be available for this agent
-    let notification_enabled = cfg.notification.enabled && agent_notify_on_complete != Some(false);
-
-    let image_gen_config =
-        crate::tools::image_generate::resolve_image_gen_config(&cfg.image_generate);
-
-    let canvas_enabled = cfg.canvas.enabled;
-
-    let web_search_enabled = crate::tools::web_search::has_enabled_provider(&cfg.web_search);
+    let _ = agent_notify_on_complete;
 
     // Resolve temperature: session > agent > global
     let resolved_temperature: Option<f64> = {
@@ -580,10 +572,6 @@ pub async fn chat(
         providers: providers_snapshot,
         codex_token: codex_token_snapshot,
         resolved_temperature,
-        web_search_enabled,
-        notification_enabled,
-        image_gen_config,
-        canvas_enabled,
         compact_config,
         extra_system_context: plan_extra_context,
         reasoning_effort: Some(effort.clone()),
@@ -795,11 +783,8 @@ pub async fn get_system_prompt(
 
 #[tauri::command]
 pub async fn list_builtin_tools() -> Result<Vec<serde_json::Value>, CmdError> {
-    let mut all = tools::get_available_tools();
-    // Include conditionally-injected tools so they appear in settings
-    all.push(tools::get_notification_tool());
-    Ok(all
+    Ok(tools::dispatch::all_dispatchable_tools()
         .into_iter()
-        .map(|t| serde_json::json!({ "name": t.name, "description": t.description, "internal": t.internal }))
+        .map(|t| t.to_api_metadata())
         .collect())
 }

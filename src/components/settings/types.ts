@@ -239,12 +239,22 @@ export interface AgentConfig {
     skillEnvCheck: boolean
     tools: { allow: string[]; deny: string[] }
     skills: { allow: string[]; deny: string[] }
+    /** MCP master switch (default true). When false all MCP tools are excluded. */
+    mcpEnabled?: boolean
+    /** Tier 3 capability toggles. `null/undefined` means "use tier default". */
+    capabilityToggles?: {
+      webSearch?: boolean | null
+      imageGenerate?: boolean | null
+      canvas?: boolean | null
+      sendNotification?: boolean | null
+      subagent?: boolean | null
+      acpSpawn?: boolean | null
+    }
   }
   openclawMode: boolean
   notifyOnComplete?: boolean | null
   memory?: AgentMemoryConfig
   subagents: {
-    enabled: boolean
     allowedAgents: string[]
     deniedAgents: string[]
     maxConcurrent: number

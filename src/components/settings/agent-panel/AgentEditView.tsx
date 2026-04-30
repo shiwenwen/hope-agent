@@ -52,7 +52,16 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
   const [builtinTools, setBuiltinTools] = useState<
-    { name: string; description: string; internal?: boolean }[]
+    {
+      name: string
+      description: string
+      internal?: boolean
+      tier?: "core" | "standard" | "configured" | "memory" | "mcp"
+      core_subclass?: string | null
+      default_for_main?: boolean | null
+      default_for_others?: boolean | null
+      config_hint?: string | null
+    }[]
   >([])
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
@@ -120,7 +129,6 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
         // Ensure subagents config exists
         if (!cfg.subagents) {
           cfg.subagents = {
-            enabled: true,
             allowedAgents: [],
             deniedAgents: [],
             maxConcurrent: 5,
@@ -445,6 +453,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           {activeTab === "capabilities" && (
             <CapabilitiesTab
               config={config}
+              agentId={agentId}
               builtinTools={builtinTools}
               availableSkills={availableSkills}
               toolsGuide={toolsGuide}

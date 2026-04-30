@@ -8,7 +8,7 @@
 use serde_json::{json, Value};
 
 use super::config::AwarenessConfig;
-use crate::tools::ToolDefinition;
+use crate::tools::{CoreSubclass, ToolDefinition, ToolTier};
 
 /// Construct the `peek_sessions` tool definition. Registered as `deferred=true`
 /// so it only shows up via `tool_search` unless explicitly loaded.
@@ -20,9 +20,11 @@ Returns a compact markdown list of peer sessions (title, agent, kind, relative t
 goal/summary). Use this when the user references \"the other thing\", \"last time\", \
 or you suspect context from other sessions matters. Always read-only."
             .into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::SessionAware,
+        },
         internal: true,
-        deferred: true,
-        always_load: false,
+        concurrent_safe: true,
         async_capable: false,
         parameters: json!({
             "type": "object",

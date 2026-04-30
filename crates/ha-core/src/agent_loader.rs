@@ -8,6 +8,20 @@ use crate::paths;
 
 pub const DEFAULT_AGENT_ID: &str = "default";
 
+/// Whether `agent_id` is the hardcoded "main" agent (`"default"`).
+///
+/// Used by tool-tier default resolution: Tier 2 / Tier 3 tools have
+/// separate `default_for_main` / `default_for_others` flags so that the
+/// main agent (which the user uses for most workflows) gets a richer
+/// default toolkit than freshly created secondary agents.
+///
+/// Note: this is independent of `AppConfig.default_agent_id`, which only
+/// controls "which agent picks up new chats". Even if the user changes
+/// `default_agent_id`, the literal `"default"` agent remains the main one.
+pub fn is_main_agent(agent_id: &str) -> bool {
+    agent_id == DEFAULT_AGENT_ID
+}
+
 /// The Markdown files an agent directory may contain.
 const AGENT_MD: &str = "agent.md";
 const PERSONA_MD: &str = "persona.md";
