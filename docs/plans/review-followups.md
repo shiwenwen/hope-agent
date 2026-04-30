@@ -30,62 +30,6 @@
 
 ## Open
 
-### F-031 `ResolveContext::cache_key` JSON 序列化不规范化对象键序
-
-- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
-- **现象**：[`crates/ha-core/src/permission/judge.rs::cache_key`](../../crates/ha-core/src/permission/judge.rs) 用 `args.to_string()` 哈希 JSON。`serde_json::Value::to_string` 不会规范化对象键序——同语义的 args（`{"path":"x","cwd":"y"}` vs `{"cwd":"y","path":"x"}`）会产生不同 cache key
-- **为什么留**：实际上模型给同一 tool 的 args 输出键序稳定（schema 决定），命中频率低；规范化要么递归排序后再序列化（多 1 次 alloc）要么写自定义 hasher（侵入性大）；当前判官缓存只是优化、不准确不会引发安全问题
-- **改的话要做什么**：
-  1. 增加 `permission::judge::canonical_args_hash(args: &Value) -> u64` 用 BTreeMap 排序对象键后序列化再哈希；
-  2. 或给 `Value` 写自定义递归 Hash（`Object` 排序键 + 每对 hash），避免 to_string alloc
-- **影响面**：纯效率。键序变体场景下 cache miss 一次（多 1 次 LLM 调用 ~5s），不影响正确性
-- **触发时机建议**：下一次有人报告 Smart 模式判官 LLM 成本高、profiler 显示重复 cache miss 时
-
----
-
-### F-030 `ResolveContext { ... }` 14 字段构造在 execution.rs / exec.rs 重复
-
-- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
-- **现象**：[`tools/execution.rs:323`](../../crates/ha-core/src/tools/execution.rs) 与 [`tools/exec.rs:312`](../../crates/ha-core/src/tools/exec.rs) 各自构造一份 14 字段的 `permission::engine::ResolveContext`，仅 `tool_name`、`is_internal_tool` 不同。Phase 4 又给两处都加了 `smart_config` 字段，复制粘贴面积扩大
-- **为什么留**：抽 `ResolveContext::from_tool_ctx(name, args, ctx, is_internal)` 构造函数会让 `permission::engine` 反向依赖 `tools::ToolExecContext`（layering 反向），或者要在 `tools` 模块加一个跨模块 helper；整体抽出比当前重复更复杂
-- **改的话要做什么**：
-  1. 在 [`tools/execution.rs`](../../crates/ha-core/src/tools/execution.rs) 加 `fn make_resolve_ctx(name, args, ctx, is_internal_tool, smart_config) -> ResolveContext` 私有 helper；
-  2. 两处 caller 调 helper；新增字段时只改一处
-- **影响面**：纯整洁。当前重复字段保持完全一致（每次 Phase 改两处），未来 Phase 5/6 增字段时易漏一处
-- **触发时机建议**：下次给 ResolveContext 加新字段时；或独立"permission engine 调用点抽 helper"小 PR
-
----
-
-### F-029 `SessionMeta.permission_mode` 仍是 `String`，应换 `SessionMode` enum
-
-- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
-- **现象**：[`crates/ha-core/src/session/types.rs::SessionMeta`](../../crates/ha-core/src/session/types.rs) 把 `permission_mode` 存为 `String`，每次消费方（`tool_context_with_usage`、`build_system_prompt_with_session`）都要 `SessionMode::parse_or_default(&m.permission_mode)`。`SessionMode` 已存在且支持 serde
-- **为什么留**：改成 enum 需要 SessionMeta serde 同步前端 `chat.ts::SessionMode` 类型 + DB 列读写 + IM channel `ensure_conversation` 路径全部 audit；本期改动已在 4 个 commit 跨度，再叠 SessionMeta 类型改造让 PR 失焦
-- **改的话要做什么**：
-  1. `SessionMeta.permission_mode: SessionMode`（serde rename_all snake_case），DB 读时 `parse_or_default`
-  2. 删除散落的 `parse_or_default` 调用点（`tool_context_with_usage`、`build_system_prompt_with_session`、Tauri 命令）
-  3. 前端 `SessionMeta.permissionMode` 类型不需要变（已是 union）；唯一注意：DB 列保持 TEXT 不变，单一类型转换在 Rust 边界
-- **影响面**：纯整洁。stringly-typed 让消费方各自 parse；如果有人写错 `SessionMode::parse_or_default(...).as_str()` 就丢失新增的 mode（fallback Default）
-- **触发时机建议**：下次给 `SessionMode` 加新模式（如 `Strict`）时——必然要 audit 全部 parse 点
-
----
-
-### F-028 `permission::judge` cache 与 `agent::active_memory` cache 模式重复
-
-- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（reuse agent）
-- **现象**：两处实现了几乎一致的 TTL+capped HashMap cache：
-  - [`crates/ha-core/src/permission/judge.rs::{cache,lookup_cache,insert_cache}`](../../crates/ha-core/src/permission/judge.rs)：`Mutex<HashMap<u64, (T, Instant)>>` + 256 cap + 60s TTL + 溢出清空
-  - [`crates/ha-core/src/agent/active_memory.rs::{get_cached,put_cached}`](../../crates/ha-core/src/agent/active_memory.rs)：同形 + 32 cap + 自定义 TTL + 溢出 LRU
-- **为什么留**：抽 `util::TtlCache<K, V>` 通用 helper 影响 active_memory 既有逻辑（per-session vs OnceLock global、溢出策略不同），需要单独审查；当前两处各自小，重复成本低
-- **改的话要做什么**：
-  1. 在 [`crates/ha-core/src/util.rs`](../../crates/ha-core/src/util.rs) 或新建 `util/ttl_cache.rs` 加 `pub struct TtlCache<K, V> { map: Mutex<HashMap<K, (V, Instant)>>, cap: usize, ttl: Duration }` + `get/put/evict_expired`
-  2. judge.rs 改为 `static CACHE: OnceLock<TtlCache<u64, JudgeResponse>>`
-  3. active_memory.rs 把 `cache: Mutex<HashMap<...>>` 改成 `TtlCache`，各自 cap/ttl 注入
-- **影响面**：纯整洁。当前两处都正确；未来第三个 cache 用例出现时再统一更划算
-- **触发时机建议**：下次有第 3 处需要 TTL+capped cache 时（如 awareness digest、memory_extract 之类）；或独立"cache 抽象统一"小 PR
-
----
-
 ### F-022 SkillsPanel 三个 Switch handler 失败处理风格不一致
 
 - **来源**：2026-04-29 Skill 自动审核 UI 信号 PR `/simplify` review（reuse agent）
@@ -457,3 +401,35 @@
 - **来源**：2026-04-26 本地小模型助手 `/simplify` review
 - **关闭**：2026-04-26 / branch `worktree-tauri-cmd-error-unify`
 - **修复方式**：新增 [`src-tauri/src/commands/error.rs`](../../src-tauri/src/commands/error.rs) 定义 `CmdError(pub String)`，挂 `impl<E: Into<anyhow::Error>> From<E>` + `impl Serialize`（输出纯字符串，IPC wire 与原 `Result<T, String>` 等价）；把 `src-tauri/src/commands/` 下 31 个文件的命令签名统一改成 `Result<T, CmdError>`，291 处 `.map_err(|e| e.to_string())?` 删成 `?`，剩余 `.map_err(|e| format!(...))` 改为 `CmdError::msg(format!(...))`，`Err("..".to_string())` / `.ok_or_else(|| "..".to_string())` 等串字面量误差类全部走 `CmdError::msg(..)`。`tauri_wrappers.rs` 不属于"命令尾巴 boilerplate"范畴，保持 `Result<T, String>` 不动。前端零变化。
+
+---
+
+### F-030 `ResolveContext { ... }` 14 字段构造在 execution.rs / exec.rs 重复
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit `59a36ab5`
+- **修复方式**：新增 [`tools::execution::resolve_tool_permission`](../../crates/ha-core/src/tools/execution.rs) `pub(super)` async helper，统一构造 `permission::engine::ResolveContext` + 跑 `resolve_async` + 保留 "Smart 才 cached_config" hot-path 优化。两处 caller（`tools/execution.rs` 主 dispatch、`tools/exec.rs` exec 命令前置审批）从 11 行字段构造塌缩到 1 行 helper 调用。新增字段时只需改 helper 一处。
+
+---
+
+### F-031 `permission::judge::cache_key` JSON 序列化不规范化对象键序
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit `2eefc428`
+- **修复方式**：[`permission::judge`](../../crates/ha-core/src/permission/judge.rs) 把 `args.to_string().hash(...)` 替换成新的 `hash_value_canonical(args, hasher)` 递归哈希器：对象内按键排序后逐对哈希，数组按位置哈希，每个 `Value` 变体加 1 字节 tag 防跨变体冲突（null vs ""）。同语义但键序不同的 args 现在产生相同 cache key，避免冗余的 ~5s 判官 LLM 调用。新增 3 条单测：键序不变性 / 嵌套对象递归 / null/string/array/object 互不冲突。
+
+---
+
+### F-028 `permission::judge` cache 与 `agent::active_memory` cache 模式重复
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（reuse agent）
+- **关闭**：2026-04-30 / commit `67c7e1f2`
+- **修复方式**：新增 [`crate::ttl_cache::TtlCache<K, V>`](../../crates/ha-core/src/ttl_cache.rs)：TTL 在 `get` 时传入（让 `cache_ttl_secs` 配置即时生效）、溢出时 LRU-by-age 单条 evict（O(n) 但 n ≤ cap）、`get` 命中过期项 lazy 移除、无后台 sweep。`permission::judge` 退化为 `OnceLock<TtlCache<u64, JudgeResponse>>` 删除自带 60 行 cache helper；`agent::active_memory` 把 `Mutex<HashMap<...>>` 字段换成 `TtlCache` 删除手写 evict-oldest 12 行。新增 5 条 ttl_cache 单测；代码净减 ~125 行重复，新增 helper 170 行（含完整 doc + 单测）。
+
+---
+
+### F-029 `SessionMeta.permission_mode` 仍是 `String`，应换 `SessionMode` enum
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit `0dcddf5a`
+- **修复方式**：[`session::types::SessionMeta`](../../crates/ha-core/src/session/types.rs) 的 `permission_mode: String` 改成 `permission_mode: SessionMode`（已带 Default impl + snake_case serde rename）。前端 `SessionMode` union / DB TEXT 列 / JSON 编码完全不变，仅 Rust 内部强类型化。`SessionMode::parse_or_default` 仅在 DB row→struct 边界用一次（[`session/db.rs::row_to_session_meta`](../../crates/ha-core/src/session/db.rs)），消费方（`agent/config.rs` system_prompt 构造、`agent/mod.rs` ToolExecContext 构造）改成 `.map(|m| m.permission_mode)` 直接拷贝 enum (Copy)；`update_session_permission_mode` 参数改成 `SessionMode`，4 处 caller 删掉 `.as_str()` 包装。awareness 测试 fixture `"default".into()` 同步改成 `SessionMode::Default`。ha-core 771 / ha-server 18 单测全绿。
