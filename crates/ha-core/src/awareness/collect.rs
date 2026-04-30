@@ -241,7 +241,7 @@ mod tests {
             is_cron: false,
             parent_session_id: None,
             plan_mode: "off".into(),
-            permission_mode: "default".into(),
+            permission_mode: crate::permission::SessionMode::Default,
             channel_info: None,
             project_id: None,
             incognito: false,

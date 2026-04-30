@@ -1215,7 +1215,7 @@ impl AssistantAgent {
             });
         let session_mode = meta
             .as_ref()
-            .map(|m| crate::permission::SessionMode::parse_or_default(&m.permission_mode))
+            .map(|m| m.permission_mode)
             .unwrap_or_default();
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
         tools::ToolExecContext {

@@ -344,7 +344,7 @@ pub fn build_system_prompt_with_session(
             .or_else(|| project.as_ref().and_then(|p| p.working_dir.as_deref()));
         let permission_mode = session_meta
             .as_ref()
-            .map(|m| crate::permission::SessionMode::parse_or_default(&m.permission_mode))
+            .map(|m| m.permission_mode)
             .unwrap_or_default();
         return crate::system_prompt::build(
             &definition,

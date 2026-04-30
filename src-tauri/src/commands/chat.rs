@@ -94,7 +94,7 @@ pub async fn chat(
     // an invalid path doesn't silently get dropped.
     // Persist per-session permission mode if the caller supplied one.
     if let Some(mode) = permission_mode_pending {
-        db.update_session_permission_mode(&sid, mode.as_str())?;
+        db.update_session_permission_mode(&sid, mode)?;
     }
 
     if new_session_created.is_some() {
@@ -679,7 +679,7 @@ pub async fn set_permission_mode(
     }
     state
         .session_db
-        .update_session_permission_mode(&session_id, mode.as_str())?;
+        .update_session_permission_mode(&session_id, mode)?;
     Ok(())
 }
 

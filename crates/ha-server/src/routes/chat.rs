@@ -147,7 +147,7 @@ pub async fn chat(
 
     // Persist per-session permission mode if the body included one.
     if let Some(mode) = permission_mode_pending {
-        db.update_session_permission_mode(&sid, mode.as_str())
+        db.update_session_permission_mode(&sid, mode)
             .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
 
@@ -368,7 +368,7 @@ pub async fn set_permission_mode(
         return Err(AppError::bad_request("sessionId required"));
     }
     ctx.session_db
-        .update_session_permission_mode(&body.session_id, body.mode.as_str())?;
+        .update_session_permission_mode(&body.session_id, body.mode)?;
     Ok(Json(json!({ "ok": true })))
 }
 

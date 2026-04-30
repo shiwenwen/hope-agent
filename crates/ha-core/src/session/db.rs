@@ -781,7 +781,7 @@ impl SessionDB {
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
             plan_mode: "off".to_string(),
-            permission_mode: "default".to_string(),
+            permission_mode: crate::permission::SessionMode::Default,
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
             incognito,
@@ -1203,7 +1203,8 @@ impl SessionDB {
             project_id: row.get(13)?,
             permission_mode: row
                 .get::<_, String>(14)
-                .unwrap_or_else(|_| "default".to_string()),
+                .map(|s| crate::permission::SessionMode::parse_or_default(&s))
+                .unwrap_or_default(),
             incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
             channel_info,
             working_dir: row.get(21).ok().flatten(),
@@ -1487,7 +1488,7 @@ impl SessionDB {
     pub fn update_session_permission_mode(
         &self,
         session_id: &str,
-        permission_mode: &str,
+        mode: crate::permission::SessionMode,
     ) -> Result<()> {
         let conn = self
             .conn
@@ -1495,7 +1496,7 @@ impl SessionDB {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
             "UPDATE sessions SET permission_mode = ?1 WHERE id = ?2",
-            params![permission_mode, session_id],
+            params![mode.as_str(), session_id],
         )?;
         Ok(())
     }
