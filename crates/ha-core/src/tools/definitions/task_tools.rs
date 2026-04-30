@@ -1,7 +1,7 @@
 use serde_json::json;
 
 use super::super::{TOOL_TASK_CREATE, TOOL_TASK_LIST, TOOL_TASK_UPDATE};
-use super::types::ToolDefinition;
+use super::types::{CoreSubclass, ToolDefinition, ToolTier};
 
 pub fn get_task_create_tool() -> ToolDefinition {
     ToolDefinition {
@@ -26,9 +26,11 @@ Each task has:\n\
 - activeForm (optional): present-continuous form (\"Running tests\", \"Refactoring parseConfig\") \
 shown in the UI when this task's status is in_progress"
             .into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::Interaction,
+        },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -67,9 +69,9 @@ pub fn get_task_update_tool() -> ToolDefinition {
 Lifecycle: pending → in_progress → completed. Only ONE task should be in_progress at a time. \
 Mark completed only when fully done, and call immediately after finishing (do not batch completions)."
             .into(),
+        tier: ToolTier::Core { subclass: CoreSubclass::Interaction },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: false,
         async_capable: false,
         parameters: json!({
             "type": "object",
@@ -99,9 +101,11 @@ pub fn get_task_list_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_TASK_LIST.into(),
         description: "List all tasks in the current session as JSON.".into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::Interaction,
+        },
         internal: true,
-        deferred: false,
-        always_load: false,
+        concurrent_safe: true,
         async_capable: false,
         parameters: json!({
             "type": "object",

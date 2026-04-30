@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
 
-fn default_tool_permission_mode() -> String {
-    "auto".to_string()
-}
+use crate::permission::SessionMode;
+use crate::plan::PlanModeState;
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -29,13 +28,17 @@ pub struct SessionMeta {
     pub is_cron: bool,
     /// If this session was created by a sub-agent spawn, stores the parent session ID.
     pub parent_session_id: Option<String>,
-    /// Plan mode state for this session: "off" | "planning" | "executing"
-    pub plan_mode: String,
-    /// Per-session tool approval mode: "auto" | "ask_every_time" | "full_approve".
-    /// Persisted so the chat input's toggle is restored when switching back to
-    /// a historical session, instead of falling back to the process-global default.
-    #[serde(default = "default_tool_permission_mode")]
-    pub tool_permission_mode: String,
+    /// Plan mode state for this session. Serialized as a snake_case string
+    /// (`off` / `planning` / `review` / `executing` / `paused` / `completed`)
+    /// matching the frontend's loose `string` type.
+    #[serde(default)]
+    pub plan_mode: PlanModeState,
+    /// Per-session permission mode (`default` / `smart` / `yolo`).
+    /// Persisted so the chat title bar's mode switcher is restored when
+    /// switching back to a historical session. Serialized as a snake_case
+    /// string, matching the frontend `SessionMode` union.
+    #[serde(default)]
+    pub permission_mode: SessionMode,
     /// If this session belongs to a project, stores the project ID.
     /// Project-scoped memories and files are shared across all sessions in the project.
     #[serde(default, skip_serializing_if = "Option::is_none")]

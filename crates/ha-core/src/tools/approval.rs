@@ -14,50 +14,11 @@ use crate::process_registry::create_session_id;
 // observed across concurrent tools or across rounds has to sit outside the
 // context struct. Add new shared state here (or in a sibling module) rather
 // than reaching for `Mutex<…>` inside `ToolExecContext`.
-
-// ── Tool Permission Mode (session-level) ─────────────────────────
-
-/// Session-level tool permission mode, controlling how tool calls are approved.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ToolPermissionMode {
-    /// Model decides whether approval is needed (current default behavior)
-    #[default]
-    Auto,
-    /// Every tool call requires user approval
-    AskEveryTime,
-    /// All tool calls are automatically approved (risky)
-    FullApprove,
-}
-
-impl ToolPermissionMode {
-    /// Matches the `#[serde(rename_all = "snake_case")]` encoding used when
-    /// the enum is serialized, so DB rows and JSON payloads agree.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::AskEveryTime => "ask_every_time",
-            Self::FullApprove => "full_approve",
-        }
-    }
-}
-
-/// Global session-level tool permission mode
-static TOOL_PERMISSION_MODE: OnceLock<TokioMutex<ToolPermissionMode>> = OnceLock::new();
-
-fn get_permission_mode_lock() -> &'static TokioMutex<ToolPermissionMode> {
-    TOOL_PERMISSION_MODE.get_or_init(|| TokioMutex::new(ToolPermissionMode::Auto))
-}
-
-/// Set the current session's tool permission mode
-pub async fn set_tool_permission_mode(mode: ToolPermissionMode) {
-    *get_permission_mode_lock().lock().await = mode;
-}
-
-/// Get the current session's tool permission mode
-pub async fn get_tool_permission_mode() -> ToolPermissionMode {
-    *get_permission_mode_lock().lock().await
-}
+//
+// Per-session permission mode (Default / Smart / Yolo) lives in the SQLite
+// `sessions.permission_mode` column and is read into [`ToolExecContext.session_mode`]
+// by the agent setup path. The legacy process-global `TOOL_PERMISSION_MODE`
+// static was removed in the permission system v2 redesign.
 
 // ── Command Approval System ───────────────────────────────────────
 
@@ -70,6 +31,76 @@ pub struct ApprovalRequest {
     /// Session ID for correlating with IM channel conversations.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Optional reason emitted by the permission engine. The frontend
+    /// renders a colored banner and disables AllowAlways for strict reasons
+    /// (`protected_path` / `dangerous_command`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<ApprovalReasonPayload>,
+}
+
+/// Reason payload — flat shape so the frontend can switch on `kind` without
+/// running a full enum matcher. Mirrors [`crate::permission::AskReason`] but
+/// strips internal struct fields the UI doesn't need.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ApprovalReasonPayload {
+    pub kind: ApprovalReasonKind,
+    /// Human-readable detail (matched pattern, path, rationale…). Optional —
+    /// `edit_tool` carries no extra detail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+/// KEEP IN SYNC with the TS string union in
+/// [`src/components/chat/ApprovalDialog.tsx`] (`ApprovalRequest.reason.kind`).
+/// Adding a variant here without updating that union leaves the frontend
+/// without a banner — TS won't catch the drift.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalReasonKind {
+    EditTool,
+    EditCommand,
+    DangerousCommand,
+    ProtectedPath,
+    AgentCustomList,
+    SmartJudge,
+    PlanModeAsk,
+}
+
+impl From<&crate::permission::AskReason> for ApprovalReasonPayload {
+    fn from(value: &crate::permission::AskReason) -> Self {
+        use crate::permission::AskReason::*;
+        match value {
+            EditTool => Self {
+                kind: ApprovalReasonKind::EditTool,
+                detail: None,
+            },
+            EditCommand { matched_pattern } => Self {
+                kind: ApprovalReasonKind::EditCommand,
+                detail: Some(matched_pattern.clone()),
+            },
+            DangerousCommand { matched_pattern } => Self {
+                kind: ApprovalReasonKind::DangerousCommand,
+                detail: Some(matched_pattern.clone()),
+            },
+            ProtectedPath { matched_path } => Self {
+                kind: ApprovalReasonKind::ProtectedPath,
+                detail: Some(matched_path.clone()),
+            },
+            AgentCustomList => Self {
+                kind: ApprovalReasonKind::AgentCustomList,
+                detail: None,
+            },
+            SmartJudge { rationale } => Self {
+                kind: ApprovalReasonKind::SmartJudge,
+                detail: Some(rationale.clone()),
+            },
+            PlanModeAsk => Self {
+                kind: ApprovalReasonKind::PlanModeAsk,
+                detail: None,
+            },
+        }
+    }
 }
 
 /// Approval response from frontend
@@ -201,11 +232,15 @@ fn extract_command_prefix(command: &str) -> String {
 }
 
 fn approval_timeout_secs() -> u64 {
-    crate::config::cached_config().approval_timeout_secs
+    crate::config::cached_config()
+        .permission
+        .approval_timeout_secs
 }
 
 pub(crate) fn approval_timeout_action() -> crate::config::ApprovalTimeoutAction {
-    crate::config::cached_config().approval_timeout_action
+    crate::config::cached_config()
+        .permission
+        .approval_timeout_action
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,6 +272,7 @@ pub(crate) async fn check_and_request_approval(
     command: &str,
     cwd: &str,
     session_id: Option<&str>,
+    reason: Option<ApprovalReasonPayload>,
 ) -> std::result::Result<ApprovalResponse, ApprovalCheckError> {
     let request_id = create_session_id();
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -260,6 +296,7 @@ pub(crate) async fn check_and_request_approval(
         command: command.to_string(),
         cwd: cwd.to_string(),
         session_id: session_id.map(|s| s.to_string()),
+        reason,
     };
 
     if let Some(bus) = crate::globals::get_event_bus() {
@@ -349,31 +386,5 @@ pub(crate) async fn check_and_request_approval(
             Err(ApprovalCheckError::TimedOut { timeout_secs })
         }
         Err(_) => unreachable!(),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn tool_permission_mode_as_str_matches_serde() {
-        for mode in [
-            ToolPermissionMode::Auto,
-            ToolPermissionMode::AskEveryTime,
-            ToolPermissionMode::FullApprove,
-        ] {
-            let via_serde = serde_json::to_value(mode)
-                .unwrap()
-                .as_str()
-                .unwrap()
-                .to_string();
-            assert_eq!(
-                mode.as_str(),
-                via_serde,
-                "as_str() drifted from #[serde(rename_all = \"snake_case\")] for {:?}",
-                mode
-            );
-        }
     }
 }

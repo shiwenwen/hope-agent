@@ -1,4 +1,4 @@
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::attachments::MediaItem;
 
@@ -85,72 +85,33 @@ pub(super) fn emit_tool_result(
     emit_event(on_delta, &event);
 }
 
-/// Parsed image marker: (mime, base64_data, text_description).
-struct ImageMarker<'a> {
-    mime: &'a str,
-    b64: &'a str,
-    text: &'a str,
-}
-
-/// Parse all `__IMAGE_BASE64__<mime>__<base64data>__\n<text>` markers from a tool result.
-/// Returns (leading_text, Vec<ImageMarker>). Supports single and multi-image results.
-fn parse_all_image_markers(result: &str) -> (String, Vec<ImageMarker<'_>>) {
-    use crate::tools::browser::IMAGE_BASE64_PREFIX;
-    let mut markers = Vec::new();
-
-    // Split by the prefix; first segment is leading text (may be empty)
-    let parts: Vec<&str> = result.split(IMAGE_BASE64_PREFIX).collect();
-    if parts.len() <= 1 {
-        // No markers found
-        return (result.to_string(), markers);
-    }
-
-    let leading_text = parts[0].trim().to_string();
-
-    for part in &parts[1..] {
-        // Each part looks like: "<mime>__<base64>__\n<text_description>\n\n..."
-        let Some((mime, rest)) = part.split_once("__") else {
-            continue;
-        };
-        let Some((b64, text)) = rest.split_once("__") else {
-            continue;
-        };
-        let text = text.strip_prefix('\n').unwrap_or(text).trim();
-        markers.push(ImageMarker {
-            mime: mime.trim(),
-            b64: b64.trim(),
-            text,
-        });
-    }
-
-    (leading_text, markers)
-}
-
 /// Build tool result content for Anthropic Messages API.
 /// Detects `__IMAGE_BASE64__` markers and returns a content array with image + text blocks.
 pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::Value {
-    let (leading, markers) = parse_all_image_markers(result);
-    if markers.is_empty() {
+    let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
         return json!(result);
-    }
+    };
 
     let mut content = Vec::new();
-    if !leading.is_empty() {
-        content.push(json!({"type": "text", "text": leading}));
+    if !parsed.leading_text.is_empty() {
+        content.push(json!({"type": "text", "text": parsed.leading_text}));
     }
-    for m in &markers {
+    for m in &parsed.markers {
+        let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
+            return json!(result);
+        };
         content.push(json!({
             "type": "image",
             "source": {
                 "type": "base64",
                 "media_type": m.mime,
-                "data": m.b64
+                "data": b64
             }
         }));
         let text = if m.text.is_empty() {
             "Image captured."
         } else {
-            m.text
+            &m.text
         };
         content.push(json!({"type": "text", "text": text}));
     }
@@ -160,17 +121,19 @@ pub(super) fn build_anthropic_tool_result_content(result: &str) -> serde_json::V
 /// Build tool result content for OpenAI Chat Completions API.
 /// Returns a content array with `image_url` (data URI) + `text` blocks when images are detected.
 pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json::Value {
-    let (leading, markers) = parse_all_image_markers(result);
-    if markers.is_empty() {
+    let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
         return json!(result);
-    }
+    };
 
     let mut content = Vec::new();
-    if !leading.is_empty() {
-        content.push(json!({"type": "text", "text": leading}));
+    if !parsed.leading_text.is_empty() {
+        content.push(json!({"type": "text", "text": parsed.leading_text}));
     }
-    for m in &markers {
-        let data_uri = format!("data:{};base64,{}", m.mime, m.b64);
+    for m in &parsed.markers {
+        let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
+            return json!(result);
+        };
+        let data_uri = format!("data:{};base64,{}", m.mime, b64);
         content.push(json!({
             "type": "image_url",
             "image_url": { "url": data_uri }
@@ -178,7 +141,7 @@ pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json:
         let text = if m.text.is_empty() {
             "Image captured."
         } else {
-            m.text
+            &m.text
         };
         content.push(json!({"type": "text", "text": text}));
     }
@@ -190,21 +153,20 @@ pub(super) fn build_openai_chat_tool_result_content(result: &str) -> serde_json:
 /// returns `(clean_text, Vec<image_input_items>)` where each image item
 /// should be appended to the input array as a separate user message.
 pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_json::Value>) {
-    let (leading, markers) = parse_all_image_markers(result);
-    if markers.is_empty() {
+    let Some(parsed) = crate::tools::image_markers::parse_image_markers(result) else {
         return (result.to_string(), Vec::new());
-    }
+    };
 
     // Build combined text output for the function_call_output field
     let mut text_parts = Vec::new();
-    if !leading.is_empty() {
-        text_parts.push(leading);
+    if !parsed.leading_text.is_empty() {
+        text_parts.push(parsed.leading_text.to_string());
     }
-    for m in &markers {
+    for m in &parsed.markers {
         let text = if m.text.is_empty() {
             "Image captured."
         } else {
-            m.text
+            &m.text
         };
         text_parts.push(text.to_string());
     }
@@ -212,15 +174,23 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_js
 
     // Build one user message per image for the input array
     let mut image_items = Vec::new();
-    for (i, m) in markers.iter().enumerate() {
-        let data_uri = format!("data:{};base64,{}", m.mime, m.b64);
+    for (i, m) in parsed.markers.iter().enumerate() {
+        let Ok(b64) = crate::tools::image_markers::encode_marker_image(m) else {
+            return (result.to_string(), Vec::new());
+        };
+        let data_uri = format!("data:{};base64,{}", m.mime, b64);
         let label = if m.text.is_empty() {
             "Image captured."
         } else {
-            m.text
+            &m.text
         };
-        let tag = if markers.len() > 1 {
-            format!("[Tool visual output {}/{}] {}", i + 1, markers.len(), label)
+        let tag = if parsed.markers.len() > 1 {
+            format!(
+                "[Tool visual output {}/{}] {}",
+                i + 1,
+                parsed.markers.len(),
+                label
+            )
         } else {
             format!("[Tool visual output] {}", label)
         };
@@ -240,6 +210,62 @@ pub(super) fn build_responses_tool_result(result: &str) -> (String, Vec<serde_js
     }
 
     (combined_text, image_items)
+}
+
+pub(super) fn expand_anthropic_image_markers_for_api(history: &[Value]) -> Vec<Value> {
+    history
+        .iter()
+        .map(|item| {
+            let mut msg = item.clone();
+            if msg.get("role").and_then(|r| r.as_str()) == Some("user") {
+                if let Some(Value::Array(blocks)) = msg.get_mut("content") {
+                    for block in blocks.iter_mut() {
+                        if block.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
+                            if let Some(result) = block.get("content").and_then(|c| c.as_str()) {
+                                block["content"] = build_anthropic_tool_result_content(result);
+                            }
+                        }
+                    }
+                }
+            }
+            msg
+        })
+        .collect()
+}
+
+pub(super) fn expand_openai_chat_image_markers_for_api(history: &[Value]) -> Vec<Value> {
+    history
+        .iter()
+        .map(|item| {
+            let mut msg = item.clone();
+            if msg.get("role").and_then(|r| r.as_str()) == Some("tool") {
+                if let Some(result) = msg.get("content").and_then(|c| c.as_str()) {
+                    msg["content"] = build_openai_chat_tool_result_content(result);
+                }
+            }
+            msg
+        })
+        .collect()
+}
+
+pub(super) fn expand_responses_image_markers_for_api(history: &[Value]) -> Vec<Value> {
+    let mut expanded = Vec::with_capacity(history.len());
+    for item in history {
+        if item.get("type").and_then(|t| t.as_str()) == Some("function_call_output") {
+            if let Some(result) = item.get("output").and_then(|o| o.as_str()) {
+                let (text_output, image_items) = build_responses_tool_result(result);
+                if !image_items.is_empty() {
+                    let mut output_item = item.clone();
+                    output_item["output"] = json!(text_output);
+                    expanded.push(output_item);
+                    expanded.extend(image_items);
+                    continue;
+                }
+            }
+        }
+        expanded.push(item.clone());
+    }
+    expanded
 }
 
 pub(super) fn emit_thinking_delta(on_delta: &(impl Fn(&str) + Send), text: &str) {
@@ -319,8 +345,9 @@ pub(super) fn emit_usage(
 
 #[cfg(test)]
 mod tests {
-    use super::build_responses_tool_result;
+    use super::{build_responses_tool_result, expand_responses_image_markers_for_api};
     use crate::tools::browser::IMAGE_BASE64_PREFIX;
+    use serde_json::json;
 
     #[test]
     fn responses_tool_result_strips_marker_trailer_from_base64() {
@@ -366,5 +393,51 @@ mod tests {
 
         assert_eq!(text_output, result);
         assert!(image_items.is_empty());
+    }
+
+    #[test]
+    fn responses_tool_result_rejects_truncated_marker_preview() {
+        let result = format!(
+            "{}image/png__aGVs\n\n[...527806 bytes omitted...]\n\nbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+
+        let (text_output, image_items) = build_responses_tool_result(&result);
+
+        assert_eq!(text_output, result);
+        assert!(image_items.is_empty());
+    }
+
+    #[test]
+    fn responses_tool_result_rejects_non_image_mime() {
+        let result = format!(
+            "{}text/plain__aGVsbG8=__\nNot an image.",
+            IMAGE_BASE64_PREFIX
+        );
+
+        let (text_output, image_items) = build_responses_tool_result(&result);
+
+        assert_eq!(text_output, result);
+        assert!(image_items.is_empty());
+    }
+
+    #[test]
+    fn responses_request_expansion_is_transient() {
+        let result = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+        let history = vec![json!({
+            "type": "function_call_output",
+            "call_id": "call_1",
+            "output": result,
+        })];
+
+        let expanded = expand_responses_image_markers_for_api(&history);
+
+        assert_eq!(history.len(), 1);
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(expanded[0]["output"], "Screenshot captured.");
+        assert_eq!(expanded[1]["content"][0]["type"], "input_image");
     }
 }

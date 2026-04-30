@@ -253,7 +253,7 @@ impl AssistantAgent {
             messages.clone(),
         );
 
-        let max_rounds_cfg = super::config::get_max_tool_rounds();
+        let max_rounds_cfg = super::config::get_max_tool_rounds(&self.agent_id);
         let max_rounds = if max_rounds_cfg == 0 {
             u32::MAX
         } else {

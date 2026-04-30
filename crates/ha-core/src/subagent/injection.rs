@@ -325,8 +325,6 @@ pub(crate) async fn inject_and_run_parent(
         );
     } else {
         let parent_agent_def = crate::agent_loader::load_agent(&parent_agent_id).ok();
-        let image_gen_config =
-            crate::tools::image_generate::resolve_image_gen_config(&store.image_generate);
 
         match crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: parent_session_id.clone(),
@@ -341,10 +339,6 @@ pub(crate) async fn inject_and_run_parent(
                 .as_ref()
                 .and_then(|def| def.config.model.temperature)
                 .or(store.temperature),
-            web_search_enabled: crate::tools::web_search::has_enabled_provider(&store.web_search),
-            notification_enabled: false,
-            image_gen_config,
-            canvas_enabled: store.canvas.enabled,
             compact_config: store.compact.clone(),
             extra_system_context: None,
             reasoning_effort: crate::agent::live_reasoning_effort(None).await,

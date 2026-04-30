@@ -30,6 +30,34 @@
 
 ## Open
 
+
+### F-022 SkillsPanel 三个 Switch handler 失败处理风格不一致
+
+- **来源**：2026-04-29 Skill 自动审核 UI 信号 PR `/simplify` review（reuse agent）
+- **现象**：[`src/components/settings/skills-panel/index.tsx`](../../src/components/settings/skills-panel/index.tsx) 在同一个面板里有三个 Switch handler，失败处理风格不齐：
+  - `handleSetAutoReviewPromotion`（line ~228）和 `handleSetAutoReviewEnabled`（line ~253）：本期新加，**乐观更新 + 失败 rollback** —— `setAutoReview…(v) → call → catch → setAutoReview…(previous)`，后端写失败 UI 自动滚回旧值
+  - `handleSetSkillEnvCheck`（line ~217）：早期代码，**乐观更新 + 不 rollback** —— `setSkillEnvCheck(v) → await call(...)`，后端如果抛异常 UI 已经切到新值但 config 没存，状态永久不一致直到下次 reload
+- **为什么留**：本期 PR 主题是"auto-review UI 信号 + 自动激活开关"，`handleSetSkillEnvCheck` 是 pre-existing 不相关代码。AGENTS.md 风格"a bug fix doesn't need surrounding cleanup"——本 PR 给新代码加 rollback 是新代码本应做对的事，去补一个 pre-existing handler 算超范围
+- **改的话要做什么**：
+  1. 把 `handleSetSkillEnvCheck` 改成同样的 try/catch + rollback：
+     ```ts
+     async function handleSetSkillEnvCheck(v: boolean) {
+       const previous = skillEnvCheck
+       setSkillEnvCheck(v)
+       try {
+         await getTransport().call("set_skill_env_check", { enabled: v })
+       } catch (e) {
+         logger.error("settings", "SkillsPanel::setSkillEnvCheck", "Failed to update", e)
+         setSkillEnvCheck(previous)
+       }
+     }
+     ```
+  2. 顺手扫一遍 [`src/components/settings/`](../../src/components/settings/) 下其它 panel 的 Switch handler，是否也有同样的"乐观更新无 rollback"模式（特别是 ToolSettingsPanel / ChatSettingsPanel / PlanSettingsPanel 这类直接 await call 的）；如果范围大可以抽 `useOptimisticToggle(value, setter, callback)` 共用 hook
+- **影响面**：纯一致性 + 边缘 bug。后端 `set_skill_env_check` 走 `mutate_config` 几乎不会失败（除非配置文件磁盘异常），实际触发概率低；触发时用户看到 Switch 显示开但实际行为没切换，要刷新或重新点才会自愈
+- **触发时机建议**：下一次动 SkillsPanel（加新 Switch / Setting）时顺手收掉；或独立"settings panel optimistic-toggle 一致化"小 PR 把全 settings 目录扫一遍
+
+---
+
 ### F-021 `acp/agent.rs` 每 RPC 新建 tokio runtime + Codex token 每 retry 重复 load
 
 - **来源**：2026-04-27 chat-engine subagent 收敛 PR `/simplify` review（efficiency agent）
@@ -178,6 +206,68 @@
 
 ---
 
+### F-025 `commands/permission.rs` 与 `routes/permission.rs` 镜像重复
+
+- **来源**：2026-04-30 权限系统 v2 Phase 3 `/simplify` review（reuse + quality 双 agent）
+- **现象**：[`src-tauri/src/commands/permission.rs`](../../src-tauri/src/commands/permission.rs) 和 [`crates/ha-server/src/routes/permission.rs`](../../crates/ha-server/src/routes/permission.rs) 是 byte-for-byte 镜像，仅 wrapper 类型不同（`Result<T, CmdError>` vs `Result<Json<T>, AppError>`）。两份独立维护：
+  - `PatternListPayload` / `SetPatternsBody` / `GlobalYoloStatus` 三个 struct 定义重复
+  - 12 个 endpoint 一一对应，业务逻辑同（都调 `protected_paths::current_patterns()` 等）
+  - `mutate_config(("permission.smart", "settings-ui"|"http"), …)` 仅 source 标签不同
+- **为什么留**：Phase 3 范围是"前端 UI + 后端 file IO + commands/routes"打通，时间紧；这是项目级"Tauri ↔ HTTP 双暴露"的通用模式，单独动一个域意义有限——MCP / config / agents 等其它子系统也都有同样的镜像样板，应当作为"统一模式"独立 PR 推
+- **改的话要做什么**：
+  1. 在 `crates/ha-core/src/permission/` 新建 `api.rs` 模块，把所有 payload 结构体（`PatternListPayload` / `SetPatternsBody` / `GlobalYoloStatus`）+ thin worker functions（`get_protected_paths_inner() -> PatternListPayload` 等）集中
+  2. `commands/permission.rs` 退化成 `#[tauri::command]` 包装：`fn get_protected_paths() -> Result<PatternListPayload, CmdError> { permission::api::get_protected_paths().map_err(Into::into) }`
+  3. `routes/permission.rs` 同样退化成 `Json(...)` 包装
+  4. `mutate_config` 的 source 标签作为参数传入 worker function：`api::set_smart_mode_config(cfg, "settings-ui")` vs `api::set_smart_mode_config(cfg, "http")`
+  5. 顺手考虑把这个模式抽成跨域的 `crate::transport_shim::tauri!()` / `axum_route!()` 宏（或代码生成），扩到 mcp / agents / config 等 4-5 个有同样镜像的子系统
+- **影响面**：纯重构，无功能变化。当前 ~200 行重复代码 / 12 个新增 endpoint 的双倍维护成本；未来加新 endpoint 必须记得改两处
+- **触发时机建议**：等下一个新增"Tauri ↔ HTTP 双暴露"endpoint 的 PR 时累积痛感再做；或立项"transport-shim 通用化"独立重构 PR，一次清掉 mcp / agents / config / permission 4 个域的镜像
+
+---
+
+### F-026 ApprovalTab `APPROVAL_OPTIN_GROUPS` 17 工具 9 分组硬编码于 TS
+
+- **来源**：2026-04-30 权限系统 v2 Phase 3 `/simplify` review（reuse + quality）
+- **现象**：[`src/components/settings/agent-panel/tabs/ApprovalTab.tsx:21-67`](../../src/components/settings/agent-panel/tabs/ApprovalTab.tsx#L21-L67) 把 17 个可勾选审批的工具按 9 个分组（shell / browser / settings / outbound / paid / spawn / network / crossSession / settingsRead）硬编码在 TS 常量里。后端工具注册表（[`tools/definitions/`](../../crates/ha-core/src/tools/definitions/)）虽然已有 `ToolTier` 元数据，但**没有"是否出现在用户审批勾选清单 + 归属哪个分组"的字段**——所以 UI 这份清单只能写在 TS 端。
+  漂移风险：今天 Rust 加新工具 `send_email` 进 Tier 2，UI 不会自动显示在审批清单里，必须有人记得去改 ApprovalTab。TS 编译器无法捕获这个不一致
+- **为什么留**：Phase 3 simplify 不重构 schema。要做需要：
+  1. `ToolDefinition` 加 `approval_opt_in: bool` + `approval_group: Option<&'static str>` 两字段
+  2. 53 个工具定义文件每个填这俩字段（含归类决策）
+  3. `list_builtin_tools` payload 透传字段
+  4. ApprovalTab 改数据驱动（动态分组渲染 + 与现有 i18n key 对齐）
+  跨 53 个文件的注释决策不属于"清理 review"范围
+- **改的话要做什么**：
+  1. 在 `crates/ha-core/src/tools/definitions/types.rs::ToolDefinition` 加 metadata：
+     ```rust
+     /// 是否出现在 Agent「自定义工具审批」勾选清单里。Tier 2/3 中的部分工具开启。
+     pub approval_opt_in: bool,
+     /// 审批清单 UI 的分组标签 (i18n key 后缀)。
+     pub approval_group: Option<&'static str>,
+     ```
+  2. 在每个工具的 `register_*_tool()` 函数里设置这两个字段（按当前 ApprovalTab.tsx 的 17/9 分组对照填）
+  3. `list_builtin_tools` 添加这两个字段到 payload；`commands/chat.rs::list_builtin_tools` + 对应 HTTP 路由同步
+  4. ApprovalTab 改成 `useMemo(() => groupBy(builtinTools.filter(t => t.approval_opt_in), t => t.approval_group))`，删除 `APPROVAL_OPTIN_GROUPS` 常量
+  5. 更新 [`docs/architecture/tool-system.md`](../../docs/architecture/tool-system.md) 描述新元数据字段
+- **影响面**：纯一致性，无可见 bug。当前 17 个工具固定，添加新 Tier 2/3 工具时如果忘改 TS，用户在 Agent 设置里看不到该工具但功能层面仍然工作（不会崩溃，只是无法 opt-in 审批）
+- **触发时机建议**：下次新增可审批工具（Tier 2/3）时如果意识到要同时改两处，就顺手把这套 metadata schema 搭起来；或独立"tool definition metadata 扩展"重构 PR
+
+---
+
+### F-027 9 个语言 `settings.approvalPanel` block 是英文 verbatim fallback
+
+- **来源**：2026-04-30 权限系统 v2 Phase 3 `/simplify` review（reuse agent）
+- **现象**：Phase 3.4 新增的 `settings.approvalPanel.*` 文案块（~50 keys）只有 `zh.json` / `en.json` / `zh-TW.json`（部分）有原生翻译；剩下 9 个语言（`ar` / `es` / `ja` / `ko` / `ms` / `pt` / `ru` / `tr` / `vi`）通过 `node -e` 脚本批量 deep-clone 英文 block 写入 —— 这些 locale 的"权限"设置面板会渲染英文标签 / 描述 / 提示。同样的情况也部分发生在 `settings.agentApproval.*`（Phase 3.3）和 `approval.reasons.*`（Phase 3.5），但 zh / en / zh-TW / ja / ko 都已精修
+- **为什么留**：英文 fallback 不会让 UI 崩溃 / 不会丢功能；Anthropic 内部不是翻译团队 —— 用机器翻译质量参差不如等母语审稿。提交时 `pnpm i18n:check ✓` 因为 key 数量已对齐，仅文案语言不对
+- **改的话要做什么**：
+  1. 收集需要翻译的 key 集合：从 `en.json` 提 `settings.approvalPanel.*`、`settings.agentApproval.*`（zh-TW 已部分精修，但 ja / ko 也只有部分）、`approval.reasons.*` 在非 zh / en / zh-TW 的 locale 里全部
+  2. 翻译团队 / 母语志愿者按 locale 校对（约 ~70 keys × 9 语言 = 630 条）
+  3. 提交时把 zh-TW / ja / ko 的部分英文 fallback 一起替换掉
+  4. 顺带清查仓库里其它"批量 deep-clone 英文"的 i18n debt：grep `settings.*` 中相同字符串在多个非 en locale 里完全一致的 key
+- **影响面**：UX bug for 9 个语言用户。Settings 中相关 panel 看英文不会崩溃，但显著降低非英语 / 非中文用户的体验
+- **触发时机建议**：等收到非英 / 非中文用户反馈，或翻译团队 / 志愿者主动认领；不阻塞功能 PR
+
+---
+
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
@@ -312,3 +402,43 @@
 - **来源**：2026-04-26 本地小模型助手 `/simplify` review
 - **关闭**：2026-04-26 / branch `worktree-tauri-cmd-error-unify`
 - **修复方式**：新增 [`src-tauri/src/commands/error.rs`](../../src-tauri/src/commands/error.rs) 定义 `CmdError(pub String)`，挂 `impl<E: Into<anyhow::Error>> From<E>` + `impl Serialize`（输出纯字符串，IPC wire 与原 `Result<T, String>` 等价）；把 `src-tauri/src/commands/` 下 31 个文件的命令签名统一改成 `Result<T, CmdError>`，291 处 `.map_err(|e| e.to_string())?` 删成 `?`，剩余 `.map_err(|e| format!(...))` 改为 `CmdError::msg(format!(...))`，`Err("..".to_string())` / `.ok_or_else(|| "..".to_string())` 等串字面量误差类全部走 `CmdError::msg(..)`。`tauri_wrappers.rs` 不属于"命令尾巴 boilerplate"范畴，保持 `Result<T, String>` 不动。前端零变化。
+
+---
+
+### F-030 `ResolveContext { ... }` 14 字段构造在 execution.rs / exec.rs 重复
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit `59a36ab5`
+- **修复方式**：新增 [`tools::execution::resolve_tool_permission`](../../crates/ha-core/src/tools/execution.rs) `pub(super)` async helper，统一构造 `permission::engine::ResolveContext` + 跑 `resolve_async` + 保留 "Smart 才 cached_config" hot-path 优化。两处 caller（`tools/execution.rs` 主 dispatch、`tools/exec.rs` exec 命令前置审批）从 11 行字段构造塌缩到 1 行 helper 调用。新增字段时只需改 helper 一处。
+
+---
+
+### F-031 `permission::judge::cache_key` JSON 序列化不规范化对象键序
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit `2eefc428`
+- **修复方式**：[`permission::judge`](../../crates/ha-core/src/permission/judge.rs) 把 `args.to_string().hash(...)` 替换成新的 `hash_value_canonical(args, hasher)` 递归哈希器：对象内按键排序后逐对哈希，数组按位置哈希，每个 `Value` 变体加 1 字节 tag 防跨变体冲突（null vs ""）。同语义但键序不同的 args 现在产生相同 cache key，避免冗余的 ~5s 判官 LLM 调用。新增 3 条单测：键序不变性 / 嵌套对象递归 / null/string/array/object 互不冲突。
+
+---
+
+### F-028 `permission::judge` cache 与 `agent::active_memory` cache 模式重复
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（reuse agent）
+- **关闭**：2026-04-30 / commit `67c7e1f2`
+- **修复方式**：新增 [`crate::ttl_cache::TtlCache<K, V>`](../../crates/ha-core/src/ttl_cache.rs)：TTL 在 `get` 时传入（让 `cache_ttl_secs` 配置即时生效）、溢出时 LRU-by-age 单条 evict（O(n) 但 n ≤ cap）、`get` 命中过期项 lazy 移除、无后台 sweep。`permission::judge` 退化为 `OnceLock<TtlCache<u64, JudgeResponse>>` 删除自带 60 行 cache helper；`agent::active_memory` 把 `Mutex<HashMap<...>>` 字段换成 `TtlCache` 删除手写 evict-oldest 12 行。新增 5 条 ttl_cache 单测；代码净减 ~125 行重复，新增 helper 170 行（含完整 doc + 单测）。
+
+---
+
+### F-029 `SessionMeta.permission_mode` 仍是 `String`，应换 `SessionMode` enum
+
+- **来源**：2026-04-30 Phase 4 Smart 模式 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit `0dcddf5a`
+- **修复方式**：[`session::types::SessionMeta`](../../crates/ha-core/src/session/types.rs) 的 `permission_mode: String` 改成 `permission_mode: SessionMode`（已带 Default impl + snake_case serde rename）。前端 `SessionMode` union / DB TEXT 列 / JSON 编码完全不变，仅 Rust 内部强类型化。`SessionMode::parse_or_default` 仅在 DB row→struct 边界用一次（[`session/db.rs::row_to_session_meta`](../../crates/ha-core/src/session/db.rs)），消费方（`agent/config.rs` system_prompt 构造、`agent/mod.rs` ToolExecContext 构造）改成 `.map(|m| m.permission_mode)` 直接拷贝 enum (Copy)；`update_session_permission_mode` 参数改成 `SessionMode`，4 处 caller 删掉 `.as_str()` 包装。awareness 测试 fixture `"default".into()` 同步改成 `SessionMode::Default`。ha-core 771 / ha-server 18 单测全绿。
+
+---
+
+### F-032 `SessionMeta.plan_mode` 仍是 `String`，应换 `PlanModeState` enum
+
+- **来源**：2026-04-30 F-029 收尾 `/simplify` review（quality agent）
+- **关闭**：2026-04-30 / commit 紧跟 F-028..F-031 收尾
+- **修复方式**：发现 [`plan::PlanModeState`](../../crates/ha-core/src/plan/types.rs) enum 已存在并完整支持 `from_str`/`as_str`/serde rename_all snake_case + `is_valid_transition`，直接复用即可（不需要新建 PlanMode）。给 PlanModeState 加 `Copy` 派生（6 个 unit variant，1 字节）让消费方按值传递。`SessionMeta.plan_mode: String` → `PlanModeState`，DB row→struct 边界用 `from_str` 一次性转 enum；`update_session_plan_mode` 参数改成 `PlanModeState`，6 处 caller（slash_commands/handlers/plan.rs 5 处 + tools/plan_step.rs + tools/submit_plan.rs + ha-server/routes/plan.rs 2 处 + src-tauri/commands/plan.rs 3 处 + commands/chat.rs 2 处）改用 enum variant；`should_create_execution_checkpoint(persisted_plan_mode: Option<&str>)` 改成 `Option<PlanModeState>`；`restore_from_db(plan_mode_str: &str)` 改成 `state: PlanModeState`，删除内部 from_str 重复转换。`meta.plan_mode == "off"` 等 stringly compare 全部改成 enum 匹配。ha-core 771 / ha-server 18 单测全绿。

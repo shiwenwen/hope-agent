@@ -177,6 +177,8 @@ pub struct McpServerDraft {
     #[serde(default)]
     pub eager: bool,
     #[serde(default)]
+    pub deferred_tools: bool,
+    #[serde(default)]
     pub project_paths: Vec<String>,
     #[serde(default)]
     pub description: Option<String>,
@@ -212,6 +214,7 @@ impl McpServerDraft {
             auto_approve: self.auto_approve,
             trust_level: self.trust_level,
             eager: self.eager,
+            deferred_tools: self.deferred_tools,
             project_paths: self.project_paths,
             description: self.description,
             icon: self.icon,
@@ -696,6 +699,7 @@ pub async fn import_claude_desktop_config(raw_json: &str) -> Result<ImportSummar
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: Some(format!(
                 "Imported from claude_desktop_config.json ({raw_name})"
@@ -817,6 +821,7 @@ mod tests {
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: None,
             icon: None,
@@ -843,6 +848,7 @@ mod tests {
             auto_approve: false,
             trust_level: McpTrustLevel::Untrusted,
             eager: false,
+            deferred_tools: false,
             project_paths: vec![],
             description: None,
             icon: None,

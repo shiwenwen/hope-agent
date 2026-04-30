@@ -2,7 +2,8 @@ use anyhow::Result;
 use serde_json::Value;
 
 use super::{
-    definitions::{get_available_tools, ToolDefinition},
+    definitions::ToolDefinition,
+    dispatch::{all_dispatchable_tools, resolve_tool_fate, DispatchContext, ToolFate},
     ToolExecContext,
 };
 
@@ -11,6 +12,11 @@ use super::{
 /// Supports two query forms:
 /// - `"select:name1,name2"` — exact match by tool name
 /// - `"keyword1 keyword2"` — fuzzy search by name/description relevance
+///
+/// Candidates pool: every tool whose dispatcher fate is `InjectEager` or
+/// `InjectDeferred` for the current agent + global config. `Hidden` and
+/// `HintOnly` tools are excluded — they're either disabled or
+/// unprovisioned, so surfacing them via search would be misleading.
 pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
     let max_results = args
@@ -19,19 +25,61 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
         .unwrap_or(5)
         .min(20) as usize;
 
-    // Collect all tools (including conditionally-injected ones)
-    let mut candidates = get_available_tools();
-    // Also include conditionally-injected tools that may not be in get_available_tools
-    let extra_tools = collect_extra_tools();
-    for t in extra_tools {
-        if !candidates.iter().any(|c| c.name == t.name) {
-            candidates.push(t);
+    let app_config = crate::config::cached_config();
+    // Load this session's AgentConfig to feed the dispatcher. tool_search is
+    // a cold path (the model only calls it occasionally), so re-reading
+    // agent.json is not a hot-loop concern.
+    let agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+    let agent_def = crate::agent_loader::load_agent(agent_id).ok();
+    let default_cfg = crate::agent_config::AgentConfig::default();
+    let agent_cfg = agent_def
+        .as_ref()
+        .map(|d| &d.config)
+        .unwrap_or(&default_cfg);
+
+    let dispatch_ctx = DispatchContext {
+        agent_id,
+        mcp_enabled: agent_cfg.capabilities.mcp_enabled,
+        memory_enabled: agent_cfg.memory.enabled,
+        tools_filter: &agent_cfg.capabilities.tools,
+        capability_toggles: &agent_cfg.capabilities.capability_toggles,
+        app_config: &app_config,
+    };
+
+    // Single-pass over the static catalog: collect candidates and count
+    // deferred ones in one walk so `resolve_tool_fate` runs once per tool.
+    let mut candidates: Vec<ToolDefinition> = Vec::new();
+    let mut total_deferred = 0usize;
+    for t in all_dispatchable_tools() {
+        match resolve_tool_fate(t, &dispatch_ctx) {
+            ToolFate::InjectDeferred => {
+                total_deferred += 1;
+                candidates.push(t.clone());
+            }
+            ToolFate::InjectEager => candidates.push(t.clone()),
+            _ => {}
         }
     }
 
-    candidates.retain(|t| ctx.is_tool_visible(&t.name));
+    // Dynamic MCP tools (`mcp__<server>__<tool>`) — gated by agent.mcp_enabled.
+    if agent_cfg.capabilities.mcp_enabled {
+        if let Some(mcp) = crate::mcp::McpManager::global() {
+            for def in mcp.mcp_tool_definitions().iter() {
+                if !candidates.iter().any(|c| c.name == def.name) {
+                    if crate::mcp::catalog::tool_belongs_to_deferred_server(
+                        &def.name,
+                        &app_config.mcp_servers,
+                    ) {
+                        total_deferred += 1;
+                    }
+                    candidates.push(def.clone());
+                }
+            }
+        }
+    }
 
-    let total_deferred = candidates.iter().filter(|t| t.deferred).count();
+    // Final exec-layer filter (skill / denied / plan-allowed) — defense in depth.
+    candidates.retain(|t| ctx.is_tool_visible(&t.name));
 
     // Select mode: "select:name1,name2" for exact matching
     if let Some(names_str) = query.strip_prefix("select:") {
@@ -102,32 +150,6 @@ fn tool_to_schema(t: &ToolDefinition) -> Value {
         "description": t.description,
         "parameters": t.parameters,
     })
-}
-
-/// Collect conditionally-injected tools that may not appear in get_available_tools().
-fn collect_extra_tools() -> Vec<ToolDefinition> {
-    let mut extras = Vec::new();
-    extras.push(super::definitions::get_subagent_tool());
-    extras.push(super::definitions::get_tool_search_tool());
-    if let Some(config) = load_image_gen_config() {
-        extras.push(super::definitions::get_image_generate_tool_dynamic(&config));
-    }
-    extras.push(super::definitions::get_web_search_tool());
-    extras.push(super::definitions::get_notification_tool());
-    extras.push(super::definitions::get_canvas_tool());
-    extras.push(super::definitions::get_acp_spawn_tool());
-    // MCP-sourced tools — live and namespaced `mcp__<server>__<tool>`.
-    // Pulled from `McpManager` which keeps a sync-readable cache so
-    // this stays on the existing sync tool_search path.
-    if let Some(mcp) = crate::mcp::McpManager::global() {
-        extras.extend(mcp.mcp_tool_definitions().iter().cloned());
-    }
-    extras
-}
-
-/// Try to load image generation config from app config.
-fn load_image_gen_config() -> Option<crate::tools::image_generate::ImageGenConfig> {
-    Some(crate::config::cached_config().image_generate.clone())
 }
 
 #[cfg(test)]

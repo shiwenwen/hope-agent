@@ -173,13 +173,16 @@ async fn handle_skill_command(
                     .unwrap_or_else(|_| serde_json::json!({ "query": args.trim() }))
             };
 
-            // Build execution context
+            // Build execution context. Skill-triggered tools auto-approve via
+            // `auto_approve_tools` rather than the (now-removed) `require_approval`
+            // tool list — the legacy field was unread after the permission v2
+            // refactor.
             let ctx = crate::tools::ToolExecContext {
                 session_id: session_id.map(String::from),
                 agent_id: Some(agent_id.to_string()),
                 home_dir: dirs::home_dir().map(|p| p.to_string_lossy().to_string()),
                 session_working_dir: crate::session::effective_session_working_dir(session_id),
-                require_approval: vec![], // Skill-triggered tools auto-approve
+                auto_approve_tools: true,
                 ..Default::default()
             };
 

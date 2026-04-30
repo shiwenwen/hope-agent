@@ -98,15 +98,15 @@ pub fn apply_safety(input: SafetyStepInput) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "safety");
     let mut cfg = load_config()?;
     if input.approvals_enabled {
-        if cfg.approval_timeout_action == ApprovalTimeoutAction::Proceed {
-            cfg.approval_timeout_action = ApprovalTimeoutAction::Deny;
+        if cfg.permission.approval_timeout_action == ApprovalTimeoutAction::Proceed {
+            cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Deny;
         }
-        if cfg.approval_timeout_secs == 0 {
-            cfg.approval_timeout_secs = 300;
+        if cfg.permission.approval_timeout_secs == 0 {
+            cfg.permission.approval_timeout_secs = 300;
         }
     } else {
-        cfg.approval_timeout_action = ApprovalTimeoutAction::Proceed;
-        cfg.approval_timeout_secs = 0;
+        cfg.permission.approval_timeout_action = ApprovalTimeoutAction::Proceed;
+        cfg.permission.approval_timeout_secs = 0;
     }
     save_config(&cfg)
 }

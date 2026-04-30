@@ -65,7 +65,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
             plan::set_plan_state(sid, plan::PlanModeState::Completed).await;
             if let Some(session_db) = crate::get_session_db() {
-                let _ = session_db.update_session_plan_mode(sid, "completed");
+                let _ = session_db.update_session_plan_mode(sid, plan::PlanModeState::Completed);
             }
             if let Some(bus) = crate::globals::get_event_bus() {
                 bus.emit(

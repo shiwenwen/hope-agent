@@ -2,16 +2,16 @@ use anyhow::Result;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use crate::ttl_cache::TtlCache;
 
 // ── Constants ───────────────────────────────────────────────────
 
 const PREVIEW_TIMEOUT_SECS: u64 = 5;
 const PREVIEW_MAX_BYTES: usize = 65_536; // 64 KB – enough for <head>
 const PREVIEW_MAX_REDIRECTS: usize = 3;
-const PREVIEW_CACHE_TTL_MINUTES: u64 = 5;
+const PREVIEW_CACHE_TTL: Duration = Duration::from_secs(5 * 60);
 const PREVIEW_CACHE_MAX_ENTRIES: usize = 100;
 const PREVIEW_USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 
@@ -39,48 +39,15 @@ pub struct UrlPreviewMeta {
 
 // ── Cache ───────────────────────────────────────────────────────
 
-struct CacheEntry {
-    data: UrlPreviewMeta,
-    inserted_at: Instant,
-}
-
-static PREVIEW_CACHE: Lazy<Mutex<HashMap<String, CacheEntry>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static PREVIEW_CACHE: Lazy<TtlCache<String, UrlPreviewMeta>> =
+    Lazy::new(|| TtlCache::new(PREVIEW_CACHE_MAX_ENTRIES));
 
 fn read_cache(url: &str) -> Option<UrlPreviewMeta> {
-    let cache = PREVIEW_CACHE.lock().ok()?;
-    let entry = cache.get(url)?;
-    if entry.inserted_at.elapsed().as_secs() < PREVIEW_CACHE_TTL_MINUTES * 60 {
-        Some(entry.data.clone())
-    } else {
-        None
-    }
+    PREVIEW_CACHE.get(url, PREVIEW_CACHE_TTL)
 }
 
 fn write_cache(url: String, data: UrlPreviewMeta) {
-    if let Ok(mut cache) = PREVIEW_CACHE.lock() {
-        let now = Instant::now();
-        let ttl_secs = PREVIEW_CACHE_TTL_MINUTES * 60;
-        cache.retain(|_, v| now.duration_since(v.inserted_at).as_secs() < ttl_secs);
-
-        if cache.len() >= PREVIEW_CACHE_MAX_ENTRIES {
-            if let Some(oldest) = cache
-                .iter()
-                .min_by_key(|(_, v)| v.inserted_at)
-                .map(|(k, _)| k.clone())
-            {
-                cache.remove(&oldest);
-            }
-        }
-
-        cache.insert(
-            url,
-            CacheEntry {
-                data,
-                inserted_at: now,
-            },
-        );
-    }
+    PREVIEW_CACHE.put(url, data);
 }
 
 // ── URL Validation ──────────────────────────────────────────────

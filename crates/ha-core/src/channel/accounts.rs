@@ -152,13 +152,7 @@ pub async fn add_account(
     if account.enabled {
         if let Some(registry) = crate::get_channel_registry() {
             if let Err(e) = registry.start_account(&account).await {
-                crate::app_warn!(
-                    "channel",
-                    "accounts",
-                    "Failed to auto-start new account '{}': {}",
-                    id,
-                    e
-                );
+                super::start_watchdog::register_failure(&account, &e).await;
             }
         }
     }
@@ -224,16 +218,17 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
     if let Some(registry) = crate::get_channel_registry() {
         if was_enabled && !updated.enabled {
             let _ = registry.stop_account(account_id).await;
-        } else if !was_enabled && updated.enabled {
-            registry
-                .start_account(&updated)
-                .await
-                .map_err(|e| anyhow!("Failed to start account: {}", e))?;
         } else if updated.enabled {
-            registry
-                .restart_account(&updated)
-                .await
-                .map_err(|e| anyhow!("Failed to restart account: {}", e))?;
+            // start_account on a fresh enable, restart_account when already running.
+            let result = if was_enabled {
+                registry.restart_account(&updated).await
+            } else {
+                registry.start_account(&updated).await
+            };
+            if let Err(e) = result {
+                super::start_watchdog::register_failure(&updated, &e).await;
+                return Err(anyhow!("Failed to start account: {}", e));
+            }
         }
     }
 

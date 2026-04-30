@@ -307,6 +307,38 @@ impl AssistantAgent {
             usage: result.usage,
         })
     }
+
+    /// Bare one-shot LLM call against an arbitrary `ProviderConfig` + model.
+    ///
+    /// Used by [`crate::permission::judge`] to run an independent judge
+    /// model query — no `AssistantAgent` instance, no main-conversation
+    /// cache reuse, no tool loop. Returns the assistant's text reply.
+    pub(crate) async fn judge_one_shot(
+        provider_config: &crate::provider::ProviderConfig,
+        model_id: &str,
+        instruction: &str,
+        max_tokens: u32,
+    ) -> Result<String> {
+        let client = crate::provider::apply_proxy(
+            reqwest::Client::builder().user_agent(super::config::USER_AGENT),
+        )
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
+
+        let provider = AssistantAgent::build_llm_provider(provider_config, model_id, None).await?;
+        let result = provider
+            .as_adapter()
+            .one_shot(
+                &client,
+                OneShotRequest {
+                    instruction,
+                    max_tokens,
+                    mode: OneShotMode::Bare,
+                },
+            )
+            .await?;
+        Ok(result.text)
+    }
 }
 
 #[cfg(test)]

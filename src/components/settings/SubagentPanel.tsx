@@ -9,11 +9,19 @@ import type { AgentConfig, AgentSummary } from "./types"
 
 interface SubagentPanelProps {
   config: AgentConfig["subagents"]
+  enabled: boolean
   currentAgentId: string
   onChange: (config: AgentConfig["subagents"]) => void
+  onEnabledChange: (enabled: boolean) => void
 }
 
-export default function SubagentPanel({ config, currentAgentId, onChange }: SubagentPanelProps) {
+export default function SubagentPanel({
+  config,
+  enabled,
+  currentAgentId,
+  onChange,
+  onEnabledChange,
+}: SubagentPanelProps) {
   const { t } = useTranslation()
   const [agents, setAgents] = useState<AgentSummary[]>([])
 
@@ -59,13 +67,10 @@ export default function SubagentPanel({ config, currentAgentId, onChange }: Suba
       {/* Enable toggle */}
       <div className="flex items-center justify-between">
         <span className="text-sm">{t("settings.subagentEnabled")}</span>
-        <Switch
-          checked={config.enabled}
-          onCheckedChange={(checked) => onChange({ ...config, enabled: checked })}
-        />
+        <Switch checked={enabled} onCheckedChange={onEnabledChange} />
       </div>
 
-      {config.enabled && (
+      {enabled && (
         <>
           {/* Enabled sub-agents selection */}
           {agents.length > 0 && (

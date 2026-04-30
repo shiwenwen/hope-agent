@@ -198,6 +198,46 @@ pub fn discard_draft_skill(name: &str) -> Result<()> {
     author::delete_skill(name)
 }
 
+/// Read the current auto-review promotion mode.
+/// `true` = newly auto-created skills are written directly as `Active` (skip review).
+/// `false` = newly auto-created skills land in `Draft` for manual user activation.
+pub fn get_auto_review_promotion() -> bool {
+    matches!(
+        crate::config::cached_config().skills.auto_review.promotion,
+        auto_review::AutoReviewPromotion::Auto
+    )
+}
+
+/// Toggle the auto-review promotion mode. `true` skips the draft buffer.
+pub fn set_auto_review_promotion(auto: bool, source: &str) -> Result<()> {
+    crate::config::mutate_config(("skills.auto_review", source), |store| {
+        store.skills.auto_review.promotion = if auto {
+            auto_review::AutoReviewPromotion::Auto
+        } else {
+            auto_review::AutoReviewPromotion::Draft
+        };
+        Ok(())
+    })?;
+    Ok(())
+}
+
+/// Read the master enabled flag for the auto-review pipeline.
+/// `true` (default) = post-turn cooldown + threshold gating runs and may invoke
+/// the side_query review. `false` = the pipeline is fully suppressed; nothing
+/// auto-creates or auto-patches skills.
+pub fn get_auto_review_enabled() -> bool {
+    crate::config::cached_config().skills.auto_review.enabled
+}
+
+/// Toggle the master enabled flag.
+pub fn set_auto_review_enabled(enabled: bool, source: &str) -> Result<()> {
+    crate::config::mutate_config(("skills.auto_review", source), |store| {
+        store.skills.auto_review.enabled = enabled;
+        Ok(())
+    })?;
+    Ok(())
+}
+
 // ── Install dependency ────────────────────────────────────────────
 //
 // Spawns a package-manager process (`brew install …`, `npm install -g …`,

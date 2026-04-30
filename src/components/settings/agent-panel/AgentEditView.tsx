@@ -31,6 +31,7 @@ import CapabilitiesTab from "./tabs/CapabilitiesTab"
 import ModelTab from "./tabs/ModelTab"
 import MemoryTab from "./tabs/MemoryTab"
 import SubagentTab from "./tabs/SubagentTab"
+import ApprovalTab from "./tabs/ApprovalTab"
 import CustomTab from "./tabs/CustomTab"
 
 interface AgentEditViewProps {
@@ -52,7 +53,16 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [availableSkills, setAvailableSkills] = useState<SkillSummary[]>([])
   const [builtinTools, setBuiltinTools] = useState<
-    { name: string; description: string; internal?: boolean }[]
+    {
+      name: string
+      description: string
+      internal?: boolean
+      tier?: "core" | "standard" | "configured" | "memory" | "mcp"
+      core_subclass?: string | null
+      default_for_main?: boolean | null
+      default_for_others?: boolean | null
+      config_hint?: string | null
+    }[]
   >([])
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
   const [needsFillTemplate, setNeedsFillTemplate] = useState(false)
@@ -120,7 +130,6 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
         // Ensure subagents config exists
         if (!cfg.subagents) {
           cfg.subagents = {
-            enabled: true,
             allowedAgents: [],
             deniedAgents: [],
             maxConcurrent: 5,
@@ -445,6 +454,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
           {activeTab === "capabilities" && (
             <CapabilitiesTab
               config={config}
+              agentId={agentId}
               builtinTools={builtinTools}
               availableSkills={availableSkills}
               toolsGuide={toolsGuide}
@@ -475,6 +485,10 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
 
           {activeTab === "subagent" && (
             <SubagentTab config={config} agentId={agentId} updateConfig={updateConfig} />
+          )}
+
+          {activeTab === "approval" && (
+            <ApprovalTab config={config} updateConfig={updateConfig} />
           )}
 
           {activeTab === "custom" && (

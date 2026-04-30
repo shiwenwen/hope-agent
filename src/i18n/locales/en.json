@@ -113,7 +113,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "Calling tools...",
     "startConversation": "Start a conversation",
-    "subagentFrom": "Delegated by {{agent}}",
+    "subagentFrom": "Invoked by {{agent}}",
     "newChat": "New Chat",
     "tasks": "Tasks",
     "taskProgress": "{{completed}}/{{total}} completed",
@@ -209,7 +209,7 @@
     "viewSystemPrompt": "View System Prompt",
     "details": "Details",
     "duration": "Duration",
-    "modifiedFiles": "Modified files",
+    "modifiedFiles": "Generated/modified files",
     "openFile": "Click to open file",
     "revealInFolder": "Reveal in folder",
     "inputTokens": "Input",
@@ -238,13 +238,20 @@
     "compactNoChange": "Context does not need compression",
     "compactFailed": "Compression failed",
     "viewContext": "View context",
-    "toolPermission": "Tool Permission",
-    "toolPermissionAuto": "Auto",
-    "toolPermissionAsk": "Ask Every Time",
-    "toolPermissionFull": "Full Approve",
-    "toolPermissionAutoDesc": "Model decides whether approval is needed",
-    "toolPermissionAskDesc": "Every tool call requires confirmation",
-    "toolPermissionFullDesc": "Automatically approve all tool calls",
+    "permissionMode": {
+      "default": {
+        "label": "Default",
+        "desc": "Edit-class tools and high-risk commands need approval; everything else runs."
+      },
+      "smart": {
+        "label": "Smart Approval",
+        "desc": "Defer approval decisions to a judge model or the model's self-confidence tag."
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "All tools run without approval in this session (protected paths still audit-log)."
+      }
+    },
     "statusCache": "Cache",
     "statusCacheWrite": "Write",
     "statusCacheHit": "Hit",
@@ -394,6 +401,18 @@
     "acp_spawn": "Spawn ACP Agent",
     "submit_plan": "Submit Plan",
     "amend_plan": "Amend Plan",
+    "task_create": "Create Task",
+    "task_update": "Update Task",
+    "task_list": "List Tasks",
+    "team": "Agent Team",
+    "peek_sessions": "Peek Sessions",
+    "get_settings": "Get Settings",
+    "update_settings": "Update Settings",
+    "list_settings_backups": "List Settings Backups",
+    "restore_settings_backup": "Restore Settings Backup",
+    "mcp_resource": "MCP Resource",
+    "mcp_prompt": "MCP Prompt",
+    "skill": "Load Skill",
     "ask_user": {
       "cancelled": "User cancelled the question",
       "no_answers": "No answers provided",
@@ -794,6 +813,7 @@
       "autoApproveLabel": "Auto-approve tool calls",
       "autoApproveNeedsTrust": "Auto-approve requires Trust level = Trusted.",
       "eagerLabel": "Connect eagerly at startup",
+      "deferredToolsLabel": "Defer tool schemas",
       "allowedTools": "Tool allowlist",
       "allowedToolsHint": "Empty = allow all. One original tool name per line (without the mcp__ prefix).",
       "deniedTools": "Tool denylist",
@@ -1119,7 +1139,7 @@
     "acpControl": "ACP Control Plane",
     "acpControlDesc": "Manage external ACP agents (Claude Code, Codex CLI, Gemini CLI, etc.)",
     "acpEnabled": "Enable ACP Control Plane",
-    "acpEnabledDesc": "Allow agents to spawn external ACP agents for task delegation",
+    "acpEnabledDesc": "Allow agents to invoke external ACP agents to execute tasks",
     "acpBackends": "ACP Backends",
     "acpSettings": "Settings",
     "acpAutoDiscover": "Auto-discover backends",
@@ -1411,7 +1431,7 @@
     "contextCompactMicrocompactEnabledDesc": "Zero-cost clearing of old ephemeral tool results (ls/grep/find etc.), runs before other compression tiers",
     "contextCompactMicrocompactTools": "Microcompact tool list",
     "contextCompactMicrocompactToolsDesc": "Old results from selected tools will be automatically cleared",
-    "contextCompactToolPolicy": "Tool Compact Policy",
+    "contextCompactToolPolicy": "Tool Result Compact Policy",
     "contextCompactToolPolicyDesc": "Control how each tool's results are handled during context compression",
     "contextCompactPolicyEager": "Eager clear",
     "contextCompactPolicyDefault": "Normal",
@@ -1520,7 +1540,9 @@
     "asyncToolsInlineBytes": "Inline result size",
     "asyncToolsInlineBytesDesc": "Result bytes inlined in the completion notification. Larger results are spooled with a head/tail preview.",
     "deferredToolsEnabled": "Deferred tool loading",
-    "deferredToolsEnabledDesc": "Send only core tool schemas up front; extras are discovered via tool_search. Reduces schema tokens for agents with many tools. Takes effect on next conversation.",
+    "deferredToolsEnabledDesc": "Enable tool_search-based loading. Tools remain injected until you defer them below. Takes effect on the next conversation.",
+    "deferredToolsPerToolTitle": "Deferred built-in tools",
+    "deferredToolsPerToolDesc": "Turn on only the tools whose schemas should be discovered via tool_search instead of sent up front.",
     "memorySelection": "LLM memory selection",
     "memorySelectionDesc": "When the candidate memory count exceeds the threshold, ask the model to pick the most relevant ones for the system prompt. Reduces noise.",
     "memorySelectionThreshold": "Trigger threshold",
@@ -1643,20 +1665,150 @@
     "agentIdentity": "Identity",
     "agentPersonalityTab": "Personality",
     "agentBasicInfo": "Basic Info",
-    "agentCapabilities": "Capabilities",
+    "agentCapabilities": "Tools & Skills",
     "agentCapabilitiesTabTools": "Tools",
     "agentCapabilitiesTabSkills": "Skills",
     "agentCapabilitiesToolInjection": "Tool Injection",
     "agentCapabilitiesToolInjectionDesc": "Choose which built-in tools this agent can use (internal system tools are always available)",
+    "agentTierCoreTitle": "Core Tools",
+    "agentTierCoreDesc": "Foundational capabilities every agent needs. Cannot be disabled.",
+    "agentTierCoreBadge": "Always on",
+    "agentTierStandardTitle": "Standard Tools",
+    "agentTierStandardDesc": "Available to the agent by default; toggle off individually. Some capabilities still need a globally-configured provider to actually run.",
+    "agentTierConfiguredHint": "Not configured · go to {{hint}}",
+    "agentMcpTitle": "MCP",
+    "agentMcpDesc": "When enabled, all connected MCP servers and their tools become available; when off, every MCP tool is excluded.",
+    "agentMcpEnableLabel": "Enable MCP",
+    "agentMcpBadgeOn": "On",
+    "agentMcpBadgeOff": "Off",
     "agentMaxToolRounds": "Max Tool Rounds",
     "agentUnlimited": "Unlimited",
     "agentSkills": "Skills",
     "agentSkillsDesc": "Globally enabled skills are available by default. You can disable specific ones for this Agent.",
-    "agentRequireApproval": "Tool Approval",
-    "agentRequireApprovalDesc": "Control whether AI needs your confirmation before using tools",
-    "agentApprovalAll": "Approve All",
-    "agentApprovalNone": "No Approval",
-    "agentApprovalCustom": "Custom",
+    "approvalNav": "Permission",
+    "approvalPanel": {
+      "title": "Permission",
+      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
+      "yoloTitle": "Global YOLO (Skip All Approvals)",
+      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
+      "yoloEnabled": "Global YOLO enabled",
+      "yoloDisabled": "Global YOLO disabled",
+      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
+      "protectedPathsTitle": "Protected Paths",
+      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
+      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
+      "editCommandsTitle": "Edit Commands",
+      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
+      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
+      "dangerousCommandsTitle": "Dangerous Commands",
+      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
+      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
+      "smartTitle": "Smart Approval Mode",
+      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
+      "smartStrategy": "Decision Strategy",
+      "smartFallback": "Fallback When Unavailable",
+      "strategies": {
+        "self_confidence": "Model Self-Tag",
+        "judge_model": "Judge Model",
+        "both": "Judge first, self-tag fallback"
+      },
+      "fallbacks": {
+        "default": "Fall back to Default mode",
+        "ask": "Force prompt",
+        "allow": "Force allow"
+      },
+      "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
+      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
+      "timeoutTitle": "Approval Dialog Timeout",
+      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
+      "timeoutSeconds": "Timeout Seconds",
+      "timeoutHint": "0 = wait forever",
+      "timeoutAction": "Timeout Action",
+      "timeoutActions": {
+        "deny": "Block execution",
+        "proceed": "Proceed"
+      },
+      "empty": "No entries — add a pattern to enable",
+      "restoreDefaults": "Restore Defaults",
+      "restoredDefaults": "Restored to defaults"
+    },
+    "agentApprovalTab": "Approval",
+    "agentApproval": {
+      "defaultModeTitle": "Default Session Permission Mode",
+      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
+      "modes": {
+        "inherit": {
+          "label": "Inherit Global",
+          "desc": "Follow the global default (currently \"Default\" mode)"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Edit-class tools and high-risk commands need approval"
+        },
+        "smart": {
+          "label": "Smart Approval",
+          "desc": "Judge model or model self-confidence decides approvals"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "All tools run without approval (protected paths still audit-log)"
+        }
+      },
+      "customApprovalTitle": "Custom Tool Approval",
+      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
+      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
     "toolExecName": "Execute Command",
     "toolExecDesc": "Run shell commands with background and sandbox support",
     "toolProcessName": "Process Manager",
@@ -1696,13 +1848,59 @@
     "toolSendNotificationName": "Send Notification",
     "toolSendNotificationDesc": "Send desktop notification messages",
     "toolSubagentName": "Subagent",
-    "toolSubagentDesc": "Delegate tasks to subagent for execution",
+    "toolSubagentDesc": "Invoke a sub-agent to execute a task",
     "toolTaskCreateName": "Create Task",
     "toolTaskCreateDesc": "Create a trackable task for the current session",
     "toolTaskUpdateName": "Update Task",
     "toolTaskUpdateDesc": "Update the status or content of an existing task",
     "toolTaskListName": "List Tasks",
     "toolTaskListDesc": "List all tasks in the current session",
+    "toolMcpResourceName": "MCP Resource",
+    "toolMcpResourceDesc": "Read resources hosted by connected MCP servers (files, records, etc.)",
+    "toolMcpPromptName": "MCP Prompt",
+    "toolMcpPromptDesc": "Fetch prompt templates published by connected MCP servers",
+    "toolImageGenerateName": "Generate Image",
+    "toolImageGenerateDesc": "Text-to-image and image-to-image generation with multi-provider failover",
+    "toolCanvasName": "Canvas",
+    "toolCanvasDesc": "Create interactive visual projects in the preview panel (HTML, Markdown, charts, slides)",
+    "toolAcpSpawnName": "Invoke External Agent",
+    "toolAcpSpawnDesc": "Invoke external ACP agents (Claude Code, Codex CLI, etc.) to execute tasks",
+    "toolProjectReadFileName": "Read Project File",
+    "toolProjectReadFileDesc": "Read uploaded files attached to the current session's project",
+    "toolAskUserQuestionName": "Ask User",
+    "toolAskUserQuestionDesc": "Send structured multiple-choice or free-form questions to the user",
+    "toolSendAttachmentName": "Send Attachment",
+    "toolSendAttachmentDesc": "Push a generated file as a downloadable card to the desktop UI",
+    "toolAgentsListName": "List Agents",
+    "toolAgentsListDesc": "List all available agents with their descriptions and capabilities",
+    "toolSessionsListName": "Sessions List",
+    "toolSessionsListDesc": "List other sessions (title, agent, model, message count)",
+    "toolSessionStatusName": "Session Status",
+    "toolSessionStatusDesc": "Query a session's agent, model, message count, and timestamps",
+    "toolSessionsHistoryName": "Sessions History",
+    "toolSessionsHistoryDesc": "Paginate through a session's message history",
+    "toolSessionsSendName": "Send to Session",
+    "toolSessionsSendDesc": "Send a user message to another session (optionally wait for reply)",
+    "toolPeekSessionsName": "Peek Sessions",
+    "toolPeekSessionsDesc": "Cross-session awareness — return a compact list of peer sessions",
+    "toolTeamName": "Agent Team",
+    "toolTeamDesc": "Create and manage agent teams with shared task boards and inter-member messaging",
+    "toolPdfName": "PDF",
+    "toolPdfDesc": "Extract text or vision-parse PDFs (multi-file, page ranges)",
+    "toolImageName": "Image Analysis",
+    "toolImageDesc": "Vision-analyze images (local paths, URLs, clipboard, screenshots)",
+    "toolGetSettingsName": "Get Settings",
+    "toolGetSettingsDesc": "Read app configuration by category",
+    "toolUpdateSettingsName": "Update Settings",
+    "toolUpdateSettingsDesc": "Update app configuration with risk-tiered confirmation",
+    "toolListSettingsBackupsName": "List Settings Backups",
+    "toolListSettingsBackupsDesc": "Enumerate saved settings backups",
+    "toolRestoreSettingsBackupName": "Restore Settings Backup",
+    "toolRestoreSettingsBackupDesc": "Restore settings from a saved backup",
+    "toolMemoryGetName": "Get Memory",
+    "toolMemoryGetDesc": "Retrieve a single memory's full content by ID",
+    "toolUpdateCoreMemoryName": "Update Core Memory",
+    "toolUpdateCoreMemoryDesc": "Update the memory.md file injected into the system prompt",
     "agentSandbox": "Docker Sandbox",
     "agentSandboxDesc": "Execute commands in Docker container",
     "agentSkillEnvCheck": "Environment Check",
@@ -1779,12 +1977,12 @@
     "agentDeleteConfirm": "Are you sure you want to delete this Agent?",
     "agentCannotDeleteDefault": "Cannot delete the default Agent",
     "agentSaved": "Saved",
-    "subagentTitle": "Sub-Agent Delegation",
-    "subagentEnabled": "Enable sub-agent spawning",
-    "subagentAllowedAgents": "Enabled Sub-Agents",
-    "subagentAllowedAgentsHint": "Select which agents can be delegated to. Unchecked agents will be blocked.",
+    "subagentTitle": "Sub-Agent Invocation",
+    "subagentEnabled": "Allow invoking sub-agents",
+    "subagentAllowedAgents": "Invokable Sub-Agents",
+    "subagentAllowedAgentsHint": "Select which agents can be invoked. Unchecked agents will be blocked.",
     "subagentMaxConcurrent": "Max concurrent sub-agents",
-    "subagentMaxBatchSize": "Max batch spawn size",
+    "subagentMaxBatchSize": "Max batch invocation size",
     "teamEnabled": "Enable Agent Teams",
     "teamMaxActiveTeams": "Max active teams",
     "teamMaxMembersPerTeam": "Max members per team",
@@ -2150,6 +2348,22 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsTab": {
+      "manage": "Skills",
+      "evolution": "Self-Evolution"
+    },
+    "skillsEvolutionHero": {
+      "title": "Distill what you keep doing into reusable skills",
+      "body": "Hope Agent doesn't stay still. Every so often it replays your chats, turns the things you keep doing into reusable skills — so the next time it comes up, the agent already knows how.",
+      "note": "On by default · grows more capable the more you use it. Turn off to keep things as-is — no new skills will form on their own.",
+      "statusOn": "Evolving",
+      "statusOff": "Paused"
+    },
+    "skillsAutoReview": {
+      "label": "Auto-activate new skills",
+      "description": "Skip the draft step — newly distilled skills go live immediately.",
+      "hint": "Off (default): new skills land as drafts and need your approval first."
     }
   },
   "tz": {
@@ -2496,8 +2710,44 @@
     "command": "Command",
     "allowOnce": "Allow Once",
     "allowAlways": "Always Allow",
+    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
     "deny": "Deny",
-    "queueIndicator": "{{current}} of {{total}}"
+    "queueIndicator": "{{current}} of {{total}}",
+    "countdownTooltip": "{{seconds}}s left — will auto-{{action}} on timeout",
+    "countdownAction": {
+      "deny": "deny",
+      "proceed": "proceed"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "Edit-class tool",
+        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch)."
+      },
+      "edit_command": {
+        "title": "Edit-pattern exec command",
+        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix."
+      },
+      "dangerous_command": {
+        "title": "⚠️ Dangerous command",
+        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "protected_path": {
+        "title": "⚠️ Protected path",
+        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "agent_custom_list": {
+        "title": "Agent custom approval list",
+        "body": "This tool is on the agent's custom-approval list (Default mode only)."
+      },
+      "smart_judge": {
+        "title": "Smart-mode judge",
+        "body": "The Smart-mode judge model decided this call needs human confirmation."
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode confirmation",
+        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval."
+      }
+    }
   },
   "thinking": {
     "label": "Thinking",
@@ -2730,6 +2980,8 @@
     "stepsDetected": "steps detected",
     "noSteps": "No steps yet",
     "executeCommand": "Start executing the plan. Create todos from the approved plan, execute them in order, and call update_plan_step to update high-level plan progress.",
+    "executionApproved": "Plan approved. Starting execution.",
+    "executionResumed": "Continuing plan execution.",
     "planning": "Creating plan...",
     "pause": "Pause",
     "resume": "Resume",
@@ -3450,5 +3702,12 @@
     "fileTooLarge": "File too large, only the first 256KB is rendered",
     "noDiffData": "No diff data",
     "resizePanel": "Resize diff panel"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Auto-created draft skill: {{name}}. Click to review.",
+      "review": "Review",
+      "unnamedSkill": "(unnamed skill)"
+    }
   }
 }

@@ -22,7 +22,7 @@ use serde_json::{json, Value};
 use super::super::api_types::ResponsesRequest;
 use super::super::config::{BASE_DELAY_MS, CODEX_API_URL, MAX_RETRIES};
 use super::super::errors::{is_retryable_error, os_version, parse_error_response};
-use super::super::events::build_responses_tool_result;
+use super::super::events::expand_responses_image_markers_for_api;
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
 };
@@ -91,7 +91,7 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
     ) -> Result<RoundOutcome> {
         // Inject awareness + active memory as leading system items (same as
         // openai_responses_adapter — keeps `instructions` cache-friendly).
-        let mut api_input: Vec<Value> = req.history_for_api.to_vec();
+        let mut api_input: Vec<Value> = expand_responses_image_markers_for_api(req.history_for_api);
         if let Some(active_suffix) = req.active_memory_suffix {
             if !active_suffix.is_empty() {
                 api_input.insert(0, json!({ "role": "system", "content": active_suffix }));
@@ -366,7 +366,6 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
         executed: &[ExecutedTool],
     ) {
         for et in executed {
-            let (text_output, image_items) = build_responses_tool_result(&et.clean_result);
             crate::context_compact::push_and_stamp(
                 history,
                 json!({
@@ -383,13 +382,10 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 json!({
                     "type": "function_call_output",
                     "call_id": et.call_id,
-                    "output": text_output,
+                    "output": et.clean_result,
                 }),
                 round,
             );
-            for img_item in image_items {
-                history.push(img_item);
-            }
         }
     }
 

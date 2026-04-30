@@ -32,13 +32,13 @@ pub struct SetDangerousBody {
 
 /// `POST /api/security/dangerous-skip-all-approvals`
 ///
-/// Toggles the persisted `AppConfig.dangerousSkipAllApprovals` field. The CLI
+/// Toggles the persisted `AppConfig.permission.global_yolo` field. The CLI
 /// flag (the other OR'd source) is process-scoped and unaffected here.
 pub async fn set_dangerous_skip_all_approvals(
     Json(body): Json<SetDangerousBody>,
 ) -> Result<Json<Value>, AppError> {
     let mut store = ha_core::config::load_config()?;
-    store.dangerous_skip_all_approvals = body.enabled;
+    store.permission.global_yolo = body.enabled;
     let _reason = ha_core::backup::scope_save_reason("security", "ui");
     ha_core::config::save_config(&store)?;
     drop(_reason);

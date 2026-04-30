@@ -238,13 +238,20 @@
     "compactNoChange": "Bağlamın sıkıştırılmasına gerek yok",
     "compactFailed": "Sıkıştırma başarısız",
     "viewContext": "Bağlamı görüntüle",
-    "toolPermission": "Araç izni",
-    "toolPermissionAuto": "Otomatik",
-    "toolPermissionAsk": "Her zaman sor",
-    "toolPermissionFull": "Tam onay",
-    "toolPermissionAutoDesc": "Onay gerekip gerekmediğine model karar verir",
-    "toolPermissionAskDesc": "Her araç çağrısı onay gerektirir",
-    "toolPermissionFullDesc": "Tüm araç çağrılarını otomatik olarak onayla",
+    "permissionMode": {
+      "default": {
+        "label": "Varsayılan",
+        "desc": "Düzenleme araçları ve riskli komutlar onay gerektirir, diğerleri çalıştırılır."
+      },
+      "smart": {
+        "label": "Akıllı onay",
+        "desc": "Yargıç model veya modelin kendi güven etiketi onay kararını verir."
+      },
+      "yolo": {
+        "label": "YOLO",
+        "desc": "Bu oturumda tüm araçlar onaysız çalışır (korunan yollar hâlâ denetlenir)."
+      }
+    },
     "statusCache": "Önbellek",
     "statusCacheWrite": "Yazma",
     "statusCacheHit": "İsabet",
@@ -394,6 +401,18 @@
     "acp_spawn": "ACP Agent başlat",
     "submit_plan": "Planı gönder",
     "amend_plan": "Planı değiştir",
+    "task_create": "Görev oluştur",
+    "task_update": "Görev güncelle",
+    "task_list": "Görev listesi",
+    "team": "Agent ekibi",
+    "peek_sessions": "Diğer oturumlara göz at",
+    "get_settings": "Ayarları al",
+    "update_settings": "Ayarları güncelle",
+    "list_settings_backups": "Ayar yedeklerini listele",
+    "restore_settings_backup": "Ayar yedeğini geri yükle",
+    "mcp_resource": "MCP kaynağı",
+    "mcp_prompt": "MCP istemi",
+    "skill": "Skill yükle",
     "ask_user": {
       "cancelled": "Kullanıcı soruyu iptal etti",
       "no_answers": "Yanıt verilmedi",
@@ -794,6 +813,7 @@
       "autoApproveLabel": "Auto-approve tool calls",
       "autoApproveNeedsTrust": "Auto-approve requires Trust level = Trusted.",
       "eagerLabel": "Connect eagerly at startup",
+      "deferredToolsLabel": "Araç şemalarını ertele",
       "allowedTools": "Tool allowlist",
       "allowedToolsHint": "Empty = allow all. One original tool name per line (without the mcp__ prefix).",
       "deniedTools": "Tool denylist",
@@ -1411,7 +1431,7 @@
     "contextCompactMicrocompactEnabledDesc": "Eski geçici araç sonuçlarının (ls/grep/find vb.) sıfır maliyetle temizlenmesi, diğer sıkıştırma katmanlarından önce çalışır",
     "contextCompactMicrocompactTools": "Mikro sıkıştırma araç listesi",
     "contextCompactMicrocompactToolsDesc": "Seçili araçların eski sonuçları otomatik olarak temizlenir",
-    "contextCompactToolPolicy": "Araç sıkıştırma politikası",
+    "contextCompactToolPolicy": "Araç sonuçları sıkıştırma politikası",
     "contextCompactToolPolicyDesc": "Bağlam sıkıştırması sırasında her aracın sonuçlarının nasıl ele alınacağını kontrol et",
     "contextCompactPolicyEager": "Önce temizle",
     "contextCompactPolicyDefault": "Normal",
@@ -1520,7 +1540,9 @@
     "asyncToolsInlineBytes": "Satır içi sonuç boyutu",
     "asyncToolsInlineBytesDesc": "Tamamlanma bildiriminde satır içi dahil edilen sonuç baytları. Daha büyük sonuçlar spool'a yazılır ve head/tail önizlemesi eklenir.",
     "deferredToolsEnabled": "Ertelenmiş araç yükleme",
-    "deferredToolsEnabledDesc": "Başlangıçta yalnızca temel araç şemaları gönderilir; diğerleri tool_search ile keşfedilir. Çok araçlı ajanlar için şema token’ı azaltır. Bir sonraki konuşmada geçerli.",
+    "deferredToolsEnabledDesc": "Enable tool_search-based loading. Tools remain injected until you defer them below. Takes effect on the next conversation.",
+    "deferredToolsPerToolTitle": "Deferred built-in tools",
+    "deferredToolsPerToolDesc": "Turn on only the tools whose schemas should be discovered via tool_search instead of sent up front.",
     "memorySelection": "LLM ile anlamsal bellek seçimi",
     "memorySelectionDesc": "Aday bellek sayısı eşiği aştığında, modelden sistem istemi için en alakalı olanları seçmesini ister. Gürültüyü azaltır.",
     "memorySelectionThreshold": "Tetikleme eşiği",
@@ -1643,20 +1665,26 @@
     "agentIdentity": "Kimlik",
     "agentPersonalityTab": "Kişilik",
     "agentBasicInfo": "Temel Bilgiler",
-    "agentCapabilities": "Yetenekler",
+    "agentCapabilities": "Araçlar ve Beceriler",
     "agentCapabilitiesTabTools": "Araçlar",
     "agentCapabilitiesTabSkills": "Skills",
     "agentCapabilitiesToolInjection": "Araç enjeksiyonu",
     "agentCapabilitiesToolInjectionDesc": "Bu Agent'ın hangi yerleşik araçları kullanabileceğini seçin (dahili sistem araçları her zaman kullanılabilir)",
+    "agentTierCoreTitle": "Temel araçlar",
+    "agentTierCoreDesc": "Her ajanın ihtiyaç duyduğu temel yetenekler. Devre dışı bırakılamaz.",
+    "agentTierCoreBadge": "Her zaman açık",
+    "agentTierStandardTitle": "Standart araçlar",
+    "agentTierStandardDesc": "Agent için varsayılan olarak kullanılabilir; tek tek kapatılabilir. Bazı yetenekler gerçekten çalışmak için global ayarlarda yapılandırılmış bir sağlayıcı gerektirir.",
+    "agentTierConfiguredHint": "Yapılandırılmadı · {{hint}} bölümüne git",
+    "agentMcpTitle": "MCP",
+    "agentMcpDesc": "Etkinleştirildiğinde, bağlı tüm MCP sunucuları ve araçları kullanılabilir hale gelir; kapatıldığında tüm MCP araçları hariç tutulur.",
+    "agentMcpEnableLabel": "MCP'yi etkinleştir",
+    "agentMcpBadgeOn": "Açık",
+    "agentMcpBadgeOff": "Kapalı",
     "agentMaxToolRounds": "Maks Araç Turları",
     "agentUnlimited": "Sınırsız",
     "agentSkills": "Beceriler",
     "agentSkillsDesc": "Global olarak etkin beceriler varsayılan olarak kullanılabilir. İhtiyaç duymadıklarınızı devre dışı bırakabilirsiniz",
-    "agentRequireApproval": "Araç Onayı",
-    "agentRequireApprovalDesc": "AI'ın araçları kullanmadan önce onayınızı alıp almayacağını kontrol edin",
-    "agentApprovalAll": "Tümünü onayla",
-    "agentApprovalNone": "Onay gereksiz",
-    "agentApprovalCustom": "Özel",
     "toolExecName": "Komut çalıştır",
     "toolExecDesc": "Arka plan ve sandbox desteğiyle kabuk komutları çalıştır",
     "toolProcessName": "Süreç yönetimi",
@@ -1703,6 +1731,52 @@
     "toolTaskUpdateDesc": "Mevcut bir görevin durumunu veya içeriğini güncelle",
     "toolTaskListName": "Görevleri listele",
     "toolTaskListDesc": "Mevcut oturumdaki tüm görevleri listele",
+    "toolMcpResourceName": "MCP Kaynağı",
+    "toolMcpResourceDesc": "Bağlı MCP sunucularında barındırılan kaynakları (dosyalar, kayıtlar vb.) okur",
+    "toolMcpPromptName": "MCP İstemi",
+    "toolMcpPromptDesc": "Bağlı MCP sunucularının yayımladığı istem şablonlarını alır",
+    "toolImageGenerateName": "Görsel Oluştur",
+    "toolImageGenerateDesc": "Metinden görsele ve görselden görsele üretim, çoklu sağlayıcı arasında otomatik yedekleme",
+    "toolCanvasName": "Tuval",
+    "toolCanvasDesc": "Önizleme panelinde etkileşimli görsel projeler oluştur (HTML, Markdown, grafikler, slaytlar)",
+    "toolAcpSpawnName": "Harici Agent Çağır",
+    "toolAcpSpawnDesc": "Görevleri yürütmek için harici ACP agent'larını (Claude Code, Codex CLI vb.) çağır",
+    "toolProjectReadFileName": "Proje Dosyası Oku",
+    "toolProjectReadFileDesc": "Mevcut oturumun projesine yüklenmiş dosyaları oku",
+    "toolAskUserQuestionName": "Kullanıcıya Sor",
+    "toolAskUserQuestionDesc": "Kullanıcıya yapılandırılmış çoktan seçmeli veya serbest metin soruları gönder",
+    "toolSendAttachmentName": "Ek Gönder",
+    "toolSendAttachmentDesc": "Üretilen dosyayı indirilebilir bir kart olarak masaüstü arayüzüne ilet",
+    "toolAgentsListName": "Agent Listele",
+    "toolAgentsListDesc": "Tüm kullanılabilir agent'ları açıklamaları ve yetenekleriyle listele",
+    "toolSessionsListName": "Oturum Listesi",
+    "toolSessionsListDesc": "Diğer oturumları listele (başlık, agent, model, mesaj sayısı)",
+    "toolSessionStatusName": "Oturum Durumu",
+    "toolSessionStatusDesc": "Bir oturumun agent'ını, modelini, mesaj sayısını ve zaman damgalarını sorgula",
+    "toolSessionsHistoryName": "Oturum Geçmişi",
+    "toolSessionsHistoryDesc": "Bir oturumun mesaj geçmişini sayfalı olarak gez",
+    "toolSessionsSendName": "Oturuma Gönder",
+    "toolSessionsSendDesc": "Başka bir oturuma kullanıcı mesajı gönder (yanıtı bekleme isteğe bağlı)",
+    "toolPeekSessionsName": "Oturumlara Bak",
+    "toolPeekSessionsDesc": "Çapraz oturum farkındalığı — diğer oturumların özet listesini döner",
+    "toolTeamName": "Agent Takımı",
+    "toolTeamDesc": "Paylaşılan görev panoları ve üyeler arası mesajlaşma ile agent takımları oluştur ve yönet",
+    "toolPdfName": "PDF",
+    "toolPdfDesc": "PDF metni çıkar veya görsel olarak ayrıştır (çoklu dosya, sayfa aralıkları)",
+    "toolImageName": "Görsel Analiz",
+    "toolImageDesc": "Görselleri görsel modelle analiz et (yerel yollar, URL'ler, pano, ekran görüntüleri)",
+    "toolGetSettingsName": "Ayarları Oku",
+    "toolGetSettingsDesc": "Uygulama yapılandırmasını kategoriye göre oku",
+    "toolUpdateSettingsName": "Ayarları Güncelle",
+    "toolUpdateSettingsDesc": "Uygulama yapılandırmasını risk seviyesine göre onay alarak güncelle",
+    "toolListSettingsBackupsName": "Ayar Yedekleri Listesi",
+    "toolListSettingsBackupsDesc": "Kayıtlı ayar yedeklerini listele",
+    "toolRestoreSettingsBackupName": "Ayar Yedeğini Geri Yükle",
+    "toolRestoreSettingsBackupDesc": "Kayıtlı bir yedekten ayarları geri yükle",
+    "toolMemoryGetName": "Bellek Getir",
+    "toolMemoryGetDesc": "Tek bir bellek kaydının tam içeriğini ID ile getir",
+    "toolUpdateCoreMemoryName": "Çekirdek Belleği Güncelle",
+    "toolUpdateCoreMemoryDesc": "Sistem istemine enjekte edilen memory.md dosyasını güncelle",
     "agentSandbox": "Docker Sandbox",
     "agentSandboxDesc": "Docker konteynerinde komut çalıştır",
     "agentSkillEnvCheck": "Ortam Kontrolü",
@@ -2150,6 +2224,146 @@
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
       }
+    },
+    "skillsTab": {
+      "manage": "Yetenekler",
+      "evolution": "Kendiliğinden Evrim"
+    },
+    "skillsEvolutionHero": {
+      "title": "Tekrar ettiğin şeyleri yeniden kullanılabilir yeteneklere çevir",
+      "body": "Hope Agent yerinde durmaz. Arada sohbetleri gözden geçirir, tekrar ettiğin şeyleri yeniden kullanılabilir yeteneklere dönüştürür — bir dahaki sefere konu zaten öğrenilmiş olur.",
+      "note": "Varsayılan açık · kullandıkça daha iyi uyum sağlar. Kapatınca günlük sohbet etkilenmez, yalnızca yeni yetenekler kendiliğinden birikmez.",
+      "statusOn": "Evrimleşiyor",
+      "statusOff": "Duraklatıldı"
+    },
+    "skillsAutoReview": {
+      "label": "Yeni yetenekleri otomatik etkinleştir",
+      "description": "Taslak adımını atla — damıtılan yetenekler anında devreye girer.",
+      "hint": "Kapalı (varsayılan): yeni yetenekler taslak olarak kaydedilir ve önce onayınızı gerektirir."
+    },
+    "agentApprovalTab": "Approval",
+    "agentApproval": {
+      "defaultModeTitle": "Default Session Permission Mode",
+      "defaultModeDesc": "Initial permission mode for new sessions; existing sessions are unaffected.",
+      "modes": {
+        "inherit": {
+          "label": "Inherit Global",
+          "desc": "Follow the global default (currently \"Default\" mode)"
+        },
+        "default": {
+          "label": "Default",
+          "desc": "Edit-class tools and high-risk commands need approval"
+        },
+        "smart": {
+          "label": "Smart Approval",
+          "desc": "Judge model or model self-confidence decides approvals"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "All tools run without approval (protected paths still audit-log)"
+        }
+      },
+      "customApprovalTitle": "Custom Tool Approval",
+      "customApprovalDesc": "In Default mode, also require approval for the tools you check below.",
+      "customApprovalHint": "Note: only takes effect in Default mode; Smart and YOLO modes ignore this list.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
+    "approvalNav": "Permission",
+    "approvalPanel": {
+      "title": "Permission",
+      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
+      "yoloTitle": "Global YOLO (Skip All Approvals)",
+      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
+      "yoloEnabled": "Global YOLO enabled",
+      "yoloDisabled": "Global YOLO disabled",
+      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
+      "protectedPathsTitle": "Protected Paths",
+      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
+      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
+      "editCommandsTitle": "Edit Commands",
+      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
+      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
+      "dangerousCommandsTitle": "Dangerous Commands",
+      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
+      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
+      "smartTitle": "Smart Approval Mode",
+      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
+      "smartStrategy": "Decision Strategy",
+      "smartFallback": "Fallback When Unavailable",
+      "strategies": {
+        "self_confidence": "Model Self-Tag",
+        "judge_model": "Judge Model",
+        "both": "Judge first, self-tag fallback"
+      },
+      "fallbacks": {
+        "default": "Fall back to Default mode",
+        "ask": "Force prompt",
+        "allow": "Force allow"
+      },
+      "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
+      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
+      "timeoutTitle": "Approval Dialog Timeout",
+      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
+      "timeoutSeconds": "Timeout Seconds",
+      "timeoutHint": "0 = wait forever",
+      "timeoutAction": "Timeout Action",
+      "timeoutActions": {
+        "deny": "Block execution",
+        "proceed": "Proceed"
+      },
+      "empty": "No entries — add a pattern to enable",
+      "restoreDefaults": "Restore Defaults",
+      "restoredDefaults": "Restored to defaults"
     }
   },
   "tz": {
@@ -2491,13 +2705,49 @@
     "recoveryBannerDesc": "Bu başlatmadan önce uygulama {{count}} kez çöktü ve otomatik olarak yeniden başlatıldı."
   },
   "approval": {
-    "title": "Komut Onayı Gerekli",
-    "workingDir": "Çalışma Dizini",
-    "command": "Komut",
-    "allowOnce": "Bir Kez İzin Ver",
-    "allowAlways": "Her Zaman İzin Ver",
-    "deny": "Reddet",
-    "queueIndicator": "{{total}} içinden {{current}}"
+    "title": "Command Approval Required",
+    "workingDir": "Working Directory",
+    "command": "Command",
+    "allowOnce": "Allow Once",
+    "allowAlways": "Always Allow",
+    "deny": "Deny",
+    "queueIndicator": "{{current}} of {{total}}",
+    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
+    "countdownTooltip": "{{seconds}}s left — will auto-{{action}} on timeout",
+    "countdownAction": {
+      "deny": "deny",
+      "proceed": "proceed"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "Edit-class tool",
+        "body": "Default mode requires confirmation for file-writing tools (write/edit/apply_patch)."
+      },
+      "edit_command": {
+        "title": "Edit-pattern exec command",
+        "body": "Matched the edit-command pattern list. Default mode asks; AllowAlways saves a command prefix."
+      },
+      "dangerous_command": {
+        "title": "⚠️ Dangerous command",
+        "body": "Matched the dangerous-command pattern list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "protected_path": {
+        "title": "⚠️ Protected path",
+        "body": "Matched the protected-paths list. Per-call confirmation required; AllowAlways unavailable."
+      },
+      "agent_custom_list": {
+        "title": "Agent custom approval list",
+        "body": "This tool is on the agent's custom-approval list (Default mode only)."
+      },
+      "smart_judge": {
+        "title": "Smart-mode judge",
+        "body": "The Smart-mode judge model decided this call needs human confirmation."
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode confirmation",
+        "body": "Plan Mode lists this tool as ask-before-each-call — whitelisted, but every invocation still needs your approval."
+      }
+    }
   },
   "thinking": {
     "label": "Düşünme süreci",
@@ -2730,6 +2980,8 @@
     "stepsDetected": "adım tespit edildi",
     "noSteps": "Adım yok",
     "executeCommand": "Planı yürütmeye başlayın. Her adımı sırayla tamamlayın ve ilerlemeyi takip etmek için update_plan_step çağırın.",
+    "executionApproved": "Plan onaylandı. Yürütme başlatılıyor.",
+    "executionResumed": "Plan yürütmesine devam ediliyor.",
     "planning": "Plan oluşturuluyor...",
     "pause": "Duraklat",
     "resume": "Devam et",
@@ -3450,5 +3702,12 @@
     "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
     "noDiffData": "Diff verisi yok",
     "resizePanel": "Diff panelini yeniden boyutlandır"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "Taslak yetenek otomatik oluşturuldu: {{name}}. İncelemek için tıklayın.",
+      "review": "İncele",
+      "unnamedSkill": "(adsız yetenek)"
+    }
   }
 }

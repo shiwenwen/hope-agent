@@ -195,3 +195,45 @@ pub async fn trigger_skill_review_now(
         .map_err(|e| AppError::bad_request(e.to_string()))?;
     Ok(Json(report))
 }
+
+/// `GET /api/skills/auto-review/promotion` — read the auto-review promotion mode.
+/// Response: `{ "auto": bool }`. `true` = auto-created skills land directly as
+/// `Active`; `false` = they land as `Draft` for manual review.
+pub async fn get_auto_review_promotion() -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({ "auto": core::get_auto_review_promotion() })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PromotionBody {
+    pub auto: bool,
+}
+
+/// `PUT /api/skills/auto-review/promotion` — toggle the auto-review promotion mode.
+pub async fn set_auto_review_promotion(
+    Json(body): Json<PromotionBody>,
+) -> Result<Json<Value>, AppError> {
+    core::set_auto_review_promotion(body.auto, "http")
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "ok": true, "auto": body.auto })))
+}
+
+/// `GET /api/skills/auto-review/enabled` — read the auto-review master enabled
+/// flag. Response: `{ "enabled": bool }`. `false` fully suppresses the
+/// post-turn review pipeline.
+pub async fn get_auto_review_enabled() -> Result<Json<Value>, AppError> {
+    Ok(Json(json!({ "enabled": core::get_auto_review_enabled() })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnabledBody {
+    pub enabled: bool,
+}
+
+/// `PUT /api/skills/auto-review/enabled` — toggle the master switch.
+pub async fn set_auto_review_enabled(
+    Json(body): Json<EnabledBody>,
+) -> Result<Json<Value>, AppError> {
+    core::set_auto_review_enabled(body.enabled, "http")
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "ok": true, "enabled": body.enabled })))
+}

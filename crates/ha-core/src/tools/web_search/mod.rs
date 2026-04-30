@@ -2,9 +2,9 @@ use anyhow::Result;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
+use std::time::Duration;
+
+use crate::ttl_cache::TtlCache;
 
 mod brave;
 mod duckduckgo;
@@ -431,13 +431,8 @@ struct SearchParams {
 
 // ── Search Result Cache ─────────────────────────────────────────
 
-struct CacheEntry {
-    response: String,
-    inserted_at: Instant,
-}
-
-static WEB_SEARCH_CACHE: Lazy<Mutex<HashMap<String, CacheEntry>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static WEB_SEARCH_CACHE: Lazy<TtlCache<String, String>> =
+    Lazy::new(|| TtlCache::new(WEB_SEARCH_CACHE_MAX_ENTRIES));
 
 fn search_cache_key(provider: &str, query: &str, count: usize, params: &SearchParams) -> String {
     format!(
@@ -455,38 +450,12 @@ fn read_search_cache(key: &str, ttl_minutes: u64) -> Option<String> {
     if ttl_minutes == 0 {
         return None;
     }
-    let cache = WEB_SEARCH_CACHE.lock().ok()?;
-    let entry = cache.get(key)?;
-    if entry.inserted_at.elapsed().as_secs() < ttl_minutes * 60 {
-        Some(entry.response.clone())
-    } else {
-        None
-    }
+    WEB_SEARCH_CACHE.get(key, Duration::from_secs(ttl_minutes * 60))
 }
 
 fn write_search_cache(key: String, response: String, ttl_minutes: u64) {
     if ttl_minutes == 0 {
         return;
     }
-    if let Ok(mut cache) = WEB_SEARCH_CACHE.lock() {
-        let now = Instant::now();
-        let ttl_secs = ttl_minutes * 60;
-        cache.retain(|_, v| now.duration_since(v.inserted_at).as_secs() < ttl_secs);
-        if cache.len() >= WEB_SEARCH_CACHE_MAX_ENTRIES {
-            if let Some(oldest_key) = cache
-                .iter()
-                .min_by_key(|(_, v)| v.inserted_at)
-                .map(|(k, _)| k.clone())
-            {
-                cache.remove(&oldest_key);
-            }
-        }
-        cache.insert(
-            key,
-            CacheEntry {
-                response,
-                inserted_at: now,
-            },
-        );
-    }
+    WEB_SEARCH_CACHE.put(key, response);
 }

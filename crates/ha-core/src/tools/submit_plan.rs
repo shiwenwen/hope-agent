@@ -70,7 +70,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
 
     // Persist to DB
     if let Some(session_db) = crate::get_session_db() {
-        let _ = session_db.update_session_plan_mode(&effective_sid, "review");
+        let _ =
+            session_db.update_session_plan_mode(&effective_sid, crate::plan::PlanModeState::Review);
     }
 
     // Emit event to frontend

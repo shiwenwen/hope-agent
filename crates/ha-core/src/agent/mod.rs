@@ -91,10 +91,6 @@ impl AssistantAgent {
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
-            web_search_enabled: true,
-            notification_enabled: false,
-            image_gen_config: None,
-            canvas_enabled: false,
             session_id: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
@@ -141,10 +137,6 @@ impl AssistantAgent {
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
-            web_search_enabled: true,
-            notification_enabled: false,
-            image_gen_config: None,
-            canvas_enabled: false,
             session_id: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
@@ -316,10 +308,6 @@ impl AssistantAgent {
             token_calibrator: std::sync::Mutex::new(
                 crate::context_compact::TokenEstimateCalibrator::new(),
             ),
-            web_search_enabled: true,
-            notification_enabled: false,
-            image_gen_config: None,
-            canvas_enabled: false,
             session_id: None,
             incognito_cached: std::sync::atomic::AtomicBool::new(false),
             subagent_depth: 0,
@@ -433,12 +421,34 @@ impl AssistantAgent {
             return cached.clone();
         }
         let caps = crate::agent_loader::load_agent(&self.agent_id)
-            .map(|def| types::AgentCapsCache {
-                agent_tool_filter: def.config.capabilities.tools.clone(),
-                require_approval_base: def.config.capabilities.require_approval.clone(),
-                sandbox: def.config.capabilities.sandbox,
-                subagents_enabled: def.config.subagents.enabled,
-                async_tool_policy: def.config.capabilities.async_tool_policy,
+            .map(|def| {
+                let mut capability_toggles = def.config.capabilities.capability_toggles.clone();
+                // Legacy `notify_on_complete = Some(false)` (Settings →
+                // Notifications → Per-agent override) is the same intent as
+                // `capability_toggles.send_notification = Some(false)` — both
+                // mean "this agent can't reach the desktop notification
+                // channel". The v2 dispatcher only consults the toggle, so
+                // collapse the legacy field into it whenever the toggle is
+                // unset. Pre-fix this branch was dropped via `let _ =`,
+                // making the per-agent off-switch a silent no-op.
+                if def.config.notify_on_complete == Some(false)
+                    && capability_toggles.send_notification.is_none()
+                {
+                    capability_toggles.send_notification = Some(false);
+                }
+                types::AgentCapsCache {
+                    agent_tool_filter: def.config.capabilities.tools.clone(),
+                    sandbox: def.config.capabilities.sandbox,
+                    async_tool_policy: def.config.capabilities.async_tool_policy,
+                    mcp_enabled: def.config.capabilities.mcp_enabled,
+                    capability_toggles,
+                    memory_enabled: def.config.memory.enabled,
+                    enable_custom_tool_approval: def
+                        .config
+                        .capabilities
+                        .enable_custom_tool_approval,
+                    custom_approval_tools: def.config.capabilities.custom_approval_tools.clone(),
+                }
             })
             .unwrap_or_default();
         let arc = std::sync::Arc::new(caps);
@@ -449,29 +459,6 @@ impl AssistantAgent {
     /// Set extra context to append to the system prompt.
     pub fn set_extra_system_context(&mut self, context: String) {
         self.extra_system_context = Some(context);
-    }
-
-    /// Enable or disable the web_search tool for this agent.
-    pub fn set_web_search_enabled(&mut self, enabled: bool) {
-        self.web_search_enabled = enabled;
-    }
-
-    /// Enable or disable the send_notification tool for this agent.
-    pub fn set_notification_enabled(&mut self, enabled: bool) {
-        self.notification_enabled = enabled;
-    }
-
-    /// Set image generation config (Some = enabled with dynamic tool description).
-    pub fn set_image_generate_config(
-        &mut self,
-        config: Option<crate::tools::image_generate::ImageGenConfig>,
-    ) {
-        self.image_gen_config = config;
-    }
-
-    /// Enable or disable the canvas tool for this agent.
-    pub fn set_canvas_enabled(&mut self, enabled: bool) {
-        self.canvas_enabled = enabled;
     }
 
     /// Set the current session ID (for sub-agent context propagation).
@@ -1030,75 +1017,75 @@ impl AssistantAgent {
         &self,
         provider: tools::ToolProvider,
     ) -> Vec<serde_json::Value> {
-        let deferred_enabled = crate::config::cached_config().deferred_tools.enabled;
+        let app_config = crate::config::cached_config();
         let caps = self.agent_caps();
-        let agent_tool_filter = &caps.agent_tool_filter;
-
-        let mut schemas = if deferred_enabled {
-            let mut s = tools::get_core_tools_for_provider(provider);
-            s.push(tools::get_tool_search_tool().to_provider_schema(provider));
-            s
-        } else {
-            tools::get_tools_for_provider(provider)
+        let ctx = tools::dispatch::DispatchContext {
+            agent_id: self.agent_id.as_str(),
+            mcp_enabled: caps.mcp_enabled,
+            memory_enabled: caps.memory_enabled,
+            tools_filter: &caps.agent_tool_filter,
+            capability_toggles: &caps.capability_toggles,
+            app_config: &app_config,
         };
 
-        // Conditional capability tools — user opt-in, must appear in schemas
-        // under both deferred and non-deferred modes. Provider tool-call APIs
-        // only honor tools declared in the request, so deferred-mode discovery
-        // via tool_search alone leaves the model unable to invoke them.
-        if self.web_search_enabled {
-            schemas.push(tools::get_web_search_tool().to_provider_schema(provider));
-        }
-        if self.notification_enabled {
-            schemas.push(tools::get_notification_tool().to_provider_schema(provider));
-        }
-        if let Some(ref img_config) = self.image_gen_config {
-            schemas.push(
-                tools::get_image_generate_tool_dynamic(img_config).to_provider_schema(provider),
-            );
-        }
-        if self.canvas_enabled {
-            schemas.push(tools::get_canvas_tool().to_provider_schema(provider));
-        }
-        if self.subagent_tool_enabled() {
-            schemas.push(tools::get_subagent_tool().to_provider_schema(provider));
+        let mut schemas: Vec<serde_json::Value> = Vec::new();
+
+        for def in tools::dispatch::all_dispatchable_tools() {
+            if !matches!(
+                tools::dispatch::resolve_tool_fate(def, &ctx),
+                tools::dispatch::ToolFate::InjectEager
+            ) {
+                continue;
+            }
+            // image_generate has a dynamic schema (lists currently configured
+            // providers in its description); substitute the runtime version.
+            let schema = if def.name == tools::TOOL_IMAGE_GENERATE {
+                tools::get_image_generate_tool_dynamic(&app_config.image_generate)
+                    .to_provider_schema(provider)
+            } else {
+                def.to_provider_schema(provider)
+            };
+            schemas.push(schema);
         }
 
-        // job_status is always loaded so the model can poll backgrounded tool jobs
-        // regardless of deferred-loading settings.
-        if crate::config::cached_config().async_tools.enabled {
-            schemas.push(tools::job_status::get_job_status_tool().to_provider_schema(provider));
+        // Per-agent subagent depth limit — independent of tier (depth is
+        // computed at runtime, not a static fact about the tool).
+        if !self.subagent_depth_allows_subagent() {
+            schemas.retain(|t| extract_tool_name(t) != tools::TOOL_SUBAGENT);
         }
 
-        // MCP tools — namespaced `mcp__<server>__<tool>`. Only the subset
-        // that matches the current deferred/eager mode is surfaced in the
-        // request schema; the rest stays discoverable via `tool_search`.
-        if let Some(mcp) = crate::mcp::McpManager::global() {
-            for def in mcp.mcp_tool_definitions().iter() {
-                let show = if deferred_enabled {
-                    def.always_load
-                } else {
-                    true
-                };
-                if show {
+        // MCP dynamic tools (`mcp__<server>__<tool>`) live outside the
+        // static catalog — they're discovered at runtime from the
+        // McpManager. Tier::Mcp + agent.mcp_enabled gate applies.
+        if caps.mcp_enabled {
+            if let Some(mcp) = crate::mcp::McpManager::global() {
+                for def in mcp.mcp_tool_definitions().iter() {
+                    if crate::mcp::catalog::tool_belongs_to_deferred_server(
+                        &def.name,
+                        &app_config.mcp_servers,
+                    ) {
+                        continue;
+                    }
                     schemas.push(def.to_provider_schema(provider));
                 }
             }
         }
 
-        // Plan Agent / Executing Agent tool injection
+        // Plan Agent / Executing Agent tool injection (mode-driven, not
+        // tier-driven; the dispatcher already hid PlanMode tools).
         self.apply_plan_tools(&mut schemas, provider);
 
+        // Final filter pipeline (skill / denied / plan-allowed) — defense
+        // in depth on top of dispatcher visibility.
         let plan_allowed_tools: &[String] = match &self.plan_agent_mode {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools,
             _ => &[],
         };
-
         schemas.retain(|t| {
             let name = extract_tool_name(t);
             tools::tool_visible_with_filters(
                 name,
-                agent_tool_filter,
+                &caps.agent_tool_filter,
                 &self.denied_tools,
                 &self.skill_allowed_tools,
                 plan_allowed_tools,
@@ -1106,6 +1093,11 @@ impl AssistantAgent {
         });
 
         schemas
+    }
+
+    /// Whether the current subagent depth permits spawning further sub-agents.
+    fn subagent_depth_allows_subagent(&self) -> bool {
+        self.subagent_depth < crate::subagent::max_depth_for_agent(&self.agent_id)
     }
 
     /// Build the full system prompt, including any extra context.
@@ -1116,34 +1108,53 @@ impl AssistantAgent {
             provider,
             self.session_id.as_deref(),
         );
-        if self.notification_enabled {
+        // Single walk over the static catalog: classify every tool's fate
+        // up front, then drive both the eager-capability guidance blocks
+        // and the # Unconfigured Capabilities section from the same map.
+        let app_config = crate::config::cached_config();
+        let caps = self.agent_caps();
+        let ctx = tools::dispatch::DispatchContext {
+            agent_id: self.agent_id.as_str(),
+            mcp_enabled: caps.mcp_enabled,
+            memory_enabled: caps.memory_enabled,
+            tools_filter: &caps.agent_tool_filter,
+            capability_toggles: &caps.capability_toggles,
+            app_config: &app_config,
+        };
+        let mut eager: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        let mut hints: Vec<String> = Vec::new();
+        for t in tools::dispatch::all_dispatchable_tools() {
+            match tools::dispatch::resolve_tool_fate(t, &ctx) {
+                tools::dispatch::ToolFate::InjectEager => {
+                    eager.insert(t.name.as_str());
+                }
+                tools::dispatch::ToolFate::HintOnly { config_hint } => {
+                    hints.push(format!("- {} — {}", t.name, config_hint));
+                }
+                _ => {}
+            }
+        }
+
+        if eager.contains(tools::TOOL_SEND_NOTIFICATION) {
             prompt.push_str("\n\n- **send_notification**: Send a native desktop notification to alert the user about important events, task completions, or findings that need their attention. Parameters: title (optional), body (required).");
         }
-        if self.image_gen_config.is_some() {
+        if eager.contains(tools::TOOL_IMAGE_GENERATE) {
             prompt.push_str("\n\n- **image_generate**: Generate images from text descriptions. Parameters: prompt (required), size (optional, default 1024x1024), n (optional, 1-4), model (optional, default auto with failover). Generated images are saved to disk.");
         }
-        if self.canvas_enabled {
+        if eager.contains(tools::TOOL_CANVAS) {
             prompt.push_str("\n\n# Canvas\n\nYou have a `canvas` tool for creating interactive visual content rendered in a preview panel visible to the user.\n\n## Content Types\n- **html**: Full HTML/CSS/JS — web apps, games, animations, interactive demos\n- **markdown**: Rich documents with live preview\n- **code**: Syntax-highlighted code with line numbers\n- **svg**: Scalable vector graphics\n- **mermaid**: Diagrams (flowchart, sequence, class, gantt, etc.)\n- **chart**: Data visualizations (Chart.js JSON config in `content` field)\n- **slides**: Presentation slides (HTML `<section>` tags, arrow key navigation)\n\n## Workflow\n1. `canvas(action=\"create\", content_type=\"html\", title=\"...\", html=\"...\", css=\"...\", js=\"...\")` — create project\n2. Content appears in the user's preview panel immediately\n3. `canvas(action=\"snapshot\", project_id=\"...\")` — capture screenshot to verify visual output\n4. `canvas(action=\"update\", project_id=\"...\", html=\"...\")` — iterate based on screenshot feedback\n5. `canvas(action=\"export\", project_id=\"...\", format=\"html\")` — export when done\n\n## Best Practices\n- Always use snapshot after create/update to verify the visual result\n- For complex UIs, build incrementally — skeleton first, then add features\n- Use semantic HTML and responsive CSS\n- For charts, use Chart.js config JSON format in the `content` field\n- For slides, use `<section>` tags to separate slides");
         }
-        // Collect unconfigured capabilities so the model can suggest enabling them
-        let mut unconfigured: Vec<&str> = Vec::new();
-        if !self.web_search_enabled {
-            unconfigured.push("Web Search — Settings → Tools → Web Search");
-        }
-        if !self.notification_enabled {
-            unconfigured.push("Desktop Notifications — Settings → Tools → Notifications");
-        }
-        if self.image_gen_config.is_none() {
-            unconfigured.push("Image Generation — Settings → Tools → Image Generation");
-        }
-        if !self.canvas_enabled {
-            unconfigured.push("Canvas (interactive visual content) — Settings → Tools → Canvas");
-        }
-        if !unconfigured.is_empty() {
-            prompt.push_str("\n\n# Unconfigured Capabilities\n\nThese features are available but not yet enabled. If relevant to the user's request, suggest they enable it:\n");
-            for item in &unconfigured {
-                prompt.push_str("- ");
-                prompt.push_str(item);
+
+        // Stable ordering for prompt-cache hits.
+        hints.sort();
+        if !hints.is_empty() {
+            prompt.push_str(
+                "\n\n# Unconfigured Capabilities\n\n\
+                 These features are available but not yet provisioned. If relevant to the \
+                 user's request, suggest they enable it:\n",
+            );
+            for line in &hints {
+                prompt.push_str(line);
                 prompt.push('\n');
             }
         }
@@ -1188,14 +1199,6 @@ impl AssistantAgent {
         prompt
     }
 
-    /// Whether the subagent tool should be available for this agent.
-    pub(crate) fn subagent_tool_enabled(&self) -> bool {
-        if self.subagent_depth >= crate::subagent::max_depth_for_agent(&self.agent_id) {
-            return false;
-        }
-        self.agent_caps().subagents_enabled
-    }
-
     /// Get the agent's home directory path.
     fn agent_home(&self) -> Option<String> {
         crate::paths::agent_home_dir(&self.agent_id)
@@ -1211,18 +1214,26 @@ impl AssistantAgent {
     ) -> tools::ToolExecContext {
         let caps = self.agent_caps();
         let agent_tool_filter = caps.agent_tool_filter.clone();
-        let mut require_approval = caps.require_approval_base.clone();
-        // Merge plan agent ask tools (e.g., exec requires approval during planning)
-        if let types::PlanAgentMode::PlanAgent { ask_tools, .. } = &self.plan_agent_mode {
-            for tool in ask_tools {
-                if !require_approval.contains(tool) {
-                    require_approval.push(tool.clone());
-                }
-            }
-        }
         let force_sandbox = caps.sandbox;
-        let session_working_dir =
-            crate::session::effective_session_working_dir(self.session_id.as_deref());
+        // Pull working_dir / permission_mode / project_id from a single
+        // SessionMeta lookup — avoids 3 separate SQLite roundtrips per
+        // tool round.
+        let meta = crate::session::lookup_session_meta(self.session_id.as_deref());
+        let session_working_dir = meta
+            .as_ref()
+            .and_then(|m| m.working_dir.clone().filter(|s| !s.trim().is_empty()))
+            .or_else(|| {
+                // Fall back to the session's project default working_dir.
+                let pid = meta.as_ref()?.project_id.as_deref()?;
+                crate::get_project_db()?
+                    .get(pid)
+                    .ok()
+                    .flatten()?
+                    .working_dir
+                    .filter(|s| !s.trim().is_empty())
+            });
+        let session_mode = meta.as_ref().map(|m| m.permission_mode).unwrap_or_default();
+        let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),
             used_tokens,
@@ -1231,7 +1242,6 @@ impl AssistantAgent {
             session_id: self.session_id.clone(),
             agent_id: Some(self.agent_id.clone()),
             subagent_depth: self.subagent_depth,
-            require_approval,
             agent_tool_filter,
             denied_tools: self.denied_tools.clone(),
             skill_allowed_tools: self.skill_allowed_tools.clone(),
@@ -1241,7 +1251,15 @@ impl AssistantAgent {
                 types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools.clone(),
                 _ => Vec::new(),
             },
+            plan_mode_ask_tools: match &self.plan_agent_mode {
+                types::PlanAgentMode::PlanAgent { ask_tools, .. } => ask_tools.clone(),
+                _ => Vec::new(),
+            },
             auto_approve_tools: self.auto_approve_tools,
+            session_mode,
+            agent_custom_approval_enabled: caps.enable_custom_tool_approval,
+            agent_custom_approval_tools: caps.custom_approval_tools.clone(),
+            project_id,
             async_tool_policy: caps.async_tool_policy,
             bypass_async_dispatch: false,
             metadata_sink: None,

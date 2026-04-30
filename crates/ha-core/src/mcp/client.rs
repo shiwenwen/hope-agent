@@ -247,14 +247,6 @@ async fn rebuild_tool_index_for(
     //    without awaiting — it must be kept atomic with the reverse
     //    lookup so a dispatch never finds a name that isn't in the
     //    schema list, or vice versa.
-    let always_load_names = manager
-        .global_settings
-        .read()
-        .await
-        .always_load_servers
-        .clone();
-    let always_load = always_load_names.iter().any(|n| n == &cfg.name);
-
     let defs_for_server: Vec<crate::tools::ToolDefinition> = tools
         .iter()
         .filter(|tool| {
@@ -262,7 +254,7 @@ async fn rebuild_tool_index_for(
             !(cfg.denied_tools.iter().any(|d| d == &orig)
                 || (!cfg.allowed_tools.is_empty() && !cfg.allowed_tools.iter().any(|a| a == &orig)))
         })
-        .map(|t| super::catalog::rmcp_tool_to_definition(cfg, t, always_load))
+        .map(|t| super::catalog::rmcp_tool_to_definition(cfg, t))
         .collect();
 
     // Merge: keep other servers' defs, replace this server's. Use the

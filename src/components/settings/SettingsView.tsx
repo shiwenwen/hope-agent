@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { useDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
 import {
   ArrowLeft,
   Bot,
@@ -55,6 +56,7 @@ import ChannelPanel from "@/components/settings/channel-panel"
 import McpServersPanel from "@/components/settings/mcp-panel/McpServersPanel"
 import ServerPanel from "@/components/settings/ServerPanel"
 import SecurityPanel from "@/components/settings/SecurityPanel"
+import ApprovalPanel from "@/components/settings/ApprovalPanel"
 import BrowserPanel from "@/components/settings/BrowserPanel"
 import type { SettingsSection, SettingsSectionItem } from "./types"
 
@@ -150,6 +152,11 @@ const SECTIONS: SettingsSectionItem[] = [
     labelKey: "settings.notifications",
   },
   {
+    id: "approval",
+    icon: <ShieldCheck className="h-4 w-4" />,
+    labelKey: "settings.approvalNav",
+  },
+  {
     id: "permissions",
     icon: <Shield className="h-4 w-4" />,
     labelKey: "settings.permissions",
@@ -202,6 +209,7 @@ export default function SettingsView({
 }) {
   const { t } = useTranslation()
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
+  const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
   const [activeSection, setActiveSection] = useState<SettingsSection>(
     initialSection ?? "modelConfig",
   )
@@ -265,6 +273,9 @@ export default function SettingsView({
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-emerald-500" />
                 </span>
               )}
+              {section.id === "skills" && skillDraftUnseen > 0 && (
+                <span className="relative flex h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+              )}
             </Button>
           ))}
         </div>
@@ -323,6 +334,7 @@ export default function SettingsView({
             {activeSection === "channels" && (
               <ChannelPanel initialChannelId={initialChannelId} />
             )}
+            {activeSection === "approval" && <ApprovalPanel />}
             {activeSection === "permissions" && <PermissionsPanel />}
             {activeSection === "security" && <SecurityPanel />}
             {activeSection === "chat" && <ChatSettingsPanel />}

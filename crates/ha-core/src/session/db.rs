@@ -25,7 +25,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            s.created_at, s.updated_at,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
-           s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.tool_permission_mode, s.incognito,
+           s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source
      FROM sessions s
@@ -319,6 +319,19 @@ impl SessionDB {
             )?;
         }
 
+        // Migration: permission system v2 — per-session permission mode
+        // (default | smart | yolo) replacing the old `tool_permission_mode`
+        // (auto | ask_every_time | full_approve). Clean break — old column
+        // stays for forward-compat reads but is no longer the source of truth.
+        let has_permission_mode = conn
+            .prepare("SELECT permission_mode FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_permission_mode {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default';",
+            )?;
+        }
+
         // Migration: pending ask_user_question groups for resume-after-restart.
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS ask_user_questions (
@@ -342,6 +355,7 @@ impl SessionDB {
                 session_id TEXT NOT NULL,
                 content TEXT NOT NULL,
                 active_form TEXT,
+                batch_id TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -354,6 +368,10 @@ impl SessionDB {
             .is_ok();
         if !has_active_form {
             conn.execute_batch("ALTER TABLE tasks ADD COLUMN active_form TEXT;")?;
+        }
+        let has_batch_id = conn.prepare("SELECT batch_id FROM tasks LIMIT 1").is_ok();
+        if !has_batch_id {
+            conn.execute_batch("ALTER TABLE tasks ADD COLUMN batch_id TEXT;")?;
         }
 
         // Migration: Agent Team tables
@@ -762,8 +780,8 @@ impl SessionDB {
             pending_interaction_count: 0,
             is_cron: false,
             parent_session_id: parent_session_id.map(|s| s.to_string()),
-            plan_mode: "off".to_string(),
-            tool_permission_mode: "auto".to_string(),
+            plan_mode: crate::plan::PlanModeState::Off,
+            permission_mode: crate::permission::SessionMode::Default,
             project_id: project_id.map(|s| s.to_string()),
             channel_info: None,
             incognito,
@@ -1181,11 +1199,13 @@ impl SessionDB {
             parent_session_id: row.get(11)?,
             plan_mode: row
                 .get::<_, String>(12)
-                .unwrap_or_else(|_| "off".to_string()),
+                .map(|s| crate::plan::PlanModeState::from_str(&s))
+                .unwrap_or_default(),
             project_id: row.get(13)?,
-            tool_permission_mode: row
+            permission_mode: row
                 .get::<_, String>(14)
-                .unwrap_or_else(|_| "auto".to_string()),
+                .map(|s| crate::permission::SessionMode::parse_or_default(&s))
+                .unwrap_or_default(),
             incognito: row.get::<_, i64>(15).unwrap_or(0) != 0,
             channel_info,
             working_dir: row.get(21).ok().flatten(),
@@ -1452,32 +1472,36 @@ impl SessionDB {
     }
 
     /// Update the plan mode state for a session.
-    pub fn update_session_plan_mode(&self, session_id: &str, plan_mode: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        conn.execute(
-            "UPDATE sessions SET plan_mode = ?1 WHERE id = ?2",
-            params![plan_mode, session_id],
-        )?;
-        Ok(())
-    }
-
-    /// Persist the tool permission mode (`auto` / `ask_every_time` / `full_approve`)
-    /// for a session so the chat input's toggle is restored on revisit.
-    pub fn update_session_tool_permission_mode(
+    pub fn update_session_plan_mode(
         &self,
         session_id: &str,
-        tool_permission_mode: &str,
+        plan_mode: crate::plan::PlanModeState,
     ) -> Result<()> {
         let conn = self
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
         conn.execute(
-            "UPDATE sessions SET tool_permission_mode = ?1 WHERE id = ?2",
-            params![tool_permission_mode, session_id],
+            "UPDATE sessions SET plan_mode = ?1 WHERE id = ?2",
+            params![plan_mode.as_str(), session_id],
+        )?;
+        Ok(())
+    }
+
+    /// Persist the session permission mode (`default` / `smart` / `yolo`)
+    /// so the chat title bar's mode switcher is restored on revisit.
+    pub fn update_session_permission_mode(
+        &self,
+        session_id: &str,
+        mode: crate::permission::SessionMode,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET permission_mode = ?1 WHERE id = ?2",
+            params![mode.as_str(), session_id],
         )?;
         Ok(())
     }

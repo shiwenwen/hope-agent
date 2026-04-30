@@ -209,7 +209,7 @@
     "viewSystemPrompt": "查看系统提示词",
     "details": "详情",
     "duration": "耗时",
-    "modifiedFiles": "修改的文件",
+    "modifiedFiles": "生成/修改的文件",
     "openFile": "点击打开文件",
     "revealInFolder": "打开所在文件夹",
     "inputTokens": "输入",
@@ -238,13 +238,20 @@
     "compactNoChange": "当前上下文无需压缩",
     "compactFailed": "压缩失败",
     "viewContext": "查看上下文",
-    "toolPermission": "工具权限",
-    "toolPermissionAuto": "自动决策",
-    "toolPermissionAsk": "每次询问",
-    "toolPermissionFull": "完全授权",
-    "toolPermissionAutoDesc": "由模型决定是否需要授权",
-    "toolPermissionAskDesc": "每次工具调用都需要确认",
-    "toolPermissionFullDesc": "自动批准所有工具调用",
+    "permissionMode": {
+      "default": {
+        "label": "默认",
+        "desc": "编辑类工具与高危命令需要审批，其余直接放行"
+      },
+      "smart": {
+        "label": "智能审批",
+        "desc": "由模型自评或独立判官模型决定是否需要审批"
+      },
+      "yolo": {
+        "label": "完全放行",
+        "desc": "本会话内所有工具直接执行（保护路径仍记审计日志）"
+      }
+    },
     "statusCache": "缓存",
     "statusCacheWrite": "写入",
     "statusCacheHit": "命中",
@@ -394,6 +401,18 @@
     "acp_spawn": "启动 ACP Agent",
     "submit_plan": "提交计划",
     "amend_plan": "修改计划",
+    "task_create": "创建任务",
+    "task_update": "更新任务",
+    "task_list": "任务列表",
+    "team": "Agent 团队",
+    "peek_sessions": "查看其它会话",
+    "get_settings": "读取设置",
+    "update_settings": "更新设置",
+    "list_settings_backups": "列出设置备份",
+    "restore_settings_backup": "恢复设置备份",
+    "mcp_resource": "MCP 资源",
+    "mcp_prompt": "MCP 提示词",
+    "skill": "加载技能",
     "ask_user": {
       "cancelled": "用户取消了提问",
       "no_answers": "未作答",
@@ -794,6 +813,7 @@
       "autoApproveLabel": "跳过工具审批（自动放行）",
       "autoApproveNeedsTrust": "只有在信任等级为「已信任」时才能开启自动放行。",
       "eagerLabel": "启动时预连接",
+      "deferredToolsLabel": "延迟加载工具 schema",
       "allowedTools": "工具白名单",
       "allowedToolsHint": "留空 = 允许全部；每行一个工具原名（不带 mcp__ 前缀）。",
       "deniedTools": "工具黑名单",
@@ -1119,7 +1139,7 @@
     "acpControl": "ACP 控制面",
     "acpControlDesc": "管理外部 ACP Agent（Claude Code、Codex CLI、Gemini CLI 等）",
     "acpEnabled": "启用 ACP 控制面",
-    "acpEnabledDesc": "允许 Agent 启动外部 ACP Agent 进行任务委派",
+    "acpEnabledDesc": "允许 Agent 调用外部 ACP Agent 执行任务",
     "acpBackends": "ACP 后端",
     "acpSettings": "设置",
     "acpAutoDiscover": "自动发现后端",
@@ -1411,7 +1431,7 @@
     "contextCompactMicrocompactEnabledDesc": "零成本清除旧的临时工具结果（ls/grep/find 等），在其他压缩层之前运行",
     "contextCompactMicrocompactTools": "微压缩工具列表",
     "contextCompactMicrocompactToolsDesc": "选中的工具的旧结果会被自动清除",
-    "contextCompactToolPolicy": "工具压缩策略",
+    "contextCompactToolPolicy": "工具执行结果压缩策略",
     "contextCompactToolPolicyDesc": "控制每个工具结果在上下文压缩时的处理方式",
     "contextCompactPolicyEager": "优先清除",
     "contextCompactPolicyDefault": "正常压缩",
@@ -1520,7 +1540,9 @@
     "asyncToolsInlineBytes": "内联结果字节数",
     "asyncToolsInlineBytesDesc": "结果少于此字节直接内联到完成通知中，超过则 spool 到磁盘并只注入 head/tail 预览",
     "deferredToolsEnabled": "延迟工具加载",
-    "deferredToolsEnabledDesc": "首轮只发送核心工具 schema，其余由模型通过 tool_search 按需发现。为装了大量工具的 Agent 节省 schema tokens。下次对话生效",
+    "deferredToolsEnabledDesc": "启用基于 tool_search 的按需加载。工具默认仍会直接注入，除非你在下方单独设为延迟。下次对话生效",
+    "deferredToolsPerToolTitle": "延迟加载的内置工具",
+    "deferredToolsPerToolDesc": "只打开那些希望通过 tool_search 发现、而不是首轮直接发送 schema 的工具。",
     "memorySelection": "LLM 记忆语义选择",
     "memorySelectionDesc": "当候选记忆数超过阈值时，让模型从中挑选最相关的注入系统提示，降低噪声",
     "memorySelectionThreshold": "触发阈值",
@@ -1643,20 +1665,150 @@
     "agentIdentity": "身份",
     "agentPersonalityTab": "性格",
     "agentBasicInfo": "基本信息",
-    "agentCapabilities": "能力",
+    "agentCapabilities": "工具 & 技能",
     "agentCapabilitiesTabTools": "工具",
     "agentCapabilitiesTabSkills": "技能",
     "agentCapabilitiesToolInjection": "工具注入",
     "agentCapabilitiesToolInjectionDesc": "选择该 Agent 可使用的内置工具（系统级内部工具始终可用）",
+    "agentTierCoreTitle": "核心工具",
+    "agentTierCoreDesc": "所有 Agent 必须的基础能力，无法关闭。",
+    "agentTierCoreBadge": "始终启用",
+    "agentTierStandardTitle": "标准工具",
+    "agentTierStandardDesc": "Agent 默认可用，可单独关闭。部分能力还需在全局设置里配置 provider 才能真正使用。",
+    "agentTierConfiguredHint": "未配置 · 去 {{hint}}",
+    "agentMcpTitle": "MCP",
+    "agentMcpDesc": "启用后所有连接的 MCP 服务器及其工具自动可用；关闭则跳过所有 MCP 工具。",
+    "agentMcpEnableLabel": "启用 MCP",
+    "agentMcpBadgeOn": "已启用",
+    "agentMcpBadgeOff": "已关闭",
     "agentMaxToolRounds": "最大工具调用轮数",
     "agentUnlimited": "不限制",
     "agentSkills": "技能",
     "agentSkillsDesc": "全局开启的技能默认对此 Agent 可用，可单独禁用不需要的",
-    "agentRequireApproval": "工具审批",
-    "agentRequireApprovalDesc": "控制 AI 使用工具前是否需要你确认",
-    "agentApprovalAll": "全部审批",
-    "agentApprovalNone": "无需审批",
-    "agentApprovalCustom": "自定义",
+    "approvalNav": "权限",
+    "approvalPanel": {
+      "title": "权限",
+      "intro": "审批弹窗与「永远跳过审批」的全局开关、保护路径 / 编辑命令 / 危险命令模式列表，以及智能审批模式配置。",
+      "yoloTitle": "全局 YOLO（跳过所有审批）",
+      "yoloDesc": "开启后所有工具直接执行，仅 Plan 模式仍能拦截。保护路径 / 危险命令命中只落 warn 日志不再弹审批。",
+      "yoloEnabled": "已开启全局 YOLO",
+      "yoloDisabled": "已关闭全局 YOLO",
+      "yoloCliActive": "⚠️ 当前 CLI 启动参数 --dangerously-skip-all-approvals 已激活，无法在 GUI 关闭。",
+      "protectedPathsTitle": "保护路径",
+      "protectedPathsDesc": "命中以下路径模式时强制审批，不可 AllowAlways 跳过。支持 ~/ 展开、目录前缀（结尾 /）、通配（*.pem）。",
+      "protectedPathsPlaceholder": "如：~/.ssh/、.env、*.pem",
+      "editCommandsTitle": "编辑命令",
+      "editCommandsDesc": "Default 模式下 exec 命中这些命令模式需要审批，可 AllowAlways。命令为子串匹配（不区分大小写）。",
+      "editCommandsPlaceholder": "如：rm 、git commit、npm install",
+      "dangerousCommandsTitle": "危险命令",
+      "dangerousCommandsDesc": "命中即强制审批且不可 AllowAlways。YOLO 模式可绕过但仍会写审计日志。",
+      "dangerousCommandsPlaceholder": "如：rm -rf /、git push --force",
+      "smartTitle": "智能审批模式",
+      "smartDesc": "Smart 会话模式下，由模型自评（_confidence 字段）或独立判官模型决定审批与否。",
+      "smartStrategy": "决策策略",
+      "smartFallback": "判官不可用时的降级",
+      "strategies": {
+        "self_confidence": "模型自评",
+        "judge_model": "独立判官模型",
+        "both": "判官优先 + 自评兜底"
+      },
+      "fallbacks": {
+        "default": "降级为默认模式",
+        "ask": "强制弹审批",
+        "allow": "强制放行"
+      },
+      "judgeModelTitle": "判官模型配置",
+      "judgeProviderPlaceholder": "Provider ID（如 anthropic-1）",
+      "judgeModelPlaceholder": "Model（如 claude-haiku-4-5）",
+      "judgeExtraPromptPlaceholder": "可选：附加给判官的提示词（白名单路径、信任命令等）",
+      "timeoutTitle": "审批弹窗超时",
+      "timeoutDesc": "超过该时长未响应时按下方策略处理，0 表示永不超时。",
+      "timeoutSeconds": "超时秒数",
+      "timeoutHint": "0 表示无限等待",
+      "timeoutAction": "超时动作",
+      "timeoutActions": {
+        "deny": "拒绝执行",
+        "proceed": "放行执行"
+      },
+      "empty": "暂无条目，添加新模式以启用",
+      "restoreDefaults": "恢复默认",
+      "restoredDefaults": "已恢复为默认列表"
+    },
+    "agentApprovalTab": "审批",
+    "agentApproval": {
+      "defaultModeTitle": "默认会话权限模式",
+      "defaultModeDesc": "新建会话时的初始权限模式，已存在的会话不受影响。",
+      "modes": {
+        "inherit": {
+          "label": "跟随全局",
+          "desc": "由全局默认决定（当前为「默认」模式）"
+        },
+        "default": {
+          "label": "默认",
+          "desc": "编辑类工具与高危命令需要审批"
+        },
+        "smart": {
+          "label": "智能审批",
+          "desc": "由判官模型或模型自评决定审批"
+        },
+        "yolo": {
+          "label": "完全放行",
+          "desc": "本会话所有工具直接执行（保护路径仍记审计日志）"
+        }
+      },
+      "customApprovalTitle": "自定义工具审批",
+      "customApprovalDesc": "在默认模式下，让额外勾选的工具也需要每次审批。",
+      "customApprovalHint": "提示：仅在「默认」会话模式下生效，智能审批/完全放行模式下被忽略。",
+      "groups": {
+        "shell": "Shell 与进程",
+        "browser": "浏览器",
+        "settings": "配置变更",
+        "outbound": "外发",
+        "paid": "付费 API",
+        "spawn": "外部子进程",
+        "network": "网络访问",
+        "crossSession": "跨会话只读",
+        "settingsRead": "配置查询"
+      },
+      "toolNames": {
+        "process": "后台进程管理",
+        "browser": "浏览器控制",
+        "update_settings": "修改设置",
+        "restore_settings_backup": "恢复设置备份",
+        "send_attachment": "发送附件",
+        "sessions_send": "跨会话发送",
+        "image_generate": "图像生成",
+        "acp_spawn": "ACP 子代理",
+        "web_fetch": "网页抓取",
+        "web_search": "网络搜索",
+        "peek_sessions": "窥视会话",
+        "sessions_list": "会话列表",
+        "sessions_history": "会话历史",
+        "session_status": "会话状态",
+        "agents_list": "Agent 列表",
+        "get_settings": "读取设置",
+        "list_settings_backups": "列出设置备份"
+      },
+      "toolDescs": {
+        "process": "管理 exec 后台会话（kill/write/clear/remove）",
+        "browser": "通过 CDP 驱动浏览器，UI 自动化",
+        "update_settings": "修改 AppConfig 配置",
+        "restore_settings_backup": "回滚到历史设置备份",
+        "send_attachment": "向 IM 渠道发送附件",
+        "sessions_send": "向其它会话发送消息触发其执行",
+        "image_generate": "调用付费 API 生成图像",
+        "acp_spawn": "启动外部 ACP 子代理进程",
+        "web_fetch": "抓取 URL 提取正文",
+        "web_search": "通过搜索引擎查询",
+        "peek_sessions": "查看其它会话的实时活动",
+        "sessions_list": "列出所有会话元数据",
+        "sessions_history": "读取其它会话历史消息",
+        "session_status": "查询会话当前状态",
+        "agents_list": "列出所有 Agent 配置",
+        "get_settings": "读取应用配置",
+        "list_settings_backups": "列出配置备份历史"
+      }
+    },
     "toolExecName": "执行命令",
     "toolExecDesc": "执行 Shell 命令，支持后台运行和沙箱隔离",
     "toolProcessName": "进程管理",
@@ -1696,13 +1848,59 @@
     "toolSendNotificationName": "发送通知",
     "toolSendNotificationDesc": "发送桌面通知消息",
     "toolSubagentName": "子 Agent",
-    "toolSubagentDesc": "委派任务给子 Agent 执行",
+    "toolSubagentDesc": "调用子 Agent 执行任务",
     "toolTaskCreateName": "创建任务",
     "toolTaskCreateDesc": "为当前会话创建可追踪的任务",
     "toolTaskUpdateName": "更新任务",
     "toolTaskUpdateDesc": "更新现有任务的状态或内容",
     "toolTaskListName": "任务列表",
     "toolTaskListDesc": "列出当前会话中的所有任务",
+    "toolMcpResourceName": "MCP 资源",
+    "toolMcpResourceDesc": "读取 MCP 服务器托管的资源（文件、记录等）",
+    "toolMcpPromptName": "MCP 提示词",
+    "toolMcpPromptDesc": "获取 MCP 服务器提供的提示词模板",
+    "toolImageGenerateName": "生成图片",
+    "toolImageGenerateDesc": "文生图 / 图生图，支持多 provider 自动降级",
+    "toolCanvasName": "画布",
+    "toolCanvasDesc": "在沙箱预览面板创建可视化项目（HTML / Markdown / 图表 / 演示文稿等）",
+    "toolAcpSpawnName": "调用外部 Agent",
+    "toolAcpSpawnDesc": "调用 Claude Code、Codex CLI 等外部 ACP Agent",
+    "toolProjectReadFileName": "读取项目文件",
+    "toolProjectReadFileDesc": "读取当前会话所属 Project 上传的文件",
+    "toolAskUserQuestionName": "询问用户",
+    "toolAskUserQuestionDesc": "向用户发起结构化问答（单选 / 多选 / 自由输入）",
+    "toolSendAttachmentName": "发送附件",
+    "toolSendAttachmentDesc": "把生成的文件以可下载卡片推送到桌面 UI",
+    "toolAgentsListName": "列出 Agent",
+    "toolAgentsListDesc": "列出所有可用 Agent 的描述与能力",
+    "toolSessionsListName": "会话列表",
+    "toolSessionsListDesc": "列出当前会话之外的会话（标题 / Agent / 模型 / 消息数）",
+    "toolSessionStatusName": "会话状态",
+    "toolSessionStatusDesc": "查询单个会话的 Agent / 模型 / 消息数 / 时间戳",
+    "toolSessionsHistoryName": "会话历史",
+    "toolSessionsHistoryDesc": "分页读取某会话的历史消息",
+    "toolSessionsSendName": "跨会话发送",
+    "toolSessionsSendDesc": "向其他会话发送 user 消息（可阻塞等待回复）",
+    "toolPeekSessionsName": "窥视会话",
+    "toolPeekSessionsDesc": "跨会话感知，返回其它会话的紧凑列表（标题 / 目标 / 时间）",
+    "toolTeamName": "Agent 团队",
+    "toolTeamDesc": "创建并管理 Agent 团队（多成员协作、共享任务板、跨成员消息）",
+    "toolPdfName": "PDF 解析",
+    "toolPdfDesc": "提取 PDF 文本或视觉解析（支持多文件、页码范围）",
+    "toolImageName": "图像分析",
+    "toolImageDesc": "视觉分析图片（支持本地路径 / URL / 剪贴板 / 屏幕截图）",
+    "toolGetSettingsName": "读取设置",
+    "toolGetSettingsDesc": "读取应用配置项（按 category 分组）",
+    "toolUpdateSettingsName": "修改设置",
+    "toolUpdateSettingsDesc": "修改应用配置项（按 category 分组，含风险分级）",
+    "toolListSettingsBackupsName": "设置备份列表",
+    "toolListSettingsBackupsDesc": "列出已保存的设置备份",
+    "toolRestoreSettingsBackupName": "恢复设置备份",
+    "toolRestoreSettingsBackupDesc": "从已保存的备份还原设置",
+    "toolMemoryGetName": "获取记忆",
+    "toolMemoryGetDesc": "按 ID 获取单条记忆的完整内容",
+    "toolUpdateCoreMemoryName": "更新核心记忆",
+    "toolUpdateCoreMemoryDesc": "更新常驻系统提示词的 memory.md 文件",
     "agentSandbox": "Docker 沙箱",
     "agentSandboxDesc": "在 Docker 容器中执行命令",
     "agentSkillEnvCheck": "运行环境检查",
@@ -1779,12 +1977,12 @@
     "agentDeleteConfirm": "确定要删除这个 Agent 吗？",
     "agentCannotDeleteDefault": "默认 Agent 不可删除",
     "agentSaved": "已保存",
-    "subagentTitle": "子 Agent 委派",
-    "subagentEnabled": "允许生成子 Agent",
-    "subagentAllowedAgents": "启用的子 Agent",
-    "subagentAllowedAgentsHint": "选择允许委派任务的 Agent，取消勾选将禁止委派给该 Agent",
+    "subagentTitle": "子 Agent 调用",
+    "subagentEnabled": "允许调用子 Agent",
+    "subagentAllowedAgents": "可调用的子 Agent",
+    "subagentAllowedAgentsHint": "选择可被调用的 Agent，取消勾选将禁止调用该 Agent",
     "subagentMaxConcurrent": "最大并发子 Agent 数",
-    "subagentMaxBatchSize": "批量派发上限",
+    "subagentMaxBatchSize": "批量调用上限",
     "teamEnabled": "启用 Agent 团队",
     "teamMaxActiveTeams": "最大同时活跃团队数",
     "teamMaxMembersPerTeam": "每团队最大成员数",
@@ -2150,6 +2348,22 @@
         "searchFailed": "搜索 Ollama 模型库失败",
         "detailFailed": "加载模型版本失败"
       }
+    },
+    "skillsTab": {
+      "manage": "技能",
+      "evolution": "自我进化"
+    },
+    "skillsEvolutionHero": {
+      "title": "把你做过的事，沉淀成可复用的本事",
+      "body": "Hope Agent 不会停在原地。每聊一阵，会回看对话、把你重复做过的事提炼成可复用的技能 —— 下次再遇到，直接就会了。",
+      "note": "默认开启 · 越用越懂你。关闭后不影响日常对话，只是不再自动沉淀新技能。",
+      "statusOn": "进化中",
+      "statusOff": "已暂停"
+    },
+    "skillsAutoReview": {
+      "label": "新技能自动激活",
+      "description": "跳过草稿审核 —— 自动生成的技能立即上岗。",
+      "hint": "关闭（默认）：新技能落入草稿区，需你过目后才生效。"
     }
   },
   "tz": {
@@ -2496,8 +2710,44 @@
     "command": "命令",
     "allowOnce": "允许一次",
     "allowAlways": "始终允许",
+    "allowAlwaysDisabled": "命中保护路径或危险命令时无法选择「始终允许」",
     "deny": "拒绝",
-    "queueIndicator": "第 {{current}} 个，共 {{total}} 个"
+    "queueIndicator": "第 {{current}} 个，共 {{total}} 个",
+    "countdownTooltip": "剩余 {{seconds}} 秒，超时将自动{{action}}",
+    "countdownAction": {
+      "deny": "拒绝",
+      "proceed": "放行"
+    },
+    "reasons": {
+      "edit_tool": {
+        "title": "编辑类工具",
+        "body": "默认模式下文件写入工具（write/edit/apply_patch）需要确认。"
+      },
+      "edit_command": {
+        "title": "编辑性 exec 命令",
+        "body": "命中编辑命令模式列表，默认模式下需要确认；可选「始终允许」记入命令前缀白名单。"
+      },
+      "dangerous_command": {
+        "title": "⚠️ 危险命令",
+        "body": "命中危险命令模式列表，必须每次确认，无法「始终允许」。"
+      },
+      "protected_path": {
+        "title": "⚠️ 保护路径",
+        "body": "命中保护路径列表，必须每次确认，无法「始终允许」。"
+      },
+      "agent_custom_list": {
+        "title": "Agent 自定义审批清单",
+        "body": "Agent 配置里勾选了该工具进入「自定义工具审批」清单，仅 Default 模式下生效。"
+      },
+      "smart_judge": {
+        "title": "智能审批判官建议",
+        "body": "智能审批模式下判官模型判定本次调用需要人工确认。"
+      },
+      "plan_mode_ask": {
+        "title": "Plan Mode 显式确认",
+        "body": "Plan 模式下该工具被列入「需逐次确认」清单——白名单允许调用，但每次仍需人工授权。"
+      }
+    }
   },
   "thinking": {
     "label": "思考过程",
@@ -2730,6 +2980,8 @@
     "stepsDetected": "个步骤已识别",
     "noSteps": "暂无步骤",
     "executeCommand": "开始执行计划：先根据已批准计划创建 todos，按顺序执行，并调用 update_plan_step 更新高层计划进度。",
+    "executionApproved": "已批准计划，开始执行。",
+    "executionResumed": "继续执行计划。",
     "planning": "正在制定计划...",
     "pause": "暂停",
     "resume": "恢复执行",
@@ -3450,5 +3702,12 @@
     "fileTooLarge": "文件过大，仅渲染前 256KB",
     "noDiffData": "无 diff 数据",
     "resizePanel": "调整 diff 面板宽度"
+  },
+  "skills": {
+    "toast": {
+      "draftCreated": "已自动创建草稿技能：{{name}}。点击审核。",
+      "review": "审核",
+      "unnamedSkill": "(未命名技能)"
+    }
   }
 }

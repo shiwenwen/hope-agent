@@ -106,6 +106,16 @@ export function extractModifiedFiles(blocks: ContentBlock[]): string[] {
   for (const block of blocks) {
     if (block.type !== "tool_call") continue
     const { name, arguments: args, result } = block.tool
+    const metadata = block.tool.metadata
+
+    if (metadata?.kind === "file_change") {
+      if (metadata.action !== "delete") files.add(metadata.path)
+    } else if (metadata?.kind === "file_changes") {
+      for (const change of metadata.changes) {
+        if (change.action !== "delete") files.add(change.path)
+      }
+    }
+
     if (!result) continue
 
     if (

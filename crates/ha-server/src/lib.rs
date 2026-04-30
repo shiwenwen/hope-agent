@@ -224,8 +224,8 @@ fn build_router_with_cors(
             post(routes::runtime_tasks::cancel_runtime_task),
         )
         .route(
-            "/chat/tool-permission-mode",
-            post(routes::chat::set_tool_permission_mode),
+            "/chat/permission-mode",
+            post(routes::chat::set_permission_mode),
         )
         .route(
             "/chat/approval/{request_id}",
@@ -951,6 +951,16 @@ fn build_router_with_cors(
             delete(routes::skills::discard_draft_skill),
         )
         .route(
+            "/skills/auto-review/promotion",
+            get(routes::skills::get_auto_review_promotion)
+                .put(routes::skills::set_auto_review_promotion),
+        )
+        .route(
+            "/skills/auto-review/enabled",
+            get(routes::skills::get_auto_review_enabled)
+                .put(routes::skills::set_auto_review_enabled),
+        )
+        .route(
             "/skills/extra-dirs",
             get(routes::skills::get_extra_skills_dirs),
         )
@@ -1191,6 +1201,42 @@ fn build_router_with_cors(
         .route(
             "/security/dangerous-skip-all-approvals",
             post(routes::misc::set_dangerous_skip_all_approvals),
+        )
+        // Permission system v2 — pattern lists + Smart mode + Global YOLO status
+        .route(
+            "/permission/protected-paths",
+            get(routes::permission::get_protected_paths)
+                .post(routes::permission::set_protected_paths),
+        )
+        .route(
+            "/permission/protected-paths/reset",
+            post(routes::permission::reset_protected_paths),
+        )
+        .route(
+            "/permission/dangerous-commands",
+            get(routes::permission::get_dangerous_commands)
+                .post(routes::permission::set_dangerous_commands),
+        )
+        .route(
+            "/permission/dangerous-commands/reset",
+            post(routes::permission::reset_dangerous_commands),
+        )
+        .route(
+            "/permission/edit-commands",
+            get(routes::permission::get_edit_commands).post(routes::permission::set_edit_commands),
+        )
+        .route(
+            "/permission/edit-commands/reset",
+            post(routes::permission::reset_edit_commands),
+        )
+        .route(
+            "/permission/smart",
+            get(routes::permission::get_smart_mode_config)
+                .post(routes::permission::set_smart_mode_config),
+        )
+        .route(
+            "/permission/global-yolo",
+            get(routes::permission::get_global_yolo_status),
         )
         // Local LLM assistant
         .route("/local-llm/hardware", get(routes::local_llm::get_hardware))

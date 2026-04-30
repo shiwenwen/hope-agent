@@ -31,6 +31,43 @@ use super::{
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
 
+/// Single entry point that builds a [`permission::engine::ResolveContext`]
+/// from a [`ToolExecContext`] and runs `engine::resolve_async`. Both
+/// `execute_tool_with_context` (engine gate) and `tools::exec::tool_exec`
+/// (command-level gate) call this so the 14-field context struct lives in
+/// exactly one place — adding a new permission input only touches here.
+///
+/// Smart sessions are the only mode that consumes
+/// `AppConfig.permission.smart`; non-Smart skips the config load to keep
+/// the per-dispatch hot path at one ArcSwap::load() (or zero, for the
+/// Default/YOLO majority).
+pub(super) async fn resolve_tool_permission(
+    tool_name: &str,
+    args: &Value,
+    ctx: &ToolExecContext,
+    is_internal_tool: bool,
+) -> crate::permission::Decision {
+    let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
+        .then(crate::config::cached_config);
+    let resolve_ctx = crate::permission::engine::ResolveContext {
+        tool_name,
+        args,
+        session_mode: ctx.session_mode,
+        global_yolo: crate::security::dangerous::is_dangerous_skip_active(),
+        plan_mode: !ctx.plan_mode_allowed_tools.is_empty(),
+        plan_mode_allowed_tools: &ctx.plan_mode_allowed_tools,
+        plan_mode_ask_tools: &ctx.plan_mode_ask_tools,
+        agent_custom_approval_enabled: ctx.agent_custom_approval_enabled,
+        agent_custom_approval_tools: &ctx.agent_custom_approval_tools,
+        session_id: ctx.session_id.as_deref(),
+        project_id: ctx.project_id.as_deref(),
+        agent_id: ctx.agent_id.as_deref(),
+        is_internal_tool,
+        smart_config: app_cfg.as_deref().map(|c| &c.permission.smart),
+    };
+    crate::permission::engine::resolve_async(&resolve_ctx).await
+}
+
 /// Load the user-configured tool timeout from config.json. Returns `None`
 /// when the user explicitly set 0 (disabled). The serde default in
 /// [`AppConfig`] provides the 300s fallback when the field is missing.
@@ -60,8 +97,8 @@ fn tool_timeout() -> Option<Duration> {
 /// branch holds an independent clone, so writes through such a lock would be
 /// invisible to peers and to subsequent rounds. State that must be shared
 /// across concurrent tools belongs in a process-global
-/// `OnceLock<TokioMutex<...>>` (see [`super::approval::TOOL_PERMISSION_MODE`]
-/// and [`super::approval::pending_approvals_per_session`] for the canonical
+/// `OnceLock<TokioMutex<...>>` (see
+/// [`super::approval::pending_approvals_per_session`] for the canonical
 /// pattern).
 #[derive(Debug, Clone, Default)]
 pub struct ToolExecContext {
@@ -82,9 +119,6 @@ pub struct ToolExecContext {
     pub agent_id: Option<String>,
     /// Sub-agent nesting depth (0 = top-level)
     pub subagent_depth: u32,
-    /// Tool names that require user approval before execution.
-    /// `["*"]` means all tools require approval.
-    pub require_approval: Vec<String>,
     /// Agent-level tool filter from `agent.json` capabilities.tools.
     /// Internal system tools are exempt at this layer to preserve existing UI semantics.
     pub agent_tool_filter: crate::agent_config::FilterConfig,
@@ -101,8 +135,24 @@ pub struct ToolExecContext {
     /// Plan mode tool whitelist: when non-empty, only these tools can execute.
     /// Enforced at execution layer as defense-in-depth (supplements schema-level filtering).
     pub plan_mode_allowed_tools: Vec<String>,
+    /// Plan mode tools that are whitelisted but still need explicit per-call
+    /// approval (`ask_tools` from the plan agent config). Defaults to `exec`
+    /// for the bundled plan agent so a planning subagent can't run shell
+    /// commands without confirmation.
+    pub plan_mode_ask_tools: Vec<String>,
     /// When true, automatically approve all tool calls (IM channel auto-approve mode).
     pub auto_approve_tools: bool,
+    /// Per-session permission mode (Default / Smart / Yolo). Resolved from the
+    /// `sessions.permission_mode` column at agent build time. The engine
+    /// consumes this together with `global_yolo` to decide approval behavior.
+    pub session_mode: crate::permission::SessionMode,
+    /// Agent-level "custom tool approval" toggle from `agent.json`.
+    /// When false, `agent_custom_approval_tools` is ignored.
+    pub agent_custom_approval_enabled: bool,
+    /// Agent-level extra approval list. Only consumed in Default mode.
+    pub agent_custom_approval_tools: Vec<String>,
+    /// Project id (if any) for AllowAlways scope resolution.
+    pub project_id: Option<String>,
     /// Per-agent async tool backgrounding policy (mirrors AgentConfig.capabilities.async_tool_policy).
     pub async_tool_policy: AsyncToolPolicy,
     /// Internal flag set by the async-job spawner when re-dispatching an
@@ -280,30 +330,6 @@ fn is_skill_read(name: &str, args: &Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Check if a tool requires approval based on the context's require_approval list.
-fn tool_needs_approval(name: &str, args: &Value, ctx: &ToolExecContext) -> bool {
-    // Internal capability tools never need approval (flag set on ToolDefinition)
-    if super::is_internal_tool(name) {
-        return false;
-    }
-    // Reading SKILL.md files never needs approval — skills are pre-authorized
-    if name == TOOL_READ {
-        if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-            if path.ends_with("/SKILL.md") || path.ends_with("\\SKILL.md") {
-                return false;
-            }
-        }
-    }
-    if ctx.require_approval.is_empty() {
-        return false;
-    }
-    // "*" means all (non-internal) tools require approval
-    if ctx.require_approval.iter().any(|t| t == "*") {
-        return true;
-    }
-    ctx.require_approval.iter().any(|t| t == name)
-}
-
 /// Execute a tool with additional context (model info, etc.)
 pub async fn execute_tool_with_context(
     name: &str,
@@ -326,100 +352,103 @@ pub async fn execute_tool_with_context(
     let async_decision = decide_async_path(name, args, ctx);
 
     // ── Tool-level approval gate ─────────────────────────────────
-    // Check session-level permission mode and tool-level approval requirements.
-    // Note: exec tool has its own command-level approval inside tool_exec;
-    // this is the tool-level gate that applies to ALL approvable tools.
-    let perm_mode = approval::get_tool_permission_mode().await;
-    let dangerous_mode = crate::security::dangerous::is_dangerous_skip_active();
-    let needs_approval = if ctx.auto_approve_tools || dangerous_mode {
-        false
-    } else {
-        match perm_mode {
-            approval::ToolPermissionMode::FullApprove => false,
-            approval::ToolPermissionMode::AskEveryTime => {
-                // In ask_every_time mode, all non-internal tools need approval
-                // (except reading SKILL.md — pre-authorized by skill system)
-                !super::is_internal_tool(name) && name != TOOL_EXEC && !is_skill_read(name, args)
+    // Run the unified permission engine. The engine consumes:
+    //   plan_mode → YOLO → protected_paths → dangerous_commands → AllowAlways
+    //   → session_mode preset → fallback Allow
+    // and returns Allow / Ask / Deny. `exec` retains a separate command-level
+    // gate further inside `tool_exec` for legacy AllowAlways prefix matching.
+    //
+    // SKILL.md reads are pre-authorized — skip the engine entirely so the
+    // skill bootstrap never blocks on permission state.
+    let needs_engine = !ctx.auto_approve_tools && !is_skill_read(name, args) && name != TOOL_EXEC;
+    if needs_engine {
+        let decision =
+            resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
+        match decision {
+            crate::permission::Decision::Allow => {}
+            crate::permission::Decision::Deny { reason } => {
+                return Err(anyhow::anyhow!("Tool '{}' denied: {}", name, reason));
             }
-            approval::ToolPermissionMode::Auto => {
-                tool_needs_approval(name, args, ctx) && name != TOOL_EXEC
-            }
-        }
-    };
-    if dangerous_mode && !ctx.auto_approve_tools && !super::is_internal_tool(name) {
-        app_warn!(
-            "tool",
-            "dangerous_mode",
-            "Tool '{}' bypassed approval (DANGEROUS MODE active via {})",
-            name,
-            crate::security::dangerous::active_source()
-        );
-    }
-    if needs_approval {
-        let desc = format!("tool: {} {}", name, {
-            let s = args.to_string();
-            if s.len() > 200 {
-                format!("{}...", crate::truncate_utf8(&s, 200))
-            } else {
-                s
-            }
-        });
-        let cwd = ctx.default_path();
-        match approval::check_and_request_approval(&desc, cwd, ctx.session_id.as_deref()).await {
-            Ok(approval::ApprovalResponse::AllowOnce) => {
-                app_info!("tool", "approval", "Tool '{}' approved (once)", name);
-            }
-            Ok(approval::ApprovalResponse::AllowAlways) => {
-                if perm_mode == approval::ToolPermissionMode::Auto {
-                    app_info!("tool", "approval", "Tool '{}' approved (always)", name);
-                    approval::add_to_allowlist(&desc).await;
-                } else {
-                    app_info!(
-                        "tool",
-                        "approval",
-                        "Tool '{}' approved (ask_every_time)",
-                        name
-                    );
-                }
-            }
-            Ok(approval::ApprovalResponse::Deny) => {
-                return Err(anyhow::anyhow!("Tool '{}' execution denied by user", name));
-            }
-            Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
-                match approval::approval_timeout_action() {
-                    crate::config::ApprovalTimeoutAction::Deny => {
+            crate::permission::Decision::Ask { reason } => {
+                let desc = format!("tool: {} {}", name, {
+                    let s = args.to_string();
+                    if s.len() > 200 {
+                        format!("{}...", crate::truncate_utf8(&s, 200))
+                    } else {
+                        s
+                    }
+                });
+                let cwd = ctx.default_path();
+                let reason_payload = Some(approval::ApprovalReasonPayload::from(&reason));
+                match approval::check_and_request_approval(
+                    &desc,
+                    cwd,
+                    ctx.session_id.as_deref(),
+                    reason_payload,
+                )
+                .await
+                {
+                    Ok(approval::ApprovalResponse::AllowOnce) => {
+                        app_info!("tool", "approval", "Tool '{}' approved (once)", name);
+                    }
+                    Ok(approval::ApprovalResponse::AllowAlways) => {
+                        if reason.forbids_allow_always() {
+                            app_info!(
+                                "tool",
+                                "approval",
+                                "Tool '{}' approved once (AllowAlways unavailable: {:?})",
+                                name,
+                                reason
+                            );
+                        } else {
+                            // Multi-scope (project / session / agent_home /
+                            // global) AllowAlways persistence is wired in by
+                            // the approval dialog upgrade. For now `exec`
+                            // still uses the legacy command-prefix store
+                            // inside `tool_exec`.
+                            app_info!("tool", "approval", "Tool '{}' approved (always)", name);
+                        }
+                    }
+                    Ok(approval::ApprovalResponse::Deny) => {
+                        return Err(anyhow::anyhow!("Tool '{}' execution denied by user", name));
+                    }
+                    Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
+                        match approval::approval_timeout_action() {
+                            crate::config::ApprovalTimeoutAction::Deny => {
+                                app_warn!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' approval timed out after {}s; blocking execution",
+                                    name,
+                                    timeout_secs
+                                );
+                                return Err(anyhow::anyhow!(
+                                    "Tool '{}' execution denied: approval timed out after {}s",
+                                    name,
+                                    timeout_secs
+                                ));
+                            }
+                            crate::config::ApprovalTimeoutAction::Proceed => {
+                                app_warn!(
+                                    "tool",
+                                    "approval",
+                                    "Tool '{}' approval timed out after {}s; proceeding by config",
+                                    name,
+                                    timeout_secs
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
                         app_warn!(
                             "tool",
                             "approval",
-                            "Tool '{}' approval timed out after {}s; blocking execution",
+                            "Tool approval check failed for '{}' ({}), proceeding",
                             name,
-                            timeout_secs
-                        );
-                        return Err(anyhow::anyhow!(
-                            "Tool '{}' execution denied: approval timed out after {}s",
-                            name,
-                            timeout_secs
-                        ));
-                    }
-                    crate::config::ApprovalTimeoutAction::Proceed => {
-                        app_warn!(
-                            "tool",
-                            "approval",
-                            "Tool '{}' approval timed out after {}s; proceeding by config",
-                            name,
-                            timeout_secs
+                            e
                         );
                     }
                 }
-            }
-            Err(e) => {
-                app_warn!(
-                    "tool",
-                    "approval",
-                    "Tool approval check failed for '{}' ({}), proceeding",
-                    name,
-                    e
-                );
             }
         }
     }
@@ -528,7 +557,7 @@ pub async fn execute_tool_with_context(
                     .await
             }
             TOOL_MANAGE_CRON => cron::tool_manage_cron(args, ctx.session_id.as_deref()).await,
-            TOOL_BROWSER => browser::tool_browser(args).await,
+            TOOL_BROWSER => browser::tool_browser(args, ctx.session_id.as_deref()).await,
             TOOL_SEND_NOTIFICATION => notification::tool_send_notification(args, ctx).await,
             TOOL_SUBAGENT => subagent::tool_subagent(args, ctx).await,
             TOOL_TEAM => team::tool_team(args, ctx).await,
@@ -639,17 +668,19 @@ pub async fn execute_tool_with_context(
     // If the result exceeds the threshold, write it to disk and return
     // a preview with a path reference so the model can `read` the full file.
     match result {
-        Ok(output) if output.len() > disk_persist_threshold() => {
+        Ok(output) if should_persist_large_result(&output) => {
+            if crate::tools::image_markers::has_valid_image_markers(&output) {
+                app_info!(
+                    "tool",
+                    "disk_persist",
+                    "Tool '{}' result {}B contains valid image marker; preserving inline for provider vision",
+                    name,
+                    output.len()
+                );
+                return Ok(output);
+            }
             match persist_large_result(&output, ctx.session_id.as_deref(), name) {
                 Ok(path) => {
-                    let head = crate::truncate_utf8(&output, 2000);
-                    // Find a valid UTF-8 char boundary for tail extraction
-                    let mut tail_start = output.len().saturating_sub(1000);
-                    while tail_start > 0 && !output.is_char_boundary(tail_start) {
-                        tail_start += 1;
-                    }
-                    let tail = &output[tail_start..];
-                    let omitted = output.len().saturating_sub(head.len() + tail.len());
                     app_info!(
                         "tool",
                         "disk_persist",
@@ -658,12 +689,7 @@ pub async fn execute_tool_with_context(
                         output.len(),
                         path
                     );
-                    Ok(format!(
-                        "{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}\n\n\
-                         [Full result ({total}B) saved to: {path}]\n\
-                         [Use read tool with this path to access full content]",
-                        total = output.len(),
-                    ))
+                    Ok(build_persisted_large_result_preview(&output, &path))
                 }
                 Err(e) => {
                     // Fall back to returning the full result if persistence fails
@@ -690,6 +716,47 @@ fn disk_persist_threshold() -> usize {
     crate::config::cached_config()
         .tool_result_disk_threshold
         .unwrap_or(50_000)
+}
+
+fn should_persist_large_result(output: &str) -> bool {
+    let threshold = disk_persist_threshold();
+    threshold > 0 && output.len() > threshold
+}
+
+fn build_persisted_large_result_preview(output: &str, path: &str) -> String {
+    let (media_header, output_body) = split_media_items_header(output);
+
+    if crate::tools::image_markers::contains_image_marker(output_body) {
+        let preview = format!(
+            "[Large tool result ({total}B) saved to: {path}]\n\
+             [Inline preview omitted because the result contains image marker data that must not be truncated.]\n\
+             [Use read tool with this path to access full content]",
+            total = output.len(),
+        );
+        return format!("{media_header}{preview}");
+    }
+
+    let head = crate::truncate_utf8(output_body, 2000);
+    let tail = crate::util::truncate_utf8_tail(output_body, 1000);
+    let omitted = output_body.len().saturating_sub(head.len() + tail.len());
+    let preview = format!(
+        "{head}\n\n[...{omitted} bytes omitted...]\n\n{tail}\n\n\
+         [Full result ({total}B) saved to: {path}]\n\
+         [Use read tool with this path to access full content]",
+        total = output.len(),
+    );
+    format!("{media_header}{preview}")
+}
+
+fn split_media_items_header(output: &str) -> (&str, &str) {
+    let Some(rest) = output.strip_prefix(crate::agent::MEDIA_ITEMS_PREFIX) else {
+        return ("", output);
+    };
+    let Some(newline_idx) = rest.find('\n') else {
+        return ("", output);
+    };
+    let split_at = crate::agent::MEDIA_ITEMS_PREFIX.len() + newline_idx + 1;
+    (&output[..split_at], &output[split_at..])
 }
 
 /// Write a large tool result to disk and return the file path.
@@ -824,7 +891,8 @@ fn persist_large_result(
 
 #[cfg(test)]
 mod tests {
-    use super::ToolExecContext;
+    use super::{build_persisted_large_result_preview, ToolExecContext};
+    use crate::tools::browser::IMAGE_BASE64_PREFIX;
     use std::path::Path;
 
     #[test]
@@ -852,5 +920,45 @@ mod tests {
             .to_string();
         assert_eq!(ctx.resolve_path("src/main.rs"), expected);
         assert_eq!(ctx.resolve_path("/var/tmp/file.txt"), "/var/tmp/file.txt");
+    }
+
+    #[test]
+    fn preserves_valid_image_marker_results_inline_for_provider_vision() {
+        let output = format!(
+            "{}image/png__aGVsbG8=__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+
+        assert!(crate::tools::image_markers::has_valid_image_markers(
+            &output
+        ));
+    }
+
+    #[test]
+    fn persisted_preview_omits_image_marker_prefix_for_malformed_image_results() {
+        let output = format!(
+            "{}image/png__not-base64__\nScreenshot captured.",
+            IMAGE_BASE64_PREFIX
+        );
+
+        let preview = build_persisted_large_result_preview(&output, "/tmp/browser_1.txt");
+
+        assert!(!preview.contains(IMAGE_BASE64_PREFIX));
+        assert!(preview.contains("Large tool result"));
+        assert!(preview.contains("/tmp/browser_1.txt"));
+    }
+
+    #[test]
+    fn persisted_preview_preserves_media_items_header() {
+        let output = format!(
+            "{}[]\n{}",
+            crate::agent::MEDIA_ITEMS_PREFIX,
+            "x".repeat(10_000)
+        );
+
+        let preview = build_persisted_large_result_preview(&output, "/tmp/tool.txt");
+
+        assert!(preview.starts_with(crate::agent::MEDIA_ITEMS_PREFIX));
+        assert!(preview.contains("/tmp/tool.txt"));
     }
 }

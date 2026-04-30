@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use super::super::api_types::{AnthropicSseEvent, FunctionCallItem};
 use super::super::config::{build_api_url, map_think_anthropic_style, ANTHROPIC_API_VERSION};
 use super::super::events::{
-    build_anthropic_tool_result_content, emit_text_delta, emit_thinking_delta,
+    emit_text_delta, emit_thinking_delta, expand_anthropic_image_markers_for_api,
 };
 use super::super::streaming_adapter::{
     ExecutedTool, RoundOutcome, RoundRequest, StreamingChatAdapter,
@@ -92,11 +92,12 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
         // Body field order: model, max_tokens, system, messages, stream
         // (then conditional tools / thinking / temperature). Must match the
         // pre-Phase-2 chat_anthropic byte-level for prompt cache stability.
+        let messages = expand_anthropic_image_markers_for_api(req.history_for_api);
         let mut body = json!({
             "model": self.model,
             "max_tokens": req.max_tokens,
             "system": system_with_cache,
-            "messages": req.history_for_api,
+            "messages": messages,
             "stream": true,
         });
         if !req.is_final_round {
@@ -327,7 +328,7 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
             tool_results.push(json!({
                 "type": "tool_result",
                 "tool_use_id": et.call_id,
-                "content": build_anthropic_tool_result_content(&et.clean_result),
+                "content": et.clean_result,
             }));
         }
         if !tool_results.is_empty() {
