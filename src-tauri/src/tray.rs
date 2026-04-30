@@ -3,6 +3,7 @@ use ha_core::{app_debug, app_info};
 use tauri::menu::{MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager, Runtime};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 const TRAY_STATUS_LINE_COUNT: usize = 5;
 
@@ -99,7 +100,25 @@ pub fn setup_tray(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                     let _ = app_handle.emit("open-settings", ());
                 }
                 "quit_app" => {
-                    app_handle.exit(0);
+                    let labels = tray_labels(&resolve_language());
+                    let app = app_handle.clone();
+                    app_handle
+                        .dialog()
+                        .message(labels.quit_confirm_body)
+                        .title(labels.quit_confirm_title)
+                        .kind(MessageDialogKind::Warning)
+                        .buttons(MessageDialogButtons::OkCancelCustom(
+                            labels.quit_confirm_ok.to_string(),
+                            labels.quit_confirm_cancel.to_string(),
+                        ))
+                        .show(move |confirmed| {
+                            if confirmed {
+                                app_info!("tray", "quit_app", "user confirmed quit");
+                                app.exit(0);
+                            } else {
+                                app_debug!("tray", "quit_app", "user cancelled quit");
+                            }
+                        });
                 }
                 _ => {}
             }

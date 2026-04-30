@@ -5,6 +5,10 @@ pub(crate) struct TrayLabels {
     pub(crate) new_session: &'static str,
     pub(crate) settings: &'static str,
     pub(crate) quit: &'static str,
+    pub(crate) quit_confirm_title: &'static str,
+    pub(crate) quit_confirm_body: &'static str,
+    pub(crate) quit_confirm_ok: &'static str,
+    pub(crate) quit_confirm_cancel: &'static str,
 }
 
 /// Disabled status rows shown at the top of the tray menu.
@@ -37,6 +41,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "新建对话",
             settings: "设置",
             quit: "退出 Hope Agent",
+            quit_confirm_title: "退出 Hope Agent？",
+            quit_confirm_body: "退出后会停止所有后台任务（IM 渠道、定时任务、流式对话）。确定退出？",
+            quit_confirm_ok: "退出",
+            quit_confirm_cancel: "取消",
         },
         "zh-TW" => TrayLabels {
             show_main: "顯示主視窗",
@@ -44,6 +52,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "新建對話",
             settings: "設定",
             quit: "退出 Hope Agent",
+            quit_confirm_title: "退出 Hope Agent？",
+            quit_confirm_body: "退出後將停止所有後台任務（IM 渠道、定時任務、串流對話）。確定退出？",
+            quit_confirm_ok: "退出",
+            quit_confirm_cancel: "取消",
         },
         "ja" => TrayLabels {
             show_main: "メインウィンドウを表示",
@@ -51,6 +63,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "新しいセッション",
             settings: "設定",
             quit: "Hope Agent を終了",
+            quit_confirm_title: "Hope Agent を終了しますか？",
+            quit_confirm_body: "終了するとすべてのバックグラウンドタスク（IM チャネル、スケジュールジョブ、ストリーミングチャット）が停止します。続行しますか？",
+            quit_confirm_ok: "終了",
+            quit_confirm_cancel: "キャンセル",
         },
         "ko" => TrayLabels {
             show_main: "메인 창 표시",
@@ -58,6 +74,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "새 세션",
             settings: "설정",
             quit: "Hope Agent 종료",
+            quit_confirm_title: "Hope Agent을 종료하시겠습니까?",
+            quit_confirm_body: "종료하면 모든 백그라운드 작업(IM 채널, 예약 작업, 스트리밍 채팅)이 중지됩니다. 계속하시겠습니까?",
+            quit_confirm_ok: "종료",
+            quit_confirm_cancel: "취소",
         },
         "es" => TrayLabels {
             show_main: "Mostrar ventana principal",
@@ -65,6 +85,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "Nueva sesión",
             settings: "Configuración",
             quit: "Salir de Hope Agent",
+            quit_confirm_title: "¿Salir de Hope Agent?",
+            quit_confirm_body: "Al salir se detendrán todas las tareas en segundo plano (canales IM, tareas programadas, chats en streaming). ¿Continuar?",
+            quit_confirm_ok: "Salir",
+            quit_confirm_cancel: "Cancelar",
         },
         "pt" => TrayLabels {
             show_main: "Mostrar janela principal",
@@ -72,6 +96,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "Nova sessão",
             settings: "Configurações",
             quit: "Sair do Hope Agent",
+            quit_confirm_title: "Sair do Hope Agent?",
+            quit_confirm_body: "Sair encerrará todas as tarefas em segundo plano (canais IM, tarefas agendadas, chats em streaming). Continuar?",
+            quit_confirm_ok: "Sair",
+            quit_confirm_cancel: "Cancelar",
         },
         "ru" => TrayLabels {
             show_main: "Показать главное окно",
@@ -79,6 +107,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "Новый сеанс",
             settings: "Настройки",
             quit: "Выход из Hope Agent",
+            quit_confirm_title: "Выйти из Hope Agent?",
+            quit_confirm_body: "Выход остановит все фоновые задачи (каналы IM, запланированные задания, потоковые чаты). Продолжить?",
+            quit_confirm_ok: "Выйти",
+            quit_confirm_cancel: "Отмена",
         },
         "ar" => TrayLabels {
             show_main: "إظهار النافذة الرئيسية",
@@ -86,6 +118,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "جلسة جديدة",
             settings: "الإعدادات",
             quit: "إنهاء Hope Agent",
+            quit_confirm_title: "إنهاء Hope Agent؟",
+            quit_confirm_body: "سيؤدي الإنهاء إلى إيقاف جميع المهام في الخلفية (قنوات IM، المهام المجدولة، المحادثات المتدفقة). هل تريد المتابعة؟",
+            quit_confirm_ok: "إنهاء",
+            quit_confirm_cancel: "إلغاء",
         },
         "tr" => TrayLabels {
             show_main: "Ana pencereyi göster",
@@ -93,6 +129,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "Yeni oturum",
             settings: "Ayarlar",
             quit: "Hope Agent'dan çık",
+            quit_confirm_title: "Hope Agent'tan çıkılsın mı?",
+            quit_confirm_body: "Çıkış tüm arka plan görevlerini (IM kanalları, zamanlanmış işler, akışlı sohbetler) durduracak. Devam edilsin mi?",
+            quit_confirm_ok: "Çık",
+            quit_confirm_cancel: "İptal",
         },
         "vi" => TrayLabels {
             show_main: "Hiển thị cửa sổ chính",
@@ -100,6 +140,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "Phiên mới",
             settings: "Cài đặt",
             quit: "Thoát Hope Agent",
+            quit_confirm_title: "Thoát Hope Agent?",
+            quit_confirm_body: "Thoát sẽ dừng tất cả tác vụ chạy nền (kênh IM, tác vụ đã lên lịch, trò chuyện trực tuyến). Tiếp tục?",
+            quit_confirm_ok: "Thoát",
+            quit_confirm_cancel: "Hủy",
         },
         "ms" => TrayLabels {
             show_main: "Tunjukkan tetingkap utama",
@@ -107,6 +151,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "Sesi baharu",
             settings: "Tetapan",
             quit: "Keluar Hope Agent",
+            quit_confirm_title: "Keluar Hope Agent?",
+            quit_confirm_body: "Keluar akan menghentikan semua tugasan latar (saluran IM, tugasan berjadual, sembang penstriman). Teruskan?",
+            quit_confirm_ok: "Keluar",
+            quit_confirm_cancel: "Batal",
         },
         _ => TrayLabels {
             show_main: "Show Main Window",
@@ -114,6 +162,10 @@ pub(crate) fn tray_labels(lang: &str) -> TrayLabels {
             new_session: "New Session",
             settings: "Settings",
             quit: "Quit Hope Agent",
+            quit_confirm_title: "Quit Hope Agent?",
+            quit_confirm_body: "Quitting stops all background tasks (IM channels, scheduled jobs, chat streams). Continue?",
+            quit_confirm_ok: "Quit",
+            quit_confirm_cancel: "Cancel",
         },
     }
 }

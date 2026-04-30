@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **全局默认 Agent 设置**：`AppConfig.default_agent_id` 替代散落的硬编码 `"default"`。设置页「常规 → 系统」新增「默认 Agent」select 控件；新 Tauri 命令 `get_default_agent_id` / `set_default_agent_id`；HTTP `GET/PUT /api/config/default-agent`；ha-settings 技能登记为 LOW 风险。`create_session_cmd` 接入 resolver 链。
 - **`PATCH /api/sessions/:id/agent` + Tauri `update_session_agent_cmd`**：标题栏 Agent dropdown 切换的后端入口。SQL 层校验 `message_count == 0`，已发消息的会话拒绝切换（前端 disabled 仅 UX 防御）。
 - **项目（Project）级默认工作目录**：`Project` 上新增 `working_dir` 字段，可在 ProjectDialog 直接选择目录（Tauri 走原生选择器、HTTP 模式走 `ServerDirectoryBrowser`）。会话级工作目录优先；会话未单独设置时运行时回退到项目级，**无需复制快照**——修改项目工作目录后，已有会话立即跟随。会话顶部 `ChatTitleBar` 新增工作目录芯片，区分「会话设置」与「继承自项目」两种来源。会话级与项目级的 canonicalize + is_dir 校验复用同一 helper，错误文案对齐。
+- **托盘退出二次确认**：托盘菜单的「退出 Hope Agent」点击后改为先弹原生 MessageDialog 警告框（`tauri-plugin-dialog`，Warning kind），提示退出会停止所有后台任务（IM 渠道、定时任务、流式对话），用户确认后才 `app.exit(0)`，取消则不退出。`TrayLabels` 新增 `quit_confirm_title / body / ok / cancel` 四个本地化字段，覆盖 12 种语言；确认与取消事件分别走 `app_info!` / `app_debug!` 留痕。
 
 ### Changed
 
