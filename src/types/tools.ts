@@ -100,4 +100,31 @@ export const TOOL_I18N_KEY: Record<string, string> = {
   [TOOL_TASK_LIST]: "TaskList",
   [TOOL_MCP_RESOURCE]: "McpResource",
   [TOOL_MCP_PROMPT]: "McpPrompt",
+  [TOOL_IMAGE_GENERATE]: "ImageGenerate",
+  [TOOL_CANVAS]: "Canvas",
+  [TOOL_ACP_SPAWN]: "AcpSpawn",
+  // Tier 1 Core::FileSystem (project file)
+  project_read_file: "ProjectReadFile",
+  // Tier 1 Core::Interaction
+  ask_user_question: "AskUserQuestion",
+  send_attachment: "SendAttachment",
+  // Tier 1 Core::SessionAware
+  agents_list: "AgentsList",
+  sessions_list: "SessionsList",
+  session_status: "SessionStatus",
+  sessions_history: "SessionsHistory",
+  sessions_send: "SessionsSend",
+  peek_sessions: "PeekSessions",
+  // Tier 2 Standard
+  team: "Team",
+  pdf: "Pdf",
+  image: "Image",
+  get_weather: "GetWeather",
+  get_settings: "GetSettings",
+  update_settings: "UpdateSettings",
+  list_settings_backups: "ListSettingsBackups",
+  restore_settings_backup: "RestoreSettingsBackup",
+  // Memory (additional)
+  memory_get: "MemoryGet",
+  update_core_memory: "UpdateCoreMemory",
 }

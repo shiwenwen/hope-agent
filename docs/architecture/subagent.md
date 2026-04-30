@@ -3,7 +3,7 @@
 
 ## 概述
 
-子 Agent 系统允许主 Agent 异步派生子 Agent 执行独立任务。子 Agent 运行在隔离会话中，完成后结果自动注入父会话触发父 Agent 继续对话。系统支持多级嵌套（默认最大深度 3，Agent 可覆盖至 5）、并发限制（单会话最多 5 个）、实时引导（Steer Mailbox）、取消机制、以及前台等待自动转后台的 `spawn_and_wait` 模式。
+子 Agent 系统允许主 Agent 异步调用子 Agent 执行独立任务。子 Agent 运行在隔离会话中，完成后结果自动注入父会话触发父 Agent 继续对话。系统支持多级嵌套（默认最大深度 3，Agent 可覆盖至 5）、并发限制（单会话最多 5 个）、实时引导（Steer Mailbox）、取消机制、以及前台等待自动转后台的 `spawn_and_wait` 模式。
 
 注入机制采用事件驱动设计：通过 `SESSION_IDLE_NOTIFY`（tokio::Notify）等待父会话空闲，结合 `ChatSessionGuard` RAII 守卫实现用户消息优先级高于自动注入的语义，被取消的注入任务进入 `PENDING_INJECTIONS` 队列在父会话空闲后串行重试。
 
@@ -56,7 +56,7 @@ Spawning → Running → Completed
 | `input_tokens` | `Option<u64>` | 输入 token 用量（预留，当前为 None） |
 | `output_tokens` | `Option<u64>` | 输出 token 用量（预留，当前为 None） |
 
-### SpawnParams（派生参数）
+### SpawnParams（调用参数）
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -315,7 +315,7 @@ sequenceDiagram
 
 | Action | 必需参数 | 说明 |
 |--------|----------|------|
-| `spawn` | `task` | 异步派生子 Agent，返回 `run_id` |
+| `spawn` | `task` | 异步调用子 Agent，返回 `run_id` |
 | `spawn_and_wait` | `task`, `foreground_timeout`(可选,默认30s,上限120s) | 前台等待，超时自动转后台 |
 | `check` | `run_id`, `wait`(可选), `wait_timeout`(可选,默认60s,上限300s) | 查询运行状态，`wait=true` 轮询等待完成 |
 | `result` | `run_id` | 获取完整结果（终态时标记 fetched 跳过自动注入） |
@@ -323,7 +323,7 @@ sequenceDiagram
 | `steer` | `run_id`, `message` | 向运行中的子 Agent 推送引导消息 |
 | `kill` | `run_id` | 取消指定子 Agent |
 | `kill_all` | 无 | 取消当前会话所有活跃子 Agent |
-| `batch_spawn` | `tasks`(数组,最多10个) | 批量派生子 Agent |
+| `batch_spawn` | `tasks`(数组,最多10个) | 批量调用子 Agent |
 | `wait_all` | `run_ids`(数组), `wait_timeout`(可选,默认120s,上限600s) | 等待多个子 Agent 全部完成 |
 
 **权限校验**（`do_spawn` 内部）：
@@ -336,7 +336,7 @@ sequenceDiagram
 |------|------|
 | `crates/ha-core/src/subagent/mod.rs` | 模块入口、常量（DEFAULT_MAX_DEPTH/MAX_CONCURRENT_PER_SESSION 等）、7 个全局 LazyLock 静态量、re-exports |
 | `crates/ha-core/src/subagent/types.rs` | SubagentRun / SpawnParams / SubagentStatus / SubagentEvent / ParentAgentStreamEvent 定义 |
-| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验+派生入口、`execute_subagent()` 含 failover 重试和 plan mode 继承 |
+| `crates/ha-core/src/subagent/spawn.rs` | `spawn_subagent()` 校验+调用入口、`execute_subagent()` 含 failover 重试和 plan mode 继承 |
 | `crates/ha-core/src/subagent/injection.rs` | `inject_and_run_parent()` 等待空闲+恢复历史+流式注入、`PendingInjection` 队列、`flush_pending_injections()` 串行重试、`build_subagent_push_message()` 格式化 |
 | `crates/ha-core/src/subagent/cancel.rs` | `SubagentCancelRegistry`：register / cancel / cancel_all_for_session / remove |
 | `crates/ha-core/src/subagent/mailbox.rs` | `SubagentMailbox`（register / push / drain / remove）、`ChatSessionGuard`（RAII：ACTIVE_CHAT_SESSIONS + INJECTION_CANCELS + flush） |
