@@ -61,7 +61,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `canvas` | `enabled`, `autoShow`, `defaultContentType` (e.g. `code` / `html`), `maxProjects`, `maxVersionsPerProject`, `panelWidth` |
 | `image` | `maxImages` |
 | `pdf` | `maxPdfs`, `maxVisionPages` |
-| `image_generate` | `provider`, `model`, `defaultSize` (e.g. `1024x1024`), `timeoutSeconds`. `providers` (per-provider entries with `apiKey`) is exposed for read but should be edited in Settings → Image Generate to keep credentials out of conversation logs |
+| `image_generate` | `provider`, `model`, `defaultSize` (e.g. `1024x1024`), `timeoutSeconds`, `providers` (per-provider entries — `id`, `enabled`, `apiKey`, `baseUrl`). **Read responses redact `providers[*].apiKey` to `"[REDACTED]"`**, so the model can list configured providers but never sees existing keys; writes still flow through (so the user can ask the skill to set a key, but the skill won't echo it back on next read). For best UX prefer Settings → Image Generate. |
 | `temperature` | `temperature` (0.0–2.0, null = API default) |
 | `tool_timeout` | `toolTimeout` (seconds, 0 = unlimited) |
 | `default_agent` | `defaultAgentId` (string id; `null` / empty falls back to hardcoded `"default"` agent) |
@@ -85,7 +85,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `recap` | `analysisAgent`, `defaultRangeDays`, `facetConcurrency`, `maxSessionsPerReport`, `cacheRetentionDays` |
 | `awareness` | Master: `enabled` (default false), `mode` (`off`/`structured`/`llm_digest`, default `structured`). Window: `maxSessions` (default 6), `maxChars` (default 4000), `lookbackHours` (default 72), `activeWindowSecs` (default 120), `previewChars` (default 200). Filters: `sameAgentOnly`, `excludeCron`, `excludeChannel`, `excludeSubagents`. Refresh control: `dynamicEnabled` (default true), `minRefreshSecs` (default 20), `semanticHintRegex`, `refreshOnCompaction`. LLM digest mode (`mode: "llm_digest"`): `llmExtraction.{extractionAgent, extractionModel, minIntervalSecs (300), maxCandidates (5), digestMaxChars (1200), concurrency (2), perSessionInputChars (2000), inputLookbackHours (4), fallbackOnError, reuseSideQueryCache}`. |
 | `web_fetch` | `enabled`, `maxBytes` |
-| `web_search` | `provider`, `searxngUrl`, `tavilyApiKey` |
+| `web_search` | `providers` (per-provider entries — `id` ∈ DuckDuckGo / Searxng / Brave / Perplexity / Google / Grok / Kimi / Tavily, `enabled`, `apiKey`, `apiKey2` (Google CX), `baseUrl` (Searxng instance)), `searxngDockerManaged`, `searxngDockerUseProxy`, `defaultResultCount` (default 5), `timeoutSeconds` (30), `cacheTtlMinutes` (15), `defaultCountry`, `defaultLanguage`, `defaultFreshness`. **Read responses redact `providers[*].apiKey` and `providers[*].apiKey2` to `"[REDACTED]"`**, so the model can describe what's configured without seeing existing keys. Writes still flow through so the skill can help the user provision a new key, but the value won't be echoed on subsequent reads. |
 | `deferred_tools` | `enabled` |
 | `async_tools` | `enabled`, `autoBackgroundSecs`, `maxJobSecs`, `inlineResultBytes`, `retentionSecs`, `orphanGraceSecs`, `jobStatusMaxWaitSecs` |
 | `approval` | `approvalTimeoutSecs`, `approvalTimeoutAction` (`deny`/`proceed`) |
@@ -105,8 +105,8 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `embedding` | `provider`, `model`, `dimensions` | May invalidate existing vector indexes |
 | `shortcuts` | `bindings` (array) | Global OS keybindings, can collide |
 | `skills` | `extraSkillsDirs`, `disabledSkills`, `skillEnvCheck`, `allowRemoteInstall` | Disabling skills removes tools; `allowRemoteInstall` opens the HTTP `/api/skills/{name}/install` route that spawns `brew`/`npm -g`/`go install`/`uv tool install` — effectively RCE over the API Key |
-| `server` | `bindAddr` (e.g. `127.0.0.1:8420` vs `0.0.0.0:8420`), `apiKey` | Network exposure, requires app restart |
-| `acp_control` | `enabled`, `backends`, `maxConcurrentSessions`, `defaultTimeoutSecs`, `runtimeTtlSecs`, `autoDiscover` | Controls external agent delegation |
+| `server` | `bindAddr` (e.g. `127.0.0.1:8420` vs `0.0.0.0:8420`), `apiKey`, `publicBaseUrl`. **Read responses redact `apiKey` to `"[REDACTED]"`** so the bearer token isn't echoed back on every overview; writes still flow through. | Network exposure, requires app restart |
+| `acp_control` | `enabled`, `backends` (each: `id`, `name`, `binary`, `acpArgs`, `enabled`, `defaultModel`, `env`), `maxConcurrentSessions`, `defaultTimeoutSecs`, `runtimeTtlSecs`, `autoDiscover`. **Read responses redact non-empty `backends[*].env` to `"[REDACTED]"`** because env frequently carries `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` overrides. | Controls external agent delegation |
 | `skill_env` | Per-skill env vars (may contain secrets) | Stored plaintext in `config.json` |
 | `security.ssrf` | `defaultPolicy` (`strict`/`default`/`allowPrivate`), `trustedHosts` (array), per-tool overrides `browserPolicy` / `webFetchPolicy` / `imageGeneratePolicy` / `urlPreviewPolicy` | Controls whether tools can reach private networks / cloud metadata. Relaxing policy or adding untrusted hosts enables SSRF attack paths |
 | `security` | `skipAllApprovals` (bool) | ⚠️ **DANGEROUS MODE** — globally bypasses every tool approval gate (exec / write / edit / apply_patch / channel tools / browser / canvas). Overrides all per-session and per-channel auto-approve settings. Plan Mode restrictions still apply. A CLI flag `--dangerously-skip-all-approvals` can set this ephemerally without touching config; this field is the *persisted* switch. Treat with extreme caution and confirm twice |
@@ -218,5 +218,5 @@ Returns `{id, timestamp, kind, category, source}` newest first.
 - **Field names are camelCase** (e.g. `softRatio`, `toolTimeout`, `askUserQuestionTimeoutSecs`).
 - **Security restrictions** — cannot modify Providers or API Keys through this tool; guide the user to the Settings UI.
 - **Surface side effects** — if the response has `sideEffect` (e.g. "requires restart"), tell the user.
-- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks.
+- **Secrets in logs** — never echo `apiKey`, `remoteApiKey`, or `skill_env` values back in chat unless the user explicitly asks. Note that `get_settings` for `server` / `web_search` / `image_generate` / `acp_control` already redacts the credential fields to `"[REDACTED]"` — if you see that marker, the field is set but the value is hidden from the model intentionally.
 - **Rollback is built-in** — if a change goes wrong, offer `restore_settings_backup` instead of trying to reconstruct the old values manually.

@@ -163,6 +163,83 @@ fn redact_mcp_servers_value(mut value: Value) -> Value {
     value
 }
 
+/// Replace a non-empty string field with `"[REDACTED]"`. `null`, missing, and
+/// the empty-string sentinel are left untouched — the model still needs to
+/// distinguish "configured but cleared" (`""`) from "never set" (`null`). Any
+/// non-string non-null value (object / array / number) is also masked
+/// defensively in case a future schema swap embeds a richer secret payload.
+///
+/// Used to scrub `providers[*].api_key` style fields from web_search /
+/// image_generate read responses without dropping the structural metadata
+/// (id, enabled, baseUrl) that lets the model describe what's configured.
+fn redact_string_field(obj: &mut serde_json::Map<String, Value>, key: &str) {
+    if let Some(existing) = obj.get(key) {
+        let should_mask = match existing {
+            Value::Null => false,
+            Value::String(s) => !s.is_empty(),
+            _ => true,
+        };
+        if should_mask {
+            obj.insert(key.into(), json!("[REDACTED]"));
+        }
+    }
+}
+
+/// Redact `providers[*].api_key` / `api_key2` from a `WebSearchConfig` JSON
+/// tree. Other fields (provider id, enabled flag, base_url) are preserved.
+fn redact_web_search_value(mut value: Value) -> Value {
+    if let Some(providers) = value.get_mut("providers").and_then(|v| v.as_array_mut()) {
+        for entry in providers.iter_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                redact_string_field(obj, "apiKey");
+                redact_string_field(obj, "apiKey2");
+            }
+        }
+    }
+    value
+}
+
+/// Redact `providers[*].api_key` from an `ImageGenConfig` JSON tree.
+fn redact_image_generate_value(mut value: Value) -> Value {
+    if let Some(providers) = value.get_mut("providers").and_then(|v| v.as_array_mut()) {
+        for entry in providers.iter_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                redact_string_field(obj, "apiKey");
+            }
+        }
+    }
+    value
+}
+
+/// Redact `apiKey` from an `EmbeddedServerConfig` JSON tree. The bind
+/// address / public base URL stay visible so the model can describe how
+/// the daemon is exposed.
+fn redact_server_value(mut value: Value) -> Value {
+    if let Some(obj) = value.as_object_mut() {
+        redact_string_field(obj, "apiKey");
+    }
+    value
+}
+
+/// Redact `backends[*].env` from an `AcpControlConfig` JSON tree — env vars
+/// frequently contain `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / similar.
+fn redact_acp_control_value(mut value: Value) -> Value {
+    if let Some(backends) = value.get_mut("backends").and_then(|v| v.as_array_mut()) {
+        for entry in backends.iter_mut() {
+            if let Some(obj) = entry.as_object_mut() {
+                if obj
+                    .get("env")
+                    .map(|v| v.as_object().is_some_and(|o| !o.is_empty()))
+                    .unwrap_or(false)
+                {
+                    obj.insert("env".into(), json!("[REDACTED]"));
+                }
+            }
+        }
+    }
+    value
+}
+
 // ── get_settings ────────────────────────────────────────────────
 
 pub(crate) async fn tool_get_settings(args: &Value) -> Result<String> {
@@ -200,7 +277,9 @@ fn read_category(category: &str) -> Result<Value> {
         "default_agent" => Ok(json!({ "defaultAgentId": cfg.default_agent_id })),
         "ui_effects" => Ok(json!({ "uiEffectsEnabled": cfg.ui_effects_enabled })),
         "proxy" => Ok(serde_json::to_value(&cfg.proxy)?),
-        "web_search" => Ok(serde_json::to_value(&cfg.web_search)?),
+        "web_search" => Ok(redact_web_search_value(serde_json::to_value(
+            &cfg.web_search,
+        )?)),
         "web_fetch" => Ok(serde_json::to_value(&cfg.web_fetch)?),
         "security" => Ok(json!({
             "skipAllApprovals": cfg.permission.global_yolo,
@@ -215,7 +294,9 @@ fn read_category(category: &str) -> Result<Value> {
             "approvalTimeoutSecs": cfg.permission.approval_timeout_secs,
             "approvalTimeoutAction": cfg.permission.approval_timeout_action,
         })),
-        "image_generate" => Ok(serde_json::to_value(&cfg.image_generate)?),
+        "image_generate" => Ok(redact_image_generate_value(serde_json::to_value(
+            &cfg.image_generate,
+        )?)),
         "canvas" => Ok(serde_json::to_value(&cfg.canvas)?),
         "image" => Ok(serde_json::to_value(&cfg.image)?),
         "pdf" => Ok(serde_json::to_value(&cfg.pdf)?),
@@ -241,8 +322,10 @@ fn read_category(category: &str) -> Result<Value> {
             "skillEnvCheck": cfg.skill_env_check,
             "allowRemoteInstall": cfg.skills.allow_remote_install,
         })),
-        "server" => Ok(serde_json::to_value(&cfg.server)?),
-        "acp_control" => Ok(serde_json::to_value(&cfg.acp_control)?),
+        "server" => Ok(redact_server_value(serde_json::to_value(&cfg.server)?)),
+        "acp_control" => Ok(redact_acp_control_value(serde_json::to_value(
+            &cfg.acp_control,
+        )?)),
         "skill_env" => Ok(serde_json::to_value(&cfg.skill_env)?),
         "tool_result_disk_threshold" => Ok(json!({
             "toolResultDiskThreshold": cfg.tool_result_disk_threshold,
@@ -1034,6 +1117,113 @@ mod tests {
         assert_eq!(arr[0]["trust_level"], "trusted");
         // Server with no secret fields untouched.
         assert!(arr[1].get("env").is_none());
+    }
+
+    #[test]
+    fn redact_web_search_masks_provider_keys() {
+        let original = json!({
+            "providers": [
+                {"id": "Brave", "enabled": true, "apiKey": "BSA_xxx_secret", "apiKey2": null, "baseUrl": null},
+                {"id": "Searxng", "enabled": true, "apiKey": null, "apiKey2": null, "baseUrl": "http://localhost:8888"},
+                {"id": "Google", "enabled": false, "apiKey": "AIza_secret", "apiKey2": "cse_id_secret", "baseUrl": null}
+            ],
+            "defaultResultCount": 5,
+            "timeoutSeconds": 30
+        });
+        let r = redact_web_search_value(original);
+        let arr = r["providers"].as_array().unwrap();
+        // Non-empty key → redacted.
+        assert_eq!(arr[0]["apiKey"], json!("[REDACTED]"));
+        assert!(arr[0]["apiKey2"].is_null());
+        // Null key untouched.
+        assert!(arr[1]["apiKey"].is_null());
+        // Both keys redacted on the multi-key provider.
+        assert_eq!(arr[2]["apiKey"], json!("[REDACTED]"));
+        assert_eq!(arr[2]["apiKey2"], json!("[REDACTED]"));
+        // Structural fields preserved.
+        assert_eq!(arr[0]["id"], "Brave");
+        assert_eq!(arr[0]["enabled"], true);
+        assert_eq!(arr[1]["baseUrl"], "http://localhost:8888");
+        assert_eq!(r["defaultResultCount"], 5);
+    }
+
+    #[test]
+    fn redact_web_search_handles_empty_or_missing() {
+        // Empty providers array.
+        let r = redact_web_search_value(json!({ "providers": [] }));
+        assert_eq!(r["providers"].as_array().unwrap().len(), 0);
+        // Missing providers entirely.
+        let r = redact_web_search_value(json!({ "defaultResultCount": 5 }));
+        assert_eq!(r["defaultResultCount"], 5);
+        // Empty-string apiKey is not a secret — leave as-is so the model can
+        // distinguish "configured but cleared" from "never set" (null).
+        let r = redact_web_search_value(json!({
+            "providers": [{ "id": "Brave", "apiKey": "" }]
+        }));
+        assert_eq!(r["providers"][0]["apiKey"], json!(""));
+    }
+
+    #[test]
+    fn redact_image_generate_masks_provider_keys() {
+        let original = json!({
+            "providers": [
+                {"id": "openai", "enabled": true, "apiKey": "sk-secret"},
+                {"id": "stability", "enabled": false, "apiKey": null}
+            ],
+            "defaultSize": "1024x1024"
+        });
+        let r = redact_image_generate_value(original);
+        assert_eq!(r["providers"][0]["apiKey"], json!("[REDACTED]"));
+        assert!(r["providers"][1]["apiKey"].is_null());
+        assert_eq!(r["providers"][0]["enabled"], true);
+        assert_eq!(r["defaultSize"], "1024x1024");
+    }
+
+    #[test]
+    fn redact_server_masks_api_key() {
+        let r = redact_server_value(json!({
+            "bindAddr": "127.0.0.1:8420",
+            "apiKey": "long-bearer-token",
+            "publicBaseUrl": null
+        }));
+        assert_eq!(r["apiKey"], json!("[REDACTED]"));
+        assert_eq!(r["bindAddr"], "127.0.0.1:8420");
+        // Null api_key (server unauthenticated) stays null.
+        let r = redact_server_value(json!({ "bindAddr": "127.0.0.1:8420", "apiKey": null }));
+        assert!(r["apiKey"].is_null());
+    }
+
+    #[test]
+    fn redact_acp_control_masks_backend_env() {
+        let original = json!({
+            "enabled": true,
+            "backends": [
+                {
+                    "id": "claude-code",
+                    "name": "Claude Code",
+                    "binary": "claude",
+                    "enabled": true,
+                    "env": { "ANTHROPIC_API_KEY": "sk-ant-secret", "PATH": "/usr/local/bin" }
+                },
+                {
+                    "id": "no-env",
+                    "name": "Plain",
+                    "binary": "agent",
+                    "enabled": true,
+                    "env": {}
+                }
+            ],
+            "maxConcurrentSessions": 5
+        });
+        let r = redact_acp_control_value(original);
+        assert_eq!(r["backends"][0]["env"], json!("[REDACTED]"));
+        // Empty env stays empty (nothing to leak).
+        assert_eq!(r["backends"][1]["env"], json!({}));
+        // Structural fields preserved on the redacted entry.
+        assert_eq!(r["backends"][0]["id"], "claude-code");
+        assert_eq!(r["backends"][0]["enabled"], true);
+        assert_eq!(r["enabled"], true);
+        assert_eq!(r["maxConcurrentSessions"], 5);
     }
 
     #[test]
