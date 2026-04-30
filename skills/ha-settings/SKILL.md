@@ -1,12 +1,12 @@
 ---
 name: ha-settings
-description: "Manage Hope Agent application settings through conversation. Use when the user wants to view or change any app configuration: theme, language, proxy, temperature, notifications, tool timeout, context compaction, automatic session titles, web search, memory, embedding, recap, behavior awareness, plan mode, ask-user-question timeout, tool-result disk spill threshold, embedded server, ACP control plane, per-skill env vars, or any other setting visible in the Settings UI. Trigger phrases: 'change settings', 'configure proxy', 'set theme to dark', 'turn off notifications', 'adjust temperature', 'show my settings', 'bind the server to all interfaces', 'set API key'. Trigger even when the user doesn't explicitly say 'settings' — any intent to adjust app behavior qualifies."
+description: "Manage Hope Agent application settings through conversation. Use when the user wants to view or change any app configuration: theme, language, proxy, temperature, notifications, tool timeout, context compaction, automatic session titles, web search, memory, embedding, multimodal embedding, dreaming (offline memory consolidation), recap, behavior awareness, smart-mode approvals, plan mode, ask-user-question timeout, tool-result disk spill threshold, embedded server, ACP control plane, MCP subsystem (kill switch / concurrency / backoff), per-skill env vars, or any other setting visible in the Settings UI. Trigger phrases: 'change settings', 'configure proxy', 'set theme to dark', 'turn off notifications', 'adjust temperature', 'show my settings', 'bind the server to all interfaces', 'enable smart mode', 'tune dreaming', 'disable mcp', 'show my channels'. Trigger even when the user doesn't explicitly say 'settings' — any intent to adjust app behavior qualifies."
 always: true
 ---
 
 # Settings — Application Configuration Management
 
-Use `get_settings` and `update_settings` to read and modify settings. **Never edit config files directly.** Coverage matches the desktop Settings UI one-to-one (except Providers / API Keys, which stay UI-only for security).
+Use `get_settings` and `update_settings` to read and modify settings. **Never edit config files directly.** Coverage matches the desktop Settings UI one-to-one for everything that doesn't carry secrets. The four GUI-only zones — Providers / API Keys, IM Channel accounts (`channels`), MCP server configs (`mcp_servers`), and the active model selection (`active_model` / `fallback_models`) — are still readable here (with credentials redacted where applicable) but writes must happen in the Settings UI so credentials stay out of conversation logs.
 
 ## Risk Levels & Dual-Confirmation
 
@@ -58,10 +58,10 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `language` | `language` (`auto`/`zh`/`en`/…) |
 | `ui_effects` | `uiEffectsEnabled` |
 | `notification` | `enabled` |
-| `canvas` | `enabled` |
+| `canvas` | `enabled`, `autoShow`, `defaultContentType` (e.g. `code` / `html`), `maxProjects`, `maxVersionsPerProject`, `panelWidth` |
 | `image` | `maxImages` |
 | `pdf` | `maxPdfs`, `maxVisionPages` |
-| `image_generate` | `provider`, `model` |
+| `image_generate` | `provider`, `model`, `defaultSize` (e.g. `1024x1024`), `timeoutSeconds`. `providers` (per-provider entries with `apiKey`) is exposed for read but should be edited in Settings → Image Generate to keep credentials out of conversation logs |
 | `temperature` | `temperature` (0.0–2.0, null = API default) |
 | `tool_timeout` | `toolTimeout` (seconds, 0 = unlimited) |
 | `default_agent` | `defaultAgentId` (string id; `null` / empty falls back to hardcoded `"default"` agent) |
@@ -70,18 +70,20 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 
 | Category | Fields |
 |----------|--------|
-| `compact` | `enabled`, `cacheTtlSecs`, thresholds |
+| `compact` | Master: `enabled`, `cacheTtlSecs` (default 300, max 900). Trim ratios: `softTrimRatio` (default 0.50), `hardClearRatio` (default 0.70). Reactive microcompact: `reactiveMicrocompactEnabled` (default true), `reactiveTriggerRatio` (default 0.75, range 0.50–0.95). Tool-result trimming: `toolPolicies` (HashMap mapping tool name → `eager`/`protect`), `maxToolResultContextShare` (default 0.3, range 0.1–0.6), `keepLastAssistants` (default 4), `minPrunableToolChars` (default 20000), `softTrimMaxChars` / `softTrimHeadChars` / `softTrimTailChars` (default 6000/2000/2000), `hardClearEnabled`, `hardClearPlaceholder`. Tier 3 summary: `summarizationModel` (provider:model override), `summarizationThreshold` (default 0.85), `preserveRecentTurns` (default 4, max 12), `summarizationTimeoutSecs` (default 60), `summaryMaxTokens` (default 4096), `maxHistoryShare` (default 0.5), `maxCompactionSummaryChars` (default 16000, range 4000–64000), `identifierPolicy` (`strict`/`off`/`custom`), `identifierInstructions`, `customInstructions`. Recovery: `recoveryEnabled`, `recoveryMaxFiles` (default 5), `recoveryMaxFileBytes` (default 16384). |
 | `session_title` | `enabled`, `providerId`, `modelId` (null provider/model = use the chat model). When enabled, new sessions keep the first-message fallback title immediately, then run one LLM call after the first assistant reply to generate a concise title. Manual renames are never overwritten. |
-| `memory_extract` | `enabled`, `cooldownSecs`, `tokenThreshold` |
-| `memory_selection` | `enabled`, `candidateThreshold`, `maxSelected` |
+| `memory_extract` | `autoExtract`, `extractProviderId`, `extractModelId`, `flushBeforeCompact`, `extractTokenThreshold` (default 8000), `extractTimeThresholdSecs` (default 300), `extractMessageThreshold` (default 10), `extractIdleTimeoutSecs` (default 1800), `enableReflection` |
+| `memory_selection` | `enabled`, `threshold` (min candidates before LLM picks, default 8), `maxSelected` (default 5) |
 | `memory_budget` | `totalChars` (int, default 10000), `coreMemoryFileChars` (int, default 8000 — cap per `memory.md` file), `sqliteEntryMaxChars` (int, default 500 — cap per rendered SQLite bullet), `sqliteSections.{userProfile,aboutUser,preferences,projectContext,references}` (defaults 1500/2000/2000/3000/1500; `userProfile` was renamed from `aboutYou` and the system-prompt heading from `## About You` to `## User Profile` — the old `aboutYou` key is still accepted for back-compat). Priority order: Guidelines > Agent `memory.md` > Global `memory.md` > SQLite. Reducing `totalChars` may hide parts of `memory.md` from the system prompt; full content is still retrievable via `recall_memory` / `memory_get`. |
 | `embedding_cache` | `enabled`, `maxEntries` |
-| `dedup` | `enabled`, `threshold` |
-| `hybrid_search` | `keywordWeight`, `vectorWeight` |
-| `temporal_decay` | `enabled`, `halfLifeDays` |
-| `mmr` | `enabled`, `lambda` |
-| `recap` | `analysisAgent`, `defaultRangeDays`, `facetConcurrency` |
-| `awareness` | `enabled`, `mode` (`structured`/`llm_digest`) |
+| `dedup` | `thresholdHigh` (default 0.02), `thresholdMerge` (default 0.012) |
+| `hybrid_search` | `vectorWeight` (default 0.6), `textWeight` (default 0.4), `rrfK` (default 60.0) |
+| `temporal_decay` | `enabled` (default false), `halfLifeDays` (default 30.0) |
+| `mmr` | `enabled` (default true), `lambda` (default 0.7) |
+| `multimodal` | `enabled` (default false), `modalities` (array of `image`/`audio`, defaults to both), `maxFileBytes` (default 10485760 / 10MB). Requires a multimodal-capable embedding provider — enabling without one produces empty vectors silently. |
+| `dreaming` | Master: `enabled` (default true). Triggers: `idleTrigger.{enabled,idleMinutes}` (default true / 30 min), `cronTrigger.{enabled,cronExpr}` (default false / `0 3 * * *`), `manualEnabled` (Dashboard "Run now" button). Promotion: `promotion.{minScore,maxPromote}` (default 0.75 / 5). Window: `scopeDays` (default 1), `candidateLimit` (default 50). Narrative: `narrativeMaxTokens` (default 2048), `narrativeTimeoutSecs` (default 60), `narrativeModel` (`provider:model` override; null = active chat agent). |
+| `recap` | `analysisAgent`, `defaultRangeDays`, `facetConcurrency`, `maxSessionsPerReport`, `cacheRetentionDays` |
+| `awareness` | Master: `enabled` (default false), `mode` (`off`/`structured`/`llm_digest`, default `structured`). Window: `maxSessions` (default 6), `maxChars` (default 4000), `lookbackHours` (default 72), `activeWindowSecs` (default 120), `previewChars` (default 200). Filters: `sameAgentOnly`, `excludeCron`, `excludeChannel`, `excludeSubagents`. Refresh control: `dynamicEnabled` (default true), `minRefreshSecs` (default 20), `semanticHintRegex`, `refreshOnCompaction`. LLM digest mode (`mode: "llm_digest"`): `llmExtraction.{extractionAgent, extractionModel, minIntervalSecs (300), maxCandidates (5), digestMaxChars (1200), concurrency (2), perSessionInputChars (2000), inputLookbackHours (4), fallbackOnError, reuseSideQueryCache}`. |
 | `web_fetch` | `enabled`, `maxBytes` |
 | `web_search` | `provider`, `searxngUrl`, `tavilyApiKey` |
 | `deferred_tools` | `enabled` |
@@ -108,8 +110,8 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `skill_env` | Per-skill env vars (may contain secrets) | Stored plaintext in `config.json` |
 | `security.ssrf` | `defaultPolicy` (`strict`/`default`/`allowPrivate`), `trustedHosts` (array), per-tool overrides `browserPolicy` / `webFetchPolicy` / `imageGeneratePolicy` / `urlPreviewPolicy` | Controls whether tools can reach private networks / cloud metadata. Relaxing policy or adding untrusted hosts enables SSRF attack paths |
 | `security` | `skipAllApprovals` (bool) | ⚠️ **DANGEROUS MODE** — globally bypasses every tool approval gate (exec / write / edit / apply_patch / channel tools / browser / canvas). Overrides all per-session and per-channel auto-approve settings. Plan Mode restrictions still apply. A CLI flag `--dangerously-skip-all-approvals` can set this ephemerally without touching config; this field is the *persisted* switch. Treat with extreme caution and confirm twice |
-| `channels` | `accounts`, `defaultAgentId`, `defaultModel` | Contains IM Channel Bot configurations (e.g., Telegram, WeChat tokens). Modifying this drops/reconnects listeners and handles sensitive bot credentials |
-| `mcp_global` | `enabled`, `maxConcurrentCalls`, `backoffInitialSecs`, `backoffMaxSecs`, `consecutiveFailureCircuitBreaker`, `autoReconnectAfterCircuitSecs`, `deniedServers`, `alwaysLoadServers` | MCP subsystem kill switch + concurrency caps + reconnect/backoff tuning + enterprise deny-list. Flipping `enabled=false` disconnects every MCP server; `deniedServers` additions prevent users from adding specific server names; loosening the backoff / circuit-breaker settings can cause aggressive retry storms against an upstream server |
+| `smart_mode` | `strategy` (`self_confidence` / `judge_model` / `both`), `judgeModel.{providerId, model, extraPrompt}` (required when strategy ∈ {judge_model, both}), `fallback` (`default` / `ask` / `allow`) | Reshapes which tool calls auto-approve in any session running `permission_mode = smart`. `judge_model` / `both` issue an extra side_query (5s hard timeout, 60s TTL) per approvable call — picking a slow / expensive model affects cost and latency across the board. `fallback: "allow"` can silently approve tools when the judge is unreachable. |
+| `mcp_global` | `enabled`, `maxConcurrentCalls`, `backoffInitialSecs`, `backoffMaxSecs`, `consecutiveFailureCircuitBreaker`, `autoReconnectAfterCircuitSecs`, `deniedServers` (array of server-name strings) | MCP subsystem kill switch + concurrency caps + reconnect/backoff tuning + enterprise deny-list. Flipping `enabled=false` short-circuits every dispatch on next call (existing sessions stay open until they idle out); `deniedServers` additions prevent users from adding specific server names; loosening the backoff / circuit-breaker settings can cause aggressive retry storms against an upstream server. `alwaysLoad` is a per-server attribute on `mcp_servers`, not a `mcp_global` field. |
 
 ### Read-only (cannot be modified via this tool)
 
@@ -117,9 +119,10 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 |----------|-------------|
 | `active_model` | Current primary model — use Settings UI |
 | `fallback_models` | Fallback chain — use Settings UI |
-| `mcp_servers` | MCP server configs — use Settings → MCP Servers UI. Contains OAuth tokens, command arguments, and trust levels; writes must go through the GUI which enforces "trust acknowledgement" for stdio servers and routes credentials through `platform::write_secure_file` (0600). |
+| `channels` | IM Channel accounts (Telegram / WeChat / Feishu / QQ / Discord). Read returns the account list with **`credentials` and `settings` fields redacted** (`"[REDACTED]"`); structural metadata (`id`, `channelId`, `label`, `enabled`, `agentId`, `autoApproveTools`, `security`) is exposed so the model can reference accounts without seeing bot tokens. Writes must go through Settings → Channels so the registry can drop/re-establish listeners under user supervision and credentials stay out of conversation logs. |
+| `mcp_servers` | MCP server configs. Read returns the server list with **`env`, `headers`, `oauth` fields redacted**. Writes must go through Settings → MCP Servers UI which enforces "trust acknowledgement" for stdio servers and routes credentials through `platform::write_secure_file` (0600). |
 
-Model / Provider / API Key / IM Channel / MCP servers / per-session configs require the Settings UI.
+Model / Provider / API Key / IM Channel accounts / MCP server configs / per-session configs require the Settings UI.
 
 ## Special: `teams` Semantics
 

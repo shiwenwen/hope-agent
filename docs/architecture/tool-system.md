@@ -331,7 +331,7 @@ flowchart LR
 | `enabled` | `false` | 总开关。关闭时内置工具不走 deferred |
 | `toolNames` | `[]` | 显式延迟的内置工具名列表；默认空，因此即使总开关打开也不会自动延迟内置工具 |
 
-UI 入口：设置 → 工具 → Deferred Tools。`oc-settings` 技能：`update_settings(category="deferred_tools", values={enabled: true, toolNames: ["pdf"]})`。
+UI 入口：设置 → 工具 → Deferred Tools。`ha-settings` 技能：`update_settings(category="deferred_tools", values={enabled: true, toolNames: ["pdf"]})`。
 
 ---
 

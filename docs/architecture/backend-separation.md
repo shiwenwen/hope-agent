@@ -512,7 +512,7 @@ impl Serialize for CmdError {
   - 禁止 `load_config()` + 修改 + `save_config()` 手动克隆-改-存模式 —— 无法防并发 lost-update（历史 image_generate stale bug 的根因）
 - 旧 `AppState::config: Mutex<AppConfig>` 字段已于 **2026-04-20 删除**；PR 里出现 `state.config.lock()` 一律 reject
 
-GUI 设置面板 + `oc-settings` 技能 + Tauri / HTTP 命令对配置的所有写入路径都走这一个入口，否则会跟前端 `config:changed` 监听器、autosave 备份、CLI sync-version 这些副作用脱节。
+GUI 设置面板 + `ha-settings` 技能 + Tauri / HTTP 命令对配置的所有写入路径都走这一个入口，否则会跟前端 `config:changed` 监听器、autosave 备份、CLI sync-version 这些副作用脱节。
 
 ---
 

@@ -1044,15 +1044,17 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "async_tools", "deferred_tools",
                             "memory_extract", "memory_selection", "memory_budget", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
-                            "temporal_decay", "mmr",
+                            "temporal_decay", "mmr", "multimodal", "dreaming",
                             "recap", "awareness", "shortcuts",
                             "active_model", "fallback_models", "skills",
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
-                            "security", "security.ssrf", "skills_auto_review",
+                            "security", "security.ssrf", "smart_mode",
+                            "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",
-                            "default_agent"
+                            "default_agent",
+                            "channels", "mcp_global", "mcp_servers"
                         ]
                     }
                 },
@@ -1062,7 +1064,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: TOOL_UPDATE_SETTINGS.into(),
-            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. Cannot modify providers or API keys for security. 'channels' config is HIGH-risk.".into(),
+            description: "Update application settings for a given category. Accepts partial JSON — only the fields you pass are changed, others are preserved. Response includes `riskLevel` (low/medium/high); HIGH-risk categories MUST have explicit user confirmation before being called. `channels` (IM Channel bot tokens) and `mcp_servers` (MCP OAuth/env/headers) are read-only here and must be edited in the GUI; providers and API keys are also GUI-only.".into(),
             tier: ToolTier::Standard { default_for_main: true, default_for_others: false, default_deferred: false },
             internal: true,
             concurrent_safe: false,
@@ -1072,7 +1074,7 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                 "properties": {
                     "category": {
                         "type": "string",
-                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf — require explicit user confirmation first. `security` toggles the global dangerous-mode switch that skips ALL tool approvals; treat with extreme caution.",
+                        "description": "Settings category to update. HIGH-risk: proxy, embedding, shortcuts, skills, server, acp_control, skill_env, security, security.ssrf, smart_mode, mcp_global — require explicit user confirmation first. `security` toggles the global dangerous-mode switch that skips ALL tool approvals; `smart_mode` reshapes which tool calls auto-approve; `mcp_global` is the MCP subsystem kill switch.",
                         "enum": [
                             "user", "theme", "language", "ui_effects", "proxy",
                             "web_search", "web_fetch", "compact", "session_title", "notification",
@@ -1081,14 +1083,16 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "async_tools", "deferred_tools",
                             "memory_extract", "memory_selection", "memory_budget", "embedding",
                             "embedding_cache", "dedup", "hybrid_search",
-                            "temporal_decay", "mmr",
+                            "temporal_decay", "mmr", "multimodal", "dreaming",
                             "recap", "awareness", "shortcuts", "skills",
                             "server", "acp_control", "skill_env",
                             "tool_result_disk_threshold",
                             "ask_user_question_timeout", "plan",
-                            "security", "security.ssrf", "skills_auto_review",
+                            "security", "security.ssrf", "smart_mode",
+                            "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",
-                            "default_agent"
+                            "default_agent",
+                            "mcp_global"
                         ]
                     },
                     "values": {
