@@ -1213,10 +1213,7 @@ impl AssistantAgent {
                     .working_dir
                     .filter(|s| !s.trim().is_empty())
             });
-        let session_mode = meta
-            .as_ref()
-            .map(|m| m.permission_mode)
-            .unwrap_or_default();
+        let session_mode = meta.as_ref().map(|m| m.permission_mode).unwrap_or_default();
         let project_id = meta.as_ref().and_then(|m| m.project_id.clone());
         tools::ToolExecContext {
             context_window_tokens: Some(self.context_window),

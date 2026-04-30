@@ -185,8 +185,7 @@ impl ToolDefinition {
                 Some(*default_for_others),
                 Some(*config_hint),
                 Some(super::super::dispatch::is_globally_configured(
-                    &self.name,
-                    app_config,
+                    &self.name, app_config,
                 )),
             ),
             ToolTier::Memory => ("memory", None, None, None, None, None),

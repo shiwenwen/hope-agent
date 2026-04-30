@@ -309,8 +309,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
     // the prefix shortcut keeps the engine from re-asking for similar
     // commands.
     if !ctx.auto_approve_tools {
-        let decision =
-            super::execution::resolve_tool_permission(TOOL_EXEC, args, ctx, false).await;
+        let decision = super::execution::resolve_tool_permission(TOOL_EXEC, args, ctx, false).await;
         match decision {
             crate::permission::Decision::Allow => {}
             crate::permission::Decision::Deny { reason } => {
@@ -350,12 +349,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         }
                         Ok(ApprovalResponse::AllowAlways) => {
                             if allow_always_ok {
-                                app_info!(
-                                    "tool",
-                                    "exec",
-                                    "Command approved (always): {}",
-                                    command
-                                );
+                                app_info!("tool", "exec", "Command approved (always): {}", command);
                                 add_to_allowlist(command).await;
                             } else {
                                 app_info!(
@@ -369,8 +363,7 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         }
                         Ok(ApprovalResponse::Deny) => {
                             let mut registry = get_registry().lock().await;
-                            registry
-                                .mark_exited(&session_id, None, None, ProcessStatus::Failed);
+                            registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
                             return Err(anyhow::anyhow!(
                                 "Command execution denied by user: {}",
                                 command

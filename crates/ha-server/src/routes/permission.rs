@@ -1,9 +1,7 @@
 //! HTTP routes mirroring `commands/permission.rs` Tauri commands.
 
 use axum::Json;
-use ha_core::permission::{
-    dangerous_commands, edit_commands, protected_paths, SmartModeConfig,
-};
+use ha_core::permission::{dangerous_commands, edit_commands, protected_paths, SmartModeConfig};
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
@@ -84,7 +82,9 @@ pub async fn reset_edit_commands() -> Result<Json<Vec<String>>, AppError> {
 // ── Smart mode config ────────────────────────────────────────────
 
 pub async fn get_smart_mode_config() -> Result<Json<SmartModeConfig>, AppError> {
-    Ok(Json(ha_core::config::cached_config().permission.smart.clone()))
+    Ok(Json(
+        ha_core::config::cached_config().permission.smart.clone(),
+    ))
 }
 
 pub async fn set_smart_mode_config(

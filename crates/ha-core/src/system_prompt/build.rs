@@ -2,12 +2,12 @@ use super::constants::{
     build_tool_budget_guidance, APP_INTRO, HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS,
     MEMORY_GUIDELINES, SMART_MODE_GUIDANCE, SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
 };
-use crate::permission::SessionMode;
 use super::helpers::truncate;
 use super::sections::*;
 use super::working_dir_instructions::collect_working_dir_instructions;
 use crate::agent_config::AgentDefinition;
 use crate::memory::{MemoryBudgetConfig, MemoryEntry};
+use crate::permission::SessionMode;
 use crate::project::{Project, ProjectFile};
 use crate::skills;
 use crate::user_config;

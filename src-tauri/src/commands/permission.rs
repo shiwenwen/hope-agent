@@ -2,9 +2,7 @@
 //! pattern lists (protected paths / dangerous / edit commands), Smart mode
 //! configuration, and Global YOLO state.
 
-use ha_core::permission::{
-    dangerous_commands, edit_commands, protected_paths, SmartModeConfig,
-};
+use ha_core::permission::{dangerous_commands, edit_commands, protected_paths, SmartModeConfig};
 use serde::{Deserialize, Serialize};
 
 use crate::commands::CmdError;

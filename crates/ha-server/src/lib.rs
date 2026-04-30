@@ -1223,8 +1223,7 @@ fn build_router_with_cors(
         )
         .route(
             "/permission/edit-commands",
-            get(routes::permission::get_edit_commands)
-                .post(routes::permission::set_edit_commands),
+            get(routes::permission::get_edit_commands).post(routes::permission::set_edit_commands),
         )
         .route(
             "/permission/edit-commands/reset",

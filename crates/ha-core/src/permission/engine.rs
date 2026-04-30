@@ -184,8 +184,7 @@ fn resolve_edit_layer(ctx: &ResolveContext<'_>) -> Decision {
 ///    not a manual checklist). The async wrapper [`resolve_async`] then
 ///    optionally upgrades that `Ask` to `Allow` / `Deny` via the judge.
 fn resolve_smart_mode(ctx: &ResolveContext<'_>) -> Decision {
-    if let Some(SmartStrategy::SelfConfidence | SmartStrategy::Both) = ctx.active_smart_strategy()
-    {
+    if let Some(SmartStrategy::SelfConfidence | SmartStrategy::Both) = ctx.active_smart_strategy() {
         if has_self_confidence_high(ctx.args) {
             return Decision::Allow;
         }

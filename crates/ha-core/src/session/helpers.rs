@@ -71,7 +71,6 @@ pub fn is_session_incognito(session_id: Option<&str>) -> bool {
         .unwrap_or(false)
 }
 
-
 /// Resolve the effective working directory for a session: session-level value
 /// if set, otherwise falling back to the parent project's default. This is the
 /// single source of truth consumed by both system-prompt rendering and tool

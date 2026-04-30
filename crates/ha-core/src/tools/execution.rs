@@ -373,8 +373,7 @@ pub async fn execute_tool_with_context(
                     }
                 });
                 let cwd = ctx.default_path();
-                let reason_payload =
-                    Some(approval::ApprovalReasonPayload::from(&reason));
+                let reason_payload = Some(approval::ApprovalReasonPayload::from(&reason));
                 match approval::check_and_request_approval(
                     &desc,
                     cwd,

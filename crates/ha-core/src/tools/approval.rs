@@ -227,11 +227,15 @@ fn extract_command_prefix(command: &str) -> String {
 }
 
 fn approval_timeout_secs() -> u64 {
-    crate::config::cached_config().permission.approval_timeout_secs
+    crate::config::cached_config()
+        .permission
+        .approval_timeout_secs
 }
 
 pub(crate) fn approval_timeout_action() -> crate::config::ApprovalTimeoutAction {
-    crate::config::cached_config().permission.approval_timeout_action
+    crate::config::cached_config()
+        .permission
+        .approval_timeout_action
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -379,4 +383,3 @@ pub(crate) async fn check_and_request_approval(
         Err(_) => unreachable!(),
     }
 }
-

@@ -73,9 +73,6 @@ mod tests {
             first_substring_match_ignore_ascii_case("RM -rf /", pats),
             Some("rm -rf")
         );
-        assert_eq!(
-            first_substring_match_ignore_ascii_case("ls", pats),
-            None
-        );
+        assert_eq!(first_substring_match_ignore_ascii_case("ls", pats), None);
     }
 }

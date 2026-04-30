@@ -72,10 +72,7 @@ mod tests {
 
     #[test]
     fn default_timeout_300s() {
-        assert_eq!(
-            PermissionGlobalConfig::default().approval_timeout_secs,
-            300
-        );
+        assert_eq!(PermissionGlobalConfig::default().approval_timeout_secs, 300);
     }
 
     #[test]

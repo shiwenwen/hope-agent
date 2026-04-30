@@ -84,9 +84,7 @@ pub fn tool_belongs_to_deferred_server(name: &str, servers: &[McpServerConfig]) 
 
 /// Whether any configured MCP server has opted its tools into deferred loading.
 pub fn has_deferred_tool_server(servers: &[McpServerConfig]) -> bool {
-    servers
-        .iter()
-        .any(|cfg| cfg.enabled && cfg.deferred_tools)
+    servers.iter().any(|cfg| cfg.enabled && cfg.deferred_tools)
 }
 
 /// Build a short "MCP Capabilities" system-prompt section when any

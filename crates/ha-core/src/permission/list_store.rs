@@ -23,11 +23,7 @@ pub type Cache = RwLock<Option<Arc<Vec<String>>>>;
 
 /// Load the list from disk (or defaults), caching the result. Subsequent
 /// calls return an `Arc::clone` of the cached snapshot — refcount bump only.
-pub fn load_or_defaults(
-    cache: &Cache,
-    file: &str,
-    defaults: &[&'static str],
-) -> Arc<Vec<String>> {
+pub fn load_or_defaults(cache: &Cache, file: &str, defaults: &[&'static str]) -> Arc<Vec<String>> {
     {
         let guard = cache.read().unwrap_or_else(|e| e.into_inner());
         if let Some(ref cached) = *guard {
@@ -35,8 +31,7 @@ pub fn load_or_defaults(
         }
     }
     let loaded: Arc<Vec<String>> = Arc::new(
-        read_from_disk(file)
-            .unwrap_or_else(|_| defaults.iter().map(|s| s.to_string()).collect()),
+        read_from_disk(file).unwrap_or_else(|_| defaults.iter().map(|s| s.to_string()).collect()),
     );
     let mut guard = cache.write().unwrap_or_else(|e| e.into_inner());
     // Another caller may have loaded the cache between our read drop + write

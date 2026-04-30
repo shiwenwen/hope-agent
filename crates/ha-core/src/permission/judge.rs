@@ -308,14 +308,9 @@ mod tests {
     #[test]
     fn cache_key_canonical_nested_objects() {
         // Recursive: nested objects must also be canonical.
-        let a: Value =
-            serde_json::from_str(r#"{"o":{"a":1,"b":2},"k":"v"}"#).unwrap();
-        let b: Value =
-            serde_json::from_str(r#"{"k":"v","o":{"b":2,"a":1}}"#).unwrap();
-        assert_eq!(
-            cache_key("t", &a, "p", "m"),
-            cache_key("t", &b, "p", "m")
-        );
+        let a: Value = serde_json::from_str(r#"{"o":{"a":1,"b":2},"k":"v"}"#).unwrap();
+        let b: Value = serde_json::from_str(r#"{"k":"v","o":{"b":2,"a":1}}"#).unwrap();
+        assert_eq!(cache_key("t", &a, "p", "m"), cache_key("t", &b, "p", "m"));
     }
 
     #[test]

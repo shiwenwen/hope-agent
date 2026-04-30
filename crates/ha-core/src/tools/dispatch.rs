@@ -156,7 +156,12 @@ fn is_deferred(name: &str, tier: &ToolTier, app_config: &AppConfig) -> bool {
         // Tier 1 / Memory / Mcp ignore the deferred switch entirely.
         _ => false,
     };
-    supports_deferred && app_config.deferred_tools.tool_names.iter().any(|t| t == name)
+    supports_deferred
+        && app_config
+            .deferred_tools
+            .tool_names
+            .iter()
+            .any(|t| t == name)
 }
 
 /// Final tier-based decision. Plan-mode handling lives at the call site
