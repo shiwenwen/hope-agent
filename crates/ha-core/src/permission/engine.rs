@@ -629,4 +629,174 @@ mod tests {
         c.is_internal_tool = true;
         assert_eq!(resolve(&c), Decision::Allow);
     }
+
+    // ── Priority matrix: Plan > YOLO > strict > AllowAlways > preset ─────
+
+    #[test]
+    fn global_yolo_overrides_protected_path() {
+        // Global YOLO bypasses everything except Plan Mode (audit log only).
+        let args = json!({"path": "~/.ssh/id_rsa"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("read", &args, SessionMode::Default, &plan, &custom);
+        c.global_yolo = true;
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn global_yolo_overrides_dangerous_command() {
+        let args = json!({"command": "rm -rf /"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+        c.global_yolo = true;
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn session_yolo_equivalent_to_global_yolo() {
+        let args = json!({"path": "~/.ssh/x"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("read", &args, SessionMode::Yolo, &plan, &custom);
+        assert_eq!(resolve(&c), Decision::Allow);
+    }
+
+    #[test]
+    fn plan_mode_blocks_yolo_and_protected_path() {
+        // Plan must beat both YOLO and protected-path strict ask.
+        let args = json!({"path": "~/.ssh/x"});
+        let plan: Vec<String> = vec!["read".into()];
+        let custom: Vec<String> = vec![];
+        let mut c = ctx("write", &args, SessionMode::Yolo, &plan, &custom);
+        c.plan_mode = true;
+        c.global_yolo = true;
+        assert!(matches!(resolve(&c), Decision::Deny { .. }));
+    }
+
+    #[test]
+    fn protected_path_overrides_default_edit_layer() {
+        // Protected path is checked BEFORE the edit-layer ask, so reason
+        // should be ProtectedPath (strict) — guarantees AllowAlways stays
+        // disabled in the dialog.
+        let args = json!({"path": "~/.ssh/foo"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("write", &args, SessionMode::Default, &plan, &custom);
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn dangerous_command_overrides_edit_command() {
+        // Dangerous-command ask must shadow edit-command ask (both would
+        // fire on `rm -rf /` otherwise — first match wins, dangerous comes first).
+        let args = json!({"command": "rm -rf /"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let c = ctx("exec", &args, SessionMode::Default, &plan, &custom);
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::DangerousCommand { .. },
+            } => {}
+            other => panic!("expected DangerousCommand, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn smart_self_confidence_overrides_edit_layer_but_not_protected_path() {
+        // _confidence:high cannot reach into the strict layer.
+        let args = json!({"path": "~/.ssh/foo", "_confidence": "high"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::SelfConfidence,
+            judge_model: None,
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        match resolve(&c) {
+            Decision::Ask {
+                reason: AskReason::ProtectedPath { .. },
+            } => {}
+            other => panic!("expected ProtectedPath strict, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn forbids_allow_always_for_strict_reasons() {
+        let path_args = json!({"path": "~/.ssh/foo"});
+        let cmd_args = json!({"command": "rm -rf /"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let path_ctx = ctx("read", &path_args, SessionMode::Default, &plan, &custom);
+        let cmd_ctx = ctx("exec", &cmd_args, SessionMode::Default, &plan, &custom);
+
+        match resolve(&path_ctx) {
+            Decision::Ask { reason } => assert!(reason.forbids_allow_always()),
+            other => panic!("expected Ask, got {:?}", other),
+        }
+        match resolve(&cmd_ctx) {
+            Decision::Ask { reason } => assert!(reason.forbids_allow_always()),
+            other => panic!("expected Ask, got {:?}", other),
+        }
+
+        // Non-strict reasons must NOT forbid AllowAlways.
+        let edit_args = json!({"path": "/tmp/x"});
+        let edit_ctx = ctx("write", &edit_args, SessionMode::Default, &plan, &custom);
+        match resolve(&edit_ctx) {
+            Decision::Ask { reason } => assert!(!reason.forbids_allow_always()),
+            other => panic!("expected Ask, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_async_smart_fallback_default_keeps_ask() {
+        // Judge unreachable (no provider configured) + fallback=Default → Ask.
+        let args = json!({"path": "/tmp/foo"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::JudgeModel,
+            judge_model: Some(JudgeModelConfig {
+                provider_id: "definitely-not-configured".to_string(),
+                model: "x".to_string(),
+                extra_prompt: None,
+            }),
+            fallback: SmartFallback::Default,
+        };
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        match resolve_async(&c).await {
+            Decision::Ask {
+                reason: AskReason::EditTool,
+            } => {}
+            other => panic!("expected EditTool ask after fallback, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn resolve_async_smart_fallback_allow_upgrades_to_allow() {
+        // Judge unreachable + fallback=Allow → upgrade to Allow.
+        let args = json!({"path": "/tmp/foo"});
+        let plan: Vec<String> = vec![];
+        let custom: Vec<String> = vec![];
+        let smart_cfg = SmartModeConfig {
+            strategy: SmartStrategy::JudgeModel,
+            judge_model: Some(JudgeModelConfig {
+                provider_id: "definitely-not-configured".to_string(),
+                model: "x".to_string(),
+                extra_prompt: None,
+            }),
+            fallback: SmartFallback::Allow,
+        };
+        let mut c = ctx("write", &args, SessionMode::Smart, &plan, &custom);
+        c.smart_config = Some(&smart_cfg);
+        assert_eq!(resolve_async(&c).await, Decision::Allow);
+    }
 }
