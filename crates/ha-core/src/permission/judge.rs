@@ -183,10 +183,57 @@ fn cache() -> &'static Mutex<HashMap<u64, CachedVerdict>> {
 fn cache_key(tool_name: &str, args: &Value, provider_id: &str, model: &str) -> u64 {
     let mut h = DefaultHasher::new();
     tool_name.hash(&mut h);
-    args.to_string().hash(&mut h);
+    hash_value_canonical(args, &mut h);
     provider_id.hash(&mut h);
     model.hash(&mut h);
     h.finish()
+}
+
+/// Hash a `serde_json::Value` so that semantically equal JSON produces the
+/// same hash regardless of object key order. Models often emit the same
+/// args with different key ordering across tool calls; without this the
+/// cache would miss and we'd burn extra ~5s judge LLM calls.
+///
+/// Tag bytes (0..=5) per variant prevent cross-variant collisions
+/// (e.g. `null` vs the empty string `""`).
+fn hash_value_canonical(v: &Value, h: &mut DefaultHasher) {
+    match v {
+        Value::Null => 0u8.hash(h),
+        Value::Bool(b) => {
+            1u8.hash(h);
+            b.hash(h);
+        }
+        Value::Number(n) => {
+            2u8.hash(h);
+            // Number isn't Hash directly; canonical decimal repr is stable
+            // for any value reachable from JSON parsing.
+            n.to_string().hash(h);
+        }
+        Value::String(s) => {
+            3u8.hash(h);
+            s.hash(h);
+        }
+        Value::Array(arr) => {
+            4u8.hash(h);
+            (arr.len() as u64).hash(h);
+            for item in arr {
+                hash_value_canonical(item, h);
+            }
+        }
+        Value::Object(map) => {
+            5u8.hash(h);
+            (map.len() as u64).hash(h);
+            // Sort by key for canonical order. serde_json::Map (BTreeMap-
+            // backed only when the `preserve_order` feature is off) may
+            // already iterate in sorted order, but we don't rely on that.
+            let mut keys: Vec<&String> = map.keys().collect();
+            keys.sort();
+            for k in keys {
+                k.hash(h);
+                hash_value_canonical(&map[k], h);
+            }
+        }
+    }
 }
 
 fn lookup_cache(key: u64) -> Option<JudgeResponse> {
@@ -276,6 +323,55 @@ mod tests {
 
         // Different model → different key.
         assert_ne!(k1, cache_key("write", &args, "p1", "m2"));
+    }
+
+    #[test]
+    fn cache_key_canonical_object_key_order() {
+        // Two semantically identical objects with different key order
+        // must hash to the same key, otherwise the LRU cache misses on
+        // every retry where the model emits keys in a new order.
+        // Build via raw JSON parsing so insertion order is preserved
+        // (json! macro normalizes via BTreeMap regardless of input).
+        let a: Value = serde_json::from_str(r#"{"path":"/tmp/x","cwd":"/repo","n":1}"#).unwrap();
+        let b: Value = serde_json::from_str(r#"{"cwd":"/repo","n":1,"path":"/tmp/x"}"#).unwrap();
+        let c: Value = serde_json::from_str(r#"{"n":1,"path":"/tmp/x","cwd":"/repo"}"#).unwrap();
+        let ka = cache_key("write", &a, "p1", "m1");
+        let kb = cache_key("write", &b, "p1", "m1");
+        let kc = cache_key("write", &c, "p1", "m1");
+        assert_eq!(ka, kb);
+        assert_eq!(ka, kc);
+    }
+
+    #[test]
+    fn cache_key_canonical_nested_objects() {
+        // Recursive: nested objects must also be canonical.
+        let a: Value =
+            serde_json::from_str(r#"{"o":{"a":1,"b":2},"k":"v"}"#).unwrap();
+        let b: Value =
+            serde_json::from_str(r#"{"k":"v","o":{"b":2,"a":1}}"#).unwrap();
+        assert_eq!(
+            cache_key("t", &a, "p", "m"),
+            cache_key("t", &b, "p", "m")
+        );
+    }
+
+    #[test]
+    fn cache_key_canonical_distinguishes_distinct_values() {
+        // Tag bytes prevent cross-variant collisions.
+        let null = Value::Null;
+        let empty_str = Value::String(String::new());
+        let empty_arr = Value::Array(vec![]);
+        let empty_obj: Value = serde_json::from_str("{}").unwrap();
+        let k_null = cache_key("t", &null, "p", "m");
+        let k_str = cache_key("t", &empty_str, "p", "m");
+        let k_arr = cache_key("t", &empty_arr, "p", "m");
+        let k_obj = cache_key("t", &empty_obj, "p", "m");
+        assert_ne!(k_null, k_str);
+        assert_ne!(k_null, k_arr);
+        assert_ne!(k_null, k_obj);
+        assert_ne!(k_str, k_arr);
+        assert_ne!(k_str, k_obj);
+        assert_ne!(k_arr, k_obj);
     }
 
     #[test]
