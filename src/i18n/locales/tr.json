@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "Etkinleştirildiğinde, bağlı tüm MCP sunucuları ve araçları kullanılabilir hale gelir; kapatıldığında tüm MCP araçları hariç tutulur.",
     "agentMcpEnableLabel": "MCP'yi etkinleştir",
+    "agentMcpBadgeOn": "Açık",
+    "agentMcpBadgeOff": "Kapalı",
     "agentMaxToolRounds": "Maks Araç Turları",
     "agentUnlimited": "Sınırsız",
     "agentSkills": "Beceriler",

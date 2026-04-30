@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "When enabled, all connected MCP servers and their tools become available; when off, every MCP tool is excluded.",
     "agentMcpEnableLabel": "Enable MCP",
+    "agentMcpBadgeOn": "On",
+    "agentMcpBadgeOff": "Off",
     "agentMaxToolRounds": "Max Tool Rounds",
     "agentUnlimited": "Unlimited",
     "agentSkills": "Skills",

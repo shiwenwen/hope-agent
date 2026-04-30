@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "Apabila didayakan, semua pelayan MCP yang disambungkan dan alatnya menjadi tersedia; apabila dimatikan, semua alat MCP dikecualikan.",
     "agentMcpEnableLabel": "Dayakan MCP",
+    "agentMcpBadgeOn": "Aktif",
+    "agentMcpBadgeOff": "Mati",
     "agentMaxToolRounds": "Maks Pusingan Alat",
     "agentUnlimited": "Tiada had",
     "agentSkills": "Kemahiran",

@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "عند التفعيل، تصبح جميع خوادم MCP المتصلة وأدواتها متاحة؛ عند الإيقاف، تُستبعد جميع أدوات MCP.",
     "agentMcpEnableLabel": "تمكين MCP",
+    "agentMcpBadgeOn": "مُفعّل",
+    "agentMcpBadgeOff": "مُعطَّل",
     "agentMaxToolRounds": "الحد الأقصى لجولات الأدوات",
     "agentUnlimited": "بلا حدود",
     "agentSkills": "المهارات",

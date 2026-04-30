@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "При включении все подключённые серверы MCP и их инструменты становятся доступны; при выключении все инструменты MCP исключаются.",
     "agentMcpEnableLabel": "Включить MCP",
+    "agentMcpBadgeOn": "Включено",
+    "agentMcpBadgeOff": "Отключено",
     "agentMaxToolRounds": "Макс. раундов инструментов",
     "agentUnlimited": "Без ограничений",
     "agentSkills": "Навыки",

@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "启用后所有连接的 MCP 服务器及其工具自动可用；关闭则跳过所有 MCP 工具。",
     "agentMcpEnableLabel": "启用 MCP",
+    "agentMcpBadgeOn": "已启用",
+    "agentMcpBadgeOff": "已关闭",
     "agentMaxToolRounds": "最大工具调用轮数",
     "agentUnlimited": "不限制",
     "agentSkills": "技能",

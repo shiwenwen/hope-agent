@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "Khi bật, tất cả máy chủ MCP đã kết nối và công cụ của chúng đều khả dụng; khi tắt, mọi công cụ MCP đều bị loại trừ.",
     "agentMcpEnableLabel": "Bật MCP",
+    "agentMcpBadgeOn": "Đã bật",
+    "agentMcpBadgeOff": "Đã tắt",
     "agentMaxToolRounds": "Số vòng công cụ tối đa",
     "agentUnlimited": "Không giới hạn",
     "agentSkills": "Kỹ năng",

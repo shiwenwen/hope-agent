@@ -1,4 +1,6 @@
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
+import { ChevronDown, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { isMainAgent, TOOL_I18N_KEY, TOOL_NAME_TO_TOGGLE_KEY } from "@/types/tools"
 import { Switch } from "@/components/ui/switch"
@@ -8,6 +10,52 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { OpenClawHintBanner } from "./CustomTab"
 import type { AgentConfig, SkillSummary } from "../types"
+
+/** Collapsible section wrapper used by every tier block in this tab. */
+function CollapsibleSection({
+  title,
+  description,
+  badge,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string
+  description?: string
+  badge?: React.ReactNode
+  open: boolean
+  onToggle: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div>
+      <Button
+        variant="ghost"
+        type="button"
+        className="h-auto w-full justify-start gap-2 rounded-md px-1 py-1 text-left font-normal hover:bg-secondary/40"
+        onClick={onToggle}
+      >
+        {open ? (
+          <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )}
+        <span className="text-xs font-medium text-muted-foreground">{title}</span>
+        {badge != null && (
+          <span className="text-[11px] text-muted-foreground/50 ml-1">{badge}</span>
+        )}
+      </Button>
+      {open && (
+        <div className="mt-2">
+          {description && (
+            <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">{description}</p>
+          )}
+          {children}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** Tier metadata returned by the backend `list_builtin_tools` command. */
 type BuiltinTool = {
@@ -53,6 +101,14 @@ export default function CapabilitiesTab({
 }: CapabilitiesTabProps) {
   const { t } = useTranslation()
   const isMain = isMainAgent(agentId)
+
+  // ── Collapsible state (default collapsed to keep the tab compact) ──
+  const [coreOpen, setCoreOpen] = useState(false)
+  const [standardOpen, setStandardOpen] = useState(false)
+  const [configuredOpen, setConfiguredOpen] = useState(false)
+  const [mcpOpen, setMcpOpen] = useState(false)
+  const [approvalOpen, setApprovalOpen] = useState(false)
+  const [skillsOpen, setSkillsOpen] = useState(false)
 
   const toolDisplayName = (name: string) => {
     const key = TOOL_I18N_KEY[name]
@@ -175,13 +231,13 @@ export default function CapabilitiesTab({
 
         {/* Tier 1: Core (read-only listing) */}
         {coreVisibleTools.length > 0 && (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground px-1">
-              {t("settings.agentTierCoreTitle")}
-            </div>
-            <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-              {t("settings.agentTierCoreDesc")}
-            </p>
+          <CollapsibleSection
+            title={t("settings.agentTierCoreTitle")}
+            description={t("settings.agentTierCoreDesc")}
+            badge={`(${coreVisibleTools.length})`}
+            open={coreOpen}
+            onToggle={() => setCoreOpen((v) => !v)}
+          >
             <div className="rounded-lg border border-border/50 overflow-hidden bg-secondary/20">
               {coreVisibleTools.map((tool, idx) => (
                 <div
@@ -205,18 +261,21 @@ export default function CapabilitiesTab({
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
         )}
 
         {/* Tier 2: Standard */}
         {standardTools.length > 0 && (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground px-1">
-              {t("settings.agentTierStandardTitle")}
-            </div>
-            <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-              {t("settings.agentTierStandardDesc")}
-            </p>
+          <CollapsibleSection
+            title={t("settings.agentTierStandardTitle")}
+            description={t("settings.agentTierStandardDesc")}
+            badge={(() => {
+              const enabled = standardTools.filter(tier2Enabled).length
+              return `(${enabled}/${standardTools.length})`
+            })()}
+            open={standardOpen}
+            onToggle={() => setStandardOpen((v) => !v)}
+          >
             <div className="rounded-lg border border-border/50 overflow-hidden">
               {standardTools.map((tool, idx) => (
                 <div
@@ -241,18 +300,21 @@ export default function CapabilitiesTab({
                 </div>
               ))}
             </div>
-          </div>
+          </CollapsibleSection>
         )}
 
         {/* Tier 3: Configured */}
         {configuredTools.length > 0 && (
-          <div>
-            <div className="text-xs font-medium text-muted-foreground px-1">
-              {t("settings.agentTierConfiguredTitle")}
-            </div>
-            <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-              {t("settings.agentTierConfiguredDesc")}
-            </p>
+          <CollapsibleSection
+            title={t("settings.agentTierConfiguredTitle")}
+            description={t("settings.agentTierConfiguredDesc")}
+            badge={(() => {
+              const enabled = configuredTools.filter(tier3Resolved).length
+              return `(${enabled}/${configuredTools.length})`
+            })()}
+            open={configuredOpen}
+            onToggle={() => setConfiguredOpen((v) => !v)}
+          >
             <div className="rounded-lg border border-border/50 overflow-hidden">
               {configuredTools.map((tool, idx) => {
                 const enabled = tier3Resolved(tool)
@@ -287,17 +349,17 @@ export default function CapabilitiesTab({
                 )
               })}
             </div>
-          </div>
+          </CollapsibleSection>
         )}
 
         {/* MCP master switch */}
-        <div>
-          <div className="text-xs font-medium text-muted-foreground px-1">
-            {t("settings.agentMcpTitle")}
-          </div>
-          <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-            {t("settings.agentMcpDesc")}
-          </p>
+        <CollapsibleSection
+          title={t("settings.agentMcpTitle")}
+          description={t("settings.agentMcpDesc")}
+          badge={(config.capabilities.mcpEnabled ?? true) ? t("settings.agentMcpBadgeOn") : t("settings.agentMcpBadgeOff")}
+          open={mcpOpen}
+          onToggle={() => setMcpOpen((v) => !v)}
+        >
           <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-border/50">
             <div className="min-w-0 flex-1">
               <div className="text-xs font-medium text-foreground">
@@ -309,16 +371,21 @@ export default function CapabilitiesTab({
               onCheckedChange={(v) => updateCapabilities({ mcpEnabled: v })}
             />
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Require Approval */}
-        <div>
-          <div className="text-xs font-medium text-muted-foreground mb-1 px-1">
-            {t("settings.agentRequireApproval")}
-          </div>
-          <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-            {t("settings.agentRequireApprovalDesc")}
-          </p>
+        <CollapsibleSection
+          title={t("settings.agentRequireApproval")}
+          description={t("settings.agentRequireApprovalDesc")}
+          badge={(() => {
+            const ra = config.capabilities.requireApproval
+            if (ra.includes("*")) return t("settings.agentApprovalAll")
+            if (ra.length === 0) return t("settings.agentApprovalNone")
+            return `${t("settings.agentApprovalCustom")} (${ra.length})`
+          })()}
+          open={approvalOpen}
+          onToggle={() => setApprovalOpen((v) => !v)}
+        >
           <div className="flex gap-1.5 mb-3">
             {(
               [
@@ -396,7 +463,7 @@ export default function CapabilitiesTab({
                 })}
               </div>
             )}
-        </div>
+        </CollapsibleSection>
 
         <div className="border-t border-border/50" />
 
@@ -447,24 +514,17 @@ export default function CapabilitiesTab({
 
       {/* ─── Skills sub-tab ────────────────────────────────────── */}
       <TabsContent value="skills" className="space-y-5">
-        <div>
-          <div className="text-xs font-medium text-muted-foreground mb-1 px-1 flex items-center gap-1.5">
-            {t("settings.agentSkills")}
-            {availableSkills.length > 0 && (
-              <span className="text-[11px] text-muted-foreground/50">
-                (
-                {
-                  availableSkills.filter(
-                    (s) => !config.capabilities.skills.deny.includes(s.name),
-                  ).length
-                }
-                /{availableSkills.length})
-              </span>
-            )}
-          </div>
-          <p className="text-[11px] text-muted-foreground/60 mb-2 px-1">
-            {t("settings.agentSkillsDesc")}
-          </p>
+        <CollapsibleSection
+          title={t("settings.agentSkills")}
+          description={t("settings.agentSkillsDesc")}
+          badge={
+            availableSkills.length > 0
+              ? `(${availableSkills.filter((s) => !config.capabilities.skills.deny.includes(s.name)).length}/${availableSkills.length})`
+              : undefined
+          }
+          open={skillsOpen}
+          onToggle={() => setSkillsOpen((v) => !v)}
+        >
           {availableSkills.length > 0 && (
             <div className="rounded-lg border border-border/50 overflow-hidden">
               {availableSkills.map((skill, idx) => {
@@ -501,7 +561,7 @@ export default function CapabilitiesTab({
               })}
             </div>
           )}
-        </div>
+        </CollapsibleSection>
 
         <div className="border-t border-border/50" />
 

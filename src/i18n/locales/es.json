@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "Cuando se habilita, todos los servidores MCP conectados y sus herramientas están disponibles; al desactivarlo, todas las herramientas MCP se excluyen.",
     "agentMcpEnableLabel": "Habilitar MCP",
+    "agentMcpBadgeOn": "Activado",
+    "agentMcpBadgeOff": "Desactivado",
     "agentMaxToolRounds": "Máx. Rondas de Herramienta",
     "agentUnlimited": "Sin límite",
     "agentSkills": "Habilidades",

@@ -1674,6 +1674,8 @@
     "agentMcpTitle": "MCP",
     "agentMcpDesc": "활성화하면 연결된 모든 MCP 서버와 도구를 자동으로 사용할 수 있습니다. 끄면 모든 MCP 도구가 제외됩니다.",
     "agentMcpEnableLabel": "MCP 활성화",
+    "agentMcpBadgeOn": "사용 중",
+    "agentMcpBadgeOff": "사용 안 함",
     "agentMaxToolRounds": "최대 도구 호출 횟수",
     "agentUnlimited": "제한 없음",
     "agentSkills": "스킬",
