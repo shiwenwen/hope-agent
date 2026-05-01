@@ -873,6 +873,7 @@
     "skillsDirSharedDesc": "Cross-tool shared skill directory (~/.agents/skills/ convention)",
     "skillsDirAdd": "Import skill directory",
     "skillsDirRemove": "Remove this directory",
+    "skillsDirPickFailed": "Failed to pick directory",
     "skillsImport": {
       "button": "Quick import",
       "dialogTitle": "Quick import skill directories",
@@ -3487,7 +3488,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "Open download page"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

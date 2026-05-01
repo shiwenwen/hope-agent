@@ -1,13 +1,16 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, FolderOpen, Plus, Sparkles, X } from "lucide-react"
 
 import { getTransport } from "@/lib/transport-provider"
+import { isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Switch } from "@/components/ui/switch"
 import QuickImportDialog from "@/components/settings/skills-panel/QuickImportDialog"
+import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
+import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 
 /**
  * Subset of `SkillSummary` returned by the `get_skills` Tauri/HTTP command.
@@ -81,22 +84,31 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
     })
   }
 
-  async function handleImportDir() {
+  const addExtraDir = useCallback(async (dir: string) => {
     setImporting(true)
     try {
-      const { open } = await import("@tauri-apps/plugin-dialog")
-      const selected = await open({ directory: true, multiple: false })
-      if (selected) {
-        await getTransport().call("add_extra_skills_dir", { dir: selected })
-        await reload()
-      }
+      await getTransport().call("add_extra_skills_dir", { dir })
+      await reload()
     } catch (e) {
       logger.error("onboarding", "SkillsStep::addDir", "failed to add skills dir", e)
       setError(String(e))
     } finally {
       setImporting(false)
     }
-  }
+  }, [])
+
+  const {
+    pick: handleImportDir,
+    browserOpen: dirBrowserOpen,
+    setBrowserOpen: setDirBrowserOpen,
+    handleBrowserSelect: handleDirBrowserSelect,
+  } = useDirectoryPicker({
+    onPicked: (path) => {
+      void addExtraDir(path)
+    },
+    errorTitle: t("settings.skillsDirPickFailed"),
+    loggerSource: "SkillsStep::pickExtraDir",
+  })
 
   async function handleRemoveDir(dir: string) {
     try {
@@ -244,6 +256,13 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
         onClose={() => setQuickImportOpen(false)}
         onImported={() => void reload()}
       />
+      {!isTauriMode() && (
+        <ServerDirectoryBrowser
+          open={dirBrowserOpen}
+          onOpenChange={setDirBrowserOpen}
+          onSelect={handleDirBrowserSelect}
+        />
+      )}
     </div>
   )
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
+import { isTauriMode } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import {
   markDraftsSeen,
@@ -9,6 +10,8 @@ import {
   useDraftSkillsStore,
 } from "@/hooks/useDraftSkillsStore"
 import { SKILLS_EVENTS } from "@/types/skills"
+import ServerDirectoryBrowser from "@/components/chat/input/ServerDirectoryBrowser"
+import { useDirectoryPicker } from "@/components/chat/input/useDirectoryPicker"
 import type { SkillSummary } from "../types"
 import type { SkillDetail } from "./types"
 import SkillListView from "./SkillListView"
@@ -138,18 +141,30 @@ export default function SkillsPanel() {
     }
   }
 
-  async function handleAddDir() {
-    try {
-      const { open } = await import("@tauri-apps/plugin-dialog")
-      const selected = await open({ directory: true, multiple: false })
-      if (selected) {
-        await getTransport().call("add_extra_skills_dir", { dir: selected })
+  const addExtraDir = useCallback(
+    async (dir: string) => {
+      try {
+        await getTransport().call("add_extra_skills_dir", { dir })
         await reload()
+      } catch (e) {
+        logger.error("settings", "SkillsPanel::addDir", "Failed to add skills directory", e)
       }
-    } catch (e) {
-      logger.error("settings", "SkillsPanel::addDir", "Failed to add skills directory", e)
-    }
-  }
+    },
+    [reload],
+  )
+
+  const {
+    pick: handleAddDir,
+    browserOpen: dirBrowserOpen,
+    setBrowserOpen: setDirBrowserOpen,
+    handleBrowserSelect: handleDirBrowserSelect,
+  } = useDirectoryPicker({
+    onPicked: (path) => {
+      void addExtraDir(path)
+    },
+    errorTitle: t("settings.skillsDirPickFailed"),
+    loggerSource: "SkillsPanel::pickExtraDir",
+  })
 
   async function handleRemoveDir(dir: string) {
     try {
@@ -342,6 +357,13 @@ export default function SkillsPanel() {
         onClose={() => setQuickImportOpen(false)}
         onImported={reload}
       />
+      {!isTauriMode() && (
+        <ServerDirectoryBrowser
+          open={dirBrowserOpen}
+          onOpenChange={setDirBrowserOpen}
+          onSelect={handleDirBrowserSelect}
+        />
+      )}
     </div>
   )
 }

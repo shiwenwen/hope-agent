@@ -31,6 +31,27 @@
 ## Open
 
 
+### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
+
+- **来源**：2026-05-01 跨平台兼容性修复 PR（`claude/cross-platform-compatibility-check-qBENn`）
+- **现象**：本期 PR 只修了"主路径在非 macOS / 非 Tauri 直接走不通"的两个硬伤（Skills 目录选择 + Ollama 失败 UX）。仓库里仍有大量 `#[cfg(target_os = "linux")]` / `#[cfg(target_os = "macos")]` 散落在业务代码而非 `crates/ha-core/src/platform/` 门面下，违反 AGENTS.md「优先用 `#[cfg(unix)]` / `#[cfg(windows)]`，少写 `target_os = "linux"`；新增跨平台原语统一放 `crates/ha-core/src/platform/`」规则。重灾区：
+  - [`crates/ha-core/src/service_install.rs`](../../crates/ha-core/src/service_install.rs)：~30 处 `target_os = "macos"` / `"linux"` 分支硬编码（launchd plist / systemd unit 业务逻辑应进 `platform::service` 子模块）
+  - [`crates/ha-core/src/weather.rs`](../../crates/ha-core/src/weather.rs)：geo lookup 走 macOS-only `CoreLocation` 分支（line 640+），Linux 走 IP geolocation fallback——能走通但耦合在业务文件里
+  - [`crates/ha-core/src/provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs) / [`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs)：`scutil --proxy` macOS 系统代理探测，非 macOS 兜底 `None`——Linux 用户的 GNOME / KDE / 环境变量代理设置完全不被识别
+  - [`crates/ha-core/src/file_extract.rs:164`](../../crates/ha-core/src/file_extract.rs)：office 文件提取按 `target_os` 选 binary（`textutil` macOS / `libreoffice` Linux / Windows 未实现）——Windows 路径直接报"unsupported on this OS"
+  - [`crates/ha-core/src/permissions.rs:56,318`](../../crates/ha-core/src/permissions.rs)：macOS-only TCC 权限申请，非 macOS 全 stub——能走通但应迁到 `platform::permissions` 门面
+- **为什么留**：本期 PR 范围聚焦"完全走不通"的两个硬伤（用户已经在反馈），上面这些都不是 blocker：要么 Linux/Windows 已有降级路径（weather / proxy / permissions），要么是 Windows 一开始就不支持的功能（file_extract Windows）。逐个迁到 `platform/` 是大块结构性重构，不能跟修主路径混在一个 PR
+- **改的话要做什么**：
+  1. 先做 audit：grep 全 `target_os =` 出现位置，按"业务文件 vs platform 门面"分两堆
+  2. 对每个业务文件里的分支，判断是该 (a) 整个函数迁到 `platform/{macos,linux,windows}.rs` 然后 `crate::platform::xxx()` 调用，还是 (b) 改成 `cfg(unix)` 让 macOS+Linux+BSD 共享路径
+  3. `service_install.rs` 拆成 `platform::service::{install,uninstall,status}` + 各 OS 实现文件——是最大的一块
+  4. `provider/proxy.rs` Linux 路径加 `gsettings get org.gnome.system.proxy` + `kreadconfig5` + `http_proxy` env var 三档探测，与 macOS `scutil --proxy` 同结构，落 `platform::system_proxy`
+  5. `weather.rs` macOS CoreLocation 分支抽到 `platform::geolocation` 门面，业务层只调 `crate::platform::current_location()` 或 fallback IP geo
+  6. `file_extract.rs` Windows 路径加 PowerShell `Word.Application` COM / 或彻底声明 unsupported 不再 panic
+- **影响面**：全是"已经能跑但不够 OS-native"——非 macOS 用户拿到的是降级体验或不支持提示。无安全 / 数据正确性问题，但跨平台口碑会被这些细节拖累
+- **触发时机建议**：可以拆成 4-5 个独立小 PR 渐进推进（`service_install` / `system_proxy` / `geolocation` / `file_extract` / `permissions` 各一个），每个独立可 review；或者下次有 Windows / Linux 用户报某个具体子系统不能用时，趁势把对应那块迁到 platform 门面
+
+
 ### F-027 `notify()` 每次调用都跑 IPC 查权限，可缓存 first-grant
 
 - **来源**：2026-05-01 桌面后台通知 PR `/simplify` review（efficiency agent #5）
