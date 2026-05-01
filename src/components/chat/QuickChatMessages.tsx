@@ -65,7 +65,7 @@ export default function QuickChatMessages({
       if (!row) return 72
       if (row.type === "loadMore") return 32
       if (row.type === "viewFullChat") return 28
-      if (row.msg.role === "event") return 28
+      if (row.msg.role === "event" || row.msg.isPlanTrigger) return 28
       if (row.msg.role === "user") return 58
       return 72
     },
@@ -128,7 +128,7 @@ export default function QuickChatMessages({
     }
 
     const { msg, originalIndex } = row
-    if (msg.role === "event") {
+    if (msg.role === "event" || msg.isPlanTrigger) {
       return <div className="text-xs text-center text-muted-foreground py-1">{msg.content}</div>
     }
 

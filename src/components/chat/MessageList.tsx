@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import { ArrowDown, Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
+import { isCenteredSystemMessage } from "./chatUtils"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
@@ -151,8 +152,11 @@ export default function MessageList({
       if (row.type === "empty") return 240
       if (row.type === "planRunning") return 52
       if (row.type === "askUser" || row.type === "planCard") return 180
+      // Centered system chips (event / sub-agent result / cron / plan trigger)
+      // ride on `role: "user"` rows, so this branch must run before the user
+      // bubble fallback.
+      if (isCenteredSystemMessage(row.msg)) return 48
       if (row.msg.role === "user") return 76
-      if (row.msg.role === "event" || row.msg.isSubagentResult || row.msg.isCronTrigger) return 48
       return 120
     },
     [rows],
@@ -287,7 +291,7 @@ export default function MessageList({
             className={cn(
               "flex rounded-lg transition-colors",
               msg.dbId === highlightMessageId && "message-hit-pulse",
-              msg.role === "event" || msg.isSubagentResult || msg.isCronTrigger
+              isCenteredSystemMessage(msg)
                 ? "justify-center"
                 : msg.role === "user" && !msg.fromAgentId
                   ? "justify-end"

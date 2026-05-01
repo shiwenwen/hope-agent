@@ -50,6 +50,11 @@ pub struct ChatRequest {
     /// See Tauri `chat` command — DB stores this while `message` goes to the LLM.
     #[serde(default)]
     pub display_text: Option<String>,
+    /// When true, persists the user row with
+    /// `attachments_meta = {"plan_trigger": true}` so the UI renders it as a
+    /// Plan Mode approve/resume chip (mirrors the Tauri `chat` command).
+    #[serde(default)]
+    pub is_plan_trigger: Option<bool>,
     /// Draft working dir picked before the session was materialized. Only
     /// honored when this call also creates the session (mirrors the Tauri
     /// `chat` command).
@@ -166,7 +171,13 @@ pub async fn chat(
     let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
 
     // Save user message to DB
-    let user_msg = session::NewMessage::user(persisted_content);
+    let mut user_msg = session::NewMessage::user(persisted_content);
+    // Plan Mode trigger marker — UI renders these as a system chip instead of
+    // a regular user bubble. Mirrors the Tauri command.
+    if body.is_plan_trigger.unwrap_or(false) {
+        user_msg.attachments_meta =
+            Some(serde_json::json!({ "plan_trigger": true }).to_string());
+    }
     let _ = db.append_message(&sid, &user_msg);
 
     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).

@@ -41,6 +41,17 @@ function isActiveStreamError(error: unknown): boolean {
   return errorText(error).includes(ACTIVE_STREAM_ERROR_CODE)
 }
 
+interface SendOptions {
+  displayText?: string
+  planMode?: string
+  isPlanTrigger?: boolean
+}
+
+interface PendingSend {
+  text: string
+  options?: SendOptions
+}
+
 export interface UseChatStreamOptions {
   messages: Message[]
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>
@@ -93,10 +104,7 @@ export interface UseChatStreamReturn {
   setShowCodexAuthExpired: React.Dispatch<React.SetStateAction<boolean>>
   permissionMode: SessionMode
   setPermissionMode: React.Dispatch<React.SetStateAction<SessionMode>>
-  handleSend: (
-    directText?: string,
-    options?: { displayText?: string; planMode?: string },
-  ) => Promise<void>
+  handleSend: (directText?: string, options?: SendOptions) => Promise<void>
   handleStop: () => Promise<void>
   handleApprovalResponse: (
     requestId: string,
@@ -132,8 +140,31 @@ export function useChatStream({
   const { t } = useTranslation()
   const [input, setInput] = useState("")
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [pendingMessage, setPendingMessage] = useState<string | null>(null)
-  const pendingMessageRef = useRef<string | null>(null)
+  // Pending send queued while a response is streaming. Stores the LLM-bound
+  // `text` plus the original `options` (displayText / planMode / isPlanTrigger)
+  // so the replay path can resend with the exact same metadata — otherwise a
+  // queued plan-mode approve would lose its `isPlanTrigger` flag and render
+  // as a plain user bubble.
+  const [pendingSend, setPendingSendState] = useState<PendingSend | null>(null)
+  const pendingSendRef = useRef<PendingSend | null>(null)
+  // External views: keep the original `pendingMessage: string | null` API for
+  // ChatScreen / ChatInput, derived from the user-facing displayed text.
+  const pendingMessage = pendingSend
+    ? pendingSend.options?.displayText?.trim() || pendingSend.text
+    : null
+  const setPendingMessage = useCallback<
+    React.Dispatch<React.SetStateAction<string | null>>
+  >((value) => {
+    setPendingSendState((prev) => {
+      const next =
+        typeof value === "function"
+          ? (value as (p: string | null) => string | null)(
+              prev ? prev.options?.displayText?.trim() || prev.text : null,
+            )
+          : value
+      return next === null ? null : { text: next }
+    })
+  }, [])
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
   const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
   const permissionModeRef = useRef<SessionMode>("default")
@@ -172,6 +203,11 @@ export function useChatStream({
   // Auto-send pending messages setting
   const autoSendPendingRef = useRef(true)
   const autoSendRef = useRef(false)
+  // Holds a programmatic queued send (Plan Mode approve, slash-skill expansion)
+  // so the auto-send effect can replay it with the original options instead of
+  // rerouting through the input box. User-typed drafts go via `setInput` and
+  // leave this ref null.
+  const queuedReplayRef = useRef<PendingSend | null>(null)
 
   // Delta batch buffer
   const deltaBuffersRef = useRef(createStreamDeltaBuffers())
@@ -205,8 +241,8 @@ export function useChatStream({
 
   // Keep refs in sync
   useEffect(() => {
-    pendingMessageRef.current = pendingMessage
-  }, [pendingMessage])
+    pendingSendRef.current = pendingSend
+  }, [pendingSend])
   useEffect(() => {
     permissionModeRef.current = permissionMode
   }, [permissionMode])
@@ -269,16 +305,16 @@ export function useChatStream({
    * Send a message. If `directText` is provided, use it directly instead of the input box.
    * This avoids flashing text in the input (used by Plan Mode approve).
    */
-  async function handleSend(
-    directText?: string,
-    options?: { displayText?: string; planMode?: string },
-  ) {
+  async function handleSend(directText?: string, options?: SendOptions) {
     const rawText = directText ?? input
     if (!rawText.trim()) return
 
-    // If currently loading, queue the message as pending
+    // If currently loading, queue the message as pending. Capture both the
+    // LLM-bound text and the original options so the replay below resends
+    // with identical metadata (Plan Mode triggers carry `isPlanTrigger`,
+    // slash-skill expansions carry `displayText`, etc.).
     if (loading) {
-      setPendingMessage(rawText.trim())
+      setPendingSendState({ text: rawText.trim(), options })
       if (!directText) setInput("")
       return
     }
@@ -291,7 +327,13 @@ export function useChatStream({
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
-    setMessages((prev) => [...prev, { role: "user", content: displayed, timestamp: now }])
+    const optimisticUserMessage = {
+      role: "user" as const,
+      content: displayed,
+      timestamp: now,
+      ...(options?.isPlanTrigger && { isPlanTrigger: true }),
+    }
+    setMessages((prev) => [...prev, optimisticUserMessage])
     setLoading(true)
 
     // Process attached files: images → base64 data, non-images → save to disk via Rust
@@ -438,7 +480,7 @@ export function useChatStream({
       // Track loading state for this session
       const freshMessages = [
         ...messages,
-        { role: "user" as const, content: displayed, timestamp: now },
+        optimisticUserMessage,
         {
           role: "assistant" as const,
           content: "",
@@ -469,6 +511,7 @@ export function useChatStream({
           planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
+          isPlanTrigger: options?.isPlanTrigger,
           workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
         },
         onEvent,
@@ -601,22 +644,46 @@ export function useChatStream({
       reloadSessions()
 
       // Handle pending message after loading finishes
-      if (pendingMessageRef.current) {
-        const pending = pendingMessageRef.current
-        setPendingMessage(null)
-        setInput(pending)
-        if (autoSendPendingRef.current) {
+      const queued = pendingSendRef.current
+      if (queued) {
+        setPendingSendState(null)
+        if (queued.options) {
+          // Programmatic queued send (Plan Mode approve, slash-skill
+          // expansion). Replay through the auto-send effect with the
+          // original options so `isPlanTrigger` / `displayText` / `planMode`
+          // survive — and skip the input box so the LLM-bound text doesn't
+          // leak into what the user is editing. Button-driven, so always
+          // auto-fires regardless of `autoSendPending`.
+          queuedReplayRef.current = queued
           autoSendRef.current = true
+        } else {
+          // User-typed draft queued while loading — restore for editing
+          // / auto-send per the user setting.
+          setInput(queued.text)
+          if (autoSendPendingRef.current) {
+            autoSendRef.current = true
+          }
         }
       }
     }
   }
 
-  // Auto-send: fires after React flushes the input state + loading=false
+  // Auto-send: fires after React flushes the input state + loading=false.
+  // Two replay paths:
+  //   1. `queuedReplayRef` set → programmatic send (Plan Mode approve etc.)
+  //      with the original options preserved.
+  //   2. Otherwise → user-typed draft restored to `input`, dispatched as a
+  //      regular send.
   useEffect(() => {
-    if (autoSendRef.current && input.trim() && !loading) {
+    if (!autoSendRef.current || loading) return
+    const replay = queuedReplayRef.current
+    if (replay) {
       autoSendRef.current = false
-      handleSend()
+      queuedReplayRef.current = null
+      void handleSend(replay.text, replay.options)
+    } else if (input.trim()) {
+      autoSendRef.current = false
+      void handleSend()
     }
   }, [input, loading]) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -855,6 +855,7 @@ export default function ChatScreen({
           stream.handleSend(t("planMode.executeCommand"), {
             planMode: "executing",
             displayText: t("planMode.executionApproved"),
+            isPlanTrigger: true,
           })
           break
         case "showPlan":
@@ -933,6 +934,7 @@ export default function ChatScreen({
     stream.handleSend(t("planMode.executeCommand"), {
       planMode: "executing",
       displayText: t("planMode.executionApproved"),
+      isPlanTrigger: true,
     })
   }, [planMode, stream, t])
 
@@ -940,6 +942,7 @@ export default function ChatScreen({
     stream.handleSend(t("planMode.executeCommand"), {
       planMode: "executing",
       displayText: t("planMode.executionResumed"),
+      isPlanTrigger: true,
     })
   }, [stream, t])
 
