@@ -206,13 +206,9 @@ struct TrayRuntimeStatus<'a> {
     active_chat_total: u32,
 }
 
-/// Compact representation of one currently in-progress regular conversation,
-/// pre-formatted for the tray menu.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct ActiveRegularSession {
     session_id: String,
-    /// Already-formatted text shown as the menu item label, e.g.
-    /// `"  ▶ My session"` or `"  ⏸ Untitled"`.
     label: String,
 }
 
@@ -317,19 +313,6 @@ fn format_short_uptime(secs: u64) -> String {
     }
 }
 
-/// True iff the session would render in the sidebar as a "regular" chat —
-/// i.e. not cron-triggered, not a sub-agent child, not bound to an IM
-/// channel, not under a project, and not incognito. Mirrors the frontend
-/// `sessionFilter === "session"` predicate in
-/// `src/components/chat/sidebar/ChatSidebar.tsx`.
-fn is_regular_session(s: &SessionMeta) -> bool {
-    !s.is_cron
-        && s.parent_session_id.is_none()
-        && s.channel_info.is_none()
-        && s.project_id.is_none()
-        && !s.incognito
-}
-
 /// Format a session entry as a tray menu label, including a status glyph
 /// (`▶` streaming / `⏸` waiting on user / `▶⏸` both) and the title with
 /// UTF-8-safe truncation. Falls back to `untitled_session` from the
@@ -365,8 +348,8 @@ fn format_active_session_label(
 /// 2. **Pending interaction**: `SessionMeta.pending_interaction_count > 0`
 ///    (waiting on a tool approval or an `ask_user_question` answer).
 ///
-/// Then filters to regular sessions only (see [`is_regular_session`]) and
-/// returns up to [`TRAY_ACTIVE_SESSIONS_CAP`] entries plus the count of
+/// Then filters to regular sessions only (see [`SessionMeta::is_regular_chat`])
+/// and returns up to [`TRAY_ACTIVE_SESSIONS_CAP`] entries plus the count of
 /// items truncated. Order: by `updated_at DESC` to mirror the sidebar.
 async fn compute_active_regular_sessions(
     status_labels: &TrayStatusLabels,
@@ -448,7 +431,7 @@ async fn compute_active_regular_sessions(
     let mut filtered: Vec<(SessionMeta, bool, bool)> = sessions
         .into_iter()
         .filter_map(|s| {
-            if !is_regular_session(&s) {
+            if !s.is_regular_chat() {
                 return None;
             }
             let streaming = streaming_ids.contains(&s.id);
@@ -626,44 +609,6 @@ mod tests {
                 "活跃会话: 0".to_string(),
             ]
         );
-    }
-
-    #[test]
-    fn is_regular_session_excludes_non_regular_kinds() {
-        // Regular: passes
-        let regular = dummy_session("a", Some("hi"));
-        assert!(is_regular_session(&regular));
-
-        // Cron-triggered: blocked
-        let mut cron = dummy_session("b", None);
-        cron.is_cron = true;
-        assert!(!is_regular_session(&cron));
-
-        // Sub-agent child: blocked
-        let mut sub = dummy_session("c", None);
-        sub.parent_session_id = Some("parent".to_string());
-        assert!(!is_regular_session(&sub));
-
-        // Project-bound: blocked
-        let mut proj = dummy_session("d", None);
-        proj.project_id = Some("p1".to_string());
-        assert!(!is_regular_session(&proj));
-
-        // IM channel: blocked
-        let mut im = dummy_session("e", None);
-        im.channel_info = Some(ha_core::session::ChannelSessionInfo {
-            channel_id: "discord".to_string(),
-            account_id: "acc".to_string(),
-            chat_id: "ch".to_string(),
-            chat_type: "channel".to_string(),
-            sender_name: None,
-        });
-        assert!(!is_regular_session(&im));
-
-        // Incognito: blocked
-        let mut inc = dummy_session("f", None);
-        inc.incognito = true;
-        assert!(!is_regular_session(&inc));
     }
 
     #[test]

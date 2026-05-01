@@ -13,4 +13,4 @@ pub use helpers::{
 };
 pub use pending::enrich_pending_interactions;
 pub use tasks::{Task, TaskStatus};
-pub use types::{ChannelSessionInfo, MessageRole, NewMessage, SessionMessage, SessionMeta};
+pub use types::{MessageRole, NewMessage, SessionMessage, SessionMeta};
