@@ -332,6 +332,25 @@
 - **影响面**：3 个 slash command 在 GUI 体验降级（功能正常，反馈不及时），不影响 IM 渠道
 - **触发时机建议**：下一次动 `ChatScreen` 或 Recap UI 时顺手收掉
 
+### F-034 Skill 目录扫描没有 `SKILL_CACHE_VERSION`-keyed 缓存
+
+- **来源**：2026-05-01 slash command audit `/simplify` review（efficiency agent）
+- **现象**：[`crates/ha-core/src/skills/discovery.rs::load_all_skills_with_budget`](../../crates/ha-core/src/skills/discovery.rs) 每次调用都重新走文件系统扫描 bundled + `~/.agents/skills` + `extra_skills_dirs` + managed + project 五类目录，无任何缓存。 hot 调用方包括：
+  - [`slash_commands::im_menu_entries`](../../crates/ha-core/src/slash_commands/mod.rs)（Telegram + Discord 同步、`/help`、`list_slash_commands` 都消费）
+  - `system_prompt` 渲染（每次 LLM 请求构造 prompt 时都跑一次）
+  - `skill_search` 工具
+  - `handle_help`（独立调 `get_invocable_skills`，效率 agent 也提到）
+  
+  IM menu 自动 re-sync 场景特别痛：debounce 触发后，N 个 running account 串行 sync_commands_for_account 各调一次 `im_menu_entries → list_slash_commands → get_invocable_skills`，等于 N 次完整文件系统扫描背靠背
+- **为什么留**：本次 audit 的目标是把"IM 菜单不刷"的功能性 bug 收掉，缓存层属于独立性能优化；现成有 `skills::types::SKILL_CACHE_VERSION: AtomicU64` 全局计数器（`bump_skill_version` 已经在所有 mutate 路径埋好），缓存基础设施齐备，缺的只是消费方
+- **改的话要做什么**：
+  1. 在 `skills/discovery.rs` 加 `static SKILL_CACHE: OnceLock<RwLock<Option<(u64, Arc<Vec<SkillEntry>>)>>>`，`load_all_skills_with_budget` 入口先 read：`(version, entries)` 的 `version == SKILL_CACHE_VERSION.load(Relaxed)` 直接返回 Arc clone，否则正常扫描后 write 缓存
+  2. 缓存 key 还要包含 `extra_skills_dirs` 和 `disabled_skills`（不同输入可能命中相同 version）—— 用 `(SKILL_CACHE_VERSION, hash(extra_skills_dirs + disabled_skills))` 复合 key，或者干脆每次写 `bump_skill_version()` 即可（这两个字段写完都会 bump，存量代码已经如此）
+  3. `get_invocable_skills` 跟着改成消费 `Arc<Vec<SkillEntry>>` slice，避免 clone 整个 Vec
+  4. 为 `tools/settings.rs::update_app_config` 的 skill 类 category 补 `bump_skill_version()`（当前 audit 的 listener 是通过监听 `config:changed { category: "skills" }` 兜的，但缓存 invalidation 也需要这个 bump，否则缓存看不到变更）
+- **影响面**：性能 only，没有正确性问题。N 个 IM account 重 sync 时减少 N-1 次文件系统扫描；每次 LLM 请求 system_prompt 构造也省一次扫描。粗估 50ms × N 节省
+- **触发时机建议**：下一次做性能优化 PR 时；或者用户报"启动慢""LLM 第一次响应慢"时
+
 ---
 
 ## Closed
