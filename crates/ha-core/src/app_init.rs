@@ -515,8 +515,6 @@ fn spawn_channel_menu_resync_listener(registry: Arc<channel::ChannelRegistry>) {
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    // We dropped events — re-sync defensively rather than
-                    // miss a real change.
                     app_warn!(
                         "channel",
                         "menu_sync",
@@ -531,29 +529,28 @@ fn spawn_channel_menu_resync_listener(registry: Arc<channel::ChannelRegistry>) {
     });
 }
 
+/// Config categories whose changes can shift the slash-command catalog. Kept
+/// as an explicit list (rather than a `starts_with("skill")` heuristic) so a
+/// future unrelated `skill_*` field can't silently force IM bot menu re-syncs.
+/// Matches the categories used in `skills::commands::*` and `tools::settings`.
+const MENU_RESYNC_CATEGORIES: &[&str] = &[
+    "skills",
+    "extra_skills_dirs",
+    "disabled_skills",
+    "skill_env",
+    "skill_env_check",
+    "skills.auto_review",
+];
+
 fn menu_resync_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
     match event.name.as_str() {
         "skills:catalog_changed" => true,
-        "config:changed" => {
-            // Only react to config writes that touch the slash-command
-            // surface — provider tweaks, theme changes, etc. shouldn't
-            // trigger redundant `setMyCommands` calls.
-            //
-            // The category prefix `skill` covers the actual emission sites:
-            //   - `skills` / `extra_skills_dirs` / `disabled_skills` (CRUD path)
-            //   - `skill_env` / `skill_env_check` (env path that affects which
-            //     skills the system_prompt catalog considers usable)
-            //   - `skills.auto_review` (impacts whether new drafts get promoted)
-            // The persistence-layer fallback (`category: "app"`) is intentionally
-            // excluded — that's the duplicate event for paths that already
-            // emitted a typed one.
-            event
-                .payload
-                .get("category")
-                .and_then(|c| c.as_str())
-                .map(|c| c.starts_with("skill"))
-                .unwrap_or(false)
-        }
+        "config:changed" => event
+            .payload
+            .get("category")
+            .and_then(|c| c.as_str())
+            .map(|c| MENU_RESYNC_CATEGORIES.contains(&c))
+            .unwrap_or(false),
         _ => false,
     }
 }

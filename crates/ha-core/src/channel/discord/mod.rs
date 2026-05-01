@@ -68,47 +68,13 @@ impl DiscordPlugin {
     /// — the bot remains usable, just with a stale menu until the next
     /// successful sync.
     async fn sync_commands_to_discord(api: &DiscordApi, application_id: &str) {
-        // Pull the merged catalog (built-ins + invocable skills, minus
-        // `IM_DISABLED_COMMANDS`) so Discord users see the same set as
-        // Telegram and the desktop slash menu.
-        let defs = match crate::slash_commands::list_slash_commands().await {
-            Ok(v) => v,
-            Err(e) => {
-                app_warn!(
-                    "channel",
-                    "discord",
-                    "list_slash_commands failed: {} — falling back to built-in only",
-                    e
-                );
-                crate::slash_commands::registry::all_commands()
-            }
-        };
+        // Single source of truth for the IM-bot catalog (filter, cap, fallback);
+        // Discord just projects each entry into its CHAT_INPUT JSON below.
+        // Skill names already pass Discord's `^[-_\p{L}\p{N}]{1,32}$` rule via
+        // `skills::normalize_skill_command_name`, so no re-sanitisation needed.
+        let entries = crate::slash_commands::im_menu_entries().await;
 
-        // Discord caps global application commands at 100; truncate the tail
-        // (skill commands sit after built-ins) to keep the registration call
-        // idempotent. Truncated entries are still callable, just hidden from
-        // the auto-complete UI.
-        const DISCORD_GLOBAL_CMD_CAP: usize = 100;
-        let mut filtered: Vec<crate::slash_commands::types::SlashCommandDef> = defs
-            .into_iter()
-            .filter(|cmd| !crate::slash_commands::registry::is_im_disabled(&cmd.name))
-            .collect();
-        if filtered.len() > DISCORD_GLOBAL_CMD_CAP {
-            app_warn!(
-                "channel",
-                "discord",
-                "Slash command count {} exceeds Discord cap {} — truncating tail",
-                filtered.len(),
-                DISCORD_GLOBAL_CMD_CAP
-            );
-            filtered.truncate(DISCORD_GLOBAL_CMD_CAP);
-        }
-
-        // Convert to Discord Application Command format (type 1 = CHAT_INPUT).
-        // Discord requires lowercase command names matching ^[-_\p{L}\p{N}]{1,32}$
-        // — built-ins already comply, and `skills::normalize_skill_command_name`
-        // produces the same shape, so no further sanitization is needed here.
-        let discord_commands: Vec<serde_json::Value> = filtered
+        let discord_commands: Vec<serde_json::Value> = entries
             .iter()
             .map(|cmd| {
                 let description = cmd.description_en();
@@ -118,18 +84,11 @@ impl DiscordPlugin {
                     "type": 1, // CHAT_INPUT
                 });
 
-                // Add string option for commands that accept arguments
                 if cmd.has_args {
                     if let Some(ref options) = cmd.arg_options {
-                        // Use choices for commands with predefined options
                         let choices: Vec<serde_json::Value> = options
                             .iter()
-                            .map(|opt| {
-                                serde_json::json!({
-                                    "name": opt,
-                                    "value": opt
-                                })
-                            })
+                            .map(|opt| serde_json::json!({ "name": opt, "value": opt }))
                             .collect();
                         command["options"] = serde_json::json!([{
                             "name": "value",

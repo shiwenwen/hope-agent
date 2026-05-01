@@ -126,27 +126,15 @@ pub struct SyncCommandsBody {
 /// `POST /api/channel/sync-commands`
 ///
 /// Re-sync the IM bot menu (Telegram setMyCommands / Discord application
-/// commands) for one or all running accounts. The auto-sync listener
-/// (`app_init::spawn_channel_menu_resync_listener`) covers the common case;
-/// this route exposes a manual trigger for the settings UI and for ops
-/// recovery after a missed event.
+/// commands) for one or all running accounts. Auto-sync is wired up in
+/// `app_init::spawn_channel_menu_resync_listener`; this route is the manual
+/// trigger for the settings UI and for ops recovery after a missed event.
 pub async fn sync_commands(body: Option<Json<SyncCommandsBody>>) -> Result<Json<Value>, AppError> {
     let account_id = body.and_then(|Json(b)| b.account_id);
-    let reg = registry()?;
-    let count = match account_id {
-        Some(id) => {
-            if reg
-                .sync_commands_for_account(&id)
-                .await
-                .map_err(|e| AppError::internal(e.to_string()))?
-            {
-                1
-            } else {
-                0
-            }
-        }
-        None => reg.sync_commands_for_all().await,
-    };
+    let count = registry()?
+        .sync_commands(account_id.as_deref())
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
     Ok(Json(json!({ "synced": count })))
 }
 

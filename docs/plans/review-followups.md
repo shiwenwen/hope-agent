@@ -320,6 +320,18 @@
 - **影响面**：UX bug for 9 个语言用户。Settings 中相关 panel 看英文不会崩溃，但显著降低非英语 / 非中文用户的体验
 - **触发时机建议**：等收到非英 / 非中文用户反馈，或翻译团队 / 志愿者主动认领；不阻塞功能 PR
 
+### F-033 `recapCard` / `openDashboardTab` / `skillFork` 在 ChatScreen 是空 case
+
+- **来源**：2026-05-01 slash command audit `/simplify` review（quality agent）
+- **现象**：[`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) `handleCommandAction` 把这 3 个 `CommandAction` variant 当 no-op 处理，仅靠 switch 之前 push 的 event 气泡（`result.content`）告诉用户后台在跑。后端 `recap_progress` EventBus 流目前只被 Dashboard Recap tab 订阅，对话内没有渲染 RecapCard；`openDashboardTab` 没有 App 级 navigate 回调，不会跳页；`skillFork` 走 EventBus 注入回 user message，已生效，只是没有运行中状态卡片
+- **为什么留**：补这三块需要新组件（RecapCard 流式）+ App 级 prop drilling，不在当期 audit PR 范围；后端事件已经 stable，前端补做不会破坏接口
+- **改的话要做什么**：
+  1. `recapCard`：在 chat 渲染流抽出一个 `RecapCard` 组件，订阅 `recap_progress` 过滤 `action.reportId`，复用 Dashboard `RecapTab` 的渲染层
+  2. `openDashboardTab`：把 `setView("dashboard", { tab })` 挂到 `App.tsx`，`ChatScreen` props 加 `onOpenDashboardTab(tab: string)` 触发
+  3. `skillFork`：可选——加个轻量 "skill running" 卡片，订阅 EventBus skill_run_progress；当前 result.content 文本提示已经够用
+- **影响面**：3 个 slash command 在 GUI 体验降级（功能正常，反馈不及时），不影响 IM 渠道
+- **触发时机建议**：下一次动 `ChatScreen` 或 Recap UI 时顺手收掉
+
 ---
 
 ## Closed

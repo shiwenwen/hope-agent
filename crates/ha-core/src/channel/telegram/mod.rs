@@ -58,10 +58,10 @@ impl TelegramPlugin {
         let entries = crate::slash_commands::im_menu_entries().await;
 
         let bot_commands: Vec<teloxide::types::BotCommand> = entries
-            .into_iter()
-            .map(|(name, description)| teloxide::types::BotCommand {
-                command: name,
-                description,
+            .iter()
+            .map(|cmd| teloxide::types::BotCommand {
+                command: cmd.name.clone(),
+                description: cmd.description_en(),
             })
             .collect();
 

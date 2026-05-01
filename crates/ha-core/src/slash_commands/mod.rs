@@ -159,19 +159,21 @@ pub fn is_slash_command(text: String) -> bool {
     parser::is_command(&text)
 }
 
-/// Snapshot of the slash commands an IM channel should publish in its bot
-/// menu, paired with the English description Telegram / Discord need.
-///
-/// Includes built-in commands minus `IM_DISABLED_COMMANDS` (which are runtime-
-/// rejected anyway), plus invocable skill commands (resolved through the
-/// shared collision-aware table). Telegram caps `setMyCommands` at 100
-/// entries and Discord at 100 global application commands, so we truncate at
-/// 100 with a warn — the truncated tail is still callable, just not in the
-/// menu UI. Skill commands sit after built-ins so the truncation hits the
-/// least-frequently-used surface first.
-pub async fn im_menu_entries() -> Vec<(String, String)> {
-    const IM_MENU_HARD_CAP: usize = 100;
+/// Hard upper bound the IM bot menus enforce on themselves: Telegram caps
+/// `setMyCommands` at 100 entries, Discord caps global application commands
+/// at 100. Truncated tail is still callable by users typing manually — just
+/// hidden from the platform's menu/auto-complete UI.
+pub const IM_MENU_HARD_CAP: usize = 100;
 
+/// Snapshot of the slash commands an IM channel should publish to its bot
+/// menu — `registry::all_commands()` plus invocable skills (collision-resolved),
+/// minus `IM_DISABLED_COMMANDS`, capped at `IM_MENU_HARD_CAP`.
+///
+/// Single source-of-truth for both Telegram (`setMyCommands`) and Discord
+/// (`bulk_overwrite_global_commands`); the platform-specific layers project
+/// each `SlashCommandDef` into their own wire format. `description_en()`
+/// gives a stable English label both platforms can render.
+pub async fn im_menu_entries() -> Vec<SlashCommandDef> {
     let defs = match list_slash_commands().await {
         Ok(v) => v,
         Err(e) => {
@@ -185,13 +187,9 @@ pub async fn im_menu_entries() -> Vec<(String, String)> {
         }
     };
 
-    let mut entries: Vec<(String, String)> = defs
+    let mut entries: Vec<SlashCommandDef> = defs
         .into_iter()
         .filter(|cmd| !registry::is_im_disabled(&cmd.name))
-        .map(|cmd| {
-            let desc = cmd.description_en();
-            (cmd.name, desc)
-        })
         .collect();
 
     if entries.len() > IM_MENU_HARD_CAP {
@@ -209,7 +207,7 @@ pub async fn im_menu_entries() -> Vec<(String, String)> {
 }
 
 /// Truncate a description to `max_chars` characters, appending "…" if truncated.
-fn truncate_description(s: &str, max_chars: usize) -> String {
+pub(crate) fn truncate_description(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         return s.to_string();
     }

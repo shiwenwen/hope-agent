@@ -2,6 +2,7 @@ use crate::config::AppConfig;
 use crate::provider;
 use crate::session::{MessageRole, SessionDB};
 use crate::slash_commands::registry;
+use crate::slash_commands::truncate_description;
 use crate::slash_commands::types::{
     CommandAction, CommandCategory, CommandResult, SlashCommandDef,
 };
@@ -9,31 +10,18 @@ use std::sync::Arc;
 
 /// /help — Show all available commands.
 ///
-/// Renders one section per `CommandCategory`. Each row shows the command,
-/// its argument placeholder (or the fixed option list), and the English
-/// description from `description_en()`. When invoked from an IM channel
-/// session, commands listed in `IM_DISABLED_COMMANDS` are filtered out and
-/// a footer call-out explains the desktop-only ones.
-pub async fn handle_help(session_id: Option<&str>) -> CommandResult {
-    // Detect IM-channel context defensively — `/help` should still render
-    // when SessionDB hasn't been initialized yet (e.g. very early CLI use).
-    let in_im_channel = session_id
-        .and_then(|sid| {
-            crate::require_session_db()
-                .ok()
-                .and_then(|db| db.get_session(sid).ok().flatten())
-        })
-        .map(|meta| meta.channel_info.is_some())
-        .unwrap_or(false);
+/// Renders one section per `CommandCategory` (using `description_en()` for the
+/// label) plus a `Skills` section. Inside an IM-channel session, commands in
+/// `IM_DISABLED_COMMANDS` are filtered out and a footer call-out explains the
+/// desktop-only ones.
+pub fn handle_help(session_id: Option<&str>) -> CommandResult {
+    let in_im_channel = is_session_in_im_channel(session_id);
 
     let mut commands: Vec<SlashCommandDef> = registry::all_commands();
     if in_im_channel {
         commands.retain(|c| !registry::is_im_disabled(&c.name));
     }
 
-    // Pull invocable skills so users see the skill-as-slash-command catalog
-    // alongside built-ins. Skills are dynamic per agent / extra dirs / disabled
-    // list, so we hit the same surface `list_slash_commands` exposes to the UI.
     let cfg = crate::config::cached_config();
     let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
     let reserved: std::collections::HashSet<String> =
@@ -46,7 +34,7 @@ pub async fn handle_help(session_id: Option<&str>) -> CommandResult {
     lines.push(String::new());
 
     // Category order matches the GUI menu (`CATEGORY_ORDER` in
-    // `slash-commands/types.ts`) so the on-screen and `/help` orderings agree.
+    // `slash-commands/types.ts`) so on-screen and `/help` orderings agree.
     let categories: &[(CommandCategory, &str)] = &[
         (CommandCategory::Session, "Session"),
         (CommandCategory::Model, "Model"),
@@ -69,11 +57,9 @@ pub async fn handle_help(session_id: Option<&str>) -> CommandResult {
 
     if !resolved_skills.is_empty() {
         lines.push(format!("**Skills** ({})", resolved_skills.len()));
-        // Cap the inline list so big skill catalogs don't drown the rest of
-        // the help output. Users can scroll the slash-menu UI for the full set.
         const MAX_SKILLS_INLINE: usize = 20;
         for entry in resolved_skills.iter().take(MAX_SKILLS_INLINE) {
-            let desc = truncate(&entry.skill.description, 80);
+            let desc = truncate_description(&entry.skill.description, 80);
             lines.push(format!("- `/{}` — {}", entry.typed_name, desc));
         }
         if resolved_skills.len() > MAX_SKILLS_INLINE {
@@ -104,13 +90,38 @@ pub async fn handle_help(session_id: Option<&str>) -> CommandResult {
     }
 }
 
-/// Render a single row: `` `/cmd <args>` — description``.
-///
-/// Uses fixed `arg_options` for the inline hint when available (e.g.
-/// `/think off|low|medium|high|xhigh`), otherwise falls back to the
-/// `arg_placeholder` from the registry. Description text comes from
-/// `description_en()` which is the same source IM channels use for their
-/// menu sync, so `/help` and the Telegram / Discord menus stay in lockstep.
+/// Resolve whether `session_id` belongs to an IM-channel session. Returns
+/// `false` (with a `app_warn!`) on transient SessionDB errors so `/help`
+/// always renders something — but a real DB failure is still logged for
+/// post-hoc debugging rather than hidden behind an Option-chain.
+fn is_session_in_im_channel(session_id: Option<&str>) -> bool {
+    let Some(sid) = session_id else {
+        return false;
+    };
+    let Ok(db) = crate::require_session_db() else {
+        return false;
+    };
+    match db.get_session(sid) {
+        Ok(Some(meta)) => meta.channel_info.is_some(),
+        Ok(None) => false,
+        Err(e) => {
+            crate::app_warn!(
+                "slash_cmd",
+                "help",
+                "Failed to read session {} for IM-context detection: {}",
+                sid,
+                e
+            );
+            false
+        }
+    }
+}
+
+/// Render a single help row: `` `/cmd <args>` — description``. Uses fixed
+/// `arg_options` for the inline hint when available (e.g.
+/// `/think <off|low|medium|high|xhigh>`), otherwise falls back to
+/// `arg_placeholder`. `description_en()` is the same source IM channels use
+/// for their menu sync, so `/help` and Telegram / Discord menus stay in lockstep.
 fn format_help_row(c: &SlashCommandDef) -> String {
     let arg_hint = match (&c.arg_options, c.arg_placeholder.as_deref()) {
         (Some(opts), _) if !opts.is_empty() => {
@@ -196,7 +207,10 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
         .as_deref()
         .filter(|s| !s.trim().is_empty())
     {
-        lines.push(format!("- **Description**: {}", truncate(desc, 200)));
+        lines.push(format!(
+            "- **Description**: {}",
+            truncate_description(desc, 200)
+        ));
     }
     if let Some(default_agent) = project.default_agent_id.as_deref() {
         lines.push(format!("- **Default Agent**: `{}`", default_agent));
@@ -217,7 +231,7 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
     {
         lines.push(format!(
             "- **Instructions**: {}",
-            truncate(instructions, 200)
+            truncate_description(instructions, 200)
         ));
     }
 
@@ -233,19 +247,6 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
     );
     lines.push(format!("- **Agent Source**: {}", source.label()));
     Some(lines)
-}
-
-/// Char-bounded truncate with ellipsis suffix. Used for status / display.
-fn truncate(s: &str, max_chars: usize) -> String {
-    let mut out = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if i >= max_chars {
-            out.push('…');
-            break;
-        }
-        out.push(ch);
-    }
-    out
 }
 
 /// /export — Export conversation as Markdown.
