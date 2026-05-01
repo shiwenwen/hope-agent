@@ -164,13 +164,13 @@ sequenceDiagram
 | `/recap` | `[--full\|--range=7d\|--range=30d]` | 生成深度复盘报告（后台流式），`--full` 跳转 Dashboard | `RecapCard` 或 `OpenDashboardTab` |
 | `/awareness` | `[on\|off\|mode <x>\|status]` | 控制行为感知功能的全局开关与模式（详见下方） | `DisplayOnly` |
 
-**`/permission` 可选值**：
+**`/permission` 可选值**（与 `permission/engine.rs` 的三档 `SessionMode` 对齐）：
 
 | 值 | 说明 |
 |---|---|
-| `auto` | 自动批准工具调用 |
-| `ask` / `ask_every_time` | 每次工具调用前询问用户 |
-| `full` / `full_approve` | 完全批准模式 |
+| `default` | 标准审批：保护路径 / 危险命令永远弹窗，其余按 AllowAlways / Smart preset |
+| `smart` | 自动放行 LLM 自报"高置信度"的工具调用，必要时跑 judge model 二次确认（详见 [permission-system.md](permission-system.md)） |
+| `yolo` | 跳过所有审批（仍受 Plan Mode、保护路径硬闸约束） |
 
 ### 🎯 Skill — 动态技能命令
 
@@ -318,6 +318,28 @@ stateDiagram-v2
 
 ---
 
+## IM 渠道菜单同步时机
+
+Telegram (`setMyCommands`) 和 Discord (Application Commands API) 的命令菜单需要主动推送，下面三个时机覆盖全部场景：
+
+1. **`start_account` 第一次拉起**——`telegram/mod.rs::sync_commands_to_menu` / `discord/mod.rs::sync_commands_to_discord` 在认证成功后立即同步一次
+2. **EventBus 自动 re-sync**——`app_init::spawn_channel_menu_resync_listener` 订阅以下事件，命中后 **2s 防抖**触发 `ChannelRegistry::sync_commands_for_all`：
+   - `skills:catalog_changed`：[`skills::types::bump_skill_version`](../../crates/ha-core/src/skills/types.rs) 在每次 skill 增删 / 启停后 emit
+   - `config:changed`（仅 `category` ∈ `skill` / `skills` / `extra_skills_dirs` / `disabled_skills`）
+3. **手动触发**——`channel_sync_commands(account_id?)` Tauri 命令 / `POST /api/channel/sync-commands`，可针对单 account 或全量 running，给设置页「同步命令」按钮 + 运维兜底用
+
+`ChannelPlugin` trait 用 `async fn sync_commands(&self, account: &ChannelAccountConfig) -> Result<()>` 默认 no-op，只有 Telegram / Discord override（其他渠道如 IRC / WhatsApp / iMessage 没有 slash 菜单概念，默认实现就够）。
+
+**菜单内容**与 GUI / `/help` 完全一致——走同一个 [`slash_commands::im_menu_entries`](../../crates/ha-core/src/slash_commands/mod.rs) 入口，包含：
+
+- `registry::all_commands()` 内置命令，过滤 `IM_DISABLED_COMMANDS`（`/agent` / `/project`）
+- 用户可调用 skill 命令（`get_invocable_skills` + `resolve_skill_command_names`，命名冲突走 `_skill` / `_N` 后缀）
+- 100 条硬上限：Telegram 和 Discord 都把全局命令上限定在 100，超出尾部截断（仍可硬键入触发，只是不进菜单），并 `app_warn!`
+
+> **失败语义**：单个 account 同步失败是 warn 级别（典型场景：Bot token 过期、网络暂时不通），不影响其它 account；菜单保留旧版本直到下次成功。
+
+---
+
 ## CommandAction 类型一览
 
 `CommandResult.action` 字段告诉前端需要执行什么副作用：
@@ -391,8 +413,10 @@ Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
 |---|---|
 | `/think` | `off`, `low`, `medium`, `high`, `xhigh` |
 | `/plan` | `enter`, `exit`, `show`, `approve`, `pause`, `resume` |
-| `/permission` | `auto`, `ask`, `full` |
+| `/permission` | `default`, `smart`, `yolo` |
 | `/awareness` | `on`, `off`, `mode structured`, `mode llm`, `mode off`, `status` |
+| `/team` | `create`, `status`, `pause`, `resume`, `dissolve` |
+| `/recap` | `--full`, `--range=7d`, `--range=30d` |
 
 ---
 

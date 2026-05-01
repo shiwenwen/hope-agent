@@ -25,7 +25,7 @@ export type CommandAction =
   | { type: "sessionCleared" }
   | { type: "passThrough"; message: string }
   | { type: "exportFile"; content: string; filename: string }
-  | { type: "setPermissionMode"; mode: "default" | "smart" | "yolo" }
+  | { type: "setToolPermission"; mode: "default" | "smart" | "yolo" }
   | { type: "displayOnly" }
   | { type: "showModelPicker"; models: ModelPickerItem[]; activeProviderId?: string; activeModelId?: string }
   | { type: "enterPlanMode" }
@@ -38,6 +38,9 @@ export type CommandAction =
   | { type: "showContextBreakdown"; breakdown: ContextBreakdown }
   | { type: "showProjectPicker"; projects: ProjectPickerItem[] }
   | { type: "enterProject"; projectId: string }
+  | { type: "skillFork"; runId: string; skillName: string }
+  | { type: "recapCard"; reportId: string }
+  | { type: "openDashboardTab"; tab: string }
 
 /** Per-category context window usage snapshot (mirrors Rust `ContextBreakdown`). */
 export interface ContextBreakdown {

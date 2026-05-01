@@ -2965,7 +2965,10 @@
       "skill": "Kỹ năng"
     },
     "noResults": "Không có lệnh khớp",
-    "buttonTip": "Lệnh nhanh"
+    "buttonTip": "Lệnh nhanh",
+    "project": {
+      "description": "Chuyển hoặc chọn dự án"
+    }
   },
   "planMode": {
     "enter": "Vào Plan Mode",

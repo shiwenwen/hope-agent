@@ -2965,7 +2965,10 @@
       "skill": "Навыки"
     },
     "noResults": "Подходящих команд нет",
-    "buttonTip": "Быстрые команды"
+    "buttonTip": "Быстрые команды",
+    "project": {
+      "description": "Переключиться на проект или выбрать его"
+    }
   },
   "planMode": {
     "enter": "Войти в Plan Mode",

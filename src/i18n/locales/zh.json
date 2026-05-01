@@ -2965,7 +2965,10 @@
       "skill": "技能"
     },
     "noResults": "没有匹配的命令",
-    "buttonTip": "快捷指令"
+    "buttonTip": "快捷指令",
+    "project": {
+      "description": "切换或选择项目"
+    }
   },
   "planMode": {
     "enter": "进入计划模式",

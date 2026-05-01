@@ -118,6 +118,21 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Validate the given credentials and return the bot name / account label.
     /// Used during account setup to verify the token/API key is valid.
     async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String>;
+
+    // ── Slash command menu ────────────────────────────────────────
+
+    /// Re-sync the channel-side slash command menu against the current
+    /// `slash_commands::list_slash_commands` snapshot (built-ins + skills,
+    /// minus `IM_DISABLED_COMMANDS`).
+    ///
+    /// Default = no-op for channels without a slash menu (IRC, WhatsApp,
+    /// iMessage, etc.). Telegram / Discord override to call their
+    /// platform-specific endpoints (setMyCommands / Application Commands).
+    /// Triggered both at `start_account` (first-time install) and on demand
+    /// from skill / config changes via `ChannelRegistry::sync_commands_*`.
+    async fn sync_commands(&self, _account: &ChannelAccountConfig) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Default access-control logic shared by all channel plugins.

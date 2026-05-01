@@ -40,9 +40,11 @@ pub fn handle_awareness(args: &str) -> Result<CommandResult, String> {
 }
 
 fn set_enabled(enabled: bool) -> Result<CommandResult, String> {
-    let mut store = crate::config::load_config().map_err(|e| e.to_string())?;
-    store.awareness.enabled = enabled;
-    crate::config::save_config(&store).map_err(|e| e.to_string())?;
+    crate::config::mutate_config(("awareness", "slash-cmd"), |cfg| {
+        cfg.awareness.enabled = enabled;
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
     Ok(CommandResult {
         content: format!(
             "Behavior awareness {}.",
@@ -53,13 +55,15 @@ fn set_enabled(enabled: bool) -> Result<CommandResult, String> {
 }
 
 fn set_mode(mode: AwarenessMode) -> Result<CommandResult, String> {
-    let mut store = crate::config::load_config().map_err(|e| e.to_string())?;
-    store.awareness.mode = mode;
-    // Enabling a concrete mode implies the feature is on.
-    if !matches!(mode, AwarenessMode::Off) {
-        store.awareness.enabled = true;
-    }
-    crate::config::save_config(&store).map_err(|e| e.to_string())?;
+    crate::config::mutate_config(("awareness", "slash-cmd"), |cfg| {
+        cfg.awareness.mode = mode;
+        // Enabling a concrete mode implies the feature is on.
+        if !matches!(mode, AwarenessMode::Off) {
+            cfg.awareness.enabled = true;
+        }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
     let label = match mode {
         AwarenessMode::Off => "off",
         AwarenessMode::Structured => "structured (zero LLM cost)",

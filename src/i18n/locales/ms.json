@@ -2965,7 +2965,10 @@
       "skill": "Skills"
     },
     "noResults": "Tiada arahan yang sepadan",
-    "buttonTip": "Arahan pantas"
+    "buttonTip": "Arahan pantas",
+    "project": {
+      "description": "Tukar ke atau pilih projek"
+    }
   },
   "planMode": {
     "enter": "Masuk Plan Mode",

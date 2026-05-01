@@ -341,6 +341,37 @@
 - **影响面**：UX bug for 9 个语言用户。Settings 中相关 panel 看英文不会崩溃，但显著降低非英语 / 非中文用户的体验
 - **触发时机建议**：等收到非英 / 非中文用户反馈，或翻译团队 / 志愿者主动认领；不阻塞功能 PR
 
+### F-033 `recapCard` / `openDashboardTab` / `skillFork` 在 ChatScreen 是空 case
+
+- **来源**：2026-05-01 slash command audit `/simplify` review（quality agent）
+- **现象**：[`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) `handleCommandAction` 把这 3 个 `CommandAction` variant 当 no-op 处理，仅靠 switch 之前 push 的 event 气泡（`result.content`）告诉用户后台在跑。后端 `recap_progress` EventBus 流目前只被 Dashboard Recap tab 订阅，对话内没有渲染 RecapCard；`openDashboardTab` 没有 App 级 navigate 回调，不会跳页；`skillFork` 走 EventBus 注入回 user message，已生效，只是没有运行中状态卡片
+- **为什么留**：补这三块需要新组件（RecapCard 流式）+ App 级 prop drilling，不在当期 audit PR 范围；后端事件已经 stable，前端补做不会破坏接口
+- **改的话要做什么**：
+  1. `recapCard`：在 chat 渲染流抽出一个 `RecapCard` 组件，订阅 `recap_progress` 过滤 `action.reportId`，复用 Dashboard `RecapTab` 的渲染层
+  2. `openDashboardTab`：把 `setView("dashboard", { tab })` 挂到 `App.tsx`，`ChatScreen` props 加 `onOpenDashboardTab(tab: string)` 触发
+  3. `skillFork`：可选——加个轻量 "skill running" 卡片，订阅 EventBus skill_run_progress；当前 result.content 文本提示已经够用
+- **影响面**：3 个 slash command 在 GUI 体验降级（功能正常，反馈不及时），不影响 IM 渠道
+- **触发时机建议**：下一次动 `ChatScreen` 或 Recap UI 时顺手收掉
+
+### F-034 Skill 目录扫描没有 `SKILL_CACHE_VERSION`-keyed 缓存
+
+- **来源**：2026-05-01 slash command audit `/simplify` review（efficiency agent）
+- **现象**：[`crates/ha-core/src/skills/discovery.rs::load_all_skills_with_budget`](../../crates/ha-core/src/skills/discovery.rs) 每次调用都重新走文件系统扫描 bundled + `~/.agents/skills` + `extra_skills_dirs` + managed + project 五类目录，无任何缓存。 hot 调用方包括：
+  - [`slash_commands::im_menu_entries`](../../crates/ha-core/src/slash_commands/mod.rs)（Telegram + Discord 同步、`/help`、`list_slash_commands` 都消费）
+  - `system_prompt` 渲染（每次 LLM 请求构造 prompt 时都跑一次）
+  - `skill_search` 工具
+  - `handle_help`（独立调 `get_invocable_skills`，效率 agent 也提到）
+  
+  IM menu 自动 re-sync 场景特别痛：debounce 触发后，N 个 running account 串行 sync_commands_for_account 各调一次 `im_menu_entries → list_slash_commands → get_invocable_skills`，等于 N 次完整文件系统扫描背靠背
+- **为什么留**：本次 audit 的目标是把"IM 菜单不刷"的功能性 bug 收掉，缓存层属于独立性能优化；现成有 `skills::types::SKILL_CACHE_VERSION: AtomicU64` 全局计数器（`bump_skill_version` 已经在所有 mutate 路径埋好），缓存基础设施齐备，缺的只是消费方
+- **改的话要做什么**：
+  1. 在 `skills/discovery.rs` 加 `static SKILL_CACHE: OnceLock<RwLock<Option<(u64, Arc<Vec<SkillEntry>>)>>>`，`load_all_skills_with_budget` 入口先 read：`(version, entries)` 的 `version == SKILL_CACHE_VERSION.load(Relaxed)` 直接返回 Arc clone，否则正常扫描后 write 缓存
+  2. 缓存 key 还要包含 `extra_skills_dirs` 和 `disabled_skills`（不同输入可能命中相同 version）—— 用 `(SKILL_CACHE_VERSION, hash(extra_skills_dirs + disabled_skills))` 复合 key，或者干脆每次写 `bump_skill_version()` 即可（这两个字段写完都会 bump，存量代码已经如此）
+  3. `get_invocable_skills` 跟着改成消费 `Arc<Vec<SkillEntry>>` slice，避免 clone 整个 Vec
+  4. 为 `tools/settings.rs::update_app_config` 的 skill 类 category 补 `bump_skill_version()`（当前 audit 的 listener 是通过监听 `config:changed { category: "skills" }` 兜的，但缓存 invalidation 也需要这个 bump，否则缓存看不到变更）
+- **影响面**：性能 only，没有正确性问题。N 个 IM account 重 sync 时减少 N-1 次文件系统扫描；每次 LLM 请求 system_prompt 构造也省一次扫描。粗估 50ms × N 节省
+- **触发时机建议**：下一次做性能优化 PR 时；或者用户报"启动慢""LLM 第一次响应慢"时
+
 ---
 
 ## Closed

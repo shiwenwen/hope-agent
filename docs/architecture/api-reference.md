@@ -661,6 +661,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `channel_remove_account` | `DELETE /api/channel/accounts/{accountId}` | ✅ |
 | `channel_start_account` | `POST /api/channel/accounts/{accountId}/start` | ✅ |
 | `channel_stop_account` | `POST /api/channel/accounts/{accountId}/stop` | ✅ |
+| `channel_sync_commands` | `POST /api/channel/sync-commands` | ✅ |
 | `channel_health` | `GET /api/channel/accounts/{accountId}/health` | ✅ |
 | `channel_health_all` | `GET /api/channel/health` | ✅ |
 | `channel_validate_credentials` | `POST /api/channel/validate` | ✅ |

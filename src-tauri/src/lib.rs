@@ -597,6 +597,7 @@ pub fn run() {
             commands::channel::channel_remove_account,
             commands::channel::channel_start_account,
             commands::channel::channel_stop_account,
+            commands::channel::channel_sync_commands,
             commands::channel::channel_health,
             commands::channel::channel_health_all,
             commands::channel::channel_validate_credentials,

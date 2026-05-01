@@ -159,8 +159,55 @@ pub fn is_slash_command(text: String) -> bool {
     parser::is_command(&text)
 }
 
+/// Hard upper bound the IM bot menus enforce on themselves: Telegram caps
+/// `setMyCommands` at 100 entries, Discord caps global application commands
+/// at 100. Truncated tail is still callable by users typing manually — just
+/// hidden from the platform's menu/auto-complete UI.
+pub const IM_MENU_HARD_CAP: usize = 100;
+
+/// Snapshot of the slash commands an IM channel should publish to its bot
+/// menu — `registry::all_commands()` plus invocable skills (collision-resolved),
+/// minus `IM_DISABLED_COMMANDS`, capped at `IM_MENU_HARD_CAP`.
+///
+/// Single source-of-truth for both Telegram (`setMyCommands`) and Discord
+/// (`bulk_overwrite_global_commands`); the platform-specific layers project
+/// each `SlashCommandDef` into their own wire format. `description_en()`
+/// gives a stable English label both platforms can render.
+pub async fn im_menu_entries() -> Vec<SlashCommandDef> {
+    let defs = match list_slash_commands().await {
+        Ok(v) => v,
+        Err(e) => {
+            crate::app_warn!(
+                "channel",
+                "menu_sync",
+                "list_slash_commands failed: {} — falling back to built-in only",
+                e
+            );
+            registry::all_commands()
+        }
+    };
+
+    let mut entries: Vec<SlashCommandDef> = defs
+        .into_iter()
+        .filter(|cmd| !registry::is_im_disabled(&cmd.name))
+        .collect();
+
+    if entries.len() > IM_MENU_HARD_CAP {
+        crate::app_warn!(
+            "channel",
+            "menu_sync",
+            "Slash command count {} exceeds IM menu cap {} — truncating tail",
+            entries.len(),
+            IM_MENU_HARD_CAP
+        );
+        entries.truncate(IM_MENU_HARD_CAP);
+    }
+
+    entries
+}
+
 /// Truncate a description to `max_chars` characters, appending "…" if truncated.
-fn truncate_description(s: &str, max_chars: usize) -> String {
+pub(crate) fn truncate_description(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         return s.to_string();
     }

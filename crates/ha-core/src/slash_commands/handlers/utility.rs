@@ -2,46 +2,140 @@ use crate::config::AppConfig;
 use crate::provider;
 use crate::session::{MessageRole, SessionDB};
 use crate::slash_commands::registry;
-use crate::slash_commands::types::{CommandAction, CommandResult};
+use crate::slash_commands::truncate_description;
+use crate::slash_commands::types::{
+    CommandAction, CommandCategory, CommandResult, SlashCommandDef,
+};
 use std::sync::Arc;
 
 /// /help — Show all available commands.
-pub fn handle_help() -> CommandResult {
-    let commands = registry::all_commands();
-    let mut lines = vec!["**Available Commands**\n".to_string()];
+///
+/// Renders one section per `CommandCategory` (using `description_en()` for the
+/// label) plus a `Skills` section. Inside an IM-channel session, commands in
+/// `IM_DISABLED_COMMANDS` are filtered out and a footer call-out explains the
+/// desktop-only ones.
+pub fn handle_help(session_id: Option<&str>) -> CommandResult {
+    let in_im_channel = is_session_in_im_channel(session_id);
 
-    let categories = [
-        ("Session", "session"),
-        ("Model", "model"),
-        ("Memory", "memory"),
-        ("Agent", "agent"),
-        ("Utility", "utility"),
+    let mut commands: Vec<SlashCommandDef> = registry::all_commands();
+    if in_im_channel {
+        commands.retain(|c| !registry::is_im_disabled(&c.name));
+    }
+
+    let cfg = crate::config::cached_config();
+    let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let reserved: std::collections::HashSet<String> =
+        commands.iter().map(|c| c.name.clone()).collect();
+    let resolved_skills = crate::slash_commands::resolve_skill_command_names(&skills, &reserved);
+    drop(cfg);
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("**Available Commands**".to_string());
+    lines.push(String::new());
+
+    // Category order matches the GUI menu (`CATEGORY_ORDER` in
+    // `slash-commands/types.ts`) so on-screen and `/help` orderings agree.
+    let categories: &[(CommandCategory, &str)] = &[
+        (CommandCategory::Session, "Session"),
+        (CommandCategory::Model, "Model"),
+        (CommandCategory::Memory, "Memory"),
+        (CommandCategory::Agent, "Agent"),
+        (CommandCategory::Utility, "Utility"),
     ];
 
-    for (label, cat_str) in &categories {
-        let cmds: Vec<_> = commands
-            .iter()
-            .filter(|c| format!("{:?}", c.category).to_lowercase() == *cat_str)
-            .collect();
+    for (cat, label) in categories {
+        let cmds: Vec<&SlashCommandDef> = commands.iter().filter(|c| &c.category == cat).collect();
         if cmds.is_empty() {
             continue;
         }
-        lines.push(format!("\n**{}**", label));
+        lines.push(format!("**{}**", label));
         for c in cmds {
-            let arg_hint = c
-                .arg_placeholder
-                .as_deref()
-                .map(|p| format!(" {}", p))
-                .unwrap_or_default();
-            // Use the command name as description since we can't resolve i18n keys server-side
-            lines.push(format!("- `/{}{}`", c.name, arg_hint));
+            lines.push(format_help_row(c));
         }
+        lines.push(String::new());
+    }
+
+    if !resolved_skills.is_empty() {
+        lines.push(format!("**Skills** ({})", resolved_skills.len()));
+        const MAX_SKILLS_INLINE: usize = 20;
+        for entry in resolved_skills.iter().take(MAX_SKILLS_INLINE) {
+            let desc = truncate_description(&entry.skill.description, 80);
+            lines.push(format!("- `/{}` — {}", entry.typed_name, desc));
+        }
+        if resolved_skills.len() > MAX_SKILLS_INLINE {
+            lines.push(format!(
+                "- _… and {} more — open the slash menu to browse all_",
+                resolved_skills.len() - MAX_SKILLS_INLINE
+            ));
+        }
+        lines.push(String::new());
+    }
+
+    if in_im_channel {
+        let disabled: Vec<String> = registry::IM_DISABLED_COMMANDS
+            .iter()
+            .map(|n| format!("`/{}`", n))
+            .collect();
+        lines.push(format!(
+            "_IM channels can't run {} — use the desktop or web app for those._",
+            disabled.join(", ")
+        ));
+    } else {
+        lines.push("_Tip: type `/` to open the inline command menu, or click a row above to autofill arguments._".into());
     }
 
     CommandResult {
         content: lines.join("\n"),
         action: Some(CommandAction::DisplayOnly),
     }
+}
+
+/// Resolve whether `session_id` belongs to an IM-channel session. Returns
+/// `false` (with a `app_warn!`) on transient SessionDB errors so `/help`
+/// always renders something — but a real DB failure is still logged for
+/// post-hoc debugging rather than hidden behind an Option-chain.
+fn is_session_in_im_channel(session_id: Option<&str>) -> bool {
+    let Some(sid) = session_id else {
+        return false;
+    };
+    let Ok(db) = crate::require_session_db() else {
+        return false;
+    };
+    match db.get_session(sid) {
+        Ok(Some(meta)) => meta.channel_info.is_some(),
+        Ok(None) => false,
+        Err(e) => {
+            crate::app_warn!(
+                "slash_cmd",
+                "help",
+                "Failed to read session {} for IM-context detection: {}",
+                sid,
+                e
+            );
+            false
+        }
+    }
+}
+
+/// Render a single help row: `` `/cmd <args>` — description``. Uses fixed
+/// `arg_options` for the inline hint when available (e.g.
+/// `/think <off|low|medium|high|xhigh>`), otherwise falls back to
+/// `arg_placeholder`. `description_en()` is the same source IM channels use
+/// for their menu sync, so `/help` and Telegram / Discord menus stay in lockstep.
+fn format_help_row(c: &SlashCommandDef) -> String {
+    let arg_hint = match (&c.arg_options, c.arg_placeholder.as_deref()) {
+        (Some(opts), _) if !opts.is_empty() => {
+            let joined = opts.join("|");
+            if c.args_optional {
+                format!(" [{}]", joined)
+            } else {
+                format!(" <{}>", joined)
+            }
+        }
+        (_, Some(p)) => format!(" {}", p),
+        _ => String::new(),
+    };
+    format!("- `/{}{}` — {}", c.name, arg_hint, c.description_en())
 }
 
 /// /status — Show session status.
@@ -113,7 +207,10 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
         .as_deref()
         .filter(|s| !s.trim().is_empty())
     {
-        lines.push(format!("- **Description**: {}", truncate(desc, 200)));
+        lines.push(format!(
+            "- **Description**: {}",
+            truncate_description(desc, 200)
+        ));
     }
     if let Some(default_agent) = project.default_agent_id.as_deref() {
         lines.push(format!("- **Default Agent**: `{}`", default_agent));
@@ -134,7 +231,7 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
     {
         lines.push(format!(
             "- **Instructions**: {}",
-            truncate(instructions, 200)
+            truncate_description(instructions, 200)
         ));
     }
 
@@ -150,19 +247,6 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
     );
     lines.push(format!("- **Agent Source**: {}", source.label()));
     Some(lines)
-}
-
-/// Char-bounded truncate with ellipsis suffix. Used for status / display.
-fn truncate(s: &str, max_chars: usize) -> String {
-    let mut out = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if i >= max_chars {
-            out.push('…');
-            break;
-        }
-        out.push(ch);
-    }
-    out
 }
 
 /// /export — Export conversation as Markdown.

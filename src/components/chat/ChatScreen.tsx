@@ -544,6 +544,15 @@ export default function ChatScreen({
     })
   }, [handleStartNewChat, currentAgentId])
 
+  // Listen for tray "focus-session" event — emitted when the user clicks an
+  // in-progress regular conversation entry inside the system tray dropdown.
+  useEffect(() => {
+    return getTransport().listen("tray:focus-session", (raw) => {
+      const sessionId = (raw as { sessionId?: string } | undefined)?.sessionId
+      if (sessionId) void session.handleSwitchSession(sessionId)
+    })
+  }, [session.handleSwitchSession])
+
   // Listen for channel slash command state-sync events
   useEffect(() => {
     const unlisteners: Array<() => void> = []
@@ -815,7 +824,7 @@ export default function ChatScreen({
             logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
           }
           break
-        case "setPermissionMode":
+        case "setToolPermission":
           stream.setPermissionMode(action.mode)
           break
         case "displayOnly":
@@ -896,6 +905,12 @@ export default function ChatScreen({
           void handleNewChatInProject(action.projectId, undefined, false)
           break
         }
+        // result.content (rendered above as an event chip) is the only
+        // user-facing surface today; richer wiring tracked in F-033.
+        case "recapCard":
+        case "openDashboardTab":
+        case "skillFork":
+          break
       }
     },
     [

@@ -66,6 +66,22 @@ fn default_title_source() -> String {
     crate::session_title::TITLE_SOURCE_MANUAL.to_string()
 }
 
+impl SessionMeta {
+    /// True iff this is a normal user-facing conversation — what the desktop
+    /// shell should surface in cross-cutting places like the tray dropdown.
+    /// Excludes cron-triggered sessions (autonomous), sub-agent children
+    /// (parent owns the UX), IM channel conversations (handled by the IM
+    /// worker, not the desktop), and incognito sessions (intentionally
+    /// invisible). Project membership is allowed — project chats are still
+    /// user chats, just organized inside a project container.
+    pub fn is_regular_chat(&self) -> bool {
+        !self.is_cron
+            && self.parent_session_id.is_none()
+            && self.channel_info.is_none()
+            && !self.incognito
+    }
+}
+
 /// Lightweight channel info attached to a session for UI display.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -381,5 +397,69 @@ impl NewMessage {
     pub fn with_tool_metadata(mut self, metadata: Option<String>) -> Self {
         self.tool_metadata = metadata;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta(id: &str) -> SessionMeta {
+        SessionMeta {
+            id: id.to_string(),
+            title: None,
+            title_source: default_title_source(),
+            agent_id: "default".to_string(),
+            provider_id: None,
+            provider_name: None,
+            model_id: None,
+            created_at: "2026-05-01T00:00:00Z".to_string(),
+            updated_at: "2026-05-01T00:00:00Z".to_string(),
+            message_count: 0,
+            unread_count: 0,
+            has_error: false,
+            pending_interaction_count: 0,
+            is_cron: false,
+            parent_session_id: None,
+            plan_mode: Default::default(),
+            permission_mode: Default::default(),
+            project_id: None,
+            channel_info: None,
+            incognito: false,
+            working_dir: None,
+        }
+    }
+
+    #[test]
+    fn is_regular_chat_excludes_non_regular_kinds() {
+        assert!(meta("a").is_regular_chat());
+
+        let mut cron = meta("b");
+        cron.is_cron = true;
+        assert!(!cron.is_regular_chat());
+
+        let mut sub = meta("c");
+        sub.parent_session_id = Some("parent".to_string());
+        assert!(!sub.is_regular_chat());
+
+        // Project membership is allowed — project conversations are still
+        // user-facing chats and should surface in the tray etc.
+        let mut proj = meta("d");
+        proj.project_id = Some("p1".to_string());
+        assert!(proj.is_regular_chat());
+
+        let mut im = meta("e");
+        im.channel_info = Some(ChannelSessionInfo {
+            channel_id: "discord".to_string(),
+            account_id: "acc".to_string(),
+            chat_id: "ch".to_string(),
+            chat_type: "channel".to_string(),
+            sender_name: None,
+        });
+        assert!(!im.is_regular_chat());
+
+        let mut inc = meta("f");
+        inc.incognito = true;
+        assert!(!inc.is_regular_chat());
     }
 }

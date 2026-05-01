@@ -2965,7 +2965,10 @@
       "skill": "Skills"
     },
     "noResults": "Eşleşen komut yok",
-    "buttonTip": "Hızlı komutlar"
+    "buttonTip": "Hızlı komutlar",
+    "project": {
+      "description": "Bir projeye geç veya seç"
+    }
   },
   "planMode": {
     "enter": "Plan Mode'a gir",
