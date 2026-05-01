@@ -175,8 +175,7 @@ pub async fn chat(
     // Plan Mode trigger marker — UI renders these as a system chip instead of
     // a regular user bubble. Mirrors the Tauri command.
     if body.is_plan_trigger.unwrap_or(false) {
-        user_msg.attachments_meta =
-            Some(serde_json::json!({ "plan_trigger": true }).to_string());
+        user_msg.attachments_meta = Some(serde_json::json!({ "plan_trigger": true }).to_string());
     }
     let _ = db.append_message(&sid, &user_msg);
 
