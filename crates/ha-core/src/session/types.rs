@@ -67,17 +67,17 @@ fn default_title_source() -> String {
 }
 
 impl SessionMeta {
-    /// True iff this session would render in the sidebar's `sessionFilter
-    /// === "session"` group — i.e. a "regular conversation": not
-    /// cron-triggered, not a sub-agent child, not bound to an IM channel,
-    /// not under a project, and not incognito. Mirrors
-    /// `src/components/chat/sidebar/ChatSidebar.tsx` so backend surfaces
-    /// (tray menu, future dashboards) can stay in lock-step with the UI.
+    /// True iff this is a normal user-facing conversation — what the desktop
+    /// shell should surface in cross-cutting places like the tray dropdown.
+    /// Excludes cron-triggered sessions (autonomous), sub-agent children
+    /// (parent owns the UX), IM channel conversations (handled by the IM
+    /// worker, not the desktop), and incognito sessions (intentionally
+    /// invisible). Project membership is allowed — project chats are still
+    /// user chats, just organized inside a project container.
     pub fn is_regular_chat(&self) -> bool {
         !self.is_cron
             && self.parent_session_id.is_none()
             && self.channel_info.is_none()
-            && self.project_id.is_none()
             && !self.incognito
     }
 }
@@ -442,9 +442,11 @@ mod tests {
         sub.parent_session_id = Some("parent".to_string());
         assert!(!sub.is_regular_chat());
 
+        // Project membership is allowed — project conversations are still
+        // user-facing chats and should surface in the tray etc.
         let mut proj = meta("d");
         proj.project_id = Some("p1".to_string());
-        assert!(!proj.is_regular_chat());
+        assert!(proj.is_regular_chat());
 
         let mut im = meta("e");
         im.channel_info = Some(ChannelSessionInfo {
