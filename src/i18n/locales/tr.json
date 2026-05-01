@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "Düşünme süreci",
+    "streaming": "Düşünüyor",
+    "done": "Düşündü",
     "elapsed": "Süre {{time}}"
   },
   "provider_templates": {

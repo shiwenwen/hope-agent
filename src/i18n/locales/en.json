@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "Thinking",
+    "streaming": "Thinking",
+    "done": "Thought",
     "elapsed": "Elapsed {{time}}"
   },
   "provider_templates": {

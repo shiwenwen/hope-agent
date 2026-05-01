@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "Процесс рассуждения",
+    "streaming": "Думаю",
+    "done": "Подумал",
     "elapsed": "Прошло {{time}}"
   },
   "provider_templates": {

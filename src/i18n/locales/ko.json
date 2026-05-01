@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "사고 중",
+    "streaming": "사고 중",
+    "done": "사고 완료",
     "elapsed": "경과 시간 {{time}}"
   },
   "provider_templates": {

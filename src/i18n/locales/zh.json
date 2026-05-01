@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "思考过程",
+    "streaming": "正在思考",
+    "done": "已思考",
     "elapsed": "耗时 {{time}}"
   },
   "provider_templates": {

@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "Proses pemikiran",
+    "streaming": "Sedang berfikir",
+    "done": "Selesai berfikir",
     "elapsed": "Berlalu {{time}}"
   },
   "provider_templates": {

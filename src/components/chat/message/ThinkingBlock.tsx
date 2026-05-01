@@ -88,7 +88,7 @@ export default function ThinkingBlock({ content, isStreaming, durationMs }: Thin
         <BrainCircuit
           className={cn("h-3.5 w-3.5", isStreaming && "animate-pulse text-purple-400")}
         />
-        <span className={cn(isStreaming && "animate-text-shimmer")}>{t("thinking.label")}</span>
+        <span className={cn(isStreaming && "animate-text-shimmer")}>{t(isStreaming ? "thinking.streaming" : "thinking.done")}</span>
         {(isStreaming || elapsedMs > 0 || (durationMs != null && durationMs > 0)) && (
           <span className="text-[10px] text-muted-foreground/70">{t("thinking.elapsed", { time: formatElapsed(elapsedMs > 0 ? elapsedMs : (durationMs || 0)) })}</span>
         )}

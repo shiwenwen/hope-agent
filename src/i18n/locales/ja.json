@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "思考中",
+    "streaming": "思考中",
+    "done": "思考完了",
     "elapsed": "経過時間 {{time}}"
   },
   "provider_templates": {

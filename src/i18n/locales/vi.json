@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "Quá trình suy nghĩ",
+    "streaming": "Đang suy nghĩ",
+    "done": "Đã suy nghĩ",
     "elapsed": "Đã trôi qua {{time}}"
   },
   "provider_templates": {

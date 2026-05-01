@@ -2762,7 +2762,8 @@
     }
   },
   "thinking": {
-    "label": "Proceso de razonamiento",
+    "streaming": "Pensando",
+    "done": "Razonado",
     "elapsed": "Tiempo {{time}}"
   },
   "provider_templates": {
