@@ -196,7 +196,8 @@ pub fn active_counts() -> ActiveChatCounts {
 pub fn active_session_ids_by_source(source: ChatSource) -> Vec<String> {
     let map = registry().lock().expect("stream_seq registry poisoned");
     map.iter()
-        .filter_map(|(sid, e)| (e.source == source).then(|| sid.clone()))
+        .filter(|(_, e)| e.source == source)
+        .map(|(sid, _)| sid.clone())
         .collect()
 }
 
