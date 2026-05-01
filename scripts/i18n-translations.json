@@ -635,6 +635,18 @@
       "fileTooLarge": "ファイルが大きすぎます。先頭 256KB のみ表示します。",
       "noDiffData": "差分データがありません",
       "resizePanel": "差分パネルのサイズを変更"
+    },
+    "notification": {
+      "approvalRequired": "ツール承認が必要",
+      "approvalRequiredFallback": "Hope Agent がツール呼び出しの承認を待っています",
+      "askUserRequired": "Agent が回答を待っています",
+      "askUserRequiredFallback": "Hope Agent から質問があります",
+      "mcpAuthRequired": "MCP サーバーの認可が必要",
+      "mcpAuthRequiredBody": "{{name}} の OAuth 認可を完了してください",
+      "mcpAuthRequiredFallback": "MCP サーバーが OAuth 認可を必要としています",
+      "channelAuthFailed": "IM チャネルのログインに失敗",
+      "channelAuthFailedBody": "{{label}} の認証情報が拒否されました — 再認証してください",
+      "channelAuthFailedFallback": "IM チャネルの認証情報が拒否されました — 再認証してください"
     }
   },
   "ko": {
@@ -1273,6 +1285,18 @@
       "fileTooLarge": "파일이 너무 커 처음 256KB만 표시합니다",
       "noDiffData": "diff 데이터 없음",
       "resizePanel": "diff 패널 크기 조절"
+    },
+    "notification": {
+      "approvalRequired": "도구 승인이 필요합니다",
+      "approvalRequiredFallback": "Hope Agent가 도구 호출 승인을 기다리고 있습니다",
+      "askUserRequired": "Agent가 답변을 기다리고 있습니다",
+      "askUserRequiredFallback": "Hope Agent가 질문이 있습니다",
+      "mcpAuthRequired": "MCP 서버 인증 필요",
+      "mcpAuthRequiredBody": "{{name}}의 OAuth 인증을 완료하세요",
+      "mcpAuthRequiredFallback": "MCP 서버가 OAuth 인증을 필요로 합니다",
+      "channelAuthFailed": "IM 채널 로그인 실패",
+      "channelAuthFailedBody": "{{label}} 자격 증명이 거부되었습니다 — 재인증해주세요",
+      "channelAuthFailedFallback": "IM 채널 자격 증명이 거부되었습니다 — 재인증해주세요"
     }
   },
   "zh-TW": {
@@ -1911,6 +1935,18 @@
       "fileTooLarge": "檔案過大，僅渲染前 256KB",
       "noDiffData": "無 diff 資料",
       "resizePanel": "調整 diff 面板寬度"
+    },
+    "notification": {
+      "approvalRequired": "需要工具審批",
+      "approvalRequiredFallback": "Hope Agent 正在等你確認一次工具呼叫",
+      "askUserRequired": "Agent 正在等你回答",
+      "askUserRequiredFallback": "Hope Agent 提了一個問題等你回答",
+      "mcpAuthRequired": "MCP 伺服器需要授權",
+      "mcpAuthRequiredBody": "{{name}} 需要完成 OAuth 授權",
+      "mcpAuthRequiredFallback": "有 MCP 伺服器需要完成 OAuth 授權",
+      "channelAuthFailed": "IM 頻道登入失敗",
+      "channelAuthFailedBody": "{{label}} 憑證被拒絕,請檢查或重新登入",
+      "channelAuthFailedFallback": "有 IM 頻道帳號憑證被拒絕,需要重新登入"
     }
   },
   "tr": {
@@ -2549,6 +2585,18 @@
       "fileTooLarge": "Dosya çok büyük, yalnızca ilk 256KB gösteriliyor",
       "noDiffData": "Diff verisi yok",
       "resizePanel": "Diff panelini yeniden boyutlandır"
+    },
+    "notification": {
+      "approvalRequired": "Araç onayı gerekiyor",
+      "approvalRequiredFallback": "Hope Agent bir araç çağrısını onaylamanızı bekliyor",
+      "askUserRequired": "Agent yanıtınızı bekliyor",
+      "askUserRequiredFallback": "Hope Agent'in size bir sorusu var",
+      "mcpAuthRequired": "MCP sunucusu yetkilendirme gerektiriyor",
+      "mcpAuthRequiredBody": "{{name}} için OAuth yetkilendirmesini tamamlayın",
+      "mcpAuthRequiredFallback": "Bir MCP sunucusu OAuth yetkilendirmesi gerektiriyor",
+      "channelAuthFailed": "IM kanalı oturum açma başarısız",
+      "channelAuthFailedBody": "{{label}} kimlik bilgileri reddedildi — lütfen yeniden kimlik doğrulayın",
+      "channelAuthFailedFallback": "Bir IM kanalı hesabının kimlik bilgileri reddedildi — yeniden kimlik doğrulayın"
     }
   },
   "vi": {
@@ -3187,6 +3235,18 @@
       "fileTooLarge": "Tệp quá lớn, chỉ hiển thị 256KB đầu tiên",
       "noDiffData": "Không có dữ liệu diff",
       "resizePanel": "Thay đổi kích thước bảng diff"
+    },
+    "notification": {
+      "approvalRequired": "Cần phê duyệt công cụ",
+      "approvalRequiredFallback": "Hope Agent đang chờ bạn phê duyệt một lệnh gọi công cụ",
+      "askUserRequired": "Agent đang chờ câu trả lời",
+      "askUserRequiredFallback": "Hope Agent có một câu hỏi cho bạn",
+      "mcpAuthRequired": "Máy chủ MCP cần ủy quyền",
+      "mcpAuthRequiredBody": "{{name}} cần hoàn tất ủy quyền OAuth",
+      "mcpAuthRequiredFallback": "Một máy chủ MCP cần ủy quyền OAuth",
+      "channelAuthFailed": "Đăng nhập kênh IM thất bại",
+      "channelAuthFailedBody": "Thông tin xác thực {{label}} bị từ chối — vui lòng xác thực lại",
+      "channelAuthFailedFallback": "Thông tin xác thực một tài khoản kênh IM bị từ chối — vui lòng xác thực lại"
     }
   },
   "pt": {
@@ -3825,6 +3885,18 @@
       "fileTooLarge": "Arquivo muito grande, somente os primeiros 256KB são renderizados",
       "noDiffData": "Sem dados de diff",
       "resizePanel": "Redimensionar painel de diff"
+    },
+    "notification": {
+      "approvalRequired": "Aprovação de ferramenta necessária",
+      "approvalRequiredFallback": "Hope Agent está aguardando você aprovar uma chamada de ferramenta",
+      "askUserRequired": "O agente está aguardando uma resposta",
+      "askUserRequiredFallback": "Hope Agent tem uma pergunta para você",
+      "mcpAuthRequired": "Servidor MCP requer autorização",
+      "mcpAuthRequiredBody": "{{name}} precisa concluir a autorização OAuth",
+      "mcpAuthRequiredFallback": "Um servidor MCP precisa de autorização OAuth",
+      "channelAuthFailed": "Falha no login do canal IM",
+      "channelAuthFailedBody": "Credenciais de {{label}} foram rejeitadas — autentique-se novamente",
+      "channelAuthFailedFallback": "Credenciais de uma conta de canal IM foram rejeitadas — autentique-se novamente"
     }
   },
   "ru": {
@@ -4463,6 +4535,18 @@
       "fileTooLarge": "Файл слишком большой, отображаются только первые 256КБ",
       "noDiffData": "Нет данных diff",
       "resizePanel": "Изменить размер панели diff"
+    },
+    "notification": {
+      "approvalRequired": "Требуется подтверждение инструмента",
+      "approvalRequiredFallback": "Hope Agent ожидает подтверждения вызова инструмента",
+      "askUserRequired": "Агент ждёт ответа",
+      "askUserRequiredFallback": "У Hope Agent есть вопрос",
+      "mcpAuthRequired": "Требуется авторизация MCP-сервера",
+      "mcpAuthRequiredBody": "Завершите авторизацию OAuth для {{name}}",
+      "mcpAuthRequiredFallback": "Серверу MCP требуется авторизация OAuth",
+      "channelAuthFailed": "Ошибка входа в IM-канал",
+      "channelAuthFailedBody": "Учётные данные {{label}} отклонены — авторизуйтесь снова",
+      "channelAuthFailedFallback": "Учётные данные одного из IM-каналов отклонены — авторизуйтесь снова"
     }
   },
   "ar": {
@@ -5101,6 +5185,18 @@
       "fileTooLarge": "الملف كبير جدًا، يتم عرض أول 256 كيلوبايت فقط",
       "noDiffData": "لا توجد بيانات للفرق",
       "resizePanel": "تغيير حجم لوحة الفرق"
+    },
+    "notification": {
+      "approvalRequired": "مطلوب الموافقة على الأداة",
+      "approvalRequiredFallback": "ينتظر Hope Agent موافقتك على استدعاء أداة",
+      "askUserRequired": "ينتظر العميل إجابة",
+      "askUserRequiredFallback": "لدى Hope Agent سؤال لك",
+      "mcpAuthRequired": "خادم MCP يحتاج إلى تفويض",
+      "mcpAuthRequiredBody": "يحتاج {{name}} إلى إكمال تفويض OAuth",
+      "mcpAuthRequiredFallback": "خادم MCP يحتاج إلى تفويض OAuth",
+      "channelAuthFailed": "فشل تسجيل الدخول إلى قناة IM",
+      "channelAuthFailedBody": "تم رفض بيانات اعتماد {{label}} — يرجى إعادة المصادقة",
+      "channelAuthFailedFallback": "تم رفض بيانات اعتماد حساب قناة IM — يرجى إعادة المصادقة"
     }
   },
   "es": {
@@ -5739,6 +5835,18 @@
       "fileTooLarge": "Archivo demasiado grande, solo se muestran los primeros 256 KB",
       "noDiffData": "Sin datos de diff",
       "resizePanel": "Redimensionar panel de diff"
+    },
+    "notification": {
+      "approvalRequired": "Se requiere aprobación de herramienta",
+      "approvalRequiredFallback": "Hope Agent está esperando que apruebes una llamada a una herramienta",
+      "askUserRequired": "El agente espera una respuesta",
+      "askUserRequiredFallback": "Hope Agent tiene una pregunta para ti",
+      "mcpAuthRequired": "El servidor MCP requiere autorización",
+      "mcpAuthRequiredBody": "{{name}} necesita completar la autorización OAuth",
+      "mcpAuthRequiredFallback": "Un servidor MCP necesita autorización OAuth",
+      "channelAuthFailed": "Error de inicio de sesión en canal IM",
+      "channelAuthFailedBody": "Las credenciales de {{label}} fueron rechazadas — vuelve a autenticarte",
+      "channelAuthFailedFallback": "Las credenciales de una cuenta de canal IM fueron rechazadas — vuelve a autenticarte"
     }
   },
   "ms": {
@@ -6377,6 +6485,18 @@
       "fileTooLarge": "Fail terlalu besar, hanya 256KB pertama yang dipaparkan",
       "noDiffData": "Tiada data diff",
       "resizePanel": "Saiz semula panel diff"
+    },
+    "notification": {
+      "approvalRequired": "Kelulusan alat diperlukan",
+      "approvalRequiredFallback": "Hope Agent sedang menunggu anda meluluskan panggilan alat",
+      "askUserRequired": "Agen menunggu jawapan",
+      "askUserRequiredFallback": "Hope Agent ada soalan untuk anda",
+      "mcpAuthRequired": "Pelayan MCP memerlukan kebenaran",
+      "mcpAuthRequiredBody": "{{name}} perlu melengkapkan kebenaran OAuth",
+      "mcpAuthRequiredFallback": "Pelayan MCP memerlukan kebenaran OAuth",
+      "channelAuthFailed": "Log masuk saluran IM gagal",
+      "channelAuthFailedBody": "Kelayakan {{label}} ditolak — sila sahkan semula",
+      "channelAuthFailedFallback": "Kelayakan akaun saluran IM ditolak — sila sahkan semula"
     }
   },
   "zh": {

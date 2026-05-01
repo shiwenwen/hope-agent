@@ -38,6 +38,11 @@ use crate::failover::retry_delay_ms;
 struct PendingEntry {
     next_attempt: Instant,
     attempt_count: u32,
+    /// Whether a `channel:auth_failed` event has already been emitted for
+    /// this pending sequence. Used to fire the desktop alert exactly once
+    /// per "needs user action" episode — flipping back to false only
+    /// happens implicitly when the entry is removed (success / cancel).
+    auth_alerted: bool,
 }
 
 static PENDING: Lazy<Arc<Mutex<HashMap<String, PendingEntry>>>> =
@@ -74,8 +79,9 @@ pub async fn register_failure(account: &ChannelAccountConfig, error: &anyhow::Er
     let chain = format!("{:#}", error);
     let hint = classify_channel_error(&chain);
     let now = Instant::now();
+    let needs_alert = needs_user_action(hint);
 
-    let (attempt_count, backoff) = {
+    let (attempt_count, backoff, should_emit) = {
         let mut pending = PENDING.lock().await;
         let was_new = !pending.contains_key(&account.id);
         let entry = pending
@@ -83,15 +89,25 @@ pub async fn register_failure(account: &ChannelAccountConfig, error: &anyhow::Er
             .or_insert_with(|| PendingEntry {
                 next_attempt: now,
                 attempt_count: 0,
+                auth_alerted: false,
             });
         entry.attempt_count = entry.attempt_count.saturating_add(1);
         let backoff = backoff_for(entry.attempt_count);
         entry.next_attempt = now + backoff;
         let count = entry.attempt_count;
+        // Emit the alert the first time auth/forbidden surfaces for this
+        // account, regardless of whether earlier attempts failed for
+        // recoverable reasons (network / DNS / proxy). Watchdog can heal
+        // those on its own; auth needs the user. Once we've alerted, stay
+        // quiet for the rest of this pending sequence to avoid spam.
+        let should_emit = needs_alert && !entry.auth_alerted;
+        if should_emit {
+            entry.auth_alerted = true;
+        }
         if was_new {
             PENDING_COUNT.fetch_add(1, Ordering::Relaxed);
         }
-        (count, backoff)
+        (count, backoff, should_emit)
     };
 
     crate::app_error!(
@@ -106,6 +122,27 @@ pub async fn register_failure(account: &ChannelAccountConfig, error: &anyhow::Er
         hint,
         backoff.as_secs(),
     );
+
+    if should_emit {
+        if let Some(bus) = crate::get_event_bus() {
+            bus.emit(
+                "channel:auth_failed",
+                serde_json::json!({
+                    "accountId": account.id,
+                    "label": account.label,
+                    "channelId": account.channel_id,
+                    "hint": hint,
+                }),
+            );
+        }
+    }
+}
+
+/// True for hints that the watchdog cannot fix on its own — only the user
+/// can re-supply credentials or unblock the bot. Substring-matched against
+/// the classifier output so the two stay in sync without a brittle enum.
+fn needs_user_action(hint: &str) -> bool {
+    hint.starts_with("auth/") || hint.starts_with("forbidden")
 }
 
 pub async fn cancel_pending(account_id: &str) {

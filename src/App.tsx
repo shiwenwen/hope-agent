@@ -5,7 +5,8 @@ import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { initLanguageFromConfig, listenLanguageConfigChange } from "@/i18n/i18n"
 import { initThemeFromConfig, listenThemeConfigChange } from "@/hooks/useTheme"
-import { listenNotificationConfigChange, notify } from "@/lib/notifications"
+import { initFocusTracking, listenNotificationConfigChange, notify } from "@/lib/notifications"
+import { useDesktopAlerts } from "@/hooks/useDesktopAlerts"
 import {
   autoCheckForUpdate,
   relaunchDesktopApp,
@@ -177,6 +178,18 @@ export default function App() {
       unlistenNotification()
     }
   }, [handleOpenSettings])
+
+  // Track window focus state for background-aware OS notifications.
+  // App-level singleton — listeners stay registered for the process
+  // lifetime; `initFocusTracking` is idempotent across StrictMode
+  // double-invokes.
+  useEffect(() => {
+    initFocusTracking().catch(() => {})
+  }, [])
+
+  // Subscribe to "user action required" events and pop OS notifications
+  // when the app is in the background.
+  useDesktopAlerts()
 
   useEffect(() => {
     if (view === "loading" || view === "onboarding" || view === "setup") return

@@ -31,6 +31,20 @@
 ## Open
 
 
+### F-027 `notify()` 每次调用都跑 IPC 查权限，可缓存 first-grant
+
+- **来源**：2026-05-01 桌面后台通知 PR `/simplify` review（efficiency agent #5）
+- **现象**：[`src/lib/notifications.ts::notify`](../../src/lib/notifications.ts) 每次调用都 `await isPermissionGranted()`，权限被授予后这个值实际上不会再变（用户去系统设置里手动撤销才会变），但函数体没有缓存，每次后台通知都付一次 Tauri IPC 往返
+- **为什么留**：`notify()` 是 pre-existing 代码（不是本期 PR 引入），按 AGENTS.md「don't add features beyond what the task requires」原则不顺手改。当期场景下后台通知频率低（人类操作节奏），重复 IPC 不构成可见性能问题
+- **改的话要做什么**：
+  1. 在 `cachedConfig` 旁加 `let cachedPermissionGranted = false`（默认 false，避免误以为已授权）
+  2. `notify()` 命中 `cachedPermissionGranted=true` 时跳过 `isPermissionGranted` IPC 直接 `sendNotification`
+  3. 首次 `requestPermission()` 成功后 set `cachedPermissionGranted=true`
+  4. 监听 `visibilitychange` 或在窗口聚焦事件回调里 invalidate cache（用户可能在系统设置里撤销了授权——这种边缘场景下重新查一遍 IPC 即可），或者干脆不 invalidate（撤销后 `sendNotification` 会静默失败，用户重启 app 自然纠正）
+- **影响面**：纯性能微优化。当前没有用户可见 bug；IPC 单次开销很小，只是高频通知场景下浪费
+- **触发时机建议**：下次动 `notify()` 路径或做通知功能扩展时（比如 click handler、声音、icon override）顺手做；不值得单独开 PR
+
+
 ### F-026 IM 端 `permission:mode_changed` 事件订阅方未补齐
 
 - **来源**：2026-04-30 IM channel 权限模式对齐 v2 PR

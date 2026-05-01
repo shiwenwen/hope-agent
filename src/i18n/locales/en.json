@@ -2629,7 +2629,17 @@
     "cronSuccess": "Scheduled task completed",
     "cronError": "Scheduled task failed",
     "cronNotify": "Notify on complete",
-    "cronNotifyDesc": "Send a desktop notification when this task finishes"
+    "cronNotifyDesc": "Send a desktop notification when this task finishes",
+    "approvalRequired": "Tool approval needed",
+    "approvalRequiredFallback": "Hope Agent is waiting for you to approve a tool call",
+    "askUserRequired": "Agent is waiting for an answer",
+    "askUserRequiredFallback": "Hope Agent has a question for you",
+    "mcpAuthRequired": "MCP server needs authorization",
+    "mcpAuthRequiredBody": "{{name}} needs to complete OAuth authorization",
+    "mcpAuthRequiredFallback": "An MCP server needs OAuth authorization",
+    "channelAuthFailed": "IM channel login failed",
+    "channelAuthFailedBody": "{{label}} credentials were rejected — please re-authenticate",
+    "channelAuthFailedFallback": "An IM channel account's credentials were rejected — please re-authenticate"
   },
   "shortcuts": {
     "title": "Keyboard Shortcuts",

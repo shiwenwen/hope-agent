@@ -2629,7 +2629,17 @@
     "cronSuccess": "定时任务已完成",
     "cronError": "定时任务失败",
     "cronNotify": "完成时通知",
-    "cronNotifyDesc": "任务完成时发送桌面通知"
+    "cronNotifyDesc": "任务完成时发送桌面通知",
+    "approvalRequired": "需要工具审批",
+    "approvalRequiredFallback": "Hope Agent 正在等待你确认一次工具调用",
+    "askUserRequired": "Agent 在等你回答",
+    "askUserRequiredFallback": "Hope Agent 提了一个问题等你回答",
+    "mcpAuthRequired": "MCP 服务器需要授权",
+    "mcpAuthRequiredBody": "{{name}} 需要完成 OAuth 授权",
+    "mcpAuthRequiredFallback": "有 MCP 服务器需要完成 OAuth 授权",
+    "channelAuthFailed": "IM 渠道登录失败",
+    "channelAuthFailedBody": "{{label}} 凭据被拒绝，请检查或重新登录",
+    "channelAuthFailedFallback": "有 IM 渠道账号凭据被拒绝，需要重新登录"
   },
   "shortcuts": {
     "title": "快捷键设置",

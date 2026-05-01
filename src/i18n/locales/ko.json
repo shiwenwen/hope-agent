@@ -1685,6 +1685,130 @@
     "agentUnlimited": "제한 없음",
     "agentSkills": "스킬",
     "agentSkillsDesc": "전역적으로 활성화된 스킬은 기본적으로 사용 가능합니다. 개별적으로 비활성화할 수 있습니다",
+    "approvalNav": "Permission",
+    "approvalPanel": {
+      "title": "Permission",
+      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
+      "yoloTitle": "Global YOLO (Skip All Approvals)",
+      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
+      "yoloEnabled": "Global YOLO enabled",
+      "yoloDisabled": "Global YOLO disabled",
+      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
+      "protectedPathsTitle": "Protected Paths",
+      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
+      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
+      "editCommandsTitle": "Edit Commands",
+      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
+      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
+      "dangerousCommandsTitle": "Dangerous Commands",
+      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
+      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
+      "smartTitle": "Smart Approval Mode",
+      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
+      "smartStrategy": "Decision Strategy",
+      "smartFallback": "Fallback When Unavailable",
+      "strategies": {
+        "self_confidence": "Model Self-Tag",
+        "judge_model": "Judge Model",
+        "both": "Judge first, self-tag fallback"
+      },
+      "fallbacks": {
+        "default": "Fall back to Default mode",
+        "ask": "Force prompt",
+        "allow": "Force allow"
+      },
+      "judgeModelTitle": "Judge Model Configuration",
+      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
+      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
+      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
+      "timeoutTitle": "Approval Dialog Timeout",
+      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
+      "timeoutSeconds": "Timeout Seconds",
+      "timeoutHint": "0 = wait forever",
+      "timeoutAction": "Timeout Action",
+      "timeoutActions": {
+        "deny": "Block execution",
+        "proceed": "Proceed"
+      },
+      "empty": "No entries — add a pattern to enable",
+      "restoreDefaults": "Restore Defaults",
+      "restoredDefaults": "Restored to defaults"
+    },
+    "agentApprovalTab": "승인",
+    "agentApproval": {
+      "defaultModeTitle": "기본 세션 권한 모드",
+      "defaultModeDesc": "새 세션의 초기 권한 모드. 기존 세션에는 영향이 없습니다.",
+      "modes": {
+        "inherit": {
+          "label": "전역 따르기",
+          "desc": "전역 기본값 (현재 「기본」 모드)"
+        },
+        "default": {
+          "label": "기본",
+          "desc": "편집 도구와 고위험 명령은 승인 필요"
+        },
+        "smart": {
+          "label": "스마트 승인",
+          "desc": "판정 모델 또는 모델 자체 평가가 승인 결정"
+        },
+        "yolo": {
+          "label": "YOLO",
+          "desc": "모든 도구가 승인 없이 실행 (보호 경로는 감사 로그)"
+        }
+      },
+      "customApprovalTitle": "사용자 정의 도구 승인",
+      "customApprovalDesc": "기본 모드에서 추가로 선택한 도구도 매번 승인이 필요하도록 합니다.",
+      "customApprovalHint": "참고: 「기본」 모드에서만 적용되며 스마트/YOLO 모드는 무시합니다.",
+      "groups": {
+        "shell": "Shell & Processes",
+        "browser": "Browser",
+        "settings": "Settings Changes",
+        "outbound": "Outbound",
+        "paid": "Paid APIs",
+        "spawn": "External Subprocesses",
+        "network": "Network Access",
+        "crossSession": "Cross-Session Reads",
+        "settingsRead": "Settings Queries"
+      },
+      "toolNames": {
+        "process": "Background Processes",
+        "browser": "Browser Control",
+        "update_settings": "Update Settings",
+        "restore_settings_backup": "Restore Settings Backup",
+        "send_attachment": "Send Attachment",
+        "sessions_send": "Cross-Session Send",
+        "image_generate": "Image Generation",
+        "acp_spawn": "ACP Subagent",
+        "web_fetch": "Web Fetch",
+        "web_search": "Web Search",
+        "peek_sessions": "Peek Sessions",
+        "sessions_list": "List Sessions",
+        "sessions_history": "Session History",
+        "session_status": "Session Status",
+        "agents_list": "List Agents",
+        "get_settings": "Read Settings",
+        "list_settings_backups": "List Settings Backups"
+      },
+      "toolDescs": {
+        "process": "Manage exec background sessions (kill/write/clear/remove)",
+        "browser": "Drive a browser via CDP for UI automation",
+        "update_settings": "Modify AppConfig settings",
+        "restore_settings_backup": "Roll back to a historical settings backup",
+        "send_attachment": "Send a file attachment to IM channels",
+        "sessions_send": "Send a message to another session to trigger work",
+        "image_generate": "Generate images via a paid API",
+        "acp_spawn": "Launch an external ACP subagent process",
+        "web_fetch": "Fetch a URL and extract readable content",
+        "web_search": "Query via a search engine",
+        "peek_sessions": "Peek at live activity in other sessions",
+        "sessions_list": "List metadata for all sessions",
+        "sessions_history": "Read message history from other sessions",
+        "session_status": "Query the current state of a session",
+        "agents_list": "List all configured agents",
+        "get_settings": "Read application settings",
+        "list_settings_backups": "List configuration backup history"
+      }
+    },
     "toolExecName": "명령 실행",
     "toolExecDesc": "셸 명령 실행, 백그라운드 및 샌드박스 지원",
     "toolProcessName": "프로세스 관리",
@@ -2240,130 +2364,6 @@
       "label": "새 스킬 자동 활성화",
       "description": "초안 검토 건너뛰기 — 추출된 스킬이 즉시 활성화됩니다.",
       "hint": "꺼짐(기본값): 새 스킬은 초안으로 저장되며 먼저 승인이 필요합니다."
-    },
-    "agentApprovalTab": "승인",
-    "agentApproval": {
-      "defaultModeTitle": "기본 세션 권한 모드",
-      "defaultModeDesc": "새 세션의 초기 권한 모드. 기존 세션에는 영향이 없습니다.",
-      "modes": {
-        "inherit": {
-          "label": "전역 따르기",
-          "desc": "전역 기본값 (현재 「기본」 모드)"
-        },
-        "default": {
-          "label": "기본",
-          "desc": "편집 도구와 고위험 명령은 승인 필요"
-        },
-        "smart": {
-          "label": "스마트 승인",
-          "desc": "판정 모델 또는 모델 자체 평가가 승인 결정"
-        },
-        "yolo": {
-          "label": "YOLO",
-          "desc": "모든 도구가 승인 없이 실행 (보호 경로는 감사 로그)"
-        }
-      },
-      "customApprovalTitle": "사용자 정의 도구 승인",
-      "customApprovalDesc": "기본 모드에서 추가로 선택한 도구도 매번 승인이 필요하도록 합니다.",
-      "customApprovalHint": "참고: 「기본」 모드에서만 적용되며 스마트/YOLO 모드는 무시합니다.",
-      "groups": {
-        "shell": "Shell & Processes",
-        "browser": "Browser",
-        "settings": "Settings Changes",
-        "outbound": "Outbound",
-        "paid": "Paid APIs",
-        "spawn": "External Subprocesses",
-        "network": "Network Access",
-        "crossSession": "Cross-Session Reads",
-        "settingsRead": "Settings Queries"
-      },
-      "toolNames": {
-        "process": "Background Processes",
-        "browser": "Browser Control",
-        "update_settings": "Update Settings",
-        "restore_settings_backup": "Restore Settings Backup",
-        "send_attachment": "Send Attachment",
-        "sessions_send": "Cross-Session Send",
-        "image_generate": "Image Generation",
-        "acp_spawn": "ACP Subagent",
-        "web_fetch": "Web Fetch",
-        "web_search": "Web Search",
-        "peek_sessions": "Peek Sessions",
-        "sessions_list": "List Sessions",
-        "sessions_history": "Session History",
-        "session_status": "Session Status",
-        "agents_list": "List Agents",
-        "get_settings": "Read Settings",
-        "list_settings_backups": "List Settings Backups"
-      },
-      "toolDescs": {
-        "process": "Manage exec background sessions (kill/write/clear/remove)",
-        "browser": "Drive a browser via CDP for UI automation",
-        "update_settings": "Modify AppConfig settings",
-        "restore_settings_backup": "Roll back to a historical settings backup",
-        "send_attachment": "Send a file attachment to IM channels",
-        "sessions_send": "Send a message to another session to trigger work",
-        "image_generate": "Generate images via a paid API",
-        "acp_spawn": "Launch an external ACP subagent process",
-        "web_fetch": "Fetch a URL and extract readable content",
-        "web_search": "Query via a search engine",
-        "peek_sessions": "Peek at live activity in other sessions",
-        "sessions_list": "List metadata for all sessions",
-        "sessions_history": "Read message history from other sessions",
-        "session_status": "Query the current state of a session",
-        "agents_list": "List all configured agents",
-        "get_settings": "Read application settings",
-        "list_settings_backups": "List configuration backup history"
-      }
-    },
-    "approvalNav": "Permission",
-    "approvalPanel": {
-      "title": "Permission",
-      "intro": "Global YOLO toggle, protected-path / edit-command / dangerous-command pattern lists, and Smart approval mode configuration.",
-      "yoloTitle": "Global YOLO (Skip All Approvals)",
-      "yoloDesc": "When on, all tools run without approval; only Plan Mode can still block. Protected-path / dangerous-command matches log a warning but execute.",
-      "yoloEnabled": "Global YOLO enabled",
-      "yoloDisabled": "Global YOLO disabled",
-      "yoloCliActive": "⚠️ The CLI flag --dangerously-skip-all-approvals is active and cannot be disabled from the GUI.",
-      "protectedPathsTitle": "Protected Paths",
-      "protectedPathsDesc": "Tool calls hitting these paths force approval and cannot be AllowAlways'd. Supports ~/ expansion, directory prefix (trailing /), and *.pattern globs.",
-      "protectedPathsPlaceholder": "e.g. ~/.ssh/, .env, *.pem",
-      "editCommandsTitle": "Edit Commands",
-      "editCommandsDesc": "In Default mode, exec calls matching these patterns need approval (case-insensitive substring); AllowAlways is available.",
-      "editCommandsPlaceholder": "e.g. rm , git commit, npm install",
-      "dangerousCommandsTitle": "Dangerous Commands",
-      "dangerousCommandsDesc": "Force approval and cannot be AllowAlways'd. YOLO mode bypasses but still writes audit logs.",
-      "dangerousCommandsPlaceholder": "e.g. rm -rf /, git push --force",
-      "smartTitle": "Smart Approval Mode",
-      "smartDesc": "In Smart session mode, the model's self-confidence tag or an independent judge model decides approvals.",
-      "smartStrategy": "Decision Strategy",
-      "smartFallback": "Fallback When Unavailable",
-      "strategies": {
-        "self_confidence": "Model Self-Tag",
-        "judge_model": "Judge Model",
-        "both": "Judge first, self-tag fallback"
-      },
-      "fallbacks": {
-        "default": "Fall back to Default mode",
-        "ask": "Force prompt",
-        "allow": "Force allow"
-      },
-      "judgeModelTitle": "Judge Model Configuration",
-      "judgeProviderPlaceholder": "Provider ID (e.g. anthropic-1)",
-      "judgeModelPlaceholder": "Model (e.g. claude-haiku-4-5)",
-      "judgeExtraPromptPlaceholder": "Optional: extra instructions for the judge (path whitelists, trusted commands…)",
-      "timeoutTitle": "Approval Dialog Timeout",
-      "timeoutDesc": "When the user doesn't respond within this many seconds, fall back to the action below. 0 = wait forever.",
-      "timeoutSeconds": "Timeout Seconds",
-      "timeoutHint": "0 = wait forever",
-      "timeoutAction": "Timeout Action",
-      "timeoutActions": {
-        "deny": "Block execution",
-        "proceed": "Proceed"
-      },
-      "empty": "No entries — add a pattern to enable",
-      "restoreDefaults": "Restore Defaults",
-      "restoredDefaults": "Restored to defaults"
     }
   },
   "tz": {
@@ -2629,7 +2629,17 @@
     "cronSuccess": "예약 작업 완료",
     "cronError": "예약 작업 실패",
     "cronNotify": "완료 시 알림",
-    "cronNotifyDesc": "이 작업이 완료되면 데스크톱 알림 보내기"
+    "cronNotifyDesc": "이 작업이 완료되면 데스크톱 알림 보내기",
+    "approvalRequired": "도구 승인이 필요합니다",
+    "approvalRequiredFallback": "Hope Agent가 도구 호출 승인을 기다리고 있습니다",
+    "askUserRequired": "Agent가 답변을 기다리고 있습니다",
+    "askUserRequiredFallback": "Hope Agent가 질문이 있습니다",
+    "mcpAuthRequired": "MCP 서버 인증 필요",
+    "mcpAuthRequiredBody": "{{name}}의 OAuth 인증을 완료하세요",
+    "mcpAuthRequiredFallback": "MCP 서버가 OAuth 인증을 필요로 합니다",
+    "channelAuthFailed": "IM 채널 로그인 실패",
+    "channelAuthFailedBody": "{{label}} 자격 증명이 거부되었습니다 — 재인증해주세요",
+    "channelAuthFailedFallback": "IM 채널 자격 증명이 거부되었습니다 — 재인증해주세요"
   },
   "shortcuts": {
     "title": "단축키 설정",
@@ -2710,9 +2720,9 @@
     "command": "Command",
     "allowOnce": "Allow Once",
     "allowAlways": "Always Allow",
+    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
     "deny": "Deny",
     "queueIndicator": "{{current}} of {{total}}",
-    "allowAlwaysDisabled": "Cannot Always-Allow — protected path or dangerous command requires per-call confirmation",
     "countdownTooltip": "{{seconds}}s left — will auto-{{action}} on timeout",
     "countdownAction": {
       "deny": "deny",
