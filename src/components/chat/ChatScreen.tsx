@@ -544,6 +544,15 @@ export default function ChatScreen({
     })
   }, [handleStartNewChat, currentAgentId])
 
+  // Listen for tray "focus-session" event — emitted when the user clicks an
+  // in-progress regular conversation entry inside the system tray dropdown.
+  useEffect(() => {
+    return getTransport().listen("tray:focus-session", (raw) => {
+      const sessionId = (raw as { sessionId?: string } | undefined)?.sessionId
+      if (sessionId) void session.handleSwitchSession(sessionId)
+    })
+  }, [session.handleSwitchSession])
+
   // Listen for channel slash command state-sync events
   useEffect(() => {
     const unlisteners: Array<() => void> = []
