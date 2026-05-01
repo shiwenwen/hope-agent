@@ -873,6 +873,7 @@
     "skillsDirSharedDesc": "Araçlar arası paylaşılan beceri dizini (~/.agents/skills/ sözleşmesi)",
     "skillsDirAdd": "Beceri dizini içe aktar",
     "skillsDirRemove": "Bu dizini kaldır",
+    "skillsDirPickFailed": "Dizin seçilemedi",
     "skillsImport": {
       "button": "Quick import",
       "dialogTitle": "Quick import skill directories",
@@ -3484,7 +3485,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "İndirme sayfasını aç"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

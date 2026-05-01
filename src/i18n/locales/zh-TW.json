@@ -873,6 +873,7 @@
     "skillsDirSharedDesc": "跨工具共享的技能目錄（~/.agents/skills/ 約定）",
     "skillsDirAdd": "導入技能目錄",
     "skillsDirRemove": "移除此目錄",
+    "skillsDirPickFailed": "選擇目錄失敗",
     "skillsImport": {
       "button": "快速匯入",
       "dialogTitle": "快速匯入 skill 目錄",
@@ -3484,7 +3485,8 @@
       "paused": "{{model}} 已暫停",
       "cancelled": "{{model}} 安裝已取消",
       "failed": "{{model}} 安裝失敗",
-      "retryStarted": "已開始重試 {{model}}"
+      "retryStarted": "已開始重試 {{model}}",
+      "openDownload": "開啟下載頁"
     },
     "errors": {
       "loadFailed": "載入模型安裝任務失敗"

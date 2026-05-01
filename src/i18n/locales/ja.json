@@ -873,6 +873,7 @@
     "skillsDirSharedDesc": "ツール間で共有されるスキルディレクトリ（~/.agents/skills/ 規約）",
     "skillsDirAdd": "スキルディレクトリをインポート",
     "skillsDirRemove": "このディレクトリを削除",
+    "skillsDirPickFailed": "ディレクトリの選択に失敗しました",
     "skillsImport": {
       "button": "クイックインポート",
       "dialogTitle": "skill ディレクトリのクイックインポート",
@@ -3484,7 +3485,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "ダウンロードページを開く"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

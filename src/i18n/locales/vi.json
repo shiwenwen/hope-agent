@@ -873,6 +873,7 @@
     "skillsDirSharedDesc": "Thư mục kỹ năng dùng chung giữa các công cụ (quy ước ~/.agents/skills/)",
     "skillsDirAdd": "Nhập thư mục kỹ năng",
     "skillsDirRemove": "Xóa thư mục này",
+    "skillsDirPickFailed": "Không thể chọn thư mục",
     "skillsImport": {
       "button": "Quick import",
       "dialogTitle": "Quick import skill directories",
@@ -3484,7 +3485,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "Mở trang tải xuống"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

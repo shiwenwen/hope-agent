@@ -873,6 +873,7 @@
     "skillsDirSharedDesc": "Directorio de habilidades compartido entre herramientas (convención ~/.agents/skills/)",
     "skillsDirAdd": "Importar directorio de habilidades",
     "skillsDirRemove": "Eliminar este directorio",
+    "skillsDirPickFailed": "No se pudo elegir el directorio",
     "skillsImport": {
       "button": "Quick import",
       "dialogTitle": "Quick import skill directories",
@@ -3484,7 +3485,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "Abrir página de descarga"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

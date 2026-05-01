@@ -873,6 +873,7 @@
     "skillsDirSharedDesc": "도구 간 공유 스킬 디렉토리 (~/.agents/skills/ 규약)",
     "skillsDirAdd": "스킬 디렉토리 가져오기",
     "skillsDirRemove": "이 디렉토리 제거",
+    "skillsDirPickFailed": "디렉토리 선택 실패",
     "skillsImport": {
       "button": "빠른 가져오기",
       "dialogTitle": "skill 디렉터리 빠른 가져오기",
@@ -3484,7 +3485,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "다운로드 페이지 열기"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"
