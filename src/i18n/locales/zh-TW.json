@@ -24,7 +24,8 @@
     "settings": "設置",
     "close": "關閉",
     "search": "搜索",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "本機檔案連結僅在桌面模式可開啟"
   },
   "project": {
     "projects": "專案",

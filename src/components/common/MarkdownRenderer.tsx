@@ -10,7 +10,9 @@ import { Streamdown, type AnimateOptions, type PluginConfig } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
 import "streamdown/styles.css"
+import i18next from "i18next"
 import { getTransport } from "@/lib/transport-provider"
+import { openExternalUrl } from "@/lib/openExternalUrl"
 import { cn } from "@/lib/utils"
 
 // Math and mermaid plugins are lazy-loaded on first use to reduce initial bundle size.
@@ -76,6 +78,24 @@ const streamingAnimation: AnimateOptions = {
 // Tauri webview 不支持该行为（点击无反应），改走 open_url 命令调起系统浏览器。
 const linkSafetyDisabled = { enabled: false as const }
 
+// 桌面模式下 LLM 被 system prompt 引导把文件路径写成 `[file.ts:42](/abs/path/file.ts#L42)`
+// markdown 链接，本地绝对路径走 `open_directory` Tauri 命令（系统默认应用）；
+// HTTP/server 模式 `supportsLocalFileOps()` 为 false 时禁用点击，避免在 server
+// 主机上误开文件。非本地链接走 `openExternalUrl`（含 `window.open` fallback）。
+//
+// 只识别 Unix-style `/` / `~/` 前缀：streamdown 用固定 defaultSchema 的
+// rehype-sanitize，`file://` 和 Windows `C:\` 路径会在 sanitize 阶段被剥
+// href，永远到不了这里，识别它们没意义还会误导读代码的人。
+function isLocalPath(href: string | undefined): href is string {
+  return !!href && (href.startsWith("/") || href.startsWith("~/"))
+}
+
+// 剥掉 GitHub 风格 `#L<line>` 锚点。v1 不接 IDE 协议，行号会被丢，至少
+// 保证 `open::that()` 拿到的是干净路径不会失败。
+function normalizeLocalPath(href: string): string {
+  return href.replace(/#L\d+(-L?\d+)?$/, "")
+}
+
 function MarkdownLink({
   href,
   children,
@@ -85,19 +105,34 @@ function MarkdownLink({
   ...rest
 }: AnchorHTMLAttributes<HTMLAnchorElement> & { node?: unknown }) {
   const isIncomplete = href === "streamdown:incomplete-link"
+  const local = isLocalPath(href)
+  const disabledLocal = local && !getTransport().supportsLocalFileOps()
+  // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百
+  // anchor，包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。Markdown
+  // 内联 disabled 提示属合理例外。
   return (
     <a
       {...rest}
       href={href}
-      className={cn("wrap-anywhere font-medium text-primary underline", className)}
+      className={cn(
+        "wrap-anywhere font-medium text-primary underline",
+        disabledLocal && "cursor-not-allowed opacity-70",
+        className,
+      )}
+      title={disabledLocal ? i18next.t("common.markdownLinkLocalDisabled") : rest.title}
       data-incomplete={isIncomplete || undefined}
       data-streamdown="link"
       onClick={(event) => {
         if (!href || isIncomplete) return
         event.preventDefault()
-        void getTransport()
-          .call("open_url", { url: href })
-          .catch(() => {})
+        if (disabledLocal) return
+        if (local) {
+          void getTransport()
+            .call("open_directory", { path: normalizeLocalPath(href) })
+            .catch(() => {})
+        } else {
+          openExternalUrl(href)
+        }
       }}
     >
       {children}

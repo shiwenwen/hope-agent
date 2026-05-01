@@ -24,7 +24,8 @@
     "settings": "الإعدادات",
     "close": "إغلاق",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "لا يمكن فتح روابط الملفات المحلية إلا في وضع سطح المكتب"
   },
   "project": {
     "projects": "المشاريع",

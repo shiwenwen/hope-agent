@@ -24,7 +24,8 @@
     "settings": "Settings",
     "close": "Close",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "Local file links can only be opened in desktop mode"
   },
   "project": {
     "projects": "Projects",

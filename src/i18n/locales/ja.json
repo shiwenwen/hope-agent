@@ -24,7 +24,8 @@
     "settings": "設定",
     "close": "閉じる",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "ローカルファイルへのリンクはデスクトップモードでのみ開けます"
   },
   "project": {
     "projects": "プロジェクト",

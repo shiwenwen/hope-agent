@@ -24,7 +24,8 @@
     "settings": "Tetapan",
     "close": "Tutup",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "Pautan fail tempatan hanya boleh dibuka dalam mod desktop"
   },
   "project": {
     "projects": "Projek",

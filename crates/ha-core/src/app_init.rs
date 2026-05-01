@@ -24,6 +24,26 @@ use tokio::sync::Mutex;
 /// distinguishable from a successful first run.
 static INIT_DONE: OnceLock<()> = OnceLock::new();
 
+/// Records the runtime role passed to `init_runtime("desktop"|"server"|"acp"|"test")`.
+/// First-write-wins. Tests in the same binary share this `OnceLock` — once
+/// `init_runtime("test")` runs, `is_desktop()` stays `false` for every test.
+static RUNTIME_ROLE: OnceLock<&'static str> = OnceLock::new();
+
+/// Returns the role string from the first `init_runtime()` call, or `None`
+/// if `init_runtime` hasn't run yet. Most callers want [`is_desktop`] for
+/// readable mode checks instead of comparing the string directly.
+pub fn runtime_role() -> Option<&'static str> {
+    RUNTIME_ROLE.get().copied()
+}
+
+/// True iff the process started as the desktop (Tauri) shell. Used by paths
+/// that need to vary behavior by runtime mode without threading a parameter
+/// through the call stack (e.g. `system_prompt::build` injecting
+/// desktop-only guidance for clickable file paths).
+pub fn is_desktop() -> bool {
+    runtime_role() == Some("desktop")
+}
+
 /// Initialize all global singletons (databases, OnceLocks, channel registry,
 /// ACP control plane, orphan cleanup, embedder, welcome log). Idempotent —
 /// the second call is a no-op so dev hot-reload and accidental double-call
@@ -32,7 +52,11 @@ static INIT_DONE: OnceLock<()> = OnceLock::new();
 /// Side effects only — does not construct `AppState`. Desktop callers should
 /// follow up with `build_app_state()`. Server / ACP modes don't need
 /// `AppState` and stop here.
-pub fn init_runtime(role: &str) {
+pub fn init_runtime(role: &'static str) {
+    // Record role before the idempotent early-return so the first caller's
+    // role wins. Subsequent `OnceLock::set` returns Err and is dropped.
+    let _ = RUNTIME_ROLE.set(role);
+
     if INIT_DONE.get().is_some() {
         return;
     }

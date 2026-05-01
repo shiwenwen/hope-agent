@@ -24,7 +24,8 @@
     "settings": "Cài đặt",
     "close": "Đóng",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "Liên kết tệp cục bộ chỉ có thể mở trong chế độ máy tính"
   },
   "project": {
     "projects": "Dự án",

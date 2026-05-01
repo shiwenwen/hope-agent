@@ -372,6 +372,23 @@
 - **影响面**：性能 only，没有正确性问题。N 个 IM account 重 sync 时减少 N-1 次文件系统扫描；每次 LLM 请求 system_prompt 构造也省一次扫描。粗估 50ms × N 节省
 - **触发时机建议**：下一次做性能优化 PR 时；或者用户报"启动慢""LLM 第一次响应慢"时
 
+
+### F-035 `isAbsolutePath` helper 散落 3 处，应抽 `src/lib/pathUtil.ts`
+
+- **来源**：2026-05-01 桌面 markdown 文件路径链接 PR `/simplify` review（reuse agent）
+- **现象**：判断"是不是绝对路径"的 windows 盘符正则 `^[A-Za-z]:[\\/]` 在仓内重复了 3 处：
+  - [`src/components/common/MarkdownRenderer.tsx::isLocalPath`](../../src/components/common/MarkdownRenderer.tsx)（本期新增，含 `/` / `~/` / `file://` / windows）
+  - [`src/components/chat/file-mention/types.ts::joinAbs`](../../src/components/chat/file-mention/types.ts)（`/` + windows）
+  - [`src/lib/transport-tauri.ts::resolveAssetUrl`](../../src/lib/transport-tauri.ts)（windows 盘符）
+  - 三处都是 **inline regex**，定义略有差异（有的不含 `~/`，有的不含 `file://`），重复风险随 1→3→N 累积
+- **为什么留**：本期 PR 主题是 markdown 路径链接化，新增第 3 处时已经把语义最完整的版本（含 `/` / `~/` / `file://` / windows）落到 MarkdownRenderer 里。统一抽 helper 涉及 3 处行为对齐 + 单元测试，超出当期范围；MarkdownRenderer 那一处当下唯一被依赖的特性是"识别 LLM 输出的本地路径链接"，不需要 file-mention / transport-tauri 的额外 case
+- **改的话要做什么**：
+  1. 新建 `src/lib/pathUtil.ts`，导出 `isAbsolutePath(href: string): boolean`（最完整语义：`/` / `~/` / `file://` / windows 盘符）+ 可选的 `stripFileProtocol(href)` / `stripLineAnchor(href)`
+  2. MarkdownRenderer / file-mention/types / transport-tauri 三处 inline regex 统一替换为 `isAbsolutePath`
+  3. 加一组单元测试覆盖 unix / `~/` / `file://localhost/...` / `C:\\` / `D:/` / `relative/path` / 空串 / undefined
+- **影响面**：纯重构债务；当前三处行为差异极小且各自场景不会撞上对方的 case，没有用户可见 bug
+- **触发时机建议**：下一次有人改 file-mention 解析或 transport-tauri 的资产 URL 处理时顺手；或者撞到第 4 处需要写绝对路径判断时再统一
+
 ---
 
 ## Closed

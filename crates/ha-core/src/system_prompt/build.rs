@@ -1,6 +1,7 @@
 use super::constants::{
-    build_tool_budget_guidance, APP_INTRO, HUMAN_IN_THE_LOOP_GUIDANCE, MAX_FILE_CHARS,
-    MEMORY_GUIDELINES, SMART_MODE_GUIDANCE, SOUL_EMBODIMENT_GUIDANCE, TOOL_CALL_NARRATION_GUIDANCE,
+    build_tool_budget_guidance, APP_INTRO, HUMAN_IN_THE_LOOP_GUIDANCE, MARKDOWN_PATH_LINKS_GUIDANCE,
+    MAX_FILE_CHARS, MEMORY_GUIDELINES, SMART_MODE_GUIDANCE, SOUL_EMBODIMENT_GUIDANCE,
+    TOOL_CALL_NARRATION_GUIDANCE,
 };
 use super::helpers::truncate;
 use super::sections::*;
@@ -30,6 +31,7 @@ const DEFAULT_PROJECT_FILES_INLINE_BUDGET: usize = 8 * 1024;
 /// ⑥ Tool definitions — per-tool descriptions (filtered by agent config)
 /// ⑥b Deferred tools listing (conditional)
 /// ⑥c Tool-call narration guidance (hardcoded, always injected)
+/// ⑥c³ Markdown path links guidance (desktop runtime only)
 /// ⑥d Human-in-the-loop guidance (conditional, hardcoded)
 /// ⑦ Skills — available skill descriptions (filtered)
 /// ⑧ Memory — injected from memory backend
@@ -196,6 +198,12 @@ pub fn build(
     // ⑥c Tool-call narration guidance — opt-in via `AppConfig.tool_call_narration_enabled`.
     if crate::config::cached_config().tool_call_narration_enabled {
         sections.push(TOOL_CALL_NARRATION_GUIDANCE.to_string());
+    }
+
+    // ⑥c³ Desktop only — server's browser can't reach the local FS, ACP
+    // routes paths through external editors.
+    if crate::app_init::is_desktop() {
+        sections.push(MARKDOWN_PATH_LINKS_GUIDANCE.to_string());
     }
 
     // ⑥c¹ Smart-mode guidance — only when the session opted into Smart
@@ -768,6 +776,34 @@ mod memory_section_tests {
         assert!(
             !out.contains("- Working directory: /tmp/hope-agent/coder-home"),
             "agent home should not be presented as the session working directory: {out}"
+        );
+    }
+
+    #[test]
+    fn markdown_path_links_guidance_skipped_outside_desktop_runtime() {
+        // ha-core tests share a single binary and `init_runtime("test")`
+        // pins `runtime_role()` to a non-desktop value, so the guidance
+        // section must not appear. (We can't directly test the desktop
+        // injection here for the same reason — it's covered end-to-end.)
+        let definition = mk_definition();
+        let budget = MemoryBudgetConfig::default();
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            SessionMode::Default,
+        );
+        assert!(
+            !out.contains("# File Path Formatting"),
+            "non-desktop runtime should skip path-links guidance: {out}"
         );
     }
 

@@ -24,7 +24,8 @@
     "settings": "Настройки",
     "close": "Закрыть",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "Локальные ссылки на файлы можно открыть только в настольном режиме"
   },
   "project": {
     "projects": "Проекты",

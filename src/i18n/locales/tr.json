@@ -24,7 +24,8 @@
     "settings": "Ayarlar",
     "close": "Kapat",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "Yerel dosya bağlantıları yalnızca masaüstü modunda açılabilir"
   },
   "project": {
     "projects": "Projeler",
