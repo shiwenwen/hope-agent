@@ -2964,7 +2964,10 @@
       "skill": "スキル"
     },
     "noResults": "一致するコマンドはありません",
-    "buttonTip": "クイックコマンド"
+    "buttonTip": "クイックコマンド",
+    "project": {
+      "description": "プロジェクトを切り替え/選択"
+    }
   },
   "planMode": {
     "enter": "プランモードに入る",

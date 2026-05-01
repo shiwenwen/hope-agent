@@ -2964,7 +2964,10 @@
       "skill": "المهارات"
     },
     "noResults": "لا توجد أوامر مطابقة",
-    "buttonTip": "أوامر سريعة"
+    "buttonTip": "أوامر سريعة",
+    "project": {
+      "description": "التبديل إلى مشروع أو اختياره"
+    }
   },
   "planMode": {
     "enter": "الدخول إلى Plan Mode",

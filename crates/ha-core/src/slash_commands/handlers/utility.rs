@@ -2,46 +2,129 @@ use crate::config::AppConfig;
 use crate::provider;
 use crate::session::{MessageRole, SessionDB};
 use crate::slash_commands::registry;
-use crate::slash_commands::types::{CommandAction, CommandResult};
+use crate::slash_commands::types::{
+    CommandAction, CommandCategory, CommandResult, SlashCommandDef,
+};
 use std::sync::Arc;
 
 /// /help — Show all available commands.
-pub fn handle_help() -> CommandResult {
-    let commands = registry::all_commands();
-    let mut lines = vec!["**Available Commands**\n".to_string()];
+///
+/// Renders one section per `CommandCategory`. Each row shows the command,
+/// its argument placeholder (or the fixed option list), and the English
+/// description from `description_en()`. When invoked from an IM channel
+/// session, commands listed in `IM_DISABLED_COMMANDS` are filtered out and
+/// a footer call-out explains the desktop-only ones.
+pub async fn handle_help(session_id: Option<&str>) -> CommandResult {
+    // Detect IM-channel context defensively — `/help` should still render
+    // when SessionDB hasn't been initialized yet (e.g. very early CLI use).
+    let in_im_channel = session_id
+        .and_then(|sid| {
+            crate::require_session_db()
+                .ok()
+                .and_then(|db| db.get_session(sid).ok().flatten())
+        })
+        .map(|meta| meta.channel_info.is_some())
+        .unwrap_or(false);
 
-    let categories = [
-        ("Session", "session"),
-        ("Model", "model"),
-        ("Memory", "memory"),
-        ("Agent", "agent"),
-        ("Utility", "utility"),
+    let mut commands: Vec<SlashCommandDef> = registry::all_commands();
+    if in_im_channel {
+        commands.retain(|c| !registry::is_im_disabled(&c.name));
+    }
+
+    // Pull invocable skills so users see the skill-as-slash-command catalog
+    // alongside built-ins. Skills are dynamic per agent / extra dirs / disabled
+    // list, so we hit the same surface `list_slash_commands` exposes to the UI.
+    let cfg = crate::config::cached_config();
+    let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
+    let reserved: std::collections::HashSet<String> =
+        commands.iter().map(|c| c.name.clone()).collect();
+    let resolved_skills = crate::slash_commands::resolve_skill_command_names(&skills, &reserved);
+    drop(cfg);
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("**Available Commands**".to_string());
+    lines.push(String::new());
+
+    // Category order matches the GUI menu (`CATEGORY_ORDER` in
+    // `slash-commands/types.ts`) so the on-screen and `/help` orderings agree.
+    let categories: &[(CommandCategory, &str)] = &[
+        (CommandCategory::Session, "Session"),
+        (CommandCategory::Model, "Model"),
+        (CommandCategory::Memory, "Memory"),
+        (CommandCategory::Agent, "Agent"),
+        (CommandCategory::Utility, "Utility"),
     ];
 
-    for (label, cat_str) in &categories {
-        let cmds: Vec<_> = commands
-            .iter()
-            .filter(|c| format!("{:?}", c.category).to_lowercase() == *cat_str)
-            .collect();
+    for (cat, label) in categories {
+        let cmds: Vec<&SlashCommandDef> = commands.iter().filter(|c| &c.category == cat).collect();
         if cmds.is_empty() {
             continue;
         }
-        lines.push(format!("\n**{}**", label));
+        lines.push(format!("**{}**", label));
         for c in cmds {
-            let arg_hint = c
-                .arg_placeholder
-                .as_deref()
-                .map(|p| format!(" {}", p))
-                .unwrap_or_default();
-            // Use the command name as description since we can't resolve i18n keys server-side
-            lines.push(format!("- `/{}{}`", c.name, arg_hint));
+            lines.push(format_help_row(c));
         }
+        lines.push(String::new());
+    }
+
+    if !resolved_skills.is_empty() {
+        lines.push(format!("**Skills** ({})", resolved_skills.len()));
+        // Cap the inline list so big skill catalogs don't drown the rest of
+        // the help output. Users can scroll the slash-menu UI for the full set.
+        const MAX_SKILLS_INLINE: usize = 20;
+        for entry in resolved_skills.iter().take(MAX_SKILLS_INLINE) {
+            let desc = truncate(&entry.skill.description, 80);
+            lines.push(format!("- `/{}` — {}", entry.typed_name, desc));
+        }
+        if resolved_skills.len() > MAX_SKILLS_INLINE {
+            lines.push(format!(
+                "- _… and {} more — open the slash menu to browse all_",
+                resolved_skills.len() - MAX_SKILLS_INLINE
+            ));
+        }
+        lines.push(String::new());
+    }
+
+    if in_im_channel {
+        let disabled: Vec<String> = registry::IM_DISABLED_COMMANDS
+            .iter()
+            .map(|n| format!("`/{}`", n))
+            .collect();
+        lines.push(format!(
+            "_IM channels can't run {} — use the desktop or web app for those._",
+            disabled.join(", ")
+        ));
+    } else {
+        lines.push("_Tip: type `/` to open the inline command menu, or click a row above to autofill arguments._".into());
     }
 
     CommandResult {
         content: lines.join("\n"),
         action: Some(CommandAction::DisplayOnly),
     }
+}
+
+/// Render a single row: `` `/cmd <args>` — description``.
+///
+/// Uses fixed `arg_options` for the inline hint when available (e.g.
+/// `/think off|low|medium|high|xhigh`), otherwise falls back to the
+/// `arg_placeholder` from the registry. Description text comes from
+/// `description_en()` which is the same source IM channels use for their
+/// menu sync, so `/help` and the Telegram / Discord menus stay in lockstep.
+fn format_help_row(c: &SlashCommandDef) -> String {
+    let arg_hint = match (&c.arg_options, c.arg_placeholder.as_deref()) {
+        (Some(opts), _) if !opts.is_empty() => {
+            let joined = opts.join("|");
+            if c.args_optional {
+                format!(" [{}]", joined)
+            } else {
+                format!(" <{}>", joined)
+            }
+        }
+        (_, Some(p)) => format!(" {}", p),
+        _ => String::new(),
+    };
+    format!("- `/{}{}` — {}", c.name, arg_hint, c.description_en())
 }
 
 /// /status — Show session status.

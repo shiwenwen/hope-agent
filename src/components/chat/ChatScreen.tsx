@@ -815,8 +815,8 @@ export default function ChatScreen({
             logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
           }
           break
-        case "setPermissionMode":
-          stream.setPermissionMode(action.mode)
+        case "setToolPermission":
+          stream.setPermissionMode(action.mode as SessionMode)
           break
         case "displayOnly":
           // Already handled above by adding event message
@@ -896,6 +896,23 @@ export default function ChatScreen({
           void handleNewChatInProject(action.projectId, undefined, false)
           break
         }
+        case "recapCard":
+          // Recap streams in the background; the Dashboard Recap tab is the
+          // current canonical viewer. The chat bubble (result.content) already
+          // tells the user a live summary is being prepared.
+          // Followup: render an inline streaming RecapCard subscribed to
+          // `recap_progress` filtered by `action.reportId`.
+          break
+        case "openDashboardTab":
+          // The Dashboard tab is App-level. The chat bubble (result.content)
+          // already prompts the user to open it; deep-linking the tab from
+          // ChatScreen needs an App-level callback (followup).
+          break
+        case "skillFork":
+          // Skill fork output is injected back into the conversation as a
+          // user message via the EventBus once the sub-agent finishes.
+          // result.content already announces the run id.
+          break
       }
     },
     [

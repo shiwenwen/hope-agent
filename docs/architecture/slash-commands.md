@@ -164,13 +164,13 @@ sequenceDiagram
 | `/recap` | `[--full\|--range=7d\|--range=30d]` | 生成深度复盘报告（后台流式），`--full` 跳转 Dashboard | `RecapCard` 或 `OpenDashboardTab` |
 | `/awareness` | `[on\|off\|mode <x>\|status]` | 控制行为感知功能的全局开关与模式（详见下方） | `DisplayOnly` |
 
-**`/permission` 可选值**：
+**`/permission` 可选值**（与 `permission/engine.rs` 的三档 `SessionMode` 对齐）：
 
 | 值 | 说明 |
 |---|---|
-| `auto` | 自动批准工具调用 |
-| `ask` / `ask_every_time` | 每次工具调用前询问用户 |
-| `full` / `full_approve` | 完全批准模式 |
+| `default` | 标准审批：保护路径 / 危险命令永远弹窗，其余按 AllowAlways / Smart preset |
+| `smart` | 自动放行 LLM 自报"高置信度"的工具调用，必要时跑 judge model 二次确认（详见 [permission-system.md](permission-system.md)） |
+| `yolo` | 跳过所有审批（仍受 Plan Mode、保护路径硬闸约束） |
 
 ### 🎯 Skill — 动态技能命令
 
@@ -391,8 +391,10 @@ Channel 对有 `arg_options` 的命令提供 inline keyboard 按钮：
 |---|---|
 | `/think` | `off`, `low`, `medium`, `high`, `xhigh` |
 | `/plan` | `enter`, `exit`, `show`, `approve`, `pause`, `resume` |
-| `/permission` | `auto`, `ask`, `full` |
+| `/permission` | `default`, `smart`, `yolo` |
 | `/awareness` | `on`, `off`, `mode structured`, `mode llm`, `mode off`, `status` |
+| `/team` | `create`, `status`, `pause`, `resume`, `dissolve` |
+| `/recap` | `--full`, `--range=7d`, `--range=30d` |
 
 ---
 

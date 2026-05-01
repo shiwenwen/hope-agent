@@ -2964,7 +2964,10 @@
       "skill": "Skills"
     },
     "noResults": "Nenhum comando correspondente",
-    "buttonTip": "Comandos rápidos"
+    "buttonTip": "Comandos rápidos",
+    "project": {
+      "description": "Trocar para ou escolher um projeto"
+    }
   },
   "planMode": {
     "enter": "Entrar em Plan Mode",
