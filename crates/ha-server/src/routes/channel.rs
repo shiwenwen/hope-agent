@@ -115,6 +115,29 @@ pub async fn stop_account(Path(account_id): Path<String>) -> Result<Json<Value>,
     Ok(Json(json!({ "stopped": true })))
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncCommandsBody {
+    /// Optional account id; absent → re-sync every running account.
+    #[serde(default)]
+    pub account_id: Option<String>,
+}
+
+/// `POST /api/channel/sync-commands`
+///
+/// Re-sync the IM bot menu (Telegram setMyCommands / Discord application
+/// commands) for one or all running accounts. Auto-sync is wired up in
+/// `app_init::spawn_channel_menu_resync_listener`; this route is the manual
+/// trigger for the settings UI and for ops recovery after a missed event.
+pub async fn sync_commands(body: Option<Json<SyncCommandsBody>>) -> Result<Json<Value>, AppError> {
+    let account_id = body.and_then(|Json(b)| b.account_id);
+    let count = registry()?
+        .sync_commands(account_id.as_deref())
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?;
+    Ok(Json(json!({ "synced": count })))
+}
+
 /// `GET /api/channel/accounts/{id}/health`
 pub async fn health(Path(account_id): Path<String>) -> Result<Json<ChannelHealth>, AppError> {
     let reg = registry()?;

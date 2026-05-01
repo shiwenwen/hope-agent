@@ -2964,7 +2964,10 @@
       "skill": "스킬"
     },
     "noResults": "일치하는 명령이 없습니다",
-    "buttonTip": "빠른 명령"
+    "buttonTip": "빠른 명령",
+    "project": {
+      "description": "프로젝트로 전환 또는 선택"
+    }
   },
   "planMode": {
     "enter": "계획 모드 진입",

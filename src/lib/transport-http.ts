@@ -426,6 +426,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   channel_remove_account:          { method: "DELETE", path: "/api/channel/accounts/{accountId}" },
   channel_start_account:           { method: "POST",   path: "/api/channel/accounts/{accountId}/start" },
   channel_stop_account:            { method: "POST",   path: "/api/channel/accounts/{accountId}/stop" },
+  channel_sync_commands:           { method: "POST",   path: "/api/channel/sync-commands" },
   channel_health:                  { method: "GET",    path: "/api/channel/accounts/{accountId}/health" },
   channel_health_all:              { method: "GET",    path: "/api/channel/health" },
   channel_validate_credentials:    { method: "POST",   path: "/api/channel/validate" },

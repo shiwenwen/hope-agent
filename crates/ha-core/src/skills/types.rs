@@ -13,8 +13,17 @@ pub(super) const DEFAULT_MAX_CANDIDATES_PER_ROOT: usize = 300;
 static SKILL_CACHE_VERSION: AtomicU64 = AtomicU64::new(0);
 
 /// Bump the global skill cache version, invalidating cached entries.
+///
+/// Also emits `skills:catalog_changed` on the global EventBus so passive
+/// observers (e.g. `ChannelRegistry::sync_commands_for_all` re-syncing
+/// Telegram / Discord bot menus) can react. The emission is best-effort —
+/// no bus during early init = silent skip; subscribers are responsible for
+/// debouncing if they expect storms (e.g. bulk skill imports).
 pub fn bump_skill_version() {
     SKILL_CACHE_VERSION.fetch_add(1, Ordering::Relaxed);
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit("skills:catalog_changed", serde_json::Value::Null);
+    }
 }
 
 #[allow(dead_code)]

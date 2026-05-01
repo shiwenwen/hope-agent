@@ -824,7 +824,7 @@ export default function ChatScreen({
             logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
           }
           break
-        case "setPermissionMode":
+        case "setToolPermission":
           stream.setPermissionMode(action.mode)
           break
         case "displayOnly":
@@ -905,6 +905,12 @@ export default function ChatScreen({
           void handleNewChatInProject(action.projectId, undefined, false)
           break
         }
+        // result.content (rendered above as an event chip) is the only
+        // user-facing surface today; richer wiring tracked in F-033.
+        case "recapCard":
+        case "openDashboardTab":
+        case "skillFork":
+          break
       }
     },
     [
