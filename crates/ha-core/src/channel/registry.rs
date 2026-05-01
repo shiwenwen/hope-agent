@@ -195,6 +195,83 @@ impl ChannelRegistry {
             .collect()
     }
 
+    /// Re-sync slash command menus for a single running account.
+    ///
+    /// Looks up the live `ChannelAccountConfig` from `cached_config` because
+    /// the registry only holds an opaque `account_id` per worker. Returns
+    /// `Ok(false)` (with a warn log) if the account isn't running or the
+    /// config row is missing — re-sync is best-effort, never fatal.
+    pub async fn sync_commands_for_account(&self, account_id: &str) -> Result<bool> {
+        let channel_id = {
+            let workers = self.workers.lock().await;
+            match workers.get(account_id) {
+                Some(h) => h.channel_id.clone(),
+                None => return Ok(false),
+            }
+        };
+
+        let account_cfg = {
+            let cfg = crate::config::cached_config();
+            cfg.channels.find_account(account_id).cloned()
+        };
+        let Some(account_cfg) = account_cfg else {
+            app_warn!(
+                "channel",
+                "registry",
+                "sync_commands: account '{}' is running but missing from config",
+                account_id
+            );
+            return Ok(false);
+        };
+
+        let plugin = self
+            .plugins
+            .get(&channel_id)
+            .ok_or_else(|| anyhow::anyhow!("No plugin registered for channel: {}", channel_id))?;
+
+        match plugin.sync_commands(&account_cfg).await {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "registry",
+                    "sync_commands failed for account '{}': {}",
+                    account_id,
+                    e
+                );
+                Ok(false)
+            }
+        }
+    }
+
+    /// Re-sync slash command menus for every running account. Each account
+    /// is attempted independently so a stale Telegram connection doesn't
+    /// block Discord from picking up the change.
+    pub async fn sync_commands_for_all(&self) -> usize {
+        let account_ids: Vec<String> = {
+            let workers = self.workers.lock().await;
+            workers.keys().cloned().collect()
+        };
+
+        let mut synced = 0usize;
+        for account_id in account_ids {
+            match self.sync_commands_for_account(&account_id).await {
+                Ok(true) => synced += 1,
+                Ok(false) => {}
+                Err(e) => {
+                    app_warn!(
+                        "channel",
+                        "registry",
+                        "sync_commands_for_account('{}') errored: {}",
+                        account_id,
+                        e
+                    );
+                }
+            }
+        }
+        synced
+    }
+
     /// Stop all running accounts. Called during app shutdown.
     pub async fn stop_all(&self) {
         let account_ids: Vec<String> = {

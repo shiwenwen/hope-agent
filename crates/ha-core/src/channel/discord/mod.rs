@@ -22,7 +22,8 @@ struct RunningAccount {
     bot_id: String,
     #[allow(dead_code)]
     bot_username: String,
-    #[allow(dead_code)]
+    /// Discord application id, needed to re-sync slash commands without
+    /// re-fetching `/users/@me`.
     application_id: String,
 }
 
@@ -60,18 +61,60 @@ impl DiscordPlugin {
     }
 
     /// Sync slash commands to Discord's Application Commands API.
-    /// Called once after successful authentication. Non-fatal on failure.
+    ///
+    /// Called from `start_account` (first-time install) and from the trait
+    /// `sync_commands` impl (driven by skill / config changes — see
+    /// `ChannelRegistry::sync_commands_for_account`). Non-fatal on failure
+    /// — the bot remains usable, just with a stale menu until the next
+    /// successful sync.
     async fn sync_commands_to_discord(api: &DiscordApi, application_id: &str) {
-        let commands = crate::slash_commands::registry::all_commands();
+        // Pull the merged catalog (built-ins + invocable skills, minus
+        // `IM_DISABLED_COMMANDS`) so Discord users see the same set as
+        // Telegram and the desktop slash menu.
+        let defs = match crate::slash_commands::list_slash_commands().await {
+            Ok(v) => v,
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "discord",
+                    "list_slash_commands failed: {} — falling back to built-in only",
+                    e
+                );
+                crate::slash_commands::registry::all_commands()
+            }
+        };
 
-        // Convert to Discord Application Command format (type 1 = CHAT_INPUT)
-        let discord_commands: Vec<serde_json::Value> = commands
-            .iter()
+        // Discord caps global application commands at 100; truncate the tail
+        // (skill commands sit after built-ins) to keep the registration call
+        // idempotent. Truncated entries are still callable, just hidden from
+        // the auto-complete UI.
+        const DISCORD_GLOBAL_CMD_CAP: usize = 100;
+        let mut filtered: Vec<crate::slash_commands::types::SlashCommandDef> = defs
+            .into_iter()
             .filter(|cmd| !crate::slash_commands::registry::is_im_disabled(&cmd.name))
+            .collect();
+        if filtered.len() > DISCORD_GLOBAL_CMD_CAP {
+            app_warn!(
+                "channel",
+                "discord",
+                "Slash command count {} exceeds Discord cap {} — truncating tail",
+                filtered.len(),
+                DISCORD_GLOBAL_CMD_CAP
+            );
+            filtered.truncate(DISCORD_GLOBAL_CMD_CAP);
+        }
+
+        // Convert to Discord Application Command format (type 1 = CHAT_INPUT).
+        // Discord requires lowercase command names matching ^[-_\p{L}\p{N}]{1,32}$
+        // — built-ins already comply, and `skills::normalize_skill_command_name`
+        // produces the same shape, so no further sanitization is needed here.
+        let discord_commands: Vec<serde_json::Value> = filtered
+            .iter()
             .map(|cmd| {
+                let description = cmd.description_en();
                 let mut command = serde_json::json!({
                     "name": cmd.name,
-                    "description": cmd.description_en(),
+                    "description": description,
                     "type": 1, // CHAT_INPUT
                 });
 
@@ -90,7 +133,7 @@ impl DiscordPlugin {
                             .collect();
                         command["options"] = serde_json::json!([{
                             "name": "value",
-                            "description": cmd.description_en(),
+                            "description": description,
                             "type": 3, // STRING
                             "required": !cmd.args_optional,
                             "choices": choices
@@ -503,5 +546,19 @@ impl ChannelPlugin for DiscordPlugin {
         let me = api.get_current_user().await?;
         let username = me["username"].as_str().unwrap_or("unknown");
         Ok(username.to_string())
+    }
+
+    async fn sync_commands(&self, account: &ChannelAccountConfig) -> Result<()> {
+        // Pull api + application_id together under a single lock so we don't
+        // race a concurrent stop_account that would leave us with a stale api.
+        let (api, application_id) = {
+            let accounts = self.accounts.lock().await;
+            let acc = accounts.get(&account.id).ok_or_else(|| {
+                anyhow::anyhow!("Discord account '{}' is not running", account.id)
+            })?;
+            (acc.api.clone(), acc.application_id.clone())
+        };
+        Self::sync_commands_to_discord(&api, &application_id).await;
+        Ok(())
     }
 }

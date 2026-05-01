@@ -159,6 +159,55 @@ pub fn is_slash_command(text: String) -> bool {
     parser::is_command(&text)
 }
 
+/// Snapshot of the slash commands an IM channel should publish in its bot
+/// menu, paired with the English description Telegram / Discord need.
+///
+/// Includes built-in commands minus `IM_DISABLED_COMMANDS` (which are runtime-
+/// rejected anyway), plus invocable skill commands (resolved through the
+/// shared collision-aware table). Telegram caps `setMyCommands` at 100
+/// entries and Discord at 100 global application commands, so we truncate at
+/// 100 with a warn — the truncated tail is still callable, just not in the
+/// menu UI. Skill commands sit after built-ins so the truncation hits the
+/// least-frequently-used surface first.
+pub async fn im_menu_entries() -> Vec<(String, String)> {
+    const IM_MENU_HARD_CAP: usize = 100;
+
+    let defs = match list_slash_commands().await {
+        Ok(v) => v,
+        Err(e) => {
+            crate::app_warn!(
+                "channel",
+                "menu_sync",
+                "list_slash_commands failed: {} — falling back to built-in only",
+                e
+            );
+            registry::all_commands()
+        }
+    };
+
+    let mut entries: Vec<(String, String)> = defs
+        .into_iter()
+        .filter(|cmd| !registry::is_im_disabled(&cmd.name))
+        .map(|cmd| {
+            let desc = cmd.description_en();
+            (cmd.name, desc)
+        })
+        .collect();
+
+    if entries.len() > IM_MENU_HARD_CAP {
+        crate::app_warn!(
+            "channel",
+            "menu_sync",
+            "Slash command count {} exceeds IM menu cap {} — truncating tail",
+            entries.len(),
+            IM_MENU_HARD_CAP
+        );
+        entries.truncate(IM_MENU_HARD_CAP);
+    }
+
+    entries
+}
+
 /// Truncate a description to `max_chars` characters, appending "…" if truncated.
 fn truncate_description(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {

@@ -48,16 +48,20 @@ impl TelegramPlugin {
     }
 
     /// Sync slash commands to Telegram's bot menu via setMyCommands.
-    /// Called once after successful authentication. Non-fatal on failure.
+    ///
+    /// Called from `start_account` (first-time install) and from the trait
+    /// `sync_commands` impl (driven by skill / config changes — see
+    /// `ChannelRegistry::sync_commands_for_account`). Non-fatal on failure
+    /// — the bot remains usable, just with a stale menu until the next
+    /// successful sync.
     async fn sync_commands_to_menu(api: &TelegramBotApi) {
-        let commands = crate::slash_commands::registry::all_commands();
+        let entries = crate::slash_commands::im_menu_entries().await;
 
-        let bot_commands: Vec<teloxide::types::BotCommand> = commands
-            .iter()
-            .filter(|cmd| !crate::slash_commands::registry::is_im_disabled(&cmd.name))
-            .map(|cmd| teloxide::types::BotCommand {
-                command: cmd.name.clone(),
-                description: cmd.description_en(),
+        let bot_commands: Vec<teloxide::types::BotCommand> = entries
+            .into_iter()
+            .map(|(name, description)| teloxide::types::BotCommand {
+                command: name,
+                description,
             })
             .collect();
 
@@ -481,5 +485,11 @@ impl ChannelPlugin for TelegramPlugin {
         let api = TelegramBotApi::new(&token, None, None);
         let me = api.get_me().await?;
         Ok(format!("@{}", me.username()))
+    }
+
+    async fn sync_commands(&self, account: &ChannelAccountConfig) -> Result<()> {
+        let api = self.get_api(&account.id).await?;
+        Self::sync_commands_to_menu(&api).await;
+        Ok(())
     }
 }

@@ -318,6 +318,28 @@ stateDiagram-v2
 
 ---
 
+## IM 渠道菜单同步时机
+
+Telegram (`setMyCommands`) 和 Discord (Application Commands API) 的命令菜单需要主动推送，下面三个时机覆盖全部场景：
+
+1. **`start_account` 第一次拉起**——`telegram/mod.rs::sync_commands_to_menu` / `discord/mod.rs::sync_commands_to_discord` 在认证成功后立即同步一次
+2. **EventBus 自动 re-sync**——`app_init::spawn_channel_menu_resync_listener` 订阅以下事件，命中后 **2s 防抖**触发 `ChannelRegistry::sync_commands_for_all`：
+   - `skills:catalog_changed`：[`skills::types::bump_skill_version`](../../crates/ha-core/src/skills/types.rs) 在每次 skill 增删 / 启停后 emit
+   - `config:changed`（仅 `category` ∈ `skill` / `skills` / `extra_skills_dirs` / `disabled_skills`）
+3. **手动触发**——`channel_sync_commands(account_id?)` Tauri 命令 / `POST /api/channel/sync-commands`，可针对单 account 或全量 running，给设置页「同步命令」按钮 + 运维兜底用
+
+`ChannelPlugin` trait 用 `async fn sync_commands(&self, account: &ChannelAccountConfig) -> Result<()>` 默认 no-op，只有 Telegram / Discord override（其他渠道如 IRC / WhatsApp / iMessage 没有 slash 菜单概念，默认实现就够）。
+
+**菜单内容**与 GUI / `/help` 完全一致——走同一个 [`slash_commands::im_menu_entries`](../../crates/ha-core/src/slash_commands/mod.rs) 入口，包含：
+
+- `registry::all_commands()` 内置命令，过滤 `IM_DISABLED_COMMANDS`（`/agent` / `/project`）
+- 用户可调用 skill 命令（`get_invocable_skills` + `resolve_skill_command_names`，命名冲突走 `_skill` / `_N` 后缀）
+- 100 条硬上限：Telegram 和 Discord 都把全局命令上限定在 100，超出尾部截断（仍可硬键入触发，只是不进菜单），并 `app_warn!`
+
+> **失败语义**：单个 account 同步失败是 warn 级别（典型场景：Bot token 过期、网络暂时不通），不影响其它 account；菜单保留旧版本直到下次成功。
+
+---
+
 ## CommandAction 类型一览
 
 `CommandResult.action` 字段告诉前端需要执行什么副作用：

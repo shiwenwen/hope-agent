@@ -1021,6 +1021,10 @@ fn build_router_with_cors(
         )
         .route("/channel/health", get(routes::channel::health_all))
         .route(
+            "/channel/sync-commands",
+            post(routes::channel::sync_commands),
+        )
+        .route(
             "/channel/validate",
             post(routes::channel::validate_credentials),
         )

@@ -458,6 +458,103 @@ fn spawn_channel_listeners() {
             channel_db.clone(),
             registry.clone(),
         );
+        spawn_channel_menu_resync_listener(registry.clone());
+    }
+}
+
+/// Subscribe to `skills:catalog_changed` and config events that touch the
+/// slash-command catalog (skill enable/disable, extra dirs) and re-sync each
+/// running IM channel's bot menu.
+///
+/// Debounced with a 2s trailing-edge timer so a bulk import or a chain of
+/// `bump_skill_version` calls collapses into one `setMyCommands` /
+/// `bulk_overwrite_global_commands` round-trip per affected account.
+fn spawn_channel_menu_resync_listener(registry: Arc<channel::ChannelRegistry>) {
+    let Some(bus) = crate::globals::get_event_bus() else {
+        app_warn!(
+            "channel",
+            "menu_sync",
+            "EventBus not initialized — IM menu auto-resync disabled"
+        );
+        return;
+    };
+    let mut rx = bus.subscribe();
+
+    tokio::spawn(async move {
+        const DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(2);
+        let mut pending: Option<tokio::time::Instant> = None;
+
+        loop {
+            // Either wake on a new event, or wake when the debounce window
+            // closes for a previously-buffered event.
+            let recv = if let Some(deadline) = pending {
+                tokio::select! {
+                    _ = tokio::time::sleep_until(deadline) => {
+                        pending = None;
+                        let synced = registry.sync_commands_for_all().await;
+                        if synced > 0 {
+                            app_info!(
+                                "channel",
+                                "menu_sync",
+                                "Re-synced slash command menus on {} running account(s)",
+                                synced
+                            );
+                        }
+                        continue;
+                    }
+                    ev = rx.recv() => ev,
+                }
+            } else {
+                rx.recv().await
+            };
+
+            match recv {
+                Ok(event) => {
+                    if menu_resync_event_relevant(&event) {
+                        pending = Some(tokio::time::Instant::now() + DEBOUNCE);
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    // We dropped events — re-sync defensively rather than
+                    // miss a real change.
+                    app_warn!(
+                        "channel",
+                        "menu_sync",
+                        "EventBus lagged {} events — forcing menu re-sync",
+                        n
+                    );
+                    pending = Some(tokio::time::Instant::now() + DEBOUNCE);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+fn menu_resync_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
+    match event.name.as_str() {
+        "skills:catalog_changed" => true,
+        "config:changed" => {
+            // Only react to config writes that touch the slash-command
+            // surface — provider tweaks, theme changes, etc. shouldn't
+            // trigger redundant `setMyCommands` calls.
+            //
+            // The category prefix `skill` covers the actual emission sites:
+            //   - `skills` / `extra_skills_dirs` / `disabled_skills` (CRUD path)
+            //   - `skill_env` / `skill_env_check` (env path that affects which
+            //     skills the system_prompt catalog considers usable)
+            //   - `skills.auto_review` (impacts whether new drafts get promoted)
+            // The persistence-layer fallback (`category: "app"`) is intentionally
+            // excluded — that's the duplicate event for paths that already
+            // emitted a typed one.
+            event
+                .payload
+                .get("category")
+                .and_then(|c| c.as_str())
+                .map(|c| c.starts_with("skill"))
+                .unwrap_or(false)
+        }
+        _ => false,
     }
 }
 
