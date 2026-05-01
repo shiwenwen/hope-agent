@@ -24,6 +24,11 @@ pub(crate) struct TrayStatusLabels {
     pub(crate) event_unit: &'static str,
     pub(crate) chat_unit: &'static str,
     pub(crate) local_unit: &'static str,
+    /// Placeholder shown when an active regular session has no title yet.
+    pub(crate) untitled_session: &'static str,
+    /// Truncation indicator for the active-session list. `{}` is replaced
+    /// with the count of additional items beyond the cap.
+    pub(crate) more_sessions: &'static str,
 }
 
 /// macOS application menu label translations.
@@ -183,6 +188,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "事件",
             chat_unit: "会话",
             local_unit: "本机",
+            untitled_session: "未命名",
+            more_sessions: "… 还有 {} 项",
         },
         "zh-TW" => TrayStatusLabels {
             runtime_status: "執行時狀態",
@@ -195,6 +202,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "事件",
             chat_unit: "對話",
             local_unit: "本機",
+            untitled_session: "未命名",
+            more_sessions: "… 還有 {} 項",
         },
         "ja" => TrayStatusLabels {
             runtime_status: "ランタイムステータス",
@@ -207,6 +216,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "events",
             chat_unit: "chat",
             local_unit: "ローカル",
+            untitled_session: "無題",
+            more_sessions: "… 他 {} 件",
         },
         "ko" => TrayStatusLabels {
             runtime_status: "런타임 상태",
@@ -219,6 +230,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "events",
             chat_unit: "chat",
             local_unit: "로컬",
+            untitled_session: "제목 없음",
+            more_sessions: "… {}개 더",
         },
         "es" => TrayStatusLabels {
             runtime_status: "Estado en tiempo real",
@@ -231,6 +244,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "eventos",
             chat_unit: "chat",
             local_unit: "local",
+            untitled_session: "Sin título",
+            more_sessions: "… {} más",
         },
         "pt" => TrayStatusLabels {
             runtime_status: "Estado em tempo de execução",
@@ -243,6 +258,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "eventos",
             chat_unit: "chat",
             local_unit: "local",
+            untitled_session: "Sem título",
+            more_sessions: "… mais {}",
         },
         "ru" => TrayStatusLabels {
             runtime_status: "Состояние во время работы",
@@ -255,6 +272,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "событий",
             chat_unit: "чат",
             local_unit: "локально",
+            untitled_session: "Без названия",
+            more_sessions: "… ещё {}",
         },
         "ar" => TrayStatusLabels {
             runtime_status: "حالة التشغيل",
@@ -267,6 +286,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "أحداث",
             chat_unit: "محادثة",
             local_unit: "محلي",
+            untitled_session: "بدون عنوان",
+            more_sessions: "… {} أخرى",
         },
         "tr" => TrayStatusLabels {
             runtime_status: "Çalışma Durumu",
@@ -279,6 +300,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "olay",
             chat_unit: "sohbet",
             local_unit: "yerel",
+            untitled_session: "Başlıksız",
+            more_sessions: "… {} tane daha",
         },
         "vi" => TrayStatusLabels {
             runtime_status: "Trạng thái hoạt động",
@@ -291,6 +314,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "sự kiện",
             chat_unit: "trò chuyện",
             local_unit: "cục bộ",
+            untitled_session: "Không có tiêu đề",
+            more_sessions: "… còn {} mục",
         },
         "ms" => TrayStatusLabels {
             runtime_status: "Status Jalanan",
@@ -303,6 +328,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "peristiwa",
             chat_unit: "sembang",
             local_unit: "tempatan",
+            untitled_session: "Tanpa tajuk",
+            more_sessions: "… {} lagi",
         },
         _ => TrayStatusLabels {
             runtime_status: "Runtime Status",
@@ -315,6 +342,8 @@ pub(crate) fn tray_status_labels(lang: &str) -> TrayStatusLabels {
             event_unit: "events",
             chat_unit: "chat",
             local_unit: "local",
+            untitled_session: "Untitled",
+            more_sessions: "… {} more",
         },
     }
 }

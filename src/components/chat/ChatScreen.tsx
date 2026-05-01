@@ -544,6 +544,19 @@ export default function ChatScreen({
     })
   }, [handleStartNewChat, currentAgentId])
 
+  // Listen for tray "focus-session" event — emitted when the user clicks an
+  // in-progress regular conversation entry inside the system tray dropdown.
+  // The Tauri shell already shows + focuses the main window before emitting;
+  // here we just switch the sidebar/messages over to the requested session.
+  useEffect(() => {
+    return getTransport().listen("tray:focus-session", (raw) => {
+      const sessionId = (raw as { sessionId?: string } | undefined)?.sessionId
+      if (sessionId && sessionId !== session.currentSessionId) {
+        void session.handleSwitchSession(sessionId)
+      }
+    })
+  }, [session.handleSwitchSession, session.currentSessionId])
+
   // Listen for channel slash command state-sync events
   useEffect(() => {
     const unlisteners: Array<() => void> = []

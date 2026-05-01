@@ -189,6 +189,17 @@ pub fn active_counts() -> ActiveChatCounts {
     out
 }
 
+/// Active session ids whose current stream comes from `source`. Order is
+/// unspecified (HashMap iteration); callers needing stable order must sort
+/// externally. Used by the desktop tray menu to enumerate "currently
+/// streaming" regular conversations without exposing the registry itself.
+pub fn active_session_ids_by_source(source: ChatSource) -> Vec<String> {
+    let map = registry().lock().expect("stream_seq registry poisoned");
+    map.iter()
+        .filter_map(|(sid, e)| (e.source == source).then(|| sid.clone()))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,6 +249,31 @@ mod tests {
         end(&d2);
         end(&h1);
         end(&c1);
+    }
+
+    #[test]
+    fn active_session_ids_by_source_filters_by_source() {
+        let base = "test-stream_seq-ids-by-source";
+        let d1 = format!("{base}-d1");
+        let d2 = format!("{base}-d2");
+        let h1 = format!("{base}-h1");
+
+        begin(&d1, ChatSource::Desktop).unwrap();
+        begin(&d2, ChatSource::Desktop).unwrap();
+        begin(&h1, ChatSource::Http).unwrap();
+
+        let desktop_ids = active_session_ids_by_source(ChatSource::Desktop);
+        assert!(desktop_ids.contains(&d1));
+        assert!(desktop_ids.contains(&d2));
+        assert!(!desktop_ids.contains(&h1));
+
+        let http_ids = active_session_ids_by_source(ChatSource::Http);
+        assert!(http_ids.contains(&h1));
+        assert!(!http_ids.contains(&d1));
+
+        end(&d1);
+        end(&d2);
+        end(&h1);
     }
 
     #[test]
