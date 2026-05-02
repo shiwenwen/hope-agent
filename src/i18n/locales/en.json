@@ -137,6 +137,14 @@
     "tasks": "Tasks",
     "taskProgress": "{{completed}}/{{total}} completed",
     "taskNoneYet": "No tasks yet",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Mark as pending",
+        "in_progress": "Mark as in progress",
+        "completed": "Mark as completed"
+      },
+      "delete": "Remove task"
+    },
     "justNow": "Just now",
     "minutesAgo": "{{count}}min ago",
     "hoursAgo": "{{count}}h ago",
@@ -414,12 +422,11 @@
     "pdf": "Read PDF",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Update Plan Step",
     "ask_user_question": "Ask User",
     "tool_search": "Search Tools",
     "acp_spawn": "Spawn ACP Agent",
     "submit_plan": "Submit Plan",
-    "amend_plan": "Amend Plan",
+    "enter_plan_mode": "Suggest Plan Mode",
     "task_create": "Create Task",
     "task_update": "Update Task",
     "task_list": "List Tasks",
@@ -669,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "Suggesting Plan Mode",
+          "completed": "Suggested Plan Mode",
+          "failed": "Plan Mode suggestion failed"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -1397,7 +1399,7 @@
     "chatAutoExpandThinking": "Auto-expand thinking process",
     "chatAutoExpandThinkingDesc": "Automatically expand thinking blocks in chat bubbles. When off, click to expand manually.",
     "toolCallNarration": "Announce tool calls",
-    "toolCallNarrationDesc": "When enabled, instruct the model to preface every tool call with a one-sentence announcement (Claude Code style). Some models (e.g. GPT-5.4) over-apply this and restate the same intent across consecutive tool calls, creating visible duplication. Default off.",
+    "toolCallNarrationDesc": "When enabled, instruct the model to preface every tool call with a one-sentence announcement and end each turn with a brief summary (Claude Code style). Default on — also benefits IM Channel users who can't see tool-call UI. Disable if your model (e.g. GPT-5.4 via Codex) over-applies it and restates the same intent across consecutive calls.",
     "sessionTitle": "Auto-generate chat titles",
     "sessionTitleDesc": "Keep the first-message title immediately, then generate a concise title after the first assistant reply.",
     "sessionTitleModel": "Title Model",
@@ -2992,6 +2994,22 @@
   },
   "planMode": {
     "enter": "Enter Plan Mode",
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Enter Plan Mode? The model will explore, ask clarifying questions, and draft a written plan for your review before doing the work.",
+      "contextPrefix": "The model suggests entering Plan Mode before doing this task. Reason: ",
+      "contextNoReason": "The model suggests entering Plan Mode before doing this task.",
+      "option": {
+        "yes": {
+          "label": "Enter Plan Mode",
+          "description": "Switch to Plan Mode now; the model will start drafting the plan."
+        },
+        "no": {
+          "label": "Skip planning",
+          "description": "Stay in normal mode; the model will continue the task directly."
+        }
+      }
+    },
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",
     "plan": "Execution Plan",
@@ -3006,29 +3024,18 @@
     "showPlan": "Show Plan",
     "executing": "Executing plan...",
     "executionIdle": "Plan execution is waiting to continue",
-    "stepsCompleted": "steps completed",
     "completed": "Completed",
     "placeholder": "Describe what you want to achieve...",
     "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Context\nDescribe the context: what problem to solve, why, and expected outcome\n\n## Steps\n1. First major step\n   - Detail\n2. Second major step\n   - Detail\n\n## Verification\nHow to verify the result",
-    "stepsDetected": "steps detected",
-    "noSteps": "No steps yet",
-    "executeCommand": "Start executing the plan. Create todos from the approved plan, execute them in order, and call update_plan_step to update high-level plan progress.",
+    "submittingPlan": "Submitting plan…",
+    "commentDisplay": "Plan comment",
+    "executeCommand": "Start executing the approved plan. Call task_create with a concise todo list derived from the plan, then mark each todo in_progress before starting it and completed immediately after finishing it (use task_update). Keep at most one todo in_progress at a time.",
     "executionApproved": "Plan approved. Starting execution.",
     "executionResumed": "Continuing plan execution.",
     "planning": "Creating plan...",
-    "pause": "Pause",
     "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
     "review": {
       "badge": "Review"
-    },
-    "paused": {
-      "badge": "Paused"
-    },
-    "card": {
-      "phases": "phases",
-      "steps": "steps"
     },
     "versions": "Version History",
     "versionHistory": "Plan Versions",
@@ -3041,7 +3048,6 @@
     "popOut": "Pop Out",
     "popOutActive": "Opened in a separate window",
     "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
     "comment": {
       "hint": "Select text to add comments and collaboratively refine the plan",
       "placeholder": "Suggest changes for the selected content...",
@@ -3053,6 +3059,7 @@
       "submit": "Submit Answers",
       "retry": "Retry",
       "answered": "Answered",
+      "pending": "Waiting for your answer…",
       "customPlaceholder": "Enter custom answer...",
       "customRequired": "Enter a custom answer, or choose another option.",
       "recommended": "Recommended",
@@ -3061,7 +3068,8 @@
       "preview": "Preview",
       "timeoutHint": "Time remaining",
       "timedOut": "timed out"
-    }
+    },
+    "noPlanYet": "No plan yet"
   },
   "canvas": {
     "refresh": "Refresh",

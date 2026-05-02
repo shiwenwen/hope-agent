@@ -1,3 +1,6 @@
+use std::sync::atomic::AtomicBool;
+
+use arc_swap::ArcSwap;
 use serde::{Deserialize, Serialize};
 
 use crate::agent_config::{AsyncToolPolicy, CapabilityToggles, FilterConfig};
@@ -123,7 +126,7 @@ impl LlmProvider {
 }
 
 /// Dual-agent plan mode: Plan Agent (read-only + planning tools) vs Executing Agent (full tools + execution tracking).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum PlanAgentMode {
     /// Normal mode, no plan restrictions
     #[default]
@@ -134,7 +137,7 @@ pub enum PlanAgentMode {
         ask_tools: Vec<String>,
     },
     /// Executing Agent: full tool access + extra plan execution tools
-    ExecutingAgent { extra_tools: Vec<String> },
+    ExecutingAgent,
 }
 
 pub struct AssistantAgent {
@@ -177,11 +180,42 @@ pub struct AssistantAgent {
     /// Active skill's allowed tools: when non-empty, only these tools are sent to the LLM.
     /// Set when a skill with `allowed-tools` frontmatter is activated.
     pub(super) skill_allowed_tools: Vec<String>,
-    /// Plan Agent / Executing Agent mode (dual-agent architecture)
-    pub(super) plan_agent_mode: PlanAgentMode,
-    /// Plan mode path-based allow rules: write/edit targeting these paths are allowed
-    /// even when the tool is normally denied during planning.
-    pub(super) plan_mode_allow_paths: Vec<String>,
+    /// Cached `PlanModeState` this agent's resolved plan slots were
+    /// derived from. Used by the streaming loop's mid-turn probe as the
+    /// dirty bit: `Planning ↔ Review` and `Completed ↔ Off` both produce
+    /// identical `PlanAgentMode` values, so a mode-only diff would miss
+    /// these transitions even though their `extra_system_context` differs
+    /// materially (Review embeds the just-submitted plan; Completed
+    /// embeds the executed plan).
+    pub(super) plan_state_cached: ArcSwap<crate::plan::PlanModeState>,
+    /// Plan Agent / Executing Agent mode (dual-agent architecture).
+    ///
+    /// `ArcSwap` provides lock-free internal mutability so the streaming
+    /// loop's mid-turn probe (which holds `&self`) can update the mode in
+    /// place after `enter_plan_mode` flips backend state. Schema rebuild
+    /// (`build_tool_schemas`) and permission ctx (`tool_context_with_usage`)
+    /// both read the current snapshot so they stay in sync without manual
+    /// threading.
+    pub(super) plan_agent_mode: ArcSwap<PlanAgentMode>,
+    /// Plan mode path-based allow rules — paired with `plan_agent_mode` and
+    /// updated in lockstep so write/edit path-aware allow stays accurate
+    /// after a mid-turn mode change.
+    pub(super) plan_mode_allow_paths: ArcSwap<Vec<String>>,
+    /// Plan-derived system-prompt segment, kept SEPARATE from the
+    /// caller-supplied `extra_system_context` so a mid-turn plan-state
+    /// flip can swap just this slice without losing the caller's context
+    /// (cron task description, sub-agent role, etc.). Read by
+    /// `build_full_system_prompt` which appends both. ArcSwap so the
+    /// streaming loop's mid-turn probe can install fresh plan guidance
+    /// without `&mut self`.
+    pub(super) plan_extra_context: ArcSwap<Option<String>>,
+    /// True when the mode was supplied externally by the spawn caller (e.g.
+    /// `spawn_plan_subagent` with explicit `PlanAgent`) rather than read
+    /// from this session's backend plan state. The streaming loop's
+    /// mid-turn probe must NOT overwrite a locked mode — the spawn caller
+    /// is the source of truth, not the (typically `Off`) child session
+    /// backend state.
+    pub(super) plan_agent_mode_externally_locked: AtomicBool,
     /// Temperature for LLM API calls (0.0–2.0). None = use API default.
     pub(super) temperature: Option<f64>,
     /// Cache-safe params from the last main chat request, used for side_query().

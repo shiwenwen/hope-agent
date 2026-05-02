@@ -55,6 +55,13 @@ pub async fn chat(
     // `attachments_meta = {"plan_trigger": true}` so the UI can render it as a
     // system chip instead of a regular user bubble (Plan Mode approve/resume).
     is_plan_trigger: Option<bool>,
+    // Structured payload for plan inline-comment messages — stamped into
+    // `attachments_meta = {"plan_comment": {selectedText, comment}}`. The
+    // desktop GUI reads this back to render PlanCommentBubble; IM channels
+    // ignore it (they consume `display_text` instead). Mutually exclusive
+    // with `is_plan_trigger` (a comment is not a trigger), `is_plan_trigger`
+    // wins if both are set.
+    plan_comment: Option<serde_json::Value>,
     // Draft working dir picked before the session was materialized. Only honored
     // when this call also creates the session — applies via the same
     // `update_session_working_dir` validation as the explicit setter command.
@@ -218,14 +225,11 @@ pub async fn chat(
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);
-    // Plan Mode trigger marker takes precedence over attachments meta — these
-    // sends never carry user attachments (the LLM-bound `message` is a short
-    // canned trigger, not a real user input).
-    user_msg.attachments_meta = if is_plan_trigger.unwrap_or(false) {
-        Some(serde_json::json!({ "plan_trigger": true }).to_string())
-    } else {
-        attachments_meta
-    };
+    user_msg.attachments_meta = session::build_chat_user_attachments_meta(
+        is_plan_trigger.unwrap_or(false),
+        plan_comment.as_ref(),
+        attachments_meta,
+    );
     let _ = db.append_message(&sid, &user_msg);
 
     // Log chat start
@@ -486,95 +490,11 @@ pub async fn chat(
         };
     }
 
-    // ── Resolve Plan Mode agent configuration ──
-    let plan_state = crate::plan::get_plan_state(&sid).await;
-    let (plan_extra_context, plan_agent_mode, plan_allow_paths) = match plan_state {
-        crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review => {
-            let config = crate::plan::PlanAgentConfig::default_config();
-            let prompt = if plan_state == crate::plan::PlanModeState::Review {
-                if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                    format!("# Plan Review\n\nThe following plan has been submitted and is awaiting user approval:\n\n{}", plan_content)
-                } else {
-                    crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string()
-                }
-            } else {
-                crate::plan::PLAN_MODE_SYSTEM_PROMPT.to_string()
-            };
-            (
-                Some(prompt),
-                Some(crate::agent::PlanAgentMode::PlanAgent {
-                    allowed_tools: config.allowed_tools,
-                    ask_tools: config.ask_tools,
-                }),
-                Some(config.plan_mode_allow_paths),
-            )
-        }
-        crate::plan::PlanModeState::Executing | crate::plan::PlanModeState::Paused => {
-            let mode = crate::agent::PlanAgentMode::ExecutingAgent {
-                extra_tools: crate::plan::EXECUTING_AGENT_EXTRA_TOOLS
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect(),
-            };
-            let ctx = if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                let prefix = if plan_state == crate::plan::PlanModeState::Paused {
-                    let paused_step = crate::plan::get_plan_meta(&sid)
-                        .await
-                        .and_then(|m| m.paused_at_step)
-                        .unwrap_or(0);
-                    format!(
-                        "# Plan Paused\n\nPlan execution is currently **paused** at step {}. \
-                         The user may ask to resume, modify the plan, or discuss progress.\n\n\
-                         ## Plan Content\n\n",
-                        paused_step
-                    )
-                } else {
-                    crate::plan::PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX.to_string()
-                };
-                Some(format!("{}{}", prefix, plan_content))
-            } else {
-                None
-            };
-            (ctx, Some(mode), None)
-        }
-        crate::plan::PlanModeState::Completed => {
-            let ctx = if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                let step_summary = if let Some(meta) = crate::plan::get_plan_meta(&sid).await {
-                    let completed = meta
-                        .steps
-                        .iter()
-                        .filter(|s| s.status == crate::plan::PlanStepStatus::Completed)
-                        .count();
-                    let failed = meta
-                        .steps
-                        .iter()
-                        .filter(|s| s.status == crate::plan::PlanStepStatus::Failed)
-                        .count();
-                    let skipped = meta
-                        .steps
-                        .iter()
-                        .filter(|s| s.status == crate::plan::PlanStepStatus::Skipped)
-                        .count();
-                    format!("\n\n## Statistics\n- Completed: {}\n- Failed: {}\n- Skipped: {}\n- Total: {}\n",
-                        completed, failed, skipped, meta.steps.len())
-                } else {
-                    String::new()
-                };
-                Some(format!(
-                    "{}{}{}",
-                    crate::plan::PLAN_COMPLETED_SYSTEM_PROMPT,
-                    plan_content,
-                    step_summary
-                ))
-            } else {
-                None
-            };
-            (ctx, None, None)
-        }
-        crate::plan::PlanModeState::Off => (None, None, None),
-    };
-
     // ── Build ChatEngineParams and delegate to shared engine ──
+    // Plan-mode resolution (mode + allow paths + system-prompt segment)
+    // happens inside chat_engine via `resolve_plan_context_for_session`,
+    // unified across Tauri / HTTP / channel / cron entry points. The
+    // streaming loop's mid-turn probe handles `enter_plan_mode` flips.
     let (providers_snapshot, compact_config) = (cfg.providers.clone(), cfg.compact.clone());
     let codex_token_snapshot = state.codex_token.lock().await.clone();
 
@@ -589,11 +509,10 @@ pub async fn chat(
         codex_token: codex_token_snapshot,
         resolved_temperature,
         compact_config,
-        extra_system_context: plan_extra_context,
+        extra_system_context: None,
         reasoning_effort: Some(effort.clone()),
         cancel: cancel.clone(),
-        plan_agent_mode,
-        plan_mode_allow_paths: plan_allow_paths,
+        plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
         subagent_depth: 0,
@@ -614,25 +533,9 @@ pub async fn chat(
             // Relay to IM channel if this session is linked to one
             crate::chat_engine::relay_to_channel(&sid, &result.response).await;
 
-            // Plan Mode: auto-detect plan content from LLM output
-            if plan_state == crate::plan::PlanModeState::Planning && !result.response.is_empty() {
-                let steps = crate::plan::parse_plan_steps(&result.response);
-                if steps.len() >= 2 {
-                    let _ = crate::plan::save_plan_file(&sid, &result.response);
-                    crate::plan::update_plan_steps(&sid, steps.clone()).await;
-                    if let Some(app_handle) = crate::get_app_handle() {
-                        use tauri::Emitter;
-                        let _ = app_handle.emit(
-                            "plan_content_updated",
-                            serde_json::json!({
-                                "sessionId": &sid,
-                                "stepCount": steps.len(),
-                                "content": &result.response,
-                            }),
-                        );
-                    }
-                }
-            }
+            // Plan Mode auto-detection of plan content from LLM output is no
+            // longer supported — the model must call submit_plan explicitly.
+            // The plan file is only written by the submit_plan tool.
 
             // Update the active agent instance for conversation continuity (UI chat only)
             if let Some(agent) = result.agent {

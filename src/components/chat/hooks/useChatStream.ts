@@ -45,6 +45,10 @@ interface SendOptions {
   displayText?: string
   planMode?: string
   isPlanTrigger?: boolean
+  /** Routed through the chat command into `attachments_meta.plan_comment`
+   *  so the desktop GUI can render PlanCommentBubble with structured
+   *  selection + comment fields. IM channels ignore this and use displayText. */
+  planComment?: { selectedText: string; comment: string }
 }
 
 interface PendingSend {
@@ -332,6 +336,7 @@ export function useChatStream({
       content: displayed,
       timestamp: now,
       ...(options?.isPlanTrigger && { isPlanTrigger: true }),
+      ...(options?.planComment && { planComment: options.planComment }),
     }
     setMessages((prev) => [...prev, optimisticUserMessage])
     setLoading(true)
@@ -512,6 +517,7 @@ export function useChatStream({
           temperatureOverride: temperatureOverride ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
           isPlanTrigger: options?.isPlanTrigger,
+          planComment: options?.planComment,
           workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
         },
         onEvent,

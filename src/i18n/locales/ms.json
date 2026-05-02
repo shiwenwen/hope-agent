@@ -137,6 +137,14 @@
     "tasks": "Tugasan",
     "taskProgress": "{{completed}}/{{total}} selesai",
     "taskNoneYet": "Belum ada tugasan",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Tandakan sebagai tertunda",
+        "in_progress": "Tandakan sebagai sedang dijalankan",
+        "completed": "Tandakan sebagai selesai"
+      },
+      "delete": "Buang tugasan"
+    },
     "justNow": "Baru sahaja",
     "minutesAgo": "{{count}} minit lalu",
     "hoursAgo": "{{count}} jam lalu",
@@ -414,12 +422,11 @@
     "pdf": "Baca PDF",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Kemas kini langkah pelan",
     "ask_user_question": "Tanya pengguna",
     "tool_search": "Cari alat",
     "acp_spawn": "Lancarkan Agent ACP",
     "submit_plan": "Hantar pelan",
-    "amend_plan": "Pinda pelan",
+    "enter_plan_mode": "Cadangkan Plan Mode",
     "task_create": "Cipta tugasan",
     "task_update": "Kemas kini tugasan",
     "task_list": "Senarai tugasan",
@@ -669,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "Mencadangkan Plan Mode",
+          "completed": "Plan Mode dicadangkan",
+          "failed": "Cadangan Plan Mode ralat"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -1397,7 +1399,7 @@
     "chatAutoExpandThinking": "Auto-kembangkan proses pemikiran",
     "chatAutoExpandThinkingDesc": "Kembangkan blok pemikiran secara automatik dalam gelembung sembang. Apabila dimatikan, klik untuk kembangkan secara manual.",
     "toolCallNarration": "Umumkan panggilan alat",
-    "toolCallNarrationDesc": "Apabila diaktifkan, arahkan model untuk mendahului setiap panggilan alat dengan pengumuman satu ayat (gaya Claude Code). Sesetengah model (cth. GPT-5.4) terlebih laksanakan ini dan mengulang niat yang sama merentas panggilan berturut-turut, menyebabkan pertindihan yang ketara. Lalai matikan.",
+    "toolCallNarrationDesc": "Apabila diaktifkan, arahkan model untuk mendahului setiap panggilan alat dengan pengumuman satu ayat dan menutup setiap pusingan dengan ringkasan ringkas (gaya Claude Code). Lalai dihidupkan — pengguna saluran IM tiada UI panggilan alat, tanpa ulasan kelihatan seperti bot tergantung. Matikan jika model anda (cth. GPT-5.4 melalui Codex) terlebih laksanakannya dan mengulang niat sama merentas panggilan berturut-turut.",
     "sessionTitle": "Jana tajuk sembang automatik",
     "sessionTitleDesc": "Gunakan tajuk mesej pertama dengan segera, kemudian jana tajuk ringkas selepas balasan pertama pembantu.",
     "sessionTitleModel": "Model tajuk",
@@ -2991,6 +2993,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Masuk Plan Mode? Model akan meneroka dahulu, bertanya soalan penjelasan, dan menyusun pelan bertulis untuk anda semak sebelum mula bekerja.",
+      "contextPrefix": "Model mencadangkan untuk masuk Plan Mode sebelum melakukan tugasan ini. Sebab: ",
+      "contextNoReason": "Model mencadangkan untuk masuk Plan Mode sebelum melakukan tugasan ini.",
+      "option": {
+        "yes": {
+          "label": "Masuk Plan Mode",
+          "description": "Tukar ke Plan Mode sekarang; model akan mula merangka pelan."
+        },
+        "no": {
+          "label": "Langkau perancangan",
+          "description": "Kekal dalam mod biasa; model akan terus menjalankan tugasan."
+        }
+      }
+    },
     "enter": "Masuk Plan Mode",
     "toggleLabel": "Pelan",
     "indicator": "Plan Mode",
@@ -3006,29 +3024,18 @@
     "showPlan": "Tunjuk pelan",
     "executing": "Melaksanakan pelan...",
     "executionIdle": "Pelaksanaan pelan sedang menunggu untuk diteruskan",
-    "stepsCompleted": "langkah selesai",
     "completed": "Selesai",
     "placeholder": "Terangkan apa yang anda mahu capai...",
     "panelTitle": "Pelan pelaksanaan",
-    "editorPlaceholder": "Edit kandungan pelan di sini...\n\n## Background\nTerangkan konteks: apa masalah yang perlu diselesaikan, mengapa, dan hasil yang dijangka\n\n### Phase 1: Analisis\n- [ ] Penerangan langkah\n\n### Phase 2: Pelaksanaan\n- [ ] Penerangan langkah",
-    "stepsDetected": "langkah dikesan",
-    "noSteps": "Tiada langkah",
-    "executeCommand": "Mula melaksanakan pelan. Selesaikan setiap langkah mengikut urutan, memanggil update_plan_step untuk menjejak kemajuan.",
+    "submittingPlan": "Menghantar pelan…",
+    "commentDisplay": "Komen pelan",
+    "executeCommand": "Mula melaksanakan pelan yang diluluskan. Panggil task_create dengan senarai todo ringkas yang diambil daripada pelan; sebelum memulakan setiap todo tandakan in_progress dengan task_update, dan completed sebaik selesai. Hanya satu todo dalam in_progress pada satu masa.",
     "executionApproved": "Pelan diluluskan. Memulakan pelaksanaan.",
     "executionResumed": "Meneruskan pelaksanaan pelan.",
     "planning": "Mencipta pelan...",
-    "pause": "Jeda",
     "resume": "Sambung",
-    "pausedBanner": "Pelaksanaan pelan dijeda",
     "review": {
       "badge": "Semakan"
-    },
-    "paused": {
-      "badge": "Dijeda"
-    },
-    "card": {
-      "phases": "fasa",
-      "steps": "langkah"
     },
     "versions": "Sejarah versi",
     "versionHistory": "Versi pelan",
@@ -3041,7 +3048,6 @@
     "popOut": "Buka dalam tetingkap berasingan",
     "popOutActive": "Dibuka dalam tetingkap berasingan",
     "reattach": "Kembali ke panel",
-    "rollback": "Gulung balik perubahan",
     "comment": {
       "hint": "Pilih teks untuk menambah komen dan memurnikan pelan secara kolaboratif",
       "placeholder": "Cadangkan perubahan untuk kandungan yang dipilih...",
@@ -3053,6 +3059,7 @@
       "submit": "Hantar jawapan",
       "retry": "Cuba lagi",
       "answered": "Dijawab",
+      "pending": "Menunggu jawapan anda…",
       "customPlaceholder": "Masukkan jawapan tersuai...",
       "customRequired": "Masukkan jawapan tersuai atau pilih pilihan lain.",
       "recommended": "Disyorkan",
@@ -3061,7 +3068,8 @@
       "preview": "Pratonton",
       "timeoutHint": "Masa yang tinggal",
       "timedOut": "tamat masa"
-    }
+    },
+    "noPlanYet": "Tiada pelan lagi"
   },
   "canvas": {
     "refresh": "Muat semula",

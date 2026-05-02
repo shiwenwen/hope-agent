@@ -93,6 +93,13 @@ pub struct SpawnParams {
     pub plan_agent_mode: Option<crate::agent::PlanAgentMode>,
     /// Path allow-list for plan mode file writes (plans/ directory)
     pub plan_mode_allow_paths: Vec<String>,
+    /// True when the spawn caller is the source of truth for `plan_agent_mode`
+    /// (set by `spawn_plan_subagent`). The streaming loop's mid-turn probe
+    /// will skip overwriting this with the child session's backend plan
+    /// state — without the flag, the probe sees `Off` in the freshly-created
+    /// child session and clobbers the explicit `PlanAgent` mode that the
+    /// spawn caller configured, breaking the plan-creation subagent.
+    pub lock_plan_agent_mode: bool,
     /// If true, skip automatic result injection into parent conversation
     pub skip_parent_injection: bool,
     /// Extra system context to inject into the sub-agent (e.g., PLAN_MODE_SYSTEM_PROMPT)

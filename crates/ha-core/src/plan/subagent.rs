@@ -4,7 +4,6 @@ use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
 
 use super::constants::{PLAN_MODE_SYSTEM_PROMPT, PLAN_SUBAGENT_CONTEXT_NOTICE};
-use super::types::PlanAgentConfig;
 
 // ── Plan Sub-Agent Session Registry ─────────────────────────────
 // Maps child_session_id → parent info, so plan tools (ask_user_question, submit_plan)
@@ -99,8 +98,6 @@ pub async fn spawn_plan_subagent(
     session_db: std::sync::Arc<crate::session::SessionDB>,
     cancel_registry: std::sync::Arc<crate::subagent::SubagentCancelRegistry>,
 ) -> Result<String> {
-    let config = PlanAgentConfig::default_config();
-
     let task = if recent_context_summary.is_empty() {
         user_message.to_string()
     } else {
@@ -109,6 +106,11 @@ pub async fn spawn_plan_subagent(
             user_message, recent_context_summary
         )
     };
+
+    // Single source of truth: derive PlanAgent mode + allow paths from the
+    // Planning state via the shared helper (mirrors chat.rs / streaming_loop).
+    let (plan_mode, plan_allow_paths) =
+        crate::agent::plan_agent_mode_for_state(crate::plan::PlanModeState::Planning);
 
     let params = crate::subagent::SpawnParams {
         task,
@@ -120,11 +122,12 @@ pub async fn spawn_plan_subagent(
         model_override: None,
         label: Some("Plan Creation".to_string()),
         attachments: Vec::new(),
-        plan_agent_mode: Some(crate::agent::PlanAgentMode::PlanAgent {
-            allowed_tools: config.allowed_tools,
-            ask_tools: config.ask_tools,
-        }),
-        plan_mode_allow_paths: config.plan_mode_allow_paths,
+        plan_agent_mode: Some(plan_mode),
+        plan_mode_allow_paths: plan_allow_paths,
+        // Plan-creation subagent: PlanAgent mode is the spawn caller's
+        // explicit choice. Lock so the streaming loop's mid-turn probe
+        // doesn't overwrite with the (Off) child-session backend state.
+        lock_plan_agent_mode: true,
         skip_parent_injection: true,
         extra_system_context: Some(format!(
             "{}\n\n{}",

@@ -55,6 +55,12 @@ pub struct ChatRequest {
     /// Plan Mode approve/resume chip (mirrors the Tauri `chat` command).
     #[serde(default)]
     pub is_plan_trigger: Option<bool>,
+    /// Structured payload for plan inline-comment messages. Stamped into
+    /// `attachments_meta = {"plan_comment": {...}}` for the desktop GUI to
+    /// render PlanCommentBubble. IM channels ignore it. (Mirrors the Tauri
+    /// `chat` command.)
+    #[serde(default)]
+    pub plan_comment: Option<serde_json::Value>,
     /// Draft working dir picked before the session was materialized. Only
     /// honored when this call also creates the session (mirrors the Tauri
     /// `chat` command).
@@ -192,11 +198,11 @@ pub async fn chat(
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);
-    // Plan Mode trigger marker — UI renders these as a system chip instead of
-    // a regular user bubble. Mirrors the Tauri command.
-    if body.is_plan_trigger.unwrap_or(false) {
-        user_msg.attachments_meta = Some(serde_json::json!({ "plan_trigger": true }).to_string());
-    }
+    user_msg.attachments_meta = session::build_chat_user_attachments_meta(
+        body.is_plan_trigger.unwrap_or(false),
+        body.plan_comment.as_ref(),
+        None,
+    );
     let _ = db.append_message(&sid, &user_msg);
 
     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
@@ -284,8 +290,7 @@ pub async fn chat(
         extra_system_context: None,
         reasoning_effort: Some(effort),
         cancel: cancel.clone(),
-        plan_agent_mode: None,
-        plan_mode_allow_paths: None,
+        plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
         subagent_depth: 0,

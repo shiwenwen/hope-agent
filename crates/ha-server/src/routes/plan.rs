@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use ha_core::ask_user::{self as ask_user_mod, AskUserQuestionAnswer};
-use ha_core::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo};
+use ha_core::plan::{self, PlanModeState, PlanVersionInfo, TransitionOutcome};
 
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
@@ -36,52 +36,22 @@ pub async fn set_plan_mode(
     Path(session_id): Path<String>,
     Json(body): Json<SetModeBody>,
 ) -> Result<Json<Value>, AppError> {
-    let plan_state = PlanModeState::from_str(&body.state);
-    let previous_state = plan::get_plan_state(&session_id).await;
-    let persisted_plan_mode = session_db()?
-        .get_session(&session_id)
-        .map_err(|e| AppError::internal(e.to_string()))?
-        .map(|meta| meta.plan_mode);
-    let checkpoint_exists = plan::get_checkpoint_ref(&session_id).await.is_some();
-    let should_create_checkpoint = plan::should_create_execution_checkpoint(
-        &plan_state,
-        &previous_state,
-        persisted_plan_mode,
-        checkpoint_exists,
-    );
-    let checkpoint_to_cleanup =
-        if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
-            plan::get_checkpoint_ref(&session_id).await
-        } else {
-            None
-        };
-
-    if plan_state == PlanModeState::Off {
-        if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
-            if let Some(cancels) = ha_core::get_subagent_cancels() {
-                cancels.cancel(&run_id);
-            }
-        }
+    if body.state == "paused" {
+        return Err(AppError::bad_request(
+            "plan mode 'paused' state has been removed",
+        ));
     }
-
-    if !plan::set_plan_state(&session_id, plan_state).await {
-        return Err(AppError::bad_request(format!(
+    let plan_state = PlanModeState::from_str(&body.state);
+    match plan::transition_state(&session_id, plan_state, "http_set_mode")
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?
+    {
+        TransitionOutcome::Applied => Ok(Json(json!({ "updated": true }))),
+        TransitionOutcome::Rejected => Err(AppError::bad_request(format!(
             "Invalid plan mode transition to '{}'",
             plan_state.as_str()
-        )));
+        ))),
     }
-
-    if let Some(ref_name) = checkpoint_to_cleanup {
-        plan::cleanup_checkpoint(&ref_name);
-    }
-
-    if should_create_checkpoint {
-        plan::create_checkpoint_for_session(&session_id).await;
-    }
-    session_db()?
-        .update_session_plan_mode(&session_id, plan_state)
-        .map_err(|e| AppError::internal(e.to_string()))?;
-    Ok(Json(json!({ "updated": true })))
 }
 
 /// `GET /api/plan/{session_id}/content`
@@ -101,80 +71,7 @@ pub async fn save_plan_content(
     Json(body): Json<SaveContentBody>,
 ) -> Result<Json<Value>, AppError> {
     plan::save_plan_file(&session_id, &body.content)?;
-    let steps = plan::parse_plan_steps(&body.content);
-    plan::update_plan_steps(&session_id, steps).await;
     Ok(Json(json!({ "saved": true })))
-}
-
-/// `GET /api/plan/{session_id}/steps`
-pub async fn get_plan_steps(
-    Path(session_id): Path<String>,
-) -> Result<Json<Vec<PlanStep>>, AppError> {
-    if let Ok(Some(session_meta)) = session_db()?.get_session(&session_id) {
-        if session_meta.plan_mode == PlanModeState::Off {
-            plan::set_plan_state(&session_id, PlanModeState::Off).await;
-            return Ok(Json(Vec::new()));
-        }
-        plan::restore_from_db(&session_id, session_meta.plan_mode).await;
-        if let Some(meta) = plan::get_plan_meta(&session_id).await {
-            return Ok(Json(meta.steps));
-        }
-    }
-    if let Some(meta) = plan::get_plan_meta(&session_id).await {
-        if !meta.steps.is_empty() {
-            return Ok(Json(meta.steps));
-        }
-    }
-    Ok(Json(Vec::new()))
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateStepBody {
-    pub step_index: usize,
-    pub status: String,
-}
-
-/// `POST /api/plan/{session_id}/steps/update`
-pub async fn update_plan_step_status(
-    Path(session_id): Path<String>,
-    Json(body): Json<UpdateStepBody>,
-) -> Result<Json<Value>, AppError> {
-    let step_status = PlanStepStatus::from_str(&body.status);
-    plan::update_step_status(&session_id, body.step_index, step_status, None).await;
-
-    if let Some(bus) = ha_core::get_event_bus() {
-        bus.emit(
-            "plan_step_updated",
-            json!({
-                "sessionId": session_id,
-                "stepIndex": body.step_index,
-                "status": body.status,
-            }),
-        );
-    }
-
-    if let Some(meta) = plan::get_plan_meta(&session_id).await {
-        if meta.all_terminal() && meta.state == PlanModeState::Executing {
-            if let Some(ref_name) = plan::get_checkpoint_ref(&session_id).await {
-                plan::cleanup_checkpoint(&ref_name);
-            }
-            plan::set_plan_state(&session_id, PlanModeState::Completed).await;
-            let _ = session_db()?.update_session_plan_mode(&session_id, PlanModeState::Completed);
-            if let Some(bus) = ha_core::get_event_bus() {
-                bus.emit(
-                    "plan_mode_changed",
-                    json!({
-                        "sessionId": session_id,
-                        "state": "completed",
-                        "reason": "all_steps_completed",
-                    }),
-                );
-            }
-        }
-    }
-
-    Ok(Json(json!({ "updated": true })))
 }
 
 #[derive(Debug, Deserialize)]
@@ -234,8 +131,6 @@ pub async fn restore_plan_version(
 ) -> Result<Json<Value>, AppError> {
     let content = plan::load_plan_version(&body.file_path)?;
     plan::save_plan_file(&session_id, &content)?;
-    let steps = plan::parse_plan_steps(&content);
-    plan::update_plan_steps(&session_id, steps).await;
     Ok(Json(json!({ "restored": true })))
 }
 

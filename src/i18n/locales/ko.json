@@ -137,6 +137,14 @@
     "tasks": "작업",
     "taskProgress": "{{completed}}/{{total}} 완료",
     "taskNoneYet": "아직 작업이 없습니다",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "대기 중으로 표시",
+        "in_progress": "진행 중으로 표시",
+        "completed": "완료로 표시"
+      },
+      "delete": "작업 삭제"
+    },
     "justNow": "방금",
     "minutesAgo": "{{count}}분 전",
     "hoursAgo": "{{count}}시간 전",
@@ -414,12 +422,11 @@
     "pdf": "PDF 읽기",
     "canvas": "캔버스",
     "subagent": "서브 Agent",
-    "update_plan_step": "계획 단계 업데이트",
     "ask_user_question": "사용자에게 질문",
     "tool_search": "도구 검색",
     "acp_spawn": "ACP Agent 시작",
     "submit_plan": "계획 제출",
-    "amend_plan": "계획 수정",
+    "enter_plan_mode": "계획 모드 제안",
     "task_create": "작업 생성",
     "task_update": "작업 업데이트",
     "task_list": "작업 목록",
@@ -669,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "계획 모드 제안 중",
+          "completed": "계획 모드 제안 완료",
+          "failed": "계획 모드 제안 오류"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -1397,7 +1399,7 @@
     "chatAutoExpandThinking": "사고 과정 자동 확장",
     "chatAutoExpandThinkingDesc": "채팅 버블의 사고 블록을 자동으로 확장합니다. 끄면 클릭하여 수동으로 확장.",
     "toolCallNarration": "도구 호출 사전 안내",
-    "toolCallNarrationDesc": "켜면 모든 도구 호출 전에 한 문장으로 예고하도록 모델에 지시합니다(Claude Code 스타일). 일부 모델(예: GPT-5.4)은 이를 과하게 적용해 연속된 도구 호출 간에 동일한 의도를 반복하여 가시적인 중복을 만듭니다. 기본값은 꺼짐.",
+    "toolCallNarrationDesc": "켜면 모든 도구 호출 전에 한 문장으로 예고하고 턴이 끝날 때 간단히 요약하도록 모델에 지시합니다(Claude Code 스타일). 기본값은 켜짐——IM 채널 사용자에게는 도구 호출 UI가 없어 안내가 없으면 봇이 멈춘 것처럼 보입니다. 모델(예: Codex의 GPT-5.4)이 이를 과하게 적용해 연속 호출에서 같은 의도를 반복한다면 끄세요.",
     "sessionTitle": "채팅 제목 자동 생성",
     "sessionTitleDesc": "새 채팅은 첫 메시지 제목을 즉시 사용하고, 첫 응답 후 간결한 제목을 생성합니다.",
     "sessionTitleModel": "제목 모델",
@@ -2991,6 +2993,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "계획 모드",
+      "question": "계획 모드로 들어갈까요? 모델이 먼저 탐색하고 명확화 질문을 한 뒤, 작업 전에 검토용 계획서를 작성합니다.",
+      "contextPrefix": "모델이 이 작업 전에 계획 모드로 진입할 것을 제안합니다. 이유: ",
+      "contextNoReason": "모델이 이 작업 전에 계획 모드로 진입할 것을 제안합니다.",
+      "option": {
+        "yes": {
+          "label": "계획 모드 진입",
+          "description": "지금 계획 모드로 전환하고 모델이 계획 작성을 시작합니다."
+        },
+        "no": {
+          "label": "계획 건너뛰기",
+          "description": "일반 모드를 유지하고 모델이 작업을 그대로 계속합니다."
+        }
+      }
+    },
     "enter": "계획 모드 진입",
     "toggleLabel": "계획",
     "indicator": "계획 모드",
@@ -3006,29 +3024,18 @@
     "showPlan": "계획 표시",
     "executing": "계획 실행 중...",
     "executionIdle": "계획 실행 대기 중",
-    "stepsCompleted": "단계 완료",
     "completed": "완료",
     "placeholder": "달성하고 싶은 것을 설명하세요...",
     "panelTitle": "실행 계획",
-    "editorPlaceholder": "여기서 계획 내용을 편집...\n\n## Background\n배경 기술: 해결할 문제, 이유, 예상 결과\n\n### Phase 1: 분석\n- [ ] 단계 설명\n\n### Phase 2: 구현\n- [ ] 단계 설명",
-    "stepsDetected": "단계 감지됨",
-    "noSteps": "단계가 없습니다",
-    "executeCommand": "계획 실행을 시작하세요. 각 단계를 순서대로 완료하고 update_plan_step 을 호출하여 진행 상황을 추적하세요.",
+    "submittingPlan": "계획 제출 중…",
+    "commentDisplay": "계획 댓글",
+    "executeCommand": "승인된 계획 실행을 시작하세요. task_create 를 호출해 계획에서 간결한 todo 목록을 만들고, 각 todo 를 시작하기 전에 task_update 로 in_progress 로, 완료 후 즉시 completed 로 표시하세요. 동시에 in_progress 는 한 건만.",
     "executionApproved": "계획이 승인되었습니다. 실행을 시작합니다.",
     "executionResumed": "계획 실행을 계속합니다.",
     "planning": "계획 작성 중...",
-    "pause": "일시 정지",
     "resume": "재개",
-    "pausedBanner": "계획 실행이 일시 정지됨",
     "review": {
       "badge": "검토"
-    },
-    "paused": {
-      "badge": "일시 정지됨"
-    },
-    "card": {
-      "phases": "단계",
-      "steps": "단계"
     },
     "versions": "버전 기록",
     "versionHistory": "계획 버전",
@@ -3041,7 +3048,6 @@
     "popOut": "별도 창으로 열기",
     "popOutActive": "별도 창에서 열림",
     "reattach": "패널로 되돌리기",
-    "rollback": "변경 사항 롤백",
     "comment": {
       "hint": "텍스트를 선택하여 코멘트를 추가하고 협력해 계획을 수정하세요",
       "placeholder": "선택한 내용에 대한 변경 제안...",
@@ -3053,6 +3059,7 @@
       "submit": "답변 제출",
       "retry": "재시도",
       "answered": "답변 완료",
+      "pending": "답변을 기다리는 중…",
       "customPlaceholder": "사용자 지정 답변 입력...",
       "customRequired": "사용자 지정 답변을 입력하거나 다른 옵션을 선택하세요.",
       "recommended": "권장",
@@ -3061,7 +3068,8 @@
       "preview": "미리보기",
       "timeoutHint": "남은 시간",
       "timedOut": "시간 초과"
-    }
+    },
+    "noPlanYet": "아직 계획이 없습니다"
   },
   "canvas": {
     "refresh": "새로 고침",

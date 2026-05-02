@@ -220,6 +220,15 @@ fn build_router_with_cors(
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
+            "/sessions/{sessionId}/tasks",
+            get(routes::tasks::list_session_tasks),
+        )
+        .route(
+            "/tasks/{id}/status",
+            patch(routes::tasks::update_task_status),
+        )
+        .route("/tasks/{id}", delete(routes::tasks::delete_task))
+        .route(
             "/runtime-tasks/cancel",
             post(routes::runtime_tasks::cancel_runtime_task),
         )
@@ -872,11 +881,6 @@ fn build_router_with_cors(
         .route("/plan/{sid}/mode", post(routes::plan::set_plan_mode))
         .route("/plan/{sid}/content", get(routes::plan::get_plan_content))
         .route("/plan/{sid}/content", put(routes::plan::save_plan_content))
-        .route("/plan/{sid}/steps", get(routes::plan::get_plan_steps))
-        .route(
-            "/plan/{sid}/steps/update",
-            post(routes::plan::update_plan_step_status),
-        )
         .route(
             "/ask_user/respond",
             post(routes::plan::respond_ask_user_question),

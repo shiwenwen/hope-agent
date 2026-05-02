@@ -164,13 +164,18 @@ export function AssistantContentBlocks({
       )
       i++
     } else if (block.type === "tool_call") {
-      // Render ask_user_question as Q&A summary card (result contains formatted answers)
+      // ask_user_question — passive indicator on the timeline. The actual
+      // dialog is dispatched via a separate event channel, so the card here
+      // is just for the user to see "model asked a question" while the answer
+      // is still pending, then "answered" once the result arrives.
       if (block.tool.name === "ask_user_question") {
-        if (block.tool.result) {
-          elements.push(
-            <AskUserQuestionResult key={block.tool.callId} result={block.tool.result} />,
-          )
-        }
+        elements.push(
+          <AskUserQuestionResult
+            key={block.tool.callId}
+            result={block.tool.result}
+            pending={!block.tool.result}
+          />,
+        )
         i++
         continue
       }
@@ -181,17 +186,23 @@ export function AssistantContentBlocks({
         i++
         continue
       }
-      // Render submit_plan inline as a compact plan card
+      // submit_plan — render the card both in-flight (shimmer chip) and after
+      // the result lands (full panel-opening card). The title is in arguments
+      // so we can show it during the pending phase too.
       if (block.tool.name === "submit_plan") {
-        if (block.tool.result) {
-          let title = ""
-          try {
-            title = JSON.parse(block.tool.arguments)?.title || ""
-          } catch { /* ignore */ }
-          elements.push(
-            <SubmitPlanResult key={block.tool.callId} title={title} sessionId={sessionId} onOpenPanel={onOpenPlanPanel} />,
-          )
-        }
+        let title = ""
+        try {
+          title = JSON.parse(block.tool.arguments)?.title || ""
+        } catch { /* ignore */ }
+        elements.push(
+          <SubmitPlanResult
+            key={block.tool.callId}
+            title={title}
+            sessionId={sessionId}
+            onOpenPanel={onOpenPlanPanel}
+            pending={!block.tool.result}
+          />,
+        )
         i++
         continue
       }
@@ -304,10 +315,11 @@ export function AssistantContentBlocks({
     }
   }
 
-  // Loading dots during/between tool rounds
+  // text / thinking blocks render their own streaming visual; tool_call blocks
+  // go static once result lands, so dots fill the between-rounds wait there.
   if (loading && isLast) {
     const lastBlock = blocks[blocks.length - 1]
-    if (lastBlock.type === "tool_call") {
+    if (lastBlock?.type === "tool_call") {
       elements.push(
         <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
           <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />

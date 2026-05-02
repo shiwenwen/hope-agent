@@ -10,6 +10,7 @@ mod events;
 pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
 pub(crate) use events::MEDIA_ITEMS_PREFIX;
 mod llm_adapter;
+mod plan_context;
 mod providers;
 pub mod resolver;
 mod side_query;
@@ -24,6 +25,9 @@ pub use config::{
 };
 pub use config::{build_system_prompt, build_system_prompt_with_session};
 pub(crate) use context::build_compaction_provider;
+pub use plan_context::{
+    merge_extra_system_context, resolve_plan_context_for_session, PlanResolvedContext,
+};
 pub use types::{AssistantAgent, Attachment, CodexModel, LlmProvider, PlanAgentMode};
 
 use std::sync::atomic::AtomicBool;
@@ -37,6 +41,30 @@ use crate::tools;
 
 use config::{ANTHROPIC_API_URL, ANTHROPIC_MODEL};
 use types::LlmProvider::*;
+
+/// Single source of truth for `PlanModeState → (PlanAgentMode, allow_paths)`.
+/// Callers: turn-start snapshot (chat.rs / channel / cron / spawn_plan_subagent)
+/// and streaming_loop mid-turn probe.
+pub fn plan_agent_mode_for_state(
+    state: crate::plan::PlanModeState,
+) -> (PlanAgentMode, Vec<String>) {
+    match state {
+        crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review => {
+            let cfg = crate::plan::PlanAgentConfig::default_config();
+            (
+                PlanAgentMode::PlanAgent {
+                    allowed_tools: cfg.allowed_tools,
+                    ask_tools: cfg.ask_tools,
+                },
+                cfg.plan_mode_allow_paths,
+            )
+        }
+        crate::plan::PlanModeState::Executing => (PlanAgentMode::ExecutingAgent, Vec::new()),
+        crate::plan::PlanModeState::Off | crate::plan::PlanModeState::Completed => {
+            (PlanAgentMode::Off, Vec::new())
+        }
+    }
+}
 
 /// Extract tool name from a provider-formatted schema value.
 /// Handles both Anthropic format (`{"name": ...}`) and OpenAI format (`{"function": {"name": ...}}`).
@@ -97,8 +125,11 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             skill_allowed_tools: Vec::new(),
-            plan_agent_mode: types::PlanAgentMode::Off,
-            plan_mode_allow_paths: Vec::new(),
+            plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
+            plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
+            plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
+            plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
             last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
@@ -143,8 +174,11 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             skill_allowed_tools: Vec::new(),
-            plan_agent_mode: types::PlanAgentMode::Off,
-            plan_mode_allow_paths: Vec::new(),
+            plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
+            plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
+            plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
+            plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
             last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
@@ -314,8 +348,11 @@ impl AssistantAgent {
             steer_run_id: None,
             denied_tools: Vec::new(),
             skill_allowed_tools: Vec::new(),
-            plan_agent_mode: types::PlanAgentMode::Off,
-            plan_mode_allow_paths: Vec::new(),
+            plan_state_cached: arc_swap::ArcSwap::from_pointee(crate::plan::PlanModeState::Off),
+            plan_agent_mode: arc_swap::ArcSwap::from_pointee(types::PlanAgentMode::Off),
+            plan_mode_allow_paths: arc_swap::ArcSwap::from_pointee(Vec::new()),
+            plan_extra_context: arc_swap::ArcSwap::from_pointee(None),
+            plan_agent_mode_externally_locked: std::sync::atomic::AtomicBool::new(false),
             temperature: None,
             cache_safe_params: std::sync::Mutex::new(None),
             last_extraction_at: std::sync::Mutex::new(initial_last_extraction_at()),
@@ -900,14 +937,138 @@ impl AssistantAgent {
         self.skill_allowed_tools = tools;
     }
 
-    /// Set the plan agent mode (Plan Agent / Executing Agent / Off).
-    pub fn set_plan_agent_mode(&mut self, mode: types::PlanAgentMode) {
-        self.plan_agent_mode = mode;
+    /// Apply a Plan-mode snapshot supplied externally by the spawn caller
+    /// (`spawn_plan_subagent` is the only current case). Sets the
+    /// "externally locked" flag so the streaming loop's mid-turn probe
+    /// won't overwrite this with the (typically `Off`) child-session
+    /// backend state.
+    ///
+    /// `&self`: ArcSwap + AtomicBool give us interior mutability so the
+    /// streaming loop (which holds `&self`) can call the from-backend
+    /// variant without forcing the entire chat → provider → loop chain
+    /// into `&mut`.
+    pub fn apply_plan_resolved_external(&self, ctx: plan_context::PlanResolvedContext) {
+        self.write_plan_slots(ctx);
+        self.plan_agent_mode_externally_locked
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 
-    /// Set plan mode path-based allow rules for fine-grained write/edit permission.
-    pub fn set_plan_mode_allow_paths(&mut self, paths: Vec<String>) {
-        self.plan_mode_allow_paths = paths;
+    /// Apply a Plan-mode snapshot derived from this session's backend plan
+    /// state. Used by chat_engine at turn start (chat.rs / channel / cron /
+    /// HTTP server) and the streaming loop's mid-turn probe. Future probes
+    /// stay free to update — the externally-locked flag stays cleared.
+    pub fn apply_plan_resolved_from_backend(&self, ctx: plan_context::PlanResolvedContext) {
+        self.write_plan_slots(ctx);
+        self.plan_agent_mode_externally_locked
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Atomic 4-slot write (state + mode + allow_paths + extra_context).
+    /// Caller picks the locked / unlocked variant above; this helper just
+    /// fans the bundle out to the individual ArcSwaps. Stores happen in
+    /// the order a future reader is most sensitive to: `state` last so a
+    /// mid-turn probe that races a write either sees the old snapshot
+    /// in full or notices the new state on its next iteration.
+    fn write_plan_slots(&self, ctx: plan_context::PlanResolvedContext) {
+        self.plan_agent_mode.store(std::sync::Arc::new(ctx.mode));
+        self.plan_mode_allow_paths
+            .store(std::sync::Arc::new(ctx.allow_paths));
+        self.plan_extra_context
+            .store(std::sync::Arc::new(ctx.extra_system_context));
+        self.plan_state_cached.store(std::sync::Arc::new(ctx.state));
+    }
+
+    /// Snapshot of the current Plan-mode. Returns an owned `Arc` so the
+    /// caller can hold it across `await` points without keeping the
+    /// `ArcSwap` guard alive (which would block writers).
+    pub fn plan_agent_mode(&self) -> std::sync::Arc<types::PlanAgentMode> {
+        self.plan_agent_mode.load_full()
+    }
+
+    /// Snapshot of the current plan-mode path allow-list. See
+    /// `plan_agent_mode()` for the `Arc` return rationale.
+    pub fn plan_mode_allow_paths(&self) -> std::sync::Arc<Vec<String>> {
+        self.plan_mode_allow_paths.load_full()
+    }
+
+    /// True when `set_plan_agent_mode_externally` was the last setter to
+    /// run. Used by the streaming loop's mid-turn probe to skip overwriting
+    /// a spawn-supplied mode (P2 fix: plan subagent's child session has
+    /// `plan_mode = Off` in its DB, but the spawn caller explicitly set
+    /// `PlanAgent` and that's the source of truth).
+    pub fn is_plan_agent_mode_externally_locked(&self) -> bool {
+        self.plan_agent_mode_externally_locked
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Snapshot of the current plan-derived system-prompt segment.
+    pub fn plan_extra_context(&self) -> std::sync::Arc<Option<String>> {
+        self.plan_extra_context.load_full()
+    }
+
+    /// Snapshot of the cached `PlanModeState` last applied to this agent.
+    /// The streaming loop's mid-turn probe uses this — NOT the derived
+    /// `plan_agent_mode` — because `Planning ↔ Review` and `Completed ↔
+    /// Off` produce identical mode values but materially different
+    /// `extra_system_context` bundles.
+    pub fn plan_state_cached(&self) -> crate::plan::PlanModeState {
+        **self.plan_state_cached.load()
+    }
+
+    /// Re-sync the full Plan-mode bundle from this session's backend
+    /// `plan_mode` when (a) the agent isn't externally-locked and (b) the
+    /// live `PlanModeState` differs from the cached snapshot. Returns
+    /// `true` when an update happened so the streaming loop can rebuild
+    /// dependent artifacts (`tool_schemas`, the round's `system_prompt`).
+    ///
+    /// **State-level diff, NOT mode-level**: `Planning` and `Review` both
+    /// map to `PlanAgentMode::PlanAgent { ... }` (identical value), and
+    /// `Completed` and `Off` both map to `PlanAgentMode::Off`. A
+    /// mode-only check would silently miss `Planning → Review` (`submit_plan`)
+    /// and `Completed → Off` (user exits a completed plan), letting the
+    /// model continue under the stale Planning prompt and re-submit the
+    /// already-submitted plan. We compare on the original
+    /// `PlanModeState` so any backend transition triggers a fresh
+    /// `resolve_plan_context_for_session`.
+    ///
+    /// All four plan slots — `state`, `mode`, `allow_paths`,
+    /// `extra_system_context` — are written through `apply_plan_resolved_from_backend`
+    /// in one shot so a flip Off→Planning (or any same-mode/different-prompt
+    /// transition like Planning→Review) installs a coherent contract:
+    /// matching tool schema, allow-list paths, AND the right plan-mode
+    /// system-prompt segment.
+    ///
+    /// Called both at round head (catches state changes that happened
+    /// between rounds) and before each sequential tool inside a round
+    /// (catches the case where an `enter_plan_mode` / `submit_plan`
+    /// earlier in the same batch flipped state — without this the
+    /// subsequent tools in the batch would run under a stale snapshot).
+    pub async fn maybe_resync_plan_mode_from_backend(&self) -> bool {
+        if self.is_plan_agent_mode_externally_locked() {
+            return false;
+        }
+        let Some(sid) = self.session_id.as_deref() else {
+            return false;
+        };
+        let live_state = crate::plan::get_plan_state(sid).await;
+        let cached_state = self.plan_state_cached();
+        if live_state == cached_state {
+            return false;
+        }
+        app_info!(
+            "plan",
+            "agent",
+            "Plan state re-sync for session {}: {:?} → {:?}",
+            sid,
+            cached_state,
+            live_state
+        );
+        // Single source of truth — pull the full bundle (state, mode,
+        // allow_paths, extra_system_context) through the same code path
+        // the chat_engine uses at turn start.
+        let resolved = plan_context::resolve_plan_context_for_session(sid).await;
+        self.apply_plan_resolved_from_backend(resolved);
+        true
     }
 
     /// Set temperature for LLM API calls (0.0–2.0). None = use API default.
@@ -972,47 +1133,48 @@ impl AssistantAgent {
             .unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     }
 
-    /// Apply plan-mode tool modifications to a tool schema list.
-    /// Called by each provider to inject/filter plan tools without code duplication.
+    /// Plan-tool injection: filter / extend the schema list according to
+    /// the agent's current Plan-mode. Reads `self.plan_agent_mode` via
+    /// ArcSwap so `streaming_loop`'s mid-turn `set_plan_agent_mode_from_backend`
+    /// is reflected on the very next `build_tool_schemas` call without
+    /// any explicit threading.
     pub(crate) fn apply_plan_tools(
         &self,
         tool_schemas: &mut Vec<serde_json::Value>,
         provider: tools::ToolProvider,
     ) {
-        match &self.plan_agent_mode {
+        let plan_mode = self.plan_agent_mode.load();
+        match &**plan_mode {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => {
-                // ask_user_question is now a core/always-loaded tool (injected via
+                // ask_user_question is a core/always-loaded tool (injected via
                 // get_available_tools), so we only need to add the plan-specific
-                // submit tool here. Plan-mode allow-list still controls visibility.
+                // submit tool here. The allow-list filter then drops anything
+                // outside the Plan Agent toolset.
                 tool_schemas.push(tools::get_submit_plan_tool().to_provider_schema(provider));
-                // Filter to allow-list only
                 tool_schemas.retain(|t| {
                     let name = extract_tool_name(t);
                     allowed_tools.iter().any(|a| a == name)
                 });
             }
-            types::PlanAgentMode::ExecutingAgent { extra_tools } => {
-                // Add extra plan execution tools
-                for tool_name in extra_tools {
-                    match tool_name.as_str() {
-                        "update_plan_step" => tool_schemas
-                            .push(tools::get_plan_step_tool().to_provider_schema(provider)),
-                        "amend_plan" => tool_schemas
-                            .push(tools::get_amend_plan_tool().to_provider_schema(provider)),
-                        _ => {}
-                    }
-                }
+            types::PlanAgentMode::ExecutingAgent => {
+                // Plan execution adds no extra tools — progress lives in the
+                // standard task_create / task_update flow (always-loaded core
+                // tools); structural plan changes require re-entering Planning.
             }
-            types::PlanAgentMode::Off => {}
+            types::PlanAgentMode::Off => {
+                // Off (regular session): inject `enter_plan_mode` so the model
+                // can proactively suggest entering Plan Mode. The tool itself
+                // triggers a user-facing Yes/No prompt and never transitions
+                // state on its own — sovereignty stays with the user.
+                tool_schemas.push(tools::get_enter_plan_mode_tool().to_provider_schema(provider));
+            }
         }
     }
 
-    /// Build complete tool schema list for a provider, handling:
-    /// - Deferred vs full loading
-    /// - Conditional tool injection (web_search, notification, image_gen, canvas, subagent)
-    /// - Plan mode tool injection/filtering
-    /// - Denied tools filtering (depth-based policy)
-    /// - Skill allowed-tools filtering
+    /// Build complete tool schema list for a provider. Reads
+    /// `plan_agent_mode` via ArcSwap, so the streaming loop's mid-turn
+    /// `set_plan_agent_mode_from_backend` is observed automatically on the
+    /// next call — no `_with_mode` override needed.
     pub(crate) fn build_tool_schemas(
         &self,
         provider: tools::ToolProvider,
@@ -1037,8 +1199,6 @@ impl AssistantAgent {
             ) {
                 continue;
             }
-            // image_generate has a dynamic schema (lists currently configured
-            // providers in its description); substitute the runtime version.
             let schema = if def.name == tools::TOOL_IMAGE_GENERATE {
                 tools::get_image_generate_tool_dynamic(&app_config.image_generate)
                     .to_provider_schema(provider)
@@ -1048,15 +1208,10 @@ impl AssistantAgent {
             schemas.push(schema);
         }
 
-        // Per-agent subagent depth limit — independent of tier (depth is
-        // computed at runtime, not a static fact about the tool).
         if !self.subagent_depth_allows_subagent() {
             schemas.retain(|t| extract_tool_name(t) != tools::TOOL_SUBAGENT);
         }
 
-        // MCP dynamic tools (`mcp__<server>__<tool>`) live outside the
-        // static catalog — they're discovered at runtime from the
-        // McpManager. Tier::Mcp + agent.mcp_enabled gate applies.
         if caps.mcp_enabled {
             if let Some(mcp) = crate::mcp::McpManager::global() {
                 for def in mcp.mcp_tool_definitions().iter() {
@@ -1071,13 +1226,16 @@ impl AssistantAgent {
             }
         }
 
-        // Plan Agent / Executing Agent tool injection (mode-driven, not
-        // tier-driven; the dispatcher already hid PlanMode tools).
+        // Plan Agent / Executing Agent tool injection. apply_plan_tools and
+        // the plan-allowed filter below both load `self.plan_agent_mode` via
+        // ArcSwap, so they observe the same snapshot as the streaming loop's
+        // most recent probe without manual threading.
         self.apply_plan_tools(&mut schemas, provider);
 
         // Final filter pipeline (skill / denied / plan-allowed) — defense
         // in depth on top of dispatcher visibility.
-        let plan_allowed_tools: &[String] = match &self.plan_agent_mode {
+        let plan_mode = self.plan_agent_mode.load();
+        let plan_allowed_tools: &[String] = match &**plan_mode {
             types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools,
             _ => &[],
         };
@@ -1159,9 +1317,20 @@ impl AssistantAgent {
             }
         }
 
+        // Caller-supplied extra context (cron task description, subagent
+        // role, etc.) — frames the model's task before any Plan Mode
+        // contract.
         if let Some(extra) = &self.extra_system_context {
             prompt.push_str("\n\n");
             prompt.push_str(extra);
+        }
+        // Plan-derived segment, kept separate so the streaming loop's
+        // mid-turn probe can swap it via `set_plan_extra_context`. Reads
+        // the ArcSwap so a probe that landed since the last build is
+        // observed on the very next system-prompt rebuild.
+        if let Some(plan_extra) = &**self.plan_extra_context.load() {
+            prompt.push_str("\n\n");
+            prompt.push_str(plan_extra);
         }
         // MCP-connected servers advertise capabilities through a small
         // appended section. Suppressed entirely when no MCP server has
@@ -1246,12 +1415,17 @@ impl AssistantAgent {
             denied_tools: self.denied_tools.clone(),
             skill_allowed_tools: self.skill_allowed_tools.clone(),
             force_sandbox,
-            plan_mode_allow_paths: self.plan_mode_allow_paths.clone(),
-            plan_mode_allowed_tools: match &self.plan_agent_mode {
+            // Load both ArcSwaps once per ctx build so the snapshot is
+            // internally consistent with the schema build that just preceded
+            // this dispatch (both go through `self.plan_agent_mode` /
+            // `self.plan_mode_allow_paths` ArcSwap loads — same data source,
+            // no manual threading).
+            plan_mode_allow_paths: (**self.plan_mode_allow_paths.load()).clone(),
+            plan_mode_allowed_tools: match &**self.plan_agent_mode.load() {
                 types::PlanAgentMode::PlanAgent { allowed_tools, .. } => allowed_tools.clone(),
                 _ => Vec::new(),
             },
-            plan_mode_ask_tools: match &self.plan_agent_mode {
+            plan_mode_ask_tools: match &**self.plan_agent_mode.load() {
                 types::PlanAgentMode::PlanAgent { ask_tools, .. } => ask_tools.clone(),
                 _ => Vec::new(),
             },

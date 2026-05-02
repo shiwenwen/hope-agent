@@ -13,7 +13,7 @@ import { getLatestMessageOutputKey, getLatestUserTurnKey } from "./chatScrollKey
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
-import type { PlanModeState, PlanStep } from "./plan-mode/usePlanMode"
+import type { PlanModeState } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
   messages: Message[]
@@ -35,12 +35,9 @@ interface MessageListProps {
   onQuestionSubmitted?: () => void
   planCardData?: PlanCardData | null
   planState?: PlanModeState
-  planSteps?: PlanStep[]
   onOpenPlanPanel?: () => void
   onApprovePlan?: () => void
   onExitPlan?: () => void
-  onPausePlan?: () => void
-  onResumePlan?: () => void
   planSubagentRunning?: boolean
   onSwitchModel?: (providerId: string, modelId: string) => void
   onViewSystemPrompt?: () => void
@@ -82,12 +79,9 @@ export default function MessageList({
   onQuestionSubmitted,
   planCardData,
   planState,
-  planSteps,
   onOpenPlanPanel,
   onApprovePlan,
   onExitPlan,
-  onPausePlan,
-  onResumePlan,
   planSubagentRunning,
   onSwitchModel,
   onViewSystemPrompt,
@@ -132,7 +126,7 @@ export default function MessageList({
     if (planCardData && planState && planState !== "off" && planState !== "planning") {
       next.push({
         type: "planCard",
-        key: `plan-card:${planCardData.sessionId}`,
+        key: `plan-card:${sessionId ?? "no-session"}`,
         data: planCardData,
       })
     }
@@ -142,7 +136,7 @@ export default function MessageList({
     }
 
     return next
-  }, [hasMore, messages, pendingQuestionGroup, planCardData, planState, planSubagentRunning])
+  }, [hasMore, messages, pendingQuestionGroup, planCardData, planState, planSubagentRunning, sessionId])
 
   const getRowKey = useCallback((row: ChatRow) => row.key, [])
   const canAnchorRow = useCallback((row: ChatRow) => row.type === "message", [])
@@ -336,16 +330,11 @@ export default function MessageList({
           <div className="flex justify-start">
             <div className="max-w-[85%] w-full">
               <PlanCardBlock
-                data={{
-                  ...row.data,
-                  steps: planSteps || row.data.steps,
-                }}
+                data={row.data}
                 planState={planState ?? "off"}
                 onOpenPanel={onOpenPlanPanel}
                 onApprove={onApprovePlan}
                 onExit={onExitPlan}
-                onPause={onPausePlan}
-                onResume={onResumePlan}
               />
             </div>
           </div>

@@ -119,6 +119,7 @@ pub async fn spawn_subagent(
     let attachments = params.attachments.clone();
     let plan_agent_mode = params.plan_agent_mode.clone();
     let plan_mode_allow_paths = params.plan_mode_allow_paths.clone();
+    let lock_plan_agent_mode = params.lock_plan_agent_mode;
     let skip_parent_injection = params.skip_parent_injection;
     let extra_system_context = params.extra_system_context.clone();
     let skill_allowed_tools = params.skill_allowed_tools.clone();
@@ -148,6 +149,7 @@ pub async fn spawn_subagent(
         let attachments_exec = attachments.clone();
         let plan_agent_mode_exec = plan_agent_mode.clone();
         let plan_mode_allow_paths_exec = plan_mode_allow_paths.clone();
+        let lock_plan_agent_mode_exec = lock_plan_agent_mode;
         let extra_system_context_exec = extra_system_context.clone();
         let skill_allowed_tools_exec = skill_allowed_tools.clone();
         let reasoning_effort_exec = reasoning_effort.clone();
@@ -173,6 +175,7 @@ pub async fn spawn_subagent(
                 parent_session_id.clone(),
                 plan_agent_mode_exec,
                 plan_mode_allow_paths_exec,
+                lock_plan_agent_mode_exec,
                 extra_system_context_exec,
                 skill_allowed_tools_exec,
                 reasoning_effort_exec,
@@ -356,6 +359,7 @@ fn execute_subagent(
     parent_session_id: String,
     plan_agent_mode: Option<crate::agent::PlanAgentMode>,
     plan_mode_allow_paths: Vec<String>,
+    lock_plan_agent_mode: bool,
     extra_system_context_override: Option<String>,
     skill_allowed_tools: Vec<String>,
     reasoning_effort: Option<String>,
@@ -451,6 +455,33 @@ fn execute_subagent(
             Some(extra_context)
         };
 
+        // Spawn-supplied PlanAgent (e.g. spawn_plan_subagent): translate the
+        // explicit mode + paths into a PlanResolvedContext override so the
+        // chat engine bypasses backend probe (the child session's
+        // `plan_mode = Off` and would otherwise clobber PlanAgent). Generic
+        // sub-agents leave the override `None` so chat_engine reads the
+        // child session's own backend state.
+        //
+        // `extra_system_context` (already-merged spawn-generic + caller
+        // extras above) flows through ChatEngineParams.extra_system_context
+        // unchanged — chat_engine's `merge_extra_system_context` will fold
+        // it together with whatever the override / backend resolution
+        // contributed (currently `None` from this path; spawn callers put
+        // any plan-prompt text into the caller's extra_system_context).
+        let plan_context_override = if lock_plan_agent_mode {
+            plan_agent_mode.map(|mode| crate::chat_engine::PlanResolvedContext {
+                // Spawn-supplied PlanAgent always means "child should run
+                // as if it were in Planning" — the locked flag freezes
+                // this against the mid-turn probe regardless.
+                state: crate::plan::PlanModeState::Planning,
+                mode,
+                allow_paths: plan_mode_allow_paths,
+                extra_system_context: None,
+            })
+        } else {
+            None
+        };
+
         let result = crate::chat_engine::run_chat_engine(crate::chat_engine::ChatEngineParams {
             session_id: child_session_id,
             agent_id: agent_id.clone(),
@@ -465,8 +496,7 @@ fn execute_subagent(
             extra_system_context,
             reasoning_effort,
             cancel,
-            plan_agent_mode,
-            plan_mode_allow_paths: Some(plan_mode_allow_paths),
+            plan_context_override,
             skill_allowed_tools,
             denied_tools: denied,
             subagent_depth: depth,

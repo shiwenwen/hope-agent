@@ -31,6 +31,97 @@
 ## Open
 
 
+### F-040 mid-turn plan-state probe 用 AtomicU64 version gate 跳过 RwLock 读
+
+- **来源**：2026-05-02 mid-turn plan mode rebuild 修复 `/simplify` review (efficiency agent)
+- **现象**：[`streaming_loop.rs`](crates/ha-core/src/agent/streaming_loop.rs) 每个 round 头都跑一次 `crate::plan::get_plan_state(sid).await`（`tokio::sync::RwLock` read + HashMap lookup）+ 一次 `plan_agent_mode_for_state` 构造 `PlanAgentConfig::default_config()`（~14 个 String alloc）。50 round 上限 ×~50ns RwLock + ~14 个 String alloc/round = ~5μs，相比 LLM round（秒级）当前可忽略
+- **为什么留**：当前规模不构成 hot-path 瓶颈；过早优化没收益。改起来要加 [`plan/store.rs`](crates/ha-core/src/plan/store.rs) 全局 `static PLAN_STATE_VERSION: AtomicU64` + `set_plan_state` 写时 `fetch_add`，streaming_loop 缓存上轮 version，相等就 skip。改动小但要确保所有 plan state 变更入口都 bump version
+- **改的话要做什么**：
+  - `plan/store.rs` 加 version counter
+  - `set_plan_state` / `transition_state` 写路径 bump
+  - `streaming_loop` round 头先比对 version；version 没变则跳过整个 mode 推导
+  - 配套：`PlanAgentConfig::default_config()` 改返回 `&'static PlanAgentConfig`（`OnceLock` lazily 初始化），让全部 turn-start 路径也受益
+- **影响面**：纯性能，无功能 / 安全影响
+- **触发时机建议**：plan mode 用户量上来后、tool loop 实际 round 数上来时；或者下一次动 plan store 时顺手
+
+
+### F-039 PlanPanel 在 rapid 连续 submit_plan 场景偶尔不刷新内容（root cause 未定）
+
+- **来源**：2026-05-02 plan inline comment 三件套修复期间发现。用户连续评论 → 模型多次 resubmit_plan → 右侧 PlanPanel 偶尔仍显示旧 plan
+- **现象**：理论链路（`submit_plan` emit `plan_submitted` 带 `content` → `usePlanMode` listener `setPlanContent`）应该工作，但用户实际见不到刷新。当时为了赶紧收掉用户痛点，加了"主动 refetch `get_plan_content`"作为 belt-and-suspenders，掩盖了真问题
+- **当前状态**：refetch 已经收紧到只在 `payload.content` 缺失时兜底（[`usePlanMode.ts`](src/components/chat/plan-mode/usePlanMode.ts) plan_submitted handler）。正常路径只走 `setPlanContent(payload.content)` 一次
+- **待办**：复现并定位真因。可能方向：
+  - React state batching 在 EventBus 同步 emit 多个事件时合并掉中间 setPlanContent
+  - PlanPanel memoization / props 引用相等导致 skip render
+  - listener closure stale（虽然 deps `[currentSessionId, setPlanState]` 看起来对）
+  - backend `plan_submitted` 实际未带 content（理论 emit 永远带，但 code path 可能有遗漏）
+- **触发条件**：用户报告再次出现"评论后 panel 不刷新"或本人手动复测能稳定复现
+- **优先级**：低（refetch 兜底覆盖了，UX 不可见）
+
+### F-038 enter_plan_mode 对 single-deliverable user-facing 创意任务覆盖不足
+
+- **来源**：2026-05-02 plan/task 解耦重构后跑「网页贪吃蛇」实测发现模型不进 plan mode 直接动手，零询问视觉/控制/玩法等用户偏好。当期试过方案 B（激进重写）和方案 C（保守兜底）两版均回滚，决定先观察、保留两套备选方案待后续触发场景再决定
+- **现象**：用户输入「我想开发一个简单的网页版的贪吃蛇游戏」，模型 thinking 判断「single-step / can be done in fewer than 3 steps」（命中 enter_plan_mode 当前描述的 "When NOT to Use" 第四条）+ HUMAN_IN_THE_LOOP_GUIDANCE 的 "low-cost reversible just do it" / "pure style detail user has no opinion on" → 直接调 task_create 拆 todo 后开始 write HTML，全程零询问。同类场景预计还有：登录页、dashboard 小组件、深色模式、单页 UI 设计等 user-facing 创意任务
+- **根因**：当前 enter_plan_mode 描述偏中立平衡（"trivial / fewer than 3 steps 不进 plan"），HUMAN_IN_THE_LOOP_GUIDANCE 又说"low-cost just do it"——两个独立判断都给"别打扰"信号，**贪吃蛇这种 single-file 创意小项目两边都被劝退**。
+- **当前选择**：不动。**用户对过度询问的担忧 > 修复贪吃蛇的收益**。两个被否决的方案登记如下，将来覆盖率不足时再考虑
+
+#### 方案 C（保守兜底，曾上线 commit 0fd75e1c 后回滚）
+
+只在 `When NOT to Use` 后追加一段「Edge Case Tiebreaker」：
+
+> If a single-deliverable task is **user-facing** (the user will run / read / interact with the result, e.g. a small game, login page, dashboard widget) AND has multiple reasonable directions in **visual style**, **control scheme**, or **scope** (MVP vs full-featured), lean toward entering plan mode rather than guessing. Limit this rule to those three dimensions only — do NOT extend it to tone / depth / formatting / naming / phrasing details, which the user typically has no opinion on (translate / summarize / draft email / clean up comments / rename variables stay in normal mode).
+
+两层防御：
+1. 限定到 single-deliverable + user-facing + 三个明确维度（visual style / control scheme / scope）
+2. 显式 deny list：tone / depth / formatting / naming / phrasing 不算
+
+回滚原因：用户对方案 C 仍有过度询问担忧，决定连保守版也先不上，纯兜底方案存档备用。
+
+#### 方案 B（中庸重写，曾尝试 commit a02f570f 后回滚）
+
+完整重写 enter_plan_mode 描述结构：
+
+1. 顶层语气从中立 "prefer for non-trivial" 改为主动 "use this tool **proactively**" + "**prefer using unless tasks are simple**"
+2. 把 5 类触发条件重组为 7 条独立编号条款：
+   - New Feature / Working Artifact（producing something user will run/read/interact with）
+   - Multiple Valid Approaches（multiple ways with comparable trade-offs）
+   - Code / Design Modifications（changes to existing behavior/structure）
+   - Multi-File / Multi-Section Changes（3+ files OR 3+ logical sections）
+   - Unclear Requirements（need to explore first）
+   - User Preferences Matter（visual / controls / palette / scope —— **不含** tone / depth）
+   - Non-Code Domains（writing / research / analysis / information organization）
+3. 删除「fewer than 3 steps」歧义条款（贪吃蛇 single-file 但是 multi-section，用步数判断会误伤）
+4. "When NOT to Use" 收紧到只剩 typo / 单函数清晰需求 / step-by-step 详细指令 / 纯 Q&A / 一次性脚本明确输出
+5. 新增 GOOD / BAD examples 段：贪吃蛇 / 登录页 / 深色模式 / 小工具 UI 归 GOOD；改 typo / 加 log / 改名 / 跑测试 / Q&A 归 BAD
+6. **不加** "If unsure, err on the side of planning" 兜底（这条最容易引发过度询问，方案 B 故意不加；当时 a02f570f 加了，正是 review 否掉的核心理由之一）
+7. **不加**「写文章 / 调研」类 GOOD examples（这类用户经常希望"快速给一版我看了再调"）
+
+回滚原因：方案 B 的 7 条触发条件 + GOOD examples 段叠加后，对边界场景（README / 调研 / 翻译 / 邮件起草 / 总结）的过度询问风险无法量化排除，用户决定先不上。
+
+#### 测试用例对比
+
+| 用例 | 当前不动 | 方案 C 兜底版 | 方案 B 中庸版 |
+|---|---|---|---|
+| 网页贪吃蛇（原痛点） | 不 plan ✗ | plan ✓ | plan ✓ |
+| 修 typo / 加 log / 改名 / 跑测试 | 不 plan ✓ | 不 plan ✓ | 不 plan ✓ |
+| 翻译 / 总结 / 邮件 / 注释整理 | 不 plan ✓ | 不 plan ✓ | 不 plan ✓ |
+| 做一个登录页 | 可能不 plan ✗ | 可能 plan | plan ✓ |
+| 实现深色模式 | 可能不 plan ✗ | 可能不 plan | plan ✓ |
+| 写 README / 调研 | 不 plan ✓ | 不 plan ✓ | 可能 plan ⚠️（过度风险） |
+
+#### 触发时机建议
+
+- 如果用户多次反馈"做小游戏/小工具/UI 没问就直接干"，先考虑方案 C
+- 如果方案 C 上后仍发现「登录页」「深色模式」「dashboard widget」覆盖率不够，再考虑方案 B
+- 用户主动按 Plan 按钮 / `/plan enter` 始终是兜底通道，本期 plan/task 解耦后这条路工作良好——所以这个 followup 优先级不高
+
+#### 影响面
+
+无用户阻塞——用户可以主动按 Plan 按钮 / `/plan enter` 进入 plan mode，模型自行判断的"建议"路径只是 nice-to-have 增强。属于"模型主动性 vs 用户专注度"的取舍，决策权在用户偏好。
+
+
+
+
 ### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
 
 - **来源**：2026-05-01 跨平台兼容性修复 PR（`claude/cross-platform-compatibility-check-qBENn`）
@@ -394,6 +485,30 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
+
+- **关闭于**：2026-05-02，commit a64bcebb + 643cd2d8
+- **如何关闭**：删掉 `usePlanComment.ts` 死 hook（commit a64bcebb），抽 `planCommentMessage.ts` 纯函数 helper `buildPlanCommentMessage(selectedText, comment, t) -> {prompt, displayText, payload}`，PlanPanel + PlanDetachedWindow 的 `handleCommentSubmit` 都调这个 helper 构造请求；`onRequestChanges` 签名后来在 simplify pass (643cd2d8) 进一步收紧成单 `BuiltPlanComment` 对象。两个面板的 highlight / popover state 各自保留（页面级 state，没必要共享）
+- **效果**：核心 prompt + display + payload 构造逻辑统一一处，将来改 prompt 模板或 display 文案只动 `planCommentMessage.ts` 一个文件
+
+### F-037 Plan state transition 副作用代码在 5 处复制，缺共享 helper
+
+- **来源**：2026-05-02 Plan Mode 重构 `/codex:review` (codex 主报告 + 第一轮 reuse agent #1) + 修复 `/plan exit` 路径漏 cancel subagent bug 时再次撞到
+- **关闭**：2026-05-02
+- **修复方式**：抽出 [`crates/ha-core/src/plan/transition.rs`](../../crates/ha-core/src/plan/transition.rs) — `pub async fn transition_state(session_id, target, TransitionOpts) -> anyhow::Result<TransitionOutcome>`，按 review 建议封装 5 件副作用（cancel subagent on Off / cleanup checkpoint on Off+Completed / set_plan_state / create checkpoint on Executing / DB persist / emit `plan_mode_changed`）。`TransitionOpts` 暴露 `reason: &'static str`（每个 caller 必填，落 `plan_mode_changed.reason` 用于前端 / 遥测归因）+ `cancel_subagent_on_off: bool` + `manage_checkpoint: bool`（默认都 true，特殊路径可 opt-out）。6 个 caller 全部迁移：
+  - [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) — `reason="tool_enter_plan_mode"`
+  - [`tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs) — `reason="plan_submitted"`，额外 emit `plan_submitted` 携带 plan title + content（保留各路径二次 emit）
+  - [`slash_commands/handlers/plan.rs`](../../crates/ha-core/src/slash_commands/handlers/plan.rs) — `slash_enter` / `slash_exit` / `slash_approve`，顺手把 `db: &SessionDB` 形参移除（dispatcher 同步收紧）
+  - [`src-tauri/src/commands/plan.rs::set_plan_mode`](../../src-tauri/src/commands/plan.rs) — `reason="tauri_set_mode"`，原 60+ 行收敛到 8 行；`tauri::State<AppState>` 形参直接删除（不再需要）
+  - [`crates/ha-server/src/routes/plan.rs::set_plan_mode`](../../crates/ha-server/src/routes/plan.rs) — `reason="http_set_mode"`，与 Tauri 完全对齐
+  - [`tools/task.rs::maybe_complete_plan`](../../crates/ha-core/src/tools/task.rs) — `reason="all_tasks_completed"`，原 30 行手写收敛
+- **白拣的 bug**：原 Tauri / HTTP / slash 三条路径**全部漏发** `plan_mode_changed`（只有 3 个 model-tool 路径发过），意味着用户从 GUI / `/plan` 切换 plan 状态时，detached PlanWindow 等次要订阅者收不到通知；helper 化后这条路径自动统一发，前端 `usePlanMode.ts` listener 已是 idempotent functional update（`prev === next ? prev : next`）所以零回归。原 `/plan exit` 漏 cancel subagent 的 bug 也由 helper 兜底，下次再加新副作用（例如 "Executing 进入时落 timestamp"）只改 transition.rs 一处即可
+- **测试覆盖**：[`crates/ha-core/src/plan/tests.rs::test_transition_state_in_memory_contract`](../../crates/ha-core/src/plan/tests.rs) — 跑 `Off→Planning` Applied + `Planning→Completed` Rejected（必须经 Review）+ Rejected 后内存状态保持 Planning 不被污染。Globals 未注册时 DB / event-bus 副作用走 `Option::None` 跳过，单测无 fixture 即可
+- **验证**：`cargo fmt --all --check` / `cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings` / `cargo test -p ha-core --locked`（812 passed）/ `cargo check -p hope-agent` 全绿
+- **影响面**：纯重构 + 顺手补齐 GUI / HTTP / slash 三条路径的 `plan_mode_changed` emit。无用户可见行为变化，但 detached PlanWindow / 多窗口场景的状态同步路径更稳，后续维护成本下降一档
+
+---
 
 ### F-004 NDJSON 流式解析无统一 helper
 

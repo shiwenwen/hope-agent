@@ -12,21 +12,21 @@ use super::{
     web_search,
 };
 use super::{
-    agents, amend_plan, ask_user_question, canvas, image, image_generate, job_status, pdf,
-    plan_step, runtime_cancel, sessions, submit_plan, task,
+    agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
+    runtime_cancel, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
-    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
-    TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
+    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
+    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
     TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
     TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
     TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
     TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
     TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
-    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_PLAN_STEP, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
+    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -47,6 +47,35 @@ pub(super) async fn resolve_tool_permission(
     ctx: &ToolExecContext,
     is_internal_tool: bool,
 ) -> crate::permission::Decision {
+    // Mid-turn Plan Mode entry guard: `ctx.plan_mode_allowed_tools` is a
+    // snapshot taken when the AssistantAgent was built at turn start. If the
+    // model called `enter_plan_mode` mid-turn (user accepted) the live state
+    // is now Planning/Review while the snapshot still says Off, so the
+    // permission engine would happily run write/edit/apply_patch/canvas. Fall
+    // back to a hard deny on those four mutation tools so the user-sovereignty
+    // contract holds within the same turn — full PlanAgent restrictions kick
+    // in automatically on the next user message when the agent rebuilds.
+    if !is_internal_tool && ctx.plan_mode_allowed_tools.is_empty() {
+        if let Some(sid) = ctx.session_id.as_deref() {
+            let live = crate::plan::get_plan_state(sid).await;
+            if matches!(
+                live,
+                crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review
+            ) && crate::plan::PLAN_MODE_DENIED_TOOLS.contains(&tool_name)
+            {
+                return crate::permission::Decision::Deny {
+                    reason: format!(
+                        "Plan Mode (state: {}) just entered this turn — '{}' is denied. \
+                         Use read/grep/glob/web_search/web_fetch/ask_user_question/submit_plan \
+                         until the plan is approved.",
+                        live.as_str(),
+                        tool_name
+                    ),
+                };
+            }
+        }
+    }
+
     let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
         .then(crate::config::cached_config);
     let resolve_ctx = crate::permission::engine::ResolveContext {
@@ -360,7 +389,22 @@ pub async fn execute_tool_with_context(
     //
     // SKILL.md reads are pre-authorized — skip the engine entirely so the
     // skill bootstrap never blocks on permission state.
-    let needs_engine = !ctx.auto_approve_tools && !is_skill_read(name, args) && name != TOOL_EXEC;
+    // Plan Mode `ask_tools` (`exec` per PlanAgentConfig) MUST hit the
+    // permission engine so the user gets prompted for shell commands
+    // during Planning — even when:
+    //   - `auto_approve_tools=true` (IM channel auto-approve account
+    //     convenience must NOT pierce Plan Mode's user-sovereignty
+    //     contract), or
+    //   - the tool is `exec` (which usually skips the engine for its own
+    //     command-level prefix gate; in Plan Mode the engine's
+    //     plan-mode-ask path takes precedence).
+    let plan_mode_active = !ctx.plan_mode_allowed_tools.is_empty();
+    let plan_requires_ask = plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
+    let auto_approve_blocked_by_plan = ctx.auto_approve_tools && plan_requires_ask;
+    let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
+    let needs_engine = (!ctx.auto_approve_tools || auto_approve_blocked_by_plan)
+        && !is_skill_read(name, args)
+        && (name != TOOL_EXEC || exec_skip_blocked_by_plan);
     if needs_engine {
         let decision =
             resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;
@@ -573,12 +617,13 @@ pub async fn execute_tool_with_context(
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
-            TOOL_UPDATE_PLAN_STEP => Ok(plan_step::execute(args, ctx.session_id.as_deref()).await),
             TOOL_ASK_USER_QUESTION => {
                 Ok(ask_user_question::execute(args, ctx.session_id.as_deref()).await)
             }
+            TOOL_ENTER_PLAN_MODE => {
+                Ok(enter_plan_mode::execute(args, ctx.session_id.as_deref()).await)
+            }
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
-            TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_CREATE => Ok(task::tool_task_create(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_UPDATE => Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),

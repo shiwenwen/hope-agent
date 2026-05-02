@@ -207,7 +207,7 @@ impl AssistantAgent {
                 .build()
                 .map_err(|e| anyhow::anyhow!("HTTP client error: {}", e))?;
 
-        let tool_schemas = self.build_tool_schemas(adapter.tool_provider());
+        let mut tool_schemas = self.build_tool_schemas(adapter.tool_provider());
 
         // Normalize prior history (it may have been persisted from a different
         // provider during failover / model switch). Then append the new user
@@ -289,6 +289,26 @@ impl AssistantAgent {
                 crate::awareness::touch_active_session(sid);
             }
 
+            // Mid-turn plan-state probe (round head): catches transitions
+            // that happened between rounds. `maybe_resync_plan_mode_from_backend`
+            // updates ALL plan slots together (mode, allow_paths,
+            // plan_extra_context) so when it returns true we just have to
+            // rebuild dependent artifacts: tool_schemas (LLM sees new
+            // tools next round) and the round's system_prompt mut local
+            // (LLM sees new plan contract next round). Prompt cache may
+            // miss for this round — acceptable cost since plan-state
+            // changes happen 1-2× per turn at most.
+            //
+            // Honors the externally-locked flag: spawn-supplied PlanAgent
+            // child sessions (plan_subagent) skip the probe entirely.
+            if self.maybe_resync_plan_mode_from_backend().await {
+                tool_schemas = self.build_tool_schemas(adapter.tool_provider());
+                system_prompt = self.build_full_system_prompt(model, provider_label);
+                self.select_memories_if_needed(&mut system_prompt, message)
+                    .await;
+                self.apply_engine_prompt_addition(&mut system_prompt);
+            }
+
             // Drain steer mailbox: inject any pending steer messages as user msgs.
             if let Some(ref rid) = self.steer_run_id {
                 for msg in crate::subagent::SUBAGENT_MAILBOX.drain(rid) {
@@ -315,11 +335,24 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
+            // Two-step: cheap existence probe first (one SQL row, no Vec
+            // alloc), then list+format only when there's actually an active
+            // task. Skips a full task list deserialize on every round of
+            // every chat that's never used `task_create` (the common case).
+            let task_reminder = self.session_id.as_deref().and_then(|sid| {
+                let db = crate::get_session_db()?;
+                if !db.has_active_tasks(sid).unwrap_or(false) {
+                    return None;
+                }
+                let tasks = db.list_tasks(sid).ok()?;
+                tools::task_reminder_text(&tasks)
+            });
 
             let req = RoundRequest {
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
+                task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
                 history_for_api: &api_messages,
                 reasoning_effort: effort_live.as_deref(),
@@ -424,9 +457,35 @@ impl AssistantAgent {
             }
 
             // Phase 2: sequential write/exec tools.
+            //
+            // Per-tool plan-mode resync: a sequential tool earlier in this
+            // same batch could have flipped backend plan state — most
+            // importantly `enter_plan_mode` (Off → Planning after the user
+            // accepts the dialog). Without re-reading state per tool the
+            // remaining sequential calls would run under the batch-start
+            // Off snapshot, which only blocks `write/edit/apply_patch/canvas`
+            // via the live-state fallback in `resolve_tool_permission`.
+            // Anything else outside the PlanAgent allow-list — `update_settings`,
+            // `manage_cron`, `delete_memory`, etc. — would slip through.
+            // Re-syncing here puts the live PlanAgent allow-list (and ask
+            // tools, allow paths) into `ToolExecContext` for every tool.
+            //
+            // Concurrent phase doesn't need this hook: it only contains
+            // `is_concurrent_safe` tools (read-only) which by definition
+            // can't mutate plan state.
+            let mut tool_ctx = tool_ctx;
             for tc in &sequential_tcs {
                 if cancel.load(Ordering::SeqCst) {
                     break;
+                }
+
+                if self.maybe_resync_plan_mode_from_backend().await {
+                    // Plan state changed — refresh the ctx so this tool's
+                    // permission check sees the new PlanAgent allow-list.
+                    // The schema rebuild will happen at the next round head
+                    // (the LLM has already been sent this batch's tool_call
+                    // list, so updating its schema mid-batch is moot).
+                    tool_ctx = self.tool_context_with_usage(Some(estimated_used));
                 }
 
                 let args: serde_json::Value =

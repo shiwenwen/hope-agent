@@ -137,6 +137,14 @@
     "tasks": "المهام",
     "taskProgress": "{{completed}}/{{total}} مكتملة",
     "taskNoneYet": "لا توجد مهام بعد",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "وضع علامة قيد الانتظار",
+        "in_progress": "وضع علامة قيد التنفيذ",
+        "completed": "وضع علامة مكتملة"
+      },
+      "delete": "حذف المهمة"
+    },
     "justNow": "الآن",
     "minutesAgo": "منذ {{count}} دقيقة",
     "hoursAgo": "منذ {{count}} ساعة",
@@ -414,12 +422,11 @@
     "pdf": "قراءة PDF",
     "canvas": "اللوحة",
     "subagent": "وكيل فرعي",
-    "update_plan_step": "تحديث خطوة الخطة",
     "ask_user_question": "اسأل المستخدم",
     "tool_search": "البحث عن الأدوات",
     "acp_spawn": "تشغيل Agent ACP",
     "submit_plan": "إرسال الخطة",
-    "amend_plan": "تعديل الخطة",
+    "enter_plan_mode": "اقتراح Plan Mode",
     "task_create": "إنشاء مهمة",
     "task_update": "تحديث المهمة",
     "task_list": "قائمة المهام",
@@ -669,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "جاري اقتراح Plan Mode",
+          "completed": "تم اقتراح Plan Mode",
+          "failed": "خطأ في اقتراح Plan Mode"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -1397,7 +1399,7 @@
     "chatAutoExpandThinking": "توسيع عملية التفكير تلقائياً",
     "chatAutoExpandThinkingDesc": "توسيع كتل التفكير في فقاعات الدردشة تلقائياً. عند الإيقاف، انقر للتوسيع يدوياً.",
     "toolCallNarration": "الإعلان عن استدعاءات الأدوات",
-    "toolCallNarrationDesc": "عند التفعيل، يُطلب من النموذج تقديم جملة واحدة تُمهِّد لكل استدعاء أداة (بأسلوب Claude Code). بعض النماذج (مثل GPT-5.4) تبالغ في ذلك وتكرر نفس النية عبر استدعاءات متتالية، مما يسبب تكرارًا مرئيًا. مُعطَّل افتراضيًا.",
+    "toolCallNarrationDesc": "عند التفعيل، يُطلب من النموذج تقديم جملة واحدة تُمهِّد لكل استدعاء أداة وختم كل دور بملخص قصير (بأسلوب Claude Code). مُفعَّل افتراضيًا — مستخدمو قنوات IM لا يرون واجهة استدعاء الأدوات، وبدون تعليق يبدو البوت معلقًا. عطِّله إذا كان نموذجك (مثل GPT-5.4 عبر Codex) يُبالغ في تطبيقه ويكرر نفس النية عبر استدعاءات متتالية.",
     "sessionTitle": "إنشاء عناوين المحادثات تلقائياً",
     "sessionTitleDesc": "يُستخدم عنوان الرسالة الأولى فوراً، ثم يُنشأ عنوان موجز بعد أول رد من المساعد.",
     "sessionTitleModel": "نموذج العنوان",
@@ -2991,6 +2993,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "هل تريد الدخول إلى Plan Mode؟ سيستكشف النموذج أولاً، ويطرح أسئلة توضيحية، ويُعدّ خطة مكتوبة لمراجعتك قبل البدء بالعمل.",
+      "contextPrefix": "يقترح النموذج الدخول إلى Plan Mode قبل تنفيذ هذه المهمة. السبب: ",
+      "contextNoReason": "يقترح النموذج الدخول إلى Plan Mode قبل تنفيذ هذه المهمة.",
+      "option": {
+        "yes": {
+          "label": "الدخول إلى Plan Mode",
+          "description": "التبديل إلى Plan Mode الآن؛ سيبدأ النموذج بصياغة الخطة."
+        },
+        "no": {
+          "label": "تخطّي التخطيط",
+          "description": "البقاء في الوضع العادي؛ سيواصل النموذج المهمة مباشرة."
+        }
+      }
+    },
     "enter": "الدخول إلى Plan Mode",
     "toggleLabel": "خطة",
     "indicator": "وضع التخطيط",
@@ -3006,29 +3024,18 @@
     "showPlan": "عرض الخطة",
     "executing": "جاري تنفيذ الخطة...",
     "executionIdle": "تنفيذ الخطة ينتظر المتابعة",
-    "stepsCompleted": "خطوات مكتملة",
     "completed": "مكتمل",
     "placeholder": "صِف ما تريد تحقيقه...",
     "panelTitle": "خطة التنفيذ",
-    "editorPlaceholder": "عدّل محتوى الخطة هنا...\n\n## Background\nصِف السياق: ما المشكلة التي يجب حلها، ولماذا، والنتيجة المتوقعة\n\n### Phase 1: التحليل\n- [ ] وصف الخطوة\n\n### Phase 2: التنفيذ\n- [ ] وصف الخطوة",
-    "stepsDetected": "خطوات مكتشفة",
-    "noSteps": "لا توجد خطوات",
-    "executeCommand": "ابدأ تنفيذ الخطة. أكمل كل خطوة بالترتيب، واستدعِ update_plan_step لتتبع التقدم.",
+    "submittingPlan": "جارٍ إرسال الخطة…",
+    "commentDisplay": "تعليق على الخطة",
+    "executeCommand": "ابدأ تنفيذ الخطة المعتمَدة. استدعِ task_create لإنشاء قائمة todos موجزة مستمدة من الخطة، ثم استخدم task_update لوضع كل todo على in_progress قبل البدء وعلى completed فور الانتهاء. اجعل todo واحدة في in_progress في كل مرة.",
     "executionApproved": "تمت الموافقة على الخطة. جارٍ بدء التنفيذ.",
     "executionResumed": "جارٍ متابعة تنفيذ الخطة.",
     "planning": "جاري إنشاء الخطة...",
-    "pause": "إيقاف مؤقت",
     "resume": "استئناف",
-    "pausedBanner": "تنفيذ الخطة متوقف مؤقتاً",
     "review": {
       "badge": "مراجعة"
-    },
-    "paused": {
-      "badge": "متوقف مؤقتاً"
-    },
-    "card": {
-      "phases": "مرحلة",
-      "steps": "خطوة"
     },
     "versions": "سجل الإصدارات",
     "versionHistory": "إصدارات الخطة",
@@ -3041,7 +3048,6 @@
     "popOut": "فتح في نافذة منفصلة",
     "popOutActive": "مفتوح في نافذة منفصلة",
     "reattach": "العودة إلى اللوحة",
-    "rollback": "التراجع عن التغييرات",
     "comment": {
       "hint": "اختر النص لإضافة التعليقات وتحسين الخطة بشكل تعاوني",
       "placeholder": "اقترح تغييرات للمحتوى المحدد...",
@@ -3053,6 +3059,7 @@
       "submit": "إرسال الإجابات",
       "retry": "إعادة المحاولة",
       "answered": "تمت الإجابة",
+      "pending": "في انتظار إجابتك…",
       "customPlaceholder": "أدخل إجابة مخصصة...",
       "customRequired": "أدخل إجابة مخصصة أو اختر خيارًا آخر.",
       "recommended": "موصى به",
@@ -3061,7 +3068,8 @@
       "preview": "معاينة",
       "timeoutHint": "الوقت المتبقي",
       "timedOut": "انتهت المهلة"
-    }
+    },
+    "noPlanYet": "لا توجد خطة بعد"
   },
   "canvas": {
     "refresh": "تحديث",

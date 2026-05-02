@@ -2,7 +2,6 @@ use serde_json::Value;
 
 pub(crate) mod acp_spawn;
 mod agents;
-mod amend_plan;
 mod apply_patch;
 pub(crate) mod approval;
 mod ask_user_question;
@@ -13,6 +12,7 @@ mod definitions;
 pub(crate) mod diff_util;
 pub mod dispatch;
 mod edit;
+mod enter_plan_mode;
 mod exec;
 mod execution;
 mod find;
@@ -25,7 +25,6 @@ mod ls;
 mod memory;
 mod notification;
 pub(crate) mod pdf;
-mod plan_step;
 mod process;
 mod project_read_file;
 pub(crate) mod read;
@@ -48,11 +47,13 @@ mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
+pub(crate) use task::task_reminder_text;
+
 pub use approval::{submit_approval_response, ApprovalResponse};
 pub use definitions::{
-    get_amend_plan_tool, get_ask_user_question_tool, get_available_tools, get_canvas_tool,
-    get_core_tools, get_core_tools_for_provider, get_deferred_tools,
-    get_image_generate_tool_dynamic, get_notification_tool, get_plan_step_tool, get_subagent_tool,
+    get_ask_user_question_tool, get_available_tools, get_canvas_tool, get_core_tools,
+    get_core_tools_for_provider, get_deferred_tools, get_enter_plan_mode_tool,
+    get_image_generate_tool_dynamic, get_notification_tool, get_subagent_tool,
     get_submit_plan_tool, get_tool_search_tool, get_tools_for_provider, get_web_search_tool,
     is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
@@ -92,10 +93,9 @@ pub const TOOL_PDF: &str = "pdf";
 pub const TOOL_CANVAS: &str = "canvas";
 pub const TOOL_ACP_SPAWN: &str = "acp_spawn";
 pub const TOOL_GET_WEATHER: &str = "get_weather";
-pub const TOOL_UPDATE_PLAN_STEP: &str = "update_plan_step";
 pub const TOOL_ASK_USER_QUESTION: &str = "ask_user_question";
 pub const TOOL_SUBMIT_PLAN: &str = "submit_plan";
-pub const TOOL_AMEND_PLAN: &str = "amend_plan";
+pub const TOOL_ENTER_PLAN_MODE: &str = "enter_plan_mode";
 pub const TOOL_TOOL_SEARCH: &str = "tool_search";
 pub const TOOL_TASK_CREATE: &str = "task_create";
 pub const TOOL_TASK_UPDATE: &str = "task_update";

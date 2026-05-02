@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::session::{SessionDB, Task, TaskStatus};
 
@@ -15,12 +15,7 @@ fn resolve_ctx(session_id: Option<&str>) -> Result<(String, Arc<SessionDB>), Str
 }
 
 fn emit_snapshot(session_id: &str, tasks: &[Task]) {
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "task_updated",
-            json!({ "sessionId": session_id, "tasks": tasks }),
-        );
-    }
+    crate::session::emit_task_snapshot(session_id, tasks);
 }
 
 fn render_snapshot(tasks: &[Task]) -> String {
@@ -135,6 +130,11 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
     }
     let tasks = db.list_tasks(&sid).unwrap_or_default();
     emit_snapshot(&sid, &tasks);
+
+    if matches!(status, Some(TaskStatus::Completed)) {
+        crate::plan::maybe_complete_plan(&sid, &tasks).await;
+    }
+
     render_snapshot(&tasks)
 }
 
@@ -147,4 +147,55 @@ pub(crate) async fn tool_task_list(_args: &Value, session_id: Option<&str>) -> S
         Ok(tasks) => render_snapshot(&tasks),
         Err(e) => format!("Error: failed to list tasks: {}", e),
     }
+}
+
+/// Per-round system reminder so the model can't drop in_progress tasks
+/// before its final reply. Capped at 5 task lines.
+pub(crate) fn task_reminder_text(tasks: &[Task]) -> Option<String> {
+    let active: Vec<&Task> = tasks
+        .iter()
+        .filter(|t| t.status != TaskStatus::Completed.as_str())
+        .collect();
+    if active.is_empty() {
+        return None;
+    }
+
+    let in_progress_count = active
+        .iter()
+        .filter(|t| t.status == TaskStatus::InProgress.as_str())
+        .count();
+    let pending_count = active.len() - in_progress_count;
+
+    let mut lines = String::new();
+    for task in active.iter().take(5) {
+        let label = task
+            .active_form
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(task.content.as_str());
+        let marker = if task.status == TaskStatus::InProgress.as_str() {
+            "in_progress"
+        } else {
+            "pending"
+        };
+        lines.push_str(&format!("  - [{}] (id={}) {}\n", marker, task.id, label));
+    }
+    if active.len() > 5 {
+        lines.push_str(&format!("  - … {} more active task(s)\n", active.len() - 5));
+    }
+
+    let summary = match (in_progress_count, pending_count) {
+        (0, p) => format!("{} pending task(s) remain.", p),
+        (i, 0) => format!("{} task(s) currently marked in_progress.", i),
+        (i, p) => format!("{} in_progress, {} pending task(s) remain.", i, p),
+    };
+
+    Some(format!(
+        "<system-reminder>\nActive task tracker (single source of truth for progress):\n{lines}\n{summary}\n\
+        - When you finish a task, IMMEDIATELY call `task_update(id, status=\"completed\")` — \
+        do not batch completions, do not wait until the end of the turn.\n\
+        - Before sending your final reply to the user, sweep this list and close every task you actually completed this turn.\n\
+        - If a task no longer reflects what you're doing, call `task_update` to revise its content/activeForm or mark it completed.\n\
+        - Never mention this reminder to the user.\n</system-reminder>"
+    ))
 }

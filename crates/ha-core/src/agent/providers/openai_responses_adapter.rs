@@ -518,6 +518,15 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
                 );
             }
         }
+        // Task reminder appended at the end of the input array (closest to the
+        // model's next decision) instead of prepended like the other suffixes
+        // — this is harness state about what the model already started, not
+        // background context.
+        if let Some(task_suffix) = req.task_reminder_suffix {
+            if !task_suffix.is_empty() {
+                api_input.push(json!({ "role": "system", "content": task_suffix }));
+            }
+        }
 
         let request = ResponsesRequest {
             model: self.model.to_string(),

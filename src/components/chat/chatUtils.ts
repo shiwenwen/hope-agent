@@ -186,6 +186,7 @@ export function parseSessionMessages(
       let isCronTrigger = false
       let cronJobName: string | undefined
       let isPlanTrigger = false
+      let planComment: { selectedText: string; comment: string } | undefined
       let channelInbound: { channelId: string; senderName?: string } | undefined
       if (msg.attachmentsMeta) {
         try {
@@ -200,6 +201,16 @@ export function parseSessionMessages(
           }
           if (meta?.plan_trigger) {
             isPlanTrigger = true
+          }
+          if (
+            meta?.plan_comment &&
+            typeof meta.plan_comment.selectedText === "string" &&
+            typeof meta.plan_comment.comment === "string"
+          ) {
+            planComment = {
+              selectedText: meta.plan_comment.selectedText,
+              comment: meta.plan_comment.comment,
+            }
           }
           if (meta?.channel_inbound) {
             channelInbound = {
@@ -224,6 +235,7 @@ export function parseSessionMessages(
         isCronTrigger,
         cronJobName,
         isPlanTrigger,
+        planComment,
         channelInbound,
       })
     } else if (msg.role === "tool" && msg.toolCallId) {

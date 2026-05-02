@@ -1,15 +1,34 @@
 use anyhow::Result;
 
 use super::store::store;
-use super::types::{PlanStep, PlanStepStatus, PlanVersionInfo};
+use super::types::PlanVersionInfo;
 
 // ── Plan File I/O ───────────────────────────────────────────────
-// Plans are stored in the workspace plan/ directory with readable names:
-//   ~/.hope-agent/plans/plan-{short_id}-{timestamp}.md
-//   ~/.hope-agent/plans/result-{short_id}-{timestamp}.md
+// Plans are stored under per-session subdirectories so a model `ls`-ing the
+// plans tree only sees its own work — fixes the cross-session bleed that hit
+// the snake-game session reading another session's leftover plan files.
+//
+// Layout: ~/.hope-agent/plans/<agent_id>/<session_id>/plan-{timestamp}.md
+//                                                     plan-{timestamp}-v{N}.md
+//
+// `migration::migrate_flat_plans_to_subdirs` runs once at startup to move
+// any legacy flat-layout files (`plan-{short_id}-...md`) into the right
+// subdir based on a SessionDB lookup of the short_id prefix.
 
 pub(crate) fn plans_dir() -> Result<std::path::PathBuf> {
     crate::paths::plans_dir()
+}
+
+/// Resolve the per-session plan directory by looking up the session's
+/// agent_id in SessionDB. Falls back to a `_unknown_agent` bucket when the
+/// session isn't in DB yet (rare — happens during very-first-message session
+/// auto-create races) so writes never fail outright.
+pub(crate) fn session_plans_dir_for(session_id: &str) -> Result<std::path::PathBuf> {
+    let agent_id = crate::get_session_db()
+        .and_then(|db| db.get_session(session_id).ok().flatten())
+        .map(|meta| meta.agent_id)
+        .unwrap_or_else(|| "_unknown_agent".to_string());
+    crate::paths::session_plans_dir(&agent_id, session_id)
 }
 
 pub fn find_plan_file(session_id: &str) -> Result<Option<std::path::PathBuf>> {
@@ -25,12 +44,10 @@ pub fn find_plan_file(session_id: &str) -> Result<Option<std::path::PathBuf>> {
         }
     }
 
-    let dir = plans_dir()?;
+    let dir = session_plans_dir_for(session_id)?;
     let Ok(entries) = std::fs::read_dir(&dir) else {
         return Ok(None);
     };
-    let short_id = crate::truncate_utf8(session_id, 8);
-    let prefix = format!("plan-{}-", short_id);
     let mut latest: Option<(String, std::path::PathBuf)> = None;
 
     for entry in entries.flatten() {
@@ -41,7 +58,7 @@ pub fn find_plan_file(session_id: &str) -> Result<Option<std::path::PathBuf>> {
         let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
             continue;
         };
-        if !name.starts_with(&prefix) || !name.ends_with(".md") {
+        if !name.starts_with("plan-") || !name.ends_with(".md") {
             continue;
         }
         let stem = name.trim_end_matches(".md");
@@ -94,41 +111,26 @@ fn max_disk_version(dir: &std::path::Path, plan_path: &std::path::Path) -> u32 {
 }
 
 /// Build the plan file path for a session. Uses a mapping stored in PlanMeta.file_path.
-/// If no existing path, generates a new one with readable name.
+/// If no existing path, generates a new one under the per-session subdir.
 pub(crate) fn plan_file_path(session_id: &str) -> Result<std::path::PathBuf> {
     if let Some(path) = find_plan_file(session_id)? {
         return Ok(path);
     }
 
-    // Generate new path: plan-{short_id}-{date}-{nano}.md
-    // UTC + nanosecond suffix avoids same-second collisions across concurrent
-    // sessions and stays stable across timezone changes.
-    let short_id = crate::truncate_utf8(session_id, 8);
+    // The agent + session subdirs already namespace the file, so the filename
+    // itself only needs a unique-within-session timestamp. UTC + nanosecond
+    // suffix guards against same-second concurrent saves within one session.
     let now = chrono::Utc::now();
     let filename = format!(
-        "plan-{}-{}-{:09}.md",
-        short_id,
+        "plan-{}-{:09}.md",
         now.format("%Y%m%dT%H%M%SZ"),
         now.timestamp_subsec_nanos()
     );
-    Ok(plans_dir()?.join(filename))
-}
-
-/// Build the result file path for a session.
-fn result_file_path(session_id: &str) -> Result<std::path::PathBuf> {
-    let short_id = crate::truncate_utf8(session_id, 8);
-    let now = chrono::Utc::now();
-    let filename = format!(
-        "result-{}-{}-{:09}.md",
-        short_id,
-        now.format("%Y%m%dT%H%M%SZ"),
-        now.timestamp_subsec_nanos()
-    );
-    Ok(plans_dir()?.join(filename))
+    Ok(session_plans_dir_for(session_id)?.join(filename))
 }
 
 pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
-    let dir = plans_dir()?;
+    let dir = session_plans_dir_for(session_id)?;
     std::fs::create_dir_all(&dir)?;
     let path = plan_file_path(session_id)?;
 
@@ -205,77 +207,9 @@ pub fn delete_plan_file(session_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// Save execution result as a separate markdown file.
-pub fn save_result_file(
-    session_id: &str,
-    plan_title: &str,
-    steps: &[PlanStep],
-    summary: &str,
-) -> Result<String> {
-    let dir = plans_dir()?;
-    std::fs::create_dir_all(&dir)?;
-    let path = result_file_path(session_id)?;
-
-    let mut md = String::new();
-    md.push_str(&format!("# 执行结果: {}\n\n", plan_title));
-    md.push_str(&format!(
-        "> 执行时间: {}\n\n",
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-    ));
-
-    // Step results
-    md.push_str("## 步骤执行情况\n\n");
-    let mut current_phase = String::new();
-    for step in steps {
-        if step.phase != current_phase {
-            current_phase = step.phase.clone();
-            md.push_str(&format!("### {}\n\n", current_phase));
-        }
-        let icon = match step.status {
-            PlanStepStatus::Completed => "✅",
-            PlanStepStatus::Failed => "❌",
-            PlanStepStatus::Skipped => "⏭️",
-            PlanStepStatus::InProgress => "🔄",
-            PlanStepStatus::Pending => "⭕",
-        };
-        let duration = step
-            .duration_ms
-            .map(|ms| format!(" ({}ms)", ms))
-            .unwrap_or_default();
-        md.push_str(&format!("- {} {}{}\n", icon, step.title, duration));
-    }
-
-    let completed = steps
-        .iter()
-        .filter(|s| s.status == PlanStepStatus::Completed)
-        .count();
-    let failed = steps
-        .iter()
-        .filter(|s| s.status == PlanStepStatus::Failed)
-        .count();
-    let skipped = steps
-        .iter()
-        .filter(|s| s.status == PlanStepStatus::Skipped)
-        .count();
-    md.push_str(&format!(
-        "\n## 统计\n\n- 完成: {}\n- 失败: {}\n- 跳过: {}\n- 总计: {}\n",
-        completed,
-        failed,
-        skipped,
-        steps.len()
-    ));
-
-    if !summary.is_empty() {
-        md.push_str(&format!("\n## 总结\n\n{}\n", summary));
-    }
-
-    std::fs::write(&path, &md)?;
-    Ok(path.to_string_lossy().to_string())
-}
-
 /// List available versions of a plan (including the current and all backups).
 pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
-    let dir = plans_dir()?;
+    let dir = session_plans_dir_for(session_id)?;
     let path = plan_file_path(session_id)?;
     let stem = path
         .file_stem()
@@ -350,4 +284,115 @@ pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
 /// Load content of a specific plan version.
 pub fn load_plan_version(file_path: &str) -> Result<String> {
     Ok(std::fs::read_to_string(file_path)?)
+}
+
+/// One-time migration: move legacy flat-layout plan files
+/// (`<plans>/plan-{short_id}-...md`) into the new per-session subdir
+/// (`<plans>/<agent>/<session>/plan-{short_id}-...md`). Idempotent — already-
+/// nested files are left alone, files with ambiguous / unknown short_id are
+/// skipped with a warn so a human can inspect them.
+///
+/// Filenames are kept verbatim (including the now-redundant short_id segment)
+/// to preserve any existing PlanMeta.file_path references that survived from
+/// before the migration ran. New plans written post-migration use the simpler
+/// `plan-{ts}-{nano}.md` form (see `plan_file_path`).
+pub fn migrate_flat_plans_to_subdirs() {
+    let plans = match plans_dir() {
+        Ok(d) if d.exists() => d,
+        _ => return,
+    };
+    let Ok(entries) = std::fs::read_dir(&plans) else {
+        return;
+    };
+    let Some(db) = crate::get_session_db() else {
+        return;
+    };
+
+    let (mut moved, mut skipped) = (0u32, 0u32);
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".md") {
+            continue;
+        }
+        let Some(rest) = name.strip_prefix("plan-") else {
+            continue;
+        };
+        let Some((short_id, _)) = rest.split_once('-') else {
+            continue;
+        };
+        if short_id.len() != 8 || !short_id.chars().all(|c| c.is_ascii_hexdigit()) {
+            continue;
+        }
+
+        let matches = match db.find_sessions_by_id_prefix(short_id) {
+            Ok(v) => v,
+            Err(_) => {
+                skipped += 1;
+                continue;
+            }
+        };
+        if matches.is_empty() {
+            app_warn!(
+                "plan",
+                "migrate",
+                "Skip {}: no session matches short_id {}",
+                name,
+                short_id
+            );
+            skipped += 1;
+            continue;
+        }
+        if matches.len() > 1 {
+            app_warn!(
+                "plan",
+                "migrate",
+                "Skip {}: short_id {} ambiguous ({} matches)",
+                name,
+                short_id,
+                matches.len()
+            );
+            skipped += 1;
+            continue;
+        }
+        let (session_id, agent_id) = &matches[0];
+        let target_dir = match crate::paths::session_plans_dir(agent_id, session_id) {
+            Ok(d) => d,
+            Err(e) => {
+                app_warn!("plan", "migrate", "Resolve target dir failed: {}", e);
+                continue;
+            }
+        };
+        if let Err(e) = std::fs::create_dir_all(&target_dir) {
+            app_warn!(
+                "plan",
+                "migrate",
+                "Create {} failed: {}",
+                target_dir.display(),
+                e
+            );
+            continue;
+        }
+        let target = target_dir.join(name);
+        if let Err(e) = std::fs::rename(&path, &target) {
+            app_warn!("plan", "migrate", "Move {} failed: {}", name, e);
+        } else {
+            moved += 1;
+        }
+    }
+
+    if moved > 0 || skipped > 0 {
+        app_info!(
+            "plan",
+            "migrate",
+            "Plan files migration: {} moved to per-session subdirs, {} skipped",
+            moved,
+            skipped
+        );
+    }
 }

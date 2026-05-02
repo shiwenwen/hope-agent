@@ -10,7 +10,6 @@ pub enum PlanModeState {
     Planning,
     Review,
     Executing,
-    Paused,
     Completed,
 }
 
@@ -21,7 +20,6 @@ impl PlanModeState {
             Self::Planning => "planning",
             Self::Review => "review",
             Self::Executing => "executing",
-            Self::Paused => "paused",
             Self::Completed => "completed",
         }
     }
@@ -31,7 +29,6 @@ impl PlanModeState {
             "planning" => Self::Planning,
             "review" => Self::Review,
             "executing" => Self::Executing,
-            "paused" => Self::Paused,
             "completed" => Self::Completed,
             _ => Self::Off,
         }
@@ -58,66 +55,14 @@ impl PlanModeState {
             (PlanModeState::Planning, PlanModeState::Review) => true,
             (PlanModeState::Review, PlanModeState::Planning) => true,
             (PlanModeState::Review, PlanModeState::Executing) => true,
-            (PlanModeState::Executing, PlanModeState::Paused) => true,
             (PlanModeState::Executing, PlanModeState::Completed) => true,
-            (PlanModeState::Paused, PlanModeState::Executing) => true,
-            (PlanModeState::Paused, PlanModeState::Planning) => true,
-            // Post-completion revisions are allowed back into Planning only.
+            // Re-entry: Executing/Completed back into Planning to revise the
+            // approved plan (replaces the deleted amend_plan tool path).
+            (PlanModeState::Executing, PlanModeState::Planning) => true,
             (PlanModeState::Completed, PlanModeState::Planning) => true,
             _ => false,
         }
     }
-}
-
-// ── Plan Step ───────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PlanStepStatus {
-    Pending,
-    InProgress,
-    Completed,
-    Skipped,
-    Failed,
-}
-
-impl PlanStepStatus {
-    #[allow(dead_code)]
-    pub fn as_str(&self) -> &str {
-        match self {
-            Self::Pending => "pending",
-            Self::InProgress => "in_progress",
-            Self::Completed => "completed",
-            Self::Skipped => "skipped",
-            Self::Failed => "failed",
-        }
-    }
-
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "in_progress" => Self::InProgress,
-            "completed" => Self::Completed,
-            "skipped" => Self::Skipped,
-            "failed" => Self::Failed,
-            _ => Self::Pending,
-        }
-    }
-
-    pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Completed | Self::Skipped | Self::Failed)
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PlanStep {
-    pub index: usize,
-    pub phase: String,
-    pub title: String,
-    pub description: String,
-    pub status: PlanStepStatus,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<u64>,
 }
 
 // ── Plan Metadata ───────────────────────────────────────────────
@@ -129,33 +74,25 @@ pub struct PlanMeta {
     pub title: Option<String>,
     pub file_path: String,
     pub state: PlanModeState,
-    pub steps: Vec<PlanStep>,
     pub created_at: String,
     pub updated_at: String,
-    /// Step index where execution was paused (for Paused state)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub paused_at_step: Option<usize>,
     /// Plan version counter (incremented on each save/edit)
     #[serde(default = "default_version")]
     pub version: u32,
     /// Git checkpoint reference (branch or stash) created before execution
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_ref: Option<String>,
+    /// Wall-clock RFC3339 timestamp set when the plan most recently entered
+    /// the Executing state. Used by `maybe_complete_plan` to scope the
+    /// "all tasks done" check to tasks created after execution started, so
+    /// pre-existing pending tasks (or tasks from a prior plan run) don't
+    /// block / falsely trigger auto-completion.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub executing_started_at: Option<String>,
 }
 
 fn default_version() -> u32 {
     1
-}
-
-impl PlanMeta {
-    #[allow(dead_code)]
-    pub fn completed_count(&self) -> usize {
-        self.steps.iter().filter(|s| s.status.is_terminal()).count()
-    }
-
-    pub fn all_terminal(&self) -> bool {
-        !self.steps.is_empty() && self.steps.iter().all(|s| s.status.is_terminal())
-    }
 }
 
 /// Info about a plan version.

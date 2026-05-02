@@ -99,10 +99,6 @@ pub enum CommandAction {
     ApprovePlan { plan_content: Option<String> },
     /// Show plan content in the plan panel.
     ShowPlan { plan_content: String },
-    /// Pause plan execution.
-    PausePlan,
-    /// Resume plan execution.
-    ResumePlan,
     /// Open system prompt viewer.
     ViewSystemPrompt,
     /// Skill fork: the skill was dispatched to a sub-agent.

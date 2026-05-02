@@ -606,6 +606,14 @@ pub async fn start_background_tasks() {
             let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
         }
 
+        // One-time migration: legacy flat-layout plan files
+        // (`<plans>/plan-{short_id}-...md`) → per-session subdirs
+        // (`<plans>/<agent>/<session>/plan-...md`). Idempotent — already-
+        // nested files are left alone, so it's safe to run on every start.
+        // Spawned as blocking because std::fs ops shouldn't tie up the
+        // tokio runtime even during a one-off migration.
+        tokio::task::spawn_blocking(crate::plan::migrate_flat_plans_to_subdirs);
+
         // Clean up the `ask_user_questions` table: drop old answered rows and
         // expire any still-pending rows left behind by a previous process
         // (their in-memory oneshots are gone, so the UI could not deliver

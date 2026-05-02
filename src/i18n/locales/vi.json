@@ -137,6 +137,14 @@
     "tasks": "Tác vụ",
     "taskProgress": "{{completed}}/{{total}} hoàn thành",
     "taskNoneYet": "Chưa có tác vụ nào",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Đánh dấu là đang chờ",
+        "in_progress": "Đánh dấu là đang thực hiện",
+        "completed": "Đánh dấu là hoàn thành"
+      },
+      "delete": "Xóa tác vụ"
+    },
     "justNow": "Vừa xong",
     "minutesAgo": "{{count}} phút trước",
     "hoursAgo": "{{count}} giờ trước",
@@ -414,12 +422,11 @@
     "pdf": "Đọc PDF",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Cập nhật bước kế hoạch",
     "ask_user_question": "Hỏi người dùng",
     "tool_search": "Tìm công cụ",
     "acp_spawn": "Khởi chạy Agent ACP",
     "submit_plan": "Gửi kế hoạch",
-    "amend_plan": "Sửa kế hoạch",
+    "enter_plan_mode": "Đề xuất Plan Mode",
     "task_create": "Tạo nhiệm vụ",
     "task_update": "Cập nhật nhiệm vụ",
     "task_list": "Danh sách nhiệm vụ",
@@ -669,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "Đang đề xuất Plan Mode",
+          "completed": "Đã đề xuất Plan Mode",
+          "failed": "Lỗi đề xuất Plan Mode"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -1397,7 +1399,7 @@
     "chatAutoExpandThinking": "Tự động mở rộng quá trình suy nghĩ",
     "chatAutoExpandThinkingDesc": "Tự động mở rộng các khối suy nghĩ trong bóng chat. Khi tắt, nhấn để mở rộng thủ công.",
     "toolCallNarration": "Thông báo khi gọi công cụ",
-    "toolCallNarrationDesc": "Khi bật, yêu cầu mô hình mở đầu mỗi lần gọi công cụ bằng một câu thông báo (theo phong cách Claude Code). Một số mô hình (vd. GPT-5.4) áp dụng quá mức và lặp lại cùng một ý định qua các lần gọi liên tiếp, gây trùng lặp rõ rệt. Mặc định tắt.",
+    "toolCallNarrationDesc": "Khi bật, yêu cầu mô hình mở đầu mỗi lần gọi công cụ bằng một câu thông báo và kết thúc lượt bằng một bản tóm tắt ngắn (theo phong cách Claude Code). Mặc định bật — người dùng kênh IM không thấy giao diện gọi công cụ, không có lời thuật minh sẽ như bot bị treo. Tắt nếu mô hình của bạn (vd. GPT-5.4 qua Codex) áp dụng quá mức và lặp lại cùng một ý định qua các lần gọi liên tiếp.",
     "sessionTitle": "Tự động tạo tên cuộc trò chuyện",
     "sessionTitleDesc": "Giữ tiêu đề từ tin nhắn đầu tiên ngay lập tức, rồi tạo tiêu đề ngắn gọn sau phản hồi đầu tiên của trợ lý.",
     "sessionTitleModel": "Mô hình đặt tên",
@@ -2991,6 +2993,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Vào Plan Mode? Mô hình sẽ khảo sát trước, hỏi làm rõ và soạn một bản kế hoạch để bạn xem xét trước khi bắt tay vào việc.",
+      "contextPrefix": "Mô hình đề xuất vào Plan Mode trước khi thực hiện việc này. Lý do: ",
+      "contextNoReason": "Mô hình đề xuất vào Plan Mode trước khi thực hiện việc này.",
+      "option": {
+        "yes": {
+          "label": "Vào Plan Mode",
+          "description": "Chuyển sang Plan Mode ngay; mô hình sẽ bắt đầu soạn kế hoạch."
+        },
+        "no": {
+          "label": "Bỏ qua kế hoạch",
+          "description": "Giữ chế độ thường; mô hình sẽ tiếp tục thực hiện công việc."
+        }
+      }
+    },
     "enter": "Vào Plan Mode",
     "toggleLabel": "Kế hoạch",
     "indicator": "Plan Mode",
@@ -3006,29 +3024,18 @@
     "showPlan": "Hiển thị kế hoạch",
     "executing": "Đang thực thi kế hoạch...",
     "executionIdle": "Thực thi kế hoạch đang chờ tiếp tục",
-    "stepsCompleted": "bước đã hoàn thành",
     "completed": "Hoàn thành",
     "placeholder": "Mô tả điều bạn muốn đạt được...",
     "panelTitle": "Kế hoạch thực thi",
-    "editorPlaceholder": "Chỉnh sửa nội dung kế hoạch tại đây...\n\n## Background\nMô tả bối cảnh: vấn đề cần giải quyết, tại sao và kết quả mong đợi\n\n### Phase 1: Phân tích\n- [ ] Mô tả bước\n\n### Phase 2: Triển khai\n- [ ] Mô tả bước",
-    "stepsDetected": "bước được phát hiện",
-    "noSteps": "Không có bước",
-    "executeCommand": "Bắt đầu thực thi kế hoạch. Hoàn thành từng bước theo thứ tự, gọi update_plan_step để theo dõi tiến độ.",
+    "submittingPlan": "Đang gửi kế hoạch…",
+    "commentDisplay": "Nhận xét kế hoạch",
+    "executeCommand": "Bắt đầu thực thi kế hoạch đã duyệt. Gọi task_create với danh sách todo súc tích lấy từ kế hoạch; trước khi bắt đầu mỗi todo dùng task_update đánh dấu in_progress, hoàn thành xong đánh dấu completed ngay. Chỉ giữ tối đa một todo in_progress.",
     "executionApproved": "Kế hoạch đã được phê duyệt. Bắt đầu thực thi.",
     "executionResumed": "Tiếp tục thực thi kế hoạch.",
     "planning": "Đang tạo kế hoạch...",
-    "pause": "Tạm dừng",
     "resume": "Tiếp tục",
-    "pausedBanner": "Thực thi kế hoạch đã tạm dừng",
     "review": {
       "badge": "Xem xét"
-    },
-    "paused": {
-      "badge": "Đã tạm dừng"
-    },
-    "card": {
-      "phases": "giai đoạn",
-      "steps": "bước"
     },
     "versions": "Lịch sử phiên bản",
     "versionHistory": "Phiên bản kế hoạch",
@@ -3041,7 +3048,6 @@
     "popOut": "Mở cửa sổ riêng",
     "popOutActive": "Đã mở trong cửa sổ riêng",
     "reattach": "Quay lại bảng điều khiển",
-    "rollback": "Hoàn tác thay đổi",
     "comment": {
       "hint": "Chọn văn bản để thêm nhận xét và cùng tinh chỉnh kế hoạch",
       "placeholder": "Đề xuất thay đổi cho nội dung đã chọn...",
@@ -3053,6 +3059,7 @@
       "submit": "Gửi câu trả lời",
       "retry": "Thử lại",
       "answered": "Đã trả lời",
+      "pending": "Đang chờ câu trả lời của bạn…",
       "customPlaceholder": "Nhập câu trả lời tùy chỉnh...",
       "customRequired": "Nhập câu trả lời tùy chỉnh hoặc chọn tùy chọn khác.",
       "recommended": "Khuyến nghị",
@@ -3061,7 +3068,8 @@
       "preview": "Xem trước",
       "timeoutHint": "Thời gian còn lại",
       "timedOut": "hết thời gian"
-    }
+    },
+    "noPlanYet": "Chưa có kế hoạch"
   },
   "canvas": {
     "refresh": "Làm mới",

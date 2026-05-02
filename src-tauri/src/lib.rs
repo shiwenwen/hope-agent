@@ -159,6 +159,10 @@ pub fn run() {
             commands::chat::chat,
             commands::chat::stop_chat,
             commands::runtime_tasks::cancel_runtime_task,
+            // Session-scoped task list (user-actionable controls in TaskProgressPanel)
+            commands::tasks::list_session_tasks,
+            commands::tasks::update_task_status,
+            commands::tasks::delete_task,
             commands::chat::set_permission_mode,
             // Command approval
             commands::chat::respond_to_approval,
@@ -558,8 +562,6 @@ pub fn run() {
             commands::plan::set_plan_mode,
             commands::plan::get_plan_content,
             commands::plan::save_plan_content,
-            commands::plan::get_plan_steps,
-            commands::plan::update_plan_step_status,
             commands::plan::respond_ask_user_question,
             commands::plan::get_pending_ask_user_group,
             commands::plan::get_plan_versions,

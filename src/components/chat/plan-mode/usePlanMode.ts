@@ -1,25 +1,13 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import type { AskUserQuestionGroup } from "../ask-user/AskUserQuestionBlock"
-import { detectPlanContent } from "./planParser"
 
-export type PlanModeState = "off" | "planning" | "review" | "executing" | "paused" | "completed"
-
-export interface PlanStep {
-  index: number
-  phase: string
-  title: string
-  description: string
-  status: "pending" | "in_progress" | "completed" | "skipped" | "failed"
-  durationMs?: number
-}
+export type PlanModeState = "off" | "planning" | "review" | "executing" | "completed"
 
 export interface PlanCardInfo {
   title: string
-  stepCount: number
-  phaseCount: number
 }
 
 const PLAN_MODE_STATES = new Set<PlanModeState>([
@@ -27,7 +15,6 @@ const PLAN_MODE_STATES = new Set<PlanModeState>([
   "planning",
   "review",
   "executing",
-  "paused",
   "completed",
 ])
 
@@ -50,28 +37,13 @@ function normalizePlanContent(value: unknown): string {
   return typeof raw === "string" ? raw : ""
 }
 
-function normalizePlanSteps(value: unknown): PlanStep[] {
-  return Array.isArray(value) ? (value as PlanStep[]) : []
-}
-
-function parsePlanStepsFromContent(content: string): PlanStep[] {
-  return detectPlanContent(content).steps.map((step) => ({
-    ...step,
-    description: "",
-  }))
-}
-
 export interface UsePlanModeReturn {
   planState: PlanModeState
   setPlanState: React.Dispatch<React.SetStateAction<PlanModeState>>
-  planSteps: PlanStep[]
-  setPlanSteps: React.Dispatch<React.SetStateAction<PlanStep[]>>
   planContent: string
   setPlanContent: React.Dispatch<React.SetStateAction<string>>
   showPanel: boolean
   setShowPanel: React.Dispatch<React.SetStateAction<boolean>>
-  progress: number
-  completedCount: number
   planCardInfo: PlanCardInfo | null
   pendingQuestionGroup: AskUserQuestionGroup | null
   setPendingQuestionGroup: React.Dispatch<React.SetStateAction<AskUserQuestionGroup | null>>
@@ -79,8 +51,6 @@ export interface UsePlanModeReturn {
   enterPlanMode: () => Promise<void>
   exitPlanMode: () => Promise<void>
   approvePlan: () => Promise<void>
-  pauseExecution: () => Promise<void>
-  resumeExecution: () => Promise<void>
   openPlanPanel: () => Promise<void>
 }
 
@@ -93,7 +63,6 @@ export function usePlanMode(
   // Use external state if provided (for sharing with useChatStream)
   const planState = externalPlanState ?? internalPlanState
   const setPlanState = externalSetPlanState ?? internalSetPlanState
-  const [planSteps, setPlanSteps] = useState<PlanStep[]>([])
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)
   const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
@@ -136,6 +105,7 @@ export function usePlanMode(
     setPlanState("off")
     setShowPanel(false)
     setPlanCardInfo(null)
+    setPlanContent("")
     queueMicrotask(() => {
       setPendingQuestionGroup(null)
     })
@@ -152,28 +122,6 @@ export function usePlanMode(
     }
   }, [currentSessionId, setPlanState])
 
-  // Pause execution
-  const pauseExecution = useCallback(async () => {
-    if (!currentSessionId) return
-    try {
-      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "paused" })
-      setPlanState("paused")
-    } catch (e) {
-      logger.error("plan", "usePlanMode::pause", "Failed to pause plan", e)
-    }
-  }, [currentSessionId, setPlanState])
-
-  // Resume execution
-  const resumeExecution = useCallback(async () => {
-    if (!currentSessionId) return
-    try {
-      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
-      setPlanState("executing")
-    } catch (e) {
-      logger.error("plan", "usePlanMode::resume", "Failed to resume plan", e)
-    }
-  }, [currentSessionId, setPlanState])
-
   const openPlanPanel = useCallback(async () => {
     if (!currentSessionId) {
       setShowPanel(true)
@@ -181,29 +129,20 @@ export function usePlanMode(
     }
 
     try {
-      const [rawState, rawSteps, rawContent] = await Promise.all([
+      const [rawState, rawContent] = await Promise.all([
         getTransport().call<unknown>("get_plan_mode", { sessionId: currentSessionId }),
-        getTransport().call<unknown>("get_plan_steps", { sessionId: currentSessionId }),
         getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId }),
       ])
       const content = normalizePlanContent(rawContent)
-      let steps = normalizePlanSteps(rawSteps)
-      if (steps.length === 0 && content.trim()) {
-        steps = parsePlanStepsFromContent(content)
-      }
-
-      let state = normalizePlanModeState(rawState)
-      if (state === "off" && content.trim()) {
-        state = "review"
-        getTransport()
-          .call("set_plan_mode", { sessionId: currentSessionId, state })
-          .catch(() => {})
-      }
+      const state = normalizePlanModeState(rawState)
 
       setPlanState(state)
-      setPlanSteps(steps)
       setPlanContent(content)
-      if (state !== "off" && (state === "planning" || content.trim() || steps.length > 0)) {
+      // Open the panel for any plan-with-content even when backend state=off
+      // (user exited but the file is still on disk) — user explicitly asked
+      // to view it via the message-stream SubmitPlanResult card; treat as
+      // read-only without resurrecting backend state.
+      if (state === "planning" || content.trim()) {
         setShowPanel(true)
       }
     } catch (e) {
@@ -229,7 +168,6 @@ export function usePlanMode(
       if (!preSessionPlanRef.current) {
         setPlanState("off")
         queueMicrotask(() => {
-          setPlanSteps([])
           setPlanContent("")
           setShowPanel(false)
           setPlanCardInfo(null)
@@ -247,7 +185,6 @@ export function usePlanMode(
     if (!shouldMaterializePreSessionPlan && sessionChanged) {
       setPlanState("off")
       queueMicrotask(() => {
-        setPlanSteps([])
         setPlanContent("")
         setShowPanel(false)
         setPlanCardInfo(null)
@@ -288,21 +225,15 @@ export function usePlanMode(
     // Otherwise, load plan state from backend (e.g. restoring a historical session)
     Promise.all([
       getTransport().call<unknown>("get_plan_mode", { sessionId: currentSessionId }),
-      getTransport().call<unknown>("get_plan_steps", { sessionId: currentSessionId }),
       getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId }),
     ])
-      .then(([rawState, rawSteps, rawContent]) => {
+      .then(([rawState, rawContent]) => {
         if (cancelled) return
         const s = normalizePlanModeState(rawState)
-        let steps = normalizePlanSteps(rawSteps)
         const content = normalizePlanContent(rawContent)
-        if (steps.length === 0 && content.trim()) {
-          steps = parsePlanStepsFromContent(content)
-        }
-        const hasPlanData = !!content?.trim() || (steps || []).length > 0
+        const hasPlanData = !!content?.trim()
         if (s !== "off" && s !== "planning" && !hasPlanData) {
           setPlanState("off")
-          setPlanSteps([])
           setPlanContent("")
           setShowPanel(false)
           setPlanCardInfo(null)
@@ -311,27 +242,25 @@ export function usePlanMode(
             .catch(() => {})
           return
         }
-        let restoredState = s
-        if (s === "off" && content.trim()) {
-          restoredState = "review"
-          getTransport()
-            .call("set_plan_mode", { sessionId: currentSessionId, state: restoredState })
-            .catch(() => {})
-        }
+        const restoredState = s
         setPlanState(restoredState)
-        setPlanSteps(steps || [])
         setPlanContent(content || "")
         if (restoredState === "off") {
           setShowPanel(false)
           setPlanCardInfo(null)
         }
-        // Only auto-show panel when plan content exists (not during initial planning)
-        if (restoredState !== "off" && content) setShowPanel(true)
+        // Exclude completed: don't hijack chat area when reopening a finished session.
+        if (
+          restoredState !== "off" &&
+          restoredState !== "completed" &&
+          content
+        ) {
+          setShowPanel(true)
+        }
       })
       .catch(() => {
         if (cancelled) return
         setPlanState("off")
-        setPlanSteps([])
         setPlanContent("")
         setShowPanel(false)
         setPlanCardInfo(null)
@@ -342,84 +271,45 @@ export function usePlanMode(
     }
   }, [currentSessionId, setPlanState])
 
-  // Listen for plan_content_updated events (backend detected plan in LLM output)
-  useEffect(() => {
-    return getTransport().listen("plan_content_updated", (raw) => {
-      const payload = raw as { sessionId: string; stepCount: number; content: string }
-      if (payload.sessionId !== currentSessionId) return
-      setPlanContent(payload.content)
-      getTransport().call<PlanStep[]>("get_plan_steps", { sessionId: payload.sessionId })
-        .then((steps) => {
-          if (steps && steps.length > 0) {
-            setPlanSteps(steps)
-          }
-        })
-        .catch(() => {})
-    })
-  }, [currentSessionId])
-
-  // Listen for plan_step_updated events
-  useEffect(() => {
-    return getTransport().listen("plan_step_updated", (raw) => {
-      const payload = raw as { sessionId: string; stepIndex: number; status: string; durationMs?: number }
-      if (payload.sessionId !== currentSessionId) return
-      setPlanSteps((prev) =>
-        prev.map((s) =>
-          s.index === payload.stepIndex
-            ? {
-                ...s,
-                status: payload.status as PlanStep["status"],
-                durationMs: payload.durationMs ?? s.durationMs,
-              }
-            : s
-        )
-      )
-    })
-  }, [currentSessionId])
-
   // Listen for plan_mode_changed events (auto-transition)
   useEffect(() => {
     return getTransport().listen("plan_mode_changed", (raw) => {
       const payload = raw as { sessionId: string; state: string; reason?: string }
       if (payload.sessionId !== currentSessionId) return
-      setPlanState(normalizePlanModeState(payload.state))
+      const next = normalizePlanModeState(payload.state)
+      // Skip the React update when the state is already correct so downstream
+      // memo-ed consumers (PlanPanel / TitleBar / ChatInput) don't re-render
+      // for redundant events.
+      setPlanState((prev) => (prev === next ? prev : next))
     })
   }, [currentSessionId, setPlanState])
 
-  // Listen for plan_submitted events (LLM submitted a plan via submit_plan tool)
   useEffect(() => {
     return getTransport().listen("plan_submitted", (raw) => {
-      const payload = raw as { sessionId: string; title: string; stepCount: number; phaseCount: number; steps: PlanStep[] }
+      const payload = raw as { sessionId: string; title: string; content?: string }
       if (payload.sessionId !== currentSessionId) return
-      setPlanCardInfo({
-        title: payload.title,
-        stepCount: payload.stepCount,
-        phaseCount: payload.phaseCount,
-      })
-      setPlanSteps(payload.steps)
-      setPlanState("review")
+      setPlanCardInfo({ title: payload.title })
+      setShowPanel(true)
+      setPlanState((prev) => (prev === "review" ? prev : "review"))
       setPendingQuestionGroup(null)
-      // Load the plan content and auto-show panel
-      getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId })
+      if (payload.content) {
+        setPlanContent(payload.content)
+        return
+      }
+      // Fallback only when the event arrived without content (older backend
+      // builds, or future emit paths that skip the embed). See F-039 in
+      // review-followups.md for the open "panel doesn't refresh on rapid
+      // re-submit" investigation — root cause not yet pinned to React state
+      // vs event timing, so the refetch here is a safety net not a fix.
+      getTransport()
+        .call<unknown>("get_plan_content", { sessionId: payload.sessionId })
         .then((rawContent) => {
-          const content = normalizePlanContent(rawContent)
-          if (content) {
-            setPlanContent(content)
-            setShowPanel(true)
-          }
+          const fresh = normalizePlanContent(rawContent)
+          if (fresh) setPlanContent(fresh)
         })
         .catch(() => {})
     })
   }, [currentSessionId, setPlanState])
-
-  // Listen for plan_amended events (steps changed during execution via amend_plan tool)
-  useEffect(() => {
-    return getTransport().listen("plan_amended", (raw) => {
-      const payload = raw as { sessionId: string; steps: PlanStep[]; stepCount: number }
-      if (payload.sessionId !== currentSessionId) return
-      setPlanSteps(payload.steps)
-    })
-  }, [currentSessionId])
 
   // Listen for ask_user_request events emitted by the ask_user_question tool.
   useEffect(() => {
@@ -453,29 +343,13 @@ export function usePlanMode(
     }
   }, [planState])
 
-  // Calculate progress
-  const completedCount = useMemo(() => {
-    return planSteps.filter(
-      (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed"
-    ).length
-  }, [planSteps])
-
-  const progress = useMemo(() => {
-    if (planSteps.length === 0) return 0
-    return Math.round((completedCount / planSteps.length) * 100)
-  }, [planSteps.length, completedCount])
-
   return {
     planState,
     setPlanState,
-    planSteps,
-    setPlanSteps,
     planContent,
     setPlanContent,
     showPanel,
     setShowPanel,
-    progress,
-    completedCount,
     planCardInfo,
     pendingQuestionGroup,
     setPendingQuestionGroup,
@@ -483,8 +357,6 @@ export function usePlanMode(
     enterPlanMode,
     exitPlanMode,
     approvePlan,
-    pauseExecution,
-    resumeExecution,
     openPlanPanel,
   }
 }

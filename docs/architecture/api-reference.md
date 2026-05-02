@@ -254,6 +254,9 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `respond_to_approval` | `POST /api/chat/approval` | ✅ |
 | `save_attachment` | `POST /api/chat/attachment` | ✅ (multipart) |
 | `list_builtin_tools` | `GET /api/chat/tools` | ✅ |
+| `list_session_tasks` | `GET /api/sessions/{sessionId}/tasks` | ✅ TaskProgressPanel 用户控件 |
+| `update_task_status` | `PATCH /api/tasks/{id}/status` | ✅ TaskProgressPanel 用户控件 |
+| `delete_task` | `DELETE /api/tasks/{id}` | ✅ TaskProgressPanel 用户控件 |
 
 ### Providers
 
@@ -405,8 +408,6 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `get_plan_mode` | `GET /api/plan/{sessionId}/mode` | ✅ |
 | `set_plan_mode` | `POST /api/plan/{sessionId}/mode` | ✅ |
-| `get_plan_steps` | `GET /api/plan/{sessionId}/steps` | ✅ |
-| `update_plan_step_status` | `POST /api/plan/{sessionId}/steps/update` | ✅ |
 | `get_plan_content` | `GET /api/plan/{sessionId}/content` | ✅ |
 | `save_plan_content` | `PUT /api/plan/{sessionId}/content` | ✅ |
 | `get_plan_file_path` | `GET /api/plan/{sessionId}/file-path` | ✅ |

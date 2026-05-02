@@ -79,6 +79,19 @@ impl<'a> StreamingChatAdapter for AnthropicStreamingAdapter<'a> {
                 }));
             }
         }
+        // Task reminder: appended as a plain system block WITHOUT cache_control
+        // — Anthropic caps total cache_control breakpoints at 4 (system prefix,
+        // awareness, active_memory, last tool). Adding a 5th would silently
+        // 400. The reminder is short (~250 tokens) and changes whenever task
+        // state shifts, so caching it would rarely hit anyway.
+        if let Some(task_suffix) = req.task_reminder_suffix {
+            if !task_suffix.is_empty() {
+                system_blocks.push(json!({
+                    "type": "text",
+                    "text": task_suffix,
+                }));
+            }
+        }
         let system_with_cache = json!(system_blocks);
 
         // Tools are static — add cache_control to the last tool definition.

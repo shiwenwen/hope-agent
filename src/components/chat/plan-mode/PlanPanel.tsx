@@ -1,4 +1,4 @@
-import { useMemo, useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { getTransport } from "@/lib/transport-provider"
@@ -9,8 +9,6 @@ import {
   X,
   Play,
   Loader2,
-  CheckCircle,
-  Pause,
   History,
   RotateCcw,
   MessageSquareQuote,
@@ -23,26 +21,20 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { useTranslation } from "react-i18next"
-import { groupStepsByPhase } from "./planParser"
-import { PlanStepItem } from "./PlanStepItem"
-import type { PlanModeState, PlanStep } from "./usePlanMode"
+import type { PlanModeState } from "./usePlanMode"
+import { buildPlanCommentMessage, type BuiltPlanComment } from "./planCommentMessage"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { CommentPopover } from "./CommentPopover"
 
 interface PlanPanelProps {
   planState: PlanModeState
-  planSteps: PlanStep[]
   planContent: string
-  progress: number
-  completedCount: number
   sessionId: string | null
   onApprove: () => void
   onExit: () => void
   onClose: () => void
-  onPause?: () => void
-  onResume?: () => void
   onContinue?: () => void
-  onRequestChanges?: (feedback: string) => void
+  onRequestChanges?: (built: BuiltPlanComment) => void
   isExecutionActive?: boolean
   panelWidth?: number
   embedded?: boolean
@@ -50,16 +42,11 @@ interface PlanPanelProps {
 
 export function PlanPanel({
   planState,
-  planSteps,
   planContent,
-  progress,
-  completedCount,
   sessionId,
   onApprove,
   onExit,
   onClose,
-  onPause,
-  onResume,
   onContinue,
   onRequestChanges,
   isExecutionActive = false,
@@ -73,8 +60,6 @@ export function PlanPanel({
     { version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]
   >([])
   const [loadingVersions, setLoadingVersions] = useState(false)
-  const [hasCheckpoint, setHasCheckpoint] = useState(false)
-  const [rollingBack, setRollingBack] = useState(false)
   const [maximized, setMaximized] = useState(false)
   const [detached, setDetached] = useState(false)
   const detachedWindowRef = useRef<WebviewWindow | null>(null)
@@ -170,33 +155,6 @@ export function PlanPanel({
       logger.error("plan", "PlanPanel::loadVersions", "Failed to load plan versions", e)
     } finally {
       setLoadingVersions(false)
-    }
-  }, [sessionId])
-
-  // Check for git checkpoint availability
-  useEffect(() => {
-    if (!sessionId) return
-    if (planState === "executing" || planState === "paused" || planState === "completed") {
-      getTransport()
-        .call<string | null>("get_plan_checkpoint", { sessionId })
-        .then((ref) => setHasCheckpoint(!!ref))
-        .catch(() => setHasCheckpoint(false))
-    } else {
-      setHasCheckpoint(false)
-    }
-  }, [sessionId, planState])
-
-  const handleRollback = useCallback(async () => {
-    if (!sessionId) return
-    setRollingBack(true)
-    try {
-      const msg = await getTransport().call<string>("plan_rollback", { sessionId })
-      logger.info("plan", "PlanPanel::rollback", "Rollback result", msg)
-      setHasCheckpoint(false)
-    } catch (e) {
-      logger.error("plan", "PlanPanel::rollback", "Failed to rollback", e)
-    } finally {
-      setRollingBack(false)
     }
   }, [sessionId])
 
@@ -308,48 +266,23 @@ export function PlanPanel({
     if (!canCommentNow) clearHighlight()
   }, [planState, onRequestChanges, clearHighlight])
 
-  // Submit comment: format as quoted selection + comment and send to model
+  // Submit comment: build {prompt, displayText} pair so the LLM gets the full
+  // XML revision request while the user bubble shows a friendly quote+comment.
   const handleCommentSubmit = useCallback(
     (comment: string) => {
       if (!commentPopover || !onRequestChanges) return
-      const feedback = [
-        `<plan-inline-comment>`,
-        `The user selected the following section from the current plan and requests a revision:`,
-        ``,
-        `<selected-text>`,
-        commentPopover.selectedText,
-        `</selected-text>`,
-        ``,
-        `<revision-request>`,
-        comment,
-        `</revision-request>`,
-        ``,
-        `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
-        `</plan-inline-comment>`,
-      ].join("\n")
-      onRequestChanges(feedback)
+      onRequestChanges(buildPlanCommentMessage(commentPopover.selectedText, comment, t))
       clearHighlight()
       setCommentPopover(null)
       window.getSelection()?.removeAllRanges()
     },
-    [commentPopover, onRequestChanges, clearHighlight],
+    [commentPopover, onRequestChanges, clearHighlight, t],
   )
 
-  const groupedPhases = useMemo(() => groupStepsByPhase(planSteps), [planSteps])
-
-  const allDone =
-    planSteps.length > 0 &&
-    planSteps.every(
-      (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed",
-    )
-
-  const showProgressBar =
-    planState === "executing" || planState === "paused" || planState === "completed" || allDone
-  // Show markdown content in review and planning states (read-only)
-  const showMarkdown = planContent && (planState === "review" || planState === "planning")
-  // Show step list in executing/paused/completed states
-  const showStepList =
-    planState === "executing" || planState === "paused" || planState === "completed"
+  // Plan markdown is the single rendered view across all states. Progress is
+  // tracked separately via the task_* tools and rendered by TaskProgressPanel
+  // and TaskBlock outside this panel.
+  const showMarkdown = !!planContent
 
   // Title bar icon color based on state
   const iconColor =
@@ -357,11 +290,9 @@ export function PlanPanel({
       ? "text-green-500"
       : planState === "executing"
         ? "text-blue-500"
-        : planState === "paused"
-          ? "text-yellow-500"
-          : planState === "review"
-            ? "text-purple-500"
-            : "text-blue-500"
+        : planState === "review"
+          ? "text-purple-500"
+          : "text-blue-500"
 
   // Whether inline commenting is enabled
   const canComment = (planState === "review" || planState === "planning") && !!onRequestChanges
@@ -499,39 +430,6 @@ export function PlanPanel({
         </div>
       </div>
 
-      {/* Progress bar */}
-      {showProgressBar && planSteps.length > 0 && (
-        <div className="px-3 py-2 border-b border-border/50">
-          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-            <span>
-              {completedCount}/{planSteps.length} {t("planMode.stepsCompleted")}
-            </span>
-            <span>{progress}%</span>
-          </div>
-          <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-            <div
-              className={cn(
-                "h-full rounded-full transition-all duration-500 ease-out",
-                planState === "completed" || allDone
-                  ? "bg-green-500"
-                  : planState === "paused"
-                    ? "bg-yellow-500"
-                    : "bg-blue-500",
-              )}
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        </div>
-      )}
-
-      {/* Paused banner */}
-      {planState === "paused" && (
-        <div className="px-3 py-2 bg-yellow-500/10 border-b border-yellow-500/20 text-sm text-yellow-600 flex items-center gap-2">
-          <Pause className="h-3.5 w-3.5" />
-          {t("planMode.pausedBanner")}
-        </div>
-      )}
-
       {/* Comment hint banner */}
       {canComment && showMarkdown && (
         <div className="px-3 py-1.5 bg-blue-500/5 border-b border-blue-500/10 text-[11px] text-muted-foreground flex items-center gap-1.5">
@@ -605,32 +503,13 @@ export function PlanPanel({
           </div>
         )}
 
-        {/* No content placeholder for planning state */}
-        {planState === "planning" && !planContent && (
+        {/* No content placeholder when plan file is empty */}
+        {!planContent && (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
             <ClipboardList className="h-8 w-8 mb-3 opacity-30" />
-            <span className="text-sm">{t("planMode.planning")}</span>
-          </div>
-        )}
-
-        {/* Executing / Paused / Completed: step list with progress */}
-        {showStepList && (
-          <div className="px-3 py-2 space-y-1">
-            {groupedPhases.map((phase) => (
-              <div key={phase.name} className="mb-3">
-                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
-                  {phase.name}
-                </div>
-                {phase.steps.map((step) => (
-                  <PlanStepItem key={step.index} step={step} detailed />
-                ))}
-              </div>
-            ))}
-            {planSteps.length === 0 && (
-              <div className="text-sm text-muted-foreground text-center py-8">
-                {t("planMode.noSteps")}
-              </div>
-            )}
+            <span className="text-sm">
+              {planState === "planning" ? t("planMode.planning") : t("planMode.noPlanYet", "No plan yet")}
+            </span>
           </div>
         )}
 
@@ -671,8 +550,8 @@ export function PlanPanel({
           </>
         )}
 
-        {/* Executing: show status + pause button */}
-        {planState === "executing" && !allDone && (
+        {/* Executing: show status + optional resume button */}
+        {planState === "executing" && (
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-blue-600">
               {isExecutionActive ? (
@@ -682,12 +561,6 @@ export function PlanPanel({
               )}
               <span>{isExecutionActive ? t("planMode.executing") : t("planMode.executionIdle")}</span>
             </div>
-            {isExecutionActive && onPause && (
-              <Button size="sm" variant="outline" onClick={onPause} className="gap-1.5">
-                <Pause className="h-3.5 w-3.5" />
-                {t("planMode.pause")}
-              </Button>
-            )}
             {!isExecutionActive && onContinue && (
               <Button size="sm" variant="outline" onClick={onContinue} className="gap-1.5">
                 <Play className="h-3.5 w-3.5" />
@@ -697,65 +570,11 @@ export function PlanPanel({
           </div>
         )}
 
-        {/* Paused: resume, rollback, or exit */}
-        {planState === "paused" && (
-          <>
-            {onResume && (
-              <Button
-                className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
-                onClick={onResume}
-              >
-                <Play className="h-4 w-4 mr-2" />
-                {t("planMode.resume")}
-              </Button>
-            )}
-            {hasCheckpoint && (
-              <Button
-                variant="outline"
-                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
-                onClick={handleRollback}
-                disabled={rollingBack}
-              >
-                {rollingBack ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                )}
-                {t("planMode.rollback")}
-              </Button>
-            )}
-            <Button variant="ghost" className="w-full" onClick={onExit}>
-              {t("planMode.exitWithout")}
-            </Button>
-          </>
-        )}
-
-        {/* Completed */}
-        {(planState === "completed" || allDone) && (
-          <>
-            <div className="flex items-center gap-2 text-sm text-green-600">
-              <CheckCircle className="h-4 w-4" />
-              <span>{t("planMode.completed")}</span>
-            </div>
-            {hasCheckpoint && planSteps.some((s) => s.status === "failed") && (
-              <Button
-                variant="outline"
-                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
-                onClick={handleRollback}
-                disabled={rollingBack}
-              >
-                {rollingBack ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                )}
-                {t("planMode.rollback")}
-              </Button>
-            )}
-            <Button variant="ghost" className="w-full" onClick={onExit}>
-              {t("planMode.exitWithout")}
-            </Button>
-          </>
+        {/* Completed / off-with-content (read-only history view): panel-only Close. */}
+        {(planState === "completed" || planState === "off") && (
+          <Button variant="ghost" className="w-full" onClick={onClose}>
+            {t("common.close")}
+          </Button>
         )}
       </div>
     </div>

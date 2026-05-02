@@ -137,6 +137,14 @@
     "tasks": "Tareas",
     "taskProgress": "{{completed}}/{{total}} completadas",
     "taskNoneYet": "Aún no hay tareas",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Marcar como pendiente",
+        "in_progress": "Marcar como en curso",
+        "completed": "Marcar como completada"
+      },
+      "delete": "Eliminar tarea"
+    },
     "justNow": "Justo ahora",
     "minutesAgo": "hace {{count}}min",
     "hoursAgo": "hace {{count}}h",
@@ -414,12 +422,11 @@
     "pdf": "Leer PDF",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Actualizar paso del plan",
     "ask_user_question": "Preguntar al usuario",
     "tool_search": "Buscar herramientas",
     "acp_spawn": "Iniciar Agent ACP",
     "submit_plan": "Enviar plan",
-    "amend_plan": "Modificar plan",
+    "enter_plan_mode": "Proponer Plan Mode",
     "task_create": "Crear tarea",
     "task_update": "Actualizar tarea",
     "task_list": "Listar tareas",
@@ -669,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "Proponiendo Plan Mode",
+          "completed": "Plan Mode propuesto",
+          "failed": "Error al proponer Plan Mode"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -1397,7 +1399,7 @@
     "chatAutoExpandThinking": "Expandir el proceso de pensamiento automáticamente",
     "chatAutoExpandThinkingDesc": "Expandir automáticamente los bloques de pensamiento en las burbujas de chat. Cuando está desactivado, haz clic para expandir manualmente.",
     "toolCallNarration": "Anunciar llamadas a herramientas",
-    "toolCallNarrationDesc": "Cuando está activo, instruye al modelo a anteceder cada llamada de herramienta con una frase de presentación (estilo Claude Code). Algunos modelos (p. ej. GPT-5.4) abusan y repiten la misma intención entre llamadas consecutivas, creando duplicación visible. Desactivado por defecto.",
+    "toolCallNarrationDesc": "Cuando está activo, instruye al modelo a anteceder cada llamada de herramienta con una frase de presentación y cerrar el turno con un resumen breve (estilo Claude Code). Activado por defecto — los usuarios del canal IM no ven la UI de llamadas de herramienta, sin narración parece que el bot se colgó. Desactívalo si tu modelo (p. ej. GPT-5.4 vía Codex) lo aplica en exceso y repite la misma intención entre llamadas consecutivas.",
     "sessionTitle": "Generar títulos de chat automáticamente",
     "sessionTitleDesc": "Mantiene el título de la primera frase al instante y luego genera uno conciso tras la primera respuesta del asistente.",
     "sessionTitleModel": "Modelo para títulos",
@@ -2991,6 +2993,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "¿Entrar en Plan Mode? El modelo explorará primero, hará preguntas de clarificación y redactará un plan por escrito para tu revisión antes de empezar.",
+      "contextPrefix": "El modelo sugiere entrar en Plan Mode antes de realizar esta tarea. Motivo: ",
+      "contextNoReason": "El modelo sugiere entrar en Plan Mode antes de realizar esta tarea.",
+      "option": {
+        "yes": {
+          "label": "Entrar en Plan Mode",
+          "description": "Cambia a Plan Mode ahora; el modelo comenzará a redactar el plan."
+        },
+        "no": {
+          "label": "Omitir planificación",
+          "description": "Permanece en modo normal; el modelo continuará la tarea directamente."
+        }
+      }
+    },
     "enter": "Entrar en Plan Mode",
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",
@@ -3006,29 +3024,18 @@
     "showPlan": "Mostrar plan",
     "executing": "Ejecutando plan...",
     "executionIdle": "La ejecución del plan está esperando continuar",
-    "stepsCompleted": "pasos completados",
     "completed": "Completado",
     "placeholder": "Describe lo que quieres lograr...",
     "panelTitle": "Plan de ejecución",
-    "editorPlaceholder": "Edita el contenido del plan aquí...\n\n## Background\nDescribe el contexto: qué problema resolver, por qué y el resultado esperado\n\n### Phase 1: Análisis\n- [ ] Descripción del paso\n\n### Phase 2: Implementación\n- [ ] Descripción del paso",
-    "stepsDetected": "pasos detectados",
-    "noSteps": "Sin pasos",
-    "executeCommand": "Empieza a ejecutar el plan. Completa cada paso en orden, llamando a update_plan_step para registrar el progreso.",
+    "submittingPlan": "Enviando plan…",
+    "commentDisplay": "Comentario al plan",
+    "executeCommand": "Empieza a ejecutar el plan aprobado. Llama a task_create con una lista concisa de todos derivada del plan; antes de empezar cada todo márcalo in_progress y al terminar márcalo completed (usa task_update). Mantén como máximo un todo in_progress a la vez.",
     "executionApproved": "Plan aprobado. Iniciando la ejecución.",
     "executionResumed": "Continuando la ejecución del plan.",
     "planning": "Creando plan...",
-    "pause": "Pausar",
     "resume": "Reanudar",
-    "pausedBanner": "La ejecución del plan está pausada",
     "review": {
       "badge": "Revisión"
-    },
-    "paused": {
-      "badge": "Pausado"
-    },
-    "card": {
-      "phases": "fases",
-      "steps": "pasos"
     },
     "versions": "Historial de versiones",
     "versionHistory": "Versiones del plan",
@@ -3041,7 +3048,6 @@
     "popOut": "Abrir en ventana aparte",
     "popOutActive": "Abierto en ventana aparte",
     "reattach": "Volver al panel",
-    "rollback": "Revertir cambios",
     "comment": {
       "hint": "Selecciona texto para añadir comentarios y refinar el plan colaborativamente",
       "placeholder": "Sugiere cambios para el contenido seleccionado...",
@@ -3053,6 +3059,7 @@
       "submit": "Enviar respuestas",
       "retry": "Reintentar",
       "answered": "Respondido",
+      "pending": "Esperando tu respuesta…",
       "customPlaceholder": "Escribe una respuesta personalizada...",
       "customRequired": "Escribe una respuesta personalizada o elige otra opción.",
       "recommended": "Recomendado",
@@ -3061,7 +3068,8 @@
       "preview": "Vista previa",
       "timeoutHint": "Tiempo restante",
       "timedOut": "tiempo agotado"
-    }
+    },
+    "noPlanYet": "Aún no hay plan"
   },
   "canvas": {
     "refresh": "Actualizar",

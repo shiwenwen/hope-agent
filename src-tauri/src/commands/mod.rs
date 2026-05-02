@@ -31,5 +31,6 @@ pub mod runtime_tasks;
 pub mod session;
 pub mod skills;
 pub mod subagent;
+pub mod tasks;
 pub mod team;
 pub mod url_preview;

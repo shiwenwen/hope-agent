@@ -69,7 +69,7 @@ pub async fn dispatch(
         "agents" => agent::handle_agents(),
 
         // ── Plan ──
-        "plan" => plan::handle_plan(session_db()?, session_id, args).await,
+        "plan" => plan::handle_plan(session_id, args).await,
 
         // ── Project ──
         "project" => project::handle_project(session_db()?, session_id, args),

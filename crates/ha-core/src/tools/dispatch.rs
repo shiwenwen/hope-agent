@@ -270,9 +270,9 @@ pub fn resolve_tool_fate(def: &ToolDefinition, ctx: &DispatchContext) -> ToolFat
 /// time. Every other consumer reads tier metadata only and doesn't care.
 static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| {
     use super::definitions::{
-        get_acp_spawn_tool, get_amend_plan_tool, get_available_tools, get_canvas_tool,
-        get_image_generate_tool_dynamic, get_notification_tool, get_plan_step_tool,
-        get_subagent_tool, get_submit_plan_tool, get_tool_search_tool, get_web_search_tool,
+        get_acp_spawn_tool, get_available_tools, get_canvas_tool, get_enter_plan_mode_tool,
+        get_image_generate_tool_dynamic, get_notification_tool, get_subagent_tool,
+        get_submit_plan_tool, get_tool_search_tool, get_web_search_tool,
     };
     let mut tools = get_available_tools();
     tools.extend([
@@ -283,9 +283,8 @@ static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| 
         get_acp_spawn_tool(),
         get_tool_search_tool(),
         get_web_search_tool(),
+        get_enter_plan_mode_tool(),
         get_submit_plan_tool(),
-        get_amend_plan_tool(),
-        get_plan_step_tool(),
         super::job_status::get_job_status_tool(),
     ]);
     tools
