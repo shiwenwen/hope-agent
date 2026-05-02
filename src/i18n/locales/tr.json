@@ -116,7 +116,7 @@
     "toolCalling": "Araç çağrılıyor...",
     "startConversation": "Sohbet başlat",
     "subagentFrom": "{{agent}} tarafından devredildi",
-    "subagentResultCompleted": "Tamamlandı, sonuç sohbete eklendi",
+    "subagentResultCompleted": "Tamamlandı",
     "asyncToolJobFallbackName": "Arka plan görevi",
     "asyncToolJobNames": {
       "exec": "Komut yürütme",
@@ -126,11 +126,11 @@
       "browser": "Tarayıcı işlemi"
     },
     "asyncToolJobStatuses": {
-      "completed": "Tamamlandı, sonuç sohbete eklendi",
-      "failed": "Başarısız oldu, hata sohbete eklendi",
-      "timed_out": "Zaman aşımına uğradı, ayrıntılar sohbete eklendi",
+      "completed": "Sonuç geri geldi",
+      "failed": "Yürütme başarısız",
+      "timed_out": "Yürütme zaman aşımına uğradı",
       "cancelled": "İptal edildi",
-      "interrupted": "Kesintiye uğradı, ayrıntılar sohbete eklendi",
+      "interrupted": "Kesintiye uğradı",
       "running": "Hâlâ çalışıyor"
     },
     "newChat": "Yeni Sohbet",

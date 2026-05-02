@@ -116,7 +116,7 @@
     "toolCalling": "Đang gọi công cụ...",
     "startConversation": "Bắt đầu hội thoại",
     "subagentFrom": "Được ủy quyền bởi {{agent}}",
-    "subagentResultCompleted": "Đã hoàn tất, kết quả đã được thêm vào cuộc trò chuyện",
+    "subagentResultCompleted": "Đã hoàn tất",
     "asyncToolJobFallbackName": "Tác vụ nền",
     "asyncToolJobNames": {
       "exec": "Thực thi lệnh",
@@ -126,11 +126,11 @@
       "browser": "Thao tác trình duyệt"
     },
     "asyncToolJobStatuses": {
-      "completed": "Đã hoàn tất, kết quả đã được thêm vào cuộc trò chuyện",
-      "failed": "Thất bại, lỗi đã được thêm vào cuộc trò chuyện",
-      "timed_out": "Đã hết thời gian, chi tiết đã được thêm vào cuộc trò chuyện",
+      "completed": "Kết quả đã quay lại",
+      "failed": "Thực thi thất bại",
+      "timed_out": "Thực thi hết thời gian",
       "cancelled": "Đã hủy",
-      "interrupted": "Bị gián đoạn, chi tiết đã được thêm vào cuộc trò chuyện",
+      "interrupted": "Bị gián đoạn",
       "running": "Vẫn đang chạy"
     },
     "newChat": "Cuộc trò chuyện mới",

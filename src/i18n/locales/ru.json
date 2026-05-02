@@ -116,7 +116,7 @@
     "toolCalling": "Вызов инструментов...",
     "startConversation": "Начать разговор",
     "subagentFrom": "Делегировано от {{agent}}",
-    "subagentResultCompleted": "Завершено, результат добавлен в чат",
+    "subagentResultCompleted": "Завершено",
     "asyncToolJobFallbackName": "Фоновая задача",
     "asyncToolJobNames": {
       "exec": "Выполнение команды",
@@ -126,11 +126,11 @@
       "browser": "Действие браузера"
     },
     "asyncToolJobStatuses": {
-      "completed": "Завершено, результат добавлен в чат",
-      "failed": "Сбой, ошибка добавлена в чат",
-      "timed_out": "Время истекло, подробности добавлены в чат",
+      "completed": "Результат вернулся",
+      "failed": "Выполнение не удалось",
+      "timed_out": "Время выполнения истекло",
       "cancelled": "Отменено",
-      "interrupted": "Прервано, подробности добавлены в чат",
+      "interrupted": "Прервано",
       "running": "Всё ещё выполняется"
     },
     "newChat": "Новый чат",

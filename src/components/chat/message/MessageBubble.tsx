@@ -16,7 +16,6 @@ import { PlanCommentBubble } from "./PlanCommentBubble"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
-import { getToolDisplayName } from "./executionStatus"
 
 export interface MessageBubbleProps {
   msg: Message
@@ -89,24 +88,37 @@ function parseSubagentResultDetail(content: string): string | undefined {
   return match?.[1]?.trim()
 }
 
+function parseSubagentResultStatus(content: string): string {
+  const status = content.match(/^Status:\s*(\S+)/m)?.[1]
+  switch (status) {
+    case "completed":
+      return "completed"
+    case "timeout":
+      return "timed_out"
+    case "killed":
+      return "cancelled"
+    case "running":
+    case "spawning":
+      return "running"
+    case "error":
+      return "failed"
+    default:
+      return "completed"
+  }
+}
+
 function getSubagentResultDisplay(
   msg: Message,
-  agents: AgentSummaryForSidebar[],
   t: TFunction,
 ): { name: string; statusText: string; isToolJob: boolean; detail?: string } {
   const agentId = msg.subagentResultAgentId
+  const name = String(t("chat.asyncToolJobFallbackName"))
   if (agentId?.startsWith(TOOL_JOB_AGENT_PREFIX)) {
     const payload = parseToolJobPayload(msg.content)
-    const toolName = payload?.toolName || agentId.slice(TOOL_JOB_AGENT_PREFIX.length)
     const status =
       payload?.status && TOOL_JOB_STATUSES.has(payload.status) ? payload.status : "completed"
-    const fallbackName = toolName
-      ? getToolDisplayName(t, toolName)
-      : String(t("chat.asyncToolJobFallbackName"))
     return {
-      name: toolName
-        ? String(t(`chat.asyncToolJobNames.${toolName}`, { defaultValue: fallbackName }))
-        : fallbackName,
+      name,
       statusText: String(
         t(`chat.asyncToolJobStatuses.${status}`, {
           defaultValue: t("chat.asyncToolJobStatuses.completed"),
@@ -117,12 +129,14 @@ function getSubagentResultDisplay(
     }
   }
 
+  const status = parseSubagentResultStatus(msg.content)
   return {
-    name:
-      agents.find((a) => a.id === agentId)?.name ||
-      agentId ||
-      String(t("chat.subagent")),
-    statusText: String(t("chat.subagentResultCompleted")),
+    name,
+    statusText: String(
+      t(`chat.asyncToolJobStatuses.${status}`, {
+        defaultValue: t("chat.asyncToolJobStatuses.completed"),
+      }),
+    ),
     isToolJob: false,
     detail: parseSubagentResultDetail(msg.content),
   }
@@ -241,8 +255,7 @@ function MessageBubbleInner({
   }
 
   if (msg.isSubagentResult) {
-    const resultDisplay = getSubagentResultDisplay(msg, agents, t)
-    const ResultIcon = resultDisplay.isToolJob ? Timer : Network
+    const resultDisplay = getSubagentResultDisplay(msg, t)
     const hasDetail = !!resultDisplay.detail
     return (
       <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
@@ -257,27 +270,15 @@ function MessageBubbleInner({
           className={cn(
             "flex flex-wrap items-center gap-1.5 max-w-full px-3 py-1.5 rounded-full border text-xs transition-colors",
             hasDetail && "cursor-pointer",
-            resultDisplay.isToolJob
-              ? "bg-sky-500/8 border-sky-500/20 text-sky-400/80 hover:bg-sky-500/15"
-              : "bg-purple-500/8 border-purple-500/20 text-purple-400/80 hover:bg-purple-500/15",
+            "bg-sky-500/8 border-sky-500/20 text-sky-400/80 hover:bg-sky-500/15",
             !hasDetail && "disabled:cursor-default",
           )}
         >
-          <ResultIcon
-            className={cn(
-              "w-3 h-3 shrink-0",
-              resultDisplay.isToolJob ? "text-sky-500" : "text-purple-500",
-            )}
-          />
-          <span
-            className={cn(
-              "font-medium",
-              resultDisplay.isToolJob ? "text-sky-500" : "text-purple-500",
-            )}
-          >
+          <Timer className="w-3 h-3 shrink-0 text-sky-500" />
+          <span className="font-medium text-sky-500">
             {resultDisplay.name}
           </span>
-          <span className={resultDisplay.isToolJob ? "text-sky-400/50" : "text-purple-400/50"}>
+          <span className="text-sky-400/50">
             ·
           </span>
           <span>{resultDisplay.statusText}</span>
@@ -286,7 +287,7 @@ function MessageBubbleInner({
               className={cn(
                 "w-3 h-3 shrink-0 transition-transform duration-200",
                 resultExpanded && "rotate-180",
-                resultDisplay.isToolJob ? "text-sky-500/70" : "text-purple-500/70",
+                "text-sky-500/70",
               )}
             />
           )}

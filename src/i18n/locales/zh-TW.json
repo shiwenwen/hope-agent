@@ -116,7 +116,7 @@
     "toolCalling": "工具調用中...",
     "startConversation": "開始對話",
     "subagentFrom": "由 {{agent}} 指派",
-    "subagentResultCompleted": "已完成，結果已加入對話",
+    "subagentResultCompleted": "已完成",
     "asyncToolJobFallbackName": "背景任務",
     "asyncToolJobNames": {
       "exec": "命令執行",
@@ -126,12 +126,12 @@
       "browser": "瀏覽器操作"
     },
     "asyncToolJobStatuses": {
-      "completed": "已完成，結果已加入對話",
-      "failed": "失敗了，錯誤已加入對話",
-      "timed_out": "逾時了，詳情已加入對話",
+      "completed": "結果回來了",
+      "failed": "執行失敗",
+      "timed_out": "執行逾時",
       "cancelled": "已取消",
-      "interrupted": "已中斷，詳情已加入對話",
-      "running": "仍在執行"
+      "interrupted": "已中斷",
+      "running": "還在執行"
     },
     "newChat": "新建對話",
     "tasks": "任務",
