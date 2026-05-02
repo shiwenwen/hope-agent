@@ -19,23 +19,25 @@ const virtualizerMock = vi.hoisted(() => ({
 }))
 
 vi.mock("@tanstack/react-virtual", () => ({
-  useVirtualizer: vi.fn((options: { count: number; getItemKey: (index: number) => string | number }) => {
-    const instance = {
-      scrollToIndex: virtualizerMock.scrollToIndex,
-      measureElement: virtualizerMock.measureElement,
-      getVirtualItems: () =>
-        Array.from({ length: options.count }, (_, index) => ({
-          index,
-          key: options.getItemKey(index),
-          start: index * 40,
-        })),
-      getTotalSize: () => options.count * 40,
-      scrollRect: { height: 300 },
-      shouldAdjustScrollPositionOnItemSizeChange: undefined,
-    }
-    virtualizerMock.latestInstance = instance
-    return instance
-  }),
+  useVirtualizer: vi.fn(
+    (options: { count: number; getItemKey: (index: number) => string | number }) => {
+      const instance = {
+        scrollToIndex: virtualizerMock.scrollToIndex,
+        measureElement: virtualizerMock.measureElement,
+        getVirtualItems: () =>
+          Array.from({ length: options.count }, (_, index) => ({
+            index,
+            key: options.getItemKey(index),
+            start: index * 40,
+          })),
+        getTotalSize: () => options.count * 40,
+        scrollRect: { height: 300 },
+        shouldAdjustScrollPositionOnItemSizeChange: undefined,
+      }
+      virtualizerMock.latestInstance = instance
+      return instance
+    },
+  ),
 }))
 
 interface Row {
@@ -52,9 +54,9 @@ function flushRaf() {
   callbacks.forEach((callback) => callback(performance.now()))
 }
 
-function setScrollMetrics(el: HTMLElement, scrollTop: number) {
+function setScrollMetrics(el: HTMLElement, scrollTop: number, scrollHeight = 1000) {
   Object.defineProperty(el, "scrollHeight", {
-    value: 1000,
+    value: scrollHeight,
     configurable: true,
   })
   Object.defineProperty(el, "clientHeight", {
@@ -69,14 +71,24 @@ function FeedHarness({
   forceFollowKey = null,
   followOutput = false,
   resetKey = "session-a",
+  rowSet = rows,
+  onStartReached,
+  canLoadMore = false,
+  loadingMore = false,
+  startThreshold = 80,
 }: {
   followKey: string
   forceFollowKey?: string | null
   followOutput?: boolean
   resetKey?: string
+  rowSet?: Row[]
+  onStartReached?: () => void | Promise<void>
+  canLoadMore?: boolean
+  loadingMore?: boolean
+  startThreshold?: number
 }) {
   const { scrollRef, isAutoFollowPaused, hasUnseenOutput, resumeAutoFollow } = useVirtualFeed({
-    rows,
+    rows: rowSet,
     getRowKey: (row) => row.id,
     estimateSize: () => 40,
     followKey,
@@ -84,6 +96,10 @@ function FeedHarness({
     followOutput,
     resetKey,
     bottomThreshold: 80,
+    onStartReached,
+    canLoadMore,
+    loadingMore,
+    startThreshold,
   })
 
   return (
@@ -257,5 +273,34 @@ describe("useVirtualFeed auto-follow", () => {
       align: "end",
       behavior: "auto",
     })
+  })
+
+  test("keeps the visible anchor in place when older rows are prepended", () => {
+    const onStartReached = vi.fn()
+    const { rerender } = render(
+      <FeedHarness followKey="a" onStartReached={onStartReached} canLoadMore startThreshold={80} />,
+    )
+    const scroller = screen.getByTestId("scroller")
+
+    setScrollMetrics(scroller, 40, 1000)
+    fireEvent.scroll(scroller)
+
+    expect(onStartReached).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("paused").textContent).toBe("true")
+
+    setScrollMetrics(scroller, 40, 1040)
+    virtualizerMock.scrollToIndex.mockClear()
+    rerender(
+      <FeedHarness
+        followKey="a"
+        rowSet={[{ id: "older" }, ...rows]}
+        onStartReached={onStartReached}
+        canLoadMore
+        startThreshold={80}
+      />,
+    )
+
+    expect(virtualizerMock.scrollToIndex).toHaveBeenCalledWith(1, { align: "start" })
+    expect(scroller.scrollTop).toBe(80)
   })
 })

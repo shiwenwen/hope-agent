@@ -5,6 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { AgentSummary } from "@/components/settings/types"
 
 interface AgentSelectorProps {
@@ -22,19 +23,21 @@ export default function AgentSelector({
   loading,
   disabled,
 }: AgentSelectorProps) {
+  const selectedAgent = agents.find((agent) => agent.id === value)
+
   return (
     <Select value={value} onValueChange={onChange} disabled={disabled || loading}>
       <SelectTrigger className="h-8 text-xs bg-secondary/40">
-        <SelectValue placeholder={loading ? "…" : "Select agent"} />
+        {selectedAgent ? (
+          <AgentSelectDisplay agent={selectedAgent} size="xs" />
+        ) : (
+          <SelectValue placeholder={loading ? "…" : "Select agent"} />
+        )}
       </SelectTrigger>
       <SelectContent>
         {agents.map((a) => (
-          <SelectItem key={a.id} value={a.id}>
-            <span className="inline-flex items-center gap-1.5">
-              <span>{a.emoji ?? "🤖"}</span>
-              <span>{a.name}</span>
-              <span className="text-muted-foreground font-mono text-[10px]">({a.id})</span>
-            </span>
+          <SelectItem key={a.id} value={a.id} textValue={a.name}>
+            <AgentSelectDisplay agent={a} size="xs" />
           </SelectItem>
         ))}
       </SelectContent>

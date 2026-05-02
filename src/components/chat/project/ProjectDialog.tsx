@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import { cn } from "@/lib/utils"
 import { formatBytes } from "@/lib/format"
 import { isTauriMode } from "@/lib/transport"
@@ -135,6 +136,7 @@ export default function ProjectDialog({
     "idle",
   )
   const [error, setError] = useState("")
+  const selectedDefaultAgent = agents.find((agent) => agent.id === defaultAgentId)
 
   useEffect(() => {
     if (!open) return
@@ -443,14 +445,17 @@ export default function ProjectDialog({
                   onValueChange={(v) => setDefaultAgentId(v === "__none__" ? "" : v)}
                 >
                   <SelectTrigger className="h-10">
-                    <SelectValue placeholder={t("project.inheritGlobal")} />
+                    {selectedDefaultAgent ? (
+                      <AgentSelectDisplay agent={selectedDefaultAgent} />
+                    ) : (
+                      <SelectValue placeholder={t("project.inheritGlobal")} />
+                    )}
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__">{t("project.inheritGlobal")}</SelectItem>
                     {agents.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.emoji ? `${a.emoji} ` : ""}
-                        {a.name}
+                      <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                        <AgentSelectDisplay agent={a} />
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -26,6 +26,7 @@ interface UseVirtualFeedOptions<T> {
 interface ScrollAnchor {
   key: RowKey
   offset: number
+  rowCount: number
   scrollHeight: number
   scrollTop: number
 }
@@ -61,7 +62,9 @@ export function useVirtualFeed<T>({
   const lastTouchYRef = useRef<number | null>(null)
   const startLoadPendingRef = useRef(false)
   const pendingAnchorRef = useRef<ScrollAnchor | null>(null)
+  const allowAnchorSizeCorrectionRef = useRef(false)
   const rafIdRef = useRef<number | null>(null)
+  const anchorCorrectionRafRef = useRef<number | null>(null)
   const [isAutoFollowPaused, setIsAutoFollowPausedState] = useState(false)
   const [hasUnseenOutput, setHasUnseenOutputState] = useState(false)
   const [isAtBottom, setIsAtBottomState] = useState(true)
@@ -133,8 +136,10 @@ export function useVirtualFeed<T>({
     useAnimationFrameWithResizeObserver: true,
   })
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
+    const shouldMaintainViewport = item.start < (instance.scrollOffset ?? 0)
+    if (allowAnchorSizeCorrectionRef.current) return shouldMaintainViewport
     if (isAutoFollowPausedRef.current) return false
-    return item.start < (instance.scrollOffset ?? 0)
+    return shouldMaintainViewport
   }
 
   const scrollToBottom = useCallback(
@@ -180,16 +185,31 @@ export function useVirtualFeed<T>({
     pendingAnchorRef.current = {
       key: getRowKeyRef.current(row, first.index),
       offset: first.start - el.scrollTop,
+      rowCount: rowsRef.current.length,
       scrollHeight: el.scrollHeight,
       scrollTop: el.scrollTop,
     }
   }, [virtualizer])
+
+  const scheduleAnchorCorrectionEnd = useCallback(() => {
+    if (anchorCorrectionRafRef.current !== null) {
+      cancelAnimationFrame(anchorCorrectionRafRef.current)
+    }
+
+    anchorCorrectionRafRef.current = requestAnimationFrame(() => {
+      anchorCorrectionRafRef.current = requestAnimationFrame(() => {
+        allowAnchorSizeCorrectionRef.current = false
+        anchorCorrectionRafRef.current = null
+      })
+    })
+  }, [])
 
   const triggerStartLoad = useCallback(() => {
     if (!onStartReachedRef.current) return
     if (!canLoadMoreRef.current || loadingMoreRef.current || startLoadPendingRef.current) return
 
     captureAnchor()
+    pauseAutoFollow(false)
     startLoadPendingRef.current = true
     void Promise.resolve(onStartReachedRef.current())
       .catch(() => {
@@ -203,7 +223,7 @@ export function useVirtualFeed<T>({
           pendingAnchorRef.current = null
         }, 250)
       })
-  }, [captureAnchor])
+  }, [captureAnchor, pauseAutoFollow])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -297,25 +317,39 @@ export function useVirtualFeed<T>({
     if (!anchor) return
     const el = scrollRef.current
     if (!el) return
+    if (rows.length === anchor.rowCount && el.scrollHeight === anchor.scrollHeight) return
 
     const index = rows.findIndex((row, i) => getRowKey(row, i) === anchor.key)
-    requestAnimationFrame(() => {
-      const latest = scrollRef.current
-      if (!latest) return
-      if (index >= 0) {
-        virtualizer.scrollToIndex(index, { align: "start" })
-        requestAnimationFrame(() => {
-          const next = scrollRef.current
-          if (!next) return
-          next.scrollTop = Math.max(0, next.scrollTop - anchor.offset)
-        })
-      } else {
-        latest.scrollTop = Math.max(0, anchor.scrollTop + latest.scrollHeight - anchor.scrollHeight)
+    allowAnchorSizeCorrectionRef.current = true
+
+    const fallbackTop = Math.max(0, anchor.scrollTop + el.scrollHeight - anchor.scrollHeight)
+
+    if (index >= 0) {
+      const beforeIndexScrollTop = el.scrollTop
+      virtualizer.scrollToIndex(index, { align: "start" })
+      el.scrollTop =
+        el.scrollTop === beforeIndexScrollTop
+          ? fallbackTop
+          : Math.max(0, el.scrollTop - anchor.offset)
+    } else {
+      el.scrollTop = fallbackTop
+    }
+
+    lastScrollTopRef.current = el.scrollTop
+    updateAtBottom(el)
+    pendingAnchorRef.current = null
+    startLoadPendingRef.current = false
+    scheduleAnchorCorrectionEnd()
+  }, [getRowKey, rows, scheduleAnchorCorrectionEnd, updateAtBottom, virtualizer])
+
+  useEffect(() => {
+    return () => {
+      if (anchorCorrectionRafRef.current !== null) {
+        cancelAnimationFrame(anchorCorrectionRafRef.current)
+        anchorCorrectionRafRef.current = null
       }
-      pendingAnchorRef.current = null
-      startLoadPendingRef.current = false
-    })
-  }, [getRowKey, rows, virtualizer])
+    }
+  }, [])
 
   const lastResetKeyRef = useRef<RowKey | null>(null)
   useLayoutEffect(() => {
