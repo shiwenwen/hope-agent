@@ -4,6 +4,7 @@ use crate::agent::AssistantAgent;
 use crate::context_compact::CompactConfig;
 use crate::provider::{self, ActiveModel, AuthProfile, ProviderConfig};
 use crate::session::{self, SessionDB};
+use serde_json::{json, Value};
 
 // ── Agent Construction ──────────────────────────────────────────────
 
@@ -49,8 +50,9 @@ pub(super) async fn build_agent_from_snapshot(
 /// Restore conversation history from DB into the agent.
 pub fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
     if let Ok(Some(json_str)) = db.load_context(session_id) {
-        if let Ok(history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+        if let Ok(mut history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
             if !history.is_empty() {
+                let repaired = repair_failed_prefix_from_messages(db, session_id, &mut history);
                 app_debug!(
                     "session",
                     "chat_engine",
@@ -60,6 +62,9 @@ pub fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &Assi
                     json_str.len()
                 );
                 agent.set_conversation_history(history);
+                if repaired {
+                    save_agent_context(db, session_id, agent);
+                }
             }
         }
     }
@@ -71,6 +76,205 @@ pub fn save_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &Assista
     if let Ok(json_str) = serde_json::to_string(&history) {
         let _ = db.save_context(session_id, &json_str);
     }
+}
+
+/// Preserve a failed user turn in the model-facing conversation context.
+///
+/// The visible message row is inserted before model execution, but
+/// `context_json` is normally saved only after a successful assistant turn.
+/// If the provider request fails before completion, the next "retry" message
+/// would otherwise lose the original task from the model's history. Store a
+/// compact assistant-side failure marker as well so the model can distinguish
+/// "no answer was produced" from a normal assistant reply.
+pub fn persist_failed_turn_context(
+    db: &Arc<SessionDB>,
+    session_id: &str,
+    user_message: &str,
+    error: &str,
+) {
+    let mut history = db
+        .load_context(session_id)
+        .ok()
+        .flatten()
+        .and_then(|json_str| serde_json::from_str::<Vec<Value>>(&json_str).ok())
+        .unwrap_or_default();
+
+    push_user_for_failed_turn(&mut history, user_message);
+
+    let error = crate::util::truncate_utf8(error.trim(), 2_000);
+    let marker = if error.is_empty() {
+        "[System event] Previous assistant turn failed before producing a response.".to_string()
+    } else {
+        format!(
+            "[System event] Previous assistant turn failed before producing a response. Error: {}",
+            error
+        )
+    };
+    if !last_assistant_message_is(&history, &marker) {
+        history.push(json!({ "role": "assistant", "content": marker }));
+    }
+
+    if let Ok(json_str) = serde_json::to_string(&history) {
+        let _ = db.save_context(session_id, &json_str);
+    }
+}
+
+fn push_user_for_failed_turn(history: &mut Vec<Value>, user_message: &str) {
+    let user_message = user_message.trim();
+    if user_message.is_empty() {
+        return;
+    }
+
+    if let Some(last) = history.last_mut() {
+        if last.get("role").and_then(|r| r.as_str()) == Some("user") {
+            if value_text_contains(last.get("content"), user_message) {
+                return;
+            }
+            let existing = last.get("content").cloned().unwrap_or(Value::Null);
+            last["content"] = merge_user_content(existing, user_message);
+            return;
+        }
+    }
+
+    if history.iter().rev().take(4).any(|item| {
+        item.get("role").and_then(|r| r.as_str()) == Some("user")
+            && value_text_contains(item.get("content"), user_message)
+    }) {
+        return;
+    }
+
+    history.push(json!({ "role": "user", "content": user_message }));
+}
+
+fn repair_failed_prefix_from_messages(
+    db: &Arc<SessionDB>,
+    session_id: &str,
+    history: &mut Vec<Value>,
+) -> bool {
+    let Some(first_history_user) = history.iter().find_map(history_user_text) else {
+        return false;
+    };
+
+    let Ok(messages) = db.load_session_messages(session_id) else {
+        return false;
+    };
+
+    let Some(anchor_idx) = messages.iter().position(|msg| {
+        matches!(msg.role, session::MessageRole::User)
+            && !msg.content.trim().is_empty()
+            && first_history_user.contains(msg.content.trim())
+    }) else {
+        return false;
+    };
+    if anchor_idx == 0 {
+        return false;
+    }
+
+    let Some(failed_tail) = failed_turn_tail_before_anchor(&messages[..anchor_idx]) else {
+        return false;
+    };
+
+    let mut prefix = Vec::new();
+    for msg in failed_tail {
+        match msg.role {
+            session::MessageRole::User => push_user_for_failed_turn(&mut prefix, &msg.content),
+            session::MessageRole::Assistant if !msg.content.trim().is_empty() => {
+                prefix.push(json!({ "role": "assistant", "content": msg.content.trim() }));
+            }
+            session::MessageRole::Event if msg.is_error.unwrap_or(false) => {
+                let error = crate::util::truncate_utf8(msg.content.trim(), 2_000);
+                prefix.push(json!({
+                    "role": "assistant",
+                    "content": format!(
+                        "[System event] Previous assistant turn failed before producing a response. Error: {}",
+                        error
+                    )
+                }));
+            }
+            _ => {}
+        }
+    }
+
+    if prefix.is_empty() {
+        return false;
+    }
+
+    prefix.extend(std::mem::take(history));
+    *history = prefix;
+    true
+}
+
+fn failed_turn_tail_before_anchor(
+    messages_before_anchor: &[session::SessionMessage],
+) -> Option<&[session::SessionMessage]> {
+    let last = messages_before_anchor.last()?;
+    if !matches!(last.role, session::MessageRole::Event) || !last.is_error.unwrap_or(false) {
+        return None;
+    }
+
+    let start = messages_before_anchor
+        .iter()
+        .rposition(|msg| matches!(msg.role, session::MessageRole::User))?;
+    Some(&messages_before_anchor[start..])
+}
+
+fn history_user_text(item: &Value) -> Option<String> {
+    if item.get("role").and_then(|r| r.as_str()) != Some("user") {
+        return None;
+    }
+    value_text(item.get("content"))
+}
+
+fn merge_user_content(existing: Value, user_message: &str) -> Value {
+    match existing {
+        Value::String(old) if old.is_empty() => json!(user_message),
+        Value::String(old) => json!(format!("{}\n\n{}", old, user_message)),
+        Value::Array(mut parts) => {
+            parts.push(json!({ "type": "text", "text": user_message }));
+            Value::Array(parts)
+        }
+        _ => json!(user_message),
+    }
+}
+
+fn value_text(value: Option<&Value>) -> Option<String> {
+    match value {
+        Some(Value::String(text)) => Some(text.clone()),
+        Some(Value::Array(parts)) => {
+            let text = parts
+                .iter()
+                .filter_map(|part| {
+                    part.get("text")
+                        .or_else(|| part.get("content"))
+                        .and_then(|v| v.as_str())
+                })
+                .collect::<Vec<_>>()
+                .join("");
+            (!text.is_empty()).then_some(text)
+        }
+        _ => None,
+    }
+}
+
+fn value_text_contains(value: Option<&Value>, needle: &str) -> bool {
+    match value {
+        Some(Value::String(text)) => text.contains(needle),
+        Some(Value::Array(parts)) => parts.iter().any(|part| {
+            part.get("text")
+                .or_else(|| part.get("content"))
+                .and_then(|v| v.as_str())
+                .is_some_and(|text| text.contains(needle))
+        }),
+        _ => false,
+    }
+}
+
+fn last_assistant_message_is(history: &[Value], content: &str) -> bool {
+    history
+        .last()
+        .filter(|item| item.get("role").and_then(|r| r.as_str()) == Some("assistant"))
+        .and_then(|item| item.get("content"))
+        .is_some_and(|value| value_text_contains(Some(value), content))
 }
 
 /// Parse tool_call and tool_result events from the streaming callback and persist to DB.
