@@ -116,6 +116,23 @@
     "toolCalling": "工具调用中...",
     "startConversation": "开始对话",
     "subagentFrom": "由 {{agent}} 指派",
+    "subagentResultCompleted": "已完成，结果已加入对话",
+    "asyncToolJobFallbackName": "后台任务",
+    "asyncToolJobNames": {
+      "exec": "命令执行",
+      "web_search": "网页搜索",
+      "web_fetch": "网页抓取",
+      "image_generate": "图片生成",
+      "browser": "浏览器操作"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "已完成，结果已加入对话",
+      "failed": "失败了，错误已加入对话",
+      "timed_out": "超时了，详情已加入对话",
+      "cancelled": "已取消",
+      "interrupted": "已中断，详情已加入对话",
+      "running": "仍在运行"
+    },
     "newChat": "新建对话",
     "tasks": "任务",
     "taskProgress": "已完成 {{completed}}/{{total}}",
