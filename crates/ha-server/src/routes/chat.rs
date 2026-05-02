@@ -126,8 +126,28 @@ pub async fn chat(
     // session id (we need a session_id to persist).
     let permission_mode_pending = body.permission_mode;
 
-    // Resolve agent ID
-    let agent_id = body.agent_id.unwrap_or_else(|| "default".to_string());
+    // Resolve agent ID. Explicit caller wins; otherwise existing sessions use
+    // their stored agent, while new sessions inherit the app-wide default.
+    let explicit_agent_id = body
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned);
+    let existing_session_id = body
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let agent_id = if let Some(id) = explicit_agent_id {
+        id
+    } else if let Some(session_id) = existing_session_id {
+        db.get_session(session_id)?
+            .map(|session| session.agent_id)
+            .unwrap_or_else(|| ha_core::agent::resolver::resolve_default_agent_id(None, None))
+    } else {
+        ha_core::agent::resolver::resolve_default_agent_id(None, None)
+    };
 
     // Resolve or create session
     let mut new_session_created = false;

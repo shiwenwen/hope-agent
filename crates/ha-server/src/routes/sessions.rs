@@ -113,9 +113,22 @@ pub async fn create_session(
     State(ctx): State<Arc<AppContext>>,
     Json(body): Json<CreateSessionBody>,
 ) -> Result<Json<ha_core::session::SessionMeta>, AppError> {
-    let agent_id = body.agent_id.as_deref().unwrap_or("default");
+    // Caller-supplied agent_id wins. Otherwise follow the same resolver chain
+    // as the desktop command: project default → global default → "default".
+    let explicit_agent_id = body
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let project = match (explicit_agent_id, body.project_id.as_deref()) {
+        (None, Some(project_id)) => ctx.project_db.get(project_id)?,
+        _ => None,
+    };
+    let agent_id = explicit_agent_id.map(ToOwned::to_owned).unwrap_or_else(|| {
+        ha_core::agent::resolver::resolve_default_agent_id(project.as_ref(), None)
+    });
     let meta = ctx.session_db.create_session_with_project(
-        agent_id,
+        &agent_id,
         body.project_id.as_deref(),
         body.incognito,
     )?;
