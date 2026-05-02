@@ -8,7 +8,6 @@ import {
   ChevronRight,
   ClipboardList,
   FolderOpen,
-  Loader2,
   MessageCircleQuestion,
   PanelRight,
 } from "lucide-react"
@@ -43,11 +42,14 @@ export function AskUserQuestionResult({
   }, [result])
 
   if (pending) {
+    // Use the same shimmer style as ToolCallBlock running state for visual
+    // consistency — the rest of the app uses animate-pulse / text-shimmer
+    // for in-flight indicators, never spinner. The icon pulses subtly while
+    // the label text gets the sweeping shimmer treatment.
     return (
       <div className="my-2 flex items-center gap-2 rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
-        <MessageCircleQuestion className="h-4 w-4 shrink-0" />
-        <span className="font-medium">{t("planMode.question.pending")}</span>
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin opacity-70" />
+        <MessageCircleQuestion className="h-4 w-4 shrink-0 animate-pulse" />
+        <span className="font-medium animate-text-shimmer">{t("planMode.question.pending")}</span>
       </div>
     )
   }
@@ -104,13 +106,15 @@ export function SubmitPlanResult({
   const { t } = useTranslation()
 
   if (pending) {
+    // Shimmer-style indicator (same as ToolCallBlock / ThinkingBlock running
+    // state) — keeps the in-flight visual language consistent across the
+    // whole bubble.
     return (
       <div className="my-2 flex items-center gap-2 rounded-lg border border-purple-500/20 bg-purple-500/5 px-4 py-2.5 text-sm text-purple-700 dark:text-purple-400">
-        <ClipboardList className="h-4 w-4 shrink-0" />
-        <span className="font-medium truncate flex-1">
+        <ClipboardList className="h-4 w-4 shrink-0 animate-pulse" />
+        <span className="font-medium truncate flex-1 animate-text-shimmer">
           {title || t("planMode.submittingPlan")}
         </span>
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin opacity-70" />
       </div>
     )
   }
