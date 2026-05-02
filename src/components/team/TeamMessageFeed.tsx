@@ -62,13 +62,12 @@ export function TeamMessageFeed({
     [rows],
   )
 
-  const canAnchorRow = useCallback(
-    (row: TeamFeedRow) => row.type === "message",
-    [],
-  )
+  const canAnchorRow = useCallback((row: TeamFeedRow) => row.type === "message", [])
 
   const lastMessage = messages[messages.length - 1]
-  const followKey = `${messages.length}:${lastMessage?.messageId ?? ""}:${lastMessage?.content.length ?? 0}`
+  const followKey = lastMessage
+    ? `team-latest:${lastMessage.messageId}:${lastMessage.content.length}`
+    : null
   const { scrollRef, virtualizer, virtualItems, totalSize } = useVirtualFeed({
     rows,
     getRowKey,
@@ -83,6 +82,7 @@ export function TeamMessageFeed({
     onStartReached: onLoadMore,
     canLoadMore: hasMore,
     loadingMore,
+    startThreshold: 240,
   })
 
   const handleSend = useCallback(() => {
