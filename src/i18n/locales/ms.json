@@ -116,7 +116,7 @@
     "toolCalling": "Memanggil alat...",
     "startConversation": "Mulakan perbualan",
     "subagentFrom": "Diberikan kuasa oleh {{agent}}",
-    "subagentResultCompleted": "Siap, hasil ditambahkan ke sembang",
+    "subagentResultCompleted": "Siap",
     "asyncToolJobFallbackName": "Tugasan latar belakang",
     "asyncToolJobNames": {
       "exec": "Pelaksanaan arahan",
@@ -126,11 +126,11 @@
       "browser": "Tindakan pelayar"
     },
     "asyncToolJobStatuses": {
-      "completed": "Siap, hasil ditambahkan ke sembang",
-      "failed": "Gagal, ralat ditambahkan ke sembang",
-      "timed_out": "Tamat masa, butiran ditambahkan ke sembang",
+      "completed": "Hasil telah kembali",
+      "failed": "Pelaksanaan gagal",
+      "timed_out": "Pelaksanaan tamat masa",
       "cancelled": "Dibatalkan",
-      "interrupted": "Terganggu, butiran ditambahkan ke sembang",
+      "interrupted": "Terganggu",
       "running": "Masih berjalan"
     },
     "newChat": "Perbualan baharu",

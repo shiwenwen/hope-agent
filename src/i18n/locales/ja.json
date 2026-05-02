@@ -116,7 +116,7 @@
     "toolCalling": "ツール呼び出し中...",
     "startConversation": "会話を開始",
     "subagentFrom": "{{agent}} からの委任",
-    "subagentResultCompleted": "完了しました。結果をこのチャットに追加しました",
+    "subagentResultCompleted": "完了しました",
     "asyncToolJobFallbackName": "バックグラウンドタスク",
     "asyncToolJobNames": {
       "exec": "コマンド実行",
@@ -126,11 +126,11 @@
       "browser": "ブラウザ操作"
     },
     "asyncToolJobStatuses": {
-      "completed": "完了しました。結果をこのチャットに追加しました",
-      "failed": "失敗しました。エラーをこのチャットに追加しました",
-      "timed_out": "タイムアウトしました。詳細をこのチャットに追加しました",
+      "completed": "結果が戻りました",
+      "failed": "実行に失敗しました",
+      "timed_out": "実行がタイムアウトしました",
       "cancelled": "キャンセルされました",
-      "interrupted": "中断されました。詳細をこのチャットに追加しました",
+      "interrupted": "中断されました",
       "running": "まだ実行中です"
     },
     "newChat": "新しいチャット",

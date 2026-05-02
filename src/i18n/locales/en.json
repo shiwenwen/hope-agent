@@ -116,7 +116,7 @@
     "toolCalling": "Calling tools...",
     "startConversation": "Start a conversation",
     "subagentFrom": "Invoked by {{agent}}",
-    "subagentResultCompleted": "Completed, result added to this chat",
+    "subagentResultCompleted": "Completed",
     "asyncToolJobFallbackName": "Background task",
     "asyncToolJobNames": {
       "exec": "Command execution",
@@ -126,11 +126,11 @@
       "browser": "Browser action"
     },
     "asyncToolJobStatuses": {
-      "completed": "Completed, result added to this chat",
-      "failed": "Failed, error added to this chat",
-      "timed_out": "Timed out, details added to this chat",
+      "completed": "Result is back",
+      "failed": "Execution failed",
+      "timed_out": "Execution timed out",
       "cancelled": "Cancelled",
-      "interrupted": "Interrupted, details added to this chat",
+      "interrupted": "Interrupted",
       "running": "Still running"
     },
     "newChat": "New Chat",
