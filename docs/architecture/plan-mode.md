@@ -111,7 +111,7 @@ pub struct PlanMeta {
 
 | 工具 | 文件 | 作用 | 触发 |
 |---|---|---|---|
-| `enter_plan_mode` | [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) | 模型**建议**进入 plan mode（带可选 `reason` 参数）。复用 `ask_user_question` 底层基础设施触发 Yes/No dialog；用户接受才转 Planning state；用户拒绝则保持 Off + tool result 告知模型"用户决定不进 plan mode" | 模型建议 + 用户审批 |
+| `enter_plan_mode` | [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) | 模型**建议**进入 plan mode（带可选 `reason` 参数）。复用 `ask_user_question` 底层基础设施触发 Yes/No dialog；用户接受才转 Planning state；用户拒绝则保持 Off + tool result 告知模型"用户决定不进 plan mode"。Guard 只拒 in-progress 状态（Planning/Review/Executing），允许 `Off` / `Completed` 走完整审批流程（Completed 是状态机允许的 re-entry 路径，让用户能在做完一个 plan 后基于上次 plan 重新规划）。等待用户响应复用 `AppConfig.ask_user_question_timeout_secs` 全局超时，超时按"Skip planning"默认处理（清 pending state + 返回超时 message）让模型继续直接做 | 模型建议 + 用户审批 |
 | `submit_plan` | [`tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs) | Planning 末尾写入 plan 文件 + 转 Review state | 模型自主 |
 | `ask_user_question` | [`tools/ask_user_question.rs`](../../crates/ha-core/src/tools/ask_user_question.rs) | 制定计划期间向用户结构化提问（澄清需求/方案选择） | Planning 期 |
 | `task_create` / `task_update` / `task_list` | [`tools/task.rs`](../../crates/ha-core/src/tools/task.rs) | 进度追踪（实施期唯一进度真相） | Executing 期 |
@@ -133,23 +133,30 @@ pub struct PlanMeta {
 
 ### Plan 文件持久化
 
-- **路径**：`~/.hope-agent/plans/plan-{short_id}-{YYYYMMDDTHHMMSSZ}-{nano}.md`，`short_id` 是 session_id 前 8 字节
-- **版本备份**：覆盖前自动 copy 到 `plan-{...}-v{N}.md`，`N` 在内存 `PlanMeta.version` + 磁盘 `max_disk_version()` 取大者递增（重启后内存计数器重置不会覆盖老备份）
+- **路径**：`~/.hope-agent/plans/<agent_id>/<session_id>/plan-{YYYYMMDDTHHMMSSZ}-{nano}.md`，按 agent + session 双层子目录物理隔离。模型 ls 自己 session 的目录只看到自己的 plan 文件，跨 session 误读路径堵死（解决"模型 ls /plans 看到所有 session 旧文件，按时间戳挑最新的撞上别 session"的根因）
+- **目录构造**：[`paths::session_plans_dir(agent_id, session_id)`](../../crates/ha-core/src/paths.rs) — `agent_id` 与 `session_id` 都做 alphanum + `-` / `_` sanitize 防御 path traversal（深度防御，本身已是 slug/UUID）；[`file_io::session_plans_dir_for(session_id)`](../../crates/ha-core/src/plan/file_io.rs) 内部查 SessionDB 反查 agent_id，DB 缺失（极罕见 session-create vs first-write race）落 `_unknown_agent` bucket 不让写失败
+- **老文件迁移**：[`plan::migrate_flat_plans_to_subdirs`](../../crates/ha-core/src/plan/file_io.rs) 在 `app_init::start_background_tasks` primary 块通过 `spawn_blocking` 跑——扫 `~/.hope-agent/plans/*.md` flat 文件，按文件名前 8 字符 short_id 反查 [`SessionDB::find_sessions_by_id_prefix`](../../crates/ha-core/src/session/db.rs)；唯一匹配 → mv 到 `<agent>/<session>/`；多重/未知匹配留 flat + warn 等人工核对。幂等可重复跑
+- **版本备份**：覆盖前自动 copy 到 `plan-{...}-v{N}.md`（同 session 子目录内），`N` 在内存 `PlanMeta.version` + 磁盘 `max_disk_version()` 取大者递增（重启后内存计数器重置不会覆盖老备份）
 - **写入入口**：`save_plan_file(session_id, content)` —— 唯一被 `submit_plan` 工具调用 + Tauri 命令 `save_plan_content` + HTTP `PUT /api/plan/{sid}/content`
 - **读取入口**：`load_plan_file(session_id) -> Result<Option<String>>`
 
 ### Plan → Completed 的自动转换（task 驱动）
 
-Executing 期间 plan **完成度的唯一信号源是 task 系统**——历史上由 `update_plan_step` 工具的"全 step 终态"自动收尾，那条路径已删，现在改由 [`tools/task.rs::tool_task_update`](../../crates/ha-core/src/tools/task.rs) 接管：
+Executing 期间 plan **完成度的唯一信号源是 task 系统**——历史上由 `update_plan_step` 工具的"全 step 终态"自动收尾，那条路径已删，现在统一走 [`plan::maybe_complete_plan`](../../crates/ha-core/src/plan/transition.rs)（公开 helper）。两条 caller 共用同一 side effect：
 
-1. 模型调 `task_update(id, status: "completed")`
-2. tool 内部 `db.update_task` + `emit task_updated` 之后做 `maybe_complete_plan` 检测：
-   - 本次 status 是 `Completed`
+- **模型驱动路径** [`tools/task.rs::tool_task_update`](../../crates/ha-core/src/tools/task.rs)：模型调 `task_update(id, status: "completed")` 触发
+- **用户驱动路径** [`session::set_task_status_and_snapshot`](../../crates/ha-core/src/session/tasks.rs)：用户在 TaskProgressPanel 手动点完成（或 HTTP `PATCH /api/tasks/{id}/status`）触发
+
+不论哪条路径，逻辑都是：
+
+1. 写入 task 状态 + emit `task_updated` 快照
+2. 若本次 status 是 `Completed` → 调 `maybe_complete_plan(session_id, &tasks)`
+3. helper 内部检测：
    - 当前 plan state 是 `Executing`
    - **plan-期 task 范围**内全部 task 终态（非空）—— 用 `PlanMeta.executing_started_at` 作为切片点过滤 `task.created_at >= start`，避免遗留 pending task 阻塞自动收尾或单纯完成旧 task 误触发完成
-3. 三条全满足 → `transition_state(Completed, "all_tasks_completed")` 走标准副作用包（cleanup git ref + 清 `meta.checkpoint_ref` + DB persist + emit `plan_mode_changed`）
+4. 全满足 → `transition_state(Completed, "all_tasks_completed")` 走标准副作用包（cleanup git ref + 清 `meta.checkpoint_ref` + DB persist + emit `plan_mode_changed`）
 
-`PlanMeta.executing_started_at: Option<String>` 由 [`transition_state`](../../crates/ha-core/src/plan/transition.rs) 在转入 Executing 时 stamp（rfc3339 UTC）。无 stamp（崩溃恢复等极端情况）回退到全 session 检查避免死锁——但 stamp 总会在正常流程中存在。
+**`executing_started_at` 持久化**：`PlanMeta.executing_started_at: Option<String>` 由 [`transition_state`](../../crates/ha-core/src/plan/transition.rs) 在转入 Executing 时 stamp（rfc3339 UTC），同时写到 `sessions.plan_executing_started_at` SQLite 列（migration `ALTER TABLE sessions ADD COLUMN plan_executing_started_at TEXT`）。`restore_from_db` 从 DB 读回 stamp 填到内存 PlanMeta，跨会话切换 / app 重启都能正确恢复切片起点；转 Off 时 DB 列清空。无 stamp（崩溃恢复等极端情况）回退到全 session 检查避免死锁——但 stamp 总会在正常流程中存在。
 
 如果模型在 Executing 期没用 task 系统（比如直接做完一两步小事不拆 todos），plan 会停在 Executing 直到用户手动 `/plan exit` 或新一轮 `task_update` 触发自动收尾。这是有意的——task list 为空时无法判断"是否真的全做完"。
 

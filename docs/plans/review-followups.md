@@ -106,19 +106,6 @@
 无用户阻塞——用户可以主动按 Plan 按钮 / `/plan enter` 进入 plan mode，模型自行判断的"建议"路径只是 nice-to-have 增强。属于"模型主动性 vs 用户专注度"的取舍，决策权在用户偏好。
 
 
-### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
-
-- **来源**：2026-05-02 Plan Mode 重构（plan/task 解耦）`/simplify` review（reuse agent #3 + quality agent #8）
-- **现象**：[`src/components/chat/plan-mode/usePlanComment.ts`](../../src/components/chat/plan-mode/usePlanComment.ts) 是个 155 行的 hook，封装了选区高亮 / `<mark>` 包裹拆解 / mousedown 关闭 popover / 提交 `<plan-inline-comment>` feedback 模板的完整能力——但 `grep usePlanComment` 全 src 只命中定义本身，没有任何调用方。同时 [`PlanPanel.tsx:204-323`](../../src/components/chat/plan-mode/PlanPanel.tsx) 与 [`PlanDetachedWindow.tsx:70-176`](../../src/PlanDetachedWindow.tsx) 各自手写了字节级几乎相同的 ~120 行内联实现（`highlightSelection` / `clearHighlight` / `handleMouseUp` / mousedown effect / `handleCommentSubmit` + `<plan-inline-comment>` 模板），两份唯一差异是 `onRequestChanges` 回调（PlanPanel 走父组件传入的 callback）vs 直接 `setPlanState + transport.startChat`（PlanDetachedWindow 自己驱动）
-- **为什么留**：本期 Plan Mode 重构 `/simplify` 把这条标为 reuse #3 + quality #8 高 ROI，但实测改造影响面较大——PlanPanel 700 行核心面板 + PlanDetachedWindow 350 行独立窗口的 comment 路径重写，需要把 `usePlanComment` hook signature 设计成两边都能复用（PlanPanel 是 callback-driven，DetachedWindow 是 transport-driven），还要回归测试两个面板的 inline 评论体验。本期重构 ROI 已经聚焦在"高频改动 / 影响契约"的代码（plan/task 解耦、状态机瘦身、enter_plan_mode），不混入纯 dedup 性的 cosmetic 重构。`usePlanComment` 本身就是预存死代码（早于本期 PR），不是这次重构产生的债
-- **改的话要做什么**：
-  1. 看清 `usePlanComment.ts:9` 的现有 signature 是不是足以覆盖两个调用点的差异（PlanPanel 用 props.onRequestChanges 把 feedback 抛给父，DetachedWindow 在自己内部 startChat）。如果不够通用，签名扩成 `usePlanComment({ contentRef, sessionId, planState, onSubmit })`——`onSubmit(feedback: string)` 由调用方决定是 callback 还是 startChat
-  2. PlanPanel 把 line 204-323 的整段 highlight / popover / submit 内联实现替换成 `const { commentPopover, ... } = usePlanComment(...)` 一行；保留 `<CommentPopover />` JSX 渲染段
-  3. PlanDetachedWindow 同样替换 line 70-176 的内联实现
-  4. 比对两份内联代码的所有微小差异（mousedown listener 添加时机、selection 边界处理、`<mark>` className 是否一致等），确保 hook 抽出来后两边行为不漂
-  5. 跑 `pnpm typecheck && pnpm lint && pnpm test` + 手动验证两个面板的"选中 markdown 段落 → 弹 popover → 提交评论 → LLM 收到 `<plan-inline-comment>` feedback"完整链路
-- **影响面**：纯重复 / dead-code 债，无功能 / 性能 / 安全问题。两份内联实现行为目前对齐，但任何一边后续改动（比如 popover UI 调整、selection 算法升级）都得手动同步另一边——属于"不优雅"
-- **触发时机建议**：下次有人改 inline comment 体验（CommentPopover UI 重做 / 选区高亮算法升级 / 评论 prompt 模板调整）时**必须**顺手统一到 hook，避免漂移；或者单独排个小重构 PR 一次清掉，包含两文件的 ~200 行净删除
 
 
 ### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
@@ -484,6 +471,12 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
+
+- **关闭于**：2026-05-02，commit a64bcebb + 643cd2d8
+- **如何关闭**：删掉 `usePlanComment.ts` 死 hook（commit a64bcebb），抽 `planCommentMessage.ts` 纯函数 helper `buildPlanCommentMessage(selectedText, comment, t) -> {prompt, displayText, payload}`，PlanPanel + PlanDetachedWindow 的 `handleCommentSubmit` 都调这个 helper 构造请求；`onRequestChanges` 签名后来在 simplify pass (643cd2d8) 进一步收紧成单 `BuiltPlanComment` 对象。两个面板的 highlight / popover state 各自保留（页面级 state，没必要共享）
+- **效果**：核心 prompt + display + payload 构造逻辑统一一处，将来改 prompt 模板或 display 文案只动 `planCommentMessage.ts` 一个文件
 
 ### F-037 Plan state transition 副作用代码在 5 处复制，缺共享 helper
 
