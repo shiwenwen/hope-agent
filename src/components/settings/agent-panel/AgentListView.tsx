@@ -15,6 +15,7 @@ import type { AgentSummary, AgentConfig } from "./types"
 import { DEFAULT_PERSONALITY } from "./types"
 import OpenClawImportDialog from "./OpenClawImportDialog"
 import DefaultAgentSection from "./DefaultAgentSection"
+import { AgentAvatarBadge } from "@/components/common/AgentSelectDisplay"
 
 // ── Agent Create View ───────────────────────────────────────────
 
@@ -219,24 +220,12 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
               className="group h-auto w-full justify-start gap-3 rounded-lg px-3 py-2.5 text-sm font-normal text-foreground hover:bg-secondary/60"
               onClick={() => onEditAgent(agent.id)}
             >
-              {/* Avatar / fallback */}
-              <div className="w-9 h-9 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 overflow-hidden">
-                {agent.avatar ? (
-                  <img
-                    src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-                    className="w-full h-full object-cover"
-                    alt=""
-                  />
-                ) : (
-                  <Bot className="h-5 w-5" />
-                )}
-              </div>
+              <AgentAvatarBadge agent={agent} size="lg" />
 
-              {/* Name + emoji + description */}
+              {/* Name + description */}
               <div className="flex-1 text-left min-w-0">
                 <div className="font-medium truncate flex items-center gap-2">
                   {agent.name}
-                  {agent.emoji ? ` ${agent.emoji}` : ""}
                   {agent.id === "default" && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
                       {t("settings.agentDefault")}

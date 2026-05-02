@@ -9,6 +9,22 @@ import {
 import { Streamdown, type AnimateOptions, type PluginConfig } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
+import {
+  File as FileIcon,
+  FileArchive,
+  FileAudio,
+  FileCode,
+  FileImage,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  FileVideo,
+  Globe,
+  Hash,
+  Link2,
+  Mail,
+  type LucideIcon,
+} from "lucide-react"
 import "streamdown/styles.css"
 import i18next from "i18next"
 import { getTransport } from "@/lib/transport-provider"
@@ -96,6 +112,168 @@ function normalizeLocalPath(href: string): string {
   return href.replace(/#L\d+(-L?\d+)?$/, "")
 }
 
+const IMAGE_EXTENSIONS = new Set([
+  "avif",
+  "bmp",
+  "gif",
+  "ico",
+  "jpeg",
+  "jpg",
+  "png",
+  "svg",
+  "webp",
+])
+
+const AUDIO_EXTENSIONS = new Set([
+  "aac",
+  "aiff",
+  "flac",
+  "m4a",
+  "mp3",
+  "ogg",
+  "opus",
+  "wav",
+  "weba",
+])
+
+const VIDEO_EXTENSIONS = new Set([
+  "avi",
+  "m4v",
+  "mkv",
+  "mov",
+  "mp4",
+  "mpeg",
+  "mpg",
+  "ogv",
+  "webm",
+])
+
+const ARCHIVE_EXTENSIONS = new Set([
+  "7z",
+  "bz2",
+  "dmg",
+  "gz",
+  "rar",
+  "tar",
+  "tgz",
+  "txz",
+  "xz",
+  "zip",
+])
+
+const SPREADSHEET_EXTENSIONS = new Set(["csv", "ods", "tsv", "xls", "xlsm", "xlsx"])
+
+const DOCUMENT_EXTENSIONS = new Set([
+  "doc",
+  "docx",
+  "log",
+  "md",
+  "mdx",
+  "odt",
+  "rtf",
+  "tex",
+  "txt",
+])
+
+const PRESENTATION_EXTENSIONS = new Set(["key", "odp", "ppt", "pptx"])
+
+const CONFIG_EXTENSIONS = new Set([
+  "conf",
+  "config",
+  "env",
+  "ini",
+  "lock",
+  "plist",
+  "properties",
+  "toml",
+  "yaml",
+  "yml",
+])
+
+const DATA_EXTENSIONS = new Set(["json", "jsonl", "parquet", "sqlite", "sqlite3", "xml"])
+
+const CODE_EXTENSIONS = new Set([
+  "c",
+  "cjs",
+  "cpp",
+  "cs",
+  "css",
+  "go",
+  "html",
+  "java",
+  "js",
+  "jsx",
+  "kt",
+  "lua",
+  "mjs",
+  "py",
+  "rs",
+  "scss",
+  "sh",
+  "sql",
+  "svelte",
+  "swift",
+  "ts",
+  "tsx",
+  "vue",
+])
+
+type LinkKind =
+  | "anchor"
+  | "archive"
+  | "audio"
+  | "code"
+  | "config"
+  | "data"
+  | "document"
+  | "file"
+  | "image"
+  | "link"
+  | "mail"
+  | "pdf"
+  | "presentation"
+  | "spreadsheet"
+  | "video"
+  | "web"
+
+interface LinkIconInfo {
+  Icon: LucideIcon
+  kind: LinkKind
+}
+
+function hrefExtension(href: string): string | null {
+  const path = href.split(/[?#]/, 1)[0] ?? ""
+  const lastSegment = path.split("/").pop() ?? ""
+  const dotIndex = lastSegment.lastIndexOf(".")
+  if (dotIndex <= 0 || dotIndex === lastSegment.length - 1) return null
+  return lastSegment.slice(dotIndex + 1).toLowerCase()
+}
+
+function linkIconForHref(href: string | undefined, local: boolean): LinkIconInfo | null {
+  if (!href || href === "streamdown:incomplete-link") return null
+  const extension = hrefExtension(href)
+  if (extension === "pdf") return { Icon: FileText, kind: "pdf" }
+  if (extension && IMAGE_EXTENSIONS.has(extension)) return { Icon: FileImage, kind: "image" }
+  if (extension && AUDIO_EXTENSIONS.has(extension)) return { Icon: FileAudio, kind: "audio" }
+  if (extension && VIDEO_EXTENSIONS.has(extension)) return { Icon: FileVideo, kind: "video" }
+  if (extension && ARCHIVE_EXTENSIONS.has(extension)) return { Icon: FileArchive, kind: "archive" }
+  if (extension && SPREADSHEET_EXTENSIONS.has(extension)) {
+    return { Icon: FileSpreadsheet, kind: "spreadsheet" }
+  }
+  if (extension && PRESENTATION_EXTENSIONS.has(extension)) {
+    return { Icon: FileType, kind: "presentation" }
+  }
+  if (extension && DOCUMENT_EXTENSIONS.has(extension)) return { Icon: FileType, kind: "document" }
+  if (extension && CONFIG_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "config" }
+  if (extension && DATA_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "data" }
+  if (extension && CODE_EXTENSIONS.has(extension)) return { Icon: FileCode, kind: "code" }
+  if (local) return { Icon: FileIcon, kind: "file" }
+  if (href.startsWith("mailto:")) return { Icon: Mail, kind: "mail" }
+  if (href.startsWith("#")) return { Icon: Hash, kind: "anchor" }
+  if (/^https?:\/\//i.test(href)) return { Icon: Globe, kind: "web" }
+  return { Icon: Link2, kind: "link" }
+}
+
 function MarkdownLink({
   href,
   children,
@@ -107,6 +285,8 @@ function MarkdownLink({
   const isIncomplete = href === "streamdown:incomplete-link"
   const local = isLocalPath(href)
   const disabledLocal = local && !getTransport().supportsLocalFileOps()
+  const linkIcon = linkIconForHref(href, local)
+  const LinkIcon = linkIcon?.Icon
   // Native `title` 而非 shadcn Tooltip：Streamdown 流式消息可能渲染上百
   // anchor，包 TooltipTrigger 会爆 DOM 并破坏 anchor 组件签名。Markdown
   // 内联 disabled 提示属合理例外。
@@ -115,12 +295,13 @@ function MarkdownLink({
       {...rest}
       href={href}
       className={cn(
-        "wrap-anywhere font-medium text-primary underline",
+        "wrap-anywhere markdown-link font-medium",
         disabledLocal && "cursor-not-allowed opacity-70",
         className,
       )}
       title={disabledLocal ? i18next.t("common.markdownLinkLocalDisabled") : rest.title}
       data-incomplete={isIncomplete || undefined}
+      data-link-kind={linkIcon?.kind}
       data-streamdown="link"
       onClick={(event) => {
         if (!href || isIncomplete) return
@@ -135,7 +316,8 @@ function MarkdownLink({
         }
       }}
     >
-      {children}
+      {LinkIcon && <LinkIcon aria-hidden="true" className="markdown-link-icon" />}
+      <span className="markdown-link-label">{children}</span>
     </a>
   )
 }
