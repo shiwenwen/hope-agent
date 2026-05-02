@@ -28,6 +28,7 @@ pub use store::{
 };
 
 // File I/O
+pub use file_io::migrate_flat_plans_to_subdirs;
 pub use file_io::{
     delete_plan_file, find_plan_file, list_plan_versions, load_plan_file, load_plan_version,
     save_plan_file,

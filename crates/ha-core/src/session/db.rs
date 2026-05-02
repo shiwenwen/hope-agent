@@ -836,6 +836,27 @@ impl SessionDB {
         Ok(n)
     }
 
+    /// Return up to 5 (session_id, agent_id) pairs whose session id starts
+    /// with `prefix` — used by the plan-files migration to map legacy
+    /// short-id filenames back to their owning session/agent. Cap is 5
+    /// because callers care about "is this prefix unique?" not full lists.
+    pub fn find_sessions_by_id_prefix(&self, prefix: &str) -> Result<Vec<(String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt =
+            conn.prepare("SELECT id, agent_id FROM sessions WHERE id LIKE ?1 || '%' LIMIT 5")?;
+        let rows = stmt.query_map(params![prefix], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
+    }
+
     /// List all sessions, ordered by most recently updated.
     /// Optionally filter by agent_id.
     pub fn list_sessions(&self, agent_id: Option<&str>) -> Result<Vec<SessionMeta>> {
