@@ -3010,7 +3010,7 @@
     "placeholder": "Terangkan apa yang anda mahu capai...",
     "panelTitle": "Pelan pelaksanaan",
     "submittingPlan": "Menghantar pelan…",
-    "commentQuotedFrom": "Dipetik dari pelan",
+    "commentDisplay": "Komen pelan",
     "executeCommand": "Mula melaksanakan pelan yang diluluskan. Panggil task_create dengan senarai todo ringkas yang diambil daripada pelan; sebelum memulakan setiap todo tandakan in_progress dengan task_update, dan completed sebaik selesai. Hanya satu todo dalam in_progress pada satu masa.",
     "executionApproved": "Pelan diluluskan. Memulakan pelaksanaan.",
     "executionResumed": "Meneruskan pelaksanaan pelan.",

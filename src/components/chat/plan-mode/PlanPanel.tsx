@@ -35,7 +35,11 @@ interface PlanPanelProps {
   onExit: () => void
   onClose: () => void
   onContinue?: () => void
-  onRequestChanges?: (prompt: string, displayText: string) => void
+  onRequestChanges?: (
+    prompt: string,
+    displayText: string,
+    payload: { selectedText: string; comment: string },
+  ) => void
   isExecutionActive?: boolean
   panelWidth?: number
   embedded?: boolean
@@ -301,12 +305,12 @@ export function PlanPanel({
   const handleCommentSubmit = useCallback(
     (comment: string) => {
       if (!commentPopover || !onRequestChanges) return
-      const { prompt, displayText } = buildPlanCommentMessage(
+      const { prompt, displayText, payload } = buildPlanCommentMessage(
         commentPopover.selectedText,
         comment,
         t,
       )
-      onRequestChanges(prompt, displayText)
+      onRequestChanges(prompt, displayText, payload)
       clearHighlight()
       setCommentPopover(null)
       window.getSelection()?.removeAllRanges()

@@ -138,7 +138,7 @@ export default function PlanDetachedWindow() {
   const handleCommentSubmit = useCallback(
     async (comment: string) => {
       if (!commentPopover || !sessionId) return
-      const { prompt, displayText } = buildPlanCommentMessage(
+      const { prompt, displayText, payload } = buildPlanCommentMessage(
         commentPopover.selectedText,
         comment,
         t,
@@ -156,6 +156,7 @@ export default function PlanDetachedWindow() {
             sessionId,
             planMode: "planning",
             displayText,
+            planComment: payload,
           },
           () => {},
         )

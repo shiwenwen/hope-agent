@@ -55,6 +55,12 @@ pub struct ChatRequest {
     /// Plan Mode approve/resume chip (mirrors the Tauri `chat` command).
     #[serde(default)]
     pub is_plan_trigger: Option<bool>,
+    /// Structured payload for plan inline-comment messages. Stamped into
+    /// `attachments_meta = {"plan_comment": {...}}` for the desktop GUI to
+    /// render PlanCommentBubble. IM channels ignore it. (Mirrors the Tauri
+    /// `chat` command.)
+    #[serde(default)]
+    pub plan_comment: Option<serde_json::Value>,
     /// Draft working dir picked before the session was materialized. Only
     /// honored when this call also creates the session (mirrors the Tauri
     /// `chat` command).
@@ -176,6 +182,9 @@ pub async fn chat(
     // a regular user bubble. Mirrors the Tauri command.
     if body.is_plan_trigger.unwrap_or(false) {
         user_msg.attachments_meta = Some(serde_json::json!({ "plan_trigger": true }).to_string());
+    } else if let Some(payload) = body.plan_comment.as_ref() {
+        user_msg.attachments_meta =
+            Some(serde_json::json!({ "plan_comment": payload }).to_string());
     }
     let _ = db.append_message(&sid, &user_msg);
 

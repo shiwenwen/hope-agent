@@ -55,6 +55,13 @@ pub async fn chat(
     // `attachments_meta = {"plan_trigger": true}` so the UI can render it as a
     // system chip instead of a regular user bubble (Plan Mode approve/resume).
     is_plan_trigger: Option<bool>,
+    // Structured payload for plan inline-comment messages — stamped into
+    // `attachments_meta = {"plan_comment": {selectedText, comment}}`. The
+    // desktop GUI reads this back to render PlanCommentBubble; IM channels
+    // ignore it (they consume `display_text` instead). Mutually exclusive
+    // with `is_plan_trigger` (a comment is not a trigger), `is_plan_trigger`
+    // wins if both are set.
+    plan_comment: Option<serde_json::Value>,
     // Draft working dir picked before the session was materialized. Only honored
     // when this call also creates the session — applies via the same
     // `update_session_working_dir` validation as the explicit setter command.
@@ -223,6 +230,10 @@ pub async fn chat(
     // canned trigger, not a real user input).
     user_msg.attachments_meta = if is_plan_trigger.unwrap_or(false) {
         Some(serde_json::json!({ "plan_trigger": true }).to_string())
+    } else if let Some(payload) = plan_comment.as_ref() {
+        // Plan inline comment: never carries user attachments (the LLM-bound
+        // `message` is the synthetic <plan-inline-comment> XML, not real input).
+        Some(serde_json::json!({ "plan_comment": payload }).to_string())
     } else {
         attachments_meta
     };

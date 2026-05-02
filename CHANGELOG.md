@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`tool_call_narration_enabled` 默认翻为 `true`**：[`AppConfig`](crates/ha-core/src/config/mod.rs) 默认值从 `false` 改为 `true`（含 `#[serde(default = "default_tool_call_narration_enabled")]` helper，老用户升级后 config.json 缺字段也会落到 `true`）。该配置开启后注入 [`TOOL_CALL_NARRATION_GUIDANCE`](crates/ha-core/src/system_prompt/constants.rs)，要求模型在每次工具调用前用一句话说明意图、turn 结束时给一两句小结。这是 Claude Code 同款 vendor 文案，机制 / Tauri 命令 / HTTP 路由 / 设置 GUI（设置 → 聊天 → 工具调用前说明）/ i18n 12 语早已就位，只是默认关。改默认的两个理由：(1) IM Channel 用户场景下没有工具调用 UI，没有解说期间长时间静默像机器人卡死了；(2) 桌面长 tool loop 给用户实时进度信号，等待感和信任感都好得多。GPT-5.4 这类容易过度复读的模型用户可在设置面板里关掉，文案描述 12 语全部更新说明关闭场景。
 
+### Added
+
+- **Plan 内联评论 GUI 专用气泡**：在 desktop GUI 内，"评论计划"产生的 user 消息现在用 [`PlanCommentBubble`](src/components/chat/message/PlanCommentBubble.tsx) 三层布局——头部紫色 chip（图标+"计划评论"label）+ 中间引用区（紫色左竖线 + 软背景 + italic muted text）+ 底部用户评论正文（normal 字号），整体 rounded card 视觉单元。IM 渠道不变，仍然渲染 markdown displayText（"💬 计划评论 / > 引用 / 评论"3 段格式）。实现走 reuse `attachments_meta` JSON 通道（与 `plan_trigger` 同源，零 DB schema 改动）：前端 `sendMessage` 加 `planComment: {selectedText, comment}` option → Tauri/HTTP `chat` 命令接受 `plan_comment` 字段并写入 `attachments_meta = {"plan_comment": {...}}` → [`chatUtils.ts`](src/components/chat/chatUtils.ts) 加载消息时解析为 `Message.planComment` → MessageBubble 检测到该字段 → 走 PlanCommentBubble 而非默认 markdown 气泡。整链路 13 处改动跨前后端，但每处都是 ~5 行的最小适配。
+
 ### Fixed
 
 - **Plan 内联评论三件套 UX 修复**：

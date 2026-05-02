@@ -3010,7 +3010,7 @@
     "placeholder": "Descreva o que você quer alcançar...",
     "panelTitle": "Plano de execução",
     "submittingPlan": "Enviando plano…",
-    "commentQuotedFrom": "Citado do plano",
+    "commentDisplay": "Comentário no plano",
     "executeCommand": "Inicie a execução do plano aprovado. Chame task_create com uma lista concisa de todos a partir do plano; antes de iniciar cada todo marque-o como in_progress e, ao terminar, como completed (use task_update). Mantenha no máximo um todo in_progress por vez.",
     "executionApproved": "Plano aprovado. Iniciando a execução.",
     "executionResumed": "Continuando a execução do plano.",

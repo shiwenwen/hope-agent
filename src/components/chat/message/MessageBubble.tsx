@@ -11,6 +11,7 @@ import FileAttachments from "./FileAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
 import { AssistantContentBlocks, AssistantLegacyContent } from "./MessageContent"
+import { PlanCommentBubble } from "./PlanCommentBubble"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
@@ -180,6 +181,14 @@ function MessageBubbleInner({
         <span>{msg.content}</span>
       </div>
     )
+  }
+
+  // Plan inline-comment user message — bespoke layered card (header chip /
+  // quoted selection / comment body) instead of the generic user bubble.
+  // The markdown displayText still lives in `msg.content` as a fallback for
+  // IM channels and historical sessions where the metadata wasn't captured.
+  if (msg.planComment) {
+    return <PlanCommentBubble selectedText={msg.planComment.selectedText} comment={msg.planComment.comment} />
   }
 
   return (

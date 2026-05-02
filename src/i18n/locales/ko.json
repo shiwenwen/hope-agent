@@ -3010,7 +3010,7 @@
     "placeholder": "달성하고 싶은 것을 설명하세요...",
     "panelTitle": "실행 계획",
     "submittingPlan": "계획 제출 중…",
-    "commentQuotedFrom": "계획에서 인용",
+    "commentDisplay": "계획 댓글",
     "executeCommand": "승인된 계획 실행을 시작하세요. task_create 를 호출해 계획에서 간결한 todo 목록을 만들고, 각 todo 를 시작하기 전에 task_update 로 in_progress 로, 완료 후 즉시 completed 로 표시하세요. 동시에 in_progress 는 한 건만.",
     "executionApproved": "계획이 승인되었습니다. 실행을 시작합니다.",
     "executionResumed": "계획 실행을 계속합니다.",

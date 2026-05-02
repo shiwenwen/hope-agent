@@ -3010,7 +3010,7 @@
     "placeholder": "達成したいことを記述してください...",
     "panelTitle": "実行プラン",
     "submittingPlan": "プランを提出中…",
-    "commentQuotedFrom": "プランから引用",
+    "commentDisplay": "プランへのコメント",
     "executeCommand": "承認された計画の実行を開始してください。task_create を呼び出して計画から簡潔な todo リストを作成し、各 todo を開始前に task_update で in_progress に、終了後すぐに completed に切り替えてください。同時に in_progress は 1 件まで。",
     "executionApproved": "プランが承認されました。実行を開始します。",
     "executionResumed": "プランの実行を続行します。",

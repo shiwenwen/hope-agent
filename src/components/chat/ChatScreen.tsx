@@ -947,19 +947,28 @@ export default function ChatScreen({
   )
 
   // ── Plan Request Changes Handler ──────────────────────────────
-  // `prompt` carries the full XML payload sent to the LLM; `displayText` is
-  // the friendly markdown stored in the user bubble (quote + comment). The
-  // split exists so the chat history doesn't show the raw <plan-inline-comment>
-  // XML to the user — see planCommentMessage.ts.
+  // Three pieces from the inline comment popover:
+  //   - `prompt`     → full XML payload sent to the LLM (plan-inline-comment
+  //                    schema; tells the model which section to revise).
+  //   - `displayText`→ IM-friendly markdown stored in `messages.content`. IM
+  //                    channels render this directly (no React UI there).
+  //   - `payload`    → structured {selectedText, comment} routed through
+  //                    `attachments_meta.plan_comment`. The desktop GUI reads
+  //                    this and renders PlanCommentBubble — its own bespoke
+  //                    layout that ignores the markdown displayText entirely.
   const handleRequestChanges = useCallback(
-    (prompt: string, displayText: string) => {
+    (
+      prompt: string,
+      displayText: string,
+      payload: { selectedText: string; comment: string },
+    ) => {
       setPlanState("planning")
       if (currentSessionId) {
         getTransport()
           .call("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
           .catch(() => {})
       }
-      sendMessage(prompt, { displayText })
+      sendMessage(prompt, { displayText, planComment: payload })
     },
     [setPlanState, sendMessage, currentSessionId],
   )

@@ -3010,7 +3010,7 @@
     "placeholder": "描述你想要實現的功能...",
     "panelTitle": "執行計劃",
     "submittingPlan": "正在提交計劃…",
-    "commentQuotedFrom": "引用計劃",
+    "commentDisplay": "計劃評論",
     "executeCommand": "開始執行已批准的計畫：調用 task_create 根據計畫建立一份精簡的 todo 清單，開始每條前先用 task_update 標記 in_progress，完成後立即標記 completed。同時只能有一條 in_progress。",
     "executionApproved": "已批准計劃，開始執行。",
     "executionResumed": "繼續執行計劃。",

@@ -3010,7 +3010,7 @@
     "placeholder": "صِف ما تريد تحقيقه...",
     "panelTitle": "خطة التنفيذ",
     "submittingPlan": "جارٍ إرسال الخطة…",
-    "commentQuotedFrom": "اقتباس من الخطة",
+    "commentDisplay": "تعليق على الخطة",
     "executeCommand": "ابدأ تنفيذ الخطة المعتمَدة. استدعِ task_create لإنشاء قائمة todos موجزة مستمدة من الخطة، ثم استخدم task_update لوضع كل todo على in_progress قبل البدء وعلى completed فور الانتهاء. اجعل todo واحدة في in_progress في كل مرة.",
     "executionApproved": "تمت الموافقة على الخطة. جارٍ بدء التنفيذ.",
     "executionResumed": "جارٍ متابعة تنفيذ الخطة.",

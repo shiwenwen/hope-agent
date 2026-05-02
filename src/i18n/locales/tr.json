@@ -3010,7 +3010,7 @@
     "placeholder": "Neyi başarmak istediğinizi açıklayın...",
     "panelTitle": "Yürütme planı",
     "submittingPlan": "Plan gönderiliyor…",
-    "commentQuotedFrom": "Plandan alıntı",
+    "commentDisplay": "Plan yorumu",
     "executeCommand": "Onaylanan planı yürütmeye başlayın. task_create ile plandan türetilmiş kısa bir todo listesi oluşturun; her todo'ya başlamadan önce task_update ile in_progress, bitirdikten hemen sonra completed olarak işaretleyin. Aynı anda yalnızca bir todo in_progress olabilir.",
     "executionApproved": "Plan onaylandı. Yürütme başlatılıyor.",
     "executionResumed": "Plan yürütmesine devam ediliyor.",
