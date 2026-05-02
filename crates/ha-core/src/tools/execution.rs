@@ -399,8 +399,7 @@ pub async fn execute_tool_with_context(
     //     command-level prefix gate; in Plan Mode the engine's
     //     plan-mode-ask path takes precedence).
     let plan_mode_active = !ctx.plan_mode_allowed_tools.is_empty();
-    let plan_requires_ask =
-        plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
+    let plan_requires_ask = plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
     let auto_approve_blocked_by_plan = ctx.auto_approve_tools && plan_requires_ask;
     let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
     let needs_engine = (!ctx.auto_approve_tools || auto_approve_blocked_by_plan)

@@ -120,10 +120,7 @@ pub async fn resolve_plan_context_for_session(session_id: &str) -> PlanResolvedC
 /// Merge the caller's optional `extra_system_context` with the
 /// plan-derived one. Caller's text comes first so cron/skill/etc. context
 /// frames the model's task before the Plan Mode contract.
-pub fn merge_extra_system_context(
-    caller: Option<String>,
-    plan: Option<String>,
-) -> Option<String> {
+pub fn merge_extra_system_context(caller: Option<String>, plan: Option<String>) -> Option<String> {
     match (caller, plan) {
         (Some(c), Some(p)) => Some(format!("{}\n\n{}", c, p)),
         (Some(c), None) => Some(c),
