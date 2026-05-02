@@ -6,7 +6,7 @@ import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { IconTip } from "@/components/ui/tooltip"
 import LoadMoreRow from "./LoadMoreRow"
-import { getLatestUserTurnKey } from "./chatScrollKeys"
+import { getLatestMessageOutputKey, getLatestUserTurnKey } from "./chatScrollKeys"
 
 interface QuickChatMessagesProps {
   messages: Message[]
@@ -72,13 +72,9 @@ export default function QuickChatMessages({
     [rows],
   )
 
-  const lastMsg = messages[messages.length - 1]
   const latestUserTurnKey = getLatestUserTurnKey(messages)
-  const followKey = `${rows.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.toolCalls?.length ?? 0}`
-  const canAnchorRow = useCallback(
-    (row: QuickChatRow) => row.type === "message",
-    [],
-  )
+  const followKey = getLatestMessageOutputKey(messages)
+  const canAnchorRow = useCallback((row: QuickChatRow) => row.type === "message", [])
   const {
     scrollRef,
     virtualizer,
@@ -103,6 +99,7 @@ export default function QuickChatMessages({
     onStartReached: onLoadMore,
     canLoadMore: hasMore,
     loadingMore,
+    startThreshold: 180,
   })
   const showJumpToLatest = isAutoFollowPaused && (loading || hasUnseenOutput)
 

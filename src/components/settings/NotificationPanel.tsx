@@ -15,6 +15,7 @@ import {
   loadNotificationConfig,
   type NotificationConfig,
 } from "@/lib/notifications"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { AgentConfig } from "./types"
 
 import type { AgentInfo as BaseAgentInfo } from "@/types/chat"
@@ -36,7 +37,7 @@ export default function NotificationPanel() {
       setConfig(cfg)
 
       const agentList =
-        await getTransport().call<{ id: string; name: string; emoji?: string | null }[]>("list_agents")
+        await getTransport().call<BaseAgentInfo[]>("list_agents")
       const agentsWithNotify = await Promise.all(
         agentList.map(async (a) => {
           try {
@@ -109,10 +110,7 @@ export default function NotificationPanel() {
         <div className="space-y-2">
           {agents.map((agent) => (
             <div key={agent.id} className="flex items-center justify-between py-1.5">
-              <span className="text-sm">
-                {agent.emoji ? `${agent.emoji} ` : ""}
-                {agent.name}
-              </span>
+              <AgentSelectDisplay agent={agent} className="text-sm" />
               <Select
                 value={
                   agent.notifyOnComplete === true

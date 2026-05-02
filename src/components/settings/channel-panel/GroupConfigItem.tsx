@@ -12,7 +12,7 @@ import {
 import { IconTip } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import { Trash2 } from "lucide-react"
-import AgentAvatar from "./AgentAvatar"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { AgentInfo, TelegramGroupConfig } from "./types"
 
 export default function GroupConfigItem({
@@ -33,6 +33,7 @@ export default function GroupConfigItem({
   const [expanded, setExpanded] = useState(false)
 
   const mentionLabel = groupId === "*" ? t("channels.groupIdWildcard") : groupId
+  const selectedAgent = agents.find((agent) => agent.id === config.agentId)
 
   return (
     <div className="rounded-lg border bg-card p-3 space-y-2">
@@ -95,16 +96,17 @@ export default function GroupConfigItem({
             onValueChange={(v) => onUpdate({ agentId: v === "__none__" ? null : v })}
           >
             <SelectTrigger className="h-7 text-xs">
-              <SelectValue placeholder={t("channels.boundAgentDefault")} />
+              {selectedAgent ? (
+                <AgentSelectDisplay agent={selectedAgent} size="xs" />
+              ) : (
+                <SelectValue placeholder={t("channels.boundAgentDefault")} />
+              )}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
               {agents.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  <span className="flex items-center gap-2">
-                    <AgentAvatar agent={a} />
-                    {a.name}
-                  </span>
+                <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                  <AgentSelectDisplay agent={a} size="xs" />
                 </SelectItem>
               ))}
             </SelectContent>

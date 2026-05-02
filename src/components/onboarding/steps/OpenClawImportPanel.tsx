@@ -15,6 +15,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 
 // ── Types mirroring the backend OpenClawImportPreview ──────────
 
@@ -505,11 +506,8 @@ export function OpenClawImportPanel({
                       <Checkbox checked={checked} />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-baseline gap-2 flex-wrap">
-                        <span className="font-medium text-sm">
-                          {a.emoji ? `${a.emoji} ` : ""}
-                          {a.name}
-                        </span>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <AgentSelectDisplay agent={a} className="text-sm font-medium" />
                         {a.alreadyExists && (
                           <span className="text-[10px] text-amber-600">
                             {t("onboarding.importOpenClaw.agents.alreadyExists")}
