@@ -105,6 +105,7 @@ export function usePlanMode(
     setPlanState("off")
     setShowPanel(false)
     setPlanCardInfo(null)
+    setPlanContent("")
     queueMicrotask(() => {
       setPendingQuestionGroup(null)
     })
@@ -133,18 +134,15 @@ export function usePlanMode(
         getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId }),
       ])
       const content = normalizePlanContent(rawContent)
-
-      let state = normalizePlanModeState(rawState)
-      if (state === "off" && content.trim()) {
-        state = "review"
-        getTransport()
-          .call("set_plan_mode", { sessionId: currentSessionId, state })
-          .catch(() => {})
-      }
+      const state = normalizePlanModeState(rawState)
 
       setPlanState(state)
       setPlanContent(content)
-      if (state !== "off" && (state === "planning" || content.trim())) {
+      // Open the panel for any plan-with-content even when backend state=off
+      // (user exited but the file is still on disk) — user explicitly asked
+      // to view it via the message-stream SubmitPlanResult card; treat as
+      // read-only without resurrecting backend state.
+      if (state === "planning" || content.trim()) {
         setShowPanel(true)
       }
     } catch (e) {
@@ -244,21 +242,21 @@ export function usePlanMode(
             .catch(() => {})
           return
         }
-        let restoredState = s
-        if (s === "off" && content.trim()) {
-          restoredState = "review"
-          getTransport()
-            .call("set_plan_mode", { sessionId: currentSessionId, state: restoredState })
-            .catch(() => {})
-        }
+        const restoredState = s
         setPlanState(restoredState)
         setPlanContent(content || "")
         if (restoredState === "off") {
           setShowPanel(false)
           setPlanCardInfo(null)
         }
-        // Only auto-show panel when plan content exists (not during initial planning)
-        if (restoredState !== "off" && content) setShowPanel(true)
+        // Exclude completed: don't hijack chat area when reopening a finished session.
+        if (
+          restoredState !== "off" &&
+          restoredState !== "completed" &&
+          content
+        ) {
+          setShowPanel(true)
+        }
       })
       .catch(() => {
         if (cancelled) return

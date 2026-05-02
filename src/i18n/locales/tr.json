@@ -3030,7 +3030,6 @@
     "popOut": "Ayrı pencerede aç",
     "popOutActive": "Ayrı pencerede açıldı",
     "reattach": "Panele geri al",
-    "rollback": "Değişiklikleri geri al",
     "comment": {
       "hint": "Yorum eklemek ve planı işbirliği içinde geliştirmek için metin seçin",
       "placeholder": "Seçilen içerik için değişiklik önerin...",

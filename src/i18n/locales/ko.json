@@ -3030,7 +3030,6 @@
     "popOut": "별도 창으로 열기",
     "popOutActive": "별도 창에서 열림",
     "reattach": "패널로 되돌리기",
-    "rollback": "변경 사항 롤백",
     "comment": {
       "hint": "텍스트를 선택하여 코멘트를 추가하고 협력해 계획을 수정하세요",
       "placeholder": "선택한 내용에 대한 변경 제안...",

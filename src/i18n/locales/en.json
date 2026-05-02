@@ -3030,7 +3030,6 @@
     "popOut": "Pop Out",
     "popOutActive": "Opened in a separate window",
     "reattach": "Reattach to Panel",
-    "rollback": "Rollback Changes",
     "comment": {
       "hint": "Select text to add comments and collaboratively refine the plan",
       "placeholder": "Suggest changes for the selected content...",

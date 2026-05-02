@@ -228,6 +228,7 @@ export default function ChatInput({
   const planToggleTip = (() => {
     switch (planState) {
       case "off":
+      case "completed":
         return t("planMode.enter")
       case "planning":
         return t("planMode.indicator")
@@ -235,8 +236,6 @@ export default function ChatInput({
         return t("planMode.review.badge")
       case "executing":
         return t("planMode.executing")
-      case "completed":
-        return t("planMode.completed")
     }
   })()
 
@@ -600,7 +599,7 @@ export default function ChatInput({
               <button
                 aria-label={planToggleTip}
                 onClick={() => {
-                  if (planState === "off") {
+                  if (planState === "off" || planState === "completed") {
                     onEnterPlanMode?.()
                   } else if (planState === "planning") {
                     onExitPlanMode?.()
@@ -616,9 +615,7 @@ export default function ChatInput({
                       ? "text-purple-600 bg-purple-500/10"
                       : planState === "executing"
                         ? "text-green-600 bg-green-500/10"
-                        : planState === "completed"
-                          ? "text-green-600 bg-green-500/10"
-                          : "text-muted-foreground hover:text-foreground",
+                        : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <ClipboardList className="h-3.5 w-3.5 shrink-0" />

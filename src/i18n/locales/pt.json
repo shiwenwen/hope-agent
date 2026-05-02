@@ -3030,7 +3030,6 @@
     "popOut": "Abrir em janela separada",
     "popOutActive": "Aberto em janela separada",
     "reattach": "Voltar ao painel",
-    "rollback": "Reverter alterações",
     "comment": {
       "hint": "Selecione texto para adicionar comentários e refinar o plano colaborativamente",
       "placeholder": "Sugira alterações para o conteúdo selecionado...",

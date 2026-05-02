@@ -9,7 +9,6 @@ import {
   X,
   Play,
   Loader2,
-  CheckCircle,
   History,
   RotateCcw,
   MessageSquareQuote,
@@ -61,8 +60,6 @@ export function PlanPanel({
     { version: number; filePath: string; modifiedAt: string; isCurrent: boolean }[]
   >([])
   const [loadingVersions, setLoadingVersions] = useState(false)
-  const [hasCheckpoint, setHasCheckpoint] = useState(false)
-  const [rollingBack, setRollingBack] = useState(false)
   const [maximized, setMaximized] = useState(false)
   const [detached, setDetached] = useState(false)
   const detachedWindowRef = useRef<WebviewWindow | null>(null)
@@ -158,33 +155,6 @@ export function PlanPanel({
       logger.error("plan", "PlanPanel::loadVersions", "Failed to load plan versions", e)
     } finally {
       setLoadingVersions(false)
-    }
-  }, [sessionId])
-
-  // Check for git checkpoint availability
-  useEffect(() => {
-    if (!sessionId) return
-    if (planState === "executing" || planState === "completed") {
-      getTransport()
-        .call<string | null>("get_plan_checkpoint", { sessionId })
-        .then((ref) => setHasCheckpoint(!!ref))
-        .catch(() => setHasCheckpoint(false))
-    } else {
-      setHasCheckpoint(false)
-    }
-  }, [sessionId, planState])
-
-  const handleRollback = useCallback(async () => {
-    if (!sessionId) return
-    setRollingBack(true)
-    try {
-      const msg = await getTransport().call<string>("plan_rollback", { sessionId })
-      logger.info("plan", "PlanPanel::rollback", "Rollback result", msg)
-      setHasCheckpoint(false)
-    } catch (e) {
-      logger.error("plan", "PlanPanel::rollback", "Failed to rollback", e)
-    } finally {
-      setRollingBack(false)
     }
   }, [sessionId])
 
@@ -600,32 +570,11 @@ export function PlanPanel({
           </div>
         )}
 
-        {/* Completed */}
-        {planState === "completed" && (
-          <>
-            <div className="flex items-center gap-2 text-sm text-green-600">
-              <CheckCircle className="h-4 w-4" />
-              <span>{t("planMode.completed")}</span>
-            </div>
-            {hasCheckpoint && (
-              <Button
-                variant="outline"
-                className="w-full text-destructive border-destructive/30 hover:bg-destructive/10"
-                onClick={handleRollback}
-                disabled={rollingBack}
-              >
-                {rollingBack ? (
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                ) : (
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                )}
-                {t("planMode.rollback")}
-              </Button>
-            )}
-            <Button variant="ghost" className="w-full" onClick={onExit}>
-              {t("planMode.exitWithout")}
-            </Button>
-          </>
+        {/* Completed / off-with-content (read-only history view): panel-only Close. */}
+        {(planState === "completed" || planState === "off") && (
+          <Button variant="ghost" className="w-full" onClick={onClose}>
+            {t("common.close")}
+          </Button>
         )}
       </div>
     </div>

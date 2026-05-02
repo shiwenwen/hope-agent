@@ -20,7 +20,6 @@ import {
   ClipboardList,
   Play,
   Loader2,
-  CheckCircle,
   MessageSquareQuote,
   X,
 } from "lucide-react"
@@ -261,16 +260,10 @@ export default function PlanDetachedWindow() {
             </div>
           )}
 
-          {planState === "completed" && (
-            <>
-              <div className="flex items-center gap-2 text-sm text-green-600">
-                <CheckCircle className="h-4 w-4" />
-                <span>{t("planMode.completed")}</span>
-              </div>
-              <Button variant="ghost" className="w-full" onClick={exitPlanMode}>
-                {t("planMode.exitWithout")}
-              </Button>
-            </>
+          {(planState === "completed" || planState === "off") && (
+            <Button variant="ghost" className="w-full" onClick={handleClose}>
+              {t("common.close")}
+            </Button>
           )}
         </div>
       </div>

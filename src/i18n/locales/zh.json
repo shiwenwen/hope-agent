@@ -3030,7 +3030,6 @@
     "popOut": "独立窗口",
     "popOutActive": "已在独立窗口中打开",
     "reattach": "收回到面板",
-    "rollback": "回滚更改",
     "comment": {
       "hint": "选中文本即可添加评论，协同修改计划",
       "placeholder": "对选中内容的修改建议...",
