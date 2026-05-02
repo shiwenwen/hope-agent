@@ -315,23 +315,22 @@ export function AssistantContentBlocks({
     }
   }
 
-  // Loading dots — appended whenever the assistant turn is still in flight,
-  // regardless of last block type. text/thinking blocks have their own
-  // streaming cursor for live token append, but the moment a block settles
-  // and we're between rounds (or about to emit a new tool/text), the user
-  // needs an explicit "still working" hint. Without this, the bubble looks
-  // like it stopped while the session sidebar + input box still show
-  // streaming state — exactly the inconsistency the user reported. The
-  // shimmer chips on submit_plan / ask_user_question / tool groups stay,
-  // and the dots show below them as a final "still alive" pulse.
-  if (loading && isLast && blocks.length > 0) {
-    elements.push(
-      <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
-        <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
-        <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
-        <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
-      </div>,
-    )
+  // Loading dots only when the last block is a tool_call — text / thinking
+  // blocks already render their own streaming visual (cursor / pulse) so
+  // adding dots here would duplicate the indicator. Tool blocks settle on
+  // their result and look static once done, so dots pick up the
+  // between-rounds wait visual.
+  if (loading && isLast) {
+    const lastBlock = blocks[blocks.length - 1]
+    if (lastBlock?.type === "tool_call") {
+      elements.push(
+        <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
+          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
+          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
+          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
+        </div>,
+      )
+    }
   }
 
   return <>{elements}</>
