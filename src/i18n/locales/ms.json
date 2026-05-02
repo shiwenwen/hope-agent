@@ -1381,7 +1381,7 @@
     "chatAutoExpandThinking": "Auto-kembangkan proses pemikiran",
     "chatAutoExpandThinkingDesc": "Kembangkan blok pemikiran secara automatik dalam gelembung sembang. Apabila dimatikan, klik untuk kembangkan secara manual.",
     "toolCallNarration": "Umumkan panggilan alat",
-    "toolCallNarrationDesc": "Apabila diaktifkan, arahkan model untuk mendahului setiap panggilan alat dengan pengumuman satu ayat (gaya Claude Code). Sesetengah model (cth. GPT-5.4) terlebih laksanakan ini dan mengulang niat yang sama merentas panggilan berturut-turut, menyebabkan pertindihan yang ketara. Lalai matikan.",
+    "toolCallNarrationDesc": "Apabila diaktifkan, arahkan model untuk mendahului setiap panggilan alat dengan pengumuman satu ayat dan menutup setiap pusingan dengan ringkasan ringkas (gaya Claude Code). Lalai dihidupkan — pengguna saluran IM tiada UI panggilan alat, tanpa ulasan kelihatan seperti bot tergantung. Matikan jika model anda (cth. GPT-5.4 melalui Codex) terlebih laksanakannya dan mengulang niat sama merentas panggilan berturut-turut.",
     "sessionTitle": "Jana tajuk sembang automatik",
     "sessionTitleDesc": "Gunakan tajuk mesej pertama dengan segera, kemudian jana tajuk ringkas selepas balasan pertama pembantu.",
     "sessionTitleModel": "Model tajuk",

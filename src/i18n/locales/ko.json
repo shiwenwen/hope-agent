@@ -1381,7 +1381,7 @@
     "chatAutoExpandThinking": "사고 과정 자동 확장",
     "chatAutoExpandThinkingDesc": "채팅 버블의 사고 블록을 자동으로 확장합니다. 끄면 클릭하여 수동으로 확장.",
     "toolCallNarration": "도구 호출 사전 안내",
-    "toolCallNarrationDesc": "켜면 모든 도구 호출 전에 한 문장으로 예고하도록 모델에 지시합니다(Claude Code 스타일). 일부 모델(예: GPT-5.4)은 이를 과하게 적용해 연속된 도구 호출 간에 동일한 의도를 반복하여 가시적인 중복을 만듭니다. 기본값은 꺼짐.",
+    "toolCallNarrationDesc": "켜면 모든 도구 호출 전에 한 문장으로 예고하고 턴이 끝날 때 간단히 요약하도록 모델에 지시합니다(Claude Code 스타일). 기본값은 켜짐——IM 채널 사용자에게는 도구 호출 UI가 없어 안내가 없으면 봇이 멈춘 것처럼 보입니다. 모델(예: Codex의 GPT-5.4)이 이를 과하게 적용해 연속 호출에서 같은 의도를 반복한다면 끄세요.",
     "sessionTitle": "채팅 제목 자동 생성",
     "sessionTitleDesc": "새 채팅은 첫 메시지 제목을 즉시 사용하고, 첫 응답 후 간결한 제목을 생성합니다.",
     "sessionTitleModel": "제목 모델",

@@ -1381,7 +1381,7 @@
     "chatAutoExpandThinking": "Auto-expand thinking process",
     "chatAutoExpandThinkingDesc": "Automatically expand thinking blocks in chat bubbles. When off, click to expand manually.",
     "toolCallNarration": "Announce tool calls",
-    "toolCallNarrationDesc": "When enabled, instruct the model to preface every tool call with a one-sentence announcement (Claude Code style). Some models (e.g. GPT-5.4) over-apply this and restate the same intent across consecutive tool calls, creating visible duplication. Default off.",
+    "toolCallNarrationDesc": "When enabled, instruct the model to preface every tool call with a one-sentence announcement and end each turn with a brief summary (Claude Code style). Default on — also benefits IM Channel users who can't see tool-call UI. Disable if your model (e.g. GPT-5.4 via Codex) over-applies it and restates the same intent across consecutive calls.",
     "sessionTitle": "Auto-generate chat titles",
     "sessionTitleDesc": "Keep the first-message title immediately, then generate a concise title after the first assistant reply.",
     "sessionTitleModel": "Title Model",

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`tool_call_narration_enabled` 默认翻为 `true`**：[`AppConfig`](crates/ha-core/src/config/mod.rs) 默认值从 `false` 改为 `true`（含 `#[serde(default = "default_tool_call_narration_enabled")]` helper，老用户升级后 config.json 缺字段也会落到 `true`）。该配置开启后注入 [`TOOL_CALL_NARRATION_GUIDANCE`](crates/ha-core/src/system_prompt/constants.rs)，要求模型在每次工具调用前用一句话说明意图、turn 结束时给一两句小结。这是 Claude Code 同款 vendor 文案，机制 / Tauri 命令 / HTTP 路由 / 设置 GUI（设置 → 聊天 → 工具调用前说明）/ i18n 12 语早已就位，只是默认关。改默认的两个理由：(1) IM Channel 用户场景下没有工具调用 UI，没有解说期间长时间静默像机器人卡死了；(2) 桌面长 tool loop 给用户实时进度信号，等待感和信任感都好得多。GPT-5.4 这类容易过度复读的模型用户可在设置面板里关掉，文案描述 12 语全部更新说明关闭场景。
+
 ### Fixed
 
 - **Task 卡在「2/3 in_progress」永远收不了尾**：模型在 plan 执行过程中调 `task_update(in_progress)` 标记某条任务，发完最终回复就直接 turn 结束，没回头调 `task_update(completed)`，前端 TaskProgressPanel 永远显示 2/3 进度，user 没有任何手段标完——既看不到回头的钩子也没有 GUI 操作。两侧夹击修复：(A) 后端 [`tools/task.rs::task_reminder_text`](crates/ha-core/src/tools/task.rs) + [`agent/streaming_loop.rs`](crates/ha-core/src/agent/streaming_loop.rs) 在每轮 `chat_round` 前查 session task 列表，若有 in_progress / pending 任务则把 `<system-reminder>` 形式的活跃任务清单通过新增 `RoundRequest.task_reminder_suffix` 字段塞进 4 个 Provider adapter（Anthropic 作为最后一个 system block 不带 cache_control 以避超 4 breakpoint 上限；OpenAI 系作为额外 system message append/prepend），强引导模型在结束 turn 前 sweep 收尾。(B) 前端 [`TaskProgressPanel`](src/components/chat/tasks/TaskProgressPanel.tsx) 每条任务现在自带 status 切换按钮（pending → in_progress → completed → pending 循环）+ hover 显示删除按钮，对应新增 Tauri 命令 `list_session_tasks` / `update_task_status` / `delete_task` 及 HTTP 路由 `GET /api/sessions/{id}/tasks` / `PATCH /api/tasks/{id}/status` / `DELETE /api/tasks/{id}`，复用现有 `task_updated` 事件总线让 UI 立即刷新。两条路径互补：A 兜底"模型应该自己收尾的日常情况"且 IM channel 也覆盖（IM 没有 TaskProgressPanel UI），B 兜底"模型抽风/忘了/会话切换"等 A 不覆盖的极端场景。

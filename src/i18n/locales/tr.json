@@ -1381,7 +1381,7 @@
     "chatAutoExpandThinking": "Düşünme sürecini otomatik genişlet",
     "chatAutoExpandThinkingDesc": "Sohbet baloncuklarındaki düşünme bloklarını otomatik olarak genişlet. Kapalı olduğunda, manuel genişletmek için tıklayın.",
     "toolCallNarration": "Araç çağrılarını duyur",
-    "toolCallNarrationDesc": "Etkinleştirildiğinde, modele her araç çağrısını tek cümlelik bir duyuruyla öncelikle yapmasını söyler (Claude Code tarzı). Bazı modeller (örn. GPT-5.4) bunu aşırıya kaçırır ve ardışık araç çağrıları arasında aynı niyeti tekrarlar; bu görünür tekrara yol açar. Varsayılan kapalı.",
+    "toolCallNarrationDesc": "Etkinleştirildiğinde, modele her araç çağrısını tek cümlelik bir duyuruyla başlatmasını ve her turun sonunda kısa bir özet vermesini söyler (Claude Code tarzı). Varsayılan açık — IM kanal kullanıcıları araç çağrı arayüzünü göremez, anlatım olmadan bot askıda kalmış gibi görünür. Modeliniz (örn. Codex üzerinden GPT-5.4) bunu aşırıya kaçırıp ardışık çağrılarda aynı niyeti tekrarlıyorsa kapatın.",
     "sessionTitle": "Sohbet başlıklarını otomatik oluştur",
     "sessionTitleDesc": "Yeni sohbetlerde ilk mesaj başlığı hemen kullanılır, ilk asistan yanıtından sonra kısa bir başlık üretilir.",
     "sessionTitleModel": "Başlık modeli",

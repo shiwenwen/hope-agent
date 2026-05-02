@@ -1381,7 +1381,7 @@
     "chatAutoExpandThinking": "Tự động mở rộng quá trình suy nghĩ",
     "chatAutoExpandThinkingDesc": "Tự động mở rộng các khối suy nghĩ trong bóng chat. Khi tắt, nhấn để mở rộng thủ công.",
     "toolCallNarration": "Thông báo khi gọi công cụ",
-    "toolCallNarrationDesc": "Khi bật, yêu cầu mô hình mở đầu mỗi lần gọi công cụ bằng một câu thông báo (theo phong cách Claude Code). Một số mô hình (vd. GPT-5.4) áp dụng quá mức và lặp lại cùng một ý định qua các lần gọi liên tiếp, gây trùng lặp rõ rệt. Mặc định tắt.",
+    "toolCallNarrationDesc": "Khi bật, yêu cầu mô hình mở đầu mỗi lần gọi công cụ bằng một câu thông báo và kết thúc lượt bằng một bản tóm tắt ngắn (theo phong cách Claude Code). Mặc định bật — người dùng kênh IM không thấy giao diện gọi công cụ, không có lời thuật minh sẽ như bot bị treo. Tắt nếu mô hình của bạn (vd. GPT-5.4 qua Codex) áp dụng quá mức và lặp lại cùng một ý định qua các lần gọi liên tiếp.",
     "sessionTitle": "Tự động tạo tên cuộc trò chuyện",
     "sessionTitleDesc": "Giữ tiêu đề từ tin nhắn đầu tiên ngay lập tức, rồi tạo tiêu đề ngắn gọn sau phản hồi đầu tiên của trợ lý.",
     "sessionTitleModel": "Mô hình đặt tên",
