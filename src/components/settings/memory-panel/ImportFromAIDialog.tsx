@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -77,7 +77,7 @@ export default function ImportFromAIDialog({ open, onOpenChange, onImported }: P
       .finally(() => setLoadingPrompt(false))
   }, [open, i18n.language])
 
-  const handleCopy = useCallback(async () => {
+  const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(prompt)
       setCopied(true)
@@ -85,9 +85,9 @@ export default function ImportFromAIDialog({ open, onOpenChange, onImported }: P
     } catch (e) {
       logger.error("settings", "ImportFromAIDialog::copy", "Clipboard write failed", e)
     }
-  }, [prompt])
+  }
 
-  const handleParseAndImport = useCallback(async () => {
+  const handleParseAndImport = async () => {
     const cleaned = stripCodeFence(pasted)
     if (!cleaned) {
       setError(t("settings.memoryImportFromAIEmpty"))
@@ -114,7 +114,7 @@ export default function ImportFromAIDialog({ open, onOpenChange, onImported }: P
     } finally {
       setBusy(false)
     }
-  }, [pasted, t, onImported, onOpenChange])
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -129,9 +129,7 @@ export default function ImportFromAIDialog({ open, onOpenChange, onImported }: P
 
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium">
-              {t("settings.memoryImportFromAIStep1")}
-            </h3>
+            <h3 className="text-sm font-medium">{t("settings.memoryImportFromAIStep1")}</h3>
             <Button
               variant="outline"
               size="sm"
@@ -165,9 +163,7 @@ export default function ImportFromAIDialog({ open, onOpenChange, onImported }: P
         </div>
 
         <div className="space-y-2">
-          <h3 className="text-sm font-medium">
-            {t("settings.memoryImportFromAIStep2")}
-          </h3>
+          <h3 className="text-sm font-medium">{t("settings.memoryImportFromAIStep2")}</h3>
           <Textarea
             value={pasted}
             onChange={(e) => setPasted(e.target.value)}
@@ -177,9 +173,7 @@ export default function ImportFromAIDialog({ open, onOpenChange, onImported }: P
           />
         </div>
 
-        {error && (
-          <p className="text-xs text-destructive break-all">{error}</p>
-        )}
+        {error && <p className="text-xs text-destructive break-all">{error}</p>}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={busy}>

@@ -1,4 +1,3 @@
-import React, { useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import {
   LineChart,
@@ -12,14 +11,7 @@ import {
   ResponsiveContainer,
   ReferenceLine,
 } from "recharts"
-import {
-  Activity,
-  Flame,
-  Clock4,
-  TrendingUp,
-  Trophy,
-  Cpu,
-} from "lucide-react"
+import { Activity, Flame, Clock4, TrendingUp, Trophy, Cpu } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardInsights } from "./types"
 import { chartName, chartNumber, formatNumber, formatCost, formatDuration } from "./types"
@@ -32,12 +24,7 @@ interface InsightsSectionProps {
 }
 
 function SectionSkeleton({ height }: { height: number }) {
-  return (
-    <div
-      className="w-full bg-muted animate-pulse rounded-lg"
-      style={{ height }}
-    />
-  )
+  return <div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />
 }
 
 // ── Health Score Gauge ──────────────────────────────────────────
@@ -60,14 +47,7 @@ function HealthGauge({ score, status }: { score: number; status: string }) {
     <div className="flex flex-col items-center justify-center gap-2">
       <div className="relative h-[120px] w-[120px]">
         <svg className="h-full w-full -rotate-90" viewBox="0 0 100 100">
-          <circle
-            cx="50"
-            cy="50"
-            r="40"
-            fill="none"
-            className="stroke-muted"
-            strokeWidth="8"
-          />
+          <circle cx="50" cy="50" r="40" fill="none" className="stroke-muted" strokeWidth="8" />
           <circle
             cx="50"
             cy="50"
@@ -105,7 +85,7 @@ function Heatmap({
 }) {
   const { t } = useTranslation()
   // Build a 7×24 grid
-  const grid = useMemo(() => {
+  const grid = (() => {
     const g: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0))
     for (const c of cells) {
       if (c.weekday >= 0 && c.weekday <= 6 && c.hour >= 0 && c.hour <= 23) {
@@ -113,7 +93,7 @@ function Heatmap({
       }
     }
     return g
-  }, [cells])
+  })()
 
   const weekdayKeys = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
   const safeMax = Math.max(max, 1)
@@ -130,10 +110,7 @@ function Heatmap({
     <div className="space-y-2">
       <div className="flex gap-1 pl-8">
         {Array.from({ length: 24 }).map((_, h) => (
-          <div
-            key={h}
-            className="flex-1 text-center text-[9px] text-muted-foreground"
-          >
+          <div key={h} className="flex-1 text-center text-[9px] text-muted-foreground">
             {h % 3 === 0 ? h : ""}
           </div>
         ))}
@@ -151,7 +128,8 @@ function Heatmap({
                 style={{ backgroundColor: cellColor(v) }}
               >
                 <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-md bg-popover px-2 py-1 text-[10px] text-popover-foreground shadow-md group-hover:block z-20">
-                  {t(`dashboard.insights.weekday.${weekdayKeys[wd]}`)} {h.toString().padStart(2, "0")}:00 · {formatNumber(v)}
+                  {t(`dashboard.insights.weekday.${weekdayKeys[wd]}`)}{" "}
+                  {h.toString().padStart(2, "0")}:00 · {formatNumber(v)}
                 </div>
               </div>
             ))}
@@ -175,7 +153,7 @@ function Heatmap({
 
 // ── Main Section ────────────────────────────────────────────────
 
-const InsightsSection = React.memo(function InsightsSection({
+const InsightsSection = function InsightsSection({
   data,
   loading,
   onDrillDownSession,
@@ -224,28 +202,16 @@ const InsightsSection = React.memo(function InsightsSection({
           <HealthGauge score={data.health.score} status={data.health.status} />
           <div className="grid grid-cols-2 gap-2 text-[11px]">
             <div className="rounded-md bg-muted/40 p-2">
-              <div className="text-muted-foreground">
-                {t("dashboard.insights.logErrorRate")}
-              </div>
-              <div className="font-semibold">
-                {data.health.logErrorRatePercent.toFixed(2)}%
-              </div>
+              <div className="text-muted-foreground">{t("dashboard.insights.logErrorRate")}</div>
+              <div className="font-semibold">{data.health.logErrorRatePercent.toFixed(2)}%</div>
             </div>
             <div className="rounded-md bg-muted/40 p-2">
-              <div className="text-muted-foreground">
-                {t("dashboard.insights.toolErrorRate")}
-              </div>
-              <div className="font-semibold">
-                {data.health.toolErrorRatePercent.toFixed(2)}%
-              </div>
+              <div className="text-muted-foreground">{t("dashboard.insights.toolErrorRate")}</div>
+              <div className="font-semibold">{data.health.toolErrorRatePercent.toFixed(2)}%</div>
             </div>
             <div className="rounded-md bg-muted/40 p-2">
-              <div className="text-muted-foreground">
-                {t("dashboard.insights.cronSuccessRate")}
-              </div>
-              <div className="font-semibold">
-                {data.health.cronSuccessRatePercent.toFixed(1)}%
-              </div>
+              <div className="text-muted-foreground">{t("dashboard.insights.cronSuccessRate")}</div>
+              <div className="font-semibold">{data.health.cronSuccessRatePercent.toFixed(1)}%</div>
             </div>
             <div className="rounded-md bg-muted/40 p-2">
               <div className="text-muted-foreground">
@@ -296,11 +262,7 @@ const InsightsSection = React.memo(function InsightsSection({
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={costChartData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                <XAxis
-                  dataKey="date"
-                  tick={{ fontSize: 11 }}
-                  className="fill-muted-foreground"
-                />
+                <XAxis dataKey="date" tick={{ fontSize: 11 }} className="fill-muted-foreground" />
                 <YAxis
                   tick={{ fontSize: 11 }}
                   className="fill-muted-foreground"
@@ -314,7 +276,10 @@ const InsightsSection = React.memo(function InsightsSection({
                     fontSize: "12px",
                     color: "var(--color-popover-foreground)",
                   }}
-                  formatter={(value) => [formatCost(chartNumber(value)), t("dashboard.insights.cost")]}
+                  formatter={(value) => [
+                    formatCost(chartNumber(value)),
+                    t("dashboard.insights.cost"),
+                  ]}
                 />
                 <ReferenceLine
                   y={data.costTrend.avgDailyCostUsd}
@@ -345,7 +310,9 @@ const InsightsSection = React.memo(function InsightsSection({
           </h3>
           <span className="text-[11px] text-muted-foreground">
             {t("dashboard.insights.totalMessages")}:{" "}
-            <span className="font-semibold text-foreground">{formatNumber(data.heatmap.total)}</span>
+            <span className="font-semibold text-foreground">
+              {formatNumber(data.heatmap.total)}
+            </span>
           </span>
         </div>
         {data.heatmap.total === 0 ? (
@@ -448,9 +415,7 @@ const InsightsSection = React.memo(function InsightsSection({
                         {idx + 1}
                       </div>
                       <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">
-                          {s.title || s.id.slice(0, 8)}
-                        </div>
+                        <div className="truncate font-medium">{s.title || s.id.slice(0, 8)}</div>
                         <div className="truncate text-[10px] text-muted-foreground">
                           {s.modelId ?? "unknown"} · {formatNumber(s.messageCount)}{" "}
                           {t("dashboard.insights.msgs")}
@@ -502,16 +467,12 @@ const InsightsSection = React.memo(function InsightsSection({
               >
                 <div className="min-w-0">
                   <div className="truncate font-medium">{m.modelId}</div>
-                  <div className="truncate text-[10px] text-muted-foreground">
-                    {m.providerName}
-                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground">{m.providerName}</div>
                 </div>
                 <div className="text-right">{formatNumber(m.messageCount)}</div>
                 <div className="text-right">{formatNumber(m.totalTokens)}</div>
                 <div className="text-right">{m.avgTokensPerMessage.toFixed(0)}</div>
-                <div className="text-right">
-                  ${m.avgCostPer1kTokens.toFixed(4)}
-                </div>
+                <div className="text-right">${m.avgCostPer1kTokens.toFixed(4)}</div>
                 <div className="text-right">
                   {m.avgTtftMs != null ? formatDuration(m.avgTtftMs) : "-"}
                 </div>
@@ -522,6 +483,6 @@ const InsightsSection = React.memo(function InsightsSection({
       </div>
     </div>
   )
-})
+}
 
 export default InsightsSection

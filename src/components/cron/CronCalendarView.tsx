@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
@@ -63,7 +63,7 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
   const year = currentDate.getFullYear()
   const month = currentDate.getMonth()
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = async () => {
     try {
       const start = new Date(year, month, 1)
       const end = new Date(year, month + 1, 1)
@@ -75,9 +75,10 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
     } catch {
       // ignore
     }
-  }, [year, month])
+  }
+  const fetchEventsEffectEvent = useEffectEvent(fetchEvents)
 
-  const fetchJobs = useCallback(async () => {
+  const fetchJobs = async () => {
     setListLoading(true)
     try {
       const result = await getTransport().call<CronJob[]>("cron_list_jobs")
@@ -88,31 +89,32 @@ export default function CronCalendarView({ onNavigateToSession }: CronCalendarVi
     } finally {
       setListLoading(false)
     }
-  }, [])
+  }
+  const fetchJobsEffectEvent = useEffectEvent(fetchJobs)
 
-  const refreshAll = useCallback(() => {
+  const refreshAll = () => {
     fetchEvents()
     if (jobsLoaded) fetchJobs()
-  }, [fetchEvents, fetchJobs, jobsLoaded])
+  }
 
   useEffect(() => {
-    fetchEvents()
-  }, [fetchEvents])
+    fetchEventsEffectEvent()
+  }, [year, month])
 
   // Lazily load jobs on first switch to list mode
   useEffect(() => {
     if (mode === "list" && !jobsLoaded) {
-      fetchJobs()
+      fetchJobsEffectEvent()
     }
-  }, [mode, jobsLoaded, fetchJobs])
+  }, [mode, jobsLoaded])
 
   // Listen for cron:run_completed events
   useEffect(() => {
     return getTransport().listen("cron:run_completed", () => {
-      fetchEvents()
-      if (jobsLoaded) fetchJobs()
+      fetchEventsEffectEvent()
+      if (jobsLoaded) fetchJobsEffectEvent()
     })
-  }, [fetchEvents, fetchJobs, jobsLoaded])
+  }, [jobsLoaded, year, month])
 
   function goToday() {
     setCurrentDate(new Date())

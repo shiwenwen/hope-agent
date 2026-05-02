@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -21,7 +21,7 @@ export default function TemplateListView({ onEdit }: TemplateListViewProps) {
   const [loading, setLoading] = useState(true)
   const [cloning, setCloning] = useState<string | null>(null)
 
-  const reload = useCallback(async () => {
+  const reload = async () => {
     try {
       const list = (await getTransport().call("list_team_templates", {})) as TeamTemplate[]
       setTemplates(list)
@@ -30,21 +30,22 @@ export default function TemplateListView({ onEdit }: TemplateListViewProps) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const reloadEffectEvent = useEffectEvent(reload)
 
   useEffect(() => {
-    reload()
+    reloadEffectEvent()
     const unsubscribe = getTransport().listen(TEAM_EVENT_CHANNEL, (payload) => {
       const event = payload as { type?: string } | undefined
       if (
         event?.type === TEAM_EVENT_TYPES.templateSaved ||
         event?.type === TEAM_EVENT_TYPES.templateDeleted
       ) {
-        reload()
+        reloadEffectEvent()
       }
     })
     return unsubscribe
-  }, [reload])
+  }, [])
 
   const handleClone = async (tpl: TeamTemplate) => {
     const suffix = Date.now().toString(36).slice(-4)

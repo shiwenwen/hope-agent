@@ -1,7 +1,5 @@
-import { useMemo } from "react"
-
 export default function WindStreaks() {
-  const streaks = useMemo(() => {
+  const streaks = (() => {
     return Array.from({ length: 8 }, (_, i) => {
       const seeded = (offset: number) => {
         const v = Math.sin((i + 1) * 7.53 + offset * 31.97) * 19937.1
@@ -15,7 +13,7 @@ export default function WindStreaks() {
         opacity: 0.06 + seeded(5) * 0.1,
       }
     })
-  }, [])
+  })()
 
   return (
     <>

@@ -1,4 +1,4 @@
-import { useCallback, useRef, useMemo, useEffect } from "react"
+import { useEffect, useRef, useState, type ChangeEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
@@ -10,55 +10,89 @@ interface AttachmentPreviewProps {
   onRemoveFile: (index: number) => void
 }
 
+interface BlobUrlEntry {
+  file: File
+  url: string
+}
+
 export function AttachmentPreview({ attachedFiles, onRemoveFile }: AttachmentPreviewProps) {
   const { openLightbox } = useLightbox()
+  const blobUrlMapRef = useRef<Map<File, string>>(new Map())
+  const [blobUrlEntries, setBlobUrlEntries] = useState<BlobUrlEntry[]>([])
 
-  // Stable blob URLs with cleanup to prevent memory leaks
-  const blobUrls = useMemo(
-    () => attachedFiles.map((f) => (f.type.startsWith("image/") ? URL.createObjectURL(f) : "")),
-    [attachedFiles],
-  )
+  useEffect(() => {
+    const currentFiles = new Set(attachedFiles)
+    const blobUrlMap = blobUrlMapRef.current
+
+    for (const [file, url] of blobUrlMap) {
+      if (!currentFiles.has(file)) {
+        URL.revokeObjectURL(url)
+        blobUrlMap.delete(file)
+      }
+    }
+
+    for (const file of attachedFiles) {
+      if (file.type.startsWith("image/") && !blobUrlMap.has(file)) {
+        blobUrlMap.set(file, URL.createObjectURL(file))
+      }
+    }
+
+    setBlobUrlEntries(
+      attachedFiles
+        .map((file) => {
+          const url = blobUrlMap.get(file)
+          return url ? { file, url } : null
+        })
+        .filter((entry): entry is BlobUrlEntry => Boolean(entry)),
+    )
+  }, [attachedFiles])
+
   useEffect(
     () => () => {
-      blobUrls.forEach((u) => {
-        if (u) URL.revokeObjectURL(u)
-      })
+      for (const url of blobUrlMapRef.current.values()) {
+        URL.revokeObjectURL(url)
+      }
+      blobUrlMapRef.current.clear()
     },
-    [blobUrls],
+    [],
   )
 
   if (attachedFiles.length === 0) return null
 
   return (
     <div className="flex gap-2 px-3 pt-3 pb-1 flex-wrap">
-      {attachedFiles.map((file, index) => (
-        <div
-          key={`${file.name}-${index}`}
-          className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
-          style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
-        >
-          {blobUrls[index] ? (
-            <img
-              src={blobUrls[index]}
-              alt={file.name}
-              className="h-8 w-8 rounded object-cover cursor-zoom-in"
-              onClick={(e) => {
-                e.stopPropagation()
-                openLightbox(blobUrls[index], file.name)
-              }}
-            />
-          ) : (
-            <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          )}
-          <span className="max-w-[120px] truncate">{file.name}</span>
-          <button
-            className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
-            onClick={() => onRemoveFile(index)}
+      {attachedFiles.map((file, index) => {
+        const blobUrl = blobUrlEntries.find((entry) => entry.file === file)?.url ?? ""
+
+        return (
+          <div
+            key={`${file.name}-${index}`}
+            className="group relative flex items-center gap-1.5 bg-secondary rounded-lg px-2 py-1 text-xs text-foreground/80 border border-border/50 animate-in fade-in-0 slide-in-from-bottom-1 duration-150"
+            style={{ animationDelay: `${index * 50}ms`, animationFillMode: "both" }}
           >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      ))}
+            {blobUrl ? (
+              <img
+                src={blobUrl}
+                alt={file.name}
+                className="h-8 w-8 rounded object-cover cursor-zoom-in"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openLightbox(blobUrl, file.name)
+                }}
+              />
+            ) : (
+              <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            )}
+            <span className="max-w-[120px] truncate">{file.name}</span>
+            <button
+              className="ml-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => onRemoveFile(index)}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -75,17 +109,14 @@ export function AttachFilesMenuItem({ onAttachFiles, onPicked }: AttachFilesMenu
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files
-      if (files) {
-        onAttachFiles(Array.from(files))
-      }
-      e.target.value = ""
-      onPicked?.()
-    },
-    [onAttachFiles, onPicked],
-  )
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files) {
+      onAttachFiles(Array.from(files))
+    }
+    e.target.value = ""
+    onPicked?.()
+  }
 
   return (
     <>
@@ -112,16 +143,13 @@ export function AttachImageButton({ onAttachFiles }: AttachmentButtonsProps) {
   const { t } = useTranslation()
   const imageInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files
-      if (files) {
-        onAttachFiles(Array.from(files))
-      }
-      e.target.value = ""
-    },
-    [onAttachFiles],
-  )
+  const handleFileSelect = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files) {
+      onAttachFiles(Array.from(files))
+    }
+    e.target.value = ""
+  }
 
   return (
     <>
@@ -151,16 +179,13 @@ export function AttachFileButton({ onAttachFiles }: AttachmentButtonsProps) {
   const { t } = useTranslation()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleFileSelect = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const files = e.target.files
-      if (files) {
-        onAttachFiles(Array.from(files))
-      }
-      e.target.value = ""
-    },
-    [onAttachFiles],
-  )
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files
+    if (files) {
+      onAttachFiles(Array.from(files))
+    }
+    e.target.value = ""
+  }
 
   return (
     <>

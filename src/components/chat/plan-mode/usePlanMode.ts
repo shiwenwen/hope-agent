@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
@@ -66,7 +66,9 @@ export function usePlanMode(
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)
   const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
-  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<AskUserQuestionGroup | null>(null)
+  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<AskUserQuestionGroup | null>(
+    null,
+  )
   const [planSubagentRunning, setPlanSubagentRunning] = useState(false)
 
   // Track whether plan mode was entered in the current no-session context
@@ -74,7 +76,7 @@ export function usePlanMode(
   const lastSessionIdRef = useRef<string | null>(null)
 
   // Enter Plan Mode
-  const enterPlanMode = useCallback(async () => {
+  const enterPlanMode = async () => {
     if (!currentSessionId) {
       // Pre-session plan mode: set flag so reset logic doesn't clear it
       preSessionPlanRef.current = true
@@ -87,10 +89,10 @@ export function usePlanMode(
     } catch (e) {
       logger.error("plan", "usePlanMode::enter", "Failed to enter plan mode", e)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
   // Exit Plan Mode
-  const exitPlanMode = useCallback(async () => {
+  const exitPlanMode = async () => {
     if (currentSessionId) {
       try {
         await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "off" })
@@ -109,20 +111,23 @@ export function usePlanMode(
     queueMicrotask(() => {
       setPendingQuestionGroup(null)
     })
-  }, [currentSessionId, setPlanState])
+  }
 
   // Approve and start execution
-  const approvePlan = useCallback(async () => {
+  const approvePlan = async () => {
     if (!currentSessionId) return
     try {
-      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
+      await getTransport().call("set_plan_mode", {
+        sessionId: currentSessionId,
+        state: "executing",
+      })
       setPlanState("executing")
     } catch (e) {
       logger.error("plan", "usePlanMode::approve", "Failed to approve plan", e)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
-  const openPlanPanel = useCallback(async () => {
+  const openPlanPanel = async () => {
     if (!currentSessionId) {
       setShowPanel(true)
       return
@@ -149,7 +154,7 @@ export function usePlanMode(
       logger.error("plan", "usePlanMode::openPanel", "Failed to open plan panel", e)
       setShowPanel(true)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
   // Sync state when session changes
   const planStateRef = useRef(planState)
@@ -215,7 +220,8 @@ export function usePlanMode(
     // non-off state from a different session; that makes ordinary chats look
     // like plan sessions after switching.
     if (shouldMaterializePreSessionPlan) {
-      getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
+      getTransport()
+        .call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
         .catch(() => {})
       return () => {
         cancelled = true
@@ -277,9 +283,7 @@ export function usePlanMode(
       const payload = raw as { sessionId: string; state: string; reason?: string }
       if (payload.sessionId !== currentSessionId) return
       const next = normalizePlanModeState(payload.state)
-      // Skip the React update when the state is already correct so downstream
-      // memo-ed consumers (PlanPanel / TitleBar / ChatInput) don't re-render
-      // for redundant events.
+      // Skip redundant events when the frontend already reflects the backend state.
       setPlanState((prev) => (prev === next ? prev : next))
     })
   }, [currentSessionId, setPlanState])

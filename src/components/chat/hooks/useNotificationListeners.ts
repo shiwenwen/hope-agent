@@ -1,16 +1,11 @@
-import { useEffect } from "react"
+import React, { useEffect } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
 import { reloadAndMergeSessionMessages } from "../chatUtils"
 import { hasToolError } from "../message/executionStatus"
 import { PAGE_SIZE } from "../useChatSession"
-import type {
-  Message,
-  MediaItem,
-  ParentAgentStreamEvent,
-  ToolMetadata,
-} from "@/types/chat"
+import type { Message, MediaItem, ParentAgentStreamEvent, ToolMetadata } from "@/types/chat"
 
 export interface UseNotificationListenersDeps {
   currentSessionIdRef: React.MutableRefObject<string | null>
@@ -137,12 +132,13 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
                     ? (ev.tool_metadata as ToolMetadata)
                     : undefined
                 const current = last.toolCalls.find((tc) => tc.callId === ev.call_id)
-                const resolvedDurationMs = ev.duration_ms ?? (
-                  current?.startedAtMs ? Date.now() - current.startedAtMs : undefined
-                )
-                const isError = typeof ev.is_error === "boolean"
-                  ? ev.is_error
-                  : hasToolError({ result: ev.result })
+                const resolvedDurationMs =
+                  ev.duration_ms ??
+                  (current?.startedAtMs ? Date.now() - current.startedAtMs : undefined)
+                const isError =
+                  typeof ev.is_error === "boolean"
+                    ? ev.is_error
+                    : hasToolError({ result: ev.result })
                 const toolCalls = last.toolCalls.map((tc) =>
                   tc.callId === ev.call_id
                     ? {
@@ -220,8 +216,8 @@ export function useNotificationListeners(deps: UseNotificationListenersDeps) {
       }
     })
     return unlisten
-    // reloadSessions is useCallback([setSessions]) — setSessions is a stable
-    // useState setter, so this effect subscribes once per mount in practice.
+    // reloadSessions only closes over the stable setSessions setter, so this
+    // effect subscribes once per mount in practice.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadSessions])
 }

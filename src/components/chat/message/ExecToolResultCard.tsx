@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { XCircle } from "lucide-react"
 import type { ToolCall } from "@/types/chat"
@@ -28,12 +28,18 @@ function parseBackgroundSessionId(result: string | undefined): string | null {
   return match?.[1] ?? null
 }
 
-export default function ExecToolResultCard({ tool, isRunning }: { tool: ToolCall; isRunning: boolean }) {
+export default function ExecToolResultCard({
+  tool,
+  isRunning,
+}: {
+  tool: ToolCall
+  isRunning: boolean
+}) {
   const { t } = useTranslation()
   const [cancelled, setCancelled] = useState(false)
-  const command = useMemo(() => parseExecCommand(tool), [tool])
-  const output = useMemo(() => getDisplayOutput(tool.result), [tool.result])
-  const backgroundSessionId = useMemo(() => parseBackgroundSessionId(tool.result), [tool.result])
+  const command = parseExecCommand(tool)
+  const output = getDisplayOutput(tool.result)
+  const backgroundSessionId = parseBackgroundSessionId(tool.result)
   const outputRef = useRef<HTMLPreElement>(null)
 
   useEffect(() => {
@@ -83,9 +89,13 @@ export default function ExecToolResultCard({ tool, isRunning }: { tool: ToolCall
             {output}
           </pre>
         ) : isRunning ? (
-          <div className="text-[11px] text-muted-foreground/60">{t("tools.execPanel.running", "运行中...")}</div>
+          <div className="text-[11px] text-muted-foreground/60">
+            {t("tools.execPanel.running", "运行中...")}
+          </div>
         ) : (
-          <div className="text-[11px] text-muted-foreground/60">{t("tools.execPanel.noOutput", "无输出")}</div>
+          <div className="text-[11px] text-muted-foreground/60">
+            {t("tools.execPanel.noOutput", "无输出")}
+          </div>
         )}
       </div>
     </div>

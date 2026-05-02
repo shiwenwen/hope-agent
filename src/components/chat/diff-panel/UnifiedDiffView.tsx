@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { cn } from "@/lib/utils"
 import type { FileChangeMetadata } from "@/types/chat"
 import { buildUnifiedRows } from "./diffLayout"
@@ -13,10 +12,7 @@ interface UnifiedDiffViewProps {
  * from the old and new files so the user can map back to source.
  */
 export function UnifiedDiffView({ change }: UnifiedDiffViewProps) {
-  const rows = useMemo(
-    () => buildUnifiedRows(change.before ?? "", change.after ?? ""),
-    [change.before, change.after],
-  )
+  const rows = buildUnifiedRows(change.before ?? "", change.after ?? "")
 
   return (
     <div className="font-mono text-[11.5px] leading-5">
@@ -27,8 +23,7 @@ export function UnifiedDiffView({ change }: UnifiedDiffViewProps) {
             : row.type === "removed"
               ? "bg-rose-500/10"
               : ""
-        const marker =
-          row.type === "added" ? "+" : row.type === "removed" ? "-" : " "
+        const marker = row.type === "added" ? "+" : row.type === "removed" ? "-" : " "
         return (
           <div
             key={idx}
@@ -48,9 +43,7 @@ export function UnifiedDiffView({ change }: UnifiedDiffViewProps) {
             <span className="shrink-0 w-4 select-none text-center text-muted-foreground/60">
               {marker}
             </span>
-            <span className="flex-1 whitespace-pre-wrap break-all px-2">
-              {row.text || " "}
-            </span>
+            <span className="flex-1 whitespace-pre-wrap break-all px-2">{row.text || " "}</span>
           </div>
         )
       })}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import React, { useEffect, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -183,7 +183,7 @@ export default function PermissionsPanel() {
   const [loading, setLoading] = useState(true)
   const [requesting, setRequesting] = useState<string | null>(null)
 
-  const fetchPermissions = useCallback(async () => {
+  const fetchPermissions = async () => {
     try {
       setLoading(true)
       const result = await getTransport().call<AllPermissions>("check_all_permissions")
@@ -193,23 +193,27 @@ export default function PermissionsPanel() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const fetchPermissionsEffectEvent = useEffectEvent(fetchPermissions)
 
   useEffect(() => {
-    fetchPermissions()
-  }, [fetchPermissions])
+    fetchPermissionsEffectEvent()
+  }, [])
 
   // Re-check when window regains focus
   useEffect(() => {
-    const onFocus = () => fetchPermissions()
+    const onFocus = () => fetchPermissionsEffectEvent()
     window.addEventListener("focus", onFocus)
     return () => window.removeEventListener("focus", onFocus)
-  }, [fetchPermissions])
+  }, [])
 
   const handleRequest = async (id: string) => {
     setRequesting(id)
     try {
-      const result = await getTransport().call<{ id: string; status: PermState }>("request_permission", { id })
+      const result = await getTransport().call<{ id: string; status: PermState }>(
+        "request_permission",
+        { id },
+      )
       setPermissions((prev) => (prev ? { ...prev, [result.id]: result.status } : prev))
     } catch (e) {
       logger.error("settings", "PermissionsPanel::request", `Failed to request ${id}`, e)
@@ -282,17 +286,17 @@ export default function PermissionsPanel() {
               {/* Action button — show for not_granted and unknown */}
               {state !== "granted" && !loading && (
                 <IconTip label={t("settings.permGrantTooltip")}>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isRequesting}
-                      onClick={() => handleRequest(item.id)}
-                      className="shrink-0 gap-1.5"
-                    >
-                      <ExternalLink className="h-3.5 w-3.5" />
-                      {state === "unknown" ? t("settings.permCheck") : t("settings.permGrant")}
-                    </Button>
-                  </IconTip>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={isRequesting}
+                    onClick={() => handleRequest(item.id)}
+                    className="shrink-0 gap-1.5"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {state === "unknown" ? t("settings.permCheck") : t("settings.permGrant")}
+                  </Button>
+                </IconTip>
               )}
 
               {state === "granted" && <ShieldCheck className="h-4 w-4 text-green-500 shrink-0" />}

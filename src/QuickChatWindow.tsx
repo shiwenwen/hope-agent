@@ -2,7 +2,7 @@
  * QuickChatWindow — root component for the independent quick-chat Tauri window.
  * Rendered when `?window=quickchat` is in the URL (see main.tsx).
  */
-import React, { useEffect, useCallback, useRef } from "react"
+import React, { useEffect, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
@@ -49,7 +49,9 @@ export default function QuickChatWindow() {
     endedStreamIdsRef: quickEndedStreamIdsRef,
   })
 
-  useEffect(() => { initLanguageFromConfig() }, [])
+  useEffect(() => {
+    initLanguageFromConfig()
+  }, [])
 
   // Transparent html/body so CSS border-radius shows rounded corners on macOS
   useEffect(() => {
@@ -85,24 +87,27 @@ export default function QuickChatWindow() {
   useEffect(() => {
     const win = getCurrentWindow()
     let unlisten: (() => void) | undefined
-    win.onFocusChanged(({ payload: focused }) => {
-      if (!focused) hideWindow()
-    }).then((fn) => { unlisten = fn })
-    return () => { unlisten?.() }
+    win
+      .onFocusChanged(({ payload: focused }) => {
+        if (!focused) hideWindow()
+      })
+      .then((fn) => {
+        unlisten = fn
+      })
+    return () => {
+      unlisten?.()
+    }
   }, [])
 
-  const handleCommandAction = useCallback(
-    (result: CommandResult) => {
-      const action = result.action
-      if (!action) return
-      if (action.type === "switchAgent") {
-        session.handleSwitchAgent(action.agentId)
-      } else if (action.type === "newSession") {
-        session.handleNewChat()
-      }
-    },
-    [session],
-  )
+  const handleCommandAction = (result: CommandResult) => {
+    const action = result.action
+    if (!action) return
+    if (action.type === "switchAgent") {
+      session.handleSwitchAgent(action.agentId)
+    } else if (action.type === "newSession") {
+      session.handleNewChat()
+    }
+  }
 
   const { t } = useTranslation()
   const currentAgent = session.agents.find((a) => a.id === session.currentAgentId)
@@ -232,9 +237,7 @@ function AgentSelector({
         )}
       >
         <AgentAvatarIcon agent={currentAgent} />
-        <span className="font-medium">
-          {currentAgent?.name || t("chat.mainAgent")}
-        </span>
+        <span className="font-medium">{currentAgent?.name || t("chat.mainAgent")}</span>
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
       </button>
 
@@ -243,7 +246,10 @@ function AgentSelector({
           {agents.map((agent) => (
             <button
               key={agent.id}
-              onClick={() => { onSelect(agent.id); setMenuOpen(false) }}
+              onClick={() => {
+                onSelect(agent.id)
+                setMenuOpen(false)
+              }}
               className={cn(
                 "w-full text-left px-3 py-1.5 text-sm hover:bg-muted transition-colors flex items-center gap-2",
                 agent.id === currentAgent?.id && "bg-muted/50",

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ChevronRight,
@@ -14,12 +14,7 @@ import { getTransport } from "@/lib/transport-provider"
 import type { AgentSummaryForSidebar, SubagentEvent, SubagentRun } from "@/types/chat"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { IconTip } from "@/components/ui/tooltip"
-import {
-  loadAgents,
-  statusConfig,
-  TERMINAL_STATUSES,
-  FAILED_STATUSES,
-} from "./subagentShared"
+import { loadAgents, statusConfig, TERMINAL_STATUSES, FAILED_STATUSES } from "./subagentShared"
 
 export interface SubagentGroupRun {
   runId: string
@@ -137,7 +132,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const agg = useMemo(() => {
+  const agg = (() => {
     let running = 0
     let completed = 0
     let failed = 0
@@ -163,7 +158,7 @@ export default function SubagentGroup({ runs, onSwitchSession }: SubagentGroupPr
       totalOutputTokens,
       total: runs.length,
     }
-  }, [runs, states])
+  })()
 
   const anyRunning = agg.running > 0
   const headerLabel = anyRunning
@@ -332,9 +327,7 @@ function SubagentRow({
             <Users className="h-3 w-3 shrink-0 text-muted-foreground/50" />
           )}
           <IconTip label={nameTooltip || friendlyName}>
-            <span className="font-medium text-foreground truncate max-w-[40%]">
-              {friendlyName}
-            </span>
+            <span className="font-medium text-foreground truncate max-w-[40%]">{friendlyName}</span>
           </IconTip>
           {state?.attachmentCount !== undefined && state.attachmentCount > 0 && (
             <span className="flex items-center gap-0.5 text-muted-foreground/70 shrink-0">

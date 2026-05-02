@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Monitor } from "lucide-react"
 
@@ -13,10 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import {
-  TIMEZONE_OPTIONS,
-  type UserConfig,
-} from "@/components/settings/profile-panel/types"
+import { TIMEZONE_OPTIONS, type UserConfig } from "@/components/settings/profile-panel/types"
 import AvatarSection from "@/components/settings/profile-panel/AvatarSection"
 import { useAvatarUpload } from "@/hooks/useAvatarUpload"
 import { getTransport } from "@/lib/transport-provider"
@@ -29,11 +26,12 @@ interface ProfileStepProps {
   onChange: (patch: OnboardingDraft["profile"]) => void
 }
 
-const EXPERIENCE_OPTIONS: Array<{ id: "beginner" | "intermediate" | "expert"; labelKey: string }> = [
-  { id: "beginner", labelKey: "onboarding.profile.experience.beginner" },
-  { id: "intermediate", labelKey: "onboarding.profile.experience.intermediate" },
-  { id: "expert", labelKey: "onboarding.profile.experience.expert" },
-]
+const EXPERIENCE_OPTIONS: Array<{ id: "beginner" | "intermediate" | "expert"; labelKey: string }> =
+  [
+    { id: "beginner", labelKey: "onboarding.profile.experience.beginner" },
+    { id: "intermediate", labelKey: "onboarding.profile.experience.intermediate" },
+    { id: "expert", labelKey: "onboarding.profile.experience.expert" },
+  ]
 
 const STYLE_OPTIONS: Array<{ id: "concise" | "balanced" | "detailed"; labelKey: string }> = [
   { id: "concise", labelKey: "onboarding.profile.style.concise" },
@@ -70,29 +68,28 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
   // Avatar writes are side-channel (no "Next" step applies them later):
   // save_avatar lands bytes on disk, then save_user_config persists the
   // path so early exits and settings panels stay in sync.
-  const { cropSrc, handleAvatarPick, handleCropCancel, handleCropConfirm } =
-    useAvatarUpload({
-      fileName: () => `user_${Date.now()}.png`,
-      logCategory: "onboarding.ProfileStep",
-      onSaved: async (path) => {
-        setAvatar(path)
-        const next: UserConfig = { ...(userConfigRef.current ?? {}), avatar: path }
-        userConfigRef.current = next
-        try {
-          await getTransport().call("save_user_config", { config: next })
-        } catch (e) {
-          logger.error("onboarding", "ProfileStep::saveAvatar", "save_user_config failed", e)
-        }
-      },
-    })
+  const { cropSrc, handleAvatarPick, handleCropCancel, handleCropConfirm } = useAvatarUpload({
+    fileName: () => `user_${Date.now()}.png`,
+    logCategory: "onboarding.ProfileStep",
+    onSaved: async (path) => {
+      setAvatar(path)
+      const next: UserConfig = { ...(userConfigRef.current ?? {}), avatar: path }
+      userConfigRef.current = next
+      try {
+        await getTransport().call("save_user_config", { config: next })
+      } catch (e) {
+        logger.error("onboarding", "ProfileStep::saveAvatar", "save_user_config failed", e)
+      }
+    },
+  })
 
-  const systemTimezone = useMemo(() => {
+  const systemTimezone = (() => {
     try {
       return Intl.DateTimeFormat().resolvedOptions().timeZone || ""
     } catch {
       return ""
     }
-  }, [])
+  })()
 
   useEffect(() => {
     onChange({
@@ -144,9 +141,7 @@ export function ProfileStep({ draft, onChange }: ProfileStepProps) {
             <span className="flex-1 text-left">
               {t("settings.profileTimezoneSystem")}
               {systemTimezone && (
-                <span className="text-xs text-muted-foreground ml-1">
-                  ({systemTimezone})
-                </span>
+                <span className="text-xs text-muted-foreground ml-1">({systemTimezone})</span>
               )}
             </span>
           </button>

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { Send, MessageSquareQuote } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -25,13 +25,13 @@ export function CommentPopover({
     setTimeout(() => textareaRef.current?.focus(), 50)
   }, [])
 
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = () => {
     if (!comment.trim()) return
     onSubmit(comment.trim())
     setComment("")
-  }, [comment, onSubmit])
+  }
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault()
       handleSubmit()
@@ -40,7 +40,7 @@ export function CommentPopover({
       e.preventDefault()
       onClose()
     }
-  }, [handleSubmit, onClose])
+  }
 
   return (
     <div
@@ -51,7 +51,10 @@ export function CommentPopover({
       <div className="px-3 py-2 border-b border-border/50 bg-secondary/30 rounded-t-lg">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <MessageSquareQuote className="h-3 w-3 shrink-0" />
-          <span className="truncate italic">&ldquo;{selectedText.length > 60 ? selectedText.slice(0, 60) + "…" : selectedText}&rdquo;</span>
+          <span className="truncate italic">
+            &ldquo;{selectedText.length > 60 ? selectedText.slice(0, 60) + "…" : selectedText}
+            &rdquo;
+          </span>
         </div>
       </div>
       <div className="p-2 space-y-2">

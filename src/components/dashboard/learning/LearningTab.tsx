@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Loader2, RefreshCw, Sparkles } from "lucide-react"
@@ -49,7 +49,7 @@ export default function LearningTab() {
   const [topSkills, setTopSkills] = useState<SkillUsage[]>([])
   const [recall, setRecall] = useState<RecallStats | null>(null)
 
-  const reload = useCallback(async () => {
+  const reload = async () => {
     setLoading(true)
     try {
       const [ov, tl, ts, rs] = await Promise.all([
@@ -76,14 +76,16 @@ export default function LearningTab() {
     } finally {
       setLoading(false)
     }
-  }, [windowDays])
+  }
+  const reloadEffectEvent = useEffectEvent(reload)
 
   useEffect(() => {
-    reload()
-  }, [reload])
+    reloadEffectEvent()
+  }, [windowDays])
 
   const totalRecall = (recall?.hits ?? 0) + (recall?.summarized ?? 0)
-  const summaryPct = totalRecall > 0 ? Math.round(((recall?.summarized ?? 0) / totalRecall) * 100) : 0
+  const summaryPct =
+    totalRecall > 0 ? Math.round(((recall?.summarized ?? 0) / totalRecall) * 100) : 0
 
   return (
     <div className="flex flex-col gap-4 mt-4">
@@ -160,29 +162,30 @@ export default function LearningTab() {
           </div>
         ) : (
           <div className="space-y-1 max-h-[240px] overflow-y-auto">
-            {timeline.slice().reverse().map((p, i) => (
-              <div
-                key={`${p.ts}-${i}`}
-                className="flex items-center gap-2 text-xs py-1 border-b border-border/20 last:border-0"
-              >
-                <span className="text-muted-foreground tabular-nums w-32 shrink-0">
-                  {new Date(p.ts * 1000).toLocaleString()}
-                </span>
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${kindColor(p.kind)}`}
+            {timeline
+              .slice()
+              .reverse()
+              .map((p, i) => (
+                <div
+                  key={`${p.ts}-${i}`}
+                  className="flex items-center gap-2 text-xs py-1 border-b border-border/20 last:border-0"
                 >
-                  {t(`dashboard.learning.kind.${p.kind}`)}
-                </span>
-                {p.skillId && (
-                  <span className="text-foreground font-medium truncate flex-1">
-                    {p.skillId}
+                  <span className="text-muted-foreground tabular-nums w-32 shrink-0">
+                    {new Date(p.ts * 1000).toLocaleString()}
                   </span>
-                )}
-                {p.source && (
-                  <span className="text-[10px] text-muted-foreground">{p.source}</span>
-                )}
-              </div>
-            ))}
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-medium shrink-0 ${kindColor(p.kind)}`}
+                  >
+                    {t(`dashboard.learning.kind.${p.kind}`)}
+                  </span>
+                  {p.skillId && (
+                    <span className="text-foreground font-medium truncate flex-1">{p.skillId}</span>
+                  )}
+                  {p.source && (
+                    <span className="text-[10px] text-muted-foreground">{p.source}</span>
+                  )}
+                </div>
+              ))}
           </div>
         )}
       </div>
@@ -206,7 +209,8 @@ export default function LearningTab() {
                 >
                   <span className="flex-1 truncate font-medium">{s.skillId}</span>
                   <span className="text-muted-foreground tabular-nums">
-                    {s.usedCount}× · {s.lastUsedTs ? new Date(s.lastUsedTs * 1000).toLocaleDateString() : "—"}
+                    {s.usedCount}× ·{" "}
+                    {s.lastUsedTs ? new Date(s.lastUsedTs * 1000).toLocaleDateString() : "—"}
                   </span>
                 </div>
               ))}
@@ -256,15 +260,7 @@ export default function LearningTab() {
   )
 }
 
-function OverviewCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string
-  value: number
-  hint?: string
-}) {
+function OverviewCard({ label, value, hint }: { label: string; value: number; hint?: string }) {
   return (
     <div className="border border-border/60 rounded-lg p-3 flex flex-col gap-1">
       <div className="text-xs text-muted-foreground">{label}</div>

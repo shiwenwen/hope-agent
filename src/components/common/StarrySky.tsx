@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, memo } from "react"
+import { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { classifyWeather, generatePoints } from "./weatherUtils"
@@ -49,8 +49,8 @@ function AppBackgroundInner() {
   }, [])
 
   // Reduced motion
-  const [reducedMotion, setReducedMotion] = useState(() =>
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  const [reducedMotion, setReducedMotion] = useState(
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
   )
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)")
@@ -114,7 +114,9 @@ function AppBackgroundInner() {
         if (payload?.category === "ui_effects") {
           loadData()
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     })
 
     return () => {
@@ -172,9 +174,18 @@ function AppBackgroundInner() {
       {/* ── Starry Sky (Dark Mode) ── */}
       {isDark && (
         <>
-          <div className="starry-layer starry-twinkle-1" style={{ boxShadow: points.starsSmall, width: 2, height: 2 }} />
-          <div className="starry-layer starry-twinkle-2" style={{ boxShadow: points.starsMedium, width: 3, height: 3 }} />
-          <div className="starry-layer starry-twinkle-3" style={{ boxShadow: points.starsLarge, width: 4, height: 4 }} />
+          <div
+            className="starry-layer starry-twinkle-1"
+            style={{ boxShadow: points.starsSmall, width: 2, height: 2 }}
+          />
+          <div
+            className="starry-layer starry-twinkle-2"
+            style={{ boxShadow: points.starsMedium, width: 3, height: 3 }}
+          />
+          <div
+            className="starry-layer starry-twinkle-3"
+            style={{ boxShadow: points.starsLarge, width: 4, height: 4 }}
+          />
           {shootingStars.map((id) => (
             <ShootingStar key={id} id={id} onDone={removeShootingStar} />
           ))}
@@ -197,15 +208,11 @@ function AppBackgroundInner() {
 
       {/* ── Canvas Particles (rain, snow, sun motes, thunder) ── */}
       {!reducedMotion && weatherType && (
-        <WeatherCanvas
-          weatherType={weatherType}
-          windSpeed={windSpeed}
-          isDark={isDark}
-        />
+        <WeatherCanvas weatherType={weatherType} windSpeed={windSpeed} isDark={isDark} />
       )}
     </div>
   )
 }
 
-const AppBackground = memo(AppBackgroundInner)
+const AppBackground = AppBackgroundInner
 export default AppBackground

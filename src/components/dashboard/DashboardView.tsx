@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -116,15 +116,15 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   const [agents, setAgents] = useState<{ id: string; name: string; emoji?: string | null }[]>([])
   const tabsRef = useRef<HTMLDivElement>(null)
 
-  const agentNameMap = useMemo(() => {
+  const agentNameMap = (() => {
     const map: Record<string, string> = {}
     for (const a of agents) {
       map[a.id] = a.emoji ? `${a.emoji} ${a.name}` : a.name
     }
     return map
-  }, [agents])
+  })()
 
-  const loadOverview = useCallback(async () => {
+  const loadOverview = async () => {
     try {
       const data = await getTransport().call<OverviewStatsWithDelta>("dashboard_overview_delta", {
         filter,
@@ -133,7 +133,8 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
     } catch (e) {
       logger.error("dashboard", "loadOverview", `Failed: ${e}`)
     }
-  }, [filter])
+  }
+  const loadOverviewEffectEvent = useEffectEvent(loadOverview)
 
   // Load agent names once on mount
   useEffect(() => {
@@ -143,104 +144,102 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
       .catch(() => {})
   }, [])
 
-  const loadTabData = useCallback(
-    async (tab: string) => {
-      try {
-        switch (tab) {
-          case "insights": {
-            const d = await getTransport().call<DashboardInsights>("dashboard_insights", { filter })
-            setInsightsData(d)
-            break
-          }
-          case "tokens": {
-            const td = await getTransport().call<DashboardTokenData>("dashboard_token_usage", {
-              filter,
-            })
-            setTokenData(td)
-            break
-          }
-          case "tools": {
-            const tld = await getTransport().call<ToolUsageStats[]>("dashboard_tool_usage", {
-              filter,
-            })
-            setToolData(tld)
-            break
-          }
-          case "sessions": {
-            const sd = await getTransport().call<DashboardSessionData>("dashboard_sessions", {
-              filter,
-            })
-            setSessionData(sd)
-            break
-          }
-          case "errors": {
-            const ed = await getTransport().call<DashboardErrorData>("dashboard_errors", { filter })
-            setErrorData(ed)
-            break
-          }
-          case "tasks": {
-            const tkd = await getTransport().call<DashboardTaskData>("dashboard_tasks", { filter })
-            setTaskData(tkd)
-            break
-          }
-          case "system": {
-            const sm = await getTransport().call<SystemMetrics>("dashboard_system_metrics")
-            setSystemMetrics(sm)
-            setSystemHistory((prev) => {
-              const point: SystemHistoryPoint = {
-                t: Date.now(),
-                cpu: Math.min(sm.processCpuPercent, sm.cpuCount * 100),
-                mem: sm.memory.rssPercent,
-              }
-              const next = [...prev, point]
-              if (next.length > SYSTEM_HISTORY_LIMIT) {
-                next.splice(0, next.length - SYSTEM_HISTORY_LIMIT)
-              }
-              return next
-            })
-            break
-          }
+  const loadTabData = async (tab: string) => {
+    try {
+      switch (tab) {
+        case "insights": {
+          const d = await getTransport().call<DashboardInsights>("dashboard_insights", { filter })
+          setInsightsData(d)
+          break
         }
-      } catch (e) {
-        logger.error("dashboard", "loadTabData", `Failed loading ${tab}: ${e}`)
+        case "tokens": {
+          const td = await getTransport().call<DashboardTokenData>("dashboard_token_usage", {
+            filter,
+          })
+          setTokenData(td)
+          break
+        }
+        case "tools": {
+          const tld = await getTransport().call<ToolUsageStats[]>("dashboard_tool_usage", {
+            filter,
+          })
+          setToolData(tld)
+          break
+        }
+        case "sessions": {
+          const sd = await getTransport().call<DashboardSessionData>("dashboard_sessions", {
+            filter,
+          })
+          setSessionData(sd)
+          break
+        }
+        case "errors": {
+          const ed = await getTransport().call<DashboardErrorData>("dashboard_errors", { filter })
+          setErrorData(ed)
+          break
+        }
+        case "tasks": {
+          const tkd = await getTransport().call<DashboardTaskData>("dashboard_tasks", { filter })
+          setTaskData(tkd)
+          break
+        }
+        case "system": {
+          const sm = await getTransport().call<SystemMetrics>("dashboard_system_metrics")
+          setSystemMetrics(sm)
+          setSystemHistory((prev) => {
+            const point: SystemHistoryPoint = {
+              t: Date.now(),
+              cpu: Math.min(sm.processCpuPercent, sm.cpuCount * 100),
+              mem: sm.memory.rssPercent,
+            }
+            const next = [...prev, point]
+            if (next.length > SYSTEM_HISTORY_LIMIT) {
+              next.splice(0, next.length - SYSTEM_HISTORY_LIMIT)
+            }
+            return next
+          })
+          break
+        }
       }
-    },
-    [filter],
-  )
+    } catch (e) {
+      logger.error("dashboard", "loadTabData", `Failed loading ${tab}: ${e}`)
+    }
+  }
+  const loadTabDataEffectEvent = useEffectEvent(loadTabData)
 
   // Initial load & filter change reload
   useEffect(() => {
     const timer = setTimeout(() => {
       setLoading(true)
-      Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => {
+      Promise.all([loadOverviewEffectEvent(), loadTabDataEffectEvent(activeTab)]).finally(() => {
         setLoading(false)
         setLastRefreshAt(new Date())
       })
     }, 0)
     return () => clearTimeout(timer)
-  }, [filter, loadOverview, loadTabData, activeTab])
+  }, [filter, activeTab])
 
   // Tab switch reload (skip initial mount since above effect handles it)
   useEffect(() => {
     const timer = setTimeout(() => {
-      loadTabData(activeTab)
+      loadTabDataEffectEvent(activeTab)
     }, 0)
     return () => clearTimeout(timer)
-  }, [activeTab, granularity, loadTabData])
+  }, [activeTab, filter, granularity])
 
   // Auto-refresh polling
   useEffect(() => {
     const ms = autoRefreshMs(autoRefresh)
     if (ms <= 0) return
     const id = window.setInterval(() => {
-      Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => {
+      Promise.all([loadOverviewEffectEvent(), loadTabDataEffectEvent(activeTab)]).finally(() => {
         setLastRefreshAt(new Date())
       })
     }, ms)
     return () => window.clearInterval(id)
-  }, [autoRefresh, loadOverview, loadTabData, activeTab])
+  }, [autoRefresh, activeTab, filter])
 
-  const handleCardClick = useCallback((action: CardAction) => {
+  const handleCardClick = (action: CardAction) => {
     if (action.type === "tab") {
       setActiveList(null)
       setActiveTab(action.tab)
@@ -250,19 +249,19 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
     } else {
       setActiveList((prev) => (prev === action.listType ? null : action.listType))
     }
-  }, [])
+  }
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = () => {
     setLoading(true)
     setActiveList(null)
     Promise.all([loadOverview(), loadTabData(activeTab)]).finally(() => {
       setLoading(false)
       setLastRefreshAt(new Date())
     })
-  }, [loadOverview, loadTabData, activeTab])
+  }
 
   /** Export the currently visible tab's data to CSV. */
-  const handleExport = useCallback(() => {
+  const handleExport = () => {
     const ts = new Date().toISOString().replace(/[:.]/g, "-")
     switch (activeTab) {
       case "tokens": {
@@ -336,7 +335,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
         break
       }
     }
-  }, [activeTab, tokenData, toolData, sessionData, errorData, insightsData])
+  }
 
   const canExport =
     (activeTab === "tokens" && !!tokenData) ||

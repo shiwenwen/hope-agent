@@ -6,7 +6,7 @@
  * Caller still owns rendering — including mounting `<ServerDirectoryBrowser>`
  * — so per-call-site UI variations stay explicit.
  */
-import { useCallback, useState } from "react"
+import { useState } from "react"
 import { toast } from "sonner"
 import { isTauriMode } from "@/lib/transport"
 import { getTransport } from "@/lib/transport-provider"
@@ -27,7 +27,7 @@ export function useDirectoryPicker({
 }: UseDirectoryPickerOptions) {
   const [browserOpen, setBrowserOpen] = useState(false)
 
-  const pick = useCallback(async () => {
+  const pick = async () => {
     if (isTauriMode()) {
       try {
         const picked = await getTransport().pickLocalDirectory()
@@ -41,15 +41,12 @@ export function useDirectoryPicker({
     } else {
       setBrowserOpen(true)
     }
-  }, [onPicked, errorTitle, loggerSource])
+  }
 
-  const handleBrowserSelect = useCallback(
-    (path: string) => {
-      setBrowserOpen(false)
-      onPicked(path)
-    },
-    [onPicked],
-  )
+  const handleBrowserSelect = (path: string) => {
+    setBrowserOpen(false)
+    onPicked(path)
+  }
 
   return { pick, browserOpen, setBrowserOpen, handleBrowserSelect }
 }

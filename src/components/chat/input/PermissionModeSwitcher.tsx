@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import { useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { cn } from "@/lib/utils"
@@ -44,7 +44,7 @@ export default function PermissionModeSwitcher({
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
 
-  useClickOutside(menuRef, useCallback(() => setOpen(false), []))
+  useClickOutside(menuRef, () => setOpen(false))
 
   const activeTheme = MODE_THEME[permissionMode]
   const ActiveIcon = activeTheme.Icon
@@ -84,9 +84,7 @@ export default function PermissionModeSwitcher({
                 >
                   <Icon className={cn("h-3.5 w-3.5 mt-0.5 shrink-0", theme.iconTone)} />
                   <div className="flex flex-col">
-                    <span className="text-[13px]">
-                      {t(`chat.permissionMode.${mode}.label`)}
-                    </span>
+                    <span className="text-[13px]">{t(`chat.permissionMode.${mode}.label`)}</span>
                     <span className="text-[11px] text-muted-foreground font-normal">
                       {t(`chat.permissionMode.${mode}.desc`)}
                     </span>

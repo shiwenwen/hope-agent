@@ -23,12 +23,7 @@ interface ErrorSectionProps {
 }
 
 function SectionSkeleton({ height }: { height: number }) {
-  return (
-    <div
-      className="w-full bg-muted animate-pulse rounded-lg"
-      style={{ height }}
-    />
-  )
+  return <div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />
 }
 
 function SummaryCard({
@@ -47,10 +42,7 @@ function SummaryCard({
   return (
     <div className="bg-card border rounded-xl p-4 flex items-center gap-3">
       <div
-        className={cn(
-          "h-9 w-9 rounded-full flex items-center justify-center shrink-0",
-          bgClass,
-        )}
+        className={cn("h-9 w-9 rounded-full flex items-center justify-center shrink-0", bgClass)}
       >
         <Icon className={cn("h-4.5 w-4.5", colorClass)} />
       </div>
@@ -62,10 +54,7 @@ function SummaryCard({
   )
 }
 
-const ErrorSection = React.memo(function ErrorSection({
-  data,
-  loading,
-}: ErrorSectionProps) {
+const ErrorSection = function ErrorSection({ data, loading }: ErrorSectionProps) {
   const { t } = useTranslation()
 
   if (loading && !data) {
@@ -85,14 +74,9 @@ const ErrorSection = React.memo(function ErrorSection({
   if (!data) return null
 
   const totalEvents = data.totalErrors + data.totalWarnings
-  const errorRate =
-    totalEvents > 0
-      ? ((data.totalErrors / totalEvents) * 100).toFixed(1)
-      : "0.0"
+  const errorRate = totalEvents > 0 ? ((data.totalErrors / totalEvents) * 100).toFixed(1) : "0.0"
 
-  const sortedCategories = [...data.byCategory].sort(
-    (a, b) => b.count - a.count,
-  )
+  const sortedCategories = [...data.byCategory].sort((a, b) => b.count - a.count)
 
   return (
     <div className="space-y-6 mt-4">
@@ -123,9 +107,7 @@ const ErrorSection = React.memo(function ErrorSection({
 
       {/* Error/warn trend area chart */}
       <div className="bg-card border rounded-xl p-4">
-        <h3 className="text-sm font-medium mb-4">
-          {t("dashboard.error.trend")}
-        </h3>
+        <h3 className="text-sm font-medium mb-4">{t("dashboard.error.trend")}</h3>
         {data.trend.length === 0 ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground">
             {t("dashboard.noData")}
@@ -134,11 +116,7 @@ const ErrorSection = React.memo(function ErrorSection({
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={data.trend}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 12 }}
-                className="fill-muted-foreground"
-              />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <YAxis
                 tick={{ fontSize: 12 }}
                 className="fill-muted-foreground"
@@ -150,7 +128,7 @@ const ErrorSection = React.memo(function ErrorSection({
                   border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
-                color: "var(--color-popover-foreground)",
+                  color: "var(--color-popover-foreground)",
                 }}
                 formatter={(value, name) => [
                   formatNumber(chartNumber(value)),
@@ -189,23 +167,14 @@ const ErrorSection = React.memo(function ErrorSection({
 
       {/* Category bar chart */}
       <div className="bg-card border rounded-xl p-4">
-        <h3 className="text-sm font-medium mb-4">
-          {t("dashboard.error.byCategory")}
-        </h3>
+        <h3 className="text-sm font-medium mb-4">{t("dashboard.error.byCategory")}</h3>
         {sortedCategories.length === 0 ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground">
             {t("dashboard.noData")}
           </div>
         ) : (
-          <ResponsiveContainer
-            width="100%"
-            height={Math.max(200, sortedCategories.length * 32)}
-          >
-            <BarChart
-              data={sortedCategories}
-              layout="vertical"
-              margin={{ left: 100 }}
-            >
+          <ResponsiveContainer width="100%" height={Math.max(200, sortedCategories.length * 32)}>
+            <BarChart data={sortedCategories} layout="vertical" margin={{ left: 100 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis
                 type="number"
@@ -226,7 +195,7 @@ const ErrorSection = React.memo(function ErrorSection({
                   border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
-                color: "var(--color-popover-foreground)",
+                  color: "var(--color-popover-foreground)",
                 }}
                 formatter={(value) => [
                   formatNumber(chartNumber(value)),
@@ -240,6 +209,6 @@ const ErrorSection = React.memo(function ErrorSection({
       </div>
     </div>
   )
-})
+}
 
 export default ErrorSection

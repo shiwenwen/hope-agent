@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -57,18 +57,19 @@ export default function SandboxPanel() {
   const isDirty = JSON.stringify(config) !== savedSnapshot
   const dockerAvailable = dockerStatus?.installed && dockerStatus?.running
 
-  const refreshDockerStatus = useCallback(async () => {
+  const refreshDockerStatus = async () => {
     try {
       const s = await getTransport().call<DockerStatus>("check_sandbox_available")
       setDockerStatus(s)
     } catch {
       setDockerStatus({ installed: false, running: false })
     }
-  }, [])
+  }
 
   useEffect(() => {
     let cancelled = false
-    getTransport().call<SandboxConfig>("get_sandbox_config")
+    getTransport()
+      .call<SandboxConfig>("get_sandbox_config")
       .then((cfg) => {
         if (!cancelled) {
           setConfig(cfg)
@@ -79,7 +80,8 @@ export default function SandboxPanel() {
         logger.error("settings", "SandboxPanel", `Failed to load sandbox config: ${e}`)
       })
 
-    getTransport().call<DockerStatus>("check_sandbox_available")
+    getTransport()
+      .call<DockerStatus>("check_sandbox_available")
       .then((s) => {
         if (!cancelled) setDockerStatus(s)
       })
@@ -223,8 +225,7 @@ export default function SandboxPanel() {
                 value={config.cpu_limit ?? 1.0}
                 onChange={(e) => {
                   const num = parseFloat(e.target.value)
-                  if (!isNaN(num) && num > 0)
-                    setConfig((prev) => ({ ...prev, cpu_limit: num }))
+                  if (!isNaN(num) && num > 0) setConfig((prev) => ({ ...prev, cpu_limit: num }))
                 }}
               />
               <p className="text-xs text-muted-foreground">{t("settings.sandboxCpuLimitDesc")}</p>
@@ -237,8 +238,7 @@ export default function SandboxPanel() {
                 value={config.pids_limit ?? 256}
                 onChange={(e) => {
                   const num = parseInt(e.target.value, 10)
-                  if (!isNaN(num) && num > 0)
-                    setConfig((prev) => ({ ...prev, pids_limit: num }))
+                  if (!isNaN(num) && num > 0) setConfig((prev) => ({ ...prev, pids_limit: num }))
                 }}
               />
             </div>
@@ -255,9 +255,7 @@ export default function SandboxPanel() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <span className="text-sm font-medium">{t("settings.sandboxReadOnly")}</span>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.sandboxReadOnlyDesc")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("settings.sandboxReadOnlyDesc")}</p>
               </div>
               <Switch
                 checked={config.read_only}
@@ -268,9 +266,7 @@ export default function SandboxPanel() {
             <div className="flex items-center justify-between">
               <div className="space-y-0.5">
                 <span className="text-sm font-medium">{t("settings.sandboxCapDrop")}</span>
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.sandboxCapDropDesc")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("settings.sandboxCapDropDesc")}</p>
               </div>
               <Switch
                 checked={config.cap_drop_all}
@@ -287,9 +283,7 @@ export default function SandboxPanel() {
               </div>
               <Switch
                 checked={config.no_new_privileges}
-                onCheckedChange={(v) =>
-                  setConfig((prev) => ({ ...prev, no_new_privileges: v }))
-                }
+                onCheckedChange={(v) => setConfig((prev) => ({ ...prev, no_new_privileges: v }))}
               />
             </div>
 

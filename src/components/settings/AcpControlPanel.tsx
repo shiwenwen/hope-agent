@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -7,16 +7,7 @@ import { Switch } from "@/components/ui/switch"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { cn } from "@/lib/utils"
-import {
-  Check,
-  Loader2,
-  RefreshCw,
-  CircleCheck,
-  CircleX,
-  Cable,
-  Plus,
-  Trash2,
-} from "lucide-react"
+import { Check, Loader2, RefreshCw, CircleCheck, CircleX, Cable, Plus, Trash2 } from "lucide-react"
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -74,7 +65,7 @@ export default function AcpControlPanel() {
 
   const isDirty = JSON.stringify(config) !== savedSnapshot
 
-  const loadConfig = useCallback(async () => {
+  const loadConfig = async () => {
     try {
       const cfg = await getTransport().call<AcpControlConfig>("acp_get_config")
       setConfig(cfg)
@@ -82,9 +73,10 @@ export default function AcpControlPanel() {
     } catch (e) {
       logger.error("settings", "AcpControlPanel", `Failed to load ACP config: ${e}`)
     }
-  }, [])
+  }
+  const loadConfigEffectEvent = useEffectEvent(loadConfig)
 
-  const loadBackends = useCallback(async () => {
+  const loadBackends = async () => {
     try {
       setChecking(true)
       const list = await getTransport().call<AcpBackendInfo[]>("acp_list_backends")
@@ -94,12 +86,13 @@ export default function AcpControlPanel() {
     } finally {
       setChecking(false)
     }
-  }, [])
+  }
+  const loadBackendsEffectEvent = useEffectEvent(loadBackends)
 
   useEffect(() => {
-    loadConfig()
-    loadBackends()
-  }, [loadConfig, loadBackends])
+    loadConfigEffectEvent()
+    loadBackendsEffectEvent()
+  }, [])
 
   const handleSave = async () => {
     setSaving(true)
@@ -147,9 +140,7 @@ export default function AcpControlPanel() {
   const updateBackend = (index: number, updates: Partial<AcpBackendConfig>) => {
     setConfig((prev) => ({
       ...prev,
-      backends: prev.backends.map((b, i) =>
-        i === index ? { ...b, ...updates } : b
-      ),
+      backends: prev.backends.map((b, i) => (i === index ? { ...b, ...updates } : b)),
     }))
   }
 
@@ -158,9 +149,14 @@ export default function AcpControlPanel() {
       {/* Master switch */}
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div>
-          <Label className="text-sm font-medium">{t("settings.acpEnabled", "Enable ACP Control Plane")}</Label>
+          <Label className="text-sm font-medium">
+            {t("settings.acpEnabled", "Enable ACP Control Plane")}
+          </Label>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {t("settings.acpEnabledDesc", "Allow agents to spawn external ACP agents for task delegation")}
+            {t(
+              "settings.acpEnabledDesc",
+              "Allow agents to spawn external ACP agents for task delegation",
+            )}
           </p>
         </div>
         <Switch
@@ -174,7 +170,9 @@ export default function AcpControlPanel() {
           {/* Backend list */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <Label className="text-sm font-medium">{t("settings.acpBackends", "ACP Backends")}</Label>
+              <Label className="text-sm font-medium">
+                {t("settings.acpBackends", "ACP Backends")}
+              </Label>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={loadBackends} disabled={checking}>
                   <RefreshCw className={cn("h-3.5 w-3.5 mr-1", checking && "animate-spin")} />
@@ -206,12 +204,16 @@ export default function AcpControlPanel() {
                           {health.available ? (
                             <>
                               <CircleCheck className="h-3.5 w-3.5 text-green-500" />
-                              <span className="text-green-600">{health.version || t("common.available", "Available")}</span>
+                              <span className="text-green-600">
+                                {health.version || t("common.available", "Available")}
+                              </span>
                             </>
                           ) : (
                             <>
                               <CircleX className="h-3.5 w-3.5 text-red-500" />
-                              <span className="text-red-500 max-w-48 truncate">{health.error || t("common.unavailable", "Unavailable")}</span>
+                              <span className="text-red-500 max-w-48 truncate">
+                                {health.error || t("common.unavailable", "Unavailable")}
+                              </span>
                             </>
                           )}
                         </span>
@@ -222,7 +224,12 @@ export default function AcpControlPanel() {
                         checked={backend.enabled}
                         onCheckedChange={(checked) => updateBackend(index, { enabled: checked })}
                       />
-                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => removeBackend(index)}>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7"
+                        onClick={() => removeBackend(index)}
+                      >
                         <Trash2 className="h-3.5 w-3.5 text-muted-foreground" />
                       </Button>
                     </div>
@@ -230,7 +237,9 @@ export default function AcpControlPanel() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <Label className="text-xs text-muted-foreground">{t("settings.acpBackendId", "ID")}</Label>
+                      <Label className="text-xs text-muted-foreground">
+                        {t("settings.acpBackendId", "ID")}
+                      </Label>
                       <Input
                         className="h-7 text-xs"
                         value={backend.id}
@@ -238,7 +247,9 @@ export default function AcpControlPanel() {
                       />
                     </div>
                     <div>
-                      <Label className="text-xs text-muted-foreground">{t("settings.acpBinary", "Binary")}</Label>
+                      <Label className="text-xs text-muted-foreground">
+                        {t("settings.acpBinary", "Binary")}
+                      </Label>
                       <Input
                         className="h-7 text-xs"
                         value={backend.binary}
@@ -258,18 +269,29 @@ export default function AcpControlPanel() {
 
             <div className="flex items-center justify-between rounded-lg border p-3">
               <div>
-                <Label className="text-xs">{t("settings.acpAutoDiscover", "Auto-discover backends")}</Label>
-                <p className="text-xs text-muted-foreground">{t("settings.acpAutoDiscoverDesc", "Scan $PATH for known ACP agent binaries on startup")}</p>
+                <Label className="text-xs">
+                  {t("settings.acpAutoDiscover", "Auto-discover backends")}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    "settings.acpAutoDiscoverDesc",
+                    "Scan $PATH for known ACP agent binaries on startup",
+                  )}
+                </p>
               </div>
               <Switch
                 checked={config.autoDiscover}
-                onCheckedChange={(checked) => setConfig((prev) => ({ ...prev, autoDiscover: checked }))}
+                onCheckedChange={(checked) =>
+                  setConfig((prev) => ({ ...prev, autoDiscover: checked }))
+                }
               />
             </div>
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <Label className="text-xs text-muted-foreground">{t("settings.acpMaxConcurrent", "Max Concurrent")}</Label>
+                <Label className="text-xs text-muted-foreground">
+                  {t("settings.acpMaxConcurrent", "Max Concurrent")}
+                </Label>
                 <Input
                   type="number"
                   className="h-7 text-xs"
@@ -277,12 +299,17 @@ export default function AcpControlPanel() {
                   min={1}
                   max={20}
                   onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, maxConcurrentSessions: parseInt(e.target.value) || 5 }))
+                    setConfig((prev) => ({
+                      ...prev,
+                      maxConcurrentSessions: parseInt(e.target.value) || 5,
+                    }))
                   }
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">{t("settings.acpTimeout", "Timeout (s)")}</Label>
+                <Label className="text-xs text-muted-foreground">
+                  {t("settings.acpTimeout", "Timeout (s)")}
+                </Label>
                 <Input
                   type="number"
                   className="h-7 text-xs"
@@ -290,12 +317,17 @@ export default function AcpControlPanel() {
                   min={60}
                   max={7200}
                   onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, defaultTimeoutSecs: parseInt(e.target.value) || 600 }))
+                    setConfig((prev) => ({
+                      ...prev,
+                      defaultTimeoutSecs: parseInt(e.target.value) || 600,
+                    }))
                   }
                 />
               </div>
               <div>
-                <Label className="text-xs text-muted-foreground">{t("settings.acpIdleTtl", "Idle TTL (s)")}</Label>
+                <Label className="text-xs text-muted-foreground">
+                  {t("settings.acpIdleTtl", "Idle TTL (s)")}
+                </Label>
                 <Input
                   type="number"
                   className="h-7 text-xs"
@@ -303,7 +335,10 @@ export default function AcpControlPanel() {
                   min={60}
                   max={86400}
                   onChange={(e) =>
-                    setConfig((prev) => ({ ...prev, runtimeTtlSecs: parseInt(e.target.value) || 1800 }))
+                    setConfig((prev) => ({
+                      ...prev,
+                      runtimeTtlSecs: parseInt(e.target.value) || 1800,
+                    }))
                   }
                 />
               </div>
@@ -319,7 +354,7 @@ export default function AcpControlPanel() {
         className={cn(
           "w-full",
           saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
-          saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20"
+          saveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
         )}
       >
         {saving ? (

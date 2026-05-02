@@ -1,11 +1,17 @@
-import { useState, useEffect, useCallback } from "react"
+import React, { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { Check, Loader2, Info, Wifi, GripVertical } from "lucide-react"
 import {
@@ -16,7 +22,12 @@ import {
   useSensors,
   type DragEndEvent,
 } from "@dnd-kit/core"
-import { SortableContext, verticalListSortingStrategy, arrayMove, useSortable } from "@dnd-kit/sortable"
+import {
+  SortableContext,
+  verticalListSortingStrategy,
+  arrayMove,
+  useSortable,
+} from "@dnd-kit/sortable"
 import { CSS } from "@dnd-kit/utilities"
 import TestResultDisplay, { parseTestResult, type TestResult } from "./TestResultDisplay"
 
@@ -42,8 +53,22 @@ const DEFAULT_CONFIG: ImageGenConfig = {
     { id: "openai", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
     { id: "google", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
     { id: "fal", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
-    { id: "minimax", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
-    { id: "siliconflow", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
+    {
+      id: "minimax",
+      enabled: false,
+      apiKey: null,
+      baseUrl: null,
+      model: null,
+      thinkingLevel: null,
+    },
+    {
+      id: "siliconflow",
+      enabled: false,
+      apiKey: null,
+      baseUrl: null,
+      model: null,
+      thinkingLevel: null,
+    },
     { id: "zhipu", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
     { id: "tongyi", enabled: false, apiKey: null, baseUrl: null, model: null, thinkingLevel: null },
   ],
@@ -54,12 +79,28 @@ const DEFAULT_CONFIG: ImageGenConfig = {
 // Provider display names and defaults
 const PROVIDER_DISPLAY: Record<string, { name: string; defaultModel: string; baseUrl: string }> = {
   openai: { name: "OpenAI", defaultModel: "gpt-image-1", baseUrl: "https://api.openai.com" },
-  google: { name: "Google", defaultModel: "gemini-3.1-flash-image-preview", baseUrl: "https://generativelanguage.googleapis.com" },
+  google: {
+    name: "Google",
+    defaultModel: "gemini-3.1-flash-image-preview",
+    baseUrl: "https://generativelanguage.googleapis.com",
+  },
   fal: { name: "Fal", defaultModel: "fal-ai/flux/dev", baseUrl: "https://fal.run" },
   minimax: { name: "MiniMax", defaultModel: "image-01", baseUrl: "https://api.minimax.io" },
-  siliconflow: { name: "SiliconFlow", defaultModel: "Qwen/Qwen-Image", baseUrl: "https://api.siliconflow.cn" },
-  zhipu: { name: "ZhipuAI", defaultModel: "cogView-4-250304", baseUrl: "https://open.bigmodel.cn/api/paas" },
-  tongyi: { name: "Tongyi Wanxiang", defaultModel: "wanx-v1", baseUrl: "https://dashscope.aliyuncs.com" },
+  siliconflow: {
+    name: "SiliconFlow",
+    defaultModel: "Qwen/Qwen-Image",
+    baseUrl: "https://api.siliconflow.cn",
+  },
+  zhipu: {
+    name: "ZhipuAI",
+    defaultModel: "cogView-4-250304",
+    baseUrl: "https://open.bigmodel.cn/api/paas",
+  },
+  tongyi: {
+    name: "Tongyi Wanxiang",
+    defaultModel: "wanx-v1",
+    baseUrl: "https://dashscope.aliyuncs.com",
+  },
 }
 
 const GOOGLE_MODEL_OPTIONS = [
@@ -121,10 +162,7 @@ function PresetModelSelect({
 
   return (
     <div className="flex gap-1.5">
-      <Select
-        value={value || options[0].value}
-        onValueChange={(v) => onChange(v)}
-      >
+      <Select value={value || options[0].value} onValueChange={(v) => onChange(v)}>
         <SelectTrigger className="flex-1">
           <SelectValue />
         </SelectTrigger>
@@ -179,7 +217,7 @@ function SortableProviderCard({
       style={style}
       className={cn(
         "rounded-lg border p-4 space-y-3 transition-colors",
-        provider.enabled ? "border-primary/30 bg-primary/5" : "border-border"
+        provider.enabled ? "border-primary/30 bg-primary/5" : "border-border",
       )}
     >
       <div className="flex items-center justify-between">
@@ -196,14 +234,9 @@ function SortableProviderCard({
           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-medium text-muted-foreground">
             {index + 1}
           </span>
-          <span className="text-sm font-medium">
-            {getDisplayName(provider.id)}
-          </span>
+          <span className="text-sm font-medium">{getDisplayName(provider.id)}</span>
         </div>
-        <Switch
-          checked={provider.enabled}
-          onCheckedChange={onToggleEnabled}
-        />
+        <Switch checked={provider.enabled} onCheckedChange={onToggleEnabled} />
       </div>
       {children}
     </div>
@@ -223,7 +256,8 @@ export default function ImageGeneratePanel() {
 
   useEffect(() => {
     let cancelled = false
-    getTransport().call<ImageGenConfig>("get_image_generate_config")
+    getTransport()
+      .call<ImageGenConfig>("get_image_generate_config")
       .then((cfg) => {
         if (!cancelled) {
           setConfig(cfg)
@@ -264,17 +298,14 @@ export default function ImageGeneratePanel() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event
-      if (!over || active.id === over.id) return
-      const oldIndex = config.providers.findIndex((p) => p.id === active.id)
-      const newIndex = config.providers.findIndex((p) => p.id === over.id)
-      if (oldIndex === -1 || newIndex === -1) return
-      setConfig((prev) => ({ ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) }))
-    },
-    [config],
-  )
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || active.id === over.id) return
+    const oldIndex = config.providers.findIndex((p) => p.id === active.id)
+    const newIndex = config.providers.findIndex((p) => p.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    setConfig((prev) => ({ ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) }))
+  }
 
   const handleTest = async (provider: ImageGenProviderEntry) => {
     setTestLoading((prev) => ({ ...prev, [provider.id]: true }))
@@ -298,7 +329,7 @@ export default function ImageGeneratePanel() {
   }
 
   const hasAnyConfigured = config.providers.some(
-    (p) => p.enabled && p.apiKey && p.apiKey.trim().length > 0
+    (p) => p.enabled && p.apiKey && p.apiKey.trim().length > 0,
   )
 
   const getDisplayName = (id: string) => PROVIDER_DISPLAY[id]?.name ?? id
@@ -308,209 +339,214 @@ export default function ImageGeneratePanel() {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       <div className="flex-1 overflow-y-auto p-6">
-      <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <p className="text-xs text-muted-foreground">{t("settings.imageGenerateDesc")}</p>
-        </div>
-
-        {/* Info banner when no provider is configured */}
-        {!hasAnyConfigured && (
-          <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3">
-            <Info className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
-            <p className="text-xs text-muted-foreground">{t("settings.imageGenNoProvider")}</p>
-          </div>
-        )}
-
-        {/* Providers */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-              {t("settings.imageGenProviders")}
-            </h3>
+        <div className="space-y-6">
+          {/* Header */}
+          <div>
+            <p className="text-xs text-muted-foreground">{t("settings.imageGenerateDesc")}</p>
           </div>
 
-          {/* Priority hint */}
-          <p className="text-xs text-muted-foreground">
-            {t("settings.imageGenPriorityHint")}
-          </p>
+          {/* Info banner when no provider is configured */}
+          {!hasAnyConfigured && (
+            <div className="flex items-start gap-2 rounded-md bg-muted/50 p-3">
+              <Info className="h-4 w-4 mt-0.5 text-muted-foreground shrink-0" />
+              <p className="text-xs text-muted-foreground">{t("settings.imageGenNoProvider")}</p>
+            </div>
+          )}
 
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext items={config.providers.map((p) => p.id)} strategy={verticalListSortingStrategy}>
-            <div className="space-y-4">
-            {config.providers.map((provider, index) => (
-              <SortableProviderCard
-                key={provider.id}
-                provider={provider}
-                index={index}
-                getDisplayName={getDisplayName}
-                onToggleEnabled={(v) => updateProvider(index, { enabled: v })}
+          {/* Providers */}
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+                {t("settings.imageGenProviders")}
+              </h3>
+            </div>
+
+            {/* Priority hint */}
+            <p className="text-xs text-muted-foreground">{t("settings.imageGenPriorityHint")}</p>
+
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext
+                items={config.providers.map((p) => p.id)}
+                strategy={verticalListSortingStrategy}
               >
+                <div className="space-y-4">
+                  {config.providers.map((provider, index) => (
+                    <SortableProviderCard
+                      key={provider.id}
+                      provider={provider}
+                      index={index}
+                      getDisplayName={getDisplayName}
+                      onToggleEnabled={(v) => updateProvider(index, { enabled: v })}
+                    >
+                      {/* Provider details (shown when enabled) */}
+                      {provider.enabled && (
+                        <div className="space-y-3 pt-1">
+                          <div className="space-y-1.5">
+                            <span className="text-xs text-muted-foreground">
+                              {t("settings.imageGenApiKey")}
+                            </span>
+                            <Input
+                              type="password"
+                              value={provider.apiKey ?? ""}
+                              placeholder="sk-..."
+                              onChange={(e) =>
+                                updateProvider(index, {
+                                  apiKey: e.target.value || null,
+                                })
+                              }
+                            />
+                          </div>
 
-                {/* Provider details (shown when enabled) */}
-                {provider.enabled && (
-                  <div className="space-y-3 pt-1">
-                    <div className="space-y-1.5">
-                      <span className="text-xs text-muted-foreground">{t("settings.imageGenApiKey")}</span>
-                      <Input
-                        type="password"
-                        value={provider.apiKey ?? ""}
-                        placeholder="sk-..."
-                        onChange={(e) =>
-                          updateProvider(index, {
-                            apiKey: e.target.value || null,
-                          })
-                        }
-                      />
-                    </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1.5">
+                              <span className="text-xs text-muted-foreground">
+                                {t("settings.imageGenBaseUrl")}
+                              </span>
+                              <Input
+                                value={provider.baseUrl ?? ""}
+                                placeholder={getDefaultBaseUrl(provider.id)}
+                                onChange={(e) =>
+                                  updateProvider(index, {
+                                    baseUrl: e.target.value || null,
+                                  })
+                                }
+                              />
+                            </div>
 
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="space-y-1.5">
-                        <span className="text-xs text-muted-foreground">
-                          {t("settings.imageGenBaseUrl")}
-                        </span>
-                        <Input
-                          value={provider.baseUrl ?? ""}
-                          placeholder={getDefaultBaseUrl(provider.id)}
-                          onChange={(e) =>
-                            updateProvider(index, {
-                              baseUrl: e.target.value || null,
-                            })
-                          }
-                        />
-                      </div>
+                            <div className="space-y-1.5">
+                              <span className="text-xs text-muted-foreground">
+                                {t("settings.imageGenModel")}
+                              </span>
+                              {provider.id === "google" ? (
+                                <PresetModelSelect
+                                  value={provider.model}
+                                  onChange={(v) => updateProvider(index, { model: v })}
+                                  options={GOOGLE_MODEL_OPTIONS}
+                                  placeholder="gemini-3.1-flash-image-preview"
+                                />
+                              ) : provider.id === "openai" ? (
+                                <PresetModelSelect
+                                  value={provider.model}
+                                  onChange={(v) => updateProvider(index, { model: v })}
+                                  options={OPENAI_MODEL_OPTIONS}
+                                  placeholder={getDefaultModel(provider.id)}
+                                />
+                              ) : (
+                                <Input
+                                  value={provider.model ?? ""}
+                                  placeholder={getDefaultModel(provider.id)}
+                                  onChange={(e) =>
+                                    updateProvider(index, {
+                                      model: e.target.value || null,
+                                    })
+                                  }
+                                />
+                              )}
+                            </div>
+                          </div>
 
-                      <div className="space-y-1.5">
-                        <span className="text-xs text-muted-foreground">
-                          {t("settings.imageGenModel")}
-                        </span>
-                        {provider.id === "google" ? (
-                          <PresetModelSelect
-                            value={provider.model}
-                            onChange={(v) => updateProvider(index, { model: v })}
-                            options={GOOGLE_MODEL_OPTIONS}
-                            placeholder="gemini-3.1-flash-image-preview"
-                          />
-                        ) : provider.id === "openai" ? (
-                          <PresetModelSelect
-                            value={provider.model}
-                            onChange={(v) => updateProvider(index, { model: v })}
-                            options={OPENAI_MODEL_OPTIONS}
-                            placeholder={getDefaultModel(provider.id)}
-                          />
-                        ) : (
-                          <Input
-                            value={provider.model ?? ""}
-                            placeholder={getDefaultModel(provider.id)}
-                            onChange={(e) =>
-                              updateProvider(index, {
-                                model: e.target.value || null,
-                              })
-                            }
-                          />
-                        )}
-                      </div>
-                    </div>
+                          {/* Google-specific: Thinking Level */}
+                          {provider.id === "google" && (
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1.5">
+                                <span className="text-xs text-muted-foreground">
+                                  {t("settings.imageGenThinkingLevel")}
+                                </span>
+                                <Select
+                                  value={provider.thinkingLevel || "MINIMAL"}
+                                  onValueChange={(v) => updateProvider(index, { thinkingLevel: v })}
+                                >
+                                  <SelectTrigger>
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="MINIMAL">Minimal</SelectItem>
+                                    <SelectItem value="HIGH">High</SelectItem>
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                            </div>
+                          )}
 
-                    {/* Google-specific: Thinking Level */}
-                    {provider.id === "google" && (
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1.5">
-                          <span className="text-xs text-muted-foreground">
-                            {t("settings.imageGenThinkingLevel")}
-                          </span>
-                          <Select
-                            value={provider.thinkingLevel || "MINIMAL"}
-                            onValueChange={(v) => updateProvider(index, { thinkingLevel: v })}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="MINIMAL">Minimal</SelectItem>
-                              <SelectItem value="HIGH">High</SelectItem>
-                            </SelectContent>
-                          </Select>
+                          {/* Test button */}
+                          <div className="flex items-center gap-2 pt-1">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              disabled={testLoading[provider.id] || !provider.apiKey?.trim()}
+                              onClick={() => handleTest(provider)}
+                            >
+                              {testLoading[provider.id] ? (
+                                <span className="flex items-center gap-2">
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  {t("common.testing")}
+                                </span>
+                              ) : (
+                                <span className="flex items-center gap-2">
+                                  <Wifi className="h-3.5 w-3.5" />
+                                  {t("common.test")}
+                                </span>
+                              )}
+                            </Button>
+                          </div>
+
+                          {/* Test result */}
+                          {testResults[provider.id] && (
+                            <TestResultDisplay result={testResults[provider.id]} />
+                          )}
                         </div>
-                      </div>
-                    )}
-
-                    {/* Test button */}
-                    <div className="flex items-center gap-2 pt-1">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        disabled={testLoading[provider.id] || !provider.apiKey?.trim()}
-                        onClick={() => handleTest(provider)}
-                      >
-                        {testLoading[provider.id] ? (
-                          <span className="flex items-center gap-2">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                            {t("common.testing")}
-                          </span>
-                        ) : (
-                          <span className="flex items-center gap-2">
-                            <Wifi className="h-3.5 w-3.5" />
-                            {t("common.test")}
-                          </span>
-                        )}
-                      </Button>
-                    </div>
-
-                    {/* Test result */}
-                    {testResults[provider.id] && (
-                      <TestResultDisplay result={testResults[provider.id]} />
-                    )}
-                  </div>
-                )}
-              </SortableProviderCard>
-            ))}
-            </div>
-            </SortableContext>
-          </DndContext>
-        </div>
-
-        {/* General settings */}
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">{t("settings.imageGenDefaultSize")}</span>
-              <Select
-                value={config.defaultSize}
-                onValueChange={(v) => setConfig((prev) => ({ ...prev, defaultSize: v }))}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SIZE_OPTIONS.map((size) => (
-                    <SelectItem key={size} value={size}>
-                      {size}
-                    </SelectItem>
+                      )}
+                    </SortableProviderCard>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
+                </div>
+              </SortableContext>
+            </DndContext>
+          </div>
 
-            <div className="space-y-1.5">
-              <span className="text-sm font-medium">{t("settings.imageGenTimeout")}</span>
-              <Input
-                type="number"
-                min={10}
-                max={300}
-                value={config.timeoutSeconds}
-                onChange={(e) => {
-                  const num = parseInt(e.target.value, 10)
-                  if (!isNaN(num) && num >= 10) {
-                    setConfig((prev) => ({ ...prev, timeoutSeconds: num }))
-                  }
-                }}
-              />
+          {/* General settings */}
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.imageGenDefaultSize")}</span>
+                <Select
+                  value={config.defaultSize}
+                  onValueChange={(v) => setConfig((prev) => ({ ...prev, defaultSize: v }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={size}>
+                        {size}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-1.5">
+                <span className="text-sm font-medium">{t("settings.imageGenTimeout")}</span>
+                <Input
+                  type="number"
+                  min={10}
+                  max={300}
+                  value={config.timeoutSeconds}
+                  onChange={(e) => {
+                    const num = parseInt(e.target.value, 10)
+                    if (!isNaN(num) && num >= 10) {
+                      setConfig((prev) => ({ ...prev, timeoutSeconds: num }))
+                    }
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
-
-      </div>
       </div>
 
       {/* Save — fixed bottom */}

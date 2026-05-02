@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -39,7 +39,8 @@ export default function SystemPanel() {
   const [restoreError, setRestoreError] = useState<string | null>(null)
 
   useEffect(() => {
-    getTransport().call<boolean>("get_autostart_enabled")
+    getTransport()
+      .call<boolean>("get_autostart_enabled")
       .then((enabled) => {
         setAutostart(enabled)
         setLoaded(true)
@@ -50,7 +51,7 @@ export default function SystemPanel() {
       })
   }, [])
 
-  const loadBackups = useCallback(async () => {
+  const loadBackups = async () => {
     setBackupsLoading(true)
     try {
       const list = await getTransport().call<AutosaveEntry[]>("list_settings_backups_cmd")
@@ -60,11 +61,12 @@ export default function SystemPanel() {
     } finally {
       setBackupsLoading(false)
     }
-  }, [])
+  }
+  const loadBackupsEffectEvent = useEffectEvent(loadBackups)
 
   useEffect(() => {
-    loadBackups()
-  }, [loadBackups])
+    loadBackupsEffectEvent()
+  }, [])
 
   async function toggleAutostart() {
     const next = !autostart
@@ -123,9 +125,7 @@ export default function SystemPanel() {
             <History className="h-4 w-4 text-muted-foreground" />
             <div>
               <div className="text-sm font-medium">{t("settings.configBackupsTitle")}</div>
-              <div className="text-xs text-muted-foreground">
-                {t("settings.configBackupsDesc")}
-              </div>
+              <div className="text-xs text-muted-foreground">{t("settings.configBackupsDesc")}</div>
             </div>
           </div>
           <IconTip label={t("common.refresh")}>
@@ -143,7 +143,9 @@ export default function SystemPanel() {
 
         {restoreError && (
           <div className="mx-3 px-3 py-2 rounded-md bg-destructive/10 text-destructive text-xs flex items-center justify-between">
-            <span className="truncate">{t("settings.configBackupsRestoreFailed", { msg: restoreError })}</span>
+            <span className="truncate">
+              {t("settings.configBackupsRestoreFailed", { msg: restoreError })}
+            </span>
             <Button
               variant="ghost"
               size="icon"

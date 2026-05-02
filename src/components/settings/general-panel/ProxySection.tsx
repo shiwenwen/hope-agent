@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import React, { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -28,7 +28,8 @@ export default function ProxySection() {
 
   useEffect(() => {
     let cancelled = false
-    getTransport().call<ProxyConfig>("get_proxy_config")
+    getTransport()
+      .call<ProxyConfig>("get_proxy_config")
       .then((cfg) => {
         if (cancelled) return
         setProxy(cfg)
@@ -37,10 +38,12 @@ export default function ProxySection() {
       .catch((e) => {
         logger.error("settings", "ProxySection::load", "Failed to load proxy config", e)
       })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const saveProxy = useCallback(async () => {
+  const saveProxy = async () => {
     setProxySaving(true)
     try {
       await getTransport().call("save_proxy_config", { config: proxy })
@@ -54,9 +57,9 @@ export default function ProxySection() {
     } finally {
       setProxySaving(false)
     }
-  }, [proxy])
+  }
 
-  const testProxy = useCallback(async () => {
+  const testProxy = async () => {
     setProxyTesting(true)
     setProxyTestResult(null)
     try {
@@ -67,12 +70,32 @@ export default function ProxySection() {
     } finally {
       setProxyTesting(false)
     }
-  }, [proxy])
+  }
 
-  const proxyModeOptions: { value: ProxyConfig["mode"]; icon: React.ReactNode; label: string; desc: string }[] = [
-    { value: "system", icon: <Globe className="h-4 w-4" />, label: t("settings.proxyModeSystem"), desc: t("settings.proxyModeSystemDesc") },
-    { value: "none", icon: <WifiOff className="h-4 w-4" />, label: t("settings.proxyModeNone"), desc: t("settings.proxyModeNoneDesc") },
-    { value: "custom", icon: <Settings2 className="h-4 w-4" />, label: t("settings.proxyModeCustom"), desc: t("settings.proxyModeCustomDesc") },
+  const proxyModeOptions: {
+    value: ProxyConfig["mode"]
+    icon: React.ReactNode
+    label: string
+    desc: string
+  }[] = [
+    {
+      value: "system",
+      icon: <Globe className="h-4 w-4" />,
+      label: t("settings.proxyModeSystem"),
+      desc: t("settings.proxyModeSystemDesc"),
+    },
+    {
+      value: "none",
+      icon: <WifiOff className="h-4 w-4" />,
+      label: t("settings.proxyModeNone"),
+      desc: t("settings.proxyModeNoneDesc"),
+    },
+    {
+      value: "custom",
+      icon: <Settings2 className="h-4 w-4" />,
+      label: t("settings.proxyModeCustom"),
+      desc: t("settings.proxyModeCustomDesc"),
+    },
   ]
 
   return (
@@ -93,17 +116,26 @@ export default function ProxySection() {
               )}
               onClick={() => setProxy((p) => ({ ...p, mode: opt.value }))}
             >
-              <div className={cn("shrink-0", proxy.mode === opt.value ? "text-primary" : "text-muted-foreground")}>
+              <div
+                className={cn(
+                  "shrink-0",
+                  proxy.mode === opt.value ? "text-primary" : "text-muted-foreground",
+                )}
+              >
                 {opt.icon}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium">{opt.label}</div>
                 <div className="text-xs text-muted-foreground">{opt.desc}</div>
               </div>
-              <div className={cn(
-                "h-4 w-4 rounded-full border-2 shrink-0 transition-colors",
-                proxy.mode === opt.value ? "border-primary bg-primary" : "border-muted-foreground/30",
-              )}>
+              <div
+                className={cn(
+                  "h-4 w-4 rounded-full border-2 shrink-0 transition-colors",
+                  proxy.mode === opt.value
+                    ? "border-primary bg-primary"
+                    : "border-muted-foreground/30",
+                )}
+              >
                 {proxy.mode === opt.value && (
                   <div className="h-full w-full flex items-center justify-center">
                     <div className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
@@ -134,7 +166,8 @@ export default function ProxySection() {
             disabled={(!proxyDirty && proxySaveStatus === "idle") || proxySaving}
             className={cn(
               proxySaveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
-              proxySaveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+              proxySaveStatus === "failed" &&
+                "bg-destructive/10 text-destructive hover:bg-destructive/20",
             )}
           >
             {proxySaving ? (
@@ -176,14 +209,20 @@ export default function ProxySection() {
 
         {/* Test result */}
         {proxyTestResult && (
-          <div className={cn(
-            "px-3 py-2 rounded-md text-xs",
-            proxyTestResult.ok ? "bg-green-500/10 text-green-600" : "bg-destructive/10 text-destructive",
-          )}>
+          <div
+            className={cn(
+              "px-3 py-2 rounded-md text-xs",
+              proxyTestResult.ok
+                ? "bg-green-500/10 text-green-600"
+                : "bg-destructive/10 text-destructive",
+            )}
+          >
             <div className="font-medium">
               {proxyTestResult.ok ? t("settings.proxyTestSuccess") : t("settings.proxyTestFailed")}
             </div>
-            <pre className="mt-1 whitespace-pre-wrap break-all opacity-80">{proxyTestResult.msg}</pre>
+            <pre className="mt-1 whitespace-pre-wrap break-all opacity-80">
+              {proxyTestResult.msg}
+            </pre>
           </div>
         )}
       </div>

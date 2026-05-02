@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, FolderOpen, Plus, Sparkles, X } from "lucide-react"
 
@@ -84,7 +84,7 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
     })
   }
 
-  const addExtraDir = useCallback(async (dir: string) => {
+  const addExtraDir = async (dir: string) => {
     setImporting(true)
     try {
       await getTransport().call("add_extra_skills_dir", { dir })
@@ -95,7 +95,7 @@ export function SkillsStep({ initialDisabled, onChange }: SkillsStepProps) {
     } finally {
       setImporting(false)
     }
-  }, [])
+  }
 
   const {
     pick: handleImportDir,

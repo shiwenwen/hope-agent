@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, type ReactNode } from "react"
+import React, { useEffect, useState, type ReactNode } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { switchToRemote, switchToEmbedded } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
@@ -86,7 +86,9 @@ export default function ServerPanel() {
           remoteApiKey: (userCfg.remoteApiKey as string) || "",
           embeddedBindAddr: (serverCfg.bindAddr as string) || DEFAULT_EMBEDDED_ADDRESS,
           // Show masked key if exists, otherwise empty
-          embeddedApiKey: (serverCfg.hasApiKey as boolean) ? (serverCfg.apiKey as string) || "" : "",
+          embeddedApiKey: (serverCfg.hasApiKey as boolean)
+            ? (serverCfg.apiKey as string) || ""
+            : "",
         }
         setConfig(loaded)
         setSavedSnapshot(JSON.stringify(loaded))
@@ -106,7 +108,7 @@ export default function ServerPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config.serverMode, config.remoteServerUrl])
 
-  const checkConnection = useCallback(async () => {
+  const checkConnection = async () => {
     try {
       const url =
         config.serverMode === "remote" && config.remoteServerUrl
@@ -125,9 +127,9 @@ export default function ServerPanel() {
     } catch {
       setConnected(false)
     }
-  }, [config.serverMode, config.remoteServerUrl, config.remoteApiKey])
+  }
 
-  const handleSave = useCallback(async () => {
+  const handleSave = async () => {
     setSaving(true)
     try {
       // Save user config (server mode, remote URL/key)
@@ -166,9 +168,9 @@ export default function ServerPanel() {
     } finally {
       setSaving(false)
     }
-  }, [config])
+  }
 
-  const handleTestConnection = useCallback(async () => {
+  const handleTestConnection = async () => {
     setTesting(true)
     setTestResult(null)
     try {
@@ -199,7 +201,7 @@ export default function ServerPanel() {
     } finally {
       setTesting(false)
     }
-  }, [config])
+  }
 
   const modeOptions: {
     value: ServerMode
@@ -226,9 +228,7 @@ export default function ServerPanel() {
       <div className="w-full space-y-6">
         {/* Header */}
         <div>
-          <h2 className="text-lg font-semibold text-foreground mb-1">
-            {t("settings.server")}
-          </h2>
+          <h2 className="text-lg font-semibold text-foreground mb-1">{t("settings.server")}</h2>
           <p className="text-xs text-muted-foreground">{t("settings.serverDesc")}</p>
         </div>
 
@@ -262,9 +262,7 @@ export default function ServerPanel() {
         <div className="space-y-3">
           <div>
             <h3 className="text-sm font-medium">{t("settings.serverMode")}</h3>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {t("settings.serverModeDesc")}
-            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">{t("settings.serverModeDesc")}</p>
           </div>
           <div className="space-y-1.5">
             {modeOptions.map((opt) => (
@@ -276,16 +274,12 @@ export default function ServerPanel() {
                     ? "bg-primary/10 border border-primary/30"
                     : "hover:bg-secondary/40 border border-transparent",
                 )}
-                onClick={() =>
-                  setConfig((prev) => ({ ...prev, serverMode: opt.value }))
-                }
+                onClick={() => setConfig((prev) => ({ ...prev, serverMode: opt.value }))}
               >
                 <div
                   className={cn(
                     "shrink-0",
-                    config.serverMode === opt.value
-                      ? "text-primary"
-                      : "text-muted-foreground",
+                    config.serverMode === opt.value ? "text-primary" : "text-muted-foreground",
                   )}
                 >
                   {opt.icon}
@@ -377,9 +371,7 @@ export default function ServerPanel() {
         {config.serverMode === "remote" && (
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <span className="text-xs text-muted-foreground">
-                {t("settings.serverRemoteUrl")}
-              </span>
+              <span className="text-xs text-muted-foreground">{t("settings.serverRemoteUrl")}</span>
               <Input
                 value={config.remoteServerUrl}
                 placeholder={t("settings.serverRemoteUrlPlaceholder")}
@@ -392,9 +384,7 @@ export default function ServerPanel() {
               />
             </div>
             <div className="space-y-1.5">
-              <span className="text-xs text-muted-foreground">
-                {t("settings.serverApiKey")}
-              </span>
+              <span className="text-xs text-muted-foreground">{t("settings.serverApiKey")}</span>
               <Input
                 type="password"
                 value={config.remoteApiKey}
@@ -417,8 +407,7 @@ export default function ServerPanel() {
             onClick={handleSave}
             disabled={(!dirty && saveStatus === "idle") || saving}
             className={cn(
-              saveStatus === "saved" &&
-                "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+              saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
               saveStatus === "failed" &&
                 "bg-destructive/10 text-destructive hover:bg-destructive/20",
             )}
@@ -444,8 +433,7 @@ export default function ServerPanel() {
             variant="secondary"
             size="sm"
             disabled={
-              testing ||
-              (config.serverMode === "remote" && !config.remoteServerUrl?.trim())
+              testing || (config.serverMode === "remote" && !config.remoteServerUrl?.trim())
             }
             onClick={handleTestConnection}
           >
@@ -474,13 +462,9 @@ export default function ServerPanel() {
             )}
           >
             <div className="font-medium">
-              {testResult.ok
-                ? t("settings.serverTestSuccess")
-                : t("settings.serverTestFailed")}
+              {testResult.ok ? t("settings.serverTestSuccess") : t("settings.serverTestFailed")}
             </div>
-            <pre className="mt-1 whitespace-pre-wrap break-all opacity-80">
-              {testResult.msg}
-            </pre>
+            <pre className="mt-1 whitespace-pre-wrap break-all opacity-80">{testResult.msg}</pre>
           </div>
         )}
       </div>
@@ -497,10 +481,7 @@ function RuntimeStatusSection() {
     body = (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[0, 1, 2, 3].map((i) => (
-          <div
-            key={i}
-            className="h-[58px] rounded-lg bg-muted/50 animate-pulse"
-          />
+          <div key={i} className="h-[58px] rounded-lg bg-muted/50 animate-pulse" />
         ))}
       </div>
     )
@@ -508,9 +489,7 @@ function RuntimeStatusSection() {
     body = (
       <div className="flex items-center gap-2 text-xs text-muted-foreground px-3 py-2 rounded-md bg-muted/40">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-        <span className="truncate">
-          {error ?? t("settings.serverNotStarted")}
-        </span>
+        <span className="truncate">{error ?? t("settings.serverNotStarted")}</span>
       </div>
     )
   } else if (status.startupError) {
@@ -523,9 +502,7 @@ function RuntimeStatusSection() {
         <pre className="text-xs text-destructive/90 whitespace-pre-wrap break-all">
           {status.startupError}
         </pre>
-        <p className="text-[11px] text-destructive/80">
-          {t("settings.serverRestartRequired")}
-        </p>
+        <p className="text-[11px] text-destructive/80">{t("settings.serverRestartRequired")}</p>
       </div>
     )
   } else {
@@ -569,9 +546,7 @@ function RuntimeStatusSection() {
 
   return (
     <section className="space-y-2">
-      <h3 className="text-sm font-medium">
-        {t("settings.serverRuntimeStatus")}
-      </h3>
+      <h3 className="text-sm font-medium">{t("settings.serverRuntimeStatus")}</h3>
       {body}
     </section>
   )

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { withEventListener } from "@/lib/transport-events"
@@ -40,7 +40,7 @@ export function SearxngDockerSection({
   const [actionLoading, setActionLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const refreshStatus = useCallback(async () => {
+  const refreshStatus = async () => {
     setChecking(true)
     try {
       const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
@@ -50,11 +50,12 @@ export function SearxngDockerSection({
     } finally {
       setChecking(false)
     }
-  }, [])
+  }
+  const refreshStatusEffectEvent = useEffectEvent(refreshStatus)
 
   useEffect(() => {
-    refreshStatus()
-  }, [refreshStatus])
+    refreshStatusEffectEvent()
+  }, [])
 
   // Poll status while container is starting or deploy is in progress
   useEffect(() => {
@@ -89,25 +90,25 @@ export function SearxngDockerSection({
     done: t("settings.webSearchDockerStepDone"),
   }
 
-  const waitForHealthy = useCallback(async () => {
+  const waitForHealthy = async () => {
     for (let i = 0; i < 10; i++) {
       await new Promise((r) => setTimeout(r, 1500))
       const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
       setStatus(s)
       if (s.healthOk) break
     }
-  }, [])
+  }
 
-  const ensureConfigSaved = useCallback(async () => {
+  const ensureConfigSaved = async () => {
     const ok = await saveConfig()
     if (!ok) {
       setError(t("settings.webSearchDockerSaveConfigFailed"))
       return false
     }
     return true
-  }, [saveConfig, t])
+  }
 
-  const handleDeploy = useCallback(async () => {
+  const handleDeploy = async () => {
     if (!(await ensureConfigSaved())) return
     setDeploying(true)
     setDeployStep(null)
@@ -132,9 +133,9 @@ export function SearxngDockerSection({
       setDeploying(false)
       setDeployStep(null)
     }
-  }, [ensureConfigSaved, onUrlSet, refreshStatus])
+  }
 
-  const handleRedeploy = useCallback(async () => {
+  const handleRedeploy = async () => {
     if (!(await ensureConfigSaved())) return
     setActionLoading(true)
     setError(null)
@@ -148,74 +149,59 @@ export function SearxngDockerSection({
     setActionLoading(false)
     // Then deploy fresh
     await handleDeploy()
-  }, [ensureConfigSaved, handleDeploy, refreshStatus])
+  }
 
-  const handleAction = useCallback(
-    async (action: "start" | "stop" | "remove") => {
-      if (action === "start" && !(await ensureConfigSaved())) return
-      setActionLoading(true)
-      setError(null)
-      try {
-        await getTransport().call(`searxng_docker_${action}`)
-        await refreshStatus()
-        // After start, poll until healthy (up to 15s)
-        if (action === "start") {
-          for (let i = 0; i < 10; i++) {
-            await new Promise((r) => setTimeout(r, 1500))
-            const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
-            setStatus(s)
-            if (s.healthOk) break
-          }
+  const handleAction = async (action: "start" | "stop" | "remove") => {
+    if (action === "start" && !(await ensureConfigSaved())) return
+    setActionLoading(true)
+    setError(null)
+    try {
+      await getTransport().call(`searxng_docker_${action}`)
+      await refreshStatus()
+      // After start, poll until healthy (up to 15s)
+      if (action === "start") {
+        for (let i = 0; i < 10; i++) {
+          await new Promise((r) => setTimeout(r, 1500))
+          const s = await getTransport().call<SearxngDockerStatus>("searxng_docker_status")
+          setStatus(s)
+          if (s.healthOk) break
         }
-      } catch (e) {
-        setError(String(e))
-      } finally {
-        setActionLoading(false)
       }
-    },
-    [ensureConfigSaved, refreshStatus],
-  )
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
-  const handleUseProxyToggle = useCallback(
-    async (enabled: boolean) => {
-      if (deploying || status?.deploying || actionLoading) return
-      setError(null)
+  const handleUseProxyToggle = async (enabled: boolean) => {
+    if (deploying || status?.deploying || actionLoading) return
+    setError(null)
 
-      const wasRunning = !!status?.containerRunning
-      const ok = await onUseProxyChange(enabled)
-      if (!ok) {
-        setError(t("settings.webSearchDockerSaveConfigFailed"))
-        return
-      }
+    const wasRunning = !!status?.containerRunning
+    const ok = await onUseProxyChange(enabled)
+    if (!ok) {
+      setError(t("settings.webSearchDockerSaveConfigFailed"))
+      return
+    }
 
-      if (!wasRunning) {
-        await refreshStatus()
-        return
-      }
+    if (!wasRunning) {
+      await refreshStatus()
+      return
+    }
 
-      setActionLoading(true)
-      try {
-        await getTransport().call("searxng_docker_stop")
-        await getTransport().call("searxng_docker_start")
-        await refreshStatus()
-        await waitForHealthy()
-      } catch (e) {
-        setError(String(e))
-      } finally {
-        setActionLoading(false)
-      }
-    },
-    [
-      actionLoading,
-      deploying,
-      onUseProxyChange,
-      refreshStatus,
-      status?.containerRunning,
-      status?.deploying,
-      t,
-      waitForHealthy,
-    ],
-  )
+    setActionLoading(true)
+    try {
+      await getTransport().call("searxng_docker_stop")
+      await getTransport().call("searxng_docker_start")
+      await refreshStatus()
+      await waitForHealthy()
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setActionLoading(false)
+    }
+  }
 
   if (checking && !status) {
     return (

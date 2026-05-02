@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { Message } from "@/types/chat"
 import {
@@ -40,10 +40,7 @@ export function useTaskProgressSnapshot(
   sessionId: string | null,
   messages: Message[],
 ): TaskProgressSnapshot | null {
-  const messageSnapshot = useMemo(
-    () => extractLatestTaskProgressSnapshot(messages),
-    [messages],
-  )
+  const messageSnapshot = extractLatestTaskProgressSnapshot(messages)
   const [eventState, setEventState] = useState<{
     sessionId: string | null
     snapshot: TaskProgressSnapshot | null

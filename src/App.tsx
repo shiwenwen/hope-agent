@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from "react"
+import { Suspense, lazy, useEffect, useRef, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
@@ -32,10 +32,7 @@ import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
 import StarrySky from "@/components/common/StarrySky"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
-import {
-  LOCAL_MODEL_JOB_EVENTS,
-  type LocalModelJobSnapshot,
-} from "@/types/local-model-jobs"
+import { LOCAL_MODEL_JOB_EVENTS, type LocalModelJobSnapshot } from "@/types/local-model-jobs"
 
 // Lazy-loaded views (heavy dependencies: recharts, cron UI)
 const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
@@ -144,26 +141,27 @@ export default function App() {
   }, [view])
 
   // Cmd+, on macOS, Ctrl+, on Windows/Linux — "preferences" convention.
-  const handleOpenSettings = useCallback((section?: SettingsSection) => {
+  const handleOpenSettings = (section?: SettingsSection) => {
     setSettingsInitialSection(section)
     setSettingsInitialSectionRequestKey((n) => n + 1)
     setView("settings")
-  }, [])
+  }
+  const handleOpenSettingsEffectEvent = useEffectEvent(handleOpenSettings)
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === ",") {
         e.preventDefault()
-        handleOpenSettings()
+        handleOpenSettingsEffectEvent()
       }
     }
     document.addEventListener("keydown", onKeyDown)
     return () => document.removeEventListener("keydown", onKeyDown)
-  }, [handleOpenSettings])
+  }, [])
 
   // Listen for system tray events + config hot-reload
   useEffect(() => {
     const unlistenSettings = getTransport().listen("open-settings", (raw) => {
-      handleOpenSettings(parseOpenSettingsSection(raw))
+      handleOpenSettingsEffectEvent(parseOpenSettingsSection(raw))
     })
     const unlistenNewSession = getTransport().listen("new-session", () => {
       setView("chat")
@@ -178,7 +176,7 @@ export default function App() {
       unlistenTheme()
       unlistenNotification()
     }
-  }, [handleOpenSettings])
+  }, [])
 
   // Track window focus state for background-aware OS notifications.
   // App-level singleton — listeners stay registered for the process
@@ -221,7 +219,10 @@ export default function App() {
       }
     }
 
-    const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
+    const unlistenCompleted = getTransport().listen(
+      LOCAL_MODEL_JOB_EVENTS.completed,
+      handleSnapshot,
+    )
     return () => {
       unlistenCompleted()
     }
@@ -244,7 +245,11 @@ export default function App() {
       toast.info(t("skills.toast.draftCreated", { name }), {
         action: {
           label: t("skills.toast.review"),
-          onClick: () => handleOpenSettings("skills"),
+          onClick: () => {
+            setSettingsInitialSection("skills")
+            setSettingsInitialSectionRequestKey((n) => n + 1)
+            setView("settings")
+          },
         },
       })
     }
@@ -252,7 +257,7 @@ export default function App() {
     return () => {
       unlisten()
     }
-  }, [t, view, handleOpenSettings])
+  }, [t, view])
 
   // Auto-check for desktop updates on startup
   const updateCheckRef = useRef(false)

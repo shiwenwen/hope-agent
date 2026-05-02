@@ -18,9 +18,7 @@ import { cn } from "@/lib/utils"
 import type { OverviewStats, OverviewStatsWithDelta, DetailListType } from "./types"
 import { formatNumber, formatCost, formatDuration, computeDelta, formatDelta } from "./types"
 
-export type CardAction =
-  | { type: "tab"; tab: string }
-  | { type: "list"; listType: DetailListType }
+export type CardAction = { type: "tab"; tab: string } | { type: "list"; listType: DetailListType }
 
 interface OverviewCardsProps {
   data: OverviewStatsWithDelta | null
@@ -142,28 +140,14 @@ function SkeletonCard() {
   )
 }
 
-function DeltaBadge({
-  delta,
-  higherIsWorse,
-}: {
-  delta: number | null
-  higherIsWorse: boolean
-}) {
+function DeltaBadge({ delta, higherIsWorse }: { delta: number | null; higherIsWorse: boolean }) {
   if (delta == null) return null
   const isZero = delta === 0
   const isUp = delta > 0
   const good = isZero ? null : higherIsWorse ? !isUp : isUp
   const Icon = isZero ? Minus : isUp ? TrendingUp : TrendingDown
-  const colorClass = isZero
-    ? "text-muted-foreground"
-    : good
-      ? "text-emerald-500"
-      : "text-red-500"
-  const bgClass = isZero
-    ? "bg-muted/40"
-    : good
-      ? "bg-emerald-500/10"
-      : "bg-red-500/10"
+  const colorClass = isZero ? "text-muted-foreground" : good ? "text-emerald-500" : "text-red-500"
+  const bgClass = isZero ? "bg-muted/40" : good ? "bg-emerald-500/10" : "bg-red-500/10"
   return (
     <div
       className={cn(
@@ -178,7 +162,7 @@ function DeltaBadge({
   )
 }
 
-const OverviewCards = React.memo(function OverviewCards({
+const OverviewCards = function OverviewCards({
   data,
   loading,
   activeList,
@@ -232,10 +216,7 @@ const OverviewCards = React.memo(function OverviewCards({
                 <div className="flex items-center gap-2">
                   <div className="text-xl font-bold truncate">{value}</div>
                   {hasPrev && (
-                    <DeltaBadge
-                      delta={delta}
-                      higherIsWorse={card.higherIsWorse === true}
-                    />
+                    <DeltaBadge delta={delta} higherIsWorse={card.higherIsWorse === true} />
                   )}
                 </div>
                 <div className="text-xs text-muted-foreground truncate">
@@ -248,6 +229,6 @@ const OverviewCards = React.memo(function OverviewCards({
       })}
     </div>
   )
-})
+}
 
 export default OverviewCards

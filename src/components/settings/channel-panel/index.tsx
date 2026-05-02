@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
@@ -11,12 +11,7 @@ import AgentAvatar from "./AgentAvatar"
 import AddAccountDialog from "./AddAccountDialog"
 import EditAccountDialog from "./EditAccountDialog"
 import { formatUptime } from "./utils"
-import type {
-  ChannelAccountConfig,
-  ChannelPluginInfo,
-  ChannelHealth,
-  AgentInfo,
-} from "./types"
+import type { ChannelAccountConfig, ChannelPluginInfo, ChannelHealth, AgentInfo } from "./types"
 
 interface ChannelPanelProps {
   /** When set on mount, auto-opens the Add Account dialog with this
@@ -33,14 +28,12 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
   // Seeded from the prop so parent-driven pre-open is a first-render concern,
   // not a follow-up effect. Closing resets state and never reopens.
   const [showAddDialog, setShowAddDialog] = useState(!!initialChannelId)
-  const [addInitialChannel, setAddInitialChannel] = useState<string | undefined>(
-    initialChannelId,
-  )
+  const [addInitialChannel, setAddInitialChannel] = useState<string | undefined>(initialChannelId)
   const [editingAccount, setEditingAccount] = useState<ChannelAccountConfig | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [loading, setLoading] = useState(true)
 
-  const loadData = useCallback(async () => {
+  const loadData = async () => {
     try {
       const [accountList, pluginList, healthList, agentList] = await Promise.all([
         getTransport().call<ChannelAccountConfig[]>("channel_list_accounts"),
@@ -71,15 +64,17 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const loadDataEffectEvent = useEffectEvent(loadData)
 
   useEffect(() => {
     let aborted = false
-    loadData()
+    loadDataEffectEvent()
     // Poll health every 10s
     const interval = setInterval(async () => {
       try {
-        const healthList = await getTransport().call<[string, ChannelHealth][]>("channel_health_all")
+        const healthList =
+          await getTransport().call<[string, ChannelHealth][]>("channel_health_all")
         if (aborted) return
         const hMap: Record<string, ChannelHealth> = {}
         for (const [id, health] of healthList) {
@@ -90,8 +85,11 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
         // ignore
       }
     }, 10000)
-    return () => { aborted = true; clearInterval(interval) }
-  }, [loadData])
+    return () => {
+      aborted = true
+      clearInterval(interval)
+    }
+  }, [])
 
   const handleStart = async (accountId: string) => {
     try {
@@ -169,8 +167,12 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
             >
               <ChannelIcon channelId={p.meta.id} className="h-8 w-8" />
               <div className="min-w-0">
-                <div className="font-medium text-sm">{t(`channels.pluginName_${p.meta.id}`, p.meta.displayName)}</div>
-                <div className="text-xs text-muted-foreground truncate">{t(`channels.pluginDesc_${p.meta.id}`, p.meta.description)}</div>
+                <div className="font-medium text-sm">
+                  {t(`channels.pluginName_${p.meta.id}`, p.meta.displayName)}
+                </div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {t(`channels.pluginDesc_${p.meta.id}`, p.meta.description)}
+                </div>
               </div>
             </Button>
           ))}
@@ -189,11 +191,7 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
                 {/* Status dot */}
                 <div
                   className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                    isRunning
-                      ? "bg-green-500"
-                      : account.enabled
-                        ? "bg-yellow-500"
-                        : "bg-zinc-400"
+                    isRunning ? "bg-green-500" : account.enabled ? "bg-yellow-500" : "bg-zinc-400"
                   }`}
                 />
 
@@ -213,12 +211,17 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
                         ? t("channels.starting")
                         : t("channels.stopped")}
                     {health?.botName && ` · ${health.botName}`}
-                    {account.agentId && (() => {
-                      const agent = agents.find(a => a.id === account.agentId)
-                      return agent ? (
-                        <span className="inline-flex items-center gap-1 ml-1">· <AgentAvatar agent={agent} /> {agent.name}</span>
-                      ) : ` · ${account.agentId}`
-                    })()}
+                    {account.agentId &&
+                      (() => {
+                        const agent = agents.find((a) => a.id === account.agentId)
+                        return agent ? (
+                          <span className="inline-flex items-center gap-1 ml-1">
+                            · <AgentAvatar agent={agent} /> {agent.name}
+                          </span>
+                        ) : (
+                          ` · ${account.agentId}`
+                        )
+                      })()}
                     {health?.error && (
                       <span className="text-destructive ml-1">· {health.error}</span>
                     )}
@@ -246,20 +249,12 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
                     </IconTip>
                   )}
                   <IconTip label={t("channels.edit")}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => setEditingAccount(account)}
-                    >
+                    <Button variant="ghost" size="icon" onClick={() => setEditingAccount(account)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
                   </IconTip>
                   <IconTip label={t("channels.remove")}>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => handleRemove(account.id)}
-                    >
+                    <Button variant="ghost" size="icon" onClick={() => handleRemove(account.id)}>
                       <Trash2 className="h-4 w-4 text-destructive" />
                     </Button>
                   </IconTip>
@@ -290,7 +285,9 @@ export default function ChannelPanel({ initialChannelId }: ChannelPanelProps = {
       {/* Edit Account Dialog */}
       <EditAccountDialog
         open={!!editingAccount}
-        onOpenChange={(open) => { if (!open) setEditingAccount(null) }}
+        onOpenChange={(open) => {
+          if (!open) setEditingAccount(null)
+        }}
         account={editingAccount}
         plugins={plugins}
         agents={agents}

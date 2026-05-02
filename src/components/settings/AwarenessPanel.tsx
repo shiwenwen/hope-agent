@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, Check, AlertTriangle } from "lucide-react"
 
@@ -75,54 +75,41 @@ export default function AwarenessPanel() {
         setLoading(false)
       })
       .catch((e: unknown) => {
-        logger.error(
-          "settings",
-          "AwarenessPanel::load",
-          "Failed to load config",
-          e,
-        )
+        logger.error("settings", "AwarenessPanel::load", "Failed to load config", e)
         setLoading(false)
       })
   }, [])
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const save = useCallback(
-    (next: AwarenessConfig) => {
-      setCfg(next)
-      // Debounce: wait 500ms after the last change before persisting.
-      if (saveTimer.current) clearTimeout(saveTimer.current)
-      saveTimer.current = setTimeout(async () => {
-        setSaving(true)
+  const save = (next: AwarenessConfig) => {
+    setCfg(next)
+    // Debounce: wait 500ms after the last change before persisting.
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(async () => {
+      setSaving(true)
+      try {
+        await getTransport().call("save_awareness_config", {
+          config: next,
+        })
+        setSaveStatus("saved")
+        setTimeout(() => setSaveStatus("idle"), 1500)
+      } catch (e) {
+        logger.error("settings", "AwarenessPanel::save", "Failed to save awareness config", e)
+        setSaveStatus("failed")
+        setTimeout(() => setSaveStatus("idle"), 1500)
+        // Rollback: re-fetch actual backend state so UI stays in sync.
         try {
-          await getTransport().call("save_awareness_config", {
-            config: next,
-          })
-          setSaveStatus("saved")
-          setTimeout(() => setSaveStatus("idle"), 1500)
-        } catch (e) {
-          logger.error(
-            "settings",
-            "AwarenessPanel::save",
-            "Failed to save awareness config",
-            e,
-          )
-          setSaveStatus("failed")
-          setTimeout(() => setSaveStatus("idle"), 1500)
-          // Rollback: re-fetch actual backend state so UI stays in sync.
-          try {
-            const fresh = await getTransport().call<AwarenessConfig>(
-              "get_awareness_config",
-            )
-            setCfg(fresh)
-          } catch { /* best effort */ }
-        } finally {
-          setSaving(false)
+          const fresh = await getTransport().call<AwarenessConfig>("get_awareness_config")
+          setCfg(fresh)
+        } catch {
+          /* best effort */
         }
-      }, 500)
-    },
-    [],
-  )
+      } finally {
+        setSaving(false)
+      }
+    }, 500)
+  }
 
   if (loading || !cfg) return null
 
@@ -144,27 +131,18 @@ export default function AwarenessPanel() {
         </div>
         <div className="flex items-center gap-2">
           {saving && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-          {saveStatus === "saved" && (
-            <Check className="h-4 w-4 text-emerald-500" />
-          )}
-          <Switch
-            checked={cfg.enabled}
-            onCheckedChange={(v) => save({ ...cfg, enabled: v })}
-          />
+          {saveStatus === "saved" && <Check className="h-4 w-4 text-emerald-500" />}
+          <Switch checked={cfg.enabled} onCheckedChange={(v) => save({ ...cfg, enabled: v })} />
         </div>
       </div>
 
       <div className={disabled ? "pointer-events-none opacity-50" : ""}>
         {/* Mode selector */}
         <div className="space-y-1">
-          <label className="text-xs font-medium">
-            {t("settings.awareness.mode", "Mode")}
-          </label>
+          <label className="text-xs font-medium">{t("settings.awareness.mode", "Mode")}</label>
           <Select
             value={cfg.mode}
-            onValueChange={(v: string) =>
-              save({ ...cfg, mode: v as AwarenessMode })
-            }
+            onValueChange={(v: string) => save({ ...cfg, mode: v as AwarenessMode })}
           >
             <SelectTrigger className="w-full">
               <SelectValue />
@@ -174,16 +152,10 @@ export default function AwarenessPanel() {
                 {t("settings.awareness.modeOff", "Off (feature disabled)")}
               </SelectItem>
               <SelectItem value="structured">
-                {t(
-                  "settings.awareness.modeStructured",
-                  "Structured (zero LLM cost, default)",
-                )}
+                {t("settings.awareness.modeStructured", "Structured (zero LLM cost, default)")}
               </SelectItem>
               <SelectItem value="llm_digest">
-                {t(
-                  "settings.awareness.modeLlm",
-                  "LLM Digest (extra API cost)",
-                )}
+                {t("settings.awareness.modeLlm", "LLM Digest (extra API cost)")}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -231,18 +203,12 @@ export default function AwarenessPanel() {
             onChange={(v) => save({ ...cfg, excludeCron: !v })}
           />
           <LabeledSwitch
-            label={t(
-              "settings.awareness.includeChannel",
-              "Include IM channel sessions",
-            )}
+            label={t("settings.awareness.includeChannel", "Include IM channel sessions")}
             value={!cfg.excludeChannel}
             onChange={(v) => save({ ...cfg, excludeChannel: !v })}
           />
           <LabeledSwitch
-            label={t(
-              "settings.awareness.includeSubagents",
-              "Include sub-agent sessions",
-            )}
+            label={t("settings.awareness.includeSubagents", "Include sub-agent sessions")}
             value={!cfg.excludeSubagents}
             onChange={(v) => save({ ...cfg, excludeSubagents: !v })}
           />
@@ -254,18 +220,12 @@ export default function AwarenessPanel() {
             {t("settings.awareness.refresh", "Dynamic refresh")}
           </div>
           <LabeledSwitch
-            label={t(
-              "settings.awareness.dynamicEnabled",
-              "Refresh suffix every turn",
-            )}
+            label={t("settings.awareness.dynamicEnabled", "Refresh suffix every turn")}
             value={cfg.dynamicEnabled}
             onChange={(v) => save({ ...cfg, dynamicEnabled: v })}
           />
           <NumField
-            label={t(
-              "settings.awareness.minRefreshSecs",
-              "Min refresh interval (seconds)",
-            )}
+            label={t("settings.awareness.minRefreshSecs", "Min refresh interval (seconds)")}
             value={cfg.minRefreshSecs}
             onChange={(v) => save({ ...cfg, minRefreshSecs: v })}
           />
@@ -291,10 +251,7 @@ export default function AwarenessPanel() {
               }
             />
             <NumField
-              label={t(
-                "settings.awareness.maxCandidates",
-                "Max candidate sessions",
-              )}
+              label={t("settings.awareness.maxCandidates", "Max candidate sessions")}
               value={cfg.llmExtraction.maxCandidates}
               onChange={(v) =>
                 save({
@@ -304,10 +261,7 @@ export default function AwarenessPanel() {
               }
             />
             <NumField
-              label={t(
-                "settings.awareness.inputLookbackHours",
-                "Input lookback (hours)",
-              )}
+              label={t("settings.awareness.inputLookbackHours", "Input lookback (hours)")}
               value={cfg.llmExtraction.inputLookbackHours}
               onChange={(v) =>
                 save({
@@ -317,10 +271,7 @@ export default function AwarenessPanel() {
               }
             />
             <NumField
-              label={t(
-                "settings.awareness.digestMaxChars",
-                "Digest output budget (chars)",
-              )}
+              label={t("settings.awareness.digestMaxChars", "Digest output budget (chars)")}
               value={cfg.llmExtraction.digestMaxChars}
               onChange={(v) =>
                 save({
@@ -331,10 +282,7 @@ export default function AwarenessPanel() {
             />
             <div>
               <label className="text-xs font-medium">
-                {t(
-                  "settings.awareness.extractionAgent",
-                  "Extraction agent ID (optional)",
-                )}
+                {t("settings.awareness.extractionAgent", "Extraction agent ID (optional)")}
               </label>
               <Input
                 value={cfg.llmExtraction.extractionAgent ?? ""}
@@ -369,17 +317,10 @@ export default function AwarenessPanel() {
             size="sm"
             onClick={async () => {
               try {
-                const fresh = await getTransport().call<AwarenessConfig>(
-                  "get_awareness_config",
-                )
+                const fresh = await getTransport().call<AwarenessConfig>("get_awareness_config")
                 setCfg(fresh)
               } catch (e) {
-                logger.error(
-                  "settings",
-                  "AwarenessPanel::reload",
-                  "Failed to reload config",
-                  e,
-                )
+                logger.error("settings", "AwarenessPanel::reload", "Failed to reload config", e)
               }
             }}
           >

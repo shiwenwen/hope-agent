@@ -452,7 +452,7 @@
   - `system_prompt` 渲染（每次 LLM 请求构造 prompt 时都跑一次）
   - `skill_search` 工具
   - `handle_help`（独立调 `get_invocable_skills`，效率 agent 也提到）
-  
+
   IM menu 自动 re-sync 场景特别痛：debounce 触发后，N 个 running account 串行 sync_commands_for_account 各调一次 `im_menu_entries → list_slash_commands → get_invocable_skills`，等于 N 次完整文件系统扫描背靠背
 - **为什么留**：本次 audit 的目标是把"IM 菜单不刷"的功能性 bug 收掉，缓存层属于独立性能优化；现成有 `skills::types::SKILL_CACHE_VERSION: AtomicU64` 全局计数器（`bump_skill_version` 已经在所有 mutate 路径埋好），缓存基础设施齐备，缺的只是消费方
 - **改的话要做什么**：

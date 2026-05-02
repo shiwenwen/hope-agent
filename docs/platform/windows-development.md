@@ -34,7 +34,7 @@ Release 产物由 [`.github/workflows/release.yml`](../../.github/workflows/rele
    rustup default stable-msvc
    rustup target add x86_64-pc-windows-msvc
    ```
-3. **Node.js 20+**（安装时勾选 "Add to PATH"）
+3. **Node.js 22.12+**（安装时勾选 "Add to PATH"）
 4. **WebView2 Runtime**（Win11 自带；Win10 需[手动装 Evergreen Runtime](https://developer.microsoft.com/en-us/microsoft-edge/webview2/)）
 5. **NASM**（可选但强烈推荐）——`openssl-src` 编译 vendored OpenSSL 时需要
    ```powershell

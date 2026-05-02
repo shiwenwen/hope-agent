@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow"
 import { getTransport } from "@/lib/transport-provider"
@@ -95,7 +95,7 @@ export function PlanPanel({
     }
   }, [])
 
-  const handleDetach = useCallback(async () => {
+  const handleDetach = async () => {
     if (!sessionId) return
     if (!desktopMode) return
     try {
@@ -132,17 +132,17 @@ export function PlanPanel({
     } catch {
       /* ignore creation errors */
     }
-  }, [desktopMode, sessionId, t])
+  }
 
-  const handleReattach = useCallback(() => {
+  const handleReattach = () => {
     if (detachedWindowRef.current) {
       detachedWindowRef.current.close().catch(() => {})
       detachedWindowRef.current = null
     }
     setDetached(false)
-  }, [])
+  }
 
-  const handleLoadVersions = useCallback(async () => {
+  const handleLoadVersions = async () => {
     if (!sessionId) return
     setLoadingVersions(true)
     try {
@@ -156,23 +156,20 @@ export function PlanPanel({
     } finally {
       setLoadingVersions(false)
     }
-  }, [sessionId])
+  }
 
-  const handleRestoreVersion = useCallback(
-    async (filePath: string) => {
-      if (!sessionId) return
-      try {
-        await getTransport().call("restore_plan_version", { sessionId, filePath })
-        setShowVersions(false)
-      } catch (e) {
-        logger.error("plan", "PlanPanel::restoreVersion", "Failed to restore plan version", e)
-      }
-    },
-    [sessionId],
-  )
+  const handleRestoreVersion = async (filePath: string) => {
+    if (!sessionId) return
+    try {
+      await getTransport().call("restore_plan_version", { sessionId, filePath })
+      setShowVersions(false)
+    } catch (e) {
+      logger.error("plan", "PlanPanel::restoreVersion", "Failed to restore plan version", e)
+    }
+  }
 
   // Highlight selected text with <mark> wrapper
-  const highlightSelection = useCallback((range: Range) => {
+  const highlightSelection = (range: Range) => {
     try {
       const mark = document.createElement("mark")
       mark.className = "bg-blue-200/50 dark:bg-blue-500/30 rounded-sm plan-comment-highlight"
@@ -195,10 +192,10 @@ export function PlanPanel({
         mark.appendChild(node)
       }
     }
-  }, [])
+  }
 
   // Remove all highlight <mark> wrappers, restoring original DOM
-  const clearHighlight = useCallback(() => {
+  const clearHighlight = () => {
     if (!contentRef.current) return
     const marks = contentRef.current.querySelectorAll("mark.plan-comment-highlight")
     marks.forEach((mark) => {
@@ -208,10 +205,11 @@ export function PlanPanel({
         parent.removeChild(mark)
       }
     })
-  }, [])
+  }
+  const clearHighlightEffectEvent = useEffectEvent(clearHighlight)
 
   // Handle text selection for inline commenting
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = () => {
     if (!contentRef.current) return
     // Only allow commenting in review/planning states
     if (planState !== "review" && planState !== "planning") return
@@ -244,40 +242,37 @@ export function PlanPanel({
     selection.removeAllRanges()
 
     setCommentPopover({ position: { top, left }, selectedText })
-  }, [planState, clearHighlight, highlightSelection])
+  }
 
   // Close comment popover when clicking outside or selection changes
   useEffect(() => {
     const handleMouseDown = () => {
       // Don't close if clicking inside the popover (handled by stopPropagation there)
       if (commentPopover) {
-        clearHighlight()
+        clearHighlightEffectEvent()
         setCommentPopover(null)
       }
     }
     // Use mousedown on document to dismiss
     document.addEventListener("mousedown", handleMouseDown)
     return () => document.removeEventListener("mousedown", handleMouseDown)
-  }, [commentPopover, clearHighlight])
+  }, [commentPopover])
 
   // Cleanup highlights when commenting is disabled
   useEffect(() => {
     const canCommentNow = (planState === "review" || planState === "planning") && !!onRequestChanges
-    if (!canCommentNow) clearHighlight()
-  }, [planState, onRequestChanges, clearHighlight])
+    if (!canCommentNow) clearHighlightEffectEvent()
+  }, [planState, onRequestChanges])
 
   // Submit comment: build {prompt, displayText} pair so the LLM gets the full
   // XML revision request while the user bubble shows a friendly quote+comment.
-  const handleCommentSubmit = useCallback(
-    (comment: string) => {
-      if (!commentPopover || !onRequestChanges) return
-      onRequestChanges(buildPlanCommentMessage(commentPopover.selectedText, comment, t))
-      clearHighlight()
-      setCommentPopover(null)
-      window.getSelection()?.removeAllRanges()
-    },
-    [commentPopover, onRequestChanges, clearHighlight, t],
-  )
+  const handleCommentSubmit = (comment: string) => {
+    if (!commentPopover || !onRequestChanges) return
+    onRequestChanges(buildPlanCommentMessage(commentPopover.selectedText, comment, t))
+    clearHighlight()
+    setCommentPopover(null)
+    window.getSelection()?.removeAllRanges()
+  }
 
   // Plan markdown is the single rendered view across all states. Progress is
   // tracked separately via the task_* tools and rendered by TaskProgressPanel
@@ -559,7 +554,9 @@ export function PlanPanel({
               ) : (
                 <Play className="h-4 w-4" />
               )}
-              <span>{isExecutionActive ? t("planMode.executing") : t("planMode.executionIdle")}</span>
+              <span>
+                {isExecutionActive ? t("planMode.executing") : t("planMode.executionIdle")}
+              </span>
             </div>
             {!isExecutionActive && onContinue && (
               <Button size="sm" variant="outline" onClick={onContinue} className="gap-1.5">

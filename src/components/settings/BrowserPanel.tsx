@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
@@ -111,7 +111,7 @@ export default function BrowserPanel() {
   // Delete confirm
   const [pendingDelete, setPendingDelete] = useState<BrowserProfileInfo | null>(null)
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     try {
       const [st, pf] = await Promise.all([
         getTransport().call<BrowserStatus>("browser_get_status"),
@@ -128,7 +128,7 @@ export default function BrowserPanel() {
     } finally {
       setLoading(false)
     }
-  }, [selectedProfile])
+  }
 
   useEffect(() => {
     void refresh()
@@ -216,7 +216,7 @@ export default function BrowserPanel() {
 
   const connected = status?.connected ?? false
 
-  const statusText = useMemo(() => {
+  const statusText = (() => {
     if (!status) return ""
     if (!status.connected) return t("settings.browser.statusDisconnected")
     const mode =
@@ -227,7 +227,7 @@ export default function BrowserPanel() {
           : ""
     const prof = status.profile ? ` · ${status.profile}` : ""
     return `${mode}${prof}`
-  }, [status, t])
+  })()
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">

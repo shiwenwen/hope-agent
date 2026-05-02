@@ -1,4 +1,3 @@
-import * as React from "react"
 import { useTranslation } from "react-i18next"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import { Check, ChevronRight, ChevronDown } from "lucide-react"
@@ -49,14 +48,14 @@ export function ModelSelector({
   )
 
   // Group models by provider
-  const modelsByProvider = React.useMemo(() => {
+  const modelsByProvider = (() => {
     const groups: Record<string, typeof availableModels> = {}
     availableModels.forEach((m) => {
       if (!groups[m.providerName]) groups[m.providerName] = []
       groups[m.providerName].push(m)
     })
     return groups
-  }, [availableModels])
+  })()
 
   return (
     <DropdownMenu.Root defaultOpen={defaultOpen} onOpenChange={onOpenChange}>

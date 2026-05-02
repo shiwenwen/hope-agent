@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import React, { useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { parseSessionMessages } from "../chatUtils"
@@ -41,29 +41,35 @@ export function useSessionPagination({
   const [hasMoreSessions, setHasMoreSessions] = useState(false)
   const [loadingMoreSessions, setLoadingMoreSessions] = useState(false)
 
-  const reloadSessions = useCallback(async () => {
+  const reloadSessions = async () => {
     try {
-      const [list, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
-        limit: SESSION_PAGE_SIZE,
-        offset: 0,
-        activeSessionId: currentSessionIdRef.current ?? undefined,
-      })
+      const [list, total] = await getTransport().call<[SessionMeta[], number]>(
+        "list_sessions_cmd",
+        {
+          limit: SESSION_PAGE_SIZE,
+          offset: 0,
+          activeSessionId: currentSessionIdRef.current ?? undefined,
+        },
+      )
       setSessions(list)
       setHasMoreSessions(list.length < total)
     } catch (e) {
       logger.error("ui", "ChatScreen::loadSessions", "Failed to load sessions", e)
     }
-  }, [setSessions, currentSessionIdRef])
+  }
 
-  const handleLoadMoreSessions = useCallback(async () => {
+  const handleLoadMoreSessions = async () => {
     if (loadingMoreSessions || !hasMoreSessions) return
     setLoadingMoreSessions(true)
     try {
-      const [more, total] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
-        limit: SESSION_PAGE_SIZE,
-        offset: sessionsLength,
-        activeSessionId: currentSessionIdRef.current ?? undefined,
-      })
+      const [more, total] = await getTransport().call<[SessionMeta[], number]>(
+        "list_sessions_cmd",
+        {
+          limit: SESSION_PAGE_SIZE,
+          offset: sessionsLength,
+          activeSessionId: currentSessionIdRef.current ?? undefined,
+        },
+      )
       if (more.length === 0) {
         setHasMoreSessions(false)
         return
@@ -80,9 +86,9 @@ export function useSessionPagination({
     } finally {
       setLoadingMoreSessions(false)
     }
-  }, [loadingMoreSessions, hasMoreSessions, sessionsLength, setSessions, currentSessionIdRef])
+  }
 
-  const handleLoadMore = useCallback(async () => {
+  const handleLoadMore = async () => {
     const curSid = currentSessionIdRef.current
     if (!curSid || loadingMore || !hasMore) return
     const oldestId = oldestDbIdRef.current.get(curSid)
@@ -93,21 +99,22 @@ export function useSessionPagination({
       // Backend returns `[messages, hasMore]`. Rows may exceed PAGE_SIZE when
       // the oldest requested row falls mid-way through an assistant turn and
       // the server aligns the window back to the previous user boundary.
-      const [olderMsgs, hasMoreBefore] = await getTransport().call<
-        [SessionMessage[], boolean]
-      >("load_session_messages_before_cmd", {
-        sessionId: curSid,
-        beforeId: oldestId,
-        limit: PAGE_SIZE,
-      })
+      const [olderMsgs, hasMoreBefore] = await getTransport().call<[SessionMessage[], boolean]>(
+        "load_session_messages_before_cmd",
+        {
+          sessionId: curSid,
+          beforeId: oldestId,
+          limit: PAGE_SIZE,
+        },
+      )
       if (olderMsgs.length === 0) {
         hasMoreRef.current.set(curSid, false)
         setHasMore(false)
         return
       }
-      const [currentSessions] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {}).catch(
-        () => [[] as SessionMeta[], 0] as [SessionMeta[], number],
-      )
+      const [currentSessions] = await getTransport()
+        .call<[SessionMeta[], number]>("list_sessions_cmd", {})
+        .catch(() => [[] as SessionMeta[], 0] as [SessionMeta[], number])
       const sessionMeta = currentSessions.find((s) => s.id === curSid)
       const parentSession = sessionMeta?.parentSessionId
         ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
@@ -127,7 +134,7 @@ export function useSessionPagination({
     } finally {
       setLoadingMore(false)
     }
-  }, [loadingMore, hasMore, currentSessionIdRef, oldestDbIdRef, hasMoreRef, sessionCacheRef, setMessages])
+  }
 
   return {
     hasMore,

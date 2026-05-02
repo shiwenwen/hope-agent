@@ -1,4 +1,3 @@
-import { useCallback } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -86,12 +85,11 @@ export default function SessionItem({
   const { t } = useTranslation()
 
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
-  const hasPending =
-    !isActive && !session.channelInfo && pendingInteractionCount > 0
+  const hasPending = !isActive && !session.channelInfo && pendingInteractionCount > 0
   const showUnread = !session.channelInfo && !session.parentSessionId
   const displayUnreadCount = showUnread ? session.unreadCount : 0
 
-  const handleMarkAsRead = useCallback(async () => {
+  const handleMarkAsRead = async () => {
     if (displayUnreadCount === 0) return
     try {
       await getTransport().call("mark_session_read_cmd", {
@@ -101,7 +99,7 @@ export default function SessionItem({
     } catch (err) {
       logger.error("chat", "ChatSidebar::markSessionRead", "Failed to mark session as read", err)
     }
-  }, [session.id, displayUnreadCount, onMarkAllRead])
+  }
 
   return (
     <ContextMenu>
@@ -146,8 +144,7 @@ export default function SessionItem({
               <span
                 className="absolute -top-1 -right-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background pointer-events-none leading-none"
                 style={{
-                  background:
-                    "linear-gradient(135deg, #ff6b6b 0%, #ee3333 50%, #cc1111 100%)",
+                  background: "linear-gradient(135deg, #ff6b6b 0%, #ee3333 50%, #cc1111 100%)",
                   boxShadow:
                     "0 2px 6px rgba(220, 38, 38, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.25)",
                 }}
@@ -160,8 +157,7 @@ export default function SessionItem({
                 <span
                   className="absolute -bottom-1 -left-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background leading-none animate-pulse cursor-pointer"
                   style={{
-                    background:
-                      "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
+                    background: "linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%)",
                     boxShadow:
                       "0 2px 6px rgba(217, 119, 6, 0.5), inset 0 1px 1px rgba(255, 255, 255, 0.3)",
                   }}
@@ -182,9 +178,7 @@ export default function SessionItem({
               )}
               {session.parentSessionId &&
                 (() => {
-                  const parentSession = sessions.find(
-                    (s) => s.id === session.parentSessionId,
-                  )
+                  const parentSession = sessions.find((s) => s.id === session.parentSessionId)
                   const parentAgent = parentSession
                     ? getAgentInfo(parentSession.agentId)
                     : undefined
@@ -205,7 +199,10 @@ export default function SessionItem({
                   label={`${session.channelInfo.channelId} · ${session.channelInfo.senderName || session.channelInfo.chatId}`}
                 >
                   <span className="inline-flex items-center justify-center shrink-0 w-4 h-4 rounded bg-blue-500/15 text-blue-500">
-                    <ChannelIcon channelId={session.channelInfo.channelId} className="w-2.5 h-2.5" />
+                    <ChannelIcon
+                      channelId={session.channelInfo.channelId}
+                      className="w-2.5 h-2.5"
+                    />
                   </span>
                 </IconTip>
               )}
@@ -243,9 +240,7 @@ export default function SessionItem({
                   placeholder={t("chat.renameSessionPlaceholder")}
                 />
               ) : (
-                <span className="truncate">
-                  {session.title || t("chat.newChat") || "New Chat"}
-                </span>
+                <span className="truncate">{session.title || t("chat.newChat") || "New Chat"}</span>
               )}
             </div>
             <div className="text-[11px] text-muted-foreground truncate">
@@ -289,15 +284,14 @@ export default function SessionItem({
       </ContextMenuTrigger>
       <ContextMenuContent>
         <ContextMenuItem
-          onClick={() => onStartRename(session.id, session.title || t("chat.newChat") || "New Chat")}
+          onClick={() =>
+            onStartRename(session.id, session.title || t("chat.newChat") || "New Chat")
+          }
         >
           <Pencil className="h-4 w-4 mr-2" />
           {t("chat.renameSession")}
         </ContextMenuItem>
-        <ContextMenuItem
-          onClick={handleMarkAsRead}
-          disabled={displayUnreadCount === 0}
-        >
+        <ContextMenuItem onClick={handleMarkAsRead} disabled={displayUnreadCount === 0}>
           <CheckCheck className="h-4 w-4 mr-2" />
           {t("chat.markAsRead")}
         </ContextMenuItem>
@@ -305,57 +299,50 @@ export default function SessionItem({
             a regular chat (not a sub-agent / cron / channel session, which
             shouldn't be arbitrarily relocated). Channel sessions are filtered
             here because their lifecycle is tied to the IM conversation. */}
-        {onMoveToProject &&
-          !session.channelInfo &&
-          !session.parentSessionId &&
-          !session.isCron && (
-            <>
-              <ContextMenuSeparator />
-              <ContextMenuSub>
-                <ContextMenuSubTrigger>
-                  <FolderInput className="h-4 w-4 mr-2" />
-                  {t("project.moveToProject")}
-                </ContextMenuSubTrigger>
-                <ContextMenuSubContent>
-                  {projects.filter((p) => !p.archived).length === 0 ? (
-                    <ContextMenuItem disabled>
-                      {t("project.noProjects")}
-                    </ContextMenuItem>
-                  ) : (
-                    projects
-                      .filter((p) => !p.archived)
-                      .map((p) => (
-                        <ContextMenuItem
-                          key={p.id}
-                          disabled={session.projectId === p.id}
-                          onClick={() => onMoveToProject(session.id, p.id)}
-                        >
-                          {session.projectId === p.id ? (
-                            <Check className="h-3.5 w-3.5 mr-2 text-primary" />
-                          ) : p.emoji ? (
-                            <span className="mr-2 text-sm leading-none">{p.emoji}</span>
-                          ) : (
-                            <FolderKanban className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
-                          )}
-                          <span className="truncate">{p.name}</span>
-                        </ContextMenuItem>
-                      ))
-                  )}
-                  {session.projectId && (
-                    <>
-                      <ContextMenuSeparator />
+        {onMoveToProject && !session.channelInfo && !session.parentSessionId && !session.isCron && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>
+                <FolderInput className="h-4 w-4 mr-2" />
+                {t("project.moveToProject")}
+              </ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                {projects.filter((p) => !p.archived).length === 0 ? (
+                  <ContextMenuItem disabled>{t("project.noProjects")}</ContextMenuItem>
+                ) : (
+                  projects
+                    .filter((p) => !p.archived)
+                    .map((p) => (
                       <ContextMenuItem
-                        onClick={() => onMoveToProject(session.id, null)}
+                        key={p.id}
+                        disabled={session.projectId === p.id}
+                        onClick={() => onMoveToProject(session.id, p.id)}
                       >
-                        <FolderMinus className="h-4 w-4 mr-2" />
-                        {t("project.removeFromProject")}
+                        {session.projectId === p.id ? (
+                          <Check className="h-3.5 w-3.5 mr-2 text-primary" />
+                        ) : p.emoji ? (
+                          <span className="mr-2 text-sm leading-none">{p.emoji}</span>
+                        ) : (
+                          <FolderKanban className="h-3.5 w-3.5 mr-2 text-muted-foreground" />
+                        )}
+                        <span className="truncate">{p.name}</span>
                       </ContextMenuItem>
-                    </>
-                  )}
-                </ContextMenuSubContent>
-              </ContextMenuSub>
-            </>
-          )}
+                    ))
+                )}
+                {session.projectId && (
+                  <>
+                    <ContextMenuSeparator />
+                    <ContextMenuItem onClick={() => onMoveToProject(session.id, null)}>
+                      <FolderMinus className="h-4 w-4 mr-2" />
+                      {t("project.removeFromProject")}
+                    </ContextMenuItem>
+                  </>
+                )}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          </>
+        )}
       </ContextMenuContent>
     </ContextMenu>
   )

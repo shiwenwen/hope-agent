@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { IconTip } from "@/components/ui/tooltip"
@@ -39,14 +39,12 @@ export default function AwarenessToggle({ sessionId, disabled = false }: Props) 
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [globalEnabled, setGlobalEnabled] = useState(false)
-  const [override, setOverride] = useState<SessionAwarenessOverride | null>(
-    null,
-  )
+  const [override, setOverride] = useState<SessionAwarenessOverride | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
-  useClickOutside(ref, useCallback(() => setOpen(false), []))
+  useClickOutside(ref, () => setOpen(false))
 
   useEffect(() => {
     if (disabled && open) {
@@ -100,12 +98,7 @@ export default function AwarenessToggle({ sessionId, disabled = false }: Props) 
       setSaved(true)
       setTimeout(() => setSaved(false), 1200)
     } catch (e) {
-      logger.error(
-        "chat",
-        "AwarenessToggle::save",
-        "Failed to save override",
-        e,
-      )
+      logger.error("chat", "AwarenessToggle::save", "Failed to save override", e)
     } finally {
       setSaving(false)
     }
@@ -133,11 +126,7 @@ export default function AwarenessToggle({ sessionId, disabled = false }: Props) 
                 : "text-muted-foreground hover:text-foreground",
           )}
         >
-          {isDisabledLocally ? (
-            <EyeOff className="h-3.5 w-3.5" />
-          ) : (
-            <Eye className="h-3.5 w-3.5" />
-          )}
+          {isDisabledLocally ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
         </button>
       </IconTip>
 
@@ -146,22 +135,15 @@ export default function AwarenessToggle({ sessionId, disabled = false }: Props) 
           {/* Header */}
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] text-muted-foreground font-medium">
-              {t(
-                "settings.awareness.sessionOverride",
-                "Session Override",
-              )}
+              {t("settings.awareness.sessionOverride", "Session Override")}
             </span>
-            {saving && (
-              <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-            )}
+            {saving && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
             {saved && <Check className="h-3 w-3 text-emerald-500" />}
           </div>
 
           {/* Enable/disable for this session */}
           <div className="flex items-center justify-between py-1.5">
-            <span className="text-xs">
-              {t("settings.awareness.enabledForSession", "Enabled")}
-            </span>
+            <span className="text-xs">{t("settings.awareness.enabledForSession", "Enabled")}</span>
             <Switch
               checked={override?.enabled !== false}
               onCheckedChange={(v) => {
@@ -208,23 +190,15 @@ export default function AwarenessToggle({ sessionId, disabled = false }: Props) 
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="inherit">
-                    {t(
-                      "settings.awareness.modeInherit",
-                      "Inherit global",
-                    )}
+                    {t("settings.awareness.modeInherit", "Inherit global")}
                   </SelectItem>
                   <SelectItem value="structured">
-                    {t(
-                      "settings.awareness.modeStructured",
-                      "Structured",
-                    )}
+                    {t("settings.awareness.modeStructured", "Structured")}
                   </SelectItem>
                   <SelectItem value="llm_digest">
                     {t("settings.awareness.modeLlm", "LLM Digest")}
                   </SelectItem>
-                  <SelectItem value="off">
-                    {t("settings.awareness.modeOff", "Off")}
-                  </SelectItem>
+                  <SelectItem value="off">{t("settings.awareness.modeOff", "Off")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

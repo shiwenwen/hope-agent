@@ -1,4 +1,3 @@
-import React from "react"
 import { useTranslation } from "react-i18next"
 import {
   AreaChart,
@@ -36,15 +35,10 @@ interface TokenUsageSectionProps {
 }
 
 function SectionSkeleton({ height }: { height: number }) {
-  return (
-    <div
-      className="w-full bg-muted animate-pulse rounded-lg"
-      style={{ height }}
-    />
-  )
+  return <div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />
 }
 
-const TokenUsageSection = React.memo(function TokenUsageSection({
+const TokenUsageSection = function TokenUsageSection({
   data,
   loading,
   onDrillDown,
@@ -100,11 +94,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
           <ResponsiveContainer width="100%" height={300}>
             <AreaChart data={data.trend}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 12 }}
-                className="fill-muted-foreground"
-              />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <YAxis
                 tick={{ fontSize: 12 }}
                 tickFormatter={(v: number) => formatNumber(v)}
@@ -116,7 +106,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
-                color: "var(--color-popover-foreground)",
+                  color: "var(--color-popover-foreground)",
                 }}
                 labelStyle={{ color: "var(--color-foreground)" }}
                 formatter={(value, name) => [
@@ -150,9 +140,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Model distribution pie chart */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-medium mb-4">
-            {t("dashboard.token.byModel")}
-          </h3>
+          <h3 className="text-sm font-medium mb-4">{t("dashboard.token.byModel")}</h3>
           {pieData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground">
               {t("dashboard.noData")}
@@ -166,9 +154,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   cy="50%"
                   outerRadius={100}
                   dataKey="value"
-                  label={({ name, percent }) =>
-                    `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`
-                  }
+                  label={({ name, percent }) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
                   labelLine={{ strokeWidth: 1 }}
                   onClick={(entry) => {
                     const name = chartName((entry as { name?: unknown }).name)
@@ -179,11 +165,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   className="cursor-pointer"
                 >
                   {pieData.map((_, i) => (
-                    <Cell
-                      key={i}
-                      fill={PIE_COLORS[i % PIE_COLORS.length]}
-                      fillOpacity={0.8}
-                    />
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.8} />
                   ))}
                 </Pie>
                 <RechartsTooltip
@@ -192,7 +174,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                     border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
-                  color: "var(--color-popover-foreground)",
+                    color: "var(--color-popover-foreground)",
                   }}
                   formatter={(value) => [formatNumber(chartNumber(value)), "tokens"]}
                 />
@@ -203,9 +185,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
 
         {/* Cost table */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-medium mb-4">
-            {t("dashboard.token.costTable")}
-          </h3>
+          <h3 className="text-sm font-medium mb-4">{t("dashboard.token.costTable")}</h3>
           <div className="overflow-auto max-h-[300px]">
             <div className="grid grid-cols-6 gap-2 text-xs font-medium text-muted-foreground pb-2 border-b">
               <div>{t("dashboard.token.model")}</div>
@@ -227,16 +207,10 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                     className="grid grid-cols-6 gap-2 text-xs py-2 border-b border-border/50 hover:bg-muted/50"
                   >
                     <div className="truncate font-medium">{m.modelId}</div>
-                    <div className="truncate text-muted-foreground">
-                      {m.providerName}
-                    </div>
+                    <div className="truncate text-muted-foreground">{m.providerName}</div>
                     <div className="text-right">{formatNumber(m.inputTokens)}</div>
-                    <div className="text-right">
-                      {formatNumber(m.outputTokens)}
-                    </div>
-                    <div className="text-right">
-                      {formatCost(m.estimatedCostUsd)}
-                    </div>
+                    <div className="text-right">{formatNumber(m.outputTokens)}</div>
+                    <div className="text-right">{formatCost(m.estimatedCostUsd)}</div>
                     <div className="text-right">
                       {m.avgTtftMs != null ? formatDuration(m.avgTtftMs) : "-"}
                     </div>
@@ -247,18 +221,12 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
                   <div>{t("dashboard.token.total")}</div>
                   <div />
                   <div className="text-right">
-                    {formatNumber(
-                      data.byModel.reduce((a, m) => a + m.inputTokens, 0),
-                    )}
+                    {formatNumber(data.byModel.reduce((a, m) => a + m.inputTokens, 0))}
                   </div>
                   <div className="text-right">
-                    {formatNumber(
-                      data.byModel.reduce((a, m) => a + m.outputTokens, 0),
-                    )}
+                    {formatNumber(data.byModel.reduce((a, m) => a + m.outputTokens, 0))}
                   </div>
-                  <div className="text-right">
-                    {formatCost(data.totalCostUsd)}
-                  </div>
+                  <div className="text-right">{formatCost(data.totalCostUsd)}</div>
                   <div />
                 </div>
               </>
@@ -274,11 +242,7 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
           <ResponsiveContainer width="100%" height={250}>
             <LineChart data={ttftData}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 12 }}
-                className="fill-muted-foreground"
-              />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <YAxis
                 tick={{ fontSize: 12 }}
                 tickFormatter={(v: number) => formatDuration(v)}
@@ -312,6 +276,6 @@ const TokenUsageSection = React.memo(function TokenUsageSection({
       )}
     </div>
   )
-})
+}
 
 export default TokenUsageSection

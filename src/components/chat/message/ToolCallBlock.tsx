@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react"
+import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import {
@@ -99,7 +99,9 @@ function getSkillName(name: string, args: string): string | null {
       const parts = path.replace(/\\/g, "/").split("/")
       return parts.length >= 2 ? parts[parts.length - 2] : "skill"
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
   return null
 }
 
@@ -121,9 +123,7 @@ function getDisplayArgs(name: string, args: string): string {
       case "edit":
         return parsed.path || args
       case "find":
-        return parsed.pattern
-          ? `${parsed.path || "."} → ${parsed.pattern}`
-          : parsed.path || args
+        return parsed.pattern ? `${parsed.path || "."} → ${parsed.pattern}` : parsed.path || args
       case "grep":
         return parsed.pattern
           ? `"${parsed.pattern}"${parsed.path ? ` in ${parsed.path}` : ""}`
@@ -259,14 +259,14 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
   const canExpand = tool.name === "exec" || !isRunning
   const startedAtMs = tool.startedAtMs || 0
   const elapsedMs = tool.durationMs ?? (isRunning && startedAtMs ? now - startedAtMs : undefined)
-  const elapsedText = useMemo(() => {
+  const elapsedText = (() => {
     if (elapsedMs == null || elapsedMs < 0) return null
     if (elapsedMs < 60_000) return `${(elapsedMs / 1000).toFixed(1)}s`
     const totalSeconds = Math.floor(elapsedMs / 1000)
     const minutes = Math.floor(totalSeconds / 60)
     const seconds = totalSeconds % 60
     return `${minutes}m ${seconds}s`
-  }, [elapsedMs])
+  })()
 
   useEffect(() => {
     if (!isRunning || !startedAtMs) return
@@ -275,7 +275,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
   }, [isRunning, startedAtMs])
 
   // Detect subagent spawn — render SubagentBlock instead
-  const subagentSpawn = useMemo(() => {
+  const subagentSpawn = (() => {
     if (tool.name !== "subagent") return null
     try {
       const args = JSON.parse(tool.arguments)
@@ -293,26 +293,18 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
     } catch {
       return null
     }
-  }, [tool.name, tool.arguments, tool.result])
+  })()
 
   const skillName = getSkillName(tool.name, tool.arguments)
   const isMcpTool = parseMcpToolName(tool.name) !== null
-  const Icon = skillName
-    ? FileCode
-    : isMcpTool
-      ? Plug
-      : TOOL_ICONS[tool.name] || Wrench
+  const Icon = skillName ? FileCode : isMcpTool ? Plug : TOOL_ICONS[tool.name] || Wrench
   const toolLabel = getExecutionToolLabel({ t, tool, skillName })
   const displayArgs = skillName ? "" : getDisplayArgs(tool.name, tool.arguments)
 
   // Diff summary and "open diff" button surface only when the tool emitted
   // structured side-output. Legacy rows persisted before the diff panel
   // shipped have `metadata === undefined` and stay on the original layout.
-  const fileChangeSummary = useMemo<{
-    linesAdded: number
-    linesRemoved: number
-    payload: FileChangeMetadata | FileChangesMetadata
-  } | null>(() => {
+  const fileChangeSummary = (() => {
     const meta = tool.metadata
     if (!meta) return null
     if (meta.kind === "file_change") {
@@ -334,28 +326,23 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
       return { ...totals, payload: meta }
     }
     return null
-  }, [tool.metadata])
+  })() as {
+    linesAdded: number
+    linesRemoved: number
+    payload: FileChangeMetadata | FileChangesMetadata
+  } | null
 
-  const handleOpenDiff = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation()
-      if (fileChangeSummary && onOpenDiff) {
-        onOpenDiff(fileChangeSummary.payload)
-      }
-    },
-    [fileChangeSummary, onOpenDiff],
-  )
+  const handleOpenDiff = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (fileChangeSummary && onOpenDiff) {
+      onOpenDiff(fileChangeSummary.payload)
+    }
+  }
 
-  const askUserOutcome = useMemo(
-    () =>
-      tool.name === "ask_user_question"
-        ? parseAskUserAnswers(tool.result)
-        : null,
-    [tool.name, tool.result],
-  )
+  const askUserOutcome = tool.name === "ask_user_question" ? parseAskUserAnswers(tool.result) : null
 
   // Canvas reopen logic
-  const canvasInfo = useMemo(() => {
+  const canvasInfo = (() => {
     if (tool.name !== "canvas") return null
     try {
       const args = JSON.parse(tool.arguments)
@@ -370,23 +357,27 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
           const res = JSON.parse(tool.result)
           projectId = res.project_id || null
           if (res.title) title = res.title
-        } catch { /* ignore */ }
+        } catch {
+          /* ignore */
+        }
       } else {
         projectId = args.project_id || null
       }
       if (!projectId) return null
       return { projectId, title, contentType }
-    } catch { return null }
-  }, [tool.name, tool.arguments, tool.result])
+    } catch {
+      return null
+    }
+  })()
 
-  const handleOpenCanvas = useCallback(async () => {
+  const handleOpenCanvas = async () => {
     if (!canvasInfo) return
     try {
       await getTransport().call("show_canvas_panel", { projectId: canvasInfo.projectId })
     } catch {
       // Project may have been deleted
     }
-  }, [canvasInfo])
+  }
 
   if (subagentSpawn?.runId) {
     return (
@@ -481,13 +472,9 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
       {askUserOutcome && !isRunning && (
         <div className="ml-5 mt-1.5 mb-1 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 space-y-1.5 text-xs">
           {askUserOutcome.cancelled ? (
-            <div className="text-muted-foreground italic">
-              {t("tools.ask_user.cancelled")}
-            </div>
+            <div className="text-muted-foreground italic">{t("tools.ask_user.cancelled")}</div>
           ) : askUserOutcome.answers.length === 0 ? (
-            <div className="text-muted-foreground italic">
-              {t("tools.ask_user.no_answers")}
-            </div>
+            <div className="text-muted-foreground italic">{t("tools.ask_user.no_answers")}</div>
           ) : (
             askUserOutcome.answers.map((a, i) => {
               const parts: string[] = [...a.selected]
@@ -562,7 +549,9 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
       <div
         className={cn(
           "overflow-hidden transition-all duration-200 ease-out",
-          expanded && (tool.name === "exec" || tool.result) ? "max-h-[420px] opacity-100" : "max-h-0 opacity-0",
+          expanded && (tool.name === "exec" || tool.result)
+            ? "max-h-[420px] opacity-100"
+            : "max-h-0 opacity-0",
         )}
       >
         <div className="ml-5 mt-0.5 mb-1">

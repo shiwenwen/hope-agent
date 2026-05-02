@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react"
+import { useState } from "react"
 import { ChevronRight, Puzzle, Loader2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -33,7 +33,7 @@ function isForkResult(result: string | undefined, skillName: string): boolean {
 function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
-  const { name: skillName, args } = useMemo(() => parseSkillArgs(tool.arguments), [tool.arguments])
+  const { name: skillName, args } = parseSkillArgs(tool.arguments)
   const state = getToolExecutionState(tool)
   const running = state === "running"
   const failed = state === "failed"
@@ -44,7 +44,7 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
   })
 
   // Strip the "Skill 'xxx' completed.\n\nResult:\n" envelope for nicer fork display.
-  const displayBody = useMemo(() => {
+  const displayBody = (() => {
     if (!body) return ""
     if (forkMode) {
       const marker = "\n\nResult:\n"
@@ -52,7 +52,7 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
       if (idx >= 0) return body.slice(idx + marker.length)
     }
     return body
-  }, [body, forkMode])
+  })()
 
   return (
     <div
@@ -128,5 +128,5 @@ function SkillProgressBlockImpl({ tool, shimmer }: SkillProgressBlockProps) {
   )
 }
 
-const SkillProgressBlock = memo(SkillProgressBlockImpl)
+const SkillProgressBlock = SkillProgressBlockImpl
 export default SkillProgressBlock

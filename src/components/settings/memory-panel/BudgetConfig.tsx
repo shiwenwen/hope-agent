@@ -1,15 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Check, ChevronRight, Loader2, Ruler, Save } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import {
-  DEFAULT_MEMORY_BUDGET,
-  type MemoryBudgetConfig,
-  type SqliteSectionBudgets,
-} from "../types"
+import { DEFAULT_MEMORY_BUDGET, type MemoryBudgetConfig, type SqliteSectionBudgets } from "../types"
 import MemoryBudgetInputs from "./MemoryBudgetInputs"
 
 function budgetsEqual(a: SqliteSectionBudgets, b: SqliteSectionBudgets): boolean {
@@ -40,7 +36,7 @@ export default function BudgetConfig() {
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
-  const load = useCallback(async () => {
+  const load = async () => {
     try {
       const cfg = await getTransport().call<MemoryBudgetConfig>("get_memory_budget_config")
       setConfig(cfg)
@@ -50,16 +46,14 @@ export default function BudgetConfig() {
       logger.error("settings", "BudgetConfig::load", "Failed to load memory budget", e)
       setLoaded(true)
     }
-  }, [])
+  }
+  const loadEffectEvent = useEffectEvent(load)
 
   useEffect(() => {
-    load()
-  }, [load])
+    loadEffectEvent()
+  }, [])
 
-  const dirty = useMemo(
-    () => loaded && !configsEqual(config, original),
-    [loaded, config, original],
-  )
+  const dirty = loaded && !configsEqual(config, original)
 
   const handleSave = async () => {
     setSaving(true)
@@ -96,9 +90,7 @@ export default function BudgetConfig() {
 
       {expanded && (
         <div className="mt-3 space-y-4">
-          <p className="text-xs text-muted-foreground">
-            {t("settings.memoryBudget.desc")}
-          </p>
+          <p className="text-xs text-muted-foreground">{t("settings.memoryBudget.desc")}</p>
 
           <MemoryBudgetInputs value={config} onChange={setConfig} />
 

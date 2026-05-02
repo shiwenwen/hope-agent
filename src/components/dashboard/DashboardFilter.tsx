@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -84,26 +84,23 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
     }
   }, [])
 
-  const handleRangeChange = useCallback(
-    (key: RangeKey) => {
-      setRangeKey(key)
-      if (key !== "custom") {
-        const { start, end } = computeDateRange(key)
-        onChange({ ...filter, startDate: start, endDate: end })
-      }
-    },
-    [filter, onChange],
-  )
+  const handleRangeChange = (key: RangeKey) => {
+    setRangeKey(key)
+    if (key !== "custom") {
+      const { start, end } = computeDateRange(key)
+      onChange({ ...filter, startDate: start, endDate: end })
+    }
+  }
 
-  const handleCustomApply = useCallback(() => {
+  const handleCustomApply = () => {
     onChange({
       ...filter,
       startDate: customStart ? new Date(customStart).toISOString() : null,
       endDate: customEnd ? new Date(customEnd + "T23:59:59").toISOString() : null,
     })
-  }, [filter, onChange, customStart, customEnd])
+  }
 
-  const handleClearFilters = useCallback(() => {
+  const handleClearFilters = () => {
     setRangeKey("30d")
     const { start, end } = computeDateRange("30d")
     onChange({
@@ -113,12 +110,9 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
       providerId: null,
       modelId: null,
     })
-  }, [onChange])
+  }
 
-  const hasActiveFilters = useMemo(
-    () => filter.agentId || filter.providerId || filter.modelId,
-    [filter.agentId, filter.providerId, filter.modelId],
-  )
+  const hasActiveFilters = filter.agentId || filter.providerId || filter.modelId
   const selectedAgent = agents.find((a) => a.id === filter.agentId)
 
   const rangeKeys: RangeKey[] = ["today", "7d", "30d", "90d", "all", "custom"]
@@ -190,9 +184,7 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
       {/* Provider filter */}
       <Select
         value={filter.providerId ?? "__all__"}
-        onValueChange={(v) =>
-          onChange({ ...filter, providerId: v === "__all__" ? null : v })
-        }
+        onValueChange={(v) => onChange({ ...filter, providerId: v === "__all__" ? null : v })}
       >
         <SelectTrigger className="h-7 w-36 text-xs">
           <SelectValue placeholder={t("dashboard.filter.allProviders")} />

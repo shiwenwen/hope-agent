@@ -1,7 +1,5 @@
-import { useMemo } from "react"
-
 export default function ShootingStar({ id, onDone }: { id: number; onDone: (id: number) => void }) {
-  const style = useMemo(() => {
+  const style = (() => {
     const seeded = (offset: number) => {
       const value = Math.sin((id + 1) * 12.9898 + offset * 78.233) * 43758.5453
       return value - Math.floor(value)
@@ -18,13 +16,7 @@ export default function ShootingStar({ id, onDone }: { id: number; onDone: (id: 
       width: `${trailWidth}px`,
       ["--travel" as string]: `-${travelDistance}px`,
     }
-  }, [id])
+  })()
 
-  return (
-    <div
-      className="starry-shooting-star"
-      style={style}
-      onAnimationEnd={() => onDone(id)}
-    />
-  )
+  return <div className="starry-shooting-star" style={style} onAnimationEnd={() => onDone(id)} />
 }

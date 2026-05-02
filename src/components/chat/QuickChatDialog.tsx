@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
@@ -70,30 +70,26 @@ export default function QuickChatDialog({
   }, [open, onOpenChange])
 
   // ── Slash command action handler ────────────────
-  const handleCommandAction = useCallback(
-    (result: CommandResult) => {
-      const action = result.action
-      if (!action) return
-      if (action.type === "switchAgent") {
-        session.handleSwitchAgent(action.agentId)
-      } else if (action.type === "newSession") {
-        session.handleNewChat()
-        if (action.sessionId) {
-          getTransport().call("delete_session_cmd", { sessionId: action.sessionId }).catch(() => {})
-        }
+  const handleCommandAction = (result: CommandResult) => {
+    const action = result.action
+    if (!action) return
+    if (action.type === "switchAgent") {
+      session.handleSwitchAgent(action.agentId)
+    } else if (action.type === "newSession") {
+      session.handleNewChat()
+      if (action.sessionId) {
+        getTransport()
+          .call("delete_session_cmd", { sessionId: action.sessionId })
+          .catch(() => {})
       }
-    },
-    [session],
-  )
+    }
+  }
 
   // ── Navigate to full conversation ───────────────
-  const handleNavigate = useCallback(
-    (sessionId: string) => {
-      onOpenChange(false)
-      onNavigateToSession?.(sessionId)
-    },
-    [onOpenChange, onNavigateToSession],
-  )
+  const handleNavigate = (sessionId: string) => {
+    onOpenChange(false)
+    onNavigateToSession?.(sessionId)
+  }
 
   if (!open) return null
 
@@ -132,9 +128,7 @@ export default function QuickChatDialog({
 
           {/* Continuing session hint */}
           {session.currentSessionId && session.messages.length > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {t("quickChat.continueSession")}
-            </span>
+            <span className="text-xs text-muted-foreground">{t("quickChat.continueSession")}</span>
           )}
 
           {/* New chat button */}
@@ -248,9 +242,7 @@ function AgentSelector({
         )}
       >
         <AgentAvatarIcon agent={currentAgent} size="sm" />
-        <span className="font-medium">
-          {currentAgent?.name || t("chat.mainAgent")}
-        </span>
+        <span className="font-medium">{currentAgent?.name || t("chat.mainAgent")}</span>
         <ChevronDown className="h-3 w-3 text-muted-foreground" />
       </button>
 
@@ -293,7 +285,12 @@ function AgentAvatarIcon({
   const dim = size === "md" ? "w-6 h-6" : "w-5 h-5"
   const iconDim = size === "md" ? "h-3.5 w-3.5" : "h-3 w-3"
   return (
-    <div className={cn(dim, "rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden")}>
+    <div
+      className={cn(
+        dim,
+        "rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden",
+      )}
+    >
       {agent?.avatar ? (
         <img
           src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}

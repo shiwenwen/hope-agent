@@ -1,11 +1,17 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Switch } from "@/components/ui/switch"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { WeatherSection } from "@/components/settings/WeatherSection"
 import { cn } from "@/lib/utils"
 import { Check, Loader2 } from "lucide-react"
@@ -52,7 +58,8 @@ export default function ToolGeneralPanel() {
   const [approvalTimeout, setApprovalTimeout] = useState(300)
   const [savedApprovalTimeout, setSavedApprovalTimeout] = useState(300)
   const [approvalTimeoutAction, setApprovalTimeoutAction] = useState<ApprovalTimeoutAction>("deny")
-  const [savedApprovalTimeoutAction, setSavedApprovalTimeoutAction] = useState<ApprovalTimeoutAction>("deny")
+  const [savedApprovalTimeoutAction, setSavedApprovalTimeoutAction] =
+    useState<ApprovalTimeoutAction>("deny")
   const [diskThreshold, setDiskThreshold] = useState(50)
   const [savedDiskThreshold, setSavedDiskThreshold] = useState(50)
   const [deferredToolsEnabled, setDeferredToolsEnabled] = useState(false)
@@ -75,63 +82,122 @@ export default function ToolGeneralPanel() {
     let cancelled = false
 
     // Load tool timeout
-    getTransport().call<number>("get_tool_timeout")
-      .then((v) => { if (!cancelled) { setToolTimeout(v); setSavedTimeout(v); } })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e))
+    getTransport()
+      .call<number>("get_tool_timeout")
+      .then((v) => {
+        if (!cancelled) {
+          setToolTimeout(v)
+          setSavedTimeout(v)
+        }
+      })
+      .catch((e) =>
+        logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool timeout", e),
+      )
 
     // Load approval timeout
-    getTransport().call<number>("get_approval_timeout")
-      .then((v) => { if (!cancelled) { setApprovalTimeout(v); setSavedApprovalTimeout(v); } })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load approval timeout", e))
+    getTransport()
+      .call<number>("get_approval_timeout")
+      .then((v) => {
+        if (!cancelled) {
+          setApprovalTimeout(v)
+          setSavedApprovalTimeout(v)
+        }
+      })
+      .catch((e) =>
+        logger.error("settings", "ToolGeneralPanel::load", "Failed to load approval timeout", e),
+      )
 
     // Load approval timeout action
-    getTransport().call<ApprovalTimeoutAction>("get_approval_timeout_action")
-      .then((v) => { if (!cancelled) { setApprovalTimeoutAction(v); setSavedApprovalTimeoutAction(v); } })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load approval timeout action", e))
+    getTransport()
+      .call<ApprovalTimeoutAction>("get_approval_timeout_action")
+      .then((v) => {
+        if (!cancelled) {
+          setApprovalTimeoutAction(v)
+          setSavedApprovalTimeoutAction(v)
+        }
+      })
+      .catch((e) =>
+        logger.error(
+          "settings",
+          "ToolGeneralPanel::load",
+          "Failed to load approval timeout action",
+          e,
+        ),
+      )
 
     // Load disk persistence threshold (bytes → KB for display)
-    getTransport().call<number>("get_tool_result_disk_threshold")
-      .then((v) => { if (!cancelled) { const kb = Math.round(v / 1000); setDiskThreshold(kb); setSavedDiskThreshold(kb); } })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load disk threshold", e))
+    getTransport()
+      .call<number>("get_tool_result_disk_threshold")
+      .then((v) => {
+        if (!cancelled) {
+          const kb = Math.round(v / 1000)
+          setDiskThreshold(kb)
+          setSavedDiskThreshold(kb)
+        }
+      })
+      .catch((e) =>
+        logger.error("settings", "ToolGeneralPanel::load", "Failed to load disk threshold", e),
+      )
 
     // Load deferred tools config
-    getTransport().call<DeferredToolsConfig>("get_deferred_tools_config")
+    getTransport()
+      .call<DeferredToolsConfig>("get_deferred_tools_config")
       .then((cfg) => {
         if (!cancelled) {
           setDeferredToolsEnabled(cfg?.enabled ?? false)
           setDeferredToolNames(cfg?.toolNames ?? [])
         }
       })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load deferred tools config", e))
+      .catch((e) =>
+        logger.error(
+          "settings",
+          "ToolGeneralPanel::load",
+          "Failed to load deferred tools config",
+          e,
+        ),
+      )
 
-    getTransport().call<BuiltinTool[]>("list_builtin_tools")
-      .then((tools) => { if (!cancelled) setBuiltinTools(tools) })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load built-in tools", e))
+    getTransport()
+      .call<BuiltinTool[]>("list_builtin_tools")
+      .then((tools) => {
+        if (!cancelled) setBuiltinTools(tools)
+      })
+      .catch((e) =>
+        logger.error("settings", "ToolGeneralPanel::load", "Failed to load built-in tools", e),
+      )
 
     // Load user config
-    getTransport().call<UserConfig>("get_user_config")
+    getTransport()
+      .call<UserConfig>("get_user_config")
       .then((cfg) => {
         if (!cancelled) {
           setConfig(cfg)
           setSavedConfigSnapshot(JSON.stringify(cfg))
         }
       })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load user config", e))
+      .catch((e) =>
+        logger.error("settings", "ToolGeneralPanel::load", "Failed to load user config", e),
+      )
 
     // Load tool limits
-    getTransport().call<ToolLimitsConfig>("get_tool_limits")
+    getTransport()
+      .call<ToolLimitsConfig>("get_tool_limits")
       .then((cfg) => {
         if (!cancelled) {
           setLimits(cfg)
           setSavedLimitsSnapshot(JSON.stringify(cfg))
         }
       })
-      .catch((e) => logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool limits", e))
+      .catch((e) =>
+        logger.error("settings", "ToolGeneralPanel::load", "Failed to load tool limits", e),
+      )
 
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
-  const saveTimeout = useCallback(async (value: number) => {
+  const saveTimeout = async (value: number) => {
     try {
       await getTransport().call("set_tool_timeout", { seconds: value })
       setSavedTimeout(value)
@@ -139,9 +205,9 @@ export default function ToolGeneralPanel() {
       setToolTimeout(savedTimeout)
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save tool timeout", e)
     }
-  }, [savedTimeout])
+  }
 
-  const saveApprovalTimeout = useCallback(async (value: number) => {
+  const saveApprovalTimeout = async (value: number) => {
     try {
       await getTransport().call("set_approval_timeout", { seconds: value })
       setSavedApprovalTimeout(value)
@@ -149,19 +215,24 @@ export default function ToolGeneralPanel() {
       setApprovalTimeout(savedApprovalTimeout)
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save approval timeout", e)
     }
-  }, [savedApprovalTimeout])
+  }
 
-  const saveApprovalTimeoutAction = useCallback(async (value: ApprovalTimeoutAction) => {
+  const saveApprovalTimeoutAction = async (value: ApprovalTimeoutAction) => {
     try {
       await getTransport().call("set_approval_timeout_action", { action: value })
       setSavedApprovalTimeoutAction(value)
     } catch (e) {
       setApprovalTimeoutAction(savedApprovalTimeoutAction)
-      logger.error("settings", "ToolGeneralPanel::save", "Failed to save approval timeout action", e)
+      logger.error(
+        "settings",
+        "ToolGeneralPanel::save",
+        "Failed to save approval timeout action",
+        e,
+      )
     }
-  }, [savedApprovalTimeoutAction])
+  }
 
-  const handleDeferredToolsChange = useCallback(async (enabled: boolean) => {
+  const handleDeferredToolsChange = async (enabled: boolean) => {
     setDeferredToolsEnabled(enabled)
     try {
       await getTransport().call("save_deferred_tools_config", {
@@ -169,16 +240,11 @@ export default function ToolGeneralPanel() {
       })
     } catch (e) {
       setDeferredToolsEnabled(!enabled)
-      logger.error(
-        "settings",
-        "ToolGeneralPanel::save",
-        "Failed to save deferred tools config",
-        e,
-      )
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save deferred tools config", e)
     }
-  }, [deferredToolNames])
+  }
 
-  const handleDeferredToolToggle = useCallback(async (name: string, enabled: boolean) => {
+  const handleDeferredToolToggle = async (name: string, enabled: boolean) => {
     const previous = deferredToolNames
     const next = enabled
       ? [...previous.filter((n) => n !== name), name]
@@ -190,16 +256,11 @@ export default function ToolGeneralPanel() {
       })
     } catch (e) {
       setDeferredToolNames(previous)
-      logger.error(
-        "settings",
-        "ToolGeneralPanel::save",
-        "Failed to save deferred tool list",
-        e,
-      )
+      logger.error("settings", "ToolGeneralPanel::save", "Failed to save deferred tool list", e)
     }
-  }, [deferredToolNames, deferredToolsEnabled])
+  }
 
-  const saveDiskThreshold = useCallback(async (kb: number) => {
+  const saveDiskThreshold = async (kb: number) => {
     try {
       await getTransport().call("set_tool_result_disk_threshold", { bytes: kb * 1000 })
       setSavedDiskThreshold(kb)
@@ -207,7 +268,7 @@ export default function ToolGeneralPanel() {
       setDiskThreshold(savedDiskThreshold)
       logger.error("settings", "ToolGeneralPanel::save", "Failed to save disk threshold", e)
     }
-  }, [savedDiskThreshold])
+  }
 
   const saveAll = async () => {
     setSaving(true)
@@ -275,14 +336,18 @@ export default function ToolGeneralPanel() {
                 }}
                 className="w-24 h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.seconds")}
+              </span>
             </div>
           </div>
 
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5">
               <div className="text-sm font-medium">{t("settings.approvalTimeout")}</div>
-              <div className="text-xs text-muted-foreground">{t("settings.approvalTimeoutDesc")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.approvalTimeoutDesc")}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Input
@@ -298,14 +363,18 @@ export default function ToolGeneralPanel() {
                 }}
                 className="w-24 h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.seconds")}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.seconds")}
+              </span>
             </div>
           </div>
 
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5">
               <div className="text-sm font-medium">{t("settings.approvalTimeoutAction")}</div>
-              <div className="text-xs text-muted-foreground">{t("settings.approvalTimeoutActionDesc")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.approvalTimeoutActionDesc")}
+              </div>
             </div>
             <Select
               value={approvalTimeoutAction}
@@ -319,7 +388,9 @@ export default function ToolGeneralPanel() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="deny">{t("settings.approvalTimeoutActionDeny")}</SelectItem>
-                <SelectItem value="proceed">{t("settings.approvalTimeoutActionProceed")}</SelectItem>
+                <SelectItem value="proceed">
+                  {t("settings.approvalTimeoutActionProceed")}
+                </SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -328,7 +399,9 @@ export default function ToolGeneralPanel() {
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5">
               <div className="text-sm font-medium">{t("settings.toolResultDiskThreshold")}</div>
-              <div className="text-xs text-muted-foreground">{t("settings.toolResultDiskThresholdDesc")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.toolResultDiskThresholdDesc")}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Input
@@ -344,7 +417,9 @@ export default function ToolGeneralPanel() {
                 }}
                 className="w-24 h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.kb")}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.kb")}
+              </span>
             </div>
           </div>
 
@@ -356,10 +431,7 @@ export default function ToolGeneralPanel() {
                 {t("settings.deferredToolsEnabledDesc")}
               </div>
             </div>
-            <Switch
-              checked={deferredToolsEnabled}
-              onCheckedChange={handleDeferredToolsChange}
-            />
+            <Switch checked={deferredToolsEnabled} onCheckedChange={handleDeferredToolsChange} />
           </div>
 
           {deferredToolsEnabled && deferCapableTools.length > 0 && (
@@ -416,10 +488,14 @@ export default function ToolGeneralPanel() {
                 max={20}
                 value={limits.maxImages}
                 onChange={(e) => updateLimit("maxImages", Number(e.target.value))}
-                onBlur={() => updateLimit("maxImages", Math.max(1, Math.min(20, Math.round(limits.maxImages))))}
+                onBlur={() =>
+                  updateLimit("maxImages", Math.max(1, Math.min(20, Math.round(limits.maxImages))))
+                }
                 className="w-24 h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.items")}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.items")}
+              </span>
             </div>
           </div>
 
@@ -435,17 +511,23 @@ export default function ToolGeneralPanel() {
                 max={10}
                 value={limits.maxPdfs}
                 onChange={(e) => updateLimit("maxPdfs", Number(e.target.value))}
-                onBlur={() => updateLimit("maxPdfs", Math.max(1, Math.min(10, Math.round(limits.maxPdfs))))}
+                onBlur={() =>
+                  updateLimit("maxPdfs", Math.max(1, Math.min(10, Math.round(limits.maxPdfs))))
+                }
                 className="w-24 h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.items")}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.items")}
+              </span>
             </div>
           </div>
 
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5">
               <div className="text-sm font-medium">{t("settings.maxVisionPages")}</div>
-              <div className="text-xs text-muted-foreground">{t("settings.maxVisionPagesDesc")}</div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.maxVisionPagesDesc")}
+              </div>
             </div>
             <div className="flex items-center gap-2">
               <Input
@@ -454,10 +536,17 @@ export default function ToolGeneralPanel() {
                 max={50}
                 value={limits.maxVisionPages}
                 onChange={(e) => updateLimit("maxVisionPages", Number(e.target.value))}
-                onBlur={() => updateLimit("maxVisionPages", Math.max(1, Math.min(50, Math.round(limits.maxVisionPages))))}
+                onBlur={() =>
+                  updateLimit(
+                    "maxVisionPages",
+                    Math.max(1, Math.min(50, Math.round(limits.maxVisionPages))),
+                  )
+                }
                 className="w-24 h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.pages")}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.pages")}
+              </span>
             </div>
           </div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -58,8 +58,14 @@ function keyEventToShortcutStr(e: KeyboardEvent): string | null {
   if (e.altKey) parts.push("Alt")
   if (e.shiftKey) parts.push("Shift")
   const modifierCodes = [
-    "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
-    "AltLeft", "AltRight", "MetaLeft", "MetaRight",
+    "ShiftLeft",
+    "ShiftRight",
+    "ControlLeft",
+    "ControlRight",
+    "AltLeft",
+    "AltRight",
+    "MetaLeft",
+    "MetaRight",
   ]
   if (modifierCodes.includes(e.code)) return null
   let keyName: string
@@ -70,7 +76,25 @@ function keyEventToShortcutStr(e: KeyboardEvent): string | null {
   else if (e.code === "Period") keyName = "Period"
   else if (e.code.startsWith("Arrow")) keyName = e.code.slice(5)
   else if (e.code.startsWith("F") && /^F\d+$/.test(e.code)) keyName = e.code
-  else if (["Enter", "Tab", "Escape", "Backspace", "Delete", "Minus", "Equal", "Slash", "Backslash", "BracketLeft", "BracketRight", "Semicolon", "Quote", "Backquote"].includes(e.code)) keyName = e.code
+  else if (
+    [
+      "Enter",
+      "Tab",
+      "Escape",
+      "Backspace",
+      "Delete",
+      "Minus",
+      "Equal",
+      "Slash",
+      "Backslash",
+      "BracketLeft",
+      "BracketRight",
+      "Semicolon",
+      "Quote",
+      "Backquote",
+    ].includes(e.code)
+  )
+    keyName = e.code
   else keyName = e.key.toUpperCase()
   parts.push(keyName)
   return parts.filter(Boolean).join("+")
@@ -90,7 +114,8 @@ export default function ShortcutSection() {
 
   useEffect(() => {
     let cancelled = false
-    getTransport().call<ShortcutConfig>("get_shortcut_config")
+    getTransport()
+      .call<ShortcutConfig>("get_shortcut_config")
       .then((sc) => {
         if (cancelled) return
         setShortcuts(sc)
@@ -99,23 +124,36 @@ export default function ShortcutSection() {
       .catch((e) => {
         logger.error("settings", "ShortcutSection::load", "Failed to load shortcut config", e)
       })
-    return () => { cancelled = true }
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   // Pause/resume global shortcuts when recording starts/stops
   useEffect(() => {
     if (recordingId) {
-      getTransport().call("set_shortcuts_paused", { paused: true }).catch(() => {})
+      getTransport()
+        .call("set_shortcuts_paused", { paused: true })
+        .catch(() => {})
     } else {
-      getTransport().call("set_shortcuts_paused", { paused: false }).catch(() => {})
+      getTransport()
+        .call("set_shortcuts_paused", { paused: false })
+        .catch(() => {})
       setChordFirstPart(null)
-      if (chordTimerRef.current) { clearTimeout(chordTimerRef.current); chordTimerRef.current = null }
+      if (chordTimerRef.current) {
+        clearTimeout(chordTimerRef.current)
+        chordTimerRef.current = null
+      }
     }
   }, [recordingId])
 
   // Ensure shortcuts are resumed if component unmounts during recording
   useEffect(() => {
-    return () => { getTransport().call("set_shortcuts_paused", { paused: false }).catch(() => {}) }
+    return () => {
+      getTransport()
+        .call("set_shortcuts_paused", { paused: false })
+        .catch(() => {})
+    }
   }, [])
 
   useEffect(() => {
@@ -123,13 +161,19 @@ export default function ShortcutSection() {
     function finishRecording(keys: string) {
       setShortcuts((prev) => {
         if (!prev) return prev
-        const updated = { ...prev, bindings: prev.bindings.map((b) => b.id === recordingId ? { ...b, keys } : b) }
+        const updated = {
+          ...prev,
+          bindings: prev.bindings.map((b) => (b.id === recordingId ? { ...b, keys } : b)),
+        }
         setShortcutDirty(JSON.stringify(updated) !== shortcutSavedRef.current)
         return updated
       })
       setChordFirstPart(null)
       setRecordingId(null)
-      if (chordTimerRef.current) { clearTimeout(chordTimerRef.current); chordTimerRef.current = null }
+      if (chordTimerRef.current) {
+        clearTimeout(chordTimerRef.current)
+        chordTimerRef.current = null
+      }
     }
 
     function onKeyDown(e: KeyboardEvent) {
@@ -138,7 +182,10 @@ export default function ShortcutSection() {
       if (e.key === "Escape") {
         setChordFirstPart(null)
         setRecordingId(null)
-        if (chordTimerRef.current) { clearTimeout(chordTimerRef.current); chordTimerRef.current = null }
+        if (chordTimerRef.current) {
+          clearTimeout(chordTimerRef.current)
+          chordTimerRef.current = null
+        }
         return
       }
       const shortcutStr = keyEventToShortcutStr(e)
@@ -160,7 +207,7 @@ export default function ShortcutSection() {
     return () => window.removeEventListener("keydown", onKeyDown, true)
   }, [recordingId])
 
-  const saveShortcuts = useCallback(async () => {
+  const saveShortcuts = async () => {
     if (!shortcuts) return
     setShortcutSaving(true)
     try {
@@ -170,18 +217,26 @@ export default function ShortcutSection() {
       setShortcutSaveStatus("saved")
       setTimeout(() => setShortcutSaveStatus("idle"), 2000)
     } catch (e) {
-      logger.error("settings", "ShortcutSection::saveShortcuts", "Failed to save shortcut config", e)
+      logger.error(
+        "settings",
+        "ShortcutSection::saveShortcuts",
+        "Failed to save shortcut config",
+        e,
+      )
       setShortcutSaveStatus("failed")
       setTimeout(() => setShortcutSaveStatus("idle"), 2000)
     } finally {
       setShortcutSaving(false)
     }
-  }, [shortcuts])
+  }
 
   const handleShortcutToggle = (id: string, enabled: boolean) => {
     setShortcuts((prev) => {
       if (!prev) return prev
-      const updated = { ...prev, bindings: prev.bindings.map((b) => b.id === id ? { ...b, enabled } : b) }
+      const updated = {
+        ...prev,
+        bindings: prev.bindings.map((b) => (b.id === id ? { ...b, enabled } : b)),
+      }
       setShortcutDirty(JSON.stringify(updated) !== shortcutSavedRef.current)
       return updated
     })
@@ -211,9 +266,7 @@ export default function ShortcutSection() {
                 {t(ACTION_LABELS[binding.id] ?? binding.id)}
               </div>
               {ACTION_DESCS[binding.id] && (
-                <div className="text-xs text-muted-foreground">
-                  {t(ACTION_DESCS[binding.id])}
-                </div>
+                <div className="text-xs text-muted-foreground">{t(ACTION_DESCS[binding.id])}</div>
               )}
             </div>
             <Button
@@ -230,9 +283,9 @@ export default function ShortcutSection() {
               disabled={!binding.enabled}
             >
               {recordingId === binding.id
-                ? (chordFirstPart
+                ? chordFirstPart
                   ? `${formatSingleCombo(chordFirstPart)}  ${t("shortcuts.chordNext")}`
-                  : t("shortcuts.recording"))
+                  : t("shortcuts.recording")
                 : formatKeyForDisplay(binding.keys) || t("shortcuts.unset")}
             </Button>
             <Switch
@@ -250,8 +303,10 @@ export default function ShortcutSection() {
           onClick={saveShortcuts}
           disabled={(!shortcutDirty && shortcutSaveStatus === "idle") || shortcutSaving}
           className={cn(
-            shortcutSaveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
-            shortcutSaveStatus === "failed" && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+            shortcutSaveStatus === "saved" &&
+              "bg-green-500/10 text-green-600 hover:bg-green-500/20",
+            shortcutSaveStatus === "failed" &&
+              "bg-destructive/10 text-destructive hover:bg-destructive/20",
           )}
         >
           {shortcutSaving ? (

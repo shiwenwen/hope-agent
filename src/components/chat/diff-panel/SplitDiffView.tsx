@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { cn } from "@/lib/utils"
 import type { FileChangeMetadata } from "@/types/chat"
 import { buildSplitRows } from "./diffLayout"
@@ -13,10 +12,7 @@ interface SplitDiffViewProps {
  * only their column with a blank counterpart.
  */
 export function SplitDiffView({ change }: SplitDiffViewProps) {
-  const rows = useMemo(
-    () => buildSplitRows(change.before ?? "", change.after ?? ""),
-    [change.before, change.after],
-  )
+  const rows = buildSplitRows(change.before ?? "", change.after ?? "")
 
   return (
     <div className="font-mono text-[11.5px] leading-5">

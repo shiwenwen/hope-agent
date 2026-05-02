@@ -1,11 +1,4 @@
-import {
-  useState,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useMemo,
-  type AnchorHTMLAttributes,
-} from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type AnchorHTMLAttributes } from "react"
 import { Streamdown, type AnimateOptions, type PluginConfig } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
@@ -50,15 +43,14 @@ function useHeavyPlugins(content: string) {
     let changed = false
     if (needMath && !cachedMath && !mathLoading) {
       mathLoading = true
-      Promise.all([
-        import("@streamdown/math"),
-        import("katex/dist/katex.min.css"),
-      ]).then(([mod]) => {
-        cachedMath = mod.math
-        mathLoading = false
-        changed = true
-        forceUpdate((n) => n + 1)
-      })
+      Promise.all([import("@streamdown/math"), import("katex/dist/katex.min.css")]).then(
+        ([mod]) => {
+          cachedMath = mod.math
+          mathLoading = false
+          changed = true
+          forceUpdate((n) => n + 1)
+        },
+      )
     }
     if (needMermaid && !cachedMermaid && !mermaidLoading) {
       mermaidLoading = true
@@ -70,16 +62,12 @@ function useHeavyPlugins(content: string) {
     }
   }, [needMath, needMermaid])
 
-  return useMemo(() => {
+  return (() => {
     const p: PluginConfig = { code, cjk }
     if (cachedMath) p.math = cachedMath
     if (cachedMermaid) p.mermaid = cachedMermaid
     return p
-  }, [
-    // Re-memo when plugins become available
-    cachedMath !== null, // eslint-disable-line react-hooks/exhaustive-deps
-    cachedMermaid !== null, // eslint-disable-line react-hooks/exhaustive-deps
-  ])
+  })()
 }
 
 /** Word-level blurIn: each completed word gets a blur-to-clear entrance */
@@ -435,7 +423,10 @@ export default function MarkdownRenderer({ content, isStreaming = false }: Markd
   const isActive = isStreaming || revealing
 
   return (
-    <div ref={containerRef} className={isActive ? "streaming-height markdown-content" : "markdown-content"}>
+    <div
+      ref={containerRef}
+      className={isActive ? "streaming-height markdown-content" : "markdown-content"}
+    >
       <div ref={contentRef}>
         <Streamdown
           animated={isActive ? streamingAnimation : true}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import i18n from "@/i18n/i18n"
@@ -40,7 +40,8 @@ export default function WebSearchPanel() {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   useEffect(() => {
-    getTransport().call<WebSearchConfig>("get_web_search_config")
+    getTransport()
+      .call<WebSearchConfig>("get_web_search_config")
       .then((cfg) => {
         setConfig(cfg)
         setSavedJson(JSON.stringify(cfg))
@@ -50,49 +51,43 @@ export default function WebSearchPanel() {
 
   const isDirty = config ? JSON.stringify(config) !== savedJson : false
 
-  const persistConfig = useCallback(
-    async (nextConfig?: WebSearchConfig) => {
-      const configToSave = nextConfig ?? config
-      if (!configToSave) return false
-      if (JSON.stringify(configToSave) === savedJson) return true
-      setSaving(true)
-      try {
-        await getTransport().call("save_web_search_config", { config: configToSave })
-        setSavedJson(JSON.stringify(configToSave))
-        setSaveStatus("saved")
-        setTimeout(() => setSaveStatus("idle"), 2000)
-        return true
-      } catch (e) {
-        logger.error("settings", "WebSearchPanel::save", "Failed to save config", e)
-        setSaveStatus("failed")
-        setTimeout(() => setSaveStatus("idle"), 2000)
-        return false
-      } finally {
-        setSaving(false)
-      }
-    },
-    [config, savedJson],
-  )
+  const persistConfig = async (nextConfig?: WebSearchConfig) => {
+    const configToSave = nextConfig ?? config
+    if (!configToSave) return false
+    if (JSON.stringify(configToSave) === savedJson) return true
+    setSaving(true)
+    try {
+      await getTransport().call("save_web_search_config", { config: configToSave })
+      setSavedJson(JSON.stringify(configToSave))
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+      return true
+    } catch (e) {
+      logger.error("settings", "WebSearchPanel::save", "Failed to save config", e)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
 
-  const handleSave = useCallback(async () => {
+  const handleSave = async () => {
     await persistConfig()
-  }, [persistConfig])
+  }
 
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent) => {
-      const { active, over } = event
-      if (!over || !config || active.id === over.id) return
-      const oldIndex = config.providers.findIndex((p) => p.id === active.id)
-      const newIndex = config.providers.findIndex((p) => p.id === over.id)
-      if (oldIndex === -1 || newIndex === -1) return
-      setConfig((prev) =>
-        prev ? { ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) } : prev,
-      )
-    },
-    [config],
-  )
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+    if (!over || !config || active.id === over.id) return
+    const oldIndex = config.providers.findIndex((p) => p.id === active.id)
+    const newIndex = config.providers.findIndex((p) => p.id === over.id)
+    if (oldIndex === -1 || newIndex === -1) return
+    setConfig((prev) =>
+      prev ? { ...prev, providers: arrayMove(prev.providers, oldIndex, newIndex) } : prev,
+    )
+  }
 
-  const handleToggleEnabled = useCallback((id: string, enabled: boolean) => {
+  const handleToggleEnabled = (id: string, enabled: boolean) => {
     setConfig((prev) => {
       if (!prev) return prev
       return {
@@ -100,27 +95,28 @@ export default function WebSearchPanel() {
         providers: prev.providers.map((p) => (p.id === id ? { ...p, enabled } : p)),
       }
     })
-  }, [])
+  }
 
-  const handleFieldChange = useCallback(
-    (id: string, key: "apiKey" | "apiKey2" | "baseUrl", value: string | null) => {
-      setConfig((prev) => {
-        if (!prev) return prev
-        const providers = prev.providers.map((p) => {
-          if (p.id !== id) return p
-          const updated = { ...p, [key]: value }
-          // Auto-disable if key was cleared and provider requires key
-          const meta = PROVIDER_META[id]
-          if (meta?.needsApiKey && !hasRequiredCredentials(updated)) {
-            updated.enabled = false
-          }
-          return updated
-        })
-        return { ...prev, providers }
+  const handleFieldChange = (
+    id: string,
+    key: "apiKey" | "apiKey2" | "baseUrl",
+    value: string | null,
+  ) => {
+    setConfig((prev) => {
+      if (!prev) return prev
+      const providers = prev.providers.map((p) => {
+        if (p.id !== id) return p
+        const updated = { ...p, [key]: value }
+        // Auto-disable if key was cleared and provider requires key
+        const meta = PROVIDER_META[id]
+        if (meta?.needsApiKey && !hasRequiredCredentials(updated)) {
+          updated.enabled = false
+        }
+        return updated
       })
-    },
-    [],
-  )
+      return { ...prev, providers }
+    })
+  }
 
   if (!config) return null
 

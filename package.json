@@ -73,6 +73,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@rolldown/plugin-babel": "0.2.3",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
@@ -80,6 +81,7 @@
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
+    "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Check, Loader2, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
@@ -90,32 +90,28 @@ export default function SsrfPolicySection() {
     }
   }
 
-  const toolPolicies = useMemo(
-    () =>
-      [
-        {
-          key: "browserPolicy" as const,
-          label: t("settings.ssrfToolLabel", { tool: t("tools.browser") }),
-          desc: t("settings.ssrfBrowserPolicyDesc"),
-        },
-        {
-          key: "webFetchPolicy" as const,
-          label: t("settings.ssrfToolLabel", { tool: t("tools.web_fetch") }),
-          desc: t("settings.ssrfWebFetchPolicyDesc"),
-        },
-        {
-          key: "imageGeneratePolicy" as const,
-          label: t("settings.ssrfToolLabel", { tool: t("tools.image_generate") }),
-          desc: t("settings.ssrfImageGeneratePolicyDesc"),
-        },
-        {
-          key: "urlPreviewPolicy" as const,
-          label: t("settings.ssrfUrlPreviewPolicy"),
-          desc: t("settings.ssrfUrlPreviewPolicyDesc"),
-        },
-      ],
-    [t],
-  )
+  const toolPolicies = [
+    {
+      key: "browserPolicy" as const,
+      label: t("settings.ssrfToolLabel", { tool: t("tools.browser") }),
+      desc: t("settings.ssrfBrowserPolicyDesc"),
+    },
+    {
+      key: "webFetchPolicy" as const,
+      label: t("settings.ssrfToolLabel", { tool: t("tools.web_fetch") }),
+      desc: t("settings.ssrfWebFetchPolicyDesc"),
+    },
+    {
+      key: "imageGeneratePolicy" as const,
+      label: t("settings.ssrfToolLabel", { tool: t("tools.image_generate") }),
+      desc: t("settings.ssrfImageGeneratePolicyDesc"),
+    },
+    {
+      key: "urlPreviewPolicy" as const,
+      label: t("settings.ssrfUrlPreviewPolicy"),
+      desc: t("settings.ssrfUrlPreviewPolicyDesc"),
+    },
+  ]
 
   const addHost = () => {
     const trimmed = newHost.trim().toLowerCase()
@@ -187,9 +183,7 @@ export default function SsrfPolicySection() {
               {renderPolicySelect(config.defaultPolicy, (v) =>
                 setConfig((prev) => ({ ...prev, defaultPolicy: v })),
               )}
-              <p className="text-xs text-muted-foreground">
-                {t("settings.ssrfDefaultPolicyDesc")}
-              </p>
+              <p className="text-xs text-muted-foreground">{t("settings.ssrfDefaultPolicyDesc")}</p>
             </div>
           </div>
 
@@ -214,9 +208,7 @@ export default function SsrfPolicySection() {
             <h3 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
               {t("settings.ssrfTrustedHostsSection")}
             </h3>
-            <p className="text-xs text-muted-foreground">
-              {t("settings.ssrfTrustedHostsDesc")}
-            </p>
+            <p className="text-xs text-muted-foreground">{t("settings.ssrfTrustedHostsDesc")}</p>
 
             <div className="flex gap-2">
               <Input
@@ -231,12 +223,7 @@ export default function SsrfPolicySection() {
                 }}
                 className="max-w-md"
               />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addHost}
-                disabled={!newHost.trim()}
-              >
+              <Button type="button" variant="outline" onClick={addHost} disabled={!newHost.trim()}>
                 {t("common.add")}
               </Button>
             </div>

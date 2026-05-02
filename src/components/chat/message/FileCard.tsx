@@ -1,4 +1,3 @@
-import React, { useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import {
   FileText,
@@ -87,7 +86,15 @@ function resolveIconKey(mime: string, name: string): IconKey {
   }
 }
 
-function FileMimeIcon({ mime, name, className }: { mime: string; name: string; className?: string }) {
+function FileMimeIcon({
+  mime,
+  name,
+  className,
+}: {
+  mime: string
+  name: string
+  className?: string
+}) {
   const key = resolveIconKey(mime, name)
   switch (key) {
     case "image":
@@ -119,21 +126,21 @@ function FileCard({ item }: { item: MediaItem }) {
   const transport = getTransport()
   const canRevealLocal = transport.supportsLocalFileOps()
 
-  const handleOpen = useCallback(async () => {
+  const handleOpen = async () => {
     try {
       await transport.openMedia(item)
     } catch (e) {
       logger.error("chat", "FileCard::open", "Failed to open attachment", e)
     }
-  }, [item, transport])
+  }
 
-  const handleReveal = useCallback(async () => {
+  const handleReveal = async () => {
     try {
       await transport.revealMedia(item)
     } catch (e) {
       logger.error("chat", "FileCard::reveal", "Failed to reveal attachment", e)
     }
-  }, [item, transport])
+  }
 
   return (
     <div className="inline-flex items-center gap-2 max-w-sm rounded-md border border-border/50 bg-secondary/30 hover:bg-secondary/50 transition-colors px-2.5 py-1.5 text-xs">
@@ -147,9 +154,7 @@ function FileCard({ item }: { item: MediaItem }) {
         onClick={handleOpen}
         className="flex flex-col items-start min-w-0 flex-1 text-left hover:text-foreground transition-colors"
       >
-        <span className="truncate max-w-[240px] font-medium text-foreground/90">
-          {item.name}
-        </span>
+        <span className="truncate max-w-[240px] font-medium text-foreground/90">{item.name}</span>
         <span className="text-[10px] text-muted-foreground/70 tabular-nums">
           {formatBytes(item.sizeBytes)}
         </span>
@@ -180,4 +185,4 @@ function FileCard({ item }: { item: MediaItem }) {
   )
 }
 
-export default React.memo(FileCard)
+export default FileCard

@@ -1,4 +1,4 @@
-import { Fragment, useRef, useEffect, useCallback, useState } from "react"
+import React, { Fragment, useEffect, useRef, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -164,16 +164,17 @@ export default function ChatInput({
   const { previews: urlPreviews, dismissedUrls, dismiss: dismissUrl } = useUrlPreview(input)
 
   // Auto-resize textarea based on content
-  const adjustTextareaHeight = useCallback(() => {
+  const adjustTextareaHeight = () => {
     const textarea = textareaRef.current
     if (!textarea) return
     textarea.style.height = "auto"
     textarea.style.height = `${textarea.scrollHeight}px`
-  }, [])
+  }
+  const adjustTextareaHeightEffectEvent = useEffectEvent(adjustTextareaHeight)
 
   useEffect(() => {
-    adjustTextareaHeight()
-  }, [input, adjustTextareaHeight])
+    adjustTextareaHeightEffectEvent()
+  }, [input])
 
   // The overflow `+` trigger is hidden via CSS once the viewport widens past
   // the breakpoint, but Radix keeps the open popper mounted in a Portal — with
@@ -190,25 +191,22 @@ export default function ChatInput({
     return () => mql.removeEventListener("change", onChange)
   }, [showOverflowMenu])
 
-  const handlePaste = useCallback(
-    (e: React.ClipboardEvent) => {
-      const items = e.clipboardData?.items
-      if (!items) return
-      const files: File[] = []
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i]
-        if (item.kind === "file") {
-          const file = item.getAsFile()
-          if (file) files.push(file)
-        }
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items
+    if (!items) return
+    const files: File[] = []
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i]
+      if (item.kind === "file") {
+        const file = item.getAsFile()
+        if (file) files.push(file)
       }
-      if (files.length > 0) {
-        e.preventDefault()
-        onAttachFiles(files)
-      }
-    },
-    [onAttachFiles],
-  )
+    }
+    if (files.length > 0) {
+      e.preventDefault()
+      onAttachFiles(files)
+    }
+  }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.nativeEvent.isComposing || e.keyCode === 229) return

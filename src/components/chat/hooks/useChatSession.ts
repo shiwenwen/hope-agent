@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import React, { useEffect, useRef, useState, useEffectEvent } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
@@ -117,7 +117,7 @@ export function useChatSession({
   const [loading, setLoading] = useState(false)
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
   const [pendingScrollTarget, setPendingScrollTarget] = useState<number | null>(null)
-  const clearPendingScrollTarget = useCallback(() => setPendingScrollTarget(null), [])
+  const clearPendingScrollTarget = () => setPendingScrollTarget(null)
 
   const currentSessionIdRef = useRef<string | null>(null)
   const switchVersionRef = useRef(0)
@@ -173,6 +173,7 @@ export function useChatSession({
   // --- Channel streaming sub-hook ---
   useChannelStreaming({
     currentSessionIdRef,
+    messagesRef,
     sessionCacheRef,
     loadingSessionsRef,
     setMessages,
@@ -182,47 +183,41 @@ export function useChatSession({
   })
 
   /** Update messages for a specific session. If it's the current session, also update state. */
-  const updateSessionMessages = useCallback(
-    (sessionId: string, updater: (prev: Message[]) => Message[]) => {
-      const hasCached = sessionCacheRef.current.has(sessionId)
-      const prev = sessionCacheRef.current.get(sessionId) || []
-      const next = updater(prev)
-      if (
-        !hasCached &&
-        currentSessionIdRef.current !== sessionId &&
-        next === prev &&
-        next.length === 0
-      ) {
-        return
-      }
-      sessionCacheRef.current.set(sessionId, next)
-      if (currentSessionIdRef.current === sessionId) {
-        setMessages(next)
-      }
-    },
-    [],
-  )
+  const updateSessionMessages = (sessionId: string, updater: (prev: Message[]) => Message[]) => {
+    const hasCached = sessionCacheRef.current.has(sessionId)
+    const prev = sessionCacheRef.current.get(sessionId) || []
+    const next = updater(prev)
+    if (
+      !hasCached &&
+      currentSessionIdRef.current !== sessionId &&
+      next === prev &&
+      next.length === 0
+    ) {
+      return
+    }
+    sessionCacheRef.current.set(sessionId, next)
+    if (currentSessionIdRef.current === sessionId) {
+      setMessages(next)
+    }
+  }
 
-  const updateSessionMeta = useCallback(
-    (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => {
-      setSessions((prev) => {
-        let changed = false
-        const next = prev.map((session) => {
-          if (session.id !== sessionId) return session
-          const updated = updater(session)
-          if (updated !== session) changed = true
-          return updated
-        })
-        return changed ? next : prev
+  const updateSessionMeta = (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => {
+    setSessions((prev) => {
+      let changed = false
+      const next = prev.map((session) => {
+        if (session.id !== sessionId) return session
+        const updated = updater(session)
+        if (updated !== session) changed = true
+        return updated
       })
-    },
-    [],
-  )
+      return changed ? next : prev
+    })
+  }
 
   // Drop every locally-cached trace of a session — used both by explicit
   // delete and by the incognito close-on-leave purge so the two paths stay
   // in lockstep and we don't leak entries in any of the per-session refs.
-  const evictSessionLocal = useCallback((sessionId: string) => {
+  const evictSessionLocal = (sessionId: string) => {
     sessionCacheRef.current.delete(sessionId)
     loadingSessionsRef.current.delete(sessionId)
     hasMoreRef.current.delete(sessionId)
@@ -237,27 +232,25 @@ export function useChatSession({
       const next = prev.filter((s) => s.id !== sessionId)
       return next.length === prev.length ? prev : next
     })
-  }, [])
+  }
 
-  const purgeIncognitoSession = useCallback(
-    (sessionIdToLeave: string | null) => {
-      if (!sessionIdToLeave) return
-      const previousMeta = sessionsRef.current.find((s) => s.id === sessionIdToLeave)
-      if (!previousMeta?.incognito) return
-      evictSessionLocal(sessionIdToLeave)
-      void getTransport()
-        .call("purge_session_if_incognito", { sessionId: sessionIdToLeave })
-        .catch((err) => {
-          logger.warn(
-            "chat",
-            "useChatSession::purgeIncognito",
-            `purge failed for ${sessionIdToLeave}`,
-            err,
-          )
-        })
-    },
-    [evictSessionLocal],
-  )
+  const purgeIncognitoSession = (sessionIdToLeave: string | null) => {
+    if (!sessionIdToLeave) return
+    const previousMeta = sessionsRef.current.find((s) => s.id === sessionIdToLeave)
+    if (!previousMeta?.incognito) return
+    evictSessionLocal(sessionIdToLeave)
+    void getTransport()
+      .call("purge_session_if_incognito", { sessionId: sessionIdToLeave })
+      .catch((err) => {
+        logger.warn(
+          "chat",
+          "useChatSession::purgeIncognito",
+          `purge failed for ${sessionIdToLeave}`,
+          err,
+        )
+      })
+  }
+  const purgeIncognitoSessionEffectEvent = useEffectEvent(purgeIncognitoSession)
 
   // Centralized close-on-leave: any path that mutates `currentSessionId`
   // (sidebar click, new chat, project new chat, deep-link nav, jumpToMessage,
@@ -268,15 +261,15 @@ export function useChatSession({
     const previous = previousSessionIdRef.current
     previousSessionIdRef.current = currentSessionId
     if (previous && previous !== currentSessionId) {
-      purgeIncognitoSession(previous)
+      purgeIncognitoSessionEffectEvent(previous)
     }
-  }, [currentSessionId, purgeIncognitoSession])
+  }, [currentSessionId])
 
   // Load agent list. Also pulls the global `default_agent_id` so the
   // implicit "current agent" state matches what the user configured in
   // settings — without this, `currentAgentId` is stuck at the hardcoded
   // "default" until the user switches manually, defeating the setting.
-  const reloadAgents = useCallback(async () => {
+  const reloadAgents = async () => {
     try {
       const [list, defaultId] = await Promise.all([
         getTransport().call<AgentSummaryForSidebar[]>("list_agents"),
@@ -290,9 +283,7 @@ export function useChatSession({
       // agent_id and don't want to clobber it.
       if (!currentSessionIdRef.current) {
         const id =
-          typeof defaultId === "string" && defaultId.trim().length > 0
-            ? defaultId
-            : "default"
+          typeof defaultId === "string" && defaultId.trim().length > 0 ? defaultId : "default"
         setCurrentAgentId(id)
         const match = list.find((a) => a.id === id)
         if (match) setAgentName(match.name)
@@ -300,28 +291,29 @@ export function useChatSession({
     } catch (e) {
       logger.error("ui", "ChatScreen::loadAgents", "Failed to load agents", e)
     }
-  }, [])
+  }
+  const reloadAgentsEffectEvent = useEffectEvent(reloadAgents)
 
   useEffect(() => {
     reloadSessions()
-    reloadAgents()
-  }, [reloadSessions, reloadAgents])
+    reloadAgentsEffectEvent()
+  }, [reloadSessions])
 
   // Refresh agent list when agents are created/saved/deleted in settings panel
   useEffect(() => {
     const handler = () => {
-      reloadAgents()
+      reloadAgentsEffectEvent()
     }
     window.addEventListener("agents-changed", handler)
     return () => window.removeEventListener("agents-changed", handler)
-  }, [reloadAgents])
+  }, [])
 
   // Pick up changes to the global default agent from the settings panel.
   useEffect(() => {
     return getTransport().listen("config:changed", () => {
-      void reloadAgents()
+      void reloadAgentsEffectEvent()
     })
-  }, [reloadAgents])
+  }, [])
 
   // Listen for cron job completions to refresh unread counts + send notification
   useEffect(() => {
@@ -387,185 +379,167 @@ export function useChatSession({
 
   // Compute total unread count — channel and sub-agent sessions don't surface
   // global unread indicators in the primary chat entry.
-  const totalUnreadCount = useMemo(
-    () =>
-      sessions.reduce((sum, s) => {
-        if (s.channelInfo || s.parentSessionId || s.id === currentSessionId) return sum
-        return sum + s.unreadCount
-      }, 0),
-    [sessions, currentSessionId],
-  )
+  const totalUnreadCount = sessions.reduce((sum, s) => {
+    if (s.channelInfo || s.parentSessionId || s.id === currentSessionId) return sum
+    return sum + s.unreadCount
+  }, 0)
 
   useEffect(() => {
     onUnreadCountChange?.(totalUnreadCount)
   }, [totalUnreadCount, onUnreadCountChange])
 
   // Switch to an existing session
-  const handleSwitchSession = useCallback(
-    async (sessionId: string, opts?: { targetMessageId?: number }) => {
-      const targetMessageId = opts?.targetMessageId
-      // Always reload when jumping to a specific message; otherwise skip if
-      // already viewing the same session.
-      if (!sessionId) return
-      if (targetMessageId === undefined && sessionId === currentSessionIdRef.current) {
-        return
-      }
+  const handleSwitchSession = async (sessionId: string, opts?: { targetMessageId?: number }) => {
+    const targetMessageId = opts?.targetMessageId
+    // Always reload when jumping to a specific message; otherwise skip if
+    // already viewing the same session.
+    if (!sessionId) return
+    if (targetMessageId === undefined && sessionId === currentSessionIdRef.current) {
+      return
+    }
 
-      const version = ++switchVersionRef.current
+    const version = ++switchVersionRef.current
 
-      // If target session is in cache and we don't need to jump to a specific
-      // message, restore immediately.
-      const cached = sessionCacheRef.current.get(sessionId)
-      if (targetMessageId === undefined && cached) {
-        setMessages(cached)
-        setHasMore(hasMoreRef.current.get(sessionId) ?? false)
+    // If target session is in cache and we don't need to jump to a specific
+    // message, restore immediately.
+    const cached = sessionCacheRef.current.get(sessionId)
+    if (targetMessageId === undefined && cached) {
+      setMessages(cached)
+      setHasMore(hasMoreRef.current.get(sessionId) ?? false)
+      setLoading(loadingSessionsRef.current.has(sessionId))
+      setCurrentSessionId(sessionId)
+    } else {
+      try {
+        let msgs: SessionMessage[]
+        let hasMoreBefore: boolean
+        if (targetMessageId !== undefined) {
+          // `[messages, total, hasMoreBefore, hasMoreAfter]` — hasMoreAfter unused.
+          const [m, , hasMoreB] = await getTransport().call<
+            [SessionMessage[], number, boolean, boolean]
+          >("load_session_messages_around_cmd", {
+            sessionId,
+            targetMessageId,
+            before: 40,
+            after: 20,
+          })
+          msgs = m
+          hasMoreBefore = hasMoreB
+        } else {
+          // hasMore is authoritative from DB; don't infer from msgs.length
+          // since user-boundary alignment may extend beyond the requested limit.
+          const [m, , hasMore] = await getTransport().call<[SessionMessage[], number, boolean]>(
+            "load_session_messages_latest_cmd",
+            { sessionId, limit: PAGE_SIZE },
+          )
+          msgs = m
+          hasMoreBefore = hasMore
+        }
+        const [currentSessions] = await getTransport().call<[SessionMeta[], number]>(
+          "list_sessions_cmd",
+          {},
+        )
+        const sessionMeta = currentSessions.find((s) => s.id === sessionId)
+        const parentSession = sessionMeta?.parentSessionId
+          ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
+          : undefined
+        if (switchVersionRef.current !== version) return // stale switch
+        const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
+        sessionCacheRef.current.set(sessionId, displayMessages)
+        hasMoreRef.current.set(sessionId, hasMoreBefore)
+        if (msgs.length > 0) {
+          oldestDbIdRef.current.set(sessionId, msgs[0].id)
+        }
+        setMessages(displayMessages)
+        setHasMore(hasMoreBefore)
         setLoading(loadingSessionsRef.current.has(sessionId))
         setCurrentSessionId(sessionId)
+      } catch (e) {
+        logger.error("session", "ChatScreen::switchSession", "Failed to load session", {
+          sessionId,
+          error: e,
+        })
+        return
+      }
+    }
+
+    if (targetMessageId !== undefined) {
+      setPendingScrollTarget(targetMessageId)
+    }
+
+    if (switchVersionRef.current !== version) return // stale switch
+
+    // Use fresh sessions list for session lookup
+    const [currentSessions] = await getTransport()
+      .call<[SessionMeta[], number]>("list_sessions_cmd", {})
+      .catch(() => [[] as SessionMeta[], 0] as [SessionMeta[], number])
+    const currentAgents = await getTransport()
+      .call<AgentSummaryForSidebar[]>("list_agents")
+      .catch(() => [] as AgentSummaryForSidebar[])
+    const session = currentSessions.find((s) => s.id === sessionId)
+    if (session) {
+      setCurrentAgentId(session.agentId)
+      const agent = currentAgents.find((a) => a.id === session.agentId)
+      if (agent) setAgentName(agent.name)
+
+      // Restore the model used in this session (if still available)
+      if (session.providerId && session.modelId) {
+        const modelExists = availableModels.some(
+          (m) => m.providerId === session.providerId && m.modelId === session.modelId,
+        )
+        if (modelExists) {
+          handleModelChange(`${session.providerId}::${session.modelId}`)
+        }
       } else {
+        // Session has no model info, fallback to agent's configured model or global default
         try {
-          let msgs: SessionMessage[]
-          let hasMoreBefore: boolean
-          if (targetMessageId !== undefined) {
-            // `[messages, total, hasMoreBefore, hasMoreAfter]` — hasMoreAfter unused.
-            const [m, , hasMoreB] = await getTransport().call<
-              [SessionMessage[], number, boolean, boolean]
-            >("load_session_messages_around_cmd", {
-              sessionId,
-              targetMessageId,
-              before: 40,
-              after: 20,
-            })
-            msgs = m
-            hasMoreBefore = hasMoreB
-          } else {
-            // hasMore is authoritative from DB; don't infer from msgs.length
-            // since user-boundary alignment may extend beyond the requested limit.
-            const [m, , hasMore] = await getTransport().call<[SessionMessage[], number, boolean]>(
-              "load_session_messages_latest_cmd",
-              { sessionId, limit: PAGE_SIZE },
-            )
-            msgs = m
-            hasMoreBefore = hasMore
-          }
-          const [currentSessions] = await getTransport().call<[SessionMeta[], number]>(
-            "list_sessions_cmd",
-            {},
-          )
-          const sessionMeta = currentSessions.find((s) => s.id === sessionId)
-          const parentSession = sessionMeta?.parentSessionId
-            ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
-            : undefined
-          if (switchVersionRef.current !== version) return // stale switch
-          const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
-          sessionCacheRef.current.set(sessionId, displayMessages)
-          hasMoreRef.current.set(sessionId, hasMoreBefore)
-          if (msgs.length > 0) {
-            oldestDbIdRef.current.set(sessionId, msgs[0].id)
-          }
-          setMessages(displayMessages)
-          setHasMore(hasMoreBefore)
-          setLoading(loadingSessionsRef.current.has(sessionId))
-          setCurrentSessionId(sessionId)
-        } catch (e) {
-          logger.error("session", "ChatScreen::switchSession", "Failed to load session", {
-            sessionId,
-            error: e,
+          const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
+            id: session.agentId,
           })
-          return
-        }
-      }
-
-      if (targetMessageId !== undefined) {
-        setPendingScrollTarget(targetMessageId)
-      }
-
-      if (switchVersionRef.current !== version) return // stale switch
-
-      // Use fresh sessions list for session lookup
-      const [currentSessions] = await getTransport()
-        .call<[SessionMeta[], number]>("list_sessions_cmd", {})
-        .catch(() => [[] as SessionMeta[], 0] as [SessionMeta[], number])
-      const currentAgents = await getTransport()
-        .call<AgentSummaryForSidebar[]>("list_agents")
-        .catch(() => [] as AgentSummaryForSidebar[])
-      const session = currentSessions.find((s) => s.id === sessionId)
-      if (session) {
-        setCurrentAgentId(session.agentId)
-        const agent = currentAgents.find((a) => a.id === session.agentId)
-        if (agent) setAgentName(agent.name)
-
-        // Restore the model used in this session (if still available)
-        if (session.providerId && session.modelId) {
-          const modelExists = availableModels.some(
-            (m) => m.providerId === session.providerId && m.modelId === session.modelId,
-          )
-          if (modelExists) {
-            handleModelChange(`${session.providerId}::${session.modelId}`)
-          }
-        } else {
-          // Session has no model info, fallback to agent's configured model or global default
-          try {
-            const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
-              id: session.agentId,
-            })
-            if (agentConfig.model.primary) {
-              const modelExists = availableModels.some(
-                (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
-              )
-              if (modelExists) {
-                applyModelForDisplay(agentConfig.model.primary)
-                // Mark session as read and refresh
-                getTransport()
-                  .call("mark_session_read_cmd", { sessionId })
-                  .catch(() => {})
-                reloadSessions()
-                return
-              }
+          if (agentConfig.model.primary) {
+            const modelExists = availableModels.some(
+              (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
+            )
+            if (modelExists) {
+              applyModelForDisplay(agentConfig.model.primary)
+              // Mark session as read and refresh
+              getTransport()
+                .call("mark_session_read_cmd", { sessionId })
+                .catch(() => {})
+              reloadSessions()
+              return
             }
-          } catch {
-            // ignore
           }
-          // No agent model or unavailable — restore global default
-          if (globalActiveModelRef.current) {
-            setActiveModel(globalActiveModelRef.current)
-          }
+        } catch {
+          // ignore
+        }
+        // No agent model or unavailable — restore global default
+        if (globalActiveModelRef.current) {
+          setActiveModel(globalActiveModelRef.current)
         }
       }
+    }
 
-      // Mark session as read and refresh unread counts
-      getTransport()
-        .call("mark_session_read_cmd", { sessionId })
-        .catch(() => {})
-      reloadSessions()
-    },
-    [
-      availableModels,
-      handleModelChange,
-      applyModelForDisplay,
-      globalActiveModelRef,
-      setActiveModel,
-      reloadSessions,
-      setHasMore,
-    ],
-  )
+    // Mark session as read and refresh unread counts
+    getTransport()
+      .call("mark_session_read_cmd", { sessionId })
+      .catch(() => {})
+    reloadSessions()
+  }
 
   // Jump to a specific message within the *current* session. If the target
   // is already in the loaded window, just sets `pendingScrollTarget` to let
   // MessageList scroll & pulse. Otherwise reloads a window of messages
   // centred on the target (delegating to handleSwitchSession).
-  const jumpToMessage = useCallback(
-    async (messageId: number) => {
-      const sid = currentSessionIdRef.current
-      if (!sid) return
-      const exists = messagesRef.current.some((m) => m.dbId === messageId)
-      if (exists) {
-        setPendingScrollTarget(messageId)
-        return
-      }
-      await handleSwitchSession(sid, { targetMessageId: messageId })
-    },
-    [handleSwitchSession],
-  )
+  const jumpToMessage = async (messageId: number) => {
+    const sid = currentSessionIdRef.current
+    if (!sid) return
+    const exists = messagesRef.current.some((m) => m.dbId === messageId)
+    if (exists) {
+      setPendingScrollTarget(messageId)
+      return
+    }
+    await handleSwitchSession(sid, { targetMessageId: messageId })
+  }
 
   // Navigate to a specific session when initialSessionId changes
   useEffect(() => {
@@ -579,146 +553,130 @@ export function useChatSession({
   }, [initialSessionId])
 
   // Create a new chat with a specific agent
-  const handleNewChat = useCallback(
-    async (agentId: string) => {
-      // Save current session to cache
-      // (cache is already maintained by updateSessionMessages)
+  const handleNewChat = async (agentId: string) => {
+    // Save current session to cache
+    // (cache is already maintained by updateSessionMessages)
 
-      const currentAgents = await getTransport()
-        .call<AgentSummaryForSidebar[]>("list_agents")
-        .catch(() => [] as AgentSummaryForSidebar[])
-      const agent = currentAgents.find((a) => a.id === agentId)
+    const currentAgents = await getTransport()
+      .call<AgentSummaryForSidebar[]>("list_agents")
+      .catch(() => [] as AgentSummaryForSidebar[])
+    const agent = currentAgents.find((a) => a.id === agentId)
+    setMessages([])
+    setCurrentSessionId(null)
+    setLoading(false)
+    setHasMore(false)
+    setCurrentAgentId(agentId)
+    if (agent) {
+      setAgentName(agent.name)
+    }
+
+    // Apply agent's configured model, or restore global default
+    try {
+      const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
+        id: agentId,
+      })
+      if (agentConfig.model.primary) {
+        const modelExists = availableModels.some(
+          (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
+        )
+        if (modelExists) {
+          applyModelForDisplay(agentConfig.model.primary)
+          return
+        }
+      }
+    } catch {
+      // ignore
+    }
+    // No agent model configured or unavailable — restore global default
+    if (globalActiveModelRef.current) {
+      setActiveModel(globalActiveModelRef.current)
+    }
+  }
+
+  // Create a new session inside a Project and materialize it immediately
+  // so project context is active for the first message.
+  const handleNewChatInProject = async (
+    projectId: string,
+    defaultAgentId?: string | null,
+    incognito = false,
+  ) => {
+    try {
+      // When the caller does not supply an explicit agentId, leave it
+      // undefined so `create_session_cmd` runs the resolver chain
+      // (project.default_agent_id → AppConfig.default_agent_id →
+      // hardcoded "default"). Falling back to the in-UI `currentAgentId`
+      // here would pin the new session to whichever agent the user happened
+      // to be chatting with last, bypassing project / global defaults.
+      const explicitAgent = defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : undefined
+      const created = await getTransport().call<SessionMeta>("create_session_cmd", {
+        agentId: explicitAgent,
+        projectId,
+        // Project + incognito are mutually exclusive; backend coerces but
+        // we strip here too so the optimistic UI stays consistent.
+        incognito: projectId ? false : incognito,
+      })
       setMessages([])
-      setCurrentSessionId(null)
+      setCurrentSessionId(created.id)
+      setSessions((prev) => (prev.some((s) => s.id === created.id) ? prev : [created, ...prev]))
       setLoading(false)
       setHasMore(false)
-      setCurrentAgentId(agentId)
-      if (agent) {
-        setAgentName(agent.name)
-      }
-
-      // Apply agent's configured model, or restore global default
+      setCurrentAgentId(created.agentId)
+      const agent = agents.find((a) => a.id === created.agentId)
+      if (agent) setAgentName(agent.name)
+      // Apply the agent's configured model. If the agent has no preferred
+      // model (or it's not currently available), fall back to the global
+      // active model so the title bar still shows something sensible.
+      let appliedAgentModel = false
       try {
         const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
-          id: agentId,
+          id: created.agentId,
         })
-        if (agentConfig.model.primary) {
+        const primary = agentConfig.model.primary
+        if (primary) {
           const modelExists = availableModels.some(
-            (m) => `${m.providerId}::${m.modelId}` === agentConfig.model.primary,
+            (m) => `${m.providerId}::${m.modelId}` === primary,
           )
           if (modelExists) {
-            applyModelForDisplay(agentConfig.model.primary)
-            return
+            applyModelForDisplay(primary)
+            appliedAgentModel = true
           }
         }
       } catch {
         // ignore
       }
-      // No agent model configured or unavailable — restore global default
-      if (globalActiveModelRef.current) {
+      if (!appliedAgentModel && globalActiveModelRef.current) {
         setActiveModel(globalActiveModelRef.current)
       }
-    },
-    [availableModels, applyModelForDisplay, globalActiveModelRef, setActiveModel, setHasMore],
-  )
-
-  // Create a new session inside a Project and materialize it immediately
-  // so project context is active for the first message.
-  const handleNewChatInProject = useCallback(
-    async (projectId: string, defaultAgentId?: string | null, incognito = false) => {
-      try {
-        // When the caller does not supply an explicit agentId, leave it
-        // undefined so `create_session_cmd` runs the resolver chain
-        // (project.default_agent_id → AppConfig.default_agent_id →
-        // hardcoded "default"). Falling back to the in-UI `currentAgentId`
-        // here would pin the new session to whichever agent the user happened
-        // to be chatting with last, bypassing project / global defaults.
-        const explicitAgent =
-          defaultAgentId && defaultAgentId.length > 0 ? defaultAgentId : undefined
-        const created = await getTransport().call<SessionMeta>("create_session_cmd", {
-          agentId: explicitAgent,
-          projectId,
-          // Project + incognito are mutually exclusive; backend coerces but
-          // we strip here too so the optimistic UI stays consistent.
-          incognito: projectId ? false : incognito,
-        })
-        setMessages([])
-        setCurrentSessionId(created.id)
-        setSessions((prev) =>
-          prev.some((s) => s.id === created.id) ? prev : [created, ...prev],
-        )
-        setLoading(false)
-        setHasMore(false)
-        setCurrentAgentId(created.agentId)
-        const agent = agents.find((a) => a.id === created.agentId)
-        if (agent) setAgentName(agent.name)
-        // Apply the agent's configured model. If the agent has no preferred
-        // model (or it's not currently available), fall back to the global
-        // active model so the title bar still shows something sensible.
-        let appliedAgentModel = false
-        try {
-          const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
-            id: created.agentId,
-          })
-          const primary = agentConfig.model.primary
-          if (primary) {
-            const modelExists = availableModels.some(
-              (m) => `${m.providerId}::${m.modelId}` === primary,
-            )
-            if (modelExists) {
-              applyModelForDisplay(primary)
-              appliedAgentModel = true
-            }
-          }
-        } catch {
-          // ignore
-        }
-        if (!appliedAgentModel && globalActiveModelRef.current) {
-          setActiveModel(globalActiveModelRef.current)
-        }
-      } catch (e) {
-        logger.warn("chat", "useChatSession", "handleNewChatInProject failed", e)
-        notify(t("common.saveFailed"), String(e))
-      }
-    },
-    [
-      agents,
-      availableModels,
-      applyModelForDisplay,
-      globalActiveModelRef,
-      setActiveModel,
-      setHasMore,
-      t,
-    ],
-  )
+    } catch (e) {
+      logger.warn("chat", "useChatSession", "handleNewChatInProject failed", e)
+      notify(t("common.saveFailed"), String(e))
+    }
+  }
 
   // Delete a session
-  const handleDeleteSession = useCallback(
-    async (sessionId: string) => {
-      const sessionTitle =
-        sessions.find((s) => s.id === sessionId)?.title || t("chat.untitledSession")
-      try {
-        await getTransport().call("delete_session_cmd", { sessionId })
-        evictSessionLocal(sessionId)
-        if (currentSessionIdRef.current === sessionId) {
-          setMessages([])
-          setCurrentSessionId(null)
-          setLoading(false)
-          setHasMore(false)
-        }
-        reloadSessions()
-        toast.success(t("common.deleted"), {
-          description: sessionTitle,
-        })
-      } catch (err) {
-        logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
-        toast.error(t("common.deleteFailed"), {
-          description: sessionTitle,
-        })
+  const handleDeleteSession = async (sessionId: string) => {
+    const sessionTitle =
+      sessions.find((s) => s.id === sessionId)?.title || t("chat.untitledSession")
+    try {
+      await getTransport().call("delete_session_cmd", { sessionId })
+      evictSessionLocal(sessionId)
+      if (currentSessionIdRef.current === sessionId) {
+        setMessages([])
+        setCurrentSessionId(null)
+        setLoading(false)
+        setHasMore(false)
       }
-    },
-    [reloadSessions, setHasMore, evictSessionLocal, sessions, t],
-  )
+      reloadSessions()
+      toast.success(t("common.deleted"), {
+        description: sessionTitle,
+      })
+    } catch (err) {
+      logger.error("session", "ChatScreen::deleteSession", "Failed to delete session", err)
+      toast.error(t("common.deleteFailed"), {
+        description: sessionTitle,
+      })
+    }
+  }
 
   return {
     messages,

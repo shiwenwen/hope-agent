@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { X, ZoomIn, ZoomOut, RotateCcw } from "lucide-react"
 
 interface ImageLightboxProps {
@@ -15,36 +15,36 @@ function ImageLightbox({ src, alt, onClose }: ImageLightboxProps) {
   const lastPos = useRef({ x: 0, y: 0 })
   const backdropRef = useRef<HTMLDivElement>(null)
 
-  const handleWheel = useCallback((e: React.WheelEvent) => {
+  const handleWheel = (e: React.WheelEvent) => {
     e.stopPropagation()
     setScale((s) => Math.min(Math.max(s - e.deltaY * 0.001, 0.1), 10))
-  }, [])
+  }
 
-  const handlePointerDown = useCallback((e: React.PointerEvent) => {
+  const handlePointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return
     dragging.current = true
     setIsDragging(true)
     lastPos.current = { x: e.clientX, y: e.clientY }
     ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
-  }, [])
+  }
 
-  const handlePointerMove = useCallback((e: React.PointerEvent) => {
+  const handlePointerMove = (e: React.PointerEvent) => {
     if (!dragging.current) return
     const dx = e.clientX - lastPos.current.x
     const dy = e.clientY - lastPos.current.y
     lastPos.current = { x: e.clientX, y: e.clientY }
     setTranslate((t) => ({ x: t.x + dx, y: t.y + dy }))
-  }, [])
+  }
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = () => {
     dragging.current = false
     setIsDragging(false)
-  }, [])
+  }
 
-  const reset = useCallback(() => {
+  const reset = () => {
     setScale(1)
     setTranslate({ x: 0, y: 0 })
-  }, [])
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -144,13 +144,13 @@ export function useLightbox() {
 export function LightboxProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<LightboxState | null>(null)
 
-  const openLightbox = useCallback((src: string, alt?: string) => {
+  const openLightbox = (src: string, alt?: string) => {
     setState({ src, alt })
-  }, [])
+  }
 
-  const closeLightbox = useCallback(() => {
+  const closeLightbox = () => {
     setState(null)
-  }, [])
+  }
 
   // Global click delegation: intercept clicks on <img> inside markdown rendered areas
   useEffect(() => {
@@ -172,9 +172,7 @@ export function LightboxProvider({ children }: { children: React.ReactNode }) {
   return (
     <LightboxContext.Provider value={{ openLightbox }}>
       {children}
-      {state && (
-        <ImageLightbox src={state.src} alt={state.alt} onClose={closeLightbox} />
-      )}
+      {state && <ImageLightbox src={state.src} alt={state.alt} onClose={closeLightbox} />}
     </LightboxContext.Provider>
   )
 }

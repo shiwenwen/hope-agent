@@ -1,7 +1,5 @@
-import { useMemo } from "react"
-
 export default function CloudLayer({ count, isFog }: { count: number; isFog?: boolean }) {
-  const clouds = useMemo(() => {
+  const clouds = (() => {
     return Array.from({ length: count }, (_, i) => {
       const seeded = (offset: number) => {
         const v = Math.sin((i + 1) * 9.81 + offset * 41.17) * 28571.3
@@ -17,7 +15,7 @@ export default function CloudLayer({ count, isFog }: { count: number; isFog?: bo
         startLeft: -20,
       }
     })
-  }, [count, isFog])
+  })()
 
   return (
     <>

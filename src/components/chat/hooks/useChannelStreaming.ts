@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react"
+import React, { useEffect, useRef, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parseSessionMessages, reloadAndMergeSessionMessages } from "../chatUtils"
 import { PAGE_SIZE } from "./constants"
@@ -12,6 +12,7 @@ import {
 
 interface UseChannelStreamingParams {
   currentSessionIdRef: React.MutableRefObject<string | null>
+  messagesRef: React.MutableRefObject<Message[]>
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
   loadingSessionsRef: React.MutableRefObject<Set<string>>
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>
@@ -22,6 +23,7 @@ interface UseChannelStreamingParams {
 
 export function useChannelStreaming({
   currentSessionIdRef,
+  messagesRef,
   sessionCacheRef,
   loadingSessionsRef,
   setMessages,
@@ -36,22 +38,20 @@ export function useChannelStreaming({
   const streamGenerationRef = useRef<Map<string, number>>(new Map())
   const nextStreamGenerationRef = useRef(0)
 
-  const updateSessionMessages = useCallback(
-    (sessionId: string, updater: (prev: Message[]) => Message[]) => {
-      const isActive = currentSessionIdRef.current === sessionId
-      const hasCached = sessionCacheRef.current.has(sessionId)
-      if (!isActive && !hasCached) return
-      const prev = sessionCacheRef.current.get(sessionId) || []
-      const next = updater(prev)
-      sessionCacheRef.current.set(sessionId, next)
-      if (isActive) {
-        setMessages(next)
-      }
-    },
-    [currentSessionIdRef, sessionCacheRef, setMessages],
-  )
+  const updateSessionMessages = (sessionId: string, updater: (prev: Message[]) => Message[]) => {
+    const isActive = currentSessionIdRef.current === sessionId
+    const hasCached = sessionCacheRef.current.has(sessionId)
+    if (!isActive && !hasCached) return
+    const prev = sessionCacheRef.current.get(sessionId) || []
+    const next = updater(prev)
+    sessionCacheRef.current.set(sessionId, next)
+    if (isActive) {
+      setMessages(next)
+    }
+  }
+  const updateSessionMessagesEffectEvent = useEffectEvent(updateSessionMessages)
 
-  const appendStreamingPlaceholder = useCallback((messages: Message[]) => {
+  const appendStreamingPlaceholder = (messages: Message[]) => {
     return [
       ...messages,
       {
@@ -61,22 +61,21 @@ export function useChannelStreaming({
         timestamp: new Date().toISOString(),
       },
     ]
-  }, [])
+  }
+  const appendStreamingPlaceholderEffectEvent = useEffectEvent(appendStreamingPlaceholder)
 
-  const replayQueuedEvents = useCallback(
-    (sessionId: string) => {
-      const queued = queuedEventsRef.current.get(sessionId)
-      if (!queued?.length) return
-      queuedEventsRef.current.delete(sessionId)
-      for (const event of queued) {
-        handleStreamEvent(event, sessionId, {
-          updateSessionMessages,
-          deltaBuffersRef,
-        })
-      }
-    },
-    [updateSessionMessages],
-  )
+  const replayQueuedEvents = (sessionId: string) => {
+    const queued = queuedEventsRef.current.get(sessionId)
+    if (!queued?.length) return
+    queuedEventsRef.current.delete(sessionId)
+    for (const event of queued) {
+      handleStreamEvent(event, sessionId, {
+        updateSessionMessages,
+        deltaBuffersRef,
+      })
+    }
+  }
+  const replayQueuedEventsEffectEvent = useEffectEvent(replayQueuedEvents)
 
   // Listen for channel stream lifecycle — loading state + message placeholder
   useEffect(() => {
@@ -86,104 +85,112 @@ export function useChannelStreaming({
     const queuedEvents = queuedEventsRef.current
     const streamGenerations = streamGenerationRef.current
 
-    unlisteners.push(getTransport().listen("channel:stream_start", (raw) => {
-      const payload = raw as { sessionId: string }
-      if (!payload.sessionId) return
-      const sessionId = payload.sessionId
-      const generation = nextStreamGenerationRef.current + 1
-      nextStreamGenerationRef.current = generation
-      streamGenerationRef.current.set(sessionId, generation)
-      preparedStreamRef.current.delete(sessionId)
-      preparingStreamRef.current.delete(sessionId)
-      queuedEventsRef.current.delete(sessionId)
-      discardPendingStreamDeltas(sessionId, deltaBuffersRef)
+    unlisteners.push(
+      getTransport().listen("channel:stream_start", (raw) => {
+        const payload = raw as { sessionId: string }
+        if (!payload.sessionId) return
+        const sessionId = payload.sessionId
+        const generation = nextStreamGenerationRef.current + 1
+        nextStreamGenerationRef.current = generation
+        streamGenerationRef.current.set(sessionId, generation)
+        preparedStreamRef.current.delete(sessionId)
+        preparingStreamRef.current.delete(sessionId)
+        queuedEventsRef.current.delete(sessionId)
+        discardPendingStreamDeltas(sessionId, deltaBuffersRef)
 
-      // Mark session as loading
-      loadingSessionsRef.current.add(sessionId)
-      setLoadingSessionIds(new Set(loadingSessionsRef.current))
-      // Refresh sidebar to show new session / update title
-      reloadSessions()
-      const isActive = sessionId === currentSessionIdRef.current
-      const hadCached = sessionCacheRef.current.has(sessionId)
+        // Mark session as loading
+        loadingSessionsRef.current.add(sessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        // Refresh sidebar to show new session / update title
+        reloadSessions()
+        const isActive = sessionId === currentSessionIdRef.current
+        const hadCached = sessionCacheRef.current.has(sessionId)
 
-      if (isActive || hadCached) {
-        preparingStreamRef.current.add(sessionId)
-        if (!isActive) {
-          sessionCacheRef.current.delete(sessionId)
-        }
-        getTransport().call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
-          sessionId,
-          limit: PAGE_SIZE,
-        }).then(([msgs]) => {
-          if (streamGenerationRef.current.get(sessionId) !== generation) return
-          const withPlaceholder = appendStreamingPlaceholder(parseSessionMessages(msgs))
-          preparingStreamRef.current.delete(sessionId)
-          preparedStreamRef.current.add(sessionId)
-          sessionCacheRef.current.set(sessionId, withPlaceholder)
-          if (sessionId === currentSessionIdRef.current) {
-            setMessages(withPlaceholder)
-          }
-          replayQueuedEvents(sessionId)
-        }).catch(() => {
-          if (streamGenerationRef.current.get(sessionId) !== generation) return
-          preparingStreamRef.current.delete(sessionId)
-          preparedStreamRef.current.delete(sessionId)
-          queuedEventsRef.current.delete(sessionId)
-          discardPendingStreamDeltas(sessionId, deltaBuffersRef)
-          if (sessionId === currentSessionIdRef.current) {
-            const baseMessages = sessionCacheRef.current.get(sessionId)
-            if (!baseMessages) {
-              setMessages((prev) => {
-                const fallback = appendStreamingPlaceholder(prev)
-                sessionCacheRef.current.set(sessionId, fallback)
-                return fallback
-              })
-              preparedStreamRef.current.add(sessionId)
-              queueMicrotask(() => replayQueuedEvents(sessionId))
-              return
-            }
-            const fallback = appendStreamingPlaceholder(baseMessages)
-            preparedStreamRef.current.add(sessionId)
-            sessionCacheRef.current.set(sessionId, fallback)
-            setMessages(fallback)
-            replayQueuedEvents(sessionId)
-          } else {
+        if (isActive || hadCached) {
+          preparingStreamRef.current.add(sessionId)
+          if (!isActive) {
             sessionCacheRef.current.delete(sessionId)
           }
-        })
-      }
+          getTransport()
+            .call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
+              sessionId,
+              limit: PAGE_SIZE,
+            })
+            .then(([msgs]) => {
+              if (streamGenerationRef.current.get(sessionId) !== generation) return
+              const withPlaceholder = appendStreamingPlaceholderEffectEvent(
+                parseSessionMessages(msgs),
+              )
+              preparingStreamRef.current.delete(sessionId)
+              preparedStreamRef.current.add(sessionId)
+              sessionCacheRef.current.set(sessionId, withPlaceholder)
+              if (sessionId === currentSessionIdRef.current) {
+                setMessages(withPlaceholder)
+              }
+              replayQueuedEventsEffectEvent(sessionId)
+            })
+            .catch(() => {
+              if (streamGenerationRef.current.get(sessionId) !== generation) return
+              preparingStreamRef.current.delete(sessionId)
+              preparedStreamRef.current.delete(sessionId)
+              queuedEventsRef.current.delete(sessionId)
+              discardPendingStreamDeltas(sessionId, deltaBuffersRef)
+              if (sessionId === currentSessionIdRef.current) {
+                const baseMessages = sessionCacheRef.current.get(sessionId)
+                if (!baseMessages) {
+                  const fallback = appendStreamingPlaceholderEffectEvent(messagesRef.current)
+                  messagesRef.current = fallback
+                  sessionCacheRef.current.set(sessionId, fallback)
+                  setMessages(fallback)
+                  preparedStreamRef.current.add(sessionId)
+                  queueMicrotask(() => replayQueuedEventsEffectEvent(sessionId))
+                  return
+                }
+                const fallback = appendStreamingPlaceholderEffectEvent(baseMessages)
+                preparedStreamRef.current.add(sessionId)
+                sessionCacheRef.current.set(sessionId, fallback)
+                setMessages(fallback)
+                replayQueuedEventsEffectEvent(sessionId)
+              } else {
+                sessionCacheRef.current.delete(sessionId)
+              }
+            })
+        }
 
-      if (isActive) {
-        setLoading(true)
-      }
-    }))
+        if (isActive) {
+          setLoading(true)
+        }
+      }),
+    )
 
-    unlisteners.push(getTransport().listen("channel:stream_end", (raw) => {
-      const payload = raw as { sessionId: string }
-      if (!payload.sessionId) return
-      const sessionId = payload.sessionId
-      streamGenerationRef.current.delete(sessionId)
-      preparingStreamRef.current.delete(sessionId)
-      preparedStreamRef.current.delete(sessionId)
-      queuedEventsRef.current.delete(sessionId)
+    unlisteners.push(
+      getTransport().listen("channel:stream_end", (raw) => {
+        const payload = raw as { sessionId: string }
+        if (!payload.sessionId) return
+        const sessionId = payload.sessionId
+        streamGenerationRef.current.delete(sessionId)
+        preparingStreamRef.current.delete(sessionId)
+        preparedStreamRef.current.delete(sessionId)
+        queuedEventsRef.current.delete(sessionId)
 
-      loadingSessionsRef.current.delete(sessionId)
-      setLoadingSessionIds(new Set(loadingSessionsRef.current))
+        loadingSessionsRef.current.delete(sessionId)
+        setLoadingSessionIds(new Set(loadingSessionsRef.current))
 
-      discardPendingStreamDeltas(sessionId, deltaBuffersRef)
+        discardPendingStreamDeltas(sessionId, deltaBuffersRef)
 
-      if (sessionId === currentSessionIdRef.current) {
-        setLoading(false)
-        reloadAndMergeSessionMessages({
-          sessionId,
-          pageSize: PAGE_SIZE,
-          sessionCacheRef,
-          setMessages,
-        })
-      } else {
-        sessionCacheRef.current.delete(sessionId)
-      }
-    }))
+        if (sessionId === currentSessionIdRef.current) {
+          setLoading(false)
+          reloadAndMergeSessionMessages({
+            sessionId,
+            pageSize: PAGE_SIZE,
+            sessionCacheRef,
+            setMessages,
+          })
+        } else {
+          sessionCacheRef.current.delete(sessionId)
+        }
+      }),
+    )
 
     return () => {
       unlisteners.forEach((fn) => fn())
@@ -194,11 +201,10 @@ export function useChannelStreaming({
       streamGenerations.clear()
     }
   }, [
-    appendStreamingPlaceholder,
     currentSessionIdRef,
     loadingSessionsRef,
+    messagesRef,
     reloadSessions,
-    replayQueuedEvents,
     sessionCacheRef,
     setLoading,
     setLoadingSessionIds,
@@ -238,7 +244,7 @@ export function useChannelStreaming({
         const cached = sessionCacheRef.current.get(sid)
         const last = cached?.[cached.length - 1]
         if (cached && (last?.role !== "assistant" || !last.isStreaming)) {
-          const withPlaceholder = appendStreamingPlaceholder(cached)
+          const withPlaceholder = appendStreamingPlaceholderEffectEvent(cached)
           preparedStreamRef.current.add(sid)
           sessionCacheRef.current.set(sid, withPlaceholder)
           setMessages(withPlaceholder)
@@ -246,12 +252,13 @@ export function useChannelStreaming({
       }
 
       handleStreamEvent(event, sid, {
-        updateSessionMessages,
+        updateSessionMessages: (sessionId, updater) =>
+          updateSessionMessagesEffectEvent(sessionId, updater),
         deltaBuffersRef,
       })
     })
     return unlisten
-  }, [appendStreamingPlaceholder, currentSessionIdRef, sessionCacheRef, setMessages, updateSessionMessages])
+  }, [currentSessionIdRef, sessionCacheRef, setMessages])
 
   // Listen for channel message updates — refresh sessions + reload current session messages
   // (but SKIP DB reload if the session is currently streaming to avoid overwriting stream state)
@@ -265,14 +272,17 @@ export function useChannelStreaming({
       }
       // If the updated session is currently active, reload its messages from DB
       if (payload.sessionId && payload.sessionId === currentSessionIdRef.current) {
-        getTransport().call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
-          sessionId: payload.sessionId,
-          limit: PAGE_SIZE,
-        }).then(([msgs]) => {
-          const parsed = parseSessionMessages(msgs)
-          setMessages(parsed)
-          sessionCacheRef.current.set(payload.sessionId, parsed)
-        }).catch(() => {})
+        getTransport()
+          .call<[SessionMessage[], number, boolean]>("load_session_messages_latest_cmd", {
+            sessionId: payload.sessionId,
+            limit: PAGE_SIZE,
+          })
+          .then(([msgs]) => {
+            const parsed = parseSessionMessages(msgs)
+            setMessages(parsed)
+            sessionCacheRef.current.set(payload.sessionId, parsed)
+          })
+          .catch(() => {})
       }
     })
     return unlisten

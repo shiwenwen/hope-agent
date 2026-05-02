@@ -1,4 +1,4 @@
-import { forwardRef, useMemo, type CSSProperties } from "react"
+import { forwardRef, type CSSProperties } from "react"
 import { X } from "lucide-react"
 import { segmentInput } from "./mentionTokens"
 
@@ -31,17 +31,8 @@ interface MentionMirrorOverlayProps {
 }
 
 const MentionMirrorOverlay = forwardRef<HTMLDivElement, MentionMirrorOverlayProps>(
-  function MentionMirrorOverlay(
-    { value, scrollTop, enabled, onRemoveMention },
-    ref,
-  ) {
-    const segments = useMemo(
-      () =>
-        enabled
-          ? segmentInput(value)
-          : [{ kind: "text" as const, text: value }],
-      [value, enabled],
-    )
+  function MentionMirrorOverlay({ value, scrollTop, enabled, onRemoveMention }, ref) {
+    const segments = enabled ? segmentInput(value) : [{ kind: "text" as const, text: value }]
 
     const style: CSSProperties = {
       transform: `translateY(${-scrollTop}px)`,

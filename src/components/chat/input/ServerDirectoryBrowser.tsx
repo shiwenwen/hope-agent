@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import React, { useEffect, useState, useEffectEvent } from "react"
 import { ChevronUp, Folder, FolderOpen, Loader2, RefreshCw } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import {
@@ -35,7 +35,7 @@ export default function ServerDirectoryBrowser({
   const [error, setError] = useState<string | null>(null)
   const [manualPath, setManualPath] = useState("")
 
-  const load = useCallback(async (path?: string) => {
+  const load = async (path?: string) => {
     setLoading(true)
     setError(null)
     try {
@@ -44,23 +44,19 @@ export default function ServerDirectoryBrowser({
       setManualPath(result.path)
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      logger.error(
-        "chat",
-        "ServerDirectoryBrowser::load",
-        "Failed to list server directory",
-        e,
-      )
+      logger.error("chat", "ServerDirectoryBrowser::load", "Failed to list server directory", e)
       setError(message)
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const loadEffectEvent = useEffectEvent(load)
 
   useEffect(() => {
     if (!open) return
     const seed = initialPath && initialPath.trim().length > 0 ? initialPath : undefined
-    load(seed)
-  }, [open, initialPath, load])
+    loadEffectEvent(seed)
+  }, [open, initialPath])
 
   const handleEnter = (path: string) => {
     if (loading) return
@@ -84,9 +80,7 @@ export default function ServerDirectoryBrowser({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{t("chat.workingDir.browserTitle")}</DialogTitle>
-          <DialogDescription>
-            {t("chat.workingDir.browserDescription")}
-          </DialogDescription>
+          <DialogDescription>{t("chat.workingDir.browserDescription")}</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleManualSubmit} className="flex items-center gap-2">

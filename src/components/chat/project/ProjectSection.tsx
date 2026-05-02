@@ -11,16 +11,9 @@
  * see [src/components/chat/sidebar/ChatSidebar.tsx](sidebar/ChatSidebar.tsx).
  */
 
-import { useCallback, useMemo, useState } from "react"
+import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
-import {
-  ChevronDown,
-  ChevronRight,
-  MessageSquarePlus,
-  Plus,
-  Settings,
-  Archive,
-} from "lucide-react"
+import { ChevronDown, ChevronRight, MessageSquarePlus, Plus, Settings, Archive } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
 import {
@@ -32,10 +25,7 @@ import {
 } from "@/components/ui/context-menu"
 import { cn } from "@/lib/utils"
 import type { ProjectMeta } from "@/types/project"
-import type {
-  AgentSummaryForSidebar,
-  SessionMeta,
-} from "@/types/chat"
+import type { AgentSummaryForSidebar, SessionMeta } from "@/types/chat"
 import SessionItem from "../sidebar/SessionItem"
 import ProjectIcon from "./ProjectIcon"
 
@@ -71,14 +61,8 @@ const EXPANDED_STORAGE_KEY = "ha:project-expanded"
 
 export default function ProjectSection(props: ProjectSectionProps) {
   const { t } = useTranslation()
-  const {
-    projects,
-    sessions,
-    expanded,
-    setExpanded,
-    onAddProject,
-  } = props
-  const visibleProjects = useMemo(() => projects.filter((p) => !p.archived), [projects])
+  const { projects, sessions, expanded, setExpanded, onAddProject } = props
+  const visibleProjects = projects.filter((p) => !p.archived)
 
   // Single localStorage entry for all project expansion states. Loaded once,
   // persisted on toggle. Stale keys for deleted projects are harmless and
@@ -92,7 +76,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
     }
   })
 
-  const toggleProjectExpanded = useCallback((projectId: string) => {
+  const toggleProjectExpanded = (projectId: string) => {
     setExpandedMap((prev) => {
       const next = { ...prev, [projectId]: !prev[projectId] }
       try {
@@ -102,11 +86,11 @@ export default function ProjectSection(props: ProjectSectionProps) {
       }
       return next
     })
-  }, [])
+  }
 
   // Group sessions by projectId once per render so each ProjectGroup is O(1)
   // instead of re-scanning the full list (O(N×M) for N sessions × M projects).
-  const sessionsByProject = useMemo(() => {
+  const sessionsByProject = (() => {
     const map = new Map<string, SessionMeta[]>()
     for (const s of sessions) {
       if (!s.projectId) continue
@@ -115,7 +99,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
       else map.set(s.projectId, [s])
     }
     return map
-  }, [sessions])
+  })()
 
   return (
     <div className="px-3 pt-3 pb-1">
@@ -124,11 +108,7 @@ export default function ProjectSection(props: ProjectSectionProps) {
           onClick={() => setExpanded(!expanded)}
           className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/80 hover:text-foreground transition-colors"
         >
-          {expanded ? (
-            <ChevronDown className="h-3 w-3" />
-          ) : (
-            <ChevronRight className="h-3 w-3" />
-          )}
+          {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
           {t("project.projects")}
           {visibleProjects.length > 0 && (
             <span className="ml-1 text-muted-foreground/60">· {visibleProjects.length}</span>

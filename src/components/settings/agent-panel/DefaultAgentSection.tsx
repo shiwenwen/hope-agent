@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -23,10 +23,7 @@ interface DefaultAgentSectionProps {
  * See `AppConfig.default_agent_id` and `crate::agent::resolver` in the
  * backend for the precedence chain.
  */
-export default function DefaultAgentSection({
-  agents,
-  loading = false,
-}: DefaultAgentSectionProps) {
+export default function DefaultAgentSection({ agents, loading = false }: DefaultAgentSectionProps) {
   const { t } = useTranslation()
   const [defaultAgentId, setDefaultAgentId] = useState<string>("default")
   const [loaded, setLoaded] = useState(false)
@@ -44,12 +41,7 @@ export default function DefaultAgentSection({
         setLoaded(true)
       })
       .catch((e) => {
-        logger.error(
-          "settings",
-          "DefaultAgentSection::load",
-          "Failed to load default agent",
-          e,
-        )
+        logger.error("settings", "DefaultAgentSection::load", "Failed to load default agent", e)
         setLoaded(true)
       })
     return () => {
@@ -57,9 +49,9 @@ export default function DefaultAgentSection({
     }
   }, [])
 
-  const sortedAgents = useMemo(() => {
+  const sortedAgents = (() => {
     return [...agents].sort((a, b) => a.name.localeCompare(b.name))
-  }, [agents])
+  })()
 
   const selectedAgent = sortedAgents.find((a) => a.id === defaultAgentId)
   const selectedAgentExists = sortedAgents.some((a) => a.id === defaultAgentId)

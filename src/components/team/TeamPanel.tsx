@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from "react"
+import React, { useRef, useState } from "react"
 import { X } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -42,44 +42,41 @@ export function TeamPanel({
 
   const width = panelWidth ?? DEFAULT_WIDTH
 
-  const handlePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault()
-      dragging.current = true
-      startX.current = e.clientX
-      startW.current = width
+  const handlePointerDown = (e: React.PointerEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    startX.current = e.clientX
+    startW.current = width
 
-      const handleMove = (ev: PointerEvent) => {
-        if (!dragging.current) return
-        const delta = startX.current - ev.clientX // drag left = wider
-        const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW.current + delta))
-        onPanelWidthChange?.(next)
-      }
+    const handleMove = (ev: PointerEvent) => {
+      if (!dragging.current) return
+      const delta = startX.current - ev.clientX // drag left = wider
+      const next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, startW.current + delta))
+      onPanelWidthChange?.(next)
+    }
 
-      const handleUp = () => {
-        dragging.current = false
-        document.removeEventListener("pointermove", handleMove)
-        document.removeEventListener("pointerup", handleUp)
-      }
+    const handleUp = () => {
+      dragging.current = false
+      document.removeEventListener("pointermove", handleMove)
+      document.removeEventListener("pointerup", handleUp)
+    }
 
-      document.addEventListener("pointermove", handleMove)
-      document.addEventListener("pointerup", handleUp)
-    },
-    [width, onPanelWidthChange],
-  )
+    document.addEventListener("pointermove", handleMove)
+    document.addEventListener("pointerup", handleUp)
+  }
 
   // ── Actions ─────────────────────────────────────────────
-  const handlePause = useCallback(async () => {
+  const handlePause = async () => {
     await getTransport()
       .call("pause_team", { teamId })
       .catch(() => {})
-  }, [teamId])
+  }
 
-  const handleResume = useCallback(async () => {
+  const handleResume = async () => {
     await getTransport()
       .call("resume_team", { teamId })
       .catch(() => {})
-  }, [teamId])
+  }
 
   if (!team) {
     return (

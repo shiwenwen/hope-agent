@@ -1,14 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
-import {
-  CheckCircle2,
-  Loader2,
-  Pencil,
-  Plus,
-  Star,
-  Trash2,
-  Wifi,
-} from "lucide-react"
+import { CheckCircle2, Loader2, Pencil, Plus, Star, Trash2, Wifi } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -156,7 +148,7 @@ export default function EmbeddingModelsPanel() {
 
   const activeId = memoryState.selection.enabled ? memoryState.selection.modelConfigId : undefined
 
-  const load = useCallback(async () => {
+  const load = async () => {
     setLoading(true)
     try {
       const [nextModels, nextTemplates, nextState] = await Promise.all([
@@ -173,45 +165,29 @@ export default function EmbeddingModelsPanel() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const loadEffectEvent = useEffectEvent(load)
 
   useEffect(() => {
-    void load()
-  }, [load])
+    void loadEffectEvent()
+  }, [])
 
-  const sortedModels = useMemo(
-    () =>
-      [...models].sort((a, b) => {
-        if (a.id === activeId) return -1
-        if (b.id === activeId) return 1
-        return a.name.localeCompare(b.name)
-      }),
-    [activeId, models],
-  )
+  const sortedModels = [...models].sort((a, b) => {
+    if (a.id === activeId) return -1
+    if (b.id === activeId) return 1
+    return a.name.localeCompare(b.name)
+  })
 
-  const selectedTemplate = useMemo(
-    () => findMatchingTemplate(templates, editing),
-    [editing, templates],
-  )
-  const selectedTemplateModels = useMemo(
-    () => (selectedTemplate ? templateModels(selectedTemplate) : []),
-    [selectedTemplate],
-  )
-  const selectedTemplateModel = useMemo(
-    () => findMatchingTemplateModel(selectedTemplate, editing),
-    [editing, selectedTemplate],
-  )
-  const selectedTemplateModelIndex = useMemo(
-    () =>
-      selectedTemplateModel
-        ? selectedTemplateModels.findIndex(
-            (model) =>
-              model.id === selectedTemplateModel.id &&
-              model.dimensions === selectedTemplateModel.dimensions,
-          )
-        : -1,
-    [selectedTemplateModel, selectedTemplateModels],
-  )
+  const selectedTemplate = findMatchingTemplate(templates, editing)
+  const selectedTemplateModels = selectedTemplate ? templateModels(selectedTemplate) : []
+  const selectedTemplateModel = findMatchingTemplateModel(selectedTemplate, editing)
+  const selectedTemplateModelIndex = selectedTemplateModel
+    ? selectedTemplateModels.findIndex(
+        (model) =>
+          model.id === selectedTemplateModel.id &&
+          model.dimensions === selectedTemplateModel.dimensions,
+      )
+    : -1
   const showCustomModelInput = !selectedTemplate || selectedTemplateModelIndex < 0
 
   function applyTemplate(template: EmbeddingModelTemplate | null) {
@@ -324,9 +300,7 @@ export default function EmbeddingModelsPanel() {
       <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-base font-semibold">{t("settings.embeddingModels.title")}</h2>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("settings.embeddingModels.desc")}
-          </p>
+          <p className="mt-1 text-sm text-muted-foreground">{t("settings.embeddingModels.desc")}</p>
         </div>
         <Button onClick={() => setEditing(emptyConfig())}>
           <Plus className="mr-1.5 h-4 w-4" />
@@ -446,7 +420,7 @@ export default function EmbeddingModelsPanel() {
                       const template =
                         value === CUSTOM_TEMPLATE_VALUE
                           ? null
-                          : templates.find((item) => templateKey(item) === value) ?? null
+                          : (templates.find((item) => templateKey(item) === value) ?? null)
                       applyTemplate(template)
                     }}
                   >
@@ -613,7 +587,10 @@ export default function EmbeddingModelsPanel() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!pendingDefault} onOpenChange={(open) => !open && setPendingDefault(null)}>
+      <AlertDialog
+        open={!!pendingDefault}
+        onOpenChange={(open) => !open && setPendingDefault(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("settings.embeddingModels.confirmSwitchTitle")}</AlertDialogTitle>

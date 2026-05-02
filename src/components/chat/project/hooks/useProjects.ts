@@ -7,16 +7,11 @@
  * render.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type {
-  CreateProjectInput,
-  Project,
-  ProjectMeta,
-  UpdateProjectInput,
-} from "@/types/project"
+import type { CreateProjectInput, Project, ProjectMeta, UpdateProjectInput } from "@/types/project"
 
 export interface UseProjectsReturn {
   projects: ProjectMeta[]
@@ -30,9 +25,7 @@ export interface UseProjectsReturn {
   moveSessionToProject: (sessionId: string, projectId: string | null) => Promise<void>
 }
 
-export function useProjects(
-  options: { includeArchived?: boolean } = {},
-): UseProjectsReturn {
+export function useProjects(options: { includeArchived?: boolean } = {}): UseProjectsReturn {
   const { includeArchived = false } = options
 
   const [projects, setProjects] = useState<ProjectMeta[]>([])
@@ -44,7 +37,7 @@ export function useProjects(
   const includeArchivedRef = useRef(includeArchived)
   includeArchivedRef.current = includeArchived
 
-  const reloadProjects = useCallback(async () => {
+  const reloadProjects = async () => {
     setLoading(true)
     setError(null)
     try {
@@ -59,12 +52,13 @@ export function useProjects(
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const reloadProjectsEffectEvent = useEffectEvent(reloadProjects)
 
   // Initial load.
   useEffect(() => {
-    void reloadProjects()
-  }, [reloadProjects])
+    void reloadProjectsEffectEvent()
+  }, [])
 
   // Subscribe to project:* events for realtime refresh.
   useEffect(() => {
@@ -78,97 +72,84 @@ export function useProjects(
     ]
     const unsubs = events.map((name) =>
       transport.listen(name, () => {
-        void reloadProjects()
+        void reloadProjectsEffectEvent()
       }),
     )
     return () => {
       for (const u of unsubs) u()
     }
-  }, [reloadProjects])
+  }, [])
 
-  const createProject = useCallback(
-    async (input: CreateProjectInput): Promise<Project | null> => {
-      try {
-        const created = await getTransport().call<Project>("create_project_cmd", {
-          input,
-        })
-        await reloadProjects()
-        return created
-      } catch (e) {
-        logger.warn("chat", "useProjects", "createProject failed", e)
-        return null
-      }
-    },
-    [reloadProjects],
-  )
+  const createProject = async (input: CreateProjectInput): Promise<Project | null> => {
+    try {
+      const created = await getTransport().call<Project>("create_project_cmd", {
+        input,
+      })
+      await reloadProjects()
+      return created
+    } catch (e) {
+      logger.warn("chat", "useProjects", "createProject failed", e)
+      return null
+    }
+  }
 
-  const updateProject = useCallback(
-    async (id: string, patch: UpdateProjectInput): Promise<Project | null> => {
-      try {
-        const updated = await getTransport().call<Project>("update_project_cmd", {
-          id,
-          patch,
-        })
-        await reloadProjects()
-        return updated
-      } catch (e) {
-        logger.warn("chat", "useProjects", "updateProject failed", e)
-        return null
-      }
-    },
-    [reloadProjects],
-  )
+  const updateProject = async (id: string, patch: UpdateProjectInput): Promise<Project | null> => {
+    try {
+      const updated = await getTransport().call<Project>("update_project_cmd", {
+        id,
+        patch,
+      })
+      await reloadProjects()
+      return updated
+    } catch (e) {
+      logger.warn("chat", "useProjects", "updateProject failed", e)
+      return null
+    }
+  }
 
-  const deleteProject = useCallback(
-    async (id: string): Promise<boolean> => {
-      try {
-        const result = await getTransport().call<boolean | { deleted?: boolean }>(
-          "delete_project_cmd",
-          { id },
-        )
-        const ok =
-          typeof result === "boolean" ? result : Boolean(result?.deleted ?? true)
-        await reloadProjects()
-        return ok
-      } catch (e) {
-        logger.warn("chat", "useProjects", "deleteProject failed", e)
-        return false
-      }
-    },
-    [reloadProjects],
-  )
+  const deleteProject = async (id: string): Promise<boolean> => {
+    try {
+      const result = await getTransport().call<boolean | { deleted?: boolean }>(
+        "delete_project_cmd",
+        { id },
+      )
+      const ok = typeof result === "boolean" ? result : Boolean(result?.deleted ?? true)
+      await reloadProjects()
+      return ok
+    } catch (e) {
+      logger.warn("chat", "useProjects", "deleteProject failed", e)
+      return false
+    }
+  }
 
-  const archiveProject = useCallback(
-    async (id: string, archived: boolean): Promise<Project | null> => {
-      try {
-        const updated = await getTransport().call<Project>("archive_project_cmd", {
-          id,
-          archived,
-        })
-        await reloadProjects()
-        return updated
-      } catch (e) {
-        logger.warn("chat", "useProjects", "archiveProject failed", e)
-        return null
-      }
-    },
-    [reloadProjects],
-  )
+  const archiveProject = async (id: string, archived: boolean): Promise<Project | null> => {
+    try {
+      const updated = await getTransport().call<Project>("archive_project_cmd", {
+        id,
+        archived,
+      })
+      await reloadProjects()
+      return updated
+    } catch (e) {
+      logger.warn("chat", "useProjects", "archiveProject failed", e)
+      return null
+    }
+  }
 
-  const moveSessionToProject = useCallback(
-    async (sessionId: string, projectId: string | null): Promise<void> => {
-      try {
-        await getTransport().call("move_session_to_project_cmd", {
-          sessionId,
-          projectId: projectId ?? undefined,
-        })
-        await reloadProjects()
-      } catch (e) {
-        logger.warn("chat", "useProjects", "moveSessionToProject failed", e)
-      }
-    },
-    [reloadProjects],
-  )
+  const moveSessionToProject = async (
+    sessionId: string,
+    projectId: string | null,
+  ): Promise<void> => {
+    try {
+      await getTransport().call("move_session_to_project_cmd", {
+        sessionId,
+        projectId: projectId ?? undefined,
+      })
+      await reloadProjects()
+    } catch (e) {
+      logger.warn("chat", "useProjects", "moveSessionToProject failed", e)
+    }
+  }
 
   return {
     projects,
