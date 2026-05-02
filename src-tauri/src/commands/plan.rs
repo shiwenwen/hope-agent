@@ -1,5 +1,5 @@
 use crate::commands::CmdError;
-use crate::plan::{self, PlanModeState, PlanVersionInfo, TransitionOpts, TransitionOutcome};
+use crate::plan::{self, PlanModeState, PlanVersionInfo, TransitionOutcome};
 use ha_core::app_info;
 use ha_core::ask_user::AskUserQuestionAnswer;
 
@@ -30,13 +30,7 @@ pub async fn set_plan_mode(session_id: String, state: String) -> Result<(), CmdE
         return Err(CmdError::msg("plan mode 'paused' state has been removed"));
     }
     let plan_state = PlanModeState::from_str(&state);
-    match plan::transition_state(
-        &session_id,
-        plan_state,
-        TransitionOpts::new("tauri_set_mode"),
-    )
-    .await?
-    {
+    match plan::transition_state(&session_id, plan_state, "tauri_set_mode").await? {
         TransitionOutcome::Applied => Ok(()),
         TransitionOutcome::Rejected => Err(CmdError::msg(format!(
             "Invalid plan mode transition to '{}'",

@@ -160,7 +160,7 @@ async fn maybe_complete_plan(session_id: &str) {
     match crate::plan::transition_state(
         session_id,
         crate::plan::PlanModeState::Completed,
-        crate::plan::TransitionOpts::new("all_tasks_completed"),
+        "all_tasks_completed",
     )
     .await
     {

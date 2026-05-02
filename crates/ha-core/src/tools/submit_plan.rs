@@ -1,4 +1,4 @@
-use crate::plan::{self, PlanModeState, TransitionOpts, TransitionOutcome};
+use crate::plan::{self, PlanModeState, TransitionOutcome};
 use serde_json::Value;
 
 /// Execute the submit_plan tool.
@@ -40,16 +40,9 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }
     }
 
-    // Transition to Review state (centralized side effects: DB persist +
-    // plan_mode_changed emit). submit_plan additionally emits `plan_submitted`
-    // below with the content payload so the frontend can skip a follow-up RPC.
-    match plan::transition_state(
-        &effective_sid,
-        PlanModeState::Review,
-        TransitionOpts::new("plan_submitted"),
-    )
-    .await
-    {
+    // submit_plan additionally emits `plan_submitted` below with the content
+    // payload so the frontend can skip a follow-up RPC.
+    match plan::transition_state(&effective_sid, PlanModeState::Review, "plan_submitted").await {
         Ok(TransitionOutcome::Applied) => {}
         Ok(TransitionOutcome::Rejected) => {
             return "Error: invalid plan state transition to review".to_string();

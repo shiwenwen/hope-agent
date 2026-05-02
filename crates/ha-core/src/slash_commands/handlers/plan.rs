@@ -1,4 +1,4 @@
-use crate::plan::{self, PlanModeState, TransitionOpts, TransitionOutcome};
+use crate::plan::{self, PlanModeState, TransitionOutcome};
 use crate::slash_commands::types::{CommandAction, CommandResult};
 
 pub async fn handle_plan(session_id: Option<&str>, args: &str) -> Result<CommandResult, String> {
@@ -51,7 +51,7 @@ async fn apply_transition(
     target: PlanModeState,
     reason: &'static str,
 ) -> Result<(), String> {
-    match plan::transition_state(sid, target, TransitionOpts::new(reason)).await {
+    match plan::transition_state(sid, target, reason).await {
         Ok(TransitionOutcome::Applied) => Ok(()),
         Ok(TransitionOutcome::Rejected) => Err(format!(
             "Invalid plan mode transition to '{}'",

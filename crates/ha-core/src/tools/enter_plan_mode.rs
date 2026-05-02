@@ -1,5 +1,5 @@
 use crate::ask_user::{self, AskUserQuestion, AskUserQuestionGroup, AskUserQuestionOption};
-use crate::plan::{self, PlanModeState, TransitionOpts, TransitionOutcome};
+use crate::plan::{self, PlanModeState, TransitionOutcome};
 use crate::process_registry::create_session_id;
 use serde_json::Value;
 
@@ -139,13 +139,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             .to_string();
     }
 
-    match plan::transition_state(
-        sid,
-        PlanModeState::Planning,
-        TransitionOpts::new("tool_enter_plan_mode"),
-    )
-    .await
-    {
+    match plan::transition_state(sid, PlanModeState::Planning, "tool_enter_plan_mode").await {
         Ok(TransitionOutcome::Applied) => {}
         Ok(TransitionOutcome::Rejected) => {
             return format!(

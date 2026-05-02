@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use ha_core::ask_user::{self as ask_user_mod, AskUserQuestionAnswer};
-use ha_core::plan::{self, PlanModeState, PlanVersionInfo, TransitionOpts, TransitionOutcome};
+use ha_core::plan::{self, PlanModeState, PlanVersionInfo, TransitionOutcome};
 
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
@@ -42,13 +42,9 @@ pub async fn set_plan_mode(
         ));
     }
     let plan_state = PlanModeState::from_str(&body.state);
-    match plan::transition_state(
-        &session_id,
-        plan_state,
-        TransitionOpts::new("http_set_mode"),
-    )
-    .await
-    .map_err(|e| AppError::internal(e.to_string()))?
+    match plan::transition_state(&session_id, plan_state, "http_set_mode")
+        .await
+        .map_err(|e| AppError::internal(e.to_string()))?
     {
         TransitionOutcome::Applied => Ok(Json(json!({ "updated": true }))),
         TransitionOutcome::Rejected => Err(AppError::bad_request(format!(
