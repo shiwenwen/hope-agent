@@ -401,7 +401,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
   return (
     <div className="my-1 text-xs">
       <button
-        className="flex items-center gap-1.5 w-full px-1 py-1 text-left hover:bg-secondary/60 rounded-md transition-colors group"
+        className="flex items-center gap-1.5 w-full pl-0 pr-1 py-1 text-left hover:bg-secondary/60 rounded-md transition-colors group"
         onClick={() => canExpand && setExpanded(!expanded)}
       >
         <ChevronRight
