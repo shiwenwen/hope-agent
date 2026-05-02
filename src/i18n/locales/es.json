@@ -401,6 +401,7 @@
     "tool_search": "Buscar herramientas",
     "acp_spawn": "Iniciar Agent ACP",
     "submit_plan": "Enviar plan",
+    "enter_plan_mode": "Proponer Plan Mode",
     "amend_plan": "Modificar plan",
     "task_create": "Crear tarea",
     "task_update": "Actualizar tarea",
@@ -650,6 +651,11 @@
           "running": "Running {{name}}",
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
+        },
+        "enter_plan_mode": {
+          "running": "Proponiendo Plan Mode",
+          "completed": "Plan Mode propuesto",
+          "failed": "Error al proponer Plan Mode"
         },
         "amend_plan": {
           "running": "Running {{name}}",

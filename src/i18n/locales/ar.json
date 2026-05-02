@@ -401,6 +401,7 @@
     "tool_search": "البحث عن الأدوات",
     "acp_spawn": "تشغيل Agent ACP",
     "submit_plan": "إرسال الخطة",
+    "enter_plan_mode": "اقتراح Plan Mode",
     "amend_plan": "تعديل الخطة",
     "task_create": "إنشاء مهمة",
     "task_update": "تحديث المهمة",
@@ -650,6 +651,11 @@
           "running": "Running {{name}}",
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
+        },
+        "enter_plan_mode": {
+          "running": "جاري اقتراح Plan Mode",
+          "completed": "تم اقتراح Plan Mode",
+          "failed": "خطأ في اقتراح Plan Mode"
         },
         "amend_plan": {
           "running": "Running {{name}}",

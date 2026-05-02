@@ -401,6 +401,7 @@
     "tool_search": "Search Tools",
     "acp_spawn": "Spawn ACP Agent",
     "submit_plan": "Submit Plan",
+    "enter_plan_mode": "Suggest Plan Mode",
     "amend_plan": "Amend Plan",
     "task_create": "Create Task",
     "task_update": "Update Task",
@@ -650,6 +651,11 @@
           "running": "Running {{name}}",
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
+        },
+        "enter_plan_mode": {
+          "running": "Suggesting Plan Mode",
+          "completed": "Suggested Plan Mode",
+          "failed": "Plan Mode suggestion failed"
         },
         "amend_plan": {
           "running": "Running {{name}}",

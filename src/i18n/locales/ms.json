@@ -401,6 +401,7 @@
     "tool_search": "Cari alat",
     "acp_spawn": "Lancarkan Agent ACP",
     "submit_plan": "Hantar pelan",
+    "enter_plan_mode": "Cadangkan Plan Mode",
     "amend_plan": "Pinda pelan",
     "task_create": "Cipta tugasan",
     "task_update": "Kemas kini tugasan",
@@ -650,6 +651,11 @@
           "running": "Running {{name}}",
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
+        },
+        "enter_plan_mode": {
+          "running": "Mencadangkan Plan Mode",
+          "completed": "Plan Mode dicadangkan",
+          "failed": "Cadangan Plan Mode ralat"
         },
         "amend_plan": {
           "running": "Running {{name}}",

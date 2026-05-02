@@ -401,6 +401,7 @@
     "tool_search": "Araç ara",
     "acp_spawn": "ACP Agent başlat",
     "submit_plan": "Planı gönder",
+    "enter_plan_mode": "Plan Mode öner",
     "amend_plan": "Planı değiştir",
     "task_create": "Görev oluştur",
     "task_update": "Görev güncelle",
@@ -650,6 +651,11 @@
           "running": "Running {{name}}",
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
+        },
+        "enter_plan_mode": {
+          "running": "Plan Mode öneriliyor",
+          "completed": "Plan Mode önerildi",
+          "failed": "Plan Mode önerme hatası"
         },
         "amend_plan": {
           "running": "Running {{name}}",

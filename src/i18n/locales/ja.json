@@ -401,6 +401,7 @@
     "tool_search": "ツール検索",
     "acp_spawn": "ACP Agent を起動",
     "submit_plan": "計画を送信",
+    "enter_plan_mode": "プランモードを提案",
     "amend_plan": "計画を修正",
     "task_create": "タスクを作成",
     "task_update": "タスクを更新",
@@ -650,6 +651,11 @@
           "running": "Running {{name}}",
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
+        },
+        "enter_plan_mode": {
+          "running": "プランモードを提案中",
+          "completed": "プランモードを提案済み",
+          "failed": "プランモード提案でエラー"
         },
         "amend_plan": {
           "running": "Running {{name}}",

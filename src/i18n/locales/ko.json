@@ -401,6 +401,7 @@
     "tool_search": "도구 검색",
     "acp_spawn": "ACP Agent 시작",
     "submit_plan": "계획 제출",
+    "enter_plan_mode": "계획 모드 제안",
     "amend_plan": "계획 수정",
     "task_create": "작업 생성",
     "task_update": "작업 업데이트",
@@ -650,6 +651,11 @@
           "running": "Running {{name}}",
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
+        },
+        "enter_plan_mode": {
+          "running": "계획 모드 제안 중",
+          "completed": "계획 모드 제안 완료",
+          "failed": "계획 모드 제안 오류"
         },
         "amend_plan": {
           "running": "Running {{name}}",

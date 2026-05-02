@@ -401,6 +401,7 @@
     "tool_search": "查找工具",
     "acp_spawn": "啟動 ACP Agent",
     "submit_plan": "提交計劃",
+    "enter_plan_mode": "建議進入計劃模式",
     "amend_plan": "修改計劃",
     "task_create": "建立任務",
     "task_update": "更新任務",
@@ -650,6 +651,11 @@
           "running": "正在提交計畫",
           "completed": "已提交計畫",
           "failed": "計畫提交出錯"
+        },
+        "enter_plan_mode": {
+          "running": "正在建議進入計劃模式",
+          "completed": "已建議進入計劃模式",
+          "failed": "建議進入計劃模式出錯"
         },
         "amend_plan": {
           "running": "正在修改計畫",
