@@ -455,6 +455,7 @@ pub async fn chat(
                     Ok((text, thinking)) => (text, thinking),
                     Err(e) => {
                         let err = e.to_string();
+                        crate::chat_engine::persist_failed_turn_context(&db, &sid, &message, &err);
                         let _ = db.append_message(&sid, &session::NewMessage::event(&err));
                         return Err(CmdError::msg(err));
                     }
@@ -482,6 +483,7 @@ pub async fn chat(
             }
             None => {
                 let err = "Agent not initialized. Please sign in first.".to_string();
+                crate::chat_engine::persist_failed_turn_context(&db, &sid, &message, &err);
                 let _ = db.append_message(&sid, &session::NewMessage::event(&err));
                 Err(CmdError::msg(err))
             }

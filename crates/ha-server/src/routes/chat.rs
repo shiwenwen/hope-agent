@@ -222,9 +222,10 @@ pub async fn chat(
     }
 
     if model_chain.is_empty() {
-        return Err(AppError::bad_request(
-            "No model configured. Please add a provider and set an active model.",
-        ));
+        let err = "No model configured. Please add a provider and set an active model.";
+        ha_core::chat_engine::persist_failed_turn_context(&db, &sid, &body.message, err);
+        let _ = db.append_message(&sid, &session::NewMessage::error_event(err));
+        return Err(AppError::bad_request(err));
     }
 
     let compact_config = store.compact.clone();

@@ -23,24 +23,26 @@ vi.mock("react-i18next", () => ({
 }))
 
 vi.mock("@/components/common/useVirtualFeed", () => ({
-  useVirtualFeed: vi.fn((options: { rows: { key: string }[]; forceFollowKey?: string | number | null }) => {
-    virtualFeedMock.latestOptions = options
-    return {
-      scrollRef: { current: null },
-      virtualizer: {
-        measureElement: vi.fn(),
-      },
-      virtualItems: options.rows.map((row, index) => ({
-        index,
-        key: row.key,
-        start: index * 80,
-      })),
-      totalSize: options.rows.length * 80,
-      isAutoFollowPaused: virtualFeedMock.state.isAutoFollowPaused,
-      hasUnseenOutput: virtualFeedMock.state.hasUnseenOutput,
-      resumeAutoFollow: virtualFeedMock.resumeAutoFollow,
-    }
-  }),
+  useVirtualFeed: vi.fn(
+    (options: { rows: { key: string }[]; forceFollowKey?: string | number | null }) => {
+      virtualFeedMock.latestOptions = options
+      return {
+        scrollRef: { current: null },
+        virtualizer: {
+          measureElement: vi.fn(),
+        },
+        virtualItems: options.rows.map((row, index) => ({
+          index,
+          key: row.key,
+          start: index * 80,
+        })),
+        totalSize: options.rows.length * 80,
+        isAutoFollowPaused: virtualFeedMock.state.isAutoFollowPaused,
+        hasUnseenOutput: virtualFeedMock.state.hasUnseenOutput,
+        resumeAutoFollow: virtualFeedMock.resumeAutoFollow,
+      }
+    },
+  ),
 }))
 
 vi.mock("@/components/common/MarkdownRenderer", () => ({
@@ -101,7 +103,7 @@ describe("QuickChatMessages auto-follow", () => {
       />,
     )
 
-    expect(virtualFeedMock.latestOptions?.forceFollowKey).toBe("user-turn:0:db:1")
+    expect(virtualFeedMock.latestOptions?.forceFollowKey).toBe("user-turn:db:1")
   })
 
   test("forces auto-follow when a newly sent user message already has an assistant placeholder", () => {
@@ -125,7 +127,7 @@ describe("QuickChatMessages auto-follow", () => {
     )
 
     expect(virtualFeedMock.latestOptions?.forceFollowKey).toBe(
-      "user-turn:0:ts:2026-04-26T00:01:00.000Z",
+      "user-turn:ts:2026-04-26T00:01:00.000Z",
     )
   })
 })

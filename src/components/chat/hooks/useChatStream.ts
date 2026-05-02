@@ -653,19 +653,18 @@ export function useChatStream({
       const queued = pendingSendRef.current
       if (queued) {
         setPendingSendState(null)
-        if (queued.options) {
+        if (queued.options && (queued.options.isPlanTrigger || autoSendPendingRef.current)) {
           // Programmatic queued send (Plan Mode approve, slash-skill
           // expansion). Replay through the auto-send effect with the
           // original options so `isPlanTrigger` / `displayText` / `planMode`
-          // survive — and skip the input box so the LLM-bound text doesn't
-          // leak into what the user is editing. Button-driven, so always
-          // auto-fires regardless of `autoSendPending`.
+          // survive. Plan triggers are button-driven and should always
+          // continue; slash-skill expansions still respect autoSendPending.
           queuedReplayRef.current = queued
           autoSendRef.current = true
         } else {
-          // User-typed draft queued while loading — restore for editing
-          // / auto-send per the user setting.
-          setInput(queued.text)
+          // User-typed drafts and non-auto-sent programmatic sends are
+          // restored for editing / confirmation using the user-facing text.
+          setInput(queued.options?.displayText?.trim() || queued.text)
           if (autoSendPendingRef.current) {
             autoSendRef.current = true
           }

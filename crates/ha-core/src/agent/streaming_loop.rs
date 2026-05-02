@@ -224,6 +224,10 @@ impl AssistantAgent {
             h
         };
         Self::push_user_message(&mut messages, user_content_for_history);
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = messages.clone();
 
         // Static system prompt prefix (cache-friendly). The dynamic awareness
         // and active-memory suffixes go in their own cache breakpoints inside

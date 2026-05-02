@@ -9,7 +9,7 @@ import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
-import { getLatestUserTurnKey } from "./chatScrollKeys"
+import { getLatestMessageOutputKey, getLatestUserTurnKey } from "./chatScrollKeys"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
@@ -45,7 +45,9 @@ interface MessageListProps {
   onSwitchSession?: (sessionId: string) => void
   /** Open the right-side diff panel for a file change payload. */
   onOpenDiff?: (
-    metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
+    metadata:
+      | import("@/types/chat").FileChangeMetadata
+      | import("@/types/chat").FileChangesMetadata,
   ) => void
 }
 
@@ -156,9 +158,8 @@ export default function MessageList({
     [rows],
   )
 
-  const lastMsg = messages[messages.length - 1]
   const latestUserTurnKey = getLatestUserTurnKey(messages)
-  const followKey = `${messages.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.contentBlocks?.length ?? 0}`
+  const followKey = getLatestMessageOutputKey(messages)
   const {
     scrollRef,
     virtualizer,
@@ -184,7 +185,7 @@ export default function MessageList({
     onStartReached: onLoadMore,
     canLoadMore: hasMore,
     loadingMore,
-    startThreshold: 50,
+    startThreshold: 360,
   })
 
   // Close context menu on outside click or scroll
