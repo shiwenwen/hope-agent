@@ -947,16 +947,19 @@ export default function ChatScreen({
   )
 
   // ── Plan Request Changes Handler ──────────────────────────────
+  // `prompt` carries the full XML payload sent to the LLM; `displayText` is
+  // the friendly markdown stored in the user bubble (quote + comment). The
+  // split exists so the chat history doesn't show the raw <plan-inline-comment>
+  // XML to the user — see planCommentMessage.ts.
   const handleRequestChanges = useCallback(
-    (feedback: string) => {
-      // Send feedback back to LLM, which will revise the plan
+    (prompt: string, displayText: string) => {
       setPlanState("planning")
       if (currentSessionId) {
         getTransport()
           .call("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
           .catch(() => {})
       }
-      sendMessage(feedback)
+      sendMessage(prompt, { displayText })
     },
     [setPlanState, sendMessage, currentSessionId],
   )

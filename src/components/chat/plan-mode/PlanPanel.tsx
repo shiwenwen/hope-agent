@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { useTranslation } from "react-i18next"
 import type { PlanModeState } from "./usePlanMode"
+import { buildPlanCommentMessage } from "./planCommentMessage"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { CommentPopover } from "./CommentPopover"
 
@@ -34,7 +35,7 @@ interface PlanPanelProps {
   onExit: () => void
   onClose: () => void
   onContinue?: () => void
-  onRequestChanges?: (feedback: string) => void
+  onRequestChanges?: (prompt: string, displayText: string) => void
   isExecutionActive?: boolean
   panelWidth?: number
   embedded?: boolean
@@ -295,31 +296,22 @@ export function PlanPanel({
     if (!canCommentNow) clearHighlight()
   }, [planState, onRequestChanges, clearHighlight])
 
-  // Submit comment: format as quoted selection + comment and send to model
+  // Submit comment: build {prompt, displayText} pair so the LLM gets the full
+  // XML revision request while the user bubble shows a friendly quote+comment.
   const handleCommentSubmit = useCallback(
     (comment: string) => {
       if (!commentPopover || !onRequestChanges) return
-      const feedback = [
-        `<plan-inline-comment>`,
-        `The user selected the following section from the current plan and requests a revision:`,
-        ``,
-        `<selected-text>`,
+      const { prompt, displayText } = buildPlanCommentMessage(
         commentPopover.selectedText,
-        `</selected-text>`,
-        ``,
-        `<revision-request>`,
         comment,
-        `</revision-request>`,
-        ``,
-        `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
-        `</plan-inline-comment>`,
-      ].join("\n")
-      onRequestChanges(feedback)
+        t,
+      )
+      onRequestChanges(prompt, displayText)
       clearHighlight()
       setCommentPopover(null)
       window.getSelection()?.removeAllRanges()
     },
-    [commentPopover, onRequestChanges, clearHighlight],
+    [commentPopover, onRequestChanges, clearHighlight, t],
   )
 
   // Plan markdown is the single rendered view across all states. Progress is

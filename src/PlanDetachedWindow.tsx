@@ -12,6 +12,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { usePlanMode } from "@/components/chat/plan-mode/usePlanMode"
 import { CommentPopover } from "@/components/chat/plan-mode/CommentPopover"
+import { buildPlanCommentMessage } from "@/components/chat/plan-mode/planCommentMessage"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
@@ -137,21 +138,11 @@ export default function PlanDetachedWindow() {
   const handleCommentSubmit = useCallback(
     async (comment: string) => {
       if (!commentPopover || !sessionId) return
-      const feedback = [
-        `<plan-inline-comment>`,
-        `The user selected the following section from the current plan and requests a revision:`,
-        ``,
-        `<selected-text>`,
+      const { prompt, displayText } = buildPlanCommentMessage(
         commentPopover.selectedText,
-        `</selected-text>`,
-        ``,
-        `<revision-request>`,
         comment,
-        `</revision-request>`,
-        ``,
-        `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
-        `</plan-inline-comment>`,
-      ].join("\n")
+        t,
+      )
       clearHighlight()
       setCommentPopover(null)
       window.getSelection()?.removeAllRanges()
@@ -160,11 +151,11 @@ export default function PlanDetachedWindow() {
         await getTransport().call("set_plan_mode", { sessionId, state: "planning" })
         await getTransport().startChat(
           {
-            message: feedback,
+            message: prompt,
             attachments: [],
             sessionId,
             planMode: "planning",
-            displayText: comment,
+            displayText,
           },
           () => {},
         )
@@ -172,7 +163,7 @@ export default function PlanDetachedWindow() {
         logger.error("plan", "PlanDetachedWindow::comment", "Failed to submit plan comment", e)
       }
     },
-    [clearHighlight, commentPopover, sessionId, setPlanState],
+    [clearHighlight, commentPopover, sessionId, setPlanState, t],
   )
 
   return (

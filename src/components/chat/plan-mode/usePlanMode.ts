@@ -287,19 +287,31 @@ export function usePlanMode(
   }, [currentSessionId, setPlanState])
 
   // Listen for plan_submitted events (LLM submitted a plan via submit_plan tool).
-  // Backend includes `content` in the payload, so we don't need a follow-up
-  // get_plan_content RPC.
+  //
+  // Backend embeds `content` in the payload as a fast path, but we ALWAYS
+  // refetch from `get_plan_content` afterwards. The refetch is the source of
+  // truth: re-submit scenarios (user inline-comments → model resubmits → new
+  // plan_submitted event) used to leave the panel showing stale content,
+  // which traced back to the embedded payload.content not always propagating
+  // through the React state cycle on rapid back-to-back submits. The refetch
+  // costs one cheap RPC per submit and guarantees the panel reflects what's
+  // actually on disk — that's the only contract that matters here.
   useEffect(() => {
     return getTransport().listen("plan_submitted", (raw) => {
       const payload = raw as { sessionId: string; title: string; content?: string }
       if (payload.sessionId !== currentSessionId) return
       setPlanCardInfo({ title: payload.title })
-      if (payload.content) {
-        setPlanContent(payload.content)
-        setShowPanel(true)
-      }
+      setShowPanel(true)
       setPlanState((prev) => (prev === "review" ? prev : "review"))
       setPendingQuestionGroup(null)
+      if (payload.content) setPlanContent(payload.content)
+      getTransport()
+        .call<unknown>("get_plan_content", { sessionId: payload.sessionId })
+        .then((rawContent) => {
+          const fresh = normalizePlanContent(rawContent)
+          if (fresh) setPlanContent(fresh)
+        })
+        .catch(() => {})
     })
   }, [currentSessionId, setPlanState])
 
