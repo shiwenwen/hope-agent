@@ -694,6 +694,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         final_error
     );
     if persist_final_error_event {
+        persist_failed_turn_context(&db, &session_id, &message, &final_error);
         let _ = db.append_message(&session_id, &session::NewMessage::error_event(&final_error));
     }
     Err(final_error)
