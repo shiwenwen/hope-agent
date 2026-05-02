@@ -31,6 +31,37 @@
 ## Open
 
 
+### F-038 enter_plan_mode 工具描述若覆盖率不足可升级到「中庸版」（带 examples + 7 触发条件）
+
+- **来源**：2026-05-02 plan/task 解耦重构后跑「网页贪吃蛇」实测发现模型不进 plan mode 直接动手。当期已上方案 C（Edge Case Tiebreaker 兜底，限定到 visual / controls / scope 三维度）；记下方案 B 作为如果方案 C 覆盖率不够时的升级路径
+- **现象**：当前 enter_plan_mode 工具描述（[`tools/definitions/plan_tools.rs::get_enter_plan_mode_tool`](../../crates/ha-core/src/tools/definitions/plan_tools.rs)）保留原 5 类触发条件 (Programming / Writing / Research / Information organization / Decision support) + 新增「Edge Case Tiebreaker」兜底段，限定 user-facing artifact 在 visual style / control scheme / scope 三个维度有多向选择时才倾向 plan。明确**不**扩到 tone / depth / formatting / naming（避免翻译/总结/邮件/注释整理被过度打断）
+- **方案 B 核心改动**（如果方案 C 覆盖率仍不够）：
+  1. 顶层语气从中立"prefer for non-trivial"改为主动"use this tool **proactively**" + "**prefer using unless tasks are simple**"
+  2. 把 5 类触发条件重组为 7 条独立编号条款：
+     - New Feature / Working Artifact（producing something user will run/read/interact with）
+     - Multiple Valid Approaches（multiple ways with comparable trade-offs）
+     - Code / Design Modifications（changes to existing behavior/structure）
+     - Multi-File / Multi-Section Changes（3+ files OR 3+ logical sections）
+     - Unclear Requirements（need to explore first）
+     - User Preferences Matter（visual / controls / palette / scope —— **不含** tone / depth）
+     - Non-Code Domains（writing / research / analysis / information organization）
+  3. 删除「fewer than 3 steps」歧义条款（贪吃蛇 single-file 但是 multi-section，用步数判断会误伤）
+  4. "When NOT to Use" 收紧到只剩 typo / 单函数清晰需求 / step-by-step 详细指令 / 纯 Q&A / 一次性脚本明确输出
+  5. 新增 GOOD / BAD examples 段：贪吃蛇 / 登录页 / 深色模式 / 小工具 UI 归 GOOD；改 typo / 加 log / 改名 / 跑测试 / Q&A 归 BAD
+  6. **不加** "If unsure, err on the side of planning" 兜底（这条最容易引发过度询问，方案 B 故意不加）
+  7. **不加**「写文章 / 调研」类 GOOD examples（这类用户经常希望"快速给一版我看了再调"，加进去会引发过度）
+- **方案 B vs C 测试用例对比预测**：
+  - 「做一个网页贪吃蛇」：B/C 都 plan ✓
+  - 「修拼写错误 / 加 log / 改名 / 跑测试」：B/C 都不 plan ✓
+  - 「翻译 / 总结 / 邮件 / 注释整理」：B/C 都不 plan ✓
+  - 「做一个登录页」：B 一定 plan / C 可能 plan
+  - 「实现深色模式」：B 一定 plan / C 不一定（不算 single-deliverable user-facing）
+  - 「写 README / 调研」：B/C 都不 plan
+- **触发时机建议**：方案 C 实测一段时间后，如果发现「登录页」「深色模式」「dashboard 小组件」等 user-facing 但偏程序架构的任务覆盖率不够（用户仍报告"没问就直接干"），考虑升级到方案 B。如果方案 C 覆盖够用就不动
+- **影响面**：当前方案 C 已修主痛点（贪吃蛇）；方案 B 是 fallback 升级方案，不紧急
+- **选了方案 C 而非 B 的原因**：方案 B 的 7 条触发条件 + 兜底句 + GOOD examples 三项叠加，对边界场景（README / 调研 / 翻译）有过度询问风险，被否；方案 C 限定到三个明确维度（visual / controls / scope）+ 显式排除 tone / depth / formatting / naming，覆盖核心痛点同时控制副作用
+
+
 ### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
 
 - **来源**：2026-05-02 Plan Mode 重构（plan/task 解耦）`/simplify` review（reuse agent #3 + quality agent #8）
