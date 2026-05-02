@@ -134,7 +134,6 @@ export default function AgentSection({
                         )}
                       >
                         {agent.name}
-                        {agent.emoji ? ` ${agent.emoji}` : ""}
                       </span>
                     </button>
                     {/* New chat button */}

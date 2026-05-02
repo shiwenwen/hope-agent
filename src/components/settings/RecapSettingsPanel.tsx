@@ -10,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 
 interface RecapConfig {
   analysisAgent?: string | null
@@ -23,6 +24,7 @@ interface AgentItem {
   id: string
   name: string
   emoji?: string | null
+  avatar?: string | null
 }
 
 const DEFAULT_CONFIG: RecapConfig = {
@@ -117,6 +119,7 @@ export default function RecapSettingsPanel() {
   }
 
   if (!loaded) return null
+  const selectedAgent = agents.find((agent) => agent.id === config.analysisAgent)
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -137,16 +140,15 @@ export default function RecapSettingsPanel() {
             onValueChange={handleAgentChange}
           >
             <SelectTrigger className="w-56 h-8 text-sm">
-              <SelectValue />
+              {selectedAgent ? <AgentSelectDisplay agent={selectedAgent} /> : <SelectValue />}
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={AGENT_DEFAULT_SENTINEL}>
                 {t("settings.recapAnalysisAgentDefault")}
               </SelectItem>
               {agents.map((agent) => (
-                <SelectItem key={agent.id} value={agent.id}>
-                  {agent.emoji ? `${agent.emoji} ` : ""}
-                  {agent.name}
+                <SelectItem key={agent.id} value={agent.id} textValue={agent.name}>
+                  <AgentSelectDisplay agent={agent} />
                 </SelectItem>
               ))}
             </SelectContent>
