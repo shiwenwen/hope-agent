@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest"
-import { getLatestUserTurnKey } from "./chatScrollKeys"
+import { getLatestMessageOutputKey, getLatestUserTurnKey } from "./chatScrollKeys"
 import type { Message } from "@/types/chat"
 
 function message(patch: Partial<Message>): Message {
@@ -24,7 +24,7 @@ describe("getLatestUserTurnKey", () => {
         }),
         message({ role: "assistant", content: "" }),
       ]),
-    ).toBe("user-turn:1:ts:2026-04-26T00:01:00.000Z")
+    ).toBe("user-turn:ts:2026-04-26T00:01:00.000Z")
   })
 
   test("prefers database id when available", () => {
@@ -34,6 +34,22 @@ describe("getLatestUserTurnKey", () => {
         message({ role: "assistant", content: "answer" }),
         message({ role: "user", content: "latest", dbId: 3 }),
       ]),
-    ).toBe("user-turn:2:db:3")
+    ).toBe("user-turn:db:3")
+  })
+
+  test("stays stable when older messages are prepended", () => {
+    const visibleWindow = [
+      message({ role: "assistant", content: "answer", dbId: 20 }),
+      message({ role: "user", content: "latest", dbId: 21 }),
+      message({ role: "assistant", content: "streaming", dbId: 22 }),
+    ]
+    const prepended = [
+      message({ role: "user", content: "older", dbId: 1 }),
+      message({ role: "assistant", content: "older answer", dbId: 2 }),
+      ...visibleWindow,
+    ]
+
+    expect(getLatestUserTurnKey(prepended)).toBe(getLatestUserTurnKey(visibleWindow))
+    expect(getLatestMessageOutputKey(prepended)).toBe(getLatestMessageOutputKey(visibleWindow))
   })
 })
