@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -77,7 +77,7 @@ export default function DeveloperPanel() {
   const [confirmTarget, setConfirmTarget] = useState<ClearTarget | null>(null)
   const [loading, setLoading] = useState<ClearTarget | null>(null)
 
-  const handleClear = useCallback(async (target: ClearTarget) => {
+  const handleClear = async (target: ClearTarget) => {
     const action = CLEAR_ACTIONS.find((a) => a.target === target)
     if (!action) return
 
@@ -92,7 +92,7 @@ export default function DeveloperPanel() {
       logger.error("settings", "DeveloperPanel::clearData", `Failed to clear ${target}`, e)
       setLoading(null)
     }
-  }, [])
+  }
 
   const confirmAction = confirmTarget ? CLEAR_ACTIONS.find((a) => a.target === confirmTarget) : null
 
@@ -150,62 +150,99 @@ export default function DeveloperPanel() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 0 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", { detail: { weatherCode: 0 } }),
+                )
+              }
             >
               晴天 (Clear)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 3 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", { detail: { weatherCode: 3 } }),
+                )
+              }
             >
               多云 (Cloudy)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 45 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", { detail: { weatherCode: 45 } }),
+                )
+              }
             >
               雾 (Fog)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 61 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", { detail: { weatherCode: 61 } }),
+                )
+              }
             >
               下雨 (Rain)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 71 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", { detail: { weatherCode: 71 } }),
+                )
+              }
             >
               下雪 (Snow)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 95 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", { detail: { weatherCode: 95 } }),
+                )
+              }
             >
               雷暴 (Thunder)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 61, windSpeed: 50 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", {
+                    detail: { weatherCode: 61, windSpeed: 50 },
+                  }),
+                )
+              }
             >
               大风+雨 (Wind)
             </Button>
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.dispatchEvent(new CustomEvent("simulate-weather", { detail: { weatherCode: 71, windSpeed: 45 } }))}
+              onClick={() =>
+                window.dispatchEvent(
+                  new CustomEvent("simulate-weather", {
+                    detail: { weatherCode: 71, windSpeed: 45 },
+                  }),
+                )
+              }
             >
               大风+雪 (Wind)
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            点击以上按钮可以临时替换全局动效参数（不影响实际缓存，重新加载/重启后恢复默认）。<br/>
+            点击以上按钮可以临时替换全局动效参数（不影响实际缓存，重新加载/重启后恢复默认）。
+            <br />
             提示：繁星与流星特效只在深色 (Dark) 主题下出现。
           </p>
         </div>

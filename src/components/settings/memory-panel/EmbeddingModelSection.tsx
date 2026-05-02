@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Brain, Loader2, Settings } from "lucide-react"
 import { toast } from "sonner"
@@ -26,10 +26,7 @@ import { cn } from "@/lib/utils"
 import type { useMemoryData } from "./useMemoryData"
 import LocalEmbeddingAssistantCard from "./LocalEmbeddingAssistantCard"
 import type { MemoryEmbeddingSetDefaultResult } from "./types"
-import {
-  embeddingProviderLabel,
-  openEmbeddingModelSettings,
-} from "@/types/embedding-models"
+import { embeddingProviderLabel, openEmbeddingModelSettings } from "@/types/embedding-models"
 
 type MemoryData = ReturnType<typeof useMemoryData>
 type ReembedMode = "keep_existing" | "delete_all"
@@ -40,12 +37,8 @@ interface EmbeddingModelSectionProps {
 
 export default function EmbeddingModelSection({ data }: EmbeddingModelSectionProps) {
   const { t } = useTranslation()
-  const {
-    embeddingModels,
-    memoryEmbeddingState,
-    setMemoryEmbeddingState,
-    reloadEmbeddingConfig,
-  } = data
+  const { embeddingModels, memoryEmbeddingState, setMemoryEmbeddingState, reloadEmbeddingConfig } =
+    data
   const [pendingModelId, setPendingModelId] = useState<string | null>(null)
   const [pendingMode, setPendingMode] = useState<ReembedMode>("keep_existing")
   const [switching, setSwitching] = useState(false)
@@ -53,10 +46,7 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
   const currentId = memoryEmbeddingState.selection.enabled
     ? memoryEmbeddingState.selection.modelConfigId
     : undefined
-  const pendingModel = useMemo(
-    () => embeddingModels.find((model) => model.id === pendingModelId) ?? null,
-    [embeddingModels, pendingModelId],
-  )
+  const pendingModel = embeddingModels.find((model) => model.id === pendingModelId) ?? null
 
   function startSwitch(modelId: string) {
     setPendingMode("keep_existing")
@@ -170,15 +160,10 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
         )}
       </div>
 
-      <AlertDialog
-        open={!!pendingModel}
-        onOpenChange={(open) => !open && setPendingModelId(null)}
-      >
+      <AlertDialog open={!!pendingModel} onOpenChange={(open) => !open && setPendingModelId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("settings.embeddingModels.confirmSwitchTitle")}
-            </AlertDialogTitle>
+            <AlertDialogTitle>{t("settings.embeddingModels.confirmSwitchTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("settings.embeddingModels.confirmSwitchDesc", {
                 model: pendingModel?.name ?? "",
@@ -208,10 +193,7 @@ export default function EmbeddingModelSection({ data }: EmbeddingModelSectionPro
 
           <AlertDialogFooter>
             <AlertDialogCancel disabled={switching}>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={switching}
-              onClick={() => void confirmSwitchDefault()}
-            >
+            <AlertDialogAction disabled={switching} onClick={() => void confirmSwitchDefault()}>
               {switching && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />}
               {t("settings.embeddingModels.confirmSwitchAction")}
             </AlertDialogAction>
@@ -242,9 +224,7 @@ function ModeOption({
       disabled={disabled}
       className={cn(
         "flex w-full flex-col items-start rounded-md border px-3 py-2 text-left transition-colors",
-        active
-          ? "border-primary bg-primary/10"
-          : "border-border hover:bg-secondary",
+        active ? "border-primary bg-primary/10" : "border-border hover:bg-secondary",
         disabled && "opacity-60",
       )}
     >

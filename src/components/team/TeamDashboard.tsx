@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { Users, Zap, Clock } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -21,7 +21,7 @@ export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashb
     return () => clearInterval(timer)
   }, [])
 
-  const stats = useMemo(() => {
+  const stats = (() => {
     const activeMembers = members.filter((m) => m.status === "working").length
     const totalInput = members.reduce((s, m) => s + (m.inputTokens ?? 0), 0)
     const totalOutput = members.reduce((s, m) => s + (m.outputTokens ?? 0), 0)
@@ -32,8 +32,7 @@ export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashb
     const elapsedMs = now - createdMs
     const elapsedMin = Math.floor(elapsedMs / 60000)
     const elapsedSec = Math.floor((elapsedMs % 60000) / 1000)
-    const elapsed =
-      elapsedMin > 0 ? `${elapsedMin}m ${elapsedSec}s` : `${elapsedSec}s`
+    const elapsed = elapsedMin > 0 ? `${elapsedMin}m ${elapsedSec}s` : `${elapsedSec}s`
 
     return {
       total: members.length,
@@ -44,12 +43,10 @@ export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashb
       totalTasks,
       elapsed,
     }
-  }, [members, tasks, team.createdAt, now])
+  })()
 
   const progressPct =
-    stats.totalTasks > 0
-      ? Math.round((stats.completedTasks / stats.totalTasks) * 100)
-      : 0
+    stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0
 
   const fmtTokens = (n: number) =>
     n >= 1_000_000
@@ -63,11 +60,7 @@ export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashb
       {/* Member grid */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {members.map((m) => (
-          <TeamMemberCard
-            key={m.memberId}
-            member={m}
-            onViewSession={onViewSession}
-          />
+          <TeamMemberCard key={m.memberId} member={m} onViewSession={onViewSession} />
         ))}
       </div>
 
@@ -75,9 +68,7 @@ export function TeamDashboard({ members, tasks, team, onViewSession }: TeamDashb
       {stats.totalTasks > 0 && (
         <div className="flex flex-col gap-1">
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>
-              {t("team.progress", "Progress")}
-            </span>
+            <span>{t("team.progress", "Progress")}</span>
             <span className="tabular-nums">
               {stats.completedTasks}/{stats.totalTasks} ({progressPct}%)
             </span>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Button } from "@/components/ui/button"
@@ -74,7 +74,7 @@ export default function CrashHistoryPanel() {
   const [backupLoading, setBackupLoading] = useState(false)
   const [guardianEnabled, setGuardianEnabled] = useState(true)
 
-  const loadData = useCallback(async () => {
+  const loadData = async () => {
     setLoading(true)
     try {
       const [journalData, backupData, enabled] = await Promise.all([
@@ -90,11 +90,12 @@ export default function CrashHistoryPanel() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const loadDataEffectEvent = useEffectEvent(loadData)
 
   useEffect(() => {
-    loadData()
-  }, [loadData])
+    loadDataEffectEvent()
+  }, [])
 
   const handleClearHistory = async () => {
     try {
@@ -175,30 +176,25 @@ export default function CrashHistoryPanel() {
       {/* Header Actions */}
       <div className="flex items-center gap-2 flex-wrap">
         <IconTip label={t("health.refreshTooltip")}>
-            <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
-              <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
-              {t("health.refresh")}
-            </Button>
-          </IconTip>
+          <Button variant="outline" size="sm" onClick={loadData} disabled={loading}>
+            <RefreshCw className={cn("h-4 w-4 mr-1.5", loading && "animate-spin")} />
+            {t("health.refresh")}
+          </Button>
+        </IconTip>
 
-          <IconTip label={t("health.createBackupTooltip")}>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleCreateBackup}
-              disabled={backupLoading}
-            >
-              <Download className="h-4 w-4 mr-1.5" />
-              {t("health.createBackup")}
-            </Button>
-          </IconTip>
+        <IconTip label={t("health.createBackupTooltip")}>
+          <Button variant="outline" size="sm" onClick={handleCreateBackup} disabled={backupLoading}>
+            <Download className="h-4 w-4 mr-1.5" />
+            {t("health.createBackup")}
+          </Button>
+        </IconTip>
 
-          <IconTip label={t("health.restartTooltip")}>
-            <Button variant="outline" size="sm" onClick={handleRestart}>
-              <RotateCcw className="h-4 w-4 mr-1.5" />
-              {t("health.restart")}
-            </Button>
-          </IconTip>
+        <IconTip label={t("health.restartTooltip")}>
+          <Button variant="outline" size="sm" onClick={handleRestart}>
+            <RotateCcw className="h-4 w-4 mr-1.5" />
+            {t("health.restart")}
+          </Button>
+        </IconTip>
 
         {crashes.length > 0 && (
           <AlertDialog>

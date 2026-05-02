@@ -9,7 +9,7 @@
  * Read-only discovery; the actual write reuses `add_extra_skills_dir`.
  */
 
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, FolderOpen, Check, AlertTriangle, X } from "lucide-react"
 import { toast } from "sonner"
@@ -40,7 +40,7 @@ export default function QuickImportDialog({ open, onClose, onImported }: Props) 
   const [loading, setLoading] = useState(false)
   const [importingPath, setImportingPath] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     setLoading(true)
     try {
       const list = await getTransport().call<PresetSkillSource[]>("discover_preset_skill_sources")
@@ -51,12 +51,13 @@ export default function QuickImportDialog({ open, onClose, onImported }: Props) 
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }
+  const refreshEffectEvent = useEffectEvent(refresh)
 
   useEffect(() => {
     if (!open) return
-    void refresh()
-  }, [open, refresh])
+    void refreshEffectEvent()
+  }, [open])
 
   async function handleImport(path: string) {
     setImportingPath(path)

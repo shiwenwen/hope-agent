@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { useDangerousModeStatus } from "@/hooks/useDangerousModeStatus"
@@ -36,47 +36,36 @@ export default function DangerousModeSection() {
 
   const cliLocked = status.cliFlag
 
-  const applyChange = useCallback(
-    async (next: boolean) => {
-      setSaving(true)
-      try {
-        await getTransport().call("set_dangerous_skip_all_approvals", { enabled: next })
-        setSaveStatus("saved")
-        setTimeout(() => setSaveStatus("idle"), 2000)
-      } catch (e) {
-        logger.error(
-          "settings",
-          "SecuritySection::save",
-          "Failed to save dangerous mode",
-          e,
-        )
-        setSaveStatus("failed")
-        setTimeout(() => setSaveStatus("idle"), 2000)
-      } finally {
-        setSaving(false)
-      }
-    },
-    [],
-  )
+  const applyChange = async (next: boolean) => {
+    setSaving(true)
+    try {
+      await getTransport().call("set_dangerous_skip_all_approvals", { enabled: next })
+      setSaveStatus("saved")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } catch (e) {
+      logger.error("settings", "SecuritySection::save", "Failed to save dangerous mode", e)
+      setSaveStatus("failed")
+      setTimeout(() => setSaveStatus("idle"), 2000)
+    } finally {
+      setSaving(false)
+    }
+  }
 
-  const handleToggle = useCallback(
-    (nextChecked: boolean) => {
-      if (cliLocked) return
-      if (nextChecked) {
-        setAckChecked(false)
-        setDialogOpen(true)
-      } else {
-        void applyChange(false)
-      }
-    },
-    [applyChange, cliLocked],
-  )
+  const handleToggle = (nextChecked: boolean) => {
+    if (cliLocked) return
+    if (nextChecked) {
+      setAckChecked(false)
+      setDialogOpen(true)
+    } else {
+      void applyChange(false)
+    }
+  }
 
-  const handleConfirm = useCallback(() => {
+  const handleConfirm = () => {
     if (!ackChecked) return
     setDialogOpen(false)
     void applyChange(true)
-  }, [ackChecked, applyChange])
+  }
 
   return (
     <div className="space-y-4">
@@ -146,10 +135,7 @@ export default function DangerousModeSection() {
             <AlertDialogDescription asChild>
               <div className="space-y-3 text-sm text-muted-foreground">
                 <p>
-                  {t(
-                    "settings.dangerousConfirmBody",
-                    "开启后以下操作将全部跳过审批，直接执行：",
-                  )}
+                  {t("settings.dangerousConfirmBody", "开启后以下操作将全部跳过审批，直接执行：")}
                 </p>
                 <ul className="list-disc pl-5 space-y-1">
                   {SKIPPED_CATEGORIES.map((item) => (
@@ -168,10 +154,7 @@ export default function DangerousModeSection() {
 
           <label className="flex items-start justify-between gap-3 rounded-md border border-border px-3 py-2.5 cursor-pointer hover:bg-muted/40 transition-colors">
             <span className="text-sm">
-              {t(
-                "settings.dangerousConfirmAck",
-                "我已了解风险，并同意跳过全部工具审批",
-              )}
+              {t("settings.dangerousConfirmAck", "我已了解风险，并同意跳过全部工具审批")}
             </span>
             <Switch
               checked={ackChecked}
@@ -183,11 +166,7 @@ export default function DangerousModeSection() {
           <AlertDialogFooter>
             <AlertDialogCancel>{t("common.cancel", "取消")}</AlertDialogCancel>
             <AlertDialogAction asChild>
-              <Button
-                variant="destructive"
-                disabled={!ackChecked}
-                onClick={handleConfirm}
-              >
+              <Button variant="destructive" disabled={!ackChecked} onClick={handleConfirm}>
                 {t("settings.dangerousConfirmEnable", "启用危险模式")}
               </Button>
             </AlertDialogAction>

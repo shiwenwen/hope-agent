@@ -6,7 +6,7 @@
  * `project:file_*` events so uploads from other tabs show up immediately.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -32,7 +32,7 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
   const projectIdRef = useRef(projectId)
   projectIdRef.current = projectId
 
-  const reloadFiles = useCallback(async () => {
+  const reloadFiles = async () => {
     const pid = projectIdRef.current
     if (!pid) {
       setFiles([])
@@ -52,11 +52,12 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const reloadFilesEffectEvent = useEffectEvent(reloadFiles)
 
   useEffect(() => {
-    void reloadFiles()
-  }, [projectId, reloadFiles])
+    void reloadFilesEffectEvent()
+  }, [projectId])
 
   // Refresh on upload/delete events for the active project.
   useEffect(() => {
@@ -67,95 +68,84 @@ export function useProjectFiles(projectId: string | null): UseProjectFilesReturn
         if (!pid) return
         const p = payload as { projectId?: string } | null
         if (!p || p.projectId !== pid) return
-        void reloadFiles()
+        void reloadFilesEffectEvent()
       }),
     )
     return () => {
       for (const u of unsubs) u()
     }
-  }, [reloadFiles])
+  }, [])
 
-  const uploadFile = useCallback(
-    async (file: File): Promise<ProjectFile | null> => {
-      const pid = projectIdRef.current
-      if (!pid) return null
+  const uploadFile = async (file: File): Promise<ProjectFile | null> => {
+    const pid = projectIdRef.current
+    if (!pid) return null
 
-      if (file.size > MAX_PROJECT_FILE_BYTES) {
-        setError(
-          `File too large: ${formatBytes(file.size, {
-            unit: "MB",
-            fractionDigits: 1,
-          })} (max ${formatBytes(MAX_PROJECT_FILE_BYTES, {
-            unit: "MB",
-            fractionDigits: 0,
-          })})`,
-        )
-        return null
-      }
+    if (file.size > MAX_PROJECT_FILE_BYTES) {
+      setError(
+        `File too large: ${formatBytes(file.size, {
+          unit: "MB",
+          fractionDigits: 1,
+        })} (max ${formatBytes(MAX_PROJECT_FILE_BYTES, {
+          unit: "MB",
+          fractionDigits: 0,
+        })})`,
+      )
+      return null
+    }
 
-      try {
-        const buffer = await file.arrayBuffer()
-        const data = getTransport().prepareFileData(buffer, file.type || "application/octet-stream")
+    try {
+      const buffer = await file.arrayBuffer()
+      const data = getTransport().prepareFileData(buffer, file.type || "application/octet-stream")
 
-        const result = await getTransport().call<ProjectFile>("upload_project_file_cmd", {
-          projectId: pid,
-          fileName: file.name,
-          mimeType: file.type || undefined,
-          data,
-        })
-        // Optimistic prepend; the EventBus listener will reconcile shortly.
-        setFiles((prev) => [result, ...prev.filter((f) => f.id !== result.id)])
-        return result
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e)
-        logger.warn("chat", "useProjectFiles", "uploadFile failed", msg)
-        setError(msg)
-        return null
-      }
-    },
-    [],
-  )
+      const result = await getTransport().call<ProjectFile>("upload_project_file_cmd", {
+        projectId: pid,
+        fileName: file.name,
+        mimeType: file.type || undefined,
+        data,
+      })
+      // Optimistic prepend; the EventBus listener will reconcile shortly.
+      setFiles((prev) => [result, ...prev.filter((f) => f.id !== result.id)])
+      return result
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      logger.warn("chat", "useProjectFiles", "uploadFile failed", msg)
+      setError(msg)
+      return null
+    }
+  }
 
-  const deleteFile = useCallback(
-    async (fileId: string): Promise<boolean> => {
-      const pid = projectIdRef.current
-      if (!pid) return false
-      try {
-        await getTransport().call("delete_project_file_cmd", {
-          projectId: pid,
-          fileId,
-        })
-        setFiles((prev) => prev.filter((f) => f.id !== fileId))
-        return true
-      } catch (e) {
-        logger.warn("chat", "useProjectFiles", "deleteFile failed", e)
-        return false
-      }
-    },
-    [],
-  )
+  const deleteFile = async (fileId: string): Promise<boolean> => {
+    const pid = projectIdRef.current
+    if (!pid) return false
+    try {
+      await getTransport().call("delete_project_file_cmd", {
+        projectId: pid,
+        fileId,
+      })
+      setFiles((prev) => prev.filter((f) => f.id !== fileId))
+      return true
+    } catch (e) {
+      logger.warn("chat", "useProjectFiles", "deleteFile failed", e)
+      return false
+    }
+  }
 
-  const renameFile = useCallback(
-    async (fileId: string, name: string): Promise<boolean> => {
-      const pid = projectIdRef.current
-      if (!pid) return false
-      try {
-        await getTransport().call("rename_project_file_cmd", {
-          projectId: pid,
-          fileId,
-          name,
-        })
-        setFiles((prev) =>
-          prev.map((f) => (f.id === fileId ? { ...f, name } : f)),
-        )
-        return true
-      } catch (e) {
-        logger.warn("chat", "useProjectFiles", "renameFile failed", e)
-        return false
-      }
-    },
-    [],
-  )
+  const renameFile = async (fileId: string, name: string): Promise<boolean> => {
+    const pid = projectIdRef.current
+    if (!pid) return false
+    try {
+      await getTransport().call("rename_project_file_cmd", {
+        projectId: pid,
+        fileId,
+        name,
+      })
+      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, name } : f)))
+      return true
+    } catch (e) {
+      logger.warn("chat", "useProjectFiles", "renameFile failed", e)
+      return false
+    }
+  }
 
   return {
     files,

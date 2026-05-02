@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import type { TeamTask, TeamMember, KanbanColumn } from "./teamTypes"
@@ -27,7 +26,7 @@ const COLUMN_COLORS: Record<KanbanColumn, string> = {
 export function TeamTaskBoard({ tasks, members }: TeamTaskBoardProps) {
   const { t } = useTranslation()
 
-  const grouped = useMemo(() => {
+  const grouped = (() => {
     const map: Record<string, TeamTask[]> = {}
     for (const col of KANBAN_COLUMNS) {
       map[col] = []
@@ -41,7 +40,7 @@ export function TeamTaskBoard({ tasks, members }: TeamTaskBoardProps) {
       }
     }
     return map
-  }, [tasks])
+  })()
 
   return (
     <div className="grid grid-cols-4 gap-2">
@@ -51,12 +50,7 @@ export function TeamTaskBoard({ tasks, members }: TeamTaskBoardProps) {
           <div key={col} className="flex flex-col gap-2">
             {/* Column header */}
             <div className="flex items-center gap-2 rounded-md px-2 py-1.5">
-              <span
-                className={cn(
-                  "h-2 w-2 rounded-full",
-                  COLUMN_COLORS[col],
-                )}
-              />
+              <span className={cn("h-2 w-2 rounded-full", COLUMN_COLORS[col])} />
               <span className="text-xs font-medium text-foreground">
                 {t(`team.column.${col}`, COLUMN_LABELS[col])}
               </span>
@@ -72,13 +66,7 @@ export function TeamTaskBoard({ tasks, members }: TeamTaskBoardProps) {
                   {t("team.noTasks", "No tasks")}
                 </div>
               ) : (
-                colTasks.map((task) => (
-                  <TeamTaskCard
-                    key={task.id}
-                    task={task}
-                    members={members}
-                  />
-                ))
+                colTasks.map((task) => <TeamTaskCard key={task.id} task={task} members={members} />)
               )}
             </div>
           </div>

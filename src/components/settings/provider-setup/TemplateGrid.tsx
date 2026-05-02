@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -57,14 +57,8 @@ export function TemplateGrid({
   const [knownLocalBackends, setKnownLocalBackends] = useState<KnownLocalBackend[] | null>(null)
   const configuredLabel = t("onboarding.summary.providerDone")
 
-  const configuredTemplateKeys = useMemo(
-    () => getConfiguredTemplateKeys(PROVIDER_TEMPLATES, configuredProviders),
-    [configuredProviders],
-  )
-  const codexConfigured = useMemo(
-    () => hasConfiguredCodexProvider(configuredProviders),
-    [configuredProviders],
-  )
+  const configuredTemplateKeys = getConfiguredTemplateKeys(PROVIDER_TEMPLATES, configuredProviders)
+  const codexConfigured = hasConfiguredCodexProvider(configuredProviders)
   const normalizedSearchQuery = searchQuery.trim().toLowerCase()
   const localLlmSearchText = [
     t("settings.localLlm.title"),

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { Textarea } from "@/components/ui/textarea"
@@ -39,7 +39,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
-  const loadContent = useCallback(async () => {
+  const loadContent = async () => {
     try {
       const md = await getTransport().call<string | null>("get_agent_memory_md", { id: agentId })
       const val = md ?? ""
@@ -49,22 +49,23 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
     } catch (e) {
       logger.error("settings", "MemoryTab::loadCoreMemory", "Failed to load", e)
     }
-  }, [agentId])
+  }
+  const loadContentEffectEvent = useEffectEvent(loadContent)
 
   useEffect(() => {
-    loadContent()
-  }, [loadContent])
+    loadContentEffectEvent()
+  }, [agentId])
 
   // Listen for updates from the agent tool
   useEffect(() => {
     const unlisten = getTransport().listen("core_memory_updated", (raw) => {
       const payload = raw as { agentId: string; scope: string }
       if (payload.scope === "agent" && payload.agentId === agentId) {
-        loadContent()
+        loadContentEffectEvent()
       }
     })
     return unlisten
-  }, [agentId, loadContent])
+  }, [agentId])
 
   const handleSave = async () => {
     setSaving(true)
@@ -84,8 +85,9 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
 
   const hasChanges = content !== originalContent
 
-  const activeMemory: ActiveMemoryConfig =
-    config.memory?.activeMemory ?? { ...DEFAULT_ACTIVE_MEMORY }
+  const activeMemory: ActiveMemoryConfig = config.memory?.activeMemory ?? {
+    ...DEFAULT_ACTIVE_MEMORY,
+  }
 
   const updateActiveMemory = (patch: Partial<ActiveMemoryConfig>) => {
     const prevMemory = config.memory ?? DEFAULT_AGENT_MEMORY
@@ -117,9 +119,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
         <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex flex-col pr-4">
-              <label className="text-sm font-semibold">
-                {t("settings.activeMemoryTitle")}
-              </label>
+              <label className="text-sm font-semibold">{t("settings.activeMemoryTitle")}</label>
               <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                 {t("settings.activeMemoryDesc")}
               </p>
@@ -132,9 +132,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
           {activeMemory.enabled && (
             <div className="grid grid-cols-2 gap-3 pt-1">
               <label className="flex flex-col gap-1 text-xs">
-                <span className="text-muted-foreground">
-                  {t("settings.activeMemoryTimeout")}
-                </span>
+                <span className="text-muted-foreground">{t("settings.activeMemoryTimeout")}</span>
                 <Input
                   type="number"
                   min={200}
@@ -150,9 +148,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs">
-                <span className="text-muted-foreground">
-                  {t("settings.activeMemoryCacheTtl")}
-                </span>
+                <span className="text-muted-foreground">{t("settings.activeMemoryCacheTtl")}</span>
                 <Input
                   type="number"
                   min={0}
@@ -167,9 +163,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs">
-                <span className="text-muted-foreground">
-                  {t("settings.activeMemoryMaxChars")}
-                </span>
+                <span className="text-muted-foreground">{t("settings.activeMemoryMaxChars")}</span>
                 <Input
                   type="number"
                   min={40}
@@ -210,9 +204,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
         <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex flex-col pr-4">
-              <label className="text-sm font-semibold">
-                {t("settings.memoryBudget.title")}
-              </label>
+              <label className="text-sm font-semibold">{t("settings.memoryBudget.title")}</label>
               <p className="text-[11px] text-muted-foreground/70 mt-0.5">
                 {t("settings.memoryBudget.agentOverrideDesc")}
               </p>
@@ -223,9 +215,7 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
               </span>
               <Switch
                 checked={useGlobalBudget}
-                onCheckedChange={(v) =>
-                  updateMemoryBudget(v ? null : { ...DEFAULT_MEMORY_BUDGET })
-                }
+                onCheckedChange={(v) => updateMemoryBudget(v ? null : { ...DEFAULT_MEMORY_BUDGET })}
               />
             </div>
           </div>
@@ -247,14 +237,29 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
               className="gap-1.5 h-7 text-xs"
               disabled={saving || !hasChanges}
               onClick={handleSave}
-              variant={saveStatus === "saved" ? "outline" : saveStatus === "failed" ? "destructive" : "default"}
+              variant={
+                saveStatus === "saved"
+                  ? "outline"
+                  : saveStatus === "failed"
+                    ? "destructive"
+                    : "default"
+              }
             >
               {saving ? (
-                <><Loader2 className="h-3 w-3 animate-spin" />{t("common.saving")}</>
+                <>
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {t("common.saving")}
+                </>
               ) : saveStatus === "saved" ? (
-                <><Check className="h-3 w-3" />{t("common.saved")}</>
+                <>
+                  <Check className="h-3 w-3" />
+                  {t("common.saved")}
+                </>
               ) : (
-                <><Save className="h-3 w-3" />{t("common.save")}</>
+                <>
+                  <Save className="h-3 w-3" />
+                  {t("common.save")}
+                </>
               )}
             </Button>
           )}

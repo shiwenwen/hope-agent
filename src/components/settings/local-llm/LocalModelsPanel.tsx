@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import {
   AlertTriangle,
@@ -148,7 +148,8 @@ export default function LocalModelsPanel() {
   const [activeJobs, setActiveJobs] = useState<LocalModelJobSnapshot[]>([])
 
   const [query, setQuery] = useState("")
-  const [capabilityFilter, setCapabilityFilter] = useState<(typeof CAPABILITY_FILTERS)[number]>("all")
+  const [capabilityFilter, setCapabilityFilter] =
+    useState<(typeof CAPABILITY_FILTERS)[number]>("all")
   const [searching, setSearching] = useState(false)
   const [searchResult, setSearchResult] = useState<OllamaLibrarySearchResponse | null>(null)
   const [selectedDetail, setSelectedDetail] = useState<OllamaLibraryModelDetail | null>(null)
@@ -156,7 +157,9 @@ export default function LocalModelsPanel() {
 
   const [pendingDelete, setPendingDelete] = useState<LocalOllamaModel | null>(null)
   const [pendingCancelJob, setPendingCancelJob] = useState<LocalModelJobSnapshot | null>(null)
-  const [pendingEmbeddingDefault, setPendingEmbeddingDefault] = useState<LocalOllamaModel | null>(null)
+  const [pendingEmbeddingDefault, setPendingEmbeddingDefault] = useState<LocalOllamaModel | null>(
+    null,
+  )
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTitle, setDialogTitle] = useState("")
@@ -166,6 +169,7 @@ export default function LocalModelsPanel() {
   const [dialogDone, setDialogDone] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
+  const currentJobRef = useRef<LocalModelJobSnapshot | null>(null)
   const latestJobByIdRef = useRef<Map<string, LocalModelJobSnapshot>>(new Map())
   const hiddenCancelledJobIdsRef = useRef<Set<string>>(new Set())
   const clearAfterCancelJobIdsRef = useRef<Set<string>>(new Set())
@@ -180,27 +184,23 @@ export default function LocalModelsPanel() {
   const localBudgetMb = recommendation?.hardware?.budgetMb ?? null
   const localBudgetLabel = localBudgetMb ? candidateSizeLabel(localBudgetMb) : "-"
 
-  const renderLargeWarning = useCallback(
-    (className?: string) => (
-      <span
-        className={cn(
-          "inline-flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive",
-          className,
-        )}
-      >
-        <AlertTriangle className="h-3 w-3 shrink-0" />
-        {t("settings.localModels.largeModelWarning", { budget: localBudgetLabel })}
-      </span>
-    ),
-    [localBudgetLabel, t],
+  const renderLargeWarning = (className?: string) => (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive",
+        className,
+      )}
+    >
+      <AlertTriangle className="h-3 w-3 shrink-0" />
+      {t("settings.localModels.largeModelWarning", { budget: localBudgetLabel })}
+    </span>
   )
 
-  const filteredSearchModels = useMemo(
-    () => (searchResult?.models ?? []).filter((model) => modelMatchesFilter(model, capabilityFilter)),
-    [capabilityFilter, searchResult],
+  const filteredSearchModels = (searchResult?.models ?? []).filter((model) =>
+    modelMatchesFilter(model, capabilityFilter),
   )
 
-  const recommendedModels = useMemo(() => {
+  const recommendedModels = (() => {
     const byId = new Map<string, ModelCandidate>()
     if (recommendation?.recommended) {
       byId.set(recommendation.recommended.id, recommendation.recommended)
@@ -209,22 +209,19 @@ export default function LocalModelsPanel() {
       byId.set(candidate.id, candidate)
     }
     return [...byId.values()].filter((model) => candidateMatchesFilter(model, capabilityFilter))
-  }, [capabilityFilter, recommendation])
+  })()
 
-  const sortedActiveJobs = useMemo(
-    () => [...activeJobs].sort((a, b) => b.createdAt - a.createdAt || a.jobId.localeCompare(b.jobId)),
-    [activeJobs],
+  const sortedActiveJobs = [...activeJobs].sort(
+    (a, b) => b.createdAt - a.createdAt || a.jobId.localeCompare(b.jobId),
   )
 
-  const phaseLabel = useCallback(
-    (phase: string | undefined) => {
-      const key = phaseTranslationKey(phase)
-      return key ? t(key) : (phase ?? "")
-    },
-    [t],
-  )
+  const phaseLabel = (phase: string | undefined) => {
+    const key = phaseTranslationKey(phase)
+    return key ? t(key) : (phase ?? "")
+  }
+  const phaseLabelEffectEvent = useEffectEvent(phaseLabel)
 
-  const appendDialogLog = useCallback((message: string, createdAt?: number) => {
+  const appendDialogLog = (message: string, createdAt?: number) => {
     const trimmed = message.trim()
     if (!trimmed) return
     const line = formatLocalModelJobLogLine(trimmed, createdAt)
@@ -232,9 +229,10 @@ export default function LocalModelsPanel() {
       if (prev[prev.length - 1] === line) return prev
       return [...prev.slice(-(MAX_DIALOG_LOG_LINES - 1)), line]
     })
-  }, [])
+  }
+  const appendDialogLogEffectEvent = useEffectEvent(appendDialogLog)
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     setLoading(true)
     try {
       const [status, localModels, rec] = await Promise.all([
@@ -251,13 +249,14 @@ export default function LocalModelsPanel() {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }
+  const refreshEffectEvent = useEffectEvent(refresh)
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void refreshEffectEvent()
+  }, [])
 
-  const upsertActiveJob = useCallback((job: LocalModelJobSnapshot) => {
+  const upsertActiveJob = (job: LocalModelJobSnapshot) => {
     latestJobByIdRef.current.set(job.jobId, job)
     setActiveJobs((prev) => {
       if (hiddenCancelledJobIdsRef.current.has(job.jobId)) {
@@ -272,9 +271,10 @@ export default function LocalModelsPanel() {
       next[idx] = job
       return next
     })
-  }, [])
+  }
+  const upsertActiveJobEffectEvent = useEffectEvent(upsertActiveJob)
 
-  const refreshActiveJobs = useCallback(async () => {
+  const refreshActiveJobs = async () => {
     try {
       const jobs = await getTransport().call<LocalModelJobSnapshot[]>("local_model_job_list")
       setActiveJobs(
@@ -285,11 +285,12 @@ export default function LocalModelsPanel() {
     } catch (e) {
       logger.warn("local-llm", "LocalModelsPanel::refreshActiveJobs", "Failed to load jobs", e)
     }
-  }, [])
+  }
+  const refreshActiveJobsEffectEvent = useEffectEvent(refreshActiveJobs)
 
   useEffect(() => {
-    void refreshActiveJobs()
-  }, [refreshActiveJobs])
+    void refreshActiveJobsEffectEvent()
+  }, [])
 
   useEffect(() => {
     const now = Date.now()
@@ -348,7 +349,7 @@ export default function LocalModelsPanel() {
     })
   }, [activeJobs])
 
-  const hydrateJobLogs = useCallback(async (jobId: string) => {
+  const hydrateJobLogs = async (jobId: string) => {
     try {
       const entries = await getTransport().call<LocalModelJobLogEntry[]>("local_model_job_logs", {
         jobId,
@@ -361,101 +362,99 @@ export default function LocalModelsPanel() {
     } catch (e) {
       logger.warn("local-llm", "LocalModelsPanel::hydrateJobLogs", "Failed to load logs", e)
     }
-  }, [])
+  }
 
-  const removeVisibleJob = useCallback((jobId: string) => {
+  const removeVisibleJob = (jobId: string) => {
     latestJobByIdRef.current.delete(jobId)
     setActiveJobs((prev) => prev.filter((item) => item.jobId !== jobId))
-  }, [])
+  }
 
-  const clearJobRecord = useCallback(
-    async (jobId: string) => {
-      await getTransport().call("local_model_job_clear", { jobId })
-      hiddenCancelledJobIdsRef.current.delete(jobId)
-      clearAfterCancelJobIdsRef.current.delete(jobId)
-      removeVisibleJob(jobId)
-    },
-    [removeVisibleJob],
-  )
+  const clearJobRecord = async (jobId: string) => {
+    await getTransport().call("local_model_job_clear", { jobId })
+    hiddenCancelledJobIdsRef.current.delete(jobId)
+    clearAfterCancelJobIdsRef.current.delete(jobId)
+    removeVisibleJob(jobId)
+  }
+  const clearJobRecordEffectEvent = useEffectEvent(clearJobRecord)
 
-  const handleTerminalJob = useCallback(
-    (job: LocalModelJobSnapshot) => {
-      if (!isLocalModelJobTerminal(job)) return
-      if (handledTerminalJobs.current.has(job.jobId)) return
-      handledTerminalJobs.current.add(job.jobId)
-      if (job.status === "completed") {
-        appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
-      } else if (job.error) {
-        appendDialogLog(job.error, job.updatedAt)
-      }
-    },
-    [appendDialogLog, t],
-  )
+  const handleTerminalJob = (job: LocalModelJobSnapshot) => {
+    if (!isLocalModelJobTerminal(job)) return
+    if (handledTerminalJobs.current.has(job.jobId)) return
+    handledTerminalJobs.current.add(job.jobId)
+    if (job.status === "completed") {
+      appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
+    } else if (job.error) {
+      appendDialogLog(job.error, job.updatedAt)
+    }
+  }
+  const handleTerminalJobEffectEvent = useEffectEvent(handleTerminalJob)
 
-  const refreshAfterTerminalJob = useCallback(
-    (job: LocalModelJobSnapshot) => {
-      if (!isLocalModelJobTerminal(job)) return
-      if (refreshedTerminalJobs.current.has(job.jobId)) return
-      refreshedTerminalJobs.current.add(job.jobId)
-      void refresh()
-    },
-    [refresh],
-  )
+  const refreshAfterTerminalJob = (job: LocalModelJobSnapshot) => {
+    if (!isLocalModelJobTerminal(job)) return
+    if (refreshedTerminalJobs.current.has(job.jobId)) return
+    refreshedTerminalJobs.current.add(job.jobId)
+    void refresh()
+  }
+  const refreshAfterTerminalJobEffectEvent = useEffectEvent(refreshAfterTerminalJob)
 
-  const openJobDialog = useCallback(
-    (job: LocalModelJobSnapshot) => {
-      const latest = latestJobByIdRef.current.get(job.jobId) ?? job
-      setCurrentJob(latest)
-      setDialogOpen(true)
-      setDialogTitle(t("settings.localModels.jobs.title", { model: latest.displayName }))
-      setDialogSubtitle(latest.modelId)
-      setDialogFrame(localModelJobToProgressFrame(latest, phaseLabel))
-      setDialogLogs([])
-      setDialogDone(isLocalModelJobTerminal(latest) && !latest.error)
-      setDialogError(latest.error ?? null)
-      if (isLocalModelJobTerminal(latest)) {
-        handleTerminalJob(latest)
-        refreshAfterTerminalJob(latest)
-      }
-      void hydrateJobLogs(latest.jobId)
-    },
-    [handleTerminalJob, hydrateJobLogs, phaseLabel, refreshAfterTerminalJob, t],
-  )
+  const openJobDialog = (job: LocalModelJobSnapshot) => {
+    const latest = latestJobByIdRef.current.get(job.jobId) ?? job
+    currentJobRef.current = latest
+    setCurrentJob(latest)
+    setDialogOpen(true)
+    setDialogTitle(t("settings.localModels.jobs.title", { model: latest.displayName }))
+    setDialogSubtitle(latest.modelId)
+    setDialogFrame(localModelJobToProgressFrame(latest, phaseLabel))
+    setDialogLogs([])
+    setDialogDone(isLocalModelJobTerminal(latest) && !latest.error)
+    setDialogError(latest.error ?? null)
+    if (isLocalModelJobTerminal(latest)) {
+      handleTerminalJob(latest)
+      refreshAfterTerminalJob(latest)
+    }
+    void hydrateJobLogs(latest.jobId)
+  }
 
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
       if (clearAfterCancelJobIdsRef.current.has(job.jobId) && isLocalModelJobTerminal(job)) {
-        void clearJobRecord(job.jobId).catch((e) => {
-          logger.warn("local-llm", "LocalModelsPanel::clearCancelledJob", "Failed to clear cancelled job", {
-            jobId: job.jobId,
-            error: String(e),
-          })
+        void clearJobRecordEffectEvent(job.jobId).catch((e) => {
+          logger.warn(
+            "local-llm",
+            "LocalModelsPanel::clearCancelledJob",
+            "Failed to clear cancelled job",
+            {
+              jobId: job.jobId,
+              error: String(e),
+            },
+          )
         })
         return
       }
-      upsertActiveJob(job)
-      refreshAfterTerminalJob(job)
-      setCurrentJob((current) => {
-        if (current?.jobId !== job.jobId) return current
-        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+      upsertActiveJobEffectEvent(job)
+      refreshAfterTerminalJobEffectEvent(job)
+      if (currentJobRef.current?.jobId === job.jobId) {
+        currentJobRef.current = job
+        setCurrentJob(job)
+        setDialogFrame(localModelJobToProgressFrame(job, (phase) => phaseLabelEffectEvent(phase)))
         setDialogDone(isLocalModelJobTerminal(job) && !job.error)
         setDialogError(job.error ?? null)
-        handleTerminalJob(job)
-        return job
-      })
+        handleTerminalJobEffectEvent(job)
+      }
     }
     const handleLog = (raw: unknown) => {
       const entry = parsePayload<LocalModelJobLogEntry>(raw)
-      setCurrentJob((current) => {
-        if (current?.jobId !== entry.jobId) return current
-        appendDialogLog(entry.message, entry.createdAt)
-        return current
-      })
+      if (currentJobRef.current?.jobId === entry.jobId) {
+        appendDialogLogEffectEvent(entry.message, entry.createdAt)
+      }
     }
     const unlistenCreated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.created, handleSnapshot)
     const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleSnapshot)
-    const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
+    const unlistenCompleted = getTransport().listen(
+      LOCAL_MODEL_JOB_EVENTS.completed,
+      handleSnapshot,
+    )
     const unlistenLog = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.log, handleLog)
     return () => {
       unlistenCreated()
@@ -463,50 +462,44 @@ export default function LocalModelsPanel() {
       unlistenCompleted()
       unlistenLog()
     }
-  }, [
-    appendDialogLog,
-    clearJobRecord,
-    handleTerminalJob,
-    phaseLabel,
-    refreshAfterTerminalJob,
-    upsertActiveJob,
-  ])
+  }, [])
 
-  const runModelAction = useCallback(
-    async (modelId: string, action: () => Promise<unknown>, successKey: string) => {
-      setActioning((prev) => ({ ...prev, [modelId]: true }))
-      try {
-        await action()
-        toast.success(t(successKey, { model: modelId }))
-        await refresh()
-      } catch (e) {
-        const message = String(e)
-        logger.error("local-llm", "LocalModelsPanel::runModelAction", "Local model action failed", {
-          modelId,
-          successKey,
-          error: message,
-        })
-        toast.error(message)
-      } finally {
-        setActioning((prev) => ({ ...prev, [modelId]: false }))
-      }
-    },
-    [refresh, t],
-  )
+  const runModelAction = async (
+    modelId: string,
+    action: () => Promise<unknown>,
+    successKey: string,
+  ) => {
+    setActioning((prev) => ({ ...prev, [modelId]: true }))
+    try {
+      await action()
+      toast.success(t(successKey, { model: modelId }))
+      await refresh()
+    } catch (e) {
+      const message = String(e)
+      logger.error("local-llm", "LocalModelsPanel::runModelAction", "Local model action failed", {
+        modelId,
+        successKey,
+        error: message,
+      })
+      toast.error(message)
+    } finally {
+      setActioning((prev) => ({ ...prev, [modelId]: false }))
+    }
+  }
 
-  const startOllama = useCallback(async () => {
+  const startOllama = async () => {
     await runModelAction(
       "__ollama__",
       () => getTransport().call("local_llm_start_ollama"),
       "settings.localModels.toast.ollamaStarted",
     )
-  }, [runModelAction])
+  }
 
-  const openOllamaDownloadPage = useCallback(() => {
+  const openOllamaDownloadPage = () => {
     openExternalUrl("https://ollama.com/download")
-  }, [])
+  }
 
-  const installOrDownloadOllama = useCallback(async () => {
+  const installOrDownloadOllama = async () => {
     if (!ollama) return
     if (!ollama.installScriptSupported) {
       openOllamaDownloadPage()
@@ -531,41 +524,35 @@ export default function LocalModelsPanel() {
     } finally {
       setActioning((prev) => ({ ...prev, __ollama_install__: false }))
     }
-  }, [ollama, openOllamaDownloadPage, upsertActiveJob])
+  }
 
-  const loadLibraryModel = useCallback(
-    async (model: string, silent = false) => {
-      if (!silent) setSearching(true)
-      try {
-        const detail = await getTransport().call<OllamaLibraryModelDetail>(
-          "local_llm_get_library_model",
-          { model },
-        )
-        setSelectedDetail(detail)
-      } catch (e) {
-        logger.error("local-llm", "LocalModelsPanel::loadLibraryModel", "Load detail failed", e)
-        if (!silent) {
-          toast.error(t("settings.localModels.errors.detailFailed"))
-        }
-      } finally {
-        if (!silent) setSearching(false)
+  const loadLibraryModel = async (model: string, silent = false) => {
+    if (!silent) setSearching(true)
+    try {
+      const detail = await getTransport().call<OllamaLibraryModelDetail>(
+        "local_llm_get_library_model",
+        { model },
+      )
+      setSelectedDetail(detail)
+    } catch (e) {
+      logger.error("local-llm", "LocalModelsPanel::loadLibraryModel", "Load detail failed", e)
+      if (!silent) {
+        toast.error(t("settings.localModels.errors.detailFailed"))
       }
-    },
-    [t],
-  )
+    } finally {
+      if (!silent) setSearching(false)
+    }
+  }
 
-  const toggleLibraryModel = useCallback(
-    async (model: string) => {
-      if (selectedDetail?.model.name === model) {
-        setSelectedDetail(null)
-        return
-      }
-      await loadLibraryModel(model)
-    },
-    [loadLibraryModel, selectedDetail?.model.name],
-  )
+  const toggleLibraryModel = async (model: string) => {
+    if (selectedDetail?.model.name === model) {
+      setSelectedDetail(null)
+      return
+    }
+    await loadLibraryModel(model)
+  }
 
-  const loadLibrary = useCallback(async (libraryQuery: string, silent = false) => {
+  const loadLibrary = async (libraryQuery: string, silent = false) => {
     setSearching(true)
     try {
       const result = await getTransport().call<OllamaLibrarySearchResponse>(
@@ -587,68 +574,65 @@ export default function LocalModelsPanel() {
     } finally {
       setSearching(false)
     }
-  }, [loadLibraryModel, t])
+  }
+  const loadLibraryEffectEvent = useEffectEvent(loadLibrary)
 
-  const searchLibrary = useCallback(
-    async () => {
-      await loadLibrary(query)
-    },
-    [loadLibrary, query],
-  )
+  const searchLibrary = async () => {
+    await loadLibrary(query)
+  }
 
   useEffect(() => {
-    void loadLibrary("", true)
-  }, [loadLibrary])
+    void loadLibraryEffectEvent("", true)
+  }, [])
 
-  const refreshAll = useCallback(async () => {
+  const refreshAll = async () => {
     await Promise.all([refresh(), refreshActiveJobs(), loadLibrary(query, true)])
-  }, [loadLibrary, query, refresh, refreshActiveJobs])
+  }
 
-  const startPullJob = useCallback(
-    async (request: OllamaPullRequest) => {
-      try {
-        const job = await getTransport().call<LocalModelJobSnapshot>(
-          "local_model_job_start_ollama_pull",
-          { request },
-        )
-        upsertActiveJob(job)
-      } catch (e) {
-        const message = String(e)
-        logger.error("local-llm", "LocalModelsPanel::startPullJob", "Failed to start pull job", {
-          request,
-          error: message,
-        })
-        toast.error(message)
-      }
-    },
-    [upsertActiveJob],
-  )
+  const startPullJob = async (request: OllamaPullRequest) => {
+    try {
+      const job = await getTransport().call<LocalModelJobSnapshot>(
+        "local_model_job_start_ollama_pull",
+        { request },
+      )
+      upsertActiveJob(job)
+    } catch (e) {
+      const message = String(e)
+      logger.error("local-llm", "LocalModelsPanel::startPullJob", "Failed to start pull job", {
+        request,
+        error: message,
+      })
+      toast.error(message)
+    }
+  }
 
-  const startPreloadJob = useCallback(
-    async (model: LocalOllamaModel) => {
-      setActioning((prev) => ({ ...prev, [model.id]: true }))
-      try {
-        const job = await getTransport().call<LocalModelJobSnapshot>(
-          "local_model_job_start_ollama_preload",
-          { modelId: model.id, displayName: model.name || model.id },
-        )
-        upsertActiveJob(job)
-        openJobDialog(job)
-      } catch (e) {
-        const message = String(e)
-        logger.error("local-llm", "LocalModelsPanel::startPreloadJob", "Failed to start preload job", {
+  const startPreloadJob = async (model: LocalOllamaModel) => {
+    setActioning((prev) => ({ ...prev, [model.id]: true }))
+    try {
+      const job = await getTransport().call<LocalModelJobSnapshot>(
+        "local_model_job_start_ollama_preload",
+        { modelId: model.id, displayName: model.name || model.id },
+      )
+      upsertActiveJob(job)
+      openJobDialog(job)
+    } catch (e) {
+      const message = String(e)
+      logger.error(
+        "local-llm",
+        "LocalModelsPanel::startPreloadJob",
+        "Failed to start preload job",
+        {
           modelId: model.id,
           error: message,
-        })
-        toast.error(message)
-      } finally {
-        setActioning((prev) => ({ ...prev, [model.id]: false }))
-      }
-    },
-    [openJobDialog, upsertActiveJob],
-  )
+        },
+      )
+      toast.error(message)
+    } finally {
+      setActioning((prev) => ({ ...prev, [model.id]: false }))
+    }
+  }
 
-  const cancelCurrentJob = useCallback(() => {
+  const cancelCurrentJob = () => {
     const job = currentJob
     if (!job) return
     void getTransport()
@@ -662,40 +646,37 @@ export default function LocalModelsPanel() {
         })
         setDialogError(message)
       })
-  }, [currentJob, upsertActiveJob])
+  }
 
-  const runJobAction = useCallback(
-    async (job: LocalModelJobSnapshot, action: "pause" | "resume") => {
-      const actionKey = `${job.jobId}:${action}`
-      setActioning((prev) => ({ ...prev, [actionKey]: true }))
-      try {
-        // "resume" maps to retry: Ollama's chunked layer cache lets the next
-        // pull pick up where the cancelled one stopped, so a fresh job is OK.
-        const command = JOB_ACTION_COMMANDS[action]
-        const nextJob = await getTransport().call<LocalModelJobSnapshot>(command, {
-          jobId: job.jobId,
-        })
-        if (action === "resume") {
-          latestJobByIdRef.current.delete(job.jobId)
-          setActiveJobs((prev) => prev.filter((item) => item.jobId !== job.jobId))
-        }
-        upsertActiveJob(nextJob)
-      } catch (e) {
-        const message = String(e)
-        logger.error("local-llm", "LocalModelsPanel::runJobAction", "Local model job action failed", {
-          jobId: job.jobId,
-          action,
-          error: message,
-        })
-        toast.error(message)
-      } finally {
-        setActioning((prev) => ({ ...prev, [actionKey]: false }))
+  const runJobAction = async (job: LocalModelJobSnapshot, action: "pause" | "resume") => {
+    const actionKey = `${job.jobId}:${action}`
+    setActioning((prev) => ({ ...prev, [actionKey]: true }))
+    try {
+      // "resume" maps to retry: Ollama's chunked layer cache lets the next
+      // pull pick up where the cancelled one stopped, so a fresh job is OK.
+      const command = JOB_ACTION_COMMANDS[action]
+      const nextJob = await getTransport().call<LocalModelJobSnapshot>(command, {
+        jobId: job.jobId,
+      })
+      if (action === "resume") {
+        latestJobByIdRef.current.delete(job.jobId)
+        setActiveJobs((prev) => prev.filter((item) => item.jobId !== job.jobId))
       }
-    },
-    [upsertActiveJob],
-  )
+      upsertActiveJob(nextJob)
+    } catch (e) {
+      const message = String(e)
+      logger.error("local-llm", "LocalModelsPanel::runJobAction", "Local model job action failed", {
+        jobId: job.jobId,
+        action,
+        error: message,
+      })
+      toast.error(message)
+    } finally {
+      setActioning((prev) => ({ ...prev, [actionKey]: false }))
+    }
+  }
 
-  const confirmCancelJob = useCallback(async () => {
+  const confirmCancelJob = async () => {
     const job = pendingCancelJob
     if (!job) return
     const actionKey = `${job.jobId}:cancel`
@@ -714,17 +695,22 @@ export default function LocalModelsPanel() {
       setPendingCancelJob(null)
     } catch (e) {
       const message = String(e)
-      logger.error("local-llm", "LocalModelsPanel::confirmCancelJob", "Local model job cancel failed", {
-        jobId: job.jobId,
-        error: message,
-      })
+      logger.error(
+        "local-llm",
+        "LocalModelsPanel::confirmCancelJob",
+        "Local model job cancel failed",
+        {
+          jobId: job.jobId,
+          error: message,
+        },
+      )
       toast.error(message)
     } finally {
       setActioning((prev) => ({ ...prev, [actionKey]: false }))
     }
-  }, [clearJobRecord, pendingCancelJob, removeVisibleJob])
+  }
 
-  const confirmDelete = useCallback(async () => {
+  const confirmDelete = async () => {
     const model = pendingDelete
     if (!model) return
     await runModelAction(
@@ -733,19 +719,23 @@ export default function LocalModelsPanel() {
       "settings.localModels.toast.deleted",
     )
     setPendingDelete(null)
-  }, [pendingDelete, runModelAction])
+  }
 
-  const confirmEmbeddingDefault = useCallback(async () => {
+  const confirmEmbeddingDefault = async () => {
     const model = pendingEmbeddingDefault
     const configId = model?.usage.embeddingConfigId
     if (!model || !configId) return
     await runModelAction(
       model.id,
-      () => getTransport().call("memory_embedding_set_default", { modelConfigId: configId, mode: "keep_existing" }),
+      () =>
+        getTransport().call("memory_embedding_set_default", {
+          modelConfigId: configId,
+          mode: "keep_existing",
+        }),
       "settings.localModels.toast.embeddingSet",
     )
     setPendingEmbeddingDefault(null)
-  }, [pendingEmbeddingDefault, runModelAction])
+  }
 
   const deleteWarnings = pendingDelete
     ? [
@@ -768,29 +758,30 @@ export default function LocalModelsPanel() {
       : actionableJobCount > 0 && pausedJobCount !== actionableJobCount
         ? t("localModelJobs.pendingSummary", { count: actionableJobCount })
         : t("localModelJobs.pausedSummary", { count: pausedJobCount })
-  const jobTransferSummary = useCallback(
-    (job: LocalModelJobSnapshot) => {
-      const parts: string[] = []
-      if (job.bytesCompleted != null && job.bytesTotal != null) {
-        parts.push(`${formatBytes(job.bytesCompleted, { maxUnit: "GB" })} / ${formatBytes(job.bytesTotal, { maxUnit: "GB" })}`)
-      }
-      const stats = jobTransferStats[job.jobId]
-      if (stats?.speedBps) {
-        parts.push(`${formatBytes(stats.speedBps, { maxUnit: "GB" })}/s`)
-      }
-      if (stats?.etaSeconds != null && Number.isFinite(stats.etaSeconds)) {
-        parts.push(`≈ ${formatDurationCompact(stats.etaSeconds)}`)
-      }
-      return parts.join(" · ")
-    },
-    [jobTransferStats],
-  )
+  const jobTransferSummary = (job: LocalModelJobSnapshot) => {
+    const parts: string[] = []
+    if (job.bytesCompleted != null && job.bytesTotal != null) {
+      parts.push(
+        `${formatBytes(job.bytesCompleted, { maxUnit: "GB" })} / ${formatBytes(job.bytesTotal, { maxUnit: "GB" })}`,
+      )
+    }
+    const stats = jobTransferStats[job.jobId]
+    if (stats?.speedBps) {
+      parts.push(`${formatBytes(stats.speedBps, { maxUnit: "GB" })}/s`)
+    }
+    if (stats?.etaSeconds != null && Number.isFinite(stats.etaSeconds)) {
+      parts.push(`≈ ${formatDurationCompact(stats.etaSeconds)}`)
+    }
+    return parts.join(" · ")
+  }
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">{t("settings.localModels.title")}</h2>
+          <h2 className="text-lg font-semibold text-foreground">
+            {t("settings.localModels.title")}
+          </h2>
           <p className="mt-1 text-xs text-muted-foreground">{t("settings.localModels.subtitle")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -823,7 +814,9 @@ export default function LocalModelsPanel() {
               )}
             >
               <Ollama size={14} className="h-3.5 w-3.5" />
-              {ollama ? t(`settings.localModels.ollama.${ollama.phase}`) : t("settings.localLlm.detecting")}
+              {ollama
+                ? t(`settings.localModels.ollama.${ollama.phase}`)
+                : t("settings.localLlm.detecting")}
             </span>
           )}
           {ollama?.phase === "installed" && (
@@ -867,7 +860,9 @@ export default function LocalModelsPanel() {
               )}
               <span className="truncate">{jobSummaryText}</span>
             </div>
-            <span className="shrink-0 text-xs text-muted-foreground">{t("localModelJobs.subtitle")}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">
+              {t("localModelJobs.subtitle")}
+            </span>
           </div>
           <div className="grid items-stretch gap-3 lg:grid-cols-2">
             {sortedActiveJobs.map((job) => {
@@ -922,7 +917,9 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[`${job.jobId}:pause`] || actioning[`${job.jobId}:cancel`]}
+                        disabled={
+                          actioning[`${job.jobId}:pause`] || actioning[`${job.jobId}:cancel`]
+                        }
                         onClick={() => void runJobAction(job, "pause")}
                       >
                         {actioning[`${job.jobId}:pause`] ? (
@@ -938,7 +935,9 @@ export default function LocalModelsPanel() {
                         variant="outline"
                         size="sm"
                         className={ACTION_BUTTON_CLASS}
-                        disabled={actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]}
+                        disabled={
+                          actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]
+                        }
                         onClick={() => void runJobAction(job, "resume")}
                       >
                         {actioning[`${job.jobId}:resume`] ? (
@@ -953,8 +952,15 @@ export default function LocalModelsPanel() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
-                        disabled={actioning[`${job.jobId}:pause`] || actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]}
+                        className={cn(
+                          ACTION_BUTTON_CLASS,
+                          "text-destructive hover:text-destructive",
+                        )}
+                        disabled={
+                          actioning[`${job.jobId}:pause`] ||
+                          actioning[`${job.jobId}:resume`] ||
+                          actioning[`${job.jobId}:cancel`]
+                        }
                         onClick={() => setPendingCancelJob(job)}
                       >
                         {actioning[`${job.jobId}:cancel`] ? (
@@ -969,8 +975,13 @@ export default function LocalModelsPanel() {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
-                        disabled={actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]}
+                        className={cn(
+                          ACTION_BUTTON_CLASS,
+                          "text-destructive hover:text-destructive",
+                        )}
+                        disabled={
+                          actioning[`${job.jobId}:resume`] || actioning[`${job.jobId}:cancel`]
+                        }
                         onClick={() => setPendingCancelJob(job)}
                       >
                         {actioning[`${job.jobId}:cancel`] ? (
@@ -1013,7 +1024,10 @@ export default function LocalModelsPanel() {
               const completionCapable = isCompletionCapable(model)
               const embeddingCapable = isEmbeddingCapable(model)
               const preloading = sortedActiveJobs.some(
-                (job) => job.kind === "ollama_preload" && job.modelId === model.id && isLocalModelJobActive(job),
+                (job) =>
+                  job.kind === "ollama_preload" &&
+                  job.modelId === model.id &&
+                  isLocalModelJobActive(job),
               )
               const rowBusy = actioning[model.id] || preloading
               const largeModel = exceedsBudgetBytes(model.sizeBytes, localBudgetMb)
@@ -1022,7 +1036,9 @@ export default function LocalModelsPanel() {
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-sm font-semibold text-foreground">{model.id}</span>
+                        <span className="font-mono text-sm font-semibold text-foreground">
+                          {model.id}
+                        </span>
                         {completionCapable && (
                           <span className="rounded border border-blue-500/25 bg-blue-500/10 px-1.5 py-0.5 text-[10px] text-blue-700 dark:text-blue-300">
                             {t("settings.localModels.badges.llm")}
@@ -1096,7 +1112,8 @@ export default function LocalModelsPanel() {
                           onClick={() =>
                             void runModelAction(
                               model.id,
-                              () => getTransport().call("local_llm_stop_model", { modelId: model.id }),
+                              () =>
+                                getTransport().call("local_llm_stop_model", { modelId: model.id }),
                               "settings.localModels.toast.stopped",
                             )
                           }
@@ -1129,7 +1146,10 @@ export default function LocalModelsPanel() {
                           onClick={() =>
                             void runModelAction(
                               model.id,
-                              () => getTransport().call("local_llm_add_provider_model", { modelId: model.id }),
+                              () =>
+                                getTransport().call("local_llm_add_provider_model", {
+                                  modelId: model.id,
+                                }),
                               "settings.localModels.toast.providerAdded",
                             )
                           }
@@ -1138,24 +1158,29 @@ export default function LocalModelsPanel() {
                           {t("settings.localModels.actions.addProvider")}
                         </Button>
                       )}
-                      {completionCapable && model.usage.providerModel && !model.usage.activeModel && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={ACTION_BUTTON_CLASS}
-                          disabled={rowBusy}
-                          onClick={() =>
-                            void runModelAction(
-                              model.id,
-                              () => getTransport().call("local_llm_set_default_model", { modelId: model.id }),
-                              "settings.localModels.toast.defaultSet",
-                            )
-                          }
-                        >
-                          <Star className={ACTION_ICON_CLASS} />
-                          {t("settings.localModels.actions.setDefault")}
-                        </Button>
-                      )}
+                      {completionCapable &&
+                        model.usage.providerModel &&
+                        !model.usage.activeModel && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={ACTION_BUTTON_CLASS}
+                            disabled={rowBusy}
+                            onClick={() =>
+                              void runModelAction(
+                                model.id,
+                                () =>
+                                  getTransport().call("local_llm_set_default_model", {
+                                    modelId: model.id,
+                                  }),
+                                "settings.localModels.toast.defaultSet",
+                              )
+                            }
+                          >
+                            <Star className={ACTION_ICON_CLASS} />
+                            {t("settings.localModels.actions.setDefault")}
+                          </Button>
+                        )}
                       {embeddingCapable && !model.usage.embeddingConfig && (
                         <Button
                           variant="outline"
@@ -1165,7 +1190,10 @@ export default function LocalModelsPanel() {
                           onClick={() =>
                             void runModelAction(
                               model.id,
-                              () => getTransport().call("local_llm_add_embedding_config", { modelId: model.id }),
+                              () =>
+                                getTransport().call("local_llm_add_embedding_config", {
+                                  modelId: model.id,
+                                }),
                               "settings.localModels.toast.embeddingConfigAdded",
                             )
                           }
@@ -1174,23 +1202,28 @@ export default function LocalModelsPanel() {
                           {t("settings.localModels.actions.addEmbeddingConfig")}
                         </Button>
                       )}
-                      {embeddingCapable && model.usage.embeddingConfig && !model.usage.embeddingModel && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className={ACTION_BUTTON_CLASS}
-                          disabled={rowBusy}
-                          onClick={() => setPendingEmbeddingDefault(model)}
-                        >
-                          <Brain className={ACTION_ICON_CLASS} />
-                          {t("settings.localModels.actions.setMemoryDefault")}
-                        </Button>
-                      )}
+                      {embeddingCapable &&
+                        model.usage.embeddingConfig &&
+                        !model.usage.embeddingModel && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className={ACTION_BUTTON_CLASS}
+                            disabled={rowBusy}
+                            onClick={() => setPendingEmbeddingDefault(model)}
+                          >
+                            <Brain className={ACTION_ICON_CLASS} />
+                            {t("settings.localModels.actions.setMemoryDefault")}
+                          </Button>
+                        )}
                       <Button
                         variant="ghost"
                         size="sm"
                         disabled={rowBusy}
-                        className={cn(ACTION_BUTTON_CLASS, "text-destructive hover:text-destructive")}
+                        className={cn(
+                          ACTION_BUTTON_CLASS,
+                          "text-destructive hover:text-destructive",
+                        )}
                         onClick={() => setPendingDelete(model)}
                       >
                         <Trash2 className={ACTION_ICON_CLASS} />
@@ -1337,15 +1370,22 @@ export default function LocalModelsPanel() {
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-sm font-semibold text-foreground">{model.name}</span>
+                            <span className="text-sm font-semibold text-foreground">
+                              {model.name}
+                            </span>
                             {model.capabilities.map((cap) => (
-                              <span key={cap} className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              <span
+                                key={cap}
+                                className="rounded bg-secondary px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                              >
                                 {cap}
                               </span>
                             ))}
                             {hasLargeSize && renderLargeWarning()}
                           </div>
-                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{model.description}</p>
+                          <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                            {model.description}
+                          </p>
                           <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
                             {shownSizes.map((size) => {
                               const largeSize = librarySizeExceedsBudget(size, localBudgetMb)
@@ -1361,8 +1401,16 @@ export default function LocalModelsPanel() {
                                 </span>
                               )
                             })}
-                            {model.pullCount && <span>{t("settings.localModels.downloads", { count: model.pullCount })}</span>}
-                            {model.tagCount != null && <span>{t("settings.localModels.tags", { count: model.tagCount })}</span>}
+                            {model.pullCount && (
+                              <span>
+                                {t("settings.localModels.downloads", { count: model.pullCount })}
+                              </span>
+                            )}
+                            {model.tagCount != null && (
+                              <span>
+                                {t("settings.localModels.tags", { count: model.tagCount })}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <Button
@@ -1379,7 +1427,9 @@ export default function LocalModelsPanel() {
                       {expanded && (
                         <div className="mt-3 border-t border-border/70 pt-3">
                           {selectedDetail.summary && (
-                            <p className="mb-3 text-xs text-muted-foreground">{selectedDetail.summary}</p>
+                            <p className="mb-3 text-xs text-muted-foreground">
+                              {selectedDetail.summary}
+                            </p>
                           )}
                           <div className="space-y-2">
                             {selectedDetail.tags.map((tag) => {
@@ -1389,21 +1439,31 @@ export default function LocalModelsPanel() {
                                   key={tag.id}
                                   className={cn(
                                     "rounded-md border p-3",
-                                    largeModel ? "border-destructive/40 bg-destructive/5" : "border-border/70",
+                                    largeModel
+                                      ? "border-destructive/40 bg-destructive/5"
+                                      : "border-border/70",
                                   )}
                                 >
                                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                                     <div className="min-w-0">
                                       <div className="flex flex-wrap items-center gap-2">
-                                        <span className="font-mono text-xs font-medium text-foreground">{tag.id}</span>
+                                        <span className="font-mono text-xs font-medium text-foreground">
+                                          {tag.id}
+                                        </span>
                                         {largeModel && renderLargeWarning()}
                                       </div>
                                       <div className="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-                                        <span className={cn(largeModel && "font-medium text-destructive")}>
+                                        <span
+                                          className={cn(
+                                            largeModel && "font-medium text-destructive",
+                                          )}
+                                        >
                                           {tag.sizeLabel ?? "-"}
                                         </span>
                                         <span>{tag.contextLabel ?? "-"}</span>
-                                        {tag.inputTypes.length > 0 && <span>{tag.inputTypes.join(", ")}</span>}
+                                        {tag.inputTypes.length > 0 && (
+                                          <span>{tag.inputTypes.join(", ")}</span>
+                                        )}
                                         {tag.cloudOnly && (
                                           <span className="text-amber-600 dark:text-amber-400">
                                             {t("settings.localModels.cloudOnly")}
@@ -1480,7 +1540,9 @@ export default function LocalModelsPanel() {
         error={dialogError}
         cancellable={false}
         onBackground={() => setDialogOpen(false)}
-        onCancelTask={currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined}
+        onCancelTask={
+          currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined
+        }
         backgroundLabel={t("localModelJobs.actions.backgroundTask")}
         cancelLabel={t("localModelJobs.actions.cancelTask")}
         closeTitle={t("localModelJobs.close.taskTitle")}
@@ -1509,7 +1571,10 @@ export default function LocalModelsPanel() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!pendingCancelJob} onOpenChange={(open) => !open && setPendingCancelJob(null)}>
+      <AlertDialog
+        open={!!pendingCancelJob}
+        onOpenChange={(open) => !open && setPendingCancelJob(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>{t("localModelJobs.cancelConfirm.title")}</AlertDialogTitle>

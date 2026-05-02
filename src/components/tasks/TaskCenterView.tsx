@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import {
   ArrowLeft,
@@ -64,21 +64,15 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
     expandedLogsRef.current = expandedLogs
   }, [expandedLogs])
 
-  const sortedJobs = useMemo(
-    () => [...jobs].sort((a, b) => b.createdAt - a.createdAt),
-    [jobs],
-  )
+  const sortedJobs = [...jobs].sort((a, b) => b.createdAt - a.createdAt)
   const activeCount = sortedJobs.filter(isLocalModelJobActive).length
 
-  const phaseLabel = useCallback(
-    (phase: string | undefined) => {
-      const key = phaseTranslationKey(phase)
-      return key ? t(key) : (phase ?? "")
-    },
-    [t],
-  )
+  const phaseLabel = (phase: string | undefined) => {
+    const key = phaseTranslationKey(phase)
+    return key ? t(key) : (phase ?? "")
+  }
 
-  const upsertJob = useCallback((job: LocalModelJobSnapshot) => {
+  const upsertJob = (job: LocalModelJobSnapshot) => {
     setJobs((prev) => {
       const idx = prev.findIndex((item) => item.jobId === job.jobId)
       if (idx === -1) return [job, ...prev]
@@ -86,9 +80,10 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
       next[idx] = job
       return next
     })
-  }, [])
+  }
+  const upsertJobEffectEvent = useEffectEvent(upsertJob)
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     setLoading(true)
     try {
       const list = await getTransport().call<LocalModelJobSnapshot[]>("local_model_job_list")
@@ -99,15 +94,16 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }
+  const refreshEffectEvent = useEffectEvent(refresh)
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void refreshEffectEvent()
+  }, [])
 
   useEffect(() => {
     const onSnapshot = (raw: unknown) => {
-      upsertJob(parsePayload<LocalModelJobSnapshot>(raw))
+      upsertJobEffectEvent(parsePayload<LocalModelJobSnapshot>(raw))
     }
     const onLog = (raw: unknown) => {
       const entry = parsePayload<LocalModelJobLogEntry>(raw)
@@ -127,72 +123,66 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
       unlistenCompleted()
       unlistenLog()
     }
-  }, [upsertJob])
+  }, [])
 
-  const loadLogs = useCallback(async (jobId: string) => {
+  const loadLogs = async (jobId: string) => {
     const entries = await getTransport().call<LocalModelJobLogEntry[]>("local_model_job_logs", {
       jobId,
     })
     setLogs((prev) => ({ ...prev, [jobId]: entries }))
-  }, [])
+  }
 
-  const toggleLogs = useCallback(
-    (jobId: string) => {
-      setExpandedLogs((prev) => {
-        const nextOpen = !prev[jobId]
-        if (nextOpen) {
-          void loadLogs(jobId).catch((e) => {
-            logger.warn("tasks", "TaskCenterView::loadLogs", "Failed to load logs", e)
-          })
-        }
-        return { ...prev, [jobId]: nextOpen }
-      })
-    },
-    [loadLogs],
-  )
-
-  const runAction = useCallback(
-    async (jobId: string, action: "cancel" | "retry" | "clear") => {
-      setActioning((prev) => ({ ...prev, [jobId]: true }))
-      try {
-        if (action === "cancel") {
-          upsertJob(
-            await getTransport().call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId }),
-          )
-        } else if (action === "retry") {
-          const nextJob = await getTransport().call<LocalModelJobSnapshot>("local_model_job_retry", {
-            jobId,
-          })
-          upsertJob(nextJob)
-          toast.success(t("localModelJobs.toast.retryStarted", { model: nextJob.displayName }))
-        } else {
-          await getTransport().call("local_model_job_clear", { jobId })
-          setJobs((prev) => prev.filter((job) => job.jobId !== jobId))
-          setLogs((prev) => {
-            const next = { ...prev }
-            delete next[jobId]
-            return next
-          })
-          setExpandedLogs((prev) => {
-            const next = { ...prev }
-            delete next[jobId]
-            return next
-          })
-          setActioning((prev) => {
-            const next = { ...prev }
-            delete next[jobId]
-            return next
-          })
-          return
-        }
-      } catch (e) {
-        toast.error(String(e))
-      } finally {
-        setActioning((prev) => ({ ...prev, [jobId]: false }))
+  const toggleLogs = (jobId: string) => {
+    setExpandedLogs((prev) => {
+      const nextOpen = !prev[jobId]
+      if (nextOpen) {
+        void loadLogs(jobId).catch((e) => {
+          logger.warn("tasks", "TaskCenterView::loadLogs", "Failed to load logs", e)
+        })
       }
-    },
-    [t, upsertJob],
-  )
+      return { ...prev, [jobId]: nextOpen }
+    })
+  }
+
+  const runAction = async (jobId: string, action: "cancel" | "retry" | "clear") => {
+    setActioning((prev) => ({ ...prev, [jobId]: true }))
+    try {
+      if (action === "cancel") {
+        upsertJob(
+          await getTransport().call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId }),
+        )
+      } else if (action === "retry") {
+        const nextJob = await getTransport().call<LocalModelJobSnapshot>("local_model_job_retry", {
+          jobId,
+        })
+        upsertJob(nextJob)
+        toast.success(t("localModelJobs.toast.retryStarted", { model: nextJob.displayName }))
+      } else {
+        await getTransport().call("local_model_job_clear", { jobId })
+        setJobs((prev) => prev.filter((job) => job.jobId !== jobId))
+        setLogs((prev) => {
+          const next = { ...prev }
+          delete next[jobId]
+          return next
+        })
+        setExpandedLogs((prev) => {
+          const next = { ...prev }
+          delete next[jobId]
+          return next
+        })
+        setActioning((prev) => {
+          const next = { ...prev }
+          delete next[jobId]
+          return next
+        })
+        return
+      }
+    } catch (e) {
+      toast.error(String(e))
+    } finally {
+      setActioning((prev) => ({ ...prev, [jobId]: false }))
+    }
+  }
 
   return (
     <div className="flex-1 min-w-0 overflow-y-auto bg-background">
@@ -221,7 +211,9 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
           <div className="flex min-h-[260px] flex-col items-center justify-center rounded-lg border border-dashed border-border text-center">
             <ListChecks className="mb-3 h-8 w-8 text-muted-foreground" />
             <div className="text-sm font-medium">{t("localModelJobs.emptyTitle")}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{t("localModelJobs.emptyDescription")}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {t("localModelJobs.emptyDescription")}
+            </div>
           </div>
         ) : (
           <div className="space-y-3">
@@ -337,7 +329,10 @@ export default function TaskCenterView({ onBack }: { onBack: () => void }) {
                       ) : (
                         <div className="max-h-56 overflow-y-auto rounded-md border border-border/60 bg-background p-2 font-mono text-[11px] leading-tight text-muted-foreground">
                           {jobLogs.map((entry) => (
-                            <div key={`${entry.jobId}-${entry.seq}`} className="whitespace-pre-wrap break-all">
+                            <div
+                              key={`${entry.jobId}-${entry.seq}`}
+                              className="whitespace-pre-wrap break-all"
+                            >
                               {formatLocalModelJobLogLine(entry.message, entry.createdAt)}
                             </div>
                           ))}

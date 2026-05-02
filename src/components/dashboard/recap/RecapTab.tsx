@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
@@ -41,7 +41,7 @@ export default function RecapTab({ initialReportId }: Props) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadList = useCallback(async () => {
+  const loadList = async () => {
     try {
       const rows = await getTransport().call<RecapReportSummary[]>("recap_list_reports", {
         limit: 50,
@@ -53,9 +53,10 @@ export default function RecapTab({ initialReportId }: Props) {
     } catch (e) {
       logger.error("recap", "loadList", `Failed: ${e}`)
     }
-  }, [selected])
+  }
+  const loadListEffectEvent = useEffectEvent(loadList)
 
-  const loadReport = useCallback(async (id: string) => {
+  const loadReport = async (id: string) => {
     setLoading(true)
     setError(null)
     try {
@@ -68,15 +69,16 @@ export default function RecapTab({ initialReportId }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const loadReportEffectEvent = useEffectEvent(loadReport)
 
   useEffect(() => {
-    loadList()
-  }, [loadList])
+    loadListEffectEvent()
+  }, [selected])
 
   useEffect(() => {
-    if (selected) loadReport(selected)
-  }, [selected, loadReport])
+    if (selected) loadReportEffectEvent(selected)
+  }, [selected])
 
   useEffect(() => {
     if (!generating) return
@@ -87,7 +89,7 @@ export default function RecapTab({ initialReportId }: Props) {
         setProgress(obj.progress)
         if (obj.progress.phase === "done") {
           setGenerating(false)
-          void loadList()
+          void loadListEffectEvent()
         } else if (obj.progress.phase === "failed") {
           setGenerating(false)
           setError(obj.progress.message ?? "generation failed")
@@ -97,9 +99,9 @@ export default function RecapTab({ initialReportId }: Props) {
     return () => {
       unlisten()
     }
-  }, [generating, loadList])
+  }, [generating, selected])
 
-  const onGenerate = useCallback(async () => {
+  const onGenerate = async () => {
     setError(null)
     setGenerating(true)
     setProgress(null)
@@ -130,9 +132,9 @@ export default function RecapTab({ initialReportId }: Props) {
     } finally {
       setGenerating(false)
     }
-  }, [rangeDays, loadList])
+  }
 
-  const onExport = useCallback(async () => {
+  const onExport = async () => {
     if (!current) return
     try {
       const path = await getTransport().call<string>("recap_export_html", {
@@ -144,9 +146,9 @@ export default function RecapTab({ initialReportId }: Props) {
     } catch (e) {
       setError(String(e))
     }
-  }, [current, t])
+  }
 
-  const onDelete = useCallback(async () => {
+  const onDelete = async () => {
     if (!selected) return
     const reportTitle = current?.meta.title || t("recap.delete")
     try {
@@ -164,7 +166,7 @@ export default function RecapTab({ initialReportId }: Props) {
       })
     }
     setConfirmDeleteOpen(false)
-  }, [selected, current, loadList, t])
+  }
 
   return (
     <div className="flex flex-col gap-4">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -16,11 +16,7 @@ import { X, Bot, Plus, Send } from "lucide-react"
 import type { CronDeliveryTarget, CronJob, CronSchedule } from "./CronJobForm.types"
 
 import type { CronFrequency } from "./CronJobForm.types"
-import {
-  parseCronToVisual,
-  buildCronFromVisual,
-  toLocalDatetimeString,
-} from "./cronHelpers"
+import { parseCronToVisual, buildCronFromVisual, toLocalDatetimeString } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
 import type { AgentInfo } from "@/types/chat"
 import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
@@ -80,13 +76,8 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [intervalUnit, setIntervalUnit] = useState<"min" | "hour" | "day">("min")
 
   // Visual cron builder state
-  const initVisual = useMemo(
-    () =>
-      parseCronToVisual(
-        job?.schedule.type === "cron" ? (job.schedule.expression ?? "") : "0 0 9 * * *",
-      ),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+  const initVisual = parseCronToVisual(
+    job?.schedule.type === "cron" ? (job.schedule.expression ?? "") : "0 0 9 * * *",
   )
   const [cronFreq, setCronFreq] = useState<CronFrequency>(initVisual.freq)
   const [cronHour, setCronHour] = useState(initVisual.hour)
@@ -98,10 +89,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   )
 
   // Sync visual -> raw expression (for preview and saving)
-  const cronExpression = useMemo(
-    () =>
-      buildCronFromVisual(cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr),
-    [cronFreq, cronHour, cronMinute, cronWeekdays, cronMonthDay, cronRawExpr],
+  const cronExpression = buildCronFromVisual(
+    cronFreq,
+    cronHour,
+    cronMinute,
+    cronWeekdays,
+    cronMonthDay,
+    cronRawExpr,
   )
 
   const [message, setMessage] = useState(job?.payload.prompt ?? "")
@@ -120,11 +114,13 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [error, setError] = useState("")
 
   useEffect(() => {
-    getTransport().call<AgentInfo[]>("list_agents")
+    getTransport()
+      .call<AgentInfo[]>("list_agents")
       .then(setAgents)
       .catch(() => {})
 
-    getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
+    getTransport()
+      .call<ChannelAccountConfig[]>("channel_list_accounts")
       .then((list) => setAccounts(list.filter((a) => a.enabled)))
       .catch(() => {})
   }, [])
@@ -144,10 +140,10 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   async function loadConversationsFor(channelId: string, accountId: string) {
     if (!channelId || !accountId) return
     try {
-      const list = await getTransport().call<ChannelConversationDto[]>(
-        "channel_list_sessions",
-        { channelId, accountId },
-      )
+      const list = await getTransport().call<ChannelConversationDto[]>("channel_list_sessions", {
+        channelId,
+        accountId,
+      })
       setConversationsByAccount((prev) => ({ ...prev, [accountId]: list }))
     } catch {
       setConversationsByAccount((prev) => ({ ...prev, [accountId]: [] }))
@@ -229,9 +225,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
     setError("")
 
     // Only persist fully-configured targets (skip rows still awaiting a chat pick).
-    const validTargets = deliveryTargets.filter(
-      (t) => t.channelId && t.accountId && t.chatId,
-    )
+    const validTargets = deliveryTargets.filter((t) => t.channelId && t.accountId && t.chatId)
 
     try {
       if (isEditing && job) {
@@ -285,7 +279,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
           type: "every",
           intervalMs,
           startAt: preserveStartAt
-            ? ((job.schedule.startAt ?? job.schedule.start_at) ?? null)
+            ? (job.schedule.startAt ?? job.schedule.start_at ?? null)
             : undefined,
         }
       }
@@ -509,16 +503,16 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
 
             {deliveryTargets.length === 0 ? (
               <p className="text-xs text-muted-foreground/60 py-1.5">
-                {accounts.length === 0
-                  ? t("cron.noDeliveryChannels")
-                  : t("cron.noDeliveryTargets")}
+                {accounts.length === 0 ? t("cron.noDeliveryChannels") : t("cron.noDeliveryTargets")}
               </p>
             ) : (
               <div className="space-y-2">
                 {deliveryTargets.map((target, idx) => {
                   const convs = conversationsByAccount[target.accountId] ?? []
                   const selectedConv = convs.find(
-                    (c) => c.chatId === target.chatId && (c.threadId ?? null) === (target.threadId ?? null),
+                    (c) =>
+                      c.chatId === target.chatId &&
+                      (c.threadId ?? null) === (target.threadId ?? null),
                   )
                   return (
                     <div
@@ -567,9 +561,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
                           <SelectContent>
                             {convs.map((c) => {
                               const name =
-                                c.senderName && c.senderName.length > 0
-                                  ? c.senderName
-                                  : c.chatId
+                                c.senderName && c.senderName.length > 0 ? c.senderName : c.chatId
                               return (
                                 <SelectItem key={c.id} value={String(c.id)}>
                                   <span className="text-xs">

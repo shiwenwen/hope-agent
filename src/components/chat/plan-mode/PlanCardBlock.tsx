@@ -1,16 +1,8 @@
-import { useMemo, useCallback, useState } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
-import {
-  ClipboardList,
-  ChevronRight,
-  Play,
-  X,
-  CheckCircle,
-  Loader2,
-  Pause,
-} from "lucide-react"
+import { ClipboardList, ChevronRight, Play, X, CheckCircle, Loader2, Pause } from "lucide-react"
 import type { ParsedPlanStep } from "./planParser"
 import { groupStepsByPhase } from "./planParser"
 import { PlanStepItem } from "./PlanStepItem"
@@ -40,17 +32,18 @@ function PhaseList({
 }) {
   const [expanded, setExpanded] = useState<Record<number, boolean>>({})
 
-  const toggle = useCallback((index: number) => {
-    setExpanded(prev => ({ ...prev, [index]: !prev[index] }))
-  }, [])
+  const toggle = (index: number) => {
+    setExpanded((prev) => ({ ...prev, [index]: !prev[index] }))
+  }
 
-  const showProgress = planState === "executing" || planState === "paused" || planState === "completed"
+  const showProgress =
+    planState === "executing" || planState === "paused" || planState === "completed"
 
   return (
     <div className="space-y-0.5">
       {phases.map((phase, i) => {
         const phaseCompleted = phase.steps.filter(
-          s => s.status === "completed" || s.status === "skipped" || s.status === "failed"
+          (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed",
         ).length
         const phaseTotal = phase.steps.length
         const isExpanded = expanded[i] ?? false
@@ -62,7 +55,12 @@ function PhaseList({
               onClick={() => toggle(i)}
               className="flex items-center gap-2 text-xs text-muted-foreground w-full hover:text-foreground transition-colors cursor-pointer py-0.5"
             >
-              <ChevronRight className={cn("h-3 w-3 shrink-0 transition-transform duration-200", isExpanded && "rotate-90")} />
+              <ChevronRight
+                className={cn(
+                  "h-3 w-3 shrink-0 transition-transform duration-200",
+                  isExpanded && "rotate-90",
+                )}
+              />
               <span className="truncate text-left">{phase.name}</span>
               <span className="shrink-0 ml-auto">
                 {showProgress ? `${phaseCompleted}/${phaseTotal}` : `(${phaseTotal})`}
@@ -93,41 +91,41 @@ export default function PlanCardBlock({
 }: PlanCardBlockProps) {
   const { t } = useTranslation()
 
-  const phases = useMemo(() => groupStepsByPhase(data.steps), [data.steps])
+  const phases = groupStepsByPhase(data.steps)
 
-  const completedCount = useMemo(
-    () => data.steps.filter(s => s.status === "completed" || s.status === "skipped" || s.status === "failed").length,
-    [data.steps],
-  )
+  const completedCount = data.steps.filter(
+    (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed",
+  ).length
 
-  const progress = useMemo(
-    () => data.steps.length > 0 ? Math.round((completedCount / data.steps.length) * 100) : 0,
-    [completedCount, data.steps.length],
-  )
+  const progress =
+    data.steps.length > 0 ? Math.round((completedCount / data.steps.length) * 100) : 0
 
-  const borderColor = planState === "completed"
-    ? "border-green-500/20"
-    : planState === "executing"
-    ? "border-blue-500/20"
-    : planState === "paused"
-    ? "border-yellow-500/20"
-    : "border-purple-500/20"
+  const borderColor =
+    planState === "completed"
+      ? "border-green-500/20"
+      : planState === "executing"
+        ? "border-blue-500/20"
+        : planState === "paused"
+          ? "border-yellow-500/20"
+          : "border-purple-500/20"
 
-  const bgColor = planState === "completed"
-    ? "bg-green-500/5"
-    : planState === "executing"
-    ? "bg-blue-500/5"
-    : planState === "paused"
-    ? "bg-yellow-500/5"
-    : "bg-purple-500/5"
+  const bgColor =
+    planState === "completed"
+      ? "bg-green-500/5"
+      : planState === "executing"
+        ? "bg-blue-500/5"
+        : planState === "paused"
+          ? "bg-yellow-500/5"
+          : "bg-purple-500/5"
 
-  const iconColor = planState === "completed"
-    ? "text-green-600"
-    : planState === "executing"
-    ? "text-blue-600"
-    : planState === "paused"
-    ? "text-yellow-600"
-    : "text-purple-600"
+  const iconColor =
+    planState === "completed"
+      ? "text-green-600"
+      : planState === "executing"
+        ? "text-blue-600"
+        : planState === "paused"
+          ? "text-yellow-600"
+          : "text-purple-600"
 
   return (
     <div className={cn("my-2 rounded-lg border p-4 space-y-3", borderColor, bgColor)}>
@@ -164,7 +162,11 @@ export default function PlanCardBlock({
             <div
               className={cn(
                 "h-full rounded-full transition-all duration-500 ease-out",
-                planState === "completed" ? "bg-green-500" : planState === "paused" ? "bg-yellow-500" : "bg-blue-500"
+                planState === "completed"
+                  ? "bg-green-500"
+                  : planState === "paused"
+                    ? "bg-yellow-500"
+                    : "bg-blue-500",
               )}
               style={{ width: `${progress}%` }}
             />
@@ -183,7 +185,12 @@ export default function PlanCardBlock({
               <Play className="h-3.5 w-3.5" />
               {t("planMode.approveAndExecute")}
             </Button>
-            <Button size="sm" variant="ghost" onClick={onExit} className="gap-1.5 text-muted-foreground">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onExit}
+              className="gap-1.5 text-muted-foreground"
+            >
               <X className="h-3.5 w-3.5" />
               {t("planMode.exitWithout")}
             </Button>
@@ -201,7 +208,12 @@ export default function PlanCardBlock({
               <Play className="h-3.5 w-3.5" />
               {t("planMode.resume")}
             </Button>
-            <Button size="sm" variant="ghost" onClick={onExit} className="gap-1.5 text-muted-foreground">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={onExit}
+              className="gap-1.5 text-muted-foreground"
+            >
               <X className="h-3.5 w-3.5" />
               {t("planMode.exitWithout")}
             </Button>

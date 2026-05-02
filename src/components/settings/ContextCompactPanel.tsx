@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
@@ -161,7 +161,7 @@ export default function ContextCompactPanel() {
 
   const isDirty = config ? JSON.stringify(config) !== savedJson : false
 
-  const handleSave = useCallback(async () => {
+  const handleSave = async () => {
     if (!config) return
     setSaving(true)
     try {
@@ -176,11 +176,11 @@ export default function ContextCompactPanel() {
     } finally {
       setSaving(false)
     }
-  }, [config])
+  }
 
-  const update = useCallback((patch: Partial<CompactConfig>) => {
+  const update = (patch: Partial<CompactConfig>) => {
     setConfig((prev) => (prev ? { ...prev, ...patch } : prev))
-  }, [])
+  }
 
   if (!config) {
     return (

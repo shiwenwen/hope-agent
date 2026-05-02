@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { getTransport } from "@/lib/transport-provider"
@@ -40,7 +40,7 @@ export default function SkillsPanel() {
   // Saving state per key
   const [envSaving, setEnvSaving] = useState<Record<string, boolean>>({})
 
-  const reload = useCallback(async () => {
+  const reload = async () => {
     try {
       const [list, dirs, envCheck, status] = await Promise.all([
         getTransport().call<SkillSummary[]>("get_skills"),
@@ -57,15 +57,16 @@ export default function SkillsPanel() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }
+  const reloadEffectEvent = useEffectEvent(reload)
 
   useEffect(() => {
-    reload()
+    reloadEffectEvent()
     const unlisten = getTransport().listen(SKILLS_EVENTS.autoReviewComplete, () => {
-      reload()
+      reloadEffectEvent()
     })
     return unlisten
-  }, [reload])
+  }, [])
 
   // Whenever the panel is open and the draft list changes (mount, store
   // refresh, or live event), the user is implicitly "seeing" the current set —
@@ -98,11 +99,8 @@ export default function SkillsPanel() {
     }
   }, [])
 
-  const draftNames = useMemo(() => new Set(drafts.map((d) => d.name)), [drafts])
-  const visibleSkills = useMemo(
-    () => skills.filter((s) => !draftNames.has(s.name)),
-    [skills, draftNames],
-  )
+  const draftNames = new Set(drafts.map((d) => d.name))
+  const visibleSkills = skills.filter((s) => !draftNames.has(s.name))
 
   async function handleActivateDraft(name: string) {
     setDraftPending((prev) => ({ ...prev, [name]: "activate" }))
@@ -201,7 +199,8 @@ export default function SkillsPanel() {
       setEnvValues(maskedEnv)
       setEnvDirty((prev) => ({ ...prev, [key]: false }))
       // Refresh env status
-      const status = await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
+      const status =
+        await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
       setEnvStatus(status)
     } catch (e) {
       logger.error("settings", "SkillsPanel::saveEnv", "Failed to save env var", e)
@@ -221,7 +220,8 @@ export default function SkillsPanel() {
       })
       setEnvDirty((prev) => ({ ...prev, [key]: false }))
       // Refresh env status
-      const status = await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
+      const status =
+        await getTransport().call<Record<string, Record<string, boolean>>>("get_skills_env_status")
       setEnvStatus(status)
     } catch (e) {
       logger.error("settings", "SkillsPanel::removeEnv", "Failed to remove env var", e)
@@ -307,9 +307,7 @@ export default function SkillsPanel() {
         <div className="px-6 pt-4 shrink-0">
           <TabsList>
             <TabsTrigger value="manage">{t("settings.skillsTab.manage")}</TabsTrigger>
-            <TabsTrigger value="evolution">
-              {t("settings.skillsTab.evolution")}
-            </TabsTrigger>
+            <TabsTrigger value="evolution">{t("settings.skillsTab.evolution")}</TabsTrigger>
           </TabsList>
         </div>
         <TabsContent value="manage" className="flex-1 min-h-0 outline-none">

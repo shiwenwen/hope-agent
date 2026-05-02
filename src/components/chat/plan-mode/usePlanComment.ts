@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import type { PlanModeState } from "./usePlanMode"
 
 export interface CommentPopoverState {
@@ -20,7 +20,7 @@ export function usePlanComment({
   const canComment = (planState === "review" || planState === "planning") && !!onRequestChanges
 
   // Highlight selected text with <mark> wrapper
-  const highlightSelection = useCallback((range: Range) => {
+  const highlightSelection = (range: Range) => {
     try {
       const mark = document.createElement("mark")
       mark.className = "bg-blue-200/50 dark:bg-blue-500/30 rounded-sm plan-comment-highlight"
@@ -43,10 +43,10 @@ export function usePlanComment({
         mark.appendChild(node)
       }
     }
-  }, [])
+  }
 
   // Remove all highlight <mark> wrappers, restoring original DOM
-  const clearHighlight = useCallback(() => {
+  const clearHighlight = () => {
     if (!contentRef.current) return
     const marks = contentRef.current.querySelectorAll("mark.plan-comment-highlight")
     marks.forEach((mark) => {
@@ -56,10 +56,11 @@ export function usePlanComment({
         parent.removeChild(mark)
       }
     })
-  }, [])
+  }
+  const clearHighlightEffectEvent = useEffectEvent(clearHighlight)
 
   // Handle text selection for inline commenting
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = () => {
     if (!contentRef.current) return
     // Only allow commenting in review/planning states
     if (planState !== "review" && planState !== "planning") return
@@ -92,30 +93,30 @@ export function usePlanComment({
     selection.removeAllRanges()
 
     setCommentPopover({ position: { top, left }, selectedText })
-  }, [planState, clearHighlight, highlightSelection])
+  }
 
   // Close comment popover when clicking outside or selection changes
   useEffect(() => {
     const handleMouseDown = () => {
       // Don't close if clicking inside the popover (handled by stopPropagation there)
       if (commentPopover) {
-        clearHighlight()
+        clearHighlightEffectEvent()
         setCommentPopover(null)
       }
     }
     // Use mousedown on document to dismiss
     document.addEventListener("mousedown", handleMouseDown)
     return () => document.removeEventListener("mousedown", handleMouseDown)
-  }, [commentPopover, clearHighlight])
+  }, [commentPopover])
 
   // Cleanup highlights when commenting is disabled
   useEffect(() => {
     const canCommentNow = (planState === "review" || planState === "planning") && !!onRequestChanges
-    if (!canCommentNow) clearHighlight()
-  }, [planState, onRequestChanges, clearHighlight])
+    if (!canCommentNow) clearHighlightEffectEvent()
+  }, [planState, onRequestChanges])
 
   // Submit comment: format as quoted selection + comment and send to model
-  const handleCommentSubmit = useCallback((comment: string) => {
+  const handleCommentSubmit = (comment: string) => {
     if (!commentPopover || !onRequestChanges) return
     const feedback = [
       `<plan-inline-comment>`,
@@ -136,13 +137,13 @@ export function usePlanComment({
     clearHighlight()
     setCommentPopover(null)
     window.getSelection()?.removeAllRanges()
-  }, [commentPopover, onRequestChanges, clearHighlight])
+  }
 
-  const closeCommentPopover = useCallback(() => {
+  const closeCommentPopover = () => {
     clearHighlight()
     setCommentPopover(null)
     window.getSelection()?.removeAllRanges()
-  }, [clearHighlight])
+  }
 
   return {
     commentPopover,

@@ -1,13 +1,7 @@
-import { useCallback } from "react"
 import { useTranslation } from "react-i18next"
 import { Copy, Check } from "lucide-react"
 import { useState } from "react"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 
 interface SystemPromptDialogProps {
   open: boolean
@@ -23,11 +17,11 @@ export default function SystemPromptDialog({
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
 
-  const handleCopy = useCallback(() => {
+  const handleCopy = () => {
     navigator.clipboard.writeText(content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
-  }, [content])
+  }
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

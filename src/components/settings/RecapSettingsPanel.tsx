@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -42,20 +42,22 @@ export default function RecapSettingsPanel() {
   const [agents, setAgents] = useState<AgentItem[]>([])
   const [loaded, setLoaded] = useState(false)
 
-  const persist = useCallback(async (next: RecapConfig) => {
+  const persist = async (next: RecapConfig) => {
     try {
       await getTransport().call("save_recap_config", { config: next })
       setSavedSnapshot(JSON.stringify(next))
     } catch (e) {
       logger.error("settings", "RecapSettingsPanel::save", "Failed to save recap config", e)
     }
-  }, [])
+  }
 
   useEffect(() => {
     let cancelled = false
     Promise.all([
       getTransport().call<RecapConfig>("get_recap_config"),
-      getTransport().call<AgentItem[]>("list_agents").catch(() => [] as AgentItem[]),
+      getTransport()
+        .call<AgentItem[]>("list_agents")
+        .catch(() => [] as AgentItem[]),
     ])
       .then(([cfg, agentList]) => {
         if (cancelled) return
@@ -74,30 +76,33 @@ export default function RecapSettingsPanel() {
     }
   }, [])
 
-  const commitIfChanged = useCallback(
-    (next: RecapConfig) => {
-      if (JSON.stringify(next) !== savedSnapshot) {
-        void persist(next)
-      }
-    },
-    [persist, savedSnapshot],
-  )
+  const commitIfChanged = (next: RecapConfig) => {
+    if (JSON.stringify(next) !== savedSnapshot) {
+      void persist(next)
+    }
+  }
 
   const updateNumber =
-    (key: keyof Pick<
-      RecapConfig,
-      "defaultRangeDays" | "maxSessionsPerReport" | "facetConcurrency" | "cacheRetentionDays"
-    >, min: number) =>
+    (
+      key: keyof Pick<
+        RecapConfig,
+        "defaultRangeDays" | "maxSessionsPerReport" | "facetConcurrency" | "cacheRetentionDays"
+      >,
+      min: number,
+    ) =>
     (raw: number) => {
       const clamped = Number.isFinite(raw) ? Math.max(min, Math.round(raw)) : min
       setConfig((prev) => ({ ...prev, [key]: clamped }))
     }
 
   const commitNumber =
-    (key: keyof Pick<
-      RecapConfig,
-      "defaultRangeDays" | "maxSessionsPerReport" | "facetConcurrency" | "cacheRetentionDays"
-    >, min: number) =>
+    (
+      key: keyof Pick<
+        RecapConfig,
+        "defaultRangeDays" | "maxSessionsPerReport" | "facetConcurrency" | "cacheRetentionDays"
+      >,
+      min: number,
+    ) =>
     () => {
       setConfig((prev) => {
         const clamped = Math.max(min, Math.round(prev[key]))

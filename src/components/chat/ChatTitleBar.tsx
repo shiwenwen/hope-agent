@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -132,25 +132,25 @@ export default function ChatTitleBar({
   const currentSession = currentSessionId ? sessions.find((s) => s.id === currentSessionId) : null
   const sessionTitle = currentSession?.title || ""
 
-  const startEditTitle = useCallback(() => {
+  const startEditTitle = () => {
     setTitleValue(sessionTitle || t("chat.newChat") || "")
     setEditingTitle(true)
     setTimeout(() => {
       titleInputRef.current?.focus()
       titleInputRef.current?.select()
     }, 0)
-  }, [sessionTitle, t])
+  }
 
-  const commitTitle = useCallback(() => {
+  const commitTitle = () => {
     if (currentSessionId && titleValue.trim() && onRenameSession) {
       onRenameSession(currentSessionId, titleValue.trim())
     }
     setEditingTitle(false)
-  }, [currentSessionId, titleValue, onRenameSession])
+  }
 
-  const cancelEditTitle = useCallback(() => {
+  const cancelEditTitle = () => {
     setEditingTitle(false)
-  }, [])
+  }
 
   // Close status popover on outside click
   useEffect(() => {
@@ -170,7 +170,7 @@ export default function ChatTitleBar({
     }
   }, [])
 
-  const handleCopySessionId = useCallback(async () => {
+  const handleCopySessionId = async () => {
     if (!currentSessionId) return
     try {
       await navigator.clipboard.writeText(currentSessionId)
@@ -181,7 +181,7 @@ export default function ChatTitleBar({
     setSessionIdCopied(true)
     if (sessionIdCopiedTimer.current) clearTimeout(sessionIdCopiedTimer.current)
     sessionIdCopiedTimer.current = setTimeout(() => setSessionIdCopied(false), 1500)
-  }, [currentSessionId])
+  }
 
   const currentModel = activeModel
     ? availableModels.find(

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react"
+import { useEffect, useState } from "react"
 import { Streamdown } from "streamdown"
 import { code } from "@streamdown/code"
 import { cjk } from "@streamdown/cjk"
@@ -167,40 +167,34 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
   const [focusedOption, setFocusedOption] = useState<Record<string, string>>({})
 
   const remaining = useCountdown(group.timeoutAt)
-  const hasAnyPreview = useMemo(
-    () => group.questions.some((q) => q.options.some((o) => !!o.preview)),
-    [group.questions]
-  )
+  const hasAnyPreview = group.questions.some((q) => q.options.some((o) => !!o.preview))
 
-  const toggleOption = useCallback(
-    (questionId: string, value: string, multiSelect: boolean) => {
-      setAnswers((prev) => {
-        const q = prev[questionId]
-        if (!q) return prev
-        const newSelected = new Set(q.selected)
-        if (multiSelect) {
-          if (newSelected.has(value)) newSelected.delete(value)
-          else newSelected.add(value)
-        } else {
-          newSelected.clear()
-          newSelected.add(value)
-        }
-        return { ...prev, [questionId]: { ...q, selected: newSelected } }
-      })
-      setFocusedOption((prev) => ({ ...prev, [questionId]: value }))
-    },
-    []
-  )
+  const toggleOption = (questionId: string, value: string, multiSelect: boolean) => {
+    setAnswers((prev) => {
+      const q = prev[questionId]
+      if (!q) return prev
+      const newSelected = new Set(q.selected)
+      if (multiSelect) {
+        if (newSelected.has(value)) newSelected.delete(value)
+        else newSelected.add(value)
+      } else {
+        newSelected.clear()
+        newSelected.add(value)
+      }
+      return { ...prev, [questionId]: { ...q, selected: newSelected } }
+    })
+    setFocusedOption((prev) => ({ ...prev, [questionId]: value }))
+  }
 
-  const setCustomInput = useCallback((questionId: string, value: string) => {
+  const setCustomInput = (questionId: string, value: string) => {
     setAnswers((prev) => {
       const q = prev[questionId]
       if (!q) return prev
       return { ...prev, [questionId]: { ...q, customInput: value } }
     })
-  }, [])
+  }
 
-  const handleSubmit = useCallback(async () => {
+  const handleSubmit = async () => {
     setSubmitting(true)
     setError(null)
     try {
@@ -224,13 +218,13 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         "ask_user",
         "AskUserQuestionBlock::submit",
         "Failed to submit ask_user response",
-        msg
+        msg,
       )
       setError(msg)
     } finally {
       setSubmitting(false)
     }
-  }, [group, answers, onSubmitted])
+  }
 
   if (submitted) return null
 
@@ -254,11 +248,15 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   ? "bg-destructive/10 text-destructive"
                   : lowTime
                     ? "bg-amber-500/15 text-amber-600 animate-pulse"
-                    : "bg-muted text-muted-foreground"
+                    : "bg-muted text-muted-foreground",
               )}
             >
               <Timer className="h-3 w-3" />
-              <span>{timedOut ? t("planMode.question.timedOut", { defaultValue: "timed out" }) : formatRemaining(remaining)}</span>
+              <span>
+                {timedOut
+                  ? t("planMode.question.timedOut", { defaultValue: "timed out" })
+                  : formatRemaining(remaining)}
+              </span>
             </div>
           </IconTip>
         )}
@@ -279,7 +277,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
             className={cn(
               "space-y-2",
               showSidePreview &&
-                "md:grid md:grid-cols-[minmax(260px,2fr)_3fr] md:gap-4 md:space-y-0"
+                "md:grid md:grid-cols-[minmax(260px,2fr)_3fr] md:gap-4 md:space-y-0",
             )}
           >
             {/* Left column: title + options */}
@@ -313,8 +311,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
               <div className="pl-5 space-y-1.5">
                 {q.options.map((opt) => {
                   const isSelected = state?.selected.has(opt.value) ?? false
-                  const isDefault =
-                    q.defaultValues?.includes(opt.value) ?? false
+                  const isDefault = q.defaultValues?.includes(opt.value) ?? false
                   return (
                     <button
                       key={opt.value}
@@ -328,7 +325,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                           ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
                           : opt.recommended
                             ? "border-amber-500/40 bg-amber-500/5 hover:border-amber-500/60"
-                            : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+                            : "border-border hover:border-blue-500/50 hover:bg-blue-500/5",
                       )}
                     >
                       <div className="flex items-center gap-2">
@@ -338,7 +335,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                             q.multiSelect ? "rounded-sm" : "rounded-full",
                             isSelected
                               ? "border-blue-500 bg-blue-500"
-                              : "border-muted-foreground/30"
+                              : "border-muted-foreground/30",
                           )}
                         >
                           {isSelected && <Check className="h-2.5 w-2.5 text-white" />}
@@ -415,7 +412,10 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
           size="sm"
           onClick={handleSubmit}
           disabled={submitting || timedOut}
-          className={cn("gap-1.5", error && "bg-destructive/10 text-destructive hover:bg-destructive/20")}
+          className={cn(
+            "gap-1.5",
+            error && "bg-destructive/10 text-destructive hover:bg-destructive/20",
+          )}
         >
           {submitting ? (
             <span className="animate-spin h-3.5 w-3.5 border-2 border-current border-t-transparent rounded-full" />

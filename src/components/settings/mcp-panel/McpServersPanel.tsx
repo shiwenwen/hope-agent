@@ -7,7 +7,7 @@
  * joined on the list response.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Plug,
@@ -57,10 +57,7 @@ import McpImportDialog from "./McpImportDialog"
  * Combining "add" vs "edit(existing server)" into one discriminator
  * removes a whole class of bugs where `editingId` points at a row that
  * was deleted between refresh ticks. */
-type EditTarget =
-  | { mode: "add" }
-  | { mode: "edit"; server: McpServerSummary }
-  | null
+type EditTarget = { mode: "add" } | { mode: "edit"; server: McpServerSummary } | null
 
 // ── Status visuals ───────────────────────────────────────────────
 
@@ -93,10 +90,9 @@ export default function McpServersPanel() {
   const [edit, setEdit] = useState<EditTarget>(null)
   const [importing, setImporting] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
-  const [pendingDelete, setPendingDelete] =
-    useState<{ id: string; name: string } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string } | null>(null)
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     try {
       const next = await listServers()
       setServers(next)
@@ -106,7 +102,8 @@ export default function McpServersPanel() {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }
+  const refreshEffectEvent = useEffectEvent(refresh)
 
   // Trailing-edge debounce for refresh: backend emits SERVER_STATUS_CHANGED
   // on every state transition (Connecting → Ready fires ≥ 2 events) and
@@ -114,23 +111,24 @@ export default function McpServersPanel() {
   // 5-server eager-connect burst causes ~10 listServers round-trips in
   // under a second.
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const scheduleRefresh = useCallback(() => {
+  const scheduleRefresh = () => {
     if (refreshTimerRef.current !== null) clearTimeout(refreshTimerRef.current)
     refreshTimerRef.current = setTimeout(() => {
       refreshTimerRef.current = null
       refresh()
     }, 150)
-  }, [refresh])
+  }
+  const scheduleRefreshEffectEvent = useEffectEvent(scheduleRefresh)
 
   useEffect(() => {
-    refresh()
-  }, [refresh])
+    refreshEffectEvent()
+  }, [])
 
   useEffect(() => {
     const transport = getTransport()
     const cleanups = [
-      transport.listen(MCP_EVENTS.SERVERS_CHANGED, scheduleRefresh),
-      transport.listen(MCP_EVENTS.SERVER_STATUS_CHANGED, scheduleRefresh),
+      transport.listen(MCP_EVENTS.SERVERS_CHANGED, () => scheduleRefreshEffectEvent()),
+      transport.listen(MCP_EVENTS.SERVER_STATUS_CHANGED, () => scheduleRefreshEffectEvent()),
       transport.listen(MCP_EVENTS.AUTH_REQUIRED, (payload) => {
         if (!payload || typeof payload !== "object") return
         const event = payload as { name?: unknown; authUrl?: unknown }
@@ -163,67 +161,50 @@ export default function McpServersPanel() {
         refreshTimerRef.current = null
       }
     }
-  }, [scheduleRefresh, t])
+  }, [t])
 
-  const runBusy = useCallback(
-    async (id: string, fn: () => Promise<void>) => {
-      setBusyId(id)
-      try {
-        await fn()
-      } catch (e) {
-        toast.error(String(e))
-      } finally {
-        setBusyId(null)
+  const runBusy = async (id: string, fn: () => Promise<void>) => {
+    setBusyId(id)
+    try {
+      await fn()
+    } catch (e) {
+      toast.error(String(e))
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleTest = (id: string) =>
+    runBusy(id, async () => {
+      const snap = await testConnection(id)
+      if (snap.state === "ready") {
+        toast.success(t("settings.mcp.testSuccess", { count: snap.toolCount }))
+      } else {
+        toast.error(snap.reason ?? t("settings.mcp.testFailed"))
       }
-    },
-    [],
-  )
+      scheduleRefresh()
+    })
 
-  const handleTest = useCallback(
-    (id: string) =>
-      runBusy(id, async () => {
-        const snap = await testConnection(id)
-        if (snap.state === "ready") {
-          toast.success(
-            t("settings.mcp.testSuccess", { count: snap.toolCount }),
-          )
-        } else {
-          toast.error(snap.reason ?? t("settings.mcp.testFailed"))
-        }
-        scheduleRefresh()
-      }),
-    [runBusy, scheduleRefresh, t],
-  )
+  const handleReconnect = (id: string) =>
+    runBusy(id, async () => {
+      await reconnectServer(id)
+      scheduleRefresh()
+    })
 
-  const handleReconnect = useCallback(
-    (id: string) =>
-      runBusy(id, async () => {
-        await reconnectServer(id)
-        scheduleRefresh()
-      }),
-    [runBusy, scheduleRefresh],
-  )
+  const handleAuthorize = (id: string) =>
+    runBusy(id, async () => {
+      await startOauth(id)
+      toast.info(t("settings.mcp.authStarted"))
+    })
 
-  const handleAuthorize = useCallback(
-    (id: string) =>
-      runBusy(id, async () => {
-        await startOauth(id)
-        toast.info(t("settings.mcp.authStarted"))
-      }),
-    [runBusy, t],
-  )
+  const handleSignOut = (id: string, name: string) =>
+    runBusy(id, async () => {
+      await signOut(id)
+      toast.success(t("settings.mcp.signOutSuccess", { name }))
+      scheduleRefresh()
+    })
 
-  const handleSignOut = useCallback(
-    (id: string, name: string) =>
-      runBusy(id, async () => {
-        await signOut(id)
-        toast.success(t("settings.mcp.signOutSuccess", { name }))
-        scheduleRefresh()
-      }),
-    [runBusy, scheduleRefresh, t],
-  )
-
-  const confirmDelete = useCallback(async () => {
+  const confirmDelete = async () => {
     if (!pendingDelete) return
     const { id, name } = pendingDelete
     setPendingDelete(null)
@@ -234,12 +215,12 @@ export default function McpServersPanel() {
     } catch (e) {
       toast.error(String(e))
     }
-  }, [pendingDelete, refresh, t])
+  }
 
-  const handleAfterEdit = useCallback(() => {
+  const handleAfterEdit = () => {
     setEdit(null)
     refresh()
-  }, [refresh])
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -250,9 +231,7 @@ export default function McpServersPanel() {
             <Plug className="h-5 w-5 text-primary" />
             {t("settings.mcp.title")}
           </h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {t("settings.mcp.subtitle")}
-          </p>
+          <p className="text-sm text-muted-foreground mt-0.5">{t("settings.mcp.subtitle")}</p>
         </div>
         <div className="flex gap-2">
           <Button
@@ -264,11 +243,7 @@ export default function McpServersPanel() {
             <Upload className="h-3.5 w-3.5" />
             {t("settings.mcp.importJson")}
           </Button>
-          <Button
-            size="sm"
-            onClick={() => setEdit({ mode: "add" })}
-            className="gap-1.5"
-          >
+          <Button size="sm" onClick={() => setEdit({ mode: "add" })} className="gap-1.5">
             <Plus className="h-3.5 w-3.5" />
             {t("settings.mcp.addServer")}
           </Button>
@@ -283,10 +258,7 @@ export default function McpServersPanel() {
             {t("common.loading")}
           </div>
         ) : servers.length === 0 ? (
-          <EmptyState
-            onAdd={() => setEdit({ mode: "add" })}
-            onImport={() => setImporting(true)}
-          />
+          <EmptyState onAdd={() => setEdit({ mode: "add" })} onImport={() => setImporting(true)} />
         ) : (
           <div className="divide-y divide-border">
             {servers.map((server) => (
@@ -299,9 +271,7 @@ export default function McpServersPanel() {
                 onReconnect={() => handleReconnect(server.id)}
                 onAuthorize={() => handleAuthorize(server.id)}
                 onSignOut={() => handleSignOut(server.id, server.name)}
-                onDelete={() =>
-                  setPendingDelete({ id: server.id, name: server.name })
-                }
+                onDelete={() => setPendingDelete({ id: server.id, name: server.name })}
               />
             ))}
           </div>
@@ -409,15 +379,9 @@ function ServerRow({
               />
             </IconTip>
             <span className="font-medium truncate">{server.name}</span>
-            <span
-              className={`text-xs px-1.5 py-0.5 rounded ${badge}`}
-            >
-              {transport}
-            </span>
+            <span className={`text-xs px-1.5 py-0.5 rounded ${badge}`}>{transport}</span>
             {!server.enabled && (
-              <span className="text-xs text-muted-foreground">
-                ({t("settings.mcp.disabled")})
-              </span>
+              <span className="text-xs text-muted-foreground">({t("settings.mcp.disabled")})</span>
             )}
             {isReady && (
               <span className="text-xs text-muted-foreground ml-auto">
@@ -492,12 +456,7 @@ function ServerRow({
               {t("settings.mcp.signOut")}
             </Button>
           )}
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onEdit}
-            className="h-7 px-2"
-          >
+          <Button variant="ghost" size="sm" onClick={onEdit} className="h-7 px-2">
             {t("settings.mcp.edit")}
           </Button>
           <Button
@@ -516,21 +475,13 @@ function ServerRow({
 
 // ── Empty state ──────────────────────────────────────────────────
 
-function EmptyState({
-  onAdd,
-  onImport,
-}: {
-  onAdd: () => void
-  onImport: () => void
-}) {
+function EmptyState({ onAdd, onImport }: { onAdd: () => void; onImport: () => void }) {
   const { t } = useTranslation()
   return (
     <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
       <Link2 className="h-10 w-10 text-muted-foreground/40 mb-3" />
       <h3 className="text-base font-medium">{t("settings.mcp.emptyTitle")}</h3>
-      <p className="text-sm text-muted-foreground mt-1 max-w-md">
-        {t("settings.mcp.emptyDesc")}
-      </p>
+      <p className="text-sm text-muted-foreground mt-1 max-w-md">{t("settings.mcp.emptyDesc")}</p>
       <div className="flex gap-2 mt-4">
         <Button variant="outline" onClick={onImport} className="gap-1.5">
           <Upload className="h-3.5 w-3.5" />

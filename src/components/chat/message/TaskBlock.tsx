@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { ChevronRight, ListChecks } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -19,10 +19,10 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(true)
 
-  const rawTasks = useMemo(() => parseTaskToolResult(tool.result), [tool.result])
-  const snapshot = useMemo(() => createCurrentTaskProgressSnapshot(rawTasks), [rawTasks])
+  const rawTasks = parseTaskToolResult(tool.result)
+  const snapshot = createCurrentTaskProgressSnapshot(rawTasks)
   const tasks = snapshot.tasks
-  const summaryText = useMemo(() => getTaskProgressSummaryText(snapshot, t), [snapshot, t])
+  const summaryText = getTaskProgressSummaryText(snapshot, t)
 
   if (tasks.length === 0) {
     return (

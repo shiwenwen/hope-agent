@@ -15,7 +15,7 @@
  * the parent refreshes the list via `onSaved`.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Loader2, Plus, X, Check, XCircle } from "lucide-react"
 import { toast } from "sonner"
@@ -192,9 +192,7 @@ export default function McpServerEditDialog({
   // Three-state save feedback: button flashes green (saved) or red (failed)
   // for ~2s so users see the result before the dialog closes. Project
   // convention — see AGENTS.md "保存按钮统一三态交互".
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">(
-    "idle",
-  )
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
 
   useEffect(() => {
     setForm(initialFromSummary(initial))
@@ -205,11 +203,11 @@ export default function McpServerEditDialog({
     ? t("settings.mcp.editTitle", { name: initial?.name ?? "" })
     : t("settings.mcp.addTitle")
 
-  const nameInvalid = useMemo(() => {
+  const nameInvalid = (() => {
     const n = form.name.trim()
     if (!n) return true
     return !/^[a-z0-9_-]{1,32}$/.test(n)
-  }, [form.name])
+  })()
 
   const autoApproveBlocked = form.autoApprove && form.trustLevel === "untrusted"
 
@@ -264,14 +262,10 @@ export default function McpServerEditDialog({
               disabled={isEditing}
             />
             {nameInvalid && form.name.length > 0 && (
-              <p className="text-xs text-destructive">
-                {t("settings.mcp.invalidName")}
-              </p>
+              <p className="text-xs text-destructive">{t("settings.mcp.invalidName")}</p>
             )}
             {isEditing && (
-              <p className="text-xs text-muted-foreground">
-                {t("settings.mcp.nameImmutable")}
-              </p>
+              <p className="text-xs text-muted-foreground">{t("settings.mcp.nameImmutable")}</p>
             )}
           </div>
 
@@ -289,15 +283,15 @@ export default function McpServerEditDialog({
             <Label>{t("settings.mcp.transportLabel")}</Label>
             <Select
               value={form.kind}
-              onValueChange={(v) =>
-                setForm({ ...form, kind: v as McpTransportKind })
-              }
+              onValueChange={(v) => setForm({ ...form, kind: v as McpTransportKind })}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="stdio">stdio ({t("settings.mcp.transportStdioDesc")})</SelectItem>
+                <SelectItem value="stdio">
+                  stdio ({t("settings.mcp.transportStdioDesc")})
+                </SelectItem>
                 <SelectItem value="streamableHttp">Streamable HTTP</SelectItem>
                 <SelectItem value="sse">SSE ({t("settings.mcp.transportLegacy")})</SelectItem>
                 <SelectItem value="websocket">WebSocket</SelectItem>
@@ -330,9 +324,7 @@ export default function McpServerEditDialog({
                   rows={3}
                   className="font-mono text-sm"
                 />
-                <p className="text-xs text-muted-foreground">
-                  {t("settings.mcp.argsHint")}
-                </p>
+                <p className="text-xs text-muted-foreground">{t("settings.mcp.argsHint")}</p>
               </div>
               <div className="space-y-1.5">
                 <Label>{t("settings.mcp.cwdLabel")}</Label>
@@ -409,20 +401,14 @@ export default function McpServerEditDialog({
                 <Label>{t("settings.mcp.trustLevel")}</Label>
                 <Select
                   value={form.trustLevel}
-                  onValueChange={(v) =>
-                    setForm({ ...form, trustLevel: v as McpTrustLevel })
-                  }
+                  onValueChange={(v) => setForm({ ...form, trustLevel: v as McpTrustLevel })}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="untrusted">
-                      {t("settings.mcp.trustUntrusted")}
-                    </SelectItem>
-                    <SelectItem value="trusted">
-                      {t("settings.mcp.trustTrusted")}
-                    </SelectItem>
+                    <SelectItem value="untrusted">{t("settings.mcp.trustUntrusted")}</SelectItem>
+                    <SelectItem value="trusted">{t("settings.mcp.trustTrusted")}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -430,9 +416,7 @@ export default function McpServerEditDialog({
                 <label className="flex items-center gap-2 text-sm">
                   <Switch
                     checked={form.autoApprove}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, autoApprove: v })
-                    }
+                    onCheckedChange={(v) => setForm({ ...form, autoApprove: v })}
                   />
                   {t("settings.mcp.autoApproveLabel")}
                 </label>
@@ -446,9 +430,7 @@ export default function McpServerEditDialog({
                 <label className="flex items-center gap-2 text-sm">
                   <Switch
                     checked={form.deferredTools}
-                    onCheckedChange={(v) =>
-                      setForm({ ...form, deferredTools: v })
-                    }
+                    onCheckedChange={(v) => setForm({ ...form, deferredTools: v })}
                   />
                   {t("settings.mcp.deferredToolsLabel")}
                 </label>
@@ -466,9 +448,7 @@ export default function McpServerEditDialog({
                 <Label>{t("settings.mcp.allowedTools")}</Label>
                 <Textarea
                   value={form.allowedTools}
-                  onChange={(e) =>
-                    setForm({ ...form, allowedTools: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, allowedTools: e.target.value })}
                   placeholder={t("settings.mcp.toolListPlaceholder")}
                   rows={2}
                   className="font-mono text-xs"
@@ -481,9 +461,7 @@ export default function McpServerEditDialog({
                 <Label>{t("settings.mcp.deniedTools")}</Label>
                 <Textarea
                   value={form.deniedTools}
-                  onChange={(e) =>
-                    setForm({ ...form, deniedTools: e.target.value })
-                  }
+                  onChange={(e) => setForm({ ...form, deniedTools: e.target.value })}
                   placeholder={t("settings.mcp.toolListPlaceholder")}
                   rows={2}
                   className="font-mono text-xs"

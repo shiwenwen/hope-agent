@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { toast } from "sonner"
 import { Plus, RotateCcw, Trash2, Loader2 } from "lucide-react"
@@ -42,10 +42,10 @@ export default function PatternListEditor({
   const setCmd = `set_${kind}`
   const resetCmd = `reset_${kind}`
 
-  const isPristine = useMemo(() => {
+  const isPristine = (() => {
     if (patterns.length !== defaults.length) return false
     return patterns.every((p, i) => p === defaults[i])
-  }, [patterns, defaults])
+  })()
 
   useEffect(() => {
     let cancelled = false

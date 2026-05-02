@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, useEffectEvent } from "react"
 import { useVirtualizer } from "@tanstack/react-virtual"
 
 type RowKey = string | number
@@ -80,42 +80,41 @@ export function useVirtualFeed<T>({
   canLoadMoreRef.current = canLoadMore
   loadingMoreRef.current = loadingMore
 
-  const setIsAutoFollowPaused = useCallback((paused: boolean) => {
+  const setIsAutoFollowPaused = (paused: boolean) => {
     if (isAutoFollowPausedRef.current === paused) return
     isAutoFollowPausedRef.current = paused
     setIsAutoFollowPausedState(paused)
-  }, [])
+  }
+  const setIsAutoFollowPausedEffectEvent = useEffectEvent(setIsAutoFollowPaused)
 
-  const setHasUnseenOutput = useCallback((unseen: boolean) => {
+  const setHasUnseenOutput = (unseen: boolean) => {
     if (hasUnseenOutputRef.current === unseen) return
     hasUnseenOutputRef.current = unseen
     setHasUnseenOutputState(unseen)
-  }, [])
+  }
+  const setHasUnseenOutputEffectEvent = useEffectEvent(setHasUnseenOutput)
 
-  const setIsAtBottom = useCallback((atBottom: boolean) => {
+  const setIsAtBottom = (atBottom: boolean) => {
     if (isAtBottomRef.current === atBottom) return
     isAtBottomRef.current = atBottom
     setIsAtBottomState(atBottom)
-  }, [])
+  }
+  const setIsAtBottomEffectEvent = useEffectEvent(setIsAtBottom)
 
-  const updateAtBottom = useCallback(
-    (el: HTMLElement) => {
-      const atBottom = distanceFromBottom(el) <= bottomThreshold
-      setIsAtBottom(atBottom)
-      return atBottom
-    },
-    [bottomThreshold, setIsAtBottom],
-  )
+  const updateAtBottom = (el: HTMLElement) => {
+    const atBottom = distanceFromBottom(el) <= bottomThreshold
+    setIsAtBottom(atBottom)
+    return atBottom
+  }
+  const updateAtBottomEffectEvent = useEffectEvent(updateAtBottom)
 
-  const pauseAutoFollow = useCallback(
-    (markUnseen = false) => {
-      setIsAutoFollowPaused(true)
-      if (markUnseen) {
-        setHasUnseenOutput(true)
-      }
-    },
-    [setHasUnseenOutput, setIsAutoFollowPaused],
-  )
+  const pauseAutoFollow = (markUnseen = false) => {
+    setIsAutoFollowPaused(true)
+    if (markUnseen) {
+      setHasUnseenOutput(true)
+    }
+  }
+  const pauseAutoFollowEffectEvent = useEffectEvent(pauseAutoFollow)
 
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual is isolated here so list callers don't pass its functions through memoized boundaries.
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
@@ -137,37 +136,33 @@ export function useVirtualFeed<T>({
     return item.start < (instance.scrollOffset ?? 0)
   }
 
-  const scrollToBottom = useCallback(
-    (behavior: ScrollBehavior = "auto") => {
-      if (rowsRef.current.length === 0) return
-      requestAnimationFrame(() => {
-        const el = scrollRef.current
-        if (!el || isAutoFollowPausedRef.current) return
-        virtualizer.scrollToIndex(rowsRef.current.length - 1, {
-          align: "end",
-          behavior,
-        })
-        requestAnimationFrame(() => {
-          const latest = scrollRef.current
-          if (!latest || isAutoFollowPausedRef.current) return
-          latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
-          updateAtBottom(latest)
-        })
+  const scrollToBottom = (behavior: ScrollBehavior = "auto") => {
+    if (rowsRef.current.length === 0) return
+    requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (!el || isAutoFollowPausedRef.current) return
+      virtualizer.scrollToIndex(rowsRef.current.length - 1, {
+        align: "end",
+        behavior,
       })
-    },
-    [updateAtBottom, virtualizer],
-  )
+      requestAnimationFrame(() => {
+        const latest = scrollRef.current
+        if (!latest || isAutoFollowPausedRef.current) return
+        latest.scrollTop = Math.max(0, latest.scrollHeight - latest.clientHeight)
+        updateAtBottom(latest)
+      })
+    })
+  }
+  const scrollToBottomEffectEvent = useEffectEvent(scrollToBottom)
 
-  const resumeAutoFollow = useCallback(
-    (behavior: ScrollBehavior = "auto") => {
-      setIsAutoFollowPaused(false)
-      setHasUnseenOutput(false)
-      scrollToBottom(behavior)
-    },
-    [scrollToBottom, setHasUnseenOutput, setIsAutoFollowPaused],
-  )
+  const resumeAutoFollow = (behavior: ScrollBehavior = "auto") => {
+    setIsAutoFollowPaused(false)
+    setHasUnseenOutput(false)
+    scrollToBottom(behavior)
+  }
+  const resumeAutoFollowEffectEvent = useEffectEvent(resumeAutoFollow)
 
-  const captureAnchor = useCallback(() => {
+  const captureAnchor = () => {
     const el = scrollRef.current
     if (!el) return
     const first = virtualizer.getVirtualItems().find((item) => {
@@ -183,9 +178,9 @@ export function useVirtualFeed<T>({
       scrollHeight: el.scrollHeight,
       scrollTop: el.scrollTop,
     }
-  }, [virtualizer])
+  }
 
-  const triggerStartLoad = useCallback(() => {
+  const triggerStartLoad = () => {
     if (!onStartReachedRef.current) return
     if (!canLoadMoreRef.current || loadingMoreRef.current || startLoadPendingRef.current) return
 
@@ -203,7 +198,8 @@ export function useVirtualFeed<T>({
           pendingAnchorRef.current = null
         }, 250)
       })
-  }, [captureAnchor])
+  }
+  const triggerStartLoadEffectEvent = useEffectEvent(triggerStartLoad)
 
   useEffect(() => {
     const el = scrollRef.current
@@ -211,12 +207,12 @@ export function useVirtualFeed<T>({
     lastScrollTopRef.current = el.scrollTop
 
     const handleWheel = (event: WheelEvent) => {
-      if (event.deltaY < 0) pauseAutoFollow(/* markUnseen */ followOutput)
+      if (event.deltaY < 0) pauseAutoFollowEffectEvent(/* markUnseen */ followOutput)
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "PageUp" || event.key === "ArrowUp" || event.key === "Home") {
-        pauseAutoFollow(/* markUnseen */ followOutput)
+        pauseAutoFollowEffectEvent(/* markUnseen */ followOutput)
       }
     }
 
@@ -232,7 +228,7 @@ export function useVirtualFeed<T>({
         return
       }
       if (currentY > previousY) {
-        pauseAutoFollow(/* markUnseen */ followOutput)
+        pauseAutoFollowEffectEvent(/* markUnseen */ followOutput)
       }
       lastTouchYRef.current = currentY
     }
@@ -247,21 +243,21 @@ export function useVirtualFeed<T>({
       lastScrollTopRef.current = currentTop
 
       if (currentTop <= startThreshold) {
-        triggerStartLoad()
+        triggerStartLoadEffectEvent()
       }
 
       const bottomDistance = distanceFromBottom(el)
       const atBottom = bottomDistance <= bottomThreshold
-      setIsAtBottom(atBottom)
+      setIsAtBottomEffectEvent(atBottom)
 
       if (currentTop < prevTop && !atBottom) {
-        pauseAutoFollow(/* markUnseen */ followOutput)
+        pauseAutoFollowEffectEvent(/* markUnseen */ followOutput)
         return
       }
 
       if (atBottom) {
-        setIsAutoFollowPaused(false)
-        setHasUnseenOutput(false)
+        setIsAutoFollowPausedEffectEvent(false)
+        setHasUnseenOutputEffectEvent(false)
       }
     }
 
@@ -281,16 +277,7 @@ export function useVirtualFeed<T>({
       el.removeEventListener("keydown", handleKeyDown)
       el.removeEventListener("scroll", handleScroll)
     }
-  }, [
-    bottomThreshold,
-    followOutput,
-    pauseAutoFollow,
-    setHasUnseenOutput,
-    setIsAtBottom,
-    setIsAutoFollowPaused,
-    startThreshold,
-    triggerStartLoad,
-  ])
+  }, [bottomThreshold, followOutput, startThreshold])
 
   useLayoutEffect(() => {
     const anchor = pendingAnchorRef.current
@@ -322,28 +309,28 @@ export function useVirtualFeed<T>({
     if (resetKey === null) return
     if (resetKey === lastResetKeyRef.current) return
     lastResetKeyRef.current = resetKey
-    setIsAutoFollowPaused(false)
-    setHasUnseenOutput(false)
-    scrollToBottom("auto")
-  }, [resetKey, scrollToBottom, setHasUnseenOutput, setIsAutoFollowPaused])
+    setIsAutoFollowPausedEffectEvent(false)
+    setHasUnseenOutputEffectEvent(false)
+    scrollToBottomEffectEvent("auto")
+  }, [resetKey])
 
   const lastFollowKeyRef = useRef<RowKey | null>(followKey)
   useLayoutEffect(() => {
     if (followKey === null || followKey === lastFollowKeyRef.current) return
     lastFollowKeyRef.current = followKey
     if (!isAutoFollowPausedRef.current) {
-      scrollToBottom("auto")
+      scrollToBottomEffectEvent("auto")
       return
     }
-    setHasUnseenOutput(true)
-  }, [followKey, scrollToBottom, setHasUnseenOutput])
+    setHasUnseenOutputEffectEvent(true)
+  }, [followKey])
 
   const lastForceFollowKeyRef = useRef<RowKey | null>(forceFollowKey)
   useLayoutEffect(() => {
     if (forceFollowKey === null || forceFollowKey === lastForceFollowKeyRef.current) return
     lastForceFollowKeyRef.current = forceFollowKey
-    resumeAutoFollow("auto")
-  }, [forceFollowKey, resumeAutoFollow])
+    resumeAutoFollowEffectEvent("auto")
+  }, [forceFollowKey])
 
   const wasFollowingOutputRef = useRef(false)
   useEffect(() => {
@@ -367,7 +354,7 @@ export function useVirtualFeed<T>({
         if (target - el.scrollTop > 1) {
           el.scrollTop = target
         }
-        updateAtBottom(el)
+        updateAtBottomEffectEvent(el)
       }
       rafIdRef.current = requestAnimationFrame(tick)
     }
@@ -379,7 +366,7 @@ export function useVirtualFeed<T>({
         rafIdRef.current = null
       }
     }
-  }, [followOutput, isAutoFollowPaused, updateAtBottom])
+  }, [followOutput, isAutoFollowPaused])
 
   return {
     scrollRef,

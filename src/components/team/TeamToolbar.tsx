@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import { useState } from "react"
 import { Pause, Play, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -19,16 +19,11 @@ const STATUS_STYLES: Record<string, string> = {
   dissolved: "bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400",
 }
 
-export function TeamToolbar({
-  team,
-  onPause,
-  onResume,
-  onDissolve,
-}: TeamToolbarProps) {
+export function TeamToolbar({ team, onPause, onResume, onDissolve }: TeamToolbarProps) {
   const { t } = useTranslation()
   const [confirmDissolve, setConfirmDissolve] = useState(false)
 
-  const handleDissolve = useCallback(async () => {
+  const handleDissolve = async () => {
     if (!confirmDissolve) {
       setConfirmDissolve(true)
       // Auto-reset after 3s
@@ -42,7 +37,7 @@ export function TeamToolbar({
       // Error handled by transport
     }
     setConfirmDissolve(false)
-  }, [confirmDissolve, team.teamId, onDissolve])
+  }
 
   const isPaused = team.status === "paused"
   const isActive = team.status === "active"
@@ -50,9 +45,7 @@ export function TeamToolbar({
   return (
     <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
       {/* Team name */}
-      <span className="text-sm font-semibold text-foreground truncate">
-        {team.name}
-      </span>
+      <span className="text-sm font-semibold text-foreground truncate">{team.name}</span>
 
       {/* Status badge */}
       <span
@@ -100,9 +93,7 @@ export function TeamToolbar({
           onClick={handleDissolve}
         >
           <Trash2 className="mr-1 h-3 w-3" />
-          {confirmDissolve
-            ? t("team.confirmDissolve", "Confirm?")
-            : t("team.dissolve", "Dissolve")}
+          {confirmDissolve ? t("team.confirmDissolve", "Confirm?") : t("team.dissolve", "Dissolve")}
         </Button>
       )}
     </div>

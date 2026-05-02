@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -10,17 +9,8 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
 import { Input } from "@/components/ui/input"
-import {
-  MessageSquare,
-  Loader2,
-  Search,
-  X,
-} from "lucide-react"
-import type {
-  SessionMeta,
-  AgentSummaryForSidebar,
-  SessionSearchResult,
-} from "@/types/chat"
+import { MessageSquare, Loader2, Search, X } from "lucide-react"
+import type { SessionMeta, AgentSummaryForSidebar, SessionSearchResult } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import type { SessionFilterType } from "./types"
 import SessionItem from "./SessionItem"
@@ -107,11 +97,11 @@ export default function SessionList({
   const isSearching = searchQuery.trim().length > 0
 
   // Client-side second-level filter by session type for search results.
-  const visibleResults = useMemo(() => {
+  const visibleResults = (() => {
     if (!searchResults) return []
     if (sessionFilter === "all") return searchResults
     return searchResults.filter((r) => classifyResult(r) === sessionFilter)
-  }, [searchResults, sessionFilter])
+  })()
 
   return (
     <>
@@ -183,7 +173,12 @@ export default function SessionList({
               })
               if (onMarkAllRead) onMarkAllRead()
             } catch (err) {
-              logger.error("chat", "ChatSidebar::markSessionsRead", "Failed to mark sessions as read", err)
+              logger.error(
+                "chat",
+                "ChatSidebar::markSessionsRead",
+                "Failed to mark sessions as read",
+                err,
+              )
             }
           }
 
@@ -230,9 +225,7 @@ export default function SessionList({
           ) : visibleResults.length === 0 ? (
             <div className="text-center py-8">
               <Search className="h-8 w-8 text-muted-foreground/20 mx-auto mb-2" />
-              <p className="text-xs text-muted-foreground/60">
-                {t("chat.noSearchResults")}
-              </p>
+              <p className="text-xs text-muted-foreground/60">{t("chat.noSearchResults")}</p>
             </div>
           ) : (
             visibleResults.map((result) => (

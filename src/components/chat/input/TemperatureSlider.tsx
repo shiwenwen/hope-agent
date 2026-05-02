@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import { useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { useClickOutside } from "@/hooks/useClickOutside"
 import { IconTip } from "@/components/ui/tooltip"
@@ -19,7 +19,7 @@ export default function TemperatureSlider({
   const [showTempMenu, setShowTempMenu] = useState(false)
   const tempMenuRef = useRef<HTMLDivElement>(null)
 
-  useClickOutside(tempMenuRef, useCallback(() => setShowTempMenu(false), []))
+  useClickOutside(tempMenuRef, () => setShowTempMenu(false))
 
   return (
     <div className="relative" ref={tempMenuRef}>
@@ -34,9 +34,7 @@ export default function TemperatureSlider({
           )}
         >
           <Thermometer className="h-3.5 w-3.5 shrink-0" />
-          {sessionTemperature != null && (
-            <span>{sessionTemperature.toFixed(1)}</span>
-          )}
+          {sessionTemperature != null && <span>{sessionTemperature.toFixed(1)}</span>}
         </button>
       </IconTip>
 
@@ -47,7 +45,9 @@ export default function TemperatureSlider({
               {t("settings.temperature")}
             </span>
             <span className="text-xs font-mono text-foreground tabular-nums">
-              {sessionTemperature != null ? sessionTemperature.toFixed(2) : t("settings.temperatureDefault")}
+              {sessionTemperature != null
+                ? sessionTemperature.toFixed(2)
+                : t("settings.temperatureDefault")}
             </span>
           </div>
           <Slider
@@ -60,7 +60,9 @@ export default function TemperatureSlider({
             }}
           />
           <div className="flex items-center justify-between mt-2">
-            <span className="text-[10px] text-muted-foreground/60">{t("settings.temperaturePrecise")}</span>
+            <span className="text-[10px] text-muted-foreground/60">
+              {t("settings.temperaturePrecise")}
+            </span>
             <button
               className="text-[10px] text-primary hover:text-primary/80 transition-colors"
               onClick={() => {

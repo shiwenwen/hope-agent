@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import React, { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { SlashCommandDef, CommandResult } from "./types"
 import { CATEGORY_ORDER } from "./types"
@@ -70,30 +70,34 @@ export function useSlashCommands(
   actionsRef.current = actions
 
   // Load commands from backend (refresh when menu opens to pick up skill changes)
-  const loadCommands = useCallback(() => {
-    getTransport().call<SlashCommandDef[]>("list_slash_commands").then(setCommands).catch(() => {})
-  }, [])
+  const loadCommands = () => {
+    getTransport()
+      .call<SlashCommandDef[]>("list_slash_commands")
+      .then(setCommands)
+      .catch(() => {})
+  }
+  const loadCommandsEffectEvent = useEffectEvent(loadCommands)
 
   useEffect(() => {
-    loadCommands()
-  }, [loadCommands])
+    loadCommandsEffectEvent()
+  }, [])
 
   // Reload when menu is opened to catch skill changes
   useEffect(() => {
     if (forceOpen) {
-      loadCommands()
+      loadCommandsEffectEvent()
     }
-  }, [forceOpen, loadCommands])
+  }, [forceOpen])
 
   // Filter commands based on input
-  const getFilterText = useCallback(() => {
+  const getFilterText = () => {
     if (!input.startsWith("/")) return ""
     const spaceIdx = input.indexOf(" ")
     if (spaceIdx > 0) return "" // Already typing args, close menu
     return input.slice(1).toLowerCase()
-  }, [input])
+  }
 
-  const filteredCommands = useCallback(() => {
+  const filteredCommands = (() => {
     // Button-triggered: show all commands (no input filter)
     if (forceOpen && !input.startsWith("/")) {
       return commands.toSorted((a, b) => {
@@ -107,9 +111,7 @@ export function useSlashCommands(
     if (filter === "" && !input.startsWith("/")) return []
 
     const filtered = filter
-      ? commands.filter(
-          (c) => c.name.startsWith(filter) || c.name.includes(filter),
-        )
+      ? commands.filter((c) => c.name.startsWith(filter) || c.name.includes(filter))
       : commands
 
     // Sort by category order, then exact prefix first
@@ -124,19 +126,19 @@ export function useSlashCommands(
       }
       return 0
     })
-  }, [commands, getFilterText, input, forceOpen])()
+  })()
 
   // Detect if input matches a command with argOptions (for auto-expanding submenu)
-  const inputMatchCmd = useMemo(() => {
+  const inputMatchCmd = (() => {
     if (!input.startsWith("/")) return null
     const spaceIdx = input.indexOf(" ")
     if (spaceIdx < 0) return null
     const name = input.slice(1, spaceIdx)
     return commands.find((c) => c.name === name && c.argOptions?.length) ?? null
-  }, [input, commands])
+  })()
 
   // Filter options for the expanded command based on typed input
-  const filteredOptions = useMemo(() => {
+  const filteredOptions = (() => {
     const cmd = expandedCmd ?? inputMatchCmd
     if (!cmd?.argOptions) return []
     const prefix = `/${cmd.name} `
@@ -144,7 +146,7 @@ export function useSlashCommands(
     const typed = input.slice(prefix.length).toLowerCase()
     if (!typed) return cmd.argOptions
     return cmd.argOptions.filter((o) => o.startsWith(typed))
-  }, [expandedCmd, inputMatchCmd, input])
+  })()
 
   // Auto-expand submenu when user types "/<cmd-with-options> "
   useEffect(() => {
@@ -177,73 +179,68 @@ export function useSlashCommands(
     }
   }, [shouldBeOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const executeCommandInner = useCallback(
-    async (cmd: SlashCommandDef) => {
-      // Build command text — when triggered by button (forceOpen, no "/" in input), no args from input
-      const hasSlashInput = input.startsWith("/")
-      const spaceIdx = hasSlashInput ? input.indexOf(" ") : -1
-      const args = spaceIdx > 0 ? input.slice(spaceIdx + 1) : ""
-      const commandText = `/${cmd.name}${args ? " " + args : ""}`
+  const executeCommandInner = async (cmd: SlashCommandDef) => {
+    // Build command text — when triggered by button (forceOpen, no "/" in input), no args from input
+    const hasSlashInput = input.startsWith("/")
+    const spaceIdx = hasSlashInput ? input.indexOf(" ") : -1
+    const args = spaceIdx > 0 ? input.slice(spaceIdx + 1) : ""
+    const commandText = `/${cmd.name}${args ? " " + args : ""}`
 
-      setInput("")
-      setIsOpen(false)
-      setForceOpen(false)
-      setExpandedCmd(null)
-      setExecuting(true)
+    setInput("")
+    setIsOpen(false)
+    setForceOpen(false)
+    setExpandedCmd(null)
+    setExecuting(true)
 
-      try {
-        const result = await getTransport().call<CommandResult>("execute_slash_command", {
-          sessionId: actionsRef.current.sessionId,
-          agentId: actionsRef.current.agentId,
-          commandText,
-        })
-        annotateSkillPassThrough(result, cmd, commandText, args)
-        actionsRef.current.onCommandAction(result)
-      } catch (err) {
-        actionsRef.current.onCommandAction({
-          content: `Error: ${err}`,
-          action: { type: "displayOnly" },
-        })
-      } finally {
-        setExecuting(false)
-      }
-    },
-    [input, setInput],
-  )
-
-  const executeOption = useCallback(
-    (cmd: SlashCommandDef, option: string) => {
-      setInput(`/${cmd.name} ${option}`)
-      setExpandedCmd(null)
-      setIsOpen(false)
-      setForceOpen(false)
-      setExecuting(true)
-
-      const commandText = `/${cmd.name} ${option}`
-      getTransport().call<CommandResult>("execute_slash_command", {
+    try {
+      const result = await getTransport().call<CommandResult>("execute_slash_command", {
         sessionId: actionsRef.current.sessionId,
         agentId: actionsRef.current.agentId,
         commandText,
       })
-        .then((result) => {
-          annotateSkillPassThrough(result, cmd, commandText, option)
-          actionsRef.current.onCommandAction(result)
-        })
-        .catch((err) =>
-          actionsRef.current.onCommandAction({
-            content: `Error: ${err}`,
-            action: { type: "displayOnly" },
-          }),
-        )
-        .finally(() => {
-          setInput("")
-          setExecuting(false)
-        })
-    },
-    [setInput],
-  )
+      annotateSkillPassThrough(result, cmd, commandText, args)
+      actionsRef.current.onCommandAction(result)
+    } catch (err) {
+      actionsRef.current.onCommandAction({
+        content: `Error: ${err}`,
+        action: { type: "displayOnly" },
+      })
+    } finally {
+      setExecuting(false)
+    }
+  }
 
-  const executeSelected = useCallback(() => {
+  const executeOption = (cmd: SlashCommandDef, option: string) => {
+    setInput(`/${cmd.name} ${option}`)
+    setExpandedCmd(null)
+    setIsOpen(false)
+    setForceOpen(false)
+    setExecuting(true)
+
+    const commandText = `/${cmd.name} ${option}`
+    getTransport()
+      .call<CommandResult>("execute_slash_command", {
+        sessionId: actionsRef.current.sessionId,
+        agentId: actionsRef.current.agentId,
+        commandText,
+      })
+      .then((result) => {
+        annotateSkillPassThrough(result, cmd, commandText, option)
+        actionsRef.current.onCommandAction(result)
+      })
+      .catch((err) =>
+        actionsRef.current.onCommandAction({
+          content: `Error: ${err}`,
+          action: { type: "displayOnly" },
+        }),
+      )
+      .finally(() => {
+        setInput("")
+        setExecuting(false)
+      })
+  }
+
+  const executeSelected = () => {
     if (expandedCmd && filteredOptions.length > 0) {
       executeOption(expandedCmd, filteredOptions[selectedOptionIndex])
       return
@@ -251,165 +248,147 @@ export function useSlashCommands(
     if (filteredCommands.length > 0 && selectedIndex < filteredCommands.length) {
       executeCommandInner(filteredCommands[selectedIndex])
     }
-  }, [filteredCommands, selectedIndex, executeCommandInner, expandedCmd, filteredOptions, selectedOptionIndex, executeOption])
+  }
 
-  const executeCommand = useCallback(
-    (cmd: SlashCommandDef) => {
-      if (cmd.argOptions?.length) {
-        // Has built-in options: expand submenu
-        setExpandedCmd(cmd)
-        setSelectedOptionIndex(0)
-        setInput(`/${cmd.name} `)
-      } else if (cmd.hasArgs && !cmd.argsOptional) {
-        // Has required args but no built-in options: fill in command and let user type
-        setInput(`/${cmd.name} `)
-        setIsOpen(false)
-        setForceOpen(false)
-      } else {
-        // No args, or args are optional: execute directly
-        executeCommandInner(cmd)
-      }
-    },
-    [executeCommandInner, setInput],
-  )
+  const executeCommand = (cmd: SlashCommandDef) => {
+    if (cmd.argOptions?.length) {
+      // Has built-in options: expand submenu
+      setExpandedCmd(cmd)
+      setSelectedOptionIndex(0)
+      setInput(`/${cmd.name} `)
+    } else if (cmd.hasArgs && !cmd.argsOptional) {
+      // Has required args but no built-in options: fill in command and let user type
+      setInput(`/${cmd.name} `)
+      setIsOpen(false)
+      setForceOpen(false)
+    } else {
+      // No args, or args are optional: execute directly
+      executeCommandInner(cmd)
+    }
+  }
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent): boolean => {
-      if (!isOpen) {
-        // isOpen lags shouldBeOpen by one render. Intercept Enter, but resolve
-        // via exact name match — selectedIndex is unreliable once a space in
-        // input collapses the filter and reorders the list to start with /new.
-        if (e.key === "Enter" && input.startsWith("/")) {
-          const spaceIdx = input.indexOf(" ")
-          const typedName = (spaceIdx > 0 ? input.slice(1, spaceIdx) : input.slice(1)).toLowerCase()
-          if (typedName) {
-            const match = commands.find((c) => c.name.toLowerCase() === typedName)
-            if (match) {
-              e.preventDefault()
-              executeCommand(match)
-              return true
-            }
+  const handleKeyDown = (e: React.KeyboardEvent): boolean => {
+    if (!isOpen) {
+      // isOpen lags shouldBeOpen by one render. Intercept Enter, but resolve
+      // via exact name match — selectedIndex is unreliable once a space in
+      // input collapses the filter and reorders the list to start with /new.
+      if (e.key === "Enter" && input.startsWith("/")) {
+        const spaceIdx = input.indexOf(" ")
+        const typedName = (spaceIdx > 0 ? input.slice(1, spaceIdx) : input.slice(1)).toLowerCase()
+        if (typedName) {
+          const match = commands.find((c) => c.name.toLowerCase() === typedName)
+          if (match) {
+            e.preventDefault()
+            executeCommand(match)
+            return true
           }
         }
-        return false
       }
+      return false
+    }
 
-      // When submenu is expanded, handle option navigation
-      if (expandedCmd && filteredOptions.length > 0) {
-        switch (e.key) {
-          case "ArrowUp":
-            e.preventDefault()
-            setSelectedOptionIndex((prev) =>
-              prev <= 0 ? filteredOptions.length - 1 : prev - 1,
-            )
-            return true
-          case "ArrowDown":
-            e.preventDefault()
-            setSelectedOptionIndex((prev) =>
-              prev >= filteredOptions.length - 1 ? 0 : prev + 1,
-            )
-            return true
-          case "Tab": {
-            // Tab: fill option into input box for further editing
-            e.preventDefault()
-            if (filteredOptions[selectedOptionIndex]) {
-              setInput(`/${expandedCmd.name} ${filteredOptions[selectedOptionIndex]} `)
-              setExpandedCmd(null)
-              setIsOpen(false)
-              setForceOpen(false)
-            }
-            return true
-          }
-          case "Enter":
-            e.preventDefault()
-            executeOption(expandedCmd, filteredOptions[selectedOptionIndex])
-            return true
-          case "Escape":
-          case "ArrowLeft":
-            e.preventDefault()
-            setExpandedCmd(null)
-            setInput("/")
-            return true
-          default:
-            return false
-        }
-      }
-
-      // Normal command list navigation
+    // When submenu is expanded, handle option navigation
+    if (expandedCmd && filteredOptions.length > 0) {
       switch (e.key) {
         case "ArrowUp":
           e.preventDefault()
-          setSelectedIndex((prev) =>
-            prev <= 0 ? filteredCommands.length - 1 : prev - 1,
-          )
+          setSelectedOptionIndex((prev) => (prev <= 0 ? filteredOptions.length - 1 : prev - 1))
           return true
-
         case "ArrowDown":
           e.preventDefault()
-          setSelectedIndex((prev) =>
-            prev >= filteredCommands.length - 1 ? 0 : prev + 1,
-          )
+          setSelectedOptionIndex((prev) => (prev >= filteredOptions.length - 1 ? 0 : prev + 1))
           return true
-
         case "Tab": {
-          // Tab: autocomplete command name into input box
+          // Tab: fill option into input box for further editing
           e.preventDefault()
-          const tabCmd = filteredCommands[selectedIndex]
-          if (tabCmd) {
-            if (tabCmd.argOptions?.length) {
-              setExpandedCmd(tabCmd)
-              setSelectedOptionIndex(0)
-              setInput(`/${tabCmd.name} `)
-            } else {
-              setInput(`/${tabCmd.name} `)
-              setIsOpen(false)
-              setForceOpen(false)
-            }
+          if (filteredOptions[selectedOptionIndex]) {
+            setInput(`/${expandedCmd.name} ${filteredOptions[selectedOptionIndex]} `)
+            setExpandedCmd(null)
+            setIsOpen(false)
+            setForceOpen(false)
           }
           return true
         }
-        case "Enter": {
-          // Enter: execute command immediately
+        case "Enter":
           e.preventDefault()
-          const enterCmd = filteredCommands[selectedIndex]
-          if (enterCmd) {
-            executeCommand(enterCmd)
-          }
+          executeOption(expandedCmd, filteredOptions[selectedOptionIndex])
           return true
-        }
-
         case "Escape":
+        case "ArrowLeft":
           e.preventDefault()
-          setIsOpen(false)
           setExpandedCmd(null)
-          // Only clear input if it was typed (starts with "/"), not button-triggered
-          if (!forceOpen && input.startsWith("/")) {
-            setInput("")
-          }
-          setForceOpen(false)
+          setInput("/")
           return true
-
         default:
           return false
       }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [isOpen, filteredCommands, selectedIndex, executeCommand, setInput, forceOpen, input, expandedCmd, filteredOptions, selectedOptionIndex, executeOption],
-  )
+    }
 
-  const setOpen = useCallback(
-    (open: boolean) => {
-      if (open) {
-        setForceOpen(true)
-        setExpandedCmd(null)
-      } else {
-        setForceOpen(false)
+    // Normal command list navigation
+    switch (e.key) {
+      case "ArrowUp":
+        e.preventDefault()
+        setSelectedIndex((prev) => (prev <= 0 ? filteredCommands.length - 1 : prev - 1))
+        return true
+
+      case "ArrowDown":
+        e.preventDefault()
+        setSelectedIndex((prev) => (prev >= filteredCommands.length - 1 ? 0 : prev + 1))
+        return true
+
+      case "Tab": {
+        // Tab: autocomplete command name into input box
+        e.preventDefault()
+        const tabCmd = filteredCommands[selectedIndex]
+        if (tabCmd) {
+          if (tabCmd.argOptions?.length) {
+            setExpandedCmd(tabCmd)
+            setSelectedOptionIndex(0)
+            setInput(`/${tabCmd.name} `)
+          } else {
+            setInput(`/${tabCmd.name} `)
+            setIsOpen(false)
+            setForceOpen(false)
+          }
+        }
+        return true
+      }
+      case "Enter": {
+        // Enter: execute command immediately
+        e.preventDefault()
+        const enterCmd = filteredCommands[selectedIndex]
+        if (enterCmd) {
+          executeCommand(enterCmd)
+        }
+        return true
+      }
+
+      case "Escape":
+        e.preventDefault()
         setIsOpen(false)
         setExpandedCmd(null)
-      }
-    },
-    [],
-  )
+        // Only clear input if it was typed (starts with "/"), not button-triggered
+        if (!forceOpen && input.startsWith("/")) {
+          setInput("")
+        }
+        setForceOpen(false)
+        return true
+
+      default:
+        return false
+    }
+  }
+
+  const setOpen = (open: boolean) => {
+    if (open) {
+      setForceOpen(true)
+      setExpandedCmd(null)
+    } else {
+      setForceOpen(false)
+      setIsOpen(false)
+      setExpandedCmd(null)
+    }
+  }
 
   return {
     isOpen,

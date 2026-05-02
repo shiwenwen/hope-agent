@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -128,10 +128,7 @@ export default function TemplateEditView({ templateId, onBack }: TemplateEditVie
     }
   }, [templateId, isNew])
 
-  const isDirty = useMemo(
-    () => JSON.stringify(template) !== savedSnapshot,
-    [template, savedSnapshot],
-  )
+  const isDirty = JSON.stringify(template) !== savedSnapshot
 
   const updateMember = (idx: number, next: TeamTemplateMember) => {
     setTemplate((prev) => ({

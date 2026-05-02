@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
@@ -137,14 +137,8 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
       )
     }
 
-    const unlistenCreated = getTransport().listen(
-      LOCAL_MODEL_JOB_EVENTS.created,
-      handleSnapshot,
-    )
-    const unlistenUpdated = getTransport().listen(
-      LOCAL_MODEL_JOB_EVENTS.updated,
-      handleSnapshot,
-    )
+    const unlistenCreated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.created, handleSnapshot)
+    const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleSnapshot)
     const unlistenCompleted = getTransport().listen(
       LOCAL_MODEL_JOB_EVENTS.completed,
       handleCompletedSnapshot,
@@ -157,7 +151,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     }
   }, [reloadEmbeddingConfig])
 
-  const dismissReembedJob = useCallback(() => {
+  const dismissReembedJob = () => {
     const job = reembedJob
     if (!job) return
     if (!isLocalModelJobTerminal(job)) return
@@ -167,10 +161,10 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
         logger.warn("settings", "MemoryPanel::dismissReembedJob", "Failed to clear job", e),
       )
     setReembedJob(null)
-  }, [reembedJob])
+  }
 
   // ── Build scope for queries ──
-  const buildScope = useCallback((): { kind: "global" } | { kind: "agent"; id: string } | null => {
+  const buildScope = (): { kind: "global" } | { kind: "agent"; id: string } | null => {
     if (isAgentMode) {
       if (filterScope === "global") return { kind: "global" }
       if (filterScope === "agent") return { kind: "agent", id: agentId! }
@@ -179,10 +173,10 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     if (filterScope === "global") return { kind: "global" }
     if (filterScope === "agent" && selectedAgentId) return { kind: "agent", id: selectedAgentId }
     return null
-  }, [isAgentMode, filterScope, agentId, selectedAgentId])
+  }
 
   // ── Load memories ──
-  const loadMemories = useCallback(async () => {
+  const loadMemories = async () => {
     try {
       setLoading(true)
       const scope = buildScope()
@@ -220,11 +214,12 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
     } finally {
       setLoading(false)
     }
-  }, [searchQuery, filterType, buildScope, isAgentMode, filterScope, agentId, statsHook])
+  }
+  const loadMemoriesEffectEvent = useEffectEvent(loadMemories)
 
   useEffect(() => {
-    loadMemories()
-  }, [loadMemories])
+    loadMemoriesEffectEvent()
+  }, [searchQuery, filterType, isAgentMode, filterScope, agentId, selectedAgentId])
 
   // ── CRUD handlers ──
   function buildNewMemoryEntry(): NewMemory {

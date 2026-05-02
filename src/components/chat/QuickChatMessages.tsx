@@ -1,4 +1,3 @@
-import { useCallback, useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowDown, ExternalLink } from "lucide-react"
 import type { Message } from "@/types/chat"
@@ -39,7 +38,7 @@ export default function QuickChatMessages({
 }: QuickChatMessagesProps) {
   const { t } = useTranslation()
 
-  const rows = useMemo<QuickChatRow[]>(() => {
+  const rows = (() => {
     const next: QuickChatRow[] = []
     if (hasMore && onLoadMore) {
       next.push({ type: "loadMore", key: "load-more" })
@@ -56,29 +55,23 @@ export default function QuickChatMessages({
       })
     })
     return next
-  }, [messages, onNavigateToSession, sessionId, hasMore, onLoadMore])
+  })() as QuickChatRow[]
 
-  const getRowKey = useCallback((row: QuickChatRow) => row.key, [])
-  const estimateSize = useCallback(
-    (index: number) => {
-      const row = rows[index]
-      if (!row) return 72
-      if (row.type === "loadMore") return 32
-      if (row.type === "viewFullChat") return 28
-      if (row.msg.role === "event") return 28
-      if (row.msg.role === "user") return 58
-      return 72
-    },
-    [rows],
-  )
+  const getRowKey = (row: QuickChatRow) => row.key
+  const estimateSize = (index: number) => {
+    const row = rows[index]
+    if (!row) return 72
+    if (row.type === "loadMore") return 32
+    if (row.type === "viewFullChat") return 28
+    if (row.msg.role === "event") return 28
+    if (row.msg.role === "user") return 58
+    return 72
+  }
 
   const lastMsg = messages[messages.length - 1]
   const latestUserTurnKey = getLatestUserTurnKey(messages)
   const followKey = `${rows.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.toolCalls?.length ?? 0}`
-  const canAnchorRow = useCallback(
-    (row: QuickChatRow) => row.type === "message",
-    [],
-  )
+  const canAnchorRow = (row: QuickChatRow) => row.type === "message"
   const {
     scrollRef,
     virtualizer,

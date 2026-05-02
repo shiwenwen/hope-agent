@@ -1,4 +1,3 @@
-import React, { useMemo } from "react"
 import { useTranslation } from "react-i18next"
 import {
   BarChart,
@@ -47,12 +46,7 @@ interface SystemMetricsSectionProps {
 }
 
 function SectionSkeleton({ height }: { height: number }) {
-  return (
-    <div
-      className="w-full bg-muted animate-pulse rounded-lg"
-      style={{ height }}
-    />
-  )
+  return <div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />
 }
 
 const MEM_RSS_COLOR = "#ef4444" // red-500
@@ -66,23 +60,23 @@ function getCpuColor(percent: number): string {
   return "#ef4444" // red
 }
 
-const SystemMetricsSection = React.memo(function SystemMetricsSection({
+const SystemMetricsSection = function SystemMetricsSection({
   data,
   loading,
   history,
 }: SystemMetricsSectionProps) {
   const { t } = useTranslation()
 
-  const historyData = useMemo(() => {
+  const historyData = (() => {
     if (!history) return []
     return history.map((h) => ({
       t: h.t,
       cpu: Number(h.cpu.toFixed(2)),
       mem: Number(h.mem.toFixed(2)),
     }))
-  }, [history])
+  })()
 
-  const memPieData = useMemo(() => {
+  const memPieData = (() => {
     if (!data) return []
     return [
       {
@@ -96,9 +90,9 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
         color: MEM_FREE_COLOR,
       },
     ]
-  }, [data, t])
+  })()
 
-  const diskBarData = useMemo(() => {
+  const diskBarData = (() => {
     if (!data) return []
     return [
       {
@@ -112,7 +106,7 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
         fill: "#ef4444",
       },
     ]
-  }, [data, t])
+  })()
 
   if (loading && !data) {
     return (
@@ -186,7 +180,10 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
               <Cpu className="h-4 w-4 text-amber-500" />
               {t("dashboard.system.cpuUsage")}
             </h3>
-            <span className="text-sm font-semibold" style={{ color: getCpuColor(normalizedCpu / data.cpuCount) }}>
+            <span
+              className="text-sm font-semibold"
+              style={{ color: getCpuColor(normalizedCpu / data.cpuCount) }}
+            >
               {normalizedCpu.toFixed(1)}%
             </span>
           </div>
@@ -195,7 +192,9 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs text-muted-foreground">
               <span>0%</span>
-              <span>{data.cpuCount * 100}% ({data.cpuCount} {t("dashboard.system.cores")})</span>
+              <span>
+                {data.cpuCount * 100}% ({data.cpuCount} {t("dashboard.system.cores")})
+              </span>
             </div>
             <div className="h-6 bg-muted rounded-full overflow-hidden">
               <div
@@ -277,9 +276,7 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
               </ResponsiveContainer>
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="text-center">
-                  <div className="text-sm font-bold">
-                    {data.memory.rssPercent.toFixed(2)}%
-                  </div>
+                  <div className="text-sm font-bold">{data.memory.rssPercent.toFixed(2)}%</div>
                   <div className="text-[9px] text-muted-foreground">
                     {t("dashboard.system.ofSystem")}
                   </div>
@@ -376,10 +373,7 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
               </span>
             </div>
             <ResponsiveContainer width="100%" height={180}>
-              <AreaChart
-                data={historyData}
-                margin={{ top: 5, right: 16, left: 0, bottom: 0 }}
-              >
+              <AreaChart data={historyData} margin={{ top: 5, right: 16, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="cpuGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.45} />
@@ -416,9 +410,7 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
                     fontSize: "12px",
                     color: "var(--color-popover-foreground)",
                   }}
-                  labelFormatter={(value) =>
-                    new Date(chartNumber(value)).toLocaleTimeString()
-                  }
+                  labelFormatter={(value) => new Date(chartNumber(value)).toLocaleTimeString()}
                   formatter={(value, name) => [
                     `${chartNumber(value).toFixed(2)}%`,
                     chartName(name) === "cpu"
@@ -450,6 +442,6 @@ const SystemMetricsSection = React.memo(function SystemMetricsSection({
       </div>
     </div>
   )
-})
+}
 
 export default SystemMetricsSection

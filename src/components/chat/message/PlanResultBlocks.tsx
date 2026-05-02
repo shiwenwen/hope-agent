@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { getTransport } from "@/lib/transport-provider"
@@ -10,7 +10,7 @@ export function AskUserQuestionResult({ result }: { result: string }) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
 
-  const items = useMemo(() => {
+  const items = (() => {
     try {
       const data = JSON.parse(result) as {
         answers: Array<{ question: string; selected: string[]; customInput?: string }>
@@ -19,7 +19,7 @@ export function AskUserQuestionResult({ result }: { result: string }) {
     } catch {
       return []
     }
-  }, [result])
+  })()
 
   if (items.length === 0) return null
 
@@ -71,7 +71,9 @@ export function SubmitPlanResult({
       if (filePath) {
         await getTransport().call("reveal_in_folder", { path: filePath })
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
   }
 
   return (
@@ -86,7 +88,10 @@ export function SubmitPlanResult({
       <div className="flex items-center gap-1.5 shrink-0">
         <IconTip label={t("planMode.openPanel")}>
           <button
-            onClick={(e) => { e.stopPropagation(); onOpenPanel?.() }}
+            onClick={(e) => {
+              e.stopPropagation()
+              onOpenPanel?.()
+            }}
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
           >
             <PanelRight className="h-3.5 w-3.5" />
@@ -94,7 +99,10 @@ export function SubmitPlanResult({
         </IconTip>
         <IconTip label={t("chat.revealInFolder")}>
           <button
-            onClick={(e) => { e.stopPropagation(); handleRevealFile() }}
+            onClick={(e) => {
+              e.stopPropagation()
+              handleRevealFile()
+            }}
             className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors cursor-pointer"
           >
             <FolderOpen className="h-3.5 w-3.5" />

@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import {
   BarChart,
@@ -24,12 +24,7 @@ type SortKey = "toolName" | "callCount" | "errorCount" | "avgDurationMs" | "tota
 type SortDir = "asc" | "desc"
 
 function SectionSkeleton({ height }: { height: number }) {
-  return (
-    <div
-      className="w-full bg-muted animate-pulse rounded-lg"
-      style={{ height }}
-    />
-  )
+  return <div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />
 }
 
 function SortIndicator({
@@ -49,33 +44,28 @@ function SortIndicator({
   )
 }
 
-const ToolUsageSection = React.memo(function ToolUsageSection({
-  data,
-  loading,
-}: ToolUsageSectionProps) {
+const ToolUsageSection = function ToolUsageSection({ data, loading }: ToolUsageSectionProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [sortKey, setSortKey] = useState<SortKey>("callCount")
   const [sortDir, setSortDir] = useState<SortDir>("desc")
 
-  const getToolLabel = useCallback((name: string) => t(`tools.${name}`, name), [t])
+  const getToolLabel = (name: string) => t(`tools.${name}`, name)
 
-  const frequencyData = useMemo(() => {
+  const frequencyData = (() => {
     if (!data) return []
-    return [...data]
-      .sort((a, b) => b.callCount - a.callCount)
-      .slice(0, 15)
-  }, [data])
+    return [...data].sort((a, b) => b.callCount - a.callCount).slice(0, 15)
+  })()
 
-  const durationData = useMemo(() => {
+  const durationData = (() => {
     if (!data) return []
     return [...data]
       .filter((d) => d.avgDurationMs > 0)
       .sort((a, b) => b.avgDurationMs - a.avgDurationMs)
       .slice(0, 15)
-  }, [data])
+  })()
 
-  const sortedData = useMemo(() => {
+  const sortedData = (() => {
     if (!data) return []
     const sorted = [...data].sort((a, b) => {
       const aVal = a[sortKey]
@@ -88,19 +78,16 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
         : (bVal as number) - (aVal as number)
     })
     return sorted
-  }, [data, sortKey, sortDir])
+  })()
 
-  const handleSort = useCallback(
-    (key: SortKey) => {
-      if (sortKey === key) {
-        setSortDir((d) => (d === "asc" ? "desc" : "asc"))
-      } else {
-        setSortKey(key)
-        setSortDir("desc")
-      }
-    },
-    [sortKey],
-  )
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+    } else {
+      setSortKey(key)
+      setSortDir("desc")
+    }
+  }
 
   if (loading && !data) {
     return (
@@ -127,9 +114,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Tool frequency bar chart */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-medium mb-4">
-            {t("dashboard.tool.frequency")}
-          </h3>
+          <h3 className="text-sm font-medium mb-4">{t("dashboard.tool.frequency")}</h3>
           <ResponsiveContainer width="100%" height={Math.max(300, frequencyData.length * 28)}>
             <BarChart data={frequencyData} layout="vertical" margin={{ left: 80 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
@@ -153,7 +138,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                   border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
-                color: "var(--color-popover-foreground)",
+                  color: "var(--color-popover-foreground)",
                 }}
                 labelFormatter={(name) => getToolLabel(chartName(name))}
                 formatter={(value, name) => [
@@ -171,9 +156,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
 
         {/* Avg duration bar chart */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-medium mb-4">
-            {t("dashboard.tool.avgDuration")}
-          </h3>
+          <h3 className="text-sm font-medium mb-4">{t("dashboard.tool.avgDuration")}</h3>
           {durationData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground">
               {t("dashboard.noData")}
@@ -202,7 +185,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                     border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
-                  color: "var(--color-popover-foreground)",
+                    color: "var(--color-popover-foreground)",
                   }}
                   labelFormatter={(name) => getToolLabel(chartName(name))}
                   formatter={(value) => [
@@ -281,9 +264,7 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
             {/* Rows */}
             {sortedData.map((tool) => {
               const errorRate =
-                tool.callCount > 0
-                  ? ((tool.errorCount / tool.callCount) * 100).toFixed(1)
-                  : "0.0"
+                tool.callCount > 0 ? ((tool.errorCount / tool.callCount) * 100).toFixed(1) : "0.0"
               return (
                 <div
                   key={tool.toolName}
@@ -291,28 +272,14 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
                 >
                   <div className="truncate font-medium">{getToolLabel(tool.toolName)}</div>
                   <div className="text-right">{formatNumber(tool.callCount)}</div>
-                  <div
-                    className={cn(
-                      "text-right",
-                      tool.errorCount > 0 && "text-red-500",
-                    )}
-                  >
+                  <div className={cn("text-right", tool.errorCount > 0 && "text-red-500")}>
                     {formatNumber(tool.errorCount)}
                   </div>
-                  <div
-                    className={cn(
-                      "text-right",
-                      parseFloat(errorRate) > 10 && "text-red-500",
-                    )}
-                  >
+                  <div className={cn("text-right", parseFloat(errorRate) > 10 && "text-red-500")}>
                     {errorRate}%
                   </div>
-                  <div className="text-right">
-                    {formatDuration(tool.avgDurationMs)}
-                  </div>
-                  <div className="text-right">
-                    {formatDuration(tool.totalDurationMs)}
-                  </div>
+                  <div className="text-right">{formatDuration(tool.avgDurationMs)}</div>
+                  <div className="text-right">{formatDuration(tool.totalDurationMs)}</div>
                 </div>
               )
             })}
@@ -321,6 +288,6 @@ const ToolUsageSection = React.memo(function ToolUsageSection({
       </div>
     </div>
   )
-})
+}
 
 export default ToolUsageSection

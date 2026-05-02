@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react"
+import React, { useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -39,7 +39,9 @@ export interface MessageBubbleProps {
   onViewSystemPrompt?: () => void
   // Open the right-side diff panel for a file change payload.
   onOpenDiff?: (
-    metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
+    metadata:
+      | import("@/types/chat").FileChangeMetadata
+      | import("@/types/chat").FileChangesMetadata,
   ) => void
 }
 
@@ -102,21 +104,18 @@ function MessageBubbleInner({
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
 
-  const modifiedFiles = useMemo(
-    () =>
-      msg.role === "assistant" && msg.contentBlocks ? extractModifiedFiles(msg.contentBlocks) : [],
-    [msg.role, msg.contentBlocks],
-  )
+  const modifiedFiles =
+    msg.role === "assistant" && msg.contentBlocks ? extractModifiedFiles(msg.contentBlocks) : []
 
   const fromAgent = msg.fromAgentId ? agents.find((a) => a.id === msg.fromAgentId) : undefined
-  const eventPayload = useMemo(() => {
+  const eventPayload = (() => {
     if (msg.role !== "event") return null
     try {
       return JSON.parse(msg.content) as Record<string, unknown>
     } catch {
       return null
     }
-  }, [msg.content, msg.role])
+  })()
 
   if (msg.role === "event") {
     // Interactive model picker card
@@ -395,5 +394,5 @@ function MessageBubbleInner({
   )
 }
 
-const MessageBubble = React.memo(MessageBubbleInner)
+const MessageBubble = MessageBubbleInner
 export default MessageBubble

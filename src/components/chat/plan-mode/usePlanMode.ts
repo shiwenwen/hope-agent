@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
@@ -97,7 +97,9 @@ export function usePlanMode(
   const [planContent, setPlanContent] = useState<string>("")
   const [showPanel, setShowPanel] = useState(false)
   const [planCardInfo, setPlanCardInfo] = useState<PlanCardInfo | null>(null)
-  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<AskUserQuestionGroup | null>(null)
+  const [pendingQuestionGroup, setPendingQuestionGroup] = useState<AskUserQuestionGroup | null>(
+    null,
+  )
   const [planSubagentRunning, setPlanSubagentRunning] = useState(false)
 
   // Track whether plan mode was entered in the current no-session context
@@ -105,7 +107,7 @@ export function usePlanMode(
   const lastSessionIdRef = useRef<string | null>(null)
 
   // Enter Plan Mode
-  const enterPlanMode = useCallback(async () => {
+  const enterPlanMode = async () => {
     if (!currentSessionId) {
       // Pre-session plan mode: set flag so reset logic doesn't clear it
       preSessionPlanRef.current = true
@@ -118,10 +120,10 @@ export function usePlanMode(
     } catch (e) {
       logger.error("plan", "usePlanMode::enter", "Failed to enter plan mode", e)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
   // Exit Plan Mode
-  const exitPlanMode = useCallback(async () => {
+  const exitPlanMode = async () => {
     if (currentSessionId) {
       try {
         await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "off" })
@@ -139,21 +141,24 @@ export function usePlanMode(
     queueMicrotask(() => {
       setPendingQuestionGroup(null)
     })
-  }, [currentSessionId, setPlanState])
+  }
 
   // Approve and start execution
-  const approvePlan = useCallback(async () => {
+  const approvePlan = async () => {
     if (!currentSessionId) return
     try {
-      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
+      await getTransport().call("set_plan_mode", {
+        sessionId: currentSessionId,
+        state: "executing",
+      })
       setPlanState("executing")
     } catch (e) {
       logger.error("plan", "usePlanMode::approve", "Failed to approve plan", e)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
   // Pause execution
-  const pauseExecution = useCallback(async () => {
+  const pauseExecution = async () => {
     if (!currentSessionId) return
     try {
       await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "paused" })
@@ -161,20 +166,23 @@ export function usePlanMode(
     } catch (e) {
       logger.error("plan", "usePlanMode::pause", "Failed to pause plan", e)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
   // Resume execution
-  const resumeExecution = useCallback(async () => {
+  const resumeExecution = async () => {
     if (!currentSessionId) return
     try {
-      await getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: "executing" })
+      await getTransport().call("set_plan_mode", {
+        sessionId: currentSessionId,
+        state: "executing",
+      })
       setPlanState("executing")
     } catch (e) {
       logger.error("plan", "usePlanMode::resume", "Failed to resume plan", e)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
-  const openPlanPanel = useCallback(async () => {
+  const openPlanPanel = async () => {
     if (!currentSessionId) {
       setShowPanel(true)
       return
@@ -210,7 +218,7 @@ export function usePlanMode(
       logger.error("plan", "usePlanMode::openPanel", "Failed to open plan panel", e)
       setShowPanel(true)
     }
-  }, [currentSessionId, setPlanState])
+  }
 
   // Sync state when session changes
   const planStateRef = useRef(planState)
@@ -278,7 +286,8 @@ export function usePlanMode(
     // non-off state from a different session; that makes ordinary chats look
     // like plan sessions after switching.
     if (shouldMaterializePreSessionPlan) {
-      getTransport().call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
+      getTransport()
+        .call("set_plan_mode", { sessionId: currentSessionId, state: planStateRef.current })
         .catch(() => {})
       return () => {
         cancelled = true
@@ -348,7 +357,8 @@ export function usePlanMode(
       const payload = raw as { sessionId: string; stepCount: number; content: string }
       if (payload.sessionId !== currentSessionId) return
       setPlanContent(payload.content)
-      getTransport().call<PlanStep[]>("get_plan_steps", { sessionId: payload.sessionId })
+      getTransport()
+        .call<PlanStep[]>("get_plan_steps", { sessionId: payload.sessionId })
         .then((steps) => {
           if (steps && steps.length > 0) {
             setPlanSteps(steps)
@@ -361,7 +371,12 @@ export function usePlanMode(
   // Listen for plan_step_updated events
   useEffect(() => {
     return getTransport().listen("plan_step_updated", (raw) => {
-      const payload = raw as { sessionId: string; stepIndex: number; status: string; durationMs?: number }
+      const payload = raw as {
+        sessionId: string
+        stepIndex: number
+        status: string
+        durationMs?: number
+      }
       if (payload.sessionId !== currentSessionId) return
       setPlanSteps((prev) =>
         prev.map((s) =>
@@ -371,8 +386,8 @@ export function usePlanMode(
                 status: payload.status as PlanStep["status"],
                 durationMs: payload.durationMs ?? s.durationMs,
               }
-            : s
-        )
+            : s,
+        ),
       )
     })
   }, [currentSessionId])
@@ -389,7 +404,13 @@ export function usePlanMode(
   // Listen for plan_submitted events (LLM submitted a plan via submit_plan tool)
   useEffect(() => {
     return getTransport().listen("plan_submitted", (raw) => {
-      const payload = raw as { sessionId: string; title: string; stepCount: number; phaseCount: number; steps: PlanStep[] }
+      const payload = raw as {
+        sessionId: string
+        title: string
+        stepCount: number
+        phaseCount: number
+        steps: PlanStep[]
+      }
       if (payload.sessionId !== currentSessionId) return
       setPlanCardInfo({
         title: payload.title,
@@ -400,7 +421,8 @@ export function usePlanMode(
       setPlanState("review")
       setPendingQuestionGroup(null)
       // Load the plan content and auto-show panel
-      getTransport().call<unknown>("get_plan_content", { sessionId: currentSessionId })
+      getTransport()
+        .call<unknown>("get_plan_content", { sessionId: currentSessionId })
         .then((rawContent) => {
           const content = normalizePlanContent(rawContent)
           if (content) {
@@ -454,16 +476,16 @@ export function usePlanMode(
   }, [planState])
 
   // Calculate progress
-  const completedCount = useMemo(() => {
+  const completedCount = (() => {
     return planSteps.filter(
-      (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed"
+      (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed",
     ).length
-  }, [planSteps])
+  })()
 
-  const progress = useMemo(() => {
+  const progress = (() => {
     if (planSteps.length === 0) return 0
     return Math.round((completedCount / planSteps.length) * 100)
-  }, [planSteps.length, completedCount])
+  })()
 
   return {
     planState,

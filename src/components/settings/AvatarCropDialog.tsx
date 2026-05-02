@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react"
+import { useState } from "react"
 import { logger } from "@/lib/logger"
 import Cropper from "react-easy-crop"
 import type { Area } from "react-easy-crop"
@@ -78,9 +78,9 @@ export function AvatarCropDialog({ imageSrc, onConfirm, onCancel, open }: Avatar
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null)
   const [processing, setProcessing] = useState(false)
 
-  const onCropComplete = useCallback((_: Area, croppedPixels: Area) => {
+  const onCropComplete = (_: Area, croppedPixels: Area) => {
     setCroppedAreaPixels(croppedPixels)
-  }, [])
+  }
 
   const handleConfirm = async () => {
     if (!croppedAreaPixels) return

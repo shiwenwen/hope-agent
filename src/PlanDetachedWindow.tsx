@@ -3,7 +3,7 @@
  * Rendered when `?window=plan` is in the URL (see main.tsx).
  * Receives sessionId via URL search param.
  */
-import { useEffect, useCallback, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
 import { initLanguageFromConfig } from "@/i18n/i18n"
@@ -53,9 +53,9 @@ export default function PlanDetachedWindow() {
     resumeExecution,
   } = planMode
 
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     getCurrentWindow().close()
-  }, [])
+  }
 
   const contentRef = useRef<HTMLDivElement>(null)
   const [commentPopover, setCommentPopover] = useState<{
@@ -63,7 +63,7 @@ export default function PlanDetachedWindow() {
     selectedText: string
   } | null>(null)
 
-  const groupedPhases = useMemo(() => groupStepsByPhase(planSteps), [planSteps])
+  const groupedPhases = groupStepsByPhase(planSteps)
 
   const allDone =
     planSteps.length > 0 &&
@@ -89,7 +89,7 @@ export default function PlanDetachedWindow() {
             ? "text-purple-500"
             : "text-blue-500"
 
-  const highlightSelection = useCallback((range: Range) => {
+  const highlightSelection = (range: Range) => {
     try {
       const mark = document.createElement("mark")
       mark.className = "bg-blue-200/50 dark:bg-blue-500/30 rounded-sm plan-comment-highlight"
@@ -111,9 +111,9 @@ export default function PlanDetachedWindow() {
         mark.appendChild(node)
       }
     }
-  }, [])
+  }
 
-  const clearHighlight = useCallback(() => {
+  const clearHighlight = () => {
     if (!contentRef.current) return
     const marks = contentRef.current.querySelectorAll("mark.plan-comment-highlight")
     marks.forEach((mark) => {
@@ -123,9 +123,10 @@ export default function PlanDetachedWindow() {
         parent.removeChild(mark)
       }
     })
-  }, [])
+  }
+  const clearHighlightEffectEvent = useEffectEvent(clearHighlight)
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = () => {
     if (!canComment || !contentRef.current) return
     const selection = window.getSelection()
     if (!selection || selection.isCollapsed || !selection.toString().trim()) return
@@ -144,58 +145,55 @@ export default function PlanDetachedWindow() {
     highlightSelection(range.cloneRange())
     selection.removeAllRanges()
     setCommentPopover({ position: { top, left }, selectedText })
-  }, [canComment, clearHighlight, highlightSelection])
+  }
 
   useEffect(() => {
     const handleMouseDown = () => {
       if (!commentPopover) return
-      clearHighlight()
+      clearHighlightEffectEvent()
       setCommentPopover(null)
     }
     document.addEventListener("mousedown", handleMouseDown)
     return () => document.removeEventListener("mousedown", handleMouseDown)
-  }, [commentPopover, clearHighlight])
+  }, [commentPopover])
 
-  const handleCommentSubmit = useCallback(
-    async (comment: string) => {
-      if (!commentPopover || !sessionId) return
-      const feedback = [
-        `<plan-inline-comment>`,
-        `The user selected the following section from the current plan and requests a revision:`,
-        ``,
-        `<selected-text>`,
-        commentPopover.selectedText,
-        `</selected-text>`,
-        ``,
-        `<revision-request>`,
-        comment,
-        `</revision-request>`,
-        ``,
-        `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
-        `</plan-inline-comment>`,
-      ].join("\n")
-      clearHighlight()
-      setCommentPopover(null)
-      window.getSelection()?.removeAllRanges()
-      setPlanState("planning")
-      try {
-        await getTransport().call("set_plan_mode", { sessionId, state: "planning" })
-        await getTransport().startChat(
-          {
-            message: feedback,
-            attachments: [],
-            sessionId,
-            planMode: "planning",
-            displayText: comment,
-          },
-          () => {},
-        )
-      } catch (e) {
-        logger.error("plan", "PlanDetachedWindow::comment", "Failed to submit plan comment", e)
-      }
-    },
-    [clearHighlight, commentPopover, sessionId, setPlanState],
-  )
+  const handleCommentSubmit = async (comment: string) => {
+    if (!commentPopover || !sessionId) return
+    const feedback = [
+      `<plan-inline-comment>`,
+      `The user selected the following section from the current plan and requests a revision:`,
+      ``,
+      `<selected-text>`,
+      commentPopover.selectedText,
+      `</selected-text>`,
+      ``,
+      `<revision-request>`,
+      comment,
+      `</revision-request>`,
+      ``,
+      `Please revise the plan to address this feedback. Modify the quoted section while keeping the rest of the plan intact, then resubmit the updated plan using the submit_plan tool.`,
+      `</plan-inline-comment>`,
+    ].join("\n")
+    clearHighlight()
+    setCommentPopover(null)
+    window.getSelection()?.removeAllRanges()
+    setPlanState("planning")
+    try {
+      await getTransport().call("set_plan_mode", { sessionId, state: "planning" })
+      await getTransport().startChat(
+        {
+          message: feedback,
+          attachments: [],
+          sessionId,
+          planMode: "planning",
+          displayText: comment,
+        },
+        () => {},
+      )
+    } catch (e) {
+      logger.error("plan", "PlanDetachedWindow::comment", "Failed to submit plan comment", e)
+    }
+  }
 
   return (
     <TooltipProvider>

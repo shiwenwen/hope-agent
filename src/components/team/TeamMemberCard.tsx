@@ -1,4 +1,3 @@
-import { useMemo } from "react"
 import { Eye } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
@@ -18,17 +17,17 @@ export function TeamMemberCard({ member, onViewSession }: TeamMemberCardProps) {
   const inputTokens = member.inputTokens ?? 0
   const outputTokens = member.outputTokens ?? 0
 
-  const formattedTokens = useMemo(() => {
-    const fmt = (n: number) =>
-      n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
+  const formattedTokens = (() => {
+    const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n))
     return { input: fmt(inputTokens), output: fmt(outputTokens) }
-  }, [inputTokens, outputTokens])
+  })()
 
-  const roleLabel = member.role === "lead"
-    ? t("team.role.lead", "Lead")
-    : member.role === "reviewer"
-      ? t("team.role.reviewer", "Reviewer")
-      : t("team.role.worker", "Worker")
+  const roleLabel =
+    member.role === "lead"
+      ? t("team.role.lead", "Lead")
+      : member.role === "reviewer"
+        ? t("team.role.reviewer", "Reviewer")
+        : t("team.role.worker", "Worker")
 
   return (
     <div

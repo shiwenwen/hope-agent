@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import React, { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { parseSessionMessages } from "./chatUtils"
@@ -91,11 +91,11 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
   const [oldestDbId, setOldestDbId] = useState<number | null>(null)
-  const resetPagination = useCallback(() => {
+  const resetPagination = () => {
     setHasMore(false)
     setOldestDbId(null)
     setLoadingMore(false)
-  }, [])
+  }
 
   // Model state
   const [availableModels, setAvailableModels] = useState<AvailableModel[]>([])
@@ -108,7 +108,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   }, [currentSessionId])
 
   // Load agents list
-  const loadAgents = useCallback(async () => {
+  const loadAgents = async () => {
     try {
       const list = await getTransport().call<AgentSummaryForSidebar[]>("list_agents")
       setAgents(list)
@@ -117,10 +117,11 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
       logger.error("ui", "QuickChat::loadAgents", "Failed to load agents", e)
       return []
     }
-  }, [])
+  }
+  const loadAgentsEffectEvent = useEffectEvent(loadAgents)
 
   // Load models and settings
-  const loadModels = useCallback(async () => {
+  const loadModels = async () => {
     try {
       const [models, active, settings, agentConfig] = await Promise.all([
         getTransport().call<AvailableModel[]>("get_available_models"),
@@ -157,40 +158,40 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
             (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
           )
         : undefined
-      setReasoningEffort(normalizeEffortForModel(currentModel, settings.reasoning_effort, (key) => key))
+      setReasoningEffort(
+        normalizeEffortForModel(currentModel, settings.reasoning_effort, (key) => key),
+      )
     } catch (e) {
       logger.error("ui", "QuickChat::loadModels", "Failed to load models", e)
     }
-  }, [currentAgentId])
+  }
+  const loadModelsEffectEvent = useEffectEvent(loadModels)
 
-  const loadSessionMessages = useCallback(
-    async (sessionId: string): Promise<boolean> => {
-      try {
-        const [rawMsgs, , hasMoreFromApi] = await getTransport().call<
-          [SessionMessage[], number, boolean]
-        >("load_session_messages_latest_cmd", {
-          sessionId,
-          limit: QUICK_CHAT_PAGE_SIZE,
-        })
-        const parsed = parseSessionMessages(rawMsgs)
-        setMessages(parsed)
-        sessionCacheRef.current.set(sessionId, parsed)
-        setHasMore(hasMoreFromApi)
-        setOldestDbId(rawMsgs[0]?.id ?? null)
-        setLoadingMore(false)
-        return true
-      } catch (e) {
-        logger.error("ui", "QuickChat::loadMessages", "Failed to load messages", e)
-        setMessages([])
-        resetPagination()
-        return false
-      }
-    },
-    [resetPagination],
-  )
+  const loadSessionMessages = async (sessionId: string): Promise<boolean> => {
+    try {
+      const [rawMsgs, , hasMoreFromApi] = await getTransport().call<
+        [SessionMessage[], number, boolean]
+      >("load_session_messages_latest_cmd", {
+        sessionId,
+        limit: QUICK_CHAT_PAGE_SIZE,
+      })
+      const parsed = parseSessionMessages(rawMsgs)
+      setMessages(parsed)
+      sessionCacheRef.current.set(sessionId, parsed)
+      setHasMore(hasMoreFromApi)
+      setOldestDbId(rawMsgs[0]?.id ?? null)
+      setLoadingMore(false)
+      return true
+    } catch (e) {
+      logger.error("ui", "QuickChat::loadMessages", "Failed to load messages", e)
+      setMessages([])
+      resetPagination()
+      return false
+    }
+  }
 
   // Reload sessions list (for useChatStream compatibility)
-  const reloadSessions = useCallback(async () => {
+  const reloadSessions = async () => {
     try {
       const [list] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
         agentId: currentAgentId === "default" ? null : currentAgentId,
@@ -199,24 +200,21 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     } catch {
       // ignore
     }
-  }, [currentAgentId])
+  }
 
   // Update session messages helper (for useChatStream compatibility)
-  const updateSessionMessages = useCallback(
-    (sessionId: string, updater: (prev: Message[]) => Message[]) => {
-      if (sessionId === currentSessionIdRef.current) {
-        setMessages((prev) => {
-          const next = updater(prev)
-          sessionCacheRef.current.set(sessionId, next)
-          return next
-        })
-      }
-    },
-    [],
-  )
+  const updateSessionMessages = (sessionId: string, updater: (prev: Message[]) => Message[]) => {
+    if (sessionId === currentSessionIdRef.current) {
+      setMessages((prev) => {
+        const next = updater(prev)
+        sessionCacheRef.current.set(sessionId, next)
+        return next
+      })
+    }
+  }
 
   // Initialize/restore session for current agent
-  const initSession = useCallback(async () => {
+  const initSession = async () => {
     const agentList = await loadAgents()
     await loadModels()
 
@@ -234,16 +232,17 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     setCurrentSessionId(null)
     setMessages([])
     resetPagination()
-  }, [currentAgentId, loadAgents, loadModels, loadSessionMessages, resetPagination])
+  }
+  const initSessionEffectEvent = useEffectEvent(initSession)
 
   // Re-init when dialog opens
   useEffect(() => {
     if (open) {
       queueMicrotask(() => {
-        initSession()
+        initSessionEffectEvent()
       })
     }
-  }, [open, initSession])
+  }, [open, currentAgentId])
 
   useEffect(() => {
     manualModelOverrideRef.current = null
@@ -251,15 +250,15 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
 
   useEffect(() => {
     const offConfig = getTransport().listen("config:changed", () => {
-      void loadModels()
+      void loadModelsEffectEvent()
     })
     const offAgents = getTransport().listen("agents:changed", () => {
-      void loadAgents()
-      void loadModels()
+      void loadAgentsEffectEvent()
+      void loadModelsEffectEvent()
     })
     const onWindowAgentsChanged = () => {
-      void loadAgents()
-      void loadModels()
+      void loadAgentsEffectEvent()
+      void loadModelsEffectEvent()
     }
     window.addEventListener("agents-changed", onWindowAgentsChanged)
     return () => {
@@ -267,104 +266,101 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
       offAgents()
       window.removeEventListener("agents-changed", onWindowAgentsChanged)
     }
-  }, [loadAgents, loadModels])
+  }, [currentAgentId])
 
-  const handleNewChat = useCallback(async () => {
+  const handleNewChat = async () => {
     setCurrentSessionId(null)
     setMessages([])
     sessionCacheRef.current.clear()
     resetPagination()
-  }, [resetPagination])
+  }
 
   // Switch agent
-  const handleSwitchAgent = useCallback(
-    async (agentId: string) => {
-      // Save current session ID for current agent before switching
-      if (currentSessionIdRef.current) {
-        setLastSessionId(currentAgentId, currentSessionIdRef.current)
+  const handleSwitchAgent = async (agentId: string) => {
+    // Save current session ID for current agent before switching
+    if (currentSessionIdRef.current) {
+      setLastSessionId(currentAgentId, currentSessionIdRef.current)
+    }
+
+    setCurrentAgentId(agentId)
+    const agent = agents.find((a) => a.id === agentId)
+    if (agent) setAgentName(agent.name)
+
+    // Try to load the agent's specific model config
+    try {
+      const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", {
+        id: agentId,
+      })
+      if (agentConfig.model.primary) {
+        const [pId, mId] = agentConfig.model.primary.split("::")
+        if (pId && mId) {
+          setActiveModel({ providerId: pId, modelId: mId })
+        }
       }
+    } catch {
+      // Fall back to global active model
+    }
 
-      setCurrentAgentId(agentId)
-      const agent = agents.find((a) => a.id === agentId)
-      if (agent) setAgentName(agent.name)
-
-      // Try to load the agent's specific model config
+    // Try to restore last session for new agent
+    const lastSid = getLastSessionId(agentId)
+    if (lastSid) {
       try {
-        const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", { id: agentId })
-        if (agentConfig.model.primary) {
-          const [pId, mId] = agentConfig.model.primary.split("::")
-          if (pId && mId) {
-            setActiveModel({ providerId: pId, modelId: mId })
-          }
-        }
+        await loadSessionMessages(lastSid)
+        setCurrentSessionId(lastSid)
+        return
       } catch {
-        // Fall back to global active model
+        // Session deleted, create new
       }
+    }
 
-      // Try to restore last session for new agent
-      const lastSid = getLastSessionId(agentId)
-      if (lastSid) {
-        try {
-          await loadSessionMessages(lastSid)
-          setCurrentSessionId(lastSid)
-          return
-        } catch {
-          // Session deleted, create new
-        }
-      }
-
-      // No previous session
-      setCurrentSessionId(null)
-      setMessages([])
-      resetPagination()
-    },
-    [currentAgentId, agents, loadSessionMessages, resetPagination],
-  )
+    // No previous session
+    setCurrentSessionId(null)
+    setMessages([])
+    resetPagination()
+  }
 
   // Model change
-  const handleModelChange = useCallback(
-    async (key: string) => {
-      const [providerId, modelId] = key.split("::")
-      if (!providerId || !modelId) return
-      manualModelOverrideRef.current = { providerId, modelId }
-      setActiveModel({ providerId, modelId })
-      const newModel = availableModels.find(
-        (m) => m.providerId === providerId && m.modelId === modelId,
-      )
-      if (newModel) {
-        setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, (k) => k))
-      }
-      try {
-        await getTransport().call("set_active_model", { providerId, modelId })
-      } catch (e) {
-        logger.error("ui", "QuickChat::modelChange", "Failed to set model", e)
-      }
-    },
-    [availableModels],
-  )
+  const handleModelChange = async (key: string) => {
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
+    manualModelOverrideRef.current = { providerId, modelId }
+    setActiveModel({ providerId, modelId })
+    const newModel = availableModels.find(
+      (m) => m.providerId === providerId && m.modelId === modelId,
+    )
+    if (newModel) {
+      setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, (k) => k))
+    }
+    try {
+      await getTransport().call("set_active_model", { providerId, modelId })
+    } catch (e) {
+      logger.error("ui", "QuickChat::modelChange", "Failed to set model", e)
+    }
+  }
 
   // Effort change
-  const handleEffortChange = useCallback(async (effort: string) => {
+  const handleEffortChange = async (effort: string) => {
     setReasoningEffort(effort)
     try {
       await getTransport().call("set_reasoning_effort", { effort })
     } catch (e) {
       logger.error("ui", "QuickChat::effortChange", "Failed to set effort", e)
     }
-  }, [])
+  }
 
-  const handleLoadMore = useCallback(async () => {
+  const handleLoadMore = async () => {
     const curSid = currentSessionIdRef.current
     if (!curSid || loadingMore || !hasMore || oldestDbId === null) return
     setLoadingMore(true)
     try {
-      const [olderMsgs, hasMoreBefore] = await getTransport().call<
-        [SessionMessage[], boolean]
-      >("load_session_messages_before_cmd", {
-        sessionId: curSid,
-        beforeId: oldestDbId,
-        limit: QUICK_CHAT_PAGE_SIZE,
-      })
+      const [olderMsgs, hasMoreBefore] = await getTransport().call<[SessionMessage[], boolean]>(
+        "load_session_messages_before_cmd",
+        {
+          sessionId: curSid,
+          beforeId: oldestDbId,
+          limit: QUICK_CHAT_PAGE_SIZE,
+        },
+      )
       if (olderMsgs.length === 0) {
         setHasMore(false)
         return
@@ -382,7 +378,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     } finally {
       setLoadingMore(false)
     }
-  }, [loadingMore, hasMore, oldestDbId])
+  }
 
   // Save session ID when it changes (e.g. after first message creates a session)
   useEffect(() => {

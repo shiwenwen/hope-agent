@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import {
   Cpu,
@@ -132,12 +132,13 @@ export default function LocalLlmAssistantCard({
   const [dialogDone, setDialogDone] = useState(false)
   const [dialogError, setDialogError] = useState<string | null>(null)
   const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
+  const currentJobRef = useRef<LocalModelJobSnapshot | null>(null)
   const handledCompletedJobs = useRef<Set<string>>(new Set())
   const recommended = chosen ?? recommendation?.recommended ?? null
   const jobActive = currentJob ? isLocalModelJobActive(currentJob) : false
   const busy = submitting || jobActive
 
-  const appendDialogLog = useCallback((message: string, createdAt?: number) => {
+  const appendDialogLog = (message: string, createdAt?: number) => {
     const trimmed = message.trim()
     if (!trimmed) return
     const line = formatLocalModelJobLogLine(trimmed, createdAt)
@@ -145,9 +146,10 @@ export default function LocalLlmAssistantCard({
       if (prev[prev.length - 1] === line) return prev
       return [...prev.slice(-(MAX_DIALOG_LOG_LINES - 1)), line]
     })
-  }, [])
+  }
+  const appendDialogLogEffectEvent = useEffectEvent(appendDialogLog)
 
-  const refresh = useCallback(async () => {
+  const refresh = async () => {
     setRefreshing(true)
     try {
       const [rec, status] = await Promise.all([
@@ -162,21 +164,20 @@ export default function LocalLlmAssistantCard({
     } finally {
       setRefreshing(false)
     }
-  }, [])
+  }
+  const refreshEffectEvent = useEffectEvent(refresh)
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    void refreshEffectEvent()
+  }, [])
 
-  const phaseLabel = useCallback(
-    (phase: string | undefined) => {
-      const key = phaseTranslationKey(phase)
-      return key ? t(key) : (phase ?? "")
-    },
-    [t],
-  )
+  const phaseLabel = (phase: string | undefined) => {
+    const key = phaseTranslationKey(phase)
+    return key ? t(key) : (phase ?? "")
+  }
+  const phaseLabelEffectEvent = useEffectEvent(phaseLabel)
 
-  const hydrateJobLogs = useCallback(async (jobId: string) => {
+  const hydrateJobLogs = async (jobId: string) => {
     try {
       const entries = await getTransport().call<LocalModelJobLogEntry[]>("local_model_job_logs", {
         jobId,
@@ -189,24 +190,22 @@ export default function LocalLlmAssistantCard({
     } catch (e) {
       logger.warn("local-llm", "hydrateJobLogs", "Failed to load local model job logs", e)
     }
-  }, [])
+  }
 
-  const openJobDialog = useCallback(
-    (job: LocalModelJobSnapshot) => {
-      setCurrentJob(job)
-      setDialogOpen(true)
-      setDialogTitle(t("settings.localLlm.buttons.installModel", { model: job.displayName }))
-      setDialogSubtitle(job.modelId)
-      setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
-      setDialogLogs([])
-      setDialogDone(isLocalModelJobTerminal(job) && !job.error)
-      setDialogError(job.error ?? null)
-      void hydrateJobLogs(job.jobId)
-    },
-    [hydrateJobLogs, phaseLabel, t],
-  )
+  const openJobDialog = (job: LocalModelJobSnapshot) => {
+    currentJobRef.current = job
+    setCurrentJob(job)
+    setDialogOpen(true)
+    setDialogTitle(t("settings.localLlm.buttons.installModel", { model: job.displayName }))
+    setDialogSubtitle(job.modelId)
+    setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+    setDialogLogs([])
+    setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+    setDialogError(job.error ?? null)
+    void hydrateJobLogs(job.jobId)
+  }
 
-  const startModelJob = useCallback(async (model: ModelCandidate) => {
+  const startModelJob = async (model: ModelCandidate) => {
     setSubmitting(true)
     setError(null)
     try {
@@ -217,18 +216,23 @@ export default function LocalLlmAssistantCard({
       openJobDialog(job)
     } catch (e) {
       const msg = String(e)
-      logger.error("local-llm", "LocalLlmAssistantCard::startModelJob", "Failed to start chat model job", {
-        modelId: model.id,
-        error: msg,
-      })
+      logger.error(
+        "local-llm",
+        "LocalLlmAssistantCard::startModelJob",
+        "Failed to start chat model job",
+        {
+          modelId: model.id,
+          error: msg,
+        },
+      )
       setDialogError(msg)
       setError(t("settings.localLlm.error.pullFailed", { message: msg }))
     } finally {
       setSubmitting(false)
     }
-  }, [openJobDialog, t])
+  }
 
-  const handleTerminalJob = useCallback((job: LocalModelJobSnapshot) => {
+  const handleTerminalJob = (job: LocalModelJobSnapshot) => {
     if (!isLocalModelJobTerminal(job)) return
     if (handledCompletedJobs.current.has(job.jobId)) return
     handledCompletedJobs.current.add(job.jobId)
@@ -237,73 +241,85 @@ export default function LocalLlmAssistantCard({
       void refresh()
       onProviderInstalled()
     } else if (job.error) {
-      logger.error("local-llm", "LocalLlmAssistantCard::handleTerminalJob", "Chat model job failed", {
-        jobId: job.jobId,
-        modelId: job.modelId,
-        phase: job.phase,
-        error: job.error,
-      })
+      logger.error(
+        "local-llm",
+        "LocalLlmAssistantCard::handleTerminalJob",
+        "Chat model job failed",
+        {
+          jobId: job.jobId,
+          modelId: job.modelId,
+          phase: job.phase,
+          error: job.error,
+        },
+      )
       appendDialogLog(job.error, job.updatedAt)
       setError(t("settings.localLlm.error.pullFailed", { message: job.error }))
     }
-  }, [appendDialogLog, onProviderInstalled, refresh, t])
+  }
+  const handleTerminalJobEffectEvent = useEffectEvent(handleTerminalJob)
 
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
-      setCurrentJob((current) => {
-        if (current?.jobId !== job.jobId) return current
-        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+      if (currentJobRef.current?.jobId === job.jobId) {
+        currentJobRef.current = job
+        setCurrentJob(job)
+        setDialogFrame(localModelJobToProgressFrame(job, (phase) => phaseLabelEffectEvent(phase)))
         setDialogDone(isLocalModelJobTerminal(job) && !job.error)
         setDialogError(job.error ?? null)
-        handleTerminalJob(job)
-        return job
-      })
+        handleTerminalJobEffectEvent(job)
+      }
     }
 
     const handleLog = (raw: unknown) => {
       const entry = parsePayload<LocalModelJobLogEntry>(raw)
-      setCurrentJob((current) => {
-        if (current?.jobId !== entry.jobId) return current
-        appendDialogLog(entry.message, entry.createdAt)
-        return current
-      })
+      if (currentJobRef.current?.jobId === entry.jobId) {
+        appendDialogLogEffectEvent(entry.message, entry.createdAt)
+      }
     }
 
     const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleSnapshot)
-    const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
+    const unlistenCompleted = getTransport().listen(
+      LOCAL_MODEL_JOB_EVENTS.completed,
+      handleSnapshot,
+    )
     const unlistenLog = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.log, handleLog)
     return () => {
       unlistenUpdated()
       unlistenCompleted()
       unlistenLog()
     }
-  }, [appendDialogLog, handleTerminalJob, phaseLabel])
+  }, [])
 
-  const cancelCurrentJob = useCallback(() => {
+  const cancelCurrentJob = () => {
     const job = currentJob
     if (!job) return
     void getTransport()
       .call<LocalModelJobSnapshot>("local_model_job_cancel", { jobId: job.jobId })
       .catch((e) => {
         const msg = String(e)
-        logger.error("local-llm", "LocalLlmAssistantCard::cancelCurrentJob", "Failed to cancel job", {
-          jobId: job.jobId,
-          error: msg,
-        })
+        logger.error(
+          "local-llm",
+          "LocalLlmAssistantCard::cancelCurrentJob",
+          "Failed to cancel job",
+          {
+            jobId: job.jobId,
+            error: msg,
+          },
+        )
         setDialogError(msg)
         setError(msg)
       })
-  }, [currentJob])
+  }
 
-  const startRecommendedJob = useCallback(() => {
+  const startRecommendedJob = () => {
     if (!recommended) return
     void startModelJob(recommended)
-  }, [recommended, startModelJob])
+  }
 
-  const openDownloadPage = useCallback(() => {
+  const openDownloadPage = () => {
     openExternalUrl("https://ollama.com/download")
-  }, [])
+  }
 
   if (!recommendation) {
     return (
@@ -582,7 +598,9 @@ export default function LocalLlmAssistantCard({
         error={dialogError}
         cancellable={false}
         onBackground={() => setDialogOpen(false)}
-        onCancelTask={currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined}
+        onCancelTask={
+          currentJob && isLocalModelJobActive(currentJob) ? cancelCurrentJob : undefined
+        }
       />
     </>
   )

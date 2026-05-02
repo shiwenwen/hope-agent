@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import React, { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload, isTauriMode } from "@/lib/transport"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
@@ -78,7 +78,7 @@ export default function CanvasPanel({
     setDetached(false)
   }
 
-  const handleSnapshotRequest = useCallback((requestId: string) => {
+  const handleSnapshotRequest = (requestId: string) => {
     const iframe = iframeRef.current
     if (!iframe?.contentWindow) {
       getTransport()
@@ -91,9 +91,10 @@ export default function CanvasPanel({
       return
     }
     iframe.contentWindow.postMessage({ type: "canvas_snapshot", requestId }, "*")
-  }, [])
+  }
+  const handleSnapshotRequestEffectEvent = useEffectEvent(handleSnapshotRequest)
 
-  const handleEvalRequest = useCallback((requestId: string, code: string) => {
+  const handleEvalRequest = (requestId: string, code: string) => {
     const iframe = iframeRef.current
     if (!iframe?.contentWindow) {
       getTransport()
@@ -106,7 +107,8 @@ export default function CanvasPanel({
       return
     }
     iframe.contentWindow.postMessage({ type: "canvas_eval", requestId, code }, "*")
-  }, [])
+  }
+  const handleEvalRequestEffectEvent = useEffectEvent(handleEvalRequest)
 
   // Dynamically adjust window min width when canvas is shown/hidden
   useEffect(() => {
@@ -229,7 +231,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_snapshot_request", (raw) => {
         try {
           const data = parsePayload<{ requestId: string }>(raw)
-          handleSnapshotRequest(data.requestId)
+          handleSnapshotRequestEffectEvent(data.requestId)
         } catch {
           /* ignore */
         }
@@ -241,7 +243,7 @@ export default function CanvasPanel({
       getTransport().listen("canvas_eval_request", (raw) => {
         try {
           const data = parsePayload<{ requestId: string; code: string }>(raw)
-          handleEvalRequest(data.requestId, data.code)
+          handleEvalRequestEffectEvent(data.requestId, data.code)
         } catch {
           /* ignore */
         }
@@ -251,7 +253,7 @@ export default function CanvasPanel({
     return () => {
       unlisteners.forEach((u) => u())
     }
-  }, [handleEvalRequest, handleSnapshotRequest])
+  }, [])
 
   // Handle messages from iframe (eval results, snapshot results)
   useEffect(() => {
@@ -292,7 +294,7 @@ export default function CanvasPanel({
     }
   }, [canvas])
 
-  const handleClose = useCallback(() => {
+  const handleClose = () => {
     // Close detached window if exists
     if (detachedWindowRef.current) {
       detachedWindowRef.current.close().catch(() => {})
@@ -301,9 +303,9 @@ export default function CanvasPanel({
     setCanvas(null)
     setMaximized(false)
     setDetached(false)
-  }, [])
+  }
 
-  const handleDetach = useCallback(async () => {
+  const handleDetach = async () => {
     if (!canvas?.projectPath) return
 
     // Detached window is Tauri-only (uses `WebviewWindow`). In HTTP mode
@@ -348,9 +350,9 @@ export default function CanvasPanel({
     } catch {
       /* ignore creation errors */
     }
-  }, [canvas])
+  }
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = () => {
     setRefreshKey((k) => k + 1)
     // If detached, close and re-detach to refresh
     if (detachedWindowRef.current && canvas?.projectPath) {
@@ -360,42 +362,39 @@ export default function CanvasPanel({
       // Re-detach after a tick
       setTimeout(() => handleDetach(), 100)
     }
-  }, [canvas, handleDetach])
+  }
 
-  const handleReattach = useCallback(() => {
+  const handleReattach = () => {
     if (detachedWindowRef.current) {
       detachedWindowRef.current.close().catch(() => {})
       detachedWindowRef.current = null
     }
     setDetached(false)
-  }, [])
+  }
 
-  const handlePanelDragStart = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      const startX = e.clientX
-      const startWidth = panelWidth
-      const maxWidth = Math.min(960, Math.max(420, window.innerWidth * 0.55))
-      const onMouseMove = (ev: MouseEvent) => {
-        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
-        onPanelWidthChange?.(newWidth)
-      }
-      const iframes = document.querySelectorAll("iframe")
-      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
-      const onMouseUp = () => {
-        document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", onMouseUp)
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
-      }
-      document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", onMouseUp)
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-    },
-    [panelWidth, onPanelWidthChange],
-  )
+  const handlePanelDragStart = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = panelWidth
+    const maxWidth = Math.min(960, Math.max(420, window.innerWidth * 0.55))
+    const onMouseMove = (ev: MouseEvent) => {
+      const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
+      onPanelWidthChange?.(newWidth)
+    }
+    const iframes = document.querySelectorAll("iframe")
+    iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
 
   if (!canvas) return null
 

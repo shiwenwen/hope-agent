@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
@@ -196,14 +196,14 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
     })()
   }, [])
 
-  const steps = useMemo(() => stepsForMode(draft.serverMode), [draft.serverMode])
+  const steps = stepsForMode(draft.serverMode)
   const stepKey = steps[step] ?? "summary"
 
-  const patchDraft = useCallback((patch: Partial<OnboardingDraft>) => {
+  const patchDraft = (patch: Partial<OnboardingDraft>) => {
     setDraft((prev) => mergeOnboardingDraft(prev, patch))
-  }, [])
+  }
 
-  const persistDraft = useCallback(async () => {
+  const persistDraft = async () => {
     try {
       await getTransport().call("save_onboarding_draft", {
         step,
@@ -212,17 +212,17 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
     } catch (e) {
       logger.warn("onboarding", "persistDraft", "save_onboarding_draft failed", e)
     }
-  }, [draft, step])
+  }
 
-  const goNext = useCallback(() => {
+  const goNext = () => {
     setStep((s) => Math.min(s + 1, steps.length - 1))
-  }, [steps.length])
+  }
 
-  const goBack = useCallback(() => {
+  const goBack = () => {
     setStep((s) => Math.max(0, s - 1))
-  }, [])
+  }
 
-  const skipCurrent = useCallback(async () => {
+  const skipCurrent = async () => {
     const key = steps[step]
     if (!key) return
     setSkipped((prev) => {
@@ -237,18 +237,18 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
       logger.warn("onboarding", "skipCurrent", "mark_onboarding_skipped failed", e)
     }
     goNext()
-  }, [step, steps, goNext])
+  }
 
-  const exitAndSave = useCallback(async () => {
+  const exitAndSave = async () => {
     setBusy(true)
     try {
       await persistDraft()
     } finally {
       setBusy(false)
     }
-  }, [persistDraft])
+  }
 
-  const finish = useCallback(async () => {
+  const finish = async () => {
     setBusy(true)
     try {
       await getTransport().call("mark_onboarding_completed")
@@ -258,40 +258,23 @@ export function useOnboarding({ onComplete }: UseOnboardingArgs): UseOnboardingR
     } finally {
       setBusy(false)
     }
-  }, [onComplete])
+  }
 
-  return useMemo(
-    () => ({
-      step,
-      stepKey,
-      steps,
-      draft,
-      skipped,
-      patchDraft,
-      persistDraft,
-      goNext,
-      goBack,
-      skipCurrent,
-      exitAndSave,
-      finish,
-      busy,
-    }),
-    [
-      step,
-      stepKey,
-      steps,
-      draft,
-      skipped,
-      patchDraft,
-      persistDraft,
-      goNext,
-      goBack,
-      skipCurrent,
-      exitAndSave,
-      finish,
-      busy,
-    ],
-  )
+  return {
+    step,
+    stepKey,
+    steps,
+    draft,
+    skipped,
+    patchDraft,
+    persistDraft,
+    goNext,
+    goBack,
+    skipCurrent,
+    exitAndSave,
+    finish,
+    busy,
+  }
 }
 
 export { CURRENT_ONBOARDING_VERSION }

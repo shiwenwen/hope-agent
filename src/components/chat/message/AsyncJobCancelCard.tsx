@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { XCircle } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -7,10 +7,17 @@ import { IconTip } from "@/components/ui/tooltip"
 
 const ASYNC_JOB_TERMINAL = new Set(["completed", "failed", "timed_out", "interrupted", "cancelled"])
 
-function parseAsyncJobStarted(result: string | undefined): { jobId: string; tool: string; origin?: string } | null {
+function parseAsyncJobStarted(
+  result: string | undefined,
+): { jobId: string; tool: string; origin?: string } | null {
   if (!result) return null
   try {
-    const parsed = JSON.parse(result) as { job_id?: string; status?: string; tool?: string; origin?: string }
+    const parsed = JSON.parse(result) as {
+      job_id?: string
+      status?: string
+      tool?: string
+      origin?: string
+    }
     if (parsed.status !== "started" || !parsed.job_id || !parsed.tool) return null
     return { jobId: parsed.job_id, tool: parsed.tool, origin: parsed.origin }
   } catch {
@@ -26,14 +33,15 @@ export default function AsyncJobCancelCard({
   className?: string
 }) {
   const { t } = useTranslation()
-  const asyncJob = useMemo(() => parseAsyncJobStarted(result), [result])
+  const asyncJob = parseAsyncJobStarted(result)
   const asyncJobId = asyncJob?.jobId
   const [asyncJobState, setAsyncJobState] = useState<{ jobId: string; status: string } | null>(null)
-  const asyncJobStatus = asyncJobState && asyncJobState.jobId === asyncJobId
-    ? asyncJobState.status
-    : asyncJobId
-      ? "running"
-      : null
+  const asyncJobStatus =
+    asyncJobState && asyncJobState.jobId === asyncJobId
+      ? asyncJobState.status
+      : asyncJobId
+        ? "running"
+        : null
 
   useEffect(() => {
     if (!asyncJobId) return
@@ -55,7 +63,7 @@ export default function AsyncJobCancelCard({
     }
   }, [asyncJobId])
 
-  const handleCancelAsyncJob = useCallback(async () => {
+  const handleCancelAsyncJob = async () => {
     if (!asyncJobId || ASYNC_JOB_TERMINAL.has(asyncJobStatus || "")) return
     setAsyncJobState({ jobId: asyncJobId, status: "cancelling" })
     try {
@@ -69,7 +77,7 @@ export default function AsyncJobCancelCard({
     } catch {
       setAsyncJobState({ jobId: asyncJobId, status: "running" })
     }
-  }, [asyncJobId, asyncJobStatus])
+  }
 
   if (!asyncJob) return null
 

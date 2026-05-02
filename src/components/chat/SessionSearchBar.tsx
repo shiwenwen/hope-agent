@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ChevronUp, ChevronDown, Loader2, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
@@ -98,15 +98,15 @@ export default function SessionSearchBar({
     }
   }, [currentIndex, sortedResults])
 
-  const gotoNext = useCallback(() => {
+  const gotoNext = () => {
     if (sortedResults.length === 0) return
     setCurrentIndex((i) => (i + 1) % sortedResults.length)
-  }, [sortedResults.length])
+  }
 
-  const gotoPrev = useCallback(() => {
+  const gotoPrev = () => {
     if (sortedResults.length === 0) return
     setCurrentIndex((i) => (i - 1 + sortedResults.length) % sortedResults.length)
-  }, [sortedResults.length])
+  }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Escape") {
@@ -148,7 +148,9 @@ export default function SessionSearchBar({
           placeholder={t("chat.sessionSearchPlaceholder") || ""}
           className="flex-1 min-w-0 bg-transparent border-none outline-none text-sm text-foreground placeholder:text-muted-foreground"
         />
-        {searching && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />}
+        {searching && (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+        )}
         {hasQuery && !searching && (
           <span
             className={cn(

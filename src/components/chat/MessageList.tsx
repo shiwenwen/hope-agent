@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { ArrowDown, Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
@@ -47,7 +47,9 @@ interface MessageListProps {
   onSwitchSession?: (sessionId: string) => void
   /** Open the right-side diff panel for a file change payload. */
   onOpenDiff?: (
-    metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
+    metadata:
+      | import("@/types/chat").FileChangeMetadata
+      | import("@/types/chat").FileChangesMetadata,
   ) => void
 }
 
@@ -103,7 +105,7 @@ export default function MessageList({
     index: number
   } | null>(null)
 
-  const rows = useMemo<ChatRow[]>(() => {
+  const rows = (() => {
     const next: ChatRow[] = []
     if (hasMore) next.push({ type: "loadMore", key: "load-more" })
     if (messages.length === 0) next.push({ type: "empty", key: "empty" })
@@ -139,24 +141,21 @@ export default function MessageList({
     }
 
     return next
-  }, [hasMore, messages, pendingQuestionGroup, planCardData, planState, planSubagentRunning])
+  })() as ChatRow[]
 
-  const getRowKey = useCallback((row: ChatRow) => row.key, [])
-  const canAnchorRow = useCallback((row: ChatRow) => row.type === "message", [])
-  const estimateSize = useCallback(
-    (index: number) => {
-      const row = rows[index]
-      if (!row) return 120
-      if (row.type === "loadMore") return 40
-      if (row.type === "empty") return 240
-      if (row.type === "planRunning") return 52
-      if (row.type === "askUser" || row.type === "planCard") return 180
-      if (row.msg.role === "user") return 76
-      if (row.msg.role === "event" || row.msg.isSubagentResult || row.msg.isCronTrigger) return 48
-      return 120
-    },
-    [rows],
-  )
+  const getRowKey = (row: ChatRow) => row.key
+  const canAnchorRow = (row: ChatRow) => row.type === "message"
+  const estimateSize = (index: number) => {
+    const row = rows[index]
+    if (!row) return 120
+    if (row.type === "loadMore") return 40
+    if (row.type === "empty") return 240
+    if (row.type === "planRunning") return 52
+    if (row.type === "askUser" || row.type === "planCard") return 180
+    if (row.msg.role === "user") return 76
+    if (row.msg.role === "event" || row.msg.isSubagentResult || row.msg.isCronTrigger) return 48
+    return 120
+  }
 
   const lastMsg = messages[messages.length - 1]
   const latestUserTurnKey = getLatestUserTurnKey(messages)
@@ -235,17 +234,14 @@ export default function MessageList({
 
   const showJumpToLatest = isAutoFollowPaused && (loading || hasUnseenOutput)
 
-  const handleContextMenu = useCallback(
-    (e: React.MouseEvent, index: number) => {
-      const msg = messages[index]
-      if (msg.role !== "assistant" || !msg.content) return
-      e.preventDefault()
-      setContextMenu({ x: e.clientX, y: e.clientY, index })
-    },
-    [messages],
-  )
+  const handleContextMenu = (e: React.MouseEvent, index: number) => {
+    const msg = messages[index]
+    if (msg.role !== "assistant" || !msg.content) return
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, index })
+  }
 
-  const handleCopyMessage = useCallback((content: string, index: number) => {
+  const handleCopyMessage = (content: string, index: number) => {
     navigator.clipboard
       .writeText(content)
       .then(() => {
@@ -254,7 +250,7 @@ export default function MessageList({
         copiedTimerRef.current = setTimeout(() => setCopiedIndex(null), 1500)
       })
       .catch(() => {})
-  }, [])
+  }
 
   const renderRow = (row: ChatRow) => {
     switch (row.type) {

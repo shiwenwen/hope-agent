@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Check } from "lucide-react"
@@ -25,8 +25,11 @@ export default function ModelPickerCard({ data, onSelect }: ModelPickerCardProps
   const [switchedKey, setSwitchedKey] = useState<string | null>(null)
 
   // Group models by provider
-  const groups = useMemo(() => {
-    const map = new Map<string, { providerName: string; providerId: string; models: ModelPickerData["models"] }>()
+  const groups = (() => {
+    const map = new Map<
+      string,
+      { providerName: string; providerId: string; models: ModelPickerData["models"] }
+    >()
     for (const m of data.models) {
       const key = m.providerId
       if (!map.has(key)) {
@@ -35,7 +38,7 @@ export default function ModelPickerCard({ data, onSelect }: ModelPickerCardProps
       map.get(key)!.models.push(m)
     }
     return Array.from(map.values())
-  }, [data.models])
+  })()
 
   const handleClick = (providerId: string, modelId: string) => {
     setSwitchedKey(`${providerId}::${modelId}`)
@@ -54,7 +57,9 @@ export default function ModelPickerCard({ data, onSelect }: ModelPickerCardProps
           <div key={group.providerId}>
             <div className="flex items-center gap-1.5 mb-1.5 px-1">
               <ProviderIcon providerName={group.providerName} size={14} color />
-              <span className="text-xs font-medium text-muted-foreground">{group.providerName}</span>
+              <span className="text-xs font-medium text-muted-foreground">
+                {group.providerName}
+              </span>
             </div>
             <div className="flex flex-wrap gap-1.5">
               {group.models.map((m) => {

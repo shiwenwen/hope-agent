@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react"
+import React, { useState } from "react"
 import { Send } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
@@ -33,7 +33,7 @@ export function TeamMessageFeed({
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
 
-  const rows = useMemo<TeamFeedRow[]>(() => {
+  const rows = (() => {
     if (messages.length === 0) return [{ type: "empty", key: "empty" }]
     const next: TeamFeedRow[] = []
     if (hasMore && onLoadMore) {
@@ -47,25 +47,19 @@ export function TeamMessageFeed({
       })
     }
     return next
-  }, [messages, hasMore, onLoadMore])
+  })() as TeamFeedRow[]
 
-  const getRowKey = useCallback((row: TeamFeedRow) => row.key, [])
-  const estimateSize = useCallback(
-    (index: number) => {
-      const row = rows[index]
-      if (!row) return 56
-      if (row.type === "empty") return 160
-      if (row.type === "loadMore") return 32
-      if (row.message.messageType === "system") return 28
-      return 56
-    },
-    [rows],
-  )
+  const getRowKey = (row: TeamFeedRow) => row.key
+  const estimateSize = (index: number) => {
+    const row = rows[index]
+    if (!row) return 56
+    if (row.type === "empty") return 160
+    if (row.type === "loadMore") return 32
+    if (row.message.messageType === "system") return 28
+    return 56
+  }
 
-  const canAnchorRow = useCallback(
-    (row: TeamFeedRow) => row.type === "message",
-    [],
-  )
+  const canAnchorRow = (row: TeamFeedRow) => row.type === "message"
 
   const lastMessage = messages[messages.length - 1]
   const followKey = `${messages.length}:${lastMessage?.messageId ?? ""}:${lastMessage?.content.length ?? 0}`
@@ -85,7 +79,7 @@ export function TeamMessageFeed({
     loadingMore,
   })
 
-  const handleSend = useCallback(() => {
+  const handleSend = () => {
     const text = draft.trim()
     if (!text) return
 
@@ -105,17 +99,14 @@ export function TeamMessageFeed({
 
     onSendMessage(to, content)
     setDraft("")
-  }, [draft, members, onSendMessage])
+  }
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault()
-        handleSend()
-      }
-    },
-    [handleSend],
-  )
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
 
   const renderRow = (row: TeamFeedRow) => {
     if (row.type === "empty") {

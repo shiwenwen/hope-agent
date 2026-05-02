@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react"
+import { useState } from "react"
 import type { FileChangeMetadata, FileChangesMetadata } from "@/types/chat"
 
 /**
@@ -32,7 +32,7 @@ export function useDiffPanel(): UseDiffPanel {
   const [activeIndex, setActiveIndex] = useState(0)
   const [panelWidth, setPanelWidth] = useState(DEFAULT_DIFF_PANEL_WIDTH)
 
-  const openDiff = useCallback((payload: FileChangeMetadata | FileChangesMetadata) => {
+  const openDiff = (payload: FileChangeMetadata | FileChangesMetadata) => {
     if (payload.kind === "file_change") {
       setActiveChanges([payload])
     } else {
@@ -40,13 +40,13 @@ export function useDiffPanel(): UseDiffPanel {
     }
     setActiveIndex(0)
     setShowPanel(true)
-  }, [])
+  }
 
-  const closeDiff = useCallback(() => {
+  const closeDiff = () => {
     setShowPanel(false)
     setActiveChanges([])
     setActiveIndex(0)
-  }, [])
+  }
 
   return {
     showPanel,

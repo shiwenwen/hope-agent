@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react"
+import { useEffect, useRef, useEffectEvent } from "react"
 import type { WeatherType } from "./weatherUtils"
 
 interface RainDrop {
@@ -39,45 +39,43 @@ export default function WeatherCanvas({
   }>({ rain: [], snow: [] })
   const flashRef = useRef({ active: false, opacity: 0, nextFlash: 0 })
 
-  const initParticles = useCallback(
-    (w: number, h: number) => {
-      const rain: RainDrop[] = []
-      const snow: SnowFlake[] = []
+  const initParticles = (w: number, h: number) => {
+    const rain: RainDrop[] = []
+    const snow: SnowFlake[] = []
 
-      if (weatherType === "rain" || weatherType === "thunder") {
-        const count = weatherType === "thunder" ? 220 : 160
-        for (let i = 0; i < count; i++) {
-          rain.push({
-            x: Math.random() * (w + 200) - 100,
-            y: Math.random() * h,
-            speed: 12 + Math.random() * 10,
-            length: 18 + Math.random() * 22,
-            opacity: 0.15 + Math.random() * 0.35,
-          })
-        }
+    if (weatherType === "rain" || weatherType === "thunder") {
+      const count = weatherType === "thunder" ? 220 : 160
+      for (let i = 0; i < count; i++) {
+        rain.push({
+          x: Math.random() * (w + 200) - 100,
+          y: Math.random() * h,
+          speed: 12 + Math.random() * 10,
+          length: 18 + Math.random() * 22,
+          opacity: 0.15 + Math.random() * 0.35,
+        })
       }
+    }
 
-      if (weatherType === "snow") {
-        for (let i = 0; i < 100; i++) {
-          snow.push({
-            x: Math.random() * w,
-            y: Math.random() * h,
-            speed: 0.4 + Math.random() * 1.2,
-            radius: 2 + Math.random() * 5,
-            opacity: 0.25 + Math.random() * 0.45,
-            swayOffset: Math.random() * Math.PI * 2,
-            swaySpeed: 0.3 + Math.random() * 0.7,
-            rotation: Math.random() * Math.PI * 2,
-            rotationSpeed: (Math.random() - 0.5) * 0.02,
-            branches: Math.random() > 0.3 ? 6 : 5,
-          })
-        }
+    if (weatherType === "snow") {
+      for (let i = 0; i < 100; i++) {
+        snow.push({
+          x: Math.random() * w,
+          y: Math.random() * h,
+          speed: 0.4 + Math.random() * 1.2,
+          radius: 2 + Math.random() * 5,
+          opacity: 0.25 + Math.random() * 0.45,
+          swayOffset: Math.random() * Math.PI * 2,
+          swaySpeed: 0.3 + Math.random() * 0.7,
+          rotation: Math.random() * Math.PI * 2,
+          rotationSpeed: (Math.random() - 0.5) * 0.02,
+          branches: Math.random() > 0.3 ? 6 : 5,
+        })
       }
+    }
 
-      particlesRef.current = { rain, snow }
-    },
-    [weatherType],
-  )
+    particlesRef.current = { rain, snow }
+  }
+  const initParticlesEffectEvent = useEffectEvent(initParticles)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -90,14 +88,14 @@ export default function WeatherCanvas({
     canvas.width = w
     canvas.height = h
 
-    initParticles(w, h)
+    initParticlesEffectEvent(w, h)
 
     const handleResize = () => {
       w = window.innerWidth
       h = window.innerHeight
       canvas.width = w
       canvas.height = h
-      initParticles(w, h)
+      initParticlesEffectEvent(w, h)
     }
     window.addEventListener("resize", handleResize)
 
@@ -226,7 +224,7 @@ export default function WeatherCanvas({
       cancelAnimationFrame(animRef.current)
       window.removeEventListener("resize", handleResize)
     }
-  }, [weatherType, windSpeed, isDark, initParticles])
+  }, [weatherType, windSpeed, isDark])
 
   if (!weatherType) return null
 

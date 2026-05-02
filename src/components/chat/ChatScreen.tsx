@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from "react"
+import React, { useEffect, useRef, useState, useEffectEvent } from "react"
 import { toast } from "sonner"
 import { getTransport } from "@/lib/transport-provider"
 import { save } from "@tauri-apps/plugin-dialog"
@@ -133,21 +133,13 @@ export default function ChatScreen({
     onUnreadCountChange,
   })
 
-  const isCronSession = useMemo(
-    () => session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false,
-    [session.sessions, session.currentSessionId],
-  )
-  const isSubagentSession = useMemo(
-    () => !!session.sessions.find((s) => s.id === session.currentSessionId)?.parentSessionId,
-    [session.sessions, session.currentSessionId],
-  )
-  const currentSessionMeta = useMemo(
-    () =>
-      session.currentSessionId
-        ? (session.sessions.find((s) => s.id === session.currentSessionId) ?? null)
-        : null,
-    [session.sessions, session.currentSessionId],
-  )
+  const isCronSession =
+    session.sessions.find((s) => s.id === session.currentSessionId)?.isCron ?? false
+  const isSubagentSession = !!session.sessions.find((s) => s.id === session.currentSessionId)
+    ?.parentSessionId
+  const currentSessionMeta = session.currentSessionId
+    ? (session.sessions.find((s) => s.id === session.currentSessionId) ?? null)
+    : null
   const incognitoEnabled = session.currentSessionId
     ? (currentSessionMeta?.incognito ?? false)
     : draftIncognito
@@ -163,13 +155,11 @@ export default function ChatScreen({
   const currentSessionId = session.currentSessionId
   const setAgentName = session.setAgentName
 
-  const handleStartNewChat = useCallback(
-    async (agentId: string, opts?: { incognito?: boolean }) => {
-      setDraftIncognito(opts?.incognito ?? false)
-      await handleNewChat(agentId)
-    },
-    [handleNewChat],
-  )
+  const handleStartNewChat = async (agentId: string, opts?: { incognito?: boolean }) => {
+    setDraftIncognito(opts?.incognito ?? false)
+    await handleNewChat(agentId)
+  }
+  const handleStartNewChatEffectEvent = useEffectEvent(handleStartNewChat)
 
   /**
    * Title-bar agent switch handler. Backend rejects the switch when the
@@ -184,52 +174,49 @@ export default function ChatScreen({
    *    state; the agent_id is baked in when the first message materializes
    *    the session.
    */
-  const handleChangeAgent = useCallback(
-    async (agentId: string) => {
-      if (!agentId || agentId === session.currentAgentId) return
-      const transport = getTransport()
+  const handleChangeAgent = async (agentId: string) => {
+    if (!agentId || agentId === session.currentAgentId) return
+    const transport = getTransport()
+    try {
+      if (session.currentSessionId) {
+        await transport.call("update_session_agent_cmd", {
+          sessionId: session.currentSessionId,
+          agentId,
+        })
+      }
+      const agent = session.agents.find((a) => a.id === agentId)
+      session.setCurrentAgentId(agentId)
+      if (agent) session.setAgentName(agent.name)
+      // Apply the new agent's preferred model (best-effort).
       try {
-        if (session.currentSessionId) {
-          await transport.call("update_session_agent_cmd", {
-            sessionId: session.currentSessionId,
-            agentId,
-          })
-        }
-        const agent = session.agents.find((a) => a.id === agentId)
-        session.setCurrentAgentId(agentId)
-        if (agent) session.setAgentName(agent.name)
-        // Apply the new agent's preferred model (best-effort).
-        try {
-          const cfg = await transport.call<{
-            model?: { primary?: string | null }
-          }>("get_agent_config", { id: agentId })
-          const primary = cfg.model?.primary
-          if (primary) {
-            const exists = availableModels.some((m) => `${m.providerId}::${m.modelId}` === primary)
-            if (exists) {
-              const [providerId, modelId] = primary.split("::")
-              if (providerId && modelId) {
-                setActiveModel({ providerId, modelId })
-              }
+        const cfg = await transport.call<{
+          model?: { primary?: string | null }
+        }>("get_agent_config", { id: agentId })
+        const primary = cfg.model?.primary
+        if (primary) {
+          const exists = availableModels.some((m) => `${m.providerId}::${m.modelId}` === primary)
+          if (exists) {
+            const [providerId, modelId] = primary.split("::")
+            if (providerId && modelId) {
+              setActiveModel({ providerId, modelId })
             }
           }
-        } catch {
-          /* ignore */
         }
-        await session.reloadSessions()
-      } catch (err) {
-        logger.warn("chat", "ChatScreen::handleChangeAgent", "failed", err)
+      } catch {
+        /* ignore */
       }
-    },
-    [session, availableModels, setActiveModel],
-  )
+      await session.reloadSessions()
+    } catch (err) {
+      logger.warn("chat", "ChatScreen::handleChangeAgent", "failed", err)
+    }
+  }
 
   // ── Team ──────────────────────────────────────────────────
   const activeTeamId = useActiveTeam(currentSessionId ?? null)
   const [showTeamPanel, setShowTeamPanel] = useState(false)
   const [teamPanelWidth, setTeamPanelWidth] = useState(420)
 
-  const refreshRuntimeModelState = useCallback(async () => {
+  const refreshRuntimeModelState = async () => {
     try {
       const [models, active, settings, agentConfig] = await Promise.all([
         getTransport().call<AvailableModel[]>("get_available_models"),
@@ -296,27 +283,15 @@ export default function ChatScreen({
     } catch (e) {
       logger.error("ui", "ChatScreen::refreshRuntimeModelState", "Failed to refresh model state", e)
     }
-  }, [
-    currentSessionMeta?.modelId,
-    currentSessionMeta?.providerId,
-    currentAgentId,
-    globalActiveModelRef,
-    setActiveModel,
-    setAgentName,
-    setAvailableModels,
-    setReasoningEffort,
-    t,
-  ])
+  }
+  const refreshRuntimeModelStateEffectEvent = useEffectEvent(refreshRuntimeModelState)
 
-  const handleManualModelChange = useCallback(
-    async (key: string) => {
-      const [providerId, modelId] = key.split("::")
-      if (!providerId || !modelId) return
-      manualModelOverrideRef.current = { providerId, modelId }
-      await handleModelChange(key)
-    },
-    [handleModelChange],
-  )
+  const handleManualModelChange = async (key: string) => {
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
+    manualModelOverrideRef.current = { providerId, modelId }
+    await handleModelChange(key)
+  }
 
   // Auto-show team panel when a team is created
   useEffect(() => {
@@ -338,13 +313,9 @@ export default function ChatScreen({
   } = useProjects()
 
   const sessionWorkingDir = currentSessionMeta?.workingDir ?? null
-  const projectWorkingDir = useMemo(
-    () =>
-      currentSessionMeta?.projectId
-        ? (projects.find((p) => p.id === currentSessionMeta.projectId)?.workingDir ?? null)
-        : null,
-    [projects, currentSessionMeta?.projectId],
-  )
+  const projectWorkingDir = currentSessionMeta?.projectId
+    ? (projects.find((p) => p.id === currentSessionMeta.projectId)?.workingDir ?? null)
+    : null
   const effectiveWorkingDir = sessionWorkingDir ?? projectWorkingDir
   const workingDirSource: "session" | "project" | undefined = sessionWorkingDir
     ? "session"
@@ -355,13 +326,10 @@ export default function ChatScreen({
   // Wrap moveSessionToProject so the sidebar also reloads — otherwise the
   // moved session keeps rendering under the old "Unassigned" group until
   // the user manually refreshes.
-  const handleMoveSessionToProject = useCallback(
-    async (sessionId: string, projectId: string | null) => {
-      await moveSessionToProject(sessionId, projectId)
-      await reloadSessions()
-    },
-    [moveSessionToProject, reloadSessions],
-  )
+  const handleMoveSessionToProject = async (sessionId: string, projectId: string | null) => {
+    await moveSessionToProject(sessionId, projectId)
+    await reloadSessions()
+  }
 
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [projectDialogMode, setProjectDialogMode] = useState<"create" | "edit">("create")
@@ -371,36 +339,32 @@ export default function ChatScreen({
   const [projectOverviewTargetId, setProjectOverviewTargetId] = useState<string | null>(null)
   // Derive the live target from the projects list so mutations (rename,
   // archive, file upload) are reflected immediately in the open dialog.
-  const projectOverviewTarget = useMemo(
-    () =>
-      projectOverviewTargetId
-        ? (projects.find((p) => p.id === projectOverviewTargetId) ?? null)
-        : null,
-    [projects, projectOverviewTargetId],
-  )
+  const projectOverviewTarget = projectOverviewTargetId
+    ? (projects.find((p) => p.id === projectOverviewTargetId) ?? null)
+    : null
 
   const [projectDeleteTarget, setProjectDeleteTarget] = useState<Project | null>(null)
 
-  const openCreateProject = useCallback(() => {
+  const openCreateProject = () => {
     setProjectDialogMode("create")
     setProjectDialogInitial(null)
     setProjectDialogOpen(true)
-  }, [])
+  }
 
-  const openEditProject = useCallback((project: Project) => {
+  const openEditProject = (project: Project) => {
     setProjectDialogMode("edit")
     setProjectDialogInitial(project)
     setProjectDialogOpen(true)
-  }, [])
+  }
 
-  const openProjectOverview = useCallback((project: ProjectMeta) => {
+  const openProjectOverview = (project: ProjectMeta) => {
     setProjectOverviewTargetId(project.id)
     setProjectOverviewOpen(true)
-  }, [])
+  }
 
   const [deletingProject, setDeletingProject] = useState(false)
 
-  const confirmDeleteProject = useCallback(async () => {
+  const confirmDeleteProject = async () => {
     if (!projectDeleteTarget || deletingProject) return
     const projectName = projectDeleteTarget.name
     setDeletingProject(true)
@@ -425,63 +389,54 @@ export default function ChatScreen({
     } finally {
       setDeletingProject(false)
     }
-  }, [deleteProject, projectDeleteTarget, deletingProject, reloadSessions, t])
+  }
 
   // Rename session handler
-  const handleRenameSession = useCallback(
-    async (sessionId: string, title: string) => {
-      try {
-        await getTransport().call("rename_session_cmd", { sessionId, title })
-        reloadSessions()
-      } catch (err) {
-        logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
-      }
-    },
-    [reloadSessions],
-  )
+  const handleRenameSession = async (sessionId: string, title: string) => {
+    try {
+      await getTransport().call("rename_session_cmd", { sessionId, title })
+      reloadSessions()
+    } catch (err) {
+      logger.error("chat", "ChatScreen::renameSession", "Failed to rename session", err)
+    }
+  }
 
-  const handleIncognitoChange = useCallback(
-    (enabled: boolean) => {
-      if (session.currentSessionId) return
-      setDraftIncognito(enabled)
-    },
-    [session.currentSessionId],
-  )
+  const handleIncognitoChange = (enabled: boolean) => {
+    if (session.currentSessionId) return
+    setDraftIncognito(enabled)
+  }
 
-  const handleWorkingDirChange = useCallback(
-    async (workingDir: string | null) => {
-      const sid = session.currentSessionId
-      // No session yet — stash the choice. The backend `chat` command applies
-      // it on the auto-create branch when the first message ships.
-      if (!sid) {
-        setDraftWorkingDir(workingDir)
-        return
-      }
-      const previous = currentSessionMeta?.workingDir ?? null
-      if (previous === workingDir) return
+  const handleWorkingDirChange = async (workingDir: string | null) => {
+    const sid = session.currentSessionId
+    // No session yet — stash the choice. The backend `chat` command applies
+    // it on the auto-create branch when the first message ships.
+    if (!sid) {
+      setDraftWorkingDir(workingDir)
+      return
+    }
+    const previous = currentSessionMeta?.workingDir ?? null
+    if (previous === workingDir) return
+    session.updateSessionMeta(sid, (prev) =>
+      prev.workingDir === workingDir ? prev : { ...prev, workingDir },
+    )
+    setWorkingDirSaving(true)
+    try {
+      await getTransport().call("set_session_working_dir", {
+        sessionId: sid,
+        workingDir,
+      })
+    } catch (err) {
       session.updateSessionMeta(sid, (prev) =>
-        prev.workingDir === workingDir ? prev : { ...prev, workingDir },
+        prev.workingDir === previous ? prev : { ...prev, workingDir: previous },
       )
-      setWorkingDirSaving(true)
-      try {
-        await getTransport().call("set_session_working_dir", {
-          sessionId: sid,
-          workingDir,
-        })
-      } catch (err) {
-        session.updateSessionMeta(sid, (prev) =>
-          prev.workingDir === previous ? prev : { ...prev, workingDir: previous },
-        )
-        logger.error("chat", "ChatScreen::setWorkingDir", "Failed to update working directory", err)
-        toast.error(t("chat.workingDir.invalid"), {
-          description: err instanceof Error ? err.message : String(err),
-        })
-      } finally {
-        setWorkingDirSaving(false)
-      }
-    },
-    [session, currentSessionMeta?.workingDir, t],
-  )
+      logger.error("chat", "ChatScreen::setWorkingDir", "Failed to update working directory", err)
+      toast.error(t("chat.workingDir.invalid"), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setWorkingDirSaving(false)
+    }
+  }
 
   // Once the auto-created session lands (chat command emits `session_created`),
   // the draft has been materialized server-side — drop the local copy so the
@@ -540,9 +495,9 @@ export default function ChatScreen({
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
     return getTransport().listen("new-session", () => {
-      void handleStartNewChat(currentAgentId)
+      void handleStartNewChatEffectEvent(currentAgentId)
     })
-  }, [handleStartNewChat, currentAgentId])
+  }, [currentAgentId])
 
   // Listen for channel slash command state-sync events
   useEffect(() => {
@@ -592,18 +547,18 @@ export default function ChatScreen({
 
   // Fetch models and current settings on mount
   useEffect(() => {
-    void refreshRuntimeModelState()
-  }, [refreshRuntimeModelState])
+    void refreshRuntimeModelStateEffectEvent()
+  }, [currentSessionMeta?.modelId, currentSessionMeta?.providerId, currentAgentId])
 
   useEffect(() => {
     const offConfig = getTransport().listen("config:changed", () => {
-      void refreshRuntimeModelState()
+      void refreshRuntimeModelStateEffectEvent()
     })
     const offAgents = getTransport().listen("agents:changed", () => {
-      void refreshRuntimeModelState()
+      void refreshRuntimeModelStateEffectEvent()
     })
     const onWindowAgentsChanged = () => {
-      void refreshRuntimeModelState()
+      void refreshRuntimeModelStateEffectEvent()
     }
     window.addEventListener("agents-changed", onWindowAgentsChanged)
     return () => {
@@ -611,7 +566,7 @@ export default function ChatScreen({
       offAgents()
       window.removeEventListener("agents-changed", onWindowAgentsChanged)
     }
-  }, [refreshRuntimeModelState])
+  }, [])
 
   // ── Stream Hook ─────────────────────────────────────────────
   const stream = useChatStream({
@@ -685,10 +640,7 @@ export default function ChatScreen({
 
   // ── Plan Mode Hook ─────────────────────────────────────────
   const planMode = usePlanMode(session.currentSessionId, planModeState, setPlanModeState)
-  const taskProgressSnapshot = useTaskProgressSnapshot(
-    session.currentSessionId,
-    session.messages,
-  )
+  const taskProgressSnapshot = useTaskProgressSnapshot(session.currentSessionId, session.messages)
   const setPlanState = planMode.setPlanState
   const sendMessage = stream.handleSend
 
@@ -713,7 +665,7 @@ export default function ChatScreen({
   }, [session.currentSessionId])
 
   // ── Load system prompt ──────────────────────────────────────────
-  const loadSystemPrompt = useCallback(async () => {
+  const loadSystemPrompt = async () => {
     setSystemPromptLoading(true)
     try {
       const prompt = await getTransport().call<string>("get_system_prompt", {
@@ -726,229 +678,210 @@ export default function ChatScreen({
     } finally {
       setSystemPromptLoading(false)
     }
-  }, [session.currentAgentId])
+  }
 
   // ── Slash Command Action Handler ──────────────────────────────
-  const handleCommandAction = useCallback(
-    async (result: CommandResult) => {
-      const action = result.action
+  const handleCommandAction = async (result: CommandResult) => {
+    const action = result.action
 
-      // Skip the event chip for newSession (we clear anyway) and skill passThrough
-      // (the user bubble already shows "/skillname args", the chip would duplicate).
-      if (result.content && action?.type !== "newSession" && !result._isSkillPassThrough) {
-        const eventMsg: Message = {
+    // Skip the event chip for newSession (we clear anyway) and skill passThrough
+    // (the user bubble already shows "/skillname args", the chip would duplicate).
+    if (result.content && action?.type !== "newSession" && !result._isSkillPassThrough) {
+      const eventMsg: Message = {
+        role: "event",
+        content: result.content,
+        timestamp: new Date().toISOString(),
+      }
+      session.setMessages((prev) => [...prev, eventMsg])
+    }
+
+    if (!action) return
+
+    switch (action.type) {
+      case "newSession":
+        // Behave like the "New Chat" button: clear immediately without showing an empty session
+        // in the sidebar. The backend-created session is deleted to avoid DB clutter.
+        await handleStartNewChat(session.currentAgentId)
+        if (action.sessionId) {
+          getTransport()
+            .call("delete_session_cmd", { sessionId: action.sessionId })
+            .then(() => session.reloadSessions())
+            .catch(() => {})
+        }
+        break
+      case "switchModel":
+        handleManualModelChange(`${action.providerId}::${action.modelId}`)
+        break
+      case "setEffort":
+        handleEffortChange(action.effort)
+        break
+      case "switchAgent":
+        if (action.sessionId) session.handleSwitchSession(action.sessionId)
+        break
+      case "stopStream":
+        stream.handleStop()
+        break
+      case "compact":
+        if (session.currentSessionId) {
+          setCompacting(true)
+          try {
+            await getTransport().call("compact_context_now", {
+              sessionId: session.currentSessionId,
+            })
+          } catch (e) {
+            logger.error("ui", "ChatScreen::slashCompact", "Compact failed", e)
+          } finally {
+            setCompacting(false)
+          }
+        }
+        break
+      case "sessionCleared":
+        session.setMessages([])
+        session.reloadSessions()
+        break
+      case "passThrough":
+        if (result._isSkillPassThrough) {
+          // User bubble shows "/skillname args"; LLM gets the expanded prompt.
+          await stream.handleSend(action.message, {
+            displayText: result._skillCommandText,
+          })
+        } else {
+          stream.setInput(action.message)
+          setTimeout(() => stream.handleSend(), 50)
+        }
+        break
+      case "exportFile":
+        try {
+          const filePath = await save({
+            defaultPath: action.filename,
+            filters: [{ name: "Markdown", extensions: ["md"] }],
+          })
+          if (filePath) {
+            await getTransport().call("write_export_file", {
+              path: filePath,
+              content: action.content,
+            })
+          }
+        } catch (e) {
+          logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
+        }
+        break
+      case "setPermissionMode":
+        stream.setPermissionMode(action.mode)
+        break
+      case "displayOnly":
+        // Already handled above by adding event message
+        break
+      case "showModelPicker": {
+        const pickerMsg: Message = {
           role: "event",
-          content: result.content,
+          content: "",
+          timestamp: new Date().toISOString(),
+          modelPickerData: {
+            models: action.models,
+            activeProviderId: action.activeProviderId,
+            activeModelId: action.activeModelId,
+          },
+        }
+        session.setMessages((prev) => [...prev, pickerMsg])
+        break
+      }
+      case "enterPlanMode":
+        planMode.enterPlanMode()
+        break
+      case "exitPlanMode":
+        planMode.exitPlanMode()
+        break
+      case "approvePlan":
+        await planMode.approvePlan()
+        stream.handleSend(t("planMode.executeCommand"), {
+          planMode: "executing",
+          displayText: t("planMode.executionApproved"),
+        })
+        break
+      case "showPlan":
+        planMode.setPlanContent(action.planContent)
+        planMode.setShowPanel(true)
+        break
+      case "pausePlan":
+        planMode.pauseExecution()
+        break
+      case "resumePlan":
+        planMode.resumeExecution()
+        planMode.setShowPanel(true)
+        break
+      case "viewSystemPrompt":
+        loadSystemPrompt()
+        break
+      case "showContextBreakdown": {
+        const contextMsg: Message = {
+          role: "event",
+          content: "",
+          timestamp: new Date().toISOString(),
+          contextBreakdownData: action.breakdown,
+        }
+        session.setMessages((prev) => [...prev, contextMsg])
+        break
+      }
+      case "showProjectPicker": {
+        // Render a markdown list of projects so the user can either click
+        // back to /project <name> or visually pick from the sidebar's
+        // project tree. A full clickable picker card is a follow-up.
+        const lines = [t("project.openProject") + ":"]
+        for (const p of action.projects) {
+          const icon = p.emoji ? `${p.emoji} ` : "📁 "
+          lines.push(`- ${icon}**${p.name}** · ${p.sessionCount}`)
+        }
+        lines.push("")
+        lines.push(`> \`/project <${t("project.projectName")}>\``)
+        const pickerMsg: Message = {
+          role: "event",
+          content: lines.join("\n"),
           timestamp: new Date().toISOString(),
         }
-        session.setMessages((prev) => [...prev, eventMsg])
+        session.setMessages((prev) => [...prev, pickerMsg])
+        break
       }
-
-      if (!action) return
-
-      switch (action.type) {
-        case "newSession":
-          // Behave like the "New Chat" button: clear immediately without showing an empty session
-          // in the sidebar. The backend-created session is deleted to avoid DB clutter.
-          await handleStartNewChat(session.currentAgentId)
-          if (action.sessionId) {
-            getTransport()
-              .call("delete_session_cmd", { sessionId: action.sessionId })
-              .then(() => session.reloadSessions())
-              .catch(() => {})
-          }
-          break
-        case "switchModel":
-          handleManualModelChange(`${action.providerId}::${action.modelId}`)
-          break
-        case "setEffort":
-          handleEffortChange(action.effort)
-          break
-        case "switchAgent":
-          if (action.sessionId) session.handleSwitchSession(action.sessionId)
-          break
-        case "stopStream":
-          stream.handleStop()
-          break
-        case "compact":
-          if (session.currentSessionId) {
-            setCompacting(true)
-            try {
-              await getTransport().call("compact_context_now", {
-                sessionId: session.currentSessionId,
-              })
-            } catch (e) {
-              logger.error("ui", "ChatScreen::slashCompact", "Compact failed", e)
-            } finally {
-              setCompacting(false)
-            }
-          }
-          break
-        case "sessionCleared":
-          session.setMessages([])
-          session.reloadSessions()
-          break
-        case "passThrough":
-          if (result._isSkillPassThrough) {
-            // User bubble shows "/skillname args"; LLM gets the expanded prompt.
-            await stream.handleSend(action.message, {
-              displayText: result._skillCommandText,
-            })
-          } else {
-            stream.setInput(action.message)
-            setTimeout(() => stream.handleSend(), 50)
-          }
-          break
-        case "exportFile":
-          try {
-            const filePath = await save({
-              defaultPath: action.filename,
-              filters: [{ name: "Markdown", extensions: ["md"] }],
-            })
-            if (filePath) {
-              await getTransport().call("write_export_file", {
-                path: filePath,
-                content: action.content,
-              })
-            }
-          } catch (e) {
-            logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
-          }
-          break
-        case "setPermissionMode":
-          stream.setPermissionMode(action.mode)
-          break
-        case "displayOnly":
-          // Already handled above by adding event message
-          break
-        case "showModelPicker": {
-          const pickerMsg: Message = {
-            role: "event",
-            content: "",
-            timestamp: new Date().toISOString(),
-            modelPickerData: {
-              models: action.models,
-              activeProviderId: action.activeProviderId,
-              activeModelId: action.activeModelId,
-            },
-          }
-          session.setMessages((prev) => [...prev, pickerMsg])
-          break
-        }
-        case "enterPlanMode":
-          planMode.enterPlanMode()
-          break
-        case "exitPlanMode":
-          planMode.exitPlanMode()
-          break
-        case "approvePlan":
-          await planMode.approvePlan()
-          stream.handleSend(t("planMode.executeCommand"), {
-            planMode: "executing",
-            displayText: t("planMode.executionApproved"),
-          })
-          break
-        case "showPlan":
-          planMode.setPlanContent(action.planContent)
-          planMode.setShowPanel(true)
-          break
-        case "pausePlan":
-          planMode.pauseExecution()
-          break
-        case "resumePlan":
-          planMode.resumeExecution()
-          planMode.setShowPanel(true)
-          break
-        case "viewSystemPrompt":
-          loadSystemPrompt()
-          break
-        case "showContextBreakdown": {
-          const contextMsg: Message = {
-            role: "event",
-            content: "",
-            timestamp: new Date().toISOString(),
-            contextBreakdownData: action.breakdown,
-          }
-          session.setMessages((prev) => [...prev, contextMsg])
-          break
-        }
-        case "showProjectPicker": {
-          // Render a markdown list of projects so the user can either click
-          // back to /project <name> or visually pick from the sidebar's
-          // project tree. A full clickable picker card is a follow-up.
-          const lines = [t("project.openProject") + ":"]
-          for (const p of action.projects) {
-            const icon = p.emoji ? `${p.emoji} ` : "📁 "
-            lines.push(`- ${icon}**${p.name}** · ${p.sessionCount}`)
-          }
-          lines.push("")
-          lines.push(`> \`/project <${t("project.projectName")}>\``)
-          const pickerMsg: Message = {
-            role: "event",
-            content: lines.join("\n"),
-            timestamp: new Date().toISOString(),
-          }
-          session.setMessages((prev) => [...prev, pickerMsg])
-          break
-        }
-        case "enterProject": {
-          setDraftIncognito(false)
-          void handleNewChatInProject(action.projectId, undefined, false)
-          break
-        }
+      case "enterProject": {
+        setDraftIncognito(false)
+        void handleNewChatInProject(action.projectId, undefined, false)
+        break
       }
-    },
-    [
-      session,
-      stream,
-      handleStartNewChat,
-      handleManualModelChange,
-      handleEffortChange,
-      planMode,
-      loadSystemPrompt,
-      handleNewChatInProject,
-      t,
-    ],
-  )
+    }
+  }
 
   // ── Plan Approve Handler ───────────────────────────────────────
-  const handlePlanApprove = useCallback(async () => {
+  const handlePlanApprove = async () => {
     await planMode.approvePlan()
     // Send a short trigger — the full plan is already in the system prompt (Executing state)
     stream.handleSend(t("planMode.executeCommand"), {
       planMode: "executing",
       displayText: t("planMode.executionApproved"),
     })
-  }, [planMode, stream, t])
+  }
 
-  const handlePlanContinue = useCallback(async () => {
+  const handlePlanContinue = async () => {
     stream.handleSend(t("planMode.executeCommand"), {
       planMode: "executing",
       displayText: t("planMode.executionResumed"),
     })
-  }, [stream, t])
+  }
 
-  const handleMessageSwitchModel = useCallback(
-    (providerId: string, modelId: string) => {
-      void handleManualModelChange(`${providerId}::${modelId}`)
-    },
-    [handleManualModelChange],
-  )
+  const handleMessageSwitchModel = (providerId: string, modelId: string) => {
+    void handleManualModelChange(`${providerId}::${modelId}`)
+  }
 
   // ── Plan Request Changes Handler ──────────────────────────────
-  const handleRequestChanges = useCallback(
-    (feedback: string) => {
-      // Send feedback back to LLM, which will revise the plan
-      setPlanState("planning")
-      if (currentSessionId) {
-        getTransport()
-          .call("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
-          .catch(() => {})
-      }
-      sendMessage(feedback)
-    },
-    [setPlanState, sendMessage, currentSessionId],
-  )
+  const handleRequestChanges = (feedback: string) => {
+    // Send feedback back to LLM, which will revise the plan
+    setPlanState("planning")
+    if (currentSessionId) {
+      getTransport()
+        .call("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
+        .catch(() => {})
+    }
+    sendMessage(feedback)
+  }
 
   const shouldShowPlanPanel =
     planMode.showPanel &&
@@ -957,59 +890,53 @@ export default function ChatScreen({
       planMode.planContent.trim().length > 0 ||
       planMode.planSteps.length > 0)
 
-  const handlePlanPanelDragStart = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      const startX = e.clientX
-      const startWidth = planPanelWidth
-      const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
-      const onMouseMove = (ev: MouseEvent) => {
-        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
-        setPlanPanelWidth(newWidth)
-      }
-      const iframes = document.querySelectorAll("iframe")
-      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
-      const onMouseUp = () => {
-        document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", onMouseUp)
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
-      }
-      document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", onMouseUp)
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-    },
-    [planPanelWidth],
-  )
+  const handlePlanPanelDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = planPanelWidth
+    const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
+    const onMouseMove = (ev: MouseEvent) => {
+      const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
+      setPlanPanelWidth(newWidth)
+    }
+    const iframes = document.querySelectorAll("iframe")
+    iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
 
-  const handleDiffPanelDragStart = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.preventDefault()
-      const startX = e.clientX
-      const startWidth = diffPanel.panelWidth
-      const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
-      const onMouseMove = (ev: MouseEvent) => {
-        const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
-        diffPanel.setPanelWidth(newWidth)
-      }
-      const iframes = document.querySelectorAll("iframe")
-      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
-      const onMouseUp = () => {
-        document.removeEventListener("mousemove", onMouseMove)
-        document.removeEventListener("mouseup", onMouseUp)
-        document.body.style.cursor = ""
-        document.body.style.userSelect = ""
-        iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
-      }
-      document.addEventListener("mousemove", onMouseMove)
-      document.addEventListener("mouseup", onMouseUp)
-      document.body.style.cursor = "col-resize"
-      document.body.style.userSelect = "none"
-    },
-    [diffPanel],
-  )
+  const handleDiffPanelDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = diffPanel.panelWidth
+    const maxWidth = Math.min(860, Math.max(420, window.innerWidth * 0.55))
+    const onMouseMove = (ev: MouseEvent) => {
+      const newWidth = Math.min(maxWidth, Math.max(360, startWidth - (ev.clientX - startX)))
+      diffPanel.setPanelWidth(newWidth)
+    }
+    const iframes = document.querySelectorAll("iframe")
+    iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = "none"))
+    const onMouseUp = () => {
+      document.removeEventListener("mousemove", onMouseMove)
+      document.removeEventListener("mouseup", onMouseUp)
+      document.body.style.cursor = ""
+      document.body.style.userSelect = ""
+      iframes.forEach((f) => ((f as HTMLElement).style.pointerEvents = ""))
+    }
+    document.addEventListener("mousemove", onMouseMove)
+    document.addEventListener("mouseup", onMouseUp)
+    document.body.style.cursor = "col-resize"
+    document.body.style.userSelect = "none"
+  }
 
   // Three right-side panels (PlanPanel / CanvasPanel / DiffPanel) are
   // mutually exclusive at the visual level — opening one closes the others

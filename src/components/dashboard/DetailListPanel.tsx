@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react"
+import React, { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { X, MessageSquare, Wrench, AlertTriangle, Bot, Clock, MessagesSquare } from "lucide-react"
@@ -48,27 +48,40 @@ function useListData<T>(command: string, params: Record<string, unknown>) {
   const [loading, setLoading] = useState(false)
   const paramsKey = JSON.stringify(params)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const result = await getTransport().call<T[]>(command, params)
-      setData(result)
-    } catch (e) {
-      logger.error("dashboard", command, `${e}`)
-    } finally {
-      setLoading(false)
+  useEffect(() => {
+    let cancelled = false
+
+    async function load() {
+      setLoading(true)
+      try {
+        const result = await getTransport().call<T[]>(command, params)
+        if (!cancelled) setData(result)
+      } catch (e) {
+        logger.error("dashboard", command, `${e}`)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    void load()
+    return () => {
+      cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [command, paramsKey])
-
-  useEffect(() => { load() }, [load])
 
   return { data, loading }
 }
 
 // ── Session List ────────────────────────────────────────────────
 
-function SessionList({ filter, agentNameMap }: { filter: DashboardFilter; agentNameMap: Record<string, string> }) {
+function SessionList({
+  filter,
+  agentNameMap,
+}: {
+  filter: DashboardFilter
+  agentNameMap: Record<string, string>
+}) {
   const { t } = useTranslation()
   const { data, loading } = useListData<DashboardSessionItem>("dashboard_session_list", { filter })
 
@@ -85,9 +98,14 @@ function SessionList({ filter, agentNameMap }: { filter: DashboardFilter; agentN
         <span>{t("dashboard.detail.time")}</span>
       </div>
       {data.map((s) => (
-        <div key={s.id} className="grid grid-cols-[1fr_120px_100px_100px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors">
+        <div
+          key={s.id}
+          className="grid grid-cols-[1fr_120px_100px_100px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors"
+        >
           <span className="truncate">{s.title || s.id.slice(0, 8)}</span>
-          <span className="truncate text-muted-foreground">{agentNameMap[s.agentId] || s.agentId}</span>
+          <span className="truncate text-muted-foreground">
+            {agentNameMap[s.agentId] || s.agentId}
+          </span>
           <span>{formatNumber(s.messageCount)}</span>
           <span>{formatNumber(s.totalTokens)}</span>
           <span className="text-muted-foreground text-xs">{formatRelativeTime(s.updatedAt)}</span>
@@ -116,17 +134,26 @@ function MessageList({ filter }: { filter: DashboardFilter }) {
         <span>{t("dashboard.detail.time")}</span>
       </div>
       {data.map((m) => (
-        <div key={m.id} className="grid grid-cols-[80px_1fr_140px_100px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors">
-          <span className={cn(
-            "text-xs font-medium px-1.5 py-0.5 rounded w-fit",
-            m.role === "user" ? "bg-blue-500/10 text-blue-500" :
-            m.role === "assistant" ? "bg-green-500/10 text-green-500" :
-            "bg-muted text-muted-foreground"
-          )}>
+        <div
+          key={m.id}
+          className="grid grid-cols-[80px_1fr_140px_100px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors"
+        >
+          <span
+            className={cn(
+              "text-xs font-medium px-1.5 py-0.5 rounded w-fit",
+              m.role === "user"
+                ? "bg-blue-500/10 text-blue-500"
+                : m.role === "assistant"
+                  ? "bg-green-500/10 text-green-500"
+                  : "bg-muted text-muted-foreground",
+            )}
+          >
             {m.role}
           </span>
           <span className="truncate text-muted-foreground">{m.contentPreview || "—"}</span>
-          <span className="truncate text-xs text-muted-foreground">{m.sessionTitle || m.sessionId.slice(0, 8)}</span>
+          <span className="truncate text-xs text-muted-foreground">
+            {m.sessionTitle || m.sessionId.slice(0, 8)}
+          </span>
           <span className="text-xs">{formatNumber(m.tokensIn + m.tokensOut)}</span>
           <span className="text-muted-foreground text-xs">{formatRelativeTime(m.timestamp)}</span>
         </div>
@@ -139,7 +166,9 @@ function MessageList({ filter }: { filter: DashboardFilter }) {
 
 function ToolCallList({ filter }: { filter: DashboardFilter }) {
   const { t } = useTranslation()
-  const { data, loading } = useListData<DashboardToolCallItem>("dashboard_tool_call_list", { filter })
+  const { data, loading } = useListData<DashboardToolCallItem>("dashboard_tool_call_list", {
+    filter,
+  })
 
   if (loading || !data) return <ListSkeleton />
   if (!data.length) return <EmptyState message={t("dashboard.detail.empty")} />
@@ -154,11 +183,20 @@ function ToolCallList({ filter }: { filter: DashboardFilter }) {
         <span>{t("dashboard.detail.time")}</span>
       </div>
       {data.map((tc) => (
-        <div key={tc.id} className="grid grid-cols-[1fr_140px_100px_80px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors">
+        <div
+          key={tc.id}
+          className="grid grid-cols-[1fr_140px_100px_80px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors"
+        >
           <span className="font-mono text-xs truncate">{tc.toolName}</span>
-          <span className="truncate text-xs text-muted-foreground">{tc.sessionTitle || tc.sessionId.slice(0, 8)}</span>
-          <span className="text-xs">{tc.durationMs != null ? formatDuration(tc.durationMs) : "—"}</span>
-          <span className={cn("text-xs font-medium", tc.isError ? "text-red-500" : "text-green-500")}>
+          <span className="truncate text-xs text-muted-foreground">
+            {tc.sessionTitle || tc.sessionId.slice(0, 8)}
+          </span>
+          <span className="text-xs">
+            {tc.durationMs != null ? formatDuration(tc.durationMs) : "—"}
+          </span>
+          <span
+            className={cn("text-xs font-medium", tc.isError ? "text-red-500" : "text-green-500")}
+          >
             {tc.isError ? "Error" : "OK"}
           </span>
           <span className="text-muted-foreground text-xs">{formatRelativeTime(tc.timestamp)}</span>
@@ -187,11 +225,16 @@ function ErrorList({ filter }: { filter: DashboardFilter }) {
         <span>{t("dashboard.detail.time")}</span>
       </div>
       {data.map((e) => (
-        <div key={e.id} className="grid grid-cols-[70px_120px_120px_1fr_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors">
-          <span className={cn(
-            "text-xs font-medium px-1.5 py-0.5 rounded w-fit",
-            e.level === "error" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-500"
-          )}>
+        <div
+          key={e.id}
+          className="grid grid-cols-[70px_120px_120px_1fr_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors"
+        >
+          <span
+            className={cn(
+              "text-xs font-medium px-1.5 py-0.5 rounded w-fit",
+              e.level === "error" ? "bg-red-500/10 text-red-500" : "bg-amber-500/10 text-amber-500",
+            )}
+          >
             {e.level}
           </span>
           <span className="truncate text-xs">{e.category}</span>
@@ -206,7 +249,13 @@ function ErrorList({ filter }: { filter: DashboardFilter }) {
 
 // ── Agent List ──────────────────────────────────────────────────
 
-function AgentList({ filter, agentNameMap }: { filter: DashboardFilter; agentNameMap: Record<string, string> }) {
+function AgentList({
+  filter,
+  agentNameMap,
+}: {
+  filter: DashboardFilter
+  agentNameMap: Record<string, string>
+}) {
   const { t } = useTranslation()
   const { data, loading } = useListData<DashboardAgentItem>("dashboard_agent_list", { filter })
 
@@ -223,12 +272,17 @@ function AgentList({ filter, agentNameMap }: { filter: DashboardFilter; agentNam
         <span>{t("dashboard.detail.lastActive")}</span>
       </div>
       {data.map((a) => (
-        <div key={a.agentId} className="grid grid-cols-[1fr_120px_120px_120px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors">
+        <div
+          key={a.agentId}
+          className="grid grid-cols-[1fr_120px_120px_120px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors"
+        >
           <span className="font-medium truncate">{agentNameMap[a.agentId] || a.agentId}</span>
           <span>{formatNumber(a.sessionCount)}</span>
           <span>{formatNumber(a.messageCount)}</span>
           <span>{formatNumber(a.totalTokens)}</span>
-          <span className="text-muted-foreground text-xs">{formatRelativeTime(a.lastActiveAt)}</span>
+          <span className="text-muted-foreground text-xs">
+            {formatRelativeTime(a.lastActiveAt)}
+          </span>
         </div>
       ))}
     </div>
@@ -237,9 +291,12 @@ function AgentList({ filter, agentNameMap }: { filter: DashboardFilter; agentNam
 
 function formatSchedule(s: CronSchedule): string {
   switch (s.type) {
-    case "at": return s.timestamp
-    case "every": return `${formatDuration(s.intervalMs ?? s.interval_ms ?? 0)}`
-    case "cron": return s.expression
+    case "at":
+      return s.timestamp
+    case "every":
+      return `${formatDuration(s.intervalMs ?? s.interval_ms ?? 0)}`
+    case "cron":
+      return s.expression
   }
 }
 
@@ -262,23 +319,39 @@ function CronJobList() {
         <span>{t("dashboard.detail.lastRun")}</span>
       </div>
       {data.map((j) => (
-        <div key={j.id} className="grid grid-cols-[1fr_1fr_100px_100px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors">
+        <div
+          key={j.id}
+          className="grid grid-cols-[1fr_1fr_100px_100px_140px] gap-3 px-4 py-2.5 text-sm hover:bg-muted/50 transition-colors"
+        >
           <div className="min-w-0">
             <div className="truncate font-medium">{j.name}</div>
-            {j.description && <div className="truncate text-xs text-muted-foreground">{j.description}</div>}
+            {j.description && (
+              <div className="truncate text-xs text-muted-foreground">{j.description}</div>
+            )}
           </div>
           <span className="font-mono text-xs truncate">{formatSchedule(j.schedule)}</span>
-          <span className={cn(
-            "text-xs font-medium px-1.5 py-0.5 rounded w-fit h-fit leading-none",
-            j.status === "active" ? "bg-blue-500/10 text-blue-500" :
-            j.status === "paused" ? "bg-amber-500/10 text-amber-500" :
-            j.status === "completed" ? "bg-green-500/10 text-green-500" :
-            j.status === "disabled" ? "bg-red-500/10 text-red-500" :
-            "bg-muted text-muted-foreground"
-          )}>
+          <span
+            className={cn(
+              "text-xs font-medium px-1.5 py-0.5 rounded w-fit h-fit leading-none",
+              j.status === "active"
+                ? "bg-blue-500/10 text-blue-500"
+                : j.status === "paused"
+                  ? "bg-amber-500/10 text-amber-500"
+                  : j.status === "completed"
+                    ? "bg-green-500/10 text-green-500"
+                    : j.status === "disabled"
+                      ? "bg-red-500/10 text-red-500"
+                      : "bg-muted text-muted-foreground",
+            )}
+          >
             {j.status}
           </span>
-          <span className={cn("text-xs", j.consecutiveFailures > 0 ? "text-red-500" : "text-muted-foreground")}>
+          <span
+            className={cn(
+              "text-xs",
+              j.consecutiveFailures > 0 ? "text-red-500" : "text-muted-foreground",
+            )}
+          >
             {j.consecutiveFailures}/{j.maxFailures}
           </span>
           <span className="text-muted-foreground text-xs">
@@ -319,7 +392,12 @@ const listConfig: Record<DetailListType, { icon: React.ElementType; titleKey: st
   cronJobs: { icon: Clock, titleKey: "dashboard.detail.cronJobs" },
 }
 
-export default function DetailListPanel({ listType, filter, agentNameMap, onClose }: DetailListPanelProps) {
+export default function DetailListPanel({
+  listType,
+  filter,
+  agentNameMap,
+  onClose,
+}: DetailListPanelProps) {
   const { t } = useTranslation()
   const config = listConfig[listType]
   const Icon = config.icon

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { ChevronRight, ClipboardList, PanelRightOpen } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { cn } from "@/lib/utils"
@@ -31,24 +31,26 @@ export function PlanBlock({
 }: PlanBlockProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(true)
-  const parsedPlan = useMemo(() => detectPlanContent(content), [content])
+  const parsedPlan = detectPlanContent(content)
   const parsedSteps = parsedPlan.steps
   const planTitle = parsedPlan.title || t("planMode.plan")
 
   // Save plan content to backend when detected
   useEffect(() => {
     if (sessionId && parsedSteps.length > 0 && planState === "planning") {
-      getTransport().call("save_plan_content", { sessionId, content }).catch(() => {})
+      getTransport()
+        .call("save_plan_content", { sessionId, content })
+        .catch(() => {})
     }
   }, [sessionId, parsedSteps.length, planState, content])
 
   // Use live steps if available (during execution), otherwise parsed steps
   const displaySteps = liveSteps && liveSteps.length > 0 ? liveSteps : parsedSteps
   const completedCount = displaySteps.filter(
-    (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed"
+    (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed",
   ).length
 
-  const handleToggle = useCallback(() => setExpanded((p) => !p), [])
+  const handleToggle = () => setExpanded((p) => !p)
 
   if (parsedSteps.length === 0) return null
 
@@ -62,7 +64,7 @@ export function PlanBlock({
         <ChevronRight
           className={cn(
             "h-4 w-4 text-muted-foreground transition-transform duration-200",
-            expanded && "rotate-90"
+            expanded && "rotate-90",
           )}
         />
         <ClipboardList className="h-4 w-4 text-blue-500" />
@@ -87,7 +89,7 @@ export function PlanBlock({
       <div
         className={cn(
           "overflow-hidden transition-all duration-300 ease-in-out",
-          expanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0"
+          expanded ? "max-h-[2000px] opacity-100" : "max-h-0 opacity-0",
         )}
       >
         <div className="px-4 pb-3 space-y-1">

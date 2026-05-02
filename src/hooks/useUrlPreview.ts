@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { extractUrls } from "@/lib/urlDetect"
 import type { UrlPreviewData } from "@/components/chat/UrlPreviewCard"
@@ -14,10 +14,7 @@ interface UseUrlPreviewOptions {
  * Hook for managing URL preview fetching with debounce and caching.
  * Used in ChatInput for real-time preview as user types.
  */
-export function useUrlPreview(
-  text: string,
-  options: UseUrlPreviewOptions = {},
-) {
+export function useUrlPreview(text: string, options: UseUrlPreviewOptions = {}) {
   const { enabled = true, debounceMs = 500 } = options
   const [previews, setPreviews] = useState<Map<string, UrlPreviewData | null>>(new Map())
   const [dismissedUrls, setDismissedUrls] = useState<Set<string>>(new Set())
@@ -26,19 +23,20 @@ export function useUrlPreview(
   const cacheRef = useRef<Map<string, UrlPreviewData>>(new Map())
   const pendingRef = useRef<Set<string>>(new Set())
   const activeRef = useRef(0)
-  const urls = useMemo(() => (enabled ? extractUrls(text) : []), [enabled, text])
 
-  const dismiss = useCallback((url: string) => {
+  const dismiss = (url: string) => {
     setDismissedUrls((prev) => new Set(prev).add(url))
-  }, [])
+  }
 
-  const reset = useCallback(() => {
+  const reset = () => {
     setPreviews(new Map())
     setDismissedUrls(new Set())
-  }, [])
+  }
 
   useEffect(() => {
     const timer = setTimeout(() => {
+      const urls = enabled ? extractUrls(text) : []
+
       if (!enabled || !text.trim() || urls.length === 0) {
         setPreviews(new Map())
         return
@@ -71,7 +69,8 @@ export function useUrlPreview(
         pendingRef.current.add(url)
         activeRef.current++
 
-        getTransport().call<UrlPreviewData>("fetch_url_preview", { url })
+        getTransport()
+          .call<UrlPreviewData>("fetch_url_preview", { url })
           .then((meta) => {
             cacheRef.current.set(url, meta)
             setPreviews((prev) => {
@@ -101,7 +100,7 @@ export function useUrlPreview(
     }, debounceMs)
 
     return () => clearTimeout(timer)
-  }, [text, enabled, debounceMs, urls])
+  }, [text, enabled, debounceMs])
 
   return { previews, dismissedUrls, dismiss, reset }
 }
@@ -110,10 +109,7 @@ export function useUrlPreview(
  * Hook for fetching URL previews for a static message (no debounce).
  * Used in MessageBubble for displaying previews on already-sent messages.
  */
-export function useMessageUrlPreviews(
-  content: string,
-  enabled: boolean,
-) {
+export function useMessageUrlPreviews(content: string, enabled: boolean) {
   const [previews, setPreviews] = useState<UrlPreviewData[]>([])
   const fetchedRef = useRef(false)
 
@@ -128,7 +124,8 @@ export function useMessageUrlPreviews(
     // Limit to 5 URLs per message
     const urlsToFetch = urls.slice(0, 5)
 
-    getTransport().call<UrlPreviewData[]>("fetch_url_previews", { urls: urlsToFetch })
+    getTransport()
+      .call<UrlPreviewData[]>("fetch_url_previews", { urls: urlsToFetch })
       .then((results) => {
         setPreviews(results)
       })

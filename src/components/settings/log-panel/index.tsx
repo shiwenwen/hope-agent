@@ -1,7 +1,14 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import type { LogConfig, LogEntry, LogFileInfo, LogFilter, LogQueryResult, LogStats } from "../types"
+import type {
+  LogConfig,
+  LogEntry,
+  LogFileInfo,
+  LogFilter,
+  LogQueryResult,
+  LogStats,
+} from "../types"
 import LogActionBar from "./LogActionBar"
 import LogToolbar from "./LogToolbar"
 import LogTable from "./LogTable"
@@ -48,19 +55,16 @@ export default function LogPanel() {
   // Loading
   const [loading, setLoading] = useState(false)
 
-  const buildFilter = useCallback(
-    (): LogFilter => ({
-      levels: filterLevels.length > 0 ? filterLevels : null,
-      categories: filterCategories.length > 0 ? filterCategories : null,
-      keyword: keywordRef.current || null,
-      sessionId: null,
-      startTime: null,
-      endTime: null,
-    }),
-    [filterLevels, filterCategories],
-  )
+  const buildFilter = (): LogFilter => ({
+    levels: filterLevels.length > 0 ? filterLevels : null,
+    categories: filterCategories.length > 0 ? filterCategories : null,
+    keyword: keywordRef.current || null,
+    sessionId: null,
+    startTime: null,
+    endTime: null,
+  })
 
-  const fetchLogs = useCallback(async () => {
+  const fetchLogs = async () => {
     setLoading(true)
     try {
       const result = await getTransport().call<LogQueryResult>("query_logs_cmd", {
@@ -75,45 +79,50 @@ export default function LogPanel() {
     } finally {
       setLoading(false)
     }
-  }, [buildFilter, page, pageSize])
+  }
+  const fetchLogsEffectEvent = useEffectEvent(fetchLogs)
 
-  const fetchStats = useCallback(async () => {
+  const fetchStats = async () => {
     try {
       const s = await getTransport().call<LogStats>("get_log_stats_cmd")
       setStats(s)
     } catch (e) {
       logger.error("settings", "LogPanel::getStats", "Failed to get log stats", e)
     }
-  }, [])
+  }
+  const fetchStatsEffectEvent = useEffectEvent(fetchStats)
 
-  const fetchConfig = useCallback(async () => {
+  const fetchConfig = async () => {
     try {
       const c = await getTransport().call<LogConfig>("get_log_config_cmd")
       setConfig(c)
     } catch (e) {
       logger.error("settings", "LogPanel::getConfig", "Failed to get log config", e)
     }
-  }, [])
+  }
+  const fetchConfigEffectEvent = useEffectEvent(fetchConfig)
 
-  const fetchLogFiles = useCallback(async () => {
+  const fetchLogFiles = async () => {
     try {
       const files = await getTransport().call<LogFileInfo[]>("list_log_files_cmd")
       setLogFiles(files)
     } catch (e) {
       logger.error("settings", "LogPanel::listFiles", "Failed to list log files", e)
     }
-  }, [])
+  }
+  const fetchLogFilesEffectEvent = useEffectEvent(fetchLogFiles)
 
-  const fetchCurrentLogPath = useCallback(async () => {
+  const fetchCurrentLogPath = async () => {
     try {
       const path = await getTransport().call<string>("get_log_file_path_cmd")
       setCurrentLogPath(path)
     } catch (e) {
       logger.error("settings", "LogPanel::getFilePath", "Failed to get log file path", e)
     }
-  }, [])
+  }
+  const fetchCurrentLogPathEffectEvent = useEffectEvent(fetchCurrentLogPath)
 
-  const fetchFileContent = useCallback(async (filename: string) => {
+  const fetchFileContent = async (filename: string) => {
     setFileLoading(true)
     try {
       const content = await getTransport().call<string>("read_log_file_cmd", {
@@ -127,27 +136,28 @@ export default function LogPanel() {
     } finally {
       setFileLoading(false)
     }
+  }
+  const fetchFileContentEffectEvent = useEffectEvent(fetchFileContent)
+
+  useEffect(() => {
+    fetchConfigEffectEvent()
+    fetchStatsEffectEvent()
+    fetchCurrentLogPathEffectEvent()
   }, [])
 
   useEffect(() => {
-    fetchConfig()
-    fetchStats()
-    fetchCurrentLogPath()
-  }, [fetchConfig, fetchStats, fetchCurrentLogPath])
-
-  useEffect(() => {
     if (viewMode === "structured") {
-      fetchLogs()
+      fetchLogsEffectEvent()
     } else {
-      fetchLogFiles()
+      fetchLogFilesEffectEvent()
     }
-  }, [viewMode, fetchLogs, fetchLogFiles])
+  }, [viewMode, filterLevels, filterCategories, page, pageSize])
 
   useEffect(() => {
     if (selectedFile) {
-      fetchFileContent(selectedFile)
+      fetchFileContentEffectEvent(selectedFile)
     }
-  }, [selectedFile, fetchFileContent])
+  }, [selectedFile])
 
   const handleKeywordChange = (val: string) => {
     setKeyword(val)

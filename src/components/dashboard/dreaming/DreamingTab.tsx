@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { useTranslation } from "react-i18next"
 import { Button } from "@/components/ui/button"
 import { Loader2, Moon, Play, RefreshCw } from "lucide-react"
@@ -31,19 +31,17 @@ export default function DreamingTab() {
   const [running, setRunning] = useState(false)
   const [lastReport, setLastReport] = useState<DreamReport | null>(null)
 
-  const loadDiaries = useCallback(async () => {
+  const loadDiaries = async () => {
     try {
-      const list = await getTransport().call<DiaryEntry[]>(
-        "dreaming_list_diaries",
-        { limit: 100 },
-      )
+      const list = await getTransport().call<DiaryEntry[]>("dreaming_list_diaries", { limit: 100 })
       setDiaries(list ?? [])
     } catch (e) {
       logger.error("dashboard", "DreamingTab::list", "Failed to list diaries", e)
     }
-  }, [])
+  }
+  const loadDiariesEffectEvent = useEffectEvent(loadDiaries)
 
-  const loadContent = useCallback(async (filename: string) => {
+  const loadContent = async (filename: string) => {
     try {
       const res = await getTransport().call<{ filename: string; content: string } | string | null>(
         "dreaming_read_diary",
@@ -60,17 +58,19 @@ export default function DreamingTab() {
       logger.error("dashboard", "DreamingTab::read", "Failed to read diary", e)
       setContent("")
     }
-  }, [])
+  }
+  const loadContentEffectEvent = useEffectEvent(loadContent)
 
-  const refreshStatus = useCallback(async () => {
+  const refreshStatus = async () => {
     try {
       const res = await getTransport().call<boolean | { running: boolean }>("dreaming_is_running")
-      const v = typeof res === "boolean" ? res : res?.running ?? false
+      const v = typeof res === "boolean" ? res : (res?.running ?? false)
       setRunning(!!v)
     } catch {
       // Non-fatal.
     }
-  }, [])
+  }
+  const refreshStatusEffectEvent = useEffectEvent(refreshStatus)
 
   const handleRunNow = async () => {
     if (running) return
@@ -89,14 +89,14 @@ export default function DreamingTab() {
   }
 
   useEffect(() => {
-    loadDiaries()
-    refreshStatus()
+    loadDiariesEffectEvent()
+    refreshStatusEffectEvent()
     const unlisten = getTransport().listen("dreaming:cycle_complete", () => {
-      loadDiaries()
-      refreshStatus()
+      loadDiariesEffectEvent()
+      refreshStatusEffectEvent()
     })
     return unlisten
-  }, [loadDiaries, refreshStatus])
+  }, [])
 
   // Auto-select the newest diary when the list first arrives or after a
   // refresh — without adding `selected` to loadDiaries' deps, which would
@@ -108,8 +108,8 @@ export default function DreamingTab() {
   }, [diaries, selected])
 
   useEffect(() => {
-    if (selected) void loadContent(selected)
-  }, [selected, loadContent])
+    if (selected) void loadContentEffectEvent(selected)
+  }, [selected])
 
   return (
     <div className="flex flex-col gap-4 mt-4">
@@ -162,9 +162,7 @@ export default function DreamingTab() {
             {t("dashboard.dreaming.promoted", { count: lastReport.promoted.length })} ·{" "}
             {lastReport.durationMs}ms
           </div>
-          {lastReport.note && (
-            <div className="text-muted-foreground italic">{lastReport.note}</div>
-          )}
+          {lastReport.note && <div className="text-muted-foreground italic">{lastReport.note}</div>}
         </div>
       )}
 

@@ -1,4 +1,3 @@
-import React from "react"
 import { useTranslation } from "react-i18next"
 import {
   LineChart,
@@ -36,15 +35,10 @@ interface SessionSectionProps {
 }
 
 function SectionSkeleton({ height }: { height: number }) {
-  return (
-    <div
-      className="w-full bg-muted animate-pulse rounded-lg"
-      style={{ height }}
-    />
-  )
+  return <div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />
 }
 
-const SessionSection = React.memo(function SessionSection({
+const SessionSection = function SessionSection({
   data,
   loading,
   agentNameMap,
@@ -82,9 +76,7 @@ const SessionSection = React.memo(function SessionSection({
     <div className="space-y-6 mt-4">
       {/* Trend line chart */}
       <div className="bg-card border rounded-xl p-4">
-        <h3 className="text-sm font-medium mb-4">
-          {t("dashboard.session.trend")}
-        </h3>
+        <h3 className="text-sm font-medium mb-4">{t("dashboard.session.trend")}</h3>
         {data.trend.length === 0 ? (
           <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground">
             {t("dashboard.noData")}
@@ -93,11 +85,7 @@ const SessionSection = React.memo(function SessionSection({
           <ResponsiveContainer width="100%" height={300}>
             <LineChart data={data.trend}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 12 }}
-                className="fill-muted-foreground"
-              />
+              <XAxis dataKey="date" tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <YAxis
                 yAxisId="left"
                 tick={{ fontSize: 12 }}
@@ -117,7 +105,7 @@ const SessionSection = React.memo(function SessionSection({
                   border: "1px solid var(--color-border)",
                   borderRadius: "8px",
                   fontSize: "12px",
-                color: "var(--color-popover-foreground)",
+                  color: "var(--color-popover-foreground)",
                 }}
                 formatter={(value, name) => [
                   formatNumber(chartNumber(value)),
@@ -157,9 +145,7 @@ const SessionSection = React.memo(function SessionSection({
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Agent distribution pie chart */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-medium mb-4">
-            {t("dashboard.session.byAgent")}
-          </h3>
+          <h3 className="text-sm font-medium mb-4">{t("dashboard.session.byAgent")}</h3>
           {pieData.length === 0 ? (
             <div className="flex items-center justify-center h-[300px] text-sm text-muted-foreground">
               {t("dashboard.noData")}
@@ -173,9 +159,7 @@ const SessionSection = React.memo(function SessionSection({
                   cy="50%"
                   outerRadius={100}
                   dataKey="value"
-                  label={({ name, percent }) =>
-                    `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`
-                  }
+                  label={({ name, percent }) => `${name} (${((percent ?? 0) * 100).toFixed(0)}%)`}
                   labelLine={{ strokeWidth: 1 }}
                   onClick={(entry) => {
                     const agentId = (entry as { agentId?: unknown }).agentId
@@ -184,11 +168,7 @@ const SessionSection = React.memo(function SessionSection({
                   className="cursor-pointer"
                 >
                   {pieData.map((_, i) => (
-                    <Cell
-                      key={i}
-                      fill={PIE_COLORS[i % PIE_COLORS.length]}
-                      fillOpacity={0.8}
-                    />
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} fillOpacity={0.8} />
                   ))}
                 </Pie>
                 <RechartsTooltip
@@ -197,7 +177,7 @@ const SessionSection = React.memo(function SessionSection({
                     border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
-                  color: "var(--color-popover-foreground)",
+                    color: "var(--color-popover-foreground)",
                   }}
                   formatter={(value) => [
                     formatNumber(chartNumber(value)),
@@ -211,18 +191,12 @@ const SessionSection = React.memo(function SessionSection({
 
         {/* Agent ranking table */}
         <div className="bg-card border rounded-xl p-4">
-          <h3 className="text-sm font-medium mb-4">
-            {t("dashboard.session.agentRanking")}
-          </h3>
+          <h3 className="text-sm font-medium mb-4">{t("dashboard.session.agentRanking")}</h3>
           <div className="overflow-auto max-h-[300px]">
             <div className="grid grid-cols-4 gap-2 text-xs font-medium text-muted-foreground pb-2 border-b">
               <div>{t("dashboard.session.agent")}</div>
-              <div className="text-right">
-                {t("dashboard.session.sessions")}
-              </div>
-              <div className="text-right">
-                {t("dashboard.session.messages")}
-              </div>
+              <div className="text-right">{t("dashboard.session.sessions")}</div>
+              <div className="text-right">{t("dashboard.session.messages")}</div>
               <div className="text-right">{t("dashboard.session.tokens")}</div>
             </div>
             {data.byAgent.length === 0 ? (
@@ -237,15 +211,9 @@ const SessionSection = React.memo(function SessionSection({
                   onClick={() => onDrillDown(agent.agentId)}
                 >
                   <div className="truncate font-medium">{resolveAgent(agent.agentId)}</div>
-                  <div className="text-right">
-                    {formatNumber(agent.sessionCount)}
-                  </div>
-                  <div className="text-right">
-                    {formatNumber(agent.messageCount)}
-                  </div>
-                  <div className="text-right">
-                    {formatNumber(agent.totalTokens)}
-                  </div>
+                  <div className="text-right">{formatNumber(agent.sessionCount)}</div>
+                  <div className="text-right">{formatNumber(agent.messageCount)}</div>
+                  <div className="text-right">{formatNumber(agent.totalTokens)}</div>
                 </div>
               ))
             )}
@@ -254,6 +222,6 @@ const SessionSection = React.memo(function SessionSection({
       </div>
     </div>
   )
-})
+}
 
 export default SessionSection

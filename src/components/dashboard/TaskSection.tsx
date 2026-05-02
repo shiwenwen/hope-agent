@@ -1,22 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import {
-  PieChart,
-  Pie,
-  Cell,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-} from "recharts"
-import {
-  Clock,
-  PlayCircle,
-  CheckCircle2,
-  XCircle,
-  Timer,
-  Coins,
-  Bot,
-  Skull,
-} from "lucide-react"
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts"
+import { Clock, PlayCircle, CheckCircle2, XCircle, Timer, Coins, Bot, Skull } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardTaskData } from "./types"
 import { chartNumber, formatNumber, formatDuration } from "./types"
@@ -27,12 +12,7 @@ interface TaskSectionProps {
 }
 
 function SectionSkeleton({ height }: { height: number }) {
-  return (
-    <div
-      className="w-full bg-muted animate-pulse rounded-lg"
-      style={{ height }}
-    />
-  )
+  return <div className="w-full bg-muted animate-pulse rounded-lg" style={{ height }} />
 }
 
 function MiniCard({
@@ -51,18 +31,13 @@ function MiniCard({
   return (
     <div className="flex items-center gap-2 p-2 rounded-lg bg-muted/50">
       <div
-        className={cn(
-          "h-7 w-7 rounded-full flex items-center justify-center shrink-0",
-          bgClass,
-        )}
+        className={cn("h-7 w-7 rounded-full flex items-center justify-center shrink-0", bgClass)}
       >
         <Icon className={cn("h-3.5 w-3.5", colorClass)} />
       </div>
       <div className="min-w-0">
         <div className="text-sm font-semibold truncate">{value}</div>
-        <div className="text-[10px] text-muted-foreground truncate">
-          {label}
-        </div>
+        <div className="text-[10px] text-muted-foreground truncate">{label}</div>
       </div>
     </div>
   )
@@ -73,10 +48,7 @@ const DONUT_FAIL = "#ef4444"
 const DONUT_KILLED = "#f59e0b"
 const DONUT_EMPTY = "var(--color-muted)"
 
-const TaskSection = React.memo(function TaskSection({
-  data,
-  loading,
-}: TaskSectionProps) {
+const TaskSection = function TaskSection({ data, loading }: TaskSectionProps) {
   const { t } = useTranslation()
 
   if (loading && !data) {
@@ -123,9 +95,7 @@ const TaskSection = React.memo(function TaskSection({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
       {/* Cron stats */}
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="text-sm font-medium">
-          {t("dashboard.task.cronTitle")}
-        </h3>
+        <h3 className="text-sm font-medium">{t("dashboard.task.cronTitle")}</h3>
 
         <div className="grid grid-cols-2 gap-2">
           <MiniCard
@@ -190,7 +160,7 @@ const TaskSection = React.memo(function TaskSection({
                     border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
-                  color: "var(--color-popover-foreground)",
+                    color: "var(--color-popover-foreground)",
                   }}
                   formatter={(value) => [formatNumber(chartNumber(value))]}
                 />
@@ -210,9 +180,7 @@ const TaskSection = React.memo(function TaskSection({
 
       {/* Sub-agent stats */}
       <div className="bg-card border rounded-xl p-4 space-y-4">
-        <h3 className="text-sm font-medium">
-          {t("dashboard.task.subagentTitle")}
-        </h3>
+        <h3 className="text-sm font-medium">{t("dashboard.task.subagentTitle")}</h3>
 
         <div className="grid grid-cols-2 gap-2">
           <MiniCard
@@ -246,10 +214,7 @@ const TaskSection = React.memo(function TaskSection({
           <MiniCard
             icon={Coins}
             label={t("dashboard.task.tokens")}
-            value={formatNumber(
-              data.subagent.totalInputTokens +
-                data.subagent.totalOutputTokens,
-            )}
+            value={formatNumber(data.subagent.totalInputTokens + data.subagent.totalOutputTokens)}
             colorClass="text-purple-500"
             bgClass="bg-purple-500/10"
           />
@@ -287,7 +252,7 @@ const TaskSection = React.memo(function TaskSection({
                     border: "1px solid var(--color-border)",
                     borderRadius: "8px",
                     fontSize: "12px",
-                  color: "var(--color-popover-foreground)",
+                    color: "var(--color-popover-foreground)",
                   }}
                   formatter={(value) => [formatNumber(chartNumber(value))]}
                 />
@@ -295,9 +260,7 @@ const TaskSection = React.memo(function TaskSection({
             </ResponsiveContainer>
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="text-center">
-                <div className="text-lg font-bold">
-                  {subagentCompletionRate}%
-                </div>
+                <div className="text-lg font-bold">{subagentCompletionRate}%</div>
                 <div className="text-[10px] text-muted-foreground">
                   {t("dashboard.task.completionRate")}
                 </div>
@@ -308,6 +271,6 @@ const TaskSection = React.memo(function TaskSection({
       </div>
     </div>
   )
-})
+}
 
 export default TaskSection

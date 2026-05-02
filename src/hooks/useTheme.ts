@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 
@@ -29,13 +29,17 @@ export function applyThemeVisual(mode: ThemeMode) {
   root.style.backgroundColor = isDark ? "#0f0f0f" : "#ffffff"
   root.style.colorScheme = isDark ? "dark" : "light"
   // Sync macOS NSWindow background color to match theme
-  getTransport().call("set_window_theme", { isDark }).catch(() => {})
+  getTransport()
+    .call("set_window_theme", { isDark })
+    .catch(() => {})
 }
 
 /** Apply theme visually and persist to backend config */
 export function setThemePreference(mode: ThemeMode) {
   applyThemeVisual(mode)
-  getTransport().call("set_theme", { theme: mode }).catch(() => {})
+  getTransport()
+    .call("set_theme", { theme: mode })
+    .catch(() => {})
 }
 
 /** Load saved theme from backend config and apply it visually. */
@@ -57,11 +61,14 @@ export function listenThemeConfigChange(onChange?: (mode: ThemeMode) => void): (
     try {
       const payload = parsePayload<{ category?: string }>(raw)
       if (payload?.category === "theme") {
-        getTransport().call<string>("get_theme").then((stored) => {
-          const mode = normalizeTheme(stored)
-          onChange?.(mode)
-          applyThemeVisual(mode)
-        }).catch(() => {})
+        getTransport()
+          .call<string>("get_theme")
+          .then((stored) => {
+            const mode = normalizeTheme(stored)
+            onChange?.(mode)
+            applyThemeVisual(mode)
+          })
+          .catch(() => {})
       }
     } catch {
       /* ignore parse errors */
@@ -74,13 +81,15 @@ export function useTheme() {
 
   // Load theme from backend config.json on mount (apply visually only, no write-back)
   useEffect(() => {
-    initThemeFromConfig().then(setThemeState).catch(() => {})
+    initThemeFromConfig()
+      .then(setThemeState)
+      .catch(() => {})
   }, [])
 
-  const setTheme = useCallback((mode: ThemeMode) => {
+  const setTheme = (mode: ThemeMode) => {
     setThemeState(mode)
     setThemePreference(mode)
-  }, [])
+  }
 
   // Listen for config changes from backend (e.g. ha-settings skill updates theme)
   useEffect(() => {
@@ -101,9 +110,9 @@ export function useTheme() {
   }, [theme])
 
   // Cycle through modes: auto → light → dark → auto
-  const cycleTheme = useCallback(() => {
+  const cycleTheme = () => {
     setTheme(theme === "auto" ? "light" : theme === "light" ? "dark" : "auto")
-  }, [theme, setTheme])
+  }
 
   return { theme, setTheme, cycleTheme }
 }

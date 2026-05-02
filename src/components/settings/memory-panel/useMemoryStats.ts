@@ -1,4 +1,4 @@
-import { useCallback, useState, useEffect } from "react"
+import { useEffect, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type {
@@ -30,7 +30,7 @@ export function useMemoryStats() {
   const [dedupConfig, setDedupConfig] = useState({ thresholdHigh: 0.02, thresholdMerge: 0.012 })
   const [dedupExpanded, setDedupExpanded] = useState(false)
 
-  const loadEmbedding = useCallback(async () => {
+  const loadEmbedding = async () => {
     try {
       const [config, templateList, modelConfigs, memoryEmbedding, dedup] = await Promise.all([
         getTransport().call<EmbeddingConfig>("get_embedding_config"),
@@ -47,14 +47,15 @@ export function useMemoryStats() {
     } catch (e) {
       logger.error("settings", "MemoryPanel::loadEmbedding", "Failed to load embedding config", e)
     }
-  }, [])
+  }
+  const loadEmbeddingEffectEvent = useEffectEvent(loadEmbedding)
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      void loadEmbedding()
+      void loadEmbeddingEffectEvent()
     }, 0)
     return () => window.clearTimeout(timeout)
-  }, [loadEmbedding])
+  }, [])
 
   function updateStats(statsData: MemoryStats | null) {
     if (statsData) setStats(statsData)
@@ -64,11 +65,15 @@ export function useMemoryStats() {
     stats,
     updateStats,
     embeddingConfig,
-    embeddingModels, setEmbeddingModels,
+    embeddingModels,
+    setEmbeddingModels,
     embeddingTemplates,
-    memoryEmbeddingState, setMemoryEmbeddingState,
+    memoryEmbeddingState,
+    setMemoryEmbeddingState,
     reloadEmbeddingConfig: loadEmbedding,
-    dedupConfig, setDedupConfig,
-    dedupExpanded, setDedupExpanded,
+    dedupConfig,
+    setDedupConfig,
+    dedupExpanded,
+    setDedupExpanded,
   }
 }

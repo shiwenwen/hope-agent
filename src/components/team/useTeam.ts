@@ -1,12 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react"
+import { useEffect, useRef, useState, useEffectEvent } from "react"
 import { getTransport } from "@/lib/transport-provider"
-import type {
-  Team,
-  TeamMember,
-  TeamMessage,
-  TeamTask,
-  TeamEvent,
-} from "./teamTypes"
+import type { Team, TeamMember, TeamMessage, TeamTask, TeamEvent } from "./teamTypes"
 
 const TEAM_MESSAGE_PAGE_SIZE = 50
 
@@ -26,7 +20,7 @@ export function useTeam(teamId: string | null) {
 
   // ── Fetch data ────────────────────────────────────────────
 
-  const reload = useCallback(async () => {
+  const reload = async () => {
     if (!teamId) return
     setLoading(true)
     try {
@@ -52,25 +46,27 @@ export function useTeam(teamId: string | null) {
     } finally {
       setLoading(false)
     }
-  }, [teamId])
+  }
+  const reloadEffectEvent = useEffectEvent(reload)
 
   // ── Pagination: load older messages ───────────────────────
 
-  const loadMoreMessages = useCallback(async () => {
+  const loadMoreMessages = async () => {
     const tid = teamIdRef.current
     if (!tid || !hasMore || loadingMore) return
     const oldest = messages[0]
     if (!oldest) return
     setLoadingMore(true)
     try {
-      const [older, moreBefore] = await getTransport().call<
-        [TeamMessage[], boolean]
-      >("get_team_messages_before", {
-        teamId: tid,
-        beforeTimestamp: oldest.timestamp,
-        beforeMessageId: oldest.messageId,
-        limit: TEAM_MESSAGE_PAGE_SIZE,
-      })
+      const [older, moreBefore] = await getTransport().call<[TeamMessage[], boolean]>(
+        "get_team_messages_before",
+        {
+          teamId: tid,
+          beforeTimestamp: oldest.timestamp,
+          beforeMessageId: oldest.messageId,
+          limit: TEAM_MESSAGE_PAGE_SIZE,
+        },
+      )
       if (teamIdRef.current !== tid) return
       if (older.length === 0) {
         setHasMore(false)
@@ -83,13 +79,13 @@ export function useTeam(teamId: string | null) {
     } finally {
       setLoadingMore(false)
     }
-  }, [hasMore, loadingMore, messages])
+  }
 
   // ── Initial load ──────────────────────────────────────────
 
   useEffect(() => {
     if (teamId) {
-      reload()
+      reloadEffectEvent()
     } else {
       setTeam(null)
       setMembers([])
@@ -98,7 +94,7 @@ export function useTeam(teamId: string | null) {
       setHasMore(false)
       setLoadingMore(false)
     }
-  }, [teamId, reload])
+  }, [teamId])
 
   // ── Real-time event subscription (debounced member reload) ─
 
@@ -131,9 +127,7 @@ export function useTeam(teamId: string | null) {
           const msg = event.payload as TeamMessage
           if (msg.teamId === teamIdRef.current) {
             setMessages((prev) =>
-              prev.some((m) => m.messageId === msg.messageId)
-                ? prev
-                : [...prev, msg],
+              prev.some((m) => m.messageId === msg.messageId) ? prev : [...prev, msg],
             )
           }
           break
@@ -158,27 +152,24 @@ export function useTeam(teamId: string | null) {
         case "paused":
         case "resumed":
         case "dissolved":
-          reload()
+          reloadEffectEvent()
           break
       }
     })
 
     return unlisten
-  }, [reload])
+  }, [teamId])
 
   // ── Actions ───────────────────────────────────────────────
 
-  const sendMessage = useCallback(
-    async (to: string | null, content: string) => {
-      if (!teamId) return
-      await getTransport().call("send_user_team_message", {
-        teamId,
-        to,
-        content,
-      })
-    },
-    [teamId]
-  )
+  const sendMessage = async (to: string | null, content: string) => {
+    if (!teamId) return
+    await getTransport().call("send_user_team_message", {
+      teamId,
+      to,
+      content,
+    })
+  }
 
   return {
     team,

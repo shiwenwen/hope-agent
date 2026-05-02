@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -32,14 +32,14 @@ export default function AsyncToolsPanel() {
   const [savedSnapshot, setSavedSnapshot] = useState<string>("")
   const [loaded, setLoaded] = useState(false)
 
-  const persist = useCallback(async (next: AsyncToolsConfig) => {
+  const persist = async (next: AsyncToolsConfig) => {
     try {
       await getTransport().call("save_async_tools_config", { config: next })
       setSavedSnapshot(JSON.stringify(next))
     } catch (e) {
       logger.error("settings", "AsyncToolsPanel::save", "Failed to save async tools config", e)
     }
-  }, [])
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -61,14 +61,11 @@ export default function AsyncToolsPanel() {
     }
   }, [])
 
-  const commitIfChanged = useCallback(
-    (next: AsyncToolsConfig) => {
-      if (JSON.stringify(next) !== savedSnapshot) {
-        void persist(next)
-      }
-    },
-    [persist, savedSnapshot],
-  )
+  const commitIfChanged = (next: AsyncToolsConfig) => {
+    if (JSON.stringify(next) !== savedSnapshot) {
+      void persist(next)
+    }
+  }
 
   const handleEnabledChange = (enabled: boolean) => {
     const next = { ...config, enabled }
@@ -122,9 +119,7 @@ export default function AsyncToolsPanel() {
         <div className={cn("space-y-6", disabledCls)}>
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5 pr-4">
-              <div className="text-sm font-medium">
-                {t("settings.asyncToolsAutoBackground")}
-              </div>
+              <div className="text-sm font-medium">{t("settings.asyncToolsAutoBackground")}</div>
               <div className="text-xs text-muted-foreground">
                 {t("settings.asyncToolsAutoBackgroundDesc")}
               </div>
@@ -135,9 +130,7 @@ export default function AsyncToolsPanel() {
                 min={0}
                 step={10}
                 value={config.autoBackgroundSecs}
-                onChange={(e) =>
-                  updateNumber("autoBackgroundSecs", 0)(Number(e.target.value))
-                }
+                onChange={(e) => updateNumber("autoBackgroundSecs", 0)(Number(e.target.value))}
                 onBlur={commitNumber("autoBackgroundSecs", 0)}
                 className="w-24 h-8 text-sm text-right"
               />
@@ -172,9 +165,7 @@ export default function AsyncToolsPanel() {
 
           <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
             <div className="space-y-0.5 pr-4">
-              <div className="text-sm font-medium">
-                {t("settings.asyncToolsJobStatusMaxWait")}
-              </div>
+              <div className="text-sm font-medium">{t("settings.asyncToolsJobStatusMaxWait")}</div>
               <div className="text-xs text-muted-foreground">
                 {t("settings.asyncToolsJobStatusMaxWaitDesc")}
               </div>
@@ -185,9 +176,7 @@ export default function AsyncToolsPanel() {
                 min={1}
                 step={60}
                 value={config.jobStatusMaxWaitSecs}
-                onChange={(e) =>
-                  updateNumber("jobStatusMaxWaitSecs", 1)(Number(e.target.value))
-                }
+                onChange={(e) => updateNumber("jobStatusMaxWaitSecs", 1)(Number(e.target.value))}
                 onBlur={commitNumber("jobStatusMaxWaitSecs", 1)}
                 className="w-24 h-8 text-sm text-right"
               />
@@ -212,9 +201,10 @@ export default function AsyncToolsPanel() {
                 value={Math.round(config.retentionSecs / 86400)}
                 onChange={(e) => {
                   const days = Number(e.target.value)
-                  updateNumber("retentionSecs", 0)(
-                    Number.isFinite(days) ? Math.max(0, Math.round(days)) * 86400 : 0,
-                  )
+                  updateNumber(
+                    "retentionSecs",
+                    0,
+                  )(Number.isFinite(days) ? Math.max(0, Math.round(days)) * 86400 : 0)
                 }}
                 onBlur={commitNumber("retentionSecs", 0)}
                 className="w-24 h-8 text-sm text-right"
@@ -240,9 +230,10 @@ export default function AsyncToolsPanel() {
                 value={Math.round(config.orphanGraceSecs / 3600)}
                 onChange={(e) => {
                   const hours = Number(e.target.value)
-                  updateNumber("orphanGraceSecs", 0)(
-                    Number.isFinite(hours) ? Math.max(0, Math.round(hours)) * 3600 : 0,
-                  )
+                  updateNumber(
+                    "orphanGraceSecs",
+                    0,
+                  )(Number.isFinite(hours) ? Math.max(0, Math.round(hours)) * 3600 : 0)
                 }}
                 onBlur={commitNumber("orphanGraceSecs", 0)}
                 className="w-24 h-8 text-sm text-right"
@@ -266,13 +257,13 @@ export default function AsyncToolsPanel() {
                 min={0}
                 step={1024}
                 value={config.inlineResultBytes}
-                onChange={(e) =>
-                  updateNumber("inlineResultBytes", 0)(Number(e.target.value))
-                }
+                onChange={(e) => updateNumber("inlineResultBytes", 0)(Number(e.target.value))}
                 onBlur={commitNumber("inlineResultBytes", 0)}
                 className="w-28 h-8 text-sm text-right"
               />
-              <span className="text-xs text-muted-foreground whitespace-nowrap">{t("settings.bytes")}</span>
+              <span className="text-xs text-muted-foreground whitespace-nowrap">
+                {t("settings.bytes")}
+              </span>
             </div>
           </div>
         </div>

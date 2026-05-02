@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react"
+import React, { useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
@@ -30,52 +30,46 @@ export function useModelState(): UseModelStateReturn {
   const globalActiveModelRef = useRef<ActiveModel | null>(null)
 
   // Update model display + reasoning effort without persisting to global settings
-  const applyModelForDisplay = useCallback(
-    (key: string) => {
-      const [providerId, modelId] = key.split("::")
-      if (!providerId || !modelId) return
-      setActiveModel({ providerId, modelId })
-      const newModel = availableModels.find(
-        (m) => m.providerId === providerId && m.modelId === modelId,
-      )
-      if (newModel) {
-        setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, t))
-      }
-    },
-    [availableModels, t],
-  )
+  const applyModelForDisplay = (key: string) => {
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
+    setActiveModel({ providerId, modelId })
+    const newModel = availableModels.find(
+      (m) => m.providerId === providerId && m.modelId === modelId,
+    )
+    if (newModel) {
+      setReasoningEffort((prev) => normalizeEffortForModel(newModel, prev, t))
+    }
+  }
 
-  const handleEffortChange = useCallback(async (effort: string) => {
+  const handleEffortChange = async (effort: string) => {
     setReasoningEffort(effort)
     try {
       await getTransport().call("set_reasoning_effort", { effort })
     } catch (e) {
       logger.error("ui", "ChatScreen::effortChange", "Failed to set reasoning effort", e)
     }
-  }, [])
+  }
 
-  const handleModelChange = useCallback(
-    async (key: string) => {
-      const [providerId, modelId] = key.split("::")
-      if (!providerId || !modelId) return
-      setActiveModel({ providerId, modelId })
-      try {
-        await getTransport().call("set_active_model", { providerId, modelId })
-      } catch (e) {
-        logger.error("ui", "ChatScreen::modelChange", "Failed to set model", e)
+  const handleModelChange = async (key: string) => {
+    const [providerId, modelId] = key.split("::")
+    if (!providerId || !modelId) return
+    setActiveModel({ providerId, modelId })
+    try {
+      await getTransport().call("set_active_model", { providerId, modelId })
+    } catch (e) {
+      logger.error("ui", "ChatScreen::modelChange", "Failed to set model", e)
+    }
+    const newModel = availableModels.find(
+      (m) => m.providerId === providerId && m.modelId === modelId,
+    )
+    if (newModel) {
+      const normalized = normalizeEffortForModel(newModel, reasoningEffort, t)
+      if (normalized !== reasoningEffort) {
+        handleEffortChange(normalized)
       }
-      const newModel = availableModels.find(
-        (m) => m.providerId === providerId && m.modelId === modelId,
-      )
-      if (newModel) {
-        const normalized = normalizeEffortForModel(newModel, reasoningEffort, t)
-        if (normalized !== reasoningEffort) {
-          handleEffortChange(normalized)
-        }
-      }
-    },
-    [availableModels, reasoningEffort, t, handleEffortChange],
-  )
+    }
+  }
 
   return {
     availableModels,

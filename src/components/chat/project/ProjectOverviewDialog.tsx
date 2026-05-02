@@ -13,7 +13,7 @@
  * `ProjectSettingsSheet` is left as a follow-up.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react"
 
@@ -128,14 +128,14 @@ export default function ProjectOverviewDialog({
     }
   }
 
-  const boundChannelLabel = useMemo(() => {
+  const boundChannelLabel = (() => {
     if (!project?.boundChannel) return null
     const acc = channels.find(
       (c) =>
         c.id === project.boundChannel?.accountId && c.channelId === project.boundChannel?.channelId,
     )
     return acc?.label ?? `${project.boundChannel.channelId} / ${project.boundChannel.accountId}`
-  }, [project?.boundChannel, channels])
+  })()
 
   if (!project) return null
 
@@ -168,9 +168,7 @@ export default function ProjectOverviewDialog({
               </IconTip>
               <IconTip
                 label={
-                  project.archived
-                    ? t("project.unarchiveProject")
-                    : t("project.archiveProject")
+                  project.archived ? t("project.unarchiveProject") : t("project.archiveProject")
                 }
               >
                 <Button
@@ -233,9 +231,7 @@ export default function ProjectOverviewDialog({
                   </button>
                 )}
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                {t("project.bindChannelHelp")}
-              </p>
+              <p className="text-[11px] text-muted-foreground">{t("project.bindChannelHelp")}</p>
               <Select
                 value={project.boundChannel?.accountId ?? UNBOUND_SENTINEL}
                 disabled={savingChannel}
@@ -257,9 +253,7 @@ export default function ProjectOverviewDialog({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={UNBOUND_SENTINEL}>
-                    — {t("project.unbindChannel")} —
-                  </SelectItem>
+                  <SelectItem value={UNBOUND_SENTINEL}>— {t("project.unbindChannel")} —</SelectItem>
                   {channels.map((c) => (
                     <SelectItem key={c.id} value={c.id}>
                       {c.label} ({c.channelId})
@@ -291,10 +285,7 @@ export default function ProjectOverviewDialog({
           </TabsContent>
 
           {/* Instructions */}
-          <TabsContent
-            value="instructions"
-            className="flex-1 overflow-y-auto px-5 py-3 space-y-3"
-          >
+          <TabsContent value="instructions" className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
             <p className="text-xs text-muted-foreground">{t("project.projectInstructionsHint")}</p>
             <Textarea
               value={instructionsDraft}

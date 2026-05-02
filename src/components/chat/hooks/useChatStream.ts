@@ -1,15 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import type { ChatAttachment } from "@/lib/transport"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { loadNotificationConfig, isAgentNotifyEnabled, notify } from "@/lib/notifications"
-import type {
-  Message,
-  ActiveModel,
-  AgentSummaryForSidebar,
-  SessionMode,
-} from "@/types/chat"
+import type { Message, ActiveModel, AgentSummaryForSidebar, SessionMode } from "@/types/chat"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
   createStreamDeltaBuffers,
@@ -142,32 +137,23 @@ export function useChatStream({
   // changes it. Backend re-reads the column at the start of each tool round,
   // so in-flight loops pick up the change without a separate global snapshot.
   // Without a session id the choice is local-only until the first send.
-  const setPermissionMode = useCallback<
-    React.Dispatch<React.SetStateAction<SessionMode>>
-  >((value) => {
+  const setPermissionMode = ((value) => {
     setPermissionModeState((prev) => {
       const next =
-        typeof value === "function"
-          ? (value as (p: SessionMode) => SessionMode)(prev)
-          : value
+        typeof value === "function" ? (value as (p: SessionMode) => SessionMode)(prev) : value
       if (next !== prev) {
         const sid = currentSessionIdRef.current
         if (sid) {
           getTransport()
             .call("set_permission_mode", { sessionId: sid, mode: next })
             .catch((e) => {
-              logger.error(
-                "chat",
-                "setPermissionMode",
-                "Failed to sync session permission mode",
-                e,
-              )
+              logger.error("chat", "setPermissionMode", "Failed to sync session permission mode", e)
             })
         }
       }
       return next
     })
-  }, [currentSessionIdRef])
+  }) as React.Dispatch<React.SetStateAction<SessionMode>>
 
   // Auto-send pending messages setting
   const autoSendPendingRef = useRef(true)
@@ -247,7 +233,8 @@ export function useChatStream({
 
   // Load config on mount
   useEffect(() => {
-    getTransport().call<{ autoSendPending?: boolean }>("get_user_config")
+    getTransport()
+      .call<{ autoSendPending?: boolean }>("get_user_config")
       .then((cfg) => {
         autoSendPendingRef.current = cfg.autoSendPending !== false
       })
@@ -299,8 +286,7 @@ export function useChatStream({
 
     // Expand `@path` mentions into file_path attachments. Working dir resolves
     // from the current session (committed) or the draft picker (new chat).
-    const sessionWorkingDir =
-      sessions.find((s) => s.id === currentSessionId)?.workingDir ?? null
+    const sessionWorkingDir = sessions.find((s) => s.id === currentSessionId)?.workingDir ?? null
     const resolvedWorkingDir = currentSessionId ? sessionWorkingDir : draftWorkingDir
     const mentionAttachments = expandMentionsToAttachments(text, resolvedWorkingDir ?? null)
     for (const m of mentionAttachments) {
@@ -380,10 +366,7 @@ export function useChatStream({
         return true
       }
 
-      const shouldDropStreamEvent = (
-        event: Record<string, unknown>,
-        sid: string,
-      ): boolean => {
+      const shouldDropStreamEvent = (event: Record<string, unknown>, sid: string): boolean => {
         const streamId = streamIdFromEvent(event)
         if (streamId && endedStreamIdsRef.current.get(sid) === streamId) return true
 
@@ -466,10 +449,11 @@ export function useChatStream({
           modelOverride,
           agentId: currentAgentId,
           permissionMode: permissionModeRef.current,
-          planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
+          planMode:
+            effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
-          workingDir: currentSessionId ? undefined : draftWorkingDir ?? undefined,
+          workingDir: currentSessionId ? undefined : (draftWorkingDir ?? undefined),
         },
         onEvent,
       )
@@ -505,10 +489,9 @@ export function useChatStream({
           return updated
         })
         try {
-          const state = await getTransport().call<SessionStreamState>(
-            "get_session_stream_state",
-            { sessionId: sid },
-          )
+          const state = await getTransport().call<SessionStreamState>("get_session_stream_state", {
+            sessionId: sid,
+          })
           const streamId = state.streamId || undefined
           if (streamId) endedStreamIdsRef.current.delete(sid)
           const cursorKey = streamCursorKey(sid, streamId)
@@ -527,12 +510,7 @@ export function useChatStream({
         updateSessionMessages(sid, (prev) => {
           const updated = [...prev]
           const last = updated[updated.length - 1]
-          if (
-            last &&
-            last.role === "assistant" &&
-            last.content === "" &&
-            !last.toolCalls?.length
-          ) {
+          if (last && last.role === "assistant" && last.content === "" && !last.toolCalls?.length) {
             updated.pop()
           }
           updated.push({ role: "event", content: `${e}` })
@@ -596,7 +574,9 @@ export function useChatStream({
       }
       // Mark current session as read so unread count stays 0 for active session
       if (targetSessionId) {
-        getTransport().call("mark_session_read_cmd", { sessionId: targetSessionId }).catch(() => {})
+        getTransport()
+          .call("mark_session_read_cmd", { sessionId: targetSessionId })
+          .catch(() => {})
       }
       reloadSessions()
 
