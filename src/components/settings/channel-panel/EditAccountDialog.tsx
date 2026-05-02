@@ -22,7 +22,7 @@ import { Switch } from "@/components/ui/switch"
 import { Check, Loader2, AlertCircle } from "lucide-react"
 import { logger } from "@/lib/logger"
 import ChannelIcon from "@/components/common/ChannelIcon"
-import AgentAvatar from "./AgentAvatar"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import AllowlistTagInput from "./AllowlistTagInput"
 import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
@@ -69,6 +69,7 @@ export default function EditAccountDialog({
   const [validationResult, setValidationResult] = useState<string | null>(null)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [wechatConnection, setWeChatConnection] = useState<WeChatConnection | null>(null)
+  const selectedAgent = agents.find((agent) => agent.id === agentId)
 
   // Populate form when account changes
   useEffect(() => {
@@ -250,16 +251,17 @@ export default function EditAccountDialog({
             <Label>{t("channels.boundAgent")}</Label>
             <Select value={agentId || "__none__"} onValueChange={(v) => setAgentId(v === "__none__" ? "" : v)}>
               <SelectTrigger>
-                <SelectValue placeholder={t("channels.boundAgentDefault")} />
+                {selectedAgent ? (
+                  <AgentSelectDisplay agent={selectedAgent} />
+                ) : (
+                  <SelectValue placeholder={t("channels.boundAgentDefault")} />
+                )}
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
                 {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    <span className="flex items-center gap-2">
-                      <AgentAvatar agent={a} />
-                      {a.name}
-                    </span>
+                  <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                    <AgentSelectDisplay agent={a} />
                   </SelectItem>
                 ))}
               </SelectContent>
