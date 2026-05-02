@@ -115,6 +115,23 @@
     "toolCalling": "ツール呼び出し中...",
     "startConversation": "会話を開始",
     "subagentFrom": "{{agent}} からの委任",
+    "subagentResultCompleted": "完了しました。結果をこのチャットに追加しました",
+    "asyncToolJobFallbackName": "バックグラウンドタスク",
+    "asyncToolJobNames": {
+      "exec": "コマンド実行",
+      "web_search": "ウェブ検索",
+      "web_fetch": "ウェブ取得",
+      "image_generate": "画像生成",
+      "browser": "ブラウザ操作"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "完了しました。結果をこのチャットに追加しました",
+      "failed": "失敗しました。エラーをこのチャットに追加しました",
+      "timed_out": "タイムアウトしました。詳細をこのチャットに追加しました",
+      "cancelled": "キャンセルされました",
+      "interrupted": "中断されました。詳細をこのチャットに追加しました",
+      "running": "まだ実行中です"
+    },
     "newChat": "新しいチャット",
     "tasks": "タスク",
     "taskProgress": "{{completed}}/{{total}} 完了",

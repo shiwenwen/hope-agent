@@ -115,6 +115,23 @@
     "toolCalling": "Вызов инструментов...",
     "startConversation": "Начать разговор",
     "subagentFrom": "Делегировано от {{agent}}",
+    "subagentResultCompleted": "Завершено, результат добавлен в чат",
+    "asyncToolJobFallbackName": "Фоновая задача",
+    "asyncToolJobNames": {
+      "exec": "Выполнение команды",
+      "web_search": "Веб-поиск",
+      "web_fetch": "Получение веб-страницы",
+      "image_generate": "Генерация изображения",
+      "browser": "Действие браузера"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "Завершено, результат добавлен в чат",
+      "failed": "Сбой, ошибка добавлена в чат",
+      "timed_out": "Время истекло, подробности добавлены в чат",
+      "cancelled": "Отменено",
+      "interrupted": "Прервано, подробности добавлены в чат",
+      "running": "Всё ещё выполняется"
+    },
     "newChat": "Новый чат",
     "tasks": "Задачи",
     "taskProgress": "{{completed}}/{{total}} выполнено",

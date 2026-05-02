@@ -115,6 +115,23 @@
     "toolCalling": "Memanggil alat...",
     "startConversation": "Mulakan perbualan",
     "subagentFrom": "Diberikan kuasa oleh {{agent}}",
+    "subagentResultCompleted": "Siap, hasil ditambahkan ke sembang",
+    "asyncToolJobFallbackName": "Tugasan latar belakang",
+    "asyncToolJobNames": {
+      "exec": "Pelaksanaan arahan",
+      "web_search": "Carian web",
+      "web_fetch": "Ambilan web",
+      "image_generate": "Penjanaan imej",
+      "browser": "Tindakan pelayar"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "Siap, hasil ditambahkan ke sembang",
+      "failed": "Gagal, ralat ditambahkan ke sembang",
+      "timed_out": "Tamat masa, butiran ditambahkan ke sembang",
+      "cancelled": "Dibatalkan",
+      "interrupted": "Terganggu, butiran ditambahkan ke sembang",
+      "running": "Masih berjalan"
+    },
     "newChat": "Perbualan baharu",
     "tasks": "Tugasan",
     "taskProgress": "{{completed}}/{{total}} selesai",

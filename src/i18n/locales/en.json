@@ -115,6 +115,23 @@
     "toolCalling": "Calling tools...",
     "startConversation": "Start a conversation",
     "subagentFrom": "Invoked by {{agent}}",
+    "subagentResultCompleted": "Completed, result added to this chat",
+    "asyncToolJobFallbackName": "Background task",
+    "asyncToolJobNames": {
+      "exec": "Command execution",
+      "web_search": "Web search",
+      "web_fetch": "Web fetch",
+      "image_generate": "Image generation",
+      "browser": "Browser action"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "Completed, result added to this chat",
+      "failed": "Failed, error added to this chat",
+      "timed_out": "Timed out, details added to this chat",
+      "cancelled": "Cancelled",
+      "interrupted": "Interrupted, details added to this chat",
+      "running": "Still running"
+    },
     "newChat": "New Chat",
     "tasks": "Tasks",
     "taskProgress": "{{completed}}/{{total}} completed",

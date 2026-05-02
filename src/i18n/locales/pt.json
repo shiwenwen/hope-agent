@@ -115,6 +115,23 @@
     "toolCalling": "Chamando ferramentas...",
     "startConversation": "Iniciar conversa",
     "subagentFrom": "Delegado por {{agent}}",
+    "subagentResultCompleted": "Concluído, resultado adicionado à conversa",
+    "asyncToolJobFallbackName": "Tarefa em segundo plano",
+    "asyncToolJobNames": {
+      "exec": "Execução de comando",
+      "web_search": "Pesquisa web",
+      "web_fetch": "Busca web",
+      "image_generate": "Geração de imagem",
+      "browser": "Ação do navegador"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "Concluído, resultado adicionado à conversa",
+      "failed": "Falhou, erro adicionado à conversa",
+      "timed_out": "Tempo esgotado, detalhes adicionados à conversa",
+      "cancelled": "Cancelado",
+      "interrupted": "Interrompido, detalhes adicionados à conversa",
+      "running": "Ainda em execução"
+    },
     "newChat": "Nova conversa",
     "tasks": "Tarefas",
     "taskProgress": "{{completed}}/{{total}} concluídas",

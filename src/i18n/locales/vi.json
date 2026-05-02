@@ -115,6 +115,23 @@
     "toolCalling": "Đang gọi công cụ...",
     "startConversation": "Bắt đầu hội thoại",
     "subagentFrom": "Được ủy quyền bởi {{agent}}",
+    "subagentResultCompleted": "Đã hoàn tất, kết quả đã được thêm vào cuộc trò chuyện",
+    "asyncToolJobFallbackName": "Tác vụ nền",
+    "asyncToolJobNames": {
+      "exec": "Thực thi lệnh",
+      "web_search": "Tìm kiếm web",
+      "web_fetch": "Lấy web",
+      "image_generate": "Tạo ảnh",
+      "browser": "Thao tác trình duyệt"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "Đã hoàn tất, kết quả đã được thêm vào cuộc trò chuyện",
+      "failed": "Thất bại, lỗi đã được thêm vào cuộc trò chuyện",
+      "timed_out": "Đã hết thời gian, chi tiết đã được thêm vào cuộc trò chuyện",
+      "cancelled": "Đã hủy",
+      "interrupted": "Bị gián đoạn, chi tiết đã được thêm vào cuộc trò chuyện",
+      "running": "Vẫn đang chạy"
+    },
     "newChat": "Cuộc trò chuyện mới",
     "tasks": "Tác vụ",
     "taskProgress": "{{completed}}/{{total}} hoàn thành",
