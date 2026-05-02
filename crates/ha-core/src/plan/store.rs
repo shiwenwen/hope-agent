@@ -86,6 +86,11 @@ pub async fn get_plan_meta(session_id: &str) -> Option<PlanMeta> {
 }
 
 /// Restore plan state from DB on session load.
+///
+/// Pulls `executing_started_at` from the persisted column so the
+/// `maybe_complete_plan` scoping survives session switches and app restarts.
+/// Without this, restore would null out the stamp and any pre-plan pending
+/// task would re-block auto-complete (the very case the stamp solves).
 pub async fn restore_from_db(session_id: &str, state: PlanModeState) {
     if state == PlanModeState::Off {
         return;
@@ -93,6 +98,9 @@ pub async fn restore_from_db(session_id: &str, state: PlanModeState) {
     let file_path = plan_file_path(session_id)
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
+    let executing_started_at = crate::get_session_db()
+        .and_then(|db| db.get_session_plan_executing_started_at(session_id).ok())
+        .flatten();
     let mut map = store().write().await;
     map.insert(
         session_id.to_string(),
@@ -105,7 +113,7 @@ pub async fn restore_from_db(session_id: &str, state: PlanModeState) {
             updated_at: chrono::Utc::now().to_rfc3339(),
             version: 1,
             checkpoint_ref: None,
-            executing_started_at: None,
+            executing_started_at,
         },
     );
 }

@@ -46,4 +46,4 @@ pub use subagent::{
 };
 
 // Transition (centralized side-effect helper)
-pub use transition::{transition_state, TransitionOutcome};
+pub use transition::{maybe_complete_plan, transition_state, TransitionOutcome};

@@ -1,3 +1,5 @@
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
 use crate::ask_user::{self, AskUserQuestion, AskUserQuestionGroup, AskUserQuestionOption};
 use crate::plan::{self, PlanModeState, TransitionOutcome};
 use crate::process_registry::create_session_id;
@@ -18,9 +20,15 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         None => return "Error: no session context available".to_string(),
     };
 
-    // If we're already in Plan Mode the suggestion is a no-op.
+    // Only short-circuit when a plan is actively in progress. `Off` is the
+    // normal entry path; `Completed` is a valid re-entry (state machine allows
+    // Completed → Planning, mirroring the deleted amend_plan flow), so the
+    // user must still see the confirm prompt to re-plan a follow-up task.
     let current = plan::get_plan_state(sid).await;
-    if current != PlanModeState::Off {
+    if matches!(
+        current,
+        PlanModeState::Planning | PlanModeState::Review | PlanModeState::Executing
+    ) {
         return format!(
             "Plan Mode is already active (state: {}). Continue with the in-mode workflow \
              (read / search / submit_plan) instead of calling enter_plan_mode again.",
@@ -38,6 +46,21 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         .and_then(|v| v.as_str())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+
+    // Reuse the global ask_user timeout so an unattended dialog (user away,
+    // client offline) doesn't pin the tool round indefinitely. On timeout we
+    // synthesize "no" — the conservative outcome is to keep the user in
+    // normal mode and let the model continue without planning.
+    let timeout_secs = crate::config::cached_config().ask_user_question_timeout_secs;
+    let timeout_at = if timeout_secs > 0 {
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        Some(now_secs + timeout_secs)
+    } else {
+        None
+    };
 
     let request_id = create_session_id();
     let group = AskUserQuestionGroup {
@@ -76,12 +99,16 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             multi_select: false,
             template: None,
             header: Some("Plan Mode".to_string()),
-            timeout_secs: None,
-            default_values: Vec::new(),
+            timeout_secs: if timeout_secs > 0 {
+                Some(timeout_secs)
+            } else {
+                None
+            },
+            default_values: vec!["no".to_string()],
         }],
         context: reason,
         source: Some("plan".to_string()),
-        timeout_at: None,
+        timeout_at,
     };
 
     if let Err(e) = ask_user::persist_pending_group(&group) {
@@ -114,16 +141,37 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         return "Error: EventBus not available".to_string();
     }
 
-    let answers = match rx.await {
-        Ok(answers) => answers,
-        Err(_) => {
-            let _ = ask_user::mark_group_answered(&request_id);
-            crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
-            return "Plan Mode prompt was cancelled. Continue the task directly.".to_string();
+    let answers_opt = if timeout_secs > 0 {
+        match tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await {
+            Ok(Ok(answers)) => Some(answers),
+            Ok(Err(_)) => None,
+            Err(_) => {
+                ask_user::cancel_pending_ask_user_question(&request_id).await;
+                let _ = ask_user::mark_group_answered(&request_id);
+                crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
+                app_warn!(
+                    "plan",
+                    "enter_plan_mode",
+                    "User did not respond within {}s; defaulting to skip planning (session {})",
+                    timeout_secs,
+                    sid
+                );
+                return format!(
+                    "Plan Mode prompt timed out after {}s without a response. Continuing the task directly without drafting a plan.",
+                    timeout_secs
+                );
+            }
         }
+    } else {
+        rx.await.ok()
     };
     let _ = ask_user::mark_group_answered(&request_id);
     crate::channel::worker::ask_user::drop_pending_by_request_id(&request_id).await;
+
+    let answers = match answers_opt {
+        Some(a) => a,
+        None => return "Plan Mode prompt was cancelled. Continue the task directly.".to_string(),
+    };
 
     let accepted = answers
         .iter()

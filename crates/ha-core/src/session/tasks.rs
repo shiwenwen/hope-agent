@@ -20,7 +20,13 @@ pub fn emit_task_snapshot(session_id: &str, tasks: &[Task]) {
 
 /// Set status on a task, emit the snapshot, return the post-update list.
 /// The Tauri/HTTP shells delegate here so they stay as 1-line bodies.
-pub fn set_task_status_and_snapshot(
+///
+/// When the user manually completes a task (status=Completed), this also
+/// triggers the plan auto-complete check via `crate::plan::maybe_complete_plan`
+/// — same side effect as the model-driven `task_update` tool, so the plan
+/// state can collapse to Completed regardless of whether the last task was
+/// closed by the model or by the user clicking the button.
+pub async fn set_task_status_and_snapshot(
     db: &SessionDB,
     id: i64,
     status: TaskStatus,
@@ -28,6 +34,9 @@ pub fn set_task_status_and_snapshot(
     let updated = db.update_task(id, Some(status), None, None)?;
     let tasks = db.list_tasks(&updated.session_id).unwrap_or_default();
     emit_task_snapshot(&updated.session_id, &tasks);
+    if status == TaskStatus::Completed {
+        crate::plan::maybe_complete_plan(&updated.session_id, &tasks).await;
+    }
     Ok(tasks)
 }
 

@@ -90,10 +90,25 @@ pub async fn transition_state(
     // `maybe_complete_plan` can scope its "all tasks done" check to tasks
     // created since this point (avoids false trigger from pre-existing
     // session-scoped tasks, and false miss when a re-entry leaves stale ones).
+    // Persist alongside in-memory PlanMeta so a session-switch / app-restart
+    // doesn't drop the stamp and silently break auto-complete scoping.
     if target == PlanModeState::Executing {
+        let now = chrono::Utc::now().to_rfc3339();
         let mut map = store().write().await;
         if let Some(meta) = map.get_mut(session_id) {
-            meta.executing_started_at = Some(chrono::Utc::now().to_rfc3339());
+            meta.executing_started_at = Some(now.clone());
+        }
+        drop(map);
+        if let Some(db) = crate::get_session_db() {
+            if let Err(e) = db.update_session_plan_executing_started_at(session_id, Some(&now)) {
+                app_warn!(
+                    "plan",
+                    "transition",
+                    "Failed to persist executing_started_at for {}: {}",
+                    session_id,
+                    e
+                );
+            }
         }
     }
 
@@ -116,6 +131,11 @@ pub async fn transition_state(
 
     if let Some(db) = crate::get_session_db() {
         db.update_session_plan_mode(session_id, target)?;
+        // Clear the persisted executing_started_at when plan exits entirely
+        // (Off removes PlanMeta, so the stamp is meaningless from here on).
+        if target == PlanModeState::Off {
+            let _ = db.update_session_plan_executing_started_at(session_id, None);
+        }
     }
 
     if let Some(bus) = crate::globals::get_event_bus() {
@@ -130,4 +150,67 @@ pub async fn transition_state(
     }
 
     Ok(TransitionOutcome::Applied)
+}
+
+/// Auto-transition the plan to Completed when every task created during the
+/// current Executing window has reached a terminal state. Scoping by
+/// `executing_started_at` prevents two failure modes: (1) leftover pending
+/// tasks from before plan approval blocking auto-completion forever, and
+/// (2) finishing a stale pre-plan task falsely tripping completion when no
+/// plan-scoped tasks even exist yet.
+///
+/// Both the model-driven `task_update` tool and the user-driven manual
+/// completion path (`set_task_status_and_snapshot`) call into this so the
+/// behavior is identical regardless of who flipped the last task.
+pub async fn maybe_complete_plan(session_id: &str, tasks: &[crate::session::Task]) {
+    use crate::session::TaskStatus;
+    if super::get_plan_state(session_id).await != super::PlanModeState::Executing {
+        return;
+    }
+    let executing_started_at = match super::get_plan_meta(session_id).await {
+        Some(meta) => meta.executing_started_at,
+        None => return,
+    };
+    let scoped: Vec<&crate::session::Task> = match executing_started_at.as_deref() {
+        Some(start) => tasks
+            .iter()
+            .filter(|t| t.created_at.as_str() >= start)
+            .collect(),
+        // No stamp (e.g. crashed before transition stamp landed) → fall back
+        // to the whole-session view rather than silently deadlocking.
+        None => tasks.iter().collect(),
+    };
+    if scoped.is_empty()
+        || !scoped
+            .iter()
+            .all(|t| t.status == TaskStatus::Completed.as_str())
+    {
+        return;
+    }
+    match transition_state(
+        session_id,
+        super::PlanModeState::Completed,
+        "all_tasks_completed",
+    )
+    .await
+    {
+        Ok(TransitionOutcome::Applied) => {
+            app_info!(
+                "plan",
+                "task_auto_complete",
+                "All tasks completed → plan transitioned to Completed for session {}",
+                session_id
+            );
+        }
+        Ok(TransitionOutcome::Rejected) => {}
+        Err(e) => {
+            app_warn!(
+                "plan",
+                "task_auto_complete",
+                "Failed to persist plan Completed for session {}: {}",
+                session_id,
+                e
+            );
+        }
+    }
 }

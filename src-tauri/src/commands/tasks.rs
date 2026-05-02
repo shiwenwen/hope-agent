@@ -25,11 +25,7 @@ pub async fn list_session_tasks(session_id: String) -> Result<Vec<Task>, CmdErro
 #[tauri::command]
 pub async fn update_task_status(id: i64, status: String) -> Result<Vec<Task>, CmdError> {
     let db = db()?;
-    Ok(set_task_status_and_snapshot(
-        &db,
-        id,
-        parse_status(&status)?,
-    )?)
+    Ok(set_task_status_and_snapshot(&db, id, parse_status(&status)?).await?)
 }
 
 #[tauri::command]
