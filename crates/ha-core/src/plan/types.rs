@@ -82,6 +82,13 @@ pub struct PlanMeta {
     /// Git checkpoint reference (branch or stash) created before execution
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_ref: Option<String>,
+    /// Wall-clock RFC3339 timestamp set when the plan most recently entered
+    /// the Executing state. Used by `maybe_complete_plan` to scope the
+    /// "all tasks done" check to tasks created after execution started, so
+    /// pre-existing pending tasks (or tasks from a prior plan run) don't
+    /// block / falsely trigger auto-completion.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub executing_started_at: Option<String>,
 }
 
 fn default_version() -> u32 {

@@ -18,7 +18,7 @@ use serde_json::json;
 
 use super::{
     cleanup_checkpoint, create_checkpoint_for_session, get_active_plan_run_id, get_checkpoint_ref,
-    get_plan_state, set_plan_state, should_create_execution_checkpoint, PlanModeState,
+    get_plan_state, set_plan_state, should_create_execution_checkpoint, store, PlanModeState,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,8 +86,28 @@ pub async fn transition_state(
         return Ok(TransitionOutcome::Rejected);
     }
 
+    // Stamp `executing_started_at` on transitions INTO Executing so
+    // `maybe_complete_plan` can scope its "all tasks done" check to tasks
+    // created since this point (avoids false trigger from pre-existing
+    // session-scoped tasks, and false miss when a re-entry leaves stale ones).
+    if target == PlanModeState::Executing {
+        let mut map = store().write().await;
+        if let Some(meta) = map.get_mut(session_id) {
+            meta.executing_started_at = Some(chrono::Utc::now().to_rfc3339());
+        }
+    }
+
     if let Some(ref_name) = checkpoint_to_cleanup {
         cleanup_checkpoint(&ref_name);
+        // Off removes the PlanMeta entry outright; Completed keeps it, so the
+        // stale ref must be cleared explicitly or `get_plan_checkpoint` will
+        // keep returning a now-deleted branch and the rollback button breaks.
+        if target == PlanModeState::Completed {
+            let mut map = store().write().await;
+            if let Some(meta) = map.get_mut(session_id) {
+                meta.checkpoint_ref = None;
+            }
+        }
     }
 
     if should_create_checkpoint {

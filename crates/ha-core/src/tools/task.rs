@@ -141,20 +141,42 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
     // plan to Completed and clean up the git checkpoint. This replaces the
     // legacy `update_plan_step` auto-completion path that was deleted with
     // PlanStep — task is now the single source of progress truth.
-    if matches!(status, Some(TaskStatus::Completed))
-        && !tasks.is_empty()
-        && tasks
-            .iter()
-            .all(|t| t.status == TaskStatus::Completed.as_str())
-    {
-        maybe_complete_plan(&sid).await;
+    if matches!(status, Some(TaskStatus::Completed)) {
+        maybe_complete_plan(&sid, &tasks).await;
     }
 
     render_snapshot(&tasks)
 }
 
-async fn maybe_complete_plan(session_id: &str) {
+/// Auto-complete the plan when every task created **during** the current
+/// Executing window has reached a terminal state. Scoping by
+/// `executing_started_at` prevents two failure modes: (1) leftover pending
+/// tasks from before plan approval blocking auto-completion forever, and
+/// (2) finishing a stale pre-plan task falsely tripping completion when no
+/// plan-scoped tasks even exist yet.
+async fn maybe_complete_plan(session_id: &str, tasks: &[Task]) {
     if crate::plan::get_plan_state(session_id).await != crate::plan::PlanModeState::Executing {
+        return;
+    }
+    let executing_started_at = match crate::plan::get_plan_meta(session_id).await {
+        Some(meta) => meta.executing_started_at,
+        None => return,
+    };
+    let scoped: Vec<&Task> = match executing_started_at.as_deref() {
+        Some(start) => tasks
+            .iter()
+            .filter(|t| t.created_at.as_str() >= start)
+            .collect(),
+        // No stamp (e.g. crashed before transition stamp landed) → fall back
+        // to the whole-session view rather than silently deadlocking the
+        // auto-complete path.
+        None => tasks.iter().collect(),
+    };
+    if scoped.is_empty()
+        || !scoped
+            .iter()
+            .all(|t| t.status == TaskStatus::Completed.as_str())
+    {
         return;
     }
     match crate::plan::transition_state(

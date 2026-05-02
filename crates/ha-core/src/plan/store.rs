@@ -58,6 +58,7 @@ pub async fn set_plan_state(session_id: &str, state: PlanModeState) -> bool {
                 updated_at: chrono::Utc::now().to_rfc3339(),
                 version: 1,
                 checkpoint_ref: None,
+                executing_started_at: None,
             },
         );
         true
@@ -104,6 +105,7 @@ pub async fn restore_from_db(session_id: &str, state: PlanModeState) {
             updated_at: chrono::Utc::now().to_rfc3339(),
             version: 1,
             checkpoint_ref: None,
+            executing_started_at: None,
         },
     );
 }

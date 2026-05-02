@@ -47,6 +47,35 @@ pub(super) async fn resolve_tool_permission(
     ctx: &ToolExecContext,
     is_internal_tool: bool,
 ) -> crate::permission::Decision {
+    // Mid-turn Plan Mode entry guard: `ctx.plan_mode_allowed_tools` is a
+    // snapshot taken when the AssistantAgent was built at turn start. If the
+    // model called `enter_plan_mode` mid-turn (user accepted) the live state
+    // is now Planning/Review while the snapshot still says Off, so the
+    // permission engine would happily run write/edit/apply_patch/canvas. Fall
+    // back to a hard deny on those four mutation tools so the user-sovereignty
+    // contract holds within the same turn — full PlanAgent restrictions kick
+    // in automatically on the next user message when the agent rebuilds.
+    if !is_internal_tool && ctx.plan_mode_allowed_tools.is_empty() {
+        if let Some(sid) = ctx.session_id.as_deref() {
+            let live = crate::plan::get_plan_state(sid).await;
+            if matches!(
+                live,
+                crate::plan::PlanModeState::Planning | crate::plan::PlanModeState::Review
+            ) && crate::plan::PLAN_MODE_DENIED_TOOLS.contains(&tool_name)
+            {
+                return crate::permission::Decision::Deny {
+                    reason: format!(
+                        "Plan Mode (state: {}) just entered this turn — '{}' is denied. \
+                         Use read/grep/glob/web_search/web_fetch/ask_user_question/submit_plan \
+                         until the plan is approved.",
+                        live.as_str(),
+                        tool_name
+                    ),
+                };
+            }
+        }
+    }
+
     let app_cfg = (ctx.session_mode == crate::permission::SessionMode::Smart)
         .then(crate::config::cached_config);
     let resolve_ctx = crate::permission::engine::ResolveContext {
