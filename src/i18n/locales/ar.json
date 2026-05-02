@@ -116,6 +116,23 @@
     "toolCalling": "جارٍ استدعاء الأدوات...",
     "startConversation": "ابدأ محادثة",
     "subagentFrom": "مفوّض من {{agent}}",
+    "subagentResultCompleted": "اكتملت، وأُضيفت النتيجة إلى المحادثة",
+    "asyncToolJobFallbackName": "مهمة في الخلفية",
+    "asyncToolJobNames": {
+      "exec": "تنفيذ أمر",
+      "web_search": "بحث الويب",
+      "web_fetch": "جلب الويب",
+      "image_generate": "توليد صورة",
+      "browser": "إجراء المتصفح"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "اكتملت، وأُضيفت النتيجة إلى المحادثة",
+      "failed": "فشلت، وأُضيف الخطأ إلى المحادثة",
+      "timed_out": "انتهت المهلة، وأُضيفت التفاصيل إلى المحادثة",
+      "cancelled": "أُلغيت",
+      "interrupted": "انقطعت، وأُضيفت التفاصيل إلى المحادثة",
+      "running": "ما زالت قيد التشغيل"
+    },
     "newChat": "محادثة جديدة",
     "tasks": "المهام",
     "taskProgress": "{{completed}}/{{total}} مكتملة",

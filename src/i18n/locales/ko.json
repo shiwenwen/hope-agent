@@ -116,6 +116,23 @@
     "toolCalling": "도구 호출 중...",
     "startConversation": "대화 시작",
     "subagentFrom": "{{agent}} 에서 위임",
+    "subagentResultCompleted": "완료됨, 결과가 대화에 추가됨",
+    "asyncToolJobFallbackName": "백그라운드 작업",
+    "asyncToolJobNames": {
+      "exec": "명령 실행",
+      "web_search": "웹 검색",
+      "web_fetch": "웹 가져오기",
+      "image_generate": "이미지 생성",
+      "browser": "브라우저 작업"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "완료됨, 결과가 대화에 추가됨",
+      "failed": "실패함, 오류가 대화에 추가됨",
+      "timed_out": "시간 초과됨, 세부 정보가 대화에 추가됨",
+      "cancelled": "취소됨",
+      "interrupted": "중단됨, 세부 정보가 대화에 추가됨",
+      "running": "아직 실행 중"
+    },
     "newChat": "새 대화",
     "tasks": "작업",
     "taskProgress": "{{completed}}/{{total}} 완료",
