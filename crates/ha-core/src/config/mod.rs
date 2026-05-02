@@ -264,7 +264,7 @@ fn default_recap_cache_retention_days() -> u32 {
 #[serde(rename_all = "camelCase")]
 pub struct RecapConfig {
     /// Agent ID used to extract per-session facets and generate report sections.
-    /// `None` falls back to the first available agent.
+    /// `None` inherits the global default agent.
     #[serde(default)]
     pub analysis_agent: Option<String>,
     /// Default time window (days) when no prior report exists.

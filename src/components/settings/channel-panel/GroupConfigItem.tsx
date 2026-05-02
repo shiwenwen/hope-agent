@@ -12,7 +12,11 @@ import {
 import { IconTip } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import { Trash2 } from "lucide-react"
-import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
+import {
+  AgentSelectDisplay,
+  INHERIT_AGENT_SENTINEL,
+  InheritAgentSelectDisplay,
+} from "@/components/common/AgentSelectDisplay"
 import type { AgentInfo, TelegramGroupConfig } from "./types"
 
 export default function GroupConfigItem({
@@ -92,18 +96,25 @@ export default function GroupConfigItem({
         </div>
         <div className="flex-1 min-w-[160px]">
           <Select
-            value={config.agentId || "__none__"}
-            onValueChange={(v) => onUpdate({ agentId: v === "__none__" ? null : v })}
+            value={config.agentId || INHERIT_AGENT_SENTINEL}
+            onValueChange={(v) =>
+              onUpdate({ agentId: v === INHERIT_AGENT_SENTINEL ? null : v })
+            }
           >
             <SelectTrigger className="h-7 text-xs">
               {selectedAgent ? (
                 <AgentSelectDisplay agent={selectedAgent} size="xs" />
               ) : (
-                <SelectValue placeholder={t("channels.boundAgentDefault")} />
+                <InheritAgentSelectDisplay label={t("channels.boundAgentDefault")} />
               )}
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
+              <SelectItem
+                value={INHERIT_AGENT_SENTINEL}
+                textValue={t("channels.boundAgentDefault")}
+              >
+                {t("channels.boundAgentDefault")}
+              </SelectItem>
               {agents.map((a) => (
                 <SelectItem key={a.id} value={a.id} textValue={a.name}>
                   <AgentSelectDisplay agent={a} size="xs" />

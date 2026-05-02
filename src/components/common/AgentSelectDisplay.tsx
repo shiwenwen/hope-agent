@@ -10,6 +10,8 @@ export interface AgentSelectAgent {
   avatar?: string | null
 }
 
+export const INHERIT_AGENT_SENTINEL = "__inherit_global_default_agent__"
+
 type AgentAvatarSize = "xs" | "sm" | "md" | "lg"
 
 const avatarSizeClasses: Record<AgentAvatarSize, string> = {
@@ -75,6 +77,20 @@ export function AgentSelectDisplay({
     <span className={cn("!inline-flex min-w-0 items-center gap-2", className)}>
       <AgentAvatarBadge agent={agent} size={size} />
       <span className="truncate">{name}</span>
+    </span>
+  )
+}
+
+export function InheritAgentSelectDisplay({
+  label,
+  className,
+}: {
+  label: string
+  className?: string
+}) {
+  return (
+    <span className={cn("truncate text-muted-foreground", className)}>
+      {label}
     </span>
   )
 }

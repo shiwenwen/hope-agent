@@ -12,7 +12,11 @@ import {
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
 import { Plus, Trash2 } from "lucide-react"
-import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
+import {
+  AgentSelectDisplay,
+  INHERIT_AGENT_SENTINEL,
+  InheritAgentSelectDisplay,
+} from "@/components/common/AgentSelectDisplay"
 import GroupConfigItem from "./GroupConfigItem"
 import type { AgentInfo, TelegramGroupConfig as TelegramGroupConfigType, TelegramChannelConfig } from "./types"
 
@@ -213,18 +217,27 @@ export default function TelegramGroupChannelConfig({
                   </div>
                   <div className="flex-1 min-w-[160px]">
                     <Select
-                      value={cCfg.agentId || "__none__"}
-                      onValueChange={(v) => updateChannel(cId, { agentId: v === "__none__" ? null : v })}
+                      value={cCfg.agentId || INHERIT_AGENT_SENTINEL}
+                      onValueChange={(v) =>
+                        updateChannel(cId, {
+                          agentId: v === INHERIT_AGENT_SENTINEL ? null : v,
+                        })
+                      }
                     >
                       <SelectTrigger className="h-8 text-xs">
                         {selectedAgent ? (
                           <AgentSelectDisplay agent={selectedAgent} size="xs" />
                         ) : (
-                          <SelectValue placeholder={t("channels.boundAgentDefault")} />
+                          <InheritAgentSelectDisplay label={t("channels.boundAgentDefault")} />
                         )}
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
+                        <SelectItem
+                          value={INHERIT_AGENT_SENTINEL}
+                          textValue={t("channels.boundAgentDefault")}
+                        >
+                          {t("channels.boundAgentDefault")}
+                        </SelectItem>
                         {agents.map((a) => (
                           <SelectItem key={a.id} value={a.id} textValue={a.name}>
                             <AgentSelectDisplay agent={a} size="xs" />
