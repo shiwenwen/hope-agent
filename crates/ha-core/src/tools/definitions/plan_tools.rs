@@ -110,37 +110,75 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
 pub fn get_enter_plan_mode_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_ENTER_PLAN_MODE.into(),
-        description: "Enter Plan Mode to explore, gather context, and draft a written plan \
-before doing the work. After entering, you can read files / search / ask the user clarifying \
-questions, and you must call `submit_plan` with the finalized plan when ready. The user reviews \
-and approves the plan at submit time — there is no separate \"approve to enter plan mode\" prompt.\n\n\
-## When to Use\n\
-Prefer entering plan mode for non-trivial tasks across all domains:\n\
-- **Programming**: new features, multi-file refactors, architectural choices, performance work, \
-anything touching 3+ files, or unclear requirements.\n\
-- **Writing**: pieces longer than ~1000 words, multi-section docs, anything with structural \
-decisions (outline, audience, tone).\n\
-- **Research / investigation**: comparing 3+ sources or angles, building a structured argument.\n\
-- **Information organization**: sorting/categorizing 50+ items, building a knowledge structure, \
-designing a taxonomy.\n\
-- **Decision support**: trade-offs across 3+ dimensions, multi-step decisions with downstream \
-consequences.\n\
-- **Whenever you would otherwise use ask_user_question to clarify the *approach*** (not just \
-requirements) — plan mode lets you explore first and then present a vetted plan.\n\n\
-## When NOT to Use\n\
-- Single-step or trivial tasks (typo fixes, single-line changes, single function with clear \
-requirements).\n\
-- Pure Q&A or research lookups (use the Explore subagent or just answer directly).\n\
-- The user gave very specific step-by-step instructions.\n\
-- The work can be done in fewer than 3 steps.\n\n\
-## Behavior\n\
-Calling this tool surfaces a Yes/No prompt to the user. The user has the final say — if \
-they accept, the session transitions to Planning state and the tool returns a success \
-message; if they decline, the session stays in normal mode and the tool returns a \
-message saying so. Only call this once per task; if the user declined, do not retry — \
-proceed with the task directly."
-            .into(),
-        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
+        description:
+            "Use this tool **proactively** when you're about to start a non-trivial task. \
+Getting user sign-off on the approach before producing the deliverable prevents wasted effort \
+and ensures alignment. After entering, you can read files / search / use ask_user_question to \
+clarify approach and preferences, then call `submit_plan` with the finalized plan when ready. \
+The user reviews and approves the plan at submit time.\n\n\
+## When to Use\n\n\
+**Prefer using enter_plan_mode** for production-or-deliverable tasks unless they're simple. \
+Use it when ANY of these conditions apply:\n\n\
+1. **New Feature / Working Artifact**: Producing something the user will run, read, or interact \
+with — even if it's a single file.\n\
+   - Example: \"做一个网页版贪吃蛇\" — visual style, controls, scope all matter\n\
+   - Example: \"Add a logout button\" — placement, styling, on-click behavior\n\
+   - Example: \"写一篇 X 主题的文章\" — audience, tone, depth, structure all matter\n\n\
+2. **Multiple Valid Approaches**: The task can be solved in several different ways with \
+comparable trade-offs.\n\
+   - Example: \"Add caching\" — Redis vs in-memory vs file-based\n\
+   - Example: \"Implement state management\" — Redux vs Context vs custom\n\n\
+3. **Code / Design Modifications**: Changes that affect existing behavior or structure.\n\
+   - Example: \"Update the login flow\" — what exactly changes?\n\
+   - Example: \"Refactor this component\" — what's the target architecture?\n\n\
+4. **Multi-File / Multi-Section Changes**: The task likely touches 3+ files OR produces a \
+deliverable with 3+ logical sections.\n\
+   - Example: \"Refactor the authentication system\"\n\
+   - Example: \"Add a new API endpoint with tests\"\n\n\
+5. **Unclear Requirements**: You need to explore before understanding the full scope.\n\
+   - Example: \"Make the app faster\" — need to profile first\n\
+   - Example: \"Fix the checkout bug\" — need to investigate root cause\n\n\
+6. **User Preferences Matter**: The implementation could reasonably go multiple ways and the \
+user-facing experience depends on which way you pick.\n\
+   - Visual style (pixel / minimal / skeuomorphic), control scheme (arrow keys / WASD / touch), \
+tone (formal / casual), color palette, scope (MVP / full-featured), depth.\n\
+   - **If you would use ask_user_question to clarify the approach or preferences, use \
+enter_plan_mode instead** — plan mode is the right place to gather preferences then present a \
+vetted plan, rather than making best-guess decisions and producing the artifact blindly.\n\n\
+7. **Non-Code Domains** (writing / research / analysis / information organization): \
+Same bar — if the deliverable has multiple reasonable directions, plan first.\n\n\
+## When NOT to Use\n\n\
+Only skip enter_plan_mode for genuinely simple tasks:\n\
+- Single-line / few-line fixes (typos, obvious bugs, small tweaks)\n\
+- Adding a single function with clear, fully-specified requirements\n\
+- Tasks where the user has given very specific, detailed step-by-step instructions\n\
+- Pure Q&A or research lookups (\"What does X do?\" — answer directly, don't plan)\n\
+- One-off scripts with a single obvious output format (\"convert these CSVs to JSON\")\n\n\
+## Examples\n\n\
+### GOOD — Use enter_plan_mode:\n\n\
+- \"做一个网页贪吃蛇\" — single file but visual / controls / scope are real choices\n\
+- \"做一个登录页\" — placement, fields, validation strictness, error states\n\
+- \"实现深色模式\" — affects many components, theme architecture decision\n\
+- \"写一篇关于 X 的科普文章\" — tone, audience, depth, structure\n\
+- \"调研 3 种向量数据库选型\" — comparison criteria, depth\n\n\
+### BAD — Skip enter_plan_mode:\n\n\
+- \"修一下 README 里的拼写错误\"\n\
+- \"给 X 函数加一行 log\"\n\
+- \"把变量 foo 改成 bar\"\n\
+- \"X 函数是干什么的？\" (Q&A — just answer)\n\
+- \"运行 cargo test\"\n\n\
+## Important Notes\n\n\
+- **If unsure whether to use it, err on the side of planning** — it's better to get alignment \
+upfront (one Yes/No prompt) than to produce the wrong thing and rework.\n\
+- Users appreciate being consulted before non-trivial work — \"best-guess once, regret all the \
+way\" is much costlier than a 5-second prompt.\n\
+- Calling this tool surfaces a Yes/No prompt. If the user accepts, the session transitions to \
+Planning; if they decline, stay in normal mode and proceed directly. Only call this once per \
+task; if declined, do not retry."
+                .into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::PlanMode,
+        },
         internal: true,
         concurrent_safe: false,
         async_capable: false,
