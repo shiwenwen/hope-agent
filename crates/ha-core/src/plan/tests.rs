@@ -77,4 +77,99 @@ mod tests {
         set_plan_state(sid_apply, PlanModeState::Off).await;
         set_plan_state(sid_reject, PlanModeState::Off).await;
     }
+
+    /// Transitions INTO Executing must stamp `executing_started_at`. The
+    /// stamp is the boundary that scopes `maybe_complete_plan` to plan-period
+    /// tasks, so leftover pending tasks from before approval don't block
+    /// auto-completion (and stale completed tasks don't trigger it).
+    #[tokio::test]
+    async fn test_executing_started_at_is_stamped() {
+        let sid = "transition_test_executing_stamp";
+        set_plan_state(sid, PlanModeState::Off).await;
+
+        // Walk through Planning → Review → Executing so the state machine
+        // accepts the edges. Only the Executing transition should stamp.
+        transition_state(sid, PlanModeState::Planning, "test")
+            .await
+            .expect("ok");
+        assert!(
+            get_plan_meta(sid)
+                .await
+                .and_then(|m| m.executing_started_at)
+                .is_none(),
+            "Planning should not stamp executing_started_at"
+        );
+
+        transition_state(sid, PlanModeState::Review, "test")
+            .await
+            .expect("ok");
+        assert!(
+            get_plan_meta(sid)
+                .await
+                .and_then(|m| m.executing_started_at)
+                .is_none(),
+            "Review should not stamp executing_started_at"
+        );
+
+        transition_state(sid, PlanModeState::Executing, "test")
+            .await
+            .expect("ok");
+        let stamp = get_plan_meta(sid)
+            .await
+            .and_then(|m| m.executing_started_at)
+            .expect("Executing transition must stamp executing_started_at");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(&stamp).is_ok(),
+            "stamp should be valid rfc3339, got {}",
+            stamp
+        );
+
+        set_plan_state(sid, PlanModeState::Off).await;
+    }
+
+    /// Transitions to Completed via `transition_state` must clear the in-meta
+    /// `checkpoint_ref` so `get_plan_checkpoint` doesn't return a deleted
+    /// branch (the front-end Rollback button check). Off transitions remove
+    /// the entire PlanMeta, so they don't need this; Completed keeps the meta
+    /// and must explicitly null the field.
+    #[tokio::test]
+    async fn test_completed_clears_stale_checkpoint_ref() {
+        let sid = "transition_test_stale_ref";
+        set_plan_state(sid, PlanModeState::Off).await;
+
+        // Bring the session into Executing and inject a fake checkpoint_ref
+        // directly into the store (skipping git.rs::create_checkpoint_for_session
+        // which would try to actually run git in the test).
+        transition_state(sid, PlanModeState::Planning, "test")
+            .await
+            .expect("ok");
+        transition_state(sid, PlanModeState::Review, "test")
+            .await
+            .expect("ok");
+        transition_state(sid, PlanModeState::Executing, "test")
+            .await
+            .expect("ok");
+        {
+            let mut map = store().write().await;
+            if let Some(meta) = map.get_mut(sid) {
+                meta.checkpoint_ref = Some("hope-plan-checkpoint-fake".to_string());
+            }
+        }
+        assert_eq!(
+            get_checkpoint_ref(sid).await.as_deref(),
+            Some("hope-plan-checkpoint-fake"),
+            "precondition: stale ref present"
+        );
+
+        // Transition to Completed and confirm the ref is cleared.
+        transition_state(sid, PlanModeState::Completed, "test")
+            .await
+            .expect("ok");
+        assert!(
+            get_checkpoint_ref(sid).await.is_none(),
+            "Completed must clear stale checkpoint_ref"
+        );
+
+        set_plan_state(sid, PlanModeState::Off).await;
+    }
 }

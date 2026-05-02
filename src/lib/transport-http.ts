@@ -225,8 +225,6 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Plan mode --
   get_plan_mode:                   { method: "GET",    path: "/api/plan/{sessionId}/mode" },
   set_plan_mode:                   { method: "POST",   path: "/api/plan/{sessionId}/mode" },
-  get_plan_steps:                  { method: "GET",    path: "/api/plan/{sessionId}/steps" },
-  update_plan_step_status:         { method: "POST",   path: "/api/plan/{sessionId}/steps/update" },
   get_plan_content:                { method: "GET",    path: "/api/plan/{sessionId}/content" },
   save_plan_content:               { method: "PUT",    path: "/api/plan/{sessionId}/content" },
   get_plan_file_path:              { method: "GET",    path: "/api/plan/{sessionId}/file-path" },

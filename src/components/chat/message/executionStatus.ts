@@ -70,7 +70,6 @@ const KNOWN_TOOL_STATUS_NAMES = new Set([
   "tool_search",
   "acp_spawn",
   "submit_plan",
-  "update_plan_step",
 ])
 
 export function hasToolError(
