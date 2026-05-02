@@ -28,19 +28,16 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         );
     }
 
+    // Pass the raw reason through as `context`. The "model suggests entering
+    // Plan Mode..." prefix and "Reason:" label are rendered locale-aware on
+    // the front end (`question_id = "enter_plan_mode"` triggers an i18n
+    // override in AskUserQuestionBlock). IM channels without i18n fall back
+    // to showing the bare reason, which is itself a complete sentence.
     let reason = args
         .get("reason")
         .and_then(|v| v.as_str())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-
-    let context_text = match &reason {
-        Some(r) => format!(
-            "The model suggests entering Plan Mode before doing this task. Reason: {}",
-            r
-        ),
-        None => "The model suggests entering Plan Mode before doing this task.".to_string(),
-    };
 
     let request_id = create_session_id();
     let group = AskUserQuestionGroup {
@@ -82,7 +79,7 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             timeout_secs: None,
             default_values: Vec::new(),
         }],
-        context: Some(context_text),
+        context: reason,
         source: Some("plan".to_string()),
         timeout_at: None,
     };

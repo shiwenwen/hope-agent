@@ -2973,6 +2973,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Vào Plan Mode? Mô hình sẽ khảo sát trước, hỏi làm rõ và soạn một bản kế hoạch để bạn xem xét trước khi bắt tay vào việc.",
+      "contextPrefix": "Mô hình đề xuất vào Plan Mode trước khi thực hiện việc này. Lý do: ",
+      "contextNoReason": "Mô hình đề xuất vào Plan Mode trước khi thực hiện việc này.",
+      "option": {
+        "yes": {
+          "label": "Vào Plan Mode",
+          "description": "Chuyển sang Plan Mode ngay; mô hình sẽ bắt đầu soạn kế hoạch."
+        },
+        "no": {
+          "label": "Bỏ qua kế hoạch",
+          "description": "Giữ chế độ thường; mô hình sẽ tiếp tục thực hiện công việc."
+        }
+      }
+    },
     "enter": "Vào Plan Mode",
     "toggleLabel": "Kế hoạch",
     "indicator": "Plan Mode",

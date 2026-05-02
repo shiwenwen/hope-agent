@@ -2973,6 +2973,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "¿Entrar en Plan Mode? El modelo explorará primero, hará preguntas de clarificación y redactará un plan por escrito para tu revisión antes de empezar.",
+      "contextPrefix": "El modelo sugiere entrar en Plan Mode antes de realizar esta tarea. Motivo: ",
+      "contextNoReason": "El modelo sugiere entrar en Plan Mode antes de realizar esta tarea.",
+      "option": {
+        "yes": {
+          "label": "Entrar en Plan Mode",
+          "description": "Cambia a Plan Mode ahora; el modelo comenzará a redactar el plan."
+        },
+        "no": {
+          "label": "Omitir planificación",
+          "description": "Permanece en modo normal; el modelo continuará la tarea directamente."
+        }
+      }
+    },
     "enter": "Entrar en Plan Mode",
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",

@@ -2973,6 +2973,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Masuk Plan Mode? Model akan meneroka dahulu, bertanya soalan penjelasan, dan menyusun pelan bertulis untuk anda semak sebelum mula bekerja.",
+      "contextPrefix": "Model mencadangkan untuk masuk Plan Mode sebelum melakukan tugasan ini. Sebab: ",
+      "contextNoReason": "Model mencadangkan untuk masuk Plan Mode sebelum melakukan tugasan ini.",
+      "option": {
+        "yes": {
+          "label": "Masuk Plan Mode",
+          "description": "Tukar ke Plan Mode sekarang; model akan mula merangka pelan."
+        },
+        "no": {
+          "label": "Langkau perancangan",
+          "description": "Kekal dalam mod biasa; model akan terus menjalankan tugasan."
+        }
+      }
+    },
     "enter": "Masuk Plan Mode",
     "toggleLabel": "Pelan",
     "indicator": "Plan Mode",

@@ -2974,6 +2974,22 @@
   },
   "planMode": {
     "enter": "Enter Plan Mode",
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Enter Plan Mode? The model will explore, ask clarifying questions, and draft a written plan for your review before doing the work.",
+      "contextPrefix": "The model suggests entering Plan Mode before doing this task. Reason: ",
+      "contextNoReason": "The model suggests entering Plan Mode before doing this task.",
+      "option": {
+        "yes": {
+          "label": "Enter Plan Mode",
+          "description": "Switch to Plan Mode now; the model will start drafting the plan."
+        },
+        "no": {
+          "label": "Skip planning",
+          "description": "Stay in normal mode; the model will continue the task directly."
+        }
+      }
+    },
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",
     "plan": "Execution Plan",

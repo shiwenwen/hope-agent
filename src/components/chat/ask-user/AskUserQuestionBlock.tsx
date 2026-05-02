@@ -154,6 +154,18 @@ function formatRemaining(secs: number): string {
 
 export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQuestionBlockProps) {
   const { t } = useTranslation()
+
+  // The `enter_plan_mode` tool uses this generic ask-user UI but its prompt
+  // text (question / option labels / context prefix / "PLAN MODE" header) is
+  // hardcoded English on the backend so IM channels and older clients still
+  // get something sensible. In the desktop / web UI we override those four
+  // pieces with i18n keys; the model-supplied `reason` (which the backend now
+  // sends verbatim as `group.context`) is NOT translated — the model writes
+  // it in the user's conversation language naturally.
+  const isEnterPlanModeAsk =
+    group.questions.length === 1 &&
+    group.questions[0]?.questionId === "enter_plan_mode"
+
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -265,7 +277,15 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
       </div>
 
       {/* Context */}
-      {group.context && <p className="text-sm text-muted-foreground">{group.context}</p>}
+      {isEnterPlanModeAsk ? (
+        <p className="text-sm text-muted-foreground">
+          {group.context
+            ? t("planMode.enterDialog.contextPrefix") + group.context
+            : t("planMode.enterDialog.contextNoReason")}
+        </p>
+      ) : (
+        group.context && <p className="text-sm text-muted-foreground">{group.context}</p>
+      )}
 
       {/* Questions */}
       {group.questions.map((q, qi) => {
@@ -296,11 +316,11 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                 )}
                 <span className="text-sm font-medium">
                   {group.questions.length > 1 && `${qi + 1}. `}
-                  {q.text}
+                  {isEnterPlanModeAsk ? t("planMode.enterDialog.question") : q.text}
                 </span>
-                {q.header && (
+                {(isEnterPlanModeAsk || q.header) && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-normal uppercase tracking-wide">
-                    {q.header}
+                    {isEnterPlanModeAsk ? t("planMode.enterDialog.header") : q.header}
                   </span>
                 )}
                 {q.multiSelect && (
@@ -345,7 +365,13 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-medium">{opt.label}</span>
+                            <span className="font-medium">
+                              {isEnterPlanModeAsk
+                                ? t(`planMode.enterDialog.option.${opt.value}.label`, {
+                                    defaultValue: opt.label,
+                                  })
+                                : opt.label}
+                            </span>
                             {opt.recommended && (
                               <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600">
                                 <Star className="h-2.5 w-2.5" />
@@ -359,11 +385,18 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                               </span>
                             )}
                           </div>
-                          {opt.description && (
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                              {opt.description}
-                            </div>
-                          )}
+                          {(() => {
+                            const desc = isEnterPlanModeAsk
+                              ? t(`planMode.enterDialog.option.${opt.value}.description`, {
+                                  defaultValue: opt.description ?? "",
+                                })
+                              : opt.description
+                            return desc ? (
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {desc}
+                              </div>
+                            ) : null
+                          })()}
                           {/* Inline preview (when no side pane is active for this question) */}
                           {opt.preview && !hasAnyPreview && <OptionPreview option={opt} />}
                         </div>

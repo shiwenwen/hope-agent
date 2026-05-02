@@ -2973,6 +2973,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Plan Mode'a geçilsin mi? Model önce keşif yapar, açıklayıcı sorular sorar ve çalışmaya başlamadan önce incelemen için yazılı bir plan hazırlar.",
+      "contextPrefix": "Model bu görevi yapmadan önce Plan Mode'a geçmeyi öneriyor. Sebep: ",
+      "contextNoReason": "Model bu görevi yapmadan önce Plan Mode'a geçmeyi öneriyor.",
+      "option": {
+        "yes": {
+          "label": "Plan Mode'a geç",
+          "description": "Şimdi Plan Mode'a geç; model planı taslak olarak hazırlamaya başlayacak."
+        },
+        "no": {
+          "label": "Planlamayı atla",
+          "description": "Normal modda kal; model görevi doğrudan sürdürecek."
+        }
+      }
+    },
     "enter": "Plan Mode'a gir",
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",

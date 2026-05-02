@@ -2973,6 +2973,22 @@
     }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "計劃模式",
+      "question": "進入計劃模式？模型會先做調研、追問澄清，並起草一份計劃交你審核後再動手。",
+      "contextPrefix": "模型建議先進入計劃模式再做這件事。原因：",
+      "contextNoReason": "模型建議先進入計劃模式再做這件事。",
+      "option": {
+        "yes": {
+          "label": "進入計劃模式",
+          "description": "立刻切換到計劃模式，模型會開始起草計劃。"
+        },
+        "no": {
+          "label": "跳過計劃",
+          "description": "保持一般模式，模型直接繼續做這件事。"
+        }
+      }
+    },
     "enter": "進入計劃模式",
     "toggleLabel": "計劃",
     "indicator": "計劃模式",
