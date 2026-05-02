@@ -178,14 +178,11 @@ pub async fn chat(
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);
-    // Plan Mode trigger marker — UI renders these as a system chip instead of
-    // a regular user bubble. Mirrors the Tauri command.
-    if body.is_plan_trigger.unwrap_or(false) {
-        user_msg.attachments_meta = Some(serde_json::json!({ "plan_trigger": true }).to_string());
-    } else if let Some(payload) = body.plan_comment.as_ref() {
-        user_msg.attachments_meta =
-            Some(serde_json::json!({ "plan_comment": payload }).to_string());
-    }
+    user_msg.attachments_meta = session::build_chat_user_attachments_meta(
+        body.is_plan_trigger.unwrap_or(false),
+        body.plan_comment.as_ref(),
+        None,
+    );
     let _ = db.append_message(&sid, &user_msg);
 
     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).

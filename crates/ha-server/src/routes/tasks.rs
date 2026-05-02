@@ -1,8 +1,7 @@
 use axum::extract::Path;
 use axum::Json;
-use ha_core::session::{Task, TaskStatus};
+use ha_core::session::{delete_task_and_snapshot, set_task_status_and_snapshot, Task, TaskStatus};
 use serde::Deserialize;
-use serde_json::json;
 
 use crate::error::AppError;
 
@@ -21,20 +20,10 @@ fn parse_status(status: &str) -> Result<TaskStatus, AppError> {
     })
 }
 
-fn emit_snapshot(session_id: &str, tasks: &[Task]) {
-    if let Some(bus) = ha_core::get_event_bus() {
-        bus.emit(
-            "task_updated",
-            json!({ "sessionId": session_id, "tasks": tasks }),
-        );
-    }
-}
-
 pub async fn list_session_tasks(
     Path(session_id): Path<String>,
 ) -> Result<Json<Vec<Task>>, AppError> {
-    let db = db()?;
-    Ok(Json(db.list_tasks(&session_id)?))
+    Ok(Json(db()?.list_tasks(&session_id)?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -48,20 +37,14 @@ pub async fn update_task_status(
     Json(body): Json<UpdateTaskStatusBody>,
 ) -> Result<Json<Vec<Task>>, AppError> {
     let db = db()?;
-    let parsed = parse_status(&body.status)?;
-    let updated = db.update_task(id, Some(parsed), None, None)?;
-    let tasks = db.list_tasks(&updated.session_id).unwrap_or_default();
-    emit_snapshot(&updated.session_id, &tasks);
-    Ok(Json(tasks))
+    Ok(Json(set_task_status_and_snapshot(
+        &db,
+        id,
+        parse_status(&body.status)?,
+    )?))
 }
 
 pub async fn delete_task(Path(id): Path<i64>) -> Result<Json<Vec<Task>>, AppError> {
     let db = db()?;
-    let session_id = db
-        .lookup_task_session(id)?
-        .ok_or_else(|| AppError::not_found(format!("task {} not found", id)))?;
-    db.delete_task(id)?;
-    let tasks = db.list_tasks(&session_id).unwrap_or_default();
-    emit_snapshot(&session_id, &tasks);
-    Ok(Json(tasks))
+    Ok(Json(delete_task_and_snapshot(&db, id)?))
 }

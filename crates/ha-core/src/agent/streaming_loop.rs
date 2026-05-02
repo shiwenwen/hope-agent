@@ -311,13 +311,17 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
-            // Task reminder: pure DB read on the session's task list, no LLM
-            // call, no TTL. Recomputed each round so a `task_update` mid-loop
-            // immediately reflects in the next round's prompt.
+            // Two-step: cheap existence probe first (one SQL row, no Vec
+            // alloc), then list+format only when there's actually an active
+            // task. Skips a full task list deserialize on every round of
+            // every chat that's never used `task_create` (the common case).
             let task_reminder = self.session_id.as_deref().and_then(|sid| {
-                crate::get_session_db()
-                    .and_then(|db| db.list_tasks(sid).ok())
-                    .and_then(|tasks| tools::task_reminder_text(&tasks))
+                let db = crate::get_session_db()?;
+                if !db.has_active_tasks(sid).unwrap_or(false) {
+                    return None;
+                }
+                let tasks = db.list_tasks(sid).ok()?;
+                tools::task_reminder_text(&tasks)
             });
 
             let req = RoundRequest {

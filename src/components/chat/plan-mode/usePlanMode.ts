@@ -286,16 +286,6 @@ export function usePlanMode(
     })
   }, [currentSessionId, setPlanState])
 
-  // Listen for plan_submitted events (LLM submitted a plan via submit_plan tool).
-  //
-  // Backend embeds `content` in the payload as a fast path, but we ALWAYS
-  // refetch from `get_plan_content` afterwards. The refetch is the source of
-  // truth: re-submit scenarios (user inline-comments → model resubmits → new
-  // plan_submitted event) used to leave the panel showing stale content,
-  // which traced back to the embedded payload.content not always propagating
-  // through the React state cycle on rapid back-to-back submits. The refetch
-  // costs one cheap RPC per submit and guarantees the panel reflects what's
-  // actually on disk — that's the only contract that matters here.
   useEffect(() => {
     return getTransport().listen("plan_submitted", (raw) => {
       const payload = raw as { sessionId: string; title: string; content?: string }
@@ -304,7 +294,15 @@ export function usePlanMode(
       setShowPanel(true)
       setPlanState((prev) => (prev === "review" ? prev : "review"))
       setPendingQuestionGroup(null)
-      if (payload.content) setPlanContent(payload.content)
+      if (payload.content) {
+        setPlanContent(payload.content)
+        return
+      }
+      // Fallback only when the event arrived without content (older backend
+      // builds, or future emit paths that skip the embed). See F-039 in
+      // review-followups.md for the open "panel doesn't refresh on rapid
+      // re-submit" investigation — root cause not yet pinned to React state
+      // vs event timing, so the refetch here is a safety net not a fix.
       getTransport()
         .call<unknown>("get_plan_content", { sessionId: payload.sessionId })
         .then((rawContent) => {

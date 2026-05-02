@@ -31,6 +31,19 @@
 ## Open
 
 
+### F-039 PlanPanel 在 rapid 连续 submit_plan 场景偶尔不刷新内容（root cause 未定）
+
+- **来源**：2026-05-02 plan inline comment 三件套修复期间发现。用户连续评论 → 模型多次 resubmit_plan → 右侧 PlanPanel 偶尔仍显示旧 plan
+- **现象**：理论链路（`submit_plan` emit `plan_submitted` 带 `content` → `usePlanMode` listener `setPlanContent`）应该工作，但用户实际见不到刷新。当时为了赶紧收掉用户痛点，加了"主动 refetch `get_plan_content`"作为 belt-and-suspenders，掩盖了真问题
+- **当前状态**：refetch 已经收紧到只在 `payload.content` 缺失时兜底（[`usePlanMode.ts`](src/components/chat/plan-mode/usePlanMode.ts) plan_submitted handler）。正常路径只走 `setPlanContent(payload.content)` 一次
+- **待办**：复现并定位真因。可能方向：
+  - React state batching 在 EventBus 同步 emit 多个事件时合并掉中间 setPlanContent
+  - PlanPanel memoization / props 引用相等导致 skip render
+  - listener closure stale（虽然 deps `[currentSessionId, setPlanState]` 看起来对）
+  - backend `plan_submitted` 实际未带 content（理论 emit 永远带，但 code path 可能有遗漏）
+- **触发条件**：用户报告再次出现"评论后 panel 不刷新"或本人手动复测能稳定复现
+- **优先级**：低（refetch 兜底覆盖了，UX 不可见）
+
 ### F-038 enter_plan_mode 对 single-deliverable user-facing 创意任务覆盖不足
 
 - **来源**：2026-05-02 plan/task 解耦重构后跑「网页贪吃蛇」实测发现模型不进 plan mode 直接动手，零询问视觉/控制/玩法等用户偏好。当期试过方案 B（激进重写）和方案 C（保守兜底）两版均回滚，决定先观察、保留两套备选方案待后续触发场景再决定

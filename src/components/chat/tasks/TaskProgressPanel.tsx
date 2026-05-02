@@ -34,7 +34,40 @@ export default function TaskProgressPanel({
 }: TaskProgressPanelProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultExpanded)
-  const [pendingId, setPendingId] = useState<number | null>(null)
+  // Per-row in-flight set so a slow RPC on task A doesn't disable the
+  // controls on tasks B/C/D — matters most on HTTP transport latency.
+  const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
+
+  async function withBusy(id: number, op: () => Promise<unknown>, label: string) {
+    if (busyIds.has(id)) return
+    setBusyIds((prev) => new Set(prev).add(id))
+    try {
+      await op()
+    } catch (err) {
+      console.warn(`[TaskProgressPanel] ${label} failed`, err)
+    } finally {
+      setBusyIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
+  const cycleStatus = (task: Task) =>
+    withBusy(
+      task.id,
+      () =>
+        getTransport().call("update_task_status", {
+          id: task.id,
+          status: NEXT_STATUS[task.status],
+        }),
+      "update_task_status",
+    )
+
+  const removeTask = (task: Task) =>
+    withBusy(task.id, () => getTransport().call("delete_task", { id: task.id }), "delete_task")
+
   const fallbackTaskLabel = String(t("settings.browser.untitledTab", { defaultValue: "Untitled" }))
   const taskLabel = String(t("chat.tasks"))
   const progressLabel = String(
@@ -43,33 +76,6 @@ export default function TaskProgressPanel({
       total: snapshot.total,
     }),
   )
-
-  async function cycleStatus(task: Task) {
-    if (pendingId !== null) return
-    setPendingId(task.id)
-    try {
-      await getTransport().call("update_task_status", {
-        id: task.id,
-        status: NEXT_STATUS[task.status],
-      })
-    } catch (err) {
-      console.warn("[TaskProgressPanel] update_task_status failed", err)
-    } finally {
-      setPendingId(null)
-    }
-  }
-
-  async function removeTask(task: Task) {
-    if (pendingId !== null) return
-    setPendingId(task.id)
-    try {
-      await getTransport().call("delete_task", { id: task.id })
-    } catch (err) {
-      console.warn("[TaskProgressPanel] delete_task failed", err)
-    } finally {
-      setPendingId(null)
-    }
-  }
 
   return (
     <div
@@ -112,7 +118,7 @@ export default function TaskProgressPanel({
                 t(`chat.taskActions.cycleTo.${NEXT_STATUS[task.status]}`),
               )
               const deleteTip = String(t("chat.taskActions.delete"))
-              const busy = pendingId === task.id
+              const busy = busyIds.has(task.id)
               return (
                 <li
                   key={task.id}

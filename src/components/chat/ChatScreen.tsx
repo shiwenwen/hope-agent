@@ -40,6 +40,7 @@ import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
+import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { useProjects } from "./project/hooks/useProjects"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
@@ -947,21 +948,9 @@ export default function ChatScreen({
   )
 
   // ── Plan Request Changes Handler ──────────────────────────────
-  // Three pieces from the inline comment popover:
-  //   - `prompt`     → full XML payload sent to the LLM (plan-inline-comment
-  //                    schema; tells the model which section to revise).
-  //   - `displayText`→ IM-friendly markdown stored in `messages.content`. IM
-  //                    channels render this directly (no React UI there).
-  //   - `payload`    → structured {selectedText, comment} routed through
-  //                    `attachments_meta.plan_comment`. The desktop GUI reads
-  //                    this and renders PlanCommentBubble — its own bespoke
-  //                    layout that ignores the markdown displayText entirely.
+  // See `planCommentMessage.ts` for the prompt vs displayText vs payload split.
   const handleRequestChanges = useCallback(
-    (
-      prompt: string,
-      displayText: string,
-      payload: { selectedText: string; comment: string },
-    ) => {
+    ({ prompt, displayText, payload }: BuiltPlanComment) => {
       setPlanState("planning")
       if (currentSessionId) {
         getTransport()

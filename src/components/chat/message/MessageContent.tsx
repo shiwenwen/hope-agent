@@ -315,11 +315,8 @@ export function AssistantContentBlocks({
     }
   }
 
-  // Loading dots only when the last block is a tool_call — text / thinking
-  // blocks already render their own streaming visual (cursor / pulse) so
-  // adding dots here would duplicate the indicator. Tool blocks settle on
-  // their result and look static once done, so dots pick up the
-  // between-rounds wait visual.
+  // text / thinking blocks render their own streaming visual; tool_call blocks
+  // go static once result lands, so dots fill the between-rounds wait there.
   if (loading && isLast) {
     const lastBlock = blocks[blocks.length - 1]
     if (lastBlock?.type === "tool_call") {

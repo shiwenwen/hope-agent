@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::session::{SessionDB, Task, TaskStatus};
 
@@ -15,12 +15,7 @@ fn resolve_ctx(session_id: Option<&str>) -> Result<(String, Arc<SessionDB>), Str
 }
 
 fn emit_snapshot(session_id: &str, tasks: &[Task]) {
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "task_updated",
-            json!({ "sessionId": session_id, "tasks": tasks }),
-        );
-    }
+    crate::session::emit_task_snapshot(session_id, tasks);
 }
 
 fn render_snapshot(tasks: &[Task]) -> String {
@@ -218,13 +213,8 @@ pub(crate) async fn tool_task_list(_args: &Value, session_id: Option<&str>) -> S
     }
 }
 
-/// Build the per-round task reminder injected into the model's system blocks.
-///
-/// Returns `Some(text)` when the session has at least one `in_progress` or
-/// `pending` task, `None` otherwise. The reminder is wrapped in
-/// `<system-reminder>` tags so the model treats it as harness guidance rather
-/// than user content. Limited to 5 task lines so deep todo lists don't bloat
-/// every round's prompt.
+/// Per-round system reminder so the model can't drop in_progress tasks
+/// before its final reply. Capped at 5 task lines.
 pub(crate) fn task_reminder_text(tasks: &[Task]) -> Option<String> {
     let active: Vec<&Task> = tasks
         .iter()

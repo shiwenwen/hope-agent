@@ -225,18 +225,11 @@ pub async fn chat(
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);
-    // Plan Mode trigger marker takes precedence over attachments meta — these
-    // sends never carry user attachments (the LLM-bound `message` is a short
-    // canned trigger, not a real user input).
-    user_msg.attachments_meta = if is_plan_trigger.unwrap_or(false) {
-        Some(serde_json::json!({ "plan_trigger": true }).to_string())
-    } else if let Some(payload) = plan_comment.as_ref() {
-        // Plan inline comment: never carries user attachments (the LLM-bound
-        // `message` is the synthetic <plan-inline-comment> XML, not real input).
-        Some(serde_json::json!({ "plan_comment": payload }).to_string())
-    } else {
-        attachments_meta
-    };
+    user_msg.attachments_meta = session::build_chat_user_attachments_meta(
+        is_plan_trigger.unwrap_or(false),
+        plan_comment.as_ref(),
+        attachments_meta,
+    );
     let _ = db.append_message(&sid, &user_msg);
 
     // Log chat start

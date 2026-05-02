@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button"
 import { IconTip } from "@/components/ui/tooltip"
 import { useTranslation } from "react-i18next"
 import type { PlanModeState } from "./usePlanMode"
-import { buildPlanCommentMessage } from "./planCommentMessage"
+import { buildPlanCommentMessage, type BuiltPlanComment } from "./planCommentMessage"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { CommentPopover } from "./CommentPopover"
 
@@ -35,11 +35,7 @@ interface PlanPanelProps {
   onExit: () => void
   onClose: () => void
   onContinue?: () => void
-  onRequestChanges?: (
-    prompt: string,
-    displayText: string,
-    payload: { selectedText: string; comment: string },
-  ) => void
+  onRequestChanges?: (built: BuiltPlanComment) => void
   isExecutionActive?: boolean
   panelWidth?: number
   embedded?: boolean
@@ -305,12 +301,7 @@ export function PlanPanel({
   const handleCommentSubmit = useCallback(
     (comment: string) => {
       if (!commentPopover || !onRequestChanges) return
-      const { prompt, displayText, payload } = buildPlanCommentMessage(
-        commentPopover.selectedText,
-        comment,
-        t,
-      )
-      onRequestChanges(prompt, displayText, payload)
+      onRequestChanges(buildPlanCommentMessage(commentPopover.selectedText, comment, t))
       clearHighlight()
       setCommentPopover(null)
       window.getSelection()?.removeAllRanges()

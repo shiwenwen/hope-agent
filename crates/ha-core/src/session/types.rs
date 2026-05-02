@@ -1,7 +1,34 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::permission::SessionMode;
 use crate::plan::PlanModeState;
+
+// Well-known keys for the `messages.attachments_meta` JSON column. Single
+// source of truth for both writers (Tauri/HTTP `chat` commands, channel /
+// cron / subagent injection) and readers (`chatUtils.ts` mirrors these on
+// the frontend).
+pub const ATTACHMENT_META_KEY_PLAN_TRIGGER: &str = "plan_trigger";
+pub const ATTACHMENT_META_KEY_PLAN_COMMENT: &str = "plan_comment";
+
+/// Resolve the `attachments_meta` value for a user-message coming from the
+/// `chat` API surface (Tauri command + HTTP route). Centralizes the
+/// plan_trigger > plan_comment > user_attachments precedence so both shells
+/// can't silently drift; if the caller sets both `plan_trigger` and
+/// `plan_comment`, plan_trigger wins (a trigger is never also a comment).
+pub fn build_chat_user_attachments_meta(
+    plan_trigger: bool,
+    plan_comment: Option<&Value>,
+    user_attachments: Option<String>,
+) -> Option<String> {
+    if plan_trigger {
+        Some(json!({ ATTACHMENT_META_KEY_PLAN_TRIGGER: true }).to_string())
+    } else if let Some(payload) = plan_comment {
+        Some(json!({ ATTACHMENT_META_KEY_PLAN_COMMENT: payload }).to_string())
+    } else {
+        user_attachments
+    }
+}
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -141,7 +168,7 @@ pub struct SessionMessage {
     pub timestamp: String,
     // User message fields
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachments_meta: Option<String>, // JSON array of {name, mime_type, size}
+    pub attachments_meta: Option<String>, // see ATTACHMENT_META_KEY_* below for the well-known keys
     // Assistant message fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
