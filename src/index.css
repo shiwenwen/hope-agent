@@ -268,6 +268,165 @@
   cursor: zoom-in;
 }
 
+.markdown-content [data-streamdown="link"] {
+  color: hsl(210 100% 32%);
+  border-radius: 0.25rem;
+  margin-inline: -0.08em;
+  padding-inline: 0.08em;
+  background:
+    linear-gradient(
+      color-mix(in srgb, hsl(210 100% 50%) 12%, transparent),
+      color-mix(in srgb, hsl(210 100% 50%) 12%, transparent)
+    )
+    left 85% / 100% 0.38em no-repeat;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 42%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    color 140ms ease,
+    background-color 140ms ease,
+    text-decoration-color 140ms ease;
+}
+
+.markdown-content [data-streamdown="link"]:hover {
+  color: hsl(210 100% 26%);
+  background-color: color-mix(in srgb, hsl(210 100% 50%) 12%, transparent);
+  text-decoration-color: currentColor;
+}
+
+.markdown-content [data-streamdown="link"]:focus-visible {
+  outline-color: color-mix(in srgb, currentColor 48%, transparent);
+}
+
+.markdown-content [data-streamdown="link"] .markdown-link-icon {
+  display: inline-block;
+  width: 0.88em;
+  height: 0.88em;
+  margin-right: 0.2em;
+  vertical-align: -0.1em;
+  opacity: 0.82;
+  stroke-width: 2.35;
+}
+
+.markdown-content [data-streamdown="link"]:hover .markdown-link-icon {
+  opacity: 1;
+}
+
+.markdown-content [data-link-kind="image"] .markdown-link-icon {
+  color: hsl(145 62% 36%);
+}
+
+.markdown-content [data-link-kind="audio"] .markdown-link-icon {
+  color: hsl(276 70% 50%);
+}
+
+.markdown-content [data-link-kind="video"] .markdown-link-icon {
+  color: hsl(25 88% 48%);
+}
+
+.markdown-content [data-link-kind="pdf"] .markdown-link-icon {
+  color: hsl(0 72% 50%);
+}
+
+.markdown-content [data-link-kind="archive"] .markdown-link-icon {
+  color: hsl(38 90% 42%);
+}
+
+.markdown-content [data-link-kind="spreadsheet"] .markdown-link-icon {
+  color: hsl(155 68% 32%);
+}
+
+.markdown-content [data-link-kind="document"] .markdown-link-icon,
+.markdown-content [data-link-kind="presentation"] .markdown-link-icon {
+  color: hsl(220 78% 48%);
+}
+
+.markdown-content [data-link-kind="code"] .markdown-link-icon,
+.markdown-content [data-link-kind="config"] .markdown-link-icon,
+.markdown-content [data-link-kind="data"] .markdown-link-icon {
+  color: hsl(262 72% 54%);
+}
+
+.markdown-content [data-link-kind="file"] .markdown-link-icon {
+  color: hsl(215 18% 42%);
+}
+
+.markdown-content [data-link-kind="web"] .markdown-link-icon {
+  color: hsl(202 86% 42%);
+}
+
+.markdown-content [data-link-kind="mail"] .markdown-link-icon,
+.markdown-content [data-link-kind="anchor"] .markdown-link-icon,
+.markdown-content [data-link-kind="link"] .markdown-link-icon {
+  color: currentColor;
+}
+
+.markdown-content [data-streamdown="link"] .markdown-link-label {
+  display: inline;
+}
+
+.dark .markdown-content [data-streamdown="link"] {
+  color: hsl(199 100% 72%);
+  background:
+    linear-gradient(
+      color-mix(in srgb, hsl(199 100% 72%) 16%, transparent),
+      color-mix(in srgb, hsl(199 100% 72%) 16%, transparent)
+    )
+    left 85% / 100% 0.38em no-repeat;
+  text-decoration-color: color-mix(in srgb, currentColor 48%, transparent);
+}
+
+.dark .markdown-content [data-streamdown="link"]:hover {
+  color: hsl(199 100% 82%);
+  background-color: color-mix(in srgb, hsl(199 100% 72%) 14%, transparent);
+}
+
+.dark .markdown-content [data-link-kind="image"] .markdown-link-icon {
+  color: hsl(145 72% 62%);
+}
+
+.dark .markdown-content [data-link-kind="audio"] .markdown-link-icon {
+  color: hsl(276 82% 76%);
+}
+
+.dark .markdown-content [data-link-kind="video"] .markdown-link-icon {
+  color: hsl(30 96% 68%);
+}
+
+.dark .markdown-content [data-link-kind="pdf"] .markdown-link-icon {
+  color: hsl(0 88% 72%);
+}
+
+.dark .markdown-content [data-link-kind="archive"] .markdown-link-icon {
+  color: hsl(42 96% 66%);
+}
+
+.dark .markdown-content [data-link-kind="spreadsheet"] .markdown-link-icon {
+  color: hsl(155 72% 58%);
+}
+
+.dark .markdown-content [data-link-kind="document"] .markdown-link-icon,
+.dark .markdown-content [data-link-kind="presentation"] .markdown-link-icon {
+  color: hsl(220 90% 74%);
+}
+
+.dark .markdown-content [data-link-kind="code"] .markdown-link-icon,
+.dark .markdown-content [data-link-kind="config"] .markdown-link-icon,
+.dark .markdown-content [data-link-kind="data"] .markdown-link-icon {
+  color: hsl(262 90% 76%);
+}
+
+.dark .markdown-content [data-link-kind="file"] .markdown-link-icon {
+  color: hsl(215 18% 68%);
+}
+
+.dark .markdown-content [data-link-kind="web"] .markdown-link-icon {
+  color: hsl(199 100% 72%);
+}
+
 /* Streamdown's default code block chrome is roomy for chat. Keep the
    controls, but tighten the header and code body to suit short snippets. */
 .markdown-content [data-streamdown="code-block"] {
