@@ -116,7 +116,7 @@
     "toolCalling": "جارٍ استدعاء الأدوات...",
     "startConversation": "ابدأ محادثة",
     "subagentFrom": "مفوّض من {{agent}}",
-    "subagentResultCompleted": "اكتملت، وأُضيفت النتيجة إلى المحادثة",
+    "subagentResultCompleted": "اكتملت",
     "asyncToolJobFallbackName": "مهمة في الخلفية",
     "asyncToolJobNames": {
       "exec": "تنفيذ أمر",
@@ -126,11 +126,11 @@
       "browser": "إجراء المتصفح"
     },
     "asyncToolJobStatuses": {
-      "completed": "اكتملت، وأُضيفت النتيجة إلى المحادثة",
-      "failed": "فشلت، وأُضيف الخطأ إلى المحادثة",
-      "timed_out": "انتهت المهلة، وأُضيفت التفاصيل إلى المحادثة",
+      "completed": "عادت النتيجة",
+      "failed": "فشل التنفيذ",
+      "timed_out": "انتهت مهلة التنفيذ",
       "cancelled": "أُلغيت",
-      "interrupted": "انقطعت، وأُضيفت التفاصيل إلى المحادثة",
+      "interrupted": "انقطعت",
       "running": "ما زالت قيد التشغيل"
     },
     "newChat": "محادثة جديدة",

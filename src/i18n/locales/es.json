@@ -116,7 +116,7 @@
     "toolCalling": "Llamando herramientas...",
     "startConversation": "Iniciar conversación",
     "subagentFrom": "Delegado por {{agent}}",
-    "subagentResultCompleted": "Completado, resultado añadido al chat",
+    "subagentResultCompleted": "Completado",
     "asyncToolJobFallbackName": "Tarea en segundo plano",
     "asyncToolJobNames": {
       "exec": "Ejecución de comando",
@@ -126,11 +126,11 @@
       "browser": "Acción del navegador"
     },
     "asyncToolJobStatuses": {
-      "completed": "Completado, resultado añadido al chat",
-      "failed": "Falló, error añadido al chat",
-      "timed_out": "Agotó el tiempo, detalles añadidos al chat",
+      "completed": "El resultado volvió",
+      "failed": "Falló la ejecución",
+      "timed_out": "La ejecución agotó el tiempo",
       "cancelled": "Cancelado",
-      "interrupted": "Interrumpido, detalles añadidos al chat",
+      "interrupted": "Interrumpido",
       "running": "Sigue en ejecución"
     },
     "newChat": "Nuevo chat",
