@@ -6,7 +6,7 @@ import { useVirtualFeed } from "@/components/common/useVirtualFeed"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { IconTip } from "@/components/ui/tooltip"
 import LoadMoreRow from "./LoadMoreRow"
-import { getLatestUserTurnKey } from "./chatScrollKeys"
+import { getLatestMessageOutputKey, getLatestUserTurnKey } from "./chatScrollKeys"
 
 interface QuickChatMessagesProps {
   messages: Message[]
@@ -65,20 +65,16 @@ export default function QuickChatMessages({
       if (!row) return 72
       if (row.type === "loadMore") return 32
       if (row.type === "viewFullChat") return 28
-      if (row.msg.role === "event") return 28
+      if (row.msg.role === "event" || row.msg.isPlanTrigger) return 28
       if (row.msg.role === "user") return 58
       return 72
     },
     [rows],
   )
 
-  const lastMsg = messages[messages.length - 1]
   const latestUserTurnKey = getLatestUserTurnKey(messages)
-  const followKey = `${rows.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.toolCalls?.length ?? 0}`
-  const canAnchorRow = useCallback(
-    (row: QuickChatRow) => row.type === "message",
-    [],
-  )
+  const followKey = getLatestMessageOutputKey(messages)
+  const canAnchorRow = useCallback((row: QuickChatRow) => row.type === "message", [])
   const {
     scrollRef,
     virtualizer,
@@ -103,6 +99,7 @@ export default function QuickChatMessages({
     onStartReached: onLoadMore,
     canLoadMore: hasMore,
     loadingMore,
+    startThreshold: 180,
   })
   const showJumpToLatest = isAutoFollowPaused && (loading || hasUnseenOutput)
 
@@ -128,7 +125,7 @@ export default function QuickChatMessages({
     }
 
     const { msg, originalIndex } = row
-    if (msg.role === "event") {
+    if (msg.role === "event" || msg.isPlanTrigger) {
       return <div className="text-xs text-center text-muted-foreground py-1">{msg.content}</div>
     }
 

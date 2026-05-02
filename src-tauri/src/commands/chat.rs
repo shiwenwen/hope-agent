@@ -51,6 +51,10 @@ pub async fn chat(
     // When set, DB stores `display_text` as the user message while `message` is still
     // fed to the LLM (slash-skill passThrough uses this).
     display_text: Option<String>,
+    // When true, the persisted user row is tagged with
+    // `attachments_meta = {"plan_trigger": true}` so the UI can render it as a
+    // system chip instead of a regular user bubble (Plan Mode approve/resume).
+    is_plan_trigger: Option<bool>,
     // Draft working dir picked before the session was materialized. Only honored
     // when this call also creates the session — applies via the same
     // `update_session_working_dir` validation as the explicit setter command.
@@ -214,7 +218,14 @@ pub async fn chat(
 
     // Save user message to DB
     let mut user_msg = session::NewMessage::user(persisted_content);
-    user_msg.attachments_meta = attachments_meta;
+    // Plan Mode trigger marker takes precedence over attachments meta — these
+    // sends never carry user attachments (the LLM-bound `message` is a short
+    // canned trigger, not a real user input).
+    user_msg.attachments_meta = if is_plan_trigger.unwrap_or(false) {
+        Some(serde_json::json!({ "plan_trigger": true }).to_string())
+    } else {
+        attachments_meta
+    };
     let _ = db.append_message(&sid, &user_msg);
 
     // Log chat start

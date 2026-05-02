@@ -37,6 +37,10 @@ export interface ChatStartArgs {
   planMode?: string;
   temperatureOverride?: number;
   displayText?: string;
+  /** Marks the user message as a Plan Mode approve/resume trigger so the
+   *  backend stamps `attachments_meta = {plan_trigger: true}` and the UI
+   *  renders it as a system chip instead of a regular user bubble. */
+  isPlanTrigger?: boolean;
   workingDir?: string | null;
   // Tauri's invoke serializes extra unknown fields without complaint, and
   // HTTP's POST body is plain JSON — keep this open so HTTP impl can

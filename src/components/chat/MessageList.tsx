@@ -3,12 +3,13 @@ import { useTranslation } from "react-i18next"
 import { ArrowDown, Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useVirtualFeed } from "@/components/common/useVirtualFeed"
+import { isCenteredSystemMessage } from "./chatUtils"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
 import AskUserQuestionBlock from "./ask-user/AskUserQuestionBlock"
 import PlanCardBlock from "./plan-mode/PlanCardBlock"
-import { getLatestUserTurnKey } from "./chatScrollKeys"
+import { getLatestMessageOutputKey, getLatestUserTurnKey } from "./chatScrollKeys"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
@@ -47,7 +48,9 @@ interface MessageListProps {
   onSwitchSession?: (sessionId: string) => void
   /** Open the right-side diff panel for a file change payload. */
   onOpenDiff?: (
-    metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
+    metadata:
+      | import("@/types/chat").FileChangeMetadata
+      | import("@/types/chat").FileChangesMetadata,
   ) => void
 }
 
@@ -151,16 +154,18 @@ export default function MessageList({
       if (row.type === "empty") return 240
       if (row.type === "planRunning") return 52
       if (row.type === "askUser" || row.type === "planCard") return 180
+      // Centered system chips (event / sub-agent result / cron / plan trigger)
+      // ride on `role: "user"` rows, so this branch must run before the user
+      // bubble fallback.
+      if (isCenteredSystemMessage(row.msg)) return 48
       if (row.msg.role === "user") return 76
-      if (row.msg.role === "event" || row.msg.isSubagentResult || row.msg.isCronTrigger) return 48
       return 120
     },
     [rows],
   )
 
-  const lastMsg = messages[messages.length - 1]
   const latestUserTurnKey = getLatestUserTurnKey(messages)
-  const followKey = `${messages.length}:${lastMsg?.role ?? ""}:${lastMsg?.content.length ?? 0}:${lastMsg?.contentBlocks?.length ?? 0}`
+  const followKey = getLatestMessageOutputKey(messages)
   const {
     scrollRef,
     virtualizer,
@@ -186,7 +191,7 @@ export default function MessageList({
     onStartReached: onLoadMore,
     canLoadMore: hasMore,
     loadingMore,
-    startThreshold: 50,
+    startThreshold: 360,
   })
 
   // Close context menu on outside click or scroll
@@ -287,7 +292,7 @@ export default function MessageList({
             className={cn(
               "flex rounded-lg transition-colors",
               msg.dbId === highlightMessageId && "message-hit-pulse",
-              msg.role === "event" || msg.isSubagentResult || msg.isCronTrigger
+              isCenteredSystemMessage(msg)
                 ? "justify-center"
                 : msg.role === "user" && !msg.fromAgentId
                   ? "justify-end"

@@ -3,7 +3,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Copy, Check, Info, Network, Timer } from "lucide-react"
+import { Copy, Check, Info, Network, Timer, PlayCircle } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "../chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -171,6 +171,15 @@ function MessageBubbleInner({
 
   if (msg.isCronTrigger) {
     return <CronTriggerBubble msg={msg} t={t} />
+  }
+
+  if (msg.isPlanTrigger) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/50 text-xs text-muted-foreground max-w-[80%]">
+        <PlayCircle className="w-3 h-3 shrink-0 text-muted-foreground/80" />
+        <span>{msg.content}</span>
+      </div>
+    )
   }
 
   return (
