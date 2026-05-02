@@ -13,6 +13,7 @@ const virtualFeedMock = vi.hoisted(() => ({
   state: {
     isAutoFollowPaused: false,
     hasUnseenOutput: false,
+    isAtBottom: true,
   },
 }))
 
@@ -38,6 +39,7 @@ vi.mock("@/components/common/useVirtualFeed", () => ({
           start: index * 100,
         })),
         totalSize: options.rows.length * 100,
+        isAtBottom: virtualFeedMock.state.isAtBottom,
         isAutoFollowPaused: virtualFeedMock.state.isAutoFollowPaused,
         hasUnseenOutput: virtualFeedMock.state.hasUnseenOutput,
         resumeAutoFollow: virtualFeedMock.resumeAutoFollow,
@@ -66,6 +68,7 @@ afterEach(() => {
   virtualFeedMock.latestOptions = undefined
   virtualFeedMock.state.isAutoFollowPaused = false
   virtualFeedMock.state.hasUnseenOutput = false
+  virtualFeedMock.state.isAtBottom = true
 })
 
 function baseMessage(patch: Partial<Message>): Message {
@@ -143,6 +146,27 @@ describe("MessageList virtualization surface", () => {
     expect(button.className).toContain("cursor-pointer")
     expect(screen.queryByText("chat.jumpToLatest")).toBeNull()
 
+    fireEvent.click(button)
+    expect(virtualFeedMock.resumeAutoFollow).toHaveBeenCalledWith("smooth")
+  })
+
+  test("shows the scroll-to-bottom action in an idle conversation when scrolled away from bottom", () => {
+    virtualFeedMock.state.isAutoFollowPaused = true
+    virtualFeedMock.state.isAtBottom = false
+
+    render(
+      <MessageList
+        messages={[baseMessage({ role: "assistant", content: "old answer", dbId: 1 })]}
+        loading={false}
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const button = screen.getByRole("button", { name: "chat.scrollToBottom" })
     fireEvent.click(button)
     expect(virtualFeedMock.resumeAutoFollow).toHaveBeenCalledWith("smooth")
   })

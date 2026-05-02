@@ -165,6 +165,7 @@ export default function MessageList({
     virtualizer,
     virtualItems,
     totalSize,
+    isAtBottom,
     isAutoFollowPaused,
     hasUnseenOutput,
     resumeAutoFollow,
@@ -232,7 +233,7 @@ export default function MessageList({
     }
   }, [onScrollTargetHandled, pauseAutoFollow, pendingScrollTarget, rows, virtualizer])
 
-  const showJumpToLatest = isAutoFollowPaused && (loading || hasUnseenOutput)
+  const showJumpToLatest = isAutoFollowPaused && (loading || hasUnseenOutput || !isAtBottom)
 
   const handleContextMenu = useCallback(
     (e: React.MouseEvent, index: number) => {
