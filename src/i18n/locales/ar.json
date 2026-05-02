@@ -396,13 +396,11 @@
     "pdf": "قراءة PDF",
     "canvas": "اللوحة",
     "subagent": "وكيل فرعي",
-    "update_plan_step": "تحديث خطوة الخطة",
     "ask_user_question": "اسأل المستخدم",
     "tool_search": "البحث عن الأدوات",
     "acp_spawn": "تشغيل Agent ACP",
     "submit_plan": "إرسال الخطة",
     "enter_plan_mode": "اقتراح Plan Mode",
-    "amend_plan": "تعديل الخطة",
     "task_create": "إنشاء مهمة",
     "task_update": "تحديث المهمة",
     "task_list": "قائمة المهام",
@@ -656,16 +654,6 @@
           "running": "جاري اقتراح Plan Mode",
           "completed": "تم اقتراح Plan Mode",
           "failed": "خطأ في اقتراح Plan Mode"
-        },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",

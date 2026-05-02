@@ -396,13 +396,11 @@
     "pdf": "PDF oku",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Plan adımını güncelle",
     "ask_user_question": "Kullanıcıya sor",
     "tool_search": "Araç ara",
     "acp_spawn": "ACP Agent başlat",
     "submit_plan": "Planı gönder",
     "enter_plan_mode": "Plan Mode öner",
-    "amend_plan": "Planı değiştir",
     "task_create": "Görev oluştur",
     "task_update": "Görev güncelle",
     "task_list": "Görev listesi",
@@ -656,16 +654,6 @@
           "running": "Plan Mode öneriliyor",
           "completed": "Plan Mode önerildi",
           "failed": "Plan Mode önerme hatası"
-        },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",

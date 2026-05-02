@@ -396,13 +396,11 @@
     "pdf": "PDF 읽기",
     "canvas": "캔버스",
     "subagent": "서브 Agent",
-    "update_plan_step": "계획 단계 업데이트",
     "ask_user_question": "사용자에게 질문",
     "tool_search": "도구 검색",
     "acp_spawn": "ACP Agent 시작",
     "submit_plan": "계획 제출",
     "enter_plan_mode": "계획 모드 제안",
-    "amend_plan": "계획 수정",
     "task_create": "작업 생성",
     "task_update": "작업 업데이트",
     "task_list": "작업 목록",
@@ -656,16 +654,6 @@
           "running": "계획 모드 제안 중",
           "completed": "계획 모드 제안 완료",
           "failed": "계획 모드 제안 오류"
-        },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",

@@ -396,13 +396,11 @@
     "pdf": "Прочитать PDF",
     "canvas": "Холст",
     "subagent": "Саб-Agent",
-    "update_plan_step": "Обновить шаг плана",
     "ask_user_question": "Спросить пользователя",
     "tool_search": "Поиск инструментов",
     "acp_spawn": "Запустить Agent ACP",
     "submit_plan": "Отправить план",
     "enter_plan_mode": "Предложить Plan Mode",
-    "amend_plan": "Изменить план",
     "task_create": "Создать задачу",
     "task_update": "Обновить задачу",
     "task_list": "Список задач",
@@ -656,16 +654,6 @@
           "running": "Предлагаем Plan Mode",
           "completed": "Plan Mode предложен",
           "failed": "Ошибка при предложении Plan Mode"
-        },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",

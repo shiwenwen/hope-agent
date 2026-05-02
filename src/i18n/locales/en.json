@@ -396,13 +396,11 @@
     "pdf": "Read PDF",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Update Plan Step",
     "ask_user_question": "Ask User",
     "tool_search": "Search Tools",
     "acp_spawn": "Spawn ACP Agent",
     "submit_plan": "Submit Plan",
     "enter_plan_mode": "Suggest Plan Mode",
-    "amend_plan": "Amend Plan",
     "task_create": "Create Task",
     "task_update": "Update Task",
     "task_list": "List Tasks",
@@ -656,16 +654,6 @@
           "running": "Suggesting Plan Mode",
           "completed": "Suggested Plan Mode",
           "failed": "Plan Mode suggestion failed"
-        },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",

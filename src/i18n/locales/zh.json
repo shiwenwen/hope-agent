@@ -396,13 +396,11 @@
     "pdf": "读取 PDF",
     "canvas": "画布",
     "subagent": "子 Agent",
-    "update_plan_step": "更新计划步骤",
     "ask_user_question": "向用户提问",
     "tool_search": "查找工具",
     "acp_spawn": "启动 ACP Agent",
     "submit_plan": "提交计划",
     "enter_plan_mode": "建议进入计划模式",
-    "amend_plan": "修改计划",
     "task_create": "创建任务",
     "task_update": "更新任务",
     "task_list": "任务列表",
@@ -656,16 +654,6 @@
           "running": "正在建议进入计划模式",
           "completed": "已建议进入计划模式",
           "failed": "建议进入计划模式出错"
-        },
-        "amend_plan": {
-          "running": "正在修改计划",
-          "completed": "已修改计划",
-          "failed": "计划修改出错"
-        },
-        "update_plan_step": {
-          "running": "正在更新计划步骤",
-          "completed": "已更新计划步骤",
-          "failed": "计划步骤更新出错"
         },
         "skill_read": {
           "running": "正在加载技能：{{name}}",

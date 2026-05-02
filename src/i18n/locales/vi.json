@@ -396,13 +396,11 @@
     "pdf": "Đọc PDF",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Cập nhật bước kế hoạch",
     "ask_user_question": "Hỏi người dùng",
     "tool_search": "Tìm công cụ",
     "acp_spawn": "Khởi chạy Agent ACP",
     "submit_plan": "Gửi kế hoạch",
     "enter_plan_mode": "Đề xuất Plan Mode",
-    "amend_plan": "Sửa kế hoạch",
     "task_create": "Tạo nhiệm vụ",
     "task_update": "Cập nhật nhiệm vụ",
     "task_list": "Danh sách nhiệm vụ",
@@ -656,16 +654,6 @@
           "running": "Đang đề xuất Plan Mode",
           "completed": "Đã đề xuất Plan Mode",
           "failed": "Lỗi đề xuất Plan Mode"
-        },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
