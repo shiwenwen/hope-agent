@@ -30,12 +30,17 @@ export function buildPlanCommentMessage(
     `</plan-inline-comment>`,
   ].join("\n")
 
-  const header = String(t("planMode.commentDisplay"))
-  const quoteLines = selectedText
-    .split("\n")
-    .map((line) => `> ${line}`)
-    .join("\n")
-  const displayText = `${header}\n\n${quoteLines}\n\n${comment}`
+  // Layout: comment up top as the main message, selection below as a quoted
+  // footnote — mirrors reply patterns in Slack / Discord where the user's
+  // own words are the focal point and the quoted context sits underneath.
+  // The 💬 + label is inlined into the blockquote's first line so the whole
+  // footnote is one visual unit instead of a separate header row.
+  const quoteLabel = String(t("planMode.commentQuotedFrom"))
+  const selectionLines = selectedText.split("\n")
+  const firstLine = selectionLines[0] ?? ""
+  const restLines = selectionLines.slice(1).map((line) => `> ${line}`)
+  const quoteBlock = [`> 💬 ${quoteLabel} · ${firstLine}`, ...restLines].join("\n")
+  const displayText = `${comment}\n\n${quoteBlock}`
 
   return { prompt, displayText }
 }

@@ -3010,7 +3010,7 @@
     "placeholder": "Опишите, чего вы хотите достичь...",
     "panelTitle": "План выполнения",
     "submittingPlan": "Отправка плана…",
-    "commentDisplay": "💬 Комментарий к плану",
+    "commentQuotedFrom": "Цитата из плана",
     "executeCommand": "Начните выполнение утверждённого плана. Вызовите task_create со сжатым списком todo, выведенным из плана; перед запуском каждой todo переключайте её в in_progress, а сразу после завершения — в completed (через task_update). Одновременно не более одной todo в in_progress.",
     "executionApproved": "План утверждён. Начинаю выполнение.",
     "executionResumed": "Продолжаю выполнение плана.",

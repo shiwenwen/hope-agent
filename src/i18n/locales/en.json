@@ -3010,7 +3010,7 @@
     "placeholder": "Describe what you want to achieve...",
     "panelTitle": "Execution Plan",
     "submittingPlan": "Submitting plan…",
-    "commentDisplay": "💬 Plan comment",
+    "commentQuotedFrom": "Quoted from plan",
     "executeCommand": "Start executing the approved plan. Call task_create with a concise todo list derived from the plan, then mark each todo in_progress before starting it and completed immediately after finishing it (use task_update). Keep at most one todo in_progress at a time.",
     "executionApproved": "Plan approved. Starting execution.",
     "executionResumed": "Continuing plan execution.",
