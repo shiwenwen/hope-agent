@@ -208,10 +208,11 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
      read-only exploration and drafting phase: explore the codebase / sources, ask the user \
      for clarification via ask_user_question if needed, then call submit_plan with a \
      Context / Approach / Files / Reuse / Verification structure when the plan is ready. \
-     The plan file is the only file you may edit during this phase. \
-     IMPORTANT: your tool schema for the rest of THIS turn was built before Plan Mode \
-     activated; write / edit / apply_patch / canvas calls will be denied at execution. \
-     Stick to read-only tools (read / grep / glob / find / ls / web_search / web_fetch / \
-     ask_user_question / submit_plan) until the next user message rebuilds the agent."
+     The plan file is the only file you may edit during this phase. The tool schema is \
+     refreshed before the next round — submit_plan, plus the rest of the Plan Agent \
+     toolset (read / grep / glob / find / ls / web_search / web_fetch / ask_user_question, \
+     plus path-restricted write / edit on plan files), become callable starting from the \
+     very next round of this same turn. Full write / edit / apply_patch / canvas remain \
+     unavailable until the plan is approved."
         .to_string()
 }

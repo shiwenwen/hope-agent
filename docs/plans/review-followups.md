@@ -31,6 +31,20 @@
 ## Open
 
 
+### F-040 mid-turn plan-state probe 用 AtomicU64 version gate 跳过 RwLock 读
+
+- **来源**：2026-05-02 mid-turn plan mode rebuild 修复 `/simplify` review (efficiency agent)
+- **现象**：[`streaming_loop.rs`](crates/ha-core/src/agent/streaming_loop.rs) 每个 round 头都跑一次 `crate::plan::get_plan_state(sid).await`（`tokio::sync::RwLock` read + HashMap lookup）+ 一次 `plan_agent_mode_for_state` 构造 `PlanAgentConfig::default_config()`（~14 个 String alloc）。50 round 上限 ×~50ns RwLock + ~14 个 String alloc/round = ~5μs，相比 LLM round（秒级）当前可忽略
+- **为什么留**：当前规模不构成 hot-path 瓶颈；过早优化没收益。改起来要加 [`plan/store.rs`](crates/ha-core/src/plan/store.rs) 全局 `static PLAN_STATE_VERSION: AtomicU64` + `set_plan_state` 写时 `fetch_add`，streaming_loop 缓存上轮 version，相等就 skip。改动小但要确保所有 plan state 变更入口都 bump version
+- **改的话要做什么**：
+  - `plan/store.rs` 加 version counter
+  - `set_plan_state` / `transition_state` 写路径 bump
+  - `streaming_loop` round 头先比对 version；version 没变则跳过整个 mode 推导
+  - 配套：`PlanAgentConfig::default_config()` 改返回 `&'static PlanAgentConfig`（`OnceLock` lazily 初始化），让全部 turn-start 路径也受益
+- **影响面**：纯性能，无功能 / 安全影响
+- **触发时机建议**：plan mode 用户量上来后、tool loop 实际 round 数上来时；或者下一次动 plan store 时顺手
+
+
 ### F-039 PlanPanel 在 rapid 连续 submit_plan 场景偶尔不刷新内容（root cause 未定）
 
 - **来源**：2026-05-02 plan inline comment 三件套修复期间发现。用户连续评论 → 模型多次 resubmit_plan → 右侧 PlanPanel 偶尔仍显示旧 plan

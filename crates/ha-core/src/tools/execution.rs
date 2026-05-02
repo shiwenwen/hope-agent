@@ -389,7 +389,23 @@ pub async fn execute_tool_with_context(
     //
     // SKILL.md reads are pre-authorized — skip the engine entirely so the
     // skill bootstrap never blocks on permission state.
-    let needs_engine = !ctx.auto_approve_tools && !is_skill_read(name, args) && name != TOOL_EXEC;
+    // Plan Mode `ask_tools` (`exec` per PlanAgentConfig) MUST hit the
+    // permission engine so the user gets prompted for shell commands
+    // during Planning — even when:
+    //   - `auto_approve_tools=true` (IM channel auto-approve account
+    //     convenience must NOT pierce Plan Mode's user-sovereignty
+    //     contract), or
+    //   - the tool is `exec` (which usually skips the engine for its own
+    //     command-level prefix gate; in Plan Mode the engine's
+    //     plan-mode-ask path takes precedence).
+    let plan_mode_active = !ctx.plan_mode_allowed_tools.is_empty();
+    let plan_requires_ask =
+        plan_mode_active && ctx.plan_mode_ask_tools.iter().any(|t| t == name);
+    let auto_approve_blocked_by_plan = ctx.auto_approve_tools && plan_requires_ask;
+    let exec_skip_blocked_by_plan = name == TOOL_EXEC && plan_requires_ask;
+    let needs_engine = (!ctx.auto_approve_tools || auto_approve_blocked_by_plan)
+        && !is_skill_read(name, args)
+        && (name != TOOL_EXEC || exec_skip_blocked_by_plan);
     if needs_engine {
         let decision =
             resolve_tool_permission(name, args, ctx, super::is_internal_tool(name)).await;

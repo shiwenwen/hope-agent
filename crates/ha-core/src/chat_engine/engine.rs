@@ -112,8 +112,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         extra_system_context,
         reasoning_effort,
         cancel,
-        plan_agent_mode,
-        plan_mode_allow_paths,
+        plan_context_override,
         skill_allowed_tools,
         denied_tools,
         subagent_depth,
@@ -135,6 +134,25 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     if model_chain.is_empty() {
         return Err("No model configured for chat execution".to_string());
     }
+
+    // Resolve the Plan-mode bundle once at turn start. Spawn-supplied
+    // overrides win (their child sessions have backend `plan_mode = Off`
+    // even though they're meant to run as PlanAgent); otherwise read this
+    // session's backend state. The `plan_context_locked` flag rides along
+    // so configure_agent picks the right setter and the streaming loop's
+    // mid-turn probe knows whether to leave the bundle alone.
+    //
+    // The plan-derived extra context is NOT merged into the caller's
+    // `extra_system_context` here — it goes into a separate agent slot
+    // (`plan_extra_context`) so the streaming loop's mid-turn probe can
+    // swap it on a state flip without losing the caller's framing
+    // (cron task / subagent role / etc.). `build_full_system_prompt`
+    // appends both.
+    let plan_context_locked = plan_context_override.is_some();
+    let plan_resolved = match plan_context_override {
+        Some(o) => o,
+        None => crate::chat_engine::resolve_plan_context_for_session(&session_id).await,
+    };
 
     // Codex OAuth token lives on disk; it's the single source of truth for
     // desktop / HTTP / IM channel entry points. Callers may pass None — when
@@ -277,8 +295,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             let session_id_ref = &session_id;
             let extra_system_context_ref = &extra_system_context;
             let skill_allowed_tools_ref = &skill_allowed_tools;
-            let plan_agent_mode_ref = &plan_agent_mode;
-            let plan_mode_allow_paths_ref = &plan_mode_allow_paths;
+            let plan_resolved_ref = &plan_resolved;
             let message_ref = &message;
             let attachments_ref = &attachments;
             let effort_str_ref = &effort_str;
@@ -311,8 +328,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let skill_tools_owned = skill_allowed_tools_ref.clone();
                     let denied_tools_owned = denied_tools.clone();
                     let steer_run_id_owned = steer_run_id.clone();
-                    let plan_mode_owned = plan_agent_mode_ref.clone();
-                    let plan_paths_owned = plan_mode_allow_paths_ref.clone();
+                    let plan_resolved_owned = plan_resolved_ref.clone();
                     let message_owned = message_ref.clone();
                     // Arc<[Attachment]> clone is a pointer bump regardless
                     // of attachment size. See param destructure for the wrap.
@@ -351,8 +367,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             &denied_tools_owned,
                             subagent_depth,
                             steer_run_id_owned,
-                            plan_mode_owned.as_ref(),
-                            plan_paths_owned.as_ref(),
+                            plan_resolved_owned,
+                            plan_context_locked,
                             auto_approve_tools,
                             follow_global_reasoning_effort,
                         );
@@ -604,8 +620,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         &denied_tools,
                         subagent_depth,
                         steer_run_id.clone(),
-                        plan_agent_mode.as_ref(),
-                        plan_mode_allow_paths.as_ref(),
+                        plan_resolved.clone(),
+                        plan_context_locked,
                         auto_approve_tools,
                         follow_global_reasoning_effort,
                     );
@@ -701,6 +717,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
 /// Apply common agent configuration. Extracted to avoid duplication between
 /// initial agent setup and profile-rotation rebuild.
+///
+/// `plan_resolved` is the full Plan-mode bundle (state + mode + allow_paths
+/// + extra_system_context). The `plan_locked` flag picks the right setter
+/// so the streaming loop's mid-turn probe knows whether it's free to re-sync.
 #[allow(clippy::too_many_arguments)]
 fn configure_agent(
     agent: &mut crate::agent::AssistantAgent,
@@ -712,8 +732,8 @@ fn configure_agent(
     denied_tools: &[String],
     subagent_depth: u32,
     steer_run_id: Option<String>,
-    plan_agent_mode: Option<&crate::agent::PlanAgentMode>,
-    plan_mode_allow_paths: Option<&Vec<String>>,
+    plan_resolved: crate::agent::PlanResolvedContext,
+    plan_locked: bool,
     auto_approve_tools: bool,
     follow_global_reasoning_effort: bool,
 ) {
@@ -733,11 +753,14 @@ fn configure_agent(
     if let Some(run_id) = steer_run_id {
         agent.set_steer_run_id(run_id);
     }
-    if let Some(mode) = plan_agent_mode {
-        agent.set_plan_agent_mode(mode.clone());
-    }
-    if let Some(paths) = plan_mode_allow_paths {
-        agent.set_plan_mode_allow_paths(paths.clone());
+    // Atomic 4-slot plan apply (state + mode + allow_paths + extra_context).
+    // `_external` locks against the streaming loop's mid-turn probe
+    // (spawn-supplied override), `_from_backend` leaves the probe free to
+    // re-sync (snapshot read of this session's backend state).
+    if plan_locked {
+        agent.apply_plan_resolved_external(plan_resolved);
+    } else {
+        agent.apply_plan_resolved_from_backend(plan_resolved);
     }
     if auto_approve_tools {
         agent.set_auto_approve_tools(true);
