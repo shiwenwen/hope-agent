@@ -12,7 +12,8 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
-import { X, Bot, Plus, Send } from "lucide-react"
+import { X, Plus, Send } from "lucide-react"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { CronDeliveryTarget, CronJob, CronSchedule } from "./CronJobForm.types"
 
 import type { CronFrequency } from "./CronJobForm.types"
@@ -118,6 +119,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const selectedAgent = agents.find((a) => a.id === agentId)
 
   useEffect(() => {
     getTransport().call<AgentInfo[]>("list_agents")
@@ -441,27 +443,12 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
             </label>
             <Select value={agentId} onValueChange={setAgentId}>
               <SelectTrigger>
-                <SelectValue />
+                {selectedAgent ? <AgentSelectDisplay agent={selectedAgent} /> : <SelectValue />}
               </SelectTrigger>
               <SelectContent>
                 {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
-                        {a.avatar ? (
-                          <img
-                            src={getTransport().resolveAssetUrl(a.avatar) ?? a.avatar}
-                            className="w-full h-full object-cover"
-                            alt=""
-                          />
-                        ) : a.emoji ? (
-                          <span>{a.emoji}</span>
-                        ) : (
-                          <Bot className="h-3 w-3" />
-                        )}
-                      </div>
-                      <span>{a.name}</span>
-                    </div>
+                  <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                    <AgentSelectDisplay agent={a} />
                   </SelectItem>
                 ))}
               </SelectContent>
