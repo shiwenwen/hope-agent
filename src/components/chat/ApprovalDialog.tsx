@@ -8,6 +8,8 @@ export interface ApprovalRequest {
   request_id: string
   command: string
   cwd: string
+  /** Backend wire field used to keep approvals scoped to their chat session. */
+  session_id?: string | null
   /**
    * Optional human-readable reason emitted by the engine when the approval
    * is forced by a protected-path / dangerous-command match. When set, the

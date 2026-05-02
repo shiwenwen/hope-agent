@@ -231,7 +231,7 @@ export function useChatStream({
   }, [endedStreamIdsRef])
 
   // Compose sub-hooks
-  const { approvalRequests, handleApprovalResponse } = useApprovals()
+  const { approvalRequests, handleApprovalResponse } = useApprovals(currentSessionId)
 
   useNotificationListeners({
     currentSessionIdRef,

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
@@ -12,14 +12,22 @@ export interface UseApprovalsReturn {
   ) => Promise<void>
 }
 
-export function useApprovals(): UseApprovalsReturn {
-  const [approvalRequests, setApprovalRequests] = useState<ApprovalRequest[]>([])
+export function useApprovals(currentSessionId: string | null): UseApprovalsReturn {
+  const [allApprovalRequests, setAllApprovalRequests] = useState<ApprovalRequest[]>([])
+  const approvalRequests = useMemo(
+    () =>
+      allApprovalRequests.filter((request) => {
+        if (!request.session_id) return true
+        return request.session_id === currentSessionId
+      }),
+    [allApprovalRequests, currentSessionId],
+  )
 
   // Listen for command approval events
   useEffect(() => {
     return getTransport().listen("approval_required", (raw) => {
       try {
-        setApprovalRequests((prev) => [...prev, parsePayload<ApprovalRequest>(raw)])
+        setAllApprovalRequests((prev) => [...prev, parsePayload<ApprovalRequest>(raw)])
       } catch (e) {
         logger.error("ui", "ChatScreen::approval", "Failed to parse approval request", e)
       }
@@ -30,7 +38,7 @@ export function useApprovals(): UseApprovalsReturn {
     requestId: string,
     response: "allow_once" | "allow_always" | "deny",
   ) {
-    setApprovalRequests((prev) => prev.filter((r) => r.request_id !== requestId))
+    setAllApprovalRequests((prev) => prev.filter((r) => r.request_id !== requestId))
     try {
       await getTransport().call("respond_to_approval", { requestId, response })
     } catch (e) {
