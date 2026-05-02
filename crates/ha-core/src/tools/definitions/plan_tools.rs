@@ -133,14 +133,6 @@ requirements).\n\
 - Pure Q&A or research lookups (use the Explore subagent or just answer directly).\n\
 - The user gave very specific step-by-step instructions.\n\
 - The work can be done in fewer than 3 steps.\n\n\
-## Edge Case Tiebreaker\n\
-If a single-deliverable task is **user-facing** (the user will run / read / interact with the \
-result, e.g. a small game, login page, dashboard widget) AND has multiple reasonable directions \
-in **visual style**, **control scheme**, or **scope** (MVP vs full-featured), lean toward \
-entering plan mode rather than guessing. Limit this rule to those three dimensions only — do \
-NOT extend it to tone / depth / formatting / naming / phrasing details, which the user \
-typically has no opinion on (translate / summarize / draft email / clean up comments / rename \
-variables stay in normal mode).\n\n\
 ## Behavior\n\
 Calling this tool surfaces a Yes/No prompt to the user. The user has the final say — if \
 they accept, the session transitions to Planning state and the tool returns a success \
