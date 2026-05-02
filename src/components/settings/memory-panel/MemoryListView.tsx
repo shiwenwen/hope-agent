@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import {
   Plus,
   Trash2,
@@ -86,6 +87,7 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
     startEdit,
     startAdd,
   } = data
+  const selectedAgent = agents.find((agent) => agent.id === selectedAgentId)
 
   const activeEmbeddingModel = memoryEmbeddingState.selection.enabled
     ? (memoryEmbeddingState.currentModel?.name ??
@@ -274,13 +276,16 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
               onValueChange={(v) => setSelectedAgentId(v || null)}
             >
               <SelectTrigger className="w-40 h-7 text-xs">
-                <SelectValue placeholder={t("settings.memorySelectAgent")} />
+                {selectedAgent ? (
+                  <AgentSelectDisplay agent={selectedAgent} size="xs" />
+                ) : (
+                  <SelectValue placeholder={t("settings.memorySelectAgent")} />
+                )}
               </SelectTrigger>
               <SelectContent>
                 {agents.map((a) => (
-                  <SelectItem key={a.id} value={a.id} className="text-xs">
-                    {a.emoji ? `${a.emoji} ` : ""}
-                    {a.name}
+                  <SelectItem key={a.id} value={a.id} className="text-xs" textValue={a.name}>
+                    <AgentSelectDisplay agent={a} size="xs" />
                   </SelectItem>
                 ))}
               </SelectContent>

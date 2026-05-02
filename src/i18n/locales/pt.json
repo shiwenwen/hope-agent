@@ -19,12 +19,14 @@
     "deleted": "Excluído",
     "deleteFailed": "Falha ao excluir",
     "custom": "Personalizado",
+    "other": "Outro",
     "select": "Selecionar",
     "refresh": "Atualizar",
     "settings": "Configurações",
     "close": "Fechar",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "Links de arquivos locais só podem ser abertos no modo desktop"
   },
   "project": {
     "projects": "Projetos",
@@ -114,10 +116,35 @@
     "toolCalling": "Chamando ferramentas...",
     "startConversation": "Iniciar conversa",
     "subagentFrom": "Delegado por {{agent}}",
+    "subagentResultCompleted": "Concluído",
+    "asyncToolJobFallbackName": "Tarefa em segundo plano",
+    "asyncToolJobNames": {
+      "exec": "Execução de comando",
+      "web_search": "Pesquisa web",
+      "web_fetch": "Busca web",
+      "image_generate": "Geração de imagem",
+      "browser": "Ação do navegador"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "O resultado voltou",
+      "failed": "Execução falhou",
+      "timed_out": "Execução expirou",
+      "cancelled": "Cancelado",
+      "interrupted": "Interrompido",
+      "running": "Ainda em execução"
+    },
     "newChat": "Nova conversa",
     "tasks": "Tarefas",
     "taskProgress": "{{completed}}/{{total}} concluídas",
     "taskNoneYet": "Ainda não há tarefas",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Marcar como pendente",
+        "in_progress": "Marcar como em andamento",
+        "completed": "Marcar como concluída"
+      },
+      "delete": "Remover tarefa"
+    },
     "justNow": "Agora mesmo",
     "minutesAgo": "{{count}}min atrás",
     "hoursAgo": "{{count}}h atrás",
@@ -395,12 +422,11 @@
     "pdf": "Ler PDF",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Atualizar etapa do plano",
     "ask_user_question": "Perguntar ao usuário",
     "tool_search": "Pesquisar ferramentas",
     "acp_spawn": "Iniciar Agent ACP",
     "submit_plan": "Enviar plano",
-    "amend_plan": "Modificar plano",
+    "enter_plan_mode": "Sugerir Plan Mode",
     "task_create": "Criar tarefa",
     "task_update": "Atualizar tarefa",
     "task_list": "Listar tarefas",
@@ -650,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "Sugerindo Plan Mode",
+          "completed": "Plan Mode sugerido",
+          "failed": "Erro ao sugerir Plan Mode"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -873,6 +894,7 @@
     "skillsDirSharedDesc": "Diretório de habilidades compartilhado entre ferramentas (convenção ~/.agents/skills/)",
     "skillsDirAdd": "Importar diretório de habilidades",
     "skillsDirRemove": "Remover este diretório",
+    "skillsDirPickFailed": "Falha ao escolher diretório",
     "skillsImport": {
       "button": "Quick import",
       "dialogTitle": "Quick import skill directories",
@@ -1367,8 +1389,8 @@
     "recapCacheRetentionDays": "Retenção de cache de facets (dias)",
     "recapCacheRetentionDaysDesc": "Tempo de retenção dos facets em cache antes da limpeza diária. 0 = manter sempre. Padrão 180.",
     "recapAnalysisAgent": "Agente de análise",
-    "recapAnalysisAgentDesc": "Agente usado para extrair facets e escrever seções do relatório. Se não definido, usa o agente ativo.",
-    "recapAnalysisAgentDefault": "Usar agente ativo",
+    "recapAnalysisAgentDesc": "Agente usado para extrair facets e escrever seções do relatório. Se não definido, herda o agente padrão global.",
+    "recapAnalysisAgentDefault": "Usar agente padrão global",
     "tabChatBasic": "Básico",
     "tabAwareness": "Consciência de comportamento",
     "tabContextCompact": "Compactação de contexto",
@@ -1377,7 +1399,7 @@
     "chatAutoExpandThinking": "Expandir processo de pensamento automaticamente",
     "chatAutoExpandThinkingDesc": "Expandir automaticamente blocos de pensamento nos balões de chat. Quando desativado, clique para expandir manualmente.",
     "toolCallNarration": "Anunciar chamadas de ferramentas",
-    "toolCallNarrationDesc": "Quando ativado, instrui o modelo a preceder cada chamada de ferramenta com uma frase de anúncio (estilo Claude Code). Alguns modelos (ex. GPT-5.4) exageram e repetem a mesma intenção entre chamadas consecutivas, criando duplicação visível. Desativado por padrão.",
+    "toolCallNarrationDesc": "Quando ativado, instrui o modelo a preceder cada chamada de ferramenta com uma frase de anúncio e encerrar o turno com um resumo breve (estilo Claude Code). Ativado por padrão — usuários do canal IM não veem a UI de chamadas de ferramenta, sem narração parece que o bot travou. Desative se seu modelo (ex. GPT-5.4 via Codex) exagerar e repetir a mesma intenção entre chamadas consecutivas.",
     "sessionTitle": "Gerar títulos de chat automaticamente",
     "sessionTitleDesc": "Mantém o título da primeira mensagem imediatamente e gera um título conciso após a primeira resposta do assistente.",
     "sessionTitleModel": "Modelo de título",
@@ -2760,7 +2782,8 @@
     }
   },
   "thinking": {
-    "label": "Processo de raciocínio",
+    "streaming": "Pensando",
+    "done": "Raciocinou",
     "elapsed": "Decorrido {{time}}"
   },
   "provider_templates": {
@@ -2964,9 +2987,28 @@
       "skill": "Skills"
     },
     "noResults": "Nenhum comando correspondente",
-    "buttonTip": "Comandos rápidos"
+    "buttonTip": "Comandos rápidos",
+    "project": {
+      "description": "Trocar para ou escolher um projeto"
+    }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Entrar em Plan Mode? O modelo vai explorar primeiro, fazer perguntas de esclarecimento e redigir um plano por escrito para você revisar antes de começar.",
+      "contextPrefix": "O modelo sugere entrar em Plan Mode antes de fazer esta tarefa. Motivo: ",
+      "contextNoReason": "O modelo sugere entrar em Plan Mode antes de fazer esta tarefa.",
+      "option": {
+        "yes": {
+          "label": "Entrar em Plan Mode",
+          "description": "Mude para Plan Mode agora; o modelo começará a redigir o plano."
+        },
+        "no": {
+          "label": "Pular planejamento",
+          "description": "Permaneça no modo normal; o modelo continuará a tarefa diretamente."
+        }
+      }
+    },
     "enter": "Entrar em Plan Mode",
     "toggleLabel": "Plano",
     "indicator": "Plan Mode",
@@ -2982,29 +3024,18 @@
     "showPlan": "Mostrar plano",
     "executing": "Executando plano...",
     "executionIdle": "A execução do plano está aguardando continuação",
-    "stepsCompleted": "passos concluídos",
     "completed": "Concluído",
     "placeholder": "Descreva o que você quer alcançar...",
     "panelTitle": "Plano de execução",
-    "editorPlaceholder": "Edite o conteúdo do plano aqui...\n\n## Background\nDescreva o contexto: qual problema resolver, por quê, e resultado esperado\n\n### Phase 1: Análise\n- [ ] Descrição do passo\n\n### Phase 2: Implementação\n- [ ] Descrição do passo",
-    "stepsDetected": "passos detectados",
-    "noSteps": "Sem etapas",
-    "executeCommand": "Comece a executar o plano. Complete cada passo em ordem, chamando update_plan_step para rastrear o progresso.",
+    "submittingPlan": "Enviando plano…",
+    "commentDisplay": "Comentário no plano",
+    "executeCommand": "Inicie a execução do plano aprovado. Chame task_create com uma lista concisa de todos a partir do plano; antes de iniciar cada todo marque-o como in_progress e, ao terminar, como completed (use task_update). Mantenha no máximo um todo in_progress por vez.",
     "executionApproved": "Plano aprovado. Iniciando a execução.",
     "executionResumed": "Continuando a execução do plano.",
     "planning": "Criando plano...",
-    "pause": "Pausar",
     "resume": "Retomar",
-    "pausedBanner": "A execução do plano está pausada",
     "review": {
       "badge": "Revisão"
-    },
-    "paused": {
-      "badge": "Pausado"
-    },
-    "card": {
-      "phases": "fases",
-      "steps": "passos"
     },
     "versions": "Histórico de versões",
     "versionHistory": "Versões do plano",
@@ -3017,7 +3048,6 @@
     "popOut": "Abrir em janela separada",
     "popOutActive": "Aberto em janela separada",
     "reattach": "Voltar ao painel",
-    "rollback": "Reverter alterações",
     "comment": {
       "hint": "Selecione texto para adicionar comentários e refinar o plano colaborativamente",
       "placeholder": "Sugira alterações para o conteúdo selecionado...",
@@ -3029,14 +3059,17 @@
       "submit": "Enviar respostas",
       "retry": "Tentar novamente",
       "answered": "Respondida",
+      "pending": "Aguardando sua resposta…",
       "customPlaceholder": "Digite uma resposta personalizada...",
+      "customRequired": "Digite uma resposta personalizada ou escolha outra opção.",
       "recommended": "Recomendado",
       "multiSelect": "múltipla",
       "default": "padrão",
       "preview": "Pré-visualizar",
       "timeoutHint": "Tempo restante",
       "timedOut": "tempo esgotado"
-    }
+    },
+    "noPlanYet": "Ainda sem plano"
   },
   "canvas": {
     "refresh": "Atualizar",
@@ -3484,7 +3517,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "Abrir página de download"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

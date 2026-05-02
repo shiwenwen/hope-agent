@@ -220,6 +220,10 @@ fn default_conditional_skills_enabled() -> bool {
     true
 }
 
+fn default_tool_call_narration_enabled() -> bool {
+    true
+}
+
 fn default_default_agent_id() -> Option<String> {
     Some("default".to_string())
 }
@@ -260,7 +264,7 @@ fn default_recap_cache_retention_days() -> u32 {
 #[serde(rename_all = "camelCase")]
 pub struct RecapConfig {
     /// Agent ID used to extract per-session facets and generate report sections.
-    /// `None` falls back to the first available agent.
+    /// `None` inherits the global default agent.
     #[serde(default)]
     pub analysis_agent: Option<String>,
     /// Default time window (days) when no prior report exists.
@@ -577,9 +581,11 @@ pub struct AppConfig {
     /// When enabled, the model announces each tool call with a one-sentence
     /// preamble (Claude Code style). Some models (e.g. GPT-5.4 via Codex) over-
     /// apply the rule and restate the same intent across consecutive tool calls,
-    /// which reads as noise. Default `false` — opt-in when you want the
-    /// narration behavior.
-    #[serde(default)]
+    /// which reads as noise — disable per-user if so. Default `true` because
+    /// the per-step narration also drives IM Channel UX (no tool-call UI there;
+    /// silent loops feel like the bot died) and gives desktop users a live
+    /// progress signal during long tool chains.
+    #[serde(default = "default_tool_call_narration_enabled")]
     pub tool_call_narration_enabled: bool,
 
     /// Permission / approval system. Replaces the legacy top-level fields
@@ -665,7 +671,7 @@ impl Default for AppConfig {
             dreaming: crate::memory::dreaming::DreamingConfig::default(),
             skills: crate::skills::SkillsConfig::default(),
             recall_summary: crate::memory::RecallSummaryConfig::default(),
-            tool_call_narration_enabled: false,
+            tool_call_narration_enabled: default_tool_call_narration_enabled(),
             permission: crate::permission::PermissionGlobalConfig::default(),
             onboarding: OnboardingState::default(),
             mcp_servers: Vec::new(),

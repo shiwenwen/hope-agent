@@ -115,6 +115,18 @@ export interface Message {
   subagentResultAgentId?: string
   /** If true, this user message was triggered by a cron job */
   isCronTrigger?: boolean
+  /** If true, this user message is a Plan Mode trigger (approve / resume) —
+   *  sent to the LLM as a normal user turn but rendered as a system chip
+   *  in the UI to distinguish it from real user input. */
+  isPlanTrigger?: boolean
+  /** If set, this is a plan inline-comment user message. The desktop GUI
+   *  renders {@link PlanCommentBubble} from this structured payload instead
+   *  of falling back to the markdown `content`. IM channels render the
+   *  markdown content directly and ignore this field. */
+  planComment?: {
+    selectedText: string
+    comment: string
+  }
   /** If true, this message is a hidden skill prompt — sent to LLM but not shown in the UI */
   isMeta?: boolean
   /** The cron job name that triggered this message */

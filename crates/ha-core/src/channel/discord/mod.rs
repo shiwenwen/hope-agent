@@ -22,7 +22,8 @@ struct RunningAccount {
     bot_id: String,
     #[allow(dead_code)]
     bot_username: String,
-    #[allow(dead_code)]
+    /// Discord application id, needed to re-sync slash commands without
+    /// re-fetching `/users/@me`.
     application_id: String,
 }
 
@@ -60,37 +61,38 @@ impl DiscordPlugin {
     }
 
     /// Sync slash commands to Discord's Application Commands API.
-    /// Called once after successful authentication. Non-fatal on failure.
+    ///
+    /// Called from `start_account` (first-time install) and from the trait
+    /// `sync_commands` impl (driven by skill / config changes — see
+    /// `ChannelRegistry::sync_commands_for_account`). Non-fatal on failure
+    /// — the bot remains usable, just with a stale menu until the next
+    /// successful sync.
     async fn sync_commands_to_discord(api: &DiscordApi, application_id: &str) {
-        let commands = crate::slash_commands::registry::all_commands();
+        // Single source of truth for the IM-bot catalog (filter, cap, fallback);
+        // Discord just projects each entry into its CHAT_INPUT JSON below.
+        // Skill names already pass Discord's `^[-_\p{L}\p{N}]{1,32}$` rule via
+        // `skills::normalize_skill_command_name`, so no re-sanitisation needed.
+        let entries = crate::slash_commands::im_menu_entries().await;
 
-        // Convert to Discord Application Command format (type 1 = CHAT_INPUT)
-        let discord_commands: Vec<serde_json::Value> = commands
+        let discord_commands: Vec<serde_json::Value> = entries
             .iter()
-            .filter(|cmd| !crate::slash_commands::registry::is_im_disabled(&cmd.name))
             .map(|cmd| {
+                let description = cmd.description_en();
                 let mut command = serde_json::json!({
                     "name": cmd.name,
-                    "description": cmd.description_en(),
+                    "description": description,
                     "type": 1, // CHAT_INPUT
                 });
 
-                // Add string option for commands that accept arguments
                 if cmd.has_args {
                     if let Some(ref options) = cmd.arg_options {
-                        // Use choices for commands with predefined options
                         let choices: Vec<serde_json::Value> = options
                             .iter()
-                            .map(|opt| {
-                                serde_json::json!({
-                                    "name": opt,
-                                    "value": opt
-                                })
-                            })
+                            .map(|opt| serde_json::json!({ "name": opt, "value": opt }))
                             .collect();
                         command["options"] = serde_json::json!([{
                             "name": "value",
-                            "description": cmd.description_en(),
+                            "description": description,
                             "type": 3, // STRING
                             "required": !cmd.args_optional,
                             "choices": choices
@@ -503,5 +505,19 @@ impl ChannelPlugin for DiscordPlugin {
         let me = api.get_current_user().await?;
         let username = me["username"].as_str().unwrap_or("unknown");
         Ok(username.to_string())
+    }
+
+    async fn sync_commands(&self, account: &ChannelAccountConfig) -> Result<()> {
+        // Pull api + application_id together under a single lock so we don't
+        // race a concurrent stop_account that would leave us with a stale api.
+        let (api, application_id) = {
+            let accounts = self.accounts.lock().await;
+            let acc = accounts.get(&account.id).ok_or_else(|| {
+                anyhow::anyhow!("Discord account '{}' is not running", account.id)
+            })?;
+            (acc.api.clone(), acc.application_id.clone())
+        };
+        Self::sync_commands_to_discord(&api, &application_id).await;
+        Ok(())
     }
 }

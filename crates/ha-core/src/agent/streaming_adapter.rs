@@ -37,6 +37,13 @@ pub(crate) struct RoundRequest<'a> {
     /// Active Memory recall sentence (Phase B1) — third independent cache
     /// breakpoint. Same rationale as `awareness_suffix`.
     pub active_memory_suffix: Option<&'a str>,
+    /// Per-round task tracker reminder. Appended as the last system block
+    /// (without `cache_control` on Anthropic to stay under the 4-breakpoint
+    /// cap). Lifecycle differs from awareness/active_memory: cheap pure-DB
+    /// derivation each round, no side_query, no TTL — the goal is to keep
+    /// in_progress / pending tasks visible to the model so it doesn't drop
+    /// them on the floor before final reply.
+    pub task_reminder_suffix: Option<&'a str>,
     /// Tool schemas for this round (already filtered for plan mode / denied
     /// tools / skill allowlist by `build_tool_schemas`).
     pub tool_schemas: &'a [Value],

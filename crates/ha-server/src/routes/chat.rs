@@ -50,6 +50,17 @@ pub struct ChatRequest {
     /// See Tauri `chat` command — DB stores this while `message` goes to the LLM.
     #[serde(default)]
     pub display_text: Option<String>,
+    /// When true, persists the user row with
+    /// `attachments_meta = {"plan_trigger": true}` so the UI renders it as a
+    /// Plan Mode approve/resume chip (mirrors the Tauri `chat` command).
+    #[serde(default)]
+    pub is_plan_trigger: Option<bool>,
+    /// Structured payload for plan inline-comment messages. Stamped into
+    /// `attachments_meta = {"plan_comment": {...}}` for the desktop GUI to
+    /// render PlanCommentBubble. IM channels ignore it. (Mirrors the Tauri
+    /// `chat` command.)
+    #[serde(default)]
+    pub plan_comment: Option<serde_json::Value>,
     /// Draft working dir picked before the session was materialized. Only
     /// honored when this call also creates the session (mirrors the Tauri
     /// `chat` command).
@@ -121,8 +132,28 @@ pub async fn chat(
     // session id (we need a session_id to persist).
     let permission_mode_pending = body.permission_mode;
 
-    // Resolve agent ID
-    let agent_id = body.agent_id.unwrap_or_else(|| "default".to_string());
+    // Resolve agent ID. Explicit caller wins; otherwise existing sessions use
+    // their stored agent, while new sessions inherit the app-wide default.
+    let explicit_agent_id = body
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned);
+    let existing_session_id = body
+        .session_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty());
+    let agent_id = if let Some(id) = explicit_agent_id {
+        id
+    } else if let Some(session_id) = existing_session_id {
+        db.get_session(session_id)?
+            .map(|session| session.agent_id)
+            .unwrap_or_else(|| ha_core::agent::resolver::resolve_default_agent_id(None, None))
+    } else {
+        ha_core::agent::resolver::resolve_default_agent_id(None, None)
+    };
 
     // Resolve or create session
     let mut new_session_created = false;
@@ -166,7 +197,12 @@ pub async fn chat(
     let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
 
     // Save user message to DB
-    let user_msg = session::NewMessage::user(persisted_content);
+    let mut user_msg = session::NewMessage::user(persisted_content);
+    user_msg.attachments_meta = session::build_chat_user_attachments_meta(
+        body.is_plan_trigger.unwrap_or(false),
+        body.plan_comment.as_ref(),
+        None,
+    );
     let _ = db.append_message(&sid, &user_msg);
 
     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
@@ -206,9 +242,10 @@ pub async fn chat(
     }
 
     if model_chain.is_empty() {
-        return Err(AppError::bad_request(
-            "No model configured. Please add a provider and set an active model.",
-        ));
+        let err = "No model configured. Please add a provider and set an active model.";
+        ha_core::chat_engine::persist_failed_turn_context(&db, &sid, &body.message, err);
+        let _ = db.append_message(&sid, &session::NewMessage::error_event(err));
+        return Err(AppError::bad_request(err));
     }
 
     let compact_config = store.compact.clone();
@@ -253,8 +290,7 @@ pub async fn chat(
         extra_system_context: None,
         reasoning_effort: Some(effort),
         cancel: cancel.clone(),
-        plan_agent_mode: None,
-        plan_mode_allow_paths: None,
+        plan_context_override: None,
         skill_allowed_tools: Vec::new(),
         denied_tools: Vec::new(),
         subagent_depth: 0,

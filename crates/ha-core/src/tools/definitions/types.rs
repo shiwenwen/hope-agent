@@ -58,7 +58,7 @@ pub enum CoreSubclass {
     SessionAware,
     /// 框架元工具（tool_search / job_status / runtime_cancel / skill）
     Meta,
-    /// Plan Mode 工具（submit_plan / update_plan_step / amend_plan）—— 由 PlanAgentMode 控制
+    /// Plan Mode 工具（enter_plan_mode / submit_plan）—— 由 PlanAgentMode 控制
     PlanMode,
 }
 

@@ -103,6 +103,22 @@ pub async fn channel_stop_account(account_id: String) -> Result<(), CmdError> {
     registry.stop_account(&account_id).await.map_err(Into::into)
 }
 
+// ── Slash command menu sync ──────────────────────────────────────
+
+/// Re-sync the IM bot menu (Telegram setMyCommands / Discord application
+/// commands) for one or all running accounts. Returns the count of accounts
+/// successfully synced.
+///
+/// Usually fires automatically via the EventBus listener on skill changes
+/// (see `app_init::spawn_channel_menu_resync_listener`); this command
+/// covers the manual "Sync now" button and recovery from missed events.
+#[tauri::command]
+pub async fn channel_sync_commands(account_id: Option<String>) -> Result<usize, CmdError> {
+    let registry = crate::get_channel_registry()
+        .ok_or_else(|| CmdError::msg("Channel registry not initialized"))?;
+    Ok(registry.sync_commands(account_id.as_deref()).await?)
+}
+
 // ── Health ───────────────────────────────────────────────────────
 
 #[tauri::command]

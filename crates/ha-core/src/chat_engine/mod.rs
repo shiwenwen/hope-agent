@@ -8,6 +8,14 @@ mod types;
 
 pub use context::*;
 pub use engine::*;
+// Re-export plan-context API from `crate::agent` so chat_engine callers can
+// keep `use crate::chat_engine::PlanResolvedContext;` ergonomics. The
+// canonical home is `crate::agent::plan_context` (avoids agent →
+// chat_engine cycle when `streaming_loop`'s mid-turn probe needs to
+// resolve fresh plan extra context).
+pub use crate::agent::{
+    merge_extra_system_context, resolve_plan_context_for_session, PlanResolvedContext,
+};
 pub use types::*;
 
 /// Public-facing snapshot of a session's chat stream state. Returned by the

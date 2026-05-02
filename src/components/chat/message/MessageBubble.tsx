@@ -1,9 +1,10 @@
 import React, { useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
+import type { TFunction } from "i18next"
 import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
-import { Copy, Check, Info, Network, Timer } from "lucide-react"
+import { Copy, Check, Info, Network, Timer, PlayCircle, ChevronDown } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "../chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
@@ -11,6 +12,7 @@ import FileAttachments from "./FileAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
 import { AssistantContentBlocks, AssistantLegacyContent } from "./MessageContent"
+import { PlanCommentBubble } from "./PlanCommentBubble"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
@@ -43,6 +45,103 @@ export interface MessageBubbleProps {
       | import("@/types/chat").FileChangeMetadata
       | import("@/types/chat").FileChangesMetadata,
   ) => void
+}
+
+const TOOL_JOB_AGENT_PREFIX = "tool_job:"
+const TOOL_JOB_STATUSES = new Set([
+  "completed",
+  "failed",
+  "timed_out",
+  "cancelled",
+  "interrupted",
+  "running",
+])
+
+function getXmlishAttribute(attrs: string, name: string): string | undefined {
+  const match = attrs.match(new RegExp(`\\b${name}="([^"]*)"`))
+  return match?.[1]
+}
+
+function getXmlishElement(content: string, name: string): string | undefined {
+  const match = content.match(new RegExp(`<${name}>([\\s\\S]*?)</${name}>`))
+  return match?.[1]?.trim()
+}
+
+function parseToolJobPayload(
+  content: string,
+): { toolName?: string; status?: string; detail?: string } | null {
+  const match = content.match(/<tool-job-result\b([^>]*)>/)
+  if (!match) return null
+  const attrs = match[1] || ""
+  return {
+    toolName: getXmlishAttribute(attrs, "tool"),
+    status: getXmlishAttribute(attrs, "status"),
+    detail:
+      getXmlishElement(content, "output") ||
+      getXmlishElement(content, "error") ||
+      getXmlishElement(content, "note"),
+  }
+}
+
+function parseSubagentResultDetail(content: string): string | undefined {
+  const match = content.match(
+    /<<<BEGIN_SUBAGENT_RESULT>>>\n?([\s\S]*?)\n?<<<END_SUBAGENT_RESULT>>>/,
+  )
+  return match?.[1]?.trim()
+}
+
+function parseSubagentResultStatus(content: string): string {
+  const status = content.match(/^Status:\s*(\S+)/m)?.[1]
+  switch (status) {
+    case "completed":
+      return "completed"
+    case "timeout":
+      return "timed_out"
+    case "killed":
+      return "cancelled"
+    case "running":
+    case "spawning":
+      return "running"
+    case "error":
+      return "failed"
+    default:
+      return "completed"
+  }
+}
+
+function getSubagentResultDisplay(
+  msg: Message,
+  t: TFunction,
+): { name: string; statusText: string; isToolJob: boolean; detail?: string } {
+  const agentId = msg.subagentResultAgentId
+  const name = String(t("chat.asyncToolJobFallbackName"))
+  if (agentId?.startsWith(TOOL_JOB_AGENT_PREFIX)) {
+    const payload = parseToolJobPayload(msg.content)
+    const status =
+      payload?.status && TOOL_JOB_STATUSES.has(payload.status) ? payload.status : "completed"
+    return {
+      name,
+      statusText: String(
+        t(`chat.asyncToolJobStatuses.${status}`, {
+          defaultValue: t("chat.asyncToolJobStatuses.completed"),
+        }),
+      ),
+      isToolJob: true,
+      detail: payload?.detail || String(t("tools.execPanel.noOutput")),
+    }
+  }
+
+  const status = parseSubagentResultStatus(msg.content)
+  return {
+    name,
+    statusText: String(
+      t(`chat.asyncToolJobStatuses.${status}`, {
+        defaultValue: t("chat.asyncToolJobStatuses.completed"),
+      }),
+    ),
+    isToolJob: false,
+    detail: parseSubagentResultDetail(msg.content),
+  }
 }
 
 function CronTriggerBubble({ msg, t }: { msg: Message; t: (key: string) => string }) {
@@ -103,6 +202,7 @@ function MessageBubbleInner({
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
+  const [resultExpanded, setResultExpanded] = useState(false)
 
   const modifiedFiles =
     msg.role === "assistant" && msg.contentBlocks ? extractModifiedFiles(msg.contentBlocks) : []
@@ -154,22 +254,78 @@ function MessageBubbleInner({
   }
 
   if (msg.isSubagentResult) {
+    const resultDisplay = getSubagentResultDisplay(msg, t)
+    const hasDetail = !!resultDisplay.detail
     return (
-      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/8 border border-purple-500/20 text-xs text-purple-400/80 max-w-[80%]">
-        <Network className="w-3 h-3 shrink-0 text-purple-500" />
-        <span className="font-medium text-purple-500">
-          {agents.find((a) => a.id === msg.subagentResultAgentId)?.name ||
-            msg.subagentResultAgentId ||
-            "Sub-agent"}
-        </span>
-        <span className="text-purple-400/50">·</span>
-        <span>任务完成，结果已注入</span>
+      <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
+        <button
+          type="button"
+          disabled={!hasDetail}
+          aria-expanded={hasDetail ? resultExpanded : undefined}
+          aria-label={hasDetail ? t("chat.details") : undefined}
+          onClick={() => {
+            if (hasDetail) setResultExpanded((v) => !v)
+          }}
+          className={cn(
+            "flex flex-wrap items-center gap-1.5 max-w-full px-3 py-1.5 rounded-full border text-xs transition-colors",
+            hasDetail && "cursor-pointer",
+            "bg-sky-500/8 border-sky-500/20 text-sky-400/80 hover:bg-sky-500/15",
+            !hasDetail && "disabled:cursor-default",
+          )}
+        >
+          <Timer className="w-3 h-3 shrink-0 text-sky-500" />
+          <span className="font-medium text-sky-500">
+            {resultDisplay.name}
+          </span>
+          <span className="text-sky-400/50">
+            ·
+          </span>
+          <span>{resultDisplay.statusText}</span>
+          {hasDetail && (
+            <ChevronDown
+              className={cn(
+                "w-3 h-3 shrink-0 transition-transform duration-200",
+                resultExpanded && "rotate-180",
+                "text-sky-500/70",
+              )}
+            />
+          )}
+        </button>
+        {hasDetail && resultExpanded && (
+          <div
+            className={cn(
+              "w-full max-h-[360px] overflow-auto px-3 py-2 rounded-lg border text-xs text-foreground/85 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150",
+              resultDisplay.isToolJob
+                ? "bg-sky-500/5 border-sky-500/15 font-mono text-[11px]"
+                : "bg-purple-500/5 border-purple-500/15",
+            )}
+          >
+            {resultDisplay.detail}
+          </div>
+        )}
       </div>
     )
   }
 
   if (msg.isCronTrigger) {
     return <CronTriggerBubble msg={msg} t={t} />
+  }
+
+  if (msg.isPlanTrigger) {
+    return (
+      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/50 text-xs text-muted-foreground max-w-[80%]">
+        <PlayCircle className="w-3 h-3 shrink-0 text-muted-foreground/80" />
+        <span>{msg.content}</span>
+      </div>
+    )
+  }
+
+  // Plan inline-comment user message — bespoke layered card (header chip /
+  // quoted selection / comment body) instead of the generic user bubble.
+  // The markdown displayText still lives in `msg.content` as a fallback for
+  // IM channels and historical sessions where the metadata wasn't captured.
+  if (msg.planComment) {
+    return <PlanCommentBubble selectedText={msg.planComment.selectedText} comment={msg.planComment.comment} />
   }
 
   return (

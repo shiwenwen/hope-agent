@@ -69,7 +69,7 @@ pub async fn dispatch(
         "agents" => agent::handle_agents(),
 
         // ── Plan ──
-        "plan" => plan::handle_plan(session_db()?, session_id, args).await,
+        "plan" => plan::handle_plan(session_id, args).await,
 
         // ── Project ──
         "project" => project::handle_project(session_db()?, session_id, args),
@@ -79,7 +79,7 @@ pub async fn dispatch(
 
         // ── Utility ──
         "permission" => utility::handle_permission(args),
-        "help" => Ok(utility::handle_help()),
+        "help" => Ok(utility::handle_help(session_id)),
         "status" => {
             let store = crate::config::cached_config();
             utility::handle_status(session_db()?, &store, session_id, agent_id)

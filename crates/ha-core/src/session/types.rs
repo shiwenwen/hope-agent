@@ -1,7 +1,34 @@
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 
 use crate::permission::SessionMode;
 use crate::plan::PlanModeState;
+
+// Well-known keys for the `messages.attachments_meta` JSON column. Single
+// source of truth for both writers (Tauri/HTTP `chat` commands, channel /
+// cron / subagent injection) and readers (`chatUtils.ts` mirrors these on
+// the frontend).
+pub const ATTACHMENT_META_KEY_PLAN_TRIGGER: &str = "plan_trigger";
+pub const ATTACHMENT_META_KEY_PLAN_COMMENT: &str = "plan_comment";
+
+/// Resolve the `attachments_meta` value for a user-message coming from the
+/// `chat` API surface (Tauri command + HTTP route). Centralizes the
+/// plan_trigger > plan_comment > user_attachments precedence so both shells
+/// can't silently drift; if the caller sets both `plan_trigger` and
+/// `plan_comment`, plan_trigger wins (a trigger is never also a comment).
+pub fn build_chat_user_attachments_meta(
+    plan_trigger: bool,
+    plan_comment: Option<&Value>,
+    user_attachments: Option<String>,
+) -> Option<String> {
+    if plan_trigger {
+        Some(json!({ ATTACHMENT_META_KEY_PLAN_TRIGGER: true }).to_string())
+    } else if let Some(payload) = plan_comment {
+        Some(json!({ ATTACHMENT_META_KEY_PLAN_COMMENT: payload }).to_string())
+    } else {
+        user_attachments
+    }
+}
 
 // ── Data Structures ──────────────────────────────────────────────
 
@@ -66,6 +93,22 @@ fn default_title_source() -> String {
     crate::session_title::TITLE_SOURCE_MANUAL.to_string()
 }
 
+impl SessionMeta {
+    /// True iff this is a normal user-facing conversation — what the desktop
+    /// shell should surface in cross-cutting places like the tray dropdown.
+    /// Excludes cron-triggered sessions (autonomous), sub-agent children
+    /// (parent owns the UX), IM channel conversations (handled by the IM
+    /// worker, not the desktop), and incognito sessions (intentionally
+    /// invisible). Project membership is allowed — project chats are still
+    /// user chats, just organized inside a project container.
+    pub fn is_regular_chat(&self) -> bool {
+        !self.is_cron
+            && self.parent_session_id.is_none()
+            && self.channel_info.is_none()
+            && !self.incognito
+    }
+}
+
 /// Lightweight channel info attached to a session for UI display.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -125,7 +168,7 @@ pub struct SessionMessage {
     pub timestamp: String,
     // User message fields
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachments_meta: Option<String>, // JSON array of {name, mime_type, size}
+    pub attachments_meta: Option<String>, // see ATTACHMENT_META_KEY_* below for the well-known keys
     // Assistant message fields
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
@@ -381,5 +424,69 @@ impl NewMessage {
     pub fn with_tool_metadata(mut self, metadata: Option<String>) -> Self {
         self.tool_metadata = metadata;
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta(id: &str) -> SessionMeta {
+        SessionMeta {
+            id: id.to_string(),
+            title: None,
+            title_source: default_title_source(),
+            agent_id: "default".to_string(),
+            provider_id: None,
+            provider_name: None,
+            model_id: None,
+            created_at: "2026-05-01T00:00:00Z".to_string(),
+            updated_at: "2026-05-01T00:00:00Z".to_string(),
+            message_count: 0,
+            unread_count: 0,
+            has_error: false,
+            pending_interaction_count: 0,
+            is_cron: false,
+            parent_session_id: None,
+            plan_mode: Default::default(),
+            permission_mode: Default::default(),
+            project_id: None,
+            channel_info: None,
+            incognito: false,
+            working_dir: None,
+        }
+    }
+
+    #[test]
+    fn is_regular_chat_excludes_non_regular_kinds() {
+        assert!(meta("a").is_regular_chat());
+
+        let mut cron = meta("b");
+        cron.is_cron = true;
+        assert!(!cron.is_regular_chat());
+
+        let mut sub = meta("c");
+        sub.parent_session_id = Some("parent".to_string());
+        assert!(!sub.is_regular_chat());
+
+        // Project membership is allowed — project conversations are still
+        // user-facing chats and should surface in the tray etc.
+        let mut proj = meta("d");
+        proj.project_id = Some("p1".to_string());
+        assert!(proj.is_regular_chat());
+
+        let mut im = meta("e");
+        im.channel_info = Some(ChannelSessionInfo {
+            channel_id: "discord".to_string(),
+            account_id: "acc".to_string(),
+            chat_id: "ch".to_string(),
+            chat_type: "channel".to_string(),
+            sender_name: None,
+        });
+        assert!(!im.is_regular_chat());
+
+        let mut inc = meta("f");
+        inc.incognito = true;
+        assert!(!inc.is_regular_chat());
     }
 }

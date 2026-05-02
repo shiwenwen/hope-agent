@@ -12,7 +12,11 @@ import {
 } from "@/components/ui/select"
 import { IconTip } from "@/components/ui/tooltip"
 import { Plus, Trash2 } from "lucide-react"
-import AgentAvatar from "./AgentAvatar"
+import {
+  AgentSelectDisplay,
+  INHERIT_AGENT_SENTINEL,
+  InheritAgentSelectDisplay,
+} from "@/components/common/AgentSelectDisplay"
 import GroupConfigItem from "./GroupConfigItem"
 import type { AgentInfo, TelegramGroupConfig as TelegramGroupConfigType, TelegramChannelConfig } from "./types"
 
@@ -169,69 +173,83 @@ export default function TelegramGroupChannelConfig({
 
         {/* Existing channels */}
         <div className="space-y-2">
-          {Object.entries(channels).map(([cId, cCfg]) => (
-            <div key={cId} className="rounded-lg border bg-card p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium font-mono">{cId}</span>
-                <IconTip label={t("channels.removeConfig")}>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground"
-                    onClick={() => removeChannel(cId)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </IconTip>
-              </div>
-              <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs">{t("channels.channelEnabled")}</Label>
-                  <Switch
-                    checked={cCfg.enabled !== false}
-                    onCheckedChange={(v) => updateChannel(cId, { enabled: v })}
-                  />
+          {Object.entries(channels).map(([cId, cCfg]) => {
+            const selectedAgent = agents.find((agent) => agent.id === cCfg.agentId)
+
+            return (
+              <div key={cId} className="rounded-lg border bg-card p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium font-mono">{cId}</span>
+                  <IconTip label={t("channels.removeConfig")}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground"
+                      onClick={() => removeChannel(cId)}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </IconTip>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Label className="text-xs">{t("channels.groupRequireMention")}</Label>
-                  <Select
-                    value={cCfg.requireMention === null || cCfg.requireMention === undefined ? "yes" : cCfg.requireMention ? "yes" : "no"}
-                    onValueChange={(v) => updateChannel(cId, { requireMention: v === "yes" })}
-                  >
-                    <SelectTrigger className="h-7 text-xs w-20">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="yes">✓</SelectItem>
-                      <SelectItem value="no">✗</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex-1 min-w-[160px]">
-                  <Select
-                    value={cCfg.agentId || "__none__"}
-                    onValueChange={(v) => updateChannel(cId, { agentId: v === "__none__" ? null : v })}
-                  >
-                    <SelectTrigger className="h-8 text-xs">
-                      <SelectValue placeholder={t("channels.boundAgentDefault")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
-                      {agents.map((a) => (
-                        <SelectItem key={a.id} value={a.id}>
-                          <span className="flex items-center gap-2">
-                            <AgentAvatar agent={a} />
-                            {a.name}
-                          </span>
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">{t("channels.channelEnabled")}</Label>
+                    <Switch
+                      checked={cCfg.enabled !== false}
+                      onCheckedChange={(v) => updateChannel(cId, { enabled: v })}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs">{t("channels.groupRequireMention")}</Label>
+                    <Select
+                      value={cCfg.requireMention === null || cCfg.requireMention === undefined ? "yes" : cCfg.requireMention ? "yes" : "no"}
+                      onValueChange={(v) => updateChannel(cId, { requireMention: v === "yes" })}
+                    >
+                      <SelectTrigger className="h-7 text-xs w-20">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="yes">✓</SelectItem>
+                        <SelectItem value="no">✗</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="flex-1 min-w-[160px]">
+                    <Select
+                      value={cCfg.agentId || INHERIT_AGENT_SENTINEL}
+                      onValueChange={(v) =>
+                        updateChannel(cId, {
+                          agentId: v === INHERIT_AGENT_SENTINEL ? null : v,
+                        })
+                      }
+                    >
+                      <SelectTrigger className="h-8 text-xs">
+                        {selectedAgent ? (
+                          <AgentSelectDisplay agent={selectedAgent} size="xs" />
+                        ) : (
+                          <InheritAgentSelectDisplay label={t("channels.boundAgentDefault")} />
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem
+                          value={INHERIT_AGENT_SENTINEL}
+                          textValue={t("channels.boundAgentDefault")}
+                        >
+                          {t("channels.boundAgentDefault")}
                         </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                        {agents.map((a) => (
+                          <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                            <AgentSelectDisplay agent={a} size="xs" />
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         {/* Add channel */}

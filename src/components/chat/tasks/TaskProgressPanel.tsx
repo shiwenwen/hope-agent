@@ -1,7 +1,10 @@
 import { useState } from "react"
-import { ChevronRight, ListChecks } from "lucide-react"
+import { ChevronRight, ListChecks, Trash2 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
+import { getTransport } from "@/lib/transport-provider"
+import { IconTip } from "@/components/ui/tooltip"
+import type { Task, TaskStatus } from "@/types/chat"
 import {
   getTaskDisplayLabel,
   type TaskProgressSnapshot,
@@ -15,6 +18,14 @@ interface TaskProgressPanelProps {
   variant?: "card" | "embedded"
 }
 
+// Cycle: pending → in_progress → completed → pending. Mirrors how a user
+// would manually walk a task through its lifecycle if the model dropped it.
+const NEXT_STATUS: Record<TaskStatus, TaskStatus> = {
+  pending: "in_progress",
+  in_progress: "completed",
+  completed: "pending",
+}
+
 export default function TaskProgressPanel({
   snapshot,
   className,
@@ -23,6 +34,40 @@ export default function TaskProgressPanel({
 }: TaskProgressPanelProps) {
   const { t } = useTranslation()
   const [expanded, setExpanded] = useState(defaultExpanded)
+  // Per-row in-flight set so a slow RPC on task A doesn't disable the
+  // controls on tasks B/C/D — matters most on HTTP transport latency.
+  const [busyIds, setBusyIds] = useState<Set<number>>(() => new Set())
+
+  async function withBusy(id: number, op: () => Promise<unknown>, label: string) {
+    if (busyIds.has(id)) return
+    setBusyIds((prev) => new Set(prev).add(id))
+    try {
+      await op()
+    } catch (err) {
+      console.warn(`[TaskProgressPanel] ${label} failed`, err)
+    } finally {
+      setBusyIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
+  }
+
+  const cycleStatus = (task: Task) =>
+    withBusy(
+      task.id,
+      () =>
+        getTransport().call("update_task_status", {
+          id: task.id,
+          status: NEXT_STATUS[task.status],
+        }),
+      "update_task_status",
+    )
+
+  const removeTask = (task: Task) =>
+    withBusy(task.id, () => getTransport().call("delete_task", { id: task.id }), "delete_task")
+
   const fallbackTaskLabel = String(t("settings.browser.untitledTab", { defaultValue: "Untitled" }))
   const taskLabel = String(t("chat.tasks"))
   const progressLabel = String(
@@ -69,16 +114,33 @@ export default function TaskProgressPanel({
             {snapshot.tasks.map((task, index) => {
               const { Icon, cls } = TASK_STATUS_ICON[task.status] ?? TASK_STATUS_ICON.pending
               const label = getTaskDisplayLabel(task, fallbackTaskLabel)
+              const cycleTip = String(
+                t(`chat.taskActions.cycleTo.${NEXT_STATUS[task.status]}`),
+              )
+              const deleteTip = String(t("chat.taskActions.delete"))
+              const busy = busyIds.has(task.id)
               return (
                 <li
                   key={task.id}
                   className={cn(
-                    "flex min-h-7 items-start gap-2 rounded-md px-2 py-1 text-sm",
+                    "group/task flex min-h-7 items-start gap-2 rounded-md px-2 py-1 text-sm",
                     task.status === "in_progress" && "bg-blue-500/10",
                     task.status === "completed" && "opacity-75",
                   )}
                 >
-                  <Icon className={cn("mt-0.5 h-3.5 w-3.5 shrink-0", cls)} />
+                  <IconTip label={cycleTip} side="right">
+                    <button
+                      type="button"
+                      aria-label={cycleTip}
+                      disabled={busy}
+                      onClick={() => cycleStatus(task)}
+                      className={cn(
+                        "mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-colors hover:bg-secondary disabled:opacity-50",
+                      )}
+                    >
+                      <Icon className={cn("h-3.5 w-3.5", cls)} />
+                    </button>
+                  </IconTip>
                   <span className="w-5 shrink-0 text-right tabular-nums text-muted-foreground">
                     {index + 1}.
                   </span>
@@ -90,6 +152,19 @@ export default function TaskProgressPanel({
                   >
                     {label}
                   </span>
+                  <IconTip label={deleteTip} side="left">
+                    <button
+                      type="button"
+                      aria-label={deleteTip}
+                      disabled={busy}
+                      onClick={() => removeTask(task)}
+                      className={cn(
+                        "mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground opacity-0 transition-opacity hover:bg-destructive/15 hover:text-destructive group-hover/task:opacity-100 focus-visible:opacity-100 disabled:opacity-50",
+                      )}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </IconTip>
                 </li>
               )
             })}

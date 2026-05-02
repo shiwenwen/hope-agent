@@ -12,5 +12,9 @@ pub use helpers::{
     ensure_first_message_title, is_session_incognito, lookup_session_meta,
 };
 pub use pending::enrich_pending_interactions;
-pub use tasks::{Task, TaskStatus};
-pub use types::{MessageRole, NewMessage, SessionMessage, SessionMeta};
+pub use tasks::{
+    delete_task_and_snapshot, emit_task_snapshot, set_task_status_and_snapshot, Task, TaskStatus,
+};
+pub use types::{
+    build_chat_user_attachments_meta, MessageRole, NewMessage, SessionMessage, SessionMeta,
+};

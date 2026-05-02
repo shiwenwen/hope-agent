@@ -148,6 +148,7 @@ pub async fn spawn_member(
         attachments: Vec::new(),
         plan_agent_mode: None,
         plan_mode_allow_paths: Vec::new(),
+        lock_plan_agent_mode: false,
         skip_parent_injection: true, // coordinator handles result routing
         extra_system_context: Some(extra_context),
         skill_allowed_tools: Vec::new(),

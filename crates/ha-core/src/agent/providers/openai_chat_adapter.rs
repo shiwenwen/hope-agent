@@ -58,6 +58,11 @@ fn build_chat_body(
             api_messages.push(json!({ "role": "system", "content": active_suffix }));
         }
     }
+    if let Some(task_suffix) = req.task_reminder_suffix {
+        if !task_suffix.is_empty() {
+            api_messages.push(json!({ "role": "system", "content": task_suffix }));
+        }
+    }
     let expanded_history = expand_openai_chat_image_markers_for_api(req.history_for_api);
     api_messages.extend(expanded_history);
 

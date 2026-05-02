@@ -82,6 +82,11 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   chat:                            { method: "POST",   path: "/api/chat" },
   stop_chat:                       { method: "POST",   path: "/api/chat/stop" },
   cancel_runtime_task:             { method: "POST",   path: "/api/runtime-tasks/cancel" },
+
+  // -- Session-scoped tasks (TaskProgressPanel user controls) --
+  list_session_tasks:              { method: "GET",    path: "/api/sessions/{sessionId}/tasks" },
+  update_task_status:              { method: "PATCH",  path: "/api/tasks/{id}/status" },
+  delete_task:                     { method: "DELETE", path: "/api/tasks/{id}" },
   set_permission_mode:             { method: "POST",   path: "/api/chat/permission-mode" },
   respond_to_approval:             { method: "POST",   path: "/api/chat/approval" },
   save_attachment:                  { method: "POST",   path: "/api/chat/attachment" },
@@ -225,8 +230,6 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Plan mode --
   get_plan_mode:                   { method: "GET",    path: "/api/plan/{sessionId}/mode" },
   set_plan_mode:                   { method: "POST",   path: "/api/plan/{sessionId}/mode" },
-  get_plan_steps:                  { method: "GET",    path: "/api/plan/{sessionId}/steps" },
-  update_plan_step_status:         { method: "POST",   path: "/api/plan/{sessionId}/steps/update" },
   get_plan_content:                { method: "GET",    path: "/api/plan/{sessionId}/content" },
   save_plan_content:               { method: "PUT",    path: "/api/plan/{sessionId}/content" },
   get_plan_file_path:              { method: "GET",    path: "/api/plan/{sessionId}/file-path" },
@@ -426,6 +429,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   channel_remove_account:          { method: "DELETE", path: "/api/channel/accounts/{accountId}" },
   channel_start_account:           { method: "POST",   path: "/api/channel/accounts/{accountId}/start" },
   channel_stop_account:            { method: "POST",   path: "/api/channel/accounts/{accountId}/stop" },
+  channel_sync_commands:           { method: "POST",   path: "/api/channel/sync-commands" },
   channel_health:                  { method: "GET",    path: "/api/channel/accounts/{accountId}/health" },
   channel_health_all:              { method: "GET",    path: "/api/channel/health" },
   channel_validate_credentials:    { method: "POST",   path: "/api/channel/validate" },

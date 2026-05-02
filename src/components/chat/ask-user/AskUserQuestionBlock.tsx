@@ -39,9 +39,9 @@ export interface AskUserQuestion {
   text: string
   options: AskUserQuestionOption[]
   /**
-   * Whether to render a free-form custom input. The backend currently forces
+   * Whether to offer a free-form custom input. The backend currently forces
    * this to `true` at parse time (模型给的选项常常覆盖不到用户真实意图,
-   * 强制留自由文本入口避免被迫二选一)，字段保留以维持控制链路。
+   * 强制留自由文本入口避免被迫二选一)，前端通过“其他”选项显式展开输入框。
    */
   allowCustom: boolean
   multiSelect: boolean
@@ -77,12 +77,14 @@ interface AskUserQuestionBlockProps {
 
 interface QuestionState {
   selected: Set<string>
+  customSelected: boolean
   customInput: string
 }
 
 // ── Lightweight preview renderer (no streaming, no rAF) ──────────
 
 const staticPlugins = { code, cjk }
+const CUSTOM_OPTION_FOCUS = "__custom__"
 
 function OptionPreview({ option }: { option: AskUserQuestionOption }) {
   const kind = option.previewKind ?? "markdown"
@@ -154,17 +156,34 @@ function formatRemaining(secs: number): string {
 
 export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQuestionBlockProps) {
   const { t } = useTranslation()
+
+  // The `enter_plan_mode` tool uses this generic ask-user UI but its prompt
+  // text (question / option labels / context prefix / "PLAN MODE" header) is
+  // hardcoded English on the backend so IM channels and older clients still
+  // get something sensible. In the desktop / web UI we override those four
+  // pieces with i18n keys; the model-supplied `reason` (which the backend now
+  // sends verbatim as `group.context`) is NOT translated — the model writes
+  // it in the user's conversation language naturally.
+  const isEnterPlanModeAsk =
+    group.questions.length === 1 &&
+    group.questions[0]?.questionId === "enter_plan_mode"
+
   const [submitted, setSubmitted] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [answers, setAnswers] = useState<Record<string, QuestionState>>(() => {
     const init: Record<string, QuestionState> = {}
     for (const q of group.questions) {
-      init[q.questionId] = { selected: new Set(), customInput: "" }
+      init[q.questionId] = {
+        selected: new Set<string>(),
+        customSelected: false,
+        customInput: "",
+      }
     }
     return init
   })
   const [focusedOption, setFocusedOption] = useState<Record<string, string>>({})
+  const otherLabel = t("common.other", { defaultValue: "Other" })
 
   const remaining = useCountdown(group.timeoutAt)
   const hasAnyPreview = group.questions.some((q) => q.options.some((o) => !!o.preview))
@@ -181,9 +200,32 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         newSelected.clear()
         newSelected.add(value)
       }
-      return { ...prev, [questionId]: { ...q, selected: newSelected } }
+      return {
+        ...prev,
+        [questionId]: {
+          ...q,
+          selected: newSelected,
+          customSelected: multiSelect ? q.customSelected : false,
+        },
+      }
     })
     setFocusedOption((prev) => ({ ...prev, [questionId]: value }))
+  }
+
+  const toggleCustomOption = (questionId: string, multiSelect: boolean) => {
+    setAnswers((prev) => {
+      const q = prev[questionId]
+      if (!q) return prev
+      return {
+        ...prev,
+        [questionId]: {
+          ...q,
+          selected: multiSelect ? new Set(q.selected) : new Set<string>(),
+          customSelected: multiSelect ? !q.customSelected : true,
+        },
+      }
+    })
+    setFocusedOption((prev) => ({ ...prev, [questionId]: CUSTOM_OPTION_FOCUS }))
   }
 
   const setCustomInput = (questionId: string, value: string) => {
@@ -195,15 +237,29 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
   }
 
   const handleSubmit = async () => {
-    setSubmitting(true)
     setError(null)
+    const missingCustom = group.questions.find((q) => {
+      const state = answers[q.questionId]
+      return state?.customSelected && !state.customInput.trim()
+    })
+    if (missingCustom) {
+      setFocusedOption((prev) => ({
+        ...prev,
+        [missingCustom.questionId]: CUSTOM_OPTION_FOCUS,
+      }))
+      setError(t("planMode.question.customRequired"))
+      return
+    }
+
+    setSubmitting(true)
     try {
       const answerList: AskUserQuestionAnswer[] = group.questions.map((q) => {
         const state = answers[q.questionId]
+        const customInput = state?.customSelected ? state.customInput.trim() : ""
         return {
           questionId: q.questionId,
           selected: state ? Array.from(state.selected) : [],
-          customInput: state?.customInput || undefined,
+          customInput: customInput || undefined,
         }
       })
       await getTransport().call("respond_ask_user_question", {
@@ -263,7 +319,15 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
       </div>
 
       {/* Context */}
-      {group.context && <p className="text-sm text-muted-foreground">{group.context}</p>}
+      {isEnterPlanModeAsk ? (
+        <p className="text-sm text-muted-foreground">
+          {group.context
+            ? t("planMode.enterDialog.contextPrefix") + group.context
+            : t("planMode.enterDialog.contextNoReason")}
+        </p>
+      ) : (
+        group.context && <p className="text-sm text-muted-foreground">{group.context}</p>
+      )}
 
       {/* Questions */}
       {group.questions.map((q, qi) => {
@@ -271,6 +335,7 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
         const focused = focusedOption[q.questionId]
         const focusedOpt = q.options.find((o) => o.value === focused)
         const showSidePreview = hasAnyPreview && !!focusedOpt?.preview
+        const customSelected = state?.customSelected ?? false
         return (
           <div
             key={q.questionId}
@@ -294,11 +359,11 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                 )}
                 <span className="text-sm font-medium">
                   {group.questions.length > 1 && `${qi + 1}. `}
-                  {q.text}
+                  {isEnterPlanModeAsk ? t("planMode.enterDialog.question") : q.text}
                 </span>
-                {q.header && (
+                {(isEnterPlanModeAsk || q.header) && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-500/10 text-blue-600 font-normal uppercase tracking-wide">
-                    {q.header}
+                    {isEnterPlanModeAsk ? t("planMode.enterDialog.header") : q.header}
                   </span>
                 )}
                 {q.multiSelect && (
@@ -342,7 +407,13 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="font-medium">{opt.label}</span>
+                            <span className="font-medium">
+                              {isEnterPlanModeAsk
+                                ? t(`planMode.enterDialog.option.${opt.value}.label`, {
+                                    defaultValue: opt.label,
+                                  })
+                                : opt.label}
+                            </span>
                             {opt.recommended && (
                               <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600">
                                 <Star className="h-2.5 w-2.5" />
@@ -356,11 +427,18 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                               </span>
                             )}
                           </div>
-                          {opt.description && (
-                            <div className="text-xs text-muted-foreground mt-0.5">
-                              {opt.description}
-                            </div>
-                          )}
+                          {(() => {
+                            const desc = isEnterPlanModeAsk
+                              ? t(`planMode.enterDialog.option.${opt.value}.description`, {
+                                  defaultValue: opt.description ?? "",
+                                })
+                              : opt.description
+                            return desc ? (
+                              <div className="text-xs text-muted-foreground mt-0.5">
+                                {desc}
+                              </div>
+                            ) : null
+                          })()}
                           {/* Inline preview (when no side pane is active for this question) */}
                           {opt.preview && !hasAnyPreview && <OptionPreview option={opt} />}
                         </div>
@@ -369,19 +447,52 @@ export default function AskUserQuestionBlock({ group, onSubmitted }: AskUserQues
                   )
                 })}
 
-                {/* Custom input — currently always rendered because the
-                    backend forces `allowCustom` to true. Conditional preserved
-                    so the control can be re-enabled once model behavior is
-                    trustworthy. */}
+                {/* Custom input is gated behind an explicit "Other" choice so
+                    regular selections and free-form answers don't blur together. */}
                 {q.allowCustom && (
-                  <div className="flex gap-2 mt-1">
-                    <Input
-                      placeholder={t("planMode.question.customPlaceholder")}
-                      value={state?.customInput || ""}
-                      onChange={(e) => setCustomInput(q.questionId, e.target.value)}
-                      className="text-sm h-9"
-                    />
-                  </div>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => toggleCustomOption(q.questionId, q.multiSelect)}
+                      onMouseEnter={() =>
+                        setFocusedOption((prev) => ({
+                          ...prev,
+                          [q.questionId]: CUSTOM_OPTION_FOCUS,
+                        }))
+                      }
+                      className={cn(
+                        "w-full text-left px-3 py-2 rounded-md border text-sm transition-colors cursor-pointer",
+                        customSelected
+                          ? "border-blue-500 bg-blue-500/10 text-blue-700 dark:text-blue-300"
+                          : "border-border hover:border-blue-500/50 hover:bg-blue-500/5"
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={cn(
+                            "h-4 w-4 border-2 flex items-center justify-center shrink-0",
+                            q.multiSelect ? "rounded-sm" : "rounded-full",
+                            customSelected
+                              ? "border-blue-500 bg-blue-500"
+                              : "border-muted-foreground/30"
+                          )}
+                        >
+                          {customSelected && <Check className="h-2.5 w-2.5 text-white" />}
+                        </div>
+                        <span className="font-medium">{otherLabel}</span>
+                      </div>
+                    </button>
+                    {customSelected && (
+                      <div className="flex gap-2 mt-1">
+                        <Input
+                          placeholder={t("planMode.question.customPlaceholder")}
+                          value={state?.customInput || ""}
+                          onChange={(e) => setCustomInput(q.questionId, e.target.value)}
+                          className="text-sm h-9"
+                        />
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>

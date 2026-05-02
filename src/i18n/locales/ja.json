@@ -19,12 +19,14 @@
     "deleted": "削除しました",
     "deleteFailed": "削除に失敗しました",
     "custom": "カスタム",
+    "other": "その他",
     "select": "選択",
     "refresh": "更新",
     "settings": "設定",
     "close": "閉じる",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "ローカルファイルへのリンクはデスクトップモードでのみ開けます"
   },
   "project": {
     "projects": "プロジェクト",
@@ -114,10 +116,35 @@
     "toolCalling": "ツール呼び出し中...",
     "startConversation": "会話を開始",
     "subagentFrom": "{{agent}} からの委任",
+    "subagentResultCompleted": "完了しました",
+    "asyncToolJobFallbackName": "バックグラウンドタスク",
+    "asyncToolJobNames": {
+      "exec": "コマンド実行",
+      "web_search": "ウェブ検索",
+      "web_fetch": "ウェブ取得",
+      "image_generate": "画像生成",
+      "browser": "ブラウザ操作"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "結果が戻りました",
+      "failed": "実行に失敗しました",
+      "timed_out": "実行がタイムアウトしました",
+      "cancelled": "キャンセルされました",
+      "interrupted": "中断されました",
+      "running": "まだ実行中です"
+    },
     "newChat": "新しいチャット",
     "tasks": "タスク",
     "taskProgress": "{{completed}}/{{total}} 完了",
     "taskNoneYet": "タスクはまだありません",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "未着手にする",
+        "in_progress": "進行中にする",
+        "completed": "完了にする"
+      },
+      "delete": "タスクを削除"
+    },
     "justNow": "たった今",
     "minutesAgo": "{{count}}分前",
     "hoursAgo": "{{count}}時間前",
@@ -395,12 +422,11 @@
     "pdf": "PDF 読み取り",
     "canvas": "キャンバス",
     "subagent": "サブ Agent",
-    "update_plan_step": "計画ステップを更新",
     "ask_user_question": "ユーザーに質問",
     "tool_search": "ツール検索",
     "acp_spawn": "ACP Agent を起動",
     "submit_plan": "計画を送信",
-    "amend_plan": "計画を修正",
+    "enter_plan_mode": "プランモードを提案",
     "task_create": "タスクを作成",
     "task_update": "タスクを更新",
     "task_list": "タスク一覧",
@@ -650,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "プランモードを提案中",
+          "completed": "プランモードを提案済み",
+          "failed": "プランモード提案でエラー"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -873,6 +894,7 @@
     "skillsDirSharedDesc": "ツール間で共有されるスキルディレクトリ（~/.agents/skills/ 規約）",
     "skillsDirAdd": "スキルディレクトリをインポート",
     "skillsDirRemove": "このディレクトリを削除",
+    "skillsDirPickFailed": "ディレクトリの選択に失敗しました",
     "skillsImport": {
       "button": "クイックインポート",
       "dialogTitle": "skill ディレクトリのクイックインポート",
@@ -1367,8 +1389,8 @@
     "recapCacheRetentionDays": "Facet キャッシュ保持日数",
     "recapCacheRetentionDaysDesc": "キャッシュされた facet の保持期間。毎日のスイープで削除されます。0 で無期限。デフォルト 180。",
     "recapAnalysisAgent": "分析エージェント",
-    "recapAnalysisAgentDesc": "Facet 抽出とレポート章の生成に使用するエージェント。未設定の場合はアクティブなエージェントにフォールバックします。",
-    "recapAnalysisAgentDefault": "アクティブなエージェントを使用",
+    "recapAnalysisAgentDesc": "Facet 抽出とレポート章の生成に使用するエージェント。未設定の場合はグローバル既定のエージェントを継承します。",
+    "recapAnalysisAgentDefault": "グローバル既定のエージェントを使用",
     "tabChatBasic": "基本",
     "tabAwareness": "行動認識",
     "tabContextCompact": "コンテキスト圧縮",
@@ -1377,7 +1399,7 @@
     "chatAutoExpandThinking": "思考プロセスを自動展開",
     "chatAutoExpandThinkingDesc": "チャットバブル内の思考ブロックを自動展開。オフの場合はクリックで手動展開。",
     "toolCallNarration": "ツール呼び出しを事前説明",
-    "toolCallNarrationDesc": "ONにすると、各ツール呼び出しの前に一文でアナウンスするよう指示します（Claude Code 方式）。一部のモデル（GPT-5.4 など）は連続した呼び出しで同じ意図を繰り返し、目に見える重複が発生します。既定 OFF。",
+    "toolCallNarrationDesc": "ONにすると、各ツール呼び出しの前に一文でアナウンスし、ターン終了時に短くまとめるようモデルに指示します（Claude Code 方式）。既定 ON——IM チャンネルのユーザーはツール呼び出し UI が見えず、ナレーションがないとボットが固まったように感じます。モデル（Codex 経由の GPT-5.4 など）が過剰適用して連続呼び出しで同じ意図を繰り返す場合は OFF にしてください。",
     "sessionTitle": "チャット名を自動生成",
     "sessionTitleDesc": "新しいチャットでは最初のメッセージを一時タイトルにし、最初の返信後に簡潔なタイトルを生成します。",
     "sessionTitleModel": "タイトル用モデル",
@@ -2760,7 +2782,8 @@
     }
   },
   "thinking": {
-    "label": "思考中",
+    "streaming": "思考中",
+    "done": "思考完了",
     "elapsed": "経過時間 {{time}}"
   },
   "provider_templates": {
@@ -2964,9 +2987,28 @@
       "skill": "スキル"
     },
     "noResults": "一致するコマンドはありません",
-    "buttonTip": "クイックコマンド"
+    "buttonTip": "クイックコマンド",
+    "project": {
+      "description": "プロジェクトを切り替え/選択"
+    }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "プランモード",
+      "question": "プランモードに入りますか？モデルが先に調査して明確化の質問を行い、作業に着手する前に書面の計画を作成して確認していただきます。",
+      "contextPrefix": "モデルはこのタスクを行う前にプランモードへ入ることを提案しています。理由：",
+      "contextNoReason": "モデルはこのタスクを行う前にプランモードへ入ることを提案しています。",
+      "option": {
+        "yes": {
+          "label": "プランモードに入る",
+          "description": "すぐプランモードへ切り替え、モデルが計画の作成を開始します。"
+        },
+        "no": {
+          "label": "プラン作成をスキップ",
+          "description": "通常モードのままで、モデルがそのままタスクを続行します。"
+        }
+      }
+    },
     "enter": "プランモードに入る",
     "toggleLabel": "計画",
     "indicator": "プランモード",
@@ -2982,29 +3024,18 @@
     "showPlan": "プランを表示",
     "executing": "プラン実行中...",
     "executionIdle": "計画の実行は待機中です",
-    "stepsCompleted": "ステップ完了",
     "completed": "完了",
     "placeholder": "達成したいことを記述してください...",
     "panelTitle": "実行プラン",
-    "editorPlaceholder": "ここでプラン内容を編集...\n\n## Background\n背景を記述：解決すべき問題、理由、期待される成果\n\n### Phase 1: 分析\n- [ ] ステップの説明\n\n### Phase 2: 実装\n- [ ] ステップの説明",
-    "stepsDetected": "ステップを検出",
-    "noSteps": "ステップがありません",
-    "executeCommand": "プランの実行を開始。各ステップを順に完了し、update_plan_step を呼んで進捗を追跡してください。",
+    "submittingPlan": "プランを提出中…",
+    "commentDisplay": "プランへのコメント",
+    "executeCommand": "承認された計画の実行を開始してください。task_create を呼び出して計画から簡潔な todo リストを作成し、各 todo を開始前に task_update で in_progress に、終了後すぐに completed に切り替えてください。同時に in_progress は 1 件まで。",
     "executionApproved": "プランが承認されました。実行を開始します。",
     "executionResumed": "プランの実行を続行します。",
     "planning": "プラン作成中...",
-    "pause": "一時停止",
     "resume": "再開",
-    "pausedBanner": "プラン実行が一時停止されています",
     "review": {
       "badge": "レビュー"
-    },
-    "paused": {
-      "badge": "一時停止中"
-    },
-    "card": {
-      "phases": "フェーズ",
-      "steps": "ステップ"
     },
     "versions": "バージョン履歴",
     "versionHistory": "プランバージョン",
@@ -3017,7 +3048,6 @@
     "popOut": "別ウィンドウで開く",
     "popOutActive": "別ウィンドウで開いています",
     "reattach": "パネルに戻す",
-    "rollback": "変更をロールバック",
     "comment": {
       "hint": "テキストを選択してコメントを追加し、協力してプランを精緻化",
       "placeholder": "選択した内容への変更を提案...",
@@ -3029,14 +3059,17 @@
       "submit": "回答を送信",
       "retry": "再試行",
       "answered": "回答済み",
+      "pending": "回答を待っています…",
       "customPlaceholder": "カスタム回答を入力...",
+      "customRequired": "カスタム回答を入力するか、別の選択肢を選んでください。",
       "recommended": "推奨",
       "multiSelect": "複数選択",
       "default": "既定",
       "preview": "プレビュー",
       "timeoutHint": "残り時間",
       "timedOut": "タイムアウト"
-    }
+    },
+    "noPlanYet": "まだ計画がありません"
   },
   "canvas": {
     "refresh": "更新",
@@ -3484,7 +3517,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "ダウンロードページを開く"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

@@ -1,7 +1,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use crate::agent::{AssistantAgent, PlanAgentMode};
+use crate::agent::{AssistantAgent, PlanResolvedContext};
 use crate::attachments::MediaItem;
 use crate::chat_engine::stream_broadcast::EVENT_CHANNEL_STREAM_DELTA;
 use crate::chat_engine::stream_seq::ChatSource;
@@ -174,9 +174,15 @@ pub struct ChatEngineParams {
     pub extra_system_context: Option<String>,
     pub reasoning_effort: Option<String>,
     pub cancel: Arc<AtomicBool>,
-    /// Plan Mode agent configuration (set by chat command, None for channel worker)
-    pub plan_agent_mode: Option<PlanAgentMode>,
-    pub plan_mode_allow_paths: Option<Vec<String>>,
+    /// Spawn-supplied Plan-mode override. `Some` means the caller is the
+    /// source of truth and the chat engine must NOT consult this session's
+    /// backend `plan_mode` (used by `spawn_plan_subagent`: the child
+    /// session's `plan_mode` is `Off`, but the spawn caller wants
+    /// `PlanAgent`). `None` (the common case for chat.rs / HTTP / channel /
+    /// cron) lets the chat engine read backend `plan_mode` itself and the
+    /// streaming loop's mid-turn probe stays free to re-sync after
+    /// `enter_plan_mode` flips state.
+    pub plan_context_override: Option<PlanResolvedContext>,
     /// Skill-level tool restriction (set when a skill with `allowed-tools` is activated)
     pub skill_allowed_tools: Vec<String>,
     /// Tools denied by the caller's execution policy.

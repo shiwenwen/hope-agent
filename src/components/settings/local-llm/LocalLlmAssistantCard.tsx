@@ -584,7 +584,22 @@ export default function LocalLlmAssistantCard({
 
         {!compact && <div className="flex items-center justify-end">{renderAction()}</div>}
 
-        {error && <p className="text-[11px] text-destructive whitespace-pre-wrap">{error}</p>}
+        {error && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-destructive whitespace-pre-wrap">{error}</p>
+            {ollama?.phase === "not-installed" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-auto px-2.5 py-1 text-xs"
+                onClick={openDownloadPage}
+              >
+                <ExternalLink className="h-3 w-3 mr-1.5" />
+                {t("settings.localLlm.buttons.downloadOllama")}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <InstallProgressDialog

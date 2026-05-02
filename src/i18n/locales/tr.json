@@ -19,12 +19,14 @@
     "deleted": "Silindi",
     "deleteFailed": "Silinemedi",
     "custom": "Özel",
+    "other": "Diğer",
     "select": "Seç",
     "refresh": "Yenile",
     "settings": "Ayarlar",
     "close": "Kapat",
     "search": "Search",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "Yerel dosya bağlantıları yalnızca masaüstü modunda açılabilir"
   },
   "project": {
     "projects": "Projeler",
@@ -114,10 +116,35 @@
     "toolCalling": "Araç çağrılıyor...",
     "startConversation": "Sohbet başlat",
     "subagentFrom": "{{agent}} tarafından devredildi",
+    "subagentResultCompleted": "Tamamlandı",
+    "asyncToolJobFallbackName": "Arka plan görevi",
+    "asyncToolJobNames": {
+      "exec": "Komut yürütme",
+      "web_search": "Web araması",
+      "web_fetch": "Web getirme",
+      "image_generate": "Görüntü oluşturma",
+      "browser": "Tarayıcı işlemi"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "Sonuç geri geldi",
+      "failed": "Yürütme başarısız",
+      "timed_out": "Yürütme zaman aşımına uğradı",
+      "cancelled": "İptal edildi",
+      "interrupted": "Kesintiye uğradı",
+      "running": "Hâlâ çalışıyor"
+    },
     "newChat": "Yeni Sohbet",
     "tasks": "Görevler",
     "taskProgress": "{{completed}}/{{total}} tamamlandı",
     "taskNoneYet": "Henüz görev yok",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Beklemede olarak işaretle",
+        "in_progress": "Devam ediyor olarak işaretle",
+        "completed": "Tamamlandı olarak işaretle"
+      },
+      "delete": "Görevi sil"
+    },
     "justNow": "Az önce",
     "minutesAgo": "{{count}} dk önce",
     "hoursAgo": "{{count}} sa önce",
@@ -395,12 +422,11 @@
     "pdf": "PDF oku",
     "canvas": "Canvas",
     "subagent": "Sub-Agent",
-    "update_plan_step": "Plan adımını güncelle",
     "ask_user_question": "Kullanıcıya sor",
     "tool_search": "Araç ara",
     "acp_spawn": "ACP Agent başlat",
     "submit_plan": "Planı gönder",
-    "amend_plan": "Planı değiştir",
+    "enter_plan_mode": "Plan Mode öner",
     "task_create": "Görev oluştur",
     "task_update": "Görev güncelle",
     "task_list": "Görev listesi",
@@ -650,15 +676,10 @@
           "completed": "Completed {{name}}",
           "failed": "{{name}} failed"
         },
-        "amend_plan": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
-        },
-        "update_plan_step": {
-          "running": "Running {{name}}",
-          "completed": "Completed {{name}}",
-          "failed": "{{name}} failed"
+        "enter_plan_mode": {
+          "running": "Plan Mode öneriliyor",
+          "completed": "Plan Mode önerildi",
+          "failed": "Plan Mode önerme hatası"
         },
         "skill_read": {
           "running": "Loading skill: {{name}}",
@@ -873,6 +894,7 @@
     "skillsDirSharedDesc": "Araçlar arası paylaşılan beceri dizini (~/.agents/skills/ sözleşmesi)",
     "skillsDirAdd": "Beceri dizini içe aktar",
     "skillsDirRemove": "Bu dizini kaldır",
+    "skillsDirPickFailed": "Dizin seçilemedi",
     "skillsImport": {
       "button": "Quick import",
       "dialogTitle": "Quick import skill directories",
@@ -1367,8 +1389,8 @@
     "recapCacheRetentionDays": "Facet önbellek saklama (gün)",
     "recapCacheRetentionDaysDesc": "Önbelleğe alınmış facet’lerin günlük temizlikten önce saklanma süresi. 0 = süresiz. Varsayılan 180.",
     "recapAnalysisAgent": "Analiz ajanı",
-    "recapAnalysisAgentDesc": "Facet çıkarmak ve rapor bölümlerini yazmak için kullanılan ajan. Belirlenmediğinde aktif ajana düşer.",
-    "recapAnalysisAgentDefault": "Aktif ajanı kullan",
+    "recapAnalysisAgentDesc": "Facet çıkarmak ve rapor bölümlerini yazmak için kullanılan ajan. Belirlenmediğinde genel varsayılan ajanı devralır.",
+    "recapAnalysisAgentDefault": "Genel varsayılan ajanı kullan",
     "tabChatBasic": "Temel",
     "tabAwareness": "Davranış Farkındalığı",
     "tabContextCompact": "Bağlam sıkıştırma",
@@ -1377,7 +1399,7 @@
     "chatAutoExpandThinking": "Düşünme sürecini otomatik genişlet",
     "chatAutoExpandThinkingDesc": "Sohbet baloncuklarındaki düşünme bloklarını otomatik olarak genişlet. Kapalı olduğunda, manuel genişletmek için tıklayın.",
     "toolCallNarration": "Araç çağrılarını duyur",
-    "toolCallNarrationDesc": "Etkinleştirildiğinde, modele her araç çağrısını tek cümlelik bir duyuruyla öncelikle yapmasını söyler (Claude Code tarzı). Bazı modeller (örn. GPT-5.4) bunu aşırıya kaçırır ve ardışık araç çağrıları arasında aynı niyeti tekrarlar; bu görünür tekrara yol açar. Varsayılan kapalı.",
+    "toolCallNarrationDesc": "Etkinleştirildiğinde, modele her araç çağrısını tek cümlelik bir duyuruyla başlatmasını ve her turun sonunda kısa bir özet vermesini söyler (Claude Code tarzı). Varsayılan açık — IM kanal kullanıcıları araç çağrı arayüzünü göremez, anlatım olmadan bot askıda kalmış gibi görünür. Modeliniz (örn. Codex üzerinden GPT-5.4) bunu aşırıya kaçırıp ardışık çağrılarda aynı niyeti tekrarlıyorsa kapatın.",
     "sessionTitle": "Sohbet başlıklarını otomatik oluştur",
     "sessionTitleDesc": "Yeni sohbetlerde ilk mesaj başlığı hemen kullanılır, ilk asistan yanıtından sonra kısa bir başlık üretilir.",
     "sessionTitleModel": "Başlık modeli",
@@ -2760,7 +2782,8 @@
     }
   },
   "thinking": {
-    "label": "Düşünme süreci",
+    "streaming": "Düşünüyor",
+    "done": "Düşündü",
     "elapsed": "Süre {{time}}"
   },
   "provider_templates": {
@@ -2964,9 +2987,28 @@
       "skill": "Skills"
     },
     "noResults": "Eşleşen komut yok",
-    "buttonTip": "Hızlı komutlar"
+    "buttonTip": "Hızlı komutlar",
+    "project": {
+      "description": "Bir projeye geç veya seç"
+    }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "Plan Mode",
+      "question": "Plan Mode'a geçilsin mi? Model önce keşif yapar, açıklayıcı sorular sorar ve çalışmaya başlamadan önce incelemen için yazılı bir plan hazırlar.",
+      "contextPrefix": "Model bu görevi yapmadan önce Plan Mode'a geçmeyi öneriyor. Sebep: ",
+      "contextNoReason": "Model bu görevi yapmadan önce Plan Mode'a geçmeyi öneriyor.",
+      "option": {
+        "yes": {
+          "label": "Plan Mode'a geç",
+          "description": "Şimdi Plan Mode'a geç; model planı taslak olarak hazırlamaya başlayacak."
+        },
+        "no": {
+          "label": "Planlamayı atla",
+          "description": "Normal modda kal; model görevi doğrudan sürdürecek."
+        }
+      }
+    },
     "enter": "Plan Mode'a gir",
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",
@@ -2982,29 +3024,18 @@
     "showPlan": "Planı göster",
     "executing": "Plan yürütülüyor...",
     "executionIdle": "Plan yürütmesi devam etmeyi bekliyor",
-    "stepsCompleted": "adım tamamlandı",
     "completed": "Tamamlandı",
     "placeholder": "Neyi başarmak istediğinizi açıklayın...",
     "panelTitle": "Yürütme planı",
-    "editorPlaceholder": "Plan içeriğini burada düzenleyin...\n\n## Background\nBağlamı açıklayın: hangi sorun çözülecek, neden ve beklenen sonuç\n\n### Phase 1: Analiz\n- [ ] Adım açıklaması\n\n### Phase 2: Uygulama\n- [ ] Adım açıklaması",
-    "stepsDetected": "adım tespit edildi",
-    "noSteps": "Adım yok",
-    "executeCommand": "Planı yürütmeye başlayın. Her adımı sırayla tamamlayın ve ilerlemeyi takip etmek için update_plan_step çağırın.",
+    "submittingPlan": "Plan gönderiliyor…",
+    "commentDisplay": "Plan yorumu",
+    "executeCommand": "Onaylanan planı yürütmeye başlayın. task_create ile plandan türetilmiş kısa bir todo listesi oluşturun; her todo'ya başlamadan önce task_update ile in_progress, bitirdikten hemen sonra completed olarak işaretleyin. Aynı anda yalnızca bir todo in_progress olabilir.",
     "executionApproved": "Plan onaylandı. Yürütme başlatılıyor.",
     "executionResumed": "Plan yürütmesine devam ediliyor.",
     "planning": "Plan oluşturuluyor...",
-    "pause": "Duraklat",
     "resume": "Devam et",
-    "pausedBanner": "Plan yürütmesi duraklatıldı",
     "review": {
       "badge": "İnceleme"
-    },
-    "paused": {
-      "badge": "Duraklatıldı"
-    },
-    "card": {
-      "phases": "aşama",
-      "steps": "adım"
     },
     "versions": "Sürüm geçmişi",
     "versionHistory": "Plan sürümleri",
@@ -3017,7 +3048,6 @@
     "popOut": "Ayrı pencerede aç",
     "popOutActive": "Ayrı pencerede açıldı",
     "reattach": "Panele geri al",
-    "rollback": "Değişiklikleri geri al",
     "comment": {
       "hint": "Yorum eklemek ve planı işbirliği içinde geliştirmek için metin seçin",
       "placeholder": "Seçilen içerik için değişiklik önerin...",
@@ -3029,14 +3059,17 @@
       "submit": "Yanıtları gönder",
       "retry": "Tekrar dene",
       "answered": "Yanıtlandı",
+      "pending": "Yanıtınızı bekliyor…",
       "customPlaceholder": "Özel yanıt girin...",
+      "customRequired": "Özel bir yanıt girin veya başka bir seçenek seçin.",
       "recommended": "Önerilen",
       "multiSelect": "çoklu",
       "default": "varsayılan",
       "preview": "Önizleme",
       "timeoutHint": "Kalan süre",
       "timedOut": "zaman aşımı"
-    }
+    },
+    "noPlanYet": "Henüz plan yok"
   },
   "canvas": {
     "refresh": "Yenile",
@@ -3484,7 +3517,8 @@
       "paused": "{{model}} paused",
       "cancelled": "{{model}} install cancelled",
       "failed": "{{model}} install failed",
-      "retryStarted": "Retry started for {{model}}"
+      "retryStarted": "Retry started for {{model}}",
+      "openDownload": "İndirme sayfasını aç"
     },
     "errors": {
       "loadFailed": "Failed to load model install tasks"

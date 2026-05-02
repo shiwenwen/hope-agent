@@ -245,7 +245,7 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
     }
 
     // Bridge ha-core EventBus → Tauri frontend (app_handle.emit).
-    // Without this, events like `ask_user_request` / `plan_amended` emitted
+    // Without this, events like `ask_user_request` / `plan_submitted` emitted
     // from ha-core never reach the WebView.
     {
         use tauri::Emitter;

@@ -334,6 +334,35 @@ pub fn plans_dir() -> Result<PathBuf> {
     Ok(root_dir()?.join("plans"))
 }
 
+/// Per-session plan directory: `<plans_dir>/<agent_id>/<session_id>/`.
+///
+/// Two-level isolation: keeps each session's plan files (current + version
+/// backups + result) physically separate so a model `ls`-ing the plans dir
+/// can only see its own work. Grouping by agent first means historical
+/// plans are also browseable per agent (handy for export / archival).
+///
+/// Both `agent_id` and `session_id` are sanitized to bare alphanumerics +
+/// `-` / `_` to defang any path-traversal attempt from upstream — session
+/// ids are UUIDs and agent ids are slug-validated, so this is defense in
+/// depth, not the primary boundary.
+pub fn session_plans_dir(agent_id: &str, session_id: &str) -> Result<PathBuf> {
+    Ok(plans_dir()?
+        .join(sanitize_path_segment(agent_id))
+        .join(sanitize_path_segment(session_id)))
+}
+
+fn sanitize_path_segment(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
 // ── Directory Initialization ──────────────────────────────────────
 
 /// Ensure all required directories exist.

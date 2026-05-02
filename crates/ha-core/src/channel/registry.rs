@@ -195,6 +195,93 @@ impl ChannelRegistry {
             .collect()
     }
 
+    /// Re-sync slash command menus for a single running account. Returns 1 on
+    /// success, 0 if the account isn't running, the config row is missing, or
+    /// the plugin call failed (warn-logged). Re-sync is best-effort —
+    /// `Err` is reserved for "no plugin registered for this channel id"
+    /// invariant violations the caller should propagate.
+    pub async fn sync_commands_for_account(&self, account_id: &str) -> Result<usize> {
+        let channel_id = {
+            let workers = self.workers.lock().await;
+            match workers.get(account_id) {
+                Some(h) => h.channel_id.clone(),
+                None => return Ok(0),
+            }
+        };
+
+        let account_cfg = {
+            let cfg = crate::config::cached_config();
+            cfg.channels.find_account(account_id).cloned()
+        };
+        let Some(account_cfg) = account_cfg else {
+            app_warn!(
+                "channel",
+                "registry",
+                "sync_commands: account '{}' is running but missing from config",
+                account_id
+            );
+            return Ok(0);
+        };
+
+        let plugin = self
+            .plugins
+            .get(&channel_id)
+            .ok_or_else(|| anyhow::anyhow!("No plugin registered for channel: {}", channel_id))?
+            .clone();
+
+        match plugin.sync_commands(&account_cfg).await {
+            Ok(()) => Ok(1),
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "registry",
+                    "sync_commands failed for account '{}': {}",
+                    account_id,
+                    e
+                );
+                Ok(0)
+            }
+        }
+    }
+
+    /// Re-sync slash command menus for every running account. Each account is
+    /// attempted independently so a stale Telegram connection doesn't block
+    /// Discord from picking up the change. Sequential because a typical user
+    /// only has 1-3 IM accounts and matches the `stop_all` shape.
+    pub async fn sync_commands_for_all(&self) -> usize {
+        let account_ids: Vec<String> = {
+            let workers = self.workers.lock().await;
+            workers.keys().cloned().collect()
+        };
+
+        let mut synced = 0usize;
+        for account_id in account_ids {
+            match self.sync_commands_for_account(&account_id).await {
+                Ok(n) => synced += n,
+                Err(e) => {
+                    app_warn!(
+                        "channel",
+                        "registry",
+                        "sync_commands_for_account('{}') errored: {}",
+                        account_id,
+                        e
+                    );
+                }
+            }
+        }
+        synced
+    }
+
+    /// Unified entry-point that callers (Tauri / HTTP / event listener) can use
+    /// without branching themselves: `Some(id)` → sync that single account,
+    /// `None` → sync every running account.
+    pub async fn sync_commands(&self, account_id: Option<&str>) -> Result<usize> {
+        match account_id {
+            Some(id) => self.sync_commands_for_account(id).await,
+            None => Ok(self.sync_commands_for_all().await),
+        }
+    }
+
     /// Stop all running accounts. Called during app shutdown.
     pub async fn stop_all(&self) {
         let account_ids: Vec<String> = {

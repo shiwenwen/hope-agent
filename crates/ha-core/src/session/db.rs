@@ -262,6 +262,18 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_steps TEXT;")?;
         }
 
+        // Migration: persist `executing_started_at` so `maybe_complete_plan`
+        // can scope tasks correctly across session-switch / app-restart. Plain
+        // in-memory PlanMeta lost this stamp on `restore_from_db`, falling
+        // back to the whole-session task view and letting pre-plan pending
+        // tasks deadlock auto-complete.
+        let has_plan_exec_started = conn
+            .prepare("SELECT plan_executing_started_at FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_plan_exec_started {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN plan_executing_started_at TEXT;")?;
+        }
+
         // Migration: per-session tool_permission_mode so the chat input's
         // toggle (auto / ask_every_time / full_approve) is restored when the
         // user switches back to a historical session. See `SessionMeta`.
@@ -822,6 +834,27 @@ impl SessionDB {
             params![project_id],
         )?;
         Ok(n)
+    }
+
+    /// Return up to 5 (session_id, agent_id) pairs whose session id starts
+    /// with `prefix` — used by the plan-files migration to map legacy
+    /// short-id filenames back to their owning session/agent. Cap is 5
+    /// because callers care about "is this prefix unique?" not full lists.
+    pub fn find_sessions_by_id_prefix(&self, prefix: &str) -> Result<Vec<(String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt =
+            conn.prepare("SELECT id, agent_id FROM sessions WHERE id LIKE ?1 || '%' LIMIT 5")?;
+        let rows = stmt.query_map(params![prefix], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?;
+        let mut out = Vec::new();
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     /// List all sessions, ordered by most recently updated.
@@ -1494,6 +1527,42 @@ impl SessionDB {
             params![plan_mode.as_str(), session_id],
         )?;
         Ok(())
+    }
+
+    /// Persist `executing_started_at` so the `maybe_complete_plan` scoping
+    /// logic survives restore from DB / app restart. `None` clears the stamp
+    /// (used when the plan exits Executing).
+    pub fn update_session_plan_executing_started_at(
+        &self,
+        session_id: &str,
+        started_at: Option<&str>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET plan_executing_started_at = ?1 WHERE id = ?2",
+            params![started_at, session_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_session_plan_executing_started_at(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt =
+            conn.prepare("SELECT plan_executing_started_at FROM sessions WHERE id = ?1")?;
+        let mut rows = stmt.query(params![session_id])?;
+        match rows.next()? {
+            Some(row) => Ok(row.get(0)?),
+            None => Ok(None),
+        }
     }
 
     /// Persist the session permission mode (`default` / `smart` / `yolo`)

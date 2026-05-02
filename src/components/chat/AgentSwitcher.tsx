@@ -14,9 +14,9 @@
  */
 
 import { useEffect, useRef, useState } from "react"
-import { Bot, ChevronDown } from "lucide-react"
+import { ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
-import { getTransport } from "@/lib/transport-provider"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { AgentSummaryForSidebar } from "@/types/chat"
 
 interface AgentSwitcherProps {
@@ -36,6 +36,10 @@ export default function AgentSwitcher({
 }: AgentSwitcherProps) {
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
+  const currentAgent = agents.find((agent) => agent.id === currentAgentId) ?? {
+    id: currentAgentId,
+    name: agentName,
+  }
 
   useEffect(() => {
     if (!open) return
@@ -49,7 +53,11 @@ export default function AgentSwitcher({
   }, [open])
 
   if (disabled) {
-    return <span className="text-sm font-medium text-foreground shrink-0">{agentName}</span>
+    return (
+      <span className="shrink-0 text-sm font-medium text-foreground">
+        <AgentSelectDisplay agent={currentAgent} fallbackName={agentName} />
+      </span>
+    )
   }
 
   return (
@@ -62,7 +70,7 @@ export default function AgentSwitcher({
           "hover:text-primary",
         )}
       >
-        <span>{agentName}</span>
+        <AgentSelectDisplay agent={currentAgent} fallbackName={agentName} />
         <ChevronDown
           className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")}
         />
@@ -88,20 +96,7 @@ export default function AgentSwitcher({
                     setOpen(false)
                   }}
                 >
-                  <div className="w-5 h-5 rounded-full bg-primary/15 flex items-center justify-center text-primary shrink-0 text-[10px] overflow-hidden">
-                    {agent.avatar ? (
-                      <img
-                        src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-                        className="w-full h-full object-cover"
-                        alt=""
-                      />
-                    ) : agent.emoji ? (
-                      <span>{agent.emoji}</span>
-                    ) : (
-                      <Bot className="h-3 w-3" />
-                    )}
-                  </div>
-                  <span className="truncate">{agent.name}</span>
+                  <AgentSelectDisplay agent={agent} />
                 </button>
               )
             })

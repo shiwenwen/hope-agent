@@ -24,6 +24,26 @@ use tokio::sync::Mutex;
 /// distinguishable from a successful first run.
 static INIT_DONE: OnceLock<()> = OnceLock::new();
 
+/// Records the runtime role passed to `init_runtime("desktop"|"server"|"acp"|"test")`.
+/// First-write-wins. Tests in the same binary share this `OnceLock` — once
+/// `init_runtime("test")` runs, `is_desktop()` stays `false` for every test.
+static RUNTIME_ROLE: OnceLock<&'static str> = OnceLock::new();
+
+/// Returns the role string from the first `init_runtime()` call, or `None`
+/// if `init_runtime` hasn't run yet. Most callers want [`is_desktop`] for
+/// readable mode checks instead of comparing the string directly.
+pub fn runtime_role() -> Option<&'static str> {
+    RUNTIME_ROLE.get().copied()
+}
+
+/// True iff the process started as the desktop (Tauri) shell. Used by paths
+/// that need to vary behavior by runtime mode without threading a parameter
+/// through the call stack (e.g. `system_prompt::build` injecting
+/// desktop-only guidance for clickable file paths).
+pub fn is_desktop() -> bool {
+    runtime_role() == Some("desktop")
+}
+
 /// Initialize all global singletons (databases, OnceLocks, channel registry,
 /// ACP control plane, orphan cleanup, embedder, welcome log). Idempotent —
 /// the second call is a no-op so dev hot-reload and accidental double-call
@@ -32,7 +52,11 @@ static INIT_DONE: OnceLock<()> = OnceLock::new();
 /// Side effects only — does not construct `AppState`. Desktop callers should
 /// follow up with `build_app_state()`. Server / ACP modes don't need
 /// `AppState` and stop here.
-pub fn init_runtime(role: &str) {
+pub fn init_runtime(role: &'static str) {
+    // Record role before the idempotent early-return so the first caller's
+    // role wins. Subsequent `OnceLock::set` returns Err and is dropped.
+    let _ = RUNTIME_ROLE.set(role);
+
     if INIT_DONE.get().is_some() {
         return;
     }
@@ -458,6 +482,100 @@ fn spawn_channel_listeners() {
             channel_db.clone(),
             registry.clone(),
         );
+        spawn_channel_menu_resync_listener(registry.clone());
+    }
+}
+
+/// Subscribe to `skills:catalog_changed` and config events that touch the
+/// slash-command catalog (skill enable/disable, extra dirs) and re-sync each
+/// running IM channel's bot menu.
+///
+/// Debounced with a 2s trailing-edge timer so a bulk import or a chain of
+/// `bump_skill_version` calls collapses into one `setMyCommands` /
+/// `bulk_overwrite_global_commands` round-trip per affected account.
+fn spawn_channel_menu_resync_listener(registry: Arc<channel::ChannelRegistry>) {
+    let Some(bus) = crate::globals::get_event_bus() else {
+        app_warn!(
+            "channel",
+            "menu_sync",
+            "EventBus not initialized — IM menu auto-resync disabled"
+        );
+        return;
+    };
+    let mut rx = bus.subscribe();
+
+    tokio::spawn(async move {
+        const DEBOUNCE: std::time::Duration = std::time::Duration::from_secs(2);
+        let mut pending: Option<tokio::time::Instant> = None;
+
+        loop {
+            // Either wake on a new event, or wake when the debounce window
+            // closes for a previously-buffered event.
+            let recv = if let Some(deadline) = pending {
+                tokio::select! {
+                    _ = tokio::time::sleep_until(deadline) => {
+                        pending = None;
+                        let synced = registry.sync_commands_for_all().await;
+                        if synced > 0 {
+                            app_info!(
+                                "channel",
+                                "menu_sync",
+                                "Re-synced slash command menus on {} running account(s)",
+                                synced
+                            );
+                        }
+                        continue;
+                    }
+                    ev = rx.recv() => ev,
+                }
+            } else {
+                rx.recv().await
+            };
+
+            match recv {
+                Ok(event) => {
+                    if menu_resync_event_relevant(&event) {
+                        pending = Some(tokio::time::Instant::now() + DEBOUNCE);
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    app_warn!(
+                        "channel",
+                        "menu_sync",
+                        "EventBus lagged {} events — forcing menu re-sync",
+                        n
+                    );
+                    pending = Some(tokio::time::Instant::now() + DEBOUNCE);
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    });
+}
+
+/// Config categories whose changes can shift the slash-command catalog. Kept
+/// as an explicit list (rather than a `starts_with("skill")` heuristic) so a
+/// future unrelated `skill_*` field can't silently force IM bot menu re-syncs.
+/// Matches the categories used in `skills::commands::*` and `tools::settings`.
+const MENU_RESYNC_CATEGORIES: &[&str] = &[
+    "skills",
+    "extra_skills_dirs",
+    "disabled_skills",
+    "skill_env",
+    "skill_env_check",
+    "skills.auto_review",
+];
+
+fn menu_resync_event_relevant(event: &crate::event_bus::AppEvent) -> bool {
+    match event.name.as_str() {
+        "skills:catalog_changed" => true,
+        "config:changed" => event
+            .payload
+            .get("category")
+            .and_then(|c| c.as_str())
+            .map(|c| MENU_RESYNC_CATEGORIES.contains(&c))
+            .unwrap_or(false),
+        _ => false,
     }
 }
 
@@ -487,6 +605,14 @@ pub async fn start_background_tasks() {
         if let (Some(cron_db), Some(session_db)) = (CRON_DB.get(), SESSION_DB.get()) {
             let _handle = cron::start_scheduler(cron_db.clone(), session_db.clone());
         }
+
+        // One-time migration: legacy flat-layout plan files
+        // (`<plans>/plan-{short_id}-...md`) → per-session subdirs
+        // (`<plans>/<agent>/<session>/plan-...md`). Idempotent — already-
+        // nested files are left alone, so it's safe to run on every start.
+        // Spawned as blocking because std::fs ops shouldn't tie up the
+        // tokio runtime even during a one-off migration.
+        tokio::task::spawn_blocking(crate::plan::migrate_flat_plans_to_subdirs);
 
         // Clean up the `ask_user_questions` table: drop old answered rows and
         // expire any still-pending rows left behind by a previous process

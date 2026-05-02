@@ -88,6 +88,7 @@ pub async fn spawn_skill_fork(
         attachments: Vec::new(),
         plan_agent_mode: None,
         plan_mode_allow_paths: Vec::new(),
+        lock_plan_agent_mode: false,
         skip_parent_injection,
         extra_system_context: Some(skill_content),
         skill_allowed_tools: skill.allowed_tools.clone(),

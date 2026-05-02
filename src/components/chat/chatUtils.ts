@@ -28,6 +28,18 @@ function parseMediaItemsHeader(result: string): MediaItem[] | undefined {
   return undefined
 }
 
+/** True when a message should render as a centered system chip (event,
+ *  sub-agent result, cron trigger, plan-mode approve/resume) rather than as
+ *  a user/assistant bubble. */
+export function isCenteredSystemMessage(msg: Message): boolean {
+  return (
+    msg.role === "event" ||
+    !!msg.isSubagentResult ||
+    !!msg.isCronTrigger ||
+    !!msg.isPlanTrigger
+  )
+}
+
 /** Format token count: ≥10000 → "12.3k tokens", else "1,234 tokens" */
 export function formatTokens(n: number): string {
   if (n >= 10000) return `${(n / 1000).toFixed(1)}k tokens`
@@ -168,11 +180,13 @@ export function parseSessionMessages(
   let firstUserSeen = false
   for (const msg of msgs) {
     if (msg.role === "user") {
-      // Detect sub-agent result / cron trigger messages via attachments_meta marker
+      // Detect sub-agent result / cron trigger / plan trigger messages via attachments_meta marker
       let isSubagentResult = false
       let subagentResultAgentId: string | undefined
       let isCronTrigger = false
       let cronJobName: string | undefined
+      let isPlanTrigger = false
+      let planComment: { selectedText: string; comment: string } | undefined
       let channelInbound: { channelId: string; senderName?: string } | undefined
       if (msg.attachmentsMeta) {
         try {
@@ -184,6 +198,19 @@ export function parseSessionMessages(
           if (meta?.cron_trigger) {
             isCronTrigger = true
             cronJobName = meta.cron_trigger.job_name
+          }
+          if (meta?.plan_trigger) {
+            isPlanTrigger = true
+          }
+          if (
+            meta?.plan_comment &&
+            typeof meta.plan_comment.selectedText === "string" &&
+            typeof meta.plan_comment.comment === "string"
+          ) {
+            planComment = {
+              selectedText: meta.plan_comment.selectedText,
+              comment: meta.plan_comment.comment,
+            }
           }
           if (meta?.channel_inbound) {
             channelInbound = {
@@ -207,6 +234,8 @@ export function parseSessionMessages(
         subagentResultAgentId,
         isCronTrigger,
         cronJobName,
+        isPlanTrigger,
+        planComment,
         channelInbound,
       })
     } else if (msg.role === "tool" && msg.toolCallId) {

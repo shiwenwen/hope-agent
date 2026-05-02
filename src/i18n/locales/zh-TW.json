@@ -19,12 +19,14 @@
     "deleted": "已刪除",
     "deleteFailed": "刪除失敗",
     "custom": "自定義",
+    "other": "其他",
     "select": "選擇",
     "refresh": "重新整理",
     "settings": "設置",
     "close": "關閉",
     "search": "搜索",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "markdownLinkLocalDisabled": "本機檔案連結僅在桌面模式可開啟"
   },
   "project": {
     "projects": "專案",
@@ -114,10 +116,35 @@
     "toolCalling": "工具調用中...",
     "startConversation": "開始對話",
     "subagentFrom": "由 {{agent}} 指派",
+    "subagentResultCompleted": "已完成",
+    "asyncToolJobFallbackName": "背景任務",
+    "asyncToolJobNames": {
+      "exec": "命令執行",
+      "web_search": "網頁搜尋",
+      "web_fetch": "網頁抓取",
+      "image_generate": "圖片生成",
+      "browser": "瀏覽器操作"
+    },
+    "asyncToolJobStatuses": {
+      "completed": "結果回來了",
+      "failed": "執行失敗",
+      "timed_out": "執行逾時",
+      "cancelled": "已取消",
+      "interrupted": "已中斷",
+      "running": "還在執行"
+    },
     "newChat": "新建對話",
     "tasks": "任務",
     "taskProgress": "已完成 {{completed}}/{{total}}",
     "taskNoneYet": "暫無任務",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "標記為待辦",
+        "in_progress": "標記為進行中",
+        "completed": "標記為已完成"
+      },
+      "delete": "刪除任務"
+    },
     "justNow": "剛剛",
     "minutesAgo": "{{count}}分鐘前",
     "hoursAgo": "{{count}}小時前",
@@ -395,12 +422,11 @@
     "pdf": "讀取 PDF",
     "canvas": "畫布",
     "subagent": "子 Agent",
-    "update_plan_step": "更新計劃步驟",
     "ask_user_question": "向用戶提問",
     "tool_search": "查找工具",
     "acp_spawn": "啟動 ACP Agent",
     "submit_plan": "提交計劃",
-    "amend_plan": "修改計劃",
+    "enter_plan_mode": "建議進入計劃模式",
     "task_create": "建立任務",
     "task_update": "更新任務",
     "task_list": "任務列表",
@@ -650,15 +676,10 @@
           "completed": "已提交計畫",
           "failed": "計畫提交出錯"
         },
-        "amend_plan": {
-          "running": "正在修改計畫",
-          "completed": "已修改計畫",
-          "failed": "計畫修改出錯"
-        },
-        "update_plan_step": {
-          "running": "正在更新計畫步驟",
-          "completed": "已更新計畫步驟",
-          "failed": "計畫步驟更新出錯"
+        "enter_plan_mode": {
+          "running": "正在建議進入計劃模式",
+          "completed": "已建議進入計劃模式",
+          "failed": "建議進入計劃模式出錯"
         },
         "skill_read": {
           "running": "正在載入技能：{{name}}",
@@ -873,6 +894,7 @@
     "skillsDirSharedDesc": "跨工具共享的技能目錄（~/.agents/skills/ 約定）",
     "skillsDirAdd": "導入技能目錄",
     "skillsDirRemove": "移除此目錄",
+    "skillsDirPickFailed": "選擇目錄失敗",
     "skillsImport": {
       "button": "快速匯入",
       "dialogTitle": "快速匯入 skill 目錄",
@@ -1367,8 +1389,8 @@
     "recapCacheRetentionDays": "Facet 快取保留天數",
     "recapCacheRetentionDaysDesc": "已快取的會話 facet 保留時長，每 24 小時背景掃描清理。設為 0 則永久保留。預設 180 天",
     "recapAnalysisAgent": "分析 Agent",
-    "recapAnalysisAgentDesc": "用於擷取 facet 與撰寫報告章節的 Agent，未設定時回退至目前活躍 Agent",
-    "recapAnalysisAgentDefault": "使用目前活躍 Agent",
+    "recapAnalysisAgentDesc": "用於擷取 facet 與撰寫報告章節的 Agent，未設定時繼承全域預設 Agent",
+    "recapAnalysisAgentDefault": "使用全域預設 Agent",
     "tabChatBasic": "基本",
     "tabAwareness": "行為感知",
     "tabContextCompact": "上下文壓縮",
@@ -1377,7 +1399,7 @@
     "chatAutoExpandThinking": "自動展開Think過程",
     "chatAutoExpandThinkingDesc": "聊天氣泡中的Think過程默認自動展開，關閉後需手動點擊展開",
     "toolCallNarration": "工具呼叫前說明",
-    "toolCallNarrationDesc": "啟用後在系統提示詞中要求模型在每次呼叫工具前以一句話說明意圖（Claude Code 風格）。部分模型（如 GPT-5.4）會在連續工具呼叫間反覆複述同一意圖，造成重複。預設關閉。",
+    "toolCallNarrationDesc": "啟用後要求模型在每次工具呼叫前以一句話說明意圖、turn 結束時簡短小結（Claude Code 風格）。預設啟用——IM 渠道使用者看不到工具呼叫 UI，沒有解說像機器人卡死。若模型（如 Codex 下的 GPT-5.4）過度套用、連續呼叫間反覆複述同一意圖，可關閉。",
     "sessionTitle": "自動生成對話名稱",
     "sessionTitleDesc": "新對話會先立即使用第一句話作為標題，首輪助手回覆後再生成更精簡的名稱。",
     "sessionTitleModel": "命名模型",
@@ -2760,7 +2782,8 @@
     }
   },
   "thinking": {
-    "label": "思考過程",
+    "streaming": "正在思考",
+    "done": "已思考",
     "elapsed": "耗時 {{time}}"
   },
   "provider_templates": {
@@ -2964,9 +2987,28 @@
       "skill": "技能"
     },
     "noResults": "没有匹配的命令",
-    "buttonTip": "快捷指令"
+    "buttonTip": "快捷指令",
+    "project": {
+      "description": "切換或選擇項目"
+    }
   },
   "planMode": {
+    "enterDialog": {
+      "header": "計劃模式",
+      "question": "進入計劃模式？模型會先做調研、追問澄清，並起草一份計劃交你審核後再動手。",
+      "contextPrefix": "模型建議先進入計劃模式再做這件事。原因：",
+      "contextNoReason": "模型建議先進入計劃模式再做這件事。",
+      "option": {
+        "yes": {
+          "label": "進入計劃模式",
+          "description": "立刻切換到計劃模式，模型會開始起草計劃。"
+        },
+        "no": {
+          "label": "跳過計劃",
+          "description": "保持一般模式，模型直接繼續做這件事。"
+        }
+      }
+    },
     "enter": "進入計劃模式",
     "toggleLabel": "計劃",
     "indicator": "計劃模式",
@@ -2982,29 +3024,18 @@
     "showPlan": "顯示計劃",
     "executing": "正在按計劃執行...",
     "executionIdle": "計劃執行正在等待繼續",
-    "stepsCompleted": "步完成",
     "completed": "執行完成",
     "placeholder": "描述你想要實現的功能...",
     "panelTitle": "執行計劃",
-    "editorPlaceholder": "您可以在此協同編輯計劃內容...\n\n## Context\n描述背景：要解決什麼問題、為什麼做、預期結果\n\n## Steps\n1. 第一個主要步驟\n   - 具體說明\n2. 第二個主要步驟\n   - 具體說明\n\n## Verification\n如何驗證結果",
-    "stepsDetected": "個步驟已識別",
-    "noSteps": "暫無步驟",
-    "executeCommand": "開始執行計劃：先根據已批准計劃建立 todos，按順序執行，並調用 update_plan_step 更新高層計劃進度。",
+    "submittingPlan": "正在提交計劃…",
+    "commentDisplay": "計劃評論",
+    "executeCommand": "開始執行已批准的計畫：調用 task_create 根據計畫建立一份精簡的 todo 清單，開始每條前先用 task_update 標記 in_progress，完成後立即標記 completed。同時只能有一條 in_progress。",
     "executionApproved": "已批准計劃，開始執行。",
     "executionResumed": "繼續執行計劃。",
     "planning": "正在制定計劃...",
-    "pause": "暫停",
     "resume": "恢複執行",
-    "pausedBanner": "計劃執行已暫停",
     "review": {
       "badge": "待審批"
-    },
-    "paused": {
-      "badge": "已暫停"
-    },
-    "card": {
-      "phases": "個階段",
-      "steps": "個步驟"
     },
     "versions": "版本歷史",
     "versionHistory": "計劃版本",
@@ -3017,7 +3048,6 @@
     "popOut": "獨立窗口",
     "popOutActive": "已在獨立窗口中打開",
     "reattach": "收回到面板",
-    "rollback": "回滾更改",
     "comment": {
       "hint": "選中文本即可添加評論，協同修改計劃",
       "placeholder": "對選中內容的修改建議...",
@@ -3029,14 +3059,17 @@
       "submit": "提交回答",
       "retry": "重試",
       "answered": "已回答",
+      "pending": "等待你的回答…",
       "customPlaceholder": "輸入自定義回答...",
+      "customRequired": "請輸入自定義回答，或選擇其他選項。",
       "recommended": "推薦",
       "multiSelect": "多選",
       "default": "默認",
       "preview": "預覽",
       "timeoutHint": "剩余時間",
       "timedOut": "已超時"
-    }
+    },
+    "noPlanYet": "尚無計畫"
   },
   "canvas": {
     "refresh": "刷新",
@@ -3484,7 +3517,8 @@
       "paused": "{{model}} 已暫停",
       "cancelled": "{{model}} 安裝已取消",
       "failed": "{{model}} 安裝失敗",
-      "retryStarted": "已開始重試 {{model}}"
+      "retryStarted": "已開始重試 {{model}}",
+      "openDownload": "開啟下載頁"
     },
     "errors": {
       "loadFailed": "載入模型安裝任務失敗"

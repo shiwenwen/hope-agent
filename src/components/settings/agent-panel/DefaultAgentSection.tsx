@@ -2,8 +2,13 @@ import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select"
-import { Bot } from "lucide-react"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+} from "@/components/ui/select"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import type { AgentSummary } from "./types"
 
 interface DefaultAgentSectionProps {
@@ -78,7 +83,7 @@ export default function DefaultAgentSection({ agents, loading = false }: Default
       >
         <SelectTrigger className="h-9 w-full max-w-sm overflow-hidden text-sm">
           <div className="flex min-w-0 flex-1 items-center overflow-hidden">
-            <AgentOption agent={selectedAgent} fallbackId={defaultAgentId} />
+            <AgentSelectDisplay agent={selectedAgent} fallbackName={defaultAgentId} />
           </div>
         </SelectTrigger>
         <SelectContent>
@@ -86,23 +91,23 @@ export default function DefaultAgentSection({ agents, loading = false }: Default
             <>
               {defaultAgentId !== "default" && (
                 <SelectItem value={defaultAgentId} textValue={defaultAgentId}>
-                  <AgentOption fallbackId={defaultAgentId} />
+                  <AgentSelectDisplay fallbackName={defaultAgentId} />
                 </SelectItem>
               )}
               <SelectItem value="default" textValue="default">
-                <AgentOption fallbackId="default" />
+                <AgentSelectDisplay fallbackName="default" />
               </SelectItem>
             </>
           ) : (
             <>
               {!selectedAgentExists && (
                 <SelectItem value={defaultAgentId} textValue={defaultAgentId}>
-                  <AgentOption fallbackId={defaultAgentId} />
+                  <AgentSelectDisplay fallbackName={defaultAgentId} />
                 </SelectItem>
               )}
               {sortedAgents.map((a) => (
-                <SelectItem key={a.id} value={a.id} textValue={`${a.name} (${a.id})`}>
-                  <AgentOption agent={a} />
+                <SelectItem key={a.id} value={a.id} textValue={a.name}>
+                  <AgentSelectDisplay agent={a} />
                 </SelectItem>
               ))}
             </>
@@ -110,30 +115,5 @@ export default function DefaultAgentSection({ agents, loading = false }: Default
         </SelectContent>
       </Select>
     </section>
-  )
-}
-
-function AgentOption({ agent, fallbackId }: { agent?: AgentSummary; fallbackId?: string }) {
-  const id = agent?.id ?? fallbackId ?? "default"
-  const name = agent?.name ?? id
-
-  return (
-    <span className="inline-flex min-w-0 items-center gap-2">
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/15 text-[10px] text-primary">
-        {agent?.avatar ? (
-          <img
-            src={getTransport().resolveAssetUrl(agent.avatar) ?? agent.avatar}
-            className="h-full w-full object-cover"
-            alt=""
-          />
-        ) : agent?.emoji ? (
-          <span>{agent.emoji}</span>
-        ) : (
-          <Bot className="h-3 w-3 text-muted-foreground" />
-        )}
-      </span>
-      <span className="truncate">{name}</span>
-      <span className="shrink-0 font-mono text-[10px] text-muted-foreground">({id})</span>
-    </span>
   )
 }

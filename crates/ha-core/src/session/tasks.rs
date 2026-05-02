@@ -1,8 +1,60 @@
 use anyhow::Result;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use super::db::SessionDB;
+
+/// Emit a `task_updated` EventBus snapshot. Single source of truth for the
+/// event shape — Tauri/HTTP shells, the `task_*` tools, and any future
+/// task-mutating path all go through here so the frontend never sees stale
+/// or shape-divergent updates.
+pub fn emit_task_snapshot(session_id: &str, tasks: &[Task]) {
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "task_updated",
+            json!({ "sessionId": session_id, "tasks": tasks }),
+        );
+    }
+}
+
+/// Set status on a task, emit the snapshot, return the post-update list.
+/// The Tauri/HTTP shells delegate here so they stay as 1-line bodies.
+///
+/// When the user manually completes a task (status=Completed), this also
+/// triggers the plan auto-complete check via `crate::plan::maybe_complete_plan`
+/// — same side effect as the model-driven `task_update` tool, so the plan
+/// state can collapse to Completed regardless of whether the last task was
+/// closed by the model or by the user clicking the button.
+pub async fn set_task_status_and_snapshot(
+    db: &SessionDB,
+    id: i64,
+    status: TaskStatus,
+) -> Result<Vec<Task>> {
+    let updated = db.update_task(id, Some(status), None, None)?;
+    let tasks = db.list_tasks(&updated.session_id).unwrap_or_default();
+    emit_task_snapshot(&updated.session_id, &tasks);
+    if status == TaskStatus::Completed {
+        crate::plan::maybe_complete_plan(&updated.session_id, &tasks).await;
+    }
+    Ok(tasks)
+}
+
+/// Delete a task, emit the post-delete snapshot, return the post-delete list.
+///
+/// Mirrors `set_task_status_and_snapshot` in also calling
+/// `crate::plan::maybe_complete_plan` afterward — deleting the last pending
+/// task in a plan window must collapse the plan to Completed just like
+/// flipping that task to Completed would, otherwise the plan stays stuck in
+/// Executing forever (git checkpoint never cleaned up, `plan_mode_changed`
+/// never emitted).
+pub async fn delete_task_and_snapshot(db: &SessionDB, id: i64) -> Result<Vec<Task>> {
+    let session_id = db.delete_task(id)?;
+    let tasks = db.list_tasks(&session_id).unwrap_or_default();
+    emit_task_snapshot(&session_id, &tasks);
+    crate::plan::maybe_complete_plan(&session_id, &tasks).await;
+    Ok(tasks)
+}
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -117,6 +169,40 @@ impl SessionDB {
             Some(Err(e)) => Err(anyhow::anyhow!("DB error: {}", e)),
             None => Err(anyhow::anyhow!("task {} not found", id)),
         }
+    }
+
+    /// Delete the row and return the session_id it belonged to in one round
+    /// trip — callers need the session_id to refresh task list snapshots, so
+    /// `DELETE … RETURNING` saves a separate `lookup_task_session` query.
+    pub fn delete_task(&self, id: i64) -> Result<String> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let session_id: Option<String> = conn
+            .query_row(
+                "DELETE FROM tasks WHERE id = ?1 RETURNING session_id",
+                params![id],
+                |row| row.get(0),
+            )
+            .ok();
+        session_id.ok_or_else(|| anyhow::anyhow!("task {} not found", id))
+    }
+
+    /// Cheap existence probe for the streaming-loop hot path. Avoids the full
+    /// row-deserialize + Vec allocation of `list_tasks` when the only question
+    /// is "should I bother formatting the task reminder this round?". Lock +
+    /// one prepared SELECT, returns on first non-completed row.
+    pub fn has_active_tasks(&self, session_id: &str) -> Result<bool> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT 1 FROM tasks WHERE session_id = ?1 AND status != 'completed' LIMIT 1",
+        )?;
+        let mut rows = stmt.query(params![session_id])?;
+        Ok(rows.next()?.is_some())
     }
 
     pub fn list_tasks(&self, session_id: &str) -> Result<Vec<Task>> {

@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
 import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { DashboardFilter as DashboardFilterState } from "./types"
@@ -16,6 +17,8 @@ import type { DashboardFilter as DashboardFilterState } from "./types"
 interface Agent {
   id: string
   name: string
+  emoji?: string | null
+  avatar?: string | null
 }
 
 interface Provider {
@@ -110,6 +113,7 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
   }
 
   const hasActiveFilters = filter.agentId || filter.providerId || filter.modelId
+  const selectedAgent = agents.find((a) => a.id === filter.agentId)
 
   const rangeKeys: RangeKey[] = ["today", "7d", "30d", "90d", "all", "custom"]
 
@@ -161,13 +165,17 @@ export default function DashboardFilter({ filter, onChange }: DashboardFilterPro
         onValueChange={(v) => onChange({ ...filter, agentId: v === "__all__" ? null : v })}
       >
         <SelectTrigger className="h-7 w-36 text-xs">
-          <SelectValue placeholder={t("dashboard.filter.allAgents")} />
+          {selectedAgent ? (
+            <AgentSelectDisplay agent={selectedAgent} size="xs" />
+          ) : (
+            <SelectValue placeholder={t("dashboard.filter.allAgents")} />
+          )}
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="__all__">{t("dashboard.filter.allAgents")}</SelectItem>
           {agents.map((a) => (
-            <SelectItem key={a.id} value={a.id}>
-              {a.name}
+            <SelectItem key={a.id} value={a.id} textValue={a.name}>
+              <AgentSelectDisplay agent={a} size="xs" />
             </SelectItem>
           ))}
         </SelectContent>

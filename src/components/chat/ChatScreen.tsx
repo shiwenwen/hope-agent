@@ -40,6 +40,7 @@ import { DiffPanel } from "./diff-panel/DiffPanel"
 import { useModelState } from "./hooks/useModelState"
 import SystemPromptDialog from "./SystemPromptDialog"
 import { PlanPanel } from "./plan-mode/PlanPanel"
+import type { BuiltPlanComment } from "./plan-mode/planCommentMessage"
 import { useProjects } from "./project/hooks/useProjects"
 import ProjectDialog from "./project/ProjectDialog"
 import ProjectOverviewDialog from "./project/ProjectOverviewDialog"
@@ -110,7 +111,7 @@ export default function ChatScreen({
 
   // Plan mode state (declared early so useChatStream can access it)
   const [planModeState, setPlanModeState] = useState<
-    "off" | "planning" | "review" | "executing" | "paused" | "completed"
+    "off" | "planning" | "review" | "executing" | "completed"
   >("off")
 
   // Shared stream identity state for dedup across the primary per-call
@@ -499,6 +500,15 @@ export default function ChatScreen({
     })
   }, [currentAgentId])
 
+  // Listen for tray "focus-session" event — emitted when the user clicks an
+  // in-progress regular conversation entry inside the system tray dropdown.
+  useEffect(() => {
+    return getTransport().listen("tray:focus-session", (raw) => {
+      const sessionId = (raw as { sessionId?: string } | undefined)?.sessionId
+      if (sessionId) void session.handleSwitchSession(sessionId)
+    })
+  }, [session.handleSwitchSession])
+
   // Listen for channel slash command state-sync events
   useEffect(() => {
     const unlisteners: Array<() => void> = []
@@ -766,7 +776,7 @@ export default function ChatScreen({
           logger.error("ui", "ChatScreen::slashExport", "Export failed", e)
         }
         break
-      case "setPermissionMode":
+      case "setToolPermission":
         stream.setPermissionMode(action.mode)
         break
       case "displayOnly":
@@ -797,17 +807,11 @@ export default function ChatScreen({
         stream.handleSend(t("planMode.executeCommand"), {
           planMode: "executing",
           displayText: t("planMode.executionApproved"),
+          isPlanTrigger: true,
         })
         break
       case "showPlan":
         planMode.setPlanContent(action.planContent)
-        planMode.setShowPanel(true)
-        break
-      case "pausePlan":
-        planMode.pauseExecution()
-        break
-      case "resumePlan":
-        planMode.resumeExecution()
         planMode.setShowPanel(true)
         break
       case "viewSystemPrompt":
@@ -847,6 +851,12 @@ export default function ChatScreen({
         void handleNewChatInProject(action.projectId, undefined, false)
         break
       }
+      // result.content (rendered above as an event chip) is the only
+      // user-facing surface today; richer wiring tracked in F-033.
+      case "recapCard":
+      case "openDashboardTab":
+      case "skillFork":
+        break
     }
   }
 
@@ -857,6 +867,7 @@ export default function ChatScreen({
     stream.handleSend(t("planMode.executeCommand"), {
       planMode: "executing",
       displayText: t("planMode.executionApproved"),
+      isPlanTrigger: true,
     })
   }
 
@@ -864,6 +875,7 @@ export default function ChatScreen({
     stream.handleSend(t("planMode.executeCommand"), {
       planMode: "executing",
       displayText: t("planMode.executionResumed"),
+      isPlanTrigger: true,
     })
   }
 
@@ -872,23 +884,21 @@ export default function ChatScreen({
   }
 
   // ── Plan Request Changes Handler ──────────────────────────────
-  const handleRequestChanges = (feedback: string) => {
-    // Send feedback back to LLM, which will revise the plan
+  // See `planCommentMessage.ts` for the prompt vs displayText vs payload split.
+  const handleRequestChanges = ({ prompt, displayText, payload }: BuiltPlanComment) => {
     setPlanState("planning")
     if (currentSessionId) {
       getTransport()
         .call("set_plan_mode", { sessionId: currentSessionId, state: "planning" })
         .catch(() => {})
     }
-    sendMessage(feedback)
+    sendMessage(prompt, { displayText, planComment: payload })
   }
 
   const shouldShowPlanPanel =
     planMode.showPanel &&
     planMode.planState !== "off" &&
-    (planMode.planState === "planning" ||
-      planMode.planContent.trim().length > 0 ||
-      planMode.planSteps.length > 0)
+    (planMode.planState === "planning" || planMode.planContent.trim().length > 0)
 
   const handlePlanPanelDragStart = (e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault()
@@ -1145,21 +1155,12 @@ export default function ChatScreen({
               pendingQuestionGroup={planMode.pendingQuestionGroup}
               onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
               planCardData={
-                planMode.planCardInfo
-                  ? {
-                      title: planMode.planCardInfo.title,
-                      steps: planMode.planSteps,
-                      sessionId: session.currentSessionId || "",
-                    }
-                  : null
+                planMode.planCardInfo ? { title: planMode.planCardInfo.title } : null
               }
               planState={planMode.planState}
-              planSteps={planMode.planSteps}
               onOpenPlanPanel={planMode.openPlanPanel}
               onApprovePlan={handlePlanApprove}
               onExitPlan={planMode.exitPlanMode}
-              onPausePlan={planMode.pauseExecution}
-              onResumePlan={planMode.resumeExecution}
               planSubagentRunning={planMode.planSubagentRunning}
               onSwitchModel={handleMessageSwitchModel}
               onViewSystemPrompt={loadSystemPrompt}
@@ -1226,7 +1227,6 @@ export default function ChatScreen({
                   workingDirSaving={workingDirSaving}
                   onWorkingDirChange={handleWorkingDirChange}
                   planState={planMode.planState}
-                  planProgress={planMode.progress}
                   onEnterPlanMode={planMode.enterPlanMode}
                   onExitPlanMode={planMode.exitPlanMode}
                   onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
@@ -1278,16 +1278,11 @@ export default function ChatScreen({
               </div>
               <PlanPanel
                 planState={planMode.planState}
-                planSteps={planMode.planSteps}
                 planContent={planMode.planContent}
-                progress={planMode.progress}
-                completedCount={planMode.completedCount}
                 sessionId={session.currentSessionId}
                 onApprove={handlePlanApprove}
                 onExit={planMode.exitPlanMode}
                 onClose={() => planMode.setShowPanel(false)}
-                onPause={planMode.pauseExecution}
-                onResume={planMode.resumeExecution}
                 onContinue={handlePlanContinue}
                 isExecutionActive={session.loading && planMode.planState === "executing"}
                 onRequestChanges={handleRequestChanges}

@@ -15,6 +15,7 @@ import {
 } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
 import { initDraftSkillsStore } from "@/hooks/useDraftSkillsStore"
+import { openExternalUrl } from "@/lib/openExternalUrl"
 import { SKILLS_EVENTS } from "@/types/skills"
 import { Toaster } from "@/components/ui/sonner"
 import { toast } from "sonner"
@@ -203,7 +204,18 @@ export default function App() {
       } else if (job.status === "cancelled") {
         toast.info(t("localModelJobs.toast.cancelled", { model: job.displayName }))
       } else {
-        toast.error(t("localModelJobs.toast.failed", { model: job.displayName }))
+        const description = job.error?.trim() || undefined
+        const isOllamaInstall = job.kind === "ollama_install"
+        toast.error(t("localModelJobs.toast.failed", { model: job.displayName }), {
+          description,
+          duration: isOllamaInstall ? 15000 : undefined,
+          action: isOllamaInstall
+            ? {
+                label: t("localModelJobs.toast.openDownload"),
+                onClick: () => openExternalUrl("https://ollama.com/download"),
+              }
+            : undefined,
+        })
       }
     }
 

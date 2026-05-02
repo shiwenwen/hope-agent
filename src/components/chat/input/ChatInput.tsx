@@ -98,8 +98,7 @@ interface ChatInputProps {
   workingDirSaving?: boolean
   onWorkingDirChange?: (workingDir: string | null) => void
   // Plan mode
-  planState?: "off" | "planning" | "review" | "executing" | "paused" | "completed"
-  planProgress?: number
+  planState?: "off" | "planning" | "review" | "executing" | "completed"
   onEnterPlanMode?: () => void
   onExitPlanMode?: () => void
   onTogglePlanPanel?: () => void
@@ -140,7 +139,6 @@ export default function ChatInput({
   workingDirSaving = false,
   onWorkingDirChange,
   planState = "off",
-  planProgress = 0,
   onEnterPlanMode,
   onExitPlanMode,
   onTogglePlanPanel,
@@ -228,17 +226,14 @@ export default function ChatInput({
   const planToggleTip = (() => {
     switch (planState) {
       case "off":
+      case "completed":
         return t("planMode.enter")
       case "planning":
         return t("planMode.indicator")
       case "review":
         return t("planMode.review.badge")
       case "executing":
-        return `${t("planMode.executing")} ${planProgress}%`
-      case "paused":
-        return t("planMode.paused.badge")
-      case "completed":
-        return t("planMode.completed")
+        return t("planMode.executing")
     }
   })()
 
@@ -602,7 +597,7 @@ export default function ChatInput({
               <button
                 aria-label={planToggleTip}
                 onClick={() => {
-                  if (planState === "off") {
+                  if (planState === "off" || planState === "completed") {
                     onEnterPlanMode?.()
                   } else if (planState === "planning") {
                     onExitPlanMode?.()
@@ -618,11 +613,7 @@ export default function ChatInput({
                       ? "text-purple-600 bg-purple-500/10"
                       : planState === "executing"
                         ? "text-green-600 bg-green-500/10"
-                        : planState === "paused"
-                          ? "text-yellow-600 bg-yellow-500/10"
-                          : planState === "completed"
-                            ? "text-green-600 bg-green-500/10"
-                            : "text-muted-foreground hover:text-foreground",
+                        : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 <ClipboardList className="h-3.5 w-3.5 shrink-0" />

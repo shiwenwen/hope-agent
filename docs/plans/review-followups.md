@@ -31,6 +31,118 @@
 ## Open
 
 
+### F-040 mid-turn plan-state probe 用 AtomicU64 version gate 跳过 RwLock 读
+
+- **来源**：2026-05-02 mid-turn plan mode rebuild 修复 `/simplify` review (efficiency agent)
+- **现象**：[`streaming_loop.rs`](crates/ha-core/src/agent/streaming_loop.rs) 每个 round 头都跑一次 `crate::plan::get_plan_state(sid).await`（`tokio::sync::RwLock` read + HashMap lookup）+ 一次 `plan_agent_mode_for_state` 构造 `PlanAgentConfig::default_config()`（~14 个 String alloc）。50 round 上限 ×~50ns RwLock + ~14 个 String alloc/round = ~5μs，相比 LLM round（秒级）当前可忽略
+- **为什么留**：当前规模不构成 hot-path 瓶颈；过早优化没收益。改起来要加 [`plan/store.rs`](crates/ha-core/src/plan/store.rs) 全局 `static PLAN_STATE_VERSION: AtomicU64` + `set_plan_state` 写时 `fetch_add`，streaming_loop 缓存上轮 version，相等就 skip。改动小但要确保所有 plan state 变更入口都 bump version
+- **改的话要做什么**：
+  - `plan/store.rs` 加 version counter
+  - `set_plan_state` / `transition_state` 写路径 bump
+  - `streaming_loop` round 头先比对 version；version 没变则跳过整个 mode 推导
+  - 配套：`PlanAgentConfig::default_config()` 改返回 `&'static PlanAgentConfig`（`OnceLock` lazily 初始化），让全部 turn-start 路径也受益
+- **影响面**：纯性能，无功能 / 安全影响
+- **触发时机建议**：plan mode 用户量上来后、tool loop 实际 round 数上来时；或者下一次动 plan store 时顺手
+
+
+### F-039 PlanPanel 在 rapid 连续 submit_plan 场景偶尔不刷新内容（root cause 未定）
+
+- **来源**：2026-05-02 plan inline comment 三件套修复期间发现。用户连续评论 → 模型多次 resubmit_plan → 右侧 PlanPanel 偶尔仍显示旧 plan
+- **现象**：理论链路（`submit_plan` emit `plan_submitted` 带 `content` → `usePlanMode` listener `setPlanContent`）应该工作，但用户实际见不到刷新。当时为了赶紧收掉用户痛点，加了"主动 refetch `get_plan_content`"作为 belt-and-suspenders，掩盖了真问题
+- **当前状态**：refetch 已经收紧到只在 `payload.content` 缺失时兜底（[`usePlanMode.ts`](src/components/chat/plan-mode/usePlanMode.ts) plan_submitted handler）。正常路径只走 `setPlanContent(payload.content)` 一次
+- **待办**：复现并定位真因。可能方向：
+  - React state batching 在 EventBus 同步 emit 多个事件时合并掉中间 setPlanContent
+  - PlanPanel memoization / props 引用相等导致 skip render
+  - listener closure stale（虽然 deps `[currentSessionId, setPlanState]` 看起来对）
+  - backend `plan_submitted` 实际未带 content（理论 emit 永远带，但 code path 可能有遗漏）
+- **触发条件**：用户报告再次出现"评论后 panel 不刷新"或本人手动复测能稳定复现
+- **优先级**：低（refetch 兜底覆盖了，UX 不可见）
+
+### F-038 enter_plan_mode 对 single-deliverable user-facing 创意任务覆盖不足
+
+- **来源**：2026-05-02 plan/task 解耦重构后跑「网页贪吃蛇」实测发现模型不进 plan mode 直接动手，零询问视觉/控制/玩法等用户偏好。当期试过方案 B（激进重写）和方案 C（保守兜底）两版均回滚，决定先观察、保留两套备选方案待后续触发场景再决定
+- **现象**：用户输入「我想开发一个简单的网页版的贪吃蛇游戏」，模型 thinking 判断「single-step / can be done in fewer than 3 steps」（命中 enter_plan_mode 当前描述的 "When NOT to Use" 第四条）+ HUMAN_IN_THE_LOOP_GUIDANCE 的 "low-cost reversible just do it" / "pure style detail user has no opinion on" → 直接调 task_create 拆 todo 后开始 write HTML，全程零询问。同类场景预计还有：登录页、dashboard 小组件、深色模式、单页 UI 设计等 user-facing 创意任务
+- **根因**：当前 enter_plan_mode 描述偏中立平衡（"trivial / fewer than 3 steps 不进 plan"），HUMAN_IN_THE_LOOP_GUIDANCE 又说"low-cost just do it"——两个独立判断都给"别打扰"信号，**贪吃蛇这种 single-file 创意小项目两边都被劝退**。
+- **当前选择**：不动。**用户对过度询问的担忧 > 修复贪吃蛇的收益**。两个被否决的方案登记如下，将来覆盖率不足时再考虑
+
+#### 方案 C（保守兜底，曾上线 commit 0fd75e1c 后回滚）
+
+只在 `When NOT to Use` 后追加一段「Edge Case Tiebreaker」：
+
+> If a single-deliverable task is **user-facing** (the user will run / read / interact with the result, e.g. a small game, login page, dashboard widget) AND has multiple reasonable directions in **visual style**, **control scheme**, or **scope** (MVP vs full-featured), lean toward entering plan mode rather than guessing. Limit this rule to those three dimensions only — do NOT extend it to tone / depth / formatting / naming / phrasing details, which the user typically has no opinion on (translate / summarize / draft email / clean up comments / rename variables stay in normal mode).
+
+两层防御：
+1. 限定到 single-deliverable + user-facing + 三个明确维度（visual style / control scheme / scope）
+2. 显式 deny list：tone / depth / formatting / naming / phrasing 不算
+
+回滚原因：用户对方案 C 仍有过度询问担忧，决定连保守版也先不上，纯兜底方案存档备用。
+
+#### 方案 B（中庸重写，曾尝试 commit a02f570f 后回滚）
+
+完整重写 enter_plan_mode 描述结构：
+
+1. 顶层语气从中立 "prefer for non-trivial" 改为主动 "use this tool **proactively**" + "**prefer using unless tasks are simple**"
+2. 把 5 类触发条件重组为 7 条独立编号条款：
+   - New Feature / Working Artifact（producing something user will run/read/interact with）
+   - Multiple Valid Approaches（multiple ways with comparable trade-offs）
+   - Code / Design Modifications（changes to existing behavior/structure）
+   - Multi-File / Multi-Section Changes（3+ files OR 3+ logical sections）
+   - Unclear Requirements（need to explore first）
+   - User Preferences Matter（visual / controls / palette / scope —— **不含** tone / depth）
+   - Non-Code Domains（writing / research / analysis / information organization）
+3. 删除「fewer than 3 steps」歧义条款（贪吃蛇 single-file 但是 multi-section，用步数判断会误伤）
+4. "When NOT to Use" 收紧到只剩 typo / 单函数清晰需求 / step-by-step 详细指令 / 纯 Q&A / 一次性脚本明确输出
+5. 新增 GOOD / BAD examples 段：贪吃蛇 / 登录页 / 深色模式 / 小工具 UI 归 GOOD；改 typo / 加 log / 改名 / 跑测试 / Q&A 归 BAD
+6. **不加** "If unsure, err on the side of planning" 兜底（这条最容易引发过度询问，方案 B 故意不加；当时 a02f570f 加了，正是 review 否掉的核心理由之一）
+7. **不加**「写文章 / 调研」类 GOOD examples（这类用户经常希望"快速给一版我看了再调"）
+
+回滚原因：方案 B 的 7 条触发条件 + GOOD examples 段叠加后，对边界场景（README / 调研 / 翻译 / 邮件起草 / 总结）的过度询问风险无法量化排除，用户决定先不上。
+
+#### 测试用例对比
+
+| 用例 | 当前不动 | 方案 C 兜底版 | 方案 B 中庸版 |
+|---|---|---|---|
+| 网页贪吃蛇（原痛点） | 不 plan ✗ | plan ✓ | plan ✓ |
+| 修 typo / 加 log / 改名 / 跑测试 | 不 plan ✓ | 不 plan ✓ | 不 plan ✓ |
+| 翻译 / 总结 / 邮件 / 注释整理 | 不 plan ✓ | 不 plan ✓ | 不 plan ✓ |
+| 做一个登录页 | 可能不 plan ✗ | 可能 plan | plan ✓ |
+| 实现深色模式 | 可能不 plan ✗ | 可能不 plan | plan ✓ |
+| 写 README / 调研 | 不 plan ✓ | 不 plan ✓ | 可能 plan ⚠️（过度风险） |
+
+#### 触发时机建议
+
+- 如果用户多次反馈"做小游戏/小工具/UI 没问就直接干"，先考虑方案 C
+- 如果方案 C 上后仍发现「登录页」「深色模式」「dashboard widget」覆盖率不够，再考虑方案 B
+- 用户主动按 Plan 按钮 / `/plan enter` 始终是兜底通道，本期 plan/task 解耦后这条路工作良好——所以这个 followup 优先级不高
+
+#### 影响面
+
+无用户阻塞——用户可以主动按 Plan 按钮 / `/plan enter` 进入 plan mode，模型自行判断的"建议"路径只是 nice-to-have 增强。属于"模型主动性 vs 用户专注度"的取舍，决策权在用户偏好。
+
+
+
+
+### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
+
+- **来源**：2026-05-01 跨平台兼容性修复 PR（`claude/cross-platform-compatibility-check-qBENn`）
+- **现象**：本期 PR 只修了"主路径在非 macOS / 非 Tauri 直接走不通"的两个硬伤（Skills 目录选择 + Ollama 失败 UX）。仓库里仍有大量 `#[cfg(target_os = "linux")]` / `#[cfg(target_os = "macos")]` 散落在业务代码而非 `crates/ha-core/src/platform/` 门面下，违反 AGENTS.md「优先用 `#[cfg(unix)]` / `#[cfg(windows)]`，少写 `target_os = "linux"`；新增跨平台原语统一放 `crates/ha-core/src/platform/`」规则。重灾区：
+  - [`crates/ha-core/src/service_install.rs`](../../crates/ha-core/src/service_install.rs)：~30 处 `target_os = "macos"` / `"linux"` 分支硬编码（launchd plist / systemd unit 业务逻辑应进 `platform::service` 子模块）
+  - [`crates/ha-core/src/weather.rs`](../../crates/ha-core/src/weather.rs)：geo lookup 走 macOS-only `CoreLocation` 分支（line 640+），Linux 走 IP geolocation fallback——能走通但耦合在业务文件里
+  - [`crates/ha-core/src/provider/proxy.rs`](../../crates/ha-core/src/provider/proxy.rs) / [`docker/proxy.rs`](../../crates/ha-core/src/docker/proxy.rs)：`scutil --proxy` macOS 系统代理探测，非 macOS 兜底 `None`——Linux 用户的 GNOME / KDE / 环境变量代理设置完全不被识别
+  - [`crates/ha-core/src/file_extract.rs:164`](../../crates/ha-core/src/file_extract.rs)：office 文件提取按 `target_os` 选 binary（`textutil` macOS / `libreoffice` Linux / Windows 未实现）——Windows 路径直接报"unsupported on this OS"
+  - [`crates/ha-core/src/permissions.rs:56,318`](../../crates/ha-core/src/permissions.rs)：macOS-only TCC 权限申请，非 macOS 全 stub——能走通但应迁到 `platform::permissions` 门面
+- **为什么留**：本期 PR 范围聚焦"完全走不通"的两个硬伤（用户已经在反馈），上面这些都不是 blocker：要么 Linux/Windows 已有降级路径（weather / proxy / permissions），要么是 Windows 一开始就不支持的功能（file_extract Windows）。逐个迁到 `platform/` 是大块结构性重构，不能跟修主路径混在一个 PR
+- **改的话要做什么**：
+  1. 先做 audit：grep 全 `target_os =` 出现位置，按"业务文件 vs platform 门面"分两堆
+  2. 对每个业务文件里的分支，判断是该 (a) 整个函数迁到 `platform/{macos,linux,windows}.rs` 然后 `crate::platform::xxx()` 调用，还是 (b) 改成 `cfg(unix)` 让 macOS+Linux+BSD 共享路径
+  3. `service_install.rs` 拆成 `platform::service::{install,uninstall,status}` + 各 OS 实现文件——是最大的一块
+  4. `provider/proxy.rs` Linux 路径加 `gsettings get org.gnome.system.proxy` + `kreadconfig5` + `http_proxy` env var 三档探测，与 macOS `scutil --proxy` 同结构，落 `platform::system_proxy`
+  5. `weather.rs` macOS CoreLocation 分支抽到 `platform::geolocation` 门面，业务层只调 `crate::platform::current_location()` 或 fallback IP geo
+  6. `file_extract.rs` Windows 路径加 PowerShell `Word.Application` COM / 或彻底声明 unsupported 不再 panic
+- **影响面**：全是"已经能跑但不够 OS-native"——非 macOS 用户拿到的是降级体验或不支持提示。无安全 / 数据正确性问题，但跨平台口碑会被这些细节拖累
+- **触发时机建议**：可以拆成 4-5 个独立小 PR 渐进推进（`service_install` / `system_proxy` / `geolocation` / `file_extract` / `permissions` 各一个），每个独立可 review；或者下次有 Windows / Linux 用户报某个具体子系统不能用时，趁势把对应那块迁到 platform 门面
+
+
 ### F-027 `notify()` 每次调用都跑 IPC 查权限，可缓存 first-grant
 
 - **来源**：2026-05-01 桌面后台通知 PR `/simplify` review（efficiency agent #5）
@@ -320,11 +432,83 @@
 - **影响面**：UX bug for 9 个语言用户。Settings 中相关 panel 看英文不会崩溃，但显著降低非英语 / 非中文用户的体验
 - **触发时机建议**：等收到非英 / 非中文用户反馈，或翻译团队 / 志愿者主动认领；不阻塞功能 PR
 
+### F-033 `recapCard` / `openDashboardTab` / `skillFork` 在 ChatScreen 是空 case
+
+- **来源**：2026-05-01 slash command audit `/simplify` review（quality agent）
+- **现象**：[`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) `handleCommandAction` 把这 3 个 `CommandAction` variant 当 no-op 处理，仅靠 switch 之前 push 的 event 气泡（`result.content`）告诉用户后台在跑。后端 `recap_progress` EventBus 流目前只被 Dashboard Recap tab 订阅，对话内没有渲染 RecapCard；`openDashboardTab` 没有 App 级 navigate 回调，不会跳页；`skillFork` 走 EventBus 注入回 user message，已生效，只是没有运行中状态卡片
+- **为什么留**：补这三块需要新组件（RecapCard 流式）+ App 级 prop drilling，不在当期 audit PR 范围；后端事件已经 stable，前端补做不会破坏接口
+- **改的话要做什么**：
+  1. `recapCard`：在 chat 渲染流抽出一个 `RecapCard` 组件，订阅 `recap_progress` 过滤 `action.reportId`，复用 Dashboard `RecapTab` 的渲染层
+  2. `openDashboardTab`：把 `setView("dashboard", { tab })` 挂到 `App.tsx`，`ChatScreen` props 加 `onOpenDashboardTab(tab: string)` 触发
+  3. `skillFork`：可选——加个轻量 "skill running" 卡片，订阅 EventBus skill_run_progress；当前 result.content 文本提示已经够用
+- **影响面**：3 个 slash command 在 GUI 体验降级（功能正常，反馈不及时），不影响 IM 渠道
+- **触发时机建议**：下一次动 `ChatScreen` 或 Recap UI 时顺手收掉
+
+### F-034 Skill 目录扫描没有 `SKILL_CACHE_VERSION`-keyed 缓存
+
+- **来源**：2026-05-01 slash command audit `/simplify` review（efficiency agent）
+- **现象**：[`crates/ha-core/src/skills/discovery.rs::load_all_skills_with_budget`](../../crates/ha-core/src/skills/discovery.rs) 每次调用都重新走文件系统扫描 bundled + `~/.agents/skills` + `extra_skills_dirs` + managed + project 五类目录，无任何缓存。 hot 调用方包括：
+  - [`slash_commands::im_menu_entries`](../../crates/ha-core/src/slash_commands/mod.rs)（Telegram + Discord 同步、`/help`、`list_slash_commands` 都消费）
+  - `system_prompt` 渲染（每次 LLM 请求构造 prompt 时都跑一次）
+  - `skill_search` 工具
+  - `handle_help`（独立调 `get_invocable_skills`，效率 agent 也提到）
+
+  IM menu 自动 re-sync 场景特别痛：debounce 触发后，N 个 running account 串行 sync_commands_for_account 各调一次 `im_menu_entries → list_slash_commands → get_invocable_skills`，等于 N 次完整文件系统扫描背靠背
+- **为什么留**：本次 audit 的目标是把"IM 菜单不刷"的功能性 bug 收掉，缓存层属于独立性能优化；现成有 `skills::types::SKILL_CACHE_VERSION: AtomicU64` 全局计数器（`bump_skill_version` 已经在所有 mutate 路径埋好），缓存基础设施齐备，缺的只是消费方
+- **改的话要做什么**：
+  1. 在 `skills/discovery.rs` 加 `static SKILL_CACHE: OnceLock<RwLock<Option<(u64, Arc<Vec<SkillEntry>>)>>>`，`load_all_skills_with_budget` 入口先 read：`(version, entries)` 的 `version == SKILL_CACHE_VERSION.load(Relaxed)` 直接返回 Arc clone，否则正常扫描后 write 缓存
+  2. 缓存 key 还要包含 `extra_skills_dirs` 和 `disabled_skills`（不同输入可能命中相同 version）—— 用 `(SKILL_CACHE_VERSION, hash(extra_skills_dirs + disabled_skills))` 复合 key，或者干脆每次写 `bump_skill_version()` 即可（这两个字段写完都会 bump，存量代码已经如此）
+  3. `get_invocable_skills` 跟着改成消费 `Arc<Vec<SkillEntry>>` slice，避免 clone 整个 Vec
+  4. 为 `tools/settings.rs::update_app_config` 的 skill 类 category 补 `bump_skill_version()`（当前 audit 的 listener 是通过监听 `config:changed { category: "skills" }` 兜的，但缓存 invalidation 也需要这个 bump，否则缓存看不到变更）
+- **影响面**：性能 only，没有正确性问题。N 个 IM account 重 sync 时减少 N-1 次文件系统扫描；每次 LLM 请求 system_prompt 构造也省一次扫描。粗估 50ms × N 节省
+- **触发时机建议**：下一次做性能优化 PR 时；或者用户报"启动慢""LLM 第一次响应慢"时
+
+
+### F-035 `isAbsolutePath` helper 散落 3 处，应抽 `src/lib/pathUtil.ts`
+
+- **来源**：2026-05-01 桌面 markdown 文件路径链接 PR `/simplify` review（reuse agent）
+- **现象**：判断"是不是绝对路径"的 windows 盘符正则 `^[A-Za-z]:[\\/]` 在仓内重复了 3 处：
+  - [`src/components/common/MarkdownRenderer.tsx::isLocalPath`](../../src/components/common/MarkdownRenderer.tsx)（本期新增，含 `/` / `~/` / `file://` / windows）
+  - [`src/components/chat/file-mention/types.ts::joinAbs`](../../src/components/chat/file-mention/types.ts)（`/` + windows）
+  - [`src/lib/transport-tauri.ts::resolveAssetUrl`](../../src/lib/transport-tauri.ts)（windows 盘符）
+  - 三处都是 **inline regex**，定义略有差异（有的不含 `~/`，有的不含 `file://`），重复风险随 1→3→N 累积
+- **为什么留**：本期 PR 主题是 markdown 路径链接化，新增第 3 处时已经把语义最完整的版本（含 `/` / `~/` / `file://` / windows）落到 MarkdownRenderer 里。统一抽 helper 涉及 3 处行为对齐 + 单元测试，超出当期范围；MarkdownRenderer 那一处当下唯一被依赖的特性是"识别 LLM 输出的本地路径链接"，不需要 file-mention / transport-tauri 的额外 case
+- **改的话要做什么**：
+  1. 新建 `src/lib/pathUtil.ts`，导出 `isAbsolutePath(href: string): boolean`（最完整语义：`/` / `~/` / `file://` / windows 盘符）+ 可选的 `stripFileProtocol(href)` / `stripLineAnchor(href)`
+  2. MarkdownRenderer / file-mention/types / transport-tauri 三处 inline regex 统一替换为 `isAbsolutePath`
+  3. 加一组单元测试覆盖 unix / `~/` / `file://localhost/...` / `C:\\` / `D:/` / `relative/path` / 空串 / undefined
+- **影响面**：纯重构债务；当前三处行为差异极小且各自场景不会撞上对方的 case，没有用户可见 bug
+- **触发时机建议**：下一次有人改 file-mention 解析或 transport-tauri 的资产 URL 处理时顺手；或者撞到第 4 处需要写绝对路径判断时再统一
+
 ---
 
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
+
+- **关闭于**：2026-05-02，commit a64bcebb + 643cd2d8
+- **如何关闭**：删掉 `usePlanComment.ts` 死 hook（commit a64bcebb），抽 `planCommentMessage.ts` 纯函数 helper `buildPlanCommentMessage(selectedText, comment, t) -> {prompt, displayText, payload}`，PlanPanel + PlanDetachedWindow 的 `handleCommentSubmit` 都调这个 helper 构造请求；`onRequestChanges` 签名后来在 simplify pass (643cd2d8) 进一步收紧成单 `BuiltPlanComment` 对象。两个面板的 highlight / popover state 各自保留（页面级 state，没必要共享）
+- **效果**：核心 prompt + display + payload 构造逻辑统一一处，将来改 prompt 模板或 display 文案只动 `planCommentMessage.ts` 一个文件
+
+### F-037 Plan state transition 副作用代码在 5 处复制，缺共享 helper
+
+- **来源**：2026-05-02 Plan Mode 重构 `/codex:review` (codex 主报告 + 第一轮 reuse agent #1) + 修复 `/plan exit` 路径漏 cancel subagent bug 时再次撞到
+- **关闭**：2026-05-02
+- **修复方式**：抽出 [`crates/ha-core/src/plan/transition.rs`](../../crates/ha-core/src/plan/transition.rs) — `pub async fn transition_state(session_id, target, TransitionOpts) -> anyhow::Result<TransitionOutcome>`，按 review 建议封装 5 件副作用（cancel subagent on Off / cleanup checkpoint on Off+Completed / set_plan_state / create checkpoint on Executing / DB persist / emit `plan_mode_changed`）。`TransitionOpts` 暴露 `reason: &'static str`（每个 caller 必填，落 `plan_mode_changed.reason` 用于前端 / 遥测归因）+ `cancel_subagent_on_off: bool` + `manage_checkpoint: bool`（默认都 true，特殊路径可 opt-out）。6 个 caller 全部迁移：
+  - [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) — `reason="tool_enter_plan_mode"`
+  - [`tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs) — `reason="plan_submitted"`，额外 emit `plan_submitted` 携带 plan title + content（保留各路径二次 emit）
+  - [`slash_commands/handlers/plan.rs`](../../crates/ha-core/src/slash_commands/handlers/plan.rs) — `slash_enter` / `slash_exit` / `slash_approve`，顺手把 `db: &SessionDB` 形参移除（dispatcher 同步收紧）
+  - [`src-tauri/src/commands/plan.rs::set_plan_mode`](../../src-tauri/src/commands/plan.rs) — `reason="tauri_set_mode"`，原 60+ 行收敛到 8 行；`tauri::State<AppState>` 形参直接删除（不再需要）
+  - [`crates/ha-server/src/routes/plan.rs::set_plan_mode`](../../crates/ha-server/src/routes/plan.rs) — `reason="http_set_mode"`，与 Tauri 完全对齐
+  - [`tools/task.rs::maybe_complete_plan`](../../crates/ha-core/src/tools/task.rs) — `reason="all_tasks_completed"`，原 30 行手写收敛
+- **白拣的 bug**：原 Tauri / HTTP / slash 三条路径**全部漏发** `plan_mode_changed`（只有 3 个 model-tool 路径发过），意味着用户从 GUI / `/plan` 切换 plan 状态时，detached PlanWindow 等次要订阅者收不到通知；helper 化后这条路径自动统一发，前端 `usePlanMode.ts` listener 已是 idempotent functional update（`prev === next ? prev : next`）所以零回归。原 `/plan exit` 漏 cancel subagent 的 bug 也由 helper 兜底，下次再加新副作用（例如 "Executing 进入时落 timestamp"）只改 transition.rs 一处即可
+- **测试覆盖**：[`crates/ha-core/src/plan/tests.rs::test_transition_state_in_memory_contract`](../../crates/ha-core/src/plan/tests.rs) — 跑 `Off→Planning` Applied + `Planning→Completed` Rejected（必须经 Review）+ Rejected 后内存状态保持 Planning 不被污染。Globals 未注册时 DB / event-bus 副作用走 `Option::None` 跳过，单测无 fixture 即可
+- **验证**：`cargo fmt --all --check` / `cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings` / `cargo test -p ha-core --locked`（812 passed）/ `cargo check -p hope-agent` 全绿
+- **影响面**：纯重构 + 顺手补齐 GUI / HTTP / slash 三条路径的 `plan_mode_changed` emit。无用户可见行为变化，但 detached PlanWindow / 多窗口场景的状态同步路径更稳，后续维护成本下降一档
+
+---
 
 ### F-004 NDJSON 流式解析无统一 helper
 

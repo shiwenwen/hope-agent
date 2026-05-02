@@ -292,6 +292,33 @@ When you do write updates, write so the reader can pick up cold: complete senten
 
 End-of-turn summary: one or two sentences — what changed and what's next. Nothing else.";
 
+/// File path formatting guidance — only injected in desktop runtime so users
+/// can click paths to open them with the OS default app. Server / ACP modes
+/// skip it: server users have no way to act on a click, and ACP routes
+/// through external editors.
+///
+/// Goal: stop the model from emitting raw `/Users/.../foo.ts` or inline-code
+/// `` `/Users/.../foo.ts` `` — both make the message hard to read and
+/// uncopyable. Markdown links solve both: short display text + clickable
+/// target.
+pub(super) const MARKDOWN_PATH_LINKS_GUIDANCE: &str = "# File Path Formatting
+
+When you mention file paths in your responses, format them as markdown links so the user can click to open them. Use `[display_name](absolute_path)` syntax.
+
+- **Display name**: just the filename (e.g. `MarkdownRenderer.tsx`) or filename with a line number (e.g. `MarkdownRenderer.tsx:42`).
+- **Link target**: a Unix-style **absolute path starting with `/`** (e.g. `/Users/foo/repo/src/...`). Append `#L<line>` for a specific line (e.g. `#L42`) so future IDE integration can jump straight to it. Plain absolute paths without `#L` are also fine. Do not use `file://` URLs or Windows-style `C:\\...` paths — both have href stripped by the markdown sanitizer and become unclickable. Do not use relative paths (`src/foo.ts`) — they will not open.
+- **Paths with spaces**: wrap the destination in angle brackets so the markdown parser keeps it intact: `[display_name](</absolute path with spaces/file.ts>)`. Without the angle brackets, the link will not be parsed.
+- **Avoid** wrapping paths in inline code (`` `/Users/.../foo.ts` ``) or pasting them as plain text — long paths blow up the line and become unclickable noise.
+
+Examples:
+- Good: see [MarkdownRenderer.tsx:42](/Users/foo/repo/src/components/common/MarkdownRenderer.tsx#L42)
+- Good: edit [build.rs](/Users/foo/repo/crates/ha-core/src/system_prompt/build.rs)
+- Good: open [notes.md](</Users/foo/My Notes/notes.md>) — angle brackets needed because the path has a space
+- Bad: see `/Users/foo/repo/src/components/common/MarkdownRenderer.tsx:42`
+- Bad: see /Users/foo/repo/src/components/common/MarkdownRenderer.tsx
+
+This rule applies to file paths only. Keep wrapping shell commands, code identifiers, and short snippets in inline code — those are not paths.";
+
 /// Smart permission-mode guidance. Tells the model it can self-approve
 /// high-confidence calls via `_confidence: "high"` so the user isn't pinged
 /// for obviously safe ones. Lives at the prompt tail so a session-mode flip
