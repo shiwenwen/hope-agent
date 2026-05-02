@@ -157,31 +157,32 @@ async fn maybe_complete_plan(session_id: &str) {
     if crate::plan::get_plan_state(session_id).await != crate::plan::PlanModeState::Executing {
         return;
     }
-    if let Some(ref_name) = crate::plan::get_checkpoint_ref(session_id).await {
-        crate::plan::cleanup_checkpoint(&ref_name);
+    match crate::plan::transition_state(
+        session_id,
+        crate::plan::PlanModeState::Completed,
+        crate::plan::TransitionOpts::new("all_tasks_completed"),
+    )
+    .await
+    {
+        Ok(crate::plan::TransitionOutcome::Applied) => {
+            app_info!(
+                "plan",
+                "task_auto_complete",
+                "All tasks completed → plan transitioned to Completed for session {}",
+                session_id
+            );
+        }
+        Ok(crate::plan::TransitionOutcome::Rejected) => {}
+        Err(e) => {
+            app_warn!(
+                "plan",
+                "task_auto_complete",
+                "Failed to persist plan Completed for session {}: {}",
+                session_id,
+                e
+            );
+        }
     }
-    if !crate::plan::set_plan_state(session_id, crate::plan::PlanModeState::Completed).await {
-        return;
-    }
-    if let Some(db) = crate::get_session_db() {
-        let _ = db.update_session_plan_mode(session_id, crate::plan::PlanModeState::Completed);
-    }
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "plan_mode_changed",
-            json!({
-                "sessionId": session_id,
-                "state": crate::plan::PlanModeState::Completed.as_str(),
-                "reason": "all_tasks_completed",
-            }),
-        );
-    }
-    app_info!(
-        "plan",
-        "task_auto_complete",
-        "All tasks completed → plan transitioned to Completed for session {}",
-        session_id
-    );
 }
 
 pub(crate) async fn tool_task_list(_args: &Value, session_id: Option<&str>) -> String {

@@ -1,5 +1,5 @@
 use crate::commands::CmdError;
-use crate::plan::{self, PlanModeState, PlanVersionInfo};
+use crate::plan::{self, PlanModeState, PlanVersionInfo, TransitionOpts, TransitionOutcome};
 use ha_core::app_info;
 use ha_core::ask_user::AskUserQuestionAnswer;
 
@@ -25,71 +25,24 @@ pub async fn get_plan_mode(
 }
 
 #[tauri::command]
-pub async fn set_plan_mode(
-    session_id: String,
-    state: String,
-    app_state: tauri::State<'_, crate::AppState>,
-) -> Result<(), CmdError> {
+pub async fn set_plan_mode(session_id: String, state: String) -> Result<(), CmdError> {
     if state == "paused" {
         return Err(CmdError::msg("plan mode 'paused' state has been removed"));
     }
     let plan_state = PlanModeState::from_str(&state);
-    let previous_state = plan::get_plan_state(&session_id).await;
-    let persisted_plan_mode = app_state
-        .session_db
-        .get_session(&session_id)
-        .ok()
-        .flatten()
-        .map(|meta| meta.plan_mode);
-    let checkpoint_exists = plan::get_checkpoint_ref(&session_id).await.is_some();
-    let should_create_checkpoint = plan::should_create_execution_checkpoint(
-        &plan_state,
-        &previous_state,
-        persisted_plan_mode,
-        checkpoint_exists,
-    );
-    let checkpoint_to_cleanup =
-        if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
-            plan::get_checkpoint_ref(&session_id).await
-        } else {
-            None
-        };
-
-    // Cancel active plan sub-agent when exiting plan mode or transitioning away from Planning
-    if plan_state == PlanModeState::Off {
-        if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
-            if let Some(cancels) = crate::get_subagent_cancels() {
-                cancels.cancel(&run_id);
-                app_info!(
-                    "plan",
-                    "set_plan_mode",
-                    "Cancelled plan sub-agent: {}",
-                    run_id
-                );
-            }
-        }
-    }
-
-    if !plan::set_plan_state(&session_id, plan_state).await {
-        return Err(CmdError::msg(format!(
+    match plan::transition_state(
+        &session_id,
+        plan_state,
+        TransitionOpts::new("tauri_set_mode"),
+    )
+    .await?
+    {
+        TransitionOutcome::Applied => Ok(()),
+        TransitionOutcome::Rejected => Err(CmdError::msg(format!(
             "Invalid plan mode transition to '{}'",
             plan_state.as_str()
-        )));
+        ))),
     }
-
-    // Clean up checkpoint on successful completion or exit
-    if let Some(ref_name) = checkpoint_to_cleanup {
-        plan::cleanup_checkpoint(&ref_name);
-    }
-
-    // Create git checkpoint AFTER PlanMeta entry exists in the store
-    if should_create_checkpoint {
-        plan::create_checkpoint_for_session(&session_id).await;
-    }
-    // Persist to DB
-    let db = &app_state.session_db;
-    db.update_session_plan_mode(&session_id, plan_state)?;
-    Ok(())
 }
 
 #[tauri::command]

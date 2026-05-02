@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use ha_core::ask_user::{self as ask_user_mod, AskUserQuestionAnswer};
-use ha_core::plan::{self, PlanModeState, PlanVersionInfo};
+use ha_core::plan::{self, PlanModeState, PlanVersionInfo, TransitionOpts, TransitionOutcome};
 
 use crate::error::AppError;
 use crate::routes::helpers::session_db;
@@ -42,51 +42,20 @@ pub async fn set_plan_mode(
         ));
     }
     let plan_state = PlanModeState::from_str(&body.state);
-    let previous_state = plan::get_plan_state(&session_id).await;
-    let persisted_plan_mode = session_db()?
-        .get_session(&session_id)
-        .map_err(|e| AppError::internal(e.to_string()))?
-        .map(|meta| meta.plan_mode);
-    let checkpoint_exists = plan::get_checkpoint_ref(&session_id).await.is_some();
-    let should_create_checkpoint = plan::should_create_execution_checkpoint(
-        &plan_state,
-        &previous_state,
-        persisted_plan_mode,
-        checkpoint_exists,
-    );
-    let checkpoint_to_cleanup =
-        if plan_state == PlanModeState::Completed || plan_state == PlanModeState::Off {
-            plan::get_checkpoint_ref(&session_id).await
-        } else {
-            None
-        };
-
-    if plan_state == PlanModeState::Off {
-        if let Some(run_id) = plan::get_active_plan_run_id(&session_id).await {
-            if let Some(cancels) = ha_core::get_subagent_cancels() {
-                cancels.cancel(&run_id);
-            }
-        }
-    }
-
-    if !plan::set_plan_state(&session_id, plan_state).await {
-        return Err(AppError::bad_request(format!(
+    match plan::transition_state(
+        &session_id,
+        plan_state,
+        TransitionOpts::new("http_set_mode"),
+    )
+    .await
+    .map_err(|e| AppError::internal(e.to_string()))?
+    {
+        TransitionOutcome::Applied => Ok(Json(json!({ "updated": true }))),
+        TransitionOutcome::Rejected => Err(AppError::bad_request(format!(
             "Invalid plan mode transition to '{}'",
             plan_state.as_str()
-        )));
+        ))),
     }
-
-    if let Some(ref_name) = checkpoint_to_cleanup {
-        plan::cleanup_checkpoint(&ref_name);
-    }
-
-    if should_create_checkpoint {
-        plan::create_checkpoint_for_session(&session_id).await;
-    }
-    session_db()?
-        .update_session_plan_mode(&session_id, plan_state)
-        .map_err(|e| AppError::internal(e.to_string()))?;
-    Ok(Json(json!({ "updated": true })))
 }
 
 /// `GET /api/plan/{session_id}/content`

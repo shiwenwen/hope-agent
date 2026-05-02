@@ -5,6 +5,7 @@ mod store;
 mod subagent;
 #[cfg(test)]
 mod tests;
+mod transition;
 mod types;
 
 // ── Re-exports ──────────────────────────────────────────────────
@@ -43,3 +44,6 @@ pub use subagent::{
     get_active_plan_run_id, get_plan_owner_session_id, register_plan_subagent, spawn_plan_subagent,
     try_unregister_plan_subagent_sync, unregister_plan_subagent,
 };
+
+// Transition (centralized side-effect helper)
+pub use transition::{transition_state, TransitionOpts, TransitionOutcome};

@@ -1,5 +1,5 @@
 use crate::ask_user::{self, AskUserQuestion, AskUserQuestionGroup, AskUserQuestionOption};
-use crate::plan::{self, PlanModeState};
+use crate::plan::{self, PlanModeState, TransitionOpts, TransitionOutcome};
 use crate::process_registry::create_session_id;
 use serde_json::Value;
 
@@ -139,24 +139,23 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             .to_string();
     }
 
-    if !plan::set_plan_state(sid, PlanModeState::Planning).await {
-        return format!(
-            "Error: cannot transition from {} to Planning. Exit plan mode first if needed.",
-            current.as_str()
-        );
-    }
-    if let Some(db) = crate::get_session_db() {
-        let _ = db.update_session_plan_mode(sid, PlanModeState::Planning);
-    }
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "plan_mode_changed",
-            serde_json::json!({
-                "sessionId": sid,
-                "state": PlanModeState::Planning.as_str(),
-                "reason": "tool_enter_plan_mode",
-            }),
-        );
+    match plan::transition_state(
+        sid,
+        PlanModeState::Planning,
+        TransitionOpts::new("tool_enter_plan_mode"),
+    )
+    .await
+    {
+        Ok(TransitionOutcome::Applied) => {}
+        Ok(TransitionOutcome::Rejected) => {
+            return format!(
+                "Error: cannot transition from {} to Planning. Exit plan mode first if needed.",
+                current.as_str()
+            );
+        }
+        Err(e) => {
+            return format!("Error: failed to persist plan state: {}", e);
+        }
     }
 
     app_info!(

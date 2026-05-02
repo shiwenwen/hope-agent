@@ -31,32 +31,6 @@
 ## Open
 
 
-### F-037 Plan state transition 副作用代码在 5 处复制，缺共享 helper
-
-- **来源**：2026-05-02 Plan Mode 重构 `/codex:review` (codex 主报告 + 第一轮 reuse agent #1) + 修复 `/plan exit` 路径漏 cancel subagent bug 时再次撞到
-- **现象**：plan state 转换的"副作用三件套+"——cancel plan subagent / cleanup git checkpoint / create checkpoint / DB persist (`update_session_plan_mode`) / emit `plan_mode_changed`——在 5 处手写复制：
-  - [`crates/ha-core/src/tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs)（用户接受 Yes/No 后转 Planning：set_plan_state + DB + emit）
-  - [`crates/ha-core/src/tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs)（Planning → Review：set_plan_state + DB + emit `plan_submitted` + emit `plan_mode_changed`）
-  - [`crates/ha-core/src/slash_commands/handlers/plan.rs`](../../crates/ha-core/src/slash_commands/handlers/plan.rs)（4 个分支 enter / exit / approve / show 各自处理 transition + DB + checkpoint，channel/worker/slash 路径还要 emit `slash:plan_changed`）
-  - [`src-tauri/src/commands/plan.rs::set_plan_mode`](../../src-tauri/src/commands/plan.rs)（统一 4 态切换的"大入口"，包含 cancel subagent + cleanup checkpoint + create checkpoint + DB）
-  - [`crates/ha-server/src/routes/plan.rs::set_plan_mode`](../../crates/ha-server/src/routes/plan.rs)（HTTP 镜像 Tauri 大入口）
-  - 此外 [`crates/ha-core/src/tools/task.rs::maybe_complete_plan`](../../crates/ha-core/src/tools/task.rs)（task 全部完成自动转 Completed）也是同款副作用模式
-- **症状证据**：本期 codex review 揪出"`/plan exit` 路径漏 cancel subagent"——根源就是这 5 处分散逻辑导致 slash 路径跟 Tauri/HTTP 路径漂移；修过之后**仍然**没人保证下次 Tauri 加新副作用时 slash + tools 三处会自动同步。F-036 之前我提的 `set_plan_state(sid, mutator)` 减锁 helper 跟这条**不重叠**——那条聚焦"减少 RwLock write 次数"，这条聚焦"统一副作用语义"
-- **为什么留**：本期 PR 主题是 plan / task 解耦 + Codex review fix，再做"5 处副作用收编为单一 helper"是独立结构性重构（影响 5 个文件 + 行为契约统一），单独 PR 更安全；修过的 5 个退出入口（4 GUI + `/plan exit`）现在都对齐了，没有用户可见 bug 阻塞
-- **改的话要做什么**：
-  1. 在 [`crates/ha-core/src/plan/mod.rs`](../../crates/ha-core/src/plan/mod.rs) 或新文件 `plan/transition.rs` 暴露 `pub async fn transition_state(session_id, target: PlanModeState, opts: TransitionOpts)`，签名覆盖所有现有副作用：
-     - `cancel_subagent_on_off: bool`（默认 true，只有特殊路径需要 false）
-     - `manage_checkpoint: bool`（默认 true，自动按 should_create / cleanup 判定）
-     - `emit_event_reason: &'static str`（用于 `plan_mode_changed.reason` 字段，每个 caller 必填）
-     - 内部完成：cancel subagent (Off) → cleanup checkpoint (Off/Completed) → set_plan_state → create checkpoint (Executing) → DB persist → emit `plan_mode_changed`
-  2. 5 个调用点替换为 `plan::transition_state(...).await`：tools/enter_plan_mode.rs / tools/submit_plan.rs / slash_commands/handlers/plan.rs (4 个分支) / commands/plan.rs / routes/plan.rs / tools/task.rs::maybe_complete_plan
-  3. submit_plan 仍要额外 emit `plan_submitted`（携带 plan title + content），可在 transition_state 之后单独 emit；slash channel 路径仍要额外 emit `slash:plan_changed` 让 channel 前端刷新——保留各路径独有的二次 emit
-  4. 单测覆盖每条 transition path 的副作用契约：Off→Planning、Planning→Review、Review→Executing（建 checkpoint）、Executing→Completed（清 checkpoint）、Executing→Off（cancel subagent + 清 checkpoint）等
-  5. 测试一项现有真实 bug：用户开 plan_subagent 模式，调 `/plan exit`，期望 subagent 立刻取消（这个 bug 本期已修但是手动同步的，helper 化能保证下次回归）
-- **影响面**：当前 5 处对齐了所以无用户可见 bug；隐患是下次任何人加新 transition 副作用（比如"切 Executing 时记录开始时间戳"），又得手动同步 5 处，再次出现回归概率高
-- **触发时机建议**：下次有人改 plan transition 副作用（哪怕只想动一处）时**必须**先做这次重构再加新逻辑；或者排个独立小重构 PR 一次性收编。可与 F-036（usePlanComment hook 复用）一起做 plan-mode 的"消除重复"季度 PR
-
-
 ### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
 
 - **来源**：2026-05-02 Plan Mode 重构（plan/task 解耦）`/simplify` review（reuse agent #3 + quality agent #8）
@@ -435,6 +409,24 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-037 Plan state transition 副作用代码在 5 处复制，缺共享 helper
+
+- **来源**：2026-05-02 Plan Mode 重构 `/codex:review` (codex 主报告 + 第一轮 reuse agent #1) + 修复 `/plan exit` 路径漏 cancel subagent bug 时再次撞到
+- **关闭**：2026-05-02
+- **修复方式**：抽出 [`crates/ha-core/src/plan/transition.rs`](../../crates/ha-core/src/plan/transition.rs) — `pub async fn transition_state(session_id, target, TransitionOpts) -> anyhow::Result<TransitionOutcome>`，按 review 建议封装 5 件副作用（cancel subagent on Off / cleanup checkpoint on Off+Completed / set_plan_state / create checkpoint on Executing / DB persist / emit `plan_mode_changed`）。`TransitionOpts` 暴露 `reason: &'static str`（每个 caller 必填，落 `plan_mode_changed.reason` 用于前端 / 遥测归因）+ `cancel_subagent_on_off: bool` + `manage_checkpoint: bool`（默认都 true，特殊路径可 opt-out）。6 个 caller 全部迁移：
+  - [`tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs) — `reason="tool_enter_plan_mode"`
+  - [`tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs) — `reason="plan_submitted"`，额外 emit `plan_submitted` 携带 plan title + content（保留各路径二次 emit）
+  - [`slash_commands/handlers/plan.rs`](../../crates/ha-core/src/slash_commands/handlers/plan.rs) — `slash_enter` / `slash_exit` / `slash_approve`，顺手把 `db: &SessionDB` 形参移除（dispatcher 同步收紧）
+  - [`src-tauri/src/commands/plan.rs::set_plan_mode`](../../src-tauri/src/commands/plan.rs) — `reason="tauri_set_mode"`，原 60+ 行收敛到 8 行；`tauri::State<AppState>` 形参直接删除（不再需要）
+  - [`crates/ha-server/src/routes/plan.rs::set_plan_mode`](../../crates/ha-server/src/routes/plan.rs) — `reason="http_set_mode"`，与 Tauri 完全对齐
+  - [`tools/task.rs::maybe_complete_plan`](../../crates/ha-core/src/tools/task.rs) — `reason="all_tasks_completed"`，原 30 行手写收敛
+- **白拣的 bug**：原 Tauri / HTTP / slash 三条路径**全部漏发** `plan_mode_changed`（只有 3 个 model-tool 路径发过），意味着用户从 GUI / `/plan` 切换 plan 状态时，detached PlanWindow 等次要订阅者收不到通知；helper 化后这条路径自动统一发，前端 `usePlanMode.ts` listener 已是 idempotent functional update（`prev === next ? prev : next`）所以零回归。原 `/plan exit` 漏 cancel subagent 的 bug 也由 helper 兜底，下次再加新副作用（例如 "Executing 进入时落 timestamp"）只改 transition.rs 一处即可
+- **测试覆盖**：[`crates/ha-core/src/plan/tests.rs::test_transition_state_in_memory_contract`](../../crates/ha-core/src/plan/tests.rs) — 跑 `Off→Planning` Applied + `Planning→Completed` Rejected（必须经 Review）+ Rejected 后内存状态保持 Planning 不被污染。Globals 未注册时 DB / event-bus 副作用走 `Option::None` 跳过，单测无 fixture 即可
+- **验证**：`cargo fmt --all --check` / `cargo clippy -p ha-core -p ha-server --all-targets --locked -- -D warnings` / `cargo test -p ha-core --locked`（812 passed）/ `cargo check -p hope-agent` 全绿
+- **影响面**：纯重构 + 顺手补齐 GUI / HTTP / slash 三条路径的 `plan_mode_changed` emit。无用户可见行为变化，但 detached PlanWindow / 多窗口场景的状态同步路径更稳，后续维护成本下降一档
+
+---
 
 ### F-004 NDJSON 流式解析无统一 helper
 

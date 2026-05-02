@@ -1,4 +1,4 @@
-use crate::plan::{self, PlanModeState};
+use crate::plan::{self, PlanModeState, TransitionOpts, TransitionOutcome};
 use serde_json::Value;
 
 /// Execute the submit_plan tool.
@@ -40,12 +40,26 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }
     }
 
-    // Transition to Review state
-    if !plan::set_plan_state(&effective_sid, PlanModeState::Review).await {
-        return "Error: invalid plan state transition to review".to_string();
+    // Transition to Review state (centralized side effects: DB persist +
+    // plan_mode_changed emit). submit_plan additionally emits `plan_submitted`
+    // below with the content payload so the frontend can skip a follow-up RPC.
+    match plan::transition_state(
+        &effective_sid,
+        PlanModeState::Review,
+        TransitionOpts::new("plan_submitted"),
+    )
+    .await
+    {
+        Ok(TransitionOutcome::Applied) => {}
+        Ok(TransitionOutcome::Rejected) => {
+            return "Error: invalid plan state transition to review".to_string();
+        }
+        Err(e) => {
+            return format!("Error: failed to persist plan state: {}", e);
+        }
     }
 
-    // Set title on the meta entry
+    // Set title on the meta entry (post-transition so PlanMeta exists).
     {
         let store_ref = plan::store();
         let mut map = store_ref.write().await;
@@ -54,14 +68,8 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }
     }
 
-    // Persist to DB
-    if let Some(session_db) = crate::get_session_db() {
-        let _ =
-            session_db.update_session_plan_mode(&effective_sid, crate::plan::PlanModeState::Review);
-    }
-
-    // Emit events to frontend. Include `content` in the payload so the frontend
-    // doesn't need a follow-up `get_plan_content` RPC after the event fires.
+    // submit_plan-specific event (carries plan title + content so the frontend
+    // doesn't need a follow-up `get_plan_content` RPC).
     if let Some(bus) = crate::globals::get_event_bus() {
         bus.emit(
             "plan_submitted",
@@ -69,14 +77,6 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
                 "sessionId": effective_sid,
                 "title": title,
                 "content": content,
-            }),
-        );
-        bus.emit(
-            "plan_mode_changed",
-            serde_json::json!({
-                "sessionId": effective_sid,
-                "state": PlanModeState::Review.as_str(),
-                "reason": "plan_submitted",
             }),
         );
     }
