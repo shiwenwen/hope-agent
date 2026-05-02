@@ -31,6 +31,47 @@
 ## Open
 
 
+### F-037 Plan state transition 副作用代码在 5 处复制，缺共享 helper
+
+- **来源**：2026-05-02 Plan Mode 重构 `/codex:review` (codex 主报告 + 第一轮 reuse agent #1) + 修复 `/plan exit` 路径漏 cancel subagent bug 时再次撞到
+- **现象**：plan state 转换的"副作用三件套+"——cancel plan subagent / cleanup git checkpoint / create checkpoint / DB persist (`update_session_plan_mode`) / emit `plan_mode_changed`——在 5 处手写复制：
+  - [`crates/ha-core/src/tools/enter_plan_mode.rs`](../../crates/ha-core/src/tools/enter_plan_mode.rs)（用户接受 Yes/No 后转 Planning：set_plan_state + DB + emit）
+  - [`crates/ha-core/src/tools/submit_plan.rs`](../../crates/ha-core/src/tools/submit_plan.rs)（Planning → Review：set_plan_state + DB + emit `plan_submitted` + emit `plan_mode_changed`）
+  - [`crates/ha-core/src/slash_commands/handlers/plan.rs`](../../crates/ha-core/src/slash_commands/handlers/plan.rs)（4 个分支 enter / exit / approve / show 各自处理 transition + DB + checkpoint，channel/worker/slash 路径还要 emit `slash:plan_changed`）
+  - [`src-tauri/src/commands/plan.rs::set_plan_mode`](../../src-tauri/src/commands/plan.rs)（统一 4 态切换的"大入口"，包含 cancel subagent + cleanup checkpoint + create checkpoint + DB）
+  - [`crates/ha-server/src/routes/plan.rs::set_plan_mode`](../../crates/ha-server/src/routes/plan.rs)（HTTP 镜像 Tauri 大入口）
+  - 此外 [`crates/ha-core/src/tools/task.rs::maybe_complete_plan`](../../crates/ha-core/src/tools/task.rs)（task 全部完成自动转 Completed）也是同款副作用模式
+- **症状证据**：本期 codex review 揪出"`/plan exit` 路径漏 cancel subagent"——根源就是这 5 处分散逻辑导致 slash 路径跟 Tauri/HTTP 路径漂移；修过之后**仍然**没人保证下次 Tauri 加新副作用时 slash + tools 三处会自动同步。F-036 之前我提的 `set_plan_state(sid, mutator)` 减锁 helper 跟这条**不重叠**——那条聚焦"减少 RwLock write 次数"，这条聚焦"统一副作用语义"
+- **为什么留**：本期 PR 主题是 plan / task 解耦 + Codex review fix，再做"5 处副作用收编为单一 helper"是独立结构性重构（影响 5 个文件 + 行为契约统一），单独 PR 更安全；修过的 5 个退出入口（4 GUI + `/plan exit`）现在都对齐了，没有用户可见 bug 阻塞
+- **改的话要做什么**：
+  1. 在 [`crates/ha-core/src/plan/mod.rs`](../../crates/ha-core/src/plan/mod.rs) 或新文件 `plan/transition.rs` 暴露 `pub async fn transition_state(session_id, target: PlanModeState, opts: TransitionOpts)`，签名覆盖所有现有副作用：
+     - `cancel_subagent_on_off: bool`（默认 true，只有特殊路径需要 false）
+     - `manage_checkpoint: bool`（默认 true，自动按 should_create / cleanup 判定）
+     - `emit_event_reason: &'static str`（用于 `plan_mode_changed.reason` 字段，每个 caller 必填）
+     - 内部完成：cancel subagent (Off) → cleanup checkpoint (Off/Completed) → set_plan_state → create checkpoint (Executing) → DB persist → emit `plan_mode_changed`
+  2. 5 个调用点替换为 `plan::transition_state(...).await`：tools/enter_plan_mode.rs / tools/submit_plan.rs / slash_commands/handlers/plan.rs (4 个分支) / commands/plan.rs / routes/plan.rs / tools/task.rs::maybe_complete_plan
+  3. submit_plan 仍要额外 emit `plan_submitted`（携带 plan title + content），可在 transition_state 之后单独 emit；slash channel 路径仍要额外 emit `slash:plan_changed` 让 channel 前端刷新——保留各路径独有的二次 emit
+  4. 单测覆盖每条 transition path 的副作用契约：Off→Planning、Planning→Review、Review→Executing（建 checkpoint）、Executing→Completed（清 checkpoint）、Executing→Off（cancel subagent + 清 checkpoint）等
+  5. 测试一项现有真实 bug：用户开 plan_subagent 模式，调 `/plan exit`，期望 subagent 立刻取消（这个 bug 本期已修但是手动同步的，helper 化能保证下次回归）
+- **影响面**：当前 5 处对齐了所以无用户可见 bug；隐患是下次任何人加新 transition 副作用（比如"切 Executing 时记录开始时间戳"），又得手动同步 5 处，再次出现回归概率高
+- **触发时机建议**：下次有人改 plan transition 副作用（哪怕只想动一处）时**必须**先做这次重构再加新逻辑；或者排个独立小重构 PR 一次性收编。可与 F-036（usePlanComment hook 复用）一起做 plan-mode 的"消除重复"季度 PR
+
+
+### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
+
+- **来源**：2026-05-02 Plan Mode 重构（plan/task 解耦）`/simplify` review（reuse agent #3 + quality agent #8）
+- **现象**：[`src/components/chat/plan-mode/usePlanComment.ts`](../../src/components/chat/plan-mode/usePlanComment.ts) 是个 155 行的 hook，封装了选区高亮 / `<mark>` 包裹拆解 / mousedown 关闭 popover / 提交 `<plan-inline-comment>` feedback 模板的完整能力——但 `grep usePlanComment` 全 src 只命中定义本身，没有任何调用方。同时 [`PlanPanel.tsx:204-323`](../../src/components/chat/plan-mode/PlanPanel.tsx) 与 [`PlanDetachedWindow.tsx:70-176`](../../src/PlanDetachedWindow.tsx) 各自手写了字节级几乎相同的 ~120 行内联实现（`highlightSelection` / `clearHighlight` / `handleMouseUp` / mousedown effect / `handleCommentSubmit` + `<plan-inline-comment>` 模板），两份唯一差异是 `onRequestChanges` 回调（PlanPanel 走父组件传入的 callback）vs 直接 `setPlanState + transport.startChat`（PlanDetachedWindow 自己驱动）
+- **为什么留**：本期 Plan Mode 重构 `/simplify` 把这条标为 reuse #3 + quality #8 高 ROI，但实测改造影响面较大——PlanPanel 700 行核心面板 + PlanDetachedWindow 350 行独立窗口的 comment 路径重写，需要把 `usePlanComment` hook signature 设计成两边都能复用（PlanPanel 是 callback-driven，DetachedWindow 是 transport-driven），还要回归测试两个面板的 inline 评论体验。本期重构 ROI 已经聚焦在"高频改动 / 影响契约"的代码（plan/task 解耦、状态机瘦身、enter_plan_mode），不混入纯 dedup 性的 cosmetic 重构。`usePlanComment` 本身就是预存死代码（早于本期 PR），不是这次重构产生的债
+- **改的话要做什么**：
+  1. 看清 `usePlanComment.ts:9` 的现有 signature 是不是足以覆盖两个调用点的差异（PlanPanel 用 props.onRequestChanges 把 feedback 抛给父，DetachedWindow 在自己内部 startChat）。如果不够通用，签名扩成 `usePlanComment({ contentRef, sessionId, planState, onSubmit })`——`onSubmit(feedback: string)` 由调用方决定是 callback 还是 startChat
+  2. PlanPanel 把 line 204-323 的整段 highlight / popover / submit 内联实现替换成 `const { commentPopover, ... } = usePlanComment(...)` 一行；保留 `<CommentPopover />` JSX 渲染段
+  3. PlanDetachedWindow 同样替换 line 70-176 的内联实现
+  4. 比对两份内联代码的所有微小差异（mousedown listener 添加时机、selection 边界处理、`<mark>` className 是否一致等），确保 hook 抽出来后两边行为不漂
+  5. 跑 `pnpm typecheck && pnpm lint && pnpm test` + 手动验证两个面板的"选中 markdown 段落 → 弹 popover → 提交评论 → LLM 收到 `<plan-inline-comment>` feedback"完整链路
+- **影响面**：纯重复 / dead-code 债，无功能 / 性能 / 安全问题。两份内联实现行为目前对齐，但任何一边后续改动（比如 popover UI 调整、selection 算法升级）都得手动同步另一边——属于"不优雅"
+- **触发时机建议**：下次有人改 inline comment 体验（CommentPopover UI 重做 / 选区高亮算法升级 / 评论 prompt 模板调整）时**必须**顺手统一到 hook，避免漂移；或者单独排个小重构 PR 一次清掉，包含两文件的 ~200 行净删除
+
+
 ### F-028 跨平台兼容性更广扫描：`target_os = "linux"` → `cfg(unix)`、macOS-only 分支审视
 
 - **来源**：2026-05-01 跨平台兼容性修复 PR（`claude/cross-platform-compatibility-check-qBENn`）

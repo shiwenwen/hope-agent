@@ -507,29 +507,14 @@ pub async fn chat(
                 Some(config.plan_mode_allow_paths),
             )
         }
-        crate::plan::PlanModeState::Executing | crate::plan::PlanModeState::Paused => {
-            let mode = crate::agent::PlanAgentMode::ExecutingAgent {
-                extra_tools: crate::plan::EXECUTING_AGENT_EXTRA_TOOLS
-                    .iter()
-                    .map(|s| s.to_string())
-                    .collect(),
-            };
+        crate::plan::PlanModeState::Executing => {
+            let mode = crate::agent::PlanAgentMode::ExecutingAgent;
             let ctx = if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                let prefix = if plan_state == crate::plan::PlanModeState::Paused {
-                    let paused_step = crate::plan::get_plan_meta(&sid)
-                        .await
-                        .and_then(|m| m.paused_at_step)
-                        .unwrap_or(0);
-                    format!(
-                        "# Plan Paused\n\nPlan execution is currently **paused** at step {}. \
-                         The user may ask to resume, modify the plan, or discuss progress.\n\n\
-                         ## Plan Content\n\n",
-                        paused_step
-                    )
-                } else {
-                    crate::plan::PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX.to_string()
-                };
-                Some(format!("{}{}", prefix, plan_content))
+                Some(format!(
+                    "{}{}",
+                    crate::plan::PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX,
+                    plan_content
+                ))
             } else {
                 None
             };
@@ -537,32 +522,10 @@ pub async fn chat(
         }
         crate::plan::PlanModeState::Completed => {
             let ctx = if let Ok(Some(plan_content)) = crate::plan::load_plan_file(&sid) {
-                let step_summary = if let Some(meta) = crate::plan::get_plan_meta(&sid).await {
-                    let completed = meta
-                        .steps
-                        .iter()
-                        .filter(|s| s.status == crate::plan::PlanStepStatus::Completed)
-                        .count();
-                    let failed = meta
-                        .steps
-                        .iter()
-                        .filter(|s| s.status == crate::plan::PlanStepStatus::Failed)
-                        .count();
-                    let skipped = meta
-                        .steps
-                        .iter()
-                        .filter(|s| s.status == crate::plan::PlanStepStatus::Skipped)
-                        .count();
-                    format!("\n\n## Statistics\n- Completed: {}\n- Failed: {}\n- Skipped: {}\n- Total: {}\n",
-                        completed, failed, skipped, meta.steps.len())
-                } else {
-                    String::new()
-                };
                 Some(format!(
-                    "{}{}{}",
+                    "{}{}",
                     crate::plan::PLAN_COMPLETED_SYSTEM_PROMPT,
-                    plan_content,
-                    step_summary
+                    plan_content
                 ))
             } else {
                 None
@@ -612,25 +575,9 @@ pub async fn chat(
             // Relay to IM channel if this session is linked to one
             crate::chat_engine::relay_to_channel(&sid, &result.response).await;
 
-            // Plan Mode: auto-detect plan content from LLM output
-            if plan_state == crate::plan::PlanModeState::Planning && !result.response.is_empty() {
-                let steps = crate::plan::parse_plan_steps(&result.response);
-                if steps.len() >= 2 {
-                    let _ = crate::plan::save_plan_file(&sid, &result.response);
-                    crate::plan::update_plan_steps(&sid, steps.clone()).await;
-                    if let Some(app_handle) = crate::get_app_handle() {
-                        use tauri::Emitter;
-                        let _ = app_handle.emit(
-                            "plan_content_updated",
-                            serde_json::json!({
-                                "sessionId": &sid,
-                                "stepCount": steps.len(),
-                                "content": &result.response,
-                            }),
-                        );
-                    }
-                }
-            }
+            // Plan Mode auto-detection of plan content from LLM output is no
+            // longer supported — the model must call submit_plan explicitly.
+            // The plan file is only written by the submit_plan tool.
 
             // Update the active agent instance for conversation continuity (UI chat only)
             if let Some(agent) = result.agent {

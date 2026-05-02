@@ -2988,29 +2988,16 @@
     "showPlan": "Mostrar plano",
     "executing": "Executando plano...",
     "executionIdle": "A execução do plano está aguardando continuação",
-    "stepsCompleted": "passos concluídos",
     "completed": "Concluído",
     "placeholder": "Descreva o que você quer alcançar...",
     "panelTitle": "Plano de execução",
-    "editorPlaceholder": "Edite o conteúdo do plano aqui...\n\n## Background\nDescreva o contexto: qual problema resolver, por quê, e resultado esperado\n\n### Phase 1: Análise\n- [ ] Descrição do passo\n\n### Phase 2: Implementação\n- [ ] Descrição do passo",
-    "stepsDetected": "passos detectados",
-    "noSteps": "Sem etapas",
-    "executeCommand": "Comece a executar o plano. Complete cada passo em ordem, chamando update_plan_step para rastrear o progresso.",
+    "executeCommand": "Inicie a execução do plano aprovado. Chame task_create com uma lista concisa de todos a partir do plano; antes de iniciar cada todo marque-o como in_progress e, ao terminar, como completed (use task_update). Mantenha no máximo um todo in_progress por vez.",
     "executionApproved": "Plano aprovado. Iniciando a execução.",
     "executionResumed": "Continuando a execução do plano.",
     "planning": "Criando plano...",
-    "pause": "Pausar",
     "resume": "Retomar",
-    "pausedBanner": "A execução do plano está pausada",
     "review": {
       "badge": "Revisão"
-    },
-    "paused": {
-      "badge": "Pausado"
-    },
-    "card": {
-      "phases": "fases",
-      "steps": "passos"
     },
     "versions": "Histórico de versões",
     "versionHistory": "Versões do plano",
@@ -3042,7 +3029,8 @@
       "preview": "Pré-visualizar",
       "timeoutHint": "Tempo restante",
       "timedOut": "tempo esgotado"
-    }
+    },
+    "noPlanYet": "Ainda sem plano"
   },
   "canvas": {
     "refresh": "Atualizar",

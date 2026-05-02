@@ -2988,29 +2988,16 @@
     "showPlan": "Show Plan",
     "executing": "Executing plan...",
     "executionIdle": "Plan execution is waiting to continue",
-    "stepsCompleted": "steps completed",
     "completed": "Completed",
     "placeholder": "Describe what you want to achieve...",
     "panelTitle": "Execution Plan",
-    "editorPlaceholder": "Edit plan content here...\n\n## Context\nDescribe the context: what problem to solve, why, and expected outcome\n\n## Steps\n1. First major step\n   - Detail\n2. Second major step\n   - Detail\n\n## Verification\nHow to verify the result",
-    "stepsDetected": "steps detected",
-    "noSteps": "No steps yet",
-    "executeCommand": "Start executing the plan. Create todos from the approved plan, execute them in order, and call update_plan_step to update high-level plan progress.",
+    "executeCommand": "Start executing the approved plan. Call task_create with a concise todo list derived from the plan, then mark each todo in_progress before starting it and completed immediately after finishing it (use task_update). Keep at most one todo in_progress at a time.",
     "executionApproved": "Plan approved. Starting execution.",
     "executionResumed": "Continuing plan execution.",
     "planning": "Creating plan...",
-    "pause": "Pause",
     "resume": "Resume",
-    "pausedBanner": "Plan execution is paused",
     "review": {
       "badge": "Review"
-    },
-    "paused": {
-      "badge": "Paused"
-    },
-    "card": {
-      "phases": "phases",
-      "steps": "steps"
     },
     "versions": "Version History",
     "versionHistory": "Plan Versions",
@@ -3042,7 +3029,8 @@
       "preview": "Preview",
       "timeoutHint": "Time remaining",
       "timedOut": "timed out"
-    }
+    },
+    "noPlanYet": "No plan yet"
   },
   "canvas": {
     "refresh": "Refresh",

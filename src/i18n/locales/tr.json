@@ -2988,29 +2988,16 @@
     "showPlan": "Planı göster",
     "executing": "Plan yürütülüyor...",
     "executionIdle": "Plan yürütmesi devam etmeyi bekliyor",
-    "stepsCompleted": "adım tamamlandı",
     "completed": "Tamamlandı",
     "placeholder": "Neyi başarmak istediğinizi açıklayın...",
     "panelTitle": "Yürütme planı",
-    "editorPlaceholder": "Plan içeriğini burada düzenleyin...\n\n## Background\nBağlamı açıklayın: hangi sorun çözülecek, neden ve beklenen sonuç\n\n### Phase 1: Analiz\n- [ ] Adım açıklaması\n\n### Phase 2: Uygulama\n- [ ] Adım açıklaması",
-    "stepsDetected": "adım tespit edildi",
-    "noSteps": "Adım yok",
-    "executeCommand": "Planı yürütmeye başlayın. Her adımı sırayla tamamlayın ve ilerlemeyi takip etmek için update_plan_step çağırın.",
+    "executeCommand": "Onaylanan planı yürütmeye başlayın. task_create ile plandan türetilmiş kısa bir todo listesi oluşturun; her todo'ya başlamadan önce task_update ile in_progress, bitirdikten hemen sonra completed olarak işaretleyin. Aynı anda yalnızca bir todo in_progress olabilir.",
     "executionApproved": "Plan onaylandı. Yürütme başlatılıyor.",
     "executionResumed": "Plan yürütmesine devam ediliyor.",
     "planning": "Plan oluşturuluyor...",
-    "pause": "Duraklat",
     "resume": "Devam et",
-    "pausedBanner": "Plan yürütmesi duraklatıldı",
     "review": {
       "badge": "İnceleme"
-    },
-    "paused": {
-      "badge": "Duraklatıldı"
-    },
-    "card": {
-      "phases": "aşama",
-      "steps": "adım"
     },
     "versions": "Sürüm geçmişi",
     "versionHistory": "Plan sürümleri",
@@ -3042,7 +3029,8 @@
       "preview": "Önizleme",
       "timeoutHint": "Kalan süre",
       "timedOut": "zaman aşımı"
-    }
+    },
+    "noPlanYet": "Henüz plan yok"
   },
   "canvas": {
     "refresh": "Yenile",

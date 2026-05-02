@@ -2988,29 +2988,16 @@
     "showPlan": "プランを表示",
     "executing": "プラン実行中...",
     "executionIdle": "計画の実行は待機中です",
-    "stepsCompleted": "ステップ完了",
     "completed": "完了",
     "placeholder": "達成したいことを記述してください...",
     "panelTitle": "実行プラン",
-    "editorPlaceholder": "ここでプラン内容を編集...\n\n## Background\n背景を記述：解決すべき問題、理由、期待される成果\n\n### Phase 1: 分析\n- [ ] ステップの説明\n\n### Phase 2: 実装\n- [ ] ステップの説明",
-    "stepsDetected": "ステップを検出",
-    "noSteps": "ステップがありません",
-    "executeCommand": "プランの実行を開始。各ステップを順に完了し、update_plan_step を呼んで進捗を追跡してください。",
+    "executeCommand": "承認された計画の実行を開始してください。task_create を呼び出して計画から簡潔な todo リストを作成し、各 todo を開始前に task_update で in_progress に、終了後すぐに completed に切り替えてください。同時に in_progress は 1 件まで。",
     "executionApproved": "プランが承認されました。実行を開始します。",
     "executionResumed": "プランの実行を続行します。",
     "planning": "プラン作成中...",
-    "pause": "一時停止",
     "resume": "再開",
-    "pausedBanner": "プラン実行が一時停止されています",
     "review": {
       "badge": "レビュー"
-    },
-    "paused": {
-      "badge": "一時停止中"
-    },
-    "card": {
-      "phases": "フェーズ",
-      "steps": "ステップ"
     },
     "versions": "バージョン履歴",
     "versionHistory": "プランバージョン",
@@ -3042,7 +3029,8 @@
       "preview": "プレビュー",
       "timeoutHint": "残り時間",
       "timedOut": "タイムアウト"
-    }
+    },
+    "noPlanYet": "まだ計画がありません"
   },
   "canvas": {
     "refresh": "更新",

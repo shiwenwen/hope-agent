@@ -2988,29 +2988,16 @@
     "showPlan": "계획 표시",
     "executing": "계획 실행 중...",
     "executionIdle": "계획 실행 대기 중",
-    "stepsCompleted": "단계 완료",
     "completed": "완료",
     "placeholder": "달성하고 싶은 것을 설명하세요...",
     "panelTitle": "실행 계획",
-    "editorPlaceholder": "여기서 계획 내용을 편집...\n\n## Background\n배경 기술: 해결할 문제, 이유, 예상 결과\n\n### Phase 1: 분석\n- [ ] 단계 설명\n\n### Phase 2: 구현\n- [ ] 단계 설명",
-    "stepsDetected": "단계 감지됨",
-    "noSteps": "단계가 없습니다",
-    "executeCommand": "계획 실행을 시작하세요. 각 단계를 순서대로 완료하고 update_plan_step 을 호출하여 진행 상황을 추적하세요.",
+    "executeCommand": "승인된 계획 실행을 시작하세요. task_create 를 호출해 계획에서 간결한 todo 목록을 만들고, 각 todo 를 시작하기 전에 task_update 로 in_progress 로, 완료 후 즉시 completed 로 표시하세요. 동시에 in_progress 는 한 건만.",
     "executionApproved": "계획이 승인되었습니다. 실행을 시작합니다.",
     "executionResumed": "계획 실행을 계속합니다.",
     "planning": "계획 작성 중...",
-    "pause": "일시 정지",
     "resume": "재개",
-    "pausedBanner": "계획 실행이 일시 정지됨",
     "review": {
       "badge": "검토"
-    },
-    "paused": {
-      "badge": "일시 정지됨"
-    },
-    "card": {
-      "phases": "단계",
-      "steps": "단계"
     },
     "versions": "버전 기록",
     "versionHistory": "계획 버전",
@@ -3042,7 +3029,8 @@
       "preview": "미리보기",
       "timeoutHint": "남은 시간",
       "timedOut": "시간 초과"
-    }
+    },
+    "noPlanYet": "아직 계획이 없습니다"
   },
   "canvas": {
     "refresh": "새로 고침",

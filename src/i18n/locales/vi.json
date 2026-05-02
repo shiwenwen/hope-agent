@@ -2988,29 +2988,16 @@
     "showPlan": "Hiển thị kế hoạch",
     "executing": "Đang thực thi kế hoạch...",
     "executionIdle": "Thực thi kế hoạch đang chờ tiếp tục",
-    "stepsCompleted": "bước đã hoàn thành",
     "completed": "Hoàn thành",
     "placeholder": "Mô tả điều bạn muốn đạt được...",
     "panelTitle": "Kế hoạch thực thi",
-    "editorPlaceholder": "Chỉnh sửa nội dung kế hoạch tại đây...\n\n## Background\nMô tả bối cảnh: vấn đề cần giải quyết, tại sao và kết quả mong đợi\n\n### Phase 1: Phân tích\n- [ ] Mô tả bước\n\n### Phase 2: Triển khai\n- [ ] Mô tả bước",
-    "stepsDetected": "bước được phát hiện",
-    "noSteps": "Không có bước",
-    "executeCommand": "Bắt đầu thực thi kế hoạch. Hoàn thành từng bước theo thứ tự, gọi update_plan_step để theo dõi tiến độ.",
+    "executeCommand": "Bắt đầu thực thi kế hoạch đã duyệt. Gọi task_create với danh sách todo súc tích lấy từ kế hoạch; trước khi bắt đầu mỗi todo dùng task_update đánh dấu in_progress, hoàn thành xong đánh dấu completed ngay. Chỉ giữ tối đa một todo in_progress.",
     "executionApproved": "Kế hoạch đã được phê duyệt. Bắt đầu thực thi.",
     "executionResumed": "Tiếp tục thực thi kế hoạch.",
     "planning": "Đang tạo kế hoạch...",
-    "pause": "Tạm dừng",
     "resume": "Tiếp tục",
-    "pausedBanner": "Thực thi kế hoạch đã tạm dừng",
     "review": {
       "badge": "Xem xét"
-    },
-    "paused": {
-      "badge": "Đã tạm dừng"
-    },
-    "card": {
-      "phases": "giai đoạn",
-      "steps": "bước"
     },
     "versions": "Lịch sử phiên bản",
     "versionHistory": "Phiên bản kế hoạch",
@@ -3042,7 +3029,8 @@
       "preview": "Xem trước",
       "timeoutHint": "Thời gian còn lại",
       "timedOut": "hết thời gian"
-    }
+    },
+    "noPlanYet": "Chưa có kế hoạch"
   },
   "canvas": {
     "refresh": "Làm mới",

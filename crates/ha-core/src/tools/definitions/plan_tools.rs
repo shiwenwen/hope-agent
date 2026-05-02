@@ -1,37 +1,7 @@
 use serde_json::json;
 
-use super::super::{
-    TOOL_AMEND_PLAN, TOOL_ASK_USER_QUESTION, TOOL_SUBMIT_PLAN, TOOL_UPDATE_PLAN_STEP,
-};
+use super::super::{TOOL_ASK_USER_QUESTION, TOOL_ENTER_PLAN_MODE, TOOL_SUBMIT_PLAN};
 use super::types::{CoreSubclass, ToolDefinition, ToolTier};
-
-/// Tool for updating plan step status (conditionally injected during Executing state).
-pub fn get_plan_step_tool() -> ToolDefinition {
-    ToolDefinition {
-        name: TOOL_UPDATE_PLAN_STEP.into(),
-        description: "Update the status of a plan step during plan execution. Call this after starting or completing each step to track progress in the Plan panel.".into(),
-        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
-        internal: true,
-        concurrent_safe: false,
-        async_capable: false,
-        parameters: json!({
-            "type": "object",
-            "properties": {
-                "step_index": {
-                    "type": "integer",
-                    "description": "Zero-based index of the plan step to update"
-                },
-                "status": {
-                    "type": "string",
-                    "enum": ["in_progress", "completed", "skipped", "failed"],
-                    "description": "New status for the step"
-                }
-            },
-            "required": ["step_index", "status"],
-            "additionalProperties": false
-        }),
-    }
-}
 
 /// Tool for asking the user structured questions at any point in a conversation.
 ///
@@ -135,12 +105,78 @@ tool to ask 'is my plan ready?' — in Plan Mode use `submit_plan` instead."
     }
 }
 
+/// Tool the model uses to proactively enter Plan Mode before tackling a
+/// non-trivial task.
+pub fn get_enter_plan_mode_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_ENTER_PLAN_MODE.into(),
+        description: "Enter Plan Mode to explore, gather context, and draft a written plan \
+before doing the work. After entering, you can read files / search / ask the user clarifying \
+questions, and you must call `submit_plan` with the finalized plan when ready. The user reviews \
+and approves the plan at submit time — there is no separate \"approve to enter plan mode\" prompt.\n\n\
+## When to Use\n\
+Prefer entering plan mode for non-trivial tasks across all domains:\n\
+- **Programming**: new features, multi-file refactors, architectural choices, performance work, \
+anything touching 3+ files, or unclear requirements.\n\
+- **Writing**: pieces longer than ~1000 words, multi-section docs, anything with structural \
+decisions (outline, audience, tone).\n\
+- **Research / investigation**: comparing 3+ sources or angles, building a structured argument.\n\
+- **Information organization**: sorting/categorizing 50+ items, building a knowledge structure, \
+designing a taxonomy.\n\
+- **Decision support**: trade-offs across 3+ dimensions, multi-step decisions with downstream \
+consequences.\n\
+- **Whenever you would otherwise use ask_user_question to clarify the *approach*** (not just \
+requirements) — plan mode lets you explore first and then present a vetted plan.\n\n\
+## When NOT to Use\n\
+- Single-step or trivial tasks (typo fixes, single-line changes, single function with clear \
+requirements).\n\
+- Pure Q&A or research lookups (use the Explore subagent or just answer directly).\n\
+- The user gave very specific step-by-step instructions.\n\
+- The work can be done in fewer than 3 steps.\n\n\
+## Behavior\n\
+Calling this tool surfaces a Yes/No prompt to the user. The user has the final say — if \
+they accept, the session transitions to Planning state and the tool returns a success \
+message; if they decline, the session stays in normal mode and the tool returns a \
+message saying so. Only call this once per task; if the user declined, do not retry — \
+proceed with the task directly."
+            .into(),
+        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
+        internal: true,
+        concurrent_safe: false,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "One-line reason explaining why this task benefits from a written plan. Shown to the user as context for the Yes/No prompt."
+                }
+            },
+            "additionalProperties": false
+        }),
+    }
+}
+
 /// Tool for submitting the final plan after interactive Q&A.
 pub fn get_submit_plan_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_SUBMIT_PLAN.into(),
-        description: "Submit the final implementation plan after gathering requirements through ask_user_question. The plan should be structured as markdown with concise sections and regular ordered/unordered lists, not checkbox task lists. This transitions the plan to Review mode where the user can approve and start execution.".into(),
-        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
+        description:
+            "Submit the finalized plan as the design contract for the user to review and approve. \
+The plan is a stable design document — once approved, it is frozen for the duration of execution. \
+To revise an approved plan, exit plan mode and re-enter it.\n\n\
+Recommended structure (any markdown is accepted, sections are guidance not enforcement):\n\
+- Context — why this change is being made\n\
+- Approach — the recommended approach (no alternatives needed)\n\
+- Files — paths of critical files to be modified\n\
+- Reuse — existing functions/utilities to reuse, with file paths\n\
+- Verification — how to confirm the work was done correctly\n\n\
+Do NOT include progress markers (no checkboxes, no status emojis, no \"TODO/DONE\" annotations). \
+Progress is tracked separately via the task_create / task_update tools after the plan is approved."
+                .into(),
+        tier: ToolTier::Core {
+            subclass: CoreSubclass::PlanMode,
+        },
         internal: true,
         concurrent_safe: false,
         async_capable: false,
@@ -153,54 +189,10 @@ pub fn get_submit_plan_tool() -> ToolDefinition {
                 },
                 "content": {
                     "type": "string",
-                    "description": "Full plan content in markdown format. Must include concise context, major implementation steps as headings or regular ordered/unordered list items, and verification. Do not use markdown checkbox items (- [ ])."
+                    "description": "Plan content in markdown. Free-form structure (Context / Approach / Files / Reuse / Verification recommended). Do not include progress markers — those belong in task_* tools."
                 }
             },
             "required": ["title", "content"],
-            "additionalProperties": false
-        }),
-    }
-}
-
-/// Tool for amending the plan during execution (insert/delete/update steps).
-pub fn get_amend_plan_tool() -> ToolDefinition {
-    ToolDefinition {
-        name: TOOL_AMEND_PLAN.into(),
-        description: "Modify the current plan during execution. Use this when you discover the plan needs changes (new steps needed, steps should be removed, or step descriptions need updating). Available actions: insert (add a new step), delete (remove a pending step), update (modify a pending step's title/description).".into(),
-        tier: ToolTier::Core { subclass: CoreSubclass::PlanMode },
-        internal: true,
-        concurrent_safe: false,
-        async_capable: false,
-        parameters: json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "description": "The amendment action to perform",
-                    "enum": ["insert", "delete", "update"]
-                },
-                "step_index": {
-                    "type": "integer",
-                    "description": "Target step index (required for delete and update actions)"
-                },
-                "after_index": {
-                    "type": "integer",
-                    "description": "Insert new step after this index (for insert action). Omit to append to end."
-                },
-                "title": {
-                    "type": "string",
-                    "description": "Step title (required for insert, optional for update)"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Step description (optional)"
-                },
-                "phase": {
-                    "type": "string",
-                    "description": "Phase name (optional, defaults to 'Amended' for insert)"
-                }
-            },
-            "required": ["action"],
             "additionalProperties": false
         }),
     }

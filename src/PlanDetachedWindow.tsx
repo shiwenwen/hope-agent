@@ -3,7 +3,7 @@
  * Rendered when `?window=plan` is in the URL (see main.tsx).
  * Receives sessionId via URL search param.
  */
-import { useEffect, useCallback, useMemo, useRef, useState } from "react"
+import { useEffect, useCallback, useRef, useState } from "react"
 import { getCurrentWindow } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
 import { initLanguageFromConfig } from "@/i18n/i18n"
@@ -11,8 +11,6 @@ import { TooltipProvider, IconTip } from "@/components/ui/tooltip"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { usePlanMode } from "@/components/chat/plan-mode/usePlanMode"
-import { groupStepsByPhase } from "@/components/chat/plan-mode/planParser"
-import { PlanStepItem } from "@/components/chat/plan-mode/PlanStepItem"
 import { CommentPopover } from "@/components/chat/plan-mode/CommentPopover"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { Button } from "@/components/ui/button"
@@ -23,7 +21,6 @@ import {
   Loader2,
   CheckCircle,
   MessageSquareQuote,
-  Pause,
   X,
 } from "lucide-react"
 
@@ -42,15 +39,10 @@ export default function PlanDetachedWindow() {
 
   const {
     planState,
-    planSteps,
     planContent,
-    progress,
-    completedCount,
     setPlanState,
     exitPlanMode,
     approvePlan,
-    pauseExecution,
-    resumeExecution,
   } = planMode
 
   const handleClose = useCallback(() => {
@@ -63,19 +55,7 @@ export default function PlanDetachedWindow() {
     selectedText: string
   } | null>(null)
 
-  const groupedPhases = useMemo(() => groupStepsByPhase(planSteps), [planSteps])
-
-  const allDone =
-    planSteps.length > 0 &&
-    planSteps.every(
-      (s) => s.status === "completed" || s.status === "skipped" || s.status === "failed",
-    )
-
-  const showProgressBar =
-    planState === "executing" || planState === "paused" || planState === "completed" || allDone
-  const showMarkdown = planContent && (planState === "review" || planState === "planning")
-  const showStepList =
-    planState === "executing" || planState === "paused" || planState === "completed"
+  const showMarkdown = !!planContent
   const canComment = (planState === "review" || planState === "planning") && !!sessionId
 
   const iconColor =
@@ -83,11 +63,9 @@ export default function PlanDetachedWindow() {
       ? "text-green-500"
       : planState === "executing"
         ? "text-blue-500"
-        : planState === "paused"
-          ? "text-yellow-500"
-          : planState === "review"
-            ? "text-purple-500"
-            : "text-blue-500"
+        : planState === "review"
+          ? "text-purple-500"
+          : "text-blue-500"
 
   const highlightSelection = useCallback((range: Range) => {
     try {
@@ -217,39 +195,6 @@ export default function PlanDetachedWindow() {
           </IconTip>
         </div>
 
-        {/* Progress bar */}
-        {showProgressBar && planSteps.length > 0 && (
-          <div className="px-3 py-2 border-b border-border/50">
-            <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
-              <span>
-                {completedCount}/{planSteps.length} {t("planMode.stepsCompleted")}
-              </span>
-              <span>{progress}%</span>
-            </div>
-            <div className="h-1.5 bg-secondary rounded-full overflow-hidden">
-              <div
-                className={cn(
-                  "h-full rounded-full transition-all duration-500 ease-out",
-                  planState === "completed" || allDone
-                    ? "bg-green-500"
-                    : planState === "paused"
-                      ? "bg-yellow-500"
-                      : "bg-blue-500",
-                )}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Paused banner */}
-        {planState === "paused" && (
-          <div className="px-3 py-2 bg-yellow-500/10 border-b border-yellow-500/20 text-sm text-yellow-600 flex items-center gap-2">
-            <Pause className="h-3.5 w-3.5" />
-            {t("planMode.pausedBanner")}
-          </div>
-        )}
-
         {canComment && showMarkdown && (
           <div className="px-3 py-1.5 bg-blue-500/5 border-b border-blue-500/10 text-[11px] text-muted-foreground flex items-center gap-1.5">
             <MessageSquareQuote className="h-3 w-3 shrink-0 text-blue-500/60" />
@@ -271,30 +216,12 @@ export default function PlanDetachedWindow() {
             </div>
           )}
 
-          {planState === "planning" && !planContent && (
+          {!planContent && (
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
               <ClipboardList className="h-8 w-8 mb-3 opacity-30" />
-              <span className="text-sm">{t("planMode.planning")}</span>
-            </div>
-          )}
-
-          {showStepList && (
-            <div className="px-3 py-2 space-y-1">
-              {groupedPhases.map((phase) => (
-                <div key={phase.name} className="mb-3">
-                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 px-1">
-                    {phase.name}
-                  </div>
-                  {phase.steps.map((step) => (
-                    <PlanStepItem key={step.index} step={step} detailed />
-                  ))}
-                </div>
-              ))}
-              {planSteps.length === 0 && (
-                <div className="text-sm text-muted-foreground text-center py-8">
-                  {t("planMode.noSteps")}
-                </div>
-              )}
+              <span className="text-sm">
+                {planState === "planning" ? t("planMode.planning") : t("planMode.noPlanYet", "No plan yet")}
+              </span>
             </div>
           )}
 
@@ -335,35 +262,14 @@ export default function PlanDetachedWindow() {
             </>
           )}
 
-          {planState === "executing" && !allDone && (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-sm text-blue-600">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{t("planMode.executing")}</span>
-              </div>
-              <Button size="sm" variant="outline" onClick={pauseExecution} className="gap-1.5">
-                <Pause className="h-3.5 w-3.5" />
-                {t("planMode.pause")}
-              </Button>
+          {planState === "executing" && (
+            <div className="flex items-center gap-2 text-sm text-blue-600">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              <span>{t("planMode.executing")}</span>
             </div>
           )}
 
-          {planState === "paused" && (
-            <>
-              <Button
-                className="w-full bg-yellow-600 hover:bg-yellow-700 text-white"
-                onClick={resumeExecution}
-              >
-                <Play className="h-4 w-4 mr-2" />
-                {t("planMode.resume")}
-              </Button>
-              <Button variant="ghost" className="w-full" onClick={exitPlanMode}>
-                {t("planMode.exitWithout")}
-              </Button>
-            </>
-          )}
-
-          {(planState === "completed" || allDone) && (
+          {planState === "completed" && (
             <>
               <div className="flex items-center gap-2 text-sm text-green-600">
                 <CheckCircle className="h-4 w-4" />

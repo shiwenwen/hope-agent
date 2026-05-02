@@ -135,7 +135,53 @@ pub(crate) async fn tool_task_update(args: &Value, session_id: Option<&str>) -> 
     }
     let tasks = db.list_tasks(&sid).unwrap_or_default();
     emit_snapshot(&sid, &tasks);
+
+    // If we just transitioned to `completed` and the session is in Plan Mode
+    // Executing with all tasks now in a terminal state, auto-transition the
+    // plan to Completed and clean up the git checkpoint. This replaces the
+    // legacy `update_plan_step` auto-completion path that was deleted with
+    // PlanStep — task is now the single source of progress truth.
+    if matches!(status, Some(TaskStatus::Completed))
+        && !tasks.is_empty()
+        && tasks
+            .iter()
+            .all(|t| t.status == TaskStatus::Completed.as_str())
+    {
+        maybe_complete_plan(&sid).await;
+    }
+
     render_snapshot(&tasks)
+}
+
+async fn maybe_complete_plan(session_id: &str) {
+    if crate::plan::get_plan_state(session_id).await != crate::plan::PlanModeState::Executing {
+        return;
+    }
+    if let Some(ref_name) = crate::plan::get_checkpoint_ref(session_id).await {
+        crate::plan::cleanup_checkpoint(&ref_name);
+    }
+    if !crate::plan::set_plan_state(session_id, crate::plan::PlanModeState::Completed).await {
+        return;
+    }
+    if let Some(db) = crate::get_session_db() {
+        let _ = db.update_session_plan_mode(session_id, crate::plan::PlanModeState::Completed);
+    }
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "plan_mode_changed",
+            json!({
+                "sessionId": session_id,
+                "state": crate::plan::PlanModeState::Completed.as_str(),
+                "reason": "all_tasks_completed",
+            }),
+        );
+    }
+    app_info!(
+        "plan",
+        "task_auto_complete",
+        "All tasks completed → plan transitioned to Completed for session {}",
+        session_id
+    );
 }
 
 pub(crate) async fn tool_task_list(_args: &Value, session_id: Option<&str>) -> String {

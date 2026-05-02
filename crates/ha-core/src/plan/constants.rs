@@ -1,8 +1,5 @@
 use super::file_io::plans_dir;
 
-/// Extra tools injected for the Executing Agent (Executing/Paused states).
-pub const EXECUTING_AGENT_EXTRA_TOOLS: &[&str] = &["update_plan_step", "amend_plan"];
-
 /// Tools denied in Plan Mode — kept for sub-agent inheritance compatibility.
 /// Derived from PlanAgentConfig: tools NOT in the allow-list.
 pub const PLAN_MODE_DENIED_TOOLS: &[&str] = &["write", "edit", "apply_patch", "canvas"];
@@ -66,6 +63,18 @@ You are in **Plan Mode**. Create a comprehensive, high-quality plan through stru
 - You **CAN** use `write` and `edit` tools **only on plan files** (under `~/.hope-agent/plans/`)
 - You **CAN** read files, search information, browse the web
 - Shell commands (exec) require user approval before execution
+
+## Re-entry Check (do this first)
+
+A plan file may already exist from a previous planning session for this conversation.
+1. Read the existing plan file (if any) before exploring further.
+2. Decide how it relates to the user's current request:
+   - **Different task** — even if it looks similar — overwrite the plan from scratch.
+   - **Same task, continuing / revising** — modify the plan incrementally and clean up sections \
+that are now stale or no longer relevant.
+3. Either way, you should always end up calling `submit_plan` with the updated content before \
+considering the planning phase done. Do not assume the existing plan is still valid without \
+evaluating it against the user's current intent.
 
 ## 5-Phase Planning Workflow
 
@@ -213,25 +222,26 @@ The plan has been fully executed. Here is a summary of the results:
 pub const PLAN_EXECUTING_SYSTEM_PROMPT_PREFIX: &str = "\
 # Executing Plan
 
-You are executing an approved plan. Follow the plan sections below in order.
-The plan steps are coarse progress sections, not fine-grained todos. At the beginning of execution, call `task_create` with a concise todo list derived from the approved plan if no current todo list already reflects it. Use `task_update` to track the active todo during implementation.
+The plan below has been approved and is now **frozen** for the duration of execution. \
+The plan file is the design contract — do not edit it during execution.
 
-Use `update_plan_step` to mark high-level plan progress:
-- `update_plan_step(step_index=N, status=\"in_progress\")` when starting a plan section
-- `update_plan_step(step_index=N, status=\"completed\")` when that section is fully handled
-- `update_plan_step(step_index=N, status=\"failed\")` if that section cannot be completed
-- `update_plan_step(step_index=N, status=\"skipped\")` if intentionally skipping it
+## Tracking Progress
+
+Use the **task tools** (always available) to break the approved plan into concrete todos and track progress:
+- Call `task_create` once at the start with a concise list derived from the plan.
+- Call `task_update` to mark each todo `in_progress` before starting it and `completed` immediately after finishing it.
+- Keep at most one todo `in_progress` at a time.
+- If you discover new work during execution, append todos via `task_create` instead of editing the plan file.
+
+## Revising the Plan
+
+If the plan itself needs structural changes (the approach is wrong, scope shifted, new prerequisites emerged), exit plan mode and re-enter it to revise the approved plan — the previous plan file will be loaded so you can edit it incrementally before resubmitting. Do not edit the plan file directly during execution.
+
+## Other Conventions
 
 Keep execution chatter minimal. Do not emit repetitive progress sentences before routine tool calls; rely on tool calls to show progress and write a concise final summary when execution stops.
-Do not use task progress as a substitute for plan progress: update todos for fine-grained work and update plan steps for major execution progress.
-Do not leave a step `in_progress` when you stop responding: complete it, mark it failed/skipped with a reason, or ask the user for the blocker.
 
 A git checkpoint has been created before execution started. If execution fails, the user can rollback all changes.
-
-If you discover the plan needs changes during execution, use the `amend_plan` tool:
-- `amend_plan(action=\"insert\", title=\"New step\", after_index=N)` to add a step
-- `amend_plan(action=\"delete\", step_index=N)` to remove a pending step
-- `amend_plan(action=\"update\", step_index=N, title=\"Updated title\")` to modify a step
 
 ## Plan Content
 

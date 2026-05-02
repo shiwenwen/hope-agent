@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use super::store::store;
-use super::types::{PlanStep, PlanStepStatus, PlanVersionInfo};
+use super::types::PlanVersionInfo;
 
 // ── Plan File I/O ───────────────────────────────────────────────
 // Plans are stored in the workspace plan/ directory with readable names:
@@ -114,19 +114,6 @@ pub(crate) fn plan_file_path(session_id: &str) -> Result<std::path::PathBuf> {
     Ok(plans_dir()?.join(filename))
 }
 
-/// Build the result file path for a session.
-fn result_file_path(session_id: &str) -> Result<std::path::PathBuf> {
-    let short_id = crate::truncate_utf8(session_id, 8);
-    let now = chrono::Utc::now();
-    let filename = format!(
-        "result-{}-{}-{:09}.md",
-        short_id,
-        now.format("%Y%m%dT%H%M%SZ"),
-        now.timestamp_subsec_nanos()
-    );
-    Ok(plans_dir()?.join(filename))
-}
-
 pub fn save_plan_file(session_id: &str, content: &str) -> Result<String> {
     let dir = plans_dir()?;
     std::fs::create_dir_all(&dir)?;
@@ -203,74 +190,6 @@ pub fn delete_plan_file(session_id: &str) -> Result<()> {
         std::fs::remove_file(path)?;
     }
     Ok(())
-}
-
-/// Save execution result as a separate markdown file.
-pub fn save_result_file(
-    session_id: &str,
-    plan_title: &str,
-    steps: &[PlanStep],
-    summary: &str,
-) -> Result<String> {
-    let dir = plans_dir()?;
-    std::fs::create_dir_all(&dir)?;
-    let path = result_file_path(session_id)?;
-
-    let mut md = String::new();
-    md.push_str(&format!("# 执行结果: {}\n\n", plan_title));
-    md.push_str(&format!(
-        "> 执行时间: {}\n\n",
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
-    ));
-
-    // Step results
-    md.push_str("## 步骤执行情况\n\n");
-    let mut current_phase = String::new();
-    for step in steps {
-        if step.phase != current_phase {
-            current_phase = step.phase.clone();
-            md.push_str(&format!("### {}\n\n", current_phase));
-        }
-        let icon = match step.status {
-            PlanStepStatus::Completed => "✅",
-            PlanStepStatus::Failed => "❌",
-            PlanStepStatus::Skipped => "⏭️",
-            PlanStepStatus::InProgress => "🔄",
-            PlanStepStatus::Pending => "⭕",
-        };
-        let duration = step
-            .duration_ms
-            .map(|ms| format!(" ({}ms)", ms))
-            .unwrap_or_default();
-        md.push_str(&format!("- {} {}{}\n", icon, step.title, duration));
-    }
-
-    let completed = steps
-        .iter()
-        .filter(|s| s.status == PlanStepStatus::Completed)
-        .count();
-    let failed = steps
-        .iter()
-        .filter(|s| s.status == PlanStepStatus::Failed)
-        .count();
-    let skipped = steps
-        .iter()
-        .filter(|s| s.status == PlanStepStatus::Skipped)
-        .count();
-    md.push_str(&format!(
-        "\n## 统计\n\n- 完成: {}\n- 失败: {}\n- 跳过: {}\n- 总计: {}\n",
-        completed,
-        failed,
-        skipped,
-        steps.len()
-    ));
-
-    if !summary.is_empty() {
-        md.push_str(&format!("\n## 总结\n\n{}\n", summary));
-    }
-
-    std::fs::write(&path, &md)?;
-    Ok(path.to_string_lossy().to_string())
 }
 
 /// List available versions of a plan (including the current and all backups).

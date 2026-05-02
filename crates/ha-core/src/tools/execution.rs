@@ -12,21 +12,21 @@ use super::{
     web_search,
 };
 use super::{
-    agents, amend_plan, ask_user_question, canvas, image, image_generate, job_status, pdf,
-    plan_step, runtime_cancel, sessions, submit_plan, task,
+    agents, ask_user_question, canvas, enter_plan_mode, image, image_generate, job_status, pdf,
+    runtime_cancel, sessions, submit_plan, task,
 };
 use super::{apply_patch, edit, exec, find, grep, ls, process, read, write};
 use super::{
-    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_AMEND_PLAN, TOOL_APPLY_PATCH,
-    TOOL_ASK_USER_QUESTION, TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_EXEC,
+    approval, TOOL_ACP_SPAWN, TOOL_AGENTS_LIST, TOOL_APPLY_PATCH, TOOL_ASK_USER_QUESTION,
+    TOOL_BROWSER, TOOL_CANVAS, TOOL_DELETE_MEMORY, TOOL_EDIT, TOOL_ENTER_PLAN_MODE, TOOL_EXEC,
     TOOL_FIND, TOOL_GET_SETTINGS, TOOL_GET_WEATHER, TOOL_GREP, TOOL_IMAGE, TOOL_IMAGE_GENERATE,
     TOOL_JOB_STATUS, TOOL_LIST_SETTINGS_BACKUPS, TOOL_LS, TOOL_MANAGE_CRON, TOOL_MEMORY_GET,
     TOOL_PDF, TOOL_PROCESS, TOOL_PROJECT_READ_FILE, TOOL_READ, TOOL_RECALL_MEMORY,
     TOOL_RESTORE_SETTINGS_BACKUP, TOOL_RUNTIME_CANCEL, TOOL_SAVE_MEMORY, TOOL_SEND_ATTACHMENT,
     TOOL_SEND_NOTIFICATION, TOOL_SESSIONS_HISTORY, TOOL_SESSIONS_LIST, TOOL_SESSIONS_SEND,
     TOOL_SESSION_STATUS, TOOL_SUBAGENT, TOOL_SUBMIT_PLAN, TOOL_TASK_CREATE, TOOL_TASK_LIST,
-    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY,
-    TOOL_UPDATE_PLAN_STEP, TOOL_UPDATE_SETTINGS, TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
+    TOOL_TASK_UPDATE, TOOL_TEAM, TOOL_UPDATE_CORE_MEMORY, TOOL_UPDATE_MEMORY, TOOL_UPDATE_SETTINGS,
+    TOOL_WEB_FETCH, TOOL_WEB_SEARCH, TOOL_WRITE,
 };
 use crate::agent_config::AsyncToolPolicy;
 use crate::async_jobs::{self, JobOrigin};
@@ -573,12 +573,13 @@ pub async fn execute_tool_with_context(
             TOOL_PDF => pdf::tool_pdf(args).await,
             TOOL_CANVAS => canvas::tool_canvas(args, ctx).await,
             TOOL_GET_WEATHER => weather::tool_get_weather(args).await,
-            TOOL_UPDATE_PLAN_STEP => Ok(plan_step::execute(args, ctx.session_id.as_deref()).await),
             TOOL_ASK_USER_QUESTION => {
                 Ok(ask_user_question::execute(args, ctx.session_id.as_deref()).await)
             }
+            TOOL_ENTER_PLAN_MODE => {
+                Ok(enter_plan_mode::execute(args, ctx.session_id.as_deref()).await)
+            }
             TOOL_SUBMIT_PLAN => Ok(submit_plan::execute(args, ctx.session_id.as_deref()).await),
-            TOOL_AMEND_PLAN => Ok(amend_plan::execute(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_CREATE => Ok(task::tool_task_create(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_UPDATE => Ok(task::tool_task_update(args, ctx.session_id.as_deref()).await),
             TOOL_TASK_LIST => Ok(task::tool_task_list(args, ctx.session_id.as_deref()).await),

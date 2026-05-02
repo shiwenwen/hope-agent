@@ -2988,29 +2988,16 @@
     "showPlan": "显示计划",
     "executing": "正在按计划执行...",
     "executionIdle": "计划执行正在等待继续",
-    "stepsCompleted": "步完成",
     "completed": "执行完成",
     "placeholder": "描述你想要实现的功能...",
     "panelTitle": "执行计划",
-    "editorPlaceholder": "您可以在此协同编辑计划内容...\n\n## Context\n描述背景：要解决什么问题、为什么做、预期结果\n\n## Steps\n1. 第一个主要步骤\n   - 具体说明\n2. 第二个主要步骤\n   - 具体说明\n\n## Verification\n如何验证结果",
-    "stepsDetected": "个步骤已识别",
-    "noSteps": "暂无步骤",
-    "executeCommand": "开始执行计划：先根据已批准计划创建 todos，按顺序执行，并调用 update_plan_step 更新高层计划进度。",
+    "executeCommand": "开始执行已批准的计划：调用 task_create 根据计划生成一份精简的 todo 清单，开始每条前先用 task_update 标记 in_progress，完成后立即标记 completed。同时只能有一条 in_progress。",
     "executionApproved": "已批准计划，开始执行。",
     "executionResumed": "继续执行计划。",
     "planning": "正在制定计划...",
-    "pause": "暂停",
     "resume": "恢复执行",
-    "pausedBanner": "计划执行已暂停",
     "review": {
       "badge": "待审批"
-    },
-    "paused": {
-      "badge": "已暂停"
-    },
-    "card": {
-      "phases": "个阶段",
-      "steps": "个步骤"
     },
     "versions": "版本历史",
     "versionHistory": "计划版本",
@@ -3042,7 +3029,8 @@
       "preview": "预览",
       "timeoutHint": "剩余时间",
       "timedOut": "已超时"
-    }
+    },
+    "noPlanYet": "暂无计划"
   },
   "canvas": {
     "refresh": "刷新",

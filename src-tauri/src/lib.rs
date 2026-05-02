@@ -558,8 +558,6 @@ pub fn run() {
             commands::plan::set_plan_mode,
             commands::plan::get_plan_content,
             commands::plan::save_plan_content,
-            commands::plan::get_plan_steps,
-            commands::plan::update_plan_step_status,
             commands::plan::respond_ask_user_question,
             commands::plan::get_pending_ask_user_group,
             commands::plan::get_plan_versions,

@@ -331,9 +331,7 @@ pub(super) async fn dispatch_slash_for_channel(
         // ── Plan: state transitions (DB already persisted by handler) ──
         Some(CommandAction::EnterPlanMode)
         | Some(CommandAction::ExitPlanMode { .. })
-        | Some(CommandAction::ApprovePlan { .. })
-        | Some(CommandAction::PausePlan)
-        | Some(CommandAction::ResumePlan) => {
+        | Some(CommandAction::ApprovePlan { .. }) => {
             if let Some(bus) = crate::get_event_bus() {
                 bus.emit("slash:plan_changed", serde_json::json!(session_id));
             }

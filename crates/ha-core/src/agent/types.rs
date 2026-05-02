@@ -134,7 +134,7 @@ pub enum PlanAgentMode {
         ask_tools: Vec<String>,
     },
     /// Executing Agent: full tool access + extra plan execution tools
-    ExecutingAgent { extra_tools: Vec<String> },
+    ExecutingAgent,
 }
 
 pub struct AssistantAgent {

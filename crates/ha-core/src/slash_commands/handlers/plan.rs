@@ -23,6 +23,17 @@ pub async fn handle_plan(
         }
         "exit" => {
             let plan_content = plan::load_plan_file(sid).ok().flatten();
+            // Cancel any in-flight plan subagent so the model stops editing
+            // the plan file once the user has decided to exit. Mirrors the
+            // Tauri `set_plan_mode("off")` path — without this, `/plan exit`
+            // would leave a planning subagent burning tokens after the user
+            // bailed.
+            if let Some(run_id) = plan::get_active_plan_run_id(sid).await {
+                if let Some(cancels) = crate::get_subagent_cancels() {
+                    cancels.cancel(&run_id);
+                    app_info!("plan", "slash_exit", "Cancelled plan sub-agent: {}", run_id);
+                }
+            }
             // Clean up git checkpoint if any
             if let Some(ref_name) = plan::get_checkpoint_ref(sid).await {
                 plan::cleanup_checkpoint(&ref_name);
@@ -76,36 +87,6 @@ pub async fn handle_plan(
                 action: Some(CommandAction::ShowPlan { plan_content }),
             })
         }
-        "pause" => {
-            let current = plan::get_plan_state(sid).await;
-            if current != PlanModeState::Executing {
-                return Err("Can only pause when plan is executing".to_string());
-            }
-            if !plan::set_plan_state(sid, PlanModeState::Paused).await {
-                return Err("Invalid plan mode transition to paused".to_string());
-            }
-            db.update_session_plan_mode(sid, PlanModeState::Paused)
-                .map_err(|e| e.to_string())?;
-            Ok(CommandResult {
-                content: String::new(),
-                action: Some(CommandAction::PausePlan),
-            })
-        }
-        "resume" => {
-            let current = plan::get_plan_state(sid).await;
-            if current != PlanModeState::Paused {
-                return Err("Can only resume when plan is paused".to_string());
-            }
-            if !plan::set_plan_state(sid, PlanModeState::Executing).await {
-                return Err("Invalid plan mode transition to executing".to_string());
-            }
-            db.update_session_plan_mode(sid, PlanModeState::Executing)
-                .map_err(|e| e.to_string())?;
-            Ok(CommandResult {
-                content: String::new(),
-                action: Some(CommandAction::ResumePlan),
-            })
-        }
-        _ => Err("Usage: /plan [enter|exit|approve|pause|resume|show]".to_string()),
+        _ => Err("Usage: /plan [enter|exit|approve|show]".to_string()),
     }
 }

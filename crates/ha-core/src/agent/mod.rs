@@ -991,19 +991,19 @@ impl AssistantAgent {
                     allowed_tools.iter().any(|a| a == name)
                 });
             }
-            types::PlanAgentMode::ExecutingAgent { extra_tools } => {
-                // Add extra plan execution tools
-                for tool_name in extra_tools {
-                    match tool_name.as_str() {
-                        "update_plan_step" => tool_schemas
-                            .push(tools::get_plan_step_tool().to_provider_schema(provider)),
-                        "amend_plan" => tool_schemas
-                            .push(tools::get_amend_plan_tool().to_provider_schema(provider)),
-                        _ => {}
-                    }
-                }
+            types::PlanAgentMode::ExecutingAgent => {
+                // Plan execution adds no extra step-tracking tools.
+                // Progress is tracked via the standard task_create / task_update
+                // flow (always-loaded core tools), and structural plan changes
+                // are made by re-entering plan mode.
             }
-            types::PlanAgentMode::Off => {}
+            types::PlanAgentMode::Off => {
+                // Off (regular session): inject `enter_plan_mode` so the model can
+                // proactively suggest entering Plan Mode for non-trivial tasks. The
+                // tool itself triggers a user-facing Yes/No prompt — it never
+                // transitions state on its own.
+                tool_schemas.push(tools::get_enter_plan_mode_tool().to_provider_schema(provider));
+            }
         }
     }
 

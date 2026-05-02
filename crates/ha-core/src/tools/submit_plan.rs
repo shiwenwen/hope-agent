@@ -24,21 +24,14 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         None => return "Error: content parameter is required (markdown plan)".to_string(),
     };
 
-    // Parse steps from markdown content
-    let steps = plan::parse_plan_steps(&content);
-    if steps.is_empty() {
-        return "Error: plan content must contain at least one executable step as a markdown heading or regular ordered/unordered list item".to_string();
-    }
-
     // Save plan file under the effective (parent) session
     match plan::save_plan_file(&effective_sid, &content) {
         Ok(file_path) => {
             app_info!(
                 "plan",
                 "submit_plan",
-                "Plan saved: '{}' ({} steps) → {}",
+                "Plan saved: '{}' → {}",
                 title,
-                steps.len(),
                 file_path
             );
         }
@@ -47,24 +40,17 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
         }
     }
 
-    // Update plan meta: set title, steps, and transition to Review state
-    {
-        let store = plan::store().write().await;
-        // We need to drop the store lock first, then use set_plan_state
-        drop(store);
-    }
-
-    // First ensure meta exists, then update title and steps
+    // Transition to Review state
     if !plan::set_plan_state(&effective_sid, PlanModeState::Review).await {
         return "Error: invalid plan state transition to review".to_string();
     }
-    plan::update_plan_steps(&effective_sid, steps.clone()).await;
+
+    // Set title on the meta entry
     {
         let store_ref = plan::store();
         let mut map = store_ref.write().await;
         if let Some(meta) = map.get_mut(&*effective_sid) {
             meta.title = Some(title.clone());
-            meta.steps = steps.clone();
         }
     }
 
@@ -74,57 +60,31 @@ pub(crate) async fn execute(args: &Value, session_id: Option<&str>) -> String {
             session_db.update_session_plan_mode(&effective_sid, crate::plan::PlanModeState::Review);
     }
 
-    // Emit event to frontend
+    // Emit events to frontend. Include `content` in the payload so the frontend
+    // doesn't need a follow-up `get_plan_content` RPC after the event fires.
     if let Some(bus) = crate::globals::get_event_bus() {
-        // Emit plan_submitted event with summary info
-        let phase_count = {
-            let mut phases = std::collections::HashSet::new();
-            for step in &steps {
-                if !step.phase.is_empty() {
-                    phases.insert(step.phase.clone());
-                }
-            }
-            phases.len()
-        };
-
         bus.emit(
             "plan_submitted",
             serde_json::json!({
                 "sessionId": effective_sid,
                 "title": title,
-                "stepCount": steps.len(),
-                "phaseCount": phase_count,
-                "steps": steps,
+                "content": content,
             }),
         );
-
-        // Also emit plan_mode_changed
         bus.emit(
             "plan_mode_changed",
             serde_json::json!({
                 "sessionId": effective_sid,
-                "state": "review",
+                "state": PlanModeState::Review.as_str(),
                 "reason": "plan_submitted",
             }),
         );
     }
 
-    let phase_count = {
-        let mut phases = std::collections::HashSet::new();
-        for step in &steps {
-            if !step.phase.is_empty() {
-                phases.insert(step.phase.clone());
-            }
-        }
-        phases.len()
-    };
-
     format!(
-        "Plan '{}' submitted successfully ({} phases, {} steps). The plan is now in Review mode. \
-         The user can see the plan card in the chat and the Plan panel on the right side. \
+        "Plan '{}' submitted successfully. The plan is now in Review mode. \
+         The user can see the plan in the chat and the Plan panel on the right side. \
          They can approve and start execution when ready.",
-        title,
-        phase_count,
-        steps.len()
+        title
     )
 }

@@ -2988,29 +2988,16 @@
     "showPlan": "عرض الخطة",
     "executing": "جاري تنفيذ الخطة...",
     "executionIdle": "تنفيذ الخطة ينتظر المتابعة",
-    "stepsCompleted": "خطوات مكتملة",
     "completed": "مكتمل",
     "placeholder": "صِف ما تريد تحقيقه...",
     "panelTitle": "خطة التنفيذ",
-    "editorPlaceholder": "عدّل محتوى الخطة هنا...\n\n## Background\nصِف السياق: ما المشكلة التي يجب حلها، ولماذا، والنتيجة المتوقعة\n\n### Phase 1: التحليل\n- [ ] وصف الخطوة\n\n### Phase 2: التنفيذ\n- [ ] وصف الخطوة",
-    "stepsDetected": "خطوات مكتشفة",
-    "noSteps": "لا توجد خطوات",
-    "executeCommand": "ابدأ تنفيذ الخطة. أكمل كل خطوة بالترتيب، واستدعِ update_plan_step لتتبع التقدم.",
+    "executeCommand": "ابدأ تنفيذ الخطة المعتمَدة. استدعِ task_create لإنشاء قائمة todos موجزة مستمدة من الخطة، ثم استخدم task_update لوضع كل todo على in_progress قبل البدء وعلى completed فور الانتهاء. اجعل todo واحدة في in_progress في كل مرة.",
     "executionApproved": "تمت الموافقة على الخطة. جارٍ بدء التنفيذ.",
     "executionResumed": "جارٍ متابعة تنفيذ الخطة.",
     "planning": "جاري إنشاء الخطة...",
-    "pause": "إيقاف مؤقت",
     "resume": "استئناف",
-    "pausedBanner": "تنفيذ الخطة متوقف مؤقتاً",
     "review": {
       "badge": "مراجعة"
-    },
-    "paused": {
-      "badge": "متوقف مؤقتاً"
-    },
-    "card": {
-      "phases": "مرحلة",
-      "steps": "خطوة"
     },
     "versions": "سجل الإصدارات",
     "versionHistory": "إصدارات الخطة",
@@ -3042,7 +3029,8 @@
       "preview": "معاينة",
       "timeoutHint": "الوقت المتبقي",
       "timedOut": "انتهت المهلة"
-    }
+    },
+    "noPlanYet": "لا توجد خطة بعد"
   },
   "canvas": {
     "refresh": "تحديث",

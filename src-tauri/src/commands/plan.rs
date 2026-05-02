@@ -1,5 +1,5 @@
 use crate::commands::CmdError;
-use crate::plan::{self, PlanModeState, PlanStep, PlanStepStatus, PlanVersionInfo};
+use crate::plan::{self, PlanModeState, PlanVersionInfo};
 use ha_core::app_info;
 use ha_core::ask_user::AskUserQuestionAnswer;
 
@@ -30,6 +30,9 @@ pub async fn set_plan_mode(
     state: String,
     app_state: tauri::State<'_, crate::AppState>,
 ) -> Result<(), CmdError> {
+    if state == "paused" {
+        return Err(CmdError::msg("plan mode 'paused' state has been removed"));
+    }
     let plan_state = PlanModeState::from_str(&state);
     let previous_state = plan::get_plan_state(&session_id).await;
     let persisted_plan_mode = app_state
@@ -96,85 +99,7 @@ pub async fn get_plan_content(session_id: String) -> Result<Option<String>, CmdE
 
 #[tauri::command]
 pub async fn save_plan_content(session_id: String, content: String) -> Result<(), CmdError> {
-    // Save file
     plan::save_plan_file(&session_id, &content)?;
-    // Parse steps and update in-memory state
-    let steps = plan::parse_plan_steps(&content);
-    plan::update_plan_steps(&session_id, steps).await;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn get_plan_steps(
-    session_id: String,
-    app_state: tauri::State<'_, crate::AppState>,
-) -> Result<Vec<PlanStep>, CmdError> {
-    if let Ok(Some(session_meta)) = app_state.session_db.get_session(&session_id) {
-        if session_meta.plan_mode == PlanModeState::Off {
-            plan::set_plan_state(&session_id, PlanModeState::Off).await;
-            return Ok(Vec::new());
-        }
-        plan::restore_from_db(&session_id, session_meta.plan_mode).await;
-        if let Some(meta) = plan::get_plan_meta(&session_id).await {
-            return Ok(meta.steps);
-        }
-    }
-    if let Some(meta) = plan::get_plan_meta(&session_id).await {
-        if !meta.steps.is_empty() {
-            return Ok(meta.steps);
-        }
-    }
-    Ok(Vec::new())
-}
-
-#[tauri::command]
-pub async fn update_plan_step_status(
-    session_id: String,
-    step_index: usize,
-    status: String,
-) -> Result<(), CmdError> {
-    let step_status = PlanStepStatus::from_str(&status);
-    plan::update_step_status(&session_id, step_index, step_status, None).await;
-
-    // Emit Tauri global event for frontend real-time update
-    if let Some(app_handle) = crate::get_app_handle() {
-        use tauri::Emitter;
-        let _ = app_handle.emit(
-            "plan_step_updated",
-            serde_json::json!({
-                "sessionId": session_id,
-                "stepIndex": step_index,
-                "status": status,
-            }),
-        );
-    }
-
-    // Check if all steps are terminal → auto-transition to Completed
-    if let Some(meta) = plan::get_plan_meta(&session_id).await {
-        if meta.all_terminal() && meta.state == PlanModeState::Executing {
-            // Clean up git checkpoint on successful completion
-            if let Some(ref_name) = plan::get_checkpoint_ref(&session_id).await {
-                plan::cleanup_checkpoint(&ref_name);
-            }
-            plan::set_plan_state(&session_id, PlanModeState::Completed).await;
-            // Persist completed state to DB for crash safety
-            if let Some(session_db) = crate::get_session_db() {
-                let _ = session_db.update_session_plan_mode(&session_id, PlanModeState::Completed);
-            }
-            if let Some(app_handle) = crate::get_app_handle() {
-                use tauri::Emitter;
-                let _ = app_handle.emit(
-                    "plan_mode_changed",
-                    serde_json::json!({
-                        "sessionId": session_id,
-                        "state": "completed",
-                        "reason": "all_steps_completed",
-                    }),
-                );
-            }
-        }
-    }
-
     Ok(())
 }
 
@@ -212,8 +137,6 @@ pub async fn load_plan_version_content(file_path: String) -> Result<String, CmdE
 pub async fn restore_plan_version(session_id: String, file_path: String) -> Result<(), CmdError> {
     let content = plan::load_plan_version(&file_path)?;
     plan::save_plan_file(&session_id, &content)?;
-    let steps = plan::parse_plan_steps(&content);
-    plan::update_plan_steps(&session_id, steps).await;
     Ok(())
 }
 
