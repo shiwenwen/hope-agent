@@ -119,6 +119,14 @@
     "tasks": "任务",
     "taskProgress": "已完成 {{completed}}/{{total}}",
     "taskNoneYet": "暂无任务",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "标记为待办",
+        "in_progress": "标记为进行中",
+        "completed": "标记为已完成"
+      },
+      "delete": "删除任务"
+    },
     "justNow": "刚刚",
     "minutesAgo": "{{count}}分钟前",
     "hoursAgo": "{{count}}小时前",

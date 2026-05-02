@@ -119,6 +119,14 @@
     "tasks": "Tugasan",
     "taskProgress": "{{completed}}/{{total}} selesai",
     "taskNoneYet": "Belum ada tugasan",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Tandakan sebagai tertunda",
+        "in_progress": "Tandakan sebagai sedang dijalankan",
+        "completed": "Tandakan sebagai selesai"
+      },
+      "delete": "Buang tugasan"
+    },
     "justNow": "Baru sahaja",
     "minutesAgo": "{{count}} minit lalu",
     "hoursAgo": "{{count}} jam lalu",

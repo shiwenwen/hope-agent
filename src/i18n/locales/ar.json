@@ -119,6 +119,14 @@
     "tasks": "المهام",
     "taskProgress": "{{completed}}/{{total}} مكتملة",
     "taskNoneYet": "لا توجد مهام بعد",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "وضع علامة قيد الانتظار",
+        "in_progress": "وضع علامة قيد التنفيذ",
+        "completed": "وضع علامة مكتملة"
+      },
+      "delete": "حذف المهمة"
+    },
     "justNow": "الآن",
     "minutesAgo": "منذ {{count}} دقيقة",
     "hoursAgo": "منذ {{count}} ساعة",

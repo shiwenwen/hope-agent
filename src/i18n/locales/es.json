@@ -119,6 +119,14 @@
     "tasks": "Tareas",
     "taskProgress": "{{completed}}/{{total}} completadas",
     "taskNoneYet": "Aún no hay tareas",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Marcar como pendiente",
+        "in_progress": "Marcar como en curso",
+        "completed": "Marcar como completada"
+      },
+      "delete": "Eliminar tarea"
+    },
     "justNow": "Justo ahora",
     "minutesAgo": "hace {{count}}min",
     "hoursAgo": "hace {{count}}h",

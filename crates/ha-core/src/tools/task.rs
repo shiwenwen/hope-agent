@@ -217,3 +217,59 @@ pub(crate) async fn tool_task_list(_args: &Value, session_id: Option<&str>) -> S
         Err(e) => format!("Error: failed to list tasks: {}", e),
     }
 }
+
+/// Build the per-round task reminder injected into the model's system blocks.
+///
+/// Returns `Some(text)` when the session has at least one `in_progress` or
+/// `pending` task, `None` otherwise. The reminder is wrapped in
+/// `<system-reminder>` tags so the model treats it as harness guidance rather
+/// than user content. Limited to 5 task lines so deep todo lists don't bloat
+/// every round's prompt.
+pub(crate) fn task_reminder_text(tasks: &[Task]) -> Option<String> {
+    let active: Vec<&Task> = tasks
+        .iter()
+        .filter(|t| t.status != TaskStatus::Completed.as_str())
+        .collect();
+    if active.is_empty() {
+        return None;
+    }
+
+    let in_progress_count = active
+        .iter()
+        .filter(|t| t.status == TaskStatus::InProgress.as_str())
+        .count();
+    let pending_count = active.len() - in_progress_count;
+
+    let mut lines = String::new();
+    for task in active.iter().take(5) {
+        let label = task
+            .active_form
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(task.content.as_str());
+        let marker = if task.status == TaskStatus::InProgress.as_str() {
+            "in_progress"
+        } else {
+            "pending"
+        };
+        lines.push_str(&format!("  - [{}] (id={}) {}\n", marker, task.id, label));
+    }
+    if active.len() > 5 {
+        lines.push_str(&format!("  - … {} more active task(s)\n", active.len() - 5));
+    }
+
+    let summary = match (in_progress_count, pending_count) {
+        (0, p) => format!("{} pending task(s) remain.", p),
+        (i, 0) => format!("{} task(s) currently marked in_progress.", i),
+        (i, p) => format!("{} in_progress, {} pending task(s) remain.", i, p),
+    };
+
+    Some(format!(
+        "<system-reminder>\nActive task tracker (single source of truth for progress):\n{lines}\n{summary}\n\
+        - When you finish a task, IMMEDIATELY call `task_update(id, status=\"completed\")` — \
+        do not batch completions, do not wait until the end of the turn.\n\
+        - Before sending your final reply to the user, sweep this list and close every task you actually completed this turn.\n\
+        - If a task no longer reflects what you're doing, call `task_update` to revise it or mark it completed/cancelled.\n\
+        - Never mention this reminder to the user.\n</system-reminder>"
+    ))
+}

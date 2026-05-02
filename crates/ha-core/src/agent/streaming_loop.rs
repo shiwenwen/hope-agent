@@ -311,11 +311,20 @@ impl AssistantAgent {
             let effort_live = self.effective_reasoning_effort(reasoning_effort).await;
             let awareness_suffix = self.current_awareness_suffix();
             let active_suffix = self.current_active_memory_suffix();
+            // Task reminder: pure DB read on the session's task list, no LLM
+            // call, no TTL. Recomputed each round so a `task_update` mid-loop
+            // immediately reflects in the next round's prompt.
+            let task_reminder = self.session_id.as_deref().and_then(|sid| {
+                crate::get_session_db()
+                    .and_then(|db| db.list_tasks(sid).ok())
+                    .and_then(|tasks| tools::task_reminder_text(&tasks))
+            });
 
             let req = RoundRequest {
                 system_prompt: round_system_prompt,
                 awareness_suffix: awareness_suffix.as_deref().map(|s| s.as_str()),
                 active_memory_suffix: active_suffix.as_deref().map(|s| s.as_str()),
+                task_reminder_suffix: task_reminder.as_deref(),
                 tool_schemas: &tool_schemas,
                 history_for_api: &api_messages,
                 reasoning_effort: effort_live.as_deref(),

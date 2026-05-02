@@ -119,6 +119,14 @@
     "tasks": "Görevler",
     "taskProgress": "{{completed}}/{{total}} tamamlandı",
     "taskNoneYet": "Henüz görev yok",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Beklemede olarak işaretle",
+        "in_progress": "Devam ediyor olarak işaretle",
+        "completed": "Tamamlandı olarak işaretle"
+      },
+      "delete": "Görevi sil"
+    },
     "justNow": "Az önce",
     "minutesAgo": "{{count}} dk önce",
     "hoursAgo": "{{count}} sa önce",

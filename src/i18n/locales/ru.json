@@ -119,6 +119,14 @@
     "tasks": "Задачи",
     "taskProgress": "{{completed}}/{{total}} выполнено",
     "taskNoneYet": "Задач пока нет",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Пометить как ожидающую",
+        "in_progress": "Пометить как в работе",
+        "completed": "Пометить как выполненную"
+      },
+      "delete": "Удалить задачу"
+    },
     "justNow": "Только что",
     "minutesAgo": "{{count}} мин назад",
     "hoursAgo": "{{count}} ч назад",

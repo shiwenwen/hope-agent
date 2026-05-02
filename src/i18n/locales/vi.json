@@ -119,6 +119,14 @@
     "tasks": "Tác vụ",
     "taskProgress": "{{completed}}/{{total}} hoàn thành",
     "taskNoneYet": "Chưa có tác vụ nào",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "Đánh dấu là đang chờ",
+        "in_progress": "Đánh dấu là đang thực hiện",
+        "completed": "Đánh dấu là hoàn thành"
+      },
+      "delete": "Xóa tác vụ"
+    },
     "justNow": "Vừa xong",
     "minutesAgo": "{{count}} phút trước",
     "hoursAgo": "{{count}} giờ trước",

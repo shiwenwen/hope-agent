@@ -102,6 +102,11 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
                 api_input.insert(0, json!({ "role": "system", "content": suffix }));
             }
         }
+        if let Some(task_suffix) = req.task_reminder_suffix {
+            if !task_suffix.is_empty() {
+                api_input.push(json!({ "role": "system", "content": task_suffix }));
+            }
+        }
 
         let request = ResponsesRequest {
             model: self.model.to_string(),

@@ -119,6 +119,14 @@
     "tasks": "タスク",
     "taskProgress": "{{completed}}/{{total}} 完了",
     "taskNoneYet": "タスクはまだありません",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "未着手にする",
+        "in_progress": "進行中にする",
+        "completed": "完了にする"
+      },
+      "delete": "タスクを削除"
+    },
     "justNow": "たった今",
     "minutesAgo": "{{count}}分前",
     "hoursAgo": "{{count}}時間前",

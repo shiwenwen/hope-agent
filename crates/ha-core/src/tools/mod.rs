@@ -47,6 +47,8 @@ mod write;
 
 // ── Public Re-exports ─────────────────────────────────────────────
 
+pub(crate) use task::task_reminder_text;
+
 pub use approval::{submit_approval_response, ApprovalResponse};
 pub use definitions::{
     get_ask_user_question_tool, get_available_tools, get_canvas_tool, get_core_tools,

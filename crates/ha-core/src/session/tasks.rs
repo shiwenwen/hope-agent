@@ -119,6 +119,31 @@ impl SessionDB {
         }
     }
 
+    pub fn delete_task(&self, id: i64) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let affected = conn.execute("DELETE FROM tasks WHERE id = ?1", params![id])?;
+        if affected == 0 {
+            return Err(anyhow::anyhow!("task {} not found", id));
+        }
+        Ok(())
+    }
+
+    pub fn lookup_task_session(&self, id: i64) -> Result<Option<String>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare("SELECT session_id FROM tasks WHERE id = ?1")?;
+        let mut rows = stmt.query(params![id])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
     pub fn list_tasks(&self, session_id: &str) -> Result<Vec<Task>> {
         let conn = self
             .conn

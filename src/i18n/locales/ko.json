@@ -119,6 +119,14 @@
     "tasks": "작업",
     "taskProgress": "{{completed}}/{{total}} 완료",
     "taskNoneYet": "아직 작업이 없습니다",
+    "taskActions": {
+      "cycleTo": {
+        "pending": "대기 중으로 표시",
+        "in_progress": "진행 중으로 표시",
+        "completed": "완료로 표시"
+      },
+      "delete": "작업 삭제"
+    },
     "justNow": "방금",
     "minutesAgo": "{{count}}분 전",
     "hoursAgo": "{{count}}시간 전",

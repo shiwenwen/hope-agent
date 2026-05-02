@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 
+import type { ReactNode } from "react"
 import { afterEach, describe, expect, test, vi } from "vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { Task } from "@/types/chat"
@@ -14,6 +15,18 @@ vi.mock("react-i18next", () => ({
       return options?.defaultValue ?? key
     },
   }),
+}))
+
+vi.mock("@/components/ui/tooltip", () => ({
+  IconTip: ({ children }: { children: ReactNode }) => children,
+  Tooltip: ({ children }: { children: ReactNode }) => children,
+  TooltipTrigger: ({ children }: { children: ReactNode }) => children,
+  TooltipContent: ({ children }: { children: ReactNode }) => children,
+  TooltipProvider: ({ children }: { children: ReactNode }) => children,
+}))
+
+vi.mock("@/lib/transport-provider", () => ({
+  getTransport: () => ({ call: vi.fn().mockResolvedValue(undefined) }),
 }))
 
 afterEach(() => {

@@ -220,6 +220,15 @@ fn build_router_with_cors(
         .route("/chat", post(routes::chat::chat))
         .route("/chat/stop", post(routes::chat::stop_chat))
         .route(
+            "/sessions/{sessionId}/tasks",
+            get(routes::tasks::list_session_tasks),
+        )
+        .route(
+            "/tasks/{id}/status",
+            patch(routes::tasks::update_task_status),
+        )
+        .route("/tasks/{id}", delete(routes::tasks::delete_task))
+        .route(
             "/runtime-tasks/cancel",
             post(routes::runtime_tasks::cancel_runtime_task),
         )
