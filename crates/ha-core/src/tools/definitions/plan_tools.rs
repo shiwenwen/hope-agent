@@ -112,8 +112,7 @@ pub fn get_enter_plan_mode_tool() -> ToolDefinition {
         name: TOOL_ENTER_PLAN_MODE.into(),
         description: "Enter Plan Mode to explore, gather context, and draft a written plan \
 before doing the work. After entering, you can read files / search / ask the user clarifying \
-questions, and you must call `submit_plan` with the finalized plan when ready. The user reviews \
-and approves the plan at submit time — there is no separate \"approve to enter plan mode\" prompt.\n\n\
+questions, and you must call `submit_plan` with the finalized plan when ready.\n\n\
 ## When to Use\n\
 Prefer entering plan mode for non-trivial tasks across all domains:\n\
 - **Programming**: new features, multi-file refactors, architectural choices, performance work, \
@@ -139,7 +138,7 @@ they accept, the session transitions to Planning state and the tool returns a su
 message; if they decline, the session stays in normal mode and the tool returns a \
 message saying so. Only call this once per task; if the user declined, do not retry — \
 proceed with the task directly."
-                .into(),
+            .into(),
         tier: ToolTier::Core {
             subclass: CoreSubclass::PlanMode,
         },

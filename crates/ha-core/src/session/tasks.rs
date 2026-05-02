@@ -41,10 +41,18 @@ pub async fn set_task_status_and_snapshot(
 }
 
 /// Delete a task, emit the post-delete snapshot, return the post-delete list.
-pub fn delete_task_and_snapshot(db: &SessionDB, id: i64) -> Result<Vec<Task>> {
+///
+/// Mirrors `set_task_status_and_snapshot` in also calling
+/// `crate::plan::maybe_complete_plan` afterward — deleting the last pending
+/// task in a plan window must collapse the plan to Completed just like
+/// flipping that task to Completed would, otherwise the plan stays stuck in
+/// Executing forever (git checkpoint never cleaned up, `plan_mode_changed`
+/// never emitted).
+pub async fn delete_task_and_snapshot(db: &SessionDB, id: i64) -> Result<Vec<Task>> {
     let session_id = db.delete_task(id)?;
     let tasks = db.list_tasks(&session_id).unwrap_or_default();
     emit_task_snapshot(&session_id, &tasks);
+    crate::plan::maybe_complete_plan(&session_id, &tasks).await;
     Ok(tasks)
 }
 

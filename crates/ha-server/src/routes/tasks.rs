@@ -44,5 +44,5 @@ pub async fn update_task_status(
 
 pub async fn delete_task(Path(id): Path<i64>) -> Result<Json<Vec<Task>>, AppError> {
     let db = db()?;
-    Ok(Json(delete_task_and_snapshot(&db, id)?))
+    Ok(Json(delete_task_and_snapshot(&db, id).await?))
 }

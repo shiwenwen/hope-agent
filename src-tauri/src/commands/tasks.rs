@@ -31,5 +31,5 @@ pub async fn update_task_status(id: i64, status: String) -> Result<Vec<Task>, Cm
 #[tauri::command]
 pub async fn delete_task(id: i64) -> Result<Vec<Task>, CmdError> {
     let db = db()?;
-    Ok(delete_task_and_snapshot(&db, id)?)
+    Ok(delete_task_and_snapshot(&db, id).await?)
 }
