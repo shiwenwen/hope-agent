@@ -233,11 +233,20 @@ async fn handle_inbound_message(
         }
     }
 
-    // 3. Resolve agent_id: topic > group > channel > per-account > global default
+    // 3. Resolve agent_id:
+    // topic > group > channel > per-account > app global default > hardcoded default.
+    let app_default_agent_id = store
+        .default_agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID);
     let base_agent_id = account
         .agent_id
         .as_deref()
-        .unwrap_or_else(|| store.channels.agent_id());
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .unwrap_or(app_default_agent_id);
 
     let resolved_agent_id = match msg.chat_type {
         ChatType::Group | ChatType::Forum => topic_config

@@ -8,9 +8,12 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select"
-import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
+import {
+  AgentSelectDisplay,
+  INHERIT_AGENT_SENTINEL,
+  InheritAgentSelectDisplay,
+} from "@/components/common/AgentSelectDisplay"
 
 interface RecapConfig {
   analysisAgent?: string | null
@@ -34,8 +37,6 @@ const DEFAULT_CONFIG: RecapConfig = {
   facetConcurrency: 4,
   cacheRetentionDays: 180,
 }
-
-const AGENT_DEFAULT_SENTINEL = "default"
 
 export default function RecapSettingsPanel() {
   const { t } = useTranslation()
@@ -112,14 +113,20 @@ export default function RecapSettingsPanel() {
   const handleAgentChange = (value: string) => {
     const next: RecapConfig = {
       ...config,
-      analysisAgent: value === AGENT_DEFAULT_SENTINEL ? null : value,
+      analysisAgent: value === INHERIT_AGENT_SENTINEL ? null : value,
     }
     setConfig(next)
     commitIfChanged(next)
   }
 
   if (!loaded) return null
-  const selectedAgent = agents.find((agent) => agent.id === config.analysisAgent)
+  const selectedAgentId = config.analysisAgent?.trim() || null
+  const selectedAgent = selectedAgentId
+    ? agents.find((agent) => agent.id === selectedAgentId)
+    : undefined
+  const selectedAgentExists = selectedAgentId
+    ? agents.some((agent) => agent.id === selectedAgentId)
+    : false
 
   return (
     <div className="flex-1 overflow-y-auto p-6">
@@ -128,24 +135,38 @@ export default function RecapSettingsPanel() {
       </div>
 
       <div className="mt-4 space-y-6">
-        <div className="flex items-center justify-between px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors">
-          <div className="space-y-0.5 pr-4">
+        <div className="flex flex-col gap-3 px-3 py-3 rounded-lg hover:bg-secondary/40 transition-colors sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 space-y-0.5 sm:pr-4">
             <div className="text-sm font-medium">{t("settings.recapAnalysisAgent")}</div>
             <div className="text-xs text-muted-foreground">
               {t("settings.recapAnalysisAgentDesc")}
             </div>
           </div>
           <Select
-            value={config.analysisAgent ?? AGENT_DEFAULT_SENTINEL}
+            value={selectedAgentId ?? INHERIT_AGENT_SENTINEL}
             onValueChange={handleAgentChange}
           >
-            <SelectTrigger className="w-56 h-8 text-sm">
-              {selectedAgent ? <AgentSelectDisplay agent={selectedAgent} /> : <SelectValue />}
+            <SelectTrigger className="h-8 w-full overflow-hidden text-sm sm:w-72">
+              <div className="flex min-w-0 flex-1 items-center overflow-hidden">
+                {selectedAgentId ? (
+                  <AgentSelectDisplay agent={selectedAgent} fallbackName={selectedAgentId} />
+                ) : (
+                  <InheritAgentSelectDisplay label={t("settings.recapAnalysisAgentDefault")} />
+                )}
+              </div>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={AGENT_DEFAULT_SENTINEL}>
+              <SelectItem
+                value={INHERIT_AGENT_SENTINEL}
+                textValue={t("settings.recapAnalysisAgentDefault")}
+              >
                 {t("settings.recapAnalysisAgentDefault")}
               </SelectItem>
+              {selectedAgentId && !selectedAgentExists && (
+                <SelectItem value={selectedAgentId} textValue={selectedAgentId}>
+                  <AgentSelectDisplay fallbackName={selectedAgentId} />
+                </SelectItem>
+              )}
               {agents.map((agent) => (
                 <SelectItem key={agent.id} value={agent.id} textValue={agent.name}>
                   <AgentSelectDisplay agent={agent} />

@@ -9,7 +9,9 @@ pub struct ChannelStoreConfig {
     /// All configured channel accounts (across all channels).
     #[serde(default)]
     pub accounts: Vec<ChannelAccountConfig>,
-    /// Agent ID to use for channel conversations. Defaults to "default".
+    /// Legacy channel-specific default Agent ID. Runtime dispatch now lets
+    /// unbound channel conversations inherit `AppConfig.default_agent_id`;
+    /// keep this field for backward-compatible config deserialization.
     #[serde(default)]
     pub default_agent_id: Option<String>,
     /// Provider/model override for channel conversations.
@@ -34,7 +36,8 @@ impl ChannelStoreConfig {
         self.accounts.iter().filter(|a| a.enabled).collect()
     }
 
-    /// Effective agent ID for channel conversations.
+    /// Legacy effective channel Agent ID when no app-level context is
+    /// available.
     pub fn agent_id(&self) -> &str {
         self.default_agent_id.as_deref().unwrap_or("default")
     }

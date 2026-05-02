@@ -22,7 +22,11 @@ import { Switch } from "@/components/ui/switch"
 import { Check, Loader2, AlertCircle } from "lucide-react"
 import { logger } from "@/lib/logger"
 import ChannelIcon from "@/components/common/ChannelIcon"
-import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
+import {
+  AgentSelectDisplay,
+  INHERIT_AGENT_SENTINEL,
+  InheritAgentSelectDisplay,
+} from "@/components/common/AgentSelectDisplay"
 import AllowlistTagInput from "./AllowlistTagInput"
 import WeChatConnectSection from "./WeChatConnectSection"
 import TelegramGroupChannelConfig from "./TelegramGroupConfig"
@@ -249,16 +253,24 @@ export default function EditAccountDialog({
           {/* Bound Agent */}
           <div className="space-y-2">
             <Label>{t("channels.boundAgent")}</Label>
-            <Select value={agentId || "__none__"} onValueChange={(v) => setAgentId(v === "__none__" ? "" : v)}>
+            <Select
+              value={agentId || INHERIT_AGENT_SENTINEL}
+              onValueChange={(v) => setAgentId(v === INHERIT_AGENT_SENTINEL ? "" : v)}
+            >
               <SelectTrigger>
                 {selectedAgent ? (
                   <AgentSelectDisplay agent={selectedAgent} />
                 ) : (
-                  <SelectValue placeholder={t("channels.boundAgentDefault")} />
+                  <InheritAgentSelectDisplay label={t("channels.boundAgentDefault")} />
                 )}
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__">{t("channels.boundAgentDefault")}</SelectItem>
+                <SelectItem
+                  value={INHERIT_AGENT_SENTINEL}
+                  textValue={t("channels.boundAgentDefault")}
+                >
+                  {t("channels.boundAgentDefault")}
+                </SelectItem>
                 {agents.map((a) => (
                   <SelectItem key={a.id} value={a.id} textValue={a.name}>
                     <AgentSelectDisplay agent={a} />
