@@ -240,7 +240,7 @@
     "openFile": "Click to open file",
     "revealInFolder": "Reveal in folder",
     "inputTokens": "Input",
-    "inputTokensCumulative": "Cumulative input",
+    "inputTokensCumulative": "Total input",
     "lastRoundInputTokens": "Last-round input",
     "outputTokens": "Output",
     "totalTokens": "Total",

@@ -504,15 +504,15 @@ function MessageBubbleInner({
                   </button>
                 </IconTip>
                 {detailsIndex === index && (
-                  <div className="absolute bottom-full mb-1 z-50 min-w-[220px] rounded-lg border border-border bg-popover p-2.5 shadow-lg left-0">
+                  <div className="absolute bottom-full left-0 z-50 mb-1 w-64 max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover p-2.5 shadow-lg">
                     <div className="space-y-1.5 text-xs">
                       {msg.model && (
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                           <span className="text-muted-foreground whitespace-nowrap shrink-0">
                             {t("chat.statusModel")}
                           </span>
                           <IconTip label={msg.model}>
-                            <span className="font-medium text-foreground truncate max-w-[160px]">
+                            <span className="block truncate text-right font-medium text-foreground">
                               {msg.model}
                             </span>
                           </IconTip>
@@ -531,23 +531,23 @@ function MessageBubbleInner({
                         if (inputTokens == null) return null
                         return (
                           <>
-                            <div className="flex items-center justify-between gap-3">
+                            <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                               <span className="text-muted-foreground whitespace-nowrap shrink-0">
                                 {showLastInput
                                   ? t("chat.inputTokensCumulative")
                                   : t("chat.inputTokens")}
                               </span>
-                              <span className="font-medium text-foreground tabular-nums">
+                              <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
                                 {formatTokens(inputTokens)}
                               </span>
                             </div>
                             {showLastInput && lastInputTokens != null && (
-                              <div className="flex items-center justify-between gap-3">
+                              <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                                 <span className="text-muted-foreground whitespace-nowrap shrink-0">
                                   {t("chat.lastRoundInputTokens")}
                                 </span>
-                                <span className="font-medium text-foreground tabular-nums">
-                                  ⚡️{t("chat.statusCacheHit")} {formatTokens(lastInputTokens)}
+                                <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
+                                  {formatTokens(lastInputTokens)}
                                 </span>
                               </div>
                             )}
@@ -555,11 +555,11 @@ function MessageBubbleInner({
                         )
                       })()}
                       {msg.usage?.outputTokens != null && (
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                           <span className="text-muted-foreground whitespace-nowrap shrink-0">
                             {t("chat.outputTokens")}
                           </span>
-                          <span className="font-medium text-foreground tabular-nums">
+                          <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
                             {formatTokens(msg.usage.outputTokens)}
                           </span>
                         </div>
@@ -567,22 +567,22 @@ function MessageBubbleInner({
                       {msg.usage?.inputTokens != null && msg.usage?.outputTokens != null && (
                         <>
                           <div className="border-t border-border" />
-                          <div className="flex items-center justify-between gap-3">
+                          <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                             <span className="text-muted-foreground whitespace-nowrap shrink-0">
                               {t("chat.totalTokens")}
                             </span>
-                            <span className="font-medium text-foreground tabular-nums">
+                            <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
                               {formatTokens(msg.usage.inputTokens + msg.usage.outputTokens)}
                             </span>
                           </div>
                         </>
                       )}
                       {msg.usage?.durationMs != null && (
-                        <div className="flex items-center justify-between gap-3">
+                        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
                           <span className="text-muted-foreground whitespace-nowrap shrink-0">
                             {t("chat.duration")}
                           </span>
-                          <span className="font-medium text-foreground tabular-nums">
+                          <span className="justify-self-end whitespace-nowrap text-right font-medium text-foreground tabular-nums">
                             {formatDuration(msg.usage.durationMs)}
                           </span>
                         </div>
