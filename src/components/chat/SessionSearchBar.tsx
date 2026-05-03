@@ -49,9 +49,27 @@ export default function SessionSearchBar({
   }, [onJumpTo])
 
   useEffect(() => {
-    inputRef.current?.focus()
-    inputRef.current?.select()
+    const focusInput = () => {
+      inputRef.current?.focus({ preventScroll: true })
+      inputRef.current?.select()
+    }
+    focusInput()
+    const frame = window.requestAnimationFrame(focusInput)
+    return () => window.cancelAnimationFrame(frame)
   }, [focusSignal])
+
+  const focusSearchInput = useCallback(() => {
+    inputRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  const handleSearchSurfaceMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null
+    if (target?.closest("button")) return
+    if (target !== inputRef.current) {
+      e.preventDefault()
+    }
+    focusSearchInput()
+  }
 
   useEffect(() => {
     const q = query.trim()
@@ -138,10 +156,14 @@ export default function SessionSearchBar({
 
   return (
     <div className="px-4 pt-1 pb-2 bg-background border-b border-border/30 animate-in fade-in slide-in-from-top-1 duration-150">
-      <div className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 focus-within:bg-muted/80 transition-colors">
-        <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
+      <div
+        className="flex items-center gap-2 rounded-md bg-muted/50 px-2.5 py-1.5 focus-within:bg-muted/80 transition-colors"
+        onMouseDown={handleSearchSurfaceMouseDown}
+      >
+        <Search className="pointer-events-none h-3.5 w-3.5 shrink-0 text-muted-foreground/60" />
         <input
           ref={inputRef}
+          aria-label={t("chat.sessionSearch") || ""}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
