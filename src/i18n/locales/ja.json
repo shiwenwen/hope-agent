@@ -240,7 +240,7 @@
     "openFile": "クリックしてファイルを開く",
     "revealInFolder": "フォルダーで表示",
     "inputTokens": "入力",
-    "inputTokensCumulative": "累積入力",
+    "inputTokensCumulative": "入力合計",
     "lastRoundInputTokens": "最終ラウンド入力",
     "outputTokens": "出力",
     "totalTokens": "合計",

@@ -240,7 +240,7 @@
     "openFile": "Dosyayı açmak için tıklayın",
     "revealInFolder": "Klasörde göster",
     "inputTokens": "Giriş",
-    "inputTokensCumulative": "Kümülatif giriş",
+    "inputTokensCumulative": "Toplam giriş",
     "lastRoundInputTokens": "Son tur girişi",
     "outputTokens": "Çıkış",
     "totalTokens": "Toplam",

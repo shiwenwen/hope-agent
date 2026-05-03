@@ -240,7 +240,7 @@
     "openFile": "Clique para abrir o arquivo",
     "revealInFolder": "Mostrar na pasta",
     "inputTokens": "Entrada",
-    "inputTokensCumulative": "Entrada acumulada",
+    "inputTokensCumulative": "Entrada total",
     "lastRoundInputTokens": "Entrada da última rodada",
     "outputTokens": "Saída",
     "totalTokens": "Total",

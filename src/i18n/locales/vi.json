@@ -240,7 +240,7 @@
     "openFile": "Nhấn để mở tệp",
     "revealInFolder": "Hiện trong thư mục",
     "inputTokens": "Đầu vào",
-    "inputTokensCumulative": "Đầu vào tích lũy",
+    "inputTokensCumulative": "Tổng đầu vào",
     "lastRoundInputTokens": "Đầu vào vòng cuối",
     "outputTokens": "Đầu ra",
     "totalTokens": "Tổng",

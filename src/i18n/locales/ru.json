@@ -240,7 +240,7 @@
     "openFile": "Нажмите, чтобы открыть файл",
     "revealInFolder": "Показать в папке",
     "inputTokens": "Ввод",
-    "inputTokensCumulative": "Накопленный ввод",
+    "inputTokensCumulative": "Всего ввода",
     "lastRoundInputTokens": "Ввод последнего раунда",
     "outputTokens": "Вывод",
     "totalTokens": "Всего",

@@ -40,10 +40,10 @@ export function isCenteredSystemMessage(msg: Message): boolean {
   )
 }
 
-/** Format token count: ≥10000 → "12.3k tokens", else "1,234 tokens" */
+/** Format token count: ≥10000 → "12.3k", else "1,234". */
 export function formatTokens(n: number): string {
-  if (n >= 10000) return `${(n / 1000).toFixed(1)}k tokens`
-  return `${n.toLocaleString()} tokens`
+  if (n >= 10000) return `${(n / 1000).toFixed(1)}k`
+  return n.toLocaleString()
 }
 
 /** Fold a streaming `usage` event into an existing `MessageUsage`. Shared

@@ -559,7 +559,7 @@ export default function ChatTitleBar({
                           {t("chat.lastRoundInputTokens")}
                         </span>
                         <span className="font-medium text-foreground tabular-nums">
-                          ⚡️{t("chat.statusCacheHit")} {formatCompactTokenCount(lastInput)}
+                          {formatCompactTokenCount(lastInput)}
                         </span>
                       </div>
                     )}
