@@ -1,8 +1,8 @@
 //! Step 2 — provider + active-model setup.
 //!
 //! CLI flow:
-//!   1. Pick a template (OpenAI / Anthropic / DeepSeek / Ollama / Custom)
-//!   2. Enter Base URL + API Key
+//!   1. Pick a template (OpenAI / Codex OAuth / Anthropic / DeepSeek / Ollama / Custom)
+//!   2. For Codex, complete terminal OAuth; otherwise enter Base URL + API Key
 //!   3. Enter a primary model id (or accept the template default)
 //!   4. Persist a `ProviderConfig` + set it as `active_model`
 //!
@@ -18,12 +18,18 @@ use crate::cli_onboarding::prompt::{
     print_saved, print_skipped, println_step, prompt_input, prompt_password, prompt_select,
 };
 
+enum TemplateKind {
+    ApiKey,
+    Local,
+    CodexOAuth,
+}
+
 struct Template {
     name: &'static str,
     api_type: ApiType,
     base_url: &'static str,
     model_id: &'static str,
-    is_local: bool,
+    kind: TemplateKind,
 }
 
 fn templates() -> Vec<Template> {
@@ -33,42 +39,49 @@ fn templates() -> Vec<Template> {
             api_type: ApiType::OpenaiChat,
             base_url: "https://api.openai.com/v1",
             model_id: "gpt-4o",
-            is_local: false,
+            kind: TemplateKind::ApiKey,
+        },
+        Template {
+            name: "Codex (ChatGPT OAuth)",
+            api_type: ApiType::Codex,
+            base_url: "https://chatgpt.com/backend-api/codex",
+            model_id: "gpt-5.4",
+            kind: TemplateKind::CodexOAuth,
         },
         Template {
             name: "Anthropic",
             api_type: ApiType::Anthropic,
             base_url: "https://api.anthropic.com",
             model_id: "claude-sonnet-4-5",
-            is_local: false,
+            kind: TemplateKind::ApiKey,
         },
         Template {
             name: "DeepSeek",
             api_type: ApiType::OpenaiChat,
             base_url: "https://api.deepseek.com/v1",
             model_id: "deepseek-chat",
-            is_local: false,
+            kind: TemplateKind::ApiKey,
         },
         Template {
             name: "Moonshot (Kimi)",
             api_type: ApiType::OpenaiChat,
             base_url: "https://api.moonshot.cn/v1",
             model_id: "moonshot-v1-32k",
-            is_local: false,
+            kind: TemplateKind::ApiKey,
         },
         Template {
             name: "Ollama (local)",
             api_type: ApiType::OpenaiChat,
             base_url: "http://127.0.0.1:11434/v1",
             model_id: "llama3",
-            is_local: true,
+            kind: TemplateKind::Local,
         },
         Template {
             name: "Custom",
             api_type: ApiType::OpenaiChat,
             base_url: "https://api.example.com/v1",
             model_id: "custom-model",
-            is_local: false,
+            kind: TemplateKind::ApiKey,
         },
     ]
 }
@@ -81,9 +94,18 @@ pub fn run(step: u32, total: u32) -> Result<bool> {
     let idx = prompt_select("Pick a provider template:", &labels, 0)?;
     let tpl = &tpls[idx];
 
+    if matches!(tpl.kind, TemplateKind::CodexOAuth) {
+        let outcome = crate::cli_auth::login_codex(crate::cli_auth::CodexLoginOptions::default())?;
+        print_saved(&format!(
+            "Codex OAuth saved for account {} and set as active model",
+            outcome.account_id
+        ));
+        return Ok(true);
+    }
+
     let provider_name = prompt_input("Provider display name", Some(tpl.name))?;
     let base_url = prompt_input("Base URL", Some(tpl.base_url))?;
-    let api_key = if tpl.is_local {
+    let api_key = if matches!(tpl.kind, TemplateKind::Local) {
         "ollama".to_string()
     } else {
         prompt_password("API Key")?
