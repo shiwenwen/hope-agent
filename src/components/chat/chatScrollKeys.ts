@@ -1,38 +1,24 @@
 import type { Message } from "@/types/chat"
 
-function userTurnIdentity(msg: Message, index: number): string {
+function messageStableId(msg: Message, index: number): string {
   if (typeof msg.dbId === "number") return `db:${msg.dbId}`
-  if (msg.timestamp) return `ts:${msg.timestamp}`
+  // useChatStream creates an optimistic user message and an assistant
+  // placeholder back-to-back before either lands in the DB; their `new
+  // Date().toISOString()` stamps frequently collide on the same millisecond,
+  // so role must be part of the fallback key to keep React row keys distinct.
+  if (msg.timestamp) return `ts:${msg.role}:${msg.timestamp}`
   return `idx:${index}`
 }
 
-function messageIdentity(msg: Message, index: number): string {
-  if (typeof msg.dbId === "number") return `db:${msg.dbId}`
-  if (msg.timestamp) return `ts:${msg.timestamp}`
-  return `idx:${index}`
+export function getMessageRowKey(msg: Message, index: number): string {
+  return `message:${messageStableId(msg, index)}`
 }
 
 export function getLatestUserTurnKey(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const msg = messages[i]
     if (msg.role !== "user") continue
-    return `user-turn:${userTurnIdentity(msg, i)}`
+    return `user-turn:${messageStableId(msg, i)}`
   }
   return null
-}
-
-export function getLatestMessageOutputKey(messages: Message[]): string | null {
-  const index = messages.length - 1
-  const msg = messages[index]
-  if (!msg) return null
-
-  return [
-    "latest",
-    messageIdentity(msg, index),
-    msg.role,
-    msg.content.length,
-    msg.contentBlocks?.length ?? 0,
-    msg.toolCalls?.length ?? 0,
-    msg.thinking?.length ?? 0,
-  ].join(":")
 }

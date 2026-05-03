@@ -346,7 +346,7 @@ export default function ToolCallGroup({ tools, shimmer, onOpenDiff }: ToolCallGr
     <div className="my-1 text-xs">
       {/* Group header */}
       <button
-        className="flex items-center gap-1.5 w-full px-1 py-1 text-left hover:bg-secondary/60 rounded-md transition-colors"
+        className="flex items-center gap-1.5 w-full pl-0 pr-1 py-1 text-left hover:bg-secondary/60 rounded-md transition-colors"
         onClick={() => setExpanded(!expanded)}
       >
         {expanded ? (

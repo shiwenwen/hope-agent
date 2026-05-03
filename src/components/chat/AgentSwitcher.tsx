@@ -54,23 +54,31 @@ export default function AgentSwitcher({
 
   if (disabled) {
     return (
-      <span className="shrink-0 text-sm font-medium text-foreground">
-        <AgentSelectDisplay agent={currentAgent} fallbackName={agentName} />
+      <span className="flex h-5 shrink-0 items-center text-sm font-medium leading-none text-foreground">
+        <AgentSelectDisplay
+          agent={currentAgent}
+          fallbackName={agentName}
+          className="leading-none"
+        />
       </span>
     )
   }
 
   return (
-    <div ref={containerRef} className="relative shrink-0">
+    <div ref={containerRef} className="relative flex h-5 shrink-0 items-center leading-none">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          "inline-flex items-center gap-0.5 text-sm font-medium text-foreground transition-colors",
+          "flex h-5 items-center gap-0.5 text-sm font-medium leading-none text-foreground transition-colors",
           "hover:text-primary",
         )}
       >
-        <AgentSelectDisplay agent={currentAgent} fallbackName={agentName} />
+        <AgentSelectDisplay
+          agent={currentAgent}
+          fallbackName={agentName}
+          className="leading-none"
+        />
         <ChevronDown
           className={cn("h-3 w-3 text-muted-foreground transition-transform", open && "rotate-180")}
         />

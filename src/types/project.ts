@@ -40,6 +40,7 @@ export interface BoundChannel {
 /** Project enriched with counts that drive the sidebar badges. */
 export interface ProjectMeta extends Project {
   sessionCount: number
+  unreadCount: number
   fileCount: number
   memoryCount: number
 }

@@ -2038,6 +2038,31 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Mark every regular chat session in a project as read.
+    pub fn mark_project_sessions_read(&self, project_id: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions
+                SET last_read_message_id = (
+                    SELECT COALESCE(MAX(id), 0)
+                    FROM messages
+                    WHERE messages.session_id = sessions.id
+                )
+              WHERE project_id = ?1
+                AND parent_session_id IS NULL
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM channel_conversations cc
+                    WHERE cc.session_id = sessions.id
+                )",
+            params![project_id],
+        )?;
+        Ok(())
+    }
+
     /// Mark all sessions as read.
     pub fn mark_all_sessions_read(&self) -> Result<()> {
         let conn = self

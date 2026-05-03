@@ -122,6 +122,21 @@ export default function ChatScreen({
   const endedStreamIdsRef = useRef<Map<string, string>>(new Map())
   const manualModelOverrideRef = useRef<ActiveModel | null>(null)
 
+  // ── Projects ────────────────────────────────────────────────
+  const {
+    projects,
+    createProject,
+    updateProject,
+    deleteProject,
+    archiveProject,
+    moveSessionToProject,
+    reloadProjects,
+  } = useProjects()
+
+  const refreshProjectAggregates = useCallback(() => {
+    void reloadProjects()
+  }, [reloadProjects])
+
   // ── Session Hook ────────────────────────────────────────────
   const session = useChatSession({
     availableModels,
@@ -132,6 +147,7 @@ export default function ChatScreen({
     initialSessionId,
     onSessionNavigated,
     onUnreadCountChange,
+    onSidebarAggregatesChanged: refreshProjectAggregates,
   })
 
   const isCronSession = useMemo(
@@ -328,16 +344,6 @@ export default function ChatScreen({
     manualModelOverrideRef.current = null
   }, [currentSessionId, currentAgentId])
 
-  // ── Projects ────────────────────────────────────────────────
-  const {
-    projects,
-    createProject,
-    updateProject,
-    deleteProject,
-    archiveProject,
-    moveSessionToProject,
-  } = useProjects()
-
   const sessionWorkingDir = currentSessionMeta?.workingDir ?? null
   const projectWorkingDir = useMemo(
     () =>
@@ -363,6 +369,10 @@ export default function ChatScreen({
     },
     [moveSessionToProject, reloadSessions],
   )
+
+  const refreshUnreadState = useCallback(async () => {
+    await Promise.all([session.reloadSessions(), reloadProjects()])
+  }, [session.reloadSessions, reloadProjects])
 
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [projectDialogMode, setProjectDialogMode] = useState<"create" | "edit">("create")
@@ -497,8 +507,9 @@ export default function ChatScreen({
   useEffect(() => {
     if (sessionsRefreshTrigger) {
       reloadSessions()
+      reloadProjects()
     }
-  }, [sessionsRefreshTrigger, reloadSessions])
+  }, [sessionsRefreshTrigger, reloadSessions, reloadProjects])
 
   // Close the in-session search bar whenever the active session changes.
   useEffect(() => {
@@ -584,21 +595,21 @@ export default function ChatScreen({
         if (clearedSid === session.currentSessionId) {
           session.setMessages([])
         }
-        session.reloadSessions()
+        void refreshUnreadState()
       }),
     )
 
     // Plan state changed from channel (/plan)
     unlisteners.push(
       getTransport().listen("slash:plan_changed", () => {
-        session.reloadSessions()
+        void refreshUnreadState()
       }),
     )
 
     return () => {
       unlisteners.forEach((fn) => fn())
     }
-  }, [session.currentSessionId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session.currentSessionId, refreshUnreadState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Fetch models and current settings on mount
   useEffect(() => {
@@ -640,7 +651,7 @@ export default function ChatScreen({
     sessions: session.sessions,
     agents: session.agents,
     activeModel,
-    reloadSessions: session.reloadSessions,
+    reloadSessions: refreshUnreadState,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: streamSeqRef,
     endedStreamIdsRef,
@@ -690,7 +701,7 @@ export default function ChatScreen({
     loadingSessionsRef: session.loadingSessionsRef,
     setLoadingSessionIds: session.setLoadingSessionIds,
     sessionCacheRef: session.sessionCacheRef,
-    reloadSessions: session.reloadSessions,
+    reloadSessions: refreshUnreadState,
   })
 
   // ── Plan Mode Hook ─────────────────────────────────────────
@@ -796,7 +807,7 @@ export default function ChatScreen({
           break
         case "sessionCleared":
           session.setMessages([])
-          session.reloadSessions()
+          void refreshUnreadState()
           break
         case "passThrough":
           if (result._isSkillPassThrough) {
@@ -1045,7 +1056,7 @@ export default function ChatScreen({
         onNewChat={handleStartNewChat}
         onDeleteSession={session.handleDeleteSession}
         onEditAgent={onOpenAgentSettings}
-        onMarkAllRead={session.reloadSessions}
+        onMarkAllRead={refreshUnreadState}
         onRenameSession={handleRenameSession}
         hasMoreSessions={session.hasMoreSessions}
         loadingMoreSessions={session.loadingMoreSessions}
