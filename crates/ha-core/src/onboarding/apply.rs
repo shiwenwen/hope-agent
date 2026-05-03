@@ -14,7 +14,7 @@ use crate::agent_config::AgentConfig;
 use crate::agent_loader::{ensure_default_agent, save_agent_config, DEFAULT_AGENT_ID};
 use crate::config::{load_config, save_config, ApprovalTimeoutAction};
 use crate::onboarding::presets::PersonalityPreset;
-use crate::user_config::{load_user_config, save_user_config_to_disk};
+use crate::user_config::{load_user_config, save_user_config_to_disk, SERVER_MODE_REMOTE};
 
 /// Step 1 — language. Writes to both `user.language` and `config.language`
 /// so legacy paths that read from either keep working.
@@ -150,4 +150,31 @@ pub fn apply_server(input: ServerStepInput) -> Result<()> {
 pub fn generate_api_key() -> String {
     let uuid = uuid::Uuid::new_v4().simple().to_string();
     format!("hope_{}", uuid)
+}
+
+/// Step "mode" (remote variant) — point this install at an existing
+/// hope-agent server. The wizard short-circuits after this, since the
+/// rest of the local-side setup (provider / agent / channels / …)
+/// already lives on the remote box.
+///
+/// `api_key` of `None` or `Some("")` means "no auth" — the remote was
+/// started without `--api-key`. We normalize empty strings to `None`
+/// before persisting so `Authorization` headers aren't built later.
+#[derive(Debug, Clone)]
+pub struct RemoteModeInput {
+    pub url: String,
+    pub api_key: Option<String>,
+}
+
+pub fn apply_remote_mode(input: RemoteModeInput) -> Result<()> {
+    let _g = crate::backup::scope_save_reason("onboarding", "mode");
+    let mut user = load_user_config()?;
+    user.server_mode = Some(SERVER_MODE_REMOTE.to_string());
+    user.remote_server_url = Some(input.url);
+    user.remote_api_key = match input.api_key {
+        Some(k) if !k.is_empty() => Some(k),
+        _ => None,
+    };
+    save_user_config_to_disk(&user)?;
+    Ok(())
 }
