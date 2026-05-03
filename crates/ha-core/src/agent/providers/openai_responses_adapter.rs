@@ -1142,9 +1142,16 @@ mod tests {
         assert!(tool_calls.is_empty());
     }
 
+    // SSE event blocks must put the entire JSON payload on a single `data:`
+    // line — `handle_openai_sse_event_block` filters by `starts_with("data:")`,
+    // so multi-line `r#"data: {...}"#` literals get truncated to just `{`.
+    fn sse_event_block(payload: serde_json::Value) -> String {
+        format!("data: {}", payload)
+    }
+
     #[test]
     fn reasoning_item_without_encrypted_content_is_not_collected() {
-        let event = r#"data: {
+        let event = sse_event_block(serde_json::json!({
             "type": "response.output_item.done",
             "item": {
                 "type": "reasoning",
@@ -1152,7 +1159,7 @@ mod tests {
                 "summary": [],
                 "status": "completed"
             }
-        }"#;
+        }));
 
         let mut text = String::new();
         let mut thinking = String::new();
@@ -1165,7 +1172,7 @@ mod tests {
 
         handle_openai_sse_event_block(
             "-",
-            event,
+            &event,
             std::time::Instant::now(),
             &on_delta,
             &mut text,
@@ -1183,7 +1190,7 @@ mod tests {
 
     #[test]
     fn response_completed_collects_encrypted_reasoning_from_raw_output() {
-        let event = r#"data: {
+        let event = sse_event_block(serde_json::json!({
             "type": "response.completed",
             "response": {
                 "output": [
@@ -1201,7 +1208,7 @@ mod tests {
                     }
                 ]
             }
-        }"#;
+        }));
 
         let mut text = String::new();
         let mut thinking = String::new();
@@ -1214,7 +1221,7 @@ mod tests {
 
         handle_openai_sse_event_block(
             "-",
-            event,
+            &event,
             std::time::Instant::now(),
             &on_delta,
             &mut text,
