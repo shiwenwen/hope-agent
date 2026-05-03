@@ -135,9 +135,21 @@
   }
 }
 
-/* Smooth streaming bubble growth — height + padding transitions */
+/* Smooth streaming bubble growth — height + padding transitions.
+ * `min-width` / `min-height` lock the bubble to a one-line-of-text floor
+ * so the dots → first-token transition doesn't shrink the box during the
+ * brief frames where Streamdown's `blurIn` keyframe holds the first char
+ * at `opacity: 0; filter: blur(4px)` (those chars still occupy inline
+ * space, so the bubble would otherwise resize from "dots width" down to
+ * "first-char width" before settling). 4rem covers the dots-state width
+ * (58px) plus margin; 4.0625rem (65px) matches `py-2.5` (20) + collapsed
+ * `<p>` `margin-block` / dots `my-1.5` (12) + one line of `text-sm
+ * leading-relaxed` (22.75) + timestamp row (10), i.e. the natural height
+ * of a one-line streaming reply with timestamp. */
 .streaming-bubble {
   transition: padding 0.15s ease-out;
+  min-width: 4rem;
+  min-height: 4.0625rem;
 }
 
 /* Streaming content height transition — new lines slide in smoothly */
@@ -170,20 +182,22 @@
   animation: bounce-pulse 1.2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
-/* Gentle fade + slide-up entrance for messages and panels */
+/* Gentle fade-in entrance for newly appended messages. No translateY because
+ * any vertical transform offsets the visual position from the layout position
+ * by the transform amount, which reads as a "jump" when the animation
+ * completes — and competes with the auto-scroll that pins the row to the
+ * bottom. Plain opacity is silent on layout. */
 @keyframes fade-slide-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 @utility animate-fade-slide-in {
-  animation: fade-slide-in 0.2s ease-out both;
+  animation: fade-slide-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Pulse highlight for the message that matched a history search result */

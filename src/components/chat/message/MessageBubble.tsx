@@ -11,7 +11,7 @@ import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import FileAttachments from "./FileAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
-import { AssistantContentBlocks, AssistantLegacyContent } from "./MessageContent"
+import { AssistantContentBlocks } from "./MessageContent"
 import { PlanCommentBubble } from "./PlanCommentBubble"
 import type { Message, AgentSummaryForSidebar } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
@@ -437,7 +437,12 @@ function MessageBubbleInner({
             msg.role === "assistant" && loading && isLast && "streaming-bubble",
           )}
         >
-          {msg.role === "assistant" && msg.contentBlocks && msg.contentBlocks.length > 0 ? (
+          {msg.role === "assistant" ? (
+            // Always go through AssistantContentBlocks, even when contentBlocks
+            // is missing — it synthesizes blocks from msg.thinking / toolCalls /
+            // content as a fallback. This keeps the React component type stable
+            // across stream_end (server-sent finalized contentBlocks merge into
+            // state), preventing unmount/remount flicker of the markdown subtree.
             <AssistantContentBlocks
               msg={msg}
               loading={loading}
@@ -447,8 +452,6 @@ function MessageBubbleInner({
               onSwitchSession={onSwitchSession}
               onOpenDiff={onOpenDiff}
             />
-          ) : msg.role === "assistant" ? (
-            <AssistantLegacyContent msg={msg} loading={loading} isLast={isLast} />
           ) : (
             // User message content
             msg.content
@@ -469,15 +472,21 @@ function MessageBubbleInner({
             </div>
           )}
         </div>
-        {/* Hover toolbar */}
-        {msg.content && (
-          <div
-            className={cn(
-              "flex items-center gap-0.5 mt-0.5 h-6",
-              msg.role === "user" ? "justify-end" : "justify-start",
-              !(isHovered || isCopied || detailsIndex === index) && "invisible",
-            )}
-          >
+        {/* Hover toolbar — always reserve height (h-6 + mt-0.5 ≈ 26px) so a
+         * loading bubble (msg.content === "") and a filled bubble both leave
+         * the same gap to the row's bottom. Without the placeholder height
+         * the gap to bottom jumps from 16px to 42px the moment the first
+         * token arrives. */}
+        <div
+          className={cn(
+            "flex items-center gap-0.5 mt-0.5 h-6",
+            msg.role === "user" ? "justify-end" : "justify-start",
+            (!msg.content || !(isHovered || isCopied || detailsIndex === index)) &&
+              "invisible",
+          )}
+        >
+          {msg.content && (
+            <>
             <IconTip label={t("chat.copy")}>
               <button
                 onClick={() => onCopy(msg.content, index)}
@@ -592,8 +601,9 @@ function MessageBubbleInner({
                 )}
               </div>
             )}
-          </div>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   )

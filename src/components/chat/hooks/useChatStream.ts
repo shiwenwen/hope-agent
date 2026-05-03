@@ -21,6 +21,7 @@ import {
   streamIdFromPayload,
 } from "./useStreamEventHandler"
 import { useApprovals } from "./useApprovals"
+import { generateClientId } from "@/components/chat/chatScrollKeys"
 import { expandMentionsToAttachments } from "@/components/chat/file-mention/expandMentions"
 import { useNotificationListeners } from "./useNotificationListeners"
 import type { SessionStreamState } from "./useChatStreamReattach"
@@ -334,10 +335,18 @@ export function useChatStream({
     setInput("")
     setAttachedFiles([])
     const now = new Date().toISOString()
+    // Both placeholders get a `_clientId` up front so `mergeMessagesByDbId`
+    // can transfer them to the DB-finalized rows after stream_end. Without
+    // the user-side id, `getLatestUserTurnKey` would flip from
+    // `ts:user:<iso>` to `db:<N>` at finalize, fooling the forceFollow
+    // effect into a phantom "new user message" scroll-to-top.
+    const optimisticUserClientId = generateClientId()
+    const assistantPlaceholderClientId = generateClientId()
     const optimisticUserMessage = {
       role: "user" as const,
       content: displayed,
       timestamp: now,
+      _clientId: optimisticUserClientId,
       ...(options?.isPlanTrigger && { isPlanTrigger: true }),
       ...(options?.planComment && { planComment: options.planComment }),
     }
@@ -396,10 +405,19 @@ export function useChatStream({
       }
     }
 
-    // Add empty assistant message that we'll stream into
+    // Empty assistant placeholder we'll stream into. `_clientId` was generated
+    // alongside the user-side one above and survives the placeholder→DB
+    // transition via `mergeMessagesByDbId`; see `messageStableId` for how the
+    // row key consumes it.
+    const assistantPlaceholderTimestamp = new Date().toISOString()
     setMessages((prev) => [
       ...prev,
-      { role: "assistant", content: "", timestamp: new Date().toISOString() },
+      {
+        role: "assistant",
+        content: "",
+        timestamp: assistantPlaceholderTimestamp,
+        _clientId: assistantPlaceholderClientId,
+      },
     ])
 
     let targetSessionId = currentSessionId
@@ -492,7 +510,8 @@ export function useChatStream({
         {
           role: "assistant" as const,
           content: "",
-          timestamp: new Date().toISOString(),
+          timestamp: assistantPlaceholderTimestamp,
+          _clientId: assistantPlaceholderClientId,
         },
       ]
       if (targetSessionId) {

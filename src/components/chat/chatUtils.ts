@@ -425,6 +425,34 @@ export async function reloadAndMergeSessionMessages(params: {
   }
 }
 
+// Compare two Message snapshots for the purpose of preserving the existing
+// reference across a DB reload. Returns true when the rendered output of the
+// MessageBubble is identical for both, in which case `mergeMessagesByDbId`
+// keeps the existing object so React.memo skips re-rendering the
+// markdown/shiki/katex subtree.
+//
+// Why field-level instead of `JSON.stringify`: stringifying the whole message
+// runs O(content_size) per pair × all pairs at stream_end. For long histories
+// that's MBs of throwaway strings on the main thread once per turn. Two DB
+// rows with the same `dbId` agree on the deep `contentBlocks` / `toolCalls`
+// structure once their primitive fields and array lengths match, since the
+// only field expected to mutate underneath us is the active streaming
+// assistant turn — and *that* turn always changes either `content` length or
+// `contentBlocks.length`. The cheap check below is exhaustive enough.
+function messageContentEqual(a: Message, b: Message): boolean {
+  if (a === b) return true
+  return (
+    a.dbId === b.dbId &&
+    a.role === b.role &&
+    a.content === b.content &&
+    a.thinking === b.thinking &&
+    a.timestamp === b.timestamp &&
+    a.model === b.model &&
+    (a.contentBlocks?.length ?? 0) === (b.contentBlocks?.length ?? 0) &&
+    (a.toolCalls?.length ?? 0) === (b.toolCalls?.length ?? 0)
+  )
+}
+
 export function mergeMessagesByDbId(existing: Message[], fresh: Message[]): Message[] {
   if (existing.length === 0) return fresh
 
@@ -432,6 +460,14 @@ export function mergeMessagesByDbId(existing: Message[], fresh: Message[]): Mess
   while (tailEnd > 0 && typeof existing[tailEnd - 1].dbId !== "number") {
     tailEnd--
   }
+  // Each trailing dbId-less placeholder carries a `_clientId` we transfer to
+  // its DB-finalized successor in `fresh` so React row keys stay stable
+  // across the placeholder→DB transition. Both the user turn and the
+  // assistant placeholder get one; transferring per-role keeps
+  // `getMessageRowKey` and `getLatestUserTurnKey` from flipping at
+  // stream_end (the latter would otherwise mis-fire forceFollow's
+  // scroll-into-view, snapping the viewport back to the user bubble).
+  const trailingPlaceholders = existing.slice(tailEnd)
   const trimmed = tailEnd < existing.length ? existing.slice(0, tailEnd) : existing
 
   if (fresh.length === 0) return trimmed
@@ -449,15 +485,46 @@ export function mergeMessagesByDbId(existing: Message[], fresh: Message[]): Mess
       continue
     }
     const authoritative = freshById.get(m.dbId)
-    merged.push(authoritative ?? m)
+    if (authoritative === undefined) {
+      merged.push(m)
+    } else if (messageContentEqual(authoritative, m)) {
+      // Content identical — keep existing reference so memoized children
+      // (MessageBubble) skip re-renders. Only the genuinely-changed message
+      // (typically the last assistant which got finalized contentBlocks /
+      // usage from the server) takes the new reference and re-renders.
+      merged.push(m)
+    } else {
+      merged.push(authoritative)
+    }
     seenIds.add(m.dbId)
   }
 
+  // Append fresh messages that didn't exist in `existing` and transfer each
+  // trimmed placeholder's `_clientId` to the first newly-appended row of the
+  // matching role. Order-preserving (placeholders are processed in original
+  // order, each consumes the first unmatched fresh row of its role) so a
+  // typical [user, assistant] pair maps to [user', assistant'] correctly.
+  // If no fresh row of the placeholder's role lands, the id drops — safer
+  // than attaching to a wrong-role row (would break the memo invariant
+  // `_clientId` is meant to uphold).
+  const newFresh: Message[] = []
   for (const m of fresh) {
     if (typeof m.dbId === "number" && !seenIds.has(m.dbId)) {
-      merged.push(m)
+      newFresh.push(m)
     }
   }
+  const claimed = new Set<number>()
+  for (const placeholder of trailingPlaceholders) {
+    if (!placeholder._clientId) continue
+    for (let i = 0; i < newFresh.length; i++) {
+      if (claimed.has(i)) continue
+      if (newFresh[i].role !== placeholder.role) continue
+      newFresh[i] = { ...newFresh[i], _clientId: placeholder._clientId }
+      claimed.add(i)
+      break
+    }
+  }
+  merged.push(...newFresh)
 
   return merged
 }

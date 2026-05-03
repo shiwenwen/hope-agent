@@ -1,7 +1,6 @@
-import { useCallback, useLayoutEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Send } from "lucide-react"
 import { useTranslation } from "react-i18next"
-import { Virtuoso } from "react-virtuoso"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import LoadMoreRow from "@/components/chat/LoadMoreRow"
@@ -17,7 +16,10 @@ interface TeamMessageFeedProps {
   onLoadMore?: () => void | Promise<void>
 }
 
-const INITIAL_FIRST_ITEM_INDEX = 1_000_000
+const AT_BOTTOM_THRESHOLD_PX = 32
+const LOAD_MORE_THRESHOLD_PX = 200
+const MAX_DOM_MESSAGES = 200
+const UNLOAD_BATCH = 30
 
 export function TeamMessageFeed({
   messages,
@@ -29,45 +31,132 @@ export function TeamMessageFeed({
 }: TeamMessageFeedProps) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
-
-  // See MessageList for the tail-equal prepend detection rationale. Switching
-  // teams remounts the Virtuoso (via the `key` prop below), so we don't need a
-  // separate reset effect — the only state that survives is `view`, and a new
-  // team's messages won't tail-match the previous team's, so the next setView
-  // call lands in the non-prepend branch (firstItemIndex stays put, which is
-  // fine — it's an opaque internal ID).
-  const [view, setView] = useState<{ data: TeamMessage[]; firstItemIndex: number }>({
-    data: messages,
-    firstItemIndex: INITIAL_FIRST_ITEM_INDEX,
-  })
-  useLayoutEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- derived state pattern: virtuoso needs same-tick (data, firstItemIndex)
-    setView((prev) => {
-      if (prev.data === messages) return prev
-      const delta = messages.length - prev.data.length
-      const isPrepend =
-        delta > 0 &&
-        prev.data.length > 0 &&
-        messages[messages.length - 1] === prev.data[prev.data.length - 1]
-      return {
-        data: messages,
-        firstItemIndex: isPrepend ? prev.firstItemIndex - delta : prev.firstItemIndex,
-      }
-    })
-  }, [messages])
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const contentRef = useRef<HTMLDivElement | null>(null)
 
   const teamId = messages[messages.length - 1]?.teamId ?? "team-feed"
 
-  const handleStartReached = useCallback(() => {
-    if (!hasMore || loadingMore || !onLoadMore) return
-    void onLoadMore()
-  }, [hasMore, loadingMore, onLoadMore])
+  const atBottomRef = useRef(true)
+
+  // Windowed view: see MessageList for rationale.
+  const [displayedStart, setDisplayedStart] = useState(0)
+  const [displayedStartTeam, setDisplayedStartTeam] = useState<string>(teamId)
+  if (displayedStartTeam !== teamId) {
+    setDisplayedStartTeam(teamId)
+    setDisplayedStart(0)
+  }
+  const displayedStartRef = useRef(displayedStart)
+  // eslint-disable-next-line react-hooks/refs -- ref-as-snapshot
+  displayedStartRef.current = displayedStart
+  const messagesLenRef = useRef(messages.length)
+  // eslint-disable-next-line react-hooks/refs -- ref-as-snapshot
+  messagesLenRef.current = messages.length
+
+  const items = useMemo(() => {
+    const start = Math.min(displayedStart, Math.max(0, messages.length - 1))
+    return messages.slice(start).map((msg, i) => ({
+      msg,
+      originalIndex: start + i,
+    }))
+  }, [messages, displayedStart])
+
+  // Top-anchor fallback: see MessageList comment.
+  const prevScrollHeightRef = useRef(0)
+  const prevFirstItemMsgRef = useRef<TeamMessage | null>(items[0]?.msg ?? null)
+  useLayoutEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const oldHeight = prevScrollHeightRef.current
+    const newHeight = el.scrollHeight
+    const oldFirst = prevFirstItemMsgRef.current
+    const newFirst = items[0]?.msg ?? null
+    if (
+      newFirst &&
+      oldFirst &&
+      newFirst !== oldFirst &&
+      newHeight > oldHeight &&
+      oldHeight > 0 &&
+      !atBottomRef.current
+    ) {
+      el.scrollTop += newHeight - oldHeight
+    }
+    prevScrollHeightRef.current = newHeight
+    prevFirstItemMsgRef.current = newFirst
+  }, [items])
+
+  // Synchronous team-swap reset of atBottomRef.
+  const lastTeamIdRef = useRef<string | null>(null)
+  useLayoutEffect(() => {
+    if (lastTeamIdRef.current !== teamId) {
+      lastTeamIdRef.current = teamId
+      atBottomRef.current = true
+    }
+    const el = containerRef.current
+    if (!el || !atBottomRef.current) return
+    el.scrollTop = el.scrollHeight
+  }, [messages, teamId])
+
+  // ResizeObserver: watch content + container (sibling input expansion shrinks
+  // the scroll container). Re-attach on teamId change.
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return
+    const el = containerRef.current
+    const content = contentRef.current
+    if (!el || !content) return
+    const ro = new ResizeObserver(() => {
+      if (atBottomRef.current) {
+        el.scrollTop = el.scrollHeight
+      }
+    })
+    ro.observe(content)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [teamId])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    let raf = 0
+    const onScroll = () => {
+      if (raf) return
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        const dist = el.scrollHeight - el.scrollTop - el.clientHeight
+        const at = dist < AT_BOTTOM_THRESHOLD_PX
+        atBottomRef.current = at
+
+        // Windowed view advance: see MessageList.
+        const totalLen = messagesLenRef.current
+        const renderedCount = totalLen - displayedStartRef.current
+        if (at && renderedCount > MAX_DOM_MESSAGES) {
+          setDisplayedStart((prev) =>
+            Math.min(Math.max(0, totalLen - 1), prev + UNLOAD_BATCH),
+          )
+        }
+
+        if (el.scrollTop < LOAD_MORE_THRESHOLD_PX) {
+          if (displayedStartRef.current > 0) {
+            setDisplayedStart((prev) => Math.max(0, prev - UNLOAD_BATCH))
+          } else if (hasMore && !loadingMore && onLoadMore) {
+            void onLoadMore()
+          }
+        }
+      })
+    }
+    el.addEventListener("scroll", onScroll, { passive: true })
+    return () => {
+      el.removeEventListener("scroll", onScroll)
+      if (raf) cancelAnimationFrame(raf)
+    }
+    // `teamId` belongs in deps: the outer `<div key={teamId}>` remounts the
+    // scroll container on team swap, otherwise the listener stays bound to
+    // the detached DOM.
+  }, [teamId, hasMore, loadingMore, onLoadMore])
 
   const handleSend = useCallback(() => {
     const text = draft.trim()
     if (!text) return
 
-    // Parse @name prefix for DM
     let to: string | null = null
     let content = text
 
@@ -95,56 +184,35 @@ export function TeamMessageFeed({
     [handleSend],
   )
 
-  const computeItemKey = useCallback(
-    (_index: number, item: TeamMessage) => `team-message:${item.messageId}`,
-    [],
-  )
-
-  const itemContent = useCallback(
-    (_absoluteIndex: number, item: TeamMessage) => (
-      <div className="pb-0.5">
-        <TeamMessageBubble message={item} members={members} />
-      </div>
-    ),
-    [members],
-  )
-
-  const Header = useCallback(
-    () =>
-      hasMore && onLoadMore ? (
-        <div className="pt-2">
-          <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
-        </div>
-      ) : null,
-    [hasMore, loadingMore, onLoadMore],
-  )
-
-  const components = useMemo(() => ({ Header }), [Header])
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 min-h-0">
-        {messages.length === 0 ? (
-          <div className="flex h-full min-h-[40vh] items-center justify-center text-sm text-muted-foreground/50">
-            {t("team.noMessages", "No messages yet")}
+        <div
+          ref={containerRef}
+          key={teamId}
+          className="h-full overflow-y-auto overflow-x-hidden"
+        >
+          <div ref={contentRef}>
+            {messages.length === 0 ? (
+              <div className="flex h-full min-h-[40vh] items-center justify-center text-sm text-muted-foreground/50">
+                {t("team.noMessages", "No messages yet")}
+              </div>
+            ) : (
+              <>
+                {hasMore && displayedStart === 0 && onLoadMore && (
+                  <div className="pt-2">
+                    <LoadMoreRow loadingMore={loadingMore} onLoadMore={onLoadMore} />
+                  </div>
+                )}
+                {items.map(({ msg }) => (
+                  <div key={`team-message:${msg.messageId}`} className="pb-0.5">
+                    <TeamMessageBubble message={msg} members={members} />
+                  </div>
+                ))}
+              </>
+            )}
           </div>
-        ) : (
-          <Virtuoso
-            key={teamId}
-            className="h-full"
-            data={view.data}
-            firstItemIndex={view.firstItemIndex}
-            initialTopMostItemIndex={view.data.length > 0 ? view.data.length - 1 : 0}
-            computeItemKey={computeItemKey}
-            itemContent={itemContent}
-            components={components}
-            startReached={handleStartReached}
-            followOutput="auto"
-            defaultItemHeight={56}
-            increaseViewportBy={{ top: 100, bottom: 200 }}
-            atBottomThreshold={32}
-          />
-        )}
+        </div>
       </div>
 
       <div className="flex items-center gap-2 border-t border-border p-2">

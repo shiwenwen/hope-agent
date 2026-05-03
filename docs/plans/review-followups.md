@@ -31,6 +31,36 @@
 ## Open
 
 
+
+### F-050 `_clientId` 下划线前缀挂在 `Message` 公共导出 interface 上
+
+- **来源**：2026-05-03 react-virtuoso 移除后续 `/simplify` review (quality agent)
+- **现象**：[`src/types/chat.ts:160`](src/types/chat.ts#L160) 给 `Message` 加了 `_clientId?: string` 运行时字段，用来在 placeholder→DB 转换时维持 React row key 稳定。下划线前缀只是命名约定，TypeScript 不会因此把它从公共类型隔离——所有 `Message` 消费者（前端组件、test、merge 工具、序列化 boundary）都看得到这个字段
+- **当前选择**：不动。带上下划线 + 8 行 WHY 注释（讲清楚仅运行时、不持久化、不上 wire）+ `mergeMessagesByDbId` 是唯一写入点，足够防御。改 typing 改动面太大（要拆 `MessageRuntime extends Message` 之类，影响 200+ 处消费）
+- **改的话要做什么**：
+  - 拆出 `interface MessageRuntime extends Message { _clientId?: string }`，只在 useChatStream / chatScrollKeys / chatUtils.mergeMessagesByDbId 这条 client 链路用 `MessageRuntime`；其它路径继续用纯 `Message`
+  - 检查所有把 `Message` 序列化 / 落库 / 跨进程传输的 boundary（Tauri command return、HTTP API、IM channel forward、`SessionDB::insert_message`）有没有不小心把 `_clientId` 带过去——目前应该都没有（runtime ref 不会转 JSON 跨进程），但要写显式 strip 兜底
+- **影响面**：纯类型卫生 + 防御性。当前没有用户可见 bug
+- **触发时机建议**：下次有人专门动 chat 类型层 / serialize boundary 时；或某次发现 `_clientId` 真的混进了不该混进的地方时
+
+
+
+### F-049 三处消息流 scroll listener / atBottom / ResizeObserver 复制
+
+- **来源**：2026-05-03 react-virtuoso 移除后续 `/simplify` review (reuse + quality agents)
+- **现象**：[`MessageList.tsx`](src/components/chat/MessageList.tsx) / [`QuickChatMessages.tsx`](src/components/chat/QuickChatMessages.tsx) / [`TeamMessageFeed.tsx`](src/components/team/TeamMessageFeed.tsx) 三个组件的滚动跟随逻辑相似度很高：byte-相同的 `el.scrollHeight - el.scrollTop - el.clientHeight < THRESHOLD` 距底判定、近乎相同的 RAF-节流 scroll listener、近乎相同的 ResizeObserver pin-to-bottom 块、相同的 jump-to-latest handler、相同的 reverse-find-last-user + scrollIntoView 块
+- **当前选择**：不动。原方案明确不抽 `useChatScroll` hook——MessageList 复杂（forceFollow / lastUserKey / pendingScrollTarget / askUser+planCard footer），TeamFeed 极简，QuickChat 介于中间，差异点大于共性，强行抽 hook 会推高耦合
+- **改的话要做什么**（hook 抽不动但纯 helper 函数可以抽）：
+  - 新建 `src/components/chat/chatScroll.ts`，提供：
+    1. `isNearBottom(el, threshold = 48): boolean` —— 三处都在用的距底判定
+    2. `scrollLastUserIntoView(el, messages, opts?)` —— 三个组件里两份字节相同的 reverse-find + `scrollIntoView({ block: "start", behavior: "smooth" })`
+  - RAF-scroll listener scaffold + ResizeObserver-pin 块仍然各自留在组件里——它们绑定 ref，抽出来就是隐形 hook 化，违背原决策
+  - 顺手把 [`ChatSidebar.tsx`](src/components/chat/ChatSidebar.tsx) 里 `< 100px` 距顶判定改成 `isNearTop` 同款 helper
+- **影响面**：纯代码卫生。当前是可控的复制——共 ~90 行重复，但都是原子小块，单点修复不易踩坑
+- **触发时机建议**：下次有人为了某个滚动 bug 同时改这三个文件时（说明复制成本开始外溢），顺手把 helper 抽出来
+
+
+
 ### F-048 ChatScreen tray:focus-session effect 的 react-hooks/exhaustive-deps warning
 
 - **来源**：2026-05-02 react-virtuoso 迁移 `/simplify` 收尾发现（main 预存 warning，不是本次引入）
@@ -45,57 +75,6 @@
 - **影响面**：纯 lint 卫生 + 防御性。当前是 warning 不是 error，CI 不会红
 - **触发时机建议**：下次有人专门做 ChatScreen / useChatSession refactor 时；或单独的 lint 卫生 PR 一并清理同款问题
 
-
-### F-044 抽 `useChatVirtuoso` hook 消除 MessageList / QuickChatMessages 重复 hook 模板
-
-- **来源**：2026-05-02 react-virtuoso 迁移 `/simplify` review (reuse + quality agents)
-- **现象**：[`MessageList.tsx`](src/components/chat/MessageList.tsx) 和 [`QuickChatMessages.tsx`](src/components/chat/QuickChatMessages.tsx) 内联了几乎逐字相同的 6 块 hook 逻辑（~90 行）：`view + tail-equal useLayoutEffect`、`isAtBottomRef + isAtBottom + hasUnseenOutput + prevMsgLenRef`、`forceFollowingRef + armForceFollowing 600ms`、函数式 `followOutput`、`scrollToLastUser` + lastUserKey effect、`handleJumpToLatest`。任何一处行为微调（600ms 阈值、prepend 检测边界）都得改两遍且容易漂移。`TeamMessageFeed` 是真子集（只用 `view`），可作为「核心 + opt-in 扩展」拆分依据
-- **为什么留**：本期已经把 useVirtualFeed 拆掉抽到三个组件里——再立即抽 hook 容易出现「抽掉又得抽出来」反复，先观察实际运行/调试体验后再决定。Quality review 同时提示 Footer re-mount 风险（见 F-045），那个修完会带来新的 ref pattern，最好等它一起进 hook
-- **改的话要做什么**：
-  - 新建 [`src/components/chat/useChatVirtuoso.ts`](src/components/chat/useChatVirtuoso.ts)，导出两个 hook：`useVirtuosoFirstItemIndex<T>(data, isPrepend?)`（核心，三个调用方都用）+ `useChatAutoFollow({ messagesLen, loading, lastUserKey, items, firstItemIndex, ref })`（仅 MessageList + QuickChat 用）
-  - 三个组件改用 hook，`INITIAL_FIRST_ITEM_INDEX = 1_000_000` 常量集中到 hook 里
-  - 同步更新三份测试（mock react-virtuoso 不变，hook 内部对外暴露的行为通过 hook 单测覆盖）
-- **影响面**：无功能/安全影响；纯重构提升可维护性
-- **触发时机建议**：下次有人因为「想调 600ms 阈值 / 改 prepend 检测语义 / 加新 chat-feed 调用方」而需要碰这块代码时；或者 F-045 修复时一起做
-
-### F-045 Footer re-mount 潜在风险：Footer reference 不稳定可能导致 AskUserQuestionBlock 输入丢失
-
-- **来源**：2026-05-02 react-virtuoso 迁移 `/simplify` review (quality agent #11)
-- **现象**：[`MessageList.tsx`](src/components/chat/MessageList.tsx) 的 `Footer` 用 `useCallback` 创建，依赖 11 个值（`pendingQuestionGroup` / `planCardData` / 5 个 callback / `t` / 等）。每次任一变化 Footer reference 变 → Virtuoso 内部 `<Footer />` 元素 type 变 → React 卸载 + 重挂载 Footer 子树 → `AskUserQuestionBlock` 内部 input/textarea state 丢失
-- **当前评估**：实测概率低——AskUser 显示意味着 AI 主动等用户回答，期间 messages 不变 / loading=false / Footer deps 稳定，所以 AskUser 显示窗口内 Footer 不会 re-mount。但**理论风险存在**：父组件 callback 不稳定 / plan state 在 AskUser 期间变化 / 用户在 AskUser 期间手动切换 hover 等，都可能触发
-- **改的话要做什么**：用 `ref-based stable component + useEffect 同步 props` 或 react-virtuoso 的 `context` prop（[文档](https://virtuoso.dev/scroll-seek-placeholder/)）传动态值，让 Footer reference 永远稳定。简化伪代码：
-  ```tsx
-  const footerPropsRef = useRef({ pendingQuestionGroup, planCardData, ... })
-  useEffect(() => { footerPropsRef.current = { ... } })  // 每次 render 后同步
-  const Footer = useCallback(() => <FooterContent {...footerPropsRef.current} />, [])
-  ```
-  代价：Footer 拿到的 props 滞后一帧（next render 才看到新值）——AskUser 出现晚 1 帧，可接受
-- **影响面**：理论 bug，未实测出。低优
-- **触发时机建议**：用户报告「填 AskUser 时输入丢失」；或抽 useChatVirtuoso hook (F-044) 时一起处理
-
-### F-046 `createVirtuosoMock()` test util — 消除两份测试 ~80 行重复
-
-- **来源**：2026-05-02 react-virtuoso 迁移 `/simplify` review (reuse agent C)
-- **现象**：[`MessageList.test.tsx`](src/components/chat/MessageList.test.tsx) 和 [`QuickChatMessages.test.tsx`](src/components/chat/QuickChatMessages.test.tsx) 的 `vi.mock("react-virtuoso", ...)` 工厂 + `virtuosoMock` 状态对象 + `forwardRef + useImperativeHandle` 桩 ~80 行逐字相同
-- **为什么留**：项目目前没有 `src/test-utils/` 目录先例；新建目录约定要单独决策（应该叫 `__test-utils__/` 还是 `test-utils/`、是否进 `tsconfig` paths 等）。`vi.mock` 的 hoisting 限制让外部 import 不能直接用，要拆成 `createVirtuosoMockState()` + `makeVirtuosoMockComponent(state)` 两段，给 `vi.hoisted` 工厂内部调
-- **改的话要做什么**：
-  - 新建 [`src/components/chat/__test-utils__/virtuosoMock.tsx`](src/components/chat/__test-utils__/virtuosoMock.tsx)（与调用方 co-located，避免 path alias 问题）
-  - 导出 `createVirtuosoMockState()` 和 `makeVirtuosoMockComponent(state)`
-  - 两份测试改用 helper：`const virtuosoMock = vi.hoisted(() => createVirtuosoMockState())` + `vi.mock("react-virtuoso", () => ({ Virtuoso: makeVirtuosoMockComponent(virtuosoMock), VirtuosoMockContext: createContext(undefined) }))`
-- **影响面**：纯测试代码重构，零运行时影响；省 ~75 行/文件
-- **触发时机建议**：第三个 chat feed 测试出现时（团队 feed 当前没测试，加测试时一并）；或抽 useChatVirtuoso hook (F-044) 时配套
-
-### F-047 MessageBubble 加 React.memo — 流式 token 性能瓶颈
-
-- **来源**：2026-05-02 react-virtuoso 迁移 `/simplify` review (efficiency agent #8，**评为最高价值改动**)
-- **现象**：[`MessageList.tsx`](src/components/chat/MessageList.tsx) `itemContent` useCallback 依赖 14 个值（`hoveredMsgIndex` / `copiedIndex` / `highlightMessageId` / `messages.length` / `loading` / 多个 callback / 等）。**鼠标 hover 一条消息**就会触发 itemContent 新引用 → virtuoso 不重 mount 但传新 props → 所有可见 MessageBubble 全量 re-render（含 markdown / shiki / katex 子树）。**流式更糟**：每个 token 都让 `loading + messages.length` 变 → itemContent 重建 → 全量 re-render
-- **为什么留**：本期是从 useVirtualFeed → react-virtuoso 的迁移 PR，加 React.memo 涉及 MessageBubble 内部 props 比较函数的设计（多媒体 attachment / toolCalls 数组比较）+ 验证流式 markdown 增量渲染不被 memo 误 skip——是独立性能优化任务，应该独立 PR / 单独验证
-- **改的话要做什么**：
-  - [`MessageBubble.tsx`](src/components/chat/MessageBubble.tsx) 包 `React.memo` + 自定义 `arePropsEqual`，至少比对 `msg`（按 dbId 或引用）/ `isLast` / `isHovered` / `isCopied` / `loading` 几个核心 prop
-  - 流式场景实测：连续 1000 token 输入下，可见区其它消息的 re-render 次数从 N 降到 0
-  - 注意：`msg.content` 在最后一条流式消息上每个 token 都会变，memo 必须让最后一条不 skip——可以 `prev.msg !== next.msg`（引用比对，上游不可变更新时正好相等）或显式 `prev.isLast` 时强 re-render
-- **影响面**：性能。流式从「卡顿」到「丝滑」的关键改动。**强烈推荐排进下一期**
-- **触发时机建议**：用户报告流式卡顿 / 长会话滚动卡顿 / 或者直接当作下一期独立优化 PR
 
 
 ### F-040 mid-turn plan-state probe 用 AtomicU64 version gate 跳过 RwLock 读
@@ -552,6 +531,16 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-044 / F-045 / F-046 / F-047 react-virtuoso 迁移期登记的 4 条 followup 全部失效
+
+- **关闭于**：2026-05-03，react-virtuoso 整体卸载并改用 `messages.map(slice)` + 浏览器 `overflow-anchor` + `content-visibility: auto` + windowed view (DOM 上限 200) + React.memo，commit 待提交
+- **失效原因**：上一期 react-virtuoso 迁移落地后撞了横向滚动条 / 用户消息裁剪 / 会话切换闪烁 / 分页 firstItemIndex 误判等多处虚拟化边界 bug。本期决定整体撤掉虚拟化，改用浏览器原生滚动 + 数据层窗口卸载，[`MessageList.tsx`](../../src/components/chat/MessageList.tsx) / [`QuickChatMessages.tsx`](../../src/components/chat/QuickChatMessages.tsx) / [`TeamMessageFeed.tsx`](../../src/components/team/TeamMessageFeed.tsx) 三个组件全部重写：
+  - **F-044（抽 `useChatVirtuoso` hook）**：源头消失——三组件不再使用 react-virtuoso，所谓「重复的 6 块 hook 模板」不存在；剩余的 windowed view + auto-follow 逻辑差异较大（QuickChat 简化版 / Team 极简），不需要抽 hook
+  - **F-045（Footer re-mount 风险）**：源头消失——MessageList 已不用 virtuoso 的 `components.Footer` API，askUser / planCard / empty 直接拼在 `messages.map()` 后面，AskUserQuestionBlock 的 React 子树由 React 自身管理，不会被 virtuoso 内部 element-type 变化撕掉
+  - **F-046（`createVirtuosoMock()` test util）**：源头消失——MessageList.test.tsx / QuickChatMessages.test.tsx 删除了 ~80 行 `vi.mock("react-virtuoso", ...)` 工厂，改用 `Element.prototype.scrollIntoView` / `scrollTo` spy 直接断言；不再有需要抽 helper 的重复
+  - **F-047（MessageBubble React.memo）**：本期一并验证完成——[`MessageBubble.tsx`](../../src/components/chat/message/MessageBubble.tsx) 已 `React.memo` 包装；MessageList 重写后所有 callback (hover / copy / contextMenu / open* / switch*) 都 useCallback'd 稳定；`itemContent` 14 项依赖的 useCallback 已不存在（直接内联 `messages.map()` 渲染），鼠标 hover 不再触发可见区全量 re-render
+- **本期附带解决**：横向滚动条根因（virtuoso flow item 撑宽 list）、用户消息裁剪（flex item `min-width: auto`）、会话切换闪烁（virtuoso firstItemIndex 派生 state 1-frame 延迟）三个虚拟化边界 bug 同时消失
 
 ### F-036 PlanPanel + PlanDetachedWindow 内联 comment 逻辑重复 ~120 行 × 2，`usePlanComment.ts` hook 是死代码
 

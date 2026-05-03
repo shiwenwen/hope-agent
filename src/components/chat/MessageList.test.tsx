@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 
-import React, { createContext } from "react"
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 
@@ -9,87 +8,17 @@ import MessageList from "./MessageList"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 
-// Capture the latest props handed to <Virtuoso/> + a ref handle stub so we can
-// assert against scrollToIndex calls without spinning up a real DOM scroller
-// (jsdom has no ResizeObserver). We render Header/items/Footer eagerly so
-// component composition is easy to test.
-const virtuosoMock = vi.hoisted(() => ({
-  scrollToIndex: vi.fn(),
-  scrollTo: vi.fn(),
-  scrollBy: vi.fn(),
-  scrollIntoView: vi.fn(),
-  autoscrollToBottom: vi.fn(),
-  getState: vi.fn(),
-  latestProps: undefined as
-    | {
-        startReached?: (index: number) => void
-        atBottomStateChange?: (atBottom: boolean) => void
-        firstItemIndex?: number
-      }
-    | undefined,
-}))
+const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(
+  (cb: FrameRequestCallback) => {
+    cb(0)
+    return 0
+  },
+)
+vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {})
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
 }))
-
-vi.mock("react-virtuoso", () => {
-  const Virtuoso = React.forwardRef(function VirtuosoMock(
-    props: {
-      data?: unknown[]
-      firstItemIndex?: number
-      components?: {
-        Header?: React.ComponentType
-        Footer?: React.ComponentType
-      }
-      itemContent?: (index: number, item: unknown) => React.ReactNode
-      computeItemKey?: (index: number, item: unknown) => string | number
-      startReached?: (index: number) => void
-      atBottomStateChange?: (atBottom: boolean) => void
-    },
-    ref,
-  ) {
-    React.useLayoutEffect(() => {
-      virtuosoMock.latestProps = {
-        startReached: props.startReached,
-        atBottomStateChange: props.atBottomStateChange,
-        firstItemIndex: props.firstItemIndex,
-      }
-    })
-
-    React.useImperativeHandle(ref, () => ({
-      scrollToIndex: virtuosoMock.scrollToIndex,
-      scrollTo: virtuosoMock.scrollTo,
-      scrollBy: virtuosoMock.scrollBy,
-      scrollIntoView: virtuosoMock.scrollIntoView,
-      autoscrollToBottom: virtuosoMock.autoscrollToBottom,
-      getState: virtuosoMock.getState,
-    }))
-
-    const data = props.data ?? []
-    const Header = props.components?.Header
-    const Footer = props.components?.Footer
-
-    return (
-      <div data-testid="virtuoso-mock">
-        {Header ? <Header /> : null}
-        {data.map((item, i) => (
-          <div
-            key={props.computeItemKey?.(i, item) ?? i}
-            data-testid="virtuoso-item"
-          >
-            {props.itemContent?.(i, item)}
-          </div>
-        ))}
-        {Footer ? <Footer /> : null}
-      </div>
-    )
-  })
-  return {
-    Virtuoso,
-    VirtuosoMockContext: createContext(undefined),
-  }
-})
 
 vi.mock("./MessageBubble", () => ({
   default: ({ msg }: { msg: Message }) => <div data-testid="message-bubble">{msg.content}</div>,
@@ -108,13 +37,7 @@ vi.mock("./plan-mode/PlanCardBlock", () => ({
 }))
 
 beforeEach(() => {
-  virtuosoMock.scrollToIndex.mockClear()
-  virtuosoMock.scrollTo.mockClear()
-  virtuosoMock.scrollBy.mockClear()
-  virtuosoMock.scrollIntoView.mockClear()
-  virtuosoMock.autoscrollToBottom.mockClear()
-  virtuosoMock.getState.mockClear()
-  virtuosoMock.latestProps = undefined
+  rafSpy.mockClear()
 })
 
 afterEach(() => {
@@ -129,6 +52,29 @@ function baseMessage(patch: Partial<Message>): Message {
     timestamp: "2026-04-26T00:00:00.000Z",
     ...patch,
   } as Message
+}
+
+function patchScrollMetrics(
+  container: HTMLElement,
+  metrics: { scrollHeight: number; clientHeight: number; scrollTop?: number },
+) {
+  Object.defineProperty(container, "scrollHeight", {
+    configurable: true,
+    get: () => metrics.scrollHeight,
+  })
+  Object.defineProperty(container, "clientHeight", {
+    configurable: true,
+    get: () => metrics.clientHeight,
+  })
+  if (metrics.scrollTop !== undefined) {
+    container.scrollTop = metrics.scrollTop
+  }
+}
+
+function getScroller(): HTMLElement {
+  const el = document.querySelector<HTMLElement>(".overflow-y-auto")
+  if (!el) throw new Error("scroll container not found")
+  return el
 }
 
 describe("MessageList", () => {
@@ -152,7 +98,7 @@ describe("MessageList", () => {
     expect(screen.queryByText("hidden meta")).toBeNull()
   })
 
-  test("renders LoadMoreRow in the header when hasMore is true and triggers onLoadMore on click", () => {
+  test("renders LoadMoreRow when hasMore is true and click triggers onLoadMore", () => {
     const onLoadMore = vi.fn()
     render(
       <MessageList
@@ -170,7 +116,7 @@ describe("MessageList", () => {
     expect(onLoadMore).toHaveBeenCalledTimes(1)
   })
 
-  test("startReached calls onLoadMore when hasMore and not loadingMore", () => {
+  test("scrolling near top triggers onLoadMore when hasMore", () => {
     const onLoadMore = vi.fn()
     render(
       <MessageList
@@ -184,11 +130,15 @@ describe("MessageList", () => {
       />,
     )
 
-    virtuosoMock.latestProps?.startReached?.(0)
+    const el = getScroller()
+    patchScrollMetrics(el, { scrollHeight: 2000, clientHeight: 600, scrollTop: 50 })
+    act(() => {
+      fireEvent.scroll(el)
+    })
     expect(onLoadMore).toHaveBeenCalledTimes(1)
   })
 
-  test("startReached is a no-op while loadingMore is true", () => {
+  test("scrolling near top is a no-op while loadingMore", () => {
     const onLoadMore = vi.fn()
     render(
       <MessageList
@@ -202,7 +152,11 @@ describe("MessageList", () => {
       />,
     )
 
-    virtuosoMock.latestProps?.startReached?.(0)
+    const el = getScroller()
+    patchScrollMetrics(el, { scrollHeight: 2000, clientHeight: 600, scrollTop: 50 })
+    act(() => {
+      fireEvent.scroll(el)
+    })
     expect(onLoadMore).not.toHaveBeenCalled()
   })
 
@@ -304,6 +258,9 @@ describe("MessageList", () => {
 
   test("scrolls to a search target by dbId and reports it as handled", () => {
     const onScrollTargetHandled = vi.fn()
+    const scrollIntoViewSpy = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoViewSpy
+
     render(
       <MessageList
         messages={[
@@ -321,13 +278,15 @@ describe("MessageList", () => {
       />,
     )
 
-    expect(virtuosoMock.scrollToIndex).toHaveBeenCalledTimes(1)
-    // dbId 42 is at data index 1; scrollToIndex receives a data-relative index
-    expect(virtuosoMock.scrollToIndex).toHaveBeenCalledWith({ index: 1, align: "center" })
+    expect(scrollIntoViewSpy).toHaveBeenCalled()
+    expect(scrollIntoViewSpy.mock.calls[0]?.[0]).toMatchObject({ block: "center" })
     expect(onScrollTargetHandled).toHaveBeenCalledTimes(1)
   })
 
-  test("shows the jump-to-bottom button while loading and not at bottom", () => {
+  test("shows the jump-to-bottom button while loading and not at bottom, and clicking calls scrollTo", () => {
+    const scrollToSpy = vi.fn()
+    Element.prototype.scrollTo = scrollToSpy
+
     render(
       <MessageList
         messages={[baseMessage({ role: "assistant", content: "streaming", dbId: 1 })]}
@@ -340,21 +299,23 @@ describe("MessageList", () => {
       />,
     )
 
-    // Trigger atBottomStateChange(false) to simulate user scrolling up
+    const el = getScroller()
+    patchScrollMetrics(el, { scrollHeight: 2000, clientHeight: 600, scrollTop: 800 })
     act(() => {
-      virtuosoMock.latestProps?.atBottomStateChange?.(false)
+      fireEvent.scroll(el)
     })
 
     const button = screen.getByRole("button", { name: "chat.scrollToBottom" })
     fireEvent.click(button)
 
-    // jump-to-bottom triggers scrollToIndex({ index: "LAST", ... })
-    const calls = virtuosoMock.scrollToIndex.mock.calls
-    expect(calls.length).toBeGreaterThan(0)
-    expect(calls[calls.length - 1]?.[0]).toMatchObject({ index: "LAST", align: "end" })
+    expect(scrollToSpy).toHaveBeenCalled()
+    expect(scrollToSpy.mock.calls[0]?.[0]).toMatchObject({ behavior: "smooth" })
   })
 
   test("forces auto-follow scroll when a new user message arrives", () => {
+    const scrollIntoViewSpy = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoViewSpy
+
     const { rerender } = render(
       <MessageList
         messages={[baseMessage({ role: "assistant", content: "old", dbId: 1 })]}
@@ -367,7 +328,7 @@ describe("MessageList", () => {
       />,
     )
 
-    virtuosoMock.scrollToIndex.mockClear()
+    scrollIntoViewSpy.mockClear()
 
     rerender(
       <MessageList
@@ -384,54 +345,10 @@ describe("MessageList", () => {
       />,
     )
 
-    // forceFollowKey effect should scroll to the new user message with align: "start"
-    expect(virtuosoMock.scrollToIndex).toHaveBeenCalled()
-    const calls = virtuosoMock.scrollToIndex.mock.calls
-    expect(calls[calls.length - 1]?.[0]).toMatchObject({
-      align: "start",
+    expect(scrollIntoViewSpy).toHaveBeenCalled()
+    expect(scrollIntoViewSpy.mock.calls[scrollIntoViewSpy.mock.calls.length - 1]?.[0]).toMatchObject({
+      block: "start",
       behavior: "smooth",
     })
-  })
-
-  test("shifts firstItemIndex down when older messages are prepended", () => {
-    const initialMessages = [
-      baseMessage({ role: "user", content: "msg-2", dbId: 2 }),
-      baseMessage({ role: "assistant", content: "msg-3", dbId: 3 }),
-    ]
-    const { rerender } = render(
-      <MessageList
-        messages={initialMessages}
-        loading={false}
-        agents={[]}
-        hasMore
-        loadingMore={false}
-        onLoadMore={vi.fn()}
-        sessionId="s1"
-      />,
-    )
-
-    const before = virtuosoMock.latestProps?.firstItemIndex
-    expect(typeof before).toBe("number")
-
-    // Prepend two older messages — preserve the same Message object references
-    // for the existing tail so the tail-equal check identifies it as a prepend.
-    rerender(
-      <MessageList
-        messages={[
-          baseMessage({ role: "user", content: "msg-0", dbId: 0 }),
-          baseMessage({ role: "assistant", content: "msg-1", dbId: 1 }),
-          ...initialMessages,
-        ]}
-        loading={false}
-        agents={[]}
-        hasMore
-        loadingMore={false}
-        onLoadMore={vi.fn()}
-        sessionId="s1"
-      />,
-    )
-
-    const after = virtuosoMock.latestProps?.firstItemIndex
-    expect(after).toBe((before ?? 0) - 2)
   })
 })

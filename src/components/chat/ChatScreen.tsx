@@ -1283,11 +1283,13 @@ export default function ChatScreen({
               onOpenDiff={diffPanel.openDiff}
             />
 
-            {/* Memory extraction toast */}
+            {/* Memory extraction toast — absolute-positioned above ChatInput
+               * so it doesn't shrink the MessageList scroll container when it
+               * appears/disappears. */}
             {!isCronSession && !isSubagentSession && (
-              <>
+              <div className="relative">
                 {memoryToast && (
-                  <div className="flex items-center gap-2 mx-4 mb-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300">
+                  <div className="absolute left-0 right-0 bottom-full mx-4 mb-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary/50 text-xs text-muted-foreground animate-in fade-in slide-in-from-bottom-2 duration-300 z-10">
                     <Brain className="h-3.5 w-3.5 shrink-0" />
                     <span>{t("settings.memoryExtractedToast", { count: memoryToast.count })}</span>
                     <button
@@ -1345,7 +1347,7 @@ export default function ChatScreen({
                   onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
                   taskProgressSnapshot={taskProgressSnapshot}
                 />
-              </>
+              </div>
             )}
           </div>
 

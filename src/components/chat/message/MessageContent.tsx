@@ -107,6 +107,22 @@ interface MessageContentProps {
   onOpenDiff?: (metadata: FileChangeMetadata | FileChangesMetadata) => void
 }
 
+// Synthesize ContentBlock[] from legacy `msg.thinking` / `msg.toolCalls` /
+// `msg.content` when the server hasn't sent finalized contentBlocks yet
+// (during streaming). This lets MessageBubble always render through the
+// content-blocks code path, avoiding the unmount/remount flicker that used
+// to happen at stream_end when the renderer switched from
+// AssistantLegacyContent to AssistantContentBlocks.
+function synthesizeBlocks(msg: Message): ContentBlock[] {
+  const blocks: ContentBlock[] = []
+  if (msg.thinking) blocks.push({ type: "thinking", content: msg.thinking })
+  if (msg.toolCalls && msg.toolCalls.length > 0) {
+    for (const tool of msg.toolCalls) blocks.push({ type: "tool_call", tool })
+  }
+  if (msg.content) blocks.push({ type: "text", content: msg.content })
+  return blocks
+}
+
 /** Renders assistant content blocks (thinking, text, tool calls) with grouping logic */
 export function AssistantContentBlocks({
   msg,
@@ -117,7 +133,32 @@ export function AssistantContentBlocks({
   onSwitchSession,
   onOpenDiff,
 }: MessageContentProps) {
-  const blocks = msg.contentBlocks!
+  const blocks =
+    msg.contentBlocks && msg.contentBlocks.length > 0
+      ? msg.contentBlocks
+      : synthesizeBlocks(msg)
+
+  // Streaming pre-first-token: no content yet, no tool call yet → show dots
+  // placeholder. Dimensions are tuned to match the box of a one-line `<p>`
+  // that the markdown renderer will draw the moment the first token lands —
+  // `h-[1.625em]` mirrors text-sm leading-relaxed line-height (22.75px) and
+  // `my-1.5` mirrors `.markdown-content p { margin-block: 0.375rem }`. Dot
+  // size + gap shrunk so the loading-state bubble width is closer to a
+  // first-char text bubble, minimizing the perceptible width "shrink" at
+  // the dots → first-token transition.
+  if (blocks.length === 0) {
+    if (loading && isLast) {
+      return (
+        <div className="flex items-center gap-1 h-[1.625em] my-1.5">
+          <span className="block w-1.5 h-1.5 aspect-square rounded-full bg-foreground/70 animate-bounce-pulse" />
+          <span className="block w-1.5 h-1.5 aspect-square rounded-full bg-foreground/70 animate-bounce-pulse [animation-delay:200ms]" />
+          <span className="block w-1.5 h-1.5 aspect-square rounded-full bg-foreground/70 animate-bounce-pulse [animation-delay:400ms]" />
+        </div>
+      )
+    }
+    return null
+  }
+
   const elements: React.ReactNode[] = []
 
   // Pre-compute first task_* position + latest task_* tool with a result,
@@ -333,38 +374,3 @@ export function AssistantContentBlocks({
   return <>{elements}</>
 }
 
-/** Legacy fallback path for old messages without contentBlocks */
-export function AssistantLegacyContent({
-  msg,
-  loading,
-  isLast,
-}: {
-  msg: Message
-  loading: boolean
-  isLast: boolean
-}) {
-  return (
-    <>
-      {msg.thinking && (
-        <ThinkingBlock
-          content={msg.thinking}
-          isStreaming={loading && isLast && !msg.content}
-        />
-      )}
-      {msg.toolCalls?.map((tool) => (
-        <ToolCallBlock key={tool.callId} tool={tool} />
-      ))}
-      {msg.content ? (
-        <MarkdownRenderer content={msg.content} isStreaming={loading && isLast} />
-      ) : (
-        !msg.toolCalls?.length && (
-          <div className="flex items-center gap-1.5 h-6 px-2 relative top-1">
-            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse" />
-            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:200ms]" />
-            <span className="block w-2 h-2 aspect-square rounded-full bg-foreground animate-bounce-pulse [animation-delay:400ms]" />
-          </div>
-        )
-      )}
-    </>
-  )
-}

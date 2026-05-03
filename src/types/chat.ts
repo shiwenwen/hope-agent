@@ -148,6 +148,16 @@ export interface Message {
   dbId?: number
   /** If true, this message is currently being streamed (channel streaming) */
   isStreaming?: boolean
+  /**
+   * Client-only stable identity that survives the placeholder→finalized
+   * transition. Assigned when a streaming placeholder is created; transferred
+   * by `mergeMessagesByDbId` to the fresh DB-loaded message that replaces it
+   * at stream_end. Lets `messageStableId` produce the same React row key
+   * across the transition, so the row isn't unmounted/remounted (which would
+   * force the markdown / shiki / katex subtree to rebuild and flicker).
+   * Never persisted to DB, never sent over the wire. Pure runtime field.
+   */
+  _clientId?: string
 }
 
 export interface FallbackEvent {
