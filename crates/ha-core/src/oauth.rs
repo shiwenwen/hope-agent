@@ -136,6 +136,19 @@ pub fn clear_token() -> Result<()> {
 /// 5. Exchange the code for tokens
 /// Returns the TokenData on success.
 pub async fn start_oauth_flow(auth_result: Arc<Mutex<Option<Result<TokenData>>>>) -> Result<()> {
+    start_oauth_flow_with_auth_url(auth_result, true)
+        .await
+        .map(|_| ())
+}
+
+/// Start the OAuth PKCE flow and return the authorization URL.
+///
+/// `open_browser=false` is used by terminal/headless entry points so they can
+/// print the URL and let the operator open it manually.
+pub async fn start_oauth_flow_with_auth_url(
+    auth_result: Arc<Mutex<Option<Result<TokenData>>>>,
+    open_browser: bool,
+) -> Result<String> {
     let code_verifier = generate_code_verifier();
     let code_challenge = generate_code_challenge(&code_verifier);
     let state = uuid::Uuid::new_v4().to_string();
@@ -176,10 +189,11 @@ pub async fn start_oauth_flow(auth_result: Arc<Mutex<Option<Result<TokenData>>>>
     // Give the server a moment to start
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
-    // Open the browser
-    open::that(&auth_url).map_err(|e| anyhow!("Failed to open browser: {}", e))?;
+    if open_browser {
+        open::that(&auth_url).map_err(|e| anyhow!("Failed to open browser: {}", e))?;
+    }
 
-    Ok(())
+    Ok(auth_url)
 }
 
 /// Runs a tiny HTTP server that listens for the OAuth callback

@@ -94,7 +94,7 @@ Hope Agent was influenced in its early days by [openclaw](https://github.com/ope
    - macOS: `Hope-Agent_*.dmg`
    - Linux: `hope-agent_*.AppImage`
    - Windows: `Hope-Agent_*.exe` / `Hope-Agent_*.msi` (not yet fully tested)
-2. First launch: **pick a provider template → paste API key → chat.**
+2. First launch: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
 3. Desktop installers ship with GitHub Releases auto-update; inside the app you can go to **Settings → About** to check and install updates
 
 ### For developers
