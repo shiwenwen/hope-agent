@@ -2,21 +2,24 @@
 
 > 返回 [文档索引](../README.md) | 关联文档：[Transport 运行模式](transport-modes.md) · [前后端分离架构](backend-separation.md) · [进程与并发模型](process-model.md) · [可靠性与崩溃自愈](reliability.md) · [ACP 协议](acp.md) | 关联源码：[`src-tauri/src/main.rs`](../../src-tauri/src/main.rs) · [`crates/ha-core/src/service_install.rs`](../../crates/ha-core/src/service_install.rs) · [`crates/ha-core/src/onboarding/`](../../crates/ha-core/src/onboarding/)
 
-Hope Agent 的所有运行模式共享同一个二进制 `hope-agent`。CLI 是分流入口：根据第一个非全局参数决定走桌面 GUI、HTTP/WS 守护进程，还是 ACP stdio 协议。本文是 CLI 子命令、参数与环境变量的完整参考——参数解析逻辑全部在 [`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)，手写 `std::env::args()` 不依赖 clap，行为以源码为准。
+Hope Agent 的所有运行模式共享同一个二进制 `hope-agent`。CLI 是分流入口：根据第一个非全局参数决定走桌面 GUI、HTTP/WS 守护进程、ACP stdio 协议，还是一次性的 OAuth 登录流程。本文是 CLI 子命令、参数与环境变量的完整参考——参数解析逻辑全部在 [`src-tauri/src/main.rs`](../../src-tauri/src/main.rs)，手写 `std::env::args()` 不依赖 clap，行为以源码为准。
 
-## 三种运行模式
+## 子命令总览
 
 ```
 hope-agent [GLOBAL_FLAGS] [SUBCOMMAND] [OPTIONS]
 ```
 
-| 模式       | 触发                                  | 入口函数               | 说明                                                                                       |
-| ---------- | ------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
-| **桌面 GUI**   | 无子命令（默认）                      | `run_child` / `run_guardian` | Tauri WebView。生产构建经 Guardian 监督子进程；dev / 用户禁用 Guardian 时直接跑 |
-| **HTTP/WS 服务器** | `hope-agent server [...]`             | `run_server`           | axum 守护进程，内嵌 Web GUI；浏览器访问 `http://<bind>` 即得完整 React UI                  |
-| **ACP stdio** | `hope-agent acp [...]`                | `run_acp_server`       | NDJSON over stdio，给 IDE / 外部客户端直连核心协议用                                      |
+主分发顺序（[`main.rs:11-53`](../../src-tauri/src/main.rs#L11)）：**全局 flag → `acp` → `server` → `auth` → 桌面 / Guardian / 子进程**。匹配到任何子命令就 return，不再继续往下；未知子命令静默落到桌面入口。
 
-三种模式共享 `ha-core` 业务逻辑、`init_runtime(role)` 初始化路径与 `EventBus`；只在前端入口 / 背景任务集合 / 鉴权方式上有差异。
+| 子命令         | 性质         | 触发                                  | 入口函数 / 模块               | 说明                                                                                       |
+| -------------- | ------------ | ------------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------ |
+| **桌面 GUI**       | 长驻进程     | 无子命令（默认）                      | `run_child` / `run_guardian` | Tauri WebView。生产构建经 Guardian 监督子进程；dev / 用户禁用 Guardian 时直接跑              |
+| **HTTP/WS 服务器** | 长驻进程     | `hope-agent server [...]`             | `run_server`           | axum 守护进程，内嵌 Web GUI；浏览器访问 `http://<bind>` 即得完整 React UI                  |
+| **ACP stdio**      | 长驻进程     | `hope-agent acp [...]`                | `run_acp_server`       | NDJSON over stdio，给 IDE / 外部客户端直连核心协议用                                      |
+| **Auth 一次性命令** | 短命令       | `hope-agent auth <provider> [...]`    | [`cli_auth::run`](../../src-tauri/src/cli_auth.rs) | 终端环境下完成 OAuth（目前仅 Codex / ChatGPT），登录成功落 token + 写 Provider 后退出     |
+
+三种长驻模式共享 `ha-core` 业务逻辑、`init_runtime(role)` 初始化路径与 `EventBus`；只在前端入口 / 背景任务集合 / 鉴权方式上有差异。`auth` 不进 `init_runtime`，只 touch credentials / provider config 后退出。
 
 ## 全局参数
 
@@ -138,13 +141,66 @@ hope-agent acp [OPTIONS]
 
 详见 [ACP 协议](acp.md)。
 
+## `hope-agent auth` 子命令
+
+```
+hope-agent auth <provider> <action> [OPTIONS]
+```
+
+由 [`cli_auth::run`](../../src-tauri/src/cli_auth.rs) 处理，是当前唯一**一次性**子命令——不进 `init_runtime`、不起后台 tokio runtime、不开 EventBus，只为终端用户完成主 LLM Provider 的 OAuth 流程后退出。设计上和 [MCP OAuth](mcp.md) 各自独立（`oauth.rs` vs `mcp/oauth.rs`，互不共用）。
+
+### Provider
+
+| Provider | 状态     | 入口                              | 说明                                                                  |
+| -------- | -------- | --------------------------------- | --------------------------------------------------------------------- |
+| `codex`  | 已支持   | `hope-agent auth codex <action>`  | ChatGPT / Codex OAuth。token 落 `~/.hope-agent/credentials/auth.json` |
+
+未来扩展更多 Provider 时按 `cli_auth::run` 中的 match 分支扩展即可。
+
+### `auth codex` 动作
+
+| 动作       | 说明                                                                                                                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `login`    | OAuth 浏览器登录，成功后保存 token + 通过 `provider::ensure_codex_provider_persisted` 把 Codex Provider 写进 `config.json`。**不带动作时默认就是 `login`** |
+| `status`   | 打印 token 状态：`authenticated` / `expired` / `not authenticated`，附 account id、token 路径、refresh token 是否存在                                                                          |
+| `logout`   | 调 `provider::delete_providers_by_api_type(Codex, "cli")` 清掉所有 Codex Provider 行，再调 `oauth::clear_token()` 删 `auth.json`                                                                |
+
+### `auth codex login` 选项
+
+| 参数              | 类型   | 默认       | 说明                                                                                                                       |
+| ----------------- | ------ | ---------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `--no-open`       | flag   | `--open`   | 只打印 auth URL 不自动开浏览器。SSH / headless 环境必备                                                                    |
+| `--open`          | flag   | （默认）   | 显式启用浏览器自动打开                                                                                                    |
+| `--model MODEL`   | string | `gpt-5.4`  | 登录成功后切到该 Codex 模型作为 active model。模型名通过 `agent::is_valid_codex_model` 校验，未知模型会列出可选项后报错      |
+| `--no-active`     | flag   | off        | 登录成功后**不**切 active model。`make_active=true` 时实际写入 `ActiveModelUpdate::Always(model)`，否则写 `Never`            |
+| `--help` / `-h`   | flag   | —          | 打印帮助后退出                                                                                                             |
+
+OAuth 回调走本机 loopback `http://localhost:1455/auth/callback`，远端 SSH 场景需要在客户端先建端口转发：
+
+```
+ssh -L 1455:127.0.0.1:1455 <host>
+```
+
+`login` 内部新建独立 tokio runtime（`tokio::runtime::Runtime::new()`）跑 `oauth::start_oauth_flow_with_auth_url`；500ms 轮询一次共享 slot 直到拿到 token 或者用户 Ctrl-C。流程结束后 runtime drop，进程退出。
+
+### `auth codex status` / `auth codex logout` 选项
+
+两个动作都只接受 `--help` / `-h`，不接受其它参数；多余参数会报 `unknown status option` / `unknown logout option` 并退出码 1。
+
+### 已知行为细节
+
+- **`logout` 是破坏性的**：会真正从 `config.json` 删 Codex Provider 行，不只是清 token。重新登录会重建 Provider
+- **`login` 复用 onboarding wizard 的 OAuth 实现**：[`crates/ha-core/src/oauth.rs`](../../crates/ha-core/src/oauth.rs) 的 `start_oauth_flow_with_auth_url` 同时给 `cli_auth` 和 `cli_onboarding::steps::provider` 用——首次启动向导里选 Codex 时走的就是同一条路径
+- **`--version`**：`hope-agent auth --version` 打印 `hope-agent-auth X.Y.Z` 后退出
+- **未知 provider 退出码 2**：`hope-agent auth foo` 会报错并退出码 2，与 ACP onboarding 退出码 2 区分语义但共享数字
+
 ## 退出码语义
 
-| 退出码 | 触发                                                          |
-| ------ | ------------------------------------------------------------- |
-| 0      | 正常退出（用户关窗 / Ctrl-C / `--version` / `--help`）       |
-| 1      | 通用错误：服务管理失败 / wizard 失败 / server 启动失败 / 子进程超过 `MAX_CHILD_PANICS` |
-| 2      | ACP 模式 onboarding 未完成（无法在 stdio 上交互）              |
+| 退出码 | 触发                                                                                                          |
+| ------ | ------------------------------------------------------------------------------------------------------------- |
+| 0      | 正常退出（用户关窗 / Ctrl-C / `--version` / `--help` / `auth codex login` 成功 / `auth codex status` 完成） |
+| 1      | 通用错误：服务管理失败 / wizard 失败 / server 启动失败 / 子进程超过 `MAX_CHILD_PANICS` / `auth codex` 任意动作失败 |
+| 2      | ACP 模式 onboarding 未完成（无法在 stdio 上交互） / `hope-agent auth <unknown_provider>`                          |
 
 Guardian 父子层之间还有自定义退出码协议（崩溃 vs 用户主动退出 vs 重启请求），详见 [可靠性与崩溃自愈](reliability.md)。
 
