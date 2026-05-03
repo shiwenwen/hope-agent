@@ -145,6 +145,26 @@ pub async fn move_session_to_project_cmd(
         .map_err(Into::into)
 }
 
+#[tauri::command]
+pub async fn mark_project_sessions_read_cmd(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), CmdError> {
+    state
+        .session_db
+        .mark_project_sessions_read(&project_id)
+        .map_err(CmdError::from)?;
+
+    if let Some(bus) = ha_core::get_event_bus() {
+        let _ = bus.emit(
+            "project:updated",
+            serde_json::json!({ "projectId": project_id }),
+        );
+    }
+
+    Ok(())
+}
+
 // ── Project Files ───────────────────────────────────────────────
 
 #[tauri::command]

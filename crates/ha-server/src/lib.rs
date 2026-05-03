@@ -176,6 +176,10 @@ fn build_router_with_cors(
             get(routes::projects::list_project_sessions),
         )
         .route(
+            "/projects/{id}/read",
+            post(routes::projects::mark_project_sessions_read),
+        )
+        .route(
             "/projects/{id}/files",
             get(routes::projects::list_project_files),
         )

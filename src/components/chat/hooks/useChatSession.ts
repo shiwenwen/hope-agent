@@ -95,6 +95,7 @@ interface UseChatSessionOptions {
   initialSessionId?: string
   onSessionNavigated?: () => void
   onUnreadCountChange?: (count: number) => void
+  onSidebarAggregatesChanged?: () => void
 }
 
 export function useChatSession({
@@ -106,6 +107,7 @@ export function useChatSession({
   initialSessionId,
   onSessionNavigated,
   onUnreadCountChange,
+  onSidebarAggregatesChanged,
 }: UseChatSessionOptions): UseChatSessionReturn {
   const { t } = useTranslation()
   const [messages, setMessages] = useState<Message[]>([])
@@ -518,7 +520,10 @@ export function useChatSession({
                 getTransport()
                   .call("mark_session_read_cmd", { sessionId })
                   .catch(() => {})
-                reloadSessions()
+                  .finally(() => {
+                    reloadSessions()
+                    onSidebarAggregatesChanged?.()
+                  })
                 return
               }
             }
@@ -536,7 +541,10 @@ export function useChatSession({
       getTransport()
         .call("mark_session_read_cmd", { sessionId })
         .catch(() => {})
-      reloadSessions()
+        .finally(() => {
+          reloadSessions()
+          onSidebarAggregatesChanged?.()
+        })
     },
     [
       availableModels,
@@ -545,6 +553,7 @@ export function useChatSession({
       globalActiveModelRef,
       setActiveModel,
       reloadSessions,
+      onSidebarAggregatesChanged,
       setHasMore,
     ],
   )
@@ -647,6 +656,7 @@ export function useChatSession({
         setSessions((prev) =>
           prev.some((s) => s.id === created.id) ? prev : [created, ...prev],
         )
+        onSidebarAggregatesChanged?.()
         setLoading(false)
         setHasMore(false)
         setCurrentAgentId(created.agentId)
@@ -686,6 +696,7 @@ export function useChatSession({
       availableModels,
       applyModelForDisplay,
       globalActiveModelRef,
+      onSidebarAggregatesChanged,
       setActiveModel,
       setHasMore,
       t,
@@ -707,6 +718,7 @@ export function useChatSession({
           setHasMore(false)
         }
         reloadSessions()
+        onSidebarAggregatesChanged?.()
         toast.success(t("common.deleted"), {
           description: sessionTitle,
         })
@@ -717,7 +729,7 @@ export function useChatSession({
         })
       }
     },
-    [reloadSessions, setHasMore, evictSessionLocal, sessions, t],
+    [reloadSessions, setHasMore, evictSessionLocal, sessions, t, onSidebarAggregatesChanged],
   )
 
   return {

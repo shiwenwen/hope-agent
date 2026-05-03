@@ -477,6 +477,15 @@ impl ProjectDB {
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
                     p.logo, p.working_dir, p.bound_channel_id, p.bound_channel_account_id,
                     (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
+                    (SELECT COUNT(*)
+                       FROM messages m
+                       JOIN sessions s ON s.id = m.session_id
+                       LEFT JOIN channel_conversations cc ON cc.session_id = s.id
+                      WHERE s.project_id = p.id
+                        AND s.parent_session_id IS NULL
+                        AND cc.session_id IS NULL
+                        AND m.id > COALESCE(s.last_read_message_id, 0)
+                        AND m.role = 'assistant') AS unread_count,
                     (SELECT COUNT(*) FROM project_files f WHERE f.project_id = p.id) AS file_count
              FROM projects p
              {}
@@ -490,7 +499,8 @@ impl ProjectDB {
             Ok(ProjectMeta {
                 project,
                 session_count: row.get::<_, i64>(15).unwrap_or(0) as u32,
-                file_count: row.get::<_, i64>(16).unwrap_or(0) as u32,
+                unread_count: row.get::<_, i64>(16).unwrap_or(0) as u32,
+                file_count: row.get::<_, i64>(17).unwrap_or(0) as u32,
                 memory_count: 0,
             })
         })?;
