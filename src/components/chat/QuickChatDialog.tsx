@@ -1,13 +1,15 @@
-import React, { useState, useEffect, useCallback, useRef } from "react"
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react"
 import { createPortal } from "react-dom"
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
-import { X, Plus, ChevronDown, Bot } from "lucide-react"
+import { X, Plus, ChevronDown, Bot, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { IconTip } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import ChatInput from "@/components/chat/ChatInput"
-import QuickChatMessages from "@/components/chat/QuickChatMessages"
+import MessageList from "@/components/chat/MessageList"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
+import IncognitoToggle from "@/components/chat/input/IncognitoToggle"
 import { useQuickChatSession } from "./useQuickChatSession"
 import { useChatStream } from "./useChatStream"
 import type { CommandResult } from "./slash-commands/types"
@@ -33,6 +35,20 @@ export default function QuickChatDialog({
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
 
+  // Effective incognito = persisted session.incognito (continued chat) or
+  // draft toggle (new chat). Same shape as `ChatScreen` so `useChatStream`
+  // and `IncognitoToggle` see the same value.
+  const currentSessionMeta = useMemo(
+    () =>
+      session.currentSessionId
+        ? (session.sessions.find((s) => s.id === session.currentSessionId) ?? null)
+        : null,
+    [session.sessions, session.currentSessionId],
+  )
+  const incognitoEnabled = session.currentSessionId
+    ? (currentSessionMeta?.incognito ?? false)
+    : session.draftIncognito
+
   // ── Stream Hook ─────────────────────────────────
   const stream = useChatStream({
     messages: session.messages,
@@ -55,7 +71,15 @@ export default function QuickChatDialog({
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
     endedStreamIdsRef: quickEndedStreamIdsRef,
+    incognitoEnabled,
   })
+
+  // Draft-only incognito toggle handler. No useCallback — see QuickChatWindow
+  // for the React Compiler dep-inference rationale.
+  const handleIncognitoChange = (enabled: boolean) => {
+    if (session.currentSessionId) return
+    session.setDraftIncognito(enabled)
+  }
 
   // ── Keyboard handling ───────────────────────────
   useEffect(() => {
@@ -138,6 +162,15 @@ export default function QuickChatDialog({
             </span>
           )}
 
+          {/* Incognito toggle — draft state only (mirrors main chat). */}
+          {!session.currentSessionId && (
+            <IncognitoToggle
+              sessionId={null}
+              enabled={incognitoEnabled}
+              onChange={handleIncognitoChange}
+            />
+          )}
+
           {/* New chat button */}
           <Button
             variant="ghost"
@@ -148,6 +181,23 @@ export default function QuickChatDialog({
             <Plus className="h-3.5 w-3.5" />
             {t("quickChat.newChat")}
           </Button>
+
+          {/* Open in main window — only when there's a session with messages */}
+          {session.currentSessionId &&
+            session.messages.length > 0 &&
+            onNavigateToSession && (
+              <IconTip label={t("quickChat.viewFullChat")}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => handleNavigate(session.currentSessionId!)}
+                  className="h-7 w-7"
+                  aria-label={t("quickChat.viewFullChat")}
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </Button>
+              </IconTip>
+            )}
 
           {/* Close button */}
           <Button
@@ -161,14 +211,15 @@ export default function QuickChatDialog({
         </div>
 
         {/* ── Messages ──────────────────────────── */}
-        <QuickChatMessages
+        <MessageList
           messages={session.messages}
           loading={session.loading}
-          sessionId={session.currentSessionId}
-          onNavigateToSession={handleNavigate}
+          agents={session.agents}
           hasMore={session.hasMore}
           loadingMore={session.loadingMore}
           onLoadMore={session.handleLoadMore}
+          sessionId={session.currentSessionId}
+          incognito={incognitoEnabled}
         />
 
         {/* ── Approval Dialog ────────────────────── */}

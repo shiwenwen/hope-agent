@@ -445,7 +445,13 @@ export default function MessageList({
       <div
         ref={containerRef}
         key={sessionKey}
-        className="h-full overflow-y-auto overflow-x-hidden px-4"
+        // `overflow-anchor: none` opts out of the browser's default scroll-
+        // anchoring. Otherwise the browser tries to keep visible elements at
+        // their viewport position when content above grows (e.g. Load More
+        // prepend), and the `useLayoutEffect` top-anchor below tries to do
+        // the same — the result is double-compensation, which the user reads
+        // as "the scroll keeps moving by itself after the load finished".
+        className="h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none]"
       >
         <div ref={contentRef}>
         {hasMore && displayedStart === 0 && (

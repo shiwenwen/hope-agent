@@ -32,6 +32,18 @@
 
 
 
+### F-051 `currentSessionMeta` + `incognitoEnabled` 三处复制可推进 `useQuickChatSession` / `useChatSession`
+
+- **来源**：2026-05-03 QuickChat → MessageList 复用 PR `/simplify` review (reuse + quality + efficiency 三只 agent 同样标记)
+- **现象**：[`ChatScreen.tsx:145-159`](src/components/chat/ChatScreen.tsx#L145-L159) / [`QuickChatWindow.tsx:33-48`](src/QuickChatWindow.tsx#L33-L48) / [`QuickChatDialog.tsx:38-50`](src/components/chat/QuickChatDialog.tsx#L38-L50) 三处都复制了：`useMemo(() => sessions.find(s => s.id === currentSessionId))` + `incognitoEnabled = currentSessionId ? meta?.incognito : draftIncognito` 这套派生。ChatScreen 还多一个 `incognitoDisabledReason` 派生；QuickChat 没有 project / channel 概念所以不需要
+- **当前选择**：不动。本期 PR 主题是"删 QuickChatMessages 复用 MessageList"，把派生推进 hook 是独立重构（影响 ChatScreen 顶层）；本期接受 2 个新复制点（QuickChatWindow / QuickChatDialog），从 1 处升到 3 处，仍在"小到不值得抽"的阈值附近
+- **改的话要做什么**：
+  - 在 [`useQuickChatSession.ts`](src/components/chat/useQuickChatSession.ts) 内部计算 `currentSessionMeta` + `incognitoEnabled`（`draftIncognito` 已经在 hook 里），return 出来；两个 quick 入口直接 destructure
+  - `useChatSession` 同款追加（ChatScreen 的派生最复杂，含 `incognitoDisabledReason` / `isCronSession` / `isSubagentSession`，可能值得专门一个 `useSessionMeta(session)` 子 hook）
+  - 三处 `handleIncognitoChange`（3 行 callback）也可以一并推进 hook，但单独看不值得抽
+- **影响面**：纯代码卫生 + 防漂移。当前没有用户可见 bug；性能上 `Array.find` 在 sessions 数 ≤100 量级是 µs 级，无忧
+- **触发时机建议**：下次有人为了某个 incognito / session-meta 派生 bug 同时改这三个文件时（说明复制成本开始外溢），把派生推进 hook
+
 ### F-050 `_clientId` 下划线前缀挂在 `Message` 公共导出 interface 上
 
 - **来源**：2026-05-03 react-virtuoso 移除后续 `/simplify` review (quality agent)
@@ -45,19 +57,20 @@
 
 
 
-### F-049 三处消息流 scroll listener / atBottom / ResizeObserver 复制
+### F-049 ~~三处~~两处消息流 scroll listener / atBottom / ResizeObserver 复制
 
 - **来源**：2026-05-03 react-virtuoso 移除后续 `/simplify` review (reuse + quality agents)
-- **现象**：[`MessageList.tsx`](src/components/chat/MessageList.tsx) / [`QuickChatMessages.tsx`](src/components/chat/QuickChatMessages.tsx) / [`TeamMessageFeed.tsx`](src/components/team/TeamMessageFeed.tsx) 三个组件的滚动跟随逻辑相似度很高：byte-相同的 `el.scrollHeight - el.scrollTop - el.clientHeight < THRESHOLD` 距底判定、近乎相同的 RAF-节流 scroll listener、近乎相同的 ResizeObserver pin-to-bottom 块、相同的 jump-to-latest handler、相同的 reverse-find-last-user + scrollIntoView 块
-- **当前选择**：不动。原方案明确不抽 `useChatScroll` hook——MessageList 复杂（forceFollow / lastUserKey / pendingScrollTarget / askUser+planCard footer），TeamFeed 极简，QuickChat 介于中间，差异点大于共性，强行抽 hook 会推高耦合
+- **2026-05-03 状态更新**：原 3 处复制中 `QuickChatMessages.tsx` 已整体删除——快捷会话浮窗 / dialog 改为直接复用 `MessageList`（详见对应 commit）。剩下 [`MessageList.tsx`](src/components/chat/MessageList.tsx) ↔ [`TeamMessageFeed.tsx`](src/components/team/TeamMessageFeed.tsx) 两处复制
+- **现象**：两个组件的滚动跟随逻辑相似度很高：byte-相同的 `el.scrollHeight - el.scrollTop - el.clientHeight < THRESHOLD` 距底判定、近乎相同的 RAF-节流 scroll listener、近乎相同的 ResizeObserver pin-to-bottom 块、相同的 reverse-find-last-user + scrollIntoView 块
+- **当前选择**：不动。MessageList 复杂（forceFollow / lastUserKey / pendingScrollTarget / askUser+planCard footer），TeamFeed 极简，差异点仍然大于共性，强行抽 hook 会推高耦合
 - **改的话要做什么**（hook 抽不动但纯 helper 函数可以抽）：
   - 新建 `src/components/chat/chatScroll.ts`，提供：
-    1. `isNearBottom(el, threshold = 48): boolean` —— 三处都在用的距底判定
-    2. `scrollLastUserIntoView(el, messages, opts?)` —— 三个组件里两份字节相同的 reverse-find + `scrollIntoView({ block: "start", behavior: "smooth" })`
+    1. `isNearBottom(el, threshold = 48): boolean` —— 两处都在用的距底判定
+    2. `scrollLastUserIntoView(el, messages, opts?)` —— 两个组件字节相同的 reverse-find + `scrollIntoView({ block: "start", behavior: "smooth" })`
   - RAF-scroll listener scaffold + ResizeObserver-pin 块仍然各自留在组件里——它们绑定 ref，抽出来就是隐形 hook 化，违背原决策
   - 顺手把 [`ChatSidebar.tsx`](src/components/chat/ChatSidebar.tsx) 里 `< 100px` 距顶判定改成 `isNearTop` 同款 helper
-- **影响面**：纯代码卫生。当前是可控的复制——共 ~90 行重复，但都是原子小块，单点修复不易踩坑
-- **触发时机建议**：下次有人为了某个滚动 bug 同时改这三个文件时（说明复制成本开始外溢），顺手把 helper 抽出来
+- **影响面**：纯代码卫生。当前是可控的复制——剩 ~60 行重复，都是原子小块，单点修复不易踩坑
+- **触发时机建议**：下次有人为了某个滚动 bug 同时改这两个文件时（说明复制成本开始外溢），顺手把 helper 抽出来
 
 
 

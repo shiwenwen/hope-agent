@@ -2,7 +2,7 @@
  * QuickChatWindow — root component for the independent quick-chat Tauri window.
  * Rendered when `?window=quickchat` is in the URL (see main.tsx).
  */
-import React, { useEffect, useCallback, useRef } from "react"
+import React, { useEffect, useCallback, useRef, useMemo } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window"
 import { useTranslation } from "react-i18next"
@@ -11,8 +11,9 @@ import { Plus, ChevronDown, Bot, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "@/components/chat/ChatInput"
-import QuickChatMessages from "@/components/chat/QuickChatMessages"
+import MessageList from "@/components/chat/MessageList"
 import ApprovalDialog from "@/components/chat/ApprovalDialog"
+import IncognitoToggle from "@/components/chat/input/IncognitoToggle"
 import { useQuickChatSession } from "@/components/chat/useQuickChatSession"
 import { useChatStream } from "@/components/chat/useChatStream"
 import type { CommandResult } from "@/components/chat/slash-commands/types"
@@ -26,6 +27,20 @@ export default function QuickChatWindow() {
   const session = useQuickChatSession(true)
   const quickStreamSeqRef = useRef<Map<string, number>>(new Map())
   const quickEndedStreamIdsRef = useRef<Map<string, string>>(new Map())
+
+  // Effective incognito = persisted session.incognito (continued chat) or
+  // draft toggle (new chat). Mirrors `ChatScreen` semantics so the toggle
+  // and `useChatStream` see the same value.
+  const currentSessionMeta = useMemo(
+    () =>
+      session.currentSessionId
+        ? (session.sessions.find((s) => s.id === session.currentSessionId) ?? null)
+        : null,
+    [session.sessions, session.currentSessionId],
+  )
+  const incognitoEnabled = session.currentSessionId
+    ? (currentSessionMeta?.incognito ?? false)
+    : session.draftIncognito
 
   const stream = useChatStream({
     messages: session.messages,
@@ -47,7 +62,18 @@ export default function QuickChatWindow() {
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,
     endedStreamIdsRef: quickEndedStreamIdsRef,
+    incognitoEnabled,
   })
+
+  // Draft-only incognito toggle handler: ignored once a session exists, just
+  // like the main chat (post-create switching is policed by the backend).
+  // No useCallback — React Compiler handles memoization; manual useCallback
+  // here trips `react-hooks/preserve-manual-memoization` because the inferred
+  // dep (whole `session`) is broader than what we close over.
+  const handleIncognitoChange = (enabled: boolean) => {
+    if (session.currentSessionId) return
+    session.setDraftIncognito(enabled)
+  }
 
   useEffect(() => { initLanguageFromConfig() }, [])
 
@@ -131,6 +157,17 @@ export default function QuickChatWindow() {
             </span>
           )}
 
+          {/* Incognito toggle — only meaningful in draft state (no session
+           * yet); once the session materializes the backend owns the
+           * `incognito` flag and we hide the toggle (mirrors main chat). */}
+          {!session.currentSessionId && (
+            <IncognitoToggle
+              sessionId={null}
+              enabled={incognitoEnabled}
+              onChange={handleIncognitoChange}
+            />
+          )}
+
           <button
             onClick={session.handleNewChat}
             className="h-7 px-2 text-xs gap-1 inline-flex items-center rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
@@ -145,22 +182,26 @@ export default function QuickChatWindow() {
           </button>
         </div>
 
-        {/* ── Messages (only when present) ──────── */}
-        {hasMessages && (
-          <QuickChatMessages
-            messages={session.messages}
-            loading={session.loading}
-            sessionId={session.currentSessionId}
-          />
-        )}
+        {/* ── Messages ─────────────────────────────
+         * MessageList handles its own empty state ("How can I help") and
+         * always claims `flex-1 min-h-0` — no parent gating or spacer needed.
+         */}
+        <MessageList
+          messages={session.messages}
+          loading={session.loading}
+          agents={session.agents}
+          hasMore={session.hasMore}
+          loadingMore={session.loadingMore}
+          onLoadMore={session.handleLoadMore}
+          sessionId={session.currentSessionId}
+          incognito={incognitoEnabled}
+        />
 
         {/* ── Approval Dialog ────────────────────── */}
         <ApprovalDialog
           requests={stream.approvalRequests}
           onRespond={stream.handleApprovalResponse}
         />
-
-        {!hasMessages && <div className="flex-1 min-h-0" />}
 
         {/* ── Input ──────────────────────────────── */}
         <div className="shrink-0">

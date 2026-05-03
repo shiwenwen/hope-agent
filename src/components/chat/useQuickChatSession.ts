@@ -51,6 +51,13 @@ export interface UseQuickChatSessionReturn {
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
   loadingSessionsRef: React.MutableRefObject<Set<string>>
 
+  // Draft-state incognito flag (only meaningful when `currentSessionId` is
+  // null — once a session materializes, sessions[].incognito is the truth).
+  // Mirrors `ChatScreen.draftIncognito` so the IncognitoToggle in the quick
+  // chat header / dialog header behaves identically to the main chat.
+  draftIncognito: boolean
+  setDraftIncognito: React.Dispatch<React.SetStateAction<boolean>>
+
   // Pagination
   hasMore: boolean
   loadingMore: boolean
@@ -87,6 +94,8 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const manualModelOverrideRef = useRef<ActiveModel | null>(null)
+
+  const [draftIncognito, setDraftIncognito] = useState(false)
 
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -274,6 +283,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     setMessages([])
     sessionCacheRef.current.clear()
     resetPagination()
+    setDraftIncognito(false)
   }, [resetPagination])
 
   // Switch agent
@@ -317,6 +327,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
       setCurrentSessionId(null)
       setMessages([])
       resetPagination()
+      setDraftIncognito(false)
     },
     [currentAgentId, agents, loadSessionMessages, resetPagination],
   )
@@ -415,6 +426,8 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
     setLoadingSessionIds,
     sessionCacheRef,
     loadingSessionsRef,
+    draftIncognito,
+    setDraftIncognito,
     hasMore,
     loadingMore,
     handleLoadMore,

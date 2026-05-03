@@ -190,7 +190,8 @@ export function TeamMessageFeed({
         <div
           ref={containerRef}
           key={teamId}
-          className="h-full overflow-y-auto overflow-x-hidden"
+          // See MessageList for `[overflow-anchor:none]` rationale.
+          className="h-full overflow-y-auto overflow-x-hidden [overflow-anchor:none]"
         >
           <div ref={contentRef}>
             {messages.length === 0 ? (
