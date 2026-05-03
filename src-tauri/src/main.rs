@@ -33,6 +33,12 @@ fn main() {
         return;
     }
 
+    // Auth subcommand: `hope-agent auth codex ...` — terminal-only auth flows
+    if args.len() >= 2 && args[1] == "auth" {
+        app_lib::cli_auth::run(&args[2..]);
+        return;
+    }
+
     // Child mode: spawned by Guardian via --child-mode arg or legacy HOPE_AGENT_CHILD env
     if (args.len() >= 2 && args[1] == "--child-mode") || env::var("HOPE_AGENT_CHILD").is_ok() {
         run_child();
