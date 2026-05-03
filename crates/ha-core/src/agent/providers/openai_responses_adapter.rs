@@ -245,6 +245,45 @@ fn finalize_pending_tool_calls(
     0
 }
 
+fn push_stateless_reasoning_item(reasoning_items: &mut Vec<Value>, item: &Value) {
+    let Some(replayable) = AssistantAgent::stateless_responses_reasoning_item(item) else {
+        return;
+    };
+
+    let id = replayable.get("id").and_then(|v| v.as_str());
+    let encrypted_content = replayable.get("encrypted_content").and_then(|v| v.as_str());
+    let already_seen = reasoning_items.iter().any(|existing| {
+        let existing_id = existing.get("id").and_then(|v| v.as_str());
+        let existing_encrypted = existing.get("encrypted_content").and_then(|v| v.as_str());
+        (id.is_some() && id == existing_id)
+            || (encrypted_content.is_some() && encrypted_content == existing_encrypted)
+    });
+
+    if !already_seen {
+        reasoning_items.push(replayable);
+    }
+}
+
+fn collect_reasoning_item_from_raw_event(reasoning_items: &mut Vec<Value>, raw_event: &Value) {
+    if let Some(item) = raw_event.get("item") {
+        if item.get("type").and_then(|t| t.as_str()) == Some("reasoning") {
+            push_stateless_reasoning_item(reasoning_items, item);
+        }
+    }
+
+    if let Some(outputs) = raw_event
+        .get("response")
+        .and_then(|r| r.get("output"))
+        .and_then(|o| o.as_array())
+    {
+        for item in outputs {
+            if item.get("type").and_then(|t| t.as_str()) == Some("reasoning") {
+                push_stateless_reasoning_item(reasoning_items, item);
+            }
+        }
+    }
+}
+
 fn handle_openai_sse_event_block(
     request_id: &str,
     event_block: &str,
@@ -272,6 +311,8 @@ fn handle_openai_sse_event_block(
     if data.is_empty() || data == "[DONE]" {
         return Ok(());
     }
+
+    let raw_event = serde_json::from_str::<Value>(&data).ok();
 
     match serde_json::from_str::<SseEvent>(&data) {
         Ok(event) => {
@@ -357,10 +398,8 @@ fn handle_openai_sse_event_block(
                             }
                         }
                         if item.item_type.as_deref() == Some("reasoning") {
-                            if let Ok(raw) = serde_json::from_str::<Value>(&data) {
-                                if let Some(raw_item) = raw.get("item") {
-                                    reasoning_items.push(raw_item.clone());
-                                }
+                            if let Some(raw) = raw_event.as_ref() {
+                                collect_reasoning_item_from_raw_event(reasoning_items, raw);
                             }
                         }
                     }
@@ -388,6 +427,9 @@ fn handle_openai_sse_event_block(
                     return Err(anyhow::anyhow!("{}", msg));
                 }
                 "response.completed" | "response.done" => {
+                    if let Some(raw) = raw_event.as_ref() {
+                        collect_reasoning_item_from_raw_event(reasoning_items, raw);
+                    }
                     if let Some(resp_obj) = &event.response {
                         if let Some(u) = &resp_obj.usage {
                             if let Some(it) = u.input_tokens {
@@ -724,12 +766,13 @@ impl<'a> StreamingChatAdapter for OpenAIResponsesStreamingAdapter<'a> {
     }
 
     fn append_reasoning_items(&self, history: &mut Vec<Value>, outcome: &RoundOutcome) {
-        // Push raw reasoning items unchanged so encrypted_content / summary
-        // fields are byte-perfect for next-turn input replay. Not stamped
-        // with `_oc_round` — they're not Responses tool round artifacts and
-        // need to survive compaction-tier round-boundary slicing.
+        // Push only stateless-replayable reasoning items. With `store: false`,
+        // an item that only has an `rs_*` id will make the backend look for
+        // server-side state that does not exist.
         for ri in &outcome.reasoning_items {
-            history.push(ri.clone());
+            if let Some(item) = AssistantAgent::stateless_responses_reasoning_item(ri) {
+                history.push(item);
+            }
         }
     }
 
@@ -986,10 +1029,12 @@ pub(in crate::agent) async fn parse_openai_sse(
 #[cfg(test)]
 mod tests {
     use super::{
-        extract_request_id_from_message, finalize_pending_tool_calls, has_complete_stream_output,
-        sse_event_error_code, sse_event_error_message, sse_event_error_type,
-        take_next_sse_event_block, FunctionCallItem, SseEvent,
+        extract_request_id_from_message, finalize_pending_tool_calls,
+        handle_openai_sse_event_block, has_complete_stream_output, sse_event_error_code,
+        sse_event_error_message, sse_event_error_type, take_next_sse_event_block, FunctionCallItem,
+        SseEvent,
     };
+    use crate::agent::types::ChatUsage;
     use std::collections::HashMap;
 
     #[test]
@@ -1095,5 +1140,96 @@ mod tests {
 
         assert_eq!(dropped, 1);
         assert!(tool_calls.is_empty());
+    }
+
+    #[test]
+    fn reasoning_item_without_encrypted_content_is_not_collected() {
+        let event = r#"data: {
+            "type": "response.output_item.done",
+            "item": {
+                "type": "reasoning",
+                "id": "rs_missing",
+                "summary": [],
+                "status": "completed"
+            }
+        }"#;
+
+        let mut text = String::new();
+        let mut thinking = String::new();
+        let mut tool_calls = Vec::new();
+        let mut pending = HashMap::new();
+        let mut usage = ChatUsage::default();
+        let mut first_token_time = None;
+        let mut reasoning_items = Vec::new();
+        let on_delta = |_s: &str| {};
+
+        handle_openai_sse_event_block(
+            "-",
+            event,
+            std::time::Instant::now(),
+            &on_delta,
+            &mut text,
+            &mut thinking,
+            &mut tool_calls,
+            &mut pending,
+            &mut usage,
+            &mut first_token_time,
+            &mut reasoning_items,
+        )
+        .expect("handle event");
+
+        assert!(reasoning_items.is_empty());
+    }
+
+    #[test]
+    fn response_completed_collects_encrypted_reasoning_from_raw_output() {
+        let event = r#"data: {
+            "type": "response.completed",
+            "response": {
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_ok",
+                        "summary": [],
+                        "encrypted_content": "enc",
+                        "status": "completed"
+                    },
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": "done"}]
+                    }
+                ]
+            }
+        }"#;
+
+        let mut text = String::new();
+        let mut thinking = String::new();
+        let mut tool_calls = Vec::new();
+        let mut pending = HashMap::new();
+        let mut usage = ChatUsage::default();
+        let mut first_token_time = None;
+        let mut reasoning_items = Vec::new();
+        let on_delta = |_s: &str| {};
+
+        handle_openai_sse_event_block(
+            "-",
+            event,
+            std::time::Instant::now(),
+            &on_delta,
+            &mut text,
+            &mut thinking,
+            &mut tool_calls,
+            &mut pending,
+            &mut usage,
+            &mut first_token_time,
+            &mut reasoning_items,
+        )
+        .expect("handle event");
+
+        assert_eq!(text, "done");
+        assert_eq!(reasoning_items.len(), 1);
+        assert_eq!(reasoning_items[0]["id"], "rs_ok");
+        assert_eq!(reasoning_items[0]["encrypted_content"], "enc");
     }
 }

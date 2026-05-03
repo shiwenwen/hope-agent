@@ -359,7 +359,9 @@ impl<'a> StreamingChatAdapter for CodexStreamingAdapter<'a> {
 
     fn append_reasoning_items(&self, history: &mut Vec<Value>, outcome: &RoundOutcome) {
         for ri in &outcome.reasoning_items {
-            history.push(ri.clone());
+            if let Some(item) = AssistantAgent::stateless_responses_reasoning_item(ri) {
+                history.push(item);
+            }
         }
     }
 

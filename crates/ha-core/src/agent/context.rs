@@ -637,8 +637,17 @@ impl AssistantAgent {
         for item in history {
             let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
             match item_type {
+                // Reasoning items are only safe to replay with `store: false`
+                // when the encrypted payload is present. Old persisted items
+                // that only carry an `rs_*` id make the backend look up state
+                // it deliberately did not store, causing 404s.
+                "reasoning" => {
+                    if let Some(item) = Self::stateless_responses_reasoning_item(item) {
+                        result.push(item);
+                    }
+                }
                 // Native Responses API items — pass through
-                "reasoning" | "message" | "function_call" | "function_call_output" => {
+                "message" | "function_call" | "function_call_output" => {
                     result.push(item.clone());
                 }
                 _ => {
@@ -702,6 +711,29 @@ impl AssistantAgent {
             }
         }
         result
+    }
+
+    pub(super) fn stateless_responses_reasoning_item(
+        item: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        if item.get("type").and_then(|t| t.as_str()) != Some("reasoning") {
+            return None;
+        }
+
+        let encrypted_content = item
+            .get("encrypted_content")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())?;
+
+        let mut replayable = item.clone();
+        if let Some(obj) = replayable.as_object_mut() {
+            obj.insert(
+                "encrypted_content".to_string(),
+                serde_json::Value::String(encrypted_content.to_string()),
+            );
+        }
+        Some(replayable)
     }
 
     /// Push a user message, merging with the last message if it's also a user message.
@@ -892,6 +924,38 @@ pub(crate) fn build_compaction_provider(
         prov_config.user_agent.clone(),
         display_name,
     ))
+}
+
+#[cfg(test)]
+mod responses_history_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn responses_history_drops_reasoning_without_encrypted_content() {
+        let history = vec![
+            json!({"role": "user", "content": "hello"}),
+            json!({
+                "type": "reasoning",
+                "id": "rs_missing",
+                "summary": [],
+                "status": "completed"
+            }),
+            json!({
+                "type": "reasoning",
+                "id": "rs_ok",
+                "summary": [],
+                "encrypted_content": " sealed ",
+                "status": "completed"
+            }),
+        ];
+
+        let normalized = AssistantAgent::normalize_history_for_responses(&history);
+
+        assert_eq!(normalized.len(), 2);
+        assert_eq!(normalized[1]["id"], "rs_ok");
+        assert_eq!(normalized[1]["encrypted_content"], "sealed");
+    }
 }
 
 #[cfg(test)]

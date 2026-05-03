@@ -462,7 +462,8 @@ fn build_responses_body(
         }),
         _ => {
             if let Some(params) = req.mode.cached_for(expected_format) {
-                let mut input = params.conversation_history.clone();
+                let mut input =
+                    AssistantAgent::normalize_history_for_responses(&params.conversation_history);
                 AssistantAgent::push_user_message(&mut input, json!(req.instruction));
                 json!({
                     "model": model,
@@ -847,6 +848,39 @@ mod tests {
                 "max_output_tokens": 100,
             })
         );
+    }
+
+    #[test]
+    fn responses_cached_body_filters_non_replayable_reasoning() {
+        let mut params = cached_responses();
+        params.conversation_history.push(json!({
+            "type": "reasoning",
+            "id": "rs_missing",
+            "summary": [],
+            "status": "completed"
+        }));
+        params.conversation_history.push(json!({
+            "type": "reasoning",
+            "id": "rs_ok",
+            "summary": [],
+            "encrypted_content": "enc",
+            "status": "completed"
+        }));
+        let req = OneShotRequest {
+            instruction: "do X",
+            max_tokens: 100,
+            mode: OneShotMode::Cached(&params),
+        };
+
+        let body = build_responses_body("gpt-5", &req, ProviderFormat::OpenAIResponses);
+        let input = body.get("input").and_then(|v| v.as_array()).unwrap();
+        let reasoning_ids: Vec<&str> = input
+            .iter()
+            .filter(|item| item.get("type").and_then(|t| t.as_str()) == Some("reasoning"))
+            .filter_map(|item| item.get("id").and_then(|id| id.as_str()))
+            .collect();
+
+        assert_eq!(reasoning_ids, vec!["rs_ok"]);
     }
 
     #[test]
