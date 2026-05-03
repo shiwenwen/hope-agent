@@ -110,7 +110,7 @@ function parseSubagentResultStatus(content: string): string {
 function getSubagentResultDisplay(
   msg: Message,
   t: TFunction,
-): { name: string; statusText: string; isToolJob: boolean; detail?: string } {
+): { name: string; status: string; statusText: string; isToolJob: boolean; detail?: string } {
   const agentId = msg.subagentResultAgentId
   const name = String(t("chat.asyncToolJobFallbackName"))
   if (agentId?.startsWith(TOOL_JOB_AGENT_PREFIX)) {
@@ -119,6 +119,7 @@ function getSubagentResultDisplay(
       payload?.status && TOOL_JOB_STATUSES.has(payload.status) ? payload.status : "completed"
     return {
       name,
+      status,
       statusText: String(
         t(`chat.asyncToolJobStatuses.${status}`, {
           defaultValue: t("chat.asyncToolJobStatuses.completed"),
@@ -132,6 +133,7 @@ function getSubagentResultDisplay(
   const status = parseSubagentResultStatus(msg.content)
   return {
     name,
+    status,
     statusText: String(
       t(`chat.asyncToolJobStatuses.${status}`, {
         defaultValue: t("chat.asyncToolJobStatuses.completed"),
@@ -139,6 +141,51 @@ function getSubagentResultDisplay(
     ),
     isToolJob: false,
     detail: parseSubagentResultDetail(msg.content),
+  }
+}
+
+function getAsyncResultTone(status: string): {
+  chip: string
+  icon: string
+  label: string
+  separator: string
+  detail: string
+} {
+  switch (status) {
+    case "completed":
+      return {
+        chip: "bg-emerald-500/8 border-emerald-500/20 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-400",
+        icon: "text-emerald-600 dark:text-emerald-400",
+        label: "text-emerald-600 dark:text-emerald-400",
+        separator: "text-emerald-500/50",
+        detail: "bg-emerald-500/5 border-emerald-500/15",
+      }
+    case "failed":
+      return {
+        chip: "bg-red-500/8 border-red-500/20 text-red-700 hover:bg-red-500/15 dark:text-red-400",
+        icon: "text-red-600 dark:text-red-400",
+        label: "text-red-600 dark:text-red-400",
+        separator: "text-red-500/50",
+        detail: "bg-red-500/5 border-red-500/15",
+      }
+    case "timed_out":
+    case "cancelled":
+    case "interrupted":
+      return {
+        chip: "bg-amber-500/8 border-amber-500/20 text-amber-700 hover:bg-amber-500/15 dark:text-amber-400",
+        icon: "text-amber-600 dark:text-amber-400",
+        label: "text-amber-600 dark:text-amber-400",
+        separator: "text-amber-500/50",
+        detail: "bg-amber-500/5 border-amber-500/15",
+      }
+    default:
+      return {
+        chip: "bg-sky-500/8 border-sky-500/20 text-sky-700 hover:bg-sky-500/15 dark:text-sky-400",
+        icon: "text-sky-600 dark:text-sky-400",
+        label: "text-sky-600 dark:text-sky-400",
+        separator: "text-sky-500/50",
+        detail: "bg-sky-500/5 border-sky-500/15",
+      }
   }
 }
 
@@ -257,6 +304,7 @@ function MessageBubbleInner({
   if (msg.isSubagentResult) {
     const resultDisplay = getSubagentResultDisplay(msg, t)
     const hasDetail = !!resultDisplay.detail
+    const resultTone = getAsyncResultTone(resultDisplay.status)
     return (
       <div className="flex flex-col items-center gap-1 w-full max-w-[80%]">
         <button
@@ -270,15 +318,15 @@ function MessageBubbleInner({
           className={cn(
             "flex flex-wrap items-center gap-1.5 max-w-full px-3 py-1.5 rounded-full border text-xs transition-colors",
             hasDetail && "cursor-pointer",
-            "bg-sky-500/8 border-sky-500/20 text-sky-400/80 hover:bg-sky-500/15",
+            resultTone.chip,
             !hasDetail && "disabled:cursor-default",
           )}
         >
-          <Timer className="w-3 h-3 shrink-0 text-sky-500" />
-          <span className="font-medium text-sky-500">
+          <Timer className={cn("w-3 h-3 shrink-0", resultTone.icon)} />
+          <span className={cn("font-medium", resultTone.label)}>
             {resultDisplay.name}
           </span>
-          <span className="text-sky-400/50">
+          <span className={resultTone.separator}>
             ·
           </span>
           <span>{resultDisplay.statusText}</span>
@@ -287,7 +335,7 @@ function MessageBubbleInner({
               className={cn(
                 "w-3 h-3 shrink-0 transition-transform duration-200",
                 resultExpanded && "rotate-180",
-                "text-sky-500/70",
+                resultTone.icon,
               )}
             />
           )}
@@ -297,7 +345,7 @@ function MessageBubbleInner({
             className={cn(
               "w-full max-h-[360px] overflow-auto px-3 py-2 rounded-lg border text-xs text-foreground/85 whitespace-pre-wrap break-words animate-in fade-in-0 slide-in-from-top-1 duration-150",
               resultDisplay.isToolJob
-                ? "bg-sky-500/5 border-sky-500/15 font-mono text-[11px]"
+                ? cn(resultTone.detail, "font-mono text-[11px]")
                 : "bg-purple-500/5 border-purple-500/15",
             )}
           >
@@ -314,8 +362,8 @@ function MessageBubbleInner({
 
   if (msg.isPlanTrigger) {
     return (
-      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/50 border border-border/50 text-xs text-muted-foreground max-w-[80%]">
-        <PlayCircle className="w-3 h-3 shrink-0 text-muted-foreground/80" />
+      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-500/8 border border-sky-500/20 text-xs text-sky-700 dark:text-sky-400 max-w-[80%]">
+        <PlayCircle className="w-3 h-3 shrink-0 text-sky-600 dark:text-sky-400" />
         <span>{msg.content}</span>
       </div>
     )
