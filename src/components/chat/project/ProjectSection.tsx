@@ -20,6 +20,7 @@ import {
   Plus,
   Settings,
   Archive,
+  CheckCheck,
 } from "lucide-react"
 
 import { IconTip } from "@/components/ui/tooltip"
@@ -30,6 +31,8 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu"
+import { getTransport } from "@/lib/transport-provider"
+import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
 import type { ProjectMeta } from "@/types/project"
 import type {
@@ -68,6 +71,10 @@ interface ProjectSectionProps {
 }
 
 const EXPANDED_STORAGE_KEY = "ha:project-expanded"
+
+function isUnreadChatSession(session: SessionMeta): boolean {
+  return !session.channelInfo && !session.parentSessionId && session.unreadCount > 0
+}
 
 export default function ProjectSection(props: ProjectSectionProps) {
   const { t } = useTranslation()
@@ -209,6 +216,31 @@ function ProjectGroup({
   projects,
 }: ProjectGroupProps) {
   const { t } = useTranslation()
+  const currentSessionUnreadCount = useMemo(
+    () =>
+      projectSessions.find(
+        (session) => session.id === currentSessionId && isUnreadChatSession(session),
+      )?.unreadCount ?? 0,
+    [projectSessions, currentSessionId],
+  )
+  const projectUnreadCount = Math.max(0, project.unreadCount - currentSessionUnreadCount)
+
+  const handleMarkProjectRead = useCallback(async () => {
+    if (project.unreadCount === 0) return
+    try {
+      await getTransport().call("mark_project_sessions_read_cmd", {
+        projectId: project.id,
+      })
+      onMarkAllRead?.()
+    } catch (err) {
+      logger.error(
+        "chat",
+        "ProjectSection::markProjectRead",
+        "Failed to mark project sessions as read",
+        err,
+      )
+    }
+  }, [project.id, project.unreadCount, onMarkAllRead])
 
   return (
     <div>
@@ -234,7 +266,22 @@ function ProjectGroup({
                 groupExpanded && "rotate-90",
               )}
             />
-            <ProjectIcon project={project} size="sm" withColorChip />
+            <div className="relative shrink-0">
+              <ProjectIcon project={project} size="sm" withColorChip />
+              {projectUnreadCount > 0 && (
+                <span
+                  className="absolute -top-1 -right-1.5 z-10 min-w-[16px] h-[16px] px-0.5 rounded-full text-white text-[9px] font-bold flex items-center justify-center border border-background pointer-events-none leading-none"
+                  style={{
+                    background:
+                      "linear-gradient(135deg, #ff6b6b 0%, #ee3333 50%, #cc1111 100%)",
+                    boxShadow:
+                      "0 2px 6px rgba(220, 38, 38, 0.45), inset 0 1px 1px rgba(255, 255, 255, 0.25)",
+                  }}
+                >
+                  {projectUnreadCount > 99 ? "99+" : projectUnreadCount}
+                </span>
+              )}
+            </div>
 
             <div className="flex-1 min-w-0">
               <div className="text-sm truncate text-foreground/90">{project.name}</div>
@@ -284,6 +331,13 @@ function ProjectGroup({
           <ContextMenuItem onClick={() => onOpenProjectSettings(project)}>
             <Settings className="h-3 w-3 mr-2" />
             {t("project.openProjectSettings")}
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={handleMarkProjectRead}
+            disabled={project.unreadCount === 0}
+          >
+            <CheckCheck className="h-3 w-3 mr-2" />
+            {t("chat.markAllRead")}
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem onClick={() => onArchiveProject(project.id, !project.archived)}>

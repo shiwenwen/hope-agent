@@ -444,6 +444,7 @@ pub fn run() {
             commands::project::archive_project_cmd,
             commands::project::list_project_sessions_cmd,
             commands::project::move_session_to_project_cmd,
+            commands::project::mark_project_sessions_read_cmd,
             commands::project::list_project_files_cmd,
             commands::project::upload_project_file_cmd,
             commands::project::delete_project_file_cmd,

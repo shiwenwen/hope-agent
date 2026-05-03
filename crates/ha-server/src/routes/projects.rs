@@ -214,6 +214,17 @@ pub async fn move_session_to_project(
     Ok(Json(json!({ "session": session })))
 }
 
+/// `POST /api/projects/:id/read`
+pub async fn mark_project_sessions_read(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    ctx.session_db.mark_project_sessions_read(&id)?;
+    ctx.event_bus
+        .emit("project:updated", json!({ "projectId": id }));
+    Ok(Json(json!({ "ok": true })))
+}
+
 // ── Project Files ───────────────────────────────────────────────
 
 /// `GET /api/projects/:id/files`

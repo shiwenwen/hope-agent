@@ -68,6 +68,7 @@ pub struct ProjectMeta {
     #[serde(flatten)]
     pub project: Project,
     pub session_count: u32,
+    pub unread_count: u32,
     pub file_count: u32,
     pub memory_count: u32,
 }

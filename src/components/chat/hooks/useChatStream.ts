@@ -645,9 +645,11 @@ export function useChatStream({
       }
       // Mark current session as read so unread count stays 0 for active session
       if (targetSessionId) {
-        getTransport().call("mark_session_read_cmd", { sessionId: targetSessionId }).catch(() => {})
+        await getTransport()
+          .call("mark_session_read_cmd", { sessionId: targetSessionId })
+          .catch(() => {})
       }
-      reloadSessions()
+      await reloadSessions()
 
       // Handle pending message after loading finishes
       const queued = pendingSendRef.current
