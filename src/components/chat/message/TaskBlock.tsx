@@ -74,7 +74,6 @@ export default function TaskBlock({ tool }: TaskBlockProps) {
                 >
                   {label}
                 </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">#{tk.id}</span>
               </li>
             )
           })}
