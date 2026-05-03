@@ -14,7 +14,7 @@ use crate::agent_config::AgentConfig;
 use crate::agent_loader::{ensure_default_agent, save_agent_config, DEFAULT_AGENT_ID};
 use crate::config::{load_config, save_config, ApprovalTimeoutAction};
 use crate::onboarding::presets::PersonalityPreset;
-use crate::user_config::{load_user_config, save_user_config_to_disk};
+use crate::user_config::{load_user_config, save_user_config_to_disk, SERVER_MODE_REMOTE};
 
 /// Step 1 — language. Writes to both `user.language` and `config.language`
 /// so legacy paths that read from either keep working.
@@ -169,7 +169,7 @@ pub struct RemoteModeInput {
 pub fn apply_remote_mode(input: RemoteModeInput) -> Result<()> {
     let _g = crate::backup::scope_save_reason("onboarding", "mode");
     let mut user = load_user_config()?;
-    user.server_mode = Some("remote".to_string());
+    user.server_mode = Some(SERVER_MODE_REMOTE.to_string());
     user.remote_server_url = Some(input.url);
     user.remote_api_key = match input.api_key {
         Some(k) if !k.is_empty() => Some(k),

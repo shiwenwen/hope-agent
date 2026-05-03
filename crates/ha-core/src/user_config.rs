@@ -4,6 +4,19 @@ use serde::{Deserialize, Serialize};
 
 use crate::paths;
 
+// ── Server Mode Tags ─────────────────────────────────────────────
+
+/// `UserConfig::server_mode` value when this install runs its own embedded
+/// HTTP server (or no server at all). This is the default — `None` and
+/// this string are equivalent at the consumer side.
+pub const SERVER_MODE_EMBEDDED: &str = "embedded";
+
+/// `UserConfig::server_mode` value when this install routes through a
+/// separate `hope-agent server` running elsewhere. The frontend
+/// transport / Web GUI / desktop shell all switch to remote mode when
+/// they see this.
+pub const SERVER_MODE_REMOTE: &str = "remote";
+
 // ── User Config ──────────────────────────────────────────────────
 
 /// Global user configuration, shared across all Agents.
@@ -62,7 +75,9 @@ pub struct UserConfig {
 
     // ── Weather / Location settings ──
     // ── Server mode settings ──
-    /// Server mode: "embedded" (default) or "remote"
+    /// Server mode: [`SERVER_MODE_EMBEDDED`] (default) or [`SERVER_MODE_REMOTE`].
+    /// Stored as `Option<String>` to preserve `None` semantics on disk
+    /// (older configs without the field default to embedded).
     #[serde(default)]
     pub server_mode: Option<String>,
 
