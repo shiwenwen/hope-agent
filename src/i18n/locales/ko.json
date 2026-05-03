@@ -240,7 +240,7 @@
     "openFile": "클릭하여 파일 열기",
     "revealInFolder": "폴더에서 표시",
     "inputTokens": "입력",
-    "inputTokensCumulative": "누적 입력",
+    "inputTokensCumulative": "총 입력",
     "lastRoundInputTokens": "마지막 라운드 입력",
     "outputTokens": "출력",
     "totalTokens": "합계",
