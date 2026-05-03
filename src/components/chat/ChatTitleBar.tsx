@@ -57,8 +57,8 @@ interface ChatTitleBarProps {
    * without going through the text input.
    */
   onCommandAction?: (result: import("@/components/chat/slash-commands/types").CommandResult) => void
-  /** Toggles the in-session "find in page" search bar. */
-  onToggleSearch?: () => void
+  /** Opens or refocuses the in-session "find in page" search bar. */
+  onOpenSearch?: () => void
   /** Whether the in-session search bar is currently open (controls active styling). */
   searchOpen?: boolean
   /**
@@ -100,7 +100,7 @@ export default function ChatTitleBar({
   onViewSystemPrompt,
   systemPromptLoading,
   onCommandAction,
-  onToggleSearch,
+  onOpenSearch,
   searchOpen,
   effectiveWorkingDir,
   workingDirSource,
@@ -294,14 +294,14 @@ export default function ChatTitleBar({
       </div>
       <div className="flex items-end gap-1">
         {/* In-session Search Button */}
-        {currentSessionId && onToggleSearch && (
+        {currentSessionId && onOpenSearch && (
           <IconTip label={t("chat.sessionSearch")}>
             <button
               className={cn(
                 "pb-1.5 text-muted-foreground hover:text-foreground transition-colors",
                 searchOpen && "text-foreground",
               )}
-              onClick={onToggleSearch}
+              onClick={onOpenSearch}
             >
               <Search className="h-4 w-4" />
             </button>

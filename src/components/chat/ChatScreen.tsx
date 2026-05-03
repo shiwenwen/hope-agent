@@ -97,6 +97,10 @@ export default function ChatScreen({
   // In-session "find in page" search bar state
   const [searchBarOpen, setSearchBarOpen] = useState(false)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
+  const openSessionSearch = useCallback(() => {
+    setSearchBarOpen(true)
+    setSearchFocusSignal((n) => n + 1)
+  }, [])
 
   // System prompt viewer state
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
@@ -558,12 +562,11 @@ export default function ChatScreen({
       // Open (or keep open) and bump the focus signal so the search bar
       // re-focuses its input even if Cmd+F is pressed while it's already
       // visible.
-      setSearchBarOpen(true)
-      setSearchFocusSignal((n) => n + 1)
+      openSessionSearch()
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [currentSessionId])
+  }, [currentSessionId, openSessionSearch])
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
@@ -1218,10 +1221,7 @@ export default function ChatScreen({
           onViewSystemPrompt={loadSystemPrompt}
           systemPromptLoading={systemPromptLoading}
           onCommandAction={handleCommandAction}
-          onToggleSearch={() => {
-            setSearchBarOpen((v) => !v)
-            setSearchFocusSignal((n) => n + 1)
-          }}
+          onOpenSearch={openSessionSearch}
           searchOpen={searchBarOpen}
           effectiveWorkingDir={effectiveWorkingDir}
           workingDirSource={workingDirSource}

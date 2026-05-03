@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useCallback, useMemo, useRef } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -103,8 +103,21 @@ export default function SessionList({
   onMoveToProject,
 }: SessionListProps) {
   const { t } = useTranslation()
+  const searchInputRef = useRef<HTMLInputElement>(null)
 
   const isSearching = searchQuery.trim().length > 0
+  const focusSearchInput = useCallback(() => {
+    searchInputRef.current?.focus({ preventScroll: true })
+  }, [])
+
+  const handleSearchSurfaceMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement | null
+    if (target?.closest("button")) return
+    if (target !== searchInputRef.current) {
+      e.preventDefault()
+    }
+    focusSearchInput()
+  }
 
   // Client-side second-level filter by session type for search results.
   const visibleResults = useMemo(() => {
@@ -116,9 +129,11 @@ export default function SessionList({
   return (
     <>
       {/* Search input */}
-      <div className="relative px-3 pt-2 pb-1.5">
+      <div className="relative px-3 pt-2 pb-1.5" onMouseDown={handleSearchSurfaceMouseDown}>
         <Search className="absolute left-5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60 pointer-events-none" />
         <Input
+          ref={searchInputRef}
+          aria-label={t("chat.searchPlaceholder") || ""}
           value={searchQuery}
           onChange={(e) => onSearchQueryChange(e.target.value)}
           placeholder={t("chat.searchPlaceholder")}
