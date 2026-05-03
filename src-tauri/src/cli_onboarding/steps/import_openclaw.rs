@@ -43,11 +43,7 @@ pub fn run(step: u32, total: u32) -> Result<()> {
         .iter()
         .filter(|p| !p.name_conflicts_existing)
         .count();
-    let new_agents = preview
-        .agents
-        .iter()
-        .filter(|a| !a.already_exists)
-        .count();
+    let new_agents = preview.agents.iter().filter(|a| !a.already_exists).count();
     let agent_md_count = preview.memories.agent_md_counts.len();
     let global_md = preview.memories.global_md_present;
 
