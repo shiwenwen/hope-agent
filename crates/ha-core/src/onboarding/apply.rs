@@ -151,3 +151,30 @@ pub fn generate_api_key() -> String {
     let uuid = uuid::Uuid::new_v4().simple().to_string();
     format!("hope_{}", uuid)
 }
+
+/// Step "mode" (remote variant) — point this install at an existing
+/// hope-agent server. The wizard short-circuits after this, since the
+/// rest of the local-side setup (provider / agent / channels / …)
+/// already lives on the remote box.
+///
+/// `api_key` of `None` or `Some("")` means "no auth" — the remote was
+/// started without `--api-key`. We normalize empty strings to `None`
+/// before persisting so `Authorization` headers aren't built later.
+#[derive(Debug, Clone)]
+pub struct RemoteModeInput {
+    pub url: String,
+    pub api_key: Option<String>,
+}
+
+pub fn apply_remote_mode(input: RemoteModeInput) -> Result<()> {
+    let _g = crate::backup::scope_save_reason("onboarding", "mode");
+    let mut user = load_user_config()?;
+    user.server_mode = Some("remote".to_string());
+    user.remote_server_url = Some(input.url);
+    user.remote_api_key = match input.api_key {
+        Some(k) if !k.is_empty() => Some(k),
+        _ => None,
+    };
+    save_user_config_to_disk(&user)?;
+    Ok(())
+}
