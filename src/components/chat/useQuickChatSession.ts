@@ -345,9 +345,18 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
 
   // Effort change
   const handleEffortChange = useCallback(async (effort: string) => {
+    const sessionId = currentSessionIdRef.current
     setReasoningEffort(effort)
+    if (sessionId) {
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, reasoningEffort: effort } : s)),
+      )
+    }
     try {
-      await getTransport().call("set_reasoning_effort", { effort })
+      await getTransport().call("set_reasoning_effort", {
+        effort,
+        ...(sessionId ? { sessionId } : {}),
+      })
     } catch (e) {
       logger.error("ui", "QuickChat::effortChange", "Failed to set effort", e)
     }

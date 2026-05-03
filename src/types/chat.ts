@@ -200,6 +200,8 @@ export interface SessionMeta {
   providerId?: string | null
   providerName?: string | null
   modelId?: string | null
+  /** Session-scoped Think / reasoning effort override. */
+  reasoningEffort?: string | null
   createdAt: string
   updatedAt: string
   messageCount: number

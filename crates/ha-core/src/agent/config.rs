@@ -165,13 +165,19 @@ pub async fn live_reasoning_effort(fallback: Option<&str>) -> Option<String> {
     fallback.map(|s| s.to_string())
 }
 
+pub const VALID_REASONING_EFFORTS: [&str; 6] =
+    ["none", "minimal", "low", "medium", "high", "xhigh"];
+
+pub fn is_valid_reasoning_effort(effort: &str) -> bool {
+    VALID_REASONING_EFFORTS.contains(&effort)
+}
+
 /// Clamp reasoning effort to valid range for the given model
 pub fn clamp_reasoning_effort(model: &str, effort: &str) -> Option<String> {
     if effort == "none" {
         return None;
     }
-    let efforts = ["minimal", "low", "medium", "high", "xhigh"];
-    if !efforts.contains(&effort) {
+    if !is_valid_reasoning_effort(effort) {
         return Some("medium".to_string());
     }
     if model.contains("5.1-codex-mini") {

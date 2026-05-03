@@ -476,6 +476,18 @@ async fn handle_inbound_message(
 
     // 8. Convert inbound media to agent Attachments
     let attachments = convert_inbound_media_to_attachments(&msg.media, &session_id);
+    let reasoning_effort = session_db
+        .get_session(&session_id)
+        .ok()
+        .flatten()
+        .and_then(|meta| meta.reasoning_effort)
+        .or(crate::agent::live_reasoning_effort(None).await);
+    if let (Some(cell), Some(effort)) = (
+        crate::get_reasoning_effort_cell(),
+        reasoning_effort.as_ref(),
+    ) {
+        *cell.lock().await = effort.clone();
+    }
 
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.clone(),
@@ -489,7 +501,7 @@ async fn handle_inbound_message(
         resolved_temperature,
         compact_config: store.compact.clone(),
         extra_system_context: Some(channel_context),
-        reasoning_effort: crate::agent::live_reasoning_effort(None).await,
+        reasoning_effort,
         cancel: match crate::globals::get_channel_cancels() {
             Some(reg) => reg.register(&session_id),
             None => Arc::new(AtomicBool::new(false)),

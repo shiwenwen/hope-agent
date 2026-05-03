@@ -43,6 +43,10 @@ pub struct SessionMeta {
     pub provider_id: Option<String>,
     pub provider_name: Option<String>,
     pub model_id: Option<String>,
+    /// Per-session Think / reasoning effort override. `None` falls back to
+    /// the runtime default.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     pub created_at: String,
     pub updated_at: String,
     pub message_count: i64,
@@ -440,6 +444,7 @@ mod tests {
             provider_id: None,
             provider_name: None,
             model_id: None,
+            reasoning_effort: None,
             created_at: "2026-05-01T00:00:00Z".to_string(),
             updated_at: "2026-05-01T00:00:00Z".to_string(),
             message_count: 0,

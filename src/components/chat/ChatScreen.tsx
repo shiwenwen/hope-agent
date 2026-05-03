@@ -179,6 +179,20 @@ export default function ChatScreen({
   const handleNewChatInProject = session.handleNewChatInProject
   const currentSessionId = session.currentSessionId
   const setAgentName = session.setAgentName
+  const updateSessionMeta = session.updateSessionMeta
+
+  const handleSessionEffortChange = useCallback(
+    async (effort: string) => {
+      const sid = session.currentSessionId
+      if (sid) {
+        updateSessionMeta(sid, (prev) =>
+          prev.reasoningEffort === effort ? prev : { ...prev, reasoningEffort: effort },
+        )
+      }
+      await handleEffortChange(effort, sid)
+    },
+    [handleEffortChange, session.currentSessionId, updateSessionMeta],
+  )
 
   const handleStartNewChat = useCallback(
     async (agentId: string, opts?: { incognito?: boolean }) => {
@@ -305,7 +319,8 @@ export default function ChatScreen({
             (m) => m.providerId === displayModel.providerId && m.modelId === displayModel.modelId,
           )
         : undefined
-      setReasoningEffort(normalizeEffortForModel(displayModelInfo, settings.reasoning_effort, t))
+      const effort = currentSessionMeta?.reasoningEffort ?? settings.reasoning_effort
+      setReasoningEffort(normalizeEffortForModel(displayModelInfo, effort, t))
 
       if (agentConfig?.name) {
         setAgentName(agentConfig.name)
@@ -316,6 +331,7 @@ export default function ChatScreen({
   }, [
     currentSessionMeta?.modelId,
     currentSessionMeta?.providerId,
+    currentSessionMeta?.reasoningEffort,
     currentAgentId,
     globalActiveModelRef,
     setActiveModel,
@@ -584,7 +600,19 @@ export default function ChatScreen({
     // Effort changed from channel (/think)
     unlisteners.push(
       getTransport().listen("slash:effort_changed", (payload) => {
-        setReasoningEffort(payload as string)
+        const data = payload as string | { sessionId?: string; effort?: string }
+        const effort = typeof data === "string" ? data : data.effort
+        if (!effort) return
+        const sid = typeof data === "string" ? undefined : data.sessionId
+        if (!sid || sid === session.currentSessionId) {
+          setReasoningEffort(effort)
+        }
+        if (sid) {
+          session.updateSessionMeta(sid, (prev) =>
+            prev.reasoningEffort === effort ? prev : { ...prev, reasoningEffort: effort },
+          )
+        }
+        session.reloadSessions()
       }),
     )
 
@@ -657,6 +685,7 @@ export default function ChatScreen({
     endedStreamIdsRef,
     planMode: planModeState,
     temperatureOverride: sessionTemperature,
+    reasoningEffort,
     incognitoEnabled,
     draftWorkingDir,
   })
@@ -783,7 +812,7 @@ export default function ChatScreen({
           handleManualModelChange(`${action.providerId}::${action.modelId}`)
           break
         case "setEffort":
-          handleEffortChange(action.effort)
+          handleSessionEffortChange(action.effort)
           break
         case "switchAgent":
           if (action.sessionId) session.handleSwitchSession(action.sessionId)
@@ -924,7 +953,7 @@ export default function ChatScreen({
       stream,
       handleStartNewChat,
       handleManualModelChange,
-      handleEffortChange,
+      handleSessionEffortChange,
       planMode,
       loadSystemPrompt,
       handleNewChatInProject,
@@ -1279,7 +1308,7 @@ export default function ChatScreen({
                   activeModel={activeModel}
                   reasoningEffort={reasoningEffort}
                   onModelChange={handleModelChange}
-                  onEffortChange={handleEffortChange}
+                  onEffortChange={handleSessionEffortChange}
                   attachedFiles={stream.attachedFiles}
                   onAttachFiles={(files) => stream.setAttachedFiles((prev) => [...prev, ...files])}
                   onRemoveFile={(index) =>

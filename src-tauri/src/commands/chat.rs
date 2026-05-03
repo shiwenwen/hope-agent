@@ -48,6 +48,7 @@ pub async fn chat(
     permission_mode: Option<ha_core::permission::SessionMode>,
     plan_mode: Option<String>,
     temperature_override: Option<f64>,
+    reasoning_effort: Option<String>,
     // When set, DB stores `display_text` as the user message while `message` is still
     // fed to the LLM (slash-skill passThrough uses this).
     display_text: Option<String>,
@@ -72,8 +73,6 @@ pub async fn chat(
     // Capture optional permission mode — applied below once we have a session id.
     let permission_mode_pending = permission_mode;
 
-    let effort = state.reasoning_effort.lock().await.clone();
-    let effort_ref_str = effort.clone();
     let db = state.session_db.clone();
     let cancel = state.chat_cancel.clone();
     let logger = state.logger.clone();
@@ -98,6 +97,25 @@ pub async fn chat(
             meta.id
         }
     };
+
+    let requested_effort = reasoning_effort
+        .as_deref()
+        .map(str::trim)
+        .filter(|effort| !effort.is_empty())
+        .map(str::to_string);
+    let session_effort = db.get_session(&sid)?.and_then(|meta| meta.reasoning_effort);
+    let global_effort = state.reasoning_effort.lock().await.clone();
+    let effort = requested_effort.or(session_effort).unwrap_or(global_effort);
+    if !ha_core::agent::is_valid_reasoning_effort(&effort) {
+        return Err(CmdError::msg(format!(
+            "Invalid reasoning effort: {}. Valid: {:?}",
+            effort,
+            ha_core::agent::VALID_REASONING_EFFORTS
+        )));
+    }
+    *state.reasoning_effort.lock().await = effort.clone();
+    db.update_session_reasoning_effort(&sid, Some(&effort))?;
+    let effort_ref_str = effort.clone();
 
     // Apply draft working dir picked before the session existed. Only honored on
     // the auto-create branch — explicit-session callers must use

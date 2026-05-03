@@ -182,6 +182,28 @@ pub async fn chat(
             .map_err(|e| AppError::bad_request(e.to_string()))?;
     }
 
+    let requested_effort = body
+        .reasoning_effort
+        .as_deref()
+        .map(str::trim)
+        .filter(|effort| !effort.is_empty())
+        .map(str::to_string);
+    let session_effort = db.get_session(&sid)?.and_then(|meta| meta.reasoning_effort);
+    let effort = requested_effort
+        .or(session_effort)
+        .unwrap_or_else(|| "medium".to_string());
+    if !ha_core::agent::is_valid_reasoning_effort(&effort) {
+        return Err(AppError::bad_request(format!(
+            "Invalid reasoning effort: {}. Valid: {:?}",
+            effort,
+            ha_core::agent::VALID_REASONING_EFFORTS
+        )));
+    }
+    db.update_session_reasoning_effort(&sid, Some(&effort))?;
+    if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+        *cell.lock().await = effort.clone();
+    }
+
     let _active_turn_guard = ha_core::chat_engine::active_turn::try_acquire(
         &sid,
         ha_core::chat_engine::stream_seq::ChatSource::Http,
@@ -257,10 +279,6 @@ pub async fn chat(
             .and_then(|def| def.config.model.temperature)
             .or(store.temperature)
     });
-
-    let effort = body
-        .reasoning_effort
-        .unwrap_or_else(|| "medium".to_string());
 
     // Create per-session cancel flag
     let cancel = Arc::new(AtomicBool::new(false));

@@ -233,6 +233,7 @@ mod tests {
             provider_id: None,
             provider_name: None,
             model_id: None,
+            reasoning_effort: None,
             created_at: "2025-01-01T00:00:00Z".into(),
             updated_at: "2025-01-01T00:00:00Z".into(),
             message_count: 0,

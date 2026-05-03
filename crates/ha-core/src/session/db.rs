@@ -33,7 +33,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            ) as has_error,
            s.is_cron, s.parent_session_id, s.plan_mode, s.project_id, s.permission_mode, s.incognito,
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
-           s.working_dir, s.title_source
+           s.working_dir, s.title_source, s.reasoning_effort
      FROM sessions s
      LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
@@ -62,6 +62,7 @@ impl SessionDB {
                 provider_id TEXT,
                 provider_name TEXT,
                 model_id TEXT,
+                reasoning_effort TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 context_json TEXT,
@@ -324,6 +325,15 @@ impl SessionDB {
             .is_ok();
         if !has_working_dir {
             conn.execute_batch("ALTER TABLE sessions ADD COLUMN working_dir TEXT;")?;
+        }
+
+        // Migration: per-session Think / reasoning effort override so the
+        // chat input restores the user's choice after switching sessions.
+        let has_reasoning_effort = conn
+            .prepare("SELECT reasoning_effort FROM sessions LIMIT 1")
+            .is_ok();
+        if !has_reasoning_effort {
+            conn.execute_batch("ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT;")?;
         }
 
         // Migration: track who last set the session title so automatic LLM
@@ -791,6 +801,7 @@ impl SessionDB {
             provider_id: None,
             provider_name: None,
             model_id: None,
+            reasoning_effort: None,
             created_at: now.clone(),
             updated_at: now,
             message_count: 0,
@@ -1230,6 +1241,7 @@ impl SessionDB {
             provider_id: row.get(3)?,
             provider_name: row.get(4)?,
             model_id: row.get(5)?,
+            reasoning_effort: row.get(24).ok().flatten(),
             created_at: row.get(6)?,
             updated_at: row.get(7)?,
             message_count: row.get(8)?,
@@ -1512,6 +1524,23 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Update the session-scoped Think / reasoning effort override.
+    pub fn update_session_reasoning_effort(
+        &self,
+        session_id: &str,
+        reasoning_effort: Option<&str>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute(
+            "UPDATE sessions SET reasoning_effort = ?1 WHERE id = ?2",
+            params![reasoning_effort, session_id],
+        )?;
+        Ok(())
+    }
+
     /// Update the plan mode state for a session.
     pub fn update_session_plan_mode(
         &self,
@@ -1584,7 +1613,7 @@ impl SessionDB {
     }
 
     /// Narrow read of just `sessions.permission_mode` — avoids the full
-    /// `SESSION_META_SELECT` (22+ cols, 2 COUNT subqueries, channel JOIN)
+    /// `SESSION_META_SELECT` (24+ cols, 2 COUNT subqueries, channel JOIN)
     /// when callers only need the mode (e.g. `/permission` echo).
     pub fn get_session_permission_mode(
         &self,
