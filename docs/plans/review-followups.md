@@ -539,6 +539,54 @@
 - **影响面**：纯重构债务；当前三处行为差异极小且各自场景不会撞上对方的 case，没有用户可见 bug
 - **触发时机建议**：下一次有人改 file-mention 解析或 transport-tauri 的资产 URL 处理时顺手；或者撞到第 4 处需要写绝对路径判断时再统一
 
+### F-052 `useActiveModel()` 共享 hook，避免多个面板各自 `getTransport().call("get_active_model")`
+
+- **来源**：2026-05-04 `embedding swap panic + UX` PR `/simplify` review (quality agent)
+- **现象**：`GlobalModelPanel.tsx:99` 与 `LocalLlmAssistantCard.tsx:155` 各自 mount 时拉一次 `get_active_model`；后续若再加面板要看 active model（model picker / 状态栏 / 等），每加一处就再多一份 round-trip + 局部 state
+- **当前选择**：不动。本期只是 LocalLlmAssistantCard 加上"已激活"判定，重复点从 1 处升到 2 处，仍小到不值得抽
+- **改的话要做什么**：抽 `src/hooks/useActiveModel.ts`：内部用 `getTransport().call("get_active_model")` + 监听 `config:changed` 事件 / EventBus refresh；返回 `{ activeModel, refresh }`。所有面板替换为 hook
+- **影响面**：当前**无 bug**——只是多两次 IPC 调用（mount 一次），冷路径
+- **触发时机建议**：第 3 个面板想看 active model 时
+
+### F-053 `set_memory_embedding_default` 等 3 个函数都加了 `parent_job_id`，可包成 `SetMemoryEmbeddingDefaultOpts`
+
+- **来源**：2026-05-04 `embedding swap panic + UX` PR `/simplify` review (quality agent)
+- **现象**：[`crates/ha-core/src/local_embedding.rs::pull_and_activate_cancellable`](../../crates/ha-core/src/local_embedding.rs) / `save_and_set_default_for_model` / [`crates/ha-core/src/memory/helpers.rs::set_memory_embedding_default`](../../crates/ha-core/src/memory/helpers.rs) 一条链都加了 optional `parent_job_id`，目前只有 1 个真实 caller (`run_embedding_job`) 传 `Some`，其余 4 个 callsite 全部传 `None`
+- **当前选择**：不动。透传 1 个 optional 参数没有真实痛点；引入 options struct 反而要给只关心 source 的 caller 多写一行 builder/struct 字面量
+- **改的话要做什么**：定义 `pub struct SetMemoryEmbeddingDefaultOpts { source: &'static str, parent_job_id: Option<String> }` 或者 builder pattern；3 个函数签名收成 1 个 opts 参数
+- **影响面**：纯结构层，无 bug
+- **触发时机建议**：再加第二个 metadata 字段时（如 `dispatcher_kind` / `cause` 之类），一并改
+
+### F-054 后端 `OllamaEmbeddingModel` / active model 加 `is_active` 字段，避免前端复刻 ID 约定
+
+- **来源**：2026-05-04 `embedding swap panic + UX` PR `/simplify` review (reuse + quality agent 同时标记)
+- **现象**：`LocalEmbeddingAssistantCard.tsx:340-343` 用 `currentModel?.source === "ollama" && apiModel === recommended.id` 判断模型是否激活；`LocalLlmAssistantCard.tsx:328` 用 `activeModel?.modelId === recommended.id`。两处都复刻了「ollama 模型 ID 命名规则 / source 字段格式」等后端内部约定，未来若改 ID 体系会静默 break
+- **当前选择**：不动。本期注释已经把 contract 说清楚，撞名场景副作用低（按钮变绿但不影响功能）
+- **改的话要做什么**：
+  - 后端 `local_embedding.rs::list_models_with_status()` 返回值里给 `OllamaEmbeddingModel` 加 `is_active: bool`，由后端用 `memory_embedding.selection.modelConfigId == ollama_embedding_config_id(model.id)` 计算
+  - `local_llm/management.rs::UsageIndex::usage_for(...)` 已有 `active_model` flag（[`management.rs:604-606`](../../crates/ha-core/src/local_llm/management.rs)），让 `local_llm_list_models` 直接用 `LocalOllamaModel.usage.activeModel` 而不是 `get_active_model + modelId 比对`
+  - 前端两处替换为 `is_active` flag，删除字段对比逻辑
+- **影响面**：当前撞名场景按钮误显示「已激活」，但点击只是 noop（idempotent），不会破坏数据
+- **触发时机建议**：下次后端改 ollama provider 注册逻辑（如改 ID 命名）时一并改
+
+### F-056 接力到 reembed 任务的 dialog state 重置在两个组件里复制（7 行 setter）
+
+- **来源**：2026-05-04 `embedding swap panic + UX` PR `/simplify` round 2 (reuse + quality agent 同时标记)
+- **现象**：[`LocalModelsPanel.tsx::handleSnapshot` 接力分支](../../src/components/settings/local-llm/LocalModelsPanel.tsx) 与 [`LocalEmbeddingAssistantCard.tsx::handleSnapshot` 接力分支](../../src/components/settings/memory-panel/LocalEmbeddingAssistantCard.tsx) 都做相同 7 行：`setDialogFrame(localModelJobToProgressFrame(...))` + `setDialogLogs([])` + `setDialogDone` + `setDialogError` + `setDialogTitle(t("settings.embedding.reembedJob.title"))` + `setDialogSubtitle(job.modelId)` + `void hydrateJobLogs(job.jobId)`
+- **当前选择**：不抽。两个 callsite，参数贴身（7 个 setter + t + phaseLabel + hydrateJobLogs callback），抽出来比直接复制更复杂；本期已通过 `isJobSuccessorOf` 工具函数共享判定逻辑
+- **改的话要做什么**：抽 `applySuccessorJobToDialog(job, opts)` 到 `src/components/settings/local-llm/job-dialog-helpers.ts`；两处各调一次。或者改成 `useJobSuccessorTransition` hook 返回 `applySuccessor` callback
+- **影响面**：纯结构层，无 bug；下次任意一边改 dialog state shape 或 reembed title key 时另一边漂移风险
+- **触发时机建议**：第 3 个组件想接力时；或者 dialog state shape 因别的需求要改时一并整顿
+
+### F-055 `transferSummary` `formatJobTransferLine` helper 当前签名要求 caller 传入 `t` 函数
+
+- **来源**：2026-05-04 `embedding swap panic + UX` PR `/simplify` review 自评
+- **现象**：[`src/lib/format-job-transfer.ts`](../../src/lib/format-job-transfer.ts) 的 helper 签名 `formatJobTransferLine({ t, ... })` 让 lib 函数依赖 i18next `TFunction`。lib 文件夹通常不耦合 i18next，但本 helper 的存在意义就是封装 i18n key 拼装
+- **当前选择**：保留。否则让 caller 传 4 个 string template 进来比传 t 还乱
+- **改的话要做什么**：考虑把 helper 移到 `src/components/settings/` 命名空间下（不是 lib），或者改成"返回 i18n 调用 plan"让 caller 自己 t；都不优雅
+- **影响面**：纯位置 / 命名规范问题，无 bug
+- **触发时机建议**：如果未来要在非 React / 非 i18next 上下文（CLI / Node script）复用 transfer formatter 再说
+
 ---
 
 ## Closed

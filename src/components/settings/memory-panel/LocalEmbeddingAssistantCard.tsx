@@ -31,8 +31,10 @@ import { formatBytesFromMb } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { InstallProgressDialog } from "@/components/settings/local-llm/InstallProgressDialog"
 import type { MemoryEmbeddingSetDefaultResult, OllamaEmbeddingModel } from "./types"
+import type { MemoryEmbeddingState } from "@/types/embedding-models"
 import {
   formatLocalModelJobLogLine,
+  isJobSuccessorOf,
   isLocalModelJobActive,
   isLocalModelJobTerminal,
   LOCAL_MODEL_JOB_EVENTS,
@@ -61,6 +63,7 @@ export default function LocalEmbeddingAssistantCard({
   const { t } = useTranslation()
   const [models, setModels] = useState<OllamaEmbeddingModel[]>([])
   const [ollama, setOllama] = useState<OllamaStatus | null>(null)
+  const [memoryEmbedding, setMemoryEmbedding] = useState<MemoryEmbeddingState | null>(null)
   const [chosen, setChosen] = useState<OllamaEmbeddingModel | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -77,6 +80,10 @@ export default function LocalEmbeddingAssistantCard({
   const [currentJob, setCurrentJob] = useState<LocalModelJobSnapshot | null>(null)
   const [pendingActivation, setPendingActivation] = useState<OllamaEmbeddingModel | null>(null)
   const handledCompletedJobs = useRef<Set<string>>(new Set())
+  // 记录从本卡片启动 / 接力到的所有 jobId。`local_model_job:*` 监听器是全局的，
+  // 同时 mount 期间可能有 chat model pull / preload / 手动 reembed 等无关任务
+  // 终止；不归属本卡片的任务不应在这里 fire `setError("启用失败")` 误导用户。
+  const ownedJobIdsRef = useRef<Set<string>>(new Set())
   const jobActive = currentJob ? isLocalModelJobActive(currentJob) : false
   const busy = submitting || jobActive
 
@@ -93,12 +100,14 @@ export default function LocalEmbeddingAssistantCard({
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      const [nextModels, status] = await Promise.all([
+      const [nextModels, status, embeddingState] = await Promise.all([
         getTransport().call<OllamaEmbeddingModel[]>("local_embedding_list_models"),
         getTransport().call<OllamaStatus>("local_llm_detect_ollama"),
+        getTransport().call<MemoryEmbeddingState>("memory_embedding_get"),
       ])
       setModels(nextModels)
       setOllama(status)
+      setMemoryEmbedding(embeddingState)
       setChosen((current) =>
         current ? (nextModels.find((model) => model.id === current.id) ?? current) : current,
       )
@@ -170,6 +179,7 @@ export default function LocalEmbeddingAssistantCard({
           "local_model_job_start_embedding",
           { model },
         )
+        ownedJobIdsRef.current.add(job.jobId)
         openJobDialog(job)
       } catch (e) {
         const msg = String(e)
@@ -194,12 +204,20 @@ export default function LocalEmbeddingAssistantCard({
   const handleTerminalJob = useCallback(
     (job: LocalModelJobSnapshot) => {
       if (!isLocalModelJobTerminal(job)) return
+      if (!ownedJobIdsRef.current.has(job.jobId)) return
       if (handledCompletedJobs.current.has(job.jobId)) return
       handledCompletedJobs.current.add(job.jobId)
+      ownedJobIdsRef.current.delete(job.jobId)
       if (job.status === "completed") {
         appendDialogLog(t("settings.localLlm.phases.done"), job.updatedAt)
-        const result = job.resultJson as MemoryEmbeddingSetDefaultResult | null | undefined
-        if (result) onActivated(result)
+        // 仅 embedding pull 任务的 resultJson 形如 `MemoryEmbeddingSetDefaultResult`；
+        // 接力到 memory_reembed 后该任务的 resultJson 是 `{reembedded, mode}`，把它
+        // 当成 SetDefaultResult 强转给父组件会让 `result.state` 为 undefined，下次
+        // 渲染 `selection.enabled` 时崩溃。按 kind 守门只对 embedding_model 触发激活回调。
+        if (job.kind === "embedding_model") {
+          const result = job.resultJson as MemoryEmbeddingSetDefaultResult | null | undefined
+          if (result) onActivated(result)
+        }
         void refresh()
       } else if (job.error) {
         logger.error(
@@ -209,12 +227,22 @@ export default function LocalEmbeddingAssistantCard({
           {
             jobId: job.jobId,
             modelId: job.modelId,
+            kind: job.kind,
             phase: job.phase,
             error: job.error,
           },
         )
         appendDialogLog(job.error, job.updatedAt)
-        setError(t("settings.localEmbedding.error.activateFailed", { message: job.error }))
+        // 区分 embedding pull 失败 vs reembed 失败：pull 失败说明模型没下下来，
+        // 默认模型也没切；reembed 失败时 pull 已经完成、默认模型已切，只是历史
+        // 记忆向量没重建——按「激活失败」报警会误导。
+        if (job.kind === "memory_reembed") {
+          setError(
+            t("settings.embedding.reembedJob.failed") + (job.error ? ` — ${job.error}` : ""),
+          )
+        } else {
+          setError(t("settings.localEmbedding.error.activateFailed", { message: job.error }))
+        }
       }
     },
     [appendDialogLog, onActivated, refresh, t],
@@ -223,13 +251,35 @@ export default function LocalEmbeddingAssistantCard({
   useEffect(() => {
     const handleSnapshot = (raw: unknown) => {
       const job = parsePayload<LocalModelJobSnapshot>(raw)
+      // 顶层 fire：接力把 currentJob 从 pull 切到 reembed 后，pull.completed 经
+      // setCurrentJob 不匹配会丢 result。handleTerminalJob 内部 ownedJobIdsRef +
+      // handledCompletedJobs 去重，重复调用安全。
+      handleTerminalJob(job)
       setCurrentJob((current) => {
-        if (current?.jobId !== job.jobId) return current
-        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
-        setDialogDone(job.status === "completed")
-        setDialogError(job.error ?? null)
-        handleTerminalJob(job)
-        return job
+        if (current?.jobId === job.jobId) {
+          setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+          setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+          setDialogError(job.error ?? null)
+          return job
+        }
+        // 接力：embedding pull 任务派发的 MemoryReembed 任务通过 `successorForJobId`
+        // 指回 pull 任务，dialog 自动跟到 reembed 上展示「重建记忆向量」实时进度。
+        if (isJobSuccessorOf(job, current)) {
+          ownedJobIdsRef.current.add(job.jobId)
+          setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+          setDialogLogs([])
+          setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+          setDialogError(job.error ?? null)
+          setDialogTitle(t("settings.embedding.reembedJob.title"))
+          setDialogSubtitle(job.modelId)
+          void hydrateJobLogs(job.jobId)
+          // 顶层 handleTerminalJob 在 successor 加入 ownedJobIdsRef 之前 early-return
+          // 过；事件 WS 重连等场景下首次见到的可能就是 terminal 快照（completed /
+          // failed），必须在这里补一次终态处理触发 onActivated / setError。
+          handleTerminalJob(job)
+          return job
+        }
+        return current
       })
     }
 
@@ -242,15 +292,17 @@ export default function LocalEmbeddingAssistantCard({
       })
     }
 
+    const unlistenCreated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.created, handleSnapshot)
     const unlistenUpdated = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.updated, handleSnapshot)
     const unlistenCompleted = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.completed, handleSnapshot)
     const unlistenLog = getTransport().listen(LOCAL_MODEL_JOB_EVENTS.log, handleLog)
     return () => {
+      unlistenCreated()
       unlistenUpdated()
       unlistenCompleted()
       unlistenLog()
     }
-  }, [appendDialogLog, handleTerminalJob, phaseLabel])
+  }, [appendDialogLog, handleTerminalJob, hydrateJobLogs, phaseLabel, t])
 
   const cancelCurrentJob = useCallback(() => {
     const job = currentJob
@@ -296,6 +348,17 @@ export default function LocalEmbeddingAssistantCard({
     )
   }
 
+  // 已下载 + ollama 在跑 + 已是默认 memory embedding 模型时显示 disabled「已启用」
+  // 按钮；任一不满足都让用户能从这张卡修复（重启 ollama / 重拉外部删掉的 tag）。
+  // 后端 ollama EmbeddingModelConfig.apiModel == OllamaEmbeddingModel.id 字面相等，
+  // 见 F-054 followup（待后端补 is_active flag 后可去掉这层比对）。
+  const recommendedIsActiveEmbedding =
+    !!recommended?.installed
+    && ollama?.phase === "running"
+    && !!memoryEmbedding?.selection.enabled
+    && memoryEmbedding?.currentModel?.source === "ollama"
+    && memoryEmbedding?.currentModel?.apiModel === recommended.id
+
   const primaryAction = () => {
     if (!ollama) return null
 
@@ -304,6 +367,17 @@ export default function LocalEmbeddingAssistantCard({
         <Button variant="secondary" size="sm" onClick={openDownloadPage}>
           <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
           {t("settings.localEmbedding.buttons.downloadOllama")}
+        </Button>
+      )
+    }
+
+    if (recommendedIsActiveEmbedding) {
+      return (
+        <Button variant="secondary" size="sm" disabled>
+          <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+          {t("settings.localEmbedding.buttons.alreadyActive", {
+            model: recommended.displayName,
+          })}
         </Button>
       )
     }

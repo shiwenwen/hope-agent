@@ -2163,7 +2163,8 @@
         "downloadOllama": "Скачать с ollama.com",
         "recheck": "Обновить",
         "startOllama": "Запустить Ollama",
-        "installModel": "Установить и запустить {{model}}"
+        "installModel": "Установить и запустить {{model}}",
+        "alreadyActive": "{{model}} — модель по умолчанию"
       },
       "install": {
         "title": "Установка и запуск Ollama в один клик",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Установить и включить {{model}}",
+        "enable": "Включить {{model}}",
+        "alreadyActive": "{{model}} активна",
+        "downloadOllama": "Скачать Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Настройка векторного поиска",
+        "switchingEmbeddingModel": "Переключение модели эмбеддинга"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "Включите векторный поиск и добавьте память перед перестроением.",
         "running": "Перестраиваются векторы памяти",
         "progress": "{{done}} / {{total}} записей памяти",
+        "perSecond": "{{count}} записей/с",
         "phaseKeep": "Перестроение с сохранением текущих",
         "phaseFresh": "Перестроение с нуля",
         "cancelling": "Отмена…",

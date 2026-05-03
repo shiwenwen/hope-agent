@@ -2163,7 +2163,8 @@
         "downloadOllama": "Baixar de ollama.com",
         "recheck": "Verificar de novo",
         "startOllama": "Iniciar Ollama",
-        "installModel": "Instalar e iniciar {{model}}"
+        "installModel": "Instalar e iniciar {{model}}",
+        "alreadyActive": "{{model}} é o modelo ativo"
       },
       "install": {
         "title": "Instalando e iniciando Ollama com um clique",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Instalar e ativar {{model}}",
+        "enable": "Ativar {{model}}",
+        "alreadyActive": "{{model}} ativo",
+        "downloadOllama": "Baixar Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Configurando a busca vetorial",
+        "switchingEmbeddingModel": "Trocando o modelo de embedding"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "Ative a busca vetorial e adicione memórias antes de reconstruir.",
         "running": "Reconstruindo vetores de memória",
         "progress": "{{done}} / {{total}} memórias",
+        "perSecond": "{{count}} memórias/s",
         "phaseKeep": "Reconstruindo mantendo os existentes",
         "phaseFresh": "Reconstruindo do zero",
         "cancelling": "Cancelando…",

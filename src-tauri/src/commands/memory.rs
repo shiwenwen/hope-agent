@@ -351,7 +351,8 @@ pub async fn memory_embedding_set_default(
     model_config_id: String,
     mode: memory::ReembedMode,
 ) -> Result<memory::MemoryEmbeddingSetDefaultResult, CmdError> {
-    memory::set_memory_embedding_default(&model_config_id, mode, "settings-ui").map_err(Into::into)
+    memory::set_memory_embedding_default(&model_config_id, mode, "settings-ui", None)
+        .map_err(Into::into)
 }
 
 #[tauri::command]
@@ -365,7 +366,7 @@ pub async fn memory_reembed_start(
         .ok_or_else(|| {
             CmdError::msg("No memory embedding model is currently active".to_string())
         })?;
-    memory::start_memory_reembed_job(&model_id, mode).map_err(Into::into)
+    memory::start_memory_reembed_job(&model_id, mode, None).map_err(Into::into)
 }
 
 #[tauri::command]

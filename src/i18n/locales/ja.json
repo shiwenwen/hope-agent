@@ -2163,7 +2163,8 @@
         "downloadOllama": "ollama.com からダウンロード",
         "recheck": "再検出",
         "startOllama": "Ollama を起動",
-        "installModel": "{{model}} を導入して起動"
+        "installModel": "{{model}} を導入して起動",
+        "alreadyActive": "{{model}} は既定のモデルです"
       },
       "install": {
         "title": "Ollama をワンクリックでインストールして起動中",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "{{model}} をインストールして有効化",
+        "enable": "{{model}} を有効化",
+        "alreadyActive": "{{model}} は有効です",
+        "downloadOllama": "Ollama をダウンロード"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "ベクトル検索を構成中",
+        "switchingEmbeddingModel": "埋め込みモデルを切り替え中"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "再構築するには、ベクトル検索を有効にしてメモリを追加してください。",
         "running": "メモリベクトルを再構築中",
         "progress": "{{done}} / {{total}} 件のメモリ",
+        "perSecond": "{{count}} 件/秒",
         "phaseKeep": "既存を残して再構築中",
         "phaseFresh": "最初から再構築中",
         "cancelling": "キャンセル中…",

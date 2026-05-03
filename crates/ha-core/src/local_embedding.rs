@@ -17,6 +17,10 @@ use tokio_util::sync::CancellationToken;
 
 const PROVIDER_SOURCE: &str = "local-embedding-wizard";
 
+/// Wire phase between embedding pull-done and reembed-spawn. Mirrored in
+/// `src/types/local-model-jobs.ts::PHASE_KEY`; drift breaks the localized label.
+pub const PHASE_SWITCHING_EMBEDDING_MODEL: &str = "switching-embedding-model";
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OllamaEmbeddingModel {
@@ -195,12 +199,14 @@ pub fn save_embedding_model_config_for_model(
 
 pub fn save_and_set_default_for_model(
     model: &OllamaEmbeddingModel,
+    parent_job_id: Option<&str>,
 ) -> Result<MemoryEmbeddingSetDefaultResult> {
     let config = save_embedding_model_config_for_model(model)?;
     crate::memory::set_memory_embedding_default(
         &config.id,
         crate::memory::ReembedMode::KeepExisting,
         PROVIDER_SOURCE,
+        parent_job_id,
     )
 }
 
@@ -208,6 +214,7 @@ pub async fn pull_and_activate_cancellable<F>(
     requested: OllamaEmbeddingModel,
     on_progress: F,
     cancel_token: CancellationToken,
+    parent_job_id: Option<String>,
 ) -> Result<MemoryEmbeddingSetDefaultResult>
 where
     F: Fn(&PullProgress) + Send + Sync + 'static,
@@ -221,12 +228,15 @@ where
 
     on_progress(&PullProgress {
         model_id: model.id.clone(),
-        phase: "configure-embedding".into(),
+        // 该帧只是「pull 完成 → 切换 embedding 模型 → 派发 reembed 任务」中间
+        // 那一瞬。前端会在 reembed 任务通过 `successor_for_job_id` 接力到 dialog
+        // 后展示真实的「重建记忆向量」进度。
+        phase: PHASE_SWITCHING_EMBEDDING_MODEL.into(),
         percent: Some(99),
         bytes_completed: None,
         bytes_total: None,
     });
-    let result = save_and_set_default_for_model(&model)?;
+    let result = save_and_set_default_for_model(&model, parent_job_id.as_deref())?;
     on_progress(&PullProgress {
         model_id: model.id.clone(),
         phase: "done".into(),

@@ -31,6 +31,7 @@ import {
   type LocalModelJobSnapshot,
   type ProgressFrame,
 } from "@/types/local-model-jobs"
+import type { LocalOllamaModel } from "@/types/local-llm"
 
 // ── Wire types (mirror ha_core::local_llm::types) ─────────────────
 
@@ -117,6 +118,7 @@ export default function LocalLlmAssistantCard({
   const { t } = useTranslation()
   const [recommendation, setRecommendation] = useState<ModelRecommendation | null>(null)
   const [ollama, setOllama] = useState<OllamaStatus | null>(null)
+  const [installedModels, setInstalledModels] = useState<LocalOllamaModel[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [showAlternatives, setShowAlternatives] = useState(false)
@@ -150,12 +152,20 @@ export default function LocalLlmAssistantCard({
   const refresh = useCallback(async () => {
     setRefreshing(true)
     try {
-      const [rec, status] = await Promise.all([
+      // 多拉一次 list_models 是为了：(1) 识别「active_model 仍指向但模型已被
+      // 外部 `ollama rm` 删除」的状态，让用户能从这张卡重新拉取修复；(2) 拿到
+      // 按 `(provider_id, model_id)` 双键校验过的 `usage.activeModel` flag，
+      // 跨 provider 同名 modelId 不会误判。
+      const [rec, status, installed] = await Promise.all([
         getTransport().call<ModelRecommendation>("local_llm_recommend_model"),
         getTransport().call<OllamaStatus>("local_llm_detect_ollama"),
+        getTransport()
+          .call<LocalOllamaModel[]>("local_llm_list_models")
+          .catch(() => [] as LocalOllamaModel[]),
       ])
       setRecommendation(rec)
       setOllama(status)
+      setInstalledModels(installed)
     } catch (e) {
       logger.error("local-llm", "refresh", "Failed to detect hardware/ollama", e)
       setError(String(e))
@@ -320,10 +330,26 @@ export default function LocalLlmAssistantCard({
   const actionButtonClassName = compact
     ? "h-auto min-h-8 px-2.5 py-1.5 text-xs whitespace-normal"
     : undefined
+  // 后端 `UsageIndex::usage_for` 已经按 `(provider_id, model_id)` 双键算好
+  // `usage.activeModel` flag，跨 provider 同名 modelId 不会误判；同时 list_models
+  // 隐含 installed 状态——单数组 find 一次性满足两条断言。
+  const recommendedIsActive = !!recommended
+    && (installedModels.find((m) => m.id === recommended.id)?.usage.activeModel ?? false)
 
   // Decide which primary action is exposed.
   const renderAction = () => {
     if (insufficient || !ollama) return null
+
+    if (ollama.phase === "running" && recommendedIsActive) {
+      return (
+        <Button variant="secondary" size="sm" className={actionButtonClassName} disabled>
+          <CheckCircle2 className="h-3.5 w-3.5 mr-1.5 text-emerald-600 dark:text-emerald-400" />
+          {t("settings.localLlm.buttons.alreadyActive", {
+            model: recommended?.displayName ?? "",
+          })}
+        </Button>
+      )
+    }
 
     if (ollama.phase === "not-installed") {
       if (!ollama.installScriptSupported) {

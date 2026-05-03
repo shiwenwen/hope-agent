@@ -1,3 +1,5 @@
+use std::mem::ManuallyDrop;
+
 use anyhow::{Context, Result};
 
 use super::config::{EmbeddingConfig, EmbeddingProviderType};
@@ -8,12 +10,31 @@ use crate::memory::traits::{EmbeddingProvider, MultimodalInput};
 
 /// OpenAI-compatible /v1/embeddings API provider.
 pub struct ApiEmbeddingProvider {
-    client: reqwest::blocking::Client,
+    // `reqwest::blocking::Client` owns a tokio runtime; dropping it inside a
+    // tokio worker panics. ManuallyDrop lets the [`Drop`] impl below move the
+    // client onto a non-tokio OS thread when needed.
+    client: ManuallyDrop<reqwest::blocking::Client>,
     base_url: String,
     api_key: String,
     model: String,
     dimensions: u32,
     provider_type: EmbeddingProviderType,
+}
+
+impl Drop for ApiEmbeddingProvider {
+    fn drop(&mut self) {
+        // SAFETY: ManuallyDrop::take 在此处 Drop 路径里调用且仅一次。
+        let client = unsafe { ManuallyDrop::take(&mut self.client) };
+        // 仅当 caller 处于 tokio runtime 内（drop runtime 会触发 panic）时才
+        // 把销毁挪到独立 OS 线程。非 tokio 上下文（测试 / CLI 同步路径 / 进程
+        // 退出阶段）直接 inline drop——避免在 hot path 无界 spawn detached 线程。
+        // 不能用 `tokio::task::spawn_blocking`：blocking pool 仍属 tokio runtime。
+        if tokio::runtime::Handle::try_current().is_ok() {
+            std::thread::spawn(move || drop(client));
+        } else {
+            drop(client);
+        }
+    }
 }
 
 impl ApiEmbeddingProvider {
@@ -31,16 +52,27 @@ impl ApiEmbeddingProvider {
             .to_string();
         let dimensions = config.api_dimensions.unwrap_or(1536);
 
-        let client = crate::provider::apply_proxy_blocking(
-            reqwest::blocking::Client::builder()
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .timeout(std::time::Duration::from_secs(30)),
-        )
-        .build()
-        .context("Failed to build embedding HTTP client")?;
+        // reqwest 0.13 `blocking::Client::new` 在 debug build 下经
+        // `wait::enter()` 创建+立即 drop 一个临时 current_thread runtime；在
+        // tokio worker 上 drop 它会 panic（`tauri dev` 是 debug）。挪到一个
+        // 无 tokio context 的独立 OS 线程构造规避。
+        let client = std::thread::Builder::new()
+            .name("embedding-client-build".into())
+            .spawn(|| -> Result<reqwest::blocking::Client> {
+                crate::provider::apply_proxy_blocking(
+                    reqwest::blocking::Client::builder()
+                        .connect_timeout(std::time::Duration::from_secs(10))
+                        .timeout(std::time::Duration::from_secs(30)),
+                )
+                .build()
+                .context("Failed to build embedding HTTP client")
+            })
+            .context("Failed to spawn embedding HTTP client builder thread")?
+            .join()
+            .map_err(|_| anyhow::anyhow!("Embedding HTTP client builder thread panicked"))??;
 
         Ok(Self {
-            client,
+            client: ManuallyDrop::new(client),
             base_url,
             api_key,
             model,

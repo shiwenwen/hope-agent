@@ -36,9 +36,11 @@ import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
-import { formatBytes, formatDurationCompact } from "@/lib/format"
+import { formatBytes } from "@/lib/format"
+import { formatJobTransferLine } from "@/lib/format-job-transfer"
 import {
   formatLocalModelJobLogLine,
+  isJobSuccessorOf,
   isLocalModelJobActive,
   isLocalModelJobResumable,
   isLocalModelJobTerminal,
@@ -437,12 +439,25 @@ export default function LocalModelsPanel() {
       upsertActiveJob(job)
       refreshAfterTerminalJob(job)
       setCurrentJob((current) => {
-        if (current?.jobId !== job.jobId) return current
-        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
-        setDialogDone(isLocalModelJobTerminal(job) && !job.error)
-        setDialogError(job.error ?? null)
-        handleTerminalJob(job)
-        return job
+        if (current?.jobId === job.jobId) {
+          setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+          setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+          setDialogError(job.error ?? null)
+          handleTerminalJob(job)
+          return job
+        }
+        if (isJobSuccessorOf(job, current)) {
+          setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+          setDialogLogs([])
+          setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+          setDialogError(job.error ?? null)
+          setDialogTitle(t("settings.embedding.reembedJob.title"))
+          setDialogSubtitle(job.modelId)
+          void hydrateJobLogs(job.jobId)
+          handleTerminalJob(job)
+          return job
+        }
+        return current
       })
     }
     const handleLog = (raw: unknown) => {
@@ -467,8 +482,10 @@ export default function LocalModelsPanel() {
     appendDialogLog,
     clearJobRecord,
     handleTerminalJob,
+    hydrateJobLogs,
     phaseLabel,
     refreshAfterTerminalJob,
+    t,
     upsertActiveJob,
   ])
 
@@ -770,20 +787,19 @@ export default function LocalModelsPanel() {
         : t("localModelJobs.pausedSummary", { count: pausedJobCount })
   const jobTransferSummary = useCallback(
     (job: LocalModelJobSnapshot) => {
-      const parts: string[] = []
-      if (job.bytesCompleted != null && job.bytesTotal != null) {
-        parts.push(`${formatBytes(job.bytesCompleted, { maxUnit: "GB" })} / ${formatBytes(job.bytesTotal, { maxUnit: "GB" })}`)
-      }
       const stats = jobTransferStats[job.jobId]
-      if (stats?.speedBps) {
-        parts.push(`${formatBytes(stats.speedBps, { maxUnit: "GB" })}/s`)
-      }
-      if (stats?.etaSeconds != null && Number.isFinite(stats.etaSeconds)) {
-        parts.push(`≈ ${formatDurationCompact(stats.etaSeconds)}`)
-      }
-      return parts.join(" · ")
+      return (
+        formatJobTransferLine({
+          unit: job.kind === "memory_reembed" ? "count" : "bytes",
+          completed: job.bytesCompleted,
+          total: job.bytesTotal,
+          speedBps: stats?.speedBps ?? null,
+          etaSeconds: stats?.etaSeconds ?? null,
+          t,
+        }) ?? ""
+      )
     },
-    [jobTransferStats],
+    [jobTransferStats, t],
   )
 
   return (

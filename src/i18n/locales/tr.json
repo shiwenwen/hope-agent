@@ -2163,7 +2163,8 @@
         "downloadOllama": "ollama.com'dan indir",
         "recheck": "Yeniden algıla",
         "startOllama": "Ollama'yı Başlat",
-        "installModel": "{{model}} kur ve başlat"
+        "installModel": "{{model}} kur ve başlat",
+        "alreadyActive": "{{model}} varsayılan model"
       },
       "install": {
         "title": "Ollama tek tıkla kuruluyor ve başlatılıyor",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "{{model}} kur ve etkinleştir",
+        "enable": "{{model}} etkinleştir",
+        "alreadyActive": "{{model}} etkin",
+        "downloadOllama": "Ollama indir"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Vektör arama yapılandırılıyor",
+        "switchingEmbeddingModel": "Yerleştirme modeli değiştiriliyor"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "Yeniden oluşturmadan önce vektör aramasını etkinleştirin ve bellek ekleyin.",
         "running": "Bellek vektörleri yeniden oluşturuluyor",
         "progress": "{{done}} / {{total}} bellek",
+        "perSecond": "{{count}} bellek/sn",
         "phaseKeep": "Mevcutları koruyarak yeniden oluşturuluyor",
         "phaseFresh": "Sıfırdan yeniden oluşturuluyor",
         "cancelling": "İptal ediliyor…",

@@ -157,6 +157,8 @@ fn create_single_provider(config: &EmbeddingConfig) -> Result<Arc<dyn EmbeddingP
 }
 
 /// Create an EmbeddingProvider from EmbeddingConfig, with optional fallback.
+/// Safe to call from any thread; tokio-context panic regression is guarded
+/// inside [`ApiEmbeddingProvider::new`].
 pub fn create_embedding_provider(config: &EmbeddingConfig) -> Result<Arc<dyn EmbeddingProvider>> {
     let primary = create_single_provider(config)?;
 

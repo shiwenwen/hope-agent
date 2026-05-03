@@ -2163,7 +2163,8 @@
         "downloadOllama": "ollama.com에서 다운로드",
         "recheck": "다시 감지",
         "startOllama": "Ollama 시작",
-        "installModel": "{{model}} 설치 및 시작"
+        "installModel": "{{model}} 설치 및 시작",
+        "alreadyActive": "{{model}}이(가) 기본 모델입니다"
       },
       "install": {
         "title": "Ollama 원클릭 설치 및 시작 중",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "{{model}} 설치 및 활성화",
+        "enable": "{{model}} 활성화",
+        "alreadyActive": "{{model}} 활성화됨",
+        "downloadOllama": "Ollama 다운로드"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "벡터 검색 구성 중",
+        "switchingEmbeddingModel": "임베딩 모델 전환 중"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "재빌드하려면 벡터 검색을 켜고 메모리를 추가하세요.",
         "running": "메모리 벡터 재빌드 중",
         "progress": "{{done}} / {{total}}개 메모리",
+        "perSecond": "{{count}}개/초",
         "phaseKeep": "기존 벡터 유지하며 재빌드 중",
         "phaseFresh": "처음부터 재빌드 중",
         "cancelling": "취소 중…",

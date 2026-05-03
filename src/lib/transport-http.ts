@@ -654,6 +654,10 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
         return record.message;
       case "searxng_docker_deploy":
         return record.url;
+      case "get_active_model":
+        // axum 路由用 `Json(json!({"active_model": ...}))` 包了一层；Tauri 命令
+        // 直接返回 `Option<ActiveModelRef>`，前端跨 transport 期望统一类型。
+        return record.active_model ?? null;
     }
   }
   return value;

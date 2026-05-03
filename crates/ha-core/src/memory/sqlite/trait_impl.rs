@@ -854,6 +854,38 @@ impl MemoryBackend for SqliteMemoryBackend {
         Ok(updated)
     }
 
+    fn count_memories_pending_embedding(&self, target_signature: &str) -> Result<u64> {
+        let conn = self.read_conn()?;
+        // 两类「pending」都得算：(1) embedding_signature 缺失或不匹配（add_memory
+        // 在向量检索禁用期间写的 NULL row）；(2) signature 匹配但 `memories_vec`
+        // 虚表没有对应 rowid 的 row（写入虚表失败 / vec 表未建 / 老数据漏建）。
+        // 后者用 LEFT JOIN 检查——`memories_vec` 是 sqlite-vec 虚表，schema 缺失
+        // 时 LEFT JOIN 会触发错误，所以先用 sqlite_master 探测是否存在再决定查询。
+        let vec_table_exists: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='memories_vec'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap_or(0);
+        let count: i64 = if vec_table_exists > 0 {
+            conn.query_row(
+                "SELECT COUNT(*) FROM memories m
+                  WHERE m.embedding_signature IS NULL
+                     OR m.embedding_signature != ?1
+                     OR NOT EXISTS (SELECT 1 FROM memories_vec v WHERE v.rowid = m.id)",
+                rusqlite::params![target_signature],
+                |row| row.get(0),
+            )?
+        } else {
+            // 没有 memories_vec 虚表（首次启用 / dim=0 时未建），所有 memory 都
+            // 算 pending —— set_embedder 会通过 ensure_vec_table 重建虚表，
+            // 真正的 reembed 任务会逐行写回。
+            conn.query_row("SELECT COUNT(*) FROM memories", [], |row| row.get(0))?
+        };
+        Ok(count.max(0) as u64)
+    }
+
     fn set_embedder(&self, provider: Arc<dyn EmbeddingProvider>) {
         let dims = provider.dimensions();
         self.embedding_dims

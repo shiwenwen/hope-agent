@@ -2163,7 +2163,8 @@
         "downloadOllama": "التنزيل من ollama.com",
         "recheck": "إعادة الكشف",
         "startOllama": "تشغيل Ollama",
-        "installModel": "تثبيت وتشغيل {{model}}"
+        "installModel": "تثبيت وتشغيل {{model}}",
+        "alreadyActive": "{{model}} هو النموذج الافتراضي"
       },
       "install": {
         "title": "جارٍ تثبيت Ollama وتشغيله بنقرة واحدة",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "تثبيت وتفعيل {{model}}",
+        "enable": "تفعيل {{model}}",
+        "alreadyActive": "{{model}} مُفعَّل",
+        "downloadOllama": "تنزيل Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "جارٍ تهيئة البحث المتجهي",
+        "switchingEmbeddingModel": "جارٍ تبديل نموذج التضمين"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "فعّل البحث المتجهي وأضف ذاكرة قبل إعادة البناء.",
         "running": "جار إعادة بناء متجهات الذاكرة",
         "progress": "{{done}} / {{total}} ذاكرة",
+        "perSecond": "{{count}} ذاكرة/ث",
         "phaseKeep": "إعادة البناء مع الإبقاء على الموجود",
         "phaseFresh": "إعادة البناء من البداية",
         "cancelling": "جار الإلغاء…",

@@ -2163,7 +2163,8 @@
         "downloadOllama": "Tải từ ollama.com",
         "recheck": "Phát hiện lại",
         "startOllama": "Khởi động Ollama",
-        "installModel": "Cài và chạy {{model}}"
+        "installModel": "Cài và chạy {{model}}",
+        "alreadyActive": "{{model}} là mô hình mặc định"
       },
       "install": {
         "title": "Đang cài và khởi động Ollama một chạm",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Cài đặt và kích hoạt {{model}}",
+        "enable": "Kích hoạt {{model}}",
+        "alreadyActive": "{{model}} đang hoạt động",
+        "downloadOllama": "Tải Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Đang cấu hình tìm kiếm vector",
+        "switchingEmbeddingModel": "Đang chuyển mô hình embedding"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "Bật tìm kiếm vector và thêm bộ nhớ trước khi xây dựng lại.",
         "running": "Đang xây dựng lại vector bộ nhớ",
         "progress": "{{done}} / {{total}} bộ nhớ",
+        "perSecond": "{{count}} bộ nhớ/giây",
         "phaseKeep": "Đang xây dựng lại và giữ mục hiện có",
         "phaseFresh": "Đang xây dựng lại từ đầu",
         "cancelling": "Đang hủy…",

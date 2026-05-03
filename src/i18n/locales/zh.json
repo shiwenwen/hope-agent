@@ -2163,7 +2163,8 @@
         "downloadOllama": "前往 ollama.com 下载",
         "recheck": "我已装好，重新检测",
         "startOllama": "启动 Ollama",
-        "installModel": "安装并启用 {{model}}"
+        "installModel": "安装并启用 {{model}}",
+        "alreadyActive": "{{model}} 已是默认模型"
       },
       "install": {
         "title": "正在一键安装启动 Ollama",
@@ -2201,13 +2202,15 @@
       "buttons": {
         "activate": "安装并启用 {{model}}",
         "enable": "启用 {{model}}",
+        "alreadyActive": "{{model}} 已启用",
         "downloadOllama": "下载 Ollama"
       },
       "install": {
         "title": "正在配置本地 Embedding"
       },
       "phases": {
-        "configureEmbedding": "正在配置向量搜索"
+        "configureEmbedding": "正在配置向量搜索",
+        "switchingEmbeddingModel": "正在切换向量模型"
       },
       "error": {
         "activateFailed": "启用本地 Embedding 失败：{{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "启用向量搜索并添加记忆后才能重建。",
         "running": "正在重建记忆向量",
         "progress": "{{done}} / {{total}} 条记忆",
+        "perSecond": "{{count}} 条/秒",
         "phaseKeep": "重建中（保留现有）",
         "phaseFresh": "重建中（清空后重建）",
         "cancelling": "正在取消…",

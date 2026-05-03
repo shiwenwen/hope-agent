@@ -1,8 +1,8 @@
 use super::types::*;
 use super::{
     memory_embedding_state, resolve_memory_embedding_config, start_memory_reembed_job,
-    EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate, MemoryEmbeddingSelection,
-    MemoryEmbeddingSetDefaultResult, MemoryEmbeddingState, ReembedMode,
+    EmbeddingConfig, EmbeddingModelConfig, EmbeddingModelTemplate, MemoryEmbeddingSetDefaultResult,
+    MemoryEmbeddingState, ReembedMode,
 };
 use anyhow::{anyhow, Result};
 
@@ -219,7 +219,7 @@ pub fn save_legacy_embedding_config(
     model.id = format!("legacy-embedding-{}", &signature[..12]);
     let model = model.normalize_for_save();
     let saved = save_embedding_model_config(model, source)?;
-    Ok(set_memory_embedding_default(&saved.id, ReembedMode::KeepExisting, source)?.state)
+    Ok(set_memory_embedding_default(&saved.id, ReembedMode::KeepExisting, source, None)?.state)
 }
 
 pub fn delete_embedding_model_config(id: &str, source: &str) -> Result<()> {
@@ -248,7 +248,11 @@ pub fn delete_embedding_model_config(id: &str, source: &str) -> Result<()> {
 
 pub fn disable_memory_embedding(source: &str) -> Result<MemoryEmbeddingState> {
     crate::config::mutate_config(("memory_embedding.disable", source), |store| {
-        store.memory_embedding = MemoryEmbeddingSelection::default();
+        // Pause semantics: keep `model_config_id` / `active_signature` /
+        // `last_reembedded_signature` so re-enabling the same model can short
+        // circuit reembed and the frontend's "remember last model" toggle path
+        // (EmbeddingView::handleToggle stillValid branch) still finds the id.
+        store.memory_embedding.enabled = false;
         Ok(())
     })?;
     if let Some(backend) = crate::get_memory_backend() {
@@ -283,6 +287,7 @@ pub fn set_memory_embedding_default(
     model_config_id: &str,
     mode: ReembedMode,
     source: &str,
+    parent_job_id: Option<&str>,
 ) -> Result<MemoryEmbeddingSetDefaultResult> {
     let store = crate::config::cached_config();
     let model = store
@@ -303,6 +308,15 @@ pub fn set_memory_embedding_default(
         mode,
         source
     );
+
+    // 仅 KeepExisting 模式适用同 signature 短路：DeleteAll 的「先清空再重建」
+    // 语义只在 `start_memory_reembed_job` 内通过 `clear_all_embeddings()` 实现，
+    // 跳过任务派发会让用户的「从头重建」请求既不清空也不重建。
+    let same_signature = store
+        .memory_embedding
+        .last_reembedded_signature
+        .as_deref()
+        == Some(signature.as_str());
 
     apply_embedding_config_to_backend(&runtime_config, source)?;
     crate::config::mutate_config(("memory_embedding.set_default", source), |store| {
@@ -325,28 +339,84 @@ pub fn set_memory_embedding_default(
         }
     }
 
+    // pending_count 必须在 `enabled = true` 写入**之后**再算（TOCTOU）：disable
+    // 期间 add_memory 写 row 时 embedding_signature = NULL，预读会漏检这些 row。
+    let pending_count = if same_signature && mode == ReembedMode::KeepExisting {
+        crate::get_memory_backend()
+            .map(|b| b.count_memories_pending_embedding(&signature).unwrap_or(0))
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    // 有活跃 reembed 任务时强制 spawn：cancel 是 per-batch 的异步检查，旧任务
+    // 最后一批可能在 skip 之后才退出，把 last_reembedded_signature 改成它针对
+    // 的（已不再活跃的）模型。spawn 新任务由 start_memory_reembed_job 内部的
+    // cancel 调用 + 新 batch 写回兜底。
+    let has_active_reembed = if same_signature && mode == ReembedMode::KeepExisting {
+        crate::local_model_jobs::has_active_job(
+            crate::local_model_jobs::LocalModelJobKind::MemoryReembed,
+        )
+        .unwrap_or(false)
+    } else {
+        false
+    };
+    let already_reembedded_for_signature = same_signature
+        && mode == ReembedMode::KeepExisting
+        && pending_count == 0
+        && !has_active_reembed;
+
     let mut reembed_error = None;
-    match start_memory_reembed_job(model_config_id, mode) {
-        Ok(snapshot) => {
+    if already_reembedded_for_signature {
+        // already_reembedded_for_signature 守门已含 !has_active_reembed，到这里
+        // 全局必然已无在跑的 MemoryReembed 任务，无需再 cancel。
+        app_info!(
+            "memory",
+            "embedding",
+            "Skipping reembed: signature {} already covers all memories. Source={}",
+            crate::truncate_utf8(&signature, 12),
+            source
+        );
+    } else {
+        if same_signature && pending_count > 0 {
             app_info!(
                 "memory",
                 "embedding",
-                "Memory reembed job spawned: id={} model={} mode={:?} source={}",
-                snapshot.job_id,
-                model_config_id,
-                mode,
+                "Re-running reembed despite signature match: {} pending memory rows. Source={}",
+                pending_count,
                 source
             );
+            // 失效 last_reembedded_signature：reembed 失败/取消时它保持 None，
+            // get_memory_embedding_state 才能报告 needsReembed=true 提醒用户。
+            crate::config::mutate_config(
+                ("memory_embedding.invalidate_reembedded", source),
+                |store| {
+                    store.memory_embedding.last_reembedded_signature = None;
+                    Ok(())
+                },
+            )?;
         }
-        Err(e) => {
-            let msg = e.to_string();
-            app_warn!(
-                "memory",
-                "embedding",
-                "Failed to spawn memory reembed job: {}",
-                msg
-            );
-            reembed_error = Some(msg);
+        match start_memory_reembed_job(model_config_id, mode, parent_job_id) {
+            Ok(snapshot) => {
+                app_info!(
+                    "memory",
+                    "embedding",
+                    "Memory reembed job spawned: id={} model={} mode={:?} source={}",
+                    snapshot.job_id,
+                    model_config_id,
+                    mode,
+                    source
+                );
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                app_warn!(
+                    "memory",
+                    "embedding",
+                    "Failed to spawn memory reembed job: {}",
+                    msg
+                );
+                reembed_error = Some(msg);
+            }
         }
     }
 

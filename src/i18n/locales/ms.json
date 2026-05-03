@@ -2163,7 +2163,8 @@
         "downloadOllama": "Muat turun dari ollama.com",
         "recheck": "Imbas semula",
         "startOllama": "Mulakan Ollama",
-        "installModel": "Pasang & lancarkan {{model}}"
+        "installModel": "Pasang & lancarkan {{model}}",
+        "alreadyActive": "{{model}} ialah model lalai"
       },
       "install": {
         "title": "Memasang dan memulakan Ollama sekali klik",
@@ -2199,15 +2200,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Pasang & dayakan {{model}}",
+        "enable": "Dayakan {{model}}",
+        "alreadyActive": "{{model}} aktif",
+        "downloadOllama": "Muat turun Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Mengkonfigurasi carian vektor",
+        "switchingEmbeddingModel": "Menukar model embedding"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2265,6 +2268,7 @@
         "idleDisabled": "Aktifkan carian vektor dan tambah memori sebelum membina semula.",
         "running": "Membina semula vektor memori",
         "progress": "{{done}} / {{total}} memori",
+        "perSecond": "{{count}} memori/s",
         "phaseKeep": "Membina semula sambil mengekalkan yang sedia ada",
         "phaseFresh": "Membina semula dari awal",
         "cancelling": "Membatalkan…",
