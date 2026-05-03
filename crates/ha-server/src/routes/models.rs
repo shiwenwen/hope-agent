@@ -4,13 +4,16 @@
 //! `/api/providers/*` endpoints, but live under `/api/models/*` to match the
 //! frontend `COMMAND_MAP` expectations (see `src/lib/transport-http.ts`).
 
+use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::sync::Arc;
 
 use ha_core::provider::{self, ActiveModel, AvailableModel, ProviderWriteError};
 
 use crate::error::AppError;
+use crate::AppContext;
 
 fn provider_write_error(err: ProviderWriteError) -> AppError {
     match err {
@@ -37,8 +40,11 @@ pub struct SetFallbackBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SetReasoningEffortBody {
     pub effort: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -98,19 +104,30 @@ pub async fn set_fallback_models(
     Ok(Json(json!({ "updated": true })))
 }
 
-/// `POST /api/models/reasoning-effort` — validate + accept a reasoning
-/// effort value. Server mode is stateless (each `/api/chat` request carries
-/// its own `reasoning_effort` field) so this is a validate-only no-op
-/// mirroring the Tauri command's `set_reasoning_effort_core` gate.
+/// `POST /api/models/reasoning-effort` — validate and persist the current
+/// Think / reasoning effort. When `sessionId` is supplied, it is also stored
+/// as a session-scoped override so switching conversations restores it.
 pub async fn set_reasoning_effort(
+    State(ctx): State<Arc<AppContext>>,
     Json(body): Json<SetReasoningEffortBody>,
 ) -> Result<Json<Value>, AppError> {
-    let valid = ["none", "low", "medium", "high", "xhigh"];
-    if !valid.contains(&body.effort.as_str()) {
+    if !ha_core::agent::is_valid_reasoning_effort(&body.effort) {
         return Err(AppError::bad_request(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
-            body.effort, valid
+            body.effort,
+            ha_core::agent::VALID_REASONING_EFFORTS
         )));
+    }
+    if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+        *cell.lock().await = body.effort.clone();
+    }
+    if let Some(session_id) = body
+        .session_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+    {
+        ctx.session_db
+            .update_session_reasoning_effort(session_id, Some(&body.effort))?;
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -123,9 +140,14 @@ pub async fn get_current_settings() -> Result<Json<CurrentSettings>, AppError> {
         .as_ref()
         .map(|am| am.model_id.clone())
         .unwrap_or_else(|| "unknown".to_string());
+    let reasoning_effort = if let Some(cell) = ha_core::get_reasoning_effort_cell() {
+        cell.lock().await.clone()
+    } else {
+        "medium".to_string()
+    };
     Ok(Json(CurrentSettings {
         model,
-        reasoning_effort: "medium".to_string(),
+        reasoning_effort,
         temperature: store.temperature,
         fallback_models: store.fallback_models.clone(),
         active_model: store.active_model.clone(),

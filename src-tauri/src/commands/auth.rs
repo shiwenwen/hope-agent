@@ -281,11 +281,11 @@ pub(crate) async fn set_reasoning_effort_core(
     effort: &str,
     state: &AppState,
 ) -> Result<(), CmdError> {
-    let valid = ["none", "low", "medium", "high", "xhigh"];
-    if !valid.contains(&effort) {
+    if !ha_core::agent::is_valid_reasoning_effort(effort) {
         return Err(CmdError::msg(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
-            effort, valid
+            effort,
+            ha_core::agent::VALID_REASONING_EFFORTS
         )));
     }
     *state.reasoning_effort.lock().await = effort.to_string();
@@ -295,7 +295,14 @@ pub(crate) async fn set_reasoning_effort_core(
 #[tauri::command]
 pub async fn set_reasoning_effort(
     effort: String,
+    session_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<(), CmdError> {
-    set_reasoning_effort_core(&effort, &state).await
+    set_reasoning_effort_core(&effort, &state).await?;
+    if let Some(session_id) = session_id.as_deref().filter(|id| !id.trim().is_empty()) {
+        state
+            .session_db
+            .update_session_reasoning_effort(session_id, Some(&effort))?;
+    }
+    Ok(())
 }

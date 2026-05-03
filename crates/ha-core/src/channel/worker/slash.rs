@@ -193,8 +193,19 @@ pub(super) async fn dispatch_slash_for_channel(
         Some(CommandAction::SetEffort { effort }) => {
             if let Err(e) = set_reasoning_effort_core(&effort).await {
                 app_warn!("channel", "worker", "Failed to set effort: {}", e);
-            } else if let Some(bus) = crate::get_event_bus() {
-                bus.emit("slash:effort_changed", serde_json::json!(effort));
+            } else {
+                if let Some(db) = crate::get_session_db() {
+                    let _ = db.update_session_reasoning_effort(session_id, Some(&effort));
+                }
+                if let Some(bus) = crate::get_event_bus() {
+                    bus.emit(
+                        "slash:effort_changed",
+                        serde_json::json!({
+                            "sessionId": session_id,
+                            "effort": effort,
+                        }),
+                    );
+                }
             }
             Ok(ChannelSlashOutcome::Reply {
                 content: result.content,
@@ -419,11 +430,11 @@ async fn set_active_model_core(provider_id: &str, model_id: &str) -> Result<(), 
 
 /// Set reasoning effort. Equivalent to the old `commands::auth::set_reasoning_effort_core`.
 async fn set_reasoning_effort_core(effort: &str) -> Result<(), String> {
-    let valid = ["none", "low", "medium", "high", "xhigh"];
-    if !valid.contains(&effort) {
+    if !crate::agent::is_valid_reasoning_effort(effort) {
         return Err(format!(
             "Invalid reasoning effort: {}. Valid: {:?}",
-            effort, valid
+            effort,
+            crate::agent::VALID_REASONING_EFFORTS
         ));
     }
     let cell = crate::require_reasoning_effort_cell().map_err(|e| e.to_string())?;

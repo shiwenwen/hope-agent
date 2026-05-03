@@ -17,7 +17,7 @@ export interface UseModelStateReturn {
   globalActiveModelRef: React.MutableRefObject<ActiveModel | null>
   applyModelForDisplay: (key: string) => void
   handleModelChange: (key: string) => Promise<void>
-  handleEffortChange: (effort: string) => Promise<void>
+  handleEffortChange: (effort: string, sessionId?: string | null) => Promise<void>
 }
 
 export function useModelState(): UseModelStateReturn {
@@ -45,10 +45,13 @@ export function useModelState(): UseModelStateReturn {
     [availableModels, t],
   )
 
-  const handleEffortChange = useCallback(async (effort: string) => {
+  const handleEffortChange = useCallback(async (effort: string, sessionId?: string | null) => {
     setReasoningEffort(effort)
     try {
-      await getTransport().call("set_reasoning_effort", { effort })
+      await getTransport().call("set_reasoning_effort", {
+        effort,
+        ...(sessionId ? { sessionId } : {}),
+      })
     } catch (e) {
       logger.error("ui", "ChatScreen::effortChange", "Failed to set reasoning effort", e)
     }

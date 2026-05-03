@@ -36,6 +36,7 @@ export interface ChatStartArgs {
   permissionMode?: SessionMode;
   planMode?: string;
   temperatureOverride?: number;
+  reasoningEffort?: string;
   displayText?: string;
   /** Marks the user message as a Plan Mode approve/resume trigger so the
    *  backend stamps `attachments_meta = {plan_trigger: true}` and the UI

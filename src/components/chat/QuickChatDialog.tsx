@@ -50,6 +50,7 @@ export default function QuickChatDialog({
     sessions: session.sessions,
     agents: session.agents,
     activeModel: session.activeModel,
+    reasoningEffort: session.reasoningEffort,
     reloadSessions: session.reloadSessions,
     updateSessionMessages: session.updateSessionMessages,
     lastSeqRef: quickStreamSeqRef,

@@ -86,6 +86,8 @@ export interface UseChatStreamOptions {
   planMode?: string
   /** Session-level temperature override (0.0–2.0). Overrides agent and global settings. */
   temperatureOverride?: number | null
+  /** Session-level Think / reasoning effort. */
+  reasoningEffort?: string | null
   /** New-chat preset; only applied when the backend auto-creates a session. */
   incognitoEnabled?: boolean
   /**
@@ -138,6 +140,7 @@ export function useChatStream({
   endedStreamIdsRef,
   planMode,
   temperatureOverride,
+  reasoningEffort,
   incognitoEnabled = false,
   draftWorkingDir = null,
 }: UseChatStreamOptions): UseChatStreamReturn {
@@ -515,6 +518,7 @@ export function useChatStream({
           permissionMode: permissionModeRef.current,
           planMode: effectivePlanMode && effectivePlanMode !== "off" ? effectivePlanMode : undefined,
           temperatureOverride: temperatureOverride ?? undefined,
+          reasoningEffort: reasoningEffort ?? undefined,
           displayText: options?.displayText?.trim() || undefined,
           isPlanTrigger: options?.isPlanTrigger,
           planComment: options?.planComment,
