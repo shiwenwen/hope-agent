@@ -101,9 +101,9 @@ describe("TeamMessageFeed", () => {
       />,
     )
 
-    const input = screen.getByPlaceholderText("Message team... (@name for DM)")
+    const input = screen.getByPlaceholderText("Message team... (@name for DM)") as HTMLInputElement
     fireEvent.change(input, { target: { value: "draft for team a" } })
-    expect(input).toHaveValue("draft for team a")
+    expect(input.value).toBe("draft for team a")
 
     rerender(
       <TeamMessageFeed
@@ -114,7 +114,9 @@ describe("TeamMessageFeed", () => {
       />,
     )
 
-    expect(screen.getByPlaceholderText("Message team... (@name for DM)")).toHaveValue("")
+    expect(
+      (screen.getByPlaceholderText("Message team... (@name for DM)") as HTMLInputElement).value,
+    ).toBe("")
   })
 
   test("resets the rendered window when the loaded message set shrinks", () => {
@@ -147,4 +149,4 @@ describe("TeamMessageFeed", () => {
     expect(screen.getByText("short-0")).toBeTruthy()
     expect(screen.getByText("short-9")).toBeTruthy()
   })
-}
+})

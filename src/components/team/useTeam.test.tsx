@@ -94,6 +94,6 @@ describe("useTeam", () => {
     rerender(<Harness teamId="team-b" />)
 
     expect(screen.queryByText("old team message")).toBeNull()
-    expect(screen.getByTestId("loading")).toHaveTextContent("true")
+    expect(screen.getByTestId("loading").textContent).toBe("true")
   })
 })
