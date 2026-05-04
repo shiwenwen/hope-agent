@@ -974,6 +974,10 @@
     "skillHealth": "Sağlık",
     "memory": "Hafıza",
     "memoryDesc": "AI'nın konuşmalar arasında bağlamı hatırlamasına yardımcı olan kalıcı hafıza",
+    "memoryTabs": {
+      "settings": "Hafıza ayarları",
+      "manage": "Hafıza yönetimi"
+    },
     "activeMemoryTitle": "Aktif bellek hatırlatma",
     "activeMemoryDesc": "Her kullanıcı turunun başında, en alakalı belleği tek bir cümleye dönüştürmek ve sistem istemiyle birlikte enjekte etmek için sınırlı bir side query çalıştırır. Zaman aşımı ve hatalar sessizce pasif hatırlatmaya döner — sohbeti asla engellemez.",
     "activeMemoryTimeout": "Zaman aşımı (ms)",

@@ -1,7 +1,12 @@
+import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { useMemoryData } from "./useMemoryData"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import EmbeddingView from "./EmbeddingView"
 import MemoryFormView from "./MemoryFormView"
 import MemoryListView from "./MemoryListView"
+import MemorySettingsView from "./MemorySettingsView"
+import CoreMemoryEditor from "./CoreMemoryEditor"
 
 /**
  * MemoryPanel - Memory management UI.
@@ -13,7 +18,9 @@ import MemoryListView from "./MemoryListView"
  *   memories + global memories. Used inside Agent edit panel's Memory tab.
  */
 export default function MemoryPanel({ agentId, compact }: { agentId?: string; compact?: boolean }) {
+  const { t } = useTranslation()
   const isAgentMode = !!agentId
+  const [tab, setTab] = useState<"settings" | "manage">("settings")
 
   const data = useMemoryData({ agentId, isAgentMode })
 
@@ -27,6 +34,36 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
     return <MemoryFormView data={data} />
   }
 
-  // ── List View (default) ──
-  return <MemoryListView data={data} isAgentMode={isAgentMode} compact={compact} />
+  return (
+    <Tabs
+      value={tab}
+      onValueChange={(value) => setTab(value as "settings" | "manage")}
+      className="flex-1 flex flex-col min-h-0"
+    >
+      <div className="px-6 pt-2 shrink-0">
+        <TabsList>
+          <TabsTrigger value="settings">{t("settings.memoryTabs.settings")}</TabsTrigger>
+          <TabsTrigger value="manage">{t("settings.memoryTabs.manage")}</TabsTrigger>
+        </TabsList>
+      </div>
+
+      <TabsContent value="settings" className="flex-1 min-h-0 outline-none">
+        <MemorySettingsView data={data} isAgentMode={isAgentMode} />
+      </TabsContent>
+
+      <TabsContent value="manage" className="flex-1 min-h-0 outline-none">
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="w-full">
+            {!isAgentMode && <CoreMemoryEditor scope="global" />}
+            <MemoryListView
+              data={data}
+              isAgentMode={isAgentMode}
+              compact={compact}
+              embedded
+            />
+          </div>
+        </div>
+      </TabsContent>
+    </Tabs>
+  )
 }

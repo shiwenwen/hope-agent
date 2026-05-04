@@ -974,6 +974,10 @@
     "skillHealth": "Estado",
     "memory": "Memoria",
     "memoryDesc": "Memorias persistentes que ayudan a la IA a recordar contexto entre conversaciones",
+    "memoryTabs": {
+      "settings": "Configuración de memoria",
+      "manage": "Gestión de memoria"
+    },
     "activeMemoryTitle": "Recuerdo activo de memoria",
     "activeMemoryDesc": "Al inicio de cada turno del usuario, ejecuta una side query acotada para destilar la memoria más relevante en una frase e inyectarla junto al prompt del sistema. Los tiempos de espera y fallos caen silenciosamente al recall pasivo — nunca bloquean el chat.",
     "activeMemoryTimeout": "Tiempo de espera (ms)",

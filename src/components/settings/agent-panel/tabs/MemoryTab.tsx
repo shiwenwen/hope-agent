@@ -5,9 +5,13 @@ import { Textarea } from "@/components/ui/textarea"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { Button } from "@/components/ui/button"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Loader2, Check, Save } from "lucide-react"
-import MemoryPanel from "@/components/settings/MemoryPanel"
+import ExtractConfig from "@/components/settings/memory-panel/ExtractConfig"
+import MemoryFormView from "@/components/settings/memory-panel/MemoryFormView"
+import MemoryListView from "@/components/settings/memory-panel/MemoryListView"
 import MemoryBudgetInputs from "@/components/settings/memory-panel/MemoryBudgetInputs"
+import { useMemoryData } from "@/components/settings/memory-panel/useMemoryData"
 import { logger } from "@/lib/logger"
 import type {
   AgentConfig,
@@ -33,6 +37,8 @@ interface MemoryTabProps {
 
 export default function MemoryTab({ agentId, openclawMode, config, updateConfig }: MemoryTabProps) {
   const { t } = useTranslation()
+  const memoryData = useMemoryData({ agentId, isAgentMode: true })
+  const [tab, setTab] = useState<"settings" | "manage">("settings")
   const [content, setContent] = useState("")
   const [originalContent, setOriginalContent] = useState("")
   const [loaded, setLoaded] = useState(false)
@@ -110,174 +116,195 @@ export default function MemoryTab({ agentId, openclawMode, config, updateConfig 
     })
   }
 
-  return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-auto">
-      {/* Active Memory (Phase B1) */}
-      <div className="px-6 pt-6 pb-2 shrink-0 w-full">
-        <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col pr-4">
-              <label className="text-sm font-semibold">
-                {t("settings.activeMemoryTitle")}
-              </label>
-              <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                {t("settings.activeMemoryDesc")}
-              </p>
-            </div>
-            <Switch
-              checked={activeMemory.enabled}
-              onCheckedChange={(v) => updateActiveMemory({ enabled: v })}
-            />
-          </div>
-          {activeMemory.enabled && (
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="text-muted-foreground">
-                  {t("settings.activeMemoryTimeout")}
-                </span>
-                <Input
-                  type="number"
-                  min={200}
-                  max={15000}
-                  step={100}
-                  className="h-8 text-xs"
-                  value={activeMemory.timeoutMs}
-                  onChange={(e) =>
-                    updateActiveMemory({
-                      timeoutMs: Math.max(200, Math.min(15000, Number(e.target.value) || 0)),
-                    })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="text-muted-foreground">
-                  {t("settings.activeMemoryCacheTtl")}
-                </span>
-                <Input
-                  type="number"
-                  min={0}
-                  max={600}
-                  className="h-8 text-xs"
-                  value={activeMemory.cacheTtlSecs}
-                  onChange={(e) =>
-                    updateActiveMemory({
-                      cacheTtlSecs: Math.max(0, Math.min(600, Number(e.target.value) || 0)),
-                    })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="text-muted-foreground">
-                  {t("settings.activeMemoryMaxChars")}
-                </span>
-                <Input
-                  type="number"
-                  min={40}
-                  max={2000}
-                  className="h-8 text-xs"
-                  value={activeMemory.maxChars}
-                  onChange={(e) =>
-                    updateActiveMemory({
-                      maxChars: Math.max(40, Math.min(2000, Number(e.target.value) || 0)),
-                    })
-                  }
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-xs">
-                <span className="text-muted-foreground">
-                  {t("settings.activeMemoryCandidateLimit")}
-                </span>
-                <Input
-                  type="number"
-                  min={1}
-                  max={100}
-                  className="h-8 text-xs"
-                  value={activeMemory.candidateLimit}
-                  onChange={(e) =>
-                    updateActiveMemory({
-                      candidateLimit: Math.max(1, Math.min(100, Number(e.target.value) || 0)),
-                    })
-                  }
-                />
-              </label>
-            </div>
-          )}
-        </div>
-      </div>
+  if (memoryData.view === "add" || memoryData.view === "edit") {
+    return <MemoryFormView data={memoryData} />
+  }
 
-      {/* Memory Budget override (Agent level) */}
-      <div className="px-6 pt-2 pb-2 shrink-0 w-full">
-        <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col pr-4">
-              <label className="text-sm font-semibold">
-                {t("settings.memoryBudget.title")}
-              </label>
-              <p className="text-[11px] text-muted-foreground/70 mt-0.5">
-                {t("settings.memoryBudget.agentOverrideDesc")}
-              </p>
+  return (
+    <div className="w-full">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => setTab(value as "settings" | "manage")}
+        className="w-full"
+      >
+        <div className="px-6 pt-2 shrink-0">
+          <TabsList>
+            <TabsTrigger value="settings">{t("settings.memoryTabs.settings")}</TabsTrigger>
+            <TabsTrigger value="manage">{t("settings.memoryTabs.manage")}</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="settings" className="px-6 pb-6 outline-none">
+          <div className="w-full space-y-4 pt-4">
+            {/* Active Memory (Phase B1) */}
+            <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col pr-4">
+                  <label className="text-sm font-semibold">
+                    {t("settings.activeMemoryTitle")}
+                  </label>
+                  <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                    {t("settings.activeMemoryDesc")}
+                  </p>
+                </div>
+                <Switch
+                  checked={activeMemory.enabled}
+                  onCheckedChange={(v) => updateActiveMemory({ enabled: v })}
+                />
+              </div>
+              {activeMemory.enabled && (
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="text-muted-foreground">
+                      {t("settings.activeMemoryTimeout")}
+                    </span>
+                    <Input
+                      type="number"
+                      min={200}
+                      max={15000}
+                      step={100}
+                      className="h-8 text-xs"
+                      value={activeMemory.timeoutMs}
+                      onChange={(e) =>
+                        updateActiveMemory({
+                          timeoutMs: Math.max(200, Math.min(15000, Number(e.target.value) || 0)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="text-muted-foreground">
+                      {t("settings.activeMemoryCacheTtl")}
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={600}
+                      className="h-8 text-xs"
+                      value={activeMemory.cacheTtlSecs}
+                      onChange={(e) =>
+                        updateActiveMemory({
+                          cacheTtlSecs: Math.max(0, Math.min(600, Number(e.target.value) || 0)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="text-muted-foreground">
+                      {t("settings.activeMemoryMaxChars")}
+                    </span>
+                    <Input
+                      type="number"
+                      min={40}
+                      max={2000}
+                      className="h-8 text-xs"
+                      value={activeMemory.maxChars}
+                      onChange={(e) =>
+                        updateActiveMemory({
+                          maxChars: Math.max(40, Math.min(2000, Number(e.target.value) || 0)),
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="flex flex-col gap-1 text-xs">
+                    <span className="text-muted-foreground">
+                      {t("settings.activeMemoryCandidateLimit")}
+                    </span>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={100}
+                      className="h-8 text-xs"
+                      value={activeMemory.candidateLimit}
+                      onChange={(e) =>
+                        updateActiveMemory({
+                          candidateLimit: Math.max(1, Math.min(100, Number(e.target.value) || 0)),
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
             </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                {t("settings.memoryBudget.useGlobalDefault")}
-              </span>
-              <Switch
-                checked={useGlobalBudget}
-                onCheckedChange={(v) =>
-                  updateMemoryBudget(v ? null : { ...DEFAULT_MEMORY_BUDGET })
-                }
+
+            {/* Memory Budget override (Agent level) */}
+            <div className="rounded-lg border border-border/60 bg-secondary/20 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex flex-col pr-4">
+                  <label className="text-sm font-semibold">
+                    {t("settings.memoryBudget.title")}
+                  </label>
+                  <p className="text-[11px] text-muted-foreground/70 mt-0.5">
+                    {t("settings.memoryBudget.agentOverrideDesc")}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-muted-foreground">
+                    {t("settings.memoryBudget.useGlobalDefault")}
+                  </span>
+                  <Switch
+                    checked={useGlobalBudget}
+                    onCheckedChange={(v) =>
+                      updateMemoryBudget(v ? null : { ...DEFAULT_MEMORY_BUDGET })
+                    }
+                  />
+                </div>
+              </div>
+              <MemoryBudgetInputs
+                value={budgetValue}
+                onChange={(next) => updateMemoryBudget(next)}
+                disabled={useGlobalBudget}
               />
             </div>
-          </div>
-          <MemoryBudgetInputs
-            value={budgetValue}
-            onChange={(next) => updateMemoryBudget(next)}
-            disabled={useGlobalBudget}
-          />
-        </div>
-      </div>
 
-      {/* Core Memory Editor */}
-      <div className="px-6 pt-4 pb-4 shrink-0 w-full">
-        <div className="flex items-center justify-between mb-1">
-          <h3 className="text-sm font-semibold">{t("settings.coreMemory")}</h3>
-          {loaded && (
-            <Button
-              size="sm"
-              className="gap-1.5 h-7 text-xs"
-              disabled={saving || !hasChanges}
-              onClick={handleSave}
-              variant={saveStatus === "saved" ? "outline" : saveStatus === "failed" ? "destructive" : "default"}
-            >
-              {saving ? (
-                <><Loader2 className="h-3 w-3 animate-spin" />{t("common.saving")}</>
-              ) : saveStatus === "saved" ? (
-                <><Check className="h-3 w-3" />{t("common.saved")}</>
-              ) : (
-                <><Save className="h-3 w-3" />{t("common.save")}</>
-              )}
-            </Button>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground mb-3">{t("settings.coreMemoryAgentDesc")}</p>
-        {openclawMode && (
-          <div className="rounded-lg border border-green-500/30 bg-green-500/5 px-3 py-2 mb-3">
-            <p className="text-xs text-green-600 dark:text-green-400">
-              {t("settings.openclawMemoryHint")}
-            </p>
+            <ExtractConfig data={memoryData} isAgentMode />
           </div>
-        )}
-        {loaded && (
-          <Textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder={t("settings.coreMemoryPlaceholder")}
-            className="min-h-[100px] max-h-[200px] text-sm font-mono resize-y"
-          />
-        )}
-      </div>
-      {/* Existing Memory Panel */}
-      <MemoryPanel agentId={agentId} compact />
+        </TabsContent>
+
+        <TabsContent value="manage" className="p-6 outline-none">
+          {/* Core Memory Editor */}
+          <div className="mb-4 w-full">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="text-sm font-semibold">{t("settings.coreMemory")}</h3>
+              {loaded && (
+                <Button
+                  size="sm"
+                  className="gap-1.5 h-7 text-xs"
+                  disabled={saving || !hasChanges}
+                  onClick={handleSave}
+                  variant={saveStatus === "saved" ? "outline" : saveStatus === "failed" ? "destructive" : "default"}
+                >
+                  {saving ? (
+                    <><Loader2 className="h-3 w-3 animate-spin" />{t("common.saving")}</>
+                  ) : saveStatus === "saved" ? (
+                    <><Check className="h-3 w-3" />{t("common.saved")}</>
+                  ) : (
+                    <><Save className="h-3 w-3" />{t("common.save")}</>
+                  )}
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mb-3">{t("settings.coreMemoryAgentDesc")}</p>
+            {openclawMode && (
+              <div className="rounded-lg border border-green-500/30 bg-green-500/5 px-3 py-2 mb-3">
+                <p className="text-xs text-green-600 dark:text-green-400">
+                  {t("settings.openclawMemoryHint")}
+                </p>
+              </div>
+            )}
+            {loaded && (
+              <Textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder={t("settings.coreMemoryPlaceholder")}
+                className="min-h-[100px] max-h-[200px] text-sm font-mono resize-y"
+              />
+            )}
+          </div>
+
+          <MemoryListView data={memoryData} isAgentMode compact embedded />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

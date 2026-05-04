@@ -974,6 +974,10 @@
     "skillHealth": "Saúde",
     "memory": "Memória",
     "memoryDesc": "Memórias persistentes que ajudam a IA a lembrar contexto entre conversas",
+    "memoryTabs": {
+      "settings": "Configurações de memória",
+      "manage": "Gerenciamento de memória"
+    },
     "activeMemoryTitle": "Recall de memória ativo",
     "activeMemoryDesc": "No início de cada turno do usuário, execute uma side query limitada para destilar a memória mais relevante em uma frase e injetá-la junto ao prompt do sistema. Timeouts e falhas caem silenciosamente no recall passivo — nunca bloqueiam a conversa.",
     "activeMemoryTimeout": "Timeout (ms)",

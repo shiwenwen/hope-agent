@@ -974,6 +974,10 @@
     "skillHealth": "Kesihatan",
     "memory": "Ingatan",
     "memoryDesc": "Ingatan kekal yang membantu AI mengingati konteks merentasi perbualan",
+    "memoryTabs": {
+      "settings": "Tetapan ingatan",
+      "manage": "Pengurusan ingatan"
+    },
     "activeMemoryTitle": "Recall memori aktif",
     "activeMemoryDesc": "Pada permulaan setiap giliran pengguna, jalankan side query bertimbang untuk merumuskan memori paling relevan dalam satu ayat dan suntikkannya bersama prompt sistem. Timeout dan kegagalan akan senyap jatuh ke recall pasif — tidak pernah menghalang sembang.",
     "activeMemoryTimeout": "Timeout (ms)",
