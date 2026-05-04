@@ -7,7 +7,9 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0] - 2026-05-04
+
+首次公开发布。本节按 Keep a Changelog 的 Added / Changed / Fixed / Documentation / Removed 分类汇总 0.1.0 全部改动；下方「原始首发批次（2026-04-19 准备）」按子系统重新组织同一批改动的子集，便于跨子系统检索。
 
 ### Added
 
@@ -225,9 +227,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **首次启动引导向导 — GUI Wizard(PR 2/3)**:`src/components/onboarding/` 新增完整 9 步 React 向导(Welcome+语言 / Provider / Profile / Personality / Safety / Skills / Server / Channels / Summary),StepIndicator 进度条区分"已完成/已跳过/当前/未来",NavigationFooter 统一 Back/Skip/Next 按钮,Provider 步 Skip 按钮标红 + AlertDialog 二次确认。中途退出顶部 X 持久化 draft + step,下次启动自动恢复。Summary 页聚合 Web GUI URL(自动带 `?token=`)+ LAN IP + QR 方便手机访问。App.tsx 入口改读 `get_onboarding_state()` 路由到 `onboarding` view;存量用户被 `infer_legacy_completed` 推断为已完成 v1 不打扰。设置 → 通用 → 系统 Tab 新增"重新运行引导向导"按钮,12 种语言补齐 `onboarding.*` 命名空间(en/zh 原生 + 其余 placeholder),`sync-i18n --check` 全绿。
 - **首次启动引导向导 — CLI Wizard(PR 3/3)**:`src-tauri/src/cli_onboarding/` 新增 9 步 TTY wizard,`prompt.rs` 手搓 input / select / multiselect / confirm / password(rpassword)helpers 避免引入重量级 TUI 依赖。`hope-agent server start` 首次启动检测 `std::io::IsTerminal`:是 TTY 就运行完整交互 wizard,非 TTY(systemd / Docker / pipe)打印 "unconfigured notice" 并带默认配置启动,引导用户在 Web GUI 完成。新增 `hope-agent server setup [--reset]` 子命令让管理员在装服务前单独跑 wizard。`hope-agent acp` 模式下 onboarding 未完成时 hard-fail + 非零退出码,保护 NDJSON 协议流不被人类提示污染。每个 step 通过 `ha_core::onboarding::apply::*` 复用 GUI wizard 的持久化路径,行为严格一致。
 
-## [0.1.0] - 2026-04-19
+### 原始首发批次（2026-04-19 准备）
 
-首次公开发布。以下为 0.1.0 对外发布合并进来的全部改动。
+首次公开发布筹备期间按子系统组织的改动汇总（与上方 Added / Changed / Fixed 段合并构成 0.1.0 全部内容）。
 
 ### 品牌 & 工程重命名
 
