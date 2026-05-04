@@ -21,6 +21,17 @@ export function useTeam(teamId: string | null) {
   const [loading, setLoading] = useState(false)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
+  const [stateTeamId, setStateTeamId] = useState(teamId)
+  if (stateTeamId !== teamId) {
+    setStateTeamId(teamId)
+    setTeam(null)
+    setMembers([])
+    setMessages([])
+    setTasks([])
+    setHasMore(false)
+    setLoadingMore(false)
+    setLoading(Boolean(teamId))
+  }
   const teamIdRef = useRef(teamId)
   teamIdRef.current = teamId
 
@@ -50,7 +61,9 @@ export function useTeam(teamId: string | null) {
     } catch {
       // Ignore errors during reload
     } finally {
-      setLoading(false)
+      if (teamIdRef.current === teamId) {
+        setLoading(false)
+      }
     }
   }, [teamId])
 
@@ -90,13 +103,6 @@ export function useTeam(teamId: string | null) {
   useEffect(() => {
     if (teamId) {
       reload()
-    } else {
-      setTeam(null)
-      setMembers([])
-      setMessages([])
-      setTasks([])
-      setHasMore(false)
-      setLoadingMore(false)
     }
   }, [teamId, reload])
 

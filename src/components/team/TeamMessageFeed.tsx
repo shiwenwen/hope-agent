@@ -8,6 +8,7 @@ import type { TeamMessage, TeamMember } from "./teamTypes"
 import { TeamMessageBubble } from "./TeamMessageBubble"
 
 interface TeamMessageFeedProps {
+  teamId: string
   messages: TeamMessage[]
   members: TeamMember[]
   onSendMessage: (to: string | null, content: string) => void
@@ -22,6 +23,7 @@ const MAX_DOM_MESSAGES = 200
 const UNLOAD_BATCH = 30
 
 export function TeamMessageFeed({
+  teamId,
   messages,
   members,
   onSendMessage,
@@ -31,19 +33,36 @@ export function TeamMessageFeed({
 }: TeamMessageFeedProps) {
   const { t } = useTranslation()
   const [draft, setDraft] = useState("")
+  const [draftTeam, setDraftTeam] = useState(teamId)
+  if (draftTeam !== teamId) {
+    setDraftTeam(teamId)
+    setDraft("")
+  }
   const containerRef = useRef<HTMLDivElement | null>(null)
   const contentRef = useRef<HTMLDivElement | null>(null)
-
-  const teamId = messages[messages.length - 1]?.teamId ?? "team-feed"
 
   const atBottomRef = useRef(true)
 
   // Windowed view: see MessageList for rationale.
   const [displayedStart, setDisplayedStart] = useState(0)
   const [displayedStartTeam, setDisplayedStartTeam] = useState<string>(teamId)
+  const [displayedStartMessagesLength, setDisplayedStartMessagesLength] = useState(
+    messages.length,
+  )
   if (displayedStartTeam !== teamId) {
     setDisplayedStartTeam(teamId)
+    setDisplayedStartMessagesLength(messages.length)
     setDisplayedStart(0)
+  } else if (displayedStartMessagesLength !== messages.length) {
+    // Message content streaming reuses the same item, so this only runs on append/reload.
+    const prevLength = displayedStartMessagesLength
+    setDisplayedStartMessagesLength(messages.length)
+    if (
+      displayedStart !== 0 &&
+      (messages.length < prevLength || displayedStart >= messages.length)
+    ) {
+      setDisplayedStart(0)
+    }
   }
   const displayedStartRef = useRef(displayedStart)
   // eslint-disable-next-line react-hooks/refs -- ref-as-snapshot

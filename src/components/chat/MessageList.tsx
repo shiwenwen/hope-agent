@@ -113,9 +113,23 @@ export default function MessageList({
   // Reset on session swap via the prop-derived state pattern below.
   const [displayedStart, setDisplayedStart] = useState(0)
   const [displayedStartSession, setDisplayedStartSession] = useState(sessionKey)
+  const [displayedStartMessagesLength, setDisplayedStartMessagesLength] = useState(
+    messages.length,
+  )
   if (displayedStartSession !== sessionKey) {
     setDisplayedStartSession(sessionKey)
+    setDisplayedStartMessagesLength(messages.length)
     setDisplayedStart(0)
+  } else if (displayedStartMessagesLength !== messages.length) {
+    // Message content streaming reuses the same item, so this only runs on append/reload.
+    const prevLength = displayedStartMessagesLength
+    setDisplayedStartMessagesLength(messages.length)
+    if (
+      displayedStart !== 0 &&
+      (messages.length < prevLength || displayedStart >= messages.length)
+    ) {
+      setDisplayedStart(0)
+    }
   }
   // Refs mirror state/props for the scroll listener which is bound in an
   // effect with deps {sessionKey, hasMore, loadingMore, onLoadMore} — keeping
@@ -316,7 +330,13 @@ export default function MessageList({
   // user bubble into view and re-arm follow-bottom so the assistant stream tails.
   const lastUserKey = useMemo(() => getLatestUserTurnKey(messages), [messages])
   const lastSeenUserKeyRef = useRef<string | null>(lastUserKey)
+  const lastSeenUserSessionRef = useRef(sessionKey)
   useEffect(() => {
+    if (lastSeenUserSessionRef.current !== sessionKey) {
+      lastSeenUserSessionRef.current = sessionKey
+      lastSeenUserKeyRef.current = lastUserKey
+      return
+    }
     if (!lastUserKey || lastUserKey === lastSeenUserKeyRef.current) return
     lastSeenUserKeyRef.current = lastUserKey
 
@@ -344,7 +364,7 @@ export default function MessageList({
     } else {
       el.scrollTop = el.scrollHeight
     }
-  }, [lastUserKey])
+  }, [lastUserKey, sessionKey])
 
   // Search-result jump: scroll target dbId into view + 2s highlight pulse.
   // If the target is outside the windowed slice (`displayedStart > targetIdx`),
