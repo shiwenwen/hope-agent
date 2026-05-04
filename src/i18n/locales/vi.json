@@ -2167,7 +2167,8 @@
         "downloadOllama": "Tải từ ollama.com",
         "recheck": "Phát hiện lại",
         "startOllama": "Khởi động Ollama",
-        "installModel": "Cài và chạy {{model}}"
+        "installModel": "Cài và chạy {{model}}",
+        "alreadyActive": "{{model}} là mô hình mặc định"
       },
       "install": {
         "title": "Đang cài và khởi động Ollama một chạm",
@@ -2203,15 +2204,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Cài đặt và kích hoạt {{model}}",
+        "enable": "Kích hoạt {{model}}",
+        "alreadyActive": "{{model}} đang hoạt động",
+        "downloadOllama": "Tải Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Đang cấu hình tìm kiếm vector",
+        "switchingEmbeddingModel": "Đang chuyển mô hình embedding"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2269,6 +2272,7 @@
         "idleDisabled": "Bật tìm kiếm vector và thêm bộ nhớ trước khi xây dựng lại.",
         "running": "Đang xây dựng lại vector bộ nhớ",
         "progress": "{{done}} / {{total}} bộ nhớ",
+        "perSecond": "{{count}} bộ nhớ/giây",
         "phaseKeep": "Đang xây dựng lại và giữ mục hiện có",
         "phaseFresh": "Đang xây dựng lại từ đầu",
         "cancelling": "Đang hủy…",
@@ -2373,6 +2377,39 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
+      }
+    },
+    "localModelMaintenance": {
+      "kindChat": "trò chuyện",
+      "kindEmbedding": "bộ nhớ",
+      "toggle": {
+        "label": "Tự động duy trì mô hình mặc định",
+        "description": "Liên tục kiểm tra mô hình trò chuyện / bộ nhớ mặc định. Tự động khởi động khi mô hình không chạy và hiển thị hộp thoại khi tệp mô hình bị thiếu. Các mô hình bạn dừng thủ công sẽ không được tự khởi động lại."
+      },
+      "missingDialog": {
+        "title": "Mô hình {{kind}} mặc định bị thiếu",
+        "description": "Mô hình \"{{name}}\" không còn trong Ollama (có thể đã bị xóa từ bên ngoài). Hãy chọn cách khắc phục."
+      },
+      "actions": {
+        "redownload": "Tải lại {{name}}",
+        "switchTo": "Chuyển sang {{name}}",
+        "disableEmbedding": "Tắt tìm kiếm vector",
+        "dismissTemporary": "Bỏ qua 5 phút",
+        "silenceSession": "Không nhắc trong phiên này",
+        "disableAutoMaintenance": "Tắt tự động phát hiện"
+      },
+      "toast": {
+        "redownloadStarted": "Đã bắt đầu tải lại {{name}}",
+        "switched": "Đã chuyển sang {{name}}",
+        "embeddingDisabled": "Đã tắt tìm kiếm vector",
+        "autoMaintenanceDisabled": "Đã tắt tự động phát hiện"
+      },
+      "errors": {
+        "candidateNotFound": "Không tìm thấy mô hình trong danh mục — hãy cài thủ công từ bảng mô hình cục bộ.",
+        "installFailed": "Cài đặt thất bại: {{error}}",
+        "switchFailed": "Chuyển thất bại: {{error}}",
+        "disableFailed": "Không thể tắt tìm kiếm vector: {{error}}",
+        "disableAutoMaintenanceFailed": "Không thể tắt tự động phát hiện: {{error}}"
       }
     },
     "skillsTab": {

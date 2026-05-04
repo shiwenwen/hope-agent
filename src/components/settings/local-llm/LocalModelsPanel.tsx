@@ -20,6 +20,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   AlertDialog,
@@ -36,9 +37,11 @@ import { getTransport } from "@/lib/transport-provider"
 import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
-import { formatBytes, formatDurationCompact } from "@/lib/format"
+import { formatBytes } from "@/lib/format"
+import { formatJobTransferLine } from "@/lib/format-job-transfer"
 import {
   formatLocalModelJobLogLine,
+  isJobSuccessorOf,
   isLocalModelJobActive,
   isLocalModelJobResumable,
   isLocalModelJobTerminal,
@@ -157,6 +160,46 @@ export default function LocalModelsPanel() {
   const [pendingDelete, setPendingDelete] = useState<LocalOllamaModel | null>(null)
   const [pendingCancelJob, setPendingCancelJob] = useState<LocalModelJobSnapshot | null>(null)
   const [pendingEmbeddingDefault, setPendingEmbeddingDefault] = useState<LocalOllamaModel | null>(null)
+  const [autoMaintenanceEnabled, setAutoMaintenanceEnabled] = useState(true)
+
+  useEffect(() => {
+    const refresh = () => {
+      void getTransport()
+        .call<boolean>("get_local_llm_auto_maintenance_enabled")
+        .then((v) => setAutoMaintenanceEnabled(!!v))
+        .catch((e) => {
+          logger.warn(
+            "local-models",
+            "load_auto_maintenance",
+            "Failed to read auto-maintenance flag",
+            e,
+          )
+        })
+    }
+    refresh()
+    // Re-read on every config:changed so the dialog's "Turn off auto-detection"
+    // path (mutates AppConfig from elsewhere) is reflected here. setState with
+    // an unchanged primitive is a no-op in React, so the over-firing is benign.
+    const unlisten = getTransport().listen("config:changed", refresh)
+    return () => unlisten()
+  }, [])
+
+  const toggleAutoMaintenance = useCallback(async (next: boolean) => {
+    const previous = autoMaintenanceEnabled
+    setAutoMaintenanceEnabled(next) // optimistic
+    try {
+      await getTransport().call("set_local_llm_auto_maintenance_enabled", { enabled: next })
+    } catch (e) {
+      setAutoMaintenanceEnabled(previous)
+      logger.error(
+        "local-models",
+        "toggleAutoMaintenance",
+        "Failed to flip auto-maintenance toggle",
+        e,
+      )
+      toast.error(String(e))
+    }
+  }, [autoMaintenanceEnabled])
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTitle, setDialogTitle] = useState("")
@@ -437,12 +480,25 @@ export default function LocalModelsPanel() {
       upsertActiveJob(job)
       refreshAfterTerminalJob(job)
       setCurrentJob((current) => {
-        if (current?.jobId !== job.jobId) return current
-        setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
-        setDialogDone(isLocalModelJobTerminal(job) && !job.error)
-        setDialogError(job.error ?? null)
-        handleTerminalJob(job)
-        return job
+        if (current?.jobId === job.jobId) {
+          setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+          setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+          setDialogError(job.error ?? null)
+          handleTerminalJob(job)
+          return job
+        }
+        if (isJobSuccessorOf(job, current)) {
+          setDialogFrame(localModelJobToProgressFrame(job, phaseLabel))
+          setDialogLogs([])
+          setDialogDone(isLocalModelJobTerminal(job) && !job.error)
+          setDialogError(job.error ?? null)
+          setDialogTitle(t("settings.embedding.reembedJob.title"))
+          setDialogSubtitle(job.modelId)
+          void hydrateJobLogs(job.jobId)
+          handleTerminalJob(job)
+          return job
+        }
+        return current
       })
     }
     const handleLog = (raw: unknown) => {
@@ -467,8 +523,10 @@ export default function LocalModelsPanel() {
     appendDialogLog,
     clearJobRecord,
     handleTerminalJob,
+    hydrateJobLogs,
     phaseLabel,
     refreshAfterTerminalJob,
+    t,
     upsertActiveJob,
   ])
 
@@ -770,20 +828,19 @@ export default function LocalModelsPanel() {
         : t("localModelJobs.pausedSummary", { count: pausedJobCount })
   const jobTransferSummary = useCallback(
     (job: LocalModelJobSnapshot) => {
-      const parts: string[] = []
-      if (job.bytesCompleted != null && job.bytesTotal != null) {
-        parts.push(`${formatBytes(job.bytesCompleted, { maxUnit: "GB" })} / ${formatBytes(job.bytesTotal, { maxUnit: "GB" })}`)
-      }
       const stats = jobTransferStats[job.jobId]
-      if (stats?.speedBps) {
-        parts.push(`${formatBytes(stats.speedBps, { maxUnit: "GB" })}/s`)
-      }
-      if (stats?.etaSeconds != null && Number.isFinite(stats.etaSeconds)) {
-        parts.push(`≈ ${formatDurationCompact(stats.etaSeconds)}`)
-      }
-      return parts.join(" · ")
+      return (
+        formatJobTransferLine({
+          unit: job.kind === "memory_reembed" ? "count" : "bytes",
+          completed: job.bytesCompleted,
+          total: job.bytesTotal,
+          speedBps: stats?.speedBps ?? null,
+          etaSeconds: stats?.etaSeconds ?? null,
+          t,
+        }) ?? ""
+      )
     },
-    [jobTransferStats],
+    [jobTransferStats, t],
   )
 
   return (
@@ -988,6 +1045,22 @@ export default function LocalModelsPanel() {
           </div>
         </div>
       )}
+
+      <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-card/50 p-3">
+        <Switch
+          checked={autoMaintenanceEnabled}
+          onCheckedChange={(v) => void toggleAutoMaintenance(v)}
+          className="mt-0.5"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">
+            {t("settings.localModelMaintenance.toggle.label")}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("settings.localModelMaintenance.toggle.description")}
+          </p>
+        </div>
+      </div>
 
       <Tabs defaultValue="installed" className="space-y-4">
         <TabsList>

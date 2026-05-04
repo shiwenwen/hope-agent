@@ -364,6 +364,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   local_llm_recommend_model:       { method: "GET",    path: "/api/local-llm/recommendation" },
   local_llm_detect_ollama:         { method: "GET",    path: "/api/local-llm/ollama-status" },
   local_llm_known_backends:        { method: "GET",    path: "/api/local-llm/known-backends" },
+  local_llm_chat_catalog:          { method: "GET",    path: "/api/local-llm/chat-catalog" },
   local_llm_start_ollama:          { method: "POST",   path: "/api/local-llm/start" },
   local_llm_list_models:           { method: "GET",    path: "/api/local-llm/models" },
   local_llm_search_library:        { method: "GET",    path: "/api/local-llm/library/search" },
@@ -387,6 +388,12 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   local_model_job_pause:           { method: "POST",   path: "/api/local-model-jobs/{jobId}/pause" },
   local_model_job_retry:           { method: "POST",   path: "/api/local-model-jobs/{jobId}/retry" },
   local_model_job_clear:           { method: "DELETE", path: "/api/local-model-jobs/{jobId}" },
+  local_model_alert_dismiss_temporary:    { method: "POST", path: "/api/local-model/alert/dismiss-temporary" },
+  local_model_alert_silence_session:      { method: "POST", path: "/api/local-model/alert/silence-session" },
+  get_local_llm_auto_maintenance_enabled: { method: "GET",  path: "/api/local-model/auto-maintenance" },
+  set_local_llm_auto_maintenance_enabled: { method: "PUT",  path: "/api/local-model/auto-maintenance" },
+  local_model_auto_maintenance_disable:   { method: "POST", path: "/api/local-model/auto-maintenance/disable" },
+  local_model_auto_maintenance_trigger:   { method: "POST", path: "/api/local-model/auto-maintenance/trigger" },
 
   // -- Skills --
   get_skills:                      { method: "GET",    path: "/api/skills" },
@@ -654,6 +661,13 @@ function normalizeCommandResponse(command: string, value: unknown): unknown {
         return record.message;
       case "searxng_docker_deploy":
         return record.url;
+      case "get_active_model":
+        // axum 路由用 `Json(json!({"active_model": ...}))` 包了一层；Tauri 命令
+        // 直接返回 `Option<ActiveModelRef>`，前端跨 transport 期望统一类型。
+        return record.active_model ?? null;
+      case "get_local_llm_auto_maintenance_enabled":
+        // axum 路由返回 `{ enabled: bool }`；Tauri 命令直接返回 bool。
+        return record.enabled ?? false;
     }
   }
   return value;

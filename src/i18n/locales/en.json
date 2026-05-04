@@ -2167,7 +2167,8 @@
         "downloadOllama": "Download from ollama.com",
         "recheck": "Re-check",
         "startOllama": "Start Ollama",
-        "installModel": "Install & launch {{model}}"
+        "installModel": "Install & launch {{model}}",
+        "alreadyActive": "{{model}} is the active model"
       },
       "install": {
         "title": "One-click installing and starting Ollama",
@@ -2205,13 +2206,15 @@
       "buttons": {
         "activate": "Install & enable {{model}}",
         "enable": "Enable {{model}}",
+        "alreadyActive": "{{model}} is active",
         "downloadOllama": "Download Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Configuring vector search",
+        "switchingEmbeddingModel": "Switching embedding model"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2269,6 +2272,7 @@
         "idleDisabled": "Enable vector search and add memories before rebuilding.",
         "running": "Rebuilding memory vectors",
         "progress": "{{done}} / {{total}} memories",
+        "perSecond": "{{count}}/s memories",
         "phaseKeep": "Rebuilding (keep existing)",
         "phaseFresh": "Rebuilding from scratch",
         "cancelling": "Cancelling…",
@@ -2373,6 +2377,39 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
+      }
+    },
+    "localModelMaintenance": {
+      "kindChat": "chat",
+      "kindEmbedding": "memory",
+      "toggle": {
+        "label": "Auto-maintain default models",
+        "description": "Continuously check the default chat / memory model. Silently start it when it's not running, and pop a dialog when its file goes missing. Models you stopped manually stay stopped."
+      },
+      "missingDialog": {
+        "title": "Default {{kind}} model is missing",
+        "description": "Model \"{{name}}\" is no longer present in Ollama (likely removed externally). Pick how you want to recover."
+      },
+      "actions": {
+        "redownload": "Redownload {{name}}",
+        "switchTo": "Switch to {{name}}",
+        "disableEmbedding": "Disable vector search",
+        "dismissTemporary": "Dismiss for 5 min",
+        "silenceSession": "Don't remind this session",
+        "disableAutoMaintenance": "Turn off auto-detection"
+      },
+      "toast": {
+        "redownloadStarted": "Redownload of {{name}} started",
+        "switched": "Switched to {{name}}",
+        "embeddingDisabled": "Vector search disabled",
+        "autoMaintenanceDisabled": "Auto-detection turned off"
+      },
+      "errors": {
+        "candidateNotFound": "Model not found in catalog — please install it manually from the Local Models panel.",
+        "installFailed": "Install failed: {{error}}",
+        "switchFailed": "Switch failed: {{error}}",
+        "disableFailed": "Failed to disable vector search: {{error}}",
+        "disableAutoMaintenanceFailed": "Failed to turn off auto-detection: {{error}}"
       }
     },
     "skillsTab": {

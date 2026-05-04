@@ -243,7 +243,7 @@ pub async fn reembed_start(
         .ok_or_else(|| {
             AppError::bad_request("No memory embedding model is currently active".to_string())
         })?;
-    let snapshot = ha_core::memory::start_memory_reembed_job(&model_id, body.mode)?;
+    let snapshot = ha_core::memory::start_memory_reembed_job(&model_id, body.mode, None)?;
     Ok(Json(snapshot))
 }
 

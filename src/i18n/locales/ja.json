@@ -2167,7 +2167,8 @@
         "downloadOllama": "ollama.com からダウンロード",
         "recheck": "再検出",
         "startOllama": "Ollama を起動",
-        "installModel": "{{model}} を導入して起動"
+        "installModel": "{{model}} を導入して起動",
+        "alreadyActive": "{{model}} は既定のモデルです"
       },
       "install": {
         "title": "Ollama をワンクリックでインストールして起動中",
@@ -2203,15 +2204,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "{{model}} をインストールして有効化",
+        "enable": "{{model}} を有効化",
+        "alreadyActive": "{{model}} は有効です",
+        "downloadOllama": "Ollama をダウンロード"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "ベクトル検索を構成中",
+        "switchingEmbeddingModel": "埋め込みモデルを切り替え中"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2269,6 +2272,7 @@
         "idleDisabled": "再構築するには、ベクトル検索を有効にしてメモリを追加してください。",
         "running": "メモリベクトルを再構築中",
         "progress": "{{done}} / {{total}} 件のメモリ",
+        "perSecond": "{{count}} 件/秒",
         "phaseKeep": "既存を残して再構築中",
         "phaseFresh": "最初から再構築中",
         "cancelling": "キャンセル中…",
@@ -2373,6 +2377,39 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
+      }
+    },
+    "localModelMaintenance": {
+      "kindChat": "チャット",
+      "kindEmbedding": "メモリ",
+      "toggle": {
+        "label": "デフォルトモデルの自動メンテナンス",
+        "description": "デフォルトのチャット / メモリモデルを継続的に監視し、停止時に静かに再起動します。モデルファイルが見つからない場合はダイアログを表示します。手動で停止したモデルは自動起動しません。"
+      },
+      "missingDialog": {
+        "title": "デフォルトの{{kind}}モデルが見つかりません",
+        "description": "モデル「{{name}}」は Ollama に存在しません（外部から削除された可能性があります）。対処方法を選択してください。"
+      },
+      "actions": {
+        "redownload": "{{name}} を再ダウンロード",
+        "switchTo": "{{name}} に切り替え",
+        "disableEmbedding": "ベクトル検索をオフ",
+        "dismissTemporary": "5 分間スキップ",
+        "silenceSession": "このセッションでは通知しない",
+        "disableAutoMaintenance": "自動検出をオフ"
+      },
+      "toast": {
+        "redownloadStarted": "{{name}} の再ダウンロードを開始しました",
+        "switched": "{{name}} に切り替えました",
+        "embeddingDisabled": "ベクトル検索をオフにしました",
+        "autoMaintenanceDisabled": "自動検出をオフにしました"
+      },
+      "errors": {
+        "candidateNotFound": "モデルがカタログに見つかりません — ローカルモデルパネルから手動でインストールしてください。",
+        "installFailed": "インストールに失敗:{{error}}",
+        "switchFailed": "切り替えに失敗:{{error}}",
+        "disableFailed": "ベクトル検索のオフに失敗:{{error}}",
+        "disableAutoMaintenanceFailed": "自動検出のオフに失敗:{{error}}"
       }
     },
     "skillsTab": {

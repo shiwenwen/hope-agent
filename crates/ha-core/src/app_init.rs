@@ -764,6 +764,16 @@ pub async fn start_background_tasks() {
     if init_mcp_subsystem() && primary {
         crate::mcp::watchdog::spawn_watchdog_loop();
     }
+
+    // Default-model auto-maintenance watchdog. Self-heals stale Ollama
+    // models (cold-started after `ollama stop`, OS reboot, daemon restart)
+    // and surfaces missing-file alerts via `local_model:missing_alert`.
+    // Primary-only because two processes preloading the same model would
+    // wastefully race; secondaries see the same `running` state through
+    // the shared Ollama daemon anyway.
+    if primary {
+        crate::local_llm::auto_maintainer::spawn_loop();
+    }
 }
 
 /// ACP-shaped background tasks. ACP is a single-conversation-per-process

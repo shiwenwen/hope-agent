@@ -2167,7 +2167,8 @@
         "downloadOllama": "Descargar desde ollama.com",
         "recheck": "Volver a comprobar",
         "startOllama": "Iniciar Ollama",
-        "installModel": "Instalar y abrir {{model}}"
+        "installModel": "Instalar y abrir {{model}}",
+        "alreadyActive": "{{model}} es el modelo activo"
       },
       "install": {
         "title": "Instalando e iniciando Ollama con un clic",
@@ -2203,15 +2204,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Instalar y activar {{model}}",
+        "enable": "Activar {{model}}",
+        "alreadyActive": "{{model}} activo",
+        "downloadOllama": "Descargar Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Configurando la búsqueda vectorial",
+        "switchingEmbeddingModel": "Cambiando el modelo de embedding"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2269,6 +2272,7 @@
         "idleDisabled": "Activa la búsqueda vectorial y añade memorias antes de reconstruir.",
         "running": "Reconstruyendo vectores de memoria",
         "progress": "{{done}} / {{total}} memorias",
+        "perSecond": "{{count}} memorias/s",
         "phaseKeep": "Reconstruyendo sin borrar los existentes",
         "phaseFresh": "Reconstruyendo desde cero",
         "cancelling": "Cancelando…",
@@ -2373,6 +2377,39 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
+      }
+    },
+    "localModelMaintenance": {
+      "kindChat": "chat",
+      "kindEmbedding": "memoria",
+      "toggle": {
+        "label": "Mantener modelos predeterminados automáticamente",
+        "description": "Comprueba continuamente el modelo de chat / memoria predeterminado. Lo arranca en silencio cuando no está en ejecución y muestra un diálogo si el archivo del modelo desaparece. Los modelos que detuviste manualmente permanecen detenidos."
+      },
+      "missingDialog": {
+        "title": "Falta el modelo de {{kind}} predeterminado",
+        "description": "El modelo \"{{name}}\" ya no está en Ollama (probablemente eliminado externamente). Elige cómo recuperarlo."
+      },
+      "actions": {
+        "redownload": "Volver a descargar {{name}}",
+        "switchTo": "Cambiar a {{name}}",
+        "disableEmbedding": "Desactivar búsqueda vectorial",
+        "dismissTemporary": "Ignorar 5 min",
+        "silenceSession": "No avisar en esta sesión",
+        "disableAutoMaintenance": "Desactivar detección automática"
+      },
+      "toast": {
+        "redownloadStarted": "Descarga de {{name}} iniciada",
+        "switched": "Cambiado a {{name}}",
+        "embeddingDisabled": "Búsqueda vectorial desactivada",
+        "autoMaintenanceDisabled": "Detección automática desactivada"
+      },
+      "errors": {
+        "candidateNotFound": "Modelo no encontrado en el catálogo — instálalo manualmente desde el panel de modelos locales.",
+        "installFailed": "Error al instalar: {{error}}",
+        "switchFailed": "Error al cambiar: {{error}}",
+        "disableFailed": "Error al desactivar búsqueda vectorial: {{error}}",
+        "disableAutoMaintenanceFailed": "Error al desactivar detección automática: {{error}}"
       }
     },
     "skillsTab": {

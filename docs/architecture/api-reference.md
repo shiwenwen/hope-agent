@@ -123,6 +123,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `skills:auto_review_complete` | skills 草稿审核完成 |
 | `recap_progress` | `/recap` 深度复盘进度 |
 | `local_model_job:created` / `:updated` / `:log` / `:completed` | 后台本地模型任务（Ollama 安装、模型拉取、Embedding 拉取）的全生命周期事件，payload 见 `LocalModelJobSnapshot` / `LocalModelJobLogEntry` |
+| `local_model:missing_alert` | 默认 chat / embedding 模型文件丢失，payload 见 `LocalModelMissingAlert`（kind / missingModelId / alternatives / canRedownload / canDisableEmbedding） |
 
 ### Canvas
 
@@ -563,6 +564,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `local_llm_detect_hardware` | `GET /api/local-llm/hardware` | ✅ |
 | `local_llm_recommend_model` | `GET /api/local-llm/recommendation` | ✅ |
+| `local_llm_chat_catalog` | `GET /api/local-llm/chat-catalog` | ✅ |
 | `local_llm_detect_ollama` | `GET /api/local-llm/ollama-status` | ✅ |
 | `local_llm_known_backends` | `GET /api/local-llm/known-backends` | ✅ |
 | `local_llm_start_ollama` | `POST /api/local-llm/start` | ✅ |
@@ -594,6 +596,19 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `local_model_job_pause` | `POST /api/local-model-jobs/{id}/pause` | ✅ |
 | `local_model_job_retry` | `POST /api/local-model-jobs/{id}/retry` | ✅ |
 | `local_model_job_clear` | `DELETE /api/local-model-jobs/{id}` | ✅ |
+
+### Local model auto-maintenance
+
+后台 watchdog（[`crates/ha-core/src/local_llm/auto_maintainer.rs`](../../crates/ha-core/src/local_llm/auto_maintainer.rs)）监测默认 chat / embedding 模型。模型停止时自动 preload；模型文件丢失时 emit `local_model:missing_alert` 事件，前端顶层 `MissingModelDialog` 弹窗。
+
+| Tauri Command | HTTP | 状态 |
+|---|---|---|
+| `get_local_llm_auto_maintenance_enabled` | `GET /api/local-model/auto-maintenance` | ✅ |
+| `set_local_llm_auto_maintenance_enabled` | `PUT /api/local-model/auto-maintenance` | ✅ |
+| `local_model_alert_dismiss_temporary` | `POST /api/local-model/alert/dismiss-temporary` | ✅ |
+| `local_model_alert_silence_session` | `POST /api/local-model/alert/silence-session` | ✅ |
+| `local_model_auto_maintenance_disable` | `POST /api/local-model/auto-maintenance/disable` | ✅ |
+| `local_model_auto_maintenance_trigger` | `POST /api/local-model/auto-maintenance/trigger` | ✅ |
 
 ### Skills
 

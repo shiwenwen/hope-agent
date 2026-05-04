@@ -187,6 +187,12 @@ pub struct LocalModelJobSnapshot {
     pub created_at: i64,
     pub updated_at: i64,
     pub completed_at: Option<i64>,
+    /// 当本任务是另一个任务的「续作 / 后续步骤」时，指向触发它的那个任务的
+    /// `job_id`。当前唯一的用法是 embedding 模型切换：embedding pull 任务结束
+    /// 后，会派发一个独立的 `MemoryReembed` 任务做记忆重嵌入；该 reembed 任务
+    /// 的本字段值为发起它的 pull 任务的 `job_id`。前端 dialog 据此把 currentJob
+    /// 自动接力到 reembed 任务上，免去用户感知的「卡在 99%」假象。
+    pub successor_for_job_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -224,7 +230,8 @@ impl LocalModelJobsDB {
                 result_json TEXT,
                 created_at INTEGER NOT NULL,
                 updated_at INTEGER NOT NULL,
-                completed_at INTEGER
+                completed_at INTEGER,
+                successor_for_job_id TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_local_model_jobs_status
                 ON local_model_jobs(status, created_at);
@@ -248,6 +255,10 @@ impl LocalModelJobsDB {
             "ALTER TABLE local_model_jobs ADD COLUMN bytes_total INTEGER",
             [],
         );
+        let _ = conn.execute(
+            "ALTER TABLE local_model_jobs ADD COLUMN successor_for_job_id TEXT",
+            [],
+        );
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -258,8 +269,9 @@ impl LocalModelJobsDB {
         conn.execute(
             "INSERT INTO local_model_jobs (
                 job_id, kind, model_id, display_name, status, phase, percent,
-                bytes_completed, bytes_total, error, result_json, created_at, updated_at, completed_at
-            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                bytes_completed, bytes_total, error, result_json, created_at, updated_at, completed_at,
+                successor_for_job_id
+            ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
             params![
                 job.job_id,
                 job.kind.as_str(),
@@ -275,6 +287,7 @@ impl LocalModelJobsDB {
                 job.created_at,
                 job.updated_at,
                 job.completed_at,
+                job.successor_for_job_id,
             ],
         )?;
         Ok(())
@@ -404,7 +417,7 @@ impl LocalModelJobsDB {
             .prepare(
                 "SELECT job_id, kind, model_id, display_name, status, phase, percent,
                     bytes_completed, bytes_total, error, result_json, created_at, updated_at,
-                    completed_at
+                    completed_at, successor_for_job_id
                FROM local_model_jobs
               WHERE job_id=?1",
             )?
@@ -419,7 +432,7 @@ impl LocalModelJobsDB {
         let mut stmt = conn.prepare(
             "SELECT job_id, kind, model_id, display_name, status, phase, percent,
                     bytes_completed, bytes_total, error, result_json, created_at, updated_at,
-                    completed_at
+                    completed_at, successor_for_job_id
                FROM local_model_jobs
               ORDER BY created_at DESC
               LIMIT 100",
@@ -430,6 +443,25 @@ impl LocalModelJobsDB {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    fn has_active_of_kind(&self, kind: LocalModelJobKind) -> Result<bool> {
+        let conn = self.conn.lock().unwrap_or_else(|p| p.into_inner());
+        // `active` 与 `LocalModelJobStatus::is_terminal()` 的对偶——后者把
+        // running / cancelling 之外都算 terminal（含 paused）。`paused` 列也得排除，
+        // 否则用户曾暂停过 reembed 后 has_active_reembed 永远为 true，短路失效。
+        let exists: i64 = conn
+            .query_row(
+                "SELECT 1 FROM local_model_jobs
+                  WHERE kind = ?1
+                    AND status IN ('running','cancelling')
+                  LIMIT 1",
+                params![kind.as_str()],
+                |row| row.get(0),
+            )
+            .optional()?
+            .unwrap_or(0);
+        Ok(exists > 0)
     }
 
     fn insert_log(&self, job_id: &str, kind: &str, message: &str) -> Result<LocalModelJobLogEntry> {
@@ -545,6 +577,7 @@ fn row_to_job(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalModelJobSnapshot
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
         completed_at: row.get(13)?,
+        successor_for_job_id: row.get(14)?,
     })
 }
 
@@ -580,6 +613,12 @@ pub fn replay_interrupted_jobs() {
 
 pub fn list_jobs() -> Result<Vec<LocalModelJobSnapshot>> {
     require_db()?.list()
+}
+
+/// 单 row SELECT 探测「指定 kind 的 job 是否存在非 terminal 实例」，避免调用
+/// `list_jobs()` 拉 100 行 + 反序列化 result_json 只为算 1 个 bool。
+pub fn has_active_job(kind: LocalModelJobKind) -> Result<bool> {
+    require_db()?.has_active_of_kind(kind)
 }
 
 pub fn get_job(job_id: &str) -> Result<Option<LocalModelJobSnapshot>> {
@@ -773,6 +812,9 @@ pub fn retry_job(
             crate::memory::reembed_job::start_memory_reembed_job(
                 &job.model_id,
                 crate::memory::reembed_job::ReembedMode::KeepExisting,
+                // Retry 路径里没有可跟踪的发起者任务（用户从历史任务卡片重启
+                // 一次失败的 reembed），故不传 successor 链路。
+                None,
             )
         }
     }?;
@@ -809,6 +851,23 @@ where
     F: FnOnce(String, CancellationToken) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = ()> + Send + 'static,
 {
+    spawn_job_with_successor(kind, model_id, display_name, None, runner)
+}
+
+/// `spawn_job` 的扩展版：允许把新任务声明为另一个任务的「续作」，前端 dialog
+/// 据此把 currentJob 自动接力到后继任务（典型场景：embedding pull 完成后的
+/// `MemoryReembed` 任务由 pull 任务派发，前端 dialog 切到 reembed 进度）。
+pub(crate) fn spawn_job_with_successor<F, Fut>(
+    kind: LocalModelJobKind,
+    model_id: String,
+    display_name: String,
+    successor_for_job_id: Option<String>,
+    runner: F,
+) -> Result<LocalModelJobSnapshot>
+where
+    F: FnOnce(String, CancellationToken) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = ()> + Send + 'static,
+{
     let db = require_db()?.clone();
     let job_id = format!("lmjob_{}", uuid::Uuid::new_v4().simple());
     let now = now_secs();
@@ -827,6 +886,7 @@ where
         created_at: now,
         updated_at: now,
         completed_at: None,
+        successor_for_job_id,
     };
     db.insert_job(&snapshot)?;
     crate::app_info!(
@@ -901,6 +961,7 @@ async fn run_embedding_job(
                 model,
                 move |progress| handle_pull_progress(&job_id_for_progress, progress, &throttle),
                 cancel_token.clone(),
+                Some(job_id.clone()),
             )
             .await
             .map(|config| json!(config))
@@ -1526,6 +1587,7 @@ mod tests {
             created_at: now_secs(),
             updated_at: now_secs(),
             completed_at: None,
+            successor_for_job_id: None,
         }
     }
 

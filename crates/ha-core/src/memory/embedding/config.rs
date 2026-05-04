@@ -415,11 +415,18 @@ pub fn memory_embedding_state(
     selection: &MemoryEmbeddingSelection,
     models: &[EmbeddingModelConfig],
 ) -> MemoryEmbeddingState {
-    let current_model = selection
-        .model_config_id
-        .as_ref()
-        .and_then(|id| models.iter().find(|model| &model.id == id))
-        .cloned();
+    // selection.model_config_id 在 disabled 状态下被 disable_memory_embedding
+    // 保留（pause 语义），但 current_model 字段必须是 None——否则 UI 会显示
+    // 「memoryActive」徽标，与已 clear 的 embedder 实际状态冲突。
+    let current_model = if selection.enabled {
+        selection
+            .model_config_id
+            .as_ref()
+            .and_then(|id| models.iter().find(|model| &model.id == id))
+            .cloned()
+    } else {
+        None
+    };
     let active_signature = current_model.as_ref().map(EmbeddingModelConfig::signature);
     let needs_reembed = selection.enabled
         && active_signature.is_some()

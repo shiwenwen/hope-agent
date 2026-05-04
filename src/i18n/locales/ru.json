@@ -2167,7 +2167,8 @@
         "downloadOllama": "Скачать с ollama.com",
         "recheck": "Обновить",
         "startOllama": "Запустить Ollama",
-        "installModel": "Установить и запустить {{model}}"
+        "installModel": "Установить и запустить {{model}}",
+        "alreadyActive": "{{model}} — модель по умолчанию"
       },
       "install": {
         "title": "Установка и запуск Ollama в один клик",
@@ -2203,15 +2204,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Установить и включить {{model}}",
+        "enable": "Включить {{model}}",
+        "alreadyActive": "{{model}} активна",
+        "downloadOllama": "Скачать Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Настройка векторного поиска",
+        "switchingEmbeddingModel": "Переключение модели эмбеддинга"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2269,6 +2272,7 @@
         "idleDisabled": "Включите векторный поиск и добавьте память перед перестроением.",
         "running": "Перестраиваются векторы памяти",
         "progress": "{{done}} / {{total}} записей памяти",
+        "perSecond": "{{count}} записей/с",
         "phaseKeep": "Перестроение с сохранением текущих",
         "phaseFresh": "Перестроение с нуля",
         "cancelling": "Отмена…",
@@ -2373,6 +2377,39 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
+      }
+    },
+    "localModelMaintenance": {
+      "kindChat": "чат",
+      "kindEmbedding": "память",
+      "toggle": {
+        "label": "Автоматическое обслуживание моделей по умолчанию",
+        "description": "Постоянно проверяет состояние модели чата / памяти по умолчанию. Запускает её в фоновом режиме, если она не работает, и показывает диалог, если файл модели пропадает. Модели, остановленные вручную, не запускаются автоматически."
+      },
+      "missingDialog": {
+        "title": "Модель {{kind}} по умолчанию отсутствует",
+        "description": "Модель «{{name}}» больше не доступна в Ollama (вероятно удалена извне). Выберите, как восстановить."
+      },
+      "actions": {
+        "redownload": "Скачать {{name}} заново",
+        "switchTo": "Переключиться на {{name}}",
+        "disableEmbedding": "Отключить векторный поиск",
+        "dismissTemporary": "Отложить на 5 мин",
+        "silenceSession": "Не напоминать в этой сессии",
+        "disableAutoMaintenance": "Выключить автообнаружение"
+      },
+      "toast": {
+        "redownloadStarted": "Загрузка {{name}} начата",
+        "switched": "Переключено на {{name}}",
+        "embeddingDisabled": "Векторный поиск отключён",
+        "autoMaintenanceDisabled": "Автообнаружение выключено"
+      },
+      "errors": {
+        "candidateNotFound": "Модель не найдена в каталоге — установите её вручную из панели локальных моделей.",
+        "installFailed": "Ошибка установки: {{error}}",
+        "switchFailed": "Ошибка переключения: {{error}}",
+        "disableFailed": "Не удалось отключить векторный поиск: {{error}}",
+        "disableAutoMaintenanceFailed": "Не удалось выключить автообнаружение: {{error}}"
       }
     },
     "skillsTab": {

@@ -339,7 +339,40 @@
       "openclawImportPartial": "{{total}} 件中 {{success}} 件の Agent をインポート",
       "defaultAgentTitle": "デフォルト Agent",
       "defaultAgentLabel": "デフォルト Agent",
-      "defaultAgentDesc": "Agent が指定されていない場合の既定値（プロジェクト → IM チャネル → この設定の順にフォールバック）"
+      "defaultAgentDesc": "Agent が指定されていない場合の既定値（プロジェクト → IM チャネル → この設定の順にフォールバック）",
+      "localModelMaintenance": {
+        "kindChat": "チャット",
+        "kindEmbedding": "メモリ",
+        "toggle": {
+          "label": "デフォルトモデルの自動メンテナンス",
+          "description": "デフォルトのチャット / メモリモデルを継続的に監視し、停止時に静かに再起動します。モデルファイルが見つからない場合はダイアログを表示します。手動で停止したモデルは自動起動しません。"
+        },
+        "missingDialog": {
+          "title": "デフォルトの{{kind}}モデルが見つかりません",
+          "description": "モデル「{{name}}」は Ollama に存在しません（外部から削除された可能性があります）。対処方法を選択してください。"
+        },
+        "actions": {
+          "redownload": "{{name}} を再ダウンロード",
+          "switchTo": "{{name}} に切り替え",
+          "disableEmbedding": "ベクトル検索をオフ",
+          "dismissTemporary": "5 分間スキップ",
+          "silenceSession": "このセッションでは通知しない",
+          "disableAutoMaintenance": "自動検出をオフ"
+        },
+        "toast": {
+          "redownloadStarted": "{{name}} の再ダウンロードを開始しました",
+          "switched": "{{name}} に切り替えました",
+          "embeddingDisabled": "ベクトル検索をオフにしました",
+          "autoMaintenanceDisabled": "自動検出をオフにしました"
+        },
+        "errors": {
+          "candidateNotFound": "モデルがカタログに見つかりません — ローカルモデルパネルから手動でインストールしてください。",
+          "installFailed": "インストールに失敗:{{error}}",
+          "switchFailed": "切り替えに失敗:{{error}}",
+          "disableFailed": "ベクトル検索のオフに失敗:{{error}}",
+          "disableAutoMaintenanceFailed": "自動検出のオフに失敗:{{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "このエージェントは削除されました",
@@ -989,7 +1022,40 @@
       "openclawImportPartial": "{{total}}개 중 {{success}}개 agent 가져옴",
       "defaultAgentTitle": "기본 Agent",
       "defaultAgentLabel": "기본 Agent",
-      "defaultAgentDesc": "Agent가 지정되지 않은 경우 사용 (프로젝트 → IM 채널 → 이 기본값 순으로 대체)"
+      "defaultAgentDesc": "Agent가 지정되지 않은 경우 사용 (프로젝트 → IM 채널 → 이 기본값 순으로 대체)",
+      "localModelMaintenance": {
+        "kindChat": "채팅",
+        "kindEmbedding": "메모리",
+        "toggle": {
+          "label": "기본 모델 자동 유지",
+          "description": "기본 채팅 / 메모리 모델 상태를 지속적으로 확인하여 중지된 경우 자동으로 시작합니다. 모델 파일이 외부에서 삭제되면 대화상자로 알립니다. 수동으로 중지한 모델은 자동 시작되지 않습니다."
+        },
+        "missingDialog": {
+          "title": "기본 {{kind}} 모델이 누락되었습니다",
+          "description": "모델 \"{{name}}\"이(가) Ollama에 더 이상 존재하지 않습니다(외부에서 삭제된 것으로 보임). 처리 방법을 선택하세요."
+        },
+        "actions": {
+          "redownload": "{{name}} 다시 다운로드",
+          "switchTo": "{{name}}(으)로 전환",
+          "disableEmbedding": "벡터 검색 끄기",
+          "dismissTemporary": "5분 동안 무시",
+          "silenceSession": "이번 세션에서는 알리지 않음",
+          "disableAutoMaintenance": "자동 감지 끄기"
+        },
+        "toast": {
+          "redownloadStarted": "{{name}} 다시 다운로드가 시작되었습니다",
+          "switched": "{{name}}(으)로 전환했습니다",
+          "embeddingDisabled": "벡터 검색이 비활성화되었습니다",
+          "autoMaintenanceDisabled": "자동 감지가 비활성화되었습니다"
+        },
+        "errors": {
+          "candidateNotFound": "카탈로그에서 모델을 찾을 수 없습니다 — 로컬 모델 패널에서 수동으로 설치하세요.",
+          "installFailed": "설치 실패: {{error}}",
+          "switchFailed": "전환 실패: {{error}}",
+          "disableFailed": "벡터 검색을 끄지 못했습니다: {{error}}",
+          "disableAutoMaintenanceFailed": "자동 감지를 끄지 못했습니다: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "이 에이전트는 삭제되었습니다",
@@ -1639,7 +1705,40 @@
       "openclawImportPartial": "已匯入 {{total}} 個中的 {{success}} 個 Agent",
       "defaultAgentTitle": "預設 Agent",
       "defaultAgentLabel": "預設 Agent",
-      "defaultAgentDesc": "未指定 Agent 時，依「專案 → IM 頻道 → 此預設值」順序回退"
+      "defaultAgentDesc": "未指定 Agent 時，依「專案 → IM 頻道 → 此預設值」順序回退",
+      "localModelMaintenance": {
+        "kindChat": "對話",
+        "kindEmbedding": "記憶",
+        "toggle": {
+          "label": "自動維護預設模型",
+          "description": "持續監測預設對話 / 記憶模型，未執行時靜默啟動；模型檔案被外部刪除時彈窗提示。您手動停止過的模型不會被自動啟動。"
+        },
+        "missingDialog": {
+          "title": "預設{{kind}}模型已遺失",
+          "description": "模型「{{name}}」已不在 Ollama 本機儲存中（可能被外部刪除）。請選擇如何處理。"
+        },
+        "actions": {
+          "redownload": "重新下載 {{name}}",
+          "switchTo": "切換至 {{name}}",
+          "disableEmbedding": "關閉向量搜尋",
+          "dismissTemporary": "暫時忽略 (5 分鐘)",
+          "silenceSession": "本次啟動不再提醒",
+          "disableAutoMaintenance": "關閉自動偵測"
+        },
+        "toast": {
+          "redownloadStarted": "已開始重新下載 {{name}}",
+          "switched": "已切換至 {{name}}",
+          "embeddingDisabled": "已關閉向量搜尋",
+          "autoMaintenanceDisabled": "已關閉自動偵測"
+        },
+        "errors": {
+          "candidateNotFound": "在模型目錄中找不到該模型,請前往本機模型面板手動安裝。",
+          "installFailed": "啟動安裝失敗:{{error}}",
+          "switchFailed": "切換失敗:{{error}}",
+          "disableFailed": "關閉向量搜尋失敗:{{error}}",
+          "disableAutoMaintenanceFailed": "關閉自動偵測失敗:{{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "此 Agent 已被刪除",
@@ -2289,7 +2388,40 @@
       "openclawImportPartial": "{{total}} agent'ın {{success}} tanesi içe aktarıldı",
       "defaultAgentTitle": "Varsayılan Agent",
       "defaultAgentLabel": "Varsayılan Agent",
-      "defaultAgentDesc": "Bir Agent belirtilmediğinde Proje → IM kanalı → bu varsayılana geri döner."
+      "defaultAgentDesc": "Bir Agent belirtilmediğinde Proje → IM kanalı → bu varsayılana geri döner.",
+      "localModelMaintenance": {
+        "kindChat": "sohbet",
+        "kindEmbedding": "bellek",
+        "toggle": {
+          "label": "Varsayılan modelleri otomatik bakım",
+          "description": "Varsayılan sohbet / bellek modelini sürekli kontrol eder. Çalışmıyorsa sessizce başlatır ve model dosyası eksilirse iletişim kutusu gösterir. Manuel olarak durdurduğunuz modeller durmuş kalır."
+        },
+        "missingDialog": {
+          "title": "Varsayılan {{kind}} modeli eksik",
+          "description": "\"{{name}}\" modeli artık Ollama'da bulunmuyor (büyük olasılıkla harici olarak silindi). Nasıl ilerlemek istediğinizi seçin."
+        },
+        "actions": {
+          "redownload": "{{name}} yeniden indir",
+          "switchTo": "{{name}} modeline geç",
+          "disableEmbedding": "Vektör aramasını kapat",
+          "dismissTemporary": "5 dk için yoksay",
+          "silenceSession": "Bu oturumda hatırlatma",
+          "disableAutoMaintenance": "Otomatik tespiti kapat"
+        },
+        "toast": {
+          "redownloadStarted": "{{name}} yeniden indirme başladı",
+          "switched": "{{name}} modeline geçildi",
+          "embeddingDisabled": "Vektör araması kapatıldı",
+          "autoMaintenanceDisabled": "Otomatik tespit kapatıldı"
+        },
+        "errors": {
+          "candidateNotFound": "Model katalogda bulunamadı — Yerel Modeller panelinden manuel olarak yükleyin.",
+          "installFailed": "Yükleme başarısız: {{error}}",
+          "switchFailed": "Geçiş başarısız: {{error}}",
+          "disableFailed": "Vektör araması kapatılamadı: {{error}}",
+          "disableAutoMaintenanceFailed": "Otomatik tespit kapatılamadı: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Bu ajan silindi",
@@ -2939,7 +3071,40 @@
       "openclawImportPartial": "Đã nhập {{success}} trong {{total}} agent",
       "defaultAgentTitle": "Agent mặc định",
       "defaultAgentLabel": "Agent mặc định",
-      "defaultAgentDesc": "Sử dụng khi không chỉ định Agent: Dự án → Kênh IM → giá trị mặc định này."
+      "defaultAgentDesc": "Sử dụng khi không chỉ định Agent: Dự án → Kênh IM → giá trị mặc định này.",
+      "localModelMaintenance": {
+        "kindChat": "trò chuyện",
+        "kindEmbedding": "bộ nhớ",
+        "toggle": {
+          "label": "Tự động duy trì mô hình mặc định",
+          "description": "Liên tục kiểm tra mô hình trò chuyện / bộ nhớ mặc định. Tự động khởi động khi mô hình không chạy và hiển thị hộp thoại khi tệp mô hình bị thiếu. Các mô hình bạn dừng thủ công sẽ không được tự khởi động lại."
+        },
+        "missingDialog": {
+          "title": "Mô hình {{kind}} mặc định bị thiếu",
+          "description": "Mô hình \"{{name}}\" không còn trong Ollama (có thể đã bị xóa từ bên ngoài). Hãy chọn cách khắc phục."
+        },
+        "actions": {
+          "redownload": "Tải lại {{name}}",
+          "switchTo": "Chuyển sang {{name}}",
+          "disableEmbedding": "Tắt tìm kiếm vector",
+          "dismissTemporary": "Bỏ qua 5 phút",
+          "silenceSession": "Không nhắc trong phiên này",
+          "disableAutoMaintenance": "Tắt tự động phát hiện"
+        },
+        "toast": {
+          "redownloadStarted": "Đã bắt đầu tải lại {{name}}",
+          "switched": "Đã chuyển sang {{name}}",
+          "embeddingDisabled": "Đã tắt tìm kiếm vector",
+          "autoMaintenanceDisabled": "Đã tắt tự động phát hiện"
+        },
+        "errors": {
+          "candidateNotFound": "Không tìm thấy mô hình trong danh mục — hãy cài thủ công từ bảng mô hình cục bộ.",
+          "installFailed": "Cài đặt thất bại: {{error}}",
+          "switchFailed": "Chuyển thất bại: {{error}}",
+          "disableFailed": "Không thể tắt tìm kiếm vector: {{error}}",
+          "disableAutoMaintenanceFailed": "Không thể tắt tự động phát hiện: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agent này đã bị xoá",
@@ -3589,7 +3754,40 @@
       "openclawImportPartial": "Importados {{success}} de {{total}} agents",
       "defaultAgentTitle": "Agent padrão",
       "defaultAgentLabel": "Agent padrão",
-      "defaultAgentDesc": "Usado quando nenhum Agent é especificado, recuando por Projeto → canal IM → este padrão."
+      "defaultAgentDesc": "Usado quando nenhum Agent é especificado, recuando por Projeto → canal IM → este padrão.",
+      "localModelMaintenance": {
+        "kindChat": "chat",
+        "kindEmbedding": "memória",
+        "toggle": {
+          "label": "Manutenção automática dos modelos padrão",
+          "description": "Verifica continuamente o modelo de chat / memória padrão. Inicia em silêncio quando não está em execução e mostra um diálogo se o arquivo do modelo desaparecer. Modelos parados manualmente permanecem parados."
+        },
+        "missingDialog": {
+          "title": "O modelo de {{kind}} padrão está ausente",
+          "description": "O modelo \"{{name}}\" já não está no Ollama (provavelmente removido externamente). Escolha como prosseguir."
+        },
+        "actions": {
+          "redownload": "Baixar novamente {{name}}",
+          "switchTo": "Mudar para {{name}}",
+          "disableEmbedding": "Desativar busca vetorial",
+          "dismissTemporary": "Ignorar por 5 min",
+          "silenceSession": "Não avisar nesta sessão",
+          "disableAutoMaintenance": "Desativar detecção automática"
+        },
+        "toast": {
+          "redownloadStarted": "Download de {{name}} iniciado",
+          "switched": "Alterado para {{name}}",
+          "embeddingDisabled": "Busca vetorial desativada",
+          "autoMaintenanceDisabled": "Detecção automática desativada"
+        },
+        "errors": {
+          "candidateNotFound": "Modelo não encontrado no catálogo — instale-o manualmente pelo painel de modelos locais.",
+          "installFailed": "Falha ao instalar: {{error}}",
+          "switchFailed": "Falha ao alterar: {{error}}",
+          "disableFailed": "Falha ao desativar busca vetorial: {{error}}",
+          "disableAutoMaintenanceFailed": "Falha ao desativar detecção automática: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente foi excluído",
@@ -4239,7 +4437,40 @@
       "openclawImportPartial": "Импортировано {{success}} из {{total}} agents",
       "defaultAgentTitle": "Агент по умолчанию",
       "defaultAgentLabel": "Агент по умолчанию",
-      "defaultAgentDesc": "Используется, когда агент не указан: Проект → IM-канал → это значение по умолчанию."
+      "defaultAgentDesc": "Используется, когда агент не указан: Проект → IM-канал → это значение по умолчанию.",
+      "localModelMaintenance": {
+        "kindChat": "чат",
+        "kindEmbedding": "память",
+        "toggle": {
+          "label": "Автоматическое обслуживание моделей по умолчанию",
+          "description": "Постоянно проверяет состояние модели чата / памяти по умолчанию. Запускает её в фоновом режиме, если она не работает, и показывает диалог, если файл модели пропадает. Модели, остановленные вручную, не запускаются автоматически."
+        },
+        "missingDialog": {
+          "title": "Модель {{kind}} по умолчанию отсутствует",
+          "description": "Модель «{{name}}» больше не доступна в Ollama (вероятно удалена извне). Выберите, как восстановить."
+        },
+        "actions": {
+          "redownload": "Скачать {{name}} заново",
+          "switchTo": "Переключиться на {{name}}",
+          "disableEmbedding": "Отключить векторный поиск",
+          "dismissTemporary": "Отложить на 5 мин",
+          "silenceSession": "Не напоминать в этой сессии",
+          "disableAutoMaintenance": "Выключить автообнаружение"
+        },
+        "toast": {
+          "redownloadStarted": "Загрузка {{name}} начата",
+          "switched": "Переключено на {{name}}",
+          "embeddingDisabled": "Векторный поиск отключён",
+          "autoMaintenanceDisabled": "Автообнаружение выключено"
+        },
+        "errors": {
+          "candidateNotFound": "Модель не найдена в каталоге — установите её вручную из панели локальных моделей.",
+          "installFailed": "Ошибка установки: {{error}}",
+          "switchFailed": "Ошибка переключения: {{error}}",
+          "disableFailed": "Не удалось отключить векторный поиск: {{error}}",
+          "disableAutoMaintenanceFailed": "Не удалось выключить автообнаружение: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Этот агент был удалён",
@@ -4889,7 +5120,40 @@
       "openclawImportPartial": "تم استيراد {{success}} من {{total}} Agents",
       "defaultAgentTitle": "الوكيل الافتراضي",
       "defaultAgentLabel": "الوكيل الافتراضي",
-      "defaultAgentDesc": "يُستخدم عندما لا يتم تحديد وكيل (المشروع → قناة IM → هذا الإعداد الافتراضي)."
+      "defaultAgentDesc": "يُستخدم عندما لا يتم تحديد وكيل (المشروع → قناة IM → هذا الإعداد الافتراضي).",
+      "localModelMaintenance": {
+        "kindChat": "محادثة",
+        "kindEmbedding": "ذاكرة",
+        "toggle": {
+          "label": "الصيانة التلقائية للنماذج الافتراضية",
+          "description": "يفحص باستمرار نموذج المحادثة / الذاكرة الافتراضي. يشغّله بصمت عندما لا يكون قيد التشغيل ويعرض مربع حوار عند فقدان ملف النموذج. النماذج التي أوقفتها يدويًا تبقى متوقفة."
+        },
+        "missingDialog": {
+          "title": "النموذج الافتراضي لـ {{kind}} مفقود",
+          "description": "النموذج \"{{name}}\" لم يعد موجودًا في Ollama (ربما تم حذفه خارجيًا). اختر كيف تريد استعادته."
+        },
+        "actions": {
+          "redownload": "إعادة تنزيل {{name}}",
+          "switchTo": "التبديل إلى {{name}}",
+          "disableEmbedding": "إيقاف البحث المتجه",
+          "dismissTemporary": "تجاهل لمدة 5 دقائق",
+          "silenceSession": "عدم التذكير في هذه الجلسة",
+          "disableAutoMaintenance": "إيقاف الكشف التلقائي"
+        },
+        "toast": {
+          "redownloadStarted": "بدأت إعادة تنزيل {{name}}",
+          "switched": "تم التبديل إلى {{name}}",
+          "embeddingDisabled": "تم إيقاف البحث المتجه",
+          "autoMaintenanceDisabled": "تم إيقاف الكشف التلقائي"
+        },
+        "errors": {
+          "candidateNotFound": "النموذج غير موجود في الكتالوج — يرجى تثبيته يدويًا من لوحة النماذج المحلية.",
+          "installFailed": "فشل التثبيت: {{error}}",
+          "switchFailed": "فشل التبديل: {{error}}",
+          "disableFailed": "فشل إيقاف البحث المتجه: {{error}}",
+          "disableAutoMaintenanceFailed": "فشل إيقاف الكشف التلقائي: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "تم حذف هذا العميل",
@@ -5539,7 +5803,40 @@
       "openclawImportPartial": "Se importaron {{success}} de {{total}} agents",
       "defaultAgentTitle": "Agente predeterminado",
       "defaultAgentLabel": "Agente predeterminado",
-      "defaultAgentDesc": "Se usa cuando no se especifica un Agent: Proyecto → canal IM → este valor predeterminado."
+      "defaultAgentDesc": "Se usa cuando no se especifica un Agent: Proyecto → canal IM → este valor predeterminado.",
+      "localModelMaintenance": {
+        "kindChat": "chat",
+        "kindEmbedding": "memoria",
+        "toggle": {
+          "label": "Mantener modelos predeterminados automáticamente",
+          "description": "Comprueba continuamente el modelo de chat / memoria predeterminado. Lo arranca en silencio cuando no está en ejecución y muestra un diálogo si el archivo del modelo desaparece. Los modelos que detuviste manualmente permanecen detenidos."
+        },
+        "missingDialog": {
+          "title": "Falta el modelo de {{kind}} predeterminado",
+          "description": "El modelo \"{{name}}\" ya no está en Ollama (probablemente eliminado externamente). Elige cómo recuperarlo."
+        },
+        "actions": {
+          "redownload": "Volver a descargar {{name}}",
+          "switchTo": "Cambiar a {{name}}",
+          "disableEmbedding": "Desactivar búsqueda vectorial",
+          "dismissTemporary": "Ignorar 5 min",
+          "silenceSession": "No avisar en esta sesión",
+          "disableAutoMaintenance": "Desactivar detección automática"
+        },
+        "toast": {
+          "redownloadStarted": "Descarga de {{name}} iniciada",
+          "switched": "Cambiado a {{name}}",
+          "embeddingDisabled": "Búsqueda vectorial desactivada",
+          "autoMaintenanceDisabled": "Detección automática desactivada"
+        },
+        "errors": {
+          "candidateNotFound": "Modelo no encontrado en el catálogo — instálalo manualmente desde el panel de modelos locales.",
+          "installFailed": "Error al instalar: {{error}}",
+          "switchFailed": "Error al cambiar: {{error}}",
+          "disableFailed": "Error al desactivar búsqueda vectorial: {{error}}",
+          "disableAutoMaintenanceFailed": "Error al desactivar detección automática: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Este agente ha sido eliminado",
@@ -6189,7 +6486,40 @@
       "openclawImportPartial": "Diimport {{success}} daripada {{total}} agent",
       "defaultAgentTitle": "Agent lalai",
       "defaultAgentLabel": "Agent lalai",
-      "defaultAgentDesc": "Digunakan apabila tiada Agent dinyatakan, jatuh balik melalui Projek → saluran IM → lalai ini."
+      "defaultAgentDesc": "Digunakan apabila tiada Agent dinyatakan, jatuh balik melalui Projek → saluran IM → lalai ini.",
+      "localModelMaintenance": {
+        "kindChat": "sembang",
+        "kindEmbedding": "ingatan",
+        "toggle": {
+          "label": "Penyelenggaraan automatik model lalai",
+          "description": "Memantau model sembang / ingatan lalai secara berterusan. Memulakannya secara senyap apabila tidak berjalan, dan memaparkan dialog apabila fail model hilang. Model yang anda hentikan secara manual akan kekal terhenti."
+        },
+        "missingDialog": {
+          "title": "Model {{kind}} lalai hilang",
+          "description": "Model \"{{name}}\" tidak lagi wujud dalam Ollama (mungkin dipadam secara luaran). Pilih cara untuk pulih."
+        },
+        "actions": {
+          "redownload": "Muat turun semula {{name}}",
+          "switchTo": "Tukar ke {{name}}",
+          "disableEmbedding": "Matikan carian vektor",
+          "dismissTemporary": "Abai 5 minit",
+          "silenceSession": "Jangan ingatkan sesi ini",
+          "disableAutoMaintenance": "Matikan pengesanan automatik"
+        },
+        "toast": {
+          "redownloadStarted": "Muat turun semula {{name}} dimulakan",
+          "switched": "Ditukar ke {{name}}",
+          "embeddingDisabled": "Carian vektor dimatikan",
+          "autoMaintenanceDisabled": "Pengesanan automatik dimatikan"
+        },
+        "errors": {
+          "candidateNotFound": "Model tidak dijumpai dalam katalog — sila pasang secara manual daripada panel Model Tempatan.",
+          "installFailed": "Gagal memasang: {{error}}",
+          "switchFailed": "Gagal menukar: {{error}}",
+          "disableFailed": "Gagal mematikan carian vektor: {{error}}",
+          "disableAutoMaintenanceFailed": "Gagal mematikan pengesanan automatik: {{error}}"
+        }
+      }
     },
     "subagent": {
       "deletedAgentTooltip": "Agen ini telah dipadam",

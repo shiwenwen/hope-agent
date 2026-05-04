@@ -26,8 +26,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::local_model_jobs::{
-    self, append_log, finish_job, spawn_job, update_job_with_bytes, LocalModelJobKind,
-    LocalModelJobSnapshot, LocalModelJobStatus, ProgressThrottle,
+    self, append_log, finish_job, spawn_job_with_successor, update_job_with_bytes,
+    LocalModelJobKind, LocalModelJobSnapshot, LocalModelJobStatus, ProgressThrottle,
 };
 
 /// Phase strings used in `update_job_with_bytes` and looked up by
@@ -36,6 +36,22 @@ use crate::local_model_jobs::{
 /// the single Rust source of truth.
 pub const PHASE_REEMBED_KEEP: &str = "reembed-keep";
 pub const PHASE_REEMBED_FRESH: &str = "reembed-fresh";
+
+/// Cancel any non-terminal `MemoryReembed` jobs. Used both by
+/// [`start_memory_reembed_job`]（保证全局至多一条 reembed 在跑）和
+/// `set_memory_embedding_default` 的「同 signature 短路」分支——否则用户在
+/// 旧 reembed 仍跑期间切换模型再切回，旧任务后续 batch 会把
+/// `last_reembedded_signature` 写成它针对的（已不再活跃的）模型，污染当前
+/// 模型的向量状态。
+pub fn cancel_active_memory_reembed_jobs() {
+    if let Ok(jobs) = local_model_jobs::list_jobs() {
+        for job in jobs {
+            if job.kind == LocalModelJobKind::MemoryReembed && !job.status.is_terminal() {
+                let _ = local_model_jobs::cancel_job(&job.job_id);
+            }
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -67,9 +83,14 @@ impl ReembedMode {
 /// Pre-existing active jobs are cancelled before the new one is spawned. The
 /// old runner's per-batch `cancel.is_cancelled()` check exits at the next
 /// boundary; the SQLite write connection mutex serialises any overlap.
+///
+/// `parent_job_id` 当本次 reembed 由另一个本地模型任务派发（典型场景：embedding
+/// pull 任务结束后自动切换默认模型并触发 reembed）时传入发起者的 `job_id`，
+/// 用于让前端 dialog 自动接力到 reembed 进度。
 pub fn start_memory_reembed_job(
     model_config_id: &str,
     mode: ReembedMode,
+    parent_job_id: Option<&str>,
 ) -> Result<LocalModelJobSnapshot> {
     let store = crate::config::cached_config();
     let model = store
@@ -87,13 +108,7 @@ pub fn start_memory_reembed_job(
         ));
     }
 
-    if let Ok(jobs) = local_model_jobs::list_jobs() {
-        for job in jobs {
-            if job.kind == LocalModelJobKind::MemoryReembed && !job.status.is_terminal() {
-                let _ = local_model_jobs::cancel_job(&job.job_id);
-            }
-        }
-    }
+    cancel_active_memory_reembed_jobs();
 
     if mode == ReembedMode::DeleteAll {
         if let Some(backend) = crate::get_memory_backend() {
@@ -109,10 +124,11 @@ pub fn start_memory_reembed_job(
 
     let signature = model.signature();
 
-    spawn_job(
+    spawn_job_with_successor(
         LocalModelJobKind::MemoryReembed,
         model_config_id.to_string(),
         model.name.clone(),
+        parent_job_id.map(str::to_owned),
         move |job_id, token| async move {
             let final_result = run_reembed(&job_id, mode, &signature, &token).await;
             finish_job(&job_id, final_result, &token);

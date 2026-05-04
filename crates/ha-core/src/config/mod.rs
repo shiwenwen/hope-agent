@@ -612,6 +612,39 @@ pub struct AppConfig {
     /// `mcp_servers=[]` means new installs see no behavioral change.
     #[serde(default)]
     pub mcp_global: crate::mcp::McpGlobalSettings,
+
+    /// Local LLM (Ollama) auto-maintenance + user-stop intent persistence.
+    #[serde(default)]
+    pub local_llm: LocalLlmConfig,
+}
+
+// ── Local LLM (Ollama) auto-maintenance ─────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalLlmConfig {
+    /// Background watchdog that keeps default chat / embedding models
+    /// preloaded and surfaces missing-file alerts.
+    #[serde(default)]
+    pub auto_maintenance: AutoMaintenanceConfig,
+    /// Ollama model tags the user explicitly stopped via the UI. The
+    /// auto-maintainer skips re-preloading any tag in this list — the user's
+    /// stop intent always wins until they manually start the model again.
+    #[serde(default)]
+    pub user_stopped_models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoMaintenanceConfig {
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+}
+
+impl Default for AutoMaintenanceConfig {
+    fn default() -> Self {
+        Self { enabled: true }
+    }
 }
 
 impl Default for AppConfig {
@@ -676,6 +709,7 @@ impl Default for AppConfig {
             onboarding: OnboardingState::default(),
             mcp_servers: Vec::new(),
             mcp_global: crate::mcp::McpGlobalSettings::default(),
+            local_llm: LocalLlmConfig::default(),
         }
     }
 }

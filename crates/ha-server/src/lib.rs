@@ -446,6 +446,27 @@ fn build_router_with_cors(
             "/local-model-jobs/{id}/retry",
             post(routes::local_model_jobs::retry_job),
         )
+        .route(
+            "/local-model/alert/dismiss-temporary",
+            post(routes::local_model_alerts::dismiss_temporary),
+        )
+        .route(
+            "/local-model/alert/silence-session",
+            post(routes::local_model_alerts::silence_session),
+        )
+        .route(
+            "/local-model/auto-maintenance",
+            get(routes::local_model_alerts::get_auto_maintenance)
+                .put(routes::local_model_alerts::set_auto_maintenance),
+        )
+        .route(
+            "/local-model/auto-maintenance/disable",
+            post(routes::local_model_alerts::disable),
+        )
+        .route(
+            "/local-model/auto-maintenance/trigger",
+            post(routes::local_model_alerts::trigger),
+        )
         // Config
         .route("/config/user", get(routes::config::get_user_config))
         .route("/config/user", put(routes::config::save_user_config))
@@ -1255,6 +1276,10 @@ fn build_router_with_cors(
         .route(
             "/local-llm/recommendation",
             get(routes::local_llm::get_recommendation),
+        )
+        .route(
+            "/local-llm/chat-catalog",
+            get(routes::local_llm::get_chat_catalog),
         )
         .route(
             "/local-llm/ollama-status",

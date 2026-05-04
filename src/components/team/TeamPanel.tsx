@@ -160,6 +160,7 @@ export function TeamPanel({
 
           <TabsContent value="messages" className="flex-1 min-h-0">
             <TeamMessageFeed
+              teamId={teamId}
               messages={messages}
               members={members}
               onSendMessage={sendMessage}

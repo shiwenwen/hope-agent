@@ -27,6 +27,7 @@ pub mod types;
 pub use types::*;
 mod management;
 pub use management::*;
+pub mod auto_maintainer;
 
 pub use crate::provider::LOCAL_OLLAMA_BASE_URL as OLLAMA_BASE_URL;
 #[cfg(unix)]
@@ -1028,6 +1029,26 @@ where
         bytes_total: None,
     });
     let result = ensure_ollama_provider_with_model(&model)?;
+
+    // 让模型常驻 Ollama runtime（keep_alive=-1），跟 LocalLlmAssistantCard 的「已
+    // 安装」列表显示对齐（loaded → 停止按钮）；首次对话也省去几秒 cold start。
+    // 失败仅 warn 不阻塞，phase 复用 OllamaPreload job 的 `loading-model` 字符串。
+    on_progress(&PullProgress {
+        model_id: model.id.clone(),
+        phase: "loading-model".into(),
+        percent: Some(99),
+        bytes_completed: None,
+        bytes_total: None,
+    });
+    if let Err(e) = preload_ollama_model(&model.id).await {
+        crate::app_warn!(
+            "local_llm",
+            "preload",
+            "Failed to preload Ollama chat model after install: model={} error={:#}",
+            model.id,
+            e
+        );
+    }
 
     on_progress(&PullProgress {
         model_id,

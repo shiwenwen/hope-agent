@@ -65,6 +65,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `temperature` | `temperature` (0.0–2.0, null = API default) |
 | `tool_timeout` | `toolTimeout` (seconds, 0 = unlimited) |
 | `default_agent` | `defaultAgentId` (string id; `null` / empty falls back to hardcoded `"default"` agent) |
+| `local_llm_auto_maintenance` | `enabled` (bool, default `true`). Background watchdog that re-preloads default Ollama chat / embedding models when they fall out of `ollama ps`, and pops a frontend dialog when their files vanish. Read also returns `userStoppedModels` (Ollama tags the user explicitly stopped via the UI) but that array is **read-only via this skill** — it's owned by the preload/stop UI flow. Disabling stops the watchdog entirely; it does not unload anything currently running. |
 
 ### MEDIUM risk — behavioral changes (cost, context, output quality)
 

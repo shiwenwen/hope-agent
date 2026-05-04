@@ -12,7 +12,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
-import { formatBytes, formatDurationCompact } from "@/lib/format"
+import { formatJobTransferLine } from "@/lib/format-job-transfer"
 import {
   Dialog,
   DialogContent,
@@ -88,6 +88,15 @@ export function InstallProgressDialog({
 
     const now = Date.now()
     const previous = previousBytesRef.current
+    // completed 比上一次记的还小（典型场景：dialog 从 embedding pull 接力到
+    // memory_reembed，bytesCompleted 从下载字节数降到按条数计的 0），重置
+    // previousBytesRef 与 transfer，避免把上一阶段的 speedBps 当成下阶段
+    // 的「N 条/秒」误显示。
+    if (previous && completed < previous.bytes) {
+      previousBytesRef.current = { bytes: completed, timestamp: now }
+      const timeout = window.setTimeout(() => setTransfer({}), 0)
+      return () => window.clearTimeout(timeout)
+    }
     previousBytesRef.current = { bytes: completed, timestamp: now }
 
     if (!previous || completed <= previous.bytes || now <= previous.timestamp) return
@@ -104,24 +113,14 @@ export function InstallProgressDialog({
     return () => window.clearTimeout(timeout)
   }, [frame?.bytesCompleted, frame?.bytesTotal, running])
 
-  const transferSummary = (() => {
-    const completed = frame?.bytesCompleted ?? null
-    const total = frame?.bytesTotal ?? null
-    if (completed == null && total == null) return null
-    const parts: string[] = []
-    if (completed != null && total != null) {
-      parts.push(`${formatBytes(completed, { maxUnit: "GB" })} / ${formatBytes(total, { maxUnit: "GB" })}`)
-    } else if (completed != null) {
-      parts.push(formatBytes(completed, { maxUnit: "GB" }))
-    }
-    if (transfer.speedBps) {
-      parts.push(`${formatBytes(transfer.speedBps, { maxUnit: "GB" })}/s`)
-    }
-    if (transfer.etaSeconds != null && Number.isFinite(transfer.etaSeconds)) {
-      parts.push(`≈ ${formatDurationCompact(transfer.etaSeconds)}`)
-    }
-    return parts.join(" · ")
-  })()
+  const transferSummary = formatJobTransferLine({
+    unit: frame?.unit ?? "bytes",
+    completed: frame?.bytesCompleted ?? null,
+    total: frame?.bytesTotal ?? null,
+    speedBps: transfer.speedBps,
+    etaSeconds: transfer.etaSeconds,
+    t,
+  })
 
   const requestClose = () => {
     if (shouldConfirmClose) {

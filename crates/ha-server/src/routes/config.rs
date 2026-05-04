@@ -545,6 +545,7 @@ pub async fn memory_embedding_set_default(
         &body.model_config_id,
         body.mode,
         "http",
+        None,
     )?))
 }
 

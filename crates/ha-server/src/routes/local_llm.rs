@@ -11,8 +11,9 @@ use serde_json::{json, Value};
 
 use ha_core::local_llm::{
     add_ollama_model_as_embedding_config, delete_ollama_model, detect_hardware, detect_ollama,
-    get_ollama_library_model, list_local_ollama_models, preload_ollama_model, recommend_model,
-    register_ollama_model_as_provider, search_ollama_library, start_ollama, stop_ollama_model,
+    get_ollama_library_model, list_local_ollama_models, model_catalog, preload_ollama_model,
+    recommend_model, register_ollama_model_as_provider, search_ollama_library, start_ollama,
+    stop_ollama_model,
 };
 use ha_core::provider::known_local_backends;
 
@@ -26,6 +27,13 @@ pub async fn get_hardware() -> Json<Value> {
 /// `GET /api/local-llm/recommendation` — best model + alternatives.
 pub async fn get_recommendation() -> Json<Value> {
     Json(json!(recommend_model(&detect_hardware())))
+}
+
+/// `GET /api/local-llm/chat-catalog` — full chat-model catalog regardless
+/// of hardware budget. Used by `MissingModelDialog` to find redownload
+/// candidates that exceed the current recommended budget.
+pub async fn get_chat_catalog() -> Json<Value> {
+    Json(json!(model_catalog()))
 }
 
 /// `GET /api/local-llm/ollama-status` — installed / running probe.

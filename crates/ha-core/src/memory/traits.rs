@@ -243,6 +243,16 @@ pub trait MemoryBackend: Send + Sync {
         Ok(0)
     }
 
+    /// Count memory rows whose `embedding_signature` is missing or differs from
+    /// `target_signature`. Used by `set_memory_embedding_default` to decide
+    /// whether the same-signature short-circuit is safe — if memories were
+    /// added or edited while embedding was disabled, they have NULL signatures
+    /// and **must** be reembedded even though `last_reembedded_signature ==
+    /// target_signature`. Default `Ok(0)` for backends without vector support.
+    fn count_memories_pending_embedding(&self, _target_signature: &str) -> Result<u64> {
+        Ok(0)
+    }
+
     // ── Backend identity & lifecycle ──
 
     /// Short lowercase tag identifying the backend implementation.

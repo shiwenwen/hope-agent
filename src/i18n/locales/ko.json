@@ -2167,7 +2167,8 @@
         "downloadOllama": "ollama.com에서 다운로드",
         "recheck": "다시 감지",
         "startOllama": "Ollama 시작",
-        "installModel": "{{model}} 설치 및 시작"
+        "installModel": "{{model}} 설치 및 시작",
+        "alreadyActive": "{{model}}이(가) 기본 모델입니다"
       },
       "install": {
         "title": "Ollama 원클릭 설치 및 시작 중",
@@ -2203,15 +2204,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "{{model}} 설치 및 활성화",
+        "enable": "{{model}} 활성화",
+        "alreadyActive": "{{model}} 활성화됨",
+        "downloadOllama": "Ollama 다운로드"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "벡터 검색 구성 중",
+        "switchingEmbeddingModel": "임베딩 모델 전환 중"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2269,6 +2272,7 @@
         "idleDisabled": "재빌드하려면 벡터 검색을 켜고 메모리를 추가하세요.",
         "running": "메모리 벡터 재빌드 중",
         "progress": "{{done}} / {{total}}개 메모리",
+        "perSecond": "{{count}}개/초",
         "phaseKeep": "기존 벡터 유지하며 재빌드 중",
         "phaseFresh": "처음부터 재빌드 중",
         "cancelling": "취소 중…",
@@ -2373,6 +2377,39 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
+      }
+    },
+    "localModelMaintenance": {
+      "kindChat": "채팅",
+      "kindEmbedding": "메모리",
+      "toggle": {
+        "label": "기본 모델 자동 유지",
+        "description": "기본 채팅 / 메모리 모델 상태를 지속적으로 확인하여 중지된 경우 자동으로 시작합니다. 모델 파일이 외부에서 삭제되면 대화상자로 알립니다. 수동으로 중지한 모델은 자동 시작되지 않습니다."
+      },
+      "missingDialog": {
+        "title": "기본 {{kind}} 모델이 누락되었습니다",
+        "description": "모델 \"{{name}}\"이(가) Ollama에 더 이상 존재하지 않습니다(외부에서 삭제된 것으로 보임). 처리 방법을 선택하세요."
+      },
+      "actions": {
+        "redownload": "{{name}} 다시 다운로드",
+        "switchTo": "{{name}}(으)로 전환",
+        "disableEmbedding": "벡터 검색 끄기",
+        "dismissTemporary": "5분 동안 무시",
+        "silenceSession": "이번 세션에서는 알리지 않음",
+        "disableAutoMaintenance": "자동 감지 끄기"
+      },
+      "toast": {
+        "redownloadStarted": "{{name}} 다시 다운로드가 시작되었습니다",
+        "switched": "{{name}}(으)로 전환했습니다",
+        "embeddingDisabled": "벡터 검색이 비활성화되었습니다",
+        "autoMaintenanceDisabled": "자동 감지가 비활성화되었습니다"
+      },
+      "errors": {
+        "candidateNotFound": "카탈로그에서 모델을 찾을 수 없습니다 — 로컬 모델 패널에서 수동으로 설치하세요.",
+        "installFailed": "설치 실패: {{error}}",
+        "switchFailed": "전환 실패: {{error}}",
+        "disableFailed": "벡터 검색을 끄지 못했습니다: {{error}}",
+        "disableAutoMaintenanceFailed": "자동 감지를 끄지 못했습니다: {{error}}"
       }
     },
     "skillsTab": {

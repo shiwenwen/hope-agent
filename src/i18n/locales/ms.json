@@ -2167,7 +2167,8 @@
         "downloadOllama": "Muat turun dari ollama.com",
         "recheck": "Imbas semula",
         "startOllama": "Mulakan Ollama",
-        "installModel": "Pasang & lancarkan {{model}}"
+        "installModel": "Pasang & lancarkan {{model}}",
+        "alreadyActive": "{{model}} ialah model lalai"
       },
       "install": {
         "title": "Memasang dan memulakan Ollama sekali klik",
@@ -2203,15 +2204,17 @@
       "showAlternatives": "Other embedding models",
       "hideAlternatives": "Hide embedding models",
       "buttons": {
-        "activate": "Install & enable {{model}}",
-        "enable": "Enable {{model}}",
-        "downloadOllama": "Download Ollama"
+        "activate": "Pasang & dayakan {{model}}",
+        "enable": "Dayakan {{model}}",
+        "alreadyActive": "{{model}} aktif",
+        "downloadOllama": "Muat turun Ollama"
       },
       "install": {
         "title": "Setting up local embedding"
       },
       "phases": {
-        "configureEmbedding": "Configuring vector search"
+        "configureEmbedding": "Mengkonfigurasi carian vektor",
+        "switchingEmbeddingModel": "Menukar model embedding"
       },
       "error": {
         "activateFailed": "Failed to enable local embedding: {{message}}"
@@ -2269,6 +2272,7 @@
         "idleDisabled": "Aktifkan carian vektor dan tambah memori sebelum membina semula.",
         "running": "Membina semula vektor memori",
         "progress": "{{done}} / {{total}} memori",
+        "perSecond": "{{count}} memori/s",
         "phaseKeep": "Membina semula sambil mengekalkan yang sedia ada",
         "phaseFresh": "Membina semula dari awal",
         "cancelling": "Membatalkan…",
@@ -2373,6 +2377,39 @@
         "refreshFailed": "Failed to refresh local models",
         "searchFailed": "Failed to search Ollama Library",
         "detailFailed": "Failed to load model versions"
+      }
+    },
+    "localModelMaintenance": {
+      "kindChat": "sembang",
+      "kindEmbedding": "ingatan",
+      "toggle": {
+        "label": "Penyelenggaraan automatik model lalai",
+        "description": "Memantau model sembang / ingatan lalai secara berterusan. Memulakannya secara senyap apabila tidak berjalan, dan memaparkan dialog apabila fail model hilang. Model yang anda hentikan secara manual akan kekal terhenti."
+      },
+      "missingDialog": {
+        "title": "Model {{kind}} lalai hilang",
+        "description": "Model \"{{name}}\" tidak lagi wujud dalam Ollama (mungkin dipadam secara luaran). Pilih cara untuk pulih."
+      },
+      "actions": {
+        "redownload": "Muat turun semula {{name}}",
+        "switchTo": "Tukar ke {{name}}",
+        "disableEmbedding": "Matikan carian vektor",
+        "dismissTemporary": "Abai 5 minit",
+        "silenceSession": "Jangan ingatkan sesi ini",
+        "disableAutoMaintenance": "Matikan pengesanan automatik"
+      },
+      "toast": {
+        "redownloadStarted": "Muat turun semula {{name}} dimulakan",
+        "switched": "Ditukar ke {{name}}",
+        "embeddingDisabled": "Carian vektor dimatikan",
+        "autoMaintenanceDisabled": "Pengesanan automatik dimatikan"
+      },
+      "errors": {
+        "candidateNotFound": "Model tidak dijumpai dalam katalog — sila pasang secara manual daripada panel Model Tempatan.",
+        "installFailed": "Gagal memasang: {{error}}",
+        "switchFailed": "Gagal menukar: {{error}}",
+        "disableFailed": "Gagal mematikan carian vektor: {{error}}",
+        "disableAutoMaintenanceFailed": "Gagal mematikan pengesanan automatik: {{error}}"
       }
     },
     "skillsTab": {
