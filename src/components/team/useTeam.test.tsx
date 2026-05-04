@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
-import { cleanup, render, screen } from "@testing-library/react"
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 
 import { useTeam } from "./useTeam"
-import type { Team, TeamMessage } from "./teamTypes"
+import type { Team, TeamMember, TeamMessage, TeamTask } from "./teamTypes"
 
 const transportMock = vi.hoisted(() => ({
   call: vi.fn(),
@@ -71,6 +71,16 @@ function pendingRequest(): Promise<never> {
   })
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 describe("useTeam", () => {
   test("clears loaded data immediately when switching teams", async () => {
     transportMock.call.mockImplementation((command: string, args?: { teamId?: string }) => {
@@ -94,6 +104,47 @@ describe("useTeam", () => {
     rerender(<Harness teamId="team-b" />)
 
     expect(screen.queryByText("old team message")).toBeNull()
+    expect(screen.getByTestId("loading").textContent).toBe("true")
+  })
+
+  test("ignores a stale reload that resolves after switching teams", async () => {
+    const teamA = deferred<Team | null>()
+    const membersA = deferred<TeamMember[]>()
+    const messagesA = deferred<[TeamMessage[], boolean]>()
+    const tasksA = deferred<TeamTask[]>()
+
+    transportMock.call.mockImplementation((command: string, args?: { teamId?: string }) => {
+      if (args?.teamId === "team-a") {
+        if (command === "get_team") return teamA.promise
+        if (command === "get_team_members") return membersA.promise
+        if (command === "get_team_messages") {
+          return messagesA.promise
+        }
+        if (command === "get_team_tasks") return tasksA.promise
+      }
+      if (args?.teamId === "team-b") {
+        return pendingRequest()
+      }
+      return Promise.resolve([])
+    })
+
+    const { rerender } = render(<Harness teamId="team-a" />)
+    await waitFor(() =>
+      expect(transportMock.call).toHaveBeenCalledWith("get_team", { teamId: "team-a" }),
+    )
+
+    rerender(<Harness teamId="team-b" />)
+    expect(screen.getByTestId("loading").textContent).toBe("true")
+
+    await act(async () => {
+      teamA.resolve(team("team-a"))
+      membersA.resolve([])
+      messagesA.resolve([[message("team-a", "stale team message")], false])
+      tasksA.resolve([])
+      await Promise.resolve()
+    })
+
+    expect(screen.queryByText("stale team message")).toBeNull()
     expect(screen.getByTestId("loading").textContent).toBe("true")
   })
 })

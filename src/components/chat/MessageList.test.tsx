@@ -8,13 +8,11 @@ import MessageList from "./MessageList"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
 
-const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(
-  (cb: FrameRequestCallback) => {
-    cb(0)
-    return 0
-  },
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "scrollIntoView",
 )
-vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {})
+const originalScrollTo = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTo")
 
 vi.mock("react-i18next", () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -37,13 +35,42 @@ vi.mock("./plan-mode/PlanCardBlock", () => ({
 }))
 
 beforeEach(() => {
-  rafSpy.mockClear()
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation(
+    (cb: FrameRequestCallback) => {
+      cb(0)
+      return 0
+    },
+  )
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {})
+  installElementMethod("scrollIntoView")
+  installElementMethod("scrollTo")
 })
 
 afterEach(() => {
   cleanup()
-  vi.clearAllMocks()
+  vi.restoreAllMocks()
+  restoreElementMethod("scrollIntoView", originalScrollIntoView)
+  restoreElementMethod("scrollTo", originalScrollTo)
 })
+
+function installElementMethod(name: "scrollIntoView" | "scrollTo") {
+  Object.defineProperty(Element.prototype, name, {
+    configurable: true,
+    writable: true,
+    value: () => {},
+  })
+}
+
+function restoreElementMethod(
+  name: "scrollIntoView" | "scrollTo",
+  descriptor: PropertyDescriptor | undefined,
+) {
+  if (descriptor) {
+    Object.defineProperty(Element.prototype, name, descriptor)
+  } else {
+    delete (Element.prototype as Partial<Record<"scrollIntoView" | "scrollTo", unknown>>)[name]
+  }
+}
 
 function baseMessage(patch: Partial<Message>): Message {
   return {
@@ -271,8 +298,9 @@ describe("MessageList", () => {
 
   test("scrolls to a search target by dbId and reports it as handled", () => {
     const onScrollTargetHandled = vi.fn()
-    const scrollIntoViewSpy = vi.fn()
-    Element.prototype.scrollIntoView = scrollIntoViewSpy
+    const scrollIntoViewSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {})
 
     render(
       <MessageList
@@ -297,8 +325,7 @@ describe("MessageList", () => {
   })
 
   test("shows the jump-to-bottom button while loading and not at bottom, and clicking calls scrollTo", () => {
-    const scrollToSpy = vi.fn()
-    Element.prototype.scrollTo = scrollToSpy
+    const scrollToSpy = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(() => {})
 
     render(
       <MessageList
@@ -326,8 +353,9 @@ describe("MessageList", () => {
   })
 
   test("forces auto-follow scroll when a new user message arrives", () => {
-    const scrollIntoViewSpy = vi.fn()
-    Element.prototype.scrollIntoView = scrollIntoViewSpy
+    const scrollIntoViewSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {})
 
     const { rerender } = render(
       <MessageList
@@ -366,8 +394,9 @@ describe("MessageList", () => {
   })
 
   test("does not force-scroll to the last user message when switching sessions", () => {
-    const scrollIntoViewSpy = vi.fn()
-    Element.prototype.scrollIntoView = scrollIntoViewSpy
+    const scrollIntoViewSpy = vi
+      .spyOn(Element.prototype, "scrollIntoView")
+      .mockImplementation(() => {})
 
     const { rerender } = render(
       <MessageList

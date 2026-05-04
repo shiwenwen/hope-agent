@@ -54,6 +54,7 @@ export function TeamMessageFeed({
     setDisplayedStartMessagesLength(messages.length)
     setDisplayedStart(0)
   } else if (displayedStartMessagesLength !== messages.length) {
+    // Message content streaming reuses the same item, so this only runs on append/reload.
     const prevLength = displayedStartMessagesLength
     setDisplayedStartMessagesLength(messages.length)
     if (
