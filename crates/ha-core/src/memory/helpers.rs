@@ -312,11 +312,8 @@ pub fn set_memory_embedding_default(
     // 仅 KeepExisting 模式适用同 signature 短路：DeleteAll 的「先清空再重建」
     // 语义只在 `start_memory_reembed_job` 内通过 `clear_all_embeddings()` 实现，
     // 跳过任务派发会让用户的「从头重建」请求既不清空也不重建。
-    let same_signature = store
-        .memory_embedding
-        .last_reembedded_signature
-        .as_deref()
-        == Some(signature.as_str());
+    let same_signature =
+        store.memory_embedding.last_reembedded_signature.as_deref() == Some(signature.as_str());
 
     apply_embedding_config_to_backend(&runtime_config, source)?;
     crate::config::mutate_config(("memory_embedding.set_default", source), |store| {

@@ -24,9 +24,7 @@ pub use helpers::{
 };
 pub use import::*;
 pub use recall_summary::{maybe_summarize_recall, RecallSummaryConfig};
-pub use reembed_job::{
-    cancel_active_memory_reembed_jobs, start_memory_reembed_job, ReembedMode,
-};
+pub use reembed_job::{cancel_active_memory_reembed_jobs, start_memory_reembed_job, ReembedMode};
 pub use sqlite::SqliteMemoryBackend;
 pub use traits::*;
 pub use types::*;

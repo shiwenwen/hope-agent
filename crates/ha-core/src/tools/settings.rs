@@ -25,8 +25,18 @@ const BLOCKED_UPDATE_CATEGORIES: &[&str] =
 fn risk_level(category: &str) -> &'static str {
     match category {
         // ── LOW ────────────────────────────────────────────────
-        "user" | "theme" | "language" | "ui_effects" | "notification" | "canvas" | "image"
-        | "pdf" | "image_generate" | "temperature" | "tool_timeout" | "default_agent"
+        "user"
+        | "theme"
+        | "language"
+        | "ui_effects"
+        | "notification"
+        | "canvas"
+        | "image"
+        | "pdf"
+        | "image_generate"
+        | "temperature"
+        | "tool_timeout"
+        | "default_agent"
         | "local_llm_auto_maintenance" => "low",
 
         // ── MEDIUM ─────────────────────────────────────────────

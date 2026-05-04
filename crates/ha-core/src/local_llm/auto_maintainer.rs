@@ -337,7 +337,9 @@ async fn maybe_emit_missing_alert(
     };
     let can_redownload = match kind {
         ModelKind::Chat => model_catalog().iter().any(|m| m.id == missing_tag),
-        ModelKind::Embedding => embedding_model_catalog().iter().any(|m| m.id == missing_tag),
+        ModelKind::Embedding => embedding_model_catalog()
+            .iter()
+            .any(|m| m.id == missing_tag),
     };
 
     let alert = LocalModelMissingAlert {
