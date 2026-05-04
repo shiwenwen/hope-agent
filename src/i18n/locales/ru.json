@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "Вызов инструментов...",
     "startConversation": "Начать разговор",
+    "interrupted_partial": "Прервано в прошлый раз",
     "subagentFrom": "Делегировано от {{agent}}",
     "subagentResultCompleted": "Завершено",
     "asyncToolJobFallbackName": "Фоновая задача",

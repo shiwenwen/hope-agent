@@ -48,25 +48,46 @@ pub(super) async fn build_agent_from_snapshot(
 // ── Helper functions (moved from commands/chat.rs) ──────────────────
 
 /// Restore conversation history from DB into the agent.
+///
+/// Two recovery paths run regardless of whether `context_json` is empty:
+/// 1. `repair_failed_prefix_from_messages` — only meaningful with a
+///    non-empty existing history (it patches a previously-failed user
+///    turn back into the prefix).
+/// 2. `inject_orphaned_partial_summary` — surfaces the previous turn's
+///    interrupted partial via a system-event item appended to history.
+///    Must run even on empty `context_json`: a first-turn crash leaves
+///    no `context_json` at all but does leave orphan rows in `messages`,
+///    and the resume turn would otherwise lose them entirely.
 pub fn restore_agent_context(db: &Arc<SessionDB>, session_id: &str, agent: &AssistantAgent) {
-    if let Ok(Some(json_str)) = db.load_context(session_id) {
-        if let Ok(mut history) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
-            if !history.is_empty() {
-                let repaired = repair_failed_prefix_from_messages(db, session_id, &mut history);
-                app_debug!(
-                    "session",
-                    "chat_engine",
-                    "Restored {} messages for session {} ({}B JSON)",
-                    history.len(),
-                    session_id,
-                    json_str.len()
-                );
-                agent.set_conversation_history(history);
-                if repaired {
-                    save_agent_context(db, session_id, agent);
-                }
-            }
-        }
+    let json_str = db.load_context(session_id).ok().flatten();
+    let mut history: Vec<serde_json::Value> = json_str
+        .as_deref()
+        .and_then(|s| serde_json::from_str(s).ok())
+        .unwrap_or_default();
+
+    let repaired = if history.is_empty() {
+        false
+    } else {
+        repair_failed_prefix_from_messages(db, session_id, &mut history)
+    };
+    let injected = inject_orphaned_partial_summary(db, session_id, &mut history);
+
+    if history.is_empty() && !injected {
+        return;
+    }
+
+    app_debug!(
+        "session",
+        "chat_engine",
+        "Restored {} messages for session {} (repaired={} injected={})",
+        history.len(),
+        session_id,
+        repaired,
+        injected
+    );
+    agent.set_conversation_history(history);
+    if repaired || injected {
+        save_agent_context(db, session_id, agent);
     }
 }
 
@@ -144,6 +165,87 @@ fn push_user_for_failed_turn(history: &mut Vec<Value>, user_message: &str) {
     }
 
     history.push(json!({ "role": "user", "content": user_message }));
+}
+
+/// If the messages table contains `stream_status = 'orphaned'` rows after
+/// the last user message, the previous turn was interrupted mid-stream
+/// (modulo whatever rounds the round-level persist hook captured into
+/// `context_json`). Append a single `[System event]` assistant item that
+/// surfaces the visible partial text + the last tool call so the next turn
+/// can continue without rediscovering ground already covered.
+///
+/// Cost: invalidates prompt cache for exactly one turn (the resume turn),
+/// because the appended item changes the history-tail hash. Subsequent
+/// turns rebuild cache normally.
+///
+/// Returns `true` when a summary was appended.
+fn inject_orphaned_partial_summary(
+    db: &Arc<SessionDB>,
+    session_id: &str,
+    history: &mut Vec<Value>,
+) -> bool {
+    // `load_previous_turn_tail` returns rows strictly between the prior
+    // user message and the just-appended one — exactly the slice that
+    // could carry an orphan if the prior turn was interrupted.
+    let Ok(segment) = db.load_previous_turn_tail(session_id) else {
+        return false;
+    };
+
+    let has_orphan = segment
+        .iter()
+        .any(|m| m.stream_status.as_deref() == Some("orphaned"));
+    if !has_orphan {
+        return false;
+    }
+
+    // Collect visible orphaned text. Thinking is intentionally skipped —
+    // chain-of-thought leakage rarely helps the resume turn and tends to
+    // mislead the model into reproducing a half-finished argument.
+    let mut text_parts: Vec<String> = Vec::new();
+    let mut last_tool: Option<(String, String)> = None;
+    for msg in &segment {
+        match msg.role {
+            session::MessageRole::TextBlock if msg.stream_status.as_deref() == Some("orphaned") => {
+                let t = msg.content.trim();
+                if !t.is_empty() {
+                    text_parts.push(t.to_string());
+                }
+            }
+            session::MessageRole::Tool => {
+                if let (Some(name), Some(args)) =
+                    (msg.tool_name.as_ref(), msg.tool_arguments.as_ref())
+                {
+                    let args_short = crate::util::truncate_utf8(args.trim(), 200);
+                    last_tool = Some((name.clone(), args_short.to_string()));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let joined = text_parts.join("\n\n");
+    let partial_text = crate::util::truncate_utf8(joined.trim(), 1500);
+
+    let mut summary = String::from("[System event] 上一轮在生成中被中断。");
+    if !partial_text.is_empty() {
+        summary.push_str("已完成内容片段：");
+        summary.push_str(partial_text);
+        summary.push('。');
+    }
+    if let Some((name, args)) = last_tool {
+        summary.push_str(&format!("最后一次工具调用：{} {}。", name, args));
+    }
+    summary.push_str("请基于已完成内容继续，不要重复执行上面已经做过的工具调用。");
+
+    history.push(json!({ "role": "assistant", "content": summary }));
+
+    app_info!(
+        "session",
+        "stream_persist",
+        "injected partial summary into history for session {} (orphan rows in tail)",
+        session_id
+    );
+    true
 }
 
 fn repair_failed_prefix_from_messages(

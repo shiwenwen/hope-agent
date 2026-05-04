@@ -31,6 +31,7 @@ pub mod channel;
 pub mod chat_engine;
 pub mod config;
 pub mod context_compact;
+pub mod crash_flush;
 pub mod crash_journal;
 pub mod cron;
 pub mod dashboard;

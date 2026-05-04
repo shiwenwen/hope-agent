@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "Llamando herramientas...",
     "startConversation": "Iniciar conversación",
+    "interrupted_partial": "Interrumpido la última vez",
     "subagentFrom": "Delegado por {{agent}}",
     "subagentResultCompleted": "Completado",
     "asyncToolJobFallbackName": "Tarea en segundo plano",

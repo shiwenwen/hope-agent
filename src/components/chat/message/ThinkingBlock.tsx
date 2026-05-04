@@ -4,15 +4,19 @@ import { cn } from "@/lib/utils"
 import { ChevronRight, BrainCircuit } from "lucide-react"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import { getAutoExpandThinking, getCachedAutoExpandThinking } from "../thinkingCache"
+import InterruptedMark from "./InterruptedMark"
 
 interface ThinkingBlockProps {
   content: string
   isStreaming?: boolean
   /** Persisted duration from DB (ms), used to display elapsed time after restart */
   durationMs?: number
+  /** Set when this thinking block was left mid-stream by a crashed run; renders
+   *  an "interrupted" mark below the content. */
+  interrupted?: boolean
 }
 
-export default function ThinkingBlock({ content, isStreaming, durationMs }: ThinkingBlockProps) {
+export default function ThinkingBlock({ content, isStreaming, durationMs, interrupted }: ThinkingBlockProps) {
   const { t } = useTranslation()
   const [autoExpand, setAutoExpand] = useState(getCachedAutoExpandThinking() ?? true)
   const [manualOpen, setManualOpen] = useState<boolean | null>(null)
@@ -108,6 +112,7 @@ export default function ThinkingBlock({ content, isStreaming, durationMs }: Thin
           <MarkdownRenderer content={content} isStreaming={isStreaming} />
         </div>
       </div>
+      {interrupted ? <InterruptedMark className="ml-6" /> : null}
     </div>
   )
 }

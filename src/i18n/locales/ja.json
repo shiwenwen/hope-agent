@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "ツール呼び出し中...",
     "startConversation": "会話を開始",
+    "interrupted_partial": "前回は中断されました",
     "subagentFrom": "{{agent}} からの委任",
     "subagentResultCompleted": "完了しました",
     "asyncToolJobFallbackName": "バックグラウンドタスク",

@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "Đang gọi công cụ...",
     "startConversation": "Bắt đầu hội thoại",
+    "interrupted_partial": "Đã dừng giữa chừng lần trước",
     "subagentFrom": "Được ủy quyền bởi {{agent}}",
     "subagentResultCompleted": "Đã hoàn tất",
     "asyncToolJobFallbackName": "Tác vụ nền",

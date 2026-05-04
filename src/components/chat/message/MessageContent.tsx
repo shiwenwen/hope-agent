@@ -5,6 +5,7 @@ import ToolCallGroup from "./ToolCallGroup"
 import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
 import ProcessedBlockGroup from "./ProcessedBlockGroup"
+import InterruptedMark from "./InterruptedMark"
 import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
@@ -250,6 +251,7 @@ export function AssistantContentBlocks({
             content={block.content}
             isStreaming={loading && isLast && isLastBlock}
             durationMs={block.durationMs}
+            interrupted={block.interrupted}
           />
         ),
       })
@@ -258,11 +260,13 @@ export function AssistantContentBlocks({
       units.push({
         key: `text-${i}`,
         node: (
-          <MarkdownRenderer
-            key={i}
-            content={block.content}
-            isStreaming={loading && isLast && i === blocks.length - 1}
-          />
+          <div key={i}>
+            <MarkdownRenderer
+              content={block.content}
+              isStreaming={loading && isLast && i === blocks.length - 1}
+            />
+            {block.interrupted ? <InterruptedMark /> : null}
+          </div>
         ),
       })
       i++

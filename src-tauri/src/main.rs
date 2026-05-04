@@ -245,6 +245,14 @@ fn run_acp_server(args: &[String]) {
     };
     bg_rt.spawn(ha_core::start_minimal_background_tasks());
 
+    // Crash-flush signal handlers must run inside a tokio runtime; bg_rt
+    // is the only one this mode owns. Drop happens on process exit, but
+    // the handler `std::process::exit(0)` runs before the bg_rt teardown
+    // path so this is safe.
+    bg_rt.spawn(async {
+        ha_core::crash_flush::install_signal_handlers();
+    });
+
     // Run the ACP server (blocks on stdin)
     let result = app_lib::acp::server::start(session_db, agent_id, verbose);
 
@@ -411,6 +419,7 @@ fn run_server(args: &[String]) {
     let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
     rt.block_on(async {
         tokio::spawn(ha_core::start_background_tasks());
+        ha_core::crash_flush::install_signal_handlers();
         if let Err(e) = ha_server::start_server(config, ctx).await {
             eprintln!("[server] Server error: {}", e);
             std::process::exit(1);

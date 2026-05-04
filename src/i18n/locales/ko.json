@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "도구 호출 중...",
     "startConversation": "대화 시작",
+    "interrupted_partial": "지난번에 중단됨",
     "subagentFrom": "{{agent}} 에서 위임",
     "subagentResultCompleted": "완료됨",
     "asyncToolJobFallbackName": "백그라운드 작업",

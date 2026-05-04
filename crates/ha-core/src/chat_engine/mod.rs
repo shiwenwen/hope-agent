@@ -1,3 +1,4 @@
+pub mod active_persisters;
 pub mod active_turn;
 pub mod context;
 mod engine;

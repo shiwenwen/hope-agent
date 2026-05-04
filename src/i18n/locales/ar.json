@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "جارٍ استدعاء الأدوات...",
     "startConversation": "ابدأ محادثة",
+    "interrupted_partial": "تمت المقاطعة في المرة السابقة",
     "subagentFrom": "مفوّض من {{agent}}",
     "subagentResultCompleted": "اكتملت",
     "asyncToolJobFallbackName": "مهمة في الخلفية",

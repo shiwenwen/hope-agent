@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "工具调用中...",
     "startConversation": "开始对话",
+    "interrupted_partial": "上次未完成",
     "subagentFrom": "由 {{agent}} 指派",
     "subagentResultCompleted": "已完成",
     "asyncToolJobFallbackName": "后台任务",

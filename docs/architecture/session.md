@@ -186,9 +186,20 @@ CREATE TABLE messages (
     tokens_in_last           INTEGER,
     tokens_cache_creation    INTEGER,
     tokens_cache_read        INTEGER,
+    tool_metadata            TEXT,                            -- JSON: 工具结构化副输出（diff/before-after）
+    stream_status            TEXT,                            -- streaming/completed/orphaned，NULL 视为 completed
     FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
 );
 ```
+
+`stream_status` 取值：
+
+- `streaming` — 当前正在被一个活跃的 `StreamPersister` 节流写入，placeholder 行
+- `completed` — 流式块已 finalize，content 是最终内容
+- `orphaned` — 启动扫尾把上次崩溃残留的 `streaming` 行批量改成此状态；前端按"上次未完成"渲染
+- `NULL` — 旧版本数据库残留，所有 reader 视为 `completed`
+
+详见 [`chat-engine.md` Round-level Persistence & Crash Recovery](chat-engine.md#round-level-persistence--crash-recovery)。
 
 ### 索引
 
@@ -197,6 +208,9 @@ CREATE INDEX idx_messages_session_id  ON messages(session_id);
 CREATE INDEX idx_sessions_agent_id    ON sessions(agent_id);
 CREATE INDEX idx_sessions_updated_at  ON sessions(updated_at DESC);
 CREATE INDEX idx_sessions_project_id  ON sessions(project_id);
+-- 部分索引：仅覆盖 streaming 行，让 mark_orphaned_streaming_rows() 启动扫尾走 O(streaming-count)
+CREATE INDEX idx_messages_stream_active
+  ON messages(session_id, stream_status) WHERE stream_status = 'streaming';
 ```
 
 ### FTS5 全文搜索

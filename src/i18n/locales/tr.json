@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "Araç çağrılıyor...",
     "startConversation": "Sohbet başlat",
+    "interrupted_partial": "Geçen sefer kesildi",
     "subagentFrom": "{{agent}} tarafından devredildi",
     "subagentResultCompleted": "Tamamlandı",
     "asyncToolJobFallbackName": "Arka plan görevi",

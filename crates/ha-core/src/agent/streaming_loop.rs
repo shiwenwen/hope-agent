@@ -540,6 +540,14 @@ impl AssistantAgent {
                 &system_prompt_for_budget,
                 MAX_OUTPUT_TOKENS,
             );
+
+            // Persist the round AFTER tier-1 truncation + reactive microcompact
+            // so the context_json snapshot matches the actual history that the
+            // next round will send to the API. Without this ordering, a mid-turn
+            // crash recovers the un-truncated raw tool_results and the resume
+            // turn diverges from the steady-state cache shape (potentially
+            // overshooting the context window).
+            self.persist_round_context(&messages);
         }
 
         let cancelled = cancel.load(Ordering::SeqCst);

@@ -115,6 +115,7 @@
     "mainAgent": "Main Agent",
     "toolCalling": "Memanggil alat...",
     "startConversation": "Mulakan perbualan",
+    "interrupted_partial": "Terganggu kali sebelumnya",
     "subagentFrom": "Diberikan kuasa oleh {{agent}}",
     "subagentResultCompleted": "Siap",
     "asyncToolJobFallbackName": "Tugasan latar belakang",
