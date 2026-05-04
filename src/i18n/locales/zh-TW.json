@@ -971,6 +971,10 @@
     "skillHealth": "健康狀態",
     "memory": "記憶",
     "memoryDesc": "持久化記憶，幫助 AI 在跨對話中記住重要上下文",
+    "memoryTabs": {
+      "settings": "記憶設定",
+      "manage": "記憶管理"
+    },
     "activeMemoryTitle": "主動記憶召回",
     "activeMemoryDesc": "每輪提問前主動搜尋相關記憶，用 side query 壓成一句話注入。超時或失敗會自動回退到被動召回，不會阻塞對話。",
     "activeMemoryTimeout": "逾時 (ms)",
@@ -2993,6 +2997,7 @@
     }
   },
   "planMode": {
+    "enter": "進入計劃模式",
     "enterDialog": {
       "header": "計劃模式",
       "question": "進入計劃模式？模型會先做調研、追問澄清，並起草一份計劃交你審核後再動手。",
@@ -3009,7 +3014,6 @@
         }
       }
     },
-    "enter": "進入計劃模式",
     "toggleLabel": "計劃",
     "indicator": "計劃模式",
     "plan": "執行計劃",

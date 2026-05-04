@@ -971,6 +971,10 @@
     "skillHealth": "Health",
     "memory": "Memory",
     "memoryDesc": "Persistent memories that help the AI remember context across conversations",
+    "memoryTabs": {
+      "settings": "Memory Settings",
+      "manage": "Memory Management"
+    },
     "activeMemoryTitle": "Active memory recall",
     "activeMemoryDesc": "At the start of each user turn, run a bounded side query to distill the single most relevant memory into one sentence and inject it alongside the system prompt. Timeouts and failures silently fall back to passive recall — they never block the chat.",
     "activeMemoryTimeout": "Timeout (ms)",

@@ -971,6 +971,10 @@
     "skillHealth": "Sağlık",
     "memory": "Hafıza",
     "memoryDesc": "AI'nın konuşmalar arasında bağlamı hatırlamasına yardımcı olan kalıcı hafıza",
+    "memoryTabs": {
+      "settings": "Hafıza ayarları",
+      "manage": "Hafıza yönetimi"
+    },
     "activeMemoryTitle": "Aktif bellek hatırlatma",
     "activeMemoryDesc": "Her kullanıcı turunun başında, en alakalı belleği tek bir cümleye dönüştürmek ve sistem istemiyle birlikte enjekte etmek için sınırlı bir side query çalıştırır. Zaman aşımı ve hatalar sessizce pasif hatırlatmaya döner — sohbeti asla engellemez.",
     "activeMemoryTimeout": "Zaman aşımı (ms)",
@@ -2993,6 +2997,7 @@
     }
   },
   "planMode": {
+    "enter": "Plan Mode'a gir",
     "enterDialog": {
       "header": "Plan Mode",
       "question": "Plan Mode'a geçilsin mi? Model önce keşif yapar, açıklayıcı sorular sorar ve çalışmaya başlamadan önce incelemen için yazılı bir plan hazırlar.",
@@ -3009,7 +3014,6 @@
         }
       }
     },
-    "enter": "Plan Mode'a gir",
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",
     "plan": "Yürütme planı",
