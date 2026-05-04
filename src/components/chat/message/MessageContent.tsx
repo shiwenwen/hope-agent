@@ -4,11 +4,13 @@ import ToolCallBlock from "./ToolCallBlock"
 import ToolCallGroup from "./ToolCallGroup"
 import ThinkingBlock from "./ThinkingBlock"
 import TaskBlock from "./TaskBlock"
+import ProcessedBlockGroup from "./ProcessedBlockGroup"
 import SubagentGroup, { type SubagentGroupRun } from "@/components/chat/SubagentGroup"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import SkillProgressBlock from "@/components/chat/SkillProgressBlock"
 import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
+import { getFailedToolCount, getToolExecutionState } from "./executionStatus"
 import type {
   ContentBlock,
   FileChangeMetadata,
@@ -123,6 +125,58 @@ function synthesizeBlocks(msg: Message): ContentBlock[] {
   return blocks
 }
 
+interface RenderUnit {
+  key: string
+  node: React.ReactNode
+  processTools?: ToolCall[]
+  isProcessComplete?: boolean
+}
+
+function processUnitToolsComplete(tools: ToolCall[]): boolean {
+  return tools.every((tool) => getToolExecutionState(tool) !== "running")
+}
+
+function collapseProcessedUnits(units: RenderUnit[]): React.ReactNode[] {
+  const nodes: React.ReactNode[] = []
+  let i = 0
+
+  while (i < units.length) {
+    const unit = units[i]
+    if (!unit.isProcessComplete) {
+      nodes.push(unit.node)
+      i++
+      continue
+    }
+
+    const group: RenderUnit[] = [unit]
+    let j = i + 1
+    while (j < units.length && units[j].isProcessComplete) {
+      group.push(units[j])
+      j++
+    }
+
+    if (group.length >= 2) {
+      const tools = group.flatMap((item) => item.processTools || [])
+      nodes.push(
+        <ProcessedBlockGroup
+          key={`processed-${group[0].key}`}
+          failedCount={getFailedToolCount(tools)}
+        >
+          {group.map((item) => (
+            <React.Fragment key={item.key}>{item.node}</React.Fragment>
+          ))}
+        </ProcessedBlockGroup>,
+      )
+    } else {
+      nodes.push(unit.node)
+    }
+
+    i = j
+  }
+
+  return nodes
+}
+
 /** Renders assistant content blocks (thinking, text, tool calls) with grouping logic */
 export function AssistantContentBlocks({
   msg,
@@ -159,7 +213,8 @@ export function AssistantContentBlocks({
     return null
   }
 
-  const elements: React.ReactNode[] = []
+  const units: RenderUnit[] = []
+  const isStreamingMessage = loading && isLast
 
   // Pre-compute first task_* position + latest task_* tool with a result,
   // so all task_create / task_update / task_list calls in this message
@@ -186,23 +241,30 @@ export function AssistantContentBlocks({
 
     if (block.type === "thinking") {
       const isLastBlock = i === blocks.length - 1
-      elements.push(
-        <ThinkingBlock
-          key={i}
-          content={block.content}
-          isStreaming={loading && isLast && isLastBlock}
-          durationMs={block.durationMs}
-        />,
-      )
+      units.push({
+        key: `thinking-${i}`,
+        isProcessComplete: !isStreamingMessage,
+        node: (
+          <ThinkingBlock
+            key={i}
+            content={block.content}
+            isStreaming={loading && isLast && isLastBlock}
+            durationMs={block.durationMs}
+          />
+        ),
+      })
       i++
     } else if (block.type === "text") {
-      elements.push(
-        <MarkdownRenderer
-          key={i}
-          content={block.content}
-          isStreaming={loading && isLast && i === blocks.length - 1}
-        />,
-      )
+      units.push({
+        key: `text-${i}`,
+        node: (
+          <MarkdownRenderer
+            key={i}
+            content={block.content}
+            isStreaming={loading && isLast && i === blocks.length - 1}
+          />
+        ),
+      })
       i++
     } else if (block.type === "tool_call") {
       // ask_user_question — passive indicator on the timeline. The actual
@@ -210,19 +272,25 @@ export function AssistantContentBlocks({
       // is just for the user to see "model asked a question" while the answer
       // is still pending, then "answered" once the result arrives.
       if (block.tool.name === "ask_user_question") {
-        elements.push(
-          <AskUserQuestionResult
-            key={block.tool.callId}
-            result={block.tool.result}
-            pending={!block.tool.result}
-          />,
-        )
+        units.push({
+          key: block.tool.callId,
+          node: (
+            <AskUserQuestionResult
+              key={block.tool.callId}
+              result={block.tool.result}
+              pending={!block.tool.result}
+            />
+          ),
+        })
         i++
         continue
       }
       if (TASK_TOOL_NAMES.has(block.tool.name)) {
         if (i === firstTaskIdx && latestTaskTool) {
-          elements.push(<TaskBlock key={latestTaskTool.callId} tool={latestTaskTool} />)
+          units.push({
+            key: latestTaskTool.callId,
+            node: <TaskBlock key={latestTaskTool.callId} tool={latestTaskTool} />,
+          })
         }
         i++
         continue
@@ -235,15 +303,18 @@ export function AssistantContentBlocks({
         try {
           title = JSON.parse(block.tool.arguments)?.title || ""
         } catch { /* ignore */ }
-        elements.push(
-          <SubmitPlanResult
-            key={block.tool.callId}
-            title={title}
-            sessionId={sessionId}
-            onOpenPanel={onOpenPlanPanel}
-            pending={!block.tool.result}
-          />,
-        )
+        units.push({
+          key: block.tool.callId,
+          node: (
+            <SubmitPlanResult
+              key={block.tool.callId}
+              title={title}
+              sessionId={sessionId}
+              onOpenPanel={onOpenPlanPanel}
+              pending={!block.tool.result}
+            />
+          ),
+        })
         i++
         continue
       }
@@ -252,9 +323,12 @@ export function AssistantContentBlocks({
       // looking at the tool_result prefix).
       if (block.tool.name === "skill") {
         const isLastTool = loading && isLast && i === blocks.length - 1
-        elements.push(
-          <SkillProgressBlock key={block.tool.callId} tool={block.tool} shimmer={isLastTool} />,
-        )
+        units.push({
+          key: block.tool.callId,
+          node: (
+            <SkillProgressBlock key={block.tool.callId} tool={block.tool} shimmer={isLastTool} />
+          ),
+        })
         i++
         continue
       }
@@ -280,24 +354,30 @@ export function AssistantContentBlocks({
             // (instead of re-running effects) when the underlying run set
             // actually changes.
             const groupKey = `sgrp-${runs.map((r) => r.runId).join("|")}`
-            elements.push(
-              <SubagentGroup key={groupKey} runs={runs} onSwitchSession={onSwitchSession} />,
-            )
+            units.push({
+              key: groupKey,
+              node: (
+                <SubagentGroup key={groupKey} runs={runs} onSwitchSession={onSwitchSession} />
+              ),
+            })
           } else {
             // Single run (plain spawn, spawn_and_wait, or batch_spawn w/ 1 task)
             // → render SubagentBlock directly so batch_spawn's single case
             // also gets the rich UI (the legacy ToolCallBlock path only
             // detects action="spawn").
             const run = runs[0]
-            elements.push(
-              <SubagentBlock
-                key={run.runId}
-                runId={run.runId}
-                agentId={run.agentId}
-                task={run.task}
-                onSwitchSession={onSwitchSession}
-              />,
-            )
+            units.push({
+              key: run.runId,
+              node: (
+                <SubagentBlock
+                  key={run.runId}
+                  runId={run.runId}
+                  agentId={run.agentId}
+                  task={run.task}
+                  onSwitchSession={onSwitchSession}
+                />
+              ),
+            })
           }
           i = j
           continue
@@ -306,9 +386,22 @@ export function AssistantContentBlocks({
         // or spawn still in-flight without a run_id yet → render individually.
         // NO_GROUP_TOOLS prevents it from falling into the generic tool-call
         // group below.
-        elements.push(
-          <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />,
-        )
+        units.push({
+          key: block.tool.callId,
+          node: (
+            <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />
+          ),
+        })
+        i++
+        continue
+      }
+      if (NO_GROUP_TOOLS.has(block.tool.name)) {
+        units.push({
+          key: block.tool.callId,
+          node: (
+            <ToolCallBlock key={block.tool.callId} tool={block.tool} onOpenDiff={onOpenDiff} />
+          ),
+        })
         i++
         continue
       }
@@ -331,24 +424,35 @@ export function AssistantContentBlocks({
         const tools = group.map(
           (b) => (b as { type: "tool_call"; tool: typeof block.tool }).tool,
         )
-        elements.push(
-          <ToolCallGroup
-            key={`grp-${tools[0].callId}`}
-            tools={tools}
-            shimmer={isLastToolGroup}
-            onOpenDiff={onOpenDiff}
-          />,
-        )
+        units.push({
+          key: `grp-${tools[0].callId}`,
+          processTools: tools,
+          isProcessComplete: !isStreamingMessage && processUnitToolsComplete(tools),
+          node: (
+            <ToolCallGroup
+              key={`grp-${tools[0].callId}`}
+              tools={tools}
+              shimmer={isLastToolGroup}
+              onOpenDiff={onOpenDiff}
+            />
+          ),
+        })
       } else {
         // Single tool — render individually
-        elements.push(
-          <ToolCallBlock
-            key={block.tool.callId}
-            tool={block.tool}
-            shimmer={isLastToolGroup}
-            onOpenDiff={onOpenDiff}
-          />,
-        )
+        units.push({
+          key: block.tool.callId,
+          processTools: [block.tool],
+          isProcessComplete:
+            !isStreamingMessage && getToolExecutionState(block.tool) !== "running",
+          node: (
+            <ToolCallBlock
+              key={block.tool.callId}
+              tool={block.tool}
+              shimmer={isLastToolGroup}
+              onOpenDiff={onOpenDiff}
+            />
+          ),
+        })
       }
       i = j
     } else {
@@ -361,16 +465,18 @@ export function AssistantContentBlocks({
   if (loading && isLast) {
     const lastBlock = blocks[blocks.length - 1]
     if (lastBlock?.type === "tool_call") {
-      elements.push(
-        <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
-          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
-          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
-          <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
-        </div>,
-      )
+      units.push({
+        key: "__loading__",
+        node: (
+          <div key="__loading__" className="flex items-center gap-1 py-1 px-2">
+            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse" />
+            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:300ms]" />
+            <span className="block w-1.5 h-1.5 rounded-full bg-foreground/50 animate-pulse [animation-delay:600ms]" />
+          </div>
+        ),
+      })
     }
   }
 
-  return <>{elements}</>
+  return <>{collapseProcessedUnits(units)}</>
 }
-

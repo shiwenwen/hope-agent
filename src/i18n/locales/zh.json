@@ -728,6 +728,9 @@
         "failedCount": "{{count}} 个失败"
       }
     },
+    "processed": {
+      "completed": "已处理"
+    },
     "skill": {
       "running": "正在加载技能：{{name}}",
       "completed": "已加载技能：{{name}}",
