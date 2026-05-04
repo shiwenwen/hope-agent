@@ -67,6 +67,30 @@ export const LOCAL_MODEL_JOB_EVENTS = {
   completed: "local_model_job:completed",
 } as const
 
+/**
+ * Backend `local_model:missing_alert` event payload. Mirrors
+ * `crates/ha-core/src/local_llm/auto_maintainer.rs::LocalModelMissingAlert`.
+ */
+export interface LocalModelMissingAlert {
+  kind: "chat" | "embedding"
+  missingModelId: string
+  missingDisplayName: string
+  alternatives: MissingAlertAlternative[]
+  canRedownload: boolean
+  canDisableEmbedding: boolean
+}
+
+export interface MissingAlertAlternative {
+  modelId: string
+  displayName: string
+  /** Set when `kind === "chat"` — needed for `set_active_model`. */
+  providerId?: string | null
+  /** Set when `kind === "embedding"` — needed for `set_memory_embedding_default`. */
+  embeddingConfigId?: string | null
+}
+
+export const LOCAL_MODEL_ALERT_EVENT = "local_model:missing_alert" as const
+
 export function isLocalModelJobActive(job: LocalModelJobSnapshot): boolean {
   return job.status === "running" || job.status === "cancelling"
 }

@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "chat",
+      "kindEmbedding": "memory",
+      "toggle": {
+        "label": "Auto-maintain default models",
+        "description": "Continuously check the default chat / memory model. Silently start it when it's not running, and pop a dialog when its file goes missing. Models you stopped manually stay stopped."
+      },
+      "missingDialog": {
+        "title": "Default {{kind}} model is missing",
+        "description": "Model \"{{name}}\" is no longer present in Ollama (likely removed externally). Pick how you want to recover."
+      },
+      "actions": {
+        "redownload": "Redownload {{name}}",
+        "switchTo": "Switch to {{name}}",
+        "disableEmbedding": "Disable vector search",
+        "dismissTemporary": "Dismiss for 5 min",
+        "silenceSession": "Don't remind this session",
+        "disableAutoMaintenance": "Turn off auto-detection"
+      },
+      "toast": {
+        "redownloadStarted": "Redownload of {{name}} started",
+        "switched": "Switched to {{name}}",
+        "embeddingDisabled": "Vector search disabled",
+        "autoMaintenanceDisabled": "Auto-detection turned off"
+      },
+      "errors": {
+        "candidateNotFound": "Model not found in catalog — please install it manually from the Local Models panel.",
+        "installFailed": "Install failed: {{error}}",
+        "switchFailed": "Switch failed: {{error}}",
+        "disableFailed": "Failed to disable vector search: {{error}}",
+        "disableAutoMaintenanceFailed": "Failed to turn off auto-detection: {{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "Skills",
       "evolution": "Self-Evolution"

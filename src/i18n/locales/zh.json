@@ -2375,6 +2375,39 @@
         "detailFailed": "加载模型版本失败"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "对话",
+      "kindEmbedding": "记忆",
+      "toggle": {
+        "label": "自动维护默认模型",
+        "description": "持续监测默认对话 / 记忆模型，未运行时静默启动；模型文件被外部删除时弹窗提示。您手动停止过的模型不会被自动启动。"
+      },
+      "missingDialog": {
+        "title": "默认{{kind}}模型已丢失",
+        "description": "模型 \"{{name}}\" 已不在 Ollama 本地存储中（可能被外部删除）。请选择如何处理。"
+      },
+      "actions": {
+        "redownload": "重新下载 {{name}}",
+        "switchTo": "切换到 {{name}}",
+        "disableEmbedding": "关闭向量搜索",
+        "dismissTemporary": "暂时忽略 (5 分钟)",
+        "silenceSession": "本次启动不再提醒",
+        "disableAutoMaintenance": "关闭自动检测"
+      },
+      "toast": {
+        "redownloadStarted": "已开始重新下载 {{name}}",
+        "switched": "已切换到 {{name}}",
+        "embeddingDisabled": "已关闭向量搜索",
+        "autoMaintenanceDisabled": "已关闭自动检测"
+      },
+      "errors": {
+        "candidateNotFound": "在模型目录中找不到该模型，请前往本地模型面板手动安装。",
+        "installFailed": "启动安装失败：{{error}}",
+        "switchFailed": "切换失败：{{error}}",
+        "disableFailed": "关闭向量搜索失败：{{error}}",
+        "disableAutoMaintenanceFailed": "关闭自动检测失败：{{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "技能",
       "evolution": "自我进化"

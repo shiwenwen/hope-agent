@@ -20,6 +20,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Progress } from "@/components/ui/progress"
+import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import {
   AlertDialog,
@@ -159,6 +160,46 @@ export default function LocalModelsPanel() {
   const [pendingDelete, setPendingDelete] = useState<LocalOllamaModel | null>(null)
   const [pendingCancelJob, setPendingCancelJob] = useState<LocalModelJobSnapshot | null>(null)
   const [pendingEmbeddingDefault, setPendingEmbeddingDefault] = useState<LocalOllamaModel | null>(null)
+  const [autoMaintenanceEnabled, setAutoMaintenanceEnabled] = useState(true)
+
+  useEffect(() => {
+    const refresh = () => {
+      void getTransport()
+        .call<boolean>("get_local_llm_auto_maintenance_enabled")
+        .then((v) => setAutoMaintenanceEnabled(!!v))
+        .catch((e) => {
+          logger.warn(
+            "local-models",
+            "load_auto_maintenance",
+            "Failed to read auto-maintenance flag",
+            e,
+          )
+        })
+    }
+    refresh()
+    // Re-read on every config:changed so the dialog's "Turn off auto-detection"
+    // path (mutates AppConfig from elsewhere) is reflected here. setState with
+    // an unchanged primitive is a no-op in React, so the over-firing is benign.
+    const unlisten = getTransport().listen("config:changed", refresh)
+    return () => unlisten()
+  }, [])
+
+  const toggleAutoMaintenance = useCallback(async (next: boolean) => {
+    const previous = autoMaintenanceEnabled
+    setAutoMaintenanceEnabled(next) // optimistic
+    try {
+      await getTransport().call("set_local_llm_auto_maintenance_enabled", { enabled: next })
+    } catch (e) {
+      setAutoMaintenanceEnabled(previous)
+      logger.error(
+        "local-models",
+        "toggleAutoMaintenance",
+        "Failed to flip auto-maintenance toggle",
+        e,
+      )
+      toast.error(String(e))
+    }
+  }, [autoMaintenanceEnabled])
 
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogTitle, setDialogTitle] = useState("")
@@ -1004,6 +1045,22 @@ export default function LocalModelsPanel() {
           </div>
         </div>
       )}
+
+      <div className="mb-4 flex items-start gap-3 rounded-lg border border-border bg-card/50 p-3">
+        <Switch
+          checked={autoMaintenanceEnabled}
+          onCheckedChange={(v) => void toggleAutoMaintenance(v)}
+          className="mt-0.5"
+        />
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-foreground">
+            {t("settings.localModelMaintenance.toggle.label")}
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {t("settings.localModelMaintenance.toggle.description")}
+          </p>
+        </div>
+      </div>
 
       <Tabs defaultValue="installed" className="space-y-4">
         <TabsList>

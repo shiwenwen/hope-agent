@@ -1054,7 +1054,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",
                             "default_agent",
-                            "channels", "mcp_global", "mcp_servers"
+                            "channels", "mcp_global", "mcp_servers",
+                            "local_llm_auto_maintenance"
                         ]
                     }
                 },
@@ -1092,7 +1093,8 @@ pub fn get_available_tools() -> Vec<ToolDefinition> {
                             "skills_auto_review",
                             "recall_summary", "tool_call_narration", "teams",
                             "default_agent",
-                            "mcp_global"
+                            "mcp_global",
+                            "local_llm_auto_maintenance"
                         ]
                     },
                     "values": {

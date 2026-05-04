@@ -659,6 +659,18 @@ pub async fn preload_ollama_model(model_id: &str) -> Result<OllamaModelActionRes
     );
     start_ollama().await?;
     keep_alive_ollama_model(model_id, KeepAliveIntent::Load).await?;
+    // 用户主动启动 = 撤回之前的 stop 意图。auto_maintainer 后续不再跳过它。
+    // 安装新模型链路上的 preload 同样命中——符合"安装即用"语义。
+    if let Err(e) = clear_user_stopped(model_id) {
+        crate::app_warn!(
+            "local_llm",
+            "user_stopped",
+            "Failed to clear user_stopped flag for {}: {:#}",
+            model_id,
+            e
+        );
+    }
+    super::auto_maintainer::trigger();
     crate::app_info!(
         "local_llm",
         "preload",
@@ -680,6 +692,18 @@ pub async fn stop_ollama_model(model_id: &str) -> Result<OllamaModelActionResult
     );
     start_ollama().await?;
     keep_alive_ollama_model(model_id, KeepAliveIntent::Unload).await?;
+    // 记下用户主动 stop 的意图。auto_maintainer 看到该 tag 会跳过自启动，避免
+    // 把用户的 stop 操作秒吃。
+    if let Err(e) = mark_user_stopped(model_id) {
+        crate::app_warn!(
+            "local_llm",
+            "user_stopped",
+            "Failed to mark user_stopped flag for {}: {:#}",
+            model_id,
+            e
+        );
+    }
+    super::auto_maintainer::trigger();
     crate::app_info!(
         "local_llm",
         "stop_model",
@@ -690,6 +714,29 @@ pub async fn stop_ollama_model(model_id: &str) -> Result<OllamaModelActionResult
         ok: true,
         model_id: model_id.to_string(),
     })
+}
+
+fn mark_user_stopped(model_id: &str) -> Result<()> {
+    update_user_stopped_models(|list| {
+        if !list.iter().any(|m| m == model_id) {
+            list.push(model_id.to_string());
+        }
+    })
+}
+
+fn clear_user_stopped(model_id: &str) -> Result<()> {
+    update_user_stopped_models(|list| list.retain(|m| m != model_id))
+}
+
+fn update_user_stopped_models<F>(f: F) -> Result<()>
+where
+    F: FnOnce(&mut Vec<String>),
+{
+    crate::config::mutate_config(("local_llm.user_stopped", "ollama_action"), |cfg| {
+        f(&mut cfg.local_llm.user_stopped_models);
+        Ok(())
+    })
+    .map(|_| ())
 }
 
 async fn keep_alive_ollama_model(model_id: &str, intent: KeepAliveIntent) -> Result<()> {

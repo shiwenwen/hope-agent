@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "チャット",
+      "kindEmbedding": "メモリ",
+      "toggle": {
+        "label": "デフォルトモデルの自動メンテナンス",
+        "description": "デフォルトのチャット / メモリモデルを継続的に監視し、停止時に静かに再起動します。モデルファイルが見つからない場合はダイアログを表示します。手動で停止したモデルは自動起動しません。"
+      },
+      "missingDialog": {
+        "title": "デフォルトの{{kind}}モデルが見つかりません",
+        "description": "モデル「{{name}}」は Ollama に存在しません（外部から削除された可能性があります）。対処方法を選択してください。"
+      },
+      "actions": {
+        "redownload": "{{name}} を再ダウンロード",
+        "switchTo": "{{name}} に切り替え",
+        "disableEmbedding": "ベクトル検索をオフ",
+        "dismissTemporary": "5 分間スキップ",
+        "silenceSession": "このセッションでは通知しない",
+        "disableAutoMaintenance": "自動検出をオフ"
+      },
+      "toast": {
+        "redownloadStarted": "{{name}} の再ダウンロードを開始しました",
+        "switched": "{{name}} に切り替えました",
+        "embeddingDisabled": "ベクトル検索をオフにしました",
+        "autoMaintenanceDisabled": "自動検出をオフにしました"
+      },
+      "errors": {
+        "candidateNotFound": "モデルがカタログに見つかりません — ローカルモデルパネルから手動でインストールしてください。",
+        "installFailed": "インストールに失敗:{{error}}",
+        "switchFailed": "切り替えに失敗:{{error}}",
+        "disableFailed": "ベクトル検索のオフに失敗:{{error}}",
+        "disableAutoMaintenanceFailed": "自動検出のオフに失敗:{{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "スキル",
       "evolution": "自己進化"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "プランモードに入る",
     "enterDialog": {
       "header": "プランモード",
       "question": "プランモードに入りますか？モデルが先に調査して明確化の質問を行い、作業に着手する前に書面の計画を作成して確認していただきます。",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "プランモードに入る",
     "toggleLabel": "計画",
     "indicator": "プランモード",
     "plan": "実行プラン",

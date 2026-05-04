@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "sohbet",
+      "kindEmbedding": "bellek",
+      "toggle": {
+        "label": "Varsayılan modelleri otomatik bakım",
+        "description": "Varsayılan sohbet / bellek modelini sürekli kontrol eder. Çalışmıyorsa sessizce başlatır ve model dosyası eksilirse iletişim kutusu gösterir. Manuel olarak durdurduğunuz modeller durmuş kalır."
+      },
+      "missingDialog": {
+        "title": "Varsayılan {{kind}} modeli eksik",
+        "description": "\"{{name}}\" modeli artık Ollama'da bulunmuyor (büyük olasılıkla harici olarak silindi). Nasıl ilerlemek istediğinizi seçin."
+      },
+      "actions": {
+        "redownload": "{{name}} yeniden indir",
+        "switchTo": "{{name}} modeline geç",
+        "disableEmbedding": "Vektör aramasını kapat",
+        "dismissTemporary": "5 dk için yoksay",
+        "silenceSession": "Bu oturumda hatırlatma",
+        "disableAutoMaintenance": "Otomatik tespiti kapat"
+      },
+      "toast": {
+        "redownloadStarted": "{{name}} yeniden indirme başladı",
+        "switched": "{{name}} modeline geçildi",
+        "embeddingDisabled": "Vektör araması kapatıldı",
+        "autoMaintenanceDisabled": "Otomatik tespit kapatıldı"
+      },
+      "errors": {
+        "candidateNotFound": "Model katalogda bulunamadı — Yerel Modeller panelinden manuel olarak yükleyin.",
+        "installFailed": "Yükleme başarısız: {{error}}",
+        "switchFailed": "Geçiş başarısız: {{error}}",
+        "disableFailed": "Vektör araması kapatılamadı: {{error}}",
+        "disableAutoMaintenanceFailed": "Otomatik tespit kapatılamadı: {{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "Yetenekler",
       "evolution": "Kendiliğinden Evrim"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "Plan Mode'a gir",
     "enterDialog": {
       "header": "Plan Mode",
       "question": "Plan Mode'a geçilsin mi? Model önce keşif yapar, açıklayıcı sorular sorar ve çalışmaya başlamadan önce incelemen için yazılı bir plan hazırlar.",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "Plan Mode'a gir",
     "toggleLabel": "Plan",
     "indicator": "Plan Mode",
     "plan": "Yürütme planı",

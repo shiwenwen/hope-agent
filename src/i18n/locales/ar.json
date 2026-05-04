@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "محادثة",
+      "kindEmbedding": "ذاكرة",
+      "toggle": {
+        "label": "الصيانة التلقائية للنماذج الافتراضية",
+        "description": "يفحص باستمرار نموذج المحادثة / الذاكرة الافتراضي. يشغّله بصمت عندما لا يكون قيد التشغيل ويعرض مربع حوار عند فقدان ملف النموذج. النماذج التي أوقفتها يدويًا تبقى متوقفة."
+      },
+      "missingDialog": {
+        "title": "النموذج الافتراضي لـ {{kind}} مفقود",
+        "description": "النموذج \"{{name}}\" لم يعد موجودًا في Ollama (ربما تم حذفه خارجيًا). اختر كيف تريد استعادته."
+      },
+      "actions": {
+        "redownload": "إعادة تنزيل {{name}}",
+        "switchTo": "التبديل إلى {{name}}",
+        "disableEmbedding": "إيقاف البحث المتجه",
+        "dismissTemporary": "تجاهل لمدة 5 دقائق",
+        "silenceSession": "عدم التذكير في هذه الجلسة",
+        "disableAutoMaintenance": "إيقاف الكشف التلقائي"
+      },
+      "toast": {
+        "redownloadStarted": "بدأت إعادة تنزيل {{name}}",
+        "switched": "تم التبديل إلى {{name}}",
+        "embeddingDisabled": "تم إيقاف البحث المتجه",
+        "autoMaintenanceDisabled": "تم إيقاف الكشف التلقائي"
+      },
+      "errors": {
+        "candidateNotFound": "النموذج غير موجود في الكتالوج — يرجى تثبيته يدويًا من لوحة النماذج المحلية.",
+        "installFailed": "فشل التثبيت: {{error}}",
+        "switchFailed": "فشل التبديل: {{error}}",
+        "disableFailed": "فشل إيقاف البحث المتجه: {{error}}",
+        "disableAutoMaintenanceFailed": "فشل إيقاف الكشف التلقائي: {{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "المهارات",
       "evolution": "التطور الذاتي"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "الدخول إلى Plan Mode",
     "enterDialog": {
       "header": "Plan Mode",
       "question": "هل تريد الدخول إلى Plan Mode؟ سيستكشف النموذج أولاً، ويطرح أسئلة توضيحية، ويُعدّ خطة مكتوبة لمراجعتك قبل البدء بالعمل.",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "الدخول إلى Plan Mode",
     "toggleLabel": "خطة",
     "indicator": "وضع التخطيط",
     "plan": "خطة التنفيذ",

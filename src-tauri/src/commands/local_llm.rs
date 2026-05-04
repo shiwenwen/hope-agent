@@ -2,11 +2,11 @@ use crate::commands::CmdError;
 use crate::AppState;
 use ha_core::local_llm::{
     add_ollama_model_as_embedding_config, delete_ollama_model, detect_hardware, detect_ollama,
-    get_ollama_library_model, list_local_ollama_models, preload_ollama_model, recommend_model,
-    register_ollama_model_as_provider, search_ollama_library, start_ollama, stop_ollama_model,
-    HardwareInfo, LocalModelDeleteResult, LocalOllamaModel, ModelRecommendation,
-    OllamaLibraryModelDetail, OllamaLibrarySearchResponse, OllamaModelActionResult,
-    OllamaModelRegistration, OllamaStatus,
+    get_ollama_library_model, list_local_ollama_models, model_catalog, preload_ollama_model,
+    recommend_model, register_ollama_model_as_provider, search_ollama_library, start_ollama,
+    stop_ollama_model, HardwareInfo, LocalModelDeleteResult, LocalOllamaModel, ModelCandidate,
+    ModelRecommendation, OllamaLibraryModelDetail, OllamaLibrarySearchResponse,
+    OllamaModelActionResult, OllamaModelRegistration, OllamaStatus,
 };
 use ha_core::memory::EmbeddingModelConfig;
 use ha_core::provider::{known_local_backends, KnownLocalBackend};
@@ -21,6 +21,16 @@ pub async fn local_llm_detect_hardware() -> Result<HardwareInfo, CmdError> {
 pub async fn local_llm_recommend_model() -> Result<ModelRecommendation, CmdError> {
     let hw = detect_hardware();
     Ok(recommend_model(&hw))
+}
+
+/// Full chat-model catalog, regardless of hardware budget. The recommend
+/// endpoint filters by GPU/RAM, but `MissingModelDialog` needs to redownload
+/// any catalog tag the user previously had — including ones that exceed the
+/// current hardware budget (user upgraded then downgraded, switched machines,
+/// etc.).
+#[tauri::command]
+pub async fn local_llm_chat_catalog() -> Result<Vec<ModelCandidate>, CmdError> {
+    Ok(model_catalog())
 }
 
 #[tauri::command]

@@ -2375,6 +2375,39 @@
         "detailFailed": "加载模型版本失败"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "對話",
+      "kindEmbedding": "記憶",
+      "toggle": {
+        "label": "自動維護預設模型",
+        "description": "持續監測預設對話 / 記憶模型，未執行時靜默啟動；模型檔案被外部刪除時彈窗提示。您手動停止過的模型不會被自動啟動。"
+      },
+      "missingDialog": {
+        "title": "預設{{kind}}模型已遺失",
+        "description": "模型「{{name}}」已不在 Ollama 本機儲存中（可能被外部刪除）。請選擇如何處理。"
+      },
+      "actions": {
+        "redownload": "重新下載 {{name}}",
+        "switchTo": "切換至 {{name}}",
+        "disableEmbedding": "關閉向量搜尋",
+        "dismissTemporary": "暫時忽略 (5 分鐘)",
+        "silenceSession": "本次啟動不再提醒",
+        "disableAutoMaintenance": "關閉自動偵測"
+      },
+      "toast": {
+        "redownloadStarted": "已開始重新下載 {{name}}",
+        "switched": "已切換至 {{name}}",
+        "embeddingDisabled": "已關閉向量搜尋",
+        "autoMaintenanceDisabled": "已關閉自動偵測"
+      },
+      "errors": {
+        "candidateNotFound": "在模型目錄中找不到該模型,請前往本機模型面板手動安裝。",
+        "installFailed": "啟動安裝失敗:{{error}}",
+        "switchFailed": "切換失敗:{{error}}",
+        "disableFailed": "關閉向量搜尋失敗:{{error}}",
+        "disableAutoMaintenanceFailed": "關閉自動偵測失敗:{{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "技能",
       "evolution": "自我進化"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "進入計劃模式",
     "enterDialog": {
       "header": "計劃模式",
       "question": "進入計劃模式？模型會先做調研、追問澄清，並起草一份計劃交你審核後再動手。",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "進入計劃模式",
     "toggleLabel": "計劃",
     "indicator": "計劃模式",
     "plan": "執行計劃",

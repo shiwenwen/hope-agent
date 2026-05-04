@@ -237,6 +237,29 @@ where
         bytes_total: None,
     });
     let result = save_and_set_default_for_model(&model, parent_job_id.as_deref())?;
+
+    // 让模型常驻 Ollama runtime（keep_alive=-1）。否则 reembed 跑完 5 分钟超时模型
+    // 卸载，下次 Active Memory 召回 cold start，user turn 卡几秒；UI 上「已安装」
+    // 列表里也只能看到「启动」按钮。preload 失败仅 warn 不阻塞——Ollama 临时不
+    // 可达时安装本身不该整体失败。phase 复用 OllamaPreload job 的 `loading-model`
+    // 字符串，i18n key 已 12 语言齐全。
+    on_progress(&PullProgress {
+        model_id: model.id.clone(),
+        phase: "loading-model".into(),
+        percent: Some(99),
+        bytes_completed: None,
+        bytes_total: None,
+    });
+    if let Err(e) = crate::local_llm::preload_ollama_model(&model.id).await {
+        crate::app_warn!(
+            "local_embedding",
+            "preload",
+            "Failed to preload Ollama embedding model after install: model={} error={:#}",
+            model.id,
+            e
+        );
+    }
+
     on_progress(&PullProgress {
         model_id: model.id.clone(),
         phase: "done".into(),

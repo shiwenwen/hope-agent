@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "чат",
+      "kindEmbedding": "память",
+      "toggle": {
+        "label": "Автоматическое обслуживание моделей по умолчанию",
+        "description": "Постоянно проверяет состояние модели чата / памяти по умолчанию. Запускает её в фоновом режиме, если она не работает, и показывает диалог, если файл модели пропадает. Модели, остановленные вручную, не запускаются автоматически."
+      },
+      "missingDialog": {
+        "title": "Модель {{kind}} по умолчанию отсутствует",
+        "description": "Модель «{{name}}» больше не доступна в Ollama (вероятно удалена извне). Выберите, как восстановить."
+      },
+      "actions": {
+        "redownload": "Скачать {{name}} заново",
+        "switchTo": "Переключиться на {{name}}",
+        "disableEmbedding": "Отключить векторный поиск",
+        "dismissTemporary": "Отложить на 5 мин",
+        "silenceSession": "Не напоминать в этой сессии",
+        "disableAutoMaintenance": "Выключить автообнаружение"
+      },
+      "toast": {
+        "redownloadStarted": "Загрузка {{name}} начата",
+        "switched": "Переключено на {{name}}",
+        "embeddingDisabled": "Векторный поиск отключён",
+        "autoMaintenanceDisabled": "Автообнаружение выключено"
+      },
+      "errors": {
+        "candidateNotFound": "Модель не найдена в каталоге — установите её вручную из панели локальных моделей.",
+        "installFailed": "Ошибка установки: {{error}}",
+        "switchFailed": "Ошибка переключения: {{error}}",
+        "disableFailed": "Не удалось отключить векторный поиск: {{error}}",
+        "disableAutoMaintenanceFailed": "Не удалось выключить автообнаружение: {{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "Навыки",
       "evolution": "Само-эволюция"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "Войти в Plan Mode",
     "enterDialog": {
       "header": "Plan Mode",
       "question": "Войти в Plan Mode? Модель сначала изучит контекст, задаст уточняющие вопросы и подготовит письменный план для вашего согласования, прежде чем приступить к работе.",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "Войти в Plan Mode",
     "toggleLabel": "План",
     "indicator": "Режим планирования",
     "plan": "План выполнения",

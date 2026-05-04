@@ -22,6 +22,7 @@ pub mod generated_images;
 pub mod health;
 pub mod local_embedding;
 pub mod local_llm;
+pub mod local_model_alerts;
 pub mod local_model_jobs;
 pub mod logging;
 pub mod mcp;

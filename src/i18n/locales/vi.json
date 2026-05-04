@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "trò chuyện",
+      "kindEmbedding": "bộ nhớ",
+      "toggle": {
+        "label": "Tự động duy trì mô hình mặc định",
+        "description": "Liên tục kiểm tra mô hình trò chuyện / bộ nhớ mặc định. Tự động khởi động khi mô hình không chạy và hiển thị hộp thoại khi tệp mô hình bị thiếu. Các mô hình bạn dừng thủ công sẽ không được tự khởi động lại."
+      },
+      "missingDialog": {
+        "title": "Mô hình {{kind}} mặc định bị thiếu",
+        "description": "Mô hình \"{{name}}\" không còn trong Ollama (có thể đã bị xóa từ bên ngoài). Hãy chọn cách khắc phục."
+      },
+      "actions": {
+        "redownload": "Tải lại {{name}}",
+        "switchTo": "Chuyển sang {{name}}",
+        "disableEmbedding": "Tắt tìm kiếm vector",
+        "dismissTemporary": "Bỏ qua 5 phút",
+        "silenceSession": "Không nhắc trong phiên này",
+        "disableAutoMaintenance": "Tắt tự động phát hiện"
+      },
+      "toast": {
+        "redownloadStarted": "Đã bắt đầu tải lại {{name}}",
+        "switched": "Đã chuyển sang {{name}}",
+        "embeddingDisabled": "Đã tắt tìm kiếm vector",
+        "autoMaintenanceDisabled": "Đã tắt tự động phát hiện"
+      },
+      "errors": {
+        "candidateNotFound": "Không tìm thấy mô hình trong danh mục — hãy cài thủ công từ bảng mô hình cục bộ.",
+        "installFailed": "Cài đặt thất bại: {{error}}",
+        "switchFailed": "Chuyển thất bại: {{error}}",
+        "disableFailed": "Không thể tắt tìm kiếm vector: {{error}}",
+        "disableAutoMaintenanceFailed": "Không thể tắt tự động phát hiện: {{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "Kỹ năng",
       "evolution": "Tự tiến hóa"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "Vào Plan Mode",
     "enterDialog": {
       "header": "Plan Mode",
       "question": "Vào Plan Mode? Mô hình sẽ khảo sát trước, hỏi làm rõ và soạn một bản kế hoạch để bạn xem xét trước khi bắt tay vào việc.",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "Vào Plan Mode",
     "toggleLabel": "Kế hoạch",
     "indicator": "Plan Mode",
     "plan": "Kế hoạch thực thi",

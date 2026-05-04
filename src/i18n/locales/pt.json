@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "chat",
+      "kindEmbedding": "memória",
+      "toggle": {
+        "label": "Manutenção automática dos modelos padrão",
+        "description": "Verifica continuamente o modelo de chat / memória padrão. Inicia em silêncio quando não está em execução e mostra um diálogo se o arquivo do modelo desaparecer. Modelos parados manualmente permanecem parados."
+      },
+      "missingDialog": {
+        "title": "O modelo de {{kind}} padrão está ausente",
+        "description": "O modelo \"{{name}}\" já não está no Ollama (provavelmente removido externamente). Escolha como prosseguir."
+      },
+      "actions": {
+        "redownload": "Baixar novamente {{name}}",
+        "switchTo": "Mudar para {{name}}",
+        "disableEmbedding": "Desativar busca vetorial",
+        "dismissTemporary": "Ignorar por 5 min",
+        "silenceSession": "Não avisar nesta sessão",
+        "disableAutoMaintenance": "Desativar detecção automática"
+      },
+      "toast": {
+        "redownloadStarted": "Download de {{name}} iniciado",
+        "switched": "Alterado para {{name}}",
+        "embeddingDisabled": "Busca vetorial desativada",
+        "autoMaintenanceDisabled": "Detecção automática desativada"
+      },
+      "errors": {
+        "candidateNotFound": "Modelo não encontrado no catálogo — instale-o manualmente pelo painel de modelos locais.",
+        "installFailed": "Falha ao instalar: {{error}}",
+        "switchFailed": "Falha ao alterar: {{error}}",
+        "disableFailed": "Falha ao desativar busca vetorial: {{error}}",
+        "disableAutoMaintenanceFailed": "Falha ao desativar detecção automática: {{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "Habilidades",
       "evolution": "Auto-evolução"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "Entrar em Plan Mode",
     "enterDialog": {
       "header": "Plan Mode",
       "question": "Entrar em Plan Mode? O modelo vai explorar primeiro, fazer perguntas de esclarecimento e redigir um plano por escrito para você revisar antes de começar.",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "Entrar em Plan Mode",
     "toggleLabel": "Plano",
     "indicator": "Plan Mode",
     "plan": "Plano de execução",

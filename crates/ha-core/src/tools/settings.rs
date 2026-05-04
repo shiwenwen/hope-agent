@@ -26,7 +26,8 @@ fn risk_level(category: &str) -> &'static str {
     match category {
         // ── LOW ────────────────────────────────────────────────
         "user" | "theme" | "language" | "ui_effects" | "notification" | "canvas" | "image"
-        | "pdf" | "image_generate" | "temperature" | "tool_timeout" | "default_agent" => "low",
+        | "pdf" | "image_generate" | "temperature" | "tool_timeout" | "default_agent"
+        | "local_llm_auto_maintenance" => "low",
 
         // ── MEDIUM ─────────────────────────────────────────────
         "compact"
@@ -343,6 +344,7 @@ fn read_category(category: &str) -> Result<Value> {
             "toolCallNarrationEnabled": cfg.tool_call_narration_enabled,
         })),
         "channels" => Ok(redact_channels_value(serde_json::to_value(&cfg.channels)?)),
+        "local_llm_auto_maintenance" => Ok(serde_json::to_value(&cfg.local_llm)?),
         "smart_mode" => Ok(serde_json::to_value(&cfg.permission.smart)?),
         "multimodal" => Ok(serde_json::to_value(&cfg.multimodal)?),
         "dreaming" => Ok(serde_json::to_value(&cfg.dreaming)?),
@@ -729,6 +731,14 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "multimodal" => merge_field(&mut store.multimodal, values)?,
         "dreaming" => merge_field(&mut store.dreaming, values)?,
         "mcp_global" => merge_field(&mut store.mcp_global, values)?,
+        "local_llm_auto_maintenance" => {
+            // Only the `enabled` toggle is writable through the skill —
+            // `userStoppedModels` is owned by the preload/stop UI flow and
+            // must not be silently rewritten via natural-language requests.
+            if let Some(v) = values.get("enabled").and_then(|v| v.as_bool()) {
+                store.local_llm.auto_maintenance.enabled = v;
+            }
+        }
         "teams" => {
             // Teams are DB rows, not AppConfig fields. Perform CRUD directly on the
             // team_templates table and return early (skip save_config / hot reload).

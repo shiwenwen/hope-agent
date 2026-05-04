@@ -32,6 +32,7 @@ import IconSidebar from "@/components/common/IconSidebar"
 import ChatScreen from "@/components/chat/ChatScreen"
 import StarrySky from "@/components/common/StarrySky"
 import DangerousModeBanner from "@/components/common/DangerousModeBanner"
+import MissingModelDialog from "@/components/local-model/MissingModelDialog"
 import {
   LOCAL_MODEL_JOB_EVENTS,
   type LocalModelJobSnapshot,
@@ -391,6 +392,7 @@ export default function App() {
             <StarrySky />
             <Toaster />
             <DangerousModeBanner />
+            <MissingModelDialog />
             <div className="flex flex-1 min-h-0 overflow-hidden">
               <IconSidebar
                 view={view}

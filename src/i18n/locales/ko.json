@@ -2375,6 +2375,39 @@
         "detailFailed": "Failed to load model versions"
       }
     },
+    "localModelMaintenance": {
+      "kindChat": "채팅",
+      "kindEmbedding": "메모리",
+      "toggle": {
+        "label": "기본 모델 자동 유지",
+        "description": "기본 채팅 / 메모리 모델 상태를 지속적으로 확인하여 중지된 경우 자동으로 시작합니다. 모델 파일이 외부에서 삭제되면 대화상자로 알립니다. 수동으로 중지한 모델은 자동 시작되지 않습니다."
+      },
+      "missingDialog": {
+        "title": "기본 {{kind}} 모델이 누락되었습니다",
+        "description": "모델 \"{{name}}\"이(가) Ollama에 더 이상 존재하지 않습니다(외부에서 삭제된 것으로 보임). 처리 방법을 선택하세요."
+      },
+      "actions": {
+        "redownload": "{{name}} 다시 다운로드",
+        "switchTo": "{{name}}(으)로 전환",
+        "disableEmbedding": "벡터 검색 끄기",
+        "dismissTemporary": "5분 동안 무시",
+        "silenceSession": "이번 세션에서는 알리지 않음",
+        "disableAutoMaintenance": "자동 감지 끄기"
+      },
+      "toast": {
+        "redownloadStarted": "{{name}} 다시 다운로드가 시작되었습니다",
+        "switched": "{{name}}(으)로 전환했습니다",
+        "embeddingDisabled": "벡터 검색이 비활성화되었습니다",
+        "autoMaintenanceDisabled": "자동 감지가 비활성화되었습니다"
+      },
+      "errors": {
+        "candidateNotFound": "카탈로그에서 모델을 찾을 수 없습니다 — 로컬 모델 패널에서 수동으로 설치하세요.",
+        "installFailed": "설치 실패: {{error}}",
+        "switchFailed": "전환 실패: {{error}}",
+        "disableFailed": "벡터 검색을 끄지 못했습니다: {{error}}",
+        "disableAutoMaintenanceFailed": "자동 감지를 끄지 못했습니다: {{error}}"
+      }
+    },
     "skillsTab": {
       "manage": "스킬",
       "evolution": "자기 진화"
@@ -2997,6 +3030,7 @@
     }
   },
   "planMode": {
+    "enter": "계획 모드 진입",
     "enterDialog": {
       "header": "계획 모드",
       "question": "계획 모드로 들어갈까요? 모델이 먼저 탐색하고 명확화 질문을 한 뒤, 작업 전에 검토용 계획서를 작성합니다.",
@@ -3013,7 +3047,6 @@
         }
       }
     },
-    "enter": "계획 모드 진입",
     "toggleLabel": "계획",
     "indicator": "계획 모드",
     "plan": "실행 계획",
