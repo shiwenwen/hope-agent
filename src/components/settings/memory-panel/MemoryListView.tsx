@@ -330,7 +330,6 @@ export default function MemoryListView({ data, isAgentMode, embedded = false }: 
                   className={cn(
                     "group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-secondary/40 cursor-pointer transition-colors",
                     isSelected && "bg-primary/5 border border-primary/20",
-                    mem.pinned && "border-l-2 border-l-amber-400",
                   )}
                   onClick={() => startEdit(mem)}
                 >

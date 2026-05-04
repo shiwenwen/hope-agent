@@ -18,7 +18,7 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveStatus, setSaveStatus] = useState<"idle" | "saved" | "failed">("idle")
-  const [expanded, setExpanded] = useState(false)
+  const [expanded, setExpanded] = useState(true)
 
   const loadContent = useCallback(async () => {
     try {
@@ -29,7 +29,6 @@ export default function CoreMemoryEditor({ scope, agentId }: CoreMemoryEditorPro
       setContent(val)
       setOriginalContent(val)
       setLoaded(true)
-      if (val.trim()) setExpanded(true)
     } catch (e) {
       logger.error("settings", "CoreMemoryEditor::load", "Failed to load", e)
     }
