@@ -728,6 +728,9 @@
         "failedCount": "{{count}} failed"
       }
     },
+    "processed": {
+      "completed": "İşlendi"
+    },
     "skill": {
       "running": "Loading skill: {{name}}",
       "completed": "Loaded skill: {{name}}",
