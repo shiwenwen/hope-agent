@@ -37,9 +37,6 @@ import {
   Sparkles,
 } from "lucide-react"
 import { MEMORY_TYPES, MEMORY_TYPE_ICONS } from "./types"
-import ExtractConfig from "./ExtractConfig"
-import BudgetConfig from "./BudgetConfig"
-import CoreMemoryEditor from "./CoreMemoryEditor"
 import ImportFromAIDialog from "./ImportFromAIDialog"
 import type { useMemoryData } from "./useMemoryData"
 
@@ -49,14 +46,14 @@ interface MemoryListViewProps {
   data: MemoryData
   isAgentMode: boolean
   compact?: boolean
+  embedded?: boolean
 }
 
-export default function MemoryListView({ data, isAgentMode, compact }: MemoryListViewProps) {
+export default function MemoryListView({ data, isAgentMode, embedded = false }: MemoryListViewProps) {
   const { t } = useTranslation()
   const [confirmBatchDeleteOpen, setConfirmBatchDeleteOpen] = useState(false)
 
   const {
-    setView,
     memories,
     totalCount,
     loading,
@@ -95,12 +92,9 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
       t("settings.memoryModel"))
     : null
   const embeddingEnabled = memoryEmbeddingState.selection.enabled
-  const embeddingButtonTip = activeEmbeddingModel
-    ? `${t("settings.memoryVectorEnabled")} · ${activeEmbeddingModel}`
-    : t("settings.memoryEmbedding")
 
   return (
-    <div className="flex-1 overflow-y-auto p-6">
+    <div className={embedded ? "w-full" : "flex-1 overflow-y-auto p-6"}>
       <div className="w-full">
         {/* Header */}
         <div className="flex items-center justify-between mb-1">
@@ -121,29 +115,6 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
                 <FileDown className="h-4 w-4" />
               </Button>
             </IconTip>
-            {!compact && (
-              <IconTip label={embeddingButtonTip}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setView("embedding")}
-                  className={cn(
-                    "relative overflow-visible gap-1.5 text-xs transition-colors",
-                    embeddingEnabled
-                      ? "border-green-500/50 bg-green-500/10 text-green-700 hover:bg-green-500/15 hover:text-green-800 dark:text-green-400 dark:hover:text-green-300"
-                      : "text-muted-foreground",
-                  )}
-                >
-                  <Zap
-                    className={cn(
-                      "h-3.5 w-3.5",
-                      embeddingEnabled && "fill-green-500/20",
-                    )}
-                  />
-                  {t("settings.memoryEmbedding")}
-                </Button>
-              </IconTip>
-            )}
             <Button size="sm" onClick={startAdd} className="gap-1.5">
               <Plus className="h-3.5 w-3.5" />
               {t("settings.memoryAdd")}
@@ -161,15 +132,6 @@ export default function MemoryListView({ data, isAgentMode, compact }: MemoryLis
             </span>
           </div>
         )}
-
-        {/* Global Core Memory editor (standalone mode only) */}
-        {!isAgentMode && <CoreMemoryEditor scope="global" />}
-
-        {/* Auto-extract settings */}
-        <ExtractConfig data={data} isAgentMode={isAgentMode} />
-
-        {/* Memory section budget (global defaults). Agent tab has override UI. */}
-        {!isAgentMode && <BudgetConfig />}
 
         {/* Stats bar */}
         {stats && stats.total > 0 && (

@@ -971,6 +971,10 @@
     "skillHealth": "Sức khỏe",
     "memory": "Bộ nhớ",
     "memoryDesc": "Bộ nhớ liên tục giúp AI ghi nhớ ngữ cảnh qua các cuộc trò chuyện",
+    "memoryTabs": {
+      "settings": "Cài đặt bộ nhớ",
+      "manage": "Quản lý bộ nhớ"
+    },
     "activeMemoryTitle": "Truy hồi bộ nhớ chủ động",
     "activeMemoryDesc": "Đầu mỗi lượt người dùng, chạy một side query có giới hạn để cô đọng ký ức liên quan nhất thành một câu và đưa vào cùng system prompt. Hết thời gian và lỗi sẽ lặng lẽ quay lại recall bị động — không bao giờ chặn cuộc trò chuyện.",
     "activeMemoryTimeout": "Hết hạn (ms)",

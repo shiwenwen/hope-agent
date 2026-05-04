@@ -971,6 +971,10 @@
     "skillHealth": "ヘルス",
     "memory": "記憶",
     "memoryDesc": "会話を跨いで AI が文脈を記憶するための永続的な記憶",
+    "memoryTabs": {
+      "settings": "記憶設定",
+      "manage": "記憶管理"
+    },
     "activeMemoryTitle": "アクティブメモリ想起",
     "activeMemoryDesc": "ユーザー発話ごとに制限付き side query を実行し、最も関連の高い記憶を一文に要約してシステムプロンプトへ注入します。タイムアウトや失敗時は受動的想起へ静かにフォールバックし、会話は止まりません。",
     "activeMemoryTimeout": "タイムアウト (ms)",

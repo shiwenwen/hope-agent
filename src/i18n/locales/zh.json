@@ -971,6 +971,10 @@
     "skillHealth": "健康状态",
     "memory": "记忆",
     "memoryDesc": "持久化记忆，帮助 AI 在跨对话中记住重要上下文",
+    "memoryTabs": {
+      "settings": "记忆设置",
+      "manage": "记忆管理"
+    },
     "activeMemoryTitle": "主动记忆召回",
     "activeMemoryDesc": "每轮提问前主动搜索相关记忆并用 side query 压成一句话注入。超时或失败自动回退到被动召回，不阻塞对话。",
     "activeMemoryTimeout": "超时 (ms)",
