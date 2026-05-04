@@ -4,6 +4,8 @@ description: "Self-service diagnostics — query Hope Agent's local SQLite datab
 version: 1.0.0
 author: Hope Agent
 license: MIT
+requires:
+  anyBins: [sqlite3, python3]
 ---
 
 # Hope Agent Logs — Self-Service Diagnostics
