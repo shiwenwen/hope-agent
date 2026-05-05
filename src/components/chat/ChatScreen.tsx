@@ -190,6 +190,7 @@ export default function ChatScreen({
   const currentSessionId = session.currentSessionId
   const setAgentName = session.setAgentName
   const updateSessionMeta = session.updateSessionMeta
+  const handleSwitchSession = session.handleSwitchSession
 
   const handleSessionEffortChange = useCallback(
     async (effort: string) => {
@@ -397,8 +398,8 @@ export default function ChatScreen({
   )
 
   const refreshUnreadState = useCallback(async () => {
-    await Promise.all([session.reloadSessions(), reloadProjects()])
-  }, [session.reloadSessions, reloadProjects])
+    await Promise.all([reloadSessions(), reloadProjects()])
+  }, [reloadSessions, reloadProjects])
 
   const [projectDialogOpen, setProjectDialogOpen] = useState(false)
   const [projectDialogMode, setProjectDialogMode] = useState<"create" | "edit">("create")
@@ -590,11 +591,16 @@ export default function ChatScreen({
   useEffect(() => {
     return getTransport().listen("tray:focus-session", (raw) => {
       const sessionId = (raw as { sessionId?: string } | undefined)?.sessionId
-      if (sessionId) void session.handleSwitchSession(sessionId)
+      if (sessionId) void handleSwitchSession(sessionId)
     })
-  }, [session.handleSwitchSession])
+  }, [handleSwitchSession])
 
-  // Listen for channel slash command state-sync events
+  // Listen for channel slash command state-sync events.
+  // Deps narrowed to currentSessionId + refreshUnreadState: re-subscribing on
+  // every applyModelForDisplay / session.* identity churn would create a
+  // listener storm. The other call sites used in the closure are either
+  // stable useState setters or only matter for the active session — which is
+  // re-keyed by currentSessionId here.
   useEffect(() => {
     const unlisteners: Array<() => void> = []
 
@@ -970,6 +976,7 @@ export default function ChatScreen({
       planMode,
       loadSystemPrompt,
       handleNewChatInProject,
+      refreshUnreadState,
       t,
     ],
   )
