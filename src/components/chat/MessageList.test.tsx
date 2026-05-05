@@ -314,7 +314,7 @@ describe("MessageList", () => {
         loadingMore={false}
         onLoadMore={vi.fn()}
         sessionId="s1"
-        pendingScrollTarget={42}
+        pendingScrollIntent={{ messageId: 42, highlightTerms: null }}
         onScrollTargetHandled={onScrollTargetHandled}
       />,
     )

@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useRef } from "react"
+import { useCallback, useEffect, useMemo, useRef } from "react"
+import { parseHighlightTerms } from "@/lib/inlineHighlight"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -48,7 +49,10 @@ interface SessionListProps {
   currentSessionId: string | null
   loadingSessionIds: Set<string>
   loadingMoreSessions?: boolean
-  onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
+  onSwitchSession: (
+    sessionId: string,
+    opts?: { targetMessageId?: number; highlightTerms?: string[] },
+  ) => void
   onDeleteClick: (sessionId: string, e: React.MouseEvent) => void
   onMarkAllRead?: () => void
   // Rename props
@@ -66,11 +70,17 @@ interface SessionListProps {
   searchQuery: string
   onSearchQueryChange: (q: string) => void
   searchResults: SessionSearchResult[] | null
+  /** True when the result set hit the backend limit and may have been
+   *  truncated. Surfaced as a hint above the result list. */
+  searchTruncated?: boolean
   searching: boolean
   agents: AgentSummaryForSidebar[]
   // Projects — drives the per-session "Move to project" submenu
   projects?: ProjectMeta[]
   onMoveToProject?: (sessionId: string, projectId: string | null) => void
+  /** Monotonic counter — focuses + selects the search input on each tick.
+   *  Driven by `Cmd+Shift+F` in `ChatScreen`. */
+  searchFocusSignal?: number
 }
 
 export default function SessionList({
@@ -97,10 +107,12 @@ export default function SessionList({
   searchQuery,
   onSearchQueryChange,
   searchResults,
+  searchTruncated = false,
   searching,
   agents,
   projects = [],
   onMoveToProject,
+  searchFocusSignal,
 }: SessionListProps) {
   const { t } = useTranslation()
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -119,12 +131,44 @@ export default function SessionList({
     focusSearchInput()
   }
 
+  // External focus trigger (Cmd+Shift+F → ChatScreen → ChatSidebar →
+  // here). Re-runs on every signal tick so a second press from anywhere in
+  // the app re-focuses + selects whatever is in the input. Skip the initial
+  // mount tick (signal undefined or 0) so the sidebar doesn't auto-focus on
+  // every chat open.
+  useEffect(() => {
+    if (searchFocusSignal === undefined || searchFocusSignal === 0) return
+    const input = searchInputRef.current
+    if (!input) return
+    input.focus({ preventScroll: true })
+    input.select()
+  }, [searchFocusSignal])
+
+  const handleSearchKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLInputElement>) => {
+      if (e.key !== "Escape") return
+      e.preventDefault()
+      // Esc: clear non-empty query first, blur on the second press.
+      if (searchQuery.length > 0) {
+        onSearchQueryChange("")
+      } else {
+        searchInputRef.current?.blur()
+      }
+    },
+    [searchQuery, onSearchQueryChange],
+  )
+
   // Client-side second-level filter by session type for search results.
   const visibleResults = useMemo(() => {
     if (!searchResults) return []
     if (sessionFilter === "all") return searchResults
     return searchResults.filter((r) => classifyResult(r) === sessionFilter)
   }, [searchResults, sessionFilter])
+
+  const highlightTerms = useMemo(
+    () => parseHighlightTerms(searchQuery),
+    [searchQuery],
+  )
 
   return (
     <>
@@ -136,6 +180,7 @@ export default function SessionList({
           aria-label={t("chat.searchPlaceholder") || ""}
           value={searchQuery}
           onChange={(e) => onSearchQueryChange(e.target.value)}
+          onKeyDown={handleSearchKeyDown}
           placeholder={t("chat.searchPlaceholder")}
           className="h-7 pl-7 pr-7 text-xs border-none shadow-none bg-muted/50 rounded-md focus-visible:ring-0 focus-visible:bg-muted/80 placeholder:text-muted-foreground/50"
         />
@@ -250,20 +295,30 @@ export default function SessionList({
               </p>
             </div>
           ) : (
-            visibleResults.map((result) => (
-              <SearchResultItem
-                key={`${result.sessionId}-${result.messageId}`}
-                result={result}
-                isActive={result.sessionId === currentSessionId}
-                agent={getAgentInfo(result.agentId)}
-                agents={agents}
-                sessionMeta={sessions.find((s) => s.id === result.sessionId)}
-                onSwitch={() =>
-                  onSwitchSession(result.sessionId, { targetMessageId: result.messageId })
-                }
-                formatRelativeTime={formatRelativeTime}
-              />
-            ))
+            <>
+              {searchTruncated && (
+                <div className="px-2 py-1 mb-1 text-[10px] text-muted-foreground/70 leading-snug">
+                  {t("chat.searchTruncatedHint", { count: visibleResults.length })}
+                </div>
+              )}
+              {visibleResults.map((result) => (
+                <SearchResultItem
+                  key={`${result.sessionId}-${result.messageId}`}
+                  result={result}
+                  isActive={result.sessionId === currentSessionId}
+                  agent={getAgentInfo(result.agentId)}
+                  agents={agents}
+                  sessionMeta={sessions.find((s) => s.id === result.sessionId)}
+                  onSwitch={() =>
+                    onSwitchSession(result.sessionId, {
+                      targetMessageId: result.messageId,
+                      highlightTerms,
+                    })
+                  }
+                  formatRelativeTime={formatRelativeTime}
+                />
+              ))}
+            </>
           )}
         </div>
       ) : (

@@ -124,7 +124,7 @@ pub struct ChannelSessionInfo {
     pub sender_name: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageRole {
     User,
@@ -216,6 +216,14 @@ pub struct SessionMessage {
     /// side diff panel + `+N -M` summaries in tool call headers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_metadata: Option<String>,
+    /// Streaming persistence state for thinking_block / text_block rows that
+    /// were inserted incrementally (placeholder + throttled UPDATE) before the
+    /// turn finalized. `streaming` = currently being written; `completed` =
+    /// finalized cleanly; `orphaned` = a previous run died mid-stream and
+    /// startup sweep marked it. `None` covers legacy rows pre-migration and
+    /// is treated as `completed` by readers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_status: Option<String>,
 }
 
 // ── NewMessage (for inserting) ───────────────────────────────────
@@ -245,6 +253,9 @@ pub struct NewMessage {
     /// JSON string with structured tool side-output (see
     /// [`SessionMessage::tool_metadata`]).
     pub tool_metadata: Option<String>,
+    /// Initial stream_status for crash-resilient placeholder rows (see
+    /// [`SessionMessage::stream_status`]). Default `None` for normal rows.
+    pub stream_status: Option<String>,
 }
 
 impl NewMessage {
@@ -271,6 +282,7 @@ impl NewMessage {
             tokens_cache_creation: None,
             tokens_cache_read: None,
             tool_metadata: None,
+            stream_status: None,
         }
     }
 
@@ -297,6 +309,7 @@ impl NewMessage {
             tokens_cache_creation: None,
             tokens_cache_read: None,
             tool_metadata: None,
+            stream_status: None,
         }
     }
 
@@ -330,6 +343,7 @@ impl NewMessage {
             tokens_cache_creation: None,
             tokens_cache_read: None,
             tool_metadata: None,
+            stream_status: None,
         }
     }
 
@@ -356,6 +370,7 @@ impl NewMessage {
             tokens_cache_creation: None,
             tokens_cache_read: None,
             tool_metadata: None,
+            stream_status: None,
         }
     }
 
@@ -387,6 +402,7 @@ impl NewMessage {
             tokens_cache_creation: None,
             tokens_cache_read: None,
             tool_metadata: None,
+            stream_status: None,
         }
     }
 
@@ -413,6 +429,7 @@ impl NewMessage {
             tokens_cache_creation: None,
             tokens_cache_read: None,
             tool_metadata: None,
+            stream_status: None,
         }
     }
 

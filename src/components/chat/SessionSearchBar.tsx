@@ -4,15 +4,21 @@ import { ChevronUp, ChevronDown, Loader2, Search, X } from "lucide-react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { cn } from "@/lib/utils"
-import { renderHighlightedSnippet } from "@/lib/highlight"
+import { recenterHighlightedSnippet, renderHighlightedSnippet } from "@/lib/highlight"
+import { parseHighlightTerms } from "@/lib/inlineHighlight"
 import { IconTip } from "@/components/ui/tooltip"
 import type { SessionSearchResult } from "@/types/chat"
+import { sortSessionSearchResults } from "./chatUtils"
+import { SEARCH_LIMIT } from "./hooks/constants"
 
 interface SessionSearchBarProps {
   sessionId: string
   /** Called with the target message id whenever the user navigates to a
-   *  new match (debounced search completion, arrow keys, Enter). */
-  onJumpTo: (messageId: number) => void
+   *  new match (debounced search completion, arrow keys, Enter). The
+   *  optional `highlightTerms` are the literal substrings to inline-paint
+   *  inside the matched bubble — same parse the sidebar uses, so the
+   *  in-bubble highlight matches the result snippet's `<mark>` runs. */
+  onJumpTo: (messageId: number, highlightTerms?: string[]) => void
   onClose: () => void
   /** Incremented by the parent when Cmd/Ctrl+F is pressed while the bar is
    *  already open, to re-focus the input. */
@@ -83,19 +89,9 @@ export default function SessionSearchBar({
       try {
         const list = await getTransport().call<SessionSearchResult[]>(
           "search_session_messages_cmd",
-          {
-            sessionId,
-            query: q,
-            limit: 200,
-          },
+          { sessionId, query: q, limit: SEARCH_LIMIT },
         )
-        // ISO-8601 timestamps sort lexicographically as time order. Fall back
-        // to messageId when two messages share the same timestamp string.
-        const next = (list ?? []).slice().sort((a, b) => {
-          const cmp = a.timestamp.localeCompare(b.timestamp)
-          return cmp !== 0 ? cmp : a.messageId - b.messageId
-        })
-        setSortedResults(next)
+        setSortedResults(sortSessionSearchResults(list ?? []))
         setCurrentIndex(0)
       } catch (err) {
         logger.error("chat", "SessionSearchBar::search", "search failed", err)
@@ -107,12 +103,19 @@ export default function SessionSearchBar({
     return () => clearTimeout(timer)
   }, [query, sessionId])
 
+  // Mirror so the navigation effect can read the latest query without
+  // depending on `query` (would re-fire on every keystroke).
+  const queryRef = useRef(query)
+  useEffect(() => {
+    queryRef.current = query
+  }, [query])
+
   useEffect(() => {
     if (sortedResults.length === 0) return
     const safeIndex = Math.min(currentIndex, sortedResults.length - 1)
     const target = sortedResults[safeIndex]
     if (target) {
-      onJumpToRef.current(target.messageId)
+      onJumpToRef.current(target.messageId, parseHighlightTerms(queryRef.current))
     }
   }, [currentIndex, sortedResults])
 
@@ -214,7 +217,10 @@ export default function SessionSearchBar({
       )}
       {hasQuery && total > 0 && currentSnippet && (
         <div className="mt-1 px-1 text-[11px] text-muted-foreground/90 line-clamp-1 leading-snug break-words">
-          {renderHighlightedSnippet(currentSnippet)}
+          {/* Re-center the snippet so the matched token sits inside the
+              single visible line — the in-chat search bar is much narrower
+              than the sidebar so we trim the prefix more aggressively. */}
+          {renderHighlightedSnippet(recenterHighlightedSnippet(currentSnippet, 12))}
         </div>
       )}
     </div>

@@ -23,6 +23,7 @@
 //! phases (pattern recognition, long-window consolidation) are deferred.
 
 mod config;
+mod cron_loop;
 mod narrative;
 mod pipeline;
 mod promotion;
@@ -32,9 +33,11 @@ mod triggers;
 mod types;
 
 pub use config::{CronTriggerConfig, DreamingConfig, IdleTriggerConfig, PromotionThresholds};
-pub use pipeline::run_cycle;
+pub use cron_loop::spawn_dreaming_cron_loop;
+pub use pipeline::{last_report_snapshot, run_cycle};
 pub use triggers::{
-    check_idle_trigger, dreaming_running, manual_run, touch_activity, DreamTrigger,
+    check_idle_trigger, dreaming_running, last_activity_epoch_secs, manual_run, touch_activity,
+    DreamTrigger,
 };
 pub use types::{DreamReport, PromotionRecord};
 

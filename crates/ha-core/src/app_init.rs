@@ -129,6 +129,27 @@ pub fn init_runtime(role: &'static str) {
     // Store logger globally for access from non-State contexts
     let _ = APP_LOGGER.set(logger.clone());
 
+    // Sweep stale `streaming` placeholder rows left over from a crashed run
+    // into `orphaned`, so the next `restore_agent_context` can detect and
+    // surface them. Must happen after both SESSION_DB and APP_LOGGER are set
+    // so the result is logged. Best-effort — a failure here doesn't block
+    // startup.
+    match session_db.mark_orphaned_streaming_rows() {
+        Ok(0) => {}
+        Ok(n) => app_info!(
+            "session",
+            "stream_persist",
+            "promoted {} leftover streaming row(s) to orphaned on startup",
+            n
+        ),
+        Err(e) => app_warn!(
+            "session",
+            "stream_persist",
+            "startup orphan sweep failed: {}",
+            e
+        ),
+    }
+
     // Initialize the MemoryDB
     let memory_db_path = fatal(
         paths::memory_db_path(),
@@ -364,6 +385,13 @@ pub fn init_runtime(role: &'static str) {
             let _ = ACP_MANAGER.set(manager);
         }
     }
+
+    // Install a panic hook that flushes any in-flight stream persisters
+    // before the original hook (Tauri's logger / test harness / etc.)
+    // takes over. Idempotent — multiple `init_runtime` calls are no-op.
+    // Signal handlers (SIGINT/SIGTERM) need a tokio runtime, so each
+    // mode entrypoint installs them separately after their runtime is up.
+    crate::crash_flush::install_panic_hook();
 
     // Mark init complete only after every fallible step has succeeded. Any
     // earlier `fatal()` panic kills the process before this set runs.
@@ -736,6 +764,11 @@ pub async fn start_background_tasks() {
                 }
             }
         });
+
+        // Dreaming cron-trigger loop. Reads `dreaming.cron_trigger` and
+        // fires `manual_run(Cron)` on the configured schedule. Re-evaluates
+        // on every `config:changed { category: "dreaming" }`.
+        crate::memory::dreaming::spawn_dreaming_cron_loop();
 
         // One-shot reconciler for orphan project-scoped memory rows. The
         // delete_project cascade touches both `session.db` and `memory.db` and

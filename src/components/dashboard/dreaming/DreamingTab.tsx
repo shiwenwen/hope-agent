@@ -30,6 +30,9 @@ export default function DreamingTab() {
   const [loading, setLoading] = useState(false)
   const [running, setRunning] = useState(false)
   const [lastReport, setLastReport] = useState<DreamReport | null>(null)
+  // Mirror `dreaming.manualEnabled` so flipping the Settings toggle hides
+  // the Run-now button instead of leaving it clickable but no-op.
+  const [manualEnabled, setManualEnabled] = useState(true)
 
   const loadDiaries = useCallback(async () => {
     try {
@@ -98,6 +101,23 @@ export default function DreamingTab() {
     return unlisten
   }, [loadDiaries, refreshStatus])
 
+  useEffect(() => {
+    const sync = async () => {
+      try {
+        const cfg = await getTransport().call<{ manualEnabled?: boolean }>(
+          "get_dreaming_config",
+        )
+        setManualEnabled(cfg?.manualEnabled ?? true)
+      } catch {
+        // Non-fatal — keep button visible on read failure.
+      }
+    }
+    void sync()
+    return getTransport().listen("config:changed", () => {
+      void sync()
+    })
+  }, [])
+
   // Auto-select the newest diary when the list first arrives or after a
   // refresh — without adding `selected` to loadDiaries' deps, which would
   // retrigger the listing every time the user picks a different entry.
@@ -134,19 +154,21 @@ export default function DreamingTab() {
             <RefreshCw className="h-3.5 w-3.5 mr-1" />
             {t("common.refresh")}
           </Button>
-          <Button size="sm" onClick={handleRunNow} disabled={running}>
-            {running ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                {t("dashboard.dreaming.running")}
-              </>
-            ) : (
-              <>
-                <Play className="h-3.5 w-3.5 mr-1" />
-                {t("dashboard.dreaming.runNow")}
-              </>
-            )}
-          </Button>
+          {manualEnabled && (
+            <Button size="sm" onClick={handleRunNow} disabled={running}>
+              {running ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
+                  {t("dashboard.dreaming.running")}
+                </>
+              ) : (
+                <>
+                  <Play className="h-3.5 w-3.5 mr-1" />
+                  {t("dashboard.dreaming.runNow")}
+                </>
+              )}
+            </Button>
+          )}
         </div>
       </div>
 

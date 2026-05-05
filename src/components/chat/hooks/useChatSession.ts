@@ -4,7 +4,7 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { logger } from "@/lib/logger"
 import { notify } from "@/lib/notifications"
-import { parseSessionMessages } from "../chatUtils"
+import { materializeMessages } from "../chatUtils"
 import { useSessionPagination } from "./useSessionPagination"
 import { useChannelStreaming } from "./useChannelStreaming"
 import { PAGE_SIZE } from "./constants"
@@ -40,22 +40,27 @@ export interface UseChatSessionReturn {
   setLoadingSessionIds: React.Dispatch<React.SetStateAction<Set<string>>>
   hasMore: boolean
   loadingMore: boolean
+  hasMoreAfter: boolean
+  loadingMoreAfter: boolean
   hasMoreSessions: boolean
   loadingMoreSessions: boolean
   /**
-   * When set (from a search result click), MessageList should scroll to the
-   * message with this `id` and briefly highlight it. Must be reset to `null`
-   * by the consumer after the scroll has been applied.
+   * Search-jump intent for MessageList: which message to scroll to + which
+   * literal substrings to inline-highlight inside it. `null` between jumps.
+   * Consumer calls `clearPendingScrollIntent` once the scroll has been
+   * applied. Single object so the (target, terms) invariant can't drift —
+   * terms are always tied to a specific scroll target.
    */
-  pendingScrollTarget: number | null
-  clearPendingScrollTarget: () => void
+  pendingScrollIntent: { messageId: number; highlightTerms: string[] | null } | null
+  clearPendingScrollIntent: () => void
   /**
    * Scroll the current session to a specific message and briefly highlight
    * it. If the target is not in the currently loaded window, reloads a
    * window of messages centred on the target first. Used by the in-chat
-   * "find in page" search bar.
+   * "find in page" search bar. Optional `highlightTerms` are painted inline
+   * inside the target bubble via the CSS Custom Highlight API.
    */
-  jumpToMessage: (messageId: number) => Promise<void>
+  jumpToMessage: (messageId: number, highlightTerms?: string[]) => Promise<void>
 
   // Refs
   sessionCacheRef: React.MutableRefObject<Map<string, Message[]>>
@@ -66,7 +71,10 @@ export interface UseChatSessionReturn {
   // Handlers
   reloadSessions: () => Promise<void>
   reloadAgents: () => Promise<void>
-  handleSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => Promise<void>
+  handleSwitchSession: (
+    sessionId: string,
+    opts?: { targetMessageId?: number; highlightTerms?: string[] },
+  ) => Promise<void>
   handleNewChat: (agentId: string) => Promise<void>
   /**
    * Create a new session inside a Project. Pre-materializes the session via
@@ -81,6 +89,9 @@ export interface UseChatSessionReturn {
   ) => Promise<void>
   handleDeleteSession: (sessionId: string) => Promise<void>
   handleLoadMore: () => Promise<void>
+  handleLoadMoreAfter: () => Promise<void>
+  /** Drop the partial around-window and reload the latest page. */
+  resetToLatest: () => Promise<void>
   handleLoadMoreSessions: () => Promise<void>
   updateSessionMessages: (sessionId: string, updater: (prev: Message[]) => Message[]) => void
   updateSessionMeta: (sessionId: string, updater: (prev: SessionMeta) => SessionMeta) => void
@@ -118,15 +129,19 @@ export function useChatSession({
   const [agentName, setAgentName] = useState("")
   const [loading, setLoading] = useState(false)
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
-  const [pendingScrollTarget, setPendingScrollTarget] = useState<number | null>(null)
-  const clearPendingScrollTarget = useCallback(() => setPendingScrollTarget(null), [])
+  const [pendingScrollIntent, setPendingScrollIntent] = useState<
+    { messageId: number; highlightTerms: string[] | null } | null
+  >(null)
+  const clearPendingScrollIntent = useCallback(() => setPendingScrollIntent(null), [])
 
   const currentSessionIdRef = useRef<string | null>(null)
   const switchVersionRef = useRef(0)
   const sessionCacheRef = useRef<Map<string, Message[]>>(new Map())
   const loadingSessionsRef = useRef<Set<string>>(new Set())
   const hasMoreRef = useRef<Map<string, boolean>>(new Map())
+  const hasMoreAfterRef = useRef<Map<string, boolean>>(new Map())
   const oldestDbIdRef = useRef<Map<string, number>>(new Map())
+  const newestDbIdRef = useRef<Map<string, number>>(new Map())
   // Mirror of `messages` so `jumpToMessage` can synchronously check whether
   // a target message is already loaded without stale-closure hazards.
   const messagesRef = useRef<Message[]>([])
@@ -156,17 +171,25 @@ export function useChatSession({
     hasMore,
     setHasMore,
     loadingMore,
+    hasMoreAfter,
+    setHasMoreAfter,
+    loadingMoreAfter,
     hasMoreSessions,
     // setHasMoreSessions not needed at this level
     loadingMoreSessions,
     handleLoadMore,
+    handleLoadMoreAfter,
+    resetToLatest,
     handleLoadMoreSessions,
     reloadSessions,
   } = useSessionPagination({
     currentSessionIdRef,
     sessionCacheRef,
     hasMoreRef,
+    hasMoreAfterRef,
     oldestDbIdRef,
+    newestDbIdRef,
+    sessionsRef,
     setSessions,
     setMessages,
     sessionsLength: sessions.length,
@@ -198,6 +221,17 @@ export function useChatSession({
         return
       }
       sessionCacheRef.current.set(sessionId, next)
+      // Track the tail dbId so handleLoadMoreAfter has a fresh anchor even
+      // after streaming appends. Otherwise the after-pagination cursor stays
+      // pinned to whatever was loaded at switch time and the second
+      // handleLoadMoreAfter call would re-fetch already-displayed rows.
+      const tail = next.length > 0 ? next[next.length - 1] : null
+      if (tail && typeof tail.dbId === "number") {
+        const prevNewest = newestDbIdRef.current.get(sessionId)
+        if (prevNewest === undefined || tail.dbId > prevNewest) {
+          newestDbIdRef.current.set(sessionId, tail.dbId)
+        }
+      }
       if (currentSessionIdRef.current === sessionId) {
         setMessages(next)
       }
@@ -228,7 +262,9 @@ export function useChatSession({
     sessionCacheRef.current.delete(sessionId)
     loadingSessionsRef.current.delete(sessionId)
     hasMoreRef.current.delete(sessionId)
+    hasMoreAfterRef.current.delete(sessionId)
     oldestDbIdRef.current.delete(sessionId)
+    newestDbIdRef.current.delete(sessionId)
     setLoadingSessionIds((prev) => {
       if (!prev.has(sessionId)) return prev
       const next = new Set(prev)
@@ -404,8 +440,12 @@ export function useChatSession({
 
   // Switch to an existing session
   const handleSwitchSession = useCallback(
-    async (sessionId: string, opts?: { targetMessageId?: number }) => {
+    async (
+      sessionId: string,
+      opts?: { targetMessageId?: number; highlightTerms?: string[] },
+    ) => {
       const targetMessageId = opts?.targetMessageId
+      const highlightTerms = opts?.highlightTerms
       // Always reload when jumping to a specific message; otherwise skip if
       // already viewing the same session.
       if (!sessionId) return
@@ -421,24 +461,28 @@ export function useChatSession({
       if (targetMessageId === undefined && cached) {
         setMessages(cached)
         setHasMore(hasMoreRef.current.get(sessionId) ?? false)
+        setHasMoreAfter(hasMoreAfterRef.current.get(sessionId) ?? false)
         setLoading(loadingSessionsRef.current.has(sessionId))
         setCurrentSessionId(sessionId)
       } else {
         try {
           let msgs: SessionMessage[]
           let hasMoreBefore: boolean
+          let hasMoreAfterFlag = false
           if (targetMessageId !== undefined) {
-            // `[messages, total, hasMoreBefore, hasMoreAfter]` — hasMoreAfter unused.
-            const [m, , hasMoreB] = await getTransport().call<
+            // Symmetric 40/40 around-window so a hit shows enough context
+            // both ways for handleLoadMoreAfter to take over naturally.
+            const [m, , hasMoreB, hasMoreA] = await getTransport().call<
               [SessionMessage[], number, boolean, boolean]
             >("load_session_messages_around_cmd", {
               sessionId,
               targetMessageId,
               before: 40,
-              after: 20,
+              after: 40,
             })
             msgs = m
             hasMoreBefore = hasMoreB
+            hasMoreAfterFlag = hasMoreA
           } else {
             // hasMore is authoritative from DB; don't infer from msgs.length
             // since user-boundary alignment may extend beyond the requested limit.
@@ -449,23 +493,18 @@ export function useChatSession({
             msgs = m
             hasMoreBefore = hasMore
           }
-          const [currentSessions] = await getTransport().call<[SessionMeta[], number]>(
-            "list_sessions_cmd",
-            {},
-          )
-          const sessionMeta = currentSessions.find((s) => s.id === sessionId)
-          const parentSession = sessionMeta?.parentSessionId
-            ? currentSessions.find((s) => s.id === sessionMeta.parentSessionId)
-            : undefined
+          const displayMessages = await materializeMessages(sessionId, msgs, sessionsRef)
           if (switchVersionRef.current !== version) return // stale switch
-          const displayMessages = parseSessionMessages(msgs, parentSession?.agentId)
           sessionCacheRef.current.set(sessionId, displayMessages)
           hasMoreRef.current.set(sessionId, hasMoreBefore)
+          hasMoreAfterRef.current.set(sessionId, hasMoreAfterFlag)
           if (msgs.length > 0) {
             oldestDbIdRef.current.set(sessionId, msgs[0].id)
+            newestDbIdRef.current.set(sessionId, msgs[msgs.length - 1].id)
           }
           setMessages(displayMessages)
           setHasMore(hasMoreBefore)
+          setHasMoreAfter(hasMoreAfterFlag)
           setLoading(loadingSessionsRef.current.has(sessionId))
           setCurrentSessionId(sessionId)
         } catch (e) {
@@ -478,7 +517,10 @@ export function useChatSession({
       }
 
       if (targetMessageId !== undefined) {
-        setPendingScrollTarget(targetMessageId)
+        setPendingScrollIntent({
+          messageId: targetMessageId,
+          highlightTerms: highlightTerms ?? null,
+        })
       }
 
       if (switchVersionRef.current !== version) return // stale switch
@@ -555,23 +597,24 @@ export function useChatSession({
       reloadSessions,
       onSidebarAggregatesChanged,
       setHasMore,
+      setHasMoreAfter,
     ],
   )
 
   // Jump to a specific message within the *current* session. If the target
-  // is already in the loaded window, just sets `pendingScrollTarget` to let
+  // is already in the loaded window, just sets `pendingScrollIntent` to let
   // MessageList scroll & pulse. Otherwise reloads a window of messages
   // centred on the target (delegating to handleSwitchSession).
   const jumpToMessage = useCallback(
-    async (messageId: number) => {
+    async (messageId: number, highlightTerms?: string[]) => {
       const sid = currentSessionIdRef.current
       if (!sid) return
       const exists = messagesRef.current.some((m) => m.dbId === messageId)
       if (exists) {
-        setPendingScrollTarget(messageId)
+        setPendingScrollIntent({ messageId, highlightTerms: highlightTerms ?? null })
         return
       }
-      await handleSwitchSession(sid, { targetMessageId: messageId })
+      await handleSwitchSession(sid, { targetMessageId: messageId, highlightTerms })
     },
     [handleSwitchSession],
   )
@@ -601,6 +644,7 @@ export function useChatSession({
       setCurrentSessionId(null)
       setLoading(false)
       setHasMore(false)
+      setHasMoreAfter(false)
       setCurrentAgentId(agentId)
       if (agent) {
         setAgentName(agent.name)
@@ -628,7 +672,14 @@ export function useChatSession({
         setActiveModel(globalActiveModelRef.current)
       }
     },
-    [availableModels, applyModelForDisplay, globalActiveModelRef, setActiveModel, setHasMore],
+    [
+      availableModels,
+      applyModelForDisplay,
+      globalActiveModelRef,
+      setActiveModel,
+      setHasMore,
+      setHasMoreAfter,
+    ],
   )
 
   // Create a new session inside a Project and materialize it immediately
@@ -659,6 +710,7 @@ export function useChatSession({
         onSidebarAggregatesChanged?.()
         setLoading(false)
         setHasMore(false)
+        setHasMoreAfter(false)
         setCurrentAgentId(created.agentId)
         const agent = agents.find((a) => a.id === created.agentId)
         if (agent) setAgentName(agent.name)
@@ -699,6 +751,7 @@ export function useChatSession({
       onSidebarAggregatesChanged,
       setActiveModel,
       setHasMore,
+      setHasMoreAfter,
       t,
     ],
   )
@@ -716,6 +769,7 @@ export function useChatSession({
           setCurrentSessionId(null)
           setLoading(false)
           setHasMore(false)
+          setHasMoreAfter(false)
         }
         reloadSessions()
         onSidebarAggregatesChanged?.()
@@ -729,7 +783,15 @@ export function useChatSession({
         })
       }
     },
-    [reloadSessions, setHasMore, evictSessionLocal, sessions, t, onSidebarAggregatesChanged],
+    [
+      reloadSessions,
+      setHasMore,
+      setHasMoreAfter,
+      evictSessionLocal,
+      sessions,
+      t,
+      onSidebarAggregatesChanged,
+    ],
   )
 
   return {
@@ -750,10 +812,12 @@ export function useChatSession({
     setLoadingSessionIds,
     hasMore,
     loadingMore,
+    hasMoreAfter,
+    loadingMoreAfter,
     hasMoreSessions,
     loadingMoreSessions,
-    pendingScrollTarget,
-    clearPendingScrollTarget,
+    pendingScrollIntent,
+    clearPendingScrollIntent,
     jumpToMessage,
     sessionCacheRef,
     loadingSessionsRef,
@@ -766,6 +830,8 @@ export function useChatSession({
     handleNewChatInProject,
     handleDeleteSession,
     handleLoadMore,
+    handleLoadMoreAfter,
+    resetToLatest,
     handleLoadMoreSessions,
     updateSessionMessages,
     updateSessionMeta,

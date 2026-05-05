@@ -220,6 +220,29 @@
   animation: message-hit-pulse 2s ease-out both;
 }
 
+/*
+ * Inline search-hit highlight inside a message bubble. Painted via the CSS
+ * Custom Highlight API (`CSS.highlights` in `src/lib/inlineHighlight.ts`)
+ * so we don't mutate the rendered DOM — Streamdown / Shiki / KaTeX trees
+ * re-mount on every prop change and would clobber any wrapper element.
+ *
+ * Yellow-on-amber matches the `<mark>` snippet style in the sidebar
+ * (`bg-yellow-200/90 text-yellow-950 dark:bg-yellow-400/30 …`) so the
+ * sidebar preview and the in-bubble highlight read as the same control.
+ * Light/dark forks because `::highlight()` is a pseudo-element selector
+ * that can't carry its own variant under Tailwind's `@custom-variant
+ * dark` registration.
+ */
+::highlight(hope-search-hit) {
+  background-color: rgba(254, 240, 138, 0.85);
+  color: rgb(66, 32, 6);
+  text-decoration-color: rgba(254, 240, 138, 0.85);
+}
+.dark ::highlight(hope-search-hit) {
+  background-color: rgba(250, 204, 21, 0.4);
+  color: rgb(254, 243, 199);
+}
+
 /* Shimmer highlight sweep across text (thinking / tool titles while running) */
 @keyframes text-shimmer {
   from {

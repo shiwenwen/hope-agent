@@ -21,6 +21,51 @@ impl AssistantAgent {
             .clone()
     }
 
+    /// Sync the in-flight round-loop snapshot back to `self.conversation_history`
+    /// and persist it to `sessions.context_json`. Called at every round
+    /// boundary so a mid-turn crash leaves all completed rounds durable.
+    ///
+    /// Skipped silently when:
+    /// - `session_id` is empty (e.g. side-query or detached agent)
+    /// - the global `SessionDB` is not initialized yet
+    /// - serialization fails (logged as warn, never blocks the round)
+    pub(crate) fn persist_round_context(&self, messages: &[serde_json::Value]) {
+        let Some(sid) = self.session_id.as_deref() else {
+            return;
+        };
+        let Some(db) = crate::get_session_db() else {
+            return;
+        };
+
+        *self
+            .conversation_history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = messages.to_vec();
+
+        match serde_json::to_string(messages) {
+            Ok(json) => {
+                if let Err(e) = db.save_context(sid, &json) {
+                    app_warn!(
+                        "session",
+                        "round_persist",
+                        "save_context failed for {}: {}",
+                        sid,
+                        e
+                    );
+                }
+            }
+            Err(e) => {
+                app_warn!(
+                    "session",
+                    "round_persist",
+                    "serialize history failed for {}: {}",
+                    sid,
+                    e
+                );
+            }
+        }
+    }
+
     /// Run context compaction (Tier 1-3) on messages before API call.
     /// If Tier 3 summarization is needed, performs a non-streaming LLM call to summarize old messages.
     /// If flush_before_compact is enabled, extracts memories from messages before they are summarized.

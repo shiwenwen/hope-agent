@@ -10,7 +10,10 @@ export interface ChatSidebarProps {
   loadingSessionIds: Set<string>
   panelWidth: number
   onPanelWidthChange: (width: number) => void
-  onSwitchSession: (sessionId: string, opts?: { targetMessageId?: number }) => void
+  onSwitchSession: (
+    sessionId: string,
+    opts?: { targetMessageId?: number; highlightTerms?: string[] },
+  ) => void
   onNewChat: (agentId: string, opts?: { incognito?: boolean }) => void
   onDeleteSession: (sessionId: string) => void
   onEditAgent?: (agentId: string) => void
@@ -32,6 +35,13 @@ export interface ChatSidebarProps {
    * Passing `projectId=null` removes the session from its current project.
    */
   onMoveSessionToProject?: (sessionId: string, projectId: string | null) => void
+  /**
+   * Incremented by the parent (e.g. via `Cmd+Shift+F`) to focus the sidebar
+   * search input. Each new value triggers a focus-and-select on the input,
+   * even if the same value is sent twice (the parent should monotonically
+   * increment).
+   */
+  searchFocusSignal?: number
 }
 
 export type SessionFilterType = "all" | "session" | "cron" | "subagent" | "channel"

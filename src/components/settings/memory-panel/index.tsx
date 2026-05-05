@@ -7,6 +7,7 @@ import MemoryFormView from "./MemoryFormView"
 import MemoryListView from "./MemoryListView"
 import MemorySettingsView from "./MemorySettingsView"
 import CoreMemoryEditor from "./CoreMemoryEditor"
+import DreamingPanel from "./DreamingPanel"
 
 /**
  * MemoryPanel - Memory management UI.
@@ -20,7 +21,7 @@ import CoreMemoryEditor from "./CoreMemoryEditor"
 export default function MemoryPanel({ agentId, compact }: { agentId?: string; compact?: boolean }) {
   const { t } = useTranslation()
   const isAgentMode = !!agentId
-  const [tab, setTab] = useState<"settings" | "manage">("settings")
+  const [tab, setTab] = useState<"settings" | "manage" | "dreaming">("settings")
 
   const data = useMemoryData({ agentId, isAgentMode })
 
@@ -37,13 +38,16 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
   return (
     <Tabs
       value={tab}
-      onValueChange={(value) => setTab(value as "settings" | "manage")}
+      onValueChange={(value) => setTab(value as "settings" | "manage" | "dreaming")}
       className="flex-1 flex flex-col min-h-0"
     >
       <div className="px-6 pt-2 shrink-0">
         <TabsList>
           <TabsTrigger value="settings">{t("settings.memoryTabs.settings")}</TabsTrigger>
           <TabsTrigger value="manage">{t("settings.memoryTabs.manage")}</TabsTrigger>
+          {!isAgentMode && (
+            <TabsTrigger value="dreaming">{t("settings.memoryTabs.dreaming")}</TabsTrigger>
+          )}
         </TabsList>
       </div>
 
@@ -64,6 +68,12 @@ export default function MemoryPanel({ agentId, compact }: { agentId?: string; co
           </div>
         </div>
       </TabsContent>
+
+      {!isAgentMode && (
+        <TabsContent value="dreaming" className="flex-1 min-h-0 outline-none">
+          <DreamingPanel />
+        </TabsContent>
+      )}
     </Tabs>
   )
 }

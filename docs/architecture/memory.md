@@ -458,9 +458,19 @@ impl Drop for DreamGuard {
 
 无法 acquire guard 时直接 skip 本轮，不阻塞 scheduler。
 
-### 默认关闭
+### 默认开启 + 触发器
 
-Dreaming 默认是 opt-in（`config.dreaming.enabled = false`）；启用后 idle 触发节流和 cron 调度都由 [Cron 系统](cron.md) 走主调度通道。
+`dreaming.enabled` 默认 **true**。三种触发器：
+
+- **Idle**（默认开，30 分钟阈值）：`app_init.rs` 起 60s ticker，闲置达阈值就跑一次。
+- **Cron**（默认关，`0 0 3 * * *` 6 字段）：[`memory/dreaming/cron_loop.rs`](../../crates/ha-core/src/memory/dreaming/cron_loop.rs) 监听 `config:changed { category: "dreaming" }`，按 cron 表达式 `tokio::time::sleep_until` 后调 `manual_run(Cron)`。配置变化即唤醒重排（`Notify`）。
+- **Manual**：Dashboard "Run now" 按钮 + ha-settings skill。
+
+### GUI 入口
+
+- **Settings → Memory → Dreaming Tab**（[`src/components/settings/memory-panel/DreamingPanel.tsx`](../../src/components/settings/memory-panel/DreamingPanel.tsx)）：所有配置项 + 状态条（最近一次 cycle + idle 倒计时）。状态条订阅 `dreaming:cycle_complete` 事件 + `dreaming_last_report` / `dreaming_idle_status` invoke。Cron 表达式复用 [`CronExpressionBuilder`](../../src/components/cron/CronExpressionBuilder.tsx)（hourly / daily / weekly / monthly / custom 5 档）。
+- **Dashboard → Dreaming Tab**：仅运行历史 + 手动触发，与 Settings 职责分离。
+- **ha-settings skill**：仍可在对话里改，与 GUI 通过 `config:changed` 双向同步。
 
 ## Active Memory 主动召回
 
@@ -734,7 +744,7 @@ flowchart TD
 | `crates/ha-core/src/memory/selection.rs` | LLM 语义选择（prompt 构建 + 响应解析） |
 | `crates/ha-core/src/memory/recall_summary.rs` | 召回结果压缩为 ≤400 字符洞察段（opt-in） |
 | `crates/ha-core/src/memory/reembed_job.rs` | 内存向量重建后台任务（KeepExisting / DeleteAll 双模式 + 取消） |
-| `crates/ha-core/src/memory/dreaming/` | 离线 LLM 评估器（scanner / scoring / promotion / narrative / triggers / pipeline） |
+| `crates/ha-core/src/memory/dreaming/` | 离线 LLM 评估器（scanner / scoring / promotion / narrative / triggers / pipeline / cron_loop） |
 | `crates/ha-core/src/memory/import.rs` | 批量导入/导出（JSON + Markdown） |
 | `crates/ha-core/src/memory/helpers.rs` | 辅助函数（加载配置等） |
 | `crates/ha-core/src/memory_extract.rs` | 自动记忆提取逻辑（含 COMBINED_EXTRACT_PROMPT 反省式） |

@@ -227,6 +227,53 @@ sequenceDiagram
 - `tool_call` → 创建新的 Tool 消息（结果为空）
 - `tool_result` → 通过 `call_id` 匹配更新已有 Tool 消息的 result、duration、is_error
 
+## Round-level Persistence & Crash Recovery
+
+为避免「turn 中途崩溃 → context_json 没刷新 → 下次"继续"时模型完全失忆」的问题，chat engine 在 round 边界与流式 delta 两个层面分别落盘，再在 restore 时把 partial 摘要回填给模型。三件事互相兜底：
+
+### 1. Round-level `context_json` 同步（命中主问题）
+
+`AssistantAgent::run_streaming_chat` 每个 round 末尾在 `adapter.append_round_to_history(...)` 之后立即调用 `persist_round_context(&messages)`：把 local Vec 同步回写 `self.conversation_history`，并通过 `SessionDB::save_context` 整体覆盖 `sessions.context_json`。代价是每 round 多 1 次 SQLite UPDATE（context_json 单 session 50–300KB，WAL 模式 ms 级），收益是已完成的 round 永远在盘上。
+
+**不影响 prompt cache**：`context_json` 是后端持久化字段，不参与发往 LLM 的 prompt 构造；UPDATE 只会影响重启后的 history 加载，缓存前缀完全不变。
+
+### 2. messages 表 streaming placeholder + 节流 UPDATE
+
+`StreamPersister`（`chat_engine/persister.rs`）改成 placeholder 模型：
+
+- 第一个 `text_delta` / `thinking_delta` 触发 `INSERT` 一行 placeholder（`stream_status='streaming'`，content 是当前 buffer 快照），记录 `streaming_id`
+- 后续 delta 累计到内存 buffer；每 500ms **或** 每 1024 字节（先到先 flush）`UPDATE messages SET content=?, stream_status='streaming' WHERE id=?`
+- `tool_call` 边界 / role 切换 / turn 结束时 `finalize_active_placeholder`：把最终 buffer 写入 row + `stream_status='completed'`，清 streaming_id
+- `tool_call` 行的 INSERT 与 `tool_result` 的 UPDATE 路径不变
+
+崩溃后 messages 表里会留一行 `stream_status='streaming'` 的 partial 记录，节流粒度内的几百毫秒 / 1KB 文本一并保住。
+
+### 3. 启动扫尾 + restore 时摘要注入
+
+- `init_runtime` 在 `SESSION_DB` 初始化、`APP_LOGGER` 就绪后调一次 `mark_orphaned_streaming_rows()`：所有遗留的 `streaming` 行批量改成 `orphaned`
+- `restore_agent_context` 在加载完 `context_json` 后调 `inject_orphaned_partial_summary`：扫描末尾 user 之后的 orphaned 行，收集 `text_block` 内容（thinking 不取，避免 leakage）+ 紧邻的最后一次 `tool_call`，拼成 `[System event] 上一轮在生成中被中断…请基于已完成内容继续，不要重复执行上面已经做过的工具调用。`，作为 `assistant` role 单条 item 追加到 history 末尾
+- 注入完毕调 `save_agent_context` 落盘，避免下一轮 restore 重复注入
+
+恢复后第一轮 cache prefix 因末尾追加一个新 item 而失效（这是已知代价），第二轮起恢复正常命中。
+
+### 4. Shutdown / panic hook（兜优雅退出）
+
+`crash_flush.rs` 暴露：
+
+- `install_panic_hook()`：在 `init_runtime` 末尾装一次（同步），用 `std::panic::set_hook` 包装现有 hook，panic 时先 flush 再转发
+- `install_signal_handlers()`：tokio task，桌面 setup async block / Server `block_on` / ACP `bg_rt` 各自调一次；监听 SIGINT/SIGTERM (Unix) 或 Ctrl+C/Break (Windows)，flush 后 `std::process::exit(0)`
+
+`active_persisters.rs` 维护 `Mutex<Vec<Weak<StreamPersister>>>`；`StreamPersister` 在 `engine.rs` 构造为 `Arc<...>` 并在创建时 `register`，`Drop` 自动断 weak。`flush_all_blocking()` 同步迭代所有活跃 persister 调 `crash_flush(db)`（即 `finalize_active_placeholder`），rusqlite 是同步 API、不会死锁。
+
+`SIGKILL` / 断电仍会丢"上次 flush 之后到 SIGKILL 之间的 buffer"，但有 placeholder 兜底丢失粒度被压缩到节流间隔以内。
+
+### 失败 Turn 的两条路径
+
+- **网络错误 / provider 报错**：失败前完成的 round 已经被路径 1 写入 context_json；最终 `persist_failed_turn_context` 追加 user + error marker
+- **进程异常退出（kill / panic / 断电）**：完成的 round 同样在 context_json 里（路径 1）；未完成 round 的 partial 在 messages 表的 streaming/orphaned 行；下次启动 restore 时路径 3 回填摘要
+
+两条路径都不会出现"已完成的 round 全部丢失"。
+
 ## Stream Broadcast & Reload Recovery
 
 每条 stream delta 走「双写」路径：

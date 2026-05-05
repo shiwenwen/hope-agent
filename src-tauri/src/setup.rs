@@ -317,6 +317,13 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         ha_core::start_background_tasks().await;
     });
 
+    // Install signal handlers (SIGINT/SIGTERM/Ctrl+Break) that flush
+    // in-flight stream persisters before the process exits. Must run
+    // inside a tokio runtime — `tauri::async_runtime::spawn` provides one.
+    tauri::async_runtime::spawn(async {
+        ha_core::crash_flush::install_signal_handlers();
+    });
+
     // Auto-start Docker SearXNG if previously configured
     auto_start_searxng_docker();
 

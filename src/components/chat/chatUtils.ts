@@ -1,9 +1,12 @@
+import type * as React from "react"
 import type {
   Message,
   ContentBlock,
   MediaItem,
   ToolCall,
   SessionMessage,
+  SessionMeta,
+  SessionSearchResult,
   MessageUsage,
 } from "@/types/chat"
 import { getTransport } from "@/lib/transport-provider"
@@ -306,12 +309,19 @@ export function parseSessionMessages(
     } else if (msg.role === "thinking_block") {
       // Intermediate thinking emitted before tool calls — preserve multi-round thinking ordering
       if (msg.content) {
-        pendingBlocks.push({ type: "thinking", content: msg.content, durationMs: msg.toolDurationMs || undefined })
+        const interrupted = msg.streamStatus === "orphaned" || msg.streamStatus === "streaming"
+        pendingBlocks.push({
+          type: "thinking",
+          content: msg.content,
+          durationMs: msg.toolDurationMs || undefined,
+          interrupted: interrupted || undefined,
+        })
       }
     } else if (msg.role === "text_block") {
       // Intermediate text emitted before tool calls — preserve ordering
       if (msg.content) {
-        pendingBlocks.push({ type: "text", content: msg.content })
+        const interrupted = msg.streamStatus === "orphaned" || msg.streamStatus === "streaming"
+        pendingBlocks.push({ type: "text", content: msg.content, interrupted: interrupted || undefined })
       }
     } else if (msg.role === "assistant") {
       const toolCalls = pendingTools.length > 0 ? [...pendingTools] : undefined
@@ -390,6 +400,64 @@ export function parseSessionMessages(
  * persisted counterparts are about to land in `fresh`; keeping them would
  * duplicate-render. dbId-less items mid-stream (rare) are left in place.
  */
+
+/**
+ * Resolve the parent session's agentId for a sub-agent session — needed by
+ * `parseSessionMessages` so child rows can be tagged with the right "from"
+ * agent. Tries the in-memory sessions cache first; falls back to a single-
+ * row `get_session_cmd` lookup for sessions that aren't in the current
+ * paginated window (typical when jumping in from search). Replaces the
+ * legacy `list_sessions_cmd({})` full-table scan that used to run on every
+ * load-more / switch / reset path.
+ */
+export async function resolveParentAgentId(
+  sessionId: string,
+  sessionsRef: React.MutableRefObject<SessionMeta[]>,
+): Promise<string | undefined> {
+  const lookup = (sid: string) => sessionsRef.current.find((s) => s.id === sid)
+  let session = lookup(sessionId)
+  if (!session) {
+    session =
+      (await getTransport()
+        .call<SessionMeta | null>("get_session_cmd", { sessionId })
+        .catch(() => null)) ?? undefined
+  }
+  const parentSid = session?.parentSessionId
+  if (!parentSid) return undefined
+  const parent =
+    lookup(parentSid) ??
+    (await getTransport()
+      .call<SessionMeta | null>("get_session_cmd", { sessionId: parentSid })
+      .catch(() => null)) ??
+    undefined
+  return parent?.agentId
+}
+
+/**
+ * Sort FTS5 search results into the order users expect from arrow-key
+ * navigation: oldest first by ISO timestamp, with `messageId` breaking
+ * ties for messages that share a timestamp string. FTS5's native rank
+ * order is opaque to humans skimming history.
+ */
+export function sortSessionSearchResults(
+  results: SessionSearchResult[],
+): SessionSearchResult[] {
+  return results.slice().sort((a, b) => {
+    const cmp = a.timestamp.localeCompare(b.timestamp)
+    return cmp !== 0 ? cmp : a.messageId - b.messageId
+  })
+}
+
+/** Convenience: resolve parent agentId then `parseSessionMessages`. */
+export async function materializeMessages(
+  sessionId: string,
+  msgs: SessionMessage[],
+  sessionsRef: React.MutableRefObject<SessionMeta[]>,
+): Promise<Message[]> {
+  const parentAgentId = await resolveParentAgentId(sessionId, sessionsRef)
+  return parseSessionMessages(msgs, parentAgentId)
+}
+
 /**
  * Reload the latest DB window for a session and merge it with the current
  * in-memory window via `mergeMessagesByDbId`, then push the merged result to

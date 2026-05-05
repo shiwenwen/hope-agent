@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::agent::AssistantAgent;
 use crate::failover::{
     self,
@@ -19,7 +21,7 @@ struct ChatRoundOk {
     response: String,
     thinking: Option<String>,
     agent: AssistantAgent,
-    persister: StreamPersister,
+    persister: Arc<StreamPersister>,
     history_len_before: usize,
     chat_start: std::time::Instant,
 }
@@ -376,9 +378,9 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                         let history_len_before = agent.get_conversation_history().len();
                         let chat_start = std::time::Instant::now();
-                        let persister = StreamPersister::new();
-                        let persist_cb =
-                            persister.build_callback(&db_owned, session_id_owned.clone());
+                        let persister =
+                            StreamPersister::new(db_owned.clone(), session_id_owned.clone());
+                        let persist_cb = persister.build_callback();
 
                         let chat_result = agent
                             .chat(
@@ -401,6 +403,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         if abort_on_cancel
                             && cancel_for_check.load(std::sync::atomic::Ordering::SeqCst)
                         {
+                            // Discard any partial placeholder this attempt left
+                            // behind so a cancelled run doesn't show up as an
+                            // orphan in the next turn's restore summary.
+                            persister.discard_active_placeholder();
                             return Err(anyhow::anyhow!("chat cancelled by caller"));
                         }
 
@@ -413,7 +419,16 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 history_len_before,
                                 chat_start,
                             }),
-                            Err(e) => Err(e),
+                            Err(e) => {
+                                // Failover may retry on a different model; the
+                                // failed attempt's partial text must NOT bleed
+                                // into the eventual successful bubble (frontend
+                                // would group both text_block rows under the
+                                // same assistant) or into the next turn's
+                                // orphan-summary injection.
+                                persister.discard_active_placeholder();
+                                Err(e)
+                            }
                         }
                     }
                 },
@@ -441,7 +456,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         emit_stream_event(&event_sink, &session_id, source, &json_str);
                     }
 
-                    persister.flush_remaining_thinking(&db, &session_id);
+                    persister.flush_remaining_thinking();
                     let trailing_text = persister.take_trailing_text();
                     let assistant_msg =
                         persister.build_assistant_message(&trailing_text, thinking, duration_ms);

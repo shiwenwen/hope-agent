@@ -12,7 +12,9 @@ fn default_idle_minutes() -> u32 {
     30
 }
 fn default_cron_expr() -> String {
-    "0 3 * * *".to_string()
+    // 6-field cron format consumed by the `cron` crate (sec min hour
+    // day month weekday). 5-field POSIX expressions are rejected.
+    "0 0 3 * * *".to_string()
 }
 fn default_promotion_min_score() -> f32 {
     0.75

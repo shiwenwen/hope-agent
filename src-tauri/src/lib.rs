@@ -238,6 +238,8 @@ pub fn run() {
             commands::dreaming::dreaming_list_diaries,
             commands::dreaming::dreaming_read_diary,
             commands::dreaming::dreaming_is_running,
+            commands::dreaming::dreaming_last_report,
+            commands::dreaming::dreaming_idle_status,
             // Onboarding wizard
             commands::onboarding::get_onboarding_state,
             commands::onboarding::save_onboarding_draft,
@@ -401,6 +403,10 @@ pub fn run() {
             // Recap
             commands::config::get_recap_config,
             commands::config::save_recap_config,
+            // Dreaming
+            commands::config::get_dreaming_config,
+            commands::config::save_dreaming_config,
+            commands::config::validate_cron_expression,
             // Async tool execution
             commands::config::get_async_tools_config,
             commands::config::save_async_tools_config,
@@ -429,6 +435,7 @@ pub fn run() {
             commands::session::list_sessions_cmd,
             commands::session::load_session_messages_latest_cmd,
             commands::session::load_session_messages_before_cmd,
+            commands::session::load_session_messages_after_cmd,
             commands::session::load_session_messages_around_cmd,
             commands::session::get_session_stream_state,
             commands::session::search_sessions_cmd,

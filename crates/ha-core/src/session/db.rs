@@ -232,6 +232,24 @@ impl SessionDB {
             conn.execute_batch("ALTER TABLE messages ADD COLUMN tool_metadata TEXT;")?;
         }
 
+        // Migration: streaming-state column for crash-resilient placeholder
+        // rows. `streaming` = being written by an active turn; `completed` =
+        // finalized cleanly; `orphaned` = startup sweep saw a leftover
+        // streaming row from a previous (crashed) run. NULL is the legacy
+        // value for rows written before this column existed and is treated
+        // as `completed` by all readers.
+        let has_stream_status = conn
+            .prepare("SELECT stream_status FROM messages LIMIT 1")
+            .is_ok();
+        if !has_stream_status {
+            conn.execute_batch(
+                "ALTER TABLE messages ADD COLUMN stream_status TEXT;
+                 CREATE INDEX IF NOT EXISTS idx_messages_stream_active
+                   ON messages(session_id, stream_status)
+                   WHERE stream_status = 'streaming';",
+            )?;
+        }
+
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
         // to avoid "database disk image is malformed" errors during CASCADE delete.
         // The old trigger fired for ALL messages but only user/assistant were indexed.
@@ -984,7 +1002,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
              FROM messages
              WHERE session_id = ?1
              ORDER BY id ASC",
@@ -1030,7 +1048,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
              FROM messages
              WHERE session_id = ?1
              ORDER BY id DESC
@@ -1080,7 +1098,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
              FROM messages
              WHERE session_id = ?1 AND id < ?2
              ORDER BY id DESC
@@ -1166,7 +1184,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
              FROM messages
              WHERE session_id = ?1 AND id >= ?2 AND id < ?3
              ORDER BY id ASC",
@@ -1196,6 +1214,126 @@ impl SessionDB {
 
         ext.extend(std::mem::take(messages));
         *messages = ext;
+        Ok(())
+    }
+
+    /// Mirror of [`load_session_messages_before`] for forward pagination.
+    /// Returns up to `limit` messages with `id > after_id` in ASC order, plus
+    /// a `has_more` flag indicating whether further messages exist beyond the
+    /// returned window. The trailing edge is extended to the next `user`
+    /// boundary (`extend_window_to_turn_end`) so the caller never has to
+    /// worry about a turn being split across pages — without that, the
+    /// frontend's `parseSessionMessages` would emit a synthetic placeholder
+    /// for trailing pending blocks, then a second one for the leading
+    /// orphans of the next page, doubling-up an assistant bubble.
+    pub fn load_session_messages_after(
+        &self,
+        session_id: &str,
+        after_id: i64,
+        limit: u32,
+    ) -> Result<(Vec<SessionMessage>, bool)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE session_id = ?1 AND id > ?2
+             ORDER BY id ASC
+             LIMIT ?3",
+        )?;
+
+        let rows = stmt.query_map(params![session_id, after_id, limit], |row| {
+            Self::row_to_session_message(row)
+        })?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row?);
+        }
+
+        if let Some(last) = messages.last() {
+            let anchor = last.id;
+            Self::extend_window_to_turn_end(&conn, session_id, anchor, &mut messages)?;
+        }
+
+        let has_more = match messages.last() {
+            Some(last) => Self::has_messages_after(&conn, session_id, last.id),
+            None => false,
+        };
+
+        Ok((messages, has_more))
+    }
+
+    /// Extend the trailing edge of an ASC window so it ends at a turn
+    /// boundary — i.e. either at the row immediately before the next `user`
+    /// row, or at the session's last row when no further `user` exists.
+    /// Mirrors `align_window_to_user_boundary` (which fixes the leading
+    /// edge): without this, an `_after` page that cuts mid-turn would force
+    /// `parseSessionMessages` to emit a synthetic placeholder assistant for
+    /// the trailing pending blocks, and the *next* `_after` page would
+    /// emit a second one for the leading orphans — splitting one logical
+    /// assistant turn across multiple visual bubbles. Use the supplied
+    /// `anchor_id` (caller's last loaded id, or the around-window's target
+    /// id when no `after` rows landed) so this works whether the caller's
+    /// vec is empty or not.
+    fn extend_window_to_turn_end(
+        conn: &Connection,
+        session_id: &str,
+        anchor_id: i64,
+        messages: &mut Vec<SessionMessage>,
+    ) -> Result<()> {
+        // First user-row strictly after the anchor — defines the exclusive
+        // upper bound. None means we extend to the session's tail.
+        let next_user_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM messages
+                 WHERE session_id = ?1 AND id > ?2 AND role = 'user'
+                 ORDER BY id ASC LIMIT 1",
+                params![session_id, anchor_id],
+                |row| row.get(0),
+            )
+            .ok();
+        let stop_exclusive: i64 = match next_user_id {
+            Some(uid) => uid,
+            None => {
+                // Treat the row after the session's max id as the cap.
+                let max_id: i64 = conn.query_row(
+                    "SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                )?;
+                if max_id <= anchor_id {
+                    return Ok(());
+                }
+                max_id + 1
+            }
+        };
+        if stop_exclusive <= anchor_id + 1 {
+            return Ok(());
+        }
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE session_id = ?1 AND id > ?2 AND id < ?3
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id, anchor_id, stop_exclusive], |row| {
+            Self::row_to_session_message(row)
+        })?;
+        for row in rows {
+            messages.push(row?);
+        }
         Ok(())
     }
 
@@ -1290,6 +1428,7 @@ impl SessionDB {
             tokens_cache_creation: row.get(19)?,
             tokens_cache_read: row.get(20)?,
             tool_metadata: row.get::<_, Option<String>>(21).ok().flatten(),
+            stream_status: row.get::<_, Option<String>>(22).ok().flatten(),
         })
     }
 
@@ -1311,8 +1450,8 @@ impl SessionDB {
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
                 tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                tokens_cache_creation, tokens_cache_read, tool_metadata)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -1335,6 +1474,7 @@ impl SessionDB {
                 msg.tokens_cache_creation,
                 msg.tokens_cache_read,
                 msg.tool_metadata,
+                msg.stream_status,
             ],
         )?;
 
@@ -1416,6 +1556,128 @@ impl SessionDB {
             }
         }
         Ok(())
+    }
+
+    /// Update an in-flight streaming placeholder row's content and status.
+    /// `duration_ms` overwrites `tool_duration_ms` when `Some` — used at
+    /// thinking-block finalize so the persisted duration reflects the
+    /// real time spent, not the ~0ms snapshot taken when the placeholder
+    /// was first inserted.
+    ///
+    /// Called by [`crate::chat_engine::persister::StreamPersister`] in two
+    /// modes: throttled mid-stream UPDATE (`status = "streaming"`, content
+    /// reflects the current accumulated buffer) and finalize at flush
+    /// boundary (`status = "completed"`, content is the final buffer).
+    /// Touches `sessions.updated_at` so the sidebar bumps as text streams.
+    pub fn update_message_stream_content(
+        &self,
+        message_id: i64,
+        content: &str,
+        status: &str,
+        duration_ms: Option<i64>,
+    ) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let now = chrono::Utc::now().to_rfc3339();
+        match duration_ms {
+            Some(d) => {
+                conn.execute(
+                    "UPDATE messages SET content = ?1, stream_status = ?2, tool_duration_ms = ?3 WHERE id = ?4",
+                    params![content, status, d, message_id],
+                )?;
+            }
+            None => {
+                conn.execute(
+                    "UPDATE messages SET content = ?1, stream_status = ?2 WHERE id = ?3",
+                    params![content, status, message_id],
+                )?;
+            }
+        }
+        conn.execute(
+            "UPDATE sessions SET updated_at = ?1
+             WHERE id = (SELECT session_id FROM messages WHERE id = ?2)",
+            params![now, message_id],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a single message by id. Used at turn end to drop a trailing
+    /// `text_block` placeholder once its content has been folded into the
+    /// final `assistant` row's `content` — keeping both would double-render
+    /// in the UI and double-index in FTS.
+    pub fn delete_message_by_id(&self, message_id: i64) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        conn.execute("DELETE FROM messages WHERE id = ?1", params![message_id])?;
+        Ok(())
+    }
+
+    /// Load the messages that belong to the *previous* turn — the segment
+    /// strictly between the second-most-recent `user` row and the most
+    /// recent one. Used by crash-recovery summary injection, which runs
+    /// AFTER the new user message has already been appended to the table:
+    /// the orphaned partial from the prior interrupted turn lives in the
+    /// gap between the prior user message (at the bottom of OFFSET 1) and
+    /// the just-appended one (at the top of MAX).
+    ///
+    /// First-turn special case (only one user row exists): the segment
+    /// ends at user1's id and starts at 0, returning `[]` — there is no
+    /// "previous turn" to surface yet, which is correct.
+    ///
+    /// No-user case (history-only session): returns everything, since
+    /// neither bound applies.
+    pub fn load_previous_turn_tail(&self, session_id: &str) -> Result<Vec<SessionMessage>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE session_id = ?1
+               AND id > COALESCE(
+                   (SELECT id FROM messages
+                    WHERE session_id = ?1 AND role = 'user'
+                    ORDER BY id DESC
+                    LIMIT 1 OFFSET 1),
+                   0
+               )
+               AND id < COALESCE(
+                   (SELECT MAX(id) FROM messages WHERE session_id = ?1 AND role = 'user'),
+                   9223372036854775807
+               )
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| Self::row_to_session_message(row))?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    /// Sweep leftover `streaming` rows from a previous (crashed) run into
+    /// `orphaned`. Called once on app startup, before any session is loaded.
+    /// Returns the number of rows promoted, for logging.
+    pub fn mark_orphaned_streaming_rows(&self) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let n = conn.execute(
+            "UPDATE messages SET stream_status = 'orphaned'
+             WHERE stream_status = 'streaming'",
+            [],
+        )?;
+        Ok(n)
     }
 
     /// Check whether this session already has a `user` row whose
@@ -2266,7 +2528,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
              FROM messages
              WHERE session_id = ?1 AND id <= ?2
              ORDER BY id DESC
@@ -2290,7 +2552,7 @@ impl SessionDB {
                     attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                     tool_call_id, tool_name, tool_arguments, tool_result,
                     tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                    tokens_cache_creation, tokens_cache_read, tool_metadata
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
              FROM messages
              WHERE session_id = ?1 AND id > ?2
              ORDER BY id ASC
@@ -2304,6 +2566,14 @@ impl SessionDB {
         for row in after_rows {
             after_msgs.push(row?);
         }
+
+        // Extend the trailing edge to the next user boundary so the around
+        // page contains complete turns. Without this a hit landing inside a
+        // long tool loop would split the turn and force the frontend to
+        // synthesise a placeholder assistant — and the next `_after` page
+        // would synthesise a second one for the leading orphans.
+        let after_anchor = after_msgs.last().map(|m| m.id).unwrap_or(target_message_id);
+        Self::extend_window_to_turn_end(&conn, session_id, after_anchor, &mut after_msgs)?;
 
         let has_more_before = match before_msgs.first() {
             Some(first) => Self::has_messages_before(&conn, session_id, first.id),

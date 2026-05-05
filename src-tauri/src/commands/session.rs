@@ -89,6 +89,19 @@ pub async fn load_session_messages_before_cmd(
 }
 
 #[tauri::command]
+pub async fn load_session_messages_after_cmd(
+    session_id: String,
+    after_id: i64,
+    limit: u32,
+    state: State<'_, AppState>,
+) -> Result<(Vec<session::SessionMessage>, bool), CmdError> {
+    state
+        .session_db
+        .load_session_messages_after(&session_id, after_id, limit)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_session_cmd(
     session_id: String,
     state: State<'_, AppState>,

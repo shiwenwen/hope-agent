@@ -93,8 +93,8 @@ export interface MessageUsage {
 
 /** Ordered content block within an assistant message */
 export type ContentBlock =
-  | { type: "thinking"; content: string; durationMs?: number }
-  | { type: "text"; content: string }
+  | { type: "thinking"; content: string; durationMs?: number; interrupted?: boolean }
+  | { type: "text"; content: string; interrupted?: boolean }
   | { type: "tool_call"; tool: ToolCall }
 
 export interface Message {
@@ -279,6 +279,14 @@ export interface SessionMessage {
   thinking?: string | null
   /** JSON string with structured tool side-output (see {@link ToolMetadata}). */
   toolMetadata?: string | null
+  /**
+   * Streaming persistence state for thinking_block / text_block rows that
+   * were inserted incrementally before the turn finalized. `streaming` =
+   * write in progress; `completed` = clean finalize; `orphaned` = a previous
+   * run died mid-stream and startup sweep marked it. Absent on legacy rows
+   * (treat as `completed`).
+   */
+  streamStatus?: "streaming" | "completed" | "orphaned" | null
 }
 
 /**

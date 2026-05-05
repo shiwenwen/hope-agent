@@ -10,6 +10,7 @@
 //! 6. Emit `dreaming:cycle_complete` on the EventBus so the Dashboard
 //!    can refresh without polling.
 
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use serde_json::json;
@@ -23,9 +24,37 @@ use super::types::DreamReport;
 
 use crate::agent::AssistantAgent;
 
+/// Process-local snapshot of the most recent `DreamReport`. Reset on
+/// restart (the diary markdown on disk is the durable record); GUI uses
+/// it to populate the status row before the first `cycle_complete`
+/// event arrives.
+static LAST_REPORT: OnceLock<Mutex<Option<DreamReport>>> = OnceLock::new();
+
+fn last_report_slot() -> &'static Mutex<Option<DreamReport>> {
+    LAST_REPORT.get_or_init(|| Mutex::new(None))
+}
+
+fn record_last_report(report: &DreamReport) {
+    if let Ok(mut slot) = last_report_slot().lock() {
+        *slot = Some(report.clone());
+    }
+}
+
+/// Snapshot of the most recent in-process `DreamReport`. Returns `None`
+/// before the first cycle of this process.
+pub fn last_report_snapshot() -> Option<DreamReport> {
+    last_report_slot().lock().ok().and_then(|s| s.clone())
+}
+
 /// Execute one dreaming cycle and return the report.
 /// `report.note` carries a short reason when a cycle is skipped.
 pub async fn run_cycle(trigger: DreamTrigger) -> DreamReport {
+    let report = run_cycle_inner(trigger).await;
+    record_last_report(&report);
+    report
+}
+
+async fn run_cycle_inner(trigger: DreamTrigger) -> DreamReport {
     let started = Instant::now();
 
     // 1. Load config. Bail fast if the feature is disabled.
