@@ -534,7 +534,17 @@ async fn handle_data_frame(
 
     let payload_bytes = match resolve_payload(&mut frame, sum, cache, account_id) {
         ResolvedPayload::Ready(bytes) => bytes,
-        ResolvedPayload::Pending | ResolvedPayload::Drop => {
+        ResolvedPayload::Pending => {
+            // Mid-shard: do NOT ack. The gateway delivers a sharded event
+            // exactly once and waits for ack on the final shard's response.
+            // Acking now would mark a not-yet-assembled (and not-yet-
+            // dispatched) event as delivered — if any later shard arrives
+            // malformed or dispatch fails, the gateway never resends the
+            // complete event and we silently drop it. Mirrors official SDK
+            // (`handleEventData` returns when `mergedData` is null).
+            return Ok(());
+        }
+        ResolvedPayload::Drop => {
             try_send_ack(conn, frame, 200, account_id).await;
             return Ok(());
         }
