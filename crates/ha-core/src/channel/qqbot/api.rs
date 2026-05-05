@@ -3,12 +3,12 @@ use serde::de::DeserializeOwned;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::auth::QqBotAuth;
+use super::auth::{format_auth_value, QqBotAuth};
 
 /// QQ Bot REST API client.
 ///
-/// All requests use `Authorization: QQBotAccessToken {token}` header (NOT Bearer!).
-/// Also sends `X-Union-Appid: {app_id}` header.
+/// Auth scheme is documented on [`super::auth::AUTH_SCHEME`]; also sends
+/// `X-Union-Appid: {app_id}` header.
 pub struct QqBotApi {
     client: reqwest::Client,
     pub auth: Arc<QqBotAuth>,
@@ -50,7 +50,7 @@ impl QqBotApi {
         let mut req = self
             .client
             .request(method.clone(), &url)
-            .header("Authorization", format!("QQBotAccessToken {}", token))
+            .header("Authorization", format_auth_value(&token))
             .header("X-Union-Appid", self.auth.app_id())
             .header("Content-Type", "application/json");
 
@@ -119,14 +119,14 @@ impl QqBotApi {
 
     /// Send a message to a C2C (private) user.
     ///
-    /// POST /v2/c2c/users/{openid}/messages
+    /// POST /v2/users/{openid}/messages
     pub async fn send_c2c_message(
         &self,
         openid: &str,
         content: &str,
         msg_id: Option<&str>,
     ) -> Result<serde_json::Value> {
-        let path = format!("/v2/c2c/users/{}/messages", openid);
+        let path = format!("/v2/users/{}/messages", openid);
         let mut body = serde_json::json!({
             "content": content,
             "msg_type": 0,
@@ -193,7 +193,7 @@ impl QqBotApi {
     ) -> Result<serde_json::Value> {
         let (path, mut body) = if let Some(openid) = chat_id.strip_prefix("c2c:") {
             (
-                format!("/v2/c2c/users/{}/messages", openid),
+                format!("/v2/users/{}/messages", openid),
                 serde_json::json!({
                     "content": content,
                     "msg_type": 2,

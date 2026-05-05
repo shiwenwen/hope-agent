@@ -3,6 +3,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use super::api::QqBotApi;
+use super::auth::format_auth_value;
 use crate::channel::types::*;
 use crate::channel::ws::{backoff_duration, WsConnection};
 
@@ -69,7 +70,6 @@ fn save_session(account_id: &str, session_id: &str, seq: u64) {
 /// 6. Start heartbeat loop, process dispatch events
 pub async fn run_qq_gateway(
     api: Arc<QqBotApi>,
-    app_id: String,
     account_id: String,
     inbound_tx: mpsc::Sender<MsgContext>,
     cancel: CancellationToken,
@@ -220,7 +220,7 @@ pub async fn run_qq_gateway(
             let resume_payload = serde_json::json!({
                 "op": opcode::RESUME,
                 "d": {
-                    "token": format!("QQBotAccessToken {}", token),
+                    "token": format_auth_value(&token),
                     "session_id": session_id,
                     "seq": last_seq,
                 }
@@ -241,7 +241,7 @@ pub async fn run_qq_gateway(
             let identify_payload = serde_json::json!({
                 "op": opcode::IDENTIFY,
                 "d": {
-                    "token": format!("QQBotAccessToken {}", token),
+                    "token": format_auth_value(&token),
                     "intents": GATEWAY_INTENTS,
                     "shard": [0, 1],
                     "properties": {}
@@ -347,9 +347,6 @@ pub async fn run_qq_gateway(
                         Some(text) => {
                             match handle_gateway_message(
                                 &text,
-                                &api,
-                                &app_id,
-                                &token,
                                 &account_id,
                                 &inbound_tx,
                                 &seq_holder,
@@ -461,9 +458,6 @@ enum GatewayAction {
 /// Handle a single gateway message.
 async fn handle_gateway_message(
     text: &str,
-    _api: &Arc<QqBotApi>,
-    _app_id: &str,
-    _token: &str,
     account_id: &str,
     inbound_tx: &mpsc::Sender<MsgContext>,
     seq_holder: &Arc<tokio::sync::Mutex<u64>>,

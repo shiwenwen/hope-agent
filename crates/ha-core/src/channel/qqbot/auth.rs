@@ -3,6 +3,20 @@ use serde::Deserialize;
 use tokio::sync::Mutex;
 use tokio::time::Instant;
 
+/// QQ Bot V2 authorization scheme prefix.
+///
+/// Used both for the HTTP `Authorization` header and the gateway
+/// IDENTIFY/RESUME `token` field, e.g. `QQBot {access_token}`.
+/// NOT `Bearer`, NOT `QQBotAccessToken` (we got bitten by that). See
+/// <https://bot.q.qq.com/wiki/develop/api-v2/dev-prepare/interface-framework/api-use.html>.
+pub const AUTH_SCHEME: &str = "QQBot";
+
+/// Format an access token as the value used in the HTTP `Authorization` header
+/// and the gateway IDENTIFY/RESUME `token` field.
+pub fn format_auth_value(token: &str) -> String {
+    format!("{} {}", AUTH_SCHEME, token)
+}
+
 /// Cached access token with expiration time.
 struct CachedToken {
     token: String,
