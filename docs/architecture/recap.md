@@ -320,7 +320,7 @@ EventBus 流式进度事件，前端实时展示：
 
 ```rust
 pub struct RecapConfig {
-    pub analysis_agent: Option<String>,  // 分析 Agent ID（None = 回退 active_model）
+    pub analysis_agent: Option<String>,  // 分析 Agent ID（None = 回退全局默认 Agent）
     pub default_range_days: u32,         // 无历史报告时的默认范围（默认 30）
     pub max_sessions_per_report: u32,    // 单次报告最大会话数（默认 500）
     pub facet_concurrency: u8,           // Facet 提取并发度（默认 4）
@@ -328,7 +328,7 @@ pub struct RecapConfig {
 }
 ```
 
-Analysis Agent 选择优先级：`config.recap.analysisAgent` > `active_model` > 首个启用的 Provider。
+Analysis Agent 选择优先级：`config.recap.analysisAgent` > `AppConfig.default_agent_id` > `"default"`。选定 Agent 后，Recap 按普通聊天同款规则解析模型链：Agent `model.primary`/`fallbacks` 优先，否则回退全局 `active_model`/`fallback_models`。
 
 ## HTML 导出（renderer）
 
