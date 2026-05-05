@@ -311,7 +311,7 @@ pub async fn detect_ollama_version() -> Result<Option<String>> {
 /// the daemon already responds, returns Ok early.
 pub async fn start_ollama() -> Result<()> {
     if ping_ollama().await {
-        app_info!("local_llm", "start_ollama", "already running");
+        app_debug!("local_llm", "start_ollama", "already running");
         return Ok(());
     }
     let binary = usable_ollama_binary()
