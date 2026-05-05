@@ -515,10 +515,7 @@ impl FeishuApi {
             .client
             .post(&url)
             .header("locale", "zh")
-            .json(&serde_json::json!({
-                "AppID": self.auth.app_id(),
-                "AppSecret": self.auth.app_secret(),
-            }))
+            .json(&self.auth.ws_endpoint_credentials())
             .send()
             .await
             .map_err(|e| anyhow!("Failed to get Feishu WS endpoint: {}", e))?;

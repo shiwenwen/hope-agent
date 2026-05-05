@@ -53,12 +53,13 @@ impl FeishuAuth {
         &self.base_url
     }
 
-    pub(crate) fn app_id(&self) -> &str {
-        &self.app_id
-    }
-
-    pub(crate) fn app_secret(&self) -> &str {
-        &self.app_secret
+    /// Build the request body for the WS endpoint handshake. Lives here (not
+    /// in `api.rs`) so the app secret never leaves this module.
+    pub(crate) fn ws_endpoint_credentials(&self) -> serde_json::Value {
+        serde_json::json!({
+            "AppID": self.app_id,
+            "AppSecret": self.app_secret,
+        })
     }
 
     /// Get a valid tenant access token.

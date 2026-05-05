@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -6,6 +7,7 @@ use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::time::Instant as TokioInstant;
 use tokio_util::sync::CancellationToken;
+use url::Url;
 
 use crate::channel::types::*;
 use crate::channel::ws;
@@ -26,7 +28,6 @@ const HK_TYPE: &str = "type";
 const HK_SUM: &str = "sum";
 const HK_SEQ: &str = "seq";
 const HK_MESSAGE_ID: &str = "message_id";
-const HK_TRACE_ID: &str = "trace_id";
 const HK_BIZ_RT: &str = "biz_rt";
 
 // Frame headers[type] values
@@ -96,23 +97,13 @@ struct TextContent {
     text: Option<String>,
 }
 
-/// Server-pushed runtime parameters carried in pong payloads. Field names
-/// mirror the wire format (PascalCase). Only `PingInterval` is consumed
-/// today; the reconnect fields are reserved for when we adopt server-driven
-/// reconnect (currently we use a fixed local backoff).
+/// Server-pushed runtime parameters carried in pong payloads. We only consume
+/// `PingInterval`; serde silently drops the other ClientConfig fields
+/// (`ReconnectCount` / `ReconnectInterval` / `ReconnectNonce`).
 #[derive(Debug, Default, Deserialize)]
 struct PongPayload {
     #[serde(rename = "PingInterval", default)]
     ping_interval: Option<u64>,
-    #[serde(rename = "ReconnectCount", default)]
-    #[allow(dead_code)]
-    reconnect_count: Option<i64>,
-    #[serde(rename = "ReconnectInterval", default)]
-    #[allow(dead_code)]
-    reconnect_interval: Option<u64>,
-    #[serde(rename = "ReconnectNonce", default)]
-    #[allow(dead_code)]
-    reconnect_nonce: Option<u64>,
 }
 
 /// Run the Feishu WebSocket gateway event loop.
@@ -144,7 +135,6 @@ pub async fn run_feishu_gateway(
             return;
         }
 
-        // 1. Obtain WebSocket endpoint URL + negotiated client params
         let endpoint = match api.get_ws_endpoint().await {
             Ok(info) => {
                 reconnect_attempts = 0;
@@ -193,7 +183,6 @@ pub async fn run_feishu_gateway(
             endpoint.ping_interval.as_secs()
         );
 
-        // 2. Connect to WebSocket
         let mut conn = match ws::WsConnection::connect(&endpoint.url).await {
             Ok(c) => c,
             Err(e) => {
@@ -232,19 +221,16 @@ pub async fn run_feishu_gateway(
         );
         reconnect_attempts = 0;
 
-        // 3. Heartbeat scheduler — initial cadence from the endpoint's
-        // ClientConfig.PingInterval, mutable at runtime so pong frames can
-        // adopt server-pushed interval changes. We track the next deadline
-        // explicitly (instead of `tokio::time::interval`) so an interval
-        // update can take effect on the very next tick.
+        // Track the next ping deadline explicitly (rather than via
+        // `tokio::time::interval`) so a pong-driven interval update can take
+        // effect on the very next tick instead of waiting out the old slot.
         let mut current_interval = endpoint.ping_interval;
         let mut next_ping_at = TokioInstant::now() + current_interval;
 
         // Per-connection shard cache for sum>1 events. Discarded on disconnect
-        // (in-flight shards from a dead connection are unrecoverable anyway).
+        // — in-flight shards from a dead connection are unrecoverable anyway.
         let cache = DataCache::new();
 
-        // 4. Receive loop
         loop {
             enum Action {
                 Frame(Vec<u8>),
@@ -369,17 +355,14 @@ pub async fn run_feishu_gateway(
 /// if unparseable — Feishu always sets it, but a sane default keeps the loop
 /// running rather than crashing on a malformed URL.
 fn parse_service_id(url: &str) -> i32 {
-    let Some(q_idx) = url.find('?') else {
-        return 1;
-    };
-    for kv in url[q_idx + 1..].split('&') {
-        if let Some(rest) = kv.strip_prefix("service_id=") {
-            if let Ok(n) = rest.parse() {
-                return n;
-            }
-        }
-    }
-    1
+    Url::parse(url)
+        .ok()
+        .and_then(|u| {
+            u.query_pairs()
+                .find(|(k, _)| k == "service_id")
+                .and_then(|(_, v)| v.parse().ok())
+        })
+        .unwrap_or(1)
 }
 
 fn header(key: &str, value: impl Into<String>) -> Header {
@@ -395,6 +378,13 @@ fn find_header<'a>(frame: &'a Frame, key: &str) -> Option<&'a str> {
         .iter()
         .find(|h| h.key == key)
         .map(|h| h.value.as_str())
+}
+
+/// Lookup a numeric header (`sum` / `seq`) with parse-or-default semantics.
+fn header_num<T: FromStr>(frame: &Frame, key: &str, default: T) -> T {
+    find_header(frame, key)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
 }
 
 fn build_ping_frame(service_id: i32) -> Frame {
@@ -442,7 +432,7 @@ async fn handle_frame(
     match frame.method {
         METHOD_CONTROL => Ok(handle_control_frame(&frame)),
         METHOD_DATA => {
-            handle_data_frame(&frame, conn, cache, account_id, bot_open_id, inbound_tx).await?;
+            handle_data_frame(frame, conn, cache, account_id, bot_open_id, inbound_tx).await?;
             Ok(None)
         }
         other => {
@@ -476,74 +466,82 @@ fn handle_control_frame(frame: &Frame) -> Option<Duration> {
         .map(Duration::from_secs)
 }
 
+/// Outcome of resolving a data frame's payload (single shard or sharded
+/// reassembly). `Pending` and `Drop` both still need an ack; only `Ready`
+/// triggers dispatch.
+enum ResolvedPayload {
+    Ready(Vec<u8>),
+    Pending,
+    Drop,
+}
+
+/// Move the payload out of `frame` and either return it directly (sum<=1)
+/// or feed it into the shard cache and return the merged result if complete.
+fn resolve_payload(
+    frame: &mut Frame,
+    sum: usize,
+    cache: &DataCache,
+    account_id: &str,
+) -> ResolvedPayload {
+    let payload = std::mem::take(&mut frame.payload);
+    if sum <= 1 {
+        return ResolvedPayload::Ready(payload);
+    }
+    let seq = header_num::<usize>(frame, HK_SEQ, 0);
+    let message_id = find_header(frame, HK_MESSAGE_ID).unwrap_or("");
+    if message_id.is_empty() {
+        app_warn!(
+            "channel",
+            "feishu:gateway",
+            "[{}] Sharded frame missing message_id (sum={}, seq={}); dropping",
+            account_id,
+            sum,
+            seq
+        );
+        return ResolvedPayload::Drop;
+    }
+    match cache.merge(message_id, sum, seq, payload) {
+        Some(merged) => {
+            app_debug!(
+                "channel",
+                "feishu:gateway",
+                "[{}] Merged sharded event (message_id={}, sum={})",
+                account_id,
+                message_id,
+                sum
+            );
+            ResolvedPayload::Ready(merged)
+        }
+        None => ResolvedPayload::Pending,
+    }
+}
+
 async fn handle_data_frame(
-    frame: &Frame,
+    mut frame: Frame,
     conn: &mut ws::WsConnection,
     cache: &DataCache,
     account_id: &str,
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<MsgContext>,
 ) -> anyhow::Result<()> {
-    let ty = find_header(frame, HK_TYPE).unwrap_or("");
-
+    let ty = find_header(&frame, HK_TYPE).unwrap_or("");
     if ty != TY_EVENT && ty != TY_CARD {
-        // Unknown subtype; still ack to clear server queue.
-        let _ = send_ack(conn, frame, 200).await;
+        try_send_ack(conn, frame, 200, account_id).await;
         return Ok(());
     }
 
-    let sum: usize = find_header(frame, HK_SUM)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
+    let sum = header_num::<usize>(&frame, HK_SUM, 1);
 
-    // Resolve the full event JSON: fast path for sum==1 (most events), else
-    // route through the shard cache. Cache returns Some(bytes) only on the
-    // final shard; in-progress shards yield None — we ack but don't dispatch.
-    let payload_bytes: Vec<u8> = if sum <= 1 {
-        frame.payload.clone()
-    } else {
-        let seq: usize = find_header(frame, HK_SEQ)
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
-        let message_id = find_header(frame, HK_MESSAGE_ID).unwrap_or("");
-        let trace_id = find_header(frame, HK_TRACE_ID).unwrap_or("");
-        if message_id.is_empty() {
-            // Sharded frame without a message_id is unmergeable — ack and skip.
-            app_warn!(
-                "channel",
-                "feishu:gateway",
-                "[{}] Sharded frame missing message_id (sum={}, seq={}); dropping",
-                account_id,
-                sum,
-                seq
-            );
-            let _ = send_ack(conn, frame, 200).await;
+    let payload_bytes = match resolve_payload(&mut frame, sum, cache, account_id) {
+        ResolvedPayload::Ready(bytes) => bytes,
+        ResolvedPayload::Pending | ResolvedPayload::Drop => {
+            try_send_ack(conn, frame, 200, account_id).await;
             return Ok(());
-        }
-        match cache.merge(message_id, sum, seq, trace_id, frame.payload.clone()) {
-            Some(merged) => {
-                app_debug!(
-                    "channel",
-                    "feishu:gateway",
-                    "[{}] Merged sharded event (message_id={}, sum={})",
-                    account_id,
-                    message_id,
-                    sum
-                );
-                merged
-            }
-            None => {
-                // More shards expected — ack this frame so the server marks it
-                // delivered, but defer dispatch until the final shard arrives.
-                let _ = send_ack(conn, frame, 200).await;
-                return Ok(());
-            }
         }
     };
 
     let payload_str = std::str::from_utf8(&payload_bytes)
         .map_err(|e| anyhow::anyhow!("Non-UTF8 event payload: {}", e))?;
-
     let parsed: FeishuWsEvent = serde_json::from_str(payload_str)
         .map_err(|e| anyhow::anyhow!("Failed to parse Feishu WS event: {}", e))?;
 
@@ -586,16 +584,32 @@ async fn handle_data_frame(
         }
     };
 
-    // Always ack — server requires acknowledgement for delivery tracking.
     let code = if dispatch_result.is_ok() { 200 } else { 500 };
-    let _ = send_ack(conn, frame, code).await;
+    try_send_ack(conn, frame, code, account_id).await;
     dispatch_result
+}
+
+/// Send an ack and log on failure rather than swallowing the error — failure
+/// here usually means the WS write half is broken, which the receive loop
+/// will pick up as a `None` from `recv_binary` shortly. Logging makes the
+/// causal chain visible to operators / agent self-diagnosis.
+async fn try_send_ack(conn: &mut ws::WsConnection, src: Frame, code: i32, account_id: &str) {
+    if let Err(e) = send_ack(conn, src, code).await {
+        app_warn!(
+            "channel",
+            "feishu:gateway",
+            "[{}] Ack send failed: {}",
+            account_id,
+            e
+        );
+    }
 }
 
 /// Send a data-frame acknowledgement back to the gateway. Mirrors the official
 /// SDK's response shape: same headers + `biz_rt`, payload `{"code":<n>}`.
-async fn send_ack(conn: &mut ws::WsConnection, src: &Frame, code: i32) -> anyhow::Result<()> {
-    let mut headers = src.headers.clone();
+/// Consumes `src` so headers / log_id_new can be moved instead of cloned.
+async fn send_ack(conn: &mut ws::WsConnection, src: Frame, code: i32) -> anyhow::Result<()> {
+    let mut headers = src.headers;
     headers.push(header(HK_BIZ_RT, "0"));
 
     let payload = serde_json::json!({ "code": code }).to_string().into_bytes();
@@ -609,7 +623,7 @@ async fn send_ack(conn: &mut ws::WsConnection, src: &Frame, code: i32) -> anyhow
         payload_encoding: String::new(),
         payload_type: String::new(),
         payload,
-        log_id_new: src.log_id_new.clone(),
+        log_id_new: src.log_id_new,
     };
 
     conn.send_binary(encode_frame(&ack)).await
