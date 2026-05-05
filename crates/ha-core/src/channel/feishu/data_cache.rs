@@ -95,10 +95,8 @@ impl DataCache {
         if entry.buffer.iter().all(|s| s.is_some()) {
             let removed = guard.remove(message_id).unwrap();
             let mut out = Vec::with_capacity(total);
-            for shard in removed.buffer {
-                if let Some(bytes) = shard {
-                    out.extend_from_slice(&bytes);
-                }
+            for bytes in removed.buffer.into_iter().flatten() {
+                out.extend_from_slice(&bytes);
             }
             return Some(out);
         }
