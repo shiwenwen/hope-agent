@@ -158,6 +158,9 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dreaming_list_diaries:           { method: "GET",    path: "/api/dreaming/diaries" },
   dreaming_read_diary:             { method: "GET",    path: "/api/dreaming/diaries/{filename}" },
   dreaming_is_running:             { method: "GET",    path: "/api/dreaming/status" },
+  dreaming_last_report:            { method: "GET",    path: "/api/dreaming/last-report" },
+  dreaming_idle_status:            { method: "GET",    path: "/api/dreaming/idle-status" },
+  validate_cron_expression:        { method: "POST",   path: "/api/cron/validate" },
   scan_openclaw_agents:            { method: "GET",    path: "/api/agents/openclaw/scan" },
   import_openclaw_agents:          { method: "POST",   path: "/api/agents/openclaw/import" },
   scan_openclaw_full:              { method: "GET",    path: "/api/agents/openclaw/scan-full" },
@@ -287,6 +290,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Recap --
   get_recap_config:                { method: "GET",    path: "/api/config/recap" },
   save_recap_config:               { method: "PUT",    path: "/api/config/recap" },
+  get_dreaming_config:             { method: "GET",    path: "/api/config/dreaming" },
+  save_dreaming_config:            { method: "PUT",    path: "/api/config/dreaming" },
   recap_generate:                  { method: "POST",   path: "/api/recap/generate" },
   recap_list_reports:              { method: "POST",   path: "/api/recap/reports" },
   recap_get_report:                { method: "GET",    path: "/api/recap/reports/{id}" },

@@ -46,3 +46,19 @@ pub async fn read_diary(Path(filename): Path<String>) -> Result<Json<Value>, App
 pub async fn status() -> Result<Json<Value>, AppError> {
     Ok(Json(json!({ "running": dreaming::dreaming_running() })))
 }
+
+/// `GET /api/dreaming/last-report` — snapshot of the most recent
+/// in-process cycle report (null before the first cycle).
+pub async fn last_report() -> Result<Json<Option<dreaming::DreamReport>>, AppError> {
+    Ok(Json(dreaming::last_report_snapshot()))
+}
+
+/// `GET /api/dreaming/idle-status` — last activity timestamp and the
+/// configured idle threshold so the GUI can render a countdown.
+pub async fn idle_status() -> Result<Json<Value>, AppError> {
+    let cfg = ha_core::config::cached_config();
+    Ok(Json(json!({
+        "lastActivityEpochSecs": dreaming::last_activity_epoch_secs(),
+        "idleMinutes": cfg.dreaming.idle_trigger.idle_minutes,
+    })))
+}

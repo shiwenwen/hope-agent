@@ -722,6 +722,31 @@ pub async fn save_recap_config(config: ha_core::config::RecapConfig) -> Result<(
     .map_err(Into::into)
 }
 
+// ── Dreaming Config ─────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_dreaming_config(
+) -> Result<ha_core::memory::dreaming::DreamingConfig, CmdError> {
+    let store = ha_core::config::load_config()?;
+    Ok(store.dreaming)
+}
+
+#[tauri::command]
+pub async fn save_dreaming_config(
+    config: ha_core::memory::dreaming::DreamingConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("dreaming", "settings-ui"), |store| {
+        store.dreaming = config;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn validate_cron_expression(expression: String) -> Result<(), CmdError> {
+    ha_core::cron::validate_cron_expression(&expression).map_err(Into::into)
+}
+
 // ── Weather ─────────────────────────────────────────────────────
 
 /// Search cities by name using Open-Meteo Geocoding API.

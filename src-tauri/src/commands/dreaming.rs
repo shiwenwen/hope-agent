@@ -34,3 +34,30 @@ pub async fn dreaming_read_diary(filename: String) -> Result<String, CmdError> {
 pub async fn dreaming_is_running() -> Result<bool, CmdError> {
     Ok(dreaming::dreaming_running())
 }
+
+/// Snapshot of the most recent in-process `DreamReport`. Returns `null`
+/// before the first cycle of this process. Used by the Settings panel
+/// status row.
+#[tauri::command]
+pub async fn dreaming_last_report() -> Result<Option<dreaming::DreamReport>, CmdError> {
+    Ok(dreaming::last_report_snapshot())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DreamingIdleStatus {
+    pub last_activity_epoch_secs: i64,
+    pub idle_minutes: u32,
+}
+
+/// Returns the wall-clock timestamp of the last user-facing activity and
+/// the configured idle threshold so the GUI can render a "fires in N
+/// minutes" countdown without polling backend state.
+#[tauri::command]
+pub async fn dreaming_idle_status() -> Result<DreamingIdleStatus, CmdError> {
+    let cfg = ha_core::config::cached_config();
+    Ok(DreamingIdleStatus {
+        last_activity_epoch_secs: dreaming::last_activity_epoch_secs(),
+        idle_minutes: cfg.dreaming.idle_trigger.idle_minutes,
+    })
+}

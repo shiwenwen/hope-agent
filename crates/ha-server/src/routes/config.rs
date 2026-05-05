@@ -255,6 +255,41 @@ pub async fn save_recap_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+/// `GET /api/config/dreaming` -- get dreaming config.
+pub async fn get_dreaming_config(
+) -> Result<Json<ha_core::memory::dreaming::DreamingConfig>, AppError> {
+    let store = load_config()?;
+    Ok(Json(store.dreaming))
+}
+
+/// `PUT /api/config/dreaming` -- save dreaming config.
+pub async fn save_dreaming_config(
+    Json(body): Json<ConfigBody<ha_core::memory::dreaming::DreamingConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("dreaming", "http"), |store| {
+        store.dreaming = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ValidateCronBody {
+    pub expression: String,
+}
+
+/// `POST /api/cron/validate` -- syntactic validation of a cron expression.
+/// Invalid expressions return 400 so the frontend HTTP transport's
+/// non-2xx-rejection mirrors the Tauri command's `Err`-throws-from-invoke
+/// behaviour.
+pub async fn validate_cron_expression(
+    Json(body): Json<ValidateCronBody>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::cron::validate_cron_expression(&body.expression)
+        .map_err(|e| AppError::bad_request(e.to_string()))?;
+    Ok(Json(json!({ "valid": true })))
+}
+
 // ── Notification Config ─────────────────────────────────────────
 
 /// `GET /api/config/notification` -- get notification config.

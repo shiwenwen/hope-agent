@@ -765,6 +765,11 @@ pub async fn start_background_tasks() {
             }
         });
 
+        // Dreaming cron-trigger loop. Reads `dreaming.cron_trigger` and
+        // fires `manual_run(Cron)` on the configured schedule. Re-evaluates
+        // on every `config:changed { category: "dreaming" }`.
+        crate::memory::dreaming::spawn_dreaming_cron_loop();
+
         // One-shot reconciler for orphan project-scoped memory rows. The
         // delete_project cascade touches both `session.db` and `memory.db` and
         // cannot wrap them in a single transaction, so a crash between the two

@@ -316,6 +316,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `dreaming_list_diaries` | `GET /api/dreaming/diaries` | ✅ |
 | `dreaming_read_diary` | `GET /api/dreaming/diaries/{filename}` | ✅ |
 | `dreaming_is_running` | `GET /api/dreaming/status` | ✅ |
+| `dreaming_last_report` | `GET /api/dreaming/last-report` | ✅ |
+| `dreaming_idle_status` | `GET /api/dreaming/idle-status` | ✅ |
 | `scan_openclaw_agents` | `GET /api/agents/openclaw/scan` | ✅ legacy（agents-only） |
 | `import_openclaw_agents` | `POST /api/agents/openclaw/import` | ✅ legacy（agents-only） |
 | `scan_openclaw_full` | `GET /api/agents/openclaw/scan-full` | ✅ providers + agents + memories |
@@ -488,6 +490,9 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `get_recap_config` | `GET /api/config/recap` | ✅ |
 | `save_recap_config` | `PUT /api/config/recap` | ✅ |
+| `get_dreaming_config` | `GET /api/config/dreaming` | ✅ |
+| `save_dreaming_config` | `PUT /api/config/dreaming` | ✅ |
+| `validate_cron_expression` | `POST /api/cron/validate` | ✅ |
 | `recap_generate` | `POST /api/recap/generate` | ✅ |
 | `recap_list_reports` | `POST /api/recap/reports` | ✅ |
 | `recap_get_report` | `GET /api/recap/reports/{id}` | ✅ |

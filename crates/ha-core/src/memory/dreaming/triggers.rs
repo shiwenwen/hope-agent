@@ -50,6 +50,13 @@ pub fn dreaming_running() -> bool {
     DREAMING_RUNNING.load(Ordering::Acquire)
 }
 
+/// Wall-clock timestamp (epoch seconds) of the last user-facing activity.
+/// 0 = no activity ever recorded since boot. Used by GUI to compute the
+/// "time until idle trigger fires" countdown.
+pub fn last_activity_epoch_secs() -> i64 {
+    LAST_ACTIVITY_EPOCH_SECS.load(Ordering::Acquire)
+}
+
 /// Try to claim the global running flag. Returns a guard that resets
 /// the flag on drop.
 pub(super) fn try_claim() -> Option<RunningGuard> {
