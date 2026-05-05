@@ -191,12 +191,12 @@ export interface AgentMemoryConfig {
 }
 
 export const DEFAULT_ACTIVE_MEMORY: ActiveMemoryConfig = {
-  enabled: true,
-  timeoutMs: 3000,
+  enabled: false,
+  timeoutMs: 8000,
   maxChars: 220,
   cacheTtlSecs: 15,
   budgetTokens: 512,
-  candidateLimit: 20,
+  candidateLimit: 10,
 }
 
 export const DEFAULT_SQLITE_SECTION_BUDGETS: SqliteSectionBudgets = {

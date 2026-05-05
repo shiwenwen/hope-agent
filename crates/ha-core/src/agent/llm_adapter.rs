@@ -439,8 +439,14 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
 ///   `{"detail":"Stream must be set to true"}`).
 /// - no `max_output_tokens` (Codex rejects it as unsupported).
 ///
-/// Side queries deliberately don't forward temperature / reasoning /
-/// awareness suffixes — see [`OneShotRequest`].
+/// Side queries deliberately don't forward temperature / awareness suffixes
+/// from the main turn — see [`OneShotRequest`]. Reasoning effort is pinned
+/// to `low` here (rather than inherited or omitted) because side_query is
+/// always a short, low-stakes background task: recall-shortlist selection,
+/// title generation, memory extraction, summary. Omitting the field falls
+/// back to the account/model default (often `medium`), which on reasoning
+/// models routinely blows past the bounded timeouts (active_memory's 3–8s,
+/// title 10s) before the first token arrives.
 const BARE_RESPONSES_INSTRUCTIONS: &str =
     "You are a helpful assistant. Follow the user's instruction exactly.";
 
@@ -484,11 +490,11 @@ fn build_responses_body(
             }
         }
     };
+    let body_obj = body.as_object_mut().expect("json! always produces object");
     if !is_codex {
-        body.as_object_mut()
-            .expect("json! always produces object")
-            .insert("max_output_tokens".into(), json!(req.max_tokens));
+        body_obj.insert("max_output_tokens".into(), json!(req.max_tokens));
     }
+    body_obj.insert("reasoning".into(), json!({ "effort": "low" }));
     body
 }
 
@@ -846,6 +852,7 @@ mod tests {
                     {"name": "tool_b", "input_schema": {}},
                 ],
                 "max_output_tokens": 100,
+                "reasoning": {"effort": "low"},
             })
         );
     }
@@ -905,6 +912,7 @@ mod tests {
                 "instructions": "SUMMARIZER",
                 "input": [{"role": "user", "content": "PROMPT"}],
                 "max_output_tokens": 4096,
+                "reasoning": {"effort": "low"},
             })
         );
     }
@@ -940,6 +948,7 @@ mod tests {
                     {"name": "tool_a", "input_schema": {}},
                     {"name": "tool_b", "input_schema": {}},
                 ],
+                "reasoning": {"effort": "low"},
             })
         );
 
@@ -997,6 +1006,7 @@ mod tests {
                 "instructions": BARE_RESPONSES_INSTRUCTIONS,
                 "input": [{"role": "user", "content": "X"}],
                 "max_output_tokens": 100,
+                "reasoning": {"effort": "low"},
             })
         );
     }

@@ -432,11 +432,14 @@ pub fn effective_memory_budget(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveMemoryConfig {
-    /// Whether Active Memory is enabled. Default true.
-    #[serde(default = "crate::default_true")]
+    /// Whether Active Memory is enabled. Default false — opt-in because the
+    /// inline side_query before each user turn adds latency (typically 1–3s,
+    /// up to `timeout_ms` on a cold reasoning model). Users who want recall
+    /// injection turn it on per-agent in the Memory tab.
+    #[serde(default)]
     pub enabled: bool,
 
-    /// Side query timeout in milliseconds. Default 3000. On timeout we
+    /// Side query timeout in milliseconds. Default 8000. On timeout we
     /// simply don't append the Active Memory block and fall back to the
     /// static memory section already in the system prompt.
     #[serde(default = "default_active_memory_timeout_ms")]
@@ -458,13 +461,16 @@ pub struct ActiveMemoryConfig {
     pub budget_tokens: u32,
 
     /// How many candidate memories to shortlist from the backend before
-    /// asking the LLM to pick the most relevant one. Default 20.
+    /// asking the LLM to pick the most relevant one. Default 10.
     #[serde(default = "default_active_memory_candidate_limit")]
     pub candidate_limit: usize,
 }
 
 fn default_active_memory_timeout_ms() -> u64 {
-    3000
+    // Reasoning models on Codex / Responses (gpt-5.x) routinely take 4–6s
+    // even with `effort=low`, between TLS warm-up and SSE first byte.
+    // 3s was the original budget but produced ~100% timeout in real logs.
+    8000
 }
 fn default_active_memory_max_chars() -> usize {
     220
@@ -476,13 +482,16 @@ fn default_active_memory_budget_tokens() -> u32 {
     512
 }
 fn default_active_memory_candidate_limit() -> usize {
-    20
+    // 10 is enough to expose a relevant memory; 20 inflated the prompt and
+    // pushed reasoning models past the 3s window without measurably better
+    // recall. Users can raise this via `agent.activeMemory.candidateLimit`.
+    10
 }
 
 impl Default for ActiveMemoryConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             timeout_ms: default_active_memory_timeout_ms(),
             max_chars: default_active_memory_max_chars(),
             cache_ttl_secs: default_active_memory_cache_ttl_secs(),

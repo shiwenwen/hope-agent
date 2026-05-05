@@ -122,7 +122,7 @@ flowchart TD
 | system prompt | `instructions` 字段 | 同左 |
 | input | 复用 `conversation_history` + `push_user_message(instruction)` | 同左 |
 | tools | 直接传递 `tool_schemas` | 同左 |
-| 额外参数 | `store: false`, `stream: false` | 同左 |
+| 额外参数 | `store: false`, `stream: false`, `reasoning: { effort: "low" }`, `max_output_tokens` | `store: false`, `stream: true`（Codex 后端拒绝 false）, `reasoning: { effort: "low" }`，**不**传 `max_output_tokens`（Codex 拒绝） |
 | 文本提取 | `output[].type=="message"` -> `content[].type=="output_text"` -> `text` | 同左 |
 | usage 字段 | `input_tokens` / `output_tokens` + `prompt_tokens_details.cached_tokens` | 同左 |
 
@@ -165,6 +165,16 @@ OpenAI 对相同前缀的请求自动缓存，cached tokens 按 50% 折扣计费
 | API 请求失败（非 2xx） | 返回 `Err(anyhow)` | 调用方处理，通常降级为不使用侧查询结果 |
 | 旧会话无快照 | 退化为普通请求 | 功能不受影响，仅缺少缓存优化 |
 | Anthropic cache 过期（>5min） | 请求正常但无 cache hit | 按全价计费，功能不受影响 |
+
+## reasoning effort 策略
+
+Side query body 在 OpenAIResponses + Codex dialect **强制** `reasoning: { effort: "low" }`（[`build_responses_body`](../../crates/ha-core/src/agent/llm_adapter.rs)）。理由：
+
+- side_query 是后台增强（active_memory 召回、title gen、auto_extract、recap facets、tier 3 摘要），目标是**快**而非深推理；
+- 不传该字段时，Codex / Responses 后端走账号默认 effort（reasoning model 通常是 medium），首 token 常 5–15s，会击穿 active_memory 的 8s timeout、title gen 的 10s timeout；
+- 主对话路径继续按用户配置的 effort（[`ResponsesRequest.reasoning`](../../crates/ha-core/src/agent/api_types.rs)）走，不受影响。
+
+后续若有 side_query 调用方需要更高 effort（例如 recap 想给 reasoning model 更多时间想），应扩展 `OneShotRequest` 增加可选 effort 字段，而不是回到"不传"。
 
 ## SideQueryResult
 

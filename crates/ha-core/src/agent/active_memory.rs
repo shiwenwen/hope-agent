@@ -7,7 +7,11 @@
 //! awareness suffix), so its churn does not invalidate the prefix cache.
 //!
 //! Design principles:
-//! - **Bounded**: hard timeout from `ActiveMemoryConfig.timeout_ms` (default 3s).
+//! - **Opt-in**: disabled by default — every user turn pays the side_query
+//!   latency, so the feature waits for the user to flip the toggle in the
+//!   Memory tab. When off, the static memory section in the system prompt
+//!   still injects relevant entries (passive recall path).
+//! - **Bounded**: hard timeout from `ActiveMemoryConfig.timeout_ms` (default 8s).
 //!   On timeout we silently skip injection and fall back to the passive memory
 //!   section already baked into the system prompt.
 //! - **Cache-friendly**: `side_query` reuses the main conversation's prompt

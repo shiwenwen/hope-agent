@@ -478,6 +478,8 @@ impl Drop for DreamGuard {
 
 被动 system prompt 注入对"用户偶尔提到一次但当前问题相关"的记忆覆盖不够，因为预算有限会被裁掉。Active Memory 在每轮 user turn 之前调 `refresh_active_memory_suffix(user_text)` **针对当前提问主动召回一组相关记忆**，作为独立 cache block 注入。
 
+**默认关闭**（`enabled=false`）——开启会让每轮 user turn 在主请求前先跑一次 `side_query`（最坏等到 `timeout_ms`，默认 8s），有可见的发送延迟。需要召回增强的用户在 Memory tab 主动打开。关闭时静态 system prompt 段里的被动记忆注入仍然有效。
+
 ### 调用时机与预算
 
 - 每轮 user turn 进入时调用，不是流式进行中

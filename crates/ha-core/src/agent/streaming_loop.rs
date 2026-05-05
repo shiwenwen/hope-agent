@@ -199,8 +199,15 @@ impl AssistantAgent {
         let provider_label = adapter.provider_format().label();
 
         self.reset_chat_flags();
-        self.refresh_awareness_suffix(message).await;
-        self.refresh_active_memory_suffix(message).await;
+        // Awareness + active_memory each write their own independent suffix
+        // slot and never read the other; run them concurrently so the worst
+        // case is max(awareness_timeout, active_memory_timeout) instead of
+        // their sum (was up to 13s with LlmDigest + active_memory both
+        // timing out, now ≤8s).
+        tokio::join!(
+            self.refresh_awareness_suffix(message),
+            self.refresh_active_memory_suffix(message),
+        );
 
         let client =
             crate::provider::apply_proxy(reqwest::Client::builder().user_agent(&self.user_agent))
