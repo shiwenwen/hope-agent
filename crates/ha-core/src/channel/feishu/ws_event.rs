@@ -1,15 +1,17 @@
 use std::sync::Arc;
+use std::time::Duration;
 
 use prost::Message as _;
 use serde::Deserialize;
 use tokio::sync::mpsc;
-use tokio::time::{interval, MissedTickBehavior};
+use tokio::time::Instant as TokioInstant;
 use tokio_util::sync::CancellationToken;
 
 use crate::channel::types::*;
 use crate::channel::ws;
 
 use super::api::FeishuApi;
+use super::data_cache::DataCache;
 use super::proto::{Frame, Header};
 
 /// Maximum number of consecutive reconnection attempts before giving up.
@@ -22,10 +24,14 @@ const METHOD_DATA: i32 = 1;
 // pbbp2 Frame.headers keys
 const HK_TYPE: &str = "type";
 const HK_SUM: &str = "sum";
+const HK_SEQ: &str = "seq";
+const HK_MESSAGE_ID: &str = "message_id";
+const HK_TRACE_ID: &str = "trace_id";
 const HK_BIZ_RT: &str = "biz_rt";
 
 // Frame headers[type] values
 const TY_PING: &str = "ping";
+const TY_PONG: &str = "pong";
 const TY_EVENT: &str = "event";
 const TY_CARD: &str = "card";
 
@@ -88,6 +94,25 @@ struct MentionId {
 #[derive(Debug, Deserialize)]
 struct TextContent {
     text: Option<String>,
+}
+
+/// Server-pushed runtime parameters carried in pong payloads. Field names
+/// mirror the wire format (PascalCase). Only `PingInterval` is consumed
+/// today; the reconnect fields are reserved for when we adopt server-driven
+/// reconnect (currently we use a fixed local backoff).
+#[derive(Debug, Default, Deserialize)]
+struct PongPayload {
+    #[serde(rename = "PingInterval", default)]
+    ping_interval: Option<u64>,
+    #[serde(rename = "ReconnectCount", default)]
+    #[allow(dead_code)]
+    reconnect_count: Option<i64>,
+    #[serde(rename = "ReconnectInterval", default)]
+    #[allow(dead_code)]
+    reconnect_interval: Option<u64>,
+    #[serde(rename = "ReconnectNonce", default)]
+    #[allow(dead_code)]
+    reconnect_nonce: Option<u64>,
 }
 
 /// Run the Feishu WebSocket gateway event loop.
@@ -207,12 +232,17 @@ pub async fn run_feishu_gateway(
         );
         reconnect_attempts = 0;
 
-        // 3. Heartbeat ticker — uses the server-negotiated cadence from the
-        // endpoint's ClientConfig. Skip behavior avoids burst-pinging if the
-        // loop falls behind.
-        let mut ping_ticker = interval(endpoint.ping_interval);
-        ping_ticker.set_missed_tick_behavior(MissedTickBehavior::Skip);
-        ping_ticker.tick().await; // consume the immediate first tick
+        // 3. Heartbeat scheduler — initial cadence from the endpoint's
+        // ClientConfig.PingInterval, mutable at runtime so pong frames can
+        // adopt server-pushed interval changes. We track the next deadline
+        // explicitly (instead of `tokio::time::interval`) so an interval
+        // update can take effect on the very next tick.
+        let mut current_interval = endpoint.ping_interval;
+        let mut next_ping_at = TokioInstant::now() + current_interval;
+
+        // Per-connection shard cache for sum>1 events. Discarded on disconnect
+        // (in-flight shards from a dead connection are unrecoverable anyway).
+        let cache = DataCache::new();
 
         // 4. Receive loop
         loop {
@@ -226,7 +256,7 @@ pub async fn run_feishu_gateway(
             let action = tokio::select! {
                 biased;
                 _ = cancel.cancelled() => Action::Cancelled,
-                _ = ping_ticker.tick() => Action::SendPing,
+                _ = tokio::time::sleep_until(next_ping_at) => Action::SendPing,
                 bytes = conn.recv_binary() => match bytes {
                     Some(b) => Action::Frame(b),
                     None => Action::Disconnected,
@@ -256,24 +286,43 @@ pub async fn run_feishu_gateway(
                         );
                         break;
                     }
+                    next_ping_at = TokioInstant::now() + current_interval;
                 }
                 Action::Frame(bytes) => {
-                    if let Err(e) = handle_frame(
+                    match handle_frame(
                         &bytes,
                         &mut conn,
+                        &cache,
                         &account_id,
                         &bot_open_id,
                         &inbound_tx,
                     )
                     .await
                     {
-                        app_debug!(
-                            "channel",
-                            "feishu:gateway",
-                            "[{}] Frame handling error: {}",
-                            account_id,
-                            e
-                        );
+                        Ok(Some(new_interval)) if new_interval != current_interval => {
+                            app_info!(
+                                "channel",
+                                "feishu:gateway",
+                                "[{}] Server-updated ping interval: {}s → {}s",
+                                account_id,
+                                current_interval.as_secs(),
+                                new_interval.as_secs()
+                            );
+                            current_interval = new_interval;
+                            // Reschedule from now so the new cadence applies
+                            // immediately rather than waiting out the old slot.
+                            next_ping_at = TokioInstant::now() + current_interval;
+                        }
+                        Ok(_) => {}
+                        Err(e) => {
+                            app_debug!(
+                                "channel",
+                                "feishu:gateway",
+                                "[{}] Frame handling error: {}",
+                                account_id,
+                                e
+                            );
+                        }
                     }
                 }
                 Action::Disconnected => {
@@ -371,28 +420,31 @@ fn encode_frame(frame: &Frame) -> Vec<u8> {
 
 /// Decode a single inbound frame and dispatch by method.
 ///
-/// - control + pong → noop (could refresh ping interval; skipped for v1)
+/// Returns `Ok(Some(new_interval))` when the frame was a pong carrying an
+/// updated `PingInterval` — caller reschedules the heartbeat. `Ok(None)` for
+/// any other case (control without interval change, data event, unknown
+/// method).
+///
+/// - control + pong → parse `PingInterval`, return `Some(_)` if it differs
 /// - control + ping → noop (server probe)
-/// - data + event/card → parse JSON, dispatch, ack
+/// - data + event/card → parse JSON (merging shards if sum>1), dispatch, ack
 async fn handle_frame(
     bytes: &[u8],
     conn: &mut ws::WsConnection,
+    cache: &DataCache,
     account_id: &str,
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<MsgContext>,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Option<Duration>> {
     let frame = Frame::decode(bytes)
         .map_err(|e| anyhow::anyhow!("Failed to decode pbbp2 frame: {}", e))?;
 
     match frame.method {
-        METHOD_CONTROL => {
-            // Server-initiated ping or our own pong echo — nothing to do.
-            // PingInterval/Reconnect updates from pong payload are not yet
-            // applied; the default 120s interval keeps the connection alive.
-            let _ = find_header(&frame, HK_TYPE).unwrap_or("");
-            Ok(())
+        METHOD_CONTROL => Ok(handle_control_frame(&frame)),
+        METHOD_DATA => {
+            handle_data_frame(&frame, conn, cache, account_id, bot_open_id, inbound_tx).await?;
+            Ok(None)
         }
-        METHOD_DATA => handle_data_frame(&frame, conn, account_id, bot_open_id, inbound_tx).await,
         other => {
             app_debug!(
                 "channel",
@@ -401,38 +453,38 @@ async fn handle_frame(
                 account_id,
                 other
             );
-            Ok(())
+            Ok(None)
         }
     }
+}
+
+/// Handle a control frame (ping/pong). Returns a fresh `Duration` if the
+/// frame is a pong whose payload carries a non-zero `PingInterval`.
+fn handle_control_frame(frame: &Frame) -> Option<Duration> {
+    let ty = find_header(frame, HK_TYPE)?;
+    if ty != TY_PONG {
+        return None;
+    }
+    if frame.payload.is_empty() {
+        return None;
+    }
+    let payload_str = std::str::from_utf8(&frame.payload).ok()?;
+    let parsed: PongPayload = serde_json::from_str(payload_str).ok()?;
+    parsed
+        .ping_interval
+        .filter(|n| *n > 0)
+        .map(Duration::from_secs)
 }
 
 async fn handle_data_frame(
     frame: &Frame,
     conn: &mut ws::WsConnection,
+    cache: &DataCache,
     account_id: &str,
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<MsgContext>,
 ) -> anyhow::Result<()> {
     let ty = find_header(frame, HK_TYPE).unwrap_or("");
-
-    // Sharded events: not implemented in v1. Drop and ack so the server
-    // doesn't keep retrying. IM events almost never shard in practice
-    // (only > ~20KB payloads do).
-    let sum: i32 = find_header(frame, HK_SUM)
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(1);
-    if sum > 1 {
-        app_warn!(
-            "channel",
-            "feishu:gateway",
-            "[{}] Dropping sharded event (sum={}, type={}) — not yet supported",
-            account_id,
-            sum,
-            ty
-        );
-        let _ = send_ack(conn, frame, 200).await;
-        return Ok(());
-    }
 
     if ty != TY_EVENT && ty != TY_CARD {
         // Unknown subtype; still ack to clear server queue.
@@ -440,7 +492,56 @@ async fn handle_data_frame(
         return Ok(());
     }
 
-    let payload_str = std::str::from_utf8(&frame.payload)
+    let sum: usize = find_header(frame, HK_SUM)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(1);
+
+    // Resolve the full event JSON: fast path for sum==1 (most events), else
+    // route through the shard cache. Cache returns Some(bytes) only on the
+    // final shard; in-progress shards yield None — we ack but don't dispatch.
+    let payload_bytes: Vec<u8> = if sum <= 1 {
+        frame.payload.clone()
+    } else {
+        let seq: usize = find_header(frame, HK_SEQ)
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let message_id = find_header(frame, HK_MESSAGE_ID).unwrap_or("");
+        let trace_id = find_header(frame, HK_TRACE_ID).unwrap_or("");
+        if message_id.is_empty() {
+            // Sharded frame without a message_id is unmergeable — ack and skip.
+            app_warn!(
+                "channel",
+                "feishu:gateway",
+                "[{}] Sharded frame missing message_id (sum={}, seq={}); dropping",
+                account_id,
+                sum,
+                seq
+            );
+            let _ = send_ack(conn, frame, 200).await;
+            return Ok(());
+        }
+        match cache.merge(message_id, sum, seq, trace_id, frame.payload.clone()) {
+            Some(merged) => {
+                app_debug!(
+                    "channel",
+                    "feishu:gateway",
+                    "[{}] Merged sharded event (message_id={}, sum={})",
+                    account_id,
+                    message_id,
+                    sum
+                );
+                merged
+            }
+            None => {
+                // More shards expected — ack this frame so the server marks it
+                // delivered, but defer dispatch until the final shard arrives.
+                let _ = send_ack(conn, frame, 200).await;
+                return Ok(());
+            }
+        }
+    };
+
+    let payload_str = std::str::from_utf8(&payload_bytes)
         .map_err(|e| anyhow::anyhow!("Non-UTF8 event payload: {}", e))?;
 
     let parsed: FeishuWsEvent = serde_json::from_str(payload_str)
@@ -699,5 +800,57 @@ mod tests {
         assert_eq!(decoded.method, METHOD_CONTROL);
         assert_eq!(decoded.service, 7);
         assert_eq!(find_header(&decoded, HK_TYPE), Some(TY_PING));
+    }
+
+    fn make_pong(payload: &str) -> Frame {
+        Frame {
+            seq_id: 0,
+            log_id: 0,
+            service: 1,
+            method: METHOD_CONTROL,
+            headers: vec![header(HK_TYPE, TY_PONG)],
+            payload_encoding: String::new(),
+            payload_type: String::new(),
+            payload: payload.as_bytes().to_vec(),
+            log_id_new: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_pong_extracts_ping_interval() {
+        let frame = make_pong(
+            r#"{"PingInterval":60,"ReconnectCount":-1,"ReconnectInterval":120,"ReconnectNonce":30}"#,
+        );
+        assert_eq!(handle_control_frame(&frame), Some(Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn test_pong_zero_interval_ignored() {
+        let frame = make_pong(r#"{"PingInterval":0}"#);
+        assert_eq!(handle_control_frame(&frame), None);
+    }
+
+    #[test]
+    fn test_pong_missing_field_ignored() {
+        let frame = make_pong(r#"{"ReconnectCount":-1}"#);
+        assert_eq!(handle_control_frame(&frame), None);
+    }
+
+    #[test]
+    fn test_pong_empty_payload_ignored() {
+        let frame = make_pong("");
+        assert_eq!(handle_control_frame(&frame), None);
+    }
+
+    #[test]
+    fn test_ping_frame_returns_none() {
+        let frame = build_ping_frame(1);
+        assert_eq!(handle_control_frame(&frame), None);
+    }
+
+    #[test]
+    fn test_pong_malformed_json_ignored() {
+        let frame = make_pong("not json");
+        assert_eq!(handle_control_frame(&frame), None);
     }
 }

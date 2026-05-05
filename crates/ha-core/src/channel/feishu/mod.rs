@@ -1,5 +1,6 @@
 pub mod api;
 pub mod auth;
+pub mod data_cache;
 pub mod format;
 pub mod media;
 pub mod proto;
