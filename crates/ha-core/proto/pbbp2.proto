@@ -1,0 +1,28 @@
+// Feishu (Lark) WebSocket long-connection wire format.
+//
+// Mirrors the schema used by `@larksuiteoapi/node-sdk` (ws-client/proto-buf/pbbp2.js).
+// Field tags are wire-compatible with the official SDK; field names are
+// snake_case here and rendered as camelCase Rust by prost.
+syntax = "proto3";
+
+package pbbp2;
+
+message Header {
+  string key = 1;
+  string value = 2;
+}
+
+// One framing unit on the WebSocket. `method` selects control (0) vs data (1).
+// For control frames, `headers["type"]` is "ping" or "pong"; for data frames
+// it is "event" or "card" with payload as UTF-8 JSON.
+message Frame {
+  uint64 seq_id = 1;            // SeqID
+  uint64 log_id = 2;            // LogID
+  int32  service = 3;
+  int32  method = 4;            // 0 = control, 1 = data
+  repeated Header headers = 5;
+  string payload_encoding = 6;  // payloadEncoding
+  string payload_type = 7;      // payloadType
+  bytes  payload = 8;
+  string log_id_new = 9;        // LogIDNew
+}

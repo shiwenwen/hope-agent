@@ -53,6 +53,14 @@ impl FeishuAuth {
         &self.base_url
     }
 
+    pub(crate) fn app_id(&self) -> &str {
+        &self.app_id
+    }
+
+    pub(crate) fn app_secret(&self) -> &str {
+        &self.app_secret
+    }
+
     /// Get a valid tenant access token.
     ///
     /// Returns a cached token if it's still valid (with a 5-minute safety buffer).

@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod format;
 pub mod media;
+pub mod proto;
 pub mod ws_event;
 
 use anyhow::Result;

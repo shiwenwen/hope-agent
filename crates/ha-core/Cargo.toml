@@ -3,6 +3,11 @@ name = "ha-core"
 version = "0.1.0"
 edition = "2021"
 description = "Hope Agent core business logic — zero Tauri dependency"
+build = "build.rs"
+
+[build-dependencies]
+prost-build = "0.14"
+protoc-bin-vendored = "3"
 
 [dependencies]
 serde = { workspace = true }
@@ -66,6 +71,7 @@ openssl = { version = "0.10", features = ["vendored"] }
 hmac = "0.12"
 jsonwebtoken = "9"
 axum = "0.8"
+prost = "0.14"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.4", features = ["std"] }
