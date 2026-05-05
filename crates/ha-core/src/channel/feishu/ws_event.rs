@@ -426,8 +426,8 @@ async fn handle_frame(
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<MsgContext>,
 ) -> anyhow::Result<Option<Duration>> {
-    let frame = Frame::decode(bytes)
-        .map_err(|e| anyhow::anyhow!("Failed to decode pbbp2 frame: {}", e))?;
+    let frame =
+        Frame::decode(bytes).map_err(|e| anyhow::anyhow!("Failed to decode pbbp2 frame: {}", e))?;
 
     match frame.method {
         METHOD_CONTROL => Ok(handle_control_frame(&frame)),

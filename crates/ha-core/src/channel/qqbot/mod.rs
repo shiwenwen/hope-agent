@@ -137,9 +137,7 @@ impl ChannelPlugin for QqBotPlugin {
 
         // Spawn the gateway event loop
         let account_id = account.id.clone();
-        tokio::spawn(gateway::run_qq_gateway(
-            api, account_id, inbound_tx, cancel,
-        ));
+        tokio::spawn(gateway::run_qq_gateway(api, account_id, inbound_tx, cancel));
 
         Ok(())
     }

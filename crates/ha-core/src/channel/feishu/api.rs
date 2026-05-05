@@ -562,10 +562,7 @@ impl FeishuApi {
             .map(Duration::from_secs)
             .unwrap_or(DEFAULT_WS_PING_INTERVAL);
 
-        Ok(WsEndpointInfo {
-            url,
-            ping_interval,
-        })
+        Ok(WsEndpointInfo { url, ping_interval })
     }
 
     /// Parse a send/reply message response and extract the message_id.
