@@ -725,8 +725,7 @@ pub async fn save_recap_config(config: ha_core::config::RecapConfig) -> Result<(
 // ── Dreaming Config ─────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn get_dreaming_config(
-) -> Result<ha_core::memory::dreaming::DreamingConfig, CmdError> {
+pub async fn get_dreaming_config() -> Result<ha_core::memory::dreaming::DreamingConfig, CmdError> {
     let store = ha_core::config::load_config()?;
     Ok(store.dreaming)
 }

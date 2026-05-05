@@ -516,10 +516,7 @@ fn build_router_with_cors(
         )
         .route("/config/recap", get(routes::config::get_recap_config))
         .route("/config/recap", put(routes::config::save_recap_config))
-        .route(
-            "/config/dreaming",
-            get(routes::config::get_dreaming_config),
-        )
+        .route("/config/dreaming", get(routes::config::get_dreaming_config))
         .route(
             "/config/dreaming",
             put(routes::config::save_dreaming_config),
@@ -828,7 +825,10 @@ fn build_router_with_cors(
         .route("/dreaming/status", get(routes::dreaming::status))
         .route("/dreaming/last-report", get(routes::dreaming::last_report))
         .route("/dreaming/idle-status", get(routes::dreaming::idle_status))
-        .route("/cron/validate", post(routes::config::validate_cron_expression))
+        .route(
+            "/cron/validate",
+            post(routes::config::validate_cron_expression),
+        )
         // Onboarding wizard
         .route("/onboarding/state", get(routes::onboarding::get_state))
         .route("/onboarding/draft", post(routes::onboarding::save_draft))
