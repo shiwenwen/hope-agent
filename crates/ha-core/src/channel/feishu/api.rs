@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::sync::Arc;
+use std::time::Duration;
 
 use super::auth::FeishuAuth;
 
@@ -10,6 +11,19 @@ pub struct BotInfo {
     pub app_name: String,
     pub open_id: String,
 }
+
+/// Resolved long-connection endpoint: URL plus negotiated client params.
+#[derive(Debug, Clone)]
+pub struct WsEndpointInfo {
+    pub url: String,
+    /// Heartbeat cadence the server expects. Falls back to 120s when the
+    /// `ClientConfig.PingInterval` field is missing or zero.
+    pub ping_interval: Duration,
+}
+
+/// Default heartbeat used when the gateway response omits `ClientConfig` —
+/// matches the documented baseline in the official SDK.
+const DEFAULT_WS_PING_INTERVAL: Duration = Duration::from_secs(120);
 
 /// Feishu REST API client.
 ///
@@ -63,6 +77,15 @@ struct FileUploadData {
 struct WsEndpointData {
     #[serde(rename = "URL")]
     url: Option<String>,
+    #[serde(rename = "ClientConfig", default)]
+    client_config: Option<WsClientConfig>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct WsClientConfig {
+    /// Server-suggested heartbeat in seconds.
+    #[serde(rename = "PingInterval", default)]
+    ping_interval: Option<u64>,
 }
 
 impl FeishuApi {
@@ -478,16 +501,21 @@ impl FeishuApi {
         Ok(())
     }
 
-    /// Get a WebSocket endpoint URL for the long-connection event subscription.
+    /// Get a WebSocket endpoint and the negotiated client params.
     ///
-    /// POST `/open-apis/callback/ws/endpoint` → returns `{url: "wss://..."}`.
-    pub async fn get_ws_endpoint(&self) -> Result<String> {
-        let url = format!("{}/open-apis/callback/ws/endpoint", self.base_url);
+    /// POST `/callback/ws/endpoint` with `{AppID, AppSecret}` body → returns
+    /// `{data: {URL, ClientConfig: {PingInterval, ...}}}`. The handshake is
+    /// unauthenticated (no tenant_access_token); credentials are passed inline
+    /// in the body. `PingInterval` is honored if present; otherwise the
+    /// 120-second default is used.
+    pub async fn get_ws_endpoint(&self) -> Result<WsEndpointInfo> {
+        let url = format!("{}/callback/ws/endpoint", self.base_url);
 
         let resp = self
-            .authorized_request(reqwest::Method::POST, &url)
-            .await?
-            .json(&serde_json::json!({}))
+            .client
+            .post(&url)
+            .header("locale", "zh")
+            .json(&self.auth.ws_endpoint_credentials())
             .send()
             .await
             .map_err(|e| anyhow!("Failed to get Feishu WS endpoint: {}", e))?;
@@ -521,9 +549,23 @@ impl FeishuApi {
             .data
             .ok_or_else(|| anyhow!("Feishu WS endpoint response missing 'data' field"))?;
 
-        data.url
+        let url = data
+            .url
             .filter(|u| !u.is_empty())
-            .ok_or_else(|| anyhow!("Feishu WS endpoint response missing 'URL' field"))
+            .ok_or_else(|| anyhow!("Feishu WS endpoint response missing 'URL' field"))?;
+
+        let ping_interval = data
+            .client_config
+            .as_ref()
+            .and_then(|c| c.ping_interval)
+            .filter(|n| *n > 0)
+            .map(Duration::from_secs)
+            .unwrap_or(DEFAULT_WS_PING_INTERVAL);
+
+        Ok(WsEndpointInfo {
+            url,
+            ping_interval,
+        })
     }
 
     /// Parse a send/reply message response and extract the message_id.

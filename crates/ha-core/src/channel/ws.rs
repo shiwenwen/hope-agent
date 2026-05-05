@@ -53,6 +53,14 @@ impl WsConnection {
             .map_err(|e| anyhow!("WebSocket send failed: {}", e))
     }
 
+    /// Send a raw binary message.
+    pub async fn send_binary(&mut self, bytes: Vec<u8>) -> Result<()> {
+        self.ws
+            .send(Message::Binary(bytes.into()))
+            .await
+            .map_err(|e| anyhow!("WebSocket send failed: {}", e))
+    }
+
     /// Receive the next text message, returning None on close/error.
     pub async fn recv_text(&mut self) -> Option<String> {
         loop {
@@ -64,6 +72,24 @@ impl WsConnection {
                     continue;
                 }
                 Some(Ok(_)) => continue, // Binary, Pong, Frame — skip
+                Some(Err(_)) => return None,
+                None => return None,
+            }
+        }
+    }
+
+    /// Receive the next binary message, transparently echoing tungstenite-level
+    /// ping/pong frames. Returns None on close/error.
+    pub async fn recv_binary(&mut self) -> Option<Vec<u8>> {
+        loop {
+            match self.ws.next().await {
+                Some(Ok(Message::Binary(bytes))) => return Some(bytes.to_vec()),
+                Some(Ok(Message::Close(_))) => return None,
+                Some(Ok(Message::Ping(data))) => {
+                    let _ = self.ws.send(Message::Pong(data)).await;
+                    continue;
+                }
+                Some(Ok(_)) => continue, // Text, Pong, Frame — skip
                 Some(Err(_)) => return None,
                 None => return None,
             }
