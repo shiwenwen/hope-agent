@@ -102,6 +102,12 @@ export default function ChatScreen({
     setSearchFocusSignal((n) => n + 1)
   }, [])
 
+  // Sidebar global-history search focus tick (Cmd+Shift+F).
+  const [globalSearchFocusSignal, setGlobalSearchFocusSignal] = useState(0)
+  const focusGlobalSearch = useCallback(() => {
+    setGlobalSearchFocusSignal((n) => n + 1)
+  }, [])
+
   // System prompt viewer state
   const [showSystemPrompt, setShowSystemPrompt] = useState(false)
   const [systemPromptContent, setSystemPromptContent] = useState("")
@@ -544,29 +550,33 @@ export default function ChatScreen({
     closeDiff()
   }, [currentSessionId, closeDiff])
 
-  // Cmd/Ctrl+F: open in-session search bar (or re-focus its input if
-  // already open). Only active when a session is loaded.
+  // Cmd/Ctrl+F: in-session search; Cmd/Ctrl+Shift+F: global sidebar search.
+  // The in-session bar requires an active session (search target is a single
+  // session); the global one is always available.
   useEffect(() => {
-    if (!currentSessionId) return
     const handler = (e: KeyboardEvent) => {
-      const isFindKey =
-        (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "f"
-      if (!isFindKey) return
+      const modKey = e.metaKey || e.ctrlKey
+      if (!modKey || e.altKey) return
+      if (e.key.toLowerCase() !== "f") return
       // Don't hijack the shortcut if the user is editing inside an
       // unrelated contenteditable (e.g. a markdown canvas field). Free
       // inputs (ChatInput textarea etc.) are fine to preempt since there
       // is no browser find-in-page equivalent for chat history anyway.
       const target = e.target as HTMLElement | null
       if (target?.isContentEditable) return
+
+      if (e.shiftKey) {
+        e.preventDefault()
+        focusGlobalSearch()
+        return
+      }
+      if (!currentSessionId) return
       e.preventDefault()
-      // Open (or keep open) and bump the focus signal so the search bar
-      // re-focuses its input even if Cmd+F is pressed while it's already
-      // visible.
       openSessionSearch()
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [currentSessionId, openSessionSearch])
+  }, [currentSessionId, openSessionSearch, focusGlobalSearch])
 
   // Listen for tray "new-session" event to trigger new chat
   useEffect(() => {
@@ -1107,6 +1117,7 @@ export default function ChatScreen({
           void archiveProject(projectId, archived)
         }}
         onMoveSessionToProject={handleMoveSessionToProject}
+        searchFocusSignal={globalSearchFocusSignal}
       />
 
       {/* Project create/edit dialog */}
@@ -1261,10 +1272,14 @@ export default function ChatScreen({
               hasMore={session.hasMore}
               loadingMore={session.loadingMore}
               onLoadMore={session.handleLoadMore}
+              hasMoreAfter={session.hasMoreAfter}
+              loadingMoreAfter={session.loadingMoreAfter}
+              onLoadMoreAfter={session.handleLoadMoreAfter}
+              onResetToLatest={session.resetToLatest}
               sessionId={session.currentSessionId}
               incognito={incognitoEnabled}
-              pendingScrollTarget={session.pendingScrollTarget}
-              onScrollTargetHandled={session.clearPendingScrollTarget}
+              pendingScrollIntent={session.pendingScrollIntent}
+              onScrollTargetHandled={session.clearPendingScrollIntent}
               pendingQuestionGroup={planMode.pendingQuestionGroup}
               onQuestionSubmitted={() => planMode.setPendingQuestionGroup(null)}
               planCardData={

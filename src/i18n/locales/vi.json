@@ -155,6 +155,7 @@
     "noMatchingSessions": "Không có phiên nào phù hợp",
     "searchPlaceholder": "Tìm kiếm cuộc trò chuyện...",
     "noSearchResults": "Không có tin nhắn phù hợp",
+    "searchTruncatedHint": "Đang hiển thị {{count}} kết quả đầu tiên — thu hẹp truy vấn để xem thêm.",
     "searching": "Đang tìm kiếm...",
     "sessionSearch": "Tìm trong cuộc trò chuyện này",
     "sessionSearchPlaceholder": "Tìm tin nhắn trong cuộc trò chuyện này…",

@@ -19,6 +19,8 @@ import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import type { SessionSearchResult } from "@/types/chat"
 import type { ChatSidebarProps, SessionFilterType } from "./types"
+import { sortSessionSearchResults } from "../chatUtils"
+import { SEARCH_LIMIT } from "../hooks/constants"
 import AgentSection from "./AgentSection"
 import SessionList from "./SessionList"
 import ProjectSection from "../project/ProjectSection"
@@ -45,6 +47,7 @@ export default function ChatSidebar({
   onNewChatInProject,
   onArchiveProject,
   onMoveSessionToProject,
+  searchFocusSignal,
 }: ChatSidebarProps) {
   const { t } = useTranslation()
   const [agentsExpanded, setAgentsExpanded] = useState(true)
@@ -88,6 +91,7 @@ export default function ChatSidebar({
   const [searchQuery, setSearchQuery] = useState("")
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const searchTruncated = (searchResults?.length ?? 0) >= SEARCH_LIMIT
 
   useEffect(() => {
     const q = searchQuery.trim()
@@ -101,13 +105,9 @@ export default function ChatSidebar({
       try {
         const results = await getTransport().call<SessionSearchResult[]>(
           "search_sessions_cmd",
-          {
-            query: q,
-            agentId: selectedAgentId ?? undefined,
-            limit: 80,
-          },
+          { query: q, agentId: selectedAgentId ?? undefined, limit: SEARCH_LIMIT },
         )
-        setSearchResults(results)
+        setSearchResults(sortSessionSearchResults(results ?? []))
       } catch (err) {
         logger.error("chat", "ChatSidebar::search", "search failed", err)
         setSearchResults([])
@@ -381,10 +381,12 @@ export default function ChatSidebar({
               searchQuery={searchQuery}
               onSearchQueryChange={setSearchQuery}
               searchResults={searchResults}
+              searchTruncated={searchTruncated}
               searching={searching}
               agents={agents}
               projects={projects}
               onMoveToProject={onMoveSessionToProject}
+              searchFocusSignal={searchFocusSignal}
             />
           </div>
         </div>

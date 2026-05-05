@@ -155,6 +155,7 @@
     "noMatchingSessions": "일치하는 세션이 없습니다",
     "searchPlaceholder": "대화 검색...",
     "noSearchResults": "일치하는 메시지가 없습니다",
+    "searchTruncatedHint": "상위 {{count}}개 결과만 표시 중 — 더 보려면 검색어를 좁혀주세요.",
     "searching": "검색 중...",
     "sessionSearch": "이 대화에서 검색",
     "sessionSearchPlaceholder": "이 대화의 메시지 검색…",

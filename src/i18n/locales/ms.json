@@ -155,6 +155,7 @@
     "noMatchingSessions": "Tiada sesi yang sepadan",
     "searchPlaceholder": "Cari perbualan...",
     "noSearchResults": "Tiada mesej yang sepadan",
+    "searchTruncatedHint": "Menunjukkan {{count}} padanan pertama — perhalusi pertanyaan untuk melihat lebih banyak.",
     "searching": "Mencari...",
     "sessionSearch": "Cari dalam sembang ini",
     "sessionSearchPlaceholder": "Cari mesej dalam sembang ini…",

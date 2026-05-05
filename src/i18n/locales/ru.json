@@ -155,6 +155,7 @@
     "noMatchingSessions": "Нет подходящих сессий",
     "searchPlaceholder": "Поиск по разговорам...",
     "noSearchResults": "Нет подходящих сообщений",
+    "searchTruncatedHint": "Показаны первые {{count}} совпадений — уточните запрос, чтобы увидеть больше.",
     "searching": "Поиск...",
     "sessionSearch": "Поиск в этом чате",
     "sessionSearchPlaceholder": "Поиск сообщений в этом чате…",

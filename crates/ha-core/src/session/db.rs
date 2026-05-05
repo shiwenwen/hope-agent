@@ -1217,6 +1217,126 @@ impl SessionDB {
         Ok(())
     }
 
+    /// Mirror of [`load_session_messages_before`] for forward pagination.
+    /// Returns up to `limit` messages with `id > after_id` in ASC order, plus
+    /// a `has_more` flag indicating whether further messages exist beyond the
+    /// returned window. The trailing edge is extended to the next `user`
+    /// boundary (`extend_window_to_turn_end`) so the caller never has to
+    /// worry about a turn being split across pages — without that, the
+    /// frontend's `parseSessionMessages` would emit a synthetic placeholder
+    /// for trailing pending blocks, then a second one for the leading
+    /// orphans of the next page, doubling-up an assistant bubble.
+    pub fn load_session_messages_after(
+        &self,
+        session_id: &str,
+        after_id: i64,
+        limit: u32,
+    ) -> Result<(Vec<SessionMessage>, bool)> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE session_id = ?1 AND id > ?2
+             ORDER BY id ASC
+             LIMIT ?3",
+        )?;
+
+        let rows = stmt.query_map(params![session_id, after_id, limit], |row| {
+            Self::row_to_session_message(row)
+        })?;
+
+        let mut messages = Vec::new();
+        for row in rows {
+            messages.push(row?);
+        }
+
+        if let Some(last) = messages.last() {
+            let anchor = last.id;
+            Self::extend_window_to_turn_end(&conn, session_id, anchor, &mut messages)?;
+        }
+
+        let has_more = match messages.last() {
+            Some(last) => Self::has_messages_after(&conn, session_id, last.id),
+            None => false,
+        };
+
+        Ok((messages, has_more))
+    }
+
+    /// Extend the trailing edge of an ASC window so it ends at a turn
+    /// boundary — i.e. either at the row immediately before the next `user`
+    /// row, or at the session's last row when no further `user` exists.
+    /// Mirrors `align_window_to_user_boundary` (which fixes the leading
+    /// edge): without this, an `_after` page that cuts mid-turn would force
+    /// `parseSessionMessages` to emit a synthetic placeholder assistant for
+    /// the trailing pending blocks, and the *next* `_after` page would
+    /// emit a second one for the leading orphans — splitting one logical
+    /// assistant turn across multiple visual bubbles. Use the supplied
+    /// `anchor_id` (caller's last loaded id, or the around-window's target
+    /// id when no `after` rows landed) so this works whether the caller's
+    /// vec is empty or not.
+    fn extend_window_to_turn_end(
+        conn: &Connection,
+        session_id: &str,
+        anchor_id: i64,
+        messages: &mut Vec<SessionMessage>,
+    ) -> Result<()> {
+        // First user-row strictly after the anchor — defines the exclusive
+        // upper bound. None means we extend to the session's tail.
+        let next_user_id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM messages
+                 WHERE session_id = ?1 AND id > ?2 AND role = 'user'
+                 ORDER BY id ASC LIMIT 1",
+                params![session_id, anchor_id],
+                |row| row.get(0),
+            )
+            .ok();
+        let stop_exclusive: i64 = match next_user_id {
+            Some(uid) => uid,
+            None => {
+                // Treat the row after the session's max id as the cap.
+                let max_id: i64 = conn.query_row(
+                    "SELECT COALESCE(MAX(id), 0) FROM messages WHERE session_id = ?1",
+                    params![session_id],
+                    |row| row.get(0),
+                )?;
+                if max_id <= anchor_id {
+                    return Ok(());
+                }
+                max_id + 1
+            }
+        };
+        if stop_exclusive <= anchor_id + 1 {
+            return Ok(());
+        }
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, timestamp,
+                    attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
+                    tool_call_id, tool_name, tool_arguments, tool_result,
+                    tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
+                    tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status
+             FROM messages
+             WHERE session_id = ?1 AND id > ?2 AND id < ?3
+             ORDER BY id ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id, anchor_id, stop_exclusive], |row| {
+            Self::row_to_session_message(row)
+        })?;
+        for row in rows {
+            messages.push(row?);
+        }
+        Ok(())
+    }
+
     fn has_messages_before(conn: &Connection, session_id: &str, id: i64) -> bool {
         conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM messages WHERE session_id = ?1 AND id < ?2)",
@@ -2446,6 +2566,14 @@ impl SessionDB {
         for row in after_rows {
             after_msgs.push(row?);
         }
+
+        // Extend the trailing edge to the next user boundary so the around
+        // page contains complete turns. Without this a hit landing inside a
+        // long tool loop would split the turn and force the frontend to
+        // synthesise a placeholder assistant — and the next `_after` page
+        // would synthesise a second one for the leading orphans.
+        let after_anchor = after_msgs.last().map(|m| m.id).unwrap_or(target_message_id);
+        Self::extend_window_to_turn_end(&conn, session_id, after_anchor, &mut after_msgs)?;
 
         let has_more_before = match before_msgs.first() {
             Some(first) => Self::has_messages_before(&conn, session_id, first.id),

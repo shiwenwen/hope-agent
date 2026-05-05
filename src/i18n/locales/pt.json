@@ -155,6 +155,7 @@
     "noMatchingSessions": "Nenhuma sessão encontrada",
     "searchPlaceholder": "Pesquisar conversas...",
     "noSearchResults": "Nenhuma mensagem correspondente",
+    "searchTruncatedHint": "Exibindo as primeiras {{count}} correspondências — refine a busca para ver mais.",
     "searching": "Pesquisando...",
     "sessionSearch": "Pesquisar neste chat",
     "sessionSearchPlaceholder": "Pesquisar mensagens neste chat…",

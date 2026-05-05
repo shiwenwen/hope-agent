@@ -1,7 +1,7 @@
 import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
-import { renderHighlightedSnippet } from "@/lib/highlight"
+import { recenterHighlightedSnippet, renderHighlightedSnippet } from "@/lib/highlight"
 import { IconTip } from "@/components/ui/tooltip"
 import { Bot, Timer, Network, MessageSquare } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -124,7 +124,10 @@ export default function SearchResultItem({
           <span className="shrink-0">{formatRelativeTime(result.timestamp)}</span>
         </div>
         <div className="text-[11px] text-muted-foreground mt-1 line-clamp-2 leading-snug break-words">
-          {renderHighlightedSnippet(result.contentSnippet)}
+          {/* Re-center on the first hit so the highlighted token isn't
+              clipped past the 2-line boundary on long messages where FTS5
+              returned the full content rather than a 16-token window. */}
+          {renderHighlightedSnippet(recenterHighlightedSnippet(result.contentSnippet))}
         </div>
       </div>
     </div>

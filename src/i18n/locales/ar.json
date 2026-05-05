@@ -155,6 +155,7 @@
     "noMatchingSessions": "لا توجد جلسات مطابقة",
     "searchPlaceholder": "ابحث في المحادثات...",
     "noSearchResults": "لا توجد رسائل مطابقة",
+    "searchTruncatedHint": "يتم عرض أول {{count}} نتيجة — حسّن كلمات البحث لرؤية المزيد.",
     "searching": "جاري البحث...",
     "sessionSearch": "ابحث في هذه المحادثة",
     "sessionSearchPlaceholder": "ابحث في رسائل هذه المحادثة…",

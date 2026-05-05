@@ -155,6 +155,7 @@
     "noMatchingSessions": "没有匹配的会话",
     "searchPlaceholder": "搜索会话...",
     "noSearchResults": "没有匹配的消息",
+    "searchTruncatedHint": "已显示前 {{count}} 条匹配，请细化关键词查看更多。",
     "searching": "搜索中...",
     "sessionSearch": "在当前会话中搜索",
     "sessionSearchPlaceholder": "搜索当前会话消息…",

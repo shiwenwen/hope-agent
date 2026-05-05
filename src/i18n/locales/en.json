@@ -155,6 +155,7 @@
     "noMatchingSessions": "No matching sessions",
     "searchPlaceholder": "Search conversations...",
     "noSearchResults": "No matching messages",
+    "searchTruncatedHint": "Showing first {{count}} matches — refine the query for more.",
     "searching": "Searching...",
     "sessionSearch": "Search in this chat",
     "sessionSearchPlaceholder": "Search messages in this chat…",

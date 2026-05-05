@@ -226,6 +226,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `load_session_messages_latest_cmd` | `GET /api/sessions/{sessionId}/messages` | ✅ |
 | `load_session_messages_around_cmd` | `GET /api/sessions/{sessionId}/messages/around` | ✅ |
 | `load_session_messages_before_cmd` | `GET /api/sessions/{sessionId}/messages/before` | ✅ |
+| `load_session_messages_after_cmd` | `GET /api/sessions/{sessionId}/messages/after` | ✅ |
 | `get_session_stream_state` | `GET /api/sessions/{sessionId}/stream-state` | ✅ |
 | `delete_session_cmd` | `DELETE /api/sessions/{sessionId}` | ✅ |
 | `rename_session_cmd` | `PATCH /api/sessions/{sessionId}` | ✅ |

@@ -213,6 +213,10 @@ fn build_router_with_cors(
             get(routes::sessions::get_session_messages_before),
         )
         .route(
+            "/sessions/{id}/messages/after",
+            get(routes::sessions::get_session_messages_after),
+        )
+        .route(
             "/sessions/{id}/messages/search",
             get(routes::sessions::search_session_messages),
         )

@@ -155,6 +155,7 @@
     "noMatchingSessions": "Eşleşen oturum yok",
     "searchPlaceholder": "Sohbetlerde ara...",
     "noSearchResults": "Eşleşen mesaj yok",
+    "searchTruncatedHint": "İlk {{count}} eşleşme gösteriliyor — daha fazlası için sorguyu daraltın.",
     "searching": "Aranıyor...",
     "sessionSearch": "Bu sohbette ara",
     "sessionSearchPlaceholder": "Bu sohbetteki mesajlarda ara…",

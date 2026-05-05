@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { useTranslation } from "react-i18next"
 import { ArrowDown, Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { logger } from "@/lib/logger"
+import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
 import { isCenteredSystemMessage } from "./chatUtils"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
@@ -25,9 +27,21 @@ interface MessageListProps {
   hasMore: boolean
   loadingMore: boolean
   onLoadMore: () => void | Promise<void>
+  /** Whether the backend has more messages newer than the loaded window.
+   *  True only after a search-jump landed the user on an around-window;
+   *  false during normal latest-page browsing. */
+  hasMoreAfter?: boolean
+  loadingMoreAfter?: boolean
+  onLoadMoreAfter?: () => void | Promise<void>
+  /** Drop the partial around-window and reload the latest page. Wired
+   *  to the jump-to-latest button when `hasMoreAfter` is true. */
+  onResetToLatest?: () => void | Promise<void>
   sessionId?: string | null
   incognito?: boolean
-  pendingScrollTarget?: number | null
+  /** Search-jump target + literal substrings to inline-highlight inside
+   *  the matched bubble. `null` between jumps. The terms are painted via
+   *  the CSS Custom Highlight API in `lib/inlineHighlight.ts`. */
+  pendingScrollIntent?: { messageId: number; highlightTerms: string[] | null } | null
   onScrollTargetHandled?: () => void
   pendingQuestionGroup?: AskUserQuestionGroup | null
   onQuestionSubmitted?: () => void
@@ -63,9 +77,13 @@ export default function MessageList({
   hasMore,
   loadingMore,
   onLoadMore,
+  hasMoreAfter = false,
+  loadingMoreAfter = false,
+  onLoadMoreAfter,
+  onResetToLatest,
   sessionId,
   incognito = false,
-  pendingScrollTarget,
+  pendingScrollIntent,
   onScrollTargetHandled,
   pendingQuestionGroup,
   onQuestionSubmitted,
@@ -140,6 +158,18 @@ export default function MessageList({
   const messagesRef = useRef(messages)
   // eslint-disable-next-line react-hooks/refs -- ref-as-snapshot
   messagesRef.current = messages
+  // After-pagination state mirrored into refs so the scroll listener (whose
+  // deps are deliberately narrow) can read fresh values without re-binding
+  // on every loading flip / window step.
+  const hasMoreAfterRef = useRef(hasMoreAfter)
+  // eslint-disable-next-line react-hooks/refs -- ref-as-snapshot
+  hasMoreAfterRef.current = hasMoreAfter
+  const loadingMoreAfterRef = useRef(loadingMoreAfter)
+  // eslint-disable-next-line react-hooks/refs -- ref-as-snapshot
+  loadingMoreAfterRef.current = loadingMoreAfter
+  const onLoadMoreAfterRef = useRef(onLoadMoreAfter)
+  // eslint-disable-next-line react-hooks/refs -- ref-as-snapshot
+  onLoadMoreAfterRef.current = onLoadMoreAfter
 
   // Filter isMeta but preserve originalIndex for MessageBubble props. Slice
   // starts at `displayedStart` so older messages outside the window aren't
@@ -287,6 +317,18 @@ export default function MessageList({
             void onLoadMore()
           }
         }
+
+        // Forward twin of the load-more-on-near-top branch above: keeps
+        // walking the conversation when a search-jump left the view on a
+        // partial around-window (hasMoreAfter === true).
+        if (
+          hasMoreAfterRef.current &&
+          !loadingMoreAfterRef.current &&
+          dist < LOAD_MORE_THRESHOLD_PX &&
+          onLoadMoreAfterRef.current
+        ) {
+          void onLoadMoreAfterRef.current()
+        }
       })
     }
     const arrowKeys = new Set([
@@ -368,18 +410,25 @@ export default function MessageList({
 
   // Search-result jump: scroll target dbId into view + 2s highlight pulse.
   // If the target is outside the windowed slice (`displayedStart > targetIdx`),
-  // expand the window first and let the effect re-run on next render.
+  // expand the window first and let the effect re-run on next render. If the
+  // DOM node still hasn't materialised on this tick (markdown / shiki async
+  // mount), retry on the next two animation frames before giving up — without
+  // the retry the jump silently no-ops on cold renders.
   const handledScrollTargetRef = useRef<number | null>(null)
+  const scrollRetryRafRef = useRef<number | null>(null)
   useEffect(() => {
-    if (pendingScrollTarget == null) {
+    if (pendingScrollIntent == null) {
       handledScrollTargetRef.current = null
+      if (scrollRetryRafRef.current != null) {
+        cancelAnimationFrame(scrollRetryRafRef.current)
+        scrollRetryRafRef.current = null
+      }
       return
     }
-    if (handledScrollTargetRef.current === pendingScrollTarget) return
+    const { messageId: targetId, highlightTerms } = pendingScrollIntent
+    if (handledScrollTargetRef.current === targetId) return
 
-    const targetIdx = messagesRef.current.findIndex(
-      (m) => m.dbId === pendingScrollTarget,
-    )
+    const targetIdx = messagesRef.current.findIndex((m) => m.dbId === targetId)
     if (targetIdx >= 0 && targetIdx < displayedStart) {
       setDisplayedStart(0)
       return
@@ -387,23 +436,68 @@ export default function MessageList({
 
     const el = containerRef.current
     if (!el) return
-    const target = el.querySelector<HTMLElement>(
-      `[data-message-id="${pendingScrollTarget}"]`,
-    )
-    if (!target) return
 
-    handledScrollTargetRef.current = pendingScrollTarget
-    target.scrollIntoView({ block: "center" })
-    setHighlightMessageId(pendingScrollTarget)
-    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
-    highlightTimerRef.current = setTimeout(() => setHighlightMessageId(null), 2000)
-    onScrollTargetHandled?.()
-  }, [pendingScrollTarget, onScrollTargetHandled, displayedStart])
+    const tryScroll = (attemptsLeft: number): void => {
+      const target = el.querySelector<HTMLElement>(
+        `[data-message-id="${targetId}"]`,
+      )
+      if (!target) {
+        if (attemptsLeft > 0) {
+          scrollRetryRafRef.current = requestAnimationFrame(() =>
+            tryScroll(attemptsLeft - 1),
+          )
+          return
+        }
+        // Give up after a few frames — typically the target dbId is not in
+        // the loaded window (cache vs DB drift). Surface to logs.db instead
+        // of silent no-op so agent self-repair has a breadcrumb.
+        logger.warn(
+          "session",
+          "MessageList::scrollToTarget",
+          "Pending scroll target not found in DOM after retries",
+          {
+            sessionId,
+            targetDbId: targetId,
+            messagesInWindow: messagesRef.current.length - displayedStart,
+          },
+        )
+        handledScrollTargetRef.current = targetId
+        onScrollTargetHandled?.()
+        return
+      }
+      handledScrollTargetRef.current = targetId
+      target.scrollIntoView({ block: "center" })
+      setHighlightMessageId(targetId)
+      if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
+      // Inline-highlight via CSS Custom Highlight API — doesn't mutate the
+      // Streamdown / Shiki / KaTeX subtrees that re-mount on every render.
+      if (highlightTerms && highlightTerms.length > 0) {
+        applyInlineHighlight(target, highlightTerms)
+      } else {
+        clearInlineHighlight()
+      }
+      highlightTimerRef.current = setTimeout(() => {
+        setHighlightMessageId(null)
+        clearInlineHighlight()
+      }, 2000)
+      onScrollTargetHandled?.()
+    }
+    tryScroll(2)
+    return () => {
+      if (scrollRetryRafRef.current != null) {
+        cancelAnimationFrame(scrollRetryRafRef.current)
+        scrollRetryRafRef.current = null
+      }
+    }
+  }, [pendingScrollIntent, onScrollTargetHandled, displayedStart, sessionId])
 
   useEffect(
     () => () => {
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current)
       if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current)
+      // Drop any lingering inline highlight on unmount / session swap so
+      // ranges from the previous bubble don't bleed into the new one.
+      clearInlineHighlight()
     },
     [],
   )
@@ -429,8 +523,18 @@ export default function MessageList({
     // otherwise the button blinks.
     userScrollLockRef.current = false
     atBottomRef.current = true
+    if (hasMoreAfter && onResetToLatest) {
+      // The user sits on a partial around-window from a search jump; the
+      // tail of `messages` is mid-conversation, not the live tail. Reload
+      // the latest page first so scrolling-to-bottom actually shows the
+      // newest message. The reload swaps the `messages` array, the
+      // useLayoutEffect that follows-bottom + ResizeObserver re-pin to the
+      // real bottom on the next frame.
+      void onResetToLatest()
+      return
+    }
     el.scrollTo({ top: el.scrollHeight, behavior: "smooth" })
-  }, [])
+  }, [hasMoreAfter, onResetToLatest])
 
   const handleContextMenu = useCallback((e: React.MouseEvent, index: number) => {
     const msg = messagesRef.current[index]
@@ -458,7 +562,10 @@ export default function MessageList({
     pendingQuestionGroup || planCardVisible || planSubagentRunning || showEmpty
   // Show whenever user is scrolled away from bottom — independent of loading
   // state. Lets the user always have a one-click way back to latest.
-  const showJumpToLatest = !atBottom && items.length > 0
+  // Also surface it whenever a search-jump has detached the view from the
+  // live tail so the user has an obvious way to re-anchor regardless of
+  // scroll position.
+  const showJumpToLatest = (!atBottom && items.length > 0) || hasMoreAfter
 
   return (
     <div className="relative flex-1 min-h-0 min-w-0 overflow-hidden">
@@ -530,6 +637,15 @@ export default function MessageList({
             </div>
           )
         })}
+
+        {hasMoreAfter && (
+          <div className="pt-2 pb-1">
+            <LoadMoreRow
+              loadingMore={loadingMoreAfter}
+              onLoadMore={onLoadMoreAfter}
+            />
+          </div>
+        )}
 
         {hasFooterContent && (
           <div className="flex flex-col gap-4 pt-2 pb-6">

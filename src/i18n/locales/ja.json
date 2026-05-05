@@ -155,6 +155,7 @@
     "noMatchingSessions": "一致するセッションがありません",
     "searchPlaceholder": "会話を検索...",
     "noSearchResults": "一致するメッセージがありません",
+    "searchTruncatedHint": "上位 {{count}} 件のみ表示中 — もっと見るにはキーワードを絞り込んでください。",
     "searching": "検索中...",
     "sessionSearch": "このチャット内を検索",
     "sessionSearchPlaceholder": "このチャットのメッセージを検索…",

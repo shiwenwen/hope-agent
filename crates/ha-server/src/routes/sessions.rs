@@ -52,6 +52,13 @@ pub struct MessagesBeforeQuery {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct MessagesAfterQuery {
+    pub after_id: i64,
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SearchInSessionQuery {
     pub query: String,
     pub limit: Option<u32>,
@@ -316,6 +323,22 @@ pub async fn get_session_messages_before(
     let (messages, has_more) =
         ctx.session_db
             .load_session_messages_before(&id, q.before_id, limit)?;
+    Ok(Json(json!([messages, has_more])))
+}
+
+/// `GET /api/sessions/:id/messages/after?afterId=N&limit=20` — page downward
+/// from an anchor message, loading newer messages. Returns a JSON tuple
+/// `[messages, hasMoreAfter]` matching the Tauri
+/// `load_session_messages_after_cmd` contract.
+pub async fn get_session_messages_after(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<MessagesAfterQuery>,
+) -> Result<Json<Value>, AppError> {
+    let limit = q.limit.unwrap_or(20);
+    let (messages, has_more) = ctx
+        .session_db
+        .load_session_messages_after(&id, q.after_id, limit)?;
     Ok(Json(json!([messages, has_more])))
 }
 
