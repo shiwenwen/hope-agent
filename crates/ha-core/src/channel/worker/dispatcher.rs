@@ -10,7 +10,8 @@ use crate::channel::types::*;
 use super::media::convert_inbound_media_to_attachments;
 use super::slash::{dispatch_slash_for_channel, ChannelSlashOutcome};
 use super::streaming::{
-    select_stream_preview_transport, spawn_channel_stream_task, StreamPreviewOutcome,
+    select_stream_preview_transport, spawn_channel_stream_task, PreviewHandle,
+    StreamPreviewOutcome, CARD_ELEMENT_MAX_BYTES,
 };
 
 /// Maximum number of inbound messages processed concurrently.
@@ -565,7 +566,7 @@ async fn handle_inbound_message(
                 &account.id,
                 &msg,
                 response,
-                stream_outcome.preview_message_id.as_deref(),
+                stream_outcome.preview.as_ref(),
                 &media_snapshot,
                 &capabilities,
             )
@@ -598,26 +599,14 @@ async fn handle_inbound_message(
                 thread_id: msg.thread_id.clone(),
                 ..ReplyPayload::text("")
             };
-            if let Some(preview_message_id) = stream_outcome.preview_message_id.as_deref() {
-                if let Err(edit_err) = plugin
-                    .edit_message(&account.id, &msg.chat_id, preview_message_id, &payload)
-                    .await
-                {
-                    app_warn!(
-                        "channel",
-                        "worker",
-                        "Failed to replace preview with error reply: {}",
-                        edit_err
-                    );
-                    let _ = plugin
-                        .send_message(&account.id, &msg.chat_id, &payload)
-                        .await;
-                }
-            } else {
-                let _ = plugin
-                    .send_message(&account.id, &msg.chat_id, &payload)
-                    .await;
-            }
+            send_error_reply(
+                &plugin,
+                &account.id,
+                &msg.chat_id,
+                stream_outcome.preview.as_ref(),
+                &payload,
+            )
+            .await;
         }
     }
 
@@ -737,23 +726,115 @@ fn to_outbound_media(it: &crate::attachments::MediaItem, media_type: MediaType) 
     }
 }
 
-/// Send the final formatted response to the IM channel.
-///
-/// Order of delivery per turn:
-/// 1. Text chunks (markdown → native formatting → split).
-/// 2. One `send_message` per native-supported media item.
-/// 3. A final text message with download links for unsupported media (if any).
-///
-/// A 50 ms gap between sends is intentional: most IM APIs rate-limit per
-/// chat, and a tight loop trips flood protections on Telegram / LINE.
-async fn send_final_reply(
+/// Replace the current preview (if any) with an error reply, falling back to
+/// `send_message` whenever the preview path can't carry the error text. We
+/// don't try to keep cardkit alive on the error path — the user should see a
+/// plain text error attached to their original message.
+async fn send_error_reply(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    preview: Option<&PreviewHandle>,
+    payload: &ReplyPayload,
+) {
+    match preview {
+        Some(PreviewHandle::Message { message_id }) => {
+            if let Err(edit_err) = plugin
+                .edit_message(account_id, chat_id, message_id, payload)
+                .await
+            {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Failed to replace preview with error reply: {}",
+                    edit_err
+                );
+                let _ = plugin.send_message(account_id, chat_id, payload).await;
+            }
+        }
+        Some(PreviewHandle::Card { .. }) | None => {
+            // Card path: leave the half-rendered card alone (it'll auto-close
+            // after 10 minutes server-side) and send the error as a fresh
+            // text reply so the user sees what went wrong.
+            let _ = plugin.send_message(account_id, chat_id, payload).await;
+        }
+    }
+}
+
+/// Write the full response into the streaming card and close streaming.
+/// Returns `true` on success — caller skips the chunked-text path. Returns
+/// `false` (after a best-effort `close_card_stream`) when the response is
+/// too large or `update_card_element` fails; caller must deliver the full
+/// response via `send_message` to avoid silent truncation.
+async fn finalize_card_stream(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    card_id: &str,
+    element_id: &str,
+    sequence: i64,
+    response: &str,
+) -> bool {
+    if response.len() > CARD_ELEMENT_MAX_BYTES {
+        app_warn!(
+            "channel",
+            "worker",
+            "Final response too large for card element ({} > {}), falling back to text chunks",
+            response.len(),
+            CARD_ELEMENT_MAX_BYTES
+        );
+        let _ = plugin
+            .close_card_stream(account_id, card_id, sequence)
+            .await;
+        return false;
+    }
+
+    if let Err(e) = plugin
+        .update_card_element(account_id, card_id, element_id, response, sequence)
+        .await
+    {
+        app_warn!(
+            "channel",
+            "worker",
+            "Final card update failed (seq={}): {} — falling back to text chunks",
+            sequence,
+            e
+        );
+        // Best-effort close so the streaming indicator stops. Errors here
+        // are cosmetic — the 10-minute auto-close is the safety net.
+        let _ = plugin
+            .close_card_stream(account_id, card_id, sequence + 1)
+            .await;
+        return false;
+    }
+
+    if let Err(e) = plugin
+        .close_card_stream(account_id, card_id, sequence + 1)
+        .await
+    {
+        // Card content was committed; close failure is cosmetic (10-min
+        // auto-close is the safety net), no fallback needed.
+        app_warn!(
+            "channel",
+            "worker",
+            "close_card_stream failed (seq={}): {}",
+            sequence + 1,
+            e
+        );
+    }
+
+    true
+}
+
+/// Split the response into native-rendered chunks and deliver them via
+/// `send_message`. `preview` only honors the `Message` variant for the
+/// first chunk (replaces an existing preview via `edit_message`); all
+/// other variants are treated as no preview and send fresh.
+async fn send_text_chunks(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
     msg: &MsgContext,
     response: &str,
-    preview_message_id: Option<&str>,
-    pending_media: &[crate::attachments::MediaItem],
-    caps: &ChannelCapabilities,
+    preview: Option<&PreviewHandle>,
 ) {
     let native_text = plugin.markdown_to_native(response);
     let chunks = plugin.chunk_message(&native_text);
@@ -777,28 +858,31 @@ async fn send_final_reply(
         };
 
         let delivery = if i == 0 {
-            if let Some(message_id) = preview_message_id {
-                match plugin
-                    .edit_message(account_id, &msg.chat_id, message_id, &payload)
-                    .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(e) => {
-                        app_warn!(
-                            "channel",
-                            "worker",
-                            "Failed to finalize preview via edit, falling back to send: {}",
-                            e
-                        );
-                        plugin
-                            .send_message(account_id, &msg.chat_id, &payload)
-                            .await
+            match preview {
+                Some(PreviewHandle::Message { message_id }) => {
+                    match plugin
+                        .edit_message(account_id, &msg.chat_id, message_id, &payload)
+                        .await
+                    {
+                        Ok(result) => Ok(result),
+                        Err(e) => {
+                            app_warn!(
+                                "channel",
+                                "worker",
+                                "Failed to finalize preview via edit, falling back to send: {}",
+                                e
+                            );
+                            plugin
+                                .send_message(account_id, &msg.chat_id, &payload)
+                                .await
+                        }
                     }
                 }
-            } else {
-                plugin
-                    .send_message(account_id, &msg.chat_id, &payload)
-                    .await
+                _ => {
+                    plugin
+                        .send_message(account_id, &msg.chat_id, &payload)
+                        .await
+                }
             }
         } else {
             plugin
@@ -821,6 +905,62 @@ async fn send_final_reply(
                 app_error!("channel", "worker", "Send error: {}", e);
             }
         }
+    }
+}
+
+/// Send the final formatted response to the IM channel.
+///
+/// Order of delivery per turn:
+/// 1. Text content (one of two paths — see below).
+/// 2. One `send_message` per native-supported media item.
+/// 3. A final text message with download links for unsupported media (if any).
+///
+/// A 50 ms gap between sends is intentional: most IM APIs rate-limit per
+/// chat, and a tight loop trips flood protections on Telegram / LINE.
+///
+/// Text routing is decided by `preview`:
+/// - `Card { broken: false, .. }`: write the **entire** raw response into the
+///   card element in one shot (cardkit elements hold ~100k chars, far above
+///   any IM `max_message_length`), then close streaming. On any failure
+///   (response oversize, update error, etc.) the card is closed best-effort
+///   and we fall through to plain text chunks below.
+/// - Anything else (`Message`, `Card{broken:true}`, `None`): split the
+///   markdown-to-native rendered response into chunks and `send_message` each
+///   one. For `Message`, the first chunk replaces the existing preview via
+///   `edit_message` (with `send_message` as a fallback).
+async fn send_final_reply(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    msg: &MsgContext,
+    response: &str,
+    preview: Option<&PreviewHandle>,
+    pending_media: &[crate::attachments::MediaItem],
+    caps: &ChannelCapabilities,
+) {
+    let card_finalized = match preview {
+        Some(PreviewHandle::Card {
+            card_id,
+            element_id,
+            sequence,
+            broken: false,
+            ..
+        }) => {
+            finalize_card_stream(plugin, account_id, card_id, element_id, *sequence, response).await
+        }
+        _ => false,
+    };
+
+    if !card_finalized {
+        // Card variants here are either `broken=true` or `broken=false` whose
+        // finalize just failed. In both cases the half-rendered card stays
+        // in chat (cardkit auto-closes it after 10 minutes); we deliver a
+        // fresh, complete text reply via send_message so the user sees the
+        // full response. Treat the preview as `None` for the chunk loop.
+        let chunk_preview = match preview {
+            Some(PreviewHandle::Card { .. }) => None,
+            other => other,
+        };
+        send_text_chunks(plugin, account_id, msg, response, chunk_preview).await;
     }
 
     if pending_media.is_empty() {
@@ -908,6 +1048,7 @@ mod tests {
             supports_typing: false,
             supports_buttons: false,
             max_message_length: None,
+            supports_card_stream: false,
         }
     }
 

@@ -138,6 +138,7 @@ impl ChannelPlugin for LinePlugin {
             // LINE 文本上限 5000 字符；UTF-8 字节计算 CJK 占 3 bytes，4500 字节
             // 留余量
             max_message_length: Some(4500),
+            supports_card_stream: false,
         }
     }
 

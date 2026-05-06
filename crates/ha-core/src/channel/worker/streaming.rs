@@ -4,29 +4,65 @@ use tokio::sync::mpsc;
 use crate::channel::traits::ChannelPlugin;
 use crate::channel::types::*;
 
+/// Conservative byte ceiling for a single cardkit markdown element.
+/// Cardkit documents ~100k characters per element; we leave headroom for
+/// protocol overhead. Independent of the IM-text `max_message_length`
+/// (cardkit elements aren't subject to that limit) so streaming previews
+/// keep flowing on responses larger than the channel's text-message cap.
+pub(super) const CARD_ELEMENT_MAX_BYTES: usize = 50_000;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StreamPreviewTransport {
+    /// Telegram-style draft API: `send_draft` repeatedly with the same
+    /// `draft_id`. Free of edit-rate limits, leaves no "edited" marker.
     Draft,
+    /// Standard `send_message` + `edit_message` cycle. Works on most
+    /// channels but typically flags the host message as edited.
     Message,
+    /// Card-streaming API (currently Feishu cardkit). Creates an
+    /// interactive card and updates a single element in place — the host
+    /// message is never edited, so no "edited" marker appears.
+    Card,
+}
+
+/// Persistent identity for the rendered preview, returned to the caller so
+/// `send_final_reply` can finalize using the matching path.
+#[derive(Debug, Clone)]
+pub(super) enum PreviewHandle {
+    /// `edit_message` rewrites this message_id at finalization.
+    Message { message_id: String },
+    /// Card-stream session. `broken=true` means an irrecoverable update
+    /// error occurred mid-stream — finalization should fall back to a new
+    /// `send_message` rather than continuing the cardkit dance.
+    Card {
+        card_id: String,
+        element_id: String,
+        sequence: i64,
+        broken: bool,
+    },
 }
 
 #[derive(Debug, Default)]
 pub(super) struct StreamPreviewOutcome {
-    pub preview_message_id: Option<String>,
+    pub preview: Option<PreviewHandle>,
 }
 
 /// Spawn a background task that receives streaming events from the chat engine
 /// and sends progressive previews to the IM channel.
 ///
-/// Preview flow:
-/// 1. Accumulate text_delta events from the chat engine
-/// 2. Periodically send the accumulated snapshot via either:
-///    - `send_draft` for Telegram private chats, or
-///    - `send_message` + `edit_message` for channels that only support message edits
-/// 3. When engine finishes, the caller commits the final response
+/// Preview flow (one of three branches per session):
+/// 1. Accumulate `text_delta` events from the chat engine
+/// 2. Periodically render the accumulated snapshot via:
+///    - **Draft**: `send_draft` for Telegram private chats (no rate limit), or
+///    - **Card**: cardkit `create_card_stream` + `update_card_element` for
+///      Feishu (host message never marked as edited), or
+///    - **Message**: `send_message` + `edit_message` for channels that only
+///      support message edits (host message ends up showing "edited" badge)
+/// 3. Caller commits the final response via `send_final_reply` using the
+///    `PreviewHandle` returned in `StreamPreviewOutcome`
 ///
-/// For channels without any preview transport, events are simply drained while the
-/// frontend still receives `channel:stream_delta` events.
+/// For channels without any preview transport, events are simply drained while
+/// the frontend still receives `channel:stream_delta` events.
 pub(super) fn spawn_channel_stream_task(
     mut event_rx: mpsc::Receiver<String>,
     plugin: Arc<dyn ChannelPlugin>,
@@ -57,6 +93,7 @@ pub(super) fn spawn_channel_stream_task(
 
         let mut accumulated = String::new();
         let mut preview_message_id: Option<String> = None;
+        let mut card_session: Option<CardSession> = None;
         let mut dirty = false;
         // 1s cadence keeps us under Telegram's edit rate limit while feeling live.
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
@@ -80,7 +117,8 @@ pub(super) fn spawn_channel_stream_task(
                                 send_stream_preview(
                                     &plugin, &account_id, &chat_id,
                                     &reply_to_message_id, thread_id.as_deref(), max_msg_len,
-                                    &accumulated, draft_id, &mut preview_transport, &mut preview_message_id,
+                                    &accumulated, draft_id, &mut preview_transport,
+                                    &mut preview_message_id, &mut card_session,
                                 ).await;
                             }
                             break;
@@ -93,7 +131,8 @@ pub(super) fn spawn_channel_stream_task(
                         send_stream_preview(
                             &plugin, &account_id, &chat_id,
                             &reply_to_message_id, thread_id.as_deref(), max_msg_len,
-                            &accumulated, draft_id, &mut preview_transport, &mut preview_message_id,
+                            &accumulated, draft_id, &mut preview_transport,
+                            &mut preview_message_id, &mut card_session,
                         ).await;
                         dirty = false;
                     }
@@ -101,8 +140,36 @@ pub(super) fn spawn_channel_stream_task(
             }
         }
 
-        StreamPreviewOutcome { preview_message_id }
+        let preview = match (&card_session, &preview_message_id) {
+            (Some(session), _) => Some(PreviewHandle::Card {
+                card_id: session.card_id.clone(),
+                element_id: session.element_id.clone(),
+                sequence: session.sequence,
+                broken: session.broken,
+            }),
+            (None, Some(message_id)) => Some(PreviewHandle::Message {
+                message_id: message_id.clone(),
+            }),
+            _ => None,
+        };
+
+        StreamPreviewOutcome { preview }
     })
+}
+
+/// Mutable state for an active card-streaming session. Only used inside
+/// `spawn_channel_stream_task`; finalization-time fields are exported via
+/// `PreviewHandle::Card`.
+#[derive(Debug)]
+struct CardSession {
+    card_id: String,
+    element_id: String,
+    /// Next sequence number to use on `update_card_element`. Strictly
+    /// monotonic per cardkit's contract.
+    sequence: i64,
+    /// True once an `update_card_element` failure made further preview
+    /// updates pointless. Finalization should switch to `send_message`.
+    broken: bool,
 }
 
 /// Extract text from a `text_delta` event JSON string.
@@ -124,6 +191,9 @@ pub(super) fn select_stream_preview_transport(
 ) -> Option<StreamPreviewTransport> {
     if matches!(chat_type, ChatType::Dm) && capabilities.supports_draft {
         return Some(StreamPreviewTransport::Draft);
+    }
+    if capabilities.supports_card_stream {
+        return Some(StreamPreviewTransport::Card);
     }
     if capabilities.supports_edit {
         return Some(StreamPreviewTransport::Message);
@@ -203,6 +273,88 @@ async fn send_message_preview(
     }
 }
 
+/// Lazy-create the card on first preview, then update its single
+/// element on subsequent ticks. Returns `Err(_)` only when the create
+/// phase fails — caller should switch transport to `Message` and retry.
+/// Mid-stream `update_card_element` errors flip `broken=true` but return
+/// `Ok(())` to keep the loop running (final delivery handles broken cards).
+async fn send_card_preview(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    reply_to_message_id: &str,
+    thread_id: Option<&str>,
+    raw_text: &str,
+    card_session: &mut Option<CardSession>,
+) -> Result<(), String> {
+    if raw_text.is_empty() || raw_text.len() > CARD_ELEMENT_MAX_BYTES {
+        return Ok(());
+    }
+
+    if let Some(session) = card_session.as_mut() {
+        if session.broken {
+            return Ok(());
+        }
+        let next_seq = session.sequence;
+        match plugin
+            .update_card_element(
+                account_id,
+                &session.card_id,
+                &session.element_id,
+                raw_text,
+                next_seq,
+            )
+            .await
+        {
+            Ok(()) => {
+                session.sequence = next_seq + 1;
+            }
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "card stream update failed (seq={}): {} — marking broken",
+                    next_seq,
+                    e
+                );
+                session.broken = true;
+            }
+        }
+        return Ok(());
+    }
+
+    let handle = plugin
+        .create_card_stream(account_id, raw_text)
+        .await
+        .map_err(|e| format!("create_card_stream: {}", e))?;
+    let delivery = plugin
+        .send_card_message(
+            account_id,
+            chat_id,
+            &handle.card_id,
+            Some(reply_to_message_id),
+            thread_id,
+        )
+        .await
+        .map_err(|e| format!("send_card_message: {}", e))?;
+    if !delivery.success {
+        return Err(format!(
+            "send_card_message failed: {}",
+            delivery.error.unwrap_or_default()
+        ));
+    }
+    *card_session = Some(CardSession {
+        card_id: handle.card_id,
+        element_id: handle.element_id,
+        // Initial content was set during create. First explicit update
+        // starts at sequence=1 (cardkit treats create as sequence-less).
+        sequence: 1,
+        broken: false,
+    });
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn send_stream_preview(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
@@ -214,20 +366,28 @@ async fn send_stream_preview(
     draft_id: i64,
     preview_transport: &mut StreamPreviewTransport,
     preview_message_id: &mut Option<String>,
+    card_session: &mut Option<CardSession>,
 ) {
-    let Some(payload) = build_stream_preview_payload(
-        plugin,
-        reply_to_message_id,
-        thread_id,
-        text,
-        draft_id,
-        max_msg_len,
-    ) else {
-        return;
+    // Lazy native-format payload for Draft / Message paths. The Card path
+    // sends the raw markdown directly (cardkit markdown elements don't
+    // want HTML conversion), so it skips this builder unless it has to
+    // degrade to Message mid-flight.
+    let build_payload = || {
+        build_stream_preview_payload(
+            plugin,
+            reply_to_message_id,
+            thread_id,
+            text,
+            draft_id,
+            max_msg_len,
+        )
     };
 
     match preview_transport {
         StreamPreviewTransport::Draft => {
+            let Some(payload) = build_payload() else {
+                return;
+            };
             if let Err(e) = plugin.send_draft(account_id, chat_id, &payload).await {
                 if should_fallback_from_draft_error(&e.to_string()) {
                     app_warn!(
@@ -244,7 +404,39 @@ async fn send_stream_preview(
                 }
             }
         }
+        StreamPreviewTransport::Card => {
+            if let Err(e) = send_card_preview(
+                plugin,
+                account_id,
+                chat_id,
+                reply_to_message_id,
+                thread_id,
+                text,
+                card_session,
+            )
+            .await
+            {
+                // Any create/attach error → degrade to Message. The card
+                // hasn't been shown yet, so degrading is harmless. Mid-stream
+                // update errors are handled via card_session.broken instead
+                // and never bubble here.
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "card stream create failed, falling back to message edit: {}",
+                    e
+                );
+                *preview_transport = StreamPreviewTransport::Message;
+                if let Some(payload) = build_payload() {
+                    send_message_preview(plugin, account_id, chat_id, &payload, preview_message_id)
+                        .await;
+                }
+            }
+        }
         StreamPreviewTransport::Message => {
+            let Some(payload) = build_payload() else {
+                return;
+            };
             send_message_preview(plugin, account_id, chat_id, &payload, preview_message_id).await;
         }
     }

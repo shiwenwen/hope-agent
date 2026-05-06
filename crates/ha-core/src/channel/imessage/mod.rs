@@ -91,6 +91,7 @@ impl ChannelPlugin for IMessagePlugin {
             supports_typing: true,
             supports_buttons: false,
             max_message_length: None,
+            supports_card_stream: false,
         }
     }
 

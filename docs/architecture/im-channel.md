@@ -967,6 +967,35 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 |------|---------|------|
 | 出站 | Photo, Video, Audio, Document | image / file 消息**不带 caption**；同轮的 `payload.text` 由 dispatcher 单独发为 text 消息 |
 
+### 流式打字机：cardkit 卡片流式（无"已编辑"标记）
+
+飞书的 `update_message` API 会在客户端给消息留下永久"已编辑"标记。为避免每条 LLM 流式回复都被打标，飞书插件在 `capabilities` 上声明 `supports_card_stream: true`，让 [`worker/streaming.rs`](../../crates/ha-core/src/channel/worker/streaming.rs) 选用 `StreamPreviewTransport::Card` 走 cardkit 路径。
+
+**端点链路**（`base_url` 复用 [auth.rs:40-46](../../crates/ha-core/src/channel/feishu/auth.rs)，cn / intl 同形）：
+
+| 步骤 | API |
+|------|-----|
+| 1. 创建卡片 | `POST /open-apis/cardkit/v1/cards`，body `{"type":"card_json","data":<schema 2.0 JSON 字符串>}`，response `{data: {card_id}}` |
+| 2. 推到聊天 | `POST /open-apis/im/v1/messages?receive_id_type=chat_id`，`msg_type=interactive`，content `{"type":"card","data":{"card_id":"..."}}`，可带 `reply_to_message_id` |
+| 3. 流式追加 | `PUT /open-apis/cardkit/v1/cards/{card_id}/elements/{element_id}/content`，body `{"content":"<完整文本>","sequence":<i64>}`，**sequence 必须严格单调递增** |
+| 4. 关闭流式 | `PATCH /open-apis/cardkit/v1/cards/{card_id}/settings`，body `{"settings":"{\"config\":{\"streaming_mode\":false}}","sequence":<i64>}`（best-effort，10 分钟也会自动关） |
+
+卡片 schema 2.0 主体见 [`api.rs::FeishuApi::build_streaming_card_body`](../../crates/ha-core/src/channel/feishu/api.rs)：单个 `markdown` 元素，`element_id="streaming_text"`（常量在 `api.rs::STREAMING_ELEMENT_ID`）。`config.streaming_mode=true` 让客户端显示打字机加载态。
+
+**限制**：
+
+- 单卡片 update 频率：10 calls/sec（hope-agent 1s/次远低于此）
+- 单文本上限：100,000 字符
+- 卡片有效期：14 天；流式模式 10 分钟自动关闭
+
+**错误码 → `CardStreamError` 分类**（见 [api.rs::card_stream_error_from_code](../../crates/ha-core/src/channel/feishu/api.rs)）：`300317 SequenceOutOfOrder` / `200750 Expired` / `200850 TimedOut` / `300309 NotEnabled` / `300311 NoPermission` / 其它 `Other(code= msg)`。
+
+**降级**：
+
+- **创建期失败**（cardkit create 或 send_card_message 任一报错）：本轮丢弃 cardkit，把 `preview_transport` 写回 `Message`，本轮累计文本走旧 `send_message_preview`，后续轮按 Message 路径继续
+- **中后期失败**（`update_card_element` 报任何错，含 sequence 冲突）：进入 `card_session.broken=true`，后续 interval tick **不再发预览**；`send_final_reply` 在收尾时识别 `PreviewHandle::Card { broken: true, .. }`，跳过 cardkit close，发一条新 text 消息（带 `reply_to_message_id`）作为完整交付
+- **不做 sequence 重试**：300317 通常说明本地 sequence 与服务端不同步，直接 broken 比无谓重试更稳
+
 ---
 
 ## QQ Bot 插件实现

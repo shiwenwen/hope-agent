@@ -223,7 +223,58 @@ pub struct ChannelCapabilities {
     pub supports_buttons: bool,
     #[serde(default)]
     pub max_message_length: Option<usize>,
+    /// Channel offers a "card streaming" API that mutates a card element's
+    /// content in place without flagging the host message as edited.
+    /// Currently only Feishu (cardkit) implements this.
+    #[serde(default)]
+    pub supports_card_stream: bool,
 }
+
+// ── Card Stream Handle ───────────────────────────────────────────
+// Resource identifiers returned from a `create_card_stream` call.
+
+#[derive(Debug, Clone)]
+pub struct CardStreamHandle {
+    pub card_id: String,
+    pub element_id: String,
+}
+
+// ── Card Stream Error ────────────────────────────────────────────
+// Classified error from card streaming endpoints. Lets the streaming task
+// decide between local recovery, immediate degrade, or session abort
+// without hard-coding platform error codes.
+
+#[derive(Debug, Clone)]
+pub enum CardStreamError {
+    /// Sequence number not strictly increasing (Feishu 300317).
+    SequenceOutOfOrder,
+    /// Card past its 14-day TTL (Feishu 200750).
+    Expired,
+    /// Streaming session past its 10-minute auto-close window (Feishu 200850).
+    TimedOut,
+    /// Card was created without `streaming_mode=true` (Feishu 300309).
+    NotEnabled,
+    /// App scope or tenant token missing the card stream permission
+    /// (Feishu 300311).
+    NoPermission,
+    /// Anything else — network errors, parse failures, unknown codes.
+    Other(String),
+}
+
+impl std::fmt::Display for CardStreamError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SequenceOutOfOrder => write!(f, "card stream sequence out of order"),
+            Self::Expired => write!(f, "card expired"),
+            Self::TimedOut => write!(f, "card stream timed out"),
+            Self::NotEnabled => write!(f, "card stream mode not enabled"),
+            Self::NoPermission => write!(f, "card stream permission denied"),
+            Self::Other(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+impl std::error::Error for CardStreamError {}
 
 // ── Inbound Message Context ──────────────────────────────────────
 // Normalized inbound message from any channel.

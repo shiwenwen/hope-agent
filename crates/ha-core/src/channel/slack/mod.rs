@@ -114,6 +114,7 @@ impl ChannelPlugin for SlackPlugin {
             // files.completeUploadExternal) not yet implemented. Dispatcher
             // falls back to a download-link text for now.
             supports_media: Vec::new(),
+            supports_card_stream: false,
         }
     }
 

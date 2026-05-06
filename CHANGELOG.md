@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **飞书流式回复不再显示"已编辑"标记**：之前飞书的"打字机"流式输出走 `send_message + 多次 update_message`，飞书服务端对任何 `update_message` API 调用都会在客户端打"已编辑"标记，每条 LLM 回复末尾都挂这个尾巴。改为接入飞书 cardkit 卡片流式接口（`POST /open-apis/cardkit/v1/cards` 创建 → `POST /open-apis/im/v1/messages` 推 interactive 消息引用 card_id → 多次 `PUT /cardkit/v1/cards/{id}/elements/{elem}/content` 流式追加 → `PATCH /cardkit/v1/cards/{id}/settings` 关闭流式）—— 卡片元素层级的 update 不会触发消息编辑标记。新增 `ChannelCapabilities.supports_card_stream`、`StreamPreviewTransport::Card`、`PreviewHandle::{Message, Card}`、`CardStreamError`、4 个 `ChannelPlugin` cardkit trait 方法（默认 `Err`，仅飞书实现）。失败降级：cardkit 创建期失败 → 自动回退到现有 `Message` edit 路径；中后期 `update_card_element` 失败 → 卡片标 `broken=true`、最终发一条新 text 消息保完整交付。涉及 [feishu/api.rs](crates/ha-core/src/channel/feishu/api.rs) / [feishu/mod.rs](crates/ha-core/src/channel/feishu/mod.rs) / [worker/streaming.rs](crates/ha-core/src/channel/worker/streaming.rs) / [worker/dispatcher.rs](crates/ha-core/src/channel/worker/dispatcher.rs) / [traits.rs](crates/ha-core/src/channel/traits.rs) / [types.rs](crates/ha-core/src/channel/types.rs)；其它 11 个 channel 默认 `supports_card_stream: false` 行为不变。详见 [docs/architecture/im-channel.md](docs/architecture/im-channel.md) 飞书章节"流式打字机：cardkit 卡片流式"。
+
 ### Added
 
 - **会话搜索体验整体补齐**（修跳转翻页 / 全局快捷键 / 高亮样式 / 排序裁断）：

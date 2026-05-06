@@ -192,6 +192,7 @@ impl ChannelPlugin for DiscordPlugin {
             // pair 等多字节字符会顶到 6+ bytes，留 25% 余量到 1500 字节避免触发
             // "Invalid Form Body" content_too_long
             max_message_length: Some(1500),
+            supports_card_stream: false,
         }
     }
 

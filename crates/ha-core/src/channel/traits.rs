@@ -90,6 +90,69 @@ pub trait ChannelPlugin: Send + Sync + 'static {
         ))
     }
 
+    // ── Card Streaming ────────────────────────────────────────────
+    // Optional path used by streaming previews on channels whose normal
+    // `edit_message` would taint the recipient's view (e.g. Feishu's
+    // "已编辑" marker). Implementations advertise availability via
+    // `capabilities().supports_card_stream`.
+
+    /// Create a streaming-capable card holder, returning the IDs needed for
+    /// subsequent `update_card_element` calls. Implementations should
+    /// pre-populate the card with `initial_text` so viewers see content as
+    /// soon as the card is delivered to chat.
+    async fn create_card_stream(
+        &self,
+        _account_id: &str,
+        _initial_text: &str,
+    ) -> Result<CardStreamHandle> {
+        Err(anyhow::anyhow!(
+            "create_card_stream not supported by this channel"
+        ))
+    }
+
+    /// Push a previously created card to a chat as an interactive message.
+    /// Returns the host message ID (used for delete/replace at session end).
+    async fn send_card_message(
+        &self,
+        _account_id: &str,
+        _chat_id: &str,
+        _card_id: &str,
+        _reply_to_message_id: Option<&str>,
+        _thread_id: Option<&str>,
+    ) -> Result<DeliveryResult> {
+        Err(anyhow::anyhow!(
+            "send_card_message not supported by this channel"
+        ))
+    }
+
+    /// Append text to a streaming card element. `sequence` must be strictly
+    /// increasing across all calls within one card lifetime.
+    async fn update_card_element(
+        &self,
+        _account_id: &str,
+        _card_id: &str,
+        _element_id: &str,
+        _content: &str,
+        _sequence: i64,
+    ) -> std::result::Result<(), CardStreamError> {
+        Err(CardStreamError::Other(
+            "update_card_element not supported by this channel".into(),
+        ))
+    }
+
+    /// Disable streaming mode on a card so the host message stops showing
+    /// the typing indicator. Best-effort: errors are typically logged.
+    async fn close_card_stream(
+        &self,
+        _account_id: &str,
+        _card_id: &str,
+        _sequence: i64,
+    ) -> Result<()> {
+        Err(anyhow::anyhow!(
+            "close_card_stream not supported by this channel"
+        ))
+    }
+
     // ── Status ────────────────────────────────────────────────────
 
     /// Probe the channel account to check health/connectivity.

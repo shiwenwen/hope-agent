@@ -193,6 +193,7 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - 12 个插件，状态文件落 `~/.hope-agent/channels/`；入站媒体走 plug → worker → `Attachment` → `~/.hope-agent/attachments/{session_id}/`
 - 工具审批通过 EventBus `approval_required` 监听，按 `supports_buttons` 走原生按钮或文本；`auto_approve_tools=true` 跳审批
 - **Auto-start 失败统一走 [`channel/start_watchdog.rs`](crates/ha-core/src/channel/start_watchdog.rs)**——退避 30s/60s/2m/5m，sweep 15s，user 操作永远胜过 watchdog；失败日志带 `classify_channel_error` 分类
+- **流式预览 Transport 三选一**（[`worker/streaming.rs`](crates/ha-core/src/channel/worker/streaming.rs) `select_stream_preview_transport`）：`Draft (Telegram DM 专属) > Card (capabilities.supports_card_stream，目前仅飞书 cardkit) > Message (send_message+edit_message)`。Card / Draft 失败有降级（Card 创建期失败 → 切 Message；中后期 `update_card_element` 失败 → `broken=true`，收尾走 `send_message` 兜底）。新增飞书风格"无编辑标记"流式靠 `ChannelPlugin` 上 4 个 default-impl=`Err` 的 cardkit trait 方法（`create_card_stream` / `send_card_message` / `update_card_element` / `close_card_stream`）—— 仅飞书实现，11 个非飞书 channel 的 `capabilities.supports_card_stream=false` 走旧路径不变
 
 ### Dashboard / Recap / Learning
 
