@@ -366,12 +366,121 @@ pub fn handle_search(args: &str) -> Result<CommandResult, String> {
     })
 }
 
+/// /imreply [final|split] — Show or set the IM reply mode for the current
+/// channel account. **Only applies to non-streaming IM channels** (wechat / line /
+/// qqbot / irc / signal / whatsapp / imessage). Streaming channels (telegram /
+/// discord / feishu) ignore this setting because they show every round in the
+/// live preview anyway, so any post-hoc split would just duplicate text.
+///
+/// `final` (default) sends only the last-round assistant text; `split` sends
+/// each round as its own IM message so pre-tool narration ("我把头像发给你。")
+/// and the final answer ("已发。") stay separated.
+///
+/// Persisted to `ChannelAccountConfig.settings.imReplyMode` via [`mutate_config`].
+pub async fn handle_imreply(
+    session_id: Option<&str>,
+    args: &str,
+) -> Result<CommandResult, String> {
+    let Some(sid) = session_id else {
+        return Err("/imreply only works inside an IM channel session.".into());
+    };
+    let session_db = crate::require_session_db().map_err(|e| e.to_string())?;
+    let channel_info = session_db
+        .get_session(sid)
+        .map_err(|e| e.to_string())?
+        .and_then(|m| m.channel_info)
+        .ok_or_else(|| "/imreply only works inside an IM channel session.".to_string())?;
+
+    let cfg = crate::config::cached_config();
+    let account = cfg
+        .channels
+        .accounts
+        .iter()
+        .find(|a| a.id == channel_info.account_id)
+        .ok_or_else(|| {
+            format!(
+                "Channel account `{}` not found in config",
+                channel_info.account_id
+            )
+        })?;
+    let channel_id = account.channel_id.clone();
+    let current = account.im_reply_mode();
+    drop(cfg);
+
+    if account_supports_stream_preview(&channel_id) {
+        return Err(format!(
+            "/imreply only applies to non-streaming IM channels (wechat / line / qqbot / irc / signal / whatsapp / imessage). Current channel `{}` uses streaming previews — every round already shows up in-place.",
+            channel_id
+        ));
+    }
+
+    let arg = args.trim();
+    if arg.is_empty() {
+        return Ok(CommandResult {
+            content: format!(
+                "**IM reply mode**: `{}`  _(non-streaming channels only)_\n\n- `final` — send only the last-round answer (default)\n- `split` — send each round as its own IM message\n\nUsage: `/imreply final` or `/imreply split`",
+                current.as_str()
+            ),
+            action: Some(CommandAction::DisplayOnly),
+        });
+    }
+
+    let mode = crate::channel::ImReplyMode::parse(arg)
+        .ok_or_else(|| format!("Invalid mode: `{}`. Valid: final, split", arg))?;
+
+    let account_id = channel_info.account_id.clone();
+    let mode_str = mode.as_str();
+    crate::config::mutate_config(("channel.imReplyMode", "slash:/imreply"), |cfg| {
+        match cfg
+            .channels
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == account_id)
+        {
+            Some(acc) => {
+                acc.set_im_reply_mode(mode);
+                Ok(())
+            }
+            None => Err(anyhow::anyhow!(
+                "Channel account `{}` not found in config",
+                account_id
+            )),
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    Ok(CommandResult {
+        content: format!("IM reply mode set to **{}** for this channel account.", mode_str),
+        action: Some(CommandAction::DisplayOnly),
+    })
+}
+
 /// /prompts — Open the system prompt viewer.
 pub fn handle_prompts() -> CommandResult {
     CommandResult {
         content: String::new(),
         action: Some(CommandAction::ViewSystemPrompt),
     }
+}
+
+/// Whether a channel surfaces its replies through a streaming preview
+/// (`telegram` / `discord` / `feishu` etc). Mirrors the conditions in
+/// [`crate::channel::worker::streaming::select_stream_preview_transport`]
+/// minus the chat-type gate (which only refines `Draft` for Telegram DM):
+/// any channel whose plugin advertises `supports_card_stream` or
+/// `supports_edit` will get a live preview, regardless of chat type.
+///
+/// Returns false when the registry is unavailable or the channel isn't
+/// registered — fail-open so unknown channels are treated as non-streaming.
+fn account_supports_stream_preview(channel_id: &crate::channel::ChannelId) -> bool {
+    let Some(reg) = crate::globals::get_channel_registry() else {
+        return false;
+    };
+    let Some(plugin) = reg.get_plugin(channel_id) else {
+        return false;
+    };
+    let caps = plugin.capabilities();
+    caps.supports_card_stream || caps.supports_edit
 }
 
 /// Simple filename sanitization.

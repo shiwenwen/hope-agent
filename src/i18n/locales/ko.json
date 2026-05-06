@@ -2636,7 +2636,12 @@
     "gchatHint": "Chat API 가 활성화된 Google Workspace 서비스 계정이 필요합니다",
     "webhookUrl": "공개 Webhook URL",
     "webhookUrlHint": "데스크톱 앱은 Webhook 수신을 위해 공개 URL (예: ngrok) 이 필요합니다",
-    "lineHint": "LINE Developers Console (Messaging API 채널) 에서 자격 증명을 받으세요"
+    "lineHint": "LINE Developers Console (Messaging API 채널) 에서 자격 증명을 받으세요",
+    "imReplyMode": "IM 답장 모드",
+    "imReplyModeFinal": "최종 답변만",
+    "imReplyModeSplit": "라운드별 분할",
+    "imReplyModeHint": "기본값은 마지막 라운드의 답변만 전송합니다. 분할 모드는 각 라운드(도구 호출 전 설명 포함)를 별도 메시지로 보냅니다. 도구가 생성한 이미지/파일은 두 모드 모두 별도로 전송됩니다.",
+    "imReplyModeStreamingHint": "이 채널은 실시간 스트리밍 미리보기를 사용하므로 각 라운드가 원래 메시지에 즉시 표시됩니다. 분할은 텍스트를 중복시킬 뿐이라 적용되지 않습니다."
   },
   "cron": {
     "title": "예약 작업",
@@ -3080,6 +3085,9 @@
     "buttonTip": "빠른 명령",
     "project": {
       "description": "프로젝트로 전환 또는 선택"
+    },
+    "imreply": {
+      "description": "IM 답장 모드 설정 (final|split), 비스트리밍 채널 전용"
     }
   },
   "planMode": {

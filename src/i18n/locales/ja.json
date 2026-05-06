@@ -2636,7 +2636,12 @@
     "gchatHint": "Chat API を有効にした Google Workspace サービスアカウントが必要です",
     "webhookUrl": "公開 Webhook URL",
     "webhookUrlHint": "デスクトップアプリは Webhook を受信するために公開 URL（ngrok など）が必要です",
-    "lineHint": "LINE Developers Console (Messaging API チャネル) から認証情報を取得"
+    "lineHint": "LINE Developers Console (Messaging API チャネル) から認証情報を取得",
+    "imReplyMode": "IM 返信モード",
+    "imReplyModeFinal": "最終回答のみ",
+    "imReplyModeSplit": "ラウンドごとに分割",
+    "imReplyModeHint": "デフォルトでは最終ラウンドの回答のみを送信します。分割モードでは各ラウンド（ツール呼び出し前のナレーション含む）を別メッセージとして送信します。ツールが生成した画像・ファイルは両モードとも別途送信されます。",
+    "imReplyModeStreamingHint": "このチャンネルはストリーミングプレビュー対応で、各ラウンドが原メッセージ上にリアルタイム表示されるため、分割すると重複します — この設定は適用されません。"
   },
   "cron": {
     "title": "定期タスク",
@@ -3080,6 +3085,9 @@
     "buttonTip": "クイックコマンド",
     "project": {
       "description": "プロジェクトを切り替え/選択"
+    },
+    "imreply": {
+      "description": "IM 返信モードを設定 (final|split)、非ストリーミング限定"
     }
   },
   "planMode": {

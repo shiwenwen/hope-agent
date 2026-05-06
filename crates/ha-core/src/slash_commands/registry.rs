@@ -310,6 +310,16 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             ]),
             description_raw: None,
         },
+        SlashCommandDef {
+            name: "imreply".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.imreply.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[final|split]".into()),
+            arg_options: Some(vec!["final".into(), "split".into()]),
+            description_raw: None,
+        },
     ]
 }
 

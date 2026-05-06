@@ -83,12 +83,29 @@ impl EventSink for NoopEventSink {
     fn send(&self, _event: &str) {}
 }
 
+/// Per-round assistant text accumulated by `ChannelStreamSink` so the IM
+/// dispatcher can decide between "send only final-round text" and "split per
+/// round" delivery (`ImReplyMode`). Without this split the dispatcher receives
+/// the merged `collected_text` (round 0 narration + round 1 final answer
+/// concatenated) and shoves it into one IM bubble — looking like two glued
+/// sentences, see commit message for the fix context.
+#[derive(Debug, Default)]
+pub struct RoundTextAccumulator {
+    /// Pre-final rounds' text. Each entry is the assistant text accumulated
+    /// before the round's tool_call(s); empty rounds (consecutive tool_calls
+    /// with no narration) are dropped by the dispatcher.
+    pub completed: Vec<String>,
+    /// In-flight round's text. After `run_chat_engine` returns this holds the
+    /// final-round text (post last tool_result, before stream end).
+    pub current: String,
+}
+
 /// EventSink for IM channel worker — pushes streaming events via the global EventBus
 /// AND forwards them to a background task for progressive Telegram message editing.
 ///
 /// Also accumulates any `media_items[]` emitted in `tool_result` events into
-/// `pending_media`, which the dispatcher drains after the chat engine finishes
-/// to deliver attachments through the channel's native media API.
+/// `pending_media`, and per-round assistant text into `round_texts`, both of
+/// which the dispatcher drains after the chat engine finishes.
 pub struct ChannelStreamSink {
     pub session_id: String,
     /// Forwards raw events to the channel streaming background task.
@@ -98,6 +115,8 @@ pub struct ChannelStreamSink {
     /// completes. The dispatcher owns the same `Arc` and drains this vec once
     /// `run_chat_engine` returns.
     pub pending_media: Arc<Mutex<Vec<MediaItem>>>,
+    /// Round-by-round assistant text, see [`RoundTextAccumulator`].
+    pub round_texts: Arc<Mutex<RoundTextAccumulator>>,
 }
 
 impl ChannelStreamSink {
@@ -105,11 +124,13 @@ impl ChannelStreamSink {
         session_id: String,
         event_tx: tokio::sync::mpsc::Sender<String>,
         pending_media: Arc<Mutex<Vec<MediaItem>>>,
+        round_texts: Arc<Mutex<RoundTextAccumulator>>,
     ) -> Self {
         Self {
             session_id,
             event_tx,
             pending_media,
+            round_texts,
         }
     }
 }
@@ -125,10 +146,11 @@ impl EventSink for ChannelStreamSink {
                 }),
             );
         }
-        // Cheap short-circuit: only tool_result events carry media_items, and
-        // only they start with {"type":"tool_result"...}. Avoids a full JSON
-        // parse on every text_delta / tool_call frame.
-        if event.starts_with("{\"type\":\"tool_result\"") && event.contains("\"media_items\"") {
+        // Cheap short-circuits: avoid a full JSON parse on every frame.
+        // serde_json's default Map is BTreeMap so keys serialize alphabetically;
+        // anchoring on `{"type":...` would never fire.
+        if event.contains("\"media_items\"") && event.contains("\"type\":\"tool_result\"") {
+            // `media_items` first — only send_attachment / image_generate populate it.
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
                 if let Some(arr) = val.get("media_items").and_then(|v| v.as_array()) {
                     let items: Vec<MediaItem> = arr
@@ -141,6 +163,26 @@ impl EventSink for ChannelStreamSink {
                         }
                     }
                 }
+            }
+        } else if event.contains("\"type\":\"text_delta\"") {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
+                if let Some(text) = val
+                    .get("content")
+                    .or_else(|| val.get("text"))
+                    .and_then(|v| v.as_str())
+                {
+                    if let Ok(mut acc) = self.round_texts.lock() {
+                        acc.current.push_str(text);
+                    }
+                }
+            }
+        } else if event.contains("\"type\":\"tool_call\"") {
+            // Round boundary: flush in-flight text. Multiple tool_calls in the
+            // same round will push empty strings on subsequent calls, which the
+            // dispatcher filters before split-mode delivery.
+            if let Ok(mut acc) = self.round_texts.lock() {
+                let text = std::mem::take(&mut acc.current);
+                acc.completed.push(text);
             }
         }
         let _ = self.event_tx.try_send(event.to_string());
@@ -219,4 +261,125 @@ pub struct ChatEngineResult {
     pub model_used: Option<ActiveModel>,
     /// The agent instance after chat (for UI chat to update State).
     pub agent: Option<AssistantAgent>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::attachments::{MediaItem, MediaKind};
+    use serde_json::json;
+
+    fn mk_media_item() -> MediaItem {
+        MediaItem {
+            url: "/attachments/x/avatar.png".into(),
+            local_path: Some("/tmp/avatar.png".into()),
+            name: "avatar.png".into(),
+            mime_type: "image/png".into(),
+            size_bytes: 100,
+            kind: MediaKind::Image,
+            caption: None,
+        }
+    }
+
+    fn mk_sink() -> (
+        ChannelStreamSink,
+        Arc<Mutex<Vec<MediaItem>>>,
+        Arc<Mutex<RoundTextAccumulator>>,
+    ) {
+        let pending = Arc::new(Mutex::new(Vec::<MediaItem>::new()));
+        let rounds = Arc::new(Mutex::new(RoundTextAccumulator::default()));
+        let (tx, _rx) = tokio::sync::mpsc::channel::<String>(64);
+        let sink = ChannelStreamSink::new("sess-1".into(), tx, pending.clone(), rounds.clone());
+        (sink, pending, rounds)
+    }
+
+    fn emit(sink: &ChannelStreamSink, value: serde_json::Value) {
+        sink.send(&serde_json::to_string(&value).unwrap());
+    }
+
+    #[test]
+    fn channel_sink_collects_media_items_from_tool_result() {
+        let (sink, pending, _) = mk_sink();
+        let item = mk_media_item();
+        let event = serde_json::to_string(&json!({
+            "type": "tool_result",
+            "call_id": "call_1",
+            "name": "send_attachment",
+            "result": "Sent attachment ...",
+            "duration_ms": 2u64,
+            "is_error": false,
+            "media_items": [item],
+        }))
+        .unwrap();
+        // The bug this guards against: BTreeMap key sort puts `type` mid-string,
+        // so an anchored `starts_with("{\"type\"...")` guard never fires.
+        assert!(
+            !event.starts_with("{\"type\""),
+            "if this fires the BTreeMap assumption changed; review sink guard: {event}"
+        );
+
+        sink.send(&event);
+        let collected = pending.lock().unwrap();
+        assert_eq!(collected.len(), 1, "media_items not collected: {event}");
+        assert_eq!(collected[0].name, "avatar.png");
+    }
+
+    #[test]
+    fn channel_sink_ignores_non_tool_result_events() {
+        let (sink, pending, _) = mk_sink();
+        emit(&sink, json!({"type": "text_delta", "content": "hello"}));
+        assert!(pending.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn channel_sink_splits_round_texts_at_tool_call() {
+        let (sink, _, rounds) = mk_sink();
+        // Round 0: narration → tool_call (flush) → tool_result.
+        emit(&sink, json!({"type": "text_delta", "content": "我把头像"}));
+        emit(&sink, json!({"type": "text_delta", "content": "发给你。"}));
+        emit(
+            &sink,
+            json!({
+                "type": "tool_call",
+                "call_id": "c1",
+                "name": "send_attachment",
+                "arguments": "{}",
+            }),
+        );
+        emit(
+            &sink,
+            json!({
+                "type": "tool_result",
+                "call_id": "c1",
+                "name": "send_attachment",
+                "result": "ok",
+                "duration_ms": 1u64,
+                "is_error": false,
+            }),
+        );
+        // Round 1: final answer (no further tool_call → stays in `current`).
+        emit(&sink, json!({"type": "text_delta", "content": "已发。"}));
+
+        let acc = rounds.lock().unwrap();
+        assert_eq!(acc.completed, vec!["我把头像发给你。".to_string()]);
+        assert_eq!(acc.current, "已发。");
+    }
+
+    #[test]
+    fn channel_sink_drops_empty_rounds_for_back_to_back_tool_calls() {
+        // Multiple tool_calls in the same round (or zero-narration rounds) push
+        // empty strings; the dispatcher filters these before split-mode send.
+        let (sink, _, rounds) = mk_sink();
+        emit(&sink, json!({"type": "text_delta", "content": "thinking"}));
+        emit(
+            &sink,
+            json!({"type": "tool_call", "call_id": "c1", "name": "x", "arguments": "{}"}),
+        );
+        emit(
+            &sink,
+            json!({"type": "tool_call", "call_id": "c2", "name": "y", "arguments": "{}"}),
+        );
+        let acc = rounds.lock().unwrap();
+        assert_eq!(acc.completed, vec!["thinking".to_string(), String::new()]);
+    }
 }

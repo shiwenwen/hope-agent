@@ -2636,7 +2636,12 @@
     "gchatHint": "Requiere una Service Account de Google Workspace con la API de Chat activada",
     "webhookUrl": "URL pública del Webhook",
     "webhookUrlHint": "Las apps de escritorio necesitan una URL pública (p. ej. ngrok) para recibir webhooks",
-    "lineHint": "Obtén las credenciales desde LINE Developers Console (canal Messaging API)"
+    "lineHint": "Obtén las credenciales desde LINE Developers Console (canal Messaging API)",
+    "imReplyMode": "Modo de respuesta IM",
+    "imReplyModeFinal": "Solo respuesta final",
+    "imReplyModeSplit": "Dividir por ronda",
+    "imReplyModeHint": "El modo predeterminado envía solo la respuesta de la última ronda. Dividir envía cada ronda (incluida la narración previa a las herramientas) como mensaje IM separado. Los archivos / imágenes generados por herramientas siempre se envían aparte.",
+    "imReplyModeStreamingHint": "Este canal utiliza vista previa en streaming — cada ronda ya aparece en el mensaje original, por lo que dividir solo duplicaría el texto. Ajuste no aplicable."
   },
   "cron": {
     "title": "Tareas programadas",
@@ -3080,6 +3085,9 @@
     "buttonTip": "Comandos rápidos",
     "project": {
       "description": "Cambiar a un proyecto o elegir uno"
+    },
+    "imreply": {
+      "description": "Configurar modo de respuesta IM (final|split) — solo canales no streaming"
     }
   },
   "planMode": {

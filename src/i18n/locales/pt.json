@@ -2636,7 +2636,12 @@
     "gchatHint": "Requer uma Service Account do Google Workspace com a Chat API ativada",
     "webhookUrl": "URL pública do Webhook",
     "webhookUrlHint": "Apps de desktop precisam de uma URL pública (ex.: ngrok) para receber webhooks",
-    "lineHint": "Obtenha as credenciais no LINE Developers Console (canal Messaging API)"
+    "lineHint": "Obtenha as credenciais no LINE Developers Console (canal Messaging API)",
+    "imReplyMode": "Modo de resposta IM",
+    "imReplyModeFinal": "Apenas resposta final",
+    "imReplyModeSplit": "Dividir por rodada",
+    "imReplyModeHint": "O modo padrão envia apenas a resposta da última rodada. Dividir envia cada rodada (incluindo narração antes das ferramentas) como uma mensagem IM separada. Mídias geradas por ferramentas são enviadas à parte em ambos os modos.",
+    "imReplyModeStreamingHint": "Este canal usa pré-visualização em streaming — cada rodada já aparece na mensagem original, então dividir apenas duplicaria o texto. Configuração não aplicável."
   },
   "cron": {
     "title": "Tarefas agendadas",
@@ -3080,6 +3085,9 @@
     "buttonTip": "Comandos rápidos",
     "project": {
       "description": "Trocar para ou escolher um projeto"
+    },
+    "imreply": {
+      "description": "Definir modo de resposta IM (final|split) — apenas canais sem streaming"
     }
   },
   "planMode": {

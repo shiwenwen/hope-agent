@@ -14,8 +14,8 @@ use crate::channel::types::{InboundMedia, MediaData, MediaType, OutboundMedia};
 
 use super::api::{
     CdnMedia, FileItem, ImageItem, MessageItem, VideoItem, WeChatApi, DEFAULT_WECHAT_CDN_BASE_URL,
-    MESSAGE_ITEM_TYPE_FILE, MESSAGE_ITEM_TYPE_IMAGE, MESSAGE_ITEM_TYPE_TEXT,
-    MESSAGE_ITEM_TYPE_VIDEO, MESSAGE_ITEM_TYPE_VOICE,
+    MESSAGE_ITEM_TYPE_FILE, MESSAGE_ITEM_TYPE_IMAGE, MESSAGE_ITEM_TYPE_VIDEO,
+    MESSAGE_ITEM_TYPE_VOICE,
 };
 
 const MAX_MEDIA_BYTES: u64 = 100 * 1024 * 1024;
@@ -48,15 +48,17 @@ pub async fn send_outbound_media(
 
     let caption = combine_text(text, media.caption.as_deref());
     let item = build_outbound_item(&media.media_type, &local_path, &upload)?;
-    let mut items = Vec::new();
+
+    // iLink bot's sendmessage renders only the first item per request when
+    // item_list mixes text + media — confirmed from inbound parsing
+    // (download_inbound_media handles one item per message). Send caption as
+    // its own message first so the image (or file/video) isn't silently
+    // dropped, then return the media message id (callers reply/thread to it).
     if let Some(caption_text) = caption {
-        items.push(json!({
-            "type": MESSAGE_ITEM_TYPE_TEXT,
-            "text_item": { "text": caption_text }
-        }));
+        api.send_text(to_user_id, &caption_text, context_token)
+            .await?;
     }
-    items.push(item);
-    api.send_message_items(to_user_id, items, context_token)
+    api.send_message_items(to_user_id, vec![item], context_token)
         .await
 }
 

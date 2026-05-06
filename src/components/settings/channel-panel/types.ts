@@ -69,7 +69,32 @@ export interface ChannelPluginInfo {
     supportsMedia: string[]
     supportsTyping: boolean
     maxMessageLength: number | null
+    supportsCardStream?: boolean
   }
+}
+
+/**
+ * Per-channel-account IM reply split mode. Stored as a string in
+ * `ChannelAccountConfig.settings.imReplyMode`. Mirrors the Rust
+ * `ImReplyMode` enum.
+ *
+ * Only applies to non-streaming IM channels (channels whose plugin does NOT
+ * advertise `supportsCardStream` or `supportsEdit`). Streaming channels
+ * (telegram / discord / feishu) ignore this — every round already shows up
+ * in the live preview, so a post-hoc split would just duplicate text.
+ */
+export type ImReplyMode = "final" | "split"
+
+export const IM_REPLY_MODE_DEFAULT: ImReplyMode = "final"
+
+export function readImReplyMode(account: { settings: unknown }): ImReplyMode {
+  const v = (account.settings as Record<string, unknown> | null | undefined)?.imReplyMode
+  return v === "split" ? "split" : IM_REPLY_MODE_DEFAULT
+}
+
+export function channelSupportsStreamPreview(plugin: ChannelPluginInfo | undefined): boolean {
+  const caps = plugin?.capabilities
+  return Boolean(caps?.supportsCardStream || caps?.supportsEdit)
 }
 
 export interface WeChatConnection {

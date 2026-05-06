@@ -2636,7 +2636,12 @@
     "gchatHint": "需要 Google Workspace 服務賬號并啟用 Chat API",
     "webhookUrl": "公網 Webhook URL",
     "webhookUrlHint": "桌面應用需要公網 URL（如 ngrok）才能接收 Webhook",
-    "lineHint": "在 LINE Developers Console 獲取 Messaging API 頻道憑據"
+    "lineHint": "在 LINE Developers Console 獲取 Messaging API 頻道憑據",
+    "imReplyMode": "IM 回覆模式",
+    "imReplyModeFinal": "僅最終回答",
+    "imReplyModeSplit": "按輪次拆分",
+    "imReplyModeHint": "預設只發最後一輪的回答；拆分模式把每輪文字（包括呼叫工具前的旁白）單獨發一則訊息。工具產出的圖片 / 檔案兩種模式都會獨立發送。",
+    "imReplyModeStreamingHint": "當前渠道支援串流預覽，每一輪回答會即時顯示在原訊息中，再拆分只會重複——此設定不適用。"
   },
   "cron": {
     "title": "定時任務",
@@ -3080,6 +3085,9 @@
     "buttonTip": "快捷指令",
     "project": {
       "description": "切換或選擇項目"
+    },
+    "imreply": {
+      "description": "設定 IM 回覆模式 (final|split)，僅對非串流渠道生效"
     }
   },
   "planMode": {

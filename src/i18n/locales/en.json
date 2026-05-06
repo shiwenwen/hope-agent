@@ -2636,7 +2636,12 @@
     "gchatHint": "Requires a Google Workspace service account with Chat API enabled",
     "webhookUrl": "Public Webhook URL",
     "webhookUrlHint": "Desktop apps need a public URL (e.g. ngrok) to receive webhooks",
-    "lineHint": "Get credentials from LINE Developers Console (Messaging API channel)"
+    "lineHint": "Get credentials from LINE Developers Console (Messaging API channel)",
+    "imReplyMode": "IM Reply Mode",
+    "imReplyModeFinal": "Final answer only",
+    "imReplyModeSplit": "Split per round",
+    "imReplyModeHint": "Final (default) sends only the last round's reply. Split sends each round (e.g. pre-tool narration) as its own IM message. Tool-produced media (images / files) is delivered separately in both modes.",
+    "imReplyModeStreamingHint": "This channel uses live streaming previews — every round already shows up in place, so splitting would just duplicate text. Setting locked."
   },
   "cron": {
     "title": "Scheduled Tasks",
@@ -3080,6 +3085,9 @@
     "buttonTip": "Quick Commands",
     "project": {
       "description": "Switch to or pick a project"
+    },
+    "imreply": {
+      "description": "Set IM reply mode (final|split) — non-streaming channels only"
     }
   },
   "planMode": {

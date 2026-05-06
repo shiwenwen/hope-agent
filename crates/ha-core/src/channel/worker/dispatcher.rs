@@ -461,8 +461,16 @@ async fn handle_inbound_message(
         crate::attachments::MediaItem,
     >::new()));
 
+    // Per-round assistant text. The dispatcher reads this after run_chat_engine
+    // returns and uses `account`'s ImReplyMode to choose between final-only and
+    // split-per-round delivery (see crate::chat_engine::RoundTextAccumulator).
+    let round_texts = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::chat_engine::RoundTextAccumulator::default(),
+    ));
+
     let capabilities = plugin.capabilities();
     let preview_transport = select_stream_preview_transport(&msg.chat_type, &capabilities);
+    let supports_stream_preview = preview_transport.is_some();
     let max_msg_len = capabilities.max_message_length.unwrap_or(4096);
     let stream_task = spawn_channel_stream_task(
         event_rx,
@@ -522,6 +530,7 @@ async fn handle_inbound_message(
             session_id.clone(),
             event_tx,
             pending_media.clone(),
+            round_texts.clone(),
         )),
     };
 
@@ -560,12 +569,73 @@ async fn handle_inbound_message(
     // 10. Process result — send final formatted response via sendMessage
     match result {
         Ok(engine_result) => {
-            let response = &engine_result.response;
+            // ImReplyMode is intentionally restricted to non-streaming
+            // channels: streaming previews already render every round in
+            // place, so swapping in the trimmed final-round text would make
+            // the preview look "edited" and a `Split` send would just
+            // duplicate text the user already saw scroll by.
+            let (final_text, pre_round_texts, reply_mode) = if supports_stream_preview {
+                // Drop the per-round buffer; keep merged collected_text.
+                if let Ok(mut guard) = round_texts.lock() {
+                    *guard = crate::chat_engine::RoundTextAccumulator::default();
+                }
+                (engine_result.response.clone(), Vec::<String>::new(), ImReplyMode::Final)
+            } else {
+                // Drain the per-round texts. `current` is the final-round
+                // text (post last tool_result, before stream end). `completed`
+                // is each earlier round's pre-tool narration. Fall back to
+                // the merged collected_text only if the sink saw no text
+                // (defensive — shouldn't happen on the channel sink path).
+                let drained = {
+                    let mut guard = round_texts.lock().unwrap_or_else(|e| {
+                        app_warn!("channel", "worker", "round_texts poisoned: {}", e);
+                        e.into_inner()
+                    });
+                    std::mem::take(&mut *guard)
+                };
+                let saw_any_text =
+                    !drained.current.is_empty() || drained.completed.iter().any(|s| !s.is_empty());
+                if saw_any_text {
+                    let pre = drained
+                        .completed
+                        .into_iter()
+                        .filter(|s| !s.trim().is_empty())
+                        .collect::<Vec<_>>();
+                    (drained.current, pre, account.im_reply_mode())
+                } else {
+                    (engine_result.response.clone(), Vec::new(), account.im_reply_mode())
+                }
+            };
+
+            // Split mode: each pre-final round becomes its own IM message,
+            // delivered before the final reply. Final mode (default): drop
+            // them. Both are no-ops on streaming channels (mode forced to
+            // Final, pre_round_texts empty).
+            if reply_mode == ImReplyMode::Split {
+                for chunk in &pre_round_texts {
+                    let payload = ReplyPayload {
+                        text: Some(chunk.clone()),
+                        reply_to_message_id: None,
+                        thread_id: msg.thread_id.clone(),
+                        ..ReplyPayload::text("")
+                    };
+                    if let Err(e) = plugin.send_message(&account.id, &msg.chat_id, &payload).await {
+                        app_warn!(
+                            "channel",
+                            "worker",
+                            "split-mode pre-round send failed: {}",
+                            e
+                        );
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+
             send_final_reply(
                 &plugin,
                 &account.id,
                 &msg,
-                response,
+                &final_text,
                 stream_outcome.preview.as_ref(),
                 &media_snapshot,
                 &capabilities,
@@ -575,11 +645,14 @@ async fn handle_inbound_message(
             app_info!(
                 "channel",
                 "worker",
-                "[{}] Reply sent to {} ({} chars, {} media)",
+                "[{}] Reply sent to {} ({} chars, {} media, mode={}, split-rounds={}, streaming={})",
                 channel_id_str,
                 msg.chat_id,
-                response.len(),
-                media_snapshot.len()
+                final_text.len(),
+                media_snapshot.len(),
+                reply_mode.as_str(),
+                if reply_mode == ImReplyMode::Split { pre_round_texts.len() } else { 0 },
+                supports_stream_preview
             );
         }
         Err(e) => {

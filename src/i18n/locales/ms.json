@@ -2636,7 +2636,12 @@
     "gchatHint": "Memerlukan Service Account Google Workspace dengan Chat API didayakan",
     "webhookUrl": "URL Webhook awam",
     "webhookUrlHint": "Aplikasi desktop memerlukan URL awam (cth. ngrok) untuk menerima webhook",
-    "lineHint": "Dapatkan kelayakan dari LINE Developers Console (saluran Messaging API)"
+    "lineHint": "Dapatkan kelayakan dari LINE Developers Console (saluran Messaging API)",
+    "imReplyMode": "Mod balasan IM",
+    "imReplyModeFinal": "Jawapan akhir sahaja",
+    "imReplyModeSplit": "Pisah ikut pusingan",
+    "imReplyModeHint": "Mod lalai hanya menghantar jawapan pusingan terakhir. Mod pisah menghantar setiap pusingan (termasuk narasi sebelum panggilan alat) sebagai mesej IM berasingan. Media yang dijana alat sentiasa dihantar berasingan dalam kedua-dua mod.",
+    "imReplyModeStreamingHint": "Saluran ini menggunakan pratonton strim — setiap pusingan sudah dipaparkan dalam mesej asal, jadi pemisahan hanya akan menggandakan teks. Tetapan tidak berkenaan."
   },
   "cron": {
     "title": "Tugasan berjadual",
@@ -3080,6 +3085,9 @@
     "buttonTip": "Arahan pantas",
     "project": {
       "description": "Tukar ke atau pilih projek"
+    },
+    "imreply": {
+      "description": "Tetapkan mod balasan IM (final|split), hanya saluran tanpa strim"
     }
   },
   "planMode": {

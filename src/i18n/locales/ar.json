@@ -2636,7 +2636,12 @@
     "gchatHint": "يتطلب Service Account من Google Workspace مع تفعيل Chat API",
     "webhookUrl": "URL Webhook العام",
     "webhookUrlHint": "تطبيقات سطح المكتب تحتاج URL عام (مثل ngrok) لاستقبال webhooks",
-    "lineHint": "احصل على بيانات الاعتماد من LINE Developers Console (قناة Messaging API)"
+    "lineHint": "احصل على بيانات الاعتماد من LINE Developers Console (قناة Messaging API)",
+    "imReplyMode": "وضع رد المحادثة الفورية",
+    "imReplyModeFinal": "الإجابة النهائية فقط",
+    "imReplyModeSplit": "تقسيم حسب الجولات",
+    "imReplyModeHint": "الوضع الافتراضي يرسل إجابة الجولة الأخيرة فقط. وضع التقسيم يرسل كل جولة (بما في ذلك السرد قبل استدعاء الأدوات) كرسالة مستقلة. الوسائط الناتجة عن الأدوات تُرسل بشكل منفصل في كلا الوضعين.",
+    "imReplyModeStreamingHint": "هذه القناة تستخدم المعاينة المتدفقة — كل جولة تظهر بالفعل في الرسالة الأصلية، فالتقسيم سيكرر النص فقط. الإعداد غير منطبق."
   },
   "cron": {
     "title": "المهام المجدولة",
@@ -3080,6 +3085,9 @@
     "buttonTip": "أوامر سريعة",
     "project": {
       "description": "التبديل إلى مشروع أو اختياره"
+    },
+    "imreply": {
+      "description": "تعيين وضع رد المحادثة الفورية (final|split) — للقنوات غير المتدفقة فقط"
     }
   },
   "planMode": {

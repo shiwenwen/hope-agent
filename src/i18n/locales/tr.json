@@ -2636,7 +2636,12 @@
     "gchatHint": "Chat API etkinleştirilmiş bir Google Workspace service account gerektirir",
     "webhookUrl": "Genel Webhook URL",
     "webhookUrlHint": "Masaüstü uygulamaların webhook almak için genel bir URL'ye (örn. ngrok) ihtiyacı vardır",
-    "lineHint": "Kimlik bilgilerini LINE Developers Console'dan (Messaging API kanalı) alın"
+    "lineHint": "Kimlik bilgilerini LINE Developers Console'dan (Messaging API kanalı) alın",
+    "imReplyMode": "IM yanıt modu",
+    "imReplyModeFinal": "Yalnızca son yanıt",
+    "imReplyModeSplit": "Tur başına böl",
+    "imReplyModeHint": "Varsayılan mod yalnızca son turun yanıtını gönderir. Bölme modu, her turu (araç çağrılarından önceki anlatımlar dahil) ayrı bir IM mesajı olarak gönderir. Araçların ürettiği medya her iki modda da ayrı gönderilir.",
+    "imReplyModeStreamingHint": "Bu kanal canlı akış önizlemesi kullanır; her tur zaten orijinal mesajda görünür, bölmek metni yalnızca tekrarlar. Ayar uygulanamaz."
   },
   "cron": {
     "title": "Zamanlanmış görevler",
@@ -3080,6 +3085,9 @@
     "buttonTip": "Hızlı komutlar",
     "project": {
       "description": "Bir projeye geç veya seç"
+    },
+    "imreply": {
+      "description": "IM yanıt modu (final|split), yalnızca akış desteği olmayan kanallar"
     }
   },
   "planMode": {

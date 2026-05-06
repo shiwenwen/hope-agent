@@ -74,6 +74,39 @@ pub enum MediaType {
     Animation,
 }
 
+// ── IM Reply Mode ────────────────────────────────────────────────
+// Controls how the dispatcher splits multi-round assistant text in IM replies.
+// `Final` is the default — only the last round's text is sent (round 0
+// "narration before tool" is dropped). `Split` sends each round as its own
+// message so the user sees the full thinking-aloud flow.
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImReplyMode {
+    /// Send only the final-round assistant text, drop pre-tool narration.
+    #[default]
+    Final,
+    /// Send each round's assistant text as a separate IM message.
+    Split,
+}
+
+impl ImReplyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Final => "final",
+            Self::Split => "split",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "final" | "f" => Some(Self::Final),
+            "split" | "s" => Some(Self::Split),
+            _ => None,
+        }
+    }
+}
+
 // ── DM Policy ────────────────────────────────────────────────────
 // Direct-message access policy per channel account.
 
@@ -428,6 +461,35 @@ pub struct ChannelAccountConfig {
     pub auto_approve_tools: bool,
 }
 
+/// Settings JSON key controlling IM reply mode (see [`ImReplyMode`]).
+pub const SETTINGS_KEY_IM_REPLY_MODE: &str = "imReplyMode";
+
+impl ChannelAccountConfig {
+    /// Read `settings.imReplyMode`, falling back to `ImReplyMode::default()`
+    /// when missing or unparseable.
+    pub fn im_reply_mode(&self) -> ImReplyMode {
+        self.settings
+            .get(SETTINGS_KEY_IM_REPLY_MODE)
+            .and_then(|v| v.as_str())
+            .and_then(ImReplyMode::parse)
+            .unwrap_or_default()
+    }
+
+    /// Write `settings.imReplyMode = mode` in place. Creates the settings
+    /// object if it was previously `null` / non-object.
+    pub fn set_im_reply_mode(&mut self, mode: ImReplyMode) {
+        if !self.settings.is_object() {
+            self.settings = serde_json::json!({});
+        }
+        if let Some(obj) = self.settings.as_object_mut() {
+            obj.insert(
+                SETTINGS_KEY_IM_REPLY_MODE.to_string(),
+                serde_json::Value::String(mode.as_str().to_string()),
+            );
+        }
+    }
+}
+
 // ── Channel Health ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -466,5 +528,69 @@ impl DeliveryResult {
             message_id: None,
             error: Some(error.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_account(settings: serde_json::Value) -> ChannelAccountConfig {
+        ChannelAccountConfig {
+            id: "x".into(),
+            channel_id: ChannelId::WeChat,
+            label: "x".into(),
+            enabled: true,
+            agent_id: None,
+            credentials: serde_json::Value::Null,
+            settings,
+            security: SecurityConfig::default(),
+            auto_approve_tools: false,
+        }
+    }
+
+    #[test]
+    fn im_reply_mode_parses_canonical_and_short_forms() {
+        assert_eq!(ImReplyMode::parse("final"), Some(ImReplyMode::Final));
+        assert_eq!(ImReplyMode::parse("split"), Some(ImReplyMode::Split));
+        assert_eq!(ImReplyMode::parse("F"), Some(ImReplyMode::Final));
+        assert_eq!(ImReplyMode::parse("  SPLIT  "), Some(ImReplyMode::Split));
+        assert_eq!(ImReplyMode::parse("merged"), None);
+        assert_eq!(ImReplyMode::parse(""), None);
+    }
+
+    #[test]
+    fn im_reply_mode_falls_back_to_final_when_settings_missing() {
+        assert_eq!(
+            mk_account(serde_json::Value::Null).im_reply_mode(),
+            ImReplyMode::Final
+        );
+        assert_eq!(
+            mk_account(serde_json::json!({})).im_reply_mode(),
+            ImReplyMode::Final
+        );
+        assert_eq!(
+            mk_account(serde_json::json!({"imReplyMode": "garbage"})).im_reply_mode(),
+            ImReplyMode::Final
+        );
+    }
+
+    #[test]
+    fn set_im_reply_mode_initializes_and_overwrites_settings() {
+        // Null settings → object created.
+        let mut acc = mk_account(serde_json::Value::Null);
+        acc.set_im_reply_mode(ImReplyMode::Split);
+        assert_eq!(acc.settings["imReplyMode"], "split");
+        assert_eq!(acc.im_reply_mode(), ImReplyMode::Split);
+
+        // Existing keys preserved on update.
+        let mut acc = mk_account(serde_json::json!({"transport": "polling"}));
+        acc.set_im_reply_mode(ImReplyMode::Split);
+        assert_eq!(acc.settings["transport"], "polling");
+        assert_eq!(acc.settings["imReplyMode"], "split");
+
+        // Overwrite.
+        acc.set_im_reply_mode(ImReplyMode::Final);
+        assert_eq!(acc.settings["imReplyMode"], "final");
     }
 }

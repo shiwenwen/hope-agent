@@ -36,9 +36,15 @@ import type {
   AgentInfo,
   ChannelAccountConfig,
   ChannelPluginInfo,
+  ImReplyMode,
   TelegramGroupConfig,
   TelegramChannelConfig,
   WeChatConnection,
+} from "./types"
+import {
+  IM_REPLY_MODE_DEFAULT,
+  channelSupportsStreamPreview,
+  readImReplyMode,
 } from "./types"
 
 export default function EditAccountDialog({
@@ -65,6 +71,7 @@ export default function EditAccountDialog({
   const [allowlistInput, setAllowlistInput] = useState("")
   const [groupPolicy, setGroupPolicy] = useState("open")
   const [autoApproveTools, setAutoApproveTools] = useState(false)
+  const [imReplyMode, setImReplyMode] = useState<ImReplyMode>(IM_REPLY_MODE_DEFAULT)
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
   const [saving, setSaving] = useState(false)
@@ -74,6 +81,10 @@ export default function EditAccountDialog({
   const [validationError, setValidationError] = useState<string | null>(null)
   const [wechatConnection, setWeChatConnection] = useState<WeChatConnection | null>(null)
   const selectedAgent = agents.find((agent) => agent.id === agentId)
+  const selectedPlugin = account
+    ? plugins.find((p) => p.meta.id === account.channelId)
+    : undefined
+  const channelSupportsStreaming = channelSupportsStreamPreview(selectedPlugin)
 
   // Populate form when account changes
   useEffect(() => {
@@ -88,6 +99,7 @@ export default function EditAccountDialog({
       setGroups(account.security.groups ? { ...account.security.groups } : {})
       setChannels(account.security.channels ? { ...account.security.channels } : {})
       setAutoApproveTools(account.autoApproveTools ?? false)
+      setImReplyMode(readImReplyMode(account))
       setValidationResult(null)
       setValidationError(null)
       setSaveError(null)
@@ -135,6 +147,14 @@ export default function EditAccountDialog({
       }
       // Only send credentials if token was changed
       const originalToken = (account.credentials as Record<string, string>).token ?? ""
+      // Start from existing settings so we never wipe sibling keys (transport,
+      // baseUrl, etc.) when the user only touched the IM reply mode toggle.
+      const settingsBase = {
+        ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
+      }
+      if (selectedPlugin && !channelSupportsStreamPreview(selectedPlugin)) {
+        settingsBase.imReplyMode = imReplyMode
+      }
       if (account.channelId === "wechat") {
         if (wechatConnection) {
           params.credentials = {
@@ -143,13 +163,18 @@ export default function EditAccountDialog({
             userId: wechatConnection.userId ?? null,
           }
           params.settings = {
-            ...(account.settings as Record<string, unknown>),
+            ...settingsBase,
             transport: "longpoll",
             baseUrl: wechatConnection.baseUrl,
           }
+        } else {
+          params.settings = settingsBase
         }
-      } else if (token.trim() !== originalToken) {
-        params.credentials = { token: token.trim() }
+      } else {
+        if (token.trim() !== originalToken) {
+          params.credentials = { token: token.trim() }
+        }
+        params.settings = settingsBase
       }
       await getTransport().call("channel_update_account", params)
       onSaved()
@@ -333,6 +358,37 @@ export default function EditAccountDialog({
               checked={autoApproveTools}
               onCheckedChange={setAutoApproveTools}
             />
+          </div>
+
+          {/* IM Reply Mode — non-streaming channels only.
+              Streaming channels (telegram / discord / feishu) render every
+              round in the live preview, so a post-hoc split would just
+              duplicate the text. The select is disabled with an explanatory
+              hint instead of hidden, so the option is discoverable. */}
+          <div className="space-y-2">
+            <Label>{t("channels.imReplyMode")}</Label>
+            <Select
+              value={imReplyMode}
+              onValueChange={(v) => setImReplyMode(v as ImReplyMode)}
+              disabled={channelSupportsStreaming}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="final">
+                  {t("channels.imReplyModeFinal")}
+                </SelectItem>
+                <SelectItem value="split">
+                  {t("channels.imReplyModeSplit")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {channelSupportsStreaming
+                ? t("channels.imReplyModeStreamingHint")
+                : t("channels.imReplyModeHint")}
+            </p>
           </div>
         </div>
 
