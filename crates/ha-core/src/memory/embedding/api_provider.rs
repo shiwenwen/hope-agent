@@ -38,6 +38,31 @@ impl Drop for ApiEmbeddingProvider {
 }
 
 impl ApiEmbeddingProvider {
+    /// Drive `self.client` on a fresh non-tokio OS thread.
+    ///
+    /// `reqwest::blocking::Client` 的方法（`.send()` / `.text()` / `.bytes()`）
+    /// 在 debug build 下经 `wait::enter()` 构造并立即 drop 一个临时
+    /// `current_thread` 运行时；当调用栈处于任何 tokio 运行时上下文中
+    /// （worker 线程或 `spawn_blocking` 线程，二者默认线程名都叫
+    /// `tokio-rt-worker`）时，那次 drop 会以
+    /// "Cannot drop a runtime in a context where blocking is not allowed"
+    /// 触发 panic。channel 侧的 `memory_extract` / active_memory 召回都
+    /// 经 `tokio::spawn` / `spawn_blocking` 串到这里，所以每次 reqwest
+    /// 调用都必须切到一根全新的 OS 线程。
+    fn run_off_runtime<R, F>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&reqwest::blocking::Client) -> Result<R> + Send + 'static,
+        R: Send + 'static,
+    {
+        let client: reqwest::blocking::Client = (*self.client).clone();
+        std::thread::Builder::new()
+            .name("embedding-api-call".into())
+            .spawn(move || f(&client))
+            .map_err(|e| anyhow::anyhow!("Failed to spawn embedding call thread: {}", e))?
+            .join()
+            .map_err(|_| anyhow::anyhow!("Embedding call thread panicked"))?
+    }
+
     pub fn new(config: &EmbeddingConfig) -> Result<Self> {
         let base_url = config
             .api_base_url
@@ -145,18 +170,22 @@ impl ApiEmbeddingProvider {
         }
 
         let request_start = std::time::Instant::now();
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .context("Failed to call embedding API")?;
-
-        let status = resp.status();
+        let url_owned = url.clone();
+        let api_key_owned = self.api_key.clone();
+        let body_owned = body.clone();
+        let (status, resp_text) = self.run_off_runtime(move |client| {
+            let resp = client
+                .post(&url_owned)
+                .header("Authorization", format!("Bearer {}", api_key_owned))
+                .header("Content-Type", "application/json")
+                .json(&body_owned)
+                .send()
+                .context("Failed to call embedding API")?;
+            let status = resp.status();
+            let resp_text = resp.text()?;
+            Ok((status, resp_text))
+        })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
-        let resp_text = resp.text()?;
 
         // Log embedding API response
         if let Some(logger) = crate::get_logger() {
@@ -318,17 +347,20 @@ impl ApiEmbeddingProvider {
         }
 
         let request_start = std::time::Instant::now();
-        let resp = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .context("Failed to call Google batch embedding API")?;
-
-        let status = resp.status();
+        let url_owned = url.clone();
+        let body_owned = body.clone();
+        let (status, resp_text) = self.run_off_runtime(move |client| {
+            let resp = client
+                .post(&url_owned)
+                .header("Content-Type", "application/json")
+                .json(&body_owned)
+                .send()
+                .context("Failed to call Google batch embedding API")?;
+            let status = resp.status();
+            let resp_text = resp.text()?;
+            Ok((status, resp_text))
+        })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
-        let resp_text = resp.text()?;
 
         // Log batch response
         if let Some(logger) = crate::get_logger() {
@@ -447,17 +479,20 @@ impl ApiEmbeddingProvider {
         }
 
         let request_start = std::time::Instant::now();
-        let resp = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .context("Failed to call Google embedding API")?;
-
-        let status = resp.status();
+        let url_owned = url.clone();
+        let body_owned = body.clone();
+        let (status, resp_text) = self.run_off_runtime(move |client| {
+            let resp = client
+                .post(&url_owned)
+                .header("Content-Type", "application/json")
+                .json(&body_owned)
+                .send()
+                .context("Failed to call Google embedding API")?;
+            let status = resp.status();
+            let resp_text = resp.text()?;
+            Ok((status, resp_text))
+        })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
-        let resp_text = resp.text()?;
 
         if let Some(logger) = crate::get_logger() {
             let resp_preview = if resp_text.len() > 2048 {
@@ -574,17 +609,20 @@ impl ApiEmbeddingProvider {
         }
 
         let request_start = std::time::Instant::now();
-        let resp = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .context("Failed to call Google multimodal embedding API")?;
-
-        let status = resp.status();
+        let url_owned = url.clone();
+        let body_owned = body.clone();
+        let (status, resp_text) = self.run_off_runtime(move |client| {
+            let resp = client
+                .post(&url_owned)
+                .header("Content-Type", "application/json")
+                .json(&body_owned)
+                .send()
+                .context("Failed to call Google multimodal embedding API")?;
+            let status = resp.status();
+            let resp_text = resp.text()?;
+            Ok((status, resp_text))
+        })?;
         let ttfb_ms = request_start.elapsed().as_millis() as u64;
-        let resp_text = resp.text()?;
 
         if let Some(logger) = crate::get_logger() {
             let level = if status.is_success() { "info" } else { "error" };
@@ -644,20 +682,25 @@ impl ApiEmbeddingProvider {
             "--{boundary}\r\nContent-Disposition: form-data; name=\"purpose\"\r\n\r\nbatch\r\n--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; filename=\"memory-embeddings.jsonl\"\r\nContent-Type: application/jsonl\r\n\r\n{jsonl_content}\r\n--{boundary}--\r\n",
         );
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header(
-                "Content-Type",
-                format!("multipart/form-data; boundary={}", boundary),
-            )
-            .body(body)
-            .send()
-            .context("Failed to upload batch JSONL file")?;
-
-        let status = resp.status();
-        let resp_text = resp.text()?;
+        let url_owned = url.clone();
+        let api_key_owned = self.api_key.clone();
+        let boundary_owned = boundary.clone();
+        let body_owned = body;
+        let (status, resp_text) = self.run_off_runtime(move |client| {
+            let resp = client
+                .post(&url_owned)
+                .header("Authorization", format!("Bearer {}", api_key_owned))
+                .header(
+                    "Content-Type",
+                    format!("multipart/form-data; boundary={}", boundary_owned),
+                )
+                .body(body_owned)
+                .send()
+                .context("Failed to upload batch JSONL file")?;
+            let status = resp.status();
+            let resp_text = resp.text()?;
+            Ok((status, resp_text))
+        })?;
         if !status.is_success() {
             anyhow::bail!("Batch file upload error {}: {}", status, resp_text);
         }
@@ -688,17 +731,21 @@ impl ApiEmbeddingProvider {
             });
         }
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .context("Failed to create batch job")?;
-
-        let status = resp.status();
-        let resp_text = resp.text()?;
+        let url_owned = url.clone();
+        let api_key_owned = self.api_key.clone();
+        let body_owned = body.clone();
+        let (status, resp_text) = self.run_off_runtime(move |client| {
+            let resp = client
+                .post(&url_owned)
+                .header("Authorization", format!("Bearer {}", api_key_owned))
+                .header("Content-Type", "application/json")
+                .json(&body_owned)
+                .send()
+                .context("Failed to create batch job")?;
+            let status = resp.status();
+            let resp_text = resp.text()?;
+            Ok((status, resp_text))
+        })?;
         if !status.is_success() {
             anyhow::bail!("Batch create error {}: {}", status, resp_text);
         }
@@ -720,14 +767,17 @@ impl ApiEmbeddingProvider {
         let start = std::time::Instant::now();
 
         loop {
-            let resp = self
-                .client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .send()
-                .context("Failed to poll batch status")?;
-
-            let resp_text = resp.text()?;
+            let url_owned = url.clone();
+            let api_key_owned = self.api_key.clone();
+            let resp_text = self.run_off_runtime(move |client| {
+                let resp = client
+                    .get(&url_owned)
+                    .header("Authorization", format!("Bearer {}", api_key_owned))
+                    .send()
+                    .context("Failed to poll batch status")?;
+                let resp_text = resp.text()?;
+                Ok(resp_text)
+            })?;
             let resp_json: serde_json::Value = serde_json::from_str(&resp_text)?;
             let state = resp_json["status"].as_str().unwrap_or("unknown");
 
@@ -783,15 +833,18 @@ impl ApiEmbeddingProvider {
             file_id
         );
 
-        let resp = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .send()
-            .context("Failed to download batch output")?;
-
-        let status = resp.status();
-        let text = resp.text()?;
+        let url_owned = url.clone();
+        let api_key_owned = self.api_key.clone();
+        let (status, text) = self.run_off_runtime(move |client| {
+            let resp = client
+                .get(&url_owned)
+                .header("Authorization", format!("Bearer {}", api_key_owned))
+                .send()
+                .context("Failed to download batch output")?;
+            let status = resp.status();
+            let text = resp.text()?;
+            Ok((status, text))
+        })?;
         if !status.is_success() {
             anyhow::bail!("Batch output download error {}: {}", status, text);
         }
