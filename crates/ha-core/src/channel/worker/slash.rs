@@ -363,19 +363,37 @@ pub(super) async fn dispatch_slash_for_channel(
             })
         }
 
-        // ── ShowModelPicker: render model list as inline buttons for IM channels ──
+        // ── ShowModelPicker: inline-button picker for channels that
+        //    support it; on others (WeChat / iMessage / IRC / Signal /
+        //    WhatsApp) render the list as text + usage hint so the user
+        //    can pick by typing `/model <name>`.
         Some(CommandAction::ShowModelPicker {
             models,
             active_provider_id,
             active_model_id,
         }) => {
-            let buttons =
-                build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
-            Ok(ChannelSlashOutcome::Reply {
-                content: "Select a model:".into(),
-                new_session_id: None,
-                buttons,
-            })
+            if supports_buttons {
+                let buttons = build_model_buttons_from_items(
+                    &models,
+                    &active_provider_id,
+                    &active_model_id,
+                );
+                Ok(ChannelSlashOutcome::Reply {
+                    content: "Select a model:".into(),
+                    new_session_id: None,
+                    buttons,
+                })
+            } else {
+                Ok(ChannelSlashOutcome::Reply {
+                    content: render_model_picker_text(
+                        &models,
+                        &active_provider_id,
+                        &active_model_id,
+                    ),
+                    new_session_id: None,
+                    buttons: vec![],
+                })
+            }
         }
 
         // ── DisplayOnly and any unhandled actions — just return text ──
@@ -574,4 +592,34 @@ pub(super) fn build_model_buttons_from_items(
         rows.push(row);
     }
     rows
+}
+
+/// Text fallback for `ShowModelPicker` on channels without inline buttons.
+/// Lists up to 20 models with the active one marked, then a one-line
+/// instruction so the user can pick by typing `/model <name>`. Same 20-cap
+/// + same model_name preference as `build_model_buttons_from_items` so
+/// the button and text paths look identical.
+pub(super) fn render_model_picker_text(
+    models: &[crate::slash_commands::types::ModelPickerItem],
+    active_provider_id: &Option<String>,
+    active_model_id: &Option<String>,
+) -> String {
+    let mut lines = Vec::with_capacity(models.len().min(20) + 2);
+    lines.push("**Available models** (use `/model <name>` to switch):".to_string());
+    for m in models.iter().take(20) {
+        let is_active = active_provider_id
+            .as_ref()
+            .zip(active_model_id.as_ref())
+            .map(|(pid, mid)| pid == &m.provider_id && mid == &m.model_id)
+            .unwrap_or(false);
+        let prefix = if is_active { "✓" } else { "-" };
+        lines.push(format!(
+            "{} `{}` ({})",
+            prefix, m.model_name, m.provider_name
+        ));
+    }
+    if models.len() > 20 {
+        lines.push(format!("… +{} more", models.len() - 20));
+    }
+    lines.join("\n")
 }
