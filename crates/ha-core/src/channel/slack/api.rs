@@ -2,6 +2,8 @@ use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::time::Duration;
 
+use crate::channel::rate_limit::with_rate_limit_retry;
+
 /// Slack Web API client.
 ///
 /// Uses the bot token (xoxb-...) for all API calls except `connections_open`,
@@ -74,6 +76,10 @@ impl SlackApi {
     }
 
     /// Make a POST request to a Slack Web API method with a specified token.
+    ///
+    /// Slack Web API tier-based rate limits（chat.postMessage tier 4 ≈ 1
+    /// msg/sec/channel）通过 HTTP 429 + `Retry-After` header 通知；用
+    /// `with_rate_limit_retry` 自动尊重退避。
     async fn slack_post_with_token<T: serde::de::DeserializeOwned>(
         &self,
         method: &str,
@@ -81,16 +87,19 @@ impl SlackApi {
         body: serde_json::Value,
     ) -> Result<T> {
         let url = format!("https://slack.com/api/{}", method);
+        let auth_header = format!("Bearer {}", token);
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", token))
-            .header("Content-Type", "application/json; charset=utf-8")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow!("Slack API request failed for {}: {}", method, e))?;
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .post(&url)
+                .header("Authorization", &auth_header)
+                .header("Content-Type", "application/json; charset=utf-8")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow!("Slack API request failed for {}: {}", method, e))
+        })
+        .await?;
 
         let status = resp.status();
         if !status.is_success() {

@@ -252,14 +252,62 @@ pub async fn run_gateway_loop(
                     last_heartbeat = tokio::time::Instant::now();
                 }
 
-                msg = ws.recv_text() => {
+                msg = ws.recv_text_with_close() => {
                     let text = match msg {
-                        Some(t) => t,
+                        Some(Ok(t)) => t,
+                        Some(Err(close)) => {
+                            // Discord gateway close codes:
+                            // - 4004 authentication failed (token invalid)
+                            // - 4010 invalid shard
+                            // - 4011 sharding required
+                            // - 4012 invalid API version
+                            // - 4013 invalid intents
+                            // - 4014 disallowed intents (privileged not enabled)
+                            // 这些是 fatal，不应该 RESUME / IDENTIFY 反复重试
+                            // - 4007 invalid seq
+                            // - 4009 session timeout
+                            // 这两个清 session 后 fresh IDENTIFY
+                            // - 其它（4000-4003 / 4005 / 4008）允许 RESUME
+                            // <https://discord.com/developers/docs/topics/opcodes-and-status-codes#gateway>
+                            match close.code {
+                                4004 | 4010 | 4011 | 4012 | 4013 | 4014 => {
+                                    app_error!(
+                                        "channel",
+                                        "discord::gateway",
+                                        "Fatal close code {} ({}); aborting account '{}'",
+                                        close.code,
+                                        close.reason,
+                                        account_id
+                                    );
+                                    return;
+                                }
+                                4007 | 4009 => {
+                                    app_warn!(
+                                        "channel",
+                                        "discord::gateway",
+                                        "Recoverable close code {} ({}); fresh IDENTIFY",
+                                        close.code,
+                                        close.reason
+                                    );
+                                    invalidate_session = true;
+                                }
+                                _ => {
+                                    app_warn!(
+                                        "channel",
+                                        "discord::gateway",
+                                        "WebSocket closed (code={}, reason='{}'), reconnecting",
+                                        close.code,
+                                        close.reason
+                                    );
+                                }
+                            }
+                            break;
+                        }
                         None => {
                             app_warn!(
                                 "channel",
                                 "discord::gateway",
-                                "WebSocket closed, reconnecting"
+                                "WebSocket closed without close frame, reconnecting"
                             );
                             break;
                         }

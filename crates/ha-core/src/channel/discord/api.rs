@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Result};
 use std::time::Duration;
 
+use crate::channel::rate_limit::with_rate_limit_retry;
+
 /// Discord REST API client (v10).
 pub struct DiscordApi {
     client: reqwest::Client,
@@ -60,13 +62,16 @@ impl DiscordApi {
 
     /// GET /users/@me — validate the bot token and return user object.
     pub async fn get_current_user(&self) -> Result<serde_json::Value> {
-        let resp = self
-            .client
-            .get(self.url("/users/@me"))
-            .header("Authorization", &self.token)
-            .send()
-            .await
-            .map_err(|e| anyhow!("get_current_user request failed: {}", e))?;
+        let url = self.url("/users/@me");
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .get(&url)
+                .header("Authorization", &self.token)
+                .send()
+                .await
+                .map_err(|e| anyhow!("get_current_user request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
@@ -80,13 +85,16 @@ impl DiscordApi {
 
     /// GET /gateway/bot — get the WebSocket gateway URL and shard info.
     pub async fn get_gateway_bot(&self) -> Result<serde_json::Value> {
-        let resp = self
-            .client
-            .get(self.url("/gateway/bot"))
-            .header("Authorization", &self.token)
-            .send()
-            .await
-            .map_err(|e| anyhow!("get_gateway_bot request failed: {}", e))?;
+        let url = self.url("/gateway/bot");
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .get(&url)
+                .header("Authorization", &self.token)
+                .send()
+                .await
+                .map_err(|e| anyhow!("get_gateway_bot request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
@@ -116,8 +124,10 @@ impl DiscordApi {
         let mut body = serde_json::json!({ "content": content });
 
         if let Some(ref_id) = reply_to {
+            // fail_if_not_exists=false: 引用消息已删除时降级为普通消息而不是整条 fail
             body["message_reference"] = serde_json::json!({
-                "message_id": ref_id
+                "message_id": ref_id,
+                "fail_if_not_exists": false,
             });
         }
 
@@ -125,14 +135,16 @@ impl DiscordApi {
             body["components"] = serde_json::json!(comps);
         }
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", &self.token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow!("create_message request failed: {}", e))?;
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .post(&url)
+                .header("Authorization", &self.token)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow!("create_message request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
@@ -170,7 +182,10 @@ impl DiscordApi {
         if let Some(ref_id) = reply_to {
             payload.insert(
                 "message_reference".to_string(),
-                serde_json::json!({ "message_id": ref_id }),
+                serde_json::json!({
+                    "message_id": ref_id,
+                    "fail_if_not_exists": false,
+                }),
             );
         }
         if let Some(comps) = components {
@@ -233,14 +248,16 @@ impl DiscordApi {
 
         let body = serde_json::json!({ "content": content });
 
-        let resp = self
-            .client
-            .patch(&url)
-            .header("Authorization", &self.token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow!("edit_message request failed: {}", e))?;
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .patch(&url)
+                .header("Authorization", &self.token)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow!("edit_message request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
@@ -254,13 +271,15 @@ impl DiscordApi {
     pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<()> {
         let url = self.url(&format!("/channels/{}/messages/{}", channel_id, message_id));
 
-        let resp = self
-            .client
-            .delete(&url)
-            .header("Authorization", &self.token)
-            .send()
-            .await
-            .map_err(|e| anyhow!("delete_message request failed: {}", e))?;
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .delete(&url)
+                .header("Authorization", &self.token)
+                .send()
+                .await
+                .map_err(|e| anyhow!("delete_message request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
@@ -293,14 +312,16 @@ impl DiscordApi {
             body["data"] = d;
         }
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", &self.token)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| anyhow!("create_interaction_response request failed: {}", e))?;
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .post(&url)
+                .header("Authorization", &self.token)
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow!("create_interaction_response request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
@@ -314,19 +335,45 @@ impl DiscordApi {
     pub async fn trigger_typing(&self, channel_id: &str) -> Result<()> {
         let url = self.url(&format!("/channels/{}/typing", channel_id));
 
-        let resp = self
-            .client
-            .post(&url)
-            .header("Authorization", &self.token)
-            .header("Content-Length", "0")
-            .send()
-            .await
-            .map_err(|e| anyhow!("trigger_typing request failed: {}", e))?;
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .post(&url)
+                .header("Authorization", &self.token)
+                .header("Content-Length", "0")
+                .send()
+                .await
+                .map_err(|e| anyhow!("trigger_typing request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
         }
         Ok(())
+    }
+
+    // ── Channels ────────────────────────────────────────────────────
+
+    /// GET /channels/{channel_id} — fetch channel object (used to map Discord
+    /// `type` enum to ChatType for forum threads / guild text channels).
+    pub async fn get_channel(&self, channel_id: &str) -> Result<serde_json::Value> {
+        let url = self.url(&format!("/channels/{}", channel_id));
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .get(&url)
+                .header("Authorization", &self.token)
+                .send()
+                .await
+                .map_err(|e| anyhow!("get_channel request failed: {}", e))
+        })
+        .await?;
+
+        if !resp.status().is_success() {
+            return Err(Self::parse_error(resp).await);
+        }
+        resp.json()
+            .await
+            .map_err(|e| anyhow!("get_channel parse failed: {}", e))
     }
 
     // ── Application Commands ────────────────────────────────────────
@@ -339,14 +386,16 @@ impl DiscordApi {
     ) -> Result<()> {
         let url = self.url(&format!("/applications/{}/commands", application_id));
 
-        let resp = self
-            .client
-            .put(&url)
-            .header("Authorization", &self.token)
-            .json(&commands)
-            .send()
-            .await
-            .map_err(|e| anyhow!("bulk_overwrite_global_commands request failed: {}", e))?;
+        let resp = with_rate_limit_retry(3, || async {
+            self.client
+                .put(&url)
+                .header("Authorization", &self.token)
+                .json(&commands)
+                .send()
+                .await
+                .map_err(|e| anyhow!("bulk_overwrite_global_commands request failed: {}", e))
+        })
+        .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);

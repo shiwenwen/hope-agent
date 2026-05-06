@@ -8,10 +8,30 @@
 /// - Code block: ` ```text``` ` (same)
 /// - Links: `<url|text>` (not `[text](url)`)
 /// - Blockquote: `>` (same)
+///
+/// **Escape rules** (per <https://api.slack.com/reference/surfaces/formatting#escaping>):
+/// raw `<` `>` `&` in user-supplied text MUST be replaced with `&lt;` `&gt;`
+/// `&amp;` to avoid being parsed as control characters (mention/link/entity
+/// delimiters). Inside code spans / code blocks Slack treats content as
+/// preformatted but还需要转义这三字符以避免渲染异常。URL 部分（mrkdwn `<url|text>`
+/// 的 url 段）不转义 `&`（URL 通常合法保留），但仍转义 `<` `>` 防止破坏语法。
 pub fn markdown_to_mrkdwn(md: &str) -> String {
     let mut result = String::with_capacity(md.len());
     let mut in_code_block = false;
     let mut chars = md.chars().peekable();
+
+    /// Slack mrkdwn 控制字符：`<` 触发 mention/link/channel-ref 解析（`<@>`
+    /// `<#>` `<url>` `<url|text>`），`&` 触发 entity 解析。**这两个**必须转义。
+    /// `>` 仅在**行首**有 blockquote 语义；行内出现无害。如果行首 `>` 也转
+    /// 会丢失 blockquote 渲染——故 `>` 一律不转，blockquote 语义保留，业务侧
+    /// raw `>` 不存在被错误解析的风险。
+    fn push_escaped(out: &mut String, ch: char) {
+        match ch {
+            '<' => out.push_str("&lt;"),
+            '&' => out.push_str("&amp;"),
+            _ => out.push(ch),
+        }
+    }
 
     while let Some(ch) = chars.next() {
         // Handle code blocks: ``` ... ```
@@ -38,20 +58,22 @@ pub fn markdown_to_mrkdwn(md: &str) -> String {
             }
         }
 
-        // Inside code block: pass through unchanged
+        // Inside code block: 转义 `<>&` 防止 Slack mrkdwn 解析器把 `<` 当成
+        // mention 起始；其它字符按原文。
         if in_code_block {
-            result.push(ch);
+            push_escaped(&mut result, ch);
             continue;
         }
 
-        // Inline code: `code` - pass through unchanged
+        // Inline code: `code` — 同上，content 仍要转义 `<>&`
         if ch == '`' {
             result.push('`');
-            while let Some(c) = chars.next() {
-                result.push(c);
+            for c in chars.by_ref() {
                 if c == '`' {
+                    result.push('`');
                     break;
                 }
+                push_escaped(&mut result, c);
             }
             continue;
         }
@@ -101,21 +123,33 @@ pub fn markdown_to_mrkdwn(md: &str) -> String {
             if found_bracket && chars.peek() == Some(&'(') {
                 chars.next(); // consume (
                 let mut url = String::new();
-                while let Some(c) = chars.next() {
+                for c in chars.by_ref() {
                     if c == ')' {
                         break;
                     }
                     url.push(c);
                 }
+                // mrkdwn `<url|text>`: URL 段中允许 `&`（query params 常用），但
+                // `<` `>` 必须转义防止破坏语法；text 段全转
                 result.push('<');
-                result.push_str(&url);
+                for c in url.chars() {
+                    match c {
+                        '<' => result.push_str("&lt;"),
+                        '>' => result.push_str("&gt;"),
+                        _ => result.push(c),
+                    }
+                }
                 result.push('|');
-                result.push_str(&link_text);
+                for c in link_text.chars() {
+                    push_escaped(&mut result, c);
+                }
                 result.push('>');
             } else {
-                // Not a link, output as-is
+                // Not a link, output as-is — but still escape contents
                 result.push('[');
-                result.push_str(&link_text);
+                for c in link_text.chars() {
+                    push_escaped(&mut result, c);
+                }
                 if found_bracket {
                     result.push(']');
                 }
@@ -123,8 +157,8 @@ pub fn markdown_to_mrkdwn(md: &str) -> String {
             continue;
         }
 
-        // Everything else: pass through
-        result.push(ch);
+        // Everything else: 转义 `<` 与 `&` 后透传
+        push_escaped(&mut result, ch);
     }
 
     // Close any unclosed code block
@@ -238,6 +272,43 @@ mod tests {
     #[test]
     fn test_empty_string() {
         assert_eq!(markdown_to_mrkdwn(""), "");
+    }
+
+    #[test]
+    fn test_escape_lt_amp_in_plain_text() {
+        // 用户输入含 < 必须转义防止被解析为 mention/link 起始；& 转义防止
+        // entity；> 不转以保留 blockquote
+        assert_eq!(
+            markdown_to_mrkdwn("if a < b && c > d"),
+            "if a &lt; b &amp;&amp; c > d"
+        );
+    }
+
+    #[test]
+    fn test_escape_inside_code_span() {
+        assert_eq!(markdown_to_mrkdwn("`x < y`"), "`x &lt; y`");
+    }
+
+    #[test]
+    fn test_escape_inside_code_block() {
+        let input = "```\nx < y && z\n```";
+        let expected = "```\nx &lt; y &amp;&amp; z\n```";
+        assert_eq!(markdown_to_mrkdwn(input), expected);
+    }
+
+    #[test]
+    fn test_escape_link_text_keeps_url_amp() {
+        // URL 段保留 `&`（query params 常用），text 段转 `<`
+        assert_eq!(
+            markdown_to_mrkdwn("[a < b](https://x.com/?a=1&b=2)"),
+            "<https://x.com/?a=1&b=2|a &lt; b>"
+        );
+    }
+
+    #[test]
+    fn test_blockquote_preserved() {
+        // `>` 不被转义，blockquote 渲染保留
+        assert_eq!(markdown_to_mrkdwn("> quoted"), "> quoted");
     }
 
     #[test]
