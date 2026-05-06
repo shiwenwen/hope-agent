@@ -70,8 +70,7 @@ impl GoogleChatJwtVerifier {
         authz_header: Option<&str>,
         expected_aud: &str,
     ) -> Result<()> {
-        let header_value =
-            authz_header.ok_or_else(|| anyhow!("Missing Authorization header"))?;
+        let header_value = authz_header.ok_or_else(|| anyhow!("Missing Authorization header"))?;
         let token = header_value
             .strip_prefix("Bearer ")
             .ok_or_else(|| anyhow!("Authorization header is not Bearer"))?;
@@ -193,9 +192,7 @@ mod tests {
     #[tokio::test]
     async fn non_bearer_returns_err() {
         let v = GoogleChatJwtVerifier::new();
-        let r = v
-            .verify_authz_header(Some("Basic abc=="), "12345")
-            .await;
+        let r = v.verify_authz_header(Some("Basic abc=="), "12345").await;
         assert!(r.is_err());
         let msg = r.unwrap_err().to_string();
         assert!(msg.contains("not Bearer"));

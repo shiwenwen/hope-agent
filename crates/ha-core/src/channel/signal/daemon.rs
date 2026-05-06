@@ -48,13 +48,7 @@ impl SignalDaemon {
         // 敏感，部分版本会把 host:port 当下一个独立参数）。改成 `--http=...`
         // 单 token 形式，与 signal-cli-jsonrpc.5.adoc 文档一致。
         let http_arg = format!("--http={}", http_addr);
-        let args = vec![
-            "-a",
-            account,
-            "daemon",
-            &http_arg,
-            "--no-receive-stdout",
-        ];
+        let args = vec!["-a", account, "daemon", &http_arg, "--no-receive-stdout"];
 
         app_info!(
             "channel",

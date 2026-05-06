@@ -144,10 +144,7 @@ mod tests {
 
     #[test]
     fn parse_retry_after_seconds() {
-        assert_eq!(
-            parse_retry_after_value("5"),
-            Some(Duration::from_secs(5))
-        );
+        assert_eq!(parse_retry_after_value("5"), Some(Duration::from_secs(5)));
         assert_eq!(
             parse_retry_after_value("1.500"),
             Some(Duration::from_millis(1500))

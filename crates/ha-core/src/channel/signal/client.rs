@@ -511,7 +511,10 @@ fn is_group_id(recipient: &str) -> bool {
     }
     // 纯 base64 形态群 ID（v1）：22 或 44 字符无破折号
     let len = recipient.len();
-    (len == 22 || len == 44) && recipient.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+    (len == 22 || len == 44)
+        && recipient
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
 }
 
 #[cfg(test)]
@@ -544,9 +547,7 @@ mod tests {
         // 22 chars base64
         assert!(is_group_id("AbCdEfGhIjKlMnOpQrStUv"));
         // 44 chars base64
-        assert!(is_group_id(
-            "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh"
-        ));
+        assert!(is_group_id("AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh"));
     }
 
     #[test]

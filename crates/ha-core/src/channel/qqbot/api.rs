@@ -256,12 +256,7 @@ impl QqBotApi {
     }
 
     /// Upload a media URL for use in a subsequent C2C message.
-    pub async fn post_c2c_files(
-        &self,
-        openid: &str,
-        file_type: u32,
-        url: &str,
-    ) -> Result<String> {
+    pub async fn post_c2c_files(&self, openid: &str, file_type: u32, url: &str) -> Result<String> {
         let path = format!("/v2/users/{}/files", openid);
         let body = serde_json::json!({
             "file_type": file_type,

@@ -278,7 +278,11 @@ impl ChannelPlugin for LinePlugin {
         if !payload.buttons.is_empty() {
             // buttons template 必须有 alt + text；text 长度上限 160（buttons
             // template 限制），caption 由外侧 text fallback。
-            let alt = if text.is_empty() { "Choose an option" } else { &text };
+            let alt = if text.is_empty() {
+                "Choose an option"
+            } else {
+                &text
+            };
             let inner_text = crate::truncate_utf8(alt, 160);
             let actions: Vec<_> = payload
                 .buttons

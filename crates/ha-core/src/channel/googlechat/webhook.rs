@@ -61,10 +61,7 @@ pub fn create_webhook_handler(
                 .or_else(|| req.headers.get("Authorization"))
                 .map(|s| s.as_str());
             let verifier = get_jwt_verifier().await;
-            if let Err(e) = verifier
-                .verify_authz_header(authz, &project_number)
-                .await
-            {
+            if let Err(e) = verifier.verify_authz_header(authz, &project_number).await {
                 app_warn!(
                     "channel",
                     "googlechat",

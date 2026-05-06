@@ -277,9 +277,7 @@ impl ChannelPlugin for QqBotPlugin {
                     };
                     let file_type = match media.media_type {
                         MediaType::Photo => api::QqBotApi::FILE_TYPE_IMAGE,
-                        MediaType::Video | MediaType::Animation => {
-                            api::QqBotApi::FILE_TYPE_VIDEO
-                        }
+                        MediaType::Video | MediaType::Animation => api::QqBotApi::FILE_TYPE_VIDEO,
                         MediaType::Voice | MediaType::Audio => api::QqBotApi::FILE_TYPE_VOICE,
                         // Document / Sticker 暂未开放（file_type=4 需特殊审核）
                         _ => continue,
@@ -290,8 +288,7 @@ impl ChannelPlugin for QqBotPlugin {
                         api.send_c2c_media(openid, &file_info, caption, msg_id)
                             .await?
                     } else if let Some(group_openid) = chat_id.strip_prefix("group:") {
-                        let file_info =
-                            api.post_group_files(group_openid, file_type, &url).await?;
+                        let file_info = api.post_group_files(group_openid, file_type, &url).await?;
                         api.send_group_media(group_openid, &file_info, caption, msg_id)
                             .await?
                     } else {
