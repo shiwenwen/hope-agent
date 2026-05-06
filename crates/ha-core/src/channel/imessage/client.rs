@@ -167,13 +167,10 @@ impl IMessageClient {
         let process = self.process.clone();
         let pending = self.pending.clone();
         let stderr_cancel = cancel.clone();
-        let ready_tx = std::sync::Mutex::new(Some(ready_tx));
 
         tokio::spawn(async move {
-            // 进入循环前发 ready 信号
-            if let Some(tx) = ready_tx.lock().ok().and_then(|mut g| g.take()) {
-                let _ = tx.send(());
-            }
+            // 进入循环前发 ready 信号；oneshot::send 消耗 self，move 进 spawn 即可
+            let _ = ready_tx.send(());
             loop {
                 let line = {
                     let mut guard = process.lock().await;

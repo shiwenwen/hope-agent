@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::Value;
@@ -11,6 +13,11 @@ pub struct SignalClient {
     client: Client,
     base_url: String,
     account: String,
+    /// `inbound_msg_id (timestamp 字串) → sender_id` 缓存，由 SSE 解析时写入；
+    /// outbound `send` 拼 `quoteAuthor` 时读取。signal-cli 要求 reply 必须同时
+    /// 提供 quoteTimestamp + quoteAuthor，缺一即被忽略发为普通消息。LRU cap
+    /// 1024 自然驱逐过期条目。
+    quote_authors: Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
 }
 
 impl SignalClient {
@@ -21,7 +28,16 @@ impl SignalClient {
             // 与 daemon.rs 端绑定地址保持一致（127.0.0.1 而非 localhost）
             base_url: format!("http://127.0.0.1:{}", port),
             account,
+            quote_authors: Arc::new(tokio::sync::Mutex::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(1024).expect("1024 is non-zero"),
+            ))),
         }
+    }
+
+    /// 取一个 inbound message_id 对应的 sender_id（由 SSE loop 缓存）。
+    pub async fn quote_author_for(&self, message_id: &str) -> Option<String> {
+        let mut cache = self.quote_authors.lock().await;
+        cache.get(message_id).cloned()
     }
 
     /// Make a JSON-RPC 2.0 call to the signal-cli daemon.
@@ -418,6 +434,12 @@ impl SignalClient {
             raw: envelope.clone(),
         };
 
+        // 缓存 sender_id ←→ message_id 映射，供 outbound reply 拼 quoteAuthor 用
+        if !msg.message_id.is_empty() && !msg.sender_id.is_empty() {
+            let mut cache = self.quote_authors.lock().await;
+            cache.put(msg.message_id.clone(), msg.sender_id.clone());
+        }
+
         if inbound_tx.send(msg).await.is_err() {
             app_warn!(
                 "channel",
@@ -489,12 +511,9 @@ impl SignalClient {
 /// Signal recipient 形态：
 /// - `+E164` 电话号（例如 `+15551234567`）
 /// - UUID（v4，含 `-`，36 chars）—— 新版用户 identifier
-/// - `u:username` —— signal-cli 0.13+ username 形式
-/// - 群 ID v1：纯 base64 字符串，长度 22 或 44 chars，不含 `-` `:` `+` `@`
+/// - `u:username` 或 `@username` —— signal-cli 0.13+ username 形式
+/// - 群 ID v1：纯 base64 字符串（22 或 44 chars，无 `-` `:` `+` `@`）
 /// - 群 ID v2：以 `group.` 前缀（base64 字串）
-///
-/// 之前 `!starts_with('+')` 在 UUID 时代会把单聊 UUID 当作群发给 signal-cli，
-/// 直接返回 `Group with id ... not found`。
 fn is_group_id(recipient: &str) -> bool {
     if recipient.starts_with('+') {
         return false;

@@ -85,11 +85,9 @@ impl GoogleChatApi {
 
         let mut body = serde_json::json!({ "text": text });
 
-        // Google Chat API 区分两种 thread 引用：
-        // - `thread.name` —— 已存在线程的 resource name `spaces/{}/threads/{}`
-        // - `thread.threadKey` —— 开发者自定义 key（用于幂等创建/匹配）
-        // 之前一律用 `name` 会让自定义 thread_key（如 cron 自动消息生成的
-        // 任意字符串）触发 INVALID_ARGUMENT。这里按 thread_key 形态自动选用。
+        // Google Chat API 两种 thread 引用：`thread.name` 仅接 resource name
+        // `spaces/{}/threads/{}`；其他自定义 key（如 cron 生成的任意字串）
+        // 必须走 `thread.threadKey`，不然返回 INVALID_ARGUMENT。
         let mut reply_option_param = "";
         if let Some(tk) = thread_key {
             if tk.starts_with("spaces/") && tk.contains("/threads/") {

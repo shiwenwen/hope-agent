@@ -120,17 +120,9 @@ impl IrcClient {
 
     /// Send PRIVMSG to a target (channel or nick).
     pub async fn send_privmsg(&self, target: &str, text: &str) -> Result<()> {
-        // RFC 2812 限制整行 ≤ 512 字节（含 CRLF）。服务端会在我们发出去的
-        // 消息上加 prefix `:nick!user@host PRIVMSG <target> :`，估算上限：
-        //   prefix `:nick!user@host` ≈ 60-100 bytes（保守估 100）
-        //   ` PRIVMSG ` = 9 bytes
-        //   target 长度（频道名最长 50 + 余量）
-        //   ` :` = 2 bytes
-        //   CRLF = 2 bytes
-        // 所以本地能发的 text 上限 ≈ 512 - 100 - 9 - target.len() - 2 - 2
-        //                        = 399 - target.len()
-        // 之前硬编 400 在长 host 或长频道名场景仍可能超 512；下面动态算。
-        // 最少留 64 字节兜底（CJK 21 字符 + ASCII 64 字符）。
+        // RFC 2812 整行 ≤ 512 字节（含 CRLF）。服务端附加的 prefix
+        // `:nick!user@host PRIVMSG <target> :` ≈ 100 + 9 + target.len() + 4
+        // 字节；剩下的才是 text 上限。最少留 64 字节兜底（CJK 21 字符）。
         let sanitized = text.replace(['\r', '\n'], " ");
         let overhead = 100 + 9 + target.len() + 2 + 2;
         let max_text_len = 512usize.saturating_sub(overhead).max(64);

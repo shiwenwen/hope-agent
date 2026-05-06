@@ -322,9 +322,8 @@ impl ChannelPlugin for LinePlugin {
             messages.truncate(5);
         }
 
-        // Try to use reply token first. LINE replyToken 官方文档约定 ~1 分钟
-        // 有效；之前 50s 安全余量过激进，30-50s 区间会无谓走 push（计费 +
-        // 不计入"免费消息"配额）。改 55s 留 5s buffer 应对时钟漂移。
+        // LINE replyToken 官方约定 ~1 分钟有效；55s 留 5s buffer 应对时钟漂移
+        // 同时不浪费 reply 配额（reply 不计费，push 计费）
         let reply_token = {
             let mut tokens = reply_tokens.lock().await;
             if let Some((token, ts)) = tokens.remove(chat_id) {

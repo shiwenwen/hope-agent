@@ -79,10 +79,9 @@ pub(crate) async fn run_polling_loop(
                     );
 
                     // OpenClaw types.ts 注释：errcode=-14 表示 session timeout。
-                    // 但网络抖动 / sync 漂移也可能让单次返回 -14；之前一次即触发
-                    // 1 小时熔断会让用户在偶发抖动后整小时收不到回复。
-                    // 改为 3 次连续 -14 才熔断；任何一次成功（is_api_error=false 后
-                    // consecutive_failures 重置）都重新计数。
+                    // 但网络抖动 / sync 漂移也可能瞬时返回 -14；要求 3 次连续才
+                    // 熔断（is_api_error=false 时 consecutive_failures 已重置）
+                    // 否则偶发抖动会让用户整小时收不到回复。
                     if should_stop_for_expired_session(&resp) {
                         if consecutive_failures < 3 {
                             app_warn!(

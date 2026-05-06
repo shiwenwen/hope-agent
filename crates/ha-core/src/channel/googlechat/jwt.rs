@@ -146,6 +146,16 @@ impl GoogleChatJwtVerifier {
     }
 
     async fn refresh_keys(&self) -> Result<()> {
+        // 出站 HTTP 必须过 SSRF 校验（AGENTS.md 红线 — 新出站入口严禁自写
+        // IP 校验）。URL 写死指向 googleapis.com，但仍走统一 helper。
+        crate::security::ssrf::check_url(
+            PUBLIC_KEYS_URL,
+            crate::security::ssrf::SsrfPolicy::Default,
+            &[],
+        )
+        .await
+        .map_err(|e| anyhow!("SSRF check failed for Google public keys URL: {}", e))?;
+
         let resp = self
             .http_client
             .get(PUBLIC_KEYS_URL)

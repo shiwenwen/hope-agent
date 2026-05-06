@@ -13,6 +13,17 @@ const POLL_INTERVAL: Duration = Duration::from_secs(2);
 const RETRY_DELAY: Duration = Duration::from_secs(2);
 const BACKOFF_DELAY: Duration = Duration::from_secs(30);
 
+/// 时间戳单位防御：bridge HTTP 协议约定 Unix 秒（UTC），但 WhatsApp 原生
+/// （whatsmeow / Baileys）用毫秒。若 ts 大于 4_000_000_000（2096 年）即
+/// 视为毫秒自动除 1000，避免 since= 串永远拿不到新消息。
+fn normalize_unix_seconds(ts: i64) -> i64 {
+    if ts > 4_000_000_000 {
+        ts / 1000
+    } else {
+        ts
+    }
+}
+
 /// Run the WhatsApp bridge polling loop.
 ///
 /// Follows the same pattern as the WeChat polling loop:
@@ -60,14 +71,8 @@ pub(crate) async fn run_whatsapp_polling(
                         continue;
                     }
 
-                    // 时间戳单位防御：bridge HTTP 协议约定 Unix 秒（UTC），但
-                    // WhatsApp 协议（whatsmeow / Baileys）原生用毫秒；若 bridge
-                    // 透传毫秒（> 4_000_000_000 = 2096 年）会让 since= 串得离谱
-                    // 大、下次轮询永远拿不到新消息。检测 + 自动除以 1000。
-                    if let Some(mut ts) = msg.timestamp {
-                        if ts > 4_000_000_000 {
-                            ts /= 1000;
-                        }
+                    if let Some(ts) = msg.timestamp {
+                        let ts = normalize_unix_seconds(ts);
                         if ts > last_timestamp {
                             last_timestamp = ts;
                         }
@@ -142,7 +147,7 @@ fn convert_bridge_message(account_id: &str, msg: BridgeMessage) -> Option<MsgCon
         .map(str::to_string);
 
     let timestamp = timestamp
-        .map(|ts| if ts > 4_000_000_000 { ts / 1000 } else { ts })
+        .map(normalize_unix_seconds)
         .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
         .unwrap_or_else(Utc::now);
 

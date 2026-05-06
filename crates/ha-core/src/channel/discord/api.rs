@@ -3,6 +3,9 @@ use std::time::Duration;
 
 use crate::channel::rate_limit::with_rate_limit_retry;
 
+/// 默认 429 重试上限。改成 5 retries 时只动这里。
+const MAX_RETRY_ATTEMPTS: u32 = 3;
+
 /// Discord REST API client (v10).
 pub struct DiscordApi {
     client: reqwest::Client,
@@ -58,50 +61,61 @@ impl DiscordApi {
         )
     }
 
-    // ── Users ───────────────────────────────────────────────────────
-
-    /// GET /users/@me — validate the bot token and return user object.
-    pub async fn get_current_user(&self) -> Result<serde_json::Value> {
-        let url = self.url("/users/@me");
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .get(&url)
-                .header("Authorization", &self.token)
-                .send()
+    /// 发一个带 Bot token 的 JSON 请求 + 自动 429 重试 + 错误转 anyhow。
+    /// 4xx/5xx 直接返回错误（含响应体片段）；只 GET/POST/PATCH/DELETE 4 个动词。
+    async fn auth_request(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<reqwest::Response> {
+        let resp = with_rate_limit_retry(MAX_RETRY_ATTEMPTS, || async {
+            let mut req = self
+                .client
+                .request(method.clone(), url)
+                .header("Authorization", &self.token);
+            if let Some(b) = body {
+                req = req.json(b);
+            }
+            req.send()
                 .await
-                .map_err(|e| anyhow!("get_current_user request failed: {}", e))
+                .map_err(|e| anyhow!("Discord {} {} request failed: {}", method, url, e))
         })
         .await?;
 
         if !resp.status().is_success() {
             return Err(Self::parse_error(resp).await);
         }
+        Ok(resp)
+    }
+
+    /// 同 [`auth_request`] 但解析 JSON 响应。
+    async fn auth_request_json<T: serde::de::DeserializeOwned>(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: Option<&serde_json::Value>,
+    ) -> Result<T> {
+        let resp = self.auth_request(method.clone(), url, body).await?;
         resp.json()
             .await
-            .map_err(|e| anyhow!("get_current_user parse failed: {}", e))
+            .map_err(|e| anyhow!("Discord {} {} parse failed: {}", method, url, e))
+    }
+
+    // ── Users ───────────────────────────────────────────────────────
+
+    /// GET /users/@me — validate the bot token and return user object.
+    pub async fn get_current_user(&self) -> Result<serde_json::Value> {
+        self.auth_request_json(reqwest::Method::GET, &self.url("/users/@me"), None)
+            .await
     }
 
     // ── Gateway ─────────────────────────────────────────────────────
 
     /// GET /gateway/bot — get the WebSocket gateway URL and shard info.
     pub async fn get_gateway_bot(&self) -> Result<serde_json::Value> {
-        let url = self.url("/gateway/bot");
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .get(&url)
-                .header("Authorization", &self.token)
-                .send()
-                .await
-                .map_err(|e| anyhow!("get_gateway_bot request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
-        resp.json()
+        self.auth_request_json(reqwest::Method::GET, &self.url("/gateway/bot"), None)
             .await
-            .map_err(|e| anyhow!("get_gateway_bot parse failed: {}", e))
     }
 
     // ── Messages ────────────────────────────────────────────────────
@@ -135,23 +149,8 @@ impl DiscordApi {
             body["components"] = serde_json::json!(comps);
         }
 
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .post(&url)
-                .header("Authorization", &self.token)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| anyhow!("create_message request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
-        resp.json()
+        self.auth_request_json(reqwest::Method::POST, &url, Some(&body))
             .await
-            .map_err(|e| anyhow!("create_message parse failed: {}", e))
     }
 
     /// POST /channels/{channel_id}/messages with multipart/form-data attachments.
@@ -248,42 +247,16 @@ impl DiscordApi {
 
         let body = serde_json::json!({ "content": content });
 
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .patch(&url)
-                .header("Authorization", &self.token)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| anyhow!("edit_message request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
-        resp.json()
+        self.auth_request_json(reqwest::Method::PATCH, &url, Some(&body))
             .await
-            .map_err(|e| anyhow!("edit_message parse failed: {}", e))
     }
 
     /// DELETE /channels/{channel_id}/messages/{message_id} — delete a message.
     pub async fn delete_message(&self, channel_id: &str, message_id: &str) -> Result<()> {
         let url = self.url(&format!("/channels/{}/messages/{}", channel_id, message_id));
 
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .delete(&url)
-                .header("Authorization", &self.token)
-                .send()
-                .await
-                .map_err(|e| anyhow!("delete_message request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
+        self.auth_request(reqwest::Method::DELETE, &url, None)
+            .await?;
         Ok(())
     }
 
@@ -312,20 +285,8 @@ impl DiscordApi {
             body["data"] = d;
         }
 
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .post(&url)
-                .header("Authorization", &self.token)
-                .json(&body)
-                .send()
-                .await
-                .map_err(|e| anyhow!("create_interaction_response request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
+        self.auth_request(reqwest::Method::POST, &url, Some(&body))
+            .await?;
         Ok(())
     }
 
@@ -334,21 +295,8 @@ impl DiscordApi {
     /// POST /channels/{channel_id}/typing — trigger typing indicator.
     pub async fn trigger_typing(&self, channel_id: &str) -> Result<()> {
         let url = self.url(&format!("/channels/{}/typing", channel_id));
-
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .post(&url)
-                .header("Authorization", &self.token)
-                .header("Content-Length", "0")
-                .send()
-                .await
-                .map_err(|e| anyhow!("trigger_typing request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
+        // typing endpoint 不带 body；reqwest 自动写 Content-Length: 0
+        self.auth_request(reqwest::Method::POST, &url, None).await?;
         Ok(())
     }
 
@@ -358,22 +306,8 @@ impl DiscordApi {
     /// `type` enum to ChatType for forum threads / guild text channels).
     pub async fn get_channel(&self, channel_id: &str) -> Result<serde_json::Value> {
         let url = self.url(&format!("/channels/{}", channel_id));
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .get(&url)
-                .header("Authorization", &self.token)
-                .send()
-                .await
-                .map_err(|e| anyhow!("get_channel request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
-        resp.json()
+        self.auth_request_json(reqwest::Method::GET, &url, None)
             .await
-            .map_err(|e| anyhow!("get_channel parse failed: {}", e))
     }
 
     // ── Application Commands ────────────────────────────────────────
@@ -385,21 +319,9 @@ impl DiscordApi {
         commands: Vec<serde_json::Value>,
     ) -> Result<()> {
         let url = self.url(&format!("/applications/{}/commands", application_id));
-
-        let resp = with_rate_limit_retry(3, || async {
-            self.client
-                .put(&url)
-                .header("Authorization", &self.token)
-                .json(&commands)
-                .send()
-                .await
-                .map_err(|e| anyhow!("bulk_overwrite_global_commands request failed: {}", e))
-        })
-        .await?;
-
-        if !resp.status().is_success() {
-            return Err(Self::parse_error(resp).await);
-        }
+        let body = serde_json::Value::Array(commands);
+        self.auth_request(reqwest::Method::PUT, &url, Some(&body))
+            .await?;
         Ok(())
     }
 }

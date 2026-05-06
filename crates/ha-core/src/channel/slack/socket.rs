@@ -387,10 +387,8 @@ async fn handle_slash_command(
     let timestamp = chrono::Utc::now();
     let message_id = format!("slash_{}", timestamp.timestamp_millis());
 
-    // Slash command 可以在 channel/group/DM 任意位置触发；按 channel_id 前缀
-    // 路由：D=DM、C=public channel、G=private channel/multi-party DM。
-    // 之前固定 `chat_type=Dm` 会让群级安全策略被绕过（DM 与 channel 走不同的
-    // dm_policy / channels[] 配置）。
+    // Slash command 可以在 channel/group/DM 任意位置触发；必须按 channel_id
+    // 前缀分流，否则群级安全策略（channels[] / group_policy）会被 DM 策略绕过
     let chat_type = chat_type_from_slack_channel_id(channel_id);
 
     let msg_ctx = MsgContext {

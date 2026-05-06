@@ -8,6 +8,51 @@ use tokio::sync::Mutex;
 
 use super::auth::{format_auth_value, QqBotAuth};
 
+/// QQ Bot V2 多端点 chat 命名空间，由 hope-agent 在 inbound MsgContext 时
+/// 把平台原始 ID 编码为 `<scope>:<id>` 字串（见 [`gateway`](super::gateway)），
+/// 出站 dispatch 时再解回选择正确的 send endpoint。
+///
+/// - `C2c` 私聊：`POST /v2/users/{openid}/messages`，仅此端点支持 keyboard
+/// - `Group` 群：`POST /v2/groups/{group_openid}/messages`，支持 keyboard 与 media
+/// - `Channel` 频道：`POST /channels/{channel_id}/messages`
+/// - `Dms` 频道私信：`POST /dms/{guild_id}/messages`
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QqChatScope<'a> {
+    C2c(&'a str),
+    Group(&'a str),
+    Channel(&'a str),
+    Dms(&'a str),
+}
+
+impl<'a> QqChatScope<'a> {
+    pub fn parse(chat_id: &'a str) -> Result<Self> {
+        if let Some(id) = chat_id.strip_prefix("c2c:") {
+            Ok(QqChatScope::C2c(id))
+        } else if let Some(id) = chat_id.strip_prefix("group:") {
+            Ok(QqChatScope::Group(id))
+        } else if let Some(id) = chat_id.strip_prefix("channel:") {
+            Ok(QqChatScope::Channel(id))
+        } else if let Some(id) = chat_id.strip_prefix("dms:") {
+            Ok(QqChatScope::Dms(id))
+        } else {
+            Err(anyhow!(
+                "Unknown QQ Bot chat_id format (expected 'c2c:'/'group:'/'channel:'/'dms:' prefix): {}",
+                crate::truncate_utf8(chat_id, 100)
+            ))
+        }
+    }
+
+    /// keyboard / media 仅 c2c/group 端点 V2 接口支持；channel/dms 须降级到
+    /// 文本格式（数字回复 / 链接）。
+    pub fn supports_native_keyboard(&self) -> bool {
+        matches!(self, QqChatScope::C2c(_) | QqChatScope::Group(_))
+    }
+
+    pub fn supports_native_media(&self) -> bool {
+        matches!(self, QqChatScope::C2c(_) | QqChatScope::Group(_))
+    }
+}
+
 /// QQ Bot REST API client.
 ///
 /// Auth scheme is documented on [`super::auth::AUTH_SCHEME`]; also sends
@@ -312,43 +357,27 @@ impl QqBotApi {
     }
 
     /// Send a message with inline keyboard buttons (msg_type 2 = markdown with keyboard).
-    ///
-    /// For QQ Bot, buttons are sent as a keyboard component alongside markdown content.
-    /// Only supported for C2C and group messages (not guild channels/DMs).
+    /// Only supported for [`QqChatScope::C2c`] / [`QqChatScope::Group`].
     pub async fn send_message_with_keyboard(
         &self,
-        chat_id: &str,
+        scope: QqChatScope<'_>,
         content: &str,
         keyboard: serde_json::Value,
         msg_id: Option<&str>,
     ) -> Result<serde_json::Value> {
-        let (path, mut body) = if let Some(openid) = chat_id.strip_prefix("c2c:") {
-            (
-                format!("/v2/users/{}/messages", openid),
-                serde_json::json!({
-                    "content": content,
-                    "msg_type": 2,
-                    "keyboard": keyboard,
-                }),
-            )
-        } else if let Some(group_openid) = chat_id.strip_prefix("group:") {
-            (
-                format!("/v2/groups/{}/messages", group_openid),
-                serde_json::json!({
-                    "content": content,
-                    "msg_type": 2,
-                    "keyboard": keyboard,
-                }),
-            )
-        } else {
-            return Err(anyhow!(
-                "Keyboard buttons not supported for this QQ Bot chat type: {}",
-                crate::truncate_utf8(chat_id, 100)
-            ));
+        let path = match scope {
+            QqChatScope::C2c(openid) => format!("/v2/users/{}/messages", openid),
+            QqChatScope::Group(gid) => format!("/v2/groups/{}/messages", gid),
+            _ => {
+                return Err(anyhow!("Keyboard buttons not supported for {:?}", scope));
+            }
         };
-
+        let mut body = serde_json::json!({
+            "content": content,
+            "msg_type": 2,
+            "keyboard": keyboard,
+        });
         self.inject_passive_reply_meta(&mut body, msg_id).await;
-
         self.qq_request(reqwest::Method::POST, &path, Some(body))
             .await
     }
