@@ -10,6 +10,7 @@
 pub mod api;
 pub mod auth;
 pub mod format;
+pub mod jwt;
 pub mod webhook;
 
 use anyhow::Result;
@@ -81,6 +82,22 @@ impl GoogleChatPlugin {
             .filter(|s| !s.is_empty())
     }
 
+    /// Extract the bot's Google Cloud project number (used as JWT `aud` claim
+    /// when verifying webhook events). 必填——未配置时入站 webhook 一律拒绝。
+    fn extract_project_number(credentials: &serde_json::Value) -> Result<String> {
+        credentials
+            .get("projectNumber")
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Missing 'projectNumber' in Google Chat credentials \
+                     (required for JWT webhook verification)"
+                )
+            })
+    }
+
     /// Get the API for a running account.
     async fn get_api(&self, account_id: &str) -> Result<Arc<GoogleChatApi>> {
         let accounts = self.accounts.lock().await;
@@ -130,6 +147,7 @@ impl ChannelPlugin for GoogleChatPlugin {
     ) -> Result<()> {
         let cred_json = Self::extract_credentials_json(&account.credentials)?;
         let _webhook_base_url = Self::extract_webhook_base_url(&account.credentials);
+        let project_number = Self::extract_project_number(&account.credentials)?;
 
         // Create auth and API instances
         let auth = GoogleChatAuth::from_json(&cred_json)?;
@@ -151,7 +169,12 @@ impl ChannelPlugin for GoogleChatPlugin {
 
         // Start webhook server and register handler
         let webhook_server = get_or_start_webhook_server().await?;
-        let handler = webhook::create_webhook_handler(api.clone(), account.id.clone(), inbound_tx);
+        let handler = webhook::create_webhook_handler(
+            api.clone(),
+            account.id.clone(),
+            project_number,
+            inbound_tx,
+        );
         webhook_server
             .register_handler("googlechat", &account.id, handler)
             .await;
