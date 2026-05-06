@@ -2631,6 +2631,8 @@
     "whatsappBridgeToken": "Kimlik doğrulama tokenı (isteğe bağlı)",
     "whatsappHint": "Çalışan bir WhatsApp bridge servisi gerektirir. HTTP API URL'sini gösterin.",
     "gchatCredentials": "Service Account JSON",
+    "gchatProjectNumber": "Google Cloud Proje Numarası",
+    "gchatProjectNumberHint": "Gelen webhook için Google tarafından imzalanan JWT'yi doğrulamak için gerekli",
     "gchatHint": "Chat API etkinleştirilmiş bir Google Workspace service account gerektirir",
     "webhookUrl": "Genel Webhook URL",
     "webhookUrlHint": "Masaüstü uygulamaların webhook almak için genel bir URL'ye (örn. ngrok) ihtiyacı vardır",

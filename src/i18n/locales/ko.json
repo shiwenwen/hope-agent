@@ -2631,6 +2631,8 @@
     "whatsappBridgeToken": "인증 토큰 (선택)",
     "whatsappHint": "WhatsApp 브리지 서비스가 실행 중이어야 합니다. HTTP API URL 을 지정하세요.",
     "gchatCredentials": "서비스 계정 JSON",
+    "gchatProjectNumber": "Google Cloud 프로젝트 번호",
+    "gchatProjectNumberHint": "수신 webhook의 Google 서명 JWT 검증에 필요",
     "gchatHint": "Chat API 가 활성화된 Google Workspace 서비스 계정이 필요합니다",
     "webhookUrl": "공개 Webhook URL",
     "webhookUrlHint": "데스크톱 앱은 Webhook 수신을 위해 공개 URL (예: ngrok) 이 필요합니다",

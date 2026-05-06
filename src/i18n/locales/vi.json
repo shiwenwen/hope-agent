@@ -2631,6 +2631,8 @@
     "whatsappBridgeToken": "Token xác thực (tùy chọn)",
     "whatsappHint": "Yêu cầu dịch vụ bridge WhatsApp đang chạy. Trỏ đến URL HTTP API của nó.",
     "gchatCredentials": "JSON Service Account",
+    "gchatProjectNumber": "Số dự án Google Cloud",
+    "gchatProjectNumberHint": "Cần để xác minh JWT được Google ký trên webhook đến",
     "gchatHint": "Yêu cầu Service Account Google Workspace với Chat API được bật",
     "webhookUrl": "URL Webhook công khai",
     "webhookUrlHint": "Ứng dụng desktop cần URL công khai (ví dụ ngrok) để nhận webhook",

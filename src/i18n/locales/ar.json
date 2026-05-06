@@ -2631,6 +2631,8 @@
     "whatsappBridgeToken": "رمز المصادقة (اختياري)",
     "whatsappHint": "يتطلب خدمة WhatsApp bridge قيد التشغيل. وجّه إلى URL HTTP API الخاص بها.",
     "gchatCredentials": "JSON Service Account",
+    "gchatProjectNumber": "رقم مشروع Google Cloud",
+    "gchatProjectNumberHint": "مطلوب للتحقق من JWT الموقع من Google على webhook الواردة",
     "gchatHint": "يتطلب Service Account من Google Workspace مع تفعيل Chat API",
     "webhookUrl": "URL Webhook العام",
     "webhookUrlHint": "تطبيقات سطح المكتب تحتاج URL عام (مثل ngrok) لاستقبال webhooks",
