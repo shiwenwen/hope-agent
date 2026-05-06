@@ -1,3 +1,14 @@
+//! WeChat (微信) iLink Bot channel.
+//!
+//! - **Official API**: iLink Bot HTTP JSON API（私有协议，非微信官方公开）
+//! - **SDK / Reference**: Tencent OpenClaw plugin (TS) —
+//!   <https://github.com/Tencent/openclaw-weixin>
+//!   该仓库是当前 hope-agent 实现的权威对照来源（auth header / UIN / version
+//!   编码 / endpoint 路径全部按 OpenClaw 实装）
+//! - **Protocol**: HTTPS long-polling `ilink/bot/getupdates` + AES-128-ECB
+//!   媒体加密 + QR 码登录
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod login;
 pub(crate) mod media;

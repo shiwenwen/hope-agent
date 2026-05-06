@@ -1,3 +1,11 @@
+//! Slack Bot channel.
+//!
+//! - **Official API**: <https://api.slack.com/apis/socket-mode>,
+//!   <https://api.slack.com/methods> (Web API)
+//! - **SDK / Reference**: <https://github.com/slackapi/python-slack-sdk>
+//! - **Protocol**: Socket Mode WebSocket（一次性 wss URL）+ Web API REST
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod format;
 pub mod socket;

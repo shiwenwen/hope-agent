@@ -1,3 +1,12 @@
+//! Signal channel via signal-cli daemon.
+//!
+//! - **Official tool**: <https://github.com/AsamK/signal-cli>
+//! - **JSON-RPC spec**:
+//!   <https://github.com/AsamK/signal-cli/blob/master/man/signal-cli-jsonrpc.5.adoc>
+//! - **Protocol**: 子进程托管 signal-cli `--http=<addr>`，HTTP JSON-RPC
+//!   `/api/v1/rpc` 双向 + SSE `/api/v1/events` 推送实时事件
+//! - **Last reviewed**: 2026-05-05
+
 pub mod client;
 pub mod daemon;
 pub mod format;

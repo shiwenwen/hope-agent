@@ -1,3 +1,12 @@
+//! iMessage channel (macOS only, via `imsg` CLI).
+//!
+//! - **Official tool**: <https://github.com/steipete/imsg>
+//!   (要求 macOS Full Disk Access + Automation→Messages 权限)
+//! - **SDK / Reference**: imsg JSON-RPC over stdio 文档见仓库 README
+//! - **Protocol**: 子进程托管 `imsg`，stdio NDJSON JSON-RPC，watch 订阅推送
+//!   事件，send 单条命令；macOS 限定（依赖 Messages.app + chat.db）
+//! - **Last reviewed**: 2026-05-05
+
 pub mod client;
 pub mod format;
 

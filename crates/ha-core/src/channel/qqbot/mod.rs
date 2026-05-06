@@ -1,3 +1,12 @@
+//! QQ Bot V2 channel (QQ 官方机器人).
+//!
+//! - **Official API**: <https://bot.q.qq.com/wiki/develop/api-v2/>
+//! - **SDK / Reference**: <https://github.com/tencent-connect/botpy>
+//!   (官方 Python SDK，opcode 协议 + IDENTIFY/RESUME + msg_seq 参考实现)
+//! - **Protocol**: WebSocket Gateway（Discord-like opcodes）+ REST `/v2/...`，
+//!   认证头 `Authorization: QQBot {access_token}` (NOT Bearer!)
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod auth;
 pub mod format;

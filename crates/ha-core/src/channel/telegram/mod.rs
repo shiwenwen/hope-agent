@@ -1,3 +1,10 @@
+//! Telegram Bot API channel.
+//!
+//! - **Official API**: <https://core.telegram.org/bots/api>
+//! - **SDK / Reference**: teloxide 0.17 — <https://github.com/teloxide/teloxide>
+//! - **Protocol**: HTTPS long-polling (`getUpdates`) over teloxide `Bot`
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod format;
 pub mod media;

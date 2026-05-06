@@ -1,3 +1,12 @@
+//! Discord Bot channel.
+//!
+//! - **Official API**: <https://discord.com/developers/docs/intro>
+//! - **SDK / Reference**: <https://github.com/discord/discord-api-docs>
+//!   (canonical), gateway opcode 列表
+//!   <https://discord.com/developers/docs/topics/opcodes-and-status-codes>
+//! - **Protocol**: WebSocket Gateway v10 + REST + multipart file upload
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod format;
 pub mod gateway;

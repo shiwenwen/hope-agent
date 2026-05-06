@@ -1,3 +1,14 @@
+//! WhatsApp channel via third-party bridge (HTTP polling).
+//!
+//! - **Official API**: WhatsApp Cloud API
+//!   <https://developers.facebook.com/docs/whatsapp/cloud-api>（hope-agent 不直接对接，
+//!   需用户自部署 bridge）
+//! - **SDK / Reference**: <https://github.com/tulir/whatsmeow>（推荐 bridge 实现，
+//!   逆向 WA 协议提供 Go API），<https://github.com/WhiskeySockets/Baileys>（Node.js）
+//! - **Protocol**: 通用 bridge HTTP 长轮询 — `GET /api/messages?since={ts}` +
+//!   `POST /api/send`；timestamp 单位 = Unix 秒（UTC，bridge 实现需遵守）
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod format;
 pub mod polling;

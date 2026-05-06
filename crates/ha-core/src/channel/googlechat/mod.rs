@@ -1,3 +1,12 @@
+//! Google Chat (Workspace) channel.
+//!
+//! - **Official API**: <https://developers.google.com/workspace/chat>
+//! - **SDK / Reference**: <https://developers.google.com/workspace/chat/api-overview>
+//! - **Protocol**: HTTPS Webhook（必须验证 Google 签发的 Bearer JWT）+ REST
+//!   `chat.googleapis.com/v1/spaces/{}/messages`；Service Account JWT-bearer
+//!   交换 OAuth token，scope 含 `chat.messages.create` / `chat.spaces.readonly`
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod auth;
 pub mod format;
