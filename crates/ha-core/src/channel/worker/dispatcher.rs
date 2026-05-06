@@ -995,7 +995,16 @@ async fn deliver_split(
     if rounds.is_empty() {
         // Engine produced no rounds (sink never saw events). Use the merged
         // response so the user still gets a reply.
-        send_final_reply(plugin, account_id, msg, fallback_response, preview, &[], caps).await;
+        send_final_reply(
+            plugin,
+            account_id,
+            msg,
+            fallback_response,
+            preview,
+            &[],
+            caps,
+        )
+        .await;
         metrics.text_chars = fallback_response.chars().count();
         return metrics;
     }
@@ -1040,7 +1049,10 @@ async fn deliver_split(
                     thread_id: msg.thread_id.clone(),
                     ..ReplyPayload::text("")
                 };
-                match plugin.send_message(account_id, &msg.chat_id, &payload).await {
+                match plugin
+                    .send_message(account_id, &msg.chat_id, &payload)
+                    .await
+                {
                     Ok(r) if !r.success => {
                         app_warn!(
                             "channel",
@@ -1050,7 +1062,12 @@ async fn deliver_split(
                         );
                     }
                     Err(e) => {
-                        app_warn!("channel", "worker", "split-mode pre-round send error: {}", e);
+                        app_warn!(
+                            "channel",
+                            "worker",
+                            "split-mode pre-round send error: {}",
+                            e
+                        );
                     }
                     _ => {}
                 }
@@ -1089,8 +1106,10 @@ async fn deliver_final_only(
         .map(|r| r.text.clone())
         .filter(|t| !t.is_empty())
         .unwrap_or_else(|| fallback_response.to_string());
-    let all_media: Vec<crate::attachments::MediaItem> =
-        rounds.iter().flat_map(|r| r.medias.iter().cloned()).collect();
+    let all_media: Vec<crate::attachments::MediaItem> = rounds
+        .iter()
+        .flat_map(|r| r.medias.iter().cloned())
+        .collect();
     let media_count = all_media.len();
     let text_chars = final_text.chars().count();
     send_final_reply(plugin, account_id, msg, &final_text, None, &all_media, caps).await;
@@ -1118,8 +1137,10 @@ async fn deliver_preview_merged(
     preview: Option<&PreviewHandle>,
     caps: &ChannelCapabilities,
 ) -> DeliveryMetrics {
-    let all_media: Vec<crate::attachments::MediaItem> =
-        rounds.iter().flat_map(|r| r.medias.iter().cloned()).collect();
+    let all_media: Vec<crate::attachments::MediaItem> = rounds
+        .iter()
+        .flat_map(|r| r.medias.iter().cloned())
+        .collect();
     let media_count = all_media.len();
     let text_chars = fallback_response.chars().count();
     send_final_reply(

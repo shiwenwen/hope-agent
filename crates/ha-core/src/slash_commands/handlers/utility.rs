@@ -379,10 +379,7 @@ pub fn handle_search(args: &str) -> Result<CommandResult, String> {
 ///   DM draft); non-streaming channels degrade to `final`.
 ///
 /// Persisted to `ChannelAccountConfig.settings.imReplyMode` via [`mutate_config`].
-pub async fn handle_imreply(
-    session_id: Option<&str>,
-    args: &str,
-) -> Result<CommandResult, String> {
+pub async fn handle_imreply(session_id: Option<&str>, args: &str) -> Result<CommandResult, String> {
     let Some(sid) = session_id else {
         return Err("/imreply only works inside an IM channel session.".into());
     };
@@ -419,12 +416,8 @@ pub async fn handle_imreply(
         });
     }
 
-    let mode = crate::channel::ImReplyMode::parse(arg).ok_or_else(|| {
-        format!(
-            "Invalid mode: `{}`. Valid: split, final, preview",
-            arg
-        )
-    })?;
+    let mode = crate::channel::ImReplyMode::parse(arg)
+        .ok_or_else(|| format!("Invalid mode: `{}`. Valid: split, final, preview", arg))?;
 
     let account_id = channel_info.account_id.clone();
     let mode_str = mode.as_str();
@@ -448,7 +441,10 @@ pub async fn handle_imreply(
     .map_err(|e| e.to_string())?;
 
     Ok(CommandResult {
-        content: format!("IM reply mode set to **{}** for this channel account.", mode_str),
+        content: format!(
+            "IM reply mode set to **{}** for this channel account.",
+            mode_str
+        ),
         action: Some(CommandAction::DisplayOnly),
     })
 }

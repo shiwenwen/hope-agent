@@ -371,7 +371,15 @@ async fn finalize_split_round(
         guard.round_medias(round_idx)
     };
     if !medias.is_empty() {
-        deliver_media_to_chat(plugin, account_id, chat_id, thread_id, &medias, capabilities).await;
+        deliver_media_to_chat(
+            plugin,
+            account_id,
+            chat_id,
+            thread_id,
+            &medias,
+            capabilities,
+        )
+        .await;
     }
 }
 

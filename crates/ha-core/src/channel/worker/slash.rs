@@ -373,11 +373,8 @@ pub(super) async fn dispatch_slash_for_channel(
             active_model_id,
         }) => {
             if supports_buttons {
-                let buttons = build_model_buttons_from_items(
-                    &models,
-                    &active_provider_id,
-                    &active_model_id,
-                );
+                let buttons =
+                    build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
                 Ok(ChannelSlashOutcome::Reply {
                     content: "Select a model:".into(),
                     new_session_id: None,

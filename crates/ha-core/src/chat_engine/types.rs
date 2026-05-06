@@ -444,7 +444,10 @@ mod tests {
         // all belong to *one* round. Idempotent on_tool_call ensures the
         // round only closes once.
         let (sink, rounds) = mk_sink();
-        emit(&sink, json!({"type": "text_delta", "content": "doing both"}));
+        emit(
+            &sink,
+            json!({"type": "text_delta", "content": "doing both"}),
+        );
         emit(&sink, tool_call("c1"));
         emit(&sink, tool_result_with_media("c1", vec![mk_media_item()]));
         emit(&sink, tool_call("c2")); // same round, no new boundary
@@ -457,7 +460,11 @@ mod tests {
         assert_eq!(drained.len(), 1, "two tool_calls should not split rounds");
         assert_eq!(drained[0].text, "doing both");
         assert_eq!(
-            drained[0].medias.iter().map(|m| m.name.as_str()).collect::<Vec<_>>(),
+            drained[0]
+                .medias
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>(),
             vec!["avatar.png", "second.png"]
         );
     }
@@ -467,7 +474,10 @@ mod tests {
         // text_delta is consumed (round 0 narration) but no tool boundary
         // exists yet, so drain returns one trailing round.
         let (sink, rounds) = mk_sink();
-        emit(&sink, json!({"type": "thinking_delta", "content": "ignored"}));
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": "ignored"}),
+        );
         emit(&sink, json!({"type": "text_delta", "content": "hi"}));
         let drained = rounds.lock().unwrap().drain();
         assert_eq!(drained.len(), 1);
