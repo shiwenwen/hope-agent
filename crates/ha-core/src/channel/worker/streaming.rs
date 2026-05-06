@@ -169,9 +169,6 @@ pub(super) fn spawn_channel_stream_task(
                                     ).await;
                                     accumulated.clear();
                                     finalized_rounds += 1;
-                                    // dirty stays as-is: we'll set it below
-                                    // when we push the new round's first
-                                    // chunk into `accumulated`.
                                 }
                                 in_tool_phase = false;
                                 accumulated.push_str(&text);
@@ -179,7 +176,6 @@ pub(super) fn spawn_channel_stream_task(
                             }
                         }
                         None => {
-                            // Stream ended.
                             if dirty && !accumulated.is_empty() {
                                 send_stream_preview(
                                     &plugin, &account_id, &chat_id,
@@ -351,8 +347,10 @@ async fn finalize_split_round(
     *preview_message_id = None;
     *card_session = None;
 
-    // 3. Deliver this round's media. The sink already attached items to
+    // 3. Deliver this round's media. The sink attached items to
     //    `round_texts.completed[round_idx]` on `tool_result` arrival.
+    //    Dispatcher's end-of-turn `deliver_split` only iterates rounds
+    //    past `finalized_rounds`, so this round's media won't be redelivered.
     let medias = {
         let guard = round_texts.lock().unwrap_or_else(|e| {
             app_warn!(
@@ -363,11 +361,7 @@ async fn finalize_split_round(
             );
             e.into_inner()
         });
-        guard
-            .completed
-            .get(round_idx)
-            .map(|r| r.medias.clone())
-            .unwrap_or_default()
+        guard.round_medias(round_idx)
     };
     if !medias.is_empty() {
         deliver_media_to_chat(plugin, account_id, chat_id, thread_id, &medias, capabilities).await;

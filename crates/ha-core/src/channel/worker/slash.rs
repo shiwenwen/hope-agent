@@ -550,6 +550,18 @@ async fn compact_context_now_core(
     Ok(result)
 }
 
+fn is_model_active(
+    item: &crate::slash_commands::types::ModelPickerItem,
+    active_provider_id: &Option<String>,
+    active_model_id: &Option<String>,
+) -> bool {
+    active_provider_id
+        .as_ref()
+        .zip(active_model_id.as_ref())
+        .map(|(pid, mid)| pid == &item.provider_id && mid == &item.model_id)
+        .unwrap_or(false)
+}
+
 /// Build inline keyboard buttons from model picker items.
 /// Each model gets a button with callback_data `slash:model <model_name>`.
 /// Telegram limits callback_data to 64 bytes, so we use model_name
@@ -563,12 +575,7 @@ pub(super) fn build_model_buttons_from_items(
     let mut row: Vec<crate::channel::types::InlineButton> = Vec::new();
 
     for m in models.iter().take(20) {
-        let is_active = active_provider_id
-            .as_ref()
-            .zip(active_model_id.as_ref())
-            .map(|(pid, mid)| pid == &m.provider_id && mid == &m.model_id)
-            .unwrap_or(false);
-        let label = if is_active {
+        let label = if is_model_active(m, active_provider_id, active_model_id) {
             format!("✓ {}", m.model_name)
         } else {
             m.model_name.clone()
@@ -607,12 +614,11 @@ pub(super) fn render_model_picker_text(
     let mut lines = Vec::with_capacity(models.len().min(20) + 2);
     lines.push("**Available models** (use `/model <name>` to switch):".to_string());
     for m in models.iter().take(20) {
-        let is_active = active_provider_id
-            .as_ref()
-            .zip(active_model_id.as_ref())
-            .map(|(pid, mid)| pid == &m.provider_id && mid == &m.model_id)
-            .unwrap_or(false);
-        let prefix = if is_active { "✓" } else { "-" };
+        let prefix = if is_model_active(m, active_provider_id, active_model_id) {
+            "✓"
+        } else {
+            "-"
+        };
         lines.push(format!(
             "{} `{}` ({})",
             prefix, m.model_name, m.provider_name

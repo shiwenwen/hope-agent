@@ -174,6 +174,18 @@ impl RoundTextAccumulator {
         }
     }
 
+    /// Snapshot of a closed round's media. Used by the IM stream task
+    /// under split-streaming to deliver a round's media inline at the
+    /// round boundary. The dispatcher still gets the full round (medias
+    /// included) at end-of-turn drain — but only consults pre-finalized
+    /// rounds for log metrics, so double-delivery isn't a concern.
+    pub fn round_medias(&self, idx: usize) -> Vec<MediaItem> {
+        self.completed
+            .get(idx)
+            .map(|round| round.medias.clone())
+            .unwrap_or_default()
+    }
+
     /// Drain the accumulator into a flat sequence of rounds in time order.
     /// The trailing entry is the "final round" when `current` is non-empty;
     /// otherwise the last `completed` entry is the final round.
@@ -394,8 +406,7 @@ mod tests {
     /// `serde_json` defaults to `BTreeMap` for object keys (no `preserve_order`
     /// in this workspace), so emitted JSON serializes keys alphabetically and
     /// `type` lands mid-string. Sink discriminators must use `contains`, not
-    /// `starts_with` — the original bug ([`b92ed0cc`]) silently dropped every
-    /// media item because of that.
+    /// `starts_with` — otherwise every media item is silently dropped.
     #[test]
     fn emitted_event_keys_serialize_alphabetically() {
         let event =

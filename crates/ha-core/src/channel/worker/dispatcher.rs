@@ -318,7 +318,7 @@ async fn handle_inbound_message(
     if crate::slash_commands::parser::is_command(user_text) {
         // Channels without inline-button support get the handler's verbose
         // no-arg text response instead of the (un-tappable) `Select an
-        // option for /xxx:` shortcut. See `dispatch_slash_for_channel`.
+        // option for /xxx:` shortcut.
         let supports_buttons = plugin.capabilities().supports_buttons;
         match dispatch_slash_for_channel(
             channel_db,
@@ -599,7 +599,6 @@ async fn handle_inbound_message(
                         &msg,
                         &drained_rounds,
                         &engine_result.response,
-                        stream_outcome.preview.as_ref(),
                         &capabilities,
                     )
                     .await
@@ -1060,7 +1059,15 @@ async fn deliver_split(
                 metrics.text_chars += round.text.chars().count();
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
-            deliver_media(plugin, account_id, msg, &round.medias, caps).await;
+            deliver_media_to_chat(
+                plugin,
+                account_id,
+                &msg.chat_id,
+                msg.thread_id.as_deref(),
+                &round.medias,
+                caps,
+            )
+            .await;
             metrics.media_count += round.medias.len();
         }
     }
@@ -1068,18 +1075,15 @@ async fn deliver_split(
 }
 
 /// `ImReplyMode::Final`: send only the final round's narration plus all
-/// rounds' media, in one outbound burst.
-///
-/// `preview` should be `None` here — the dispatcher only spawns a preview
-/// transport under `Preview` mode — but pass it through anyway in case a
-/// future caller wires one up; `send_final_reply` knows how to handle it.
+/// rounds' media, in one outbound burst. The dispatcher forces
+/// `preview_transport=None` for this mode, so no preview handle exists to
+/// finalize — go straight through `send_final_reply` with `None`.
 async fn deliver_final_only(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
     msg: &MsgContext,
     rounds: &[crate::chat_engine::RoundOutput],
     fallback_response: &str,
-    preview: Option<&PreviewHandle>,
     caps: &ChannelCapabilities,
 ) -> DeliveryMetrics {
     let final_text: String = rounds
@@ -1091,7 +1095,7 @@ async fn deliver_final_only(
         rounds.iter().flat_map(|r| r.medias.iter().cloned()).collect();
     let media_count = all_media.len();
     let text_chars = final_text.chars().count();
-    send_final_reply(plugin, account_id, msg, &final_text, preview, &all_media, caps).await;
+    send_final_reply(plugin, account_id, msg, &final_text, None, &all_media, caps).await;
     DeliveryMetrics {
         text_chars,
         media_count,
@@ -1191,36 +1195,23 @@ async fn send_final_reply(
         send_text_chunks(plugin, account_id, msg, response, chunk_preview).await;
     }
 
-    deliver_media(plugin, account_id, msg, pending_media, caps).await;
-}
-
-/// Send a batch of media items through the channel, falling back to a text
-/// download link for unsupported MIME types. Each `send_message` is followed
-/// by a 50 ms gap to stay under per-chat rate limits — Telegram and LINE
-/// both flood-protect tight loops. Used by both `send_final_reply` and the
-/// `Split` mode dispatcher's per-round fan-out.
-async fn deliver_media(
-    plugin: &Arc<dyn ChannelPlugin>,
-    account_id: &str,
-    msg: &MsgContext,
-    items: &[crate::attachments::MediaItem],
-    caps: &ChannelCapabilities,
-) {
     deliver_media_to_chat(
         plugin,
         account_id,
         &msg.chat_id,
         msg.thread_id.as_deref(),
-        items,
+        pending_media,
         caps,
     )
-    .await
+    .await;
 }
 
-/// Same as `deliver_media` but takes `chat_id` / `thread_id` directly so
-/// callsites without a `MsgContext` (e.g. the stream task's per-round
-/// fan-out under split-streaming) can reuse the same delivery + fallback
-/// path.
+/// Send a batch of media items through the channel, falling back to a text
+/// download link for unsupported MIME types. Each `send_message` is followed
+/// by a 50 ms gap to stay under per-chat rate limits — Telegram and LINE
+/// both flood-protect tight loops. Used by `send_final_reply`, the
+/// `Split`-mode dispatcher's per-round fan-out, and the stream task's
+/// inline per-round delivery.
 pub(super) async fn deliver_media_to_chat(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
