@@ -133,6 +133,14 @@ async fn convert_update(
         UpdateKind::EditedMessage(msg) => {
             convert_message(api, msg, account_id, bot_id, bot_username).await
         }
+        // Telegram broadcast channel (ChatType::Channel) post —— polling
+        // allowed_updates 中已声明，必须在 convert 端配套，否则更新被静默丢弃
+        UpdateKind::ChannelPost(msg) => {
+            convert_message(api, msg, account_id, bot_id, bot_username).await
+        }
+        UpdateKind::EditedChannelPost(msg) => {
+            convert_message(api, msg, account_id, bot_id, bot_username).await
+        }
         UpdateKind::CallbackQuery(cb) => {
             // Handle approval / ask_user callbacks directly (don't create MsgContext)
             if let Some(data) = cb.data.as_ref() {

@@ -32,16 +32,18 @@
 
 ### F-057 IM channel 主动消息 / 媒体能力补完（跨 channel）
 
-- **来源**：2026-05-05 IM channel 全量审计
-- **现象**：本批补了 QQ Bot（c2c/group msg_type=7 两步上传）+ LINE（image/video/audio message object 公网 HTTPS URL）的富媒体；剩余 channel 仍降级为下载链接文本：
+- **来源**：2026-05-05 IM channel 全量审计 + 2026-05-06 codex review 回归
+- **现象**：本批**写过** QQ Bot c2c/group msg_type=7 两步上传 + LINE imageMessage/videoMessage/audioMessage HTTPS URL 路径；但 [`channel/worker/dispatcher.rs::to_outbound_media`](../../crates/ha-core/src/channel/worker/dispatcher.rs#L728) 优先给 `MediaData::FilePath`（hope-agent 本地缓存路径），而 QQ Bot V2 上传 / LINE message object 都只接收公网 HTTPS URL —— 两边在 plugin 内部 `match data { Url(_) => ..., _ => continue }` 把 FilePath 静默跳过。结果声明 `supports_media` 反而让 dispatcher 不再追 link fallback → 用户附件两头不到位。
+  - **2026-05-06 已回退**：QQ Bot + LINE `supports_media` 重新设为空，恢复 dispatcher 的链接文本兜底。两套两步上传 helper（`post_*_files` / `send_*_media` / `dispatch_media`、LINE message-object 构造）保留备用，等本地附件中转基建就绪再开
+- **剩余 channel 状态**：均降级为下载链接文本：
   - Slack — files v2 流程（`files.getUploadURLExternal` + `files.completeUploadExternal`）
   - Google Chat — `media.upload` + `attachment` resource name（需 Drive scope）
   - Signal — signal-cli `--attachment <path>`
   - iMessage — imsg `send_attachment` 子命令（待 stdio 协议字段）
   - WhatsApp — bridge `media` 字段
-  - LINE — 本地附件中转（仅支持公网 HTTPS URL，本地 FilePath/Bytes 待中转基建）
-  - QQ Bot — channel/dms 暂未开放（API V2 仅 c2c/group）
-- **为什么留**：每家上传协议形态不同，本批已修核心稳定性问题（msg_seq / 心跳 / INVALID_SESSION / 速率限制 / chat_type 等），富媒体属于体验补完，不阻塞首发
+  - LINE / QQ Bot — 待本地附件中转 + 公网 HTTPS 暴露基建（hope-agent 自托管端点 / 用户配置 `public_base_url` 转发缓存附件）
+  - QQ Bot — channel/dms 端点 V2 不开放原生媒体上传，仍要走链接
+- **为什么留**：核心是缺"本地缓存附件 → 公网 HTTPS URL"的中转基建，而不是各 channel 的协议代码；本批已修核心稳定性问题（msg_seq / 心跳 / INVALID_SESSION / 速率限制 / chat_type 等），富媒体不阻塞首发文本
 - **改的话要做什么**：参照 [`channel/worker/dispatcher.rs::partition_media_by_channel`](../../crates/ha-core/src/channel/worker/dispatcher.rs) 已有的能力声明驱动下，逐 channel 补 `*/media.rs` 模块；先做 Slack（用户最多）+ Signal（调试方便）
 - **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
 - **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估

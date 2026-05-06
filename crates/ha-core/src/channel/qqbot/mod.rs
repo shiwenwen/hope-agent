@@ -102,17 +102,14 @@ impl ChannelPlugin for QqBotPlugin {
             supports_polls: false,
             supports_reactions: false,
             max_message_length: Some(4096),
-            // QQ Bot V2 c2c/group 走两步：POST /v2/{users|groups}/.../files →
-            // 拿 file_info → msg_type=7 + media。仅 url 来源（公网 HTTPS）支持
-            // 本批；Document/Sticker file_type=4 暂未开放，channel/dms 不支持，
-            // 这两类由 dispatcher 走链接文本兜底
-            supports_media: vec![
-                MediaType::Photo,
-                MediaType::Video,
-                MediaType::Voice,
-                MediaType::Audio,
-                MediaType::Animation,
-            ],
+            // 暂不声明原生媒体能力——dispatcher 的 to_outbound_media 优先
+            // 给 MediaData::FilePath（hope-agent 本地缓存路径），但 QQ Bot
+            // V2 上传 API 只接收公网 HTTPS URL，FilePath 会被静默跳过；同时
+            // channel/dms 端点完全不开放媒体上传。声明 supports_media 反而
+            // 让 dispatcher 不再追加链接文本兜底 → 媒体两头不到位。媒体能力
+            // 完整补完跟踪 review-followups F-057（含本地附件中转 / channel
+            // 端点替代方案）
+            supports_media: Vec::new(),
         }
     }
 
