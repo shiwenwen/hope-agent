@@ -316,6 +316,10 @@ async fn handle_inbound_message(
     // engine input so the LLM receives the skill instruction rather than the raw "/" text.
     let engine_message: String;
     if crate::slash_commands::parser::is_command(user_text) {
+        // Channels without inline-button support get the handler's verbose
+        // no-arg text response instead of the (un-tappable) `Select an
+        // option for /xxx:` shortcut. See `dispatch_slash_for_channel`.
+        let supports_buttons = plugin.capabilities().supports_buttons;
         match dispatch_slash_for_channel(
             channel_db,
             &channel_id_str,
@@ -325,6 +329,7 @@ async fn handle_inbound_message(
             &session_id,
             &agent_id,
             user_text,
+            supports_buttons,
         )
         .await
         {

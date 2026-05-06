@@ -21,6 +21,14 @@ pub(super) enum ChannelSlashOutcome {
 /// Returns a `ChannelSlashOutcome` describing what to do next:
 ///   - `Reply`       → send the content as a direct reply and skip the LLM.
 ///   - `PassThrough` → forward the (possibly rewritten) message to the LLM.
+///
+/// `supports_buttons` gates the "no-arg + arg_options ⇒ inline-keyboard
+/// picker" shortcut — channels without inline buttons (WeChat / iMessage /
+/// IRC / Signal / WhatsApp) would otherwise show a useless `Select an
+/// option for /xxx:` line with the buttons silently dropped, hiding the
+/// handler's actual help text. On those channels we skip the shortcut and
+/// let the handler render its normal no-arg response.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn dispatch_slash_for_channel(
     channel_db: &ChannelDB,
     channel_id: &str,
@@ -30,15 +38,17 @@ pub(super) async fn dispatch_slash_for_channel(
     session_id: &str,
     agent_id: &str,
     text: &str,
+    supports_buttons: bool,
 ) -> Result<ChannelSlashOutcome, anyhow::Error> {
     use crate::slash_commands::{handlers, parser};
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
 
-    // For commands with fixed arg_options and no args provided, return inline buttons
-    // so IM channel users (e.g. Telegram) can tap to select an option.
-    // Checks both built-in commands AND dynamic skill commands.
-    if args.trim().is_empty() {
+    // For commands with fixed arg_options and no args provided, return inline
+    // buttons so IM channel users (e.g. Telegram) can tap to select an option.
+    // Checks both built-in commands AND dynamic skill commands. Skipped on
+    // channels without inline-button support — see fn-level doc.
+    if supports_buttons && args.trim().is_empty() {
         use crate::slash_commands::registry;
 
         // First check built-in commands
