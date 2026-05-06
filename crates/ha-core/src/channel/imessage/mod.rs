@@ -123,6 +123,27 @@ impl ChannelPlugin for IMessagePlugin {
         // Start the RPC client
         let imsg_client = client::IMessageClient::start(&imsg_path, db_path.as_deref())?;
 
+        // 顺序至关重要：先启动 stdout 读取 loop（spawn 内 ready_tx 就绪），
+        // 再调 watch_subscribe。否则 watch_subscribe 的 RPC response 在 read
+        // loop 启动前就到了，pending oneshot 没人接 → 10s timeout 失败 →
+        // notification 订阅失败 → inbound 消息全丢。
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+        imsg_client
+            .run_notification_loop(account.id.clone(), inbound_tx, cancel, ready_tx)
+            .await;
+
+        // 等 read loop spawn 内部 ready 信号；最长 5s 兜底防止 spawn 失败时无限挂
+        if tokio::time::timeout(std::time::Duration::from_secs(5), ready_rx)
+            .await
+            .is_err()
+        {
+            app_warn!(
+                "channel",
+                "imessage",
+                "Notification loop ready signal timed out (5s); subscribe may race"
+            );
+        }
+
         // Subscribe to watch notifications
         if let Err(e) = imsg_client.watch_subscribe().await {
             app_warn!(
@@ -132,11 +153,6 @@ impl ChannelPlugin for IMessagePlugin {
                 e
             );
         }
-
-        // Start the notification listener loop
-        imsg_client
-            .run_notification_loop(account.id.clone(), inbound_tx, cancel)
-            .await;
 
         // Store the running account
         {
@@ -335,7 +351,7 @@ impl ChannelPlugin for IMessagePlugin {
         // Check binary exists
         if crate::channel::process_manager::find_binary(&imsg_path).is_none() {
             return Err(anyhow::anyhow!(
-                "imsg binary not found at '{}'. Install via: brew install openclaw/tap/imsg",
+                "imsg binary not found at '{}'. Install via: brew install steipete/tap/imsg",
                 imsg_path
             ));
         }

@@ -30,6 +30,11 @@ struct RunningAccount {
     #[allow(dead_code)]
     account_phone: String,
     daemon: Option<SignalDaemon>,
+    /// Cache of `inbound_msg_id (timestamp 字串) → sender_id` for quoteAuthor
+    /// 拼装。signal-cli send 必须同时提供 quoteTimestamp + quoteAuthor 才会
+    /// 真正生效，缺一即被忽略。MsgContext.sender_id 在 dispatch 阶段不再可
+    /// 见，改为入站时缓存（LRU 由 cap 自然驱逐，避免无限增长）。
+    quote_authors: Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
 }
 
 /// Signal channel plugin implementation.
@@ -161,6 +166,10 @@ impl ChannelPlugin for SignalPlugin {
         // Create the client
         let client = Arc::new(SignalClient::new(daemon_port, phone.clone()));
 
+        let quote_authors = Arc::new(tokio::sync::Mutex::new(lru::LruCache::new(
+            std::num::NonZeroUsize::new(1024).expect("1024 is non-zero"),
+        )));
+
         // Store the running account
         {
             let mut accounts = self.accounts.lock().await;
@@ -170,14 +179,31 @@ impl ChannelPlugin for SignalPlugin {
                     client: client.clone(),
                     account_phone: phone.clone(),
                     daemon: Some(daemon),
+                    quote_authors: quote_authors.clone(),
                 },
             );
         }
 
-        // Spawn the SSE event loop
+        // Spawn the SSE event loop. Wrap inbound_tx so we cache sender_id of
+        // each inbound MsgContext keyed by message_id, used later for
+        // signal-cli's quoteAuthor field on outbound replies.
         let account_id = account.id.clone();
+        let (intercept_tx, mut intercept_rx) = mpsc::channel::<MsgContext>(64);
+        let cache = quote_authors.clone();
+        let outbound_tx = inbound_tx.clone();
         tokio::spawn(async move {
-            client.run_sse_loop(account_id, inbound_tx, cancel).await;
+            while let Some(ctx) = intercept_rx.recv().await {
+                if !ctx.message_id.is_empty() && !ctx.sender_id.is_empty() {
+                    let mut map = cache.lock().await;
+                    map.put(ctx.message_id.clone(), ctx.sender_id.clone());
+                }
+                if outbound_tx.send(ctx).await.is_err() {
+                    break;
+                }
+            }
+        });
+        tokio::spawn(async move {
+            client.run_sse_loop(account_id, intercept_tx, cancel).await;
         });
 
         Ok(())
@@ -205,7 +231,13 @@ impl ChannelPlugin for SignalPlugin {
         chat_id: &str,
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
-        let client = self.get_client(account_id).await?;
+        let (client, quote_cache) = {
+            let accounts = self.accounts.lock().await;
+            let acc = accounts
+                .get(account_id)
+                .ok_or_else(|| anyhow::anyhow!("Signal account '{}' is not running", account_id))?;
+            (acc.client.clone(), acc.quote_authors.clone())
+        };
 
         if let Some(ref text) = payload.text {
             if text.is_empty() {
@@ -216,8 +248,18 @@ impl ChannelPlugin for SignalPlugin {
                 .reply_to_message_id
                 .as_deref()
                 .and_then(|id| id.parse::<i64>().ok());
+            // signal-cli reply 必须 timestamp + author 配对，缺一不发 quote
+            let quote_author = if let Some(reply_id) = payload.reply_to_message_id.as_deref() {
+                let mut cache = quote_cache.lock().await;
+                cache.get(reply_id).cloned()
+            } else {
+                None
+            };
 
-            match client.send_message(chat_id, text, &[], quote_ts).await {
+            match client
+                .send_message(chat_id, text, &[], quote_ts, quote_author.as_deref())
+                .await
+            {
                 Ok(result) => {
                     // signal-cli send returns the timestamp as message ID
                     let msg_id = result

@@ -38,14 +38,21 @@ impl SignalDaemon {
             None => find_free_port()?,
         };
 
-        let http_addr = format!("localhost:{}", port);
+        // 用 127.0.0.1 而非 localhost：避免 IPv6/IPv4 双栈解析不一致——
+        // signal-cli 内部 JVM 默认 IPv6 优先，client 侧 reqwest 也走 localhost
+        // 时大多数环境 OK，但容器内 /etc/hosts 缺 ::1 会出现 daemon 监听
+        // [::1]:port 而 client 走 127.0.0.1 失败的场景。统一 127.0.0.1。
+        let http_addr = format!("127.0.0.1:{}", port);
 
+        // signal-cli 的 --http 参数必须用 `=` 连接（picocli 框架对空格分隔
+        // 敏感，部分版本会把 host:port 当下一个独立参数）。改成 `--http=...`
+        // 单 token 形式，与 signal-cli-jsonrpc.5.adoc 文档一致。
+        let http_arg = format!("--http={}", http_addr);
         let args = vec![
             "-a",
             account,
             "daemon",
-            "--http",
-            &http_addr,
+            &http_arg,
             "--no-receive-stdout",
         ];
 

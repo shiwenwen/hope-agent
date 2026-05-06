@@ -18,7 +18,8 @@ impl SignalClient {
     pub fn new(port: u16, account: String) -> Self {
         Self {
             client: Client::new(),
-            base_url: format!("http://localhost:{}", port),
+            // 与 daemon.rs 端绑定地址保持一致（127.0.0.1 而非 localhost）
+            base_url: format!("http://127.0.0.1:{}", port),
             account,
         }
     }
@@ -86,12 +87,17 @@ impl SignalClient {
     }
 
     /// Send a text message to a recipient (phone number or group ID).
+    ///
+    /// `quote_timestamp` + `quote_author` 必须成对——signal-cli `send` 文档
+    /// 要求 reply 必须同时提供 `quoteTimestamp` + `quoteAuthor`（最少这两
+    /// 字段），缺一即被忽略，发出去就是普通消息。
     pub async fn send_message(
         &self,
         recipient: &str,
         message: &str,
         _attachments: &[String],
         quote_timestamp: Option<i64>,
+        quote_author: Option<&str>,
     ) -> Result<Value> {
         let mut params = serde_json::json!({
             "account": self.account,
@@ -105,8 +111,10 @@ impl SignalClient {
             params["recipient"] = serde_json::json!([recipient]);
         }
 
-        if let Some(ts) = quote_timestamp {
+        // signal-cli quote 必须有 timestamp + author 才生效
+        if let (Some(ts), Some(author)) = (quote_timestamp, quote_author) {
             params["quoteTimestamp"] = Value::Number(serde_json::Number::from(ts));
+            params["quoteAuthor"] = Value::String(author.to_string());
         }
 
         self.rpc("send", params).await
@@ -476,9 +484,74 @@ impl SignalClient {
     }
 }
 
-/// Check if a recipient string looks like a Signal group ID (base64).
-/// Group IDs are base64-encoded and typically longer than phone numbers.
+/// 判断 recipient 是否是 Signal 群组 ID。
+///
+/// Signal recipient 形态：
+/// - `+E164` 电话号（例如 `+15551234567`）
+/// - UUID（v4，含 `-`，36 chars）—— 新版用户 identifier
+/// - `u:username` —— signal-cli 0.13+ username 形式
+/// - 群 ID v1：纯 base64 字符串，长度 22 或 44 chars，不含 `-` `:` `+` `@`
+/// - 群 ID v2：以 `group.` 前缀（base64 字串）
+///
+/// 之前 `!starts_with('+')` 在 UUID 时代会把单聊 UUID 当作群发给 signal-cli，
+/// 直接返回 `Group with id ... not found`。
 fn is_group_id(recipient: &str) -> bool {
-    // Phone numbers start with '+', group IDs don't
-    !recipient.starts_with('+')
+    if recipient.starts_with('+') {
+        return false;
+    }
+    if recipient.starts_with("u:") || recipient.starts_with('@') {
+        return false;
+    }
+    if recipient.starts_with("group.") {
+        return true;
+    }
+    // UUID 含 `-`，例如 `a3b1f5e8-...`
+    if recipient.contains('-') {
+        return false;
+    }
+    // 纯 base64 形态群 ID（v1）：22 或 44 字符无破折号
+    let len = recipient.len();
+    (len == 22 || len == 44) && recipient.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_group_id_recognizes_phones() {
+        assert!(!is_group_id("+15551234567"));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_uuid() {
+        assert!(!is_group_id("a3b1f5e8-1234-4abc-9def-0123456789ab"));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_username() {
+        assert!(!is_group_id("u:alice"));
+        assert!(!is_group_id("@alice"));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_group_v2() {
+        assert!(is_group_id("group.AbCdEfGh1234567890=="));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_base64_v1() {
+        // 22 chars base64
+        assert!(is_group_id("AbCdEfGhIjKlMnOpQrStUv"));
+        // 44 chars base64
+        assert!(is_group_id(
+            "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh"
+        ));
+    }
+
+    #[test]
+    fn is_group_id_rejects_random_strings() {
+        // 短而不像 group id
+        assert!(!is_group_id("short"));
+    }
 }
