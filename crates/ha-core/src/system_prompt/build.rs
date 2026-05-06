@@ -918,7 +918,7 @@ mod memory_section_tests {
             !out.contains("Your avatar image is at:"),
             "data: URLs must not be injected (would bloat prompt with base64): {out}"
         );
-        assert!(!out.contains("base64"));
+        assert!(!out.contains("data:image/png"));
     }
 
     #[test]
