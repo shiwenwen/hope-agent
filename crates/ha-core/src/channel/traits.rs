@@ -230,7 +230,14 @@ pub fn default_check_access(
     }
 }
 
-/// Split text into chunks of at most `max_len` bytes, preferring paragraph boundaries.
+/// Split text into chunks of at most `max_len` **bytes** (UTF-8), preferring
+/// paragraph boundaries.
+///
+/// **Note**: `max_len` is byte-conservative. Most IM platforms publish their
+/// limit in characters (or UTF-16 code units for Telegram); a single CJK
+/// character is 3 bytes UTF-8, so 4096 bytes ≈ 1365 CJK chars. Channels
+/// whose official spec is in characters MUST set `max_message_length` below
+/// the spec value to leave UTF-8 headroom. See per-channel `capabilities()`.
 pub fn chunk_text(text: &str, max_len: usize) -> Vec<String> {
     if text.len() <= max_len {
         return vec![text.to_string()];

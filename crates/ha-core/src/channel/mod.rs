@@ -11,6 +11,7 @@ pub mod line;
 pub mod media_helpers;
 pub mod process_manager;
 pub mod qqbot;
+pub mod rate_limit;
 pub mod registry;
 pub mod signal;
 pub mod slack;

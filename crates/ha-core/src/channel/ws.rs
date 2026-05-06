@@ -12,6 +12,17 @@ pub struct WsConnection {
     ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
 }
 
+/// Close frame metadata exposed by [`WsConnection::recv_text_with_close`].
+#[derive(Debug, Clone)]
+pub struct WsClose {
+    /// Close code per RFC 6455 + protocol-specific extensions (Discord 4xxx,
+    /// QQ Bot 4xxx etc.). Tungstenite's `CloseCode` enum is flattened to u16
+    /// so unknown extensions can still be matched.
+    pub code: u16,
+    /// Optional reason string sent by the peer.
+    pub reason: String,
+}
+
 impl WsConnection {
     /// Connect to a WebSocket URL.
     pub async fn connect(url: &str) -> Result<Self> {
@@ -62,11 +73,51 @@ impl WsConnection {
     }
 
     /// Receive the next text message, returning None on close/error.
+    ///
+    /// Close frames are swallowed; callers that need to inspect the close code
+    /// (e.g. Discord 4xxx fatal vs. resumable) should use
+    /// [`recv_text_with_close`](Self::recv_text_with_close) instead.
     pub async fn recv_text(&mut self) -> Option<String> {
         loop {
             match self.ws.next().await {
                 Some(Ok(Message::Text(text))) => return Some(text.to_string()),
                 Some(Ok(Message::Close(_))) => return None,
+                Some(Ok(Message::Ping(data))) => {
+                    let _ = self.ws.send(Message::Pong(data)).await;
+                    continue;
+                }
+                Some(Ok(_)) => continue, // Binary, Pong, Frame — skip
+                Some(Err(_)) => return None,
+                None => return None,
+            }
+        }
+    }
+
+    /// Receive the next text message, exposing close frame metadata.
+    ///
+    /// Returns:
+    /// - `Some(Ok(text))` — normal data frame
+    /// - `Some(Err(WsClose { code, reason }))` — peer closed with a frame; caller
+    ///   uses `code` to route fatal vs. resumable (Discord 4004/4010-4014 fatal,
+    ///   4007/4009 fresh IDENTIFY, etc.)
+    /// - `None` — IO error or stream end without a close frame
+    pub async fn recv_text_with_close(&mut self) -> Option<Result<String, WsClose>> {
+        loop {
+            match self.ws.next().await {
+                Some(Ok(Message::Text(text))) => return Some(Ok(text.to_string())),
+                Some(Ok(Message::Close(frame))) => {
+                    let close = match frame {
+                        Some(f) => WsClose {
+                            code: u16::from(f.code),
+                            reason: f.reason.to_string(),
+                        },
+                        None => WsClose {
+                            code: 1005, // No Status Received
+                            reason: String::new(),
+                        },
+                    };
+                    return Some(Err(close));
+                }
                 Some(Ok(Message::Ping(data))) => {
                     let _ = self.ws.send(Message::Pong(data)).await;
                     continue;
