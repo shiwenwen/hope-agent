@@ -706,6 +706,43 @@ pub fn spawn_dispatcher(
 - **格式转换后发送**：先 `markdown_to_native()` 转格式，再 `chunk_message()` 分块，最后逐块发送
 - **错误通知**：Agent 执行失败时，向渠道发送错误提示消息
 
+### IM 回复拆分模式：`ImReplyMode`（仅非流式渠道）
+
+`chat_engine::run_chat_engine` 返回的 `response` 是**所有 round 的 assistant text 累积合并**（streaming_loop 每 round `collected_text.push_str(&outcome.text)`），对桌面 / Web UI 没问题——它实时收 `text_delta` 事件，能区分 round-0 narration 和 round-N final。但 IM 渠道默认拿这个合并字符串当 final reply 一次性发，**非流式渠道**用户会看到「我把头像发给你。已发。」这种把 round-0 thinking-out-loud 和最终回答粘一起的奇怪消息。
+
+为此引入 `ImReplyMode`，**仅适用于非流式渠道**（wechat / line / qqbot / irc / signal / whatsapp / imessage / slack / googlechat）：
+
+| Mode | 行为 |
+|------|------|
+| `final`（默认） | dispatcher 只发最后一个 round 的 assistant text；中间 round 的 narration 丢弃。Tool 产出的媒体照常发。 |
+| `split` | dispatcher 把每个 pre-final round 的 narration 单独 `send_message` 一条（间隔 50 ms 防风控），然后再走 final reply 链路。 |
+
+**流式渠道**（telegram / discord / feishu）**强制忽略此设置**——它们的 stream task 已经把所有 round 的 text_delta 累积渲染到了 preview，再 split 只会重复，再换成 final 又会让 preview 看起来像「被编辑」。dispatcher 检测 `preview_transport.is_some()` 时直接走旧的合并 `engine_result.response` 路径，行为与改动前一致。
+
+#### 实现：`RoundTextAccumulator`
+
+`ChannelStreamSink` 在原有的 EventBus emit + `pending_media` 累加之外，新增一份 round 边界感知的 text 累加器（[`chat_engine/types.rs`](../../crates/ha-core/src/chat_engine/types.rs)）：
+
+```rust
+pub struct RoundTextAccumulator {
+    pub completed: Vec<String>, // 各 round 的 pre-tool narration
+    pub current: String,        // 当前 in-flight round 的 text
+}
+```
+
+事件处理（hot path 走 `event.contains(...)` cheap short-circuit，规避全 JSON parse）：
+
+- `text_delta` → `current.push_str(content)`
+- `tool_call`（round 边界） → `completed.push(take(&mut current))`
+
+`run_chat_engine` 返回时 `current` 持有 final-round text，`completed` 是各 pre-final round 的 narration。dispatcher drain 后按 mode 决定如何 fan-out。
+
+#### 配置入口
+
+- **GUI**：`Settings → Channels → 编辑账号 → IM Reply Mode` 下拉。流式 channel 上控件 `disabled` 并显示 hint「This channel uses live streaming previews … Setting locked.」
+- **IM 内**：`/imreply [final|split]` 斜杠命令，写到当前 channel account 的 `settings.imReplyMode`。桌面 / web session 直接报错；流式 channel session 也直接拒绝。
+- **持久化**：`ChannelAccountConfig.settings.imReplyMode`，`ChannelAccountConfig::im_reply_mode()` / `set_im_reply_mode()` helper 处理 settings JSON 边界。账号级配置，跨重启持久。
+
 ---
 
 ## Telegram 插件实现
