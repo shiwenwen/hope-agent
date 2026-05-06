@@ -2640,8 +2640,11 @@
     "imReplyMode": "Mod balasan IM",
     "imReplyModeFinal": "Jawapan akhir sahaja",
     "imReplyModeSplit": "Pisah ikut pusingan",
-    "imReplyModeHint": "Mod lalai hanya menghantar jawapan pusingan terakhir. Mod pisah menghantar setiap pusingan (termasuk narasi sebelum panggilan alat) sebagai mesej IM berasingan. Media yang dijana alat sentiasa dihantar berasingan dalam kedua-dua mod.",
-    "imReplyModeStreamingHint": "Saluran ini menggunakan pratonton strim — setiap pusingan sudah dipaparkan dalam mesej asal, jadi pemisahan hanya akan menggandakan teks. Tetapan tidak berkenaan."
+    "imReplyModePreview": "Pratonton strim",
+    "imReplyModeSplitHint": "Setiap pusingan (naratif + media dari alatnya) dihantar sebagai mesej berasingan mengikut susunan model menghasilkannya. Saluran strim masih mengekalkan kesan mesin taip setiap pusingan. Disyorkan.",
+    "imReplyModeFinalHint": "Buang naratif sebelum panggilan alat. Pengguna hanya melihat jawapan pusingan terakhir; media dihantar di hujung. Tiada pratonton strim.",
+    "imReplyModePreviewHint": "Memaparkan keseluruhan respons gabungan sebagai satu mesej yang tumbuh (sunting Telegram / cardkit Feishu / draf Telegram DM); media dihantar di hujung. Hanya saluran strim — saluran lain merosot kepada Final.",
+    "imReplyModePreviewDegrades": "Saluran ini tiada pengangkutan pratonton strim, jadi Preview di sini berkelakuan sama seperti Final."
   },
   "cron": {
     "title": "Tugasan berjadual",
@@ -3087,7 +3090,7 @@
       "description": "Tukar ke atau pilih projek"
     },
     "imreply": {
-      "description": "Tetapkan mod balasan IM (final|split), hanya saluran tanpa strim"
+      "description": "Tetapkan mod balasan IM (split|final|preview)"
     }
   },
   "planMode": {

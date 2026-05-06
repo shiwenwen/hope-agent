@@ -2640,8 +2640,11 @@
     "imReplyMode": "IM 回复模式",
     "imReplyModeFinal": "仅最终回答",
     "imReplyModeSplit": "按轮次拆分",
-    "imReplyModeHint": "默认只发最后一轮的回答；拆分模式把每轮文字（包括调用工具前的旁白）单独发一条消息。工具产出的图片 / 文件两种模式都会单独发。",
-    "imReplyModeStreamingHint": "当前渠道支持流式预览，每一轮回答会实时显示在原消息里，再拆分只会重复——此设置不适用。"
+    "imReplyModePreview": "流式预览",
+    "imReplyModeSplitHint": "每一轮（旁白 + 工具产出的媒体）按模型生成顺序作为独立消息发送。流式渠道每一轮仍是流式打字机效果。推荐。",
+    "imReplyModeFinalHint": "丢弃工具调用前的旁白，只发最后一轮回答，工具媒体在末尾发送。无流式预览。",
+    "imReplyModePreviewHint": "把整段合并回复渲染成单条不断增长的消息（Telegram 编辑 / 飞书 cardkit / Telegram DM Draft），工具媒体在末尾发送。仅对流式渠道生效——非流式渠道会自动降级为「仅最终回答」。",
+    "imReplyModePreviewDegrades": "当前渠道不支持流式预览，预览模式在此等同于「仅最终回答」。"
   },
   "cron": {
     "title": "定时任务",
@@ -3087,7 +3090,7 @@
       "description": "切换或选择项目"
     },
     "imreply": {
-      "description": "设置 IM 回复模式 (final|split)，仅对非流式渠道生效"
+      "description": "设置 IM 回复模式 (split|final|preview)"
     }
   },
   "planMode": {

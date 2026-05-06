@@ -202,7 +202,7 @@ impl SlashCommandDef {
             "recap" => "Generate a deep analysis recap report",
             "context" => "Show context window breakdown",
             "awareness" => "Toggle behavior awareness",
-            "imreply" => "Set IM reply mode (final|split) — non-streaming channels only",
+            "imreply" => "Set IM reply mode (split|final|preview)",
             "project" => "Switch to or pick a project",
             _ => "Command",
         }

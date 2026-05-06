@@ -316,8 +316,8 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_key: "slashCommands.imreply.description".into(),
             has_args: true,
             args_optional: true,
-            arg_placeholder: Some("[final|split]".into()),
-            arg_options: Some(vec!["final".into(), "split".into()]),
+            arg_placeholder: Some("[split|final|preview]".into()),
+            arg_options: Some(vec!["split".into(), "final".into(), "preview".into()]),
             description_raw: None,
         },
     ]

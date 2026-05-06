@@ -74,22 +74,28 @@ export interface ChannelPluginInfo {
 }
 
 /**
- * Per-channel-account IM reply split mode. Stored as a string in
+ * Per-channel-account IM reply mode. Stored as a string in
  * `ChannelAccountConfig.settings.imReplyMode`. Mirrors the Rust
  * `ImReplyMode` enum.
  *
- * Only applies to non-streaming IM channels (channels whose plugin does NOT
- * advertise `supportsCardStream` or `supportsEdit`). Streaming channels
- * (telegram / discord / feishu) ignore this — every round already shows up
- * in the live preview, so a post-hoc split would just duplicate text.
+ * - `split` (default): each round (narration + media) delivered in time
+ *   order as independent messages. Streaming channels still get a typewriter
+ *   effect *per round*, just not "one growing message".
+ * - `final`: only the last-round narration + all media in one burst.
+ * - `preview`: streaming channels render the full merged response in a
+ *   single growing preview message; non-streaming channels degrade to
+ *   `final` since they have no preview transport.
  */
-export type ImReplyMode = "final" | "split"
+export type ImReplyMode = "split" | "final" | "preview"
 
-export const IM_REPLY_MODE_DEFAULT: ImReplyMode = "final"
+export const IM_REPLY_MODE_DEFAULT: ImReplyMode = "split"
+
+export const IM_REPLY_MODE_VALUES: ImReplyMode[] = ["split", "final", "preview"]
 
 export function readImReplyMode(account: { settings: unknown }): ImReplyMode {
   const v = (account.settings as Record<string, unknown> | null | undefined)?.imReplyMode
-  return v === "split" ? "split" : IM_REPLY_MODE_DEFAULT
+  if (v === "split" || v === "final" || v === "preview") return v
+  return IM_REPLY_MODE_DEFAULT
 }
 
 export function channelSupportsStreamPreview(plugin: ChannelPluginInfo | undefined): boolean {

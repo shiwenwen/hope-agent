@@ -2640,8 +2640,11 @@
     "imReplyMode": "Modo de respuesta IM",
     "imReplyModeFinal": "Solo respuesta final",
     "imReplyModeSplit": "Dividir por ronda",
-    "imReplyModeHint": "El modo predeterminado envía solo la respuesta de la última ronda. Dividir envía cada ronda (incluida la narración previa a las herramientas) como mensaje IM separado. Los archivos / imágenes generados por herramientas siempre se envían aparte.",
-    "imReplyModeStreamingHint": "Este canal utiliza vista previa en streaming — cada ronda ya aparece en el mensaje original, por lo que dividir solo duplicaría el texto. Ajuste no aplicable."
+    "imReplyModePreview": "Vista previa en streaming",
+    "imReplyModeSplitHint": "Cada ronda (narración + medios producidos por sus herramientas) se entrega como mensaje independiente, en el orden en que el modelo los emitió. Los canales con streaming siguen teniendo efecto máquina de escribir por ronda. Recomendado.",
+    "imReplyModeFinalHint": "Descarta la narración previa a las herramientas. El usuario ve solo la respuesta de la última ronda y los medios al final. Sin vista previa en streaming.",
+    "imReplyModePreviewHint": "Renderiza toda la respuesta combinada en un único mensaje creciente (edición de Telegram · cardkit de Feishu · borrador de Telegram DM); medios al final. Solo canales con streaming — los demás degradan a Final.",
+    "imReplyModePreviewDegrades": "Este canal no tiene transporte de vista previa en streaming; Preview se comporta igual que Final aquí."
   },
   "cron": {
     "title": "Tareas programadas",
@@ -3087,7 +3090,7 @@
       "description": "Cambiar a un proyecto o elegir uno"
     },
     "imreply": {
-      "description": "Configurar modo de respuesta IM (final|split) — solo canales no streaming"
+      "description": "Configurar modo de respuesta IM (split|final|preview)"
     }
   },
   "planMode": {

@@ -2640,8 +2640,11 @@
     "imReplyMode": "IM yanıt modu",
     "imReplyModeFinal": "Yalnızca son yanıt",
     "imReplyModeSplit": "Tur başına böl",
-    "imReplyModeHint": "Varsayılan mod yalnızca son turun yanıtını gönderir. Bölme modu, her turu (araç çağrılarından önceki anlatımlar dahil) ayrı bir IM mesajı olarak gönderir. Araçların ürettiği medya her iki modda da ayrı gönderilir.",
-    "imReplyModeStreamingHint": "Bu kanal canlı akış önizlemesi kullanır; her tur zaten orijinal mesajda görünür, bölmek metni yalnızca tekrarlar. Ayar uygulanamaz."
+    "imReplyModePreview": "Akış önizlemesi",
+    "imReplyModeSplitHint": "Her tur (anlatım + araçlarının ürettiği medya), modelin yaydığı sırada bağımsız bir mesaj olarak gönderilir. Akış destekleyen kanallarda her tur yine daktilo efekti alır. Önerilir.",
+    "imReplyModeFinalHint": "Araç çağrılarından önceki anlatımı atar. Kullanıcı yalnızca son turun yanıtını ve sonda tüm araç medyasını görür. Akış önizlemesi yok.",
+    "imReplyModePreviewHint": "Tüm birleşik yanıtı tek bir büyüyen mesajda gösterir (Telegram düzenle / Feishu cardkit / Telegram DM taslak); araç medyası sonda gönderilir. Yalnızca akış destekleyen kanallar — diğerleri Final modunda çalışır.",
+    "imReplyModePreviewDegrades": "Bu kanalda akış önizleme aktarımı yok, bu nedenle Preview burada Final ile aynı davranır."
   },
   "cron": {
     "title": "Zamanlanmış görevler",
@@ -3087,7 +3090,7 @@
       "description": "Bir projeye geç veya seç"
     },
     "imreply": {
-      "description": "IM yanıt modu (final|split), yalnızca akış desteği olmayan kanallar"
+      "description": "IM yanıt modunu ayarla (split|final|preview)"
     }
   },
   "planMode": {

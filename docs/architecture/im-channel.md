@@ -706,42 +706,69 @@ pub fn spawn_dispatcher(
 - **格式转换后发送**：先 `markdown_to_native()` 转格式，再 `chunk_message()` 分块，最后逐块发送
 - **错误通知**：Agent 执行失败时，向渠道发送错误提示消息
 
-### IM 回复拆分模式：`ImReplyMode`（仅非流式渠道）
+### IM 回复模式：`ImReplyMode`（三态，所有渠道生效）
 
-`chat_engine::run_chat_engine` 返回的 `response` 是**所有 round 的 assistant text 累积合并**（streaming_loop 每 round `collected_text.push_str(&outcome.text)`），对桌面 / Web UI 没问题——它实时收 `text_delta` 事件，能区分 round-0 narration 和 round-N final。但 IM 渠道默认拿这个合并字符串当 final reply 一次性发，**非流式渠道**用户会看到「我把头像发给你。已发。」这种把 round-0 thinking-out-loud 和最终回答粘一起的奇怪消息。
+`chat_engine::run_chat_engine` 返回的 `response` 是**所有 round 的 assistant text 累积合并**（streaming_loop 每 round `collected_text.push_str(&outcome.text)`）——对桌面 / Web UI 没问题，因为它实时收 `text_delta` 事件、能识别 round 边界。但对 IM 渠道，如果直接拿这个合并字符串当一条消息发，用户看到的就是「我把头像发给你。已发。」这种 round-0 thinking-out-loud + 最终回答粘成一团的体验，更糟的是工具产出的媒体（图 / 文件）全堆在末尾——失去了模型实际表达的时序。
 
-为此引入 `ImReplyMode`，**仅适用于非流式渠道**（wechat / line / qqbot / irc / signal / whatsapp / imessage / slack / googlechat）：
+为此引入 `ImReplyMode`，**所有渠道（流式 + 非流式）共用一套语义**：
 
-| Mode | 行为 |
-|------|------|
-| `final`（默认） | dispatcher 只发最后一个 round 的 assistant text；中间 round 的 narration 丢弃。Tool 产出的媒体照常发。 |
-| `split` | dispatcher 把每个 pre-final round 的 narration 单独 `send_message` 一条（间隔 50 ms 防风控），然后再走 final reply 链路。 |
+| Mode | 行为 | 适用 |
+|------|------|------|
+| `split`（默认） | 每 round 的 narration 与该 round 工具产生的媒体按时序作为独立消息发送（narration → 该 round media → 下一 round narration → ...）。流式渠道每条仍是流式打字机，但不再是「单条不断增长」——按 round 切；非流式渠道每条一次性。 | 所有 |
+| `final` | 丢弃中间 round narration，只发最后 round 的 text + 末尾发所有媒体。不启用流式预览。 | 所有 |
+| `preview` | 流式渠道用 stream preview transport（Telegram edit · Feishu cardkit · Telegram DM Draft）渲染合并文本——单条不断增长的消息，媒体末尾发。非流式渠道无 preview 可用，自动降级等同 `final`。 | 仅流式有差异 |
 
-**流式渠道**（telegram / discord / feishu）**强制忽略此设置**——它们的 stream task 已经把所有 round 的 text_delta 累积渲染到了 preview，再 split 只会重复，再换成 final 又会让 preview 看起来像「被编辑」。dispatcher 检测 `preview_transport.is_some()` 时直接走旧的合并 `engine_result.response` 路径，行为与改动前一致。
+#### 实现：`RoundTextAccumulator` + state machine
 
-#### 实现：`RoundTextAccumulator`
-
-`ChannelStreamSink` 在原有的 EventBus emit + `pending_media` 累加之外，新增一份 round 边界感知的 text 累加器（[`chat_engine/types.rs`](../../crates/ha-core/src/chat_engine/types.rs)）：
+`ChannelStreamSink` 在 EventBus emit 之外维护一个 round 边界感知的累加器（[`chat_engine/types.rs`](../../crates/ha-core/src/chat_engine/types.rs)）：
 
 ```rust
+pub struct RoundOutput {
+    pub text: String,           // 该 round 的 narration（pre-tool）
+    pub medias: Vec<MediaItem>, // 该 round 工具产生的媒体
+}
+
 pub struct RoundTextAccumulator {
-    pub completed: Vec<String>, // 各 round 的 pre-tool narration
-    pub current: String,        // 当前 in-flight round 的 text
+    pub completed: Vec<RoundOutput>, // 已关闭的 round
+    pub current: RoundOutput,        // in-flight round（最后 round 通常停在这里）
+    in_tool_phase: bool,             // round 内已见过 tool_call?
 }
 ```
 
-事件处理（hot path 走 `event.contains(...)` cheap short-circuit，规避全 JSON parse）：
+事件处理（hot path 用 `event.contains(...)` cheap short-circuit，rarer-needle-first，规避全 JSON parse）：
 
-- `text_delta` → `current.push_str(content)`
-- `tool_call`（round 边界） → `completed.push(take(&mut current))`
+- `text_delta` → `current.text.push_str`。如果 `in_tool_phase=true` 说明前一 round 已闭、新 round 开始，先翻页再累加。
+- `tool_call`（round 边界） → `completed.push(take(current))`，`in_tool_phase=true`。**幂等**——同 round 多 `tool_call`（一次 LLM round 多 tool）只关一次。
+- `tool_result` 携带 `media_items` → 解析后 `on_media(items)` 挂到 `completed.last_mut()`（即刚关闭的那 round）；防御性 fallback 到 `current`。
 
-`run_chat_engine` 返回时 `current` 持有 final-round text，`completed` 是各 pre-final round 的 narration。dispatcher drain 后按 mode 决定如何 fan-out。
+`run_chat_engine` 返回时 dispatcher 调 `RoundTextAccumulator::drain()` 拿一个时序排好的 `Vec<RoundOutput>`：`current` 非空时附在末尾作为「final round」，否则最后一个 `completed` 即 final。
+
+#### Dispatcher 分发：mode → transport + delivery
+
+dispatcher 在 spawn stream task **之前**算出 mode，从而决定 `preview_transport`：
+
+```rust
+let reply_mode = account.im_reply_mode();
+let preview_transport = if reply_mode == ImReplyMode::Preview {
+    select_stream_preview_transport(&msg.chat_type, &capabilities)
+} else {
+    None  // Split / Final 都不创建 preview message
+};
+```
+
+`run_chat_engine` 返回后 drain rounds，按 mode 调三选一：
+
+- `deliver_split`：遍历 rounds，每个 pre-final round `send_message(text)` + `deliver_media(round.medias)`；最后 round 走 `send_final_reply`（保持 finalize-preview + canonical chunk-or-card 路径）。
+- `deliver_final_only`：取 `rounds.last().text` + 合并所有 `medias`，一次 `send_final_reply`。
+- `deliver_preview_merged`：用 `engine_result.response`（合并文本）+ 合并所有 `medias`，走 `send_final_reply`，preview transport 在 stream task 已渲染完合并文本，finalize 时 edit/close。
+
+`deliver_media` 是从 `send_final_reply` 抽出的复用函数——`partition_media_by_channel` 后逐个 `send_message(media)`，不支持的 MIME 走 `build_media_fallback_lines` 转下载链接。
 
 #### 配置入口
 
-- **GUI**：`Settings → Channels → 编辑账号 → IM Reply Mode` 下拉。流式 channel 上控件 `disabled` 并显示 hint「This channel uses live streaming previews … Setting locked.」
-- **IM 内**：`/imreply [final|split]` 斜杠命令，写到当前 channel account 的 `settings.imReplyMode`。桌面 / web session 直接报错；流式 channel session 也直接拒绝。
-- **持久化**：`ChannelAccountConfig.settings.imReplyMode`，`ChannelAccountConfig::im_reply_mode()` / `set_im_reply_mode()` helper 处理 settings JSON 边界。账号级配置，跨重启持久。
+- **GUI**：`Settings → Channels → 编辑账号 → IM Reply Mode` 下拉，三选项；选中 `preview` 而 channel 不支持流式预览时显示 hint「will degrade to Final」，但仍允许保存——避免阻塞用户。读 / 写 helper 在 [`src/components/settings/channel-panel/types.ts`](../../src/components/settings/channel-panel/types.ts) (`readImReplyMode` / `channelSupportsStreamPreview`)。
+- **IM 内**：`/imreply [split|final|preview]` 斜杠命令（[`slash_commands/handlers/utility.rs`](../../crates/ha-core/src/slash_commands/handlers/utility.rs) `handle_imreply`）。任何 channel 都可设置；桌面 / web session 拒绝（无 channel_info）。无参打印当前 mode + 三态说明。
+- **持久化**：`ChannelAccountConfig.settings.imReplyMode`，`im_reply_mode()` / `set_im_reply_mode()` helper（[`channel/types.rs`](../../crates/ha-core/src/channel/types.rs)）。账号级配置，跨重启持久。
 
 ---
 

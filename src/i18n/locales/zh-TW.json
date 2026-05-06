@@ -2640,8 +2640,11 @@
     "imReplyMode": "IM 回覆模式",
     "imReplyModeFinal": "僅最終回答",
     "imReplyModeSplit": "按輪次拆分",
-    "imReplyModeHint": "預設只發最後一輪的回答；拆分模式把每輪文字（包括呼叫工具前的旁白）單獨發一則訊息。工具產出的圖片 / 檔案兩種模式都會獨立發送。",
-    "imReplyModeStreamingHint": "當前渠道支援串流預覽，每一輪回答會即時顯示在原訊息中，再拆分只會重複——此設定不適用。"
+    "imReplyModePreview": "串流預覽",
+    "imReplyModeSplitHint": "每一輪（旁白 + 工具產出的媒體）按模型生成順序作為獨立訊息發送。串流渠道每一輪仍是即時打字機效果。建議使用。",
+    "imReplyModeFinalHint": "丟棄呼叫工具前的旁白，只發最後一輪回答，工具媒體在末尾發送。無串流預覽。",
+    "imReplyModePreviewHint": "把整段合併回覆渲染成單條不斷成長的訊息（Telegram 編輯 / 飛書 cardkit / Telegram DM Draft），工具媒體在末尾發送。僅對串流渠道生效——非串流渠道會自動降級為「僅最終回答」。",
+    "imReplyModePreviewDegrades": "當前渠道不支援串流預覽，預覽模式在此等同於「僅最終回答」。"
   },
   "cron": {
     "title": "定時任務",
@@ -3087,7 +3090,7 @@
       "description": "切換或選擇項目"
     },
     "imreply": {
-      "description": "設定 IM 回覆模式 (final|split)，僅對非串流渠道生效"
+      "description": "設定 IM 回覆模式 (split|final|preview)"
     }
   },
   "planMode": {

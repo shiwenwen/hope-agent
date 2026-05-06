@@ -2640,8 +2640,11 @@
     "imReplyMode": "IM 답장 모드",
     "imReplyModeFinal": "최종 답변만",
     "imReplyModeSplit": "라운드별 분할",
-    "imReplyModeHint": "기본값은 마지막 라운드의 답변만 전송합니다. 분할 모드는 각 라운드(도구 호출 전 설명 포함)를 별도 메시지로 보냅니다. 도구가 생성한 이미지/파일은 두 모드 모두 별도로 전송됩니다.",
-    "imReplyModeStreamingHint": "이 채널은 실시간 스트리밍 미리보기를 사용하므로 각 라운드가 원래 메시지에 즉시 표시됩니다. 분할은 텍스트를 중복시킬 뿐이라 적용되지 않습니다."
+    "imReplyModePreview": "스트리밍 미리보기",
+    "imReplyModeSplitHint": "각 라운드(설명 + 도구 결과 미디어)를 모델이 생성한 순서대로 독립 메시지로 보냅니다. 스트리밍 채널은 라운드마다 타자기 효과가 유지됩니다. 권장.",
+    "imReplyModeFinalHint": "도구 호출 전 설명을 버립니다. 마지막 라운드의 답변만 보내고, 도구 미디어는 마지막에 전송됩니다. 스트리밍 미리보기 없음.",
+    "imReplyModePreviewHint": "전체 병합 응답을 자라나는 단일 메시지로 렌더링합니다(Telegram 편집 · 飞书 cardkit · Telegram DM 임시저장). 도구 미디어는 마지막에. 스트리밍 채널 전용 — 비스트리밍 채널에서는 Final로 강등.",
+    "imReplyModePreviewDegrades": "이 채널에는 스트리밍 미리보기가 없어 Preview는 Final과 동일하게 동작합니다."
   },
   "cron": {
     "title": "예약 작업",
@@ -3087,7 +3090,7 @@
       "description": "프로젝트로 전환 또는 선택"
     },
     "imreply": {
-      "description": "IM 답장 모드 설정 (final|split), 비스트리밍 채널 전용"
+      "description": "IM 답장 모드 설정 (split|final|preview)"
     }
   },
   "planMode": {

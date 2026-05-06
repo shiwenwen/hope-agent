@@ -2640,8 +2640,11 @@
     "imReplyMode": "Modo de resposta IM",
     "imReplyModeFinal": "Apenas resposta final",
     "imReplyModeSplit": "Dividir por rodada",
-    "imReplyModeHint": "O modo padrão envia apenas a resposta da última rodada. Dividir envia cada rodada (incluindo narração antes das ferramentas) como uma mensagem IM separada. Mídias geradas por ferramentas são enviadas à parte em ambos os modos.",
-    "imReplyModeStreamingHint": "Este canal usa pré-visualização em streaming — cada rodada já aparece na mensagem original, então dividir apenas duplicaria o texto. Configuração não aplicável."
+    "imReplyModePreview": "Pré-visualização em streaming",
+    "imReplyModeSplitHint": "Cada rodada (narração + mídia produzida pelas ferramentas) é entregue como mensagem independente, na ordem em que o modelo as emitiu. Em canais com streaming, cada rodada mantém o efeito máquina de escrever. Recomendado.",
+    "imReplyModeFinalHint": "Descarta a narração anterior às ferramentas. O usuário vê apenas a resposta da última rodada; mídias chegam no final. Sem pré-visualização em streaming.",
+    "imReplyModePreviewHint": "Renderiza toda a resposta combinada como uma única mensagem que cresce (edição do Telegram · cardkit do Feishu · rascunho do Telegram DM); mídias ao final. Somente canais com streaming — os demais degradam para Final.",
+    "imReplyModePreviewDegrades": "Este canal não tem transporte de pré-visualização em streaming, então Preview funciona igual a Final aqui."
   },
   "cron": {
     "title": "Tarefas agendadas",
@@ -3087,7 +3090,7 @@
       "description": "Trocar para ou escolher um projeto"
     },
     "imreply": {
-      "description": "Definir modo de resposta IM (final|split) — apenas canais sem streaming"
+      "description": "Definir modo de resposta IM (split|final|preview)"
     }
   },
   "planMode": {

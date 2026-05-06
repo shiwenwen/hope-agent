@@ -360,34 +360,45 @@ export default function EditAccountDialog({
             />
           </div>
 
-          {/* IM Reply Mode — non-streaming channels only.
-              Streaming channels (telegram / discord / feishu) render every
-              round in the live preview, so a post-hoc split would just
-              duplicate the text. The select is disabled with an explanatory
-              hint instead of hidden, so the option is discoverable. */}
+          {/* IM Reply Mode — three modes, all channels honor the same
+              setting. `preview` only has streaming-specific behavior on
+              channels that advertise a preview transport; non-streaming
+              channels silently degrade `preview` → `final`. */}
           <div className="space-y-2">
             <Label>{t("channels.imReplyMode")}</Label>
             <Select
               value={imReplyMode}
               onValueChange={(v) => setImReplyMode(v as ImReplyMode)}
-              disabled={channelSupportsStreaming}
             >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="split">
+                  {t("channels.imReplyModeSplit")}
+                </SelectItem>
                 <SelectItem value="final">
                   {t("channels.imReplyModeFinal")}
                 </SelectItem>
-                <SelectItem value="split">
-                  {t("channels.imReplyModeSplit")}
+                <SelectItem value="preview">
+                  {t("channels.imReplyModePreview")}
                 </SelectItem>
               </SelectContent>
             </Select>
             <p className="text-xs text-muted-foreground">
-              {channelSupportsStreaming
-                ? t("channels.imReplyModeStreamingHint")
-                : t("channels.imReplyModeHint")}
+              {(() => {
+                if (imReplyMode === "preview" && !channelSupportsStreaming) {
+                  return t("channels.imReplyModePreviewDegrades")
+                }
+                switch (imReplyMode) {
+                  case "split":
+                    return t("channels.imReplyModeSplitHint")
+                  case "final":
+                    return t("channels.imReplyModeFinalHint")
+                  case "preview":
+                    return t("channels.imReplyModePreviewHint")
+                }
+              })()}
             </p>
           </div>
         </div>

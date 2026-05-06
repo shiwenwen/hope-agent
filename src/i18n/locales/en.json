@@ -2639,9 +2639,12 @@
     "lineHint": "Get credentials from LINE Developers Console (Messaging API channel)",
     "imReplyMode": "IM Reply Mode",
     "imReplyModeFinal": "Final answer only",
-    "imReplyModeSplit": "Split per round",
-    "imReplyModeHint": "Final (default) sends only the last round's reply. Split sends each round (e.g. pre-tool narration) as its own IM message. Tool-produced media (images / files) is delivered separately in both modes.",
-    "imReplyModeStreamingHint": "This channel uses live streaming previews — every round already shows up in place, so splitting would just duplicate text. Setting locked."
+    "imReplyModeSplit": "Per round (split)",
+    "imReplyModePreview": "Streaming preview",
+    "imReplyModeSplitHint": "Each round — narration plus the media its tools produced — is delivered as its own message in the order the model emitted them. Streaming channels still get a typewriter effect per round. Recommended.",
+    "imReplyModeFinalHint": "Drops pre-tool narration. The user sees only the last-round answer, then all tool media at the end. No streaming preview.",
+    "imReplyModePreviewHint": "Renders the full merged response in a single growing message (Telegram edit · Feishu cardkit · Telegram DM draft); tool media is sent at the end. Streaming channels only — non-streaming channels degrade to Final.",
+    "imReplyModePreviewDegrades": "This channel has no streaming preview transport, so Preview behaves the same as Final here."
   },
   "cron": {
     "title": "Scheduled Tasks",
@@ -3087,7 +3090,7 @@
       "description": "Switch to or pick a project"
     },
     "imreply": {
-      "description": "Set IM reply mode (final|split) — non-streaming channels only"
+      "description": "Set IM reply mode (split|final|preview)"
     }
   },
   "planMode": {

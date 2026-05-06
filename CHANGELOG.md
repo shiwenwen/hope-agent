@@ -19,13 +19,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **IM 渠道回复模式 `ImReplyMode`（final / split）+ `/imreply` 斜杠命令**：之前所有 IM 渠道把多 round 文本（round 0 narration「我把头像发给你。」+ round 1 final「已发。」）合并成一条发，非流式渠道（wechat / line / qqbot / irc / signal / whatsapp / imessage / slack / googlechat）的用户看到的是「我把头像发给你。已发。」一条糊在一起的消息，体验奇怪。新机制：
-  - **`ChannelStreamSink` 监听 `text_delta` / `tool_call` 事件按 round 边界累加** `RoundTextAccumulator { completed: Vec<String>, current: String }`，dispatcher drain 后按 mode 处理。
-  - **`ChannelAccountConfig.settings.imReplyMode = "final" | "split"`**（默认 `final`），账号级配置；`final` 只发最后一轮答案、`split` 把每个 pre-final round 单独 `send_message` 一条（间隔 50ms 防风控）后再发 final + media。
-  - **流式渠道（telegram / discord / feishu）不读这个设置**：dispatcher 检测 `preview_transport.is_some()` 强制走旧的合并文本路径——这些渠道的 stream task 在过程中已经实时渲染了所有 round 文本，再 split 会重复。
-  - **`/imreply [final|split]` 斜杠命令**：通过 `session_id` → `channel_db` → 反查 `account_id` 改 `mutate_config`；桌面 / web session 直接报错；流式 channel session 也直接拒绝并提示「only applies to non-streaming IM channels」。命令 description 在 12 语言里都标注「仅非流式」。
-  - **GUI**：[`EditAccountDialog`](src/components/settings/channel-panel/EditAccountDialog.tsx) 加 IM Reply Mode Select 控件，流式 channel 上 disabled 并显示「This channel uses live streaming previews — every round already shows up in place, so splitting would just duplicate text. Setting locked.」（12 语言齐全 5 个 key）。读 / 写 helper 在 [`channel-panel/types.ts`](src/components/settings/channel-panel/types.ts)。
-  - 涉及 [`chat_engine/types.rs`](crates/ha-core/src/chat_engine/types.rs)（+ 4 单测）/ [`channel/types.rs`](crates/ha-core/src/channel/types.rs)（+ 3 单测）/ [`channel/worker/dispatcher.rs`](crates/ha-core/src/channel/worker/dispatcher.rs) / [`slash_commands/handlers/utility.rs`](crates/ha-core/src/slash_commands/handlers/utility.rs) / [`slash_commands/handlers/mod.rs`](crates/ha-core/src/slash_commands/handlers/mod.rs) / [`slash_commands/registry.rs`](crates/ha-core/src/slash_commands/registry.rs) / [`slash_commands/types.rs`](crates/ha-core/src/slash_commands/types.rs)。
+- **IM 渠道回复模式 `ImReplyMode`（split / final / preview）+ `/imreply` 斜杠命令**：之前所有 IM 渠道把多 round 文本（round 0 narration「我把头像发给你。」+ round 1 final「已发。」）合并成一条发，工具产出的媒体（图 / 文件）全堆在末尾——失去模型实际表达的时序。三态全新机制：
+  - **`split`（默认）**：每 round 的 narration 与该 round 工具产生的媒体按时序作为独立消息发送（narration → 该 round media → 下一 round narration → ...）。流式渠道每条仍是流式打字机，但不再是「单条不断增长」——按 round 切；非流式渠道每条一次性。
+  - **`final`**：丢弃中间 round narration，只发最后 round 的 text + 末尾发所有媒体。不启用流式预览。
+  - **`preview`**（仅流式有差异）：流式渠道用 stream preview transport（Telegram edit / Feishu cardkit / Telegram DM Draft）渲染合并文本——单条不断增长的消息，媒体末尾发；非流式渠道无 preview 可用，自动降级等同 `final`。
+  - **核心实现**：
+    - `ChannelStreamSink` 维护 `RoundTextAccumulator<RoundOutput { text, medias }>` state machine。`text_delta → current.text`；`tool_call → close round`（idempotent，多 tool_call 同 round 只关一次）；`tool_result(media) → 挂到刚关闭的 round`。drain 出时序排好的 `Vec<RoundOutput>`。
+    - dispatcher 在 spawn stream task **之前**算 `account.im_reply_mode()`——仅 `Preview` 模式调 `select_stream_preview_transport`，其他模式给 stream task 传 `None`（drain events 不创建 preview message）。
+    - `run_chat_engine` 返回后 drain rounds 调三选一：`deliver_split`（每 round text + media，最后 round 走 `send_final_reply`）/ `deliver_final_only`（取 `rounds.last().text` + 合并所有 media）/ `deliver_preview_merged`（用 `engine_result.response` + 合并所有 media）。
+    - `deliver_media` 从 `send_final_reply` 抽出复用：`partition_media_by_channel` → 逐个 `send_message(media)` → 不支持 MIME 转下载链接。50ms 间隔防风控。
+  - **配置入口**：
+    - GUI：[`EditAccountDialog`](src/components/settings/channel-panel/EditAccountDialog.tsx) 三选项 Select；`preview` 选到非流式 channel 时显示 hint「will degrade to Final」但仍允许保存。
+    - 斜杠：`/imreply [split|final|preview]`（[`slash_commands/handlers/utility.rs`](crates/ha-core/src/slash_commands/handlers/utility.rs)）。任何 channel 都可设置；桌面 / web session 拒绝；无参打印当前 mode + 三态说明。
+  - **i18n 12 语言**：5 个 `channels.imReplyMode*` key（`Split` / `Final` / `Preview` 三选项 + `*Hint` 三态说明 + `imReplyModePreviewDegrades` 降级提示），`slashCommands.imreply.description` 文案更新。
+  - 涉及 [`chat_engine/types.rs`](crates/ha-core/src/chat_engine/types.rs)（+ `RoundOutput` + 5 单测）/ [`channel/types.rs`](crates/ha-core/src/channel/types.rs)（+ 3 单测）/ [`channel/worker/dispatcher.rs`](crates/ha-core/src/channel/worker/dispatcher.rs)（`deliver_split` / `deliver_final_only` / `deliver_preview_merged` / `deliver_media`）/ [`slash_commands/handlers/utility.rs`](crates/ha-core/src/slash_commands/handlers/utility.rs)（去掉流式拒绝分支）/ [`slash_commands/registry.rs`](crates/ha-core/src/slash_commands/registry.rs) + [`types.rs`](crates/ha-core/src/slash_commands/types.rs)（三 arg_options）。详见 [docs/architecture/im-channel.md](docs/architecture/im-channel.md) 「IM 回复模式」章节。
 
 - **Agent 头像路径注入 system prompt**：之前 `AgentConfig.avatar` 只在前端 UI 渲染，模型不知道自己头像在哪。现在 `system_prompt::build` 在 identity 行后追加 `Your avatar image is at: <path>`（结构化 / OpenClaw 模式同款）；空字符串 / `None` 不注入。**`data:` URL 与超过 1KB 的字符串显式跳过**——OpenClaw 导入路径 `is_remote_avatar` 接受 `data:` 头像，base64 图片几十到几百 KB 会逐轮膨胀 prompt，因此在拼接处兜底过滤。涉及 [`crates/ha-core/src/system_prompt/build.rs`](crates/ha-core/src/system_prompt/build.rs) + [`docs/architecture/prompt-system.md`](docs/architecture/prompt-system.md) 两种模式对照表。
 

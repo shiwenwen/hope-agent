@@ -75,33 +75,50 @@ pub enum MediaType {
 }
 
 // ── IM Reply Mode ────────────────────────────────────────────────
-// Controls how the dispatcher splits multi-round assistant text in IM replies.
-// `Final` is the default — only the last round's text is sent (round 0
-// "narration before tool" is dropped). `Split` sends each round as its own
-// message so the user sees the full thinking-aloud flow.
+// Controls how the dispatcher delivers multi-round assistant output (text +
+// tool-produced media) over an IM channel. Three modes, all channels honor
+// the same setting — streaming vs non-streaming only changes whether each
+// round's text is rendered with a typewriter preview or as a single shot.
+//
+// **Round** here = one LLM `process_round` (an assistant message that may
+// contain narration + tool_calls). `RoundTextAccumulator` watches the
+// `text_delta` / `tool_call` / `tool_result` event stream and groups events
+// into per-round buckets; the dispatcher fans them out per `ImReplyMode`.
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ImReplyMode {
-    /// Send only the final-round assistant text, drop pre-tool narration.
+    /// (Default) Each round's text + media is delivered in time order, as
+    /// independent messages — narration → tool media → next narration → ...
+    /// Streaming channels still get a typewriter effect *per round*, just
+    /// not "one growing message"; non-streaming channels send each round in
+    /// one shot. Mirrors how the model actually narrated the work.
     #[default]
-    Final,
-    /// Send each round's assistant text as a separate IM message.
     Split,
+    /// Drop pre-tool narration; deliver only the final round's text plus all
+    /// tool media in one outbound burst. No streaming preview.
+    Final,
+    /// Streaming-only: render the full merged response in a single growing
+    /// preview message (Telegram edit / Feishu cardkit / Telegram DM draft),
+    /// finalize at the end, then send all media. Non-streaming channels
+    /// degrade to `Final` since they have no preview transport to speak of.
+    Preview,
 }
 
 impl ImReplyMode {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Final => "final",
             Self::Split => "split",
+            Self::Final => "final",
+            Self::Preview => "preview",
         }
     }
 
     pub fn parse(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
-            "final" | "f" => Some(Self::Final),
             "split" | "s" => Some(Self::Split),
+            "final" | "f" => Some(Self::Final),
+            "preview" | "p" => Some(Self::Preview),
             _ => None,
         }
     }
@@ -551,27 +568,32 @@ mod tests {
 
     #[test]
     fn im_reply_mode_parses_canonical_and_short_forms() {
-        assert_eq!(ImReplyMode::parse("final"), Some(ImReplyMode::Final));
         assert_eq!(ImReplyMode::parse("split"), Some(ImReplyMode::Split));
-        assert_eq!(ImReplyMode::parse("F"), Some(ImReplyMode::Final));
+        assert_eq!(ImReplyMode::parse("final"), Some(ImReplyMode::Final));
+        assert_eq!(ImReplyMode::parse("preview"), Some(ImReplyMode::Preview));
+        // Single-letter shortcuts.
+        assert_eq!(ImReplyMode::parse("S"), Some(ImReplyMode::Split));
+        assert_eq!(ImReplyMode::parse("f"), Some(ImReplyMode::Final));
+        assert_eq!(ImReplyMode::parse("P"), Some(ImReplyMode::Preview));
         assert_eq!(ImReplyMode::parse("  SPLIT  "), Some(ImReplyMode::Split));
         assert_eq!(ImReplyMode::parse("merged"), None);
         assert_eq!(ImReplyMode::parse(""), None);
     }
 
     #[test]
-    fn im_reply_mode_falls_back_to_final_when_settings_missing() {
+    fn im_reply_mode_falls_back_to_default_when_settings_missing() {
+        // Default is Split — ungrouped accounts get the time-ordered behavior.
         assert_eq!(
             mk_account(serde_json::Value::Null).im_reply_mode(),
-            ImReplyMode::Final
+            ImReplyMode::Split
         );
         assert_eq!(
             mk_account(serde_json::json!({})).im_reply_mode(),
-            ImReplyMode::Final
+            ImReplyMode::Split
         );
         assert_eq!(
             mk_account(serde_json::json!({"imReplyMode": "garbage"})).im_reply_mode(),
-            ImReplyMode::Final
+            ImReplyMode::Split
         );
     }
 

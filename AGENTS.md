@@ -194,7 +194,16 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - 工具审批通过 EventBus `approval_required` 监听，按 `supports_buttons` 走原生按钮或文本；`auto_approve_tools=true` 跳审批
 - **Auto-start 失败统一走 [`channel/start_watchdog.rs`](crates/ha-core/src/channel/start_watchdog.rs)**——退避 30s/60s/2m/5m，sweep 15s，user 操作永远胜过 watchdog；失败日志带 `classify_channel_error` 分类
 - **流式预览 Transport 三选一**（[`worker/streaming.rs`](crates/ha-core/src/channel/worker/streaming.rs) `select_stream_preview_transport`）：`Draft (Telegram DM 专属) > Card (capabilities.supports_card_stream，目前仅飞书 cardkit) > Message (send_message+edit_message)`。Card / Draft 失败有降级（Card 创建期失败 → 切 Message；中后期 `update_card_element` 失败 → `broken=true`，收尾走 `send_message` 兜底）。新增飞书风格"无编辑标记"流式靠 `ChannelPlugin` 上 4 个 default-impl=`Err` 的 cardkit trait 方法（`create_card_stream` / `send_card_message` / `update_card_element` / `close_card_stream`）—— 仅飞书实现，11 个非飞书 channel 的 `capabilities.supports_card_stream=false` 走旧路径不变
-- **`ImReplyMode` 仅适用于非流式渠道**（`ChannelAccountConfig.settings.imReplyMode = "final"|"split"`，默认 `final`）：`final` 只发最后 round 的 text，`split` 把每个 pre-final round 单独 send_message。流式渠道（telegram / discord / feishu）dispatcher 检测 `preview_transport.is_some()` 时**强制忽略**该设置，仍发合并的 `engine_result.response`——它们的 stream task 已经渲染过所有 round。round 边界靠 `ChannelStreamSink::round_texts: RoundTextAccumulator`（[`chat_engine/types.rs`](crates/ha-core/src/chat_engine/types.rs)）按 `text_delta` / `tool_call` 事件累加。配置入口：GUI（`EditAccountDialog` 流式 channel 上 disabled）+ `/imreply [final|split]` 斜杠命令（流式 channel session 直接拒绝）
+- **`ImReplyMode` 三态对所有渠道生效**（`ChannelAccountConfig.settings.imReplyMode`，默认 `split`，[`channel/types.rs`](crates/ha-core/src/channel/types.rs)）：
+  - `split`（默认）：每 round 的 narration + 媒体按时序作为独立消息发送；流式渠道每条仍带打字机效果（每 round 起独立消息，不再是「一条不断增长」），媒体在产生它的 round 之后立即发
+  - `final`：丢弃中间 round narration，只发最后 round 的 text + 末尾发所有媒体；不启用流式预览
+  - `preview`：流式渠道用 preview transport 渲染合并文本（旧行为）；非流式渠道降级为 `final`
+
+  实现要点：
+  - **stream task transport 由 mode 决定**——dispatcher 在 spawn stream task 之前算 `account.im_reply_mode()`，仅 `Preview` 模式调 `select_stream_preview_transport`，其他模式给 stream task 传 `None`（drain events 不创建 preview）
+  - **round 边界 + 媒体归组**靠 `ChannelStreamSink::round_texts: RoundTextAccumulator<RoundOutput { text, medias }>`（[`chat_engine/types.rs`](crates/ha-core/src/chat_engine/types.rs)）。state machine：`text_delta → current.text`；`tool_call → close round`（idempotent，多 tool_call 同 round 只关一次）；`tool_result(media) → 挂到刚关闭的 round`
+  - **dispatcher** 在 [`channel/worker/dispatcher.rs`](crates/ha-core/src/channel/worker/dispatcher.rs) 按 mode 调 `deliver_split` / `deliver_final_only` / `deliver_preview_merged` 三选一；split 路径每 round 走 `send_message(text)` + `deliver_media(round.medias)`，最后 round 通过 `send_final_reply` 走 finalize 路径
+- **配置入口**：GUI（`EditAccountDialog` 三选项 Select，`preview` 选到非流式 channel 时 hint「will degrade to Final」）+ `/imreply [split|final|preview]` 斜杠命令
 - **`ChannelStreamSink` 短路条件用 `contains` 不能用 `starts_with`**：`emit_tool_result` 走 `serde_json::json!({...})` + 默认 `BTreeMap`，键按字母序输出（`call_id` 永远在前），任何 anchor 在 `{"type":...` 的 fast-path 都不会触发。`media_items` / `tool_result` / `text_delta` / `tool_call` 检测都用 `event.contains(...)`，rarer-needle-first
 
 ### Dashboard / Recap / Learning

@@ -2640,8 +2640,11 @@
     "imReplyMode": "IM 返信モード",
     "imReplyModeFinal": "最終回答のみ",
     "imReplyModeSplit": "ラウンドごとに分割",
-    "imReplyModeHint": "デフォルトでは最終ラウンドの回答のみを送信します。分割モードでは各ラウンド（ツール呼び出し前のナレーション含む）を別メッセージとして送信します。ツールが生成した画像・ファイルは両モードとも別途送信されます。",
-    "imReplyModeStreamingHint": "このチャンネルはストリーミングプレビュー対応で、各ラウンドが原メッセージ上にリアルタイム表示されるため、分割すると重複します — この設定は適用されません。"
+    "imReplyModePreview": "ストリーミングプレビュー",
+    "imReplyModeSplitHint": "各ラウンド（ナレーション + ツール出力のメディア）を、モデルが生成した順序で独立したメッセージとして送信します。ストリーミングチャンネルではラウンドごとにタイプライター効果が残ります。推奨。",
+    "imReplyModeFinalHint": "ツール呼び出し前のナレーションを破棄。最終ラウンドの回答のみを送信し、ツールメディアは末尾に送られます。ストリーミングプレビューなし。",
+    "imReplyModePreviewHint": "応答全体を 1 件の伸びるメッセージにまとめて表示します（Telegram 編集 / 飛書 cardkit / Telegram DM Draft）。ツールメディアは末尾。ストリーミング対応チャンネルのみ — 非対応では Final に降格。",
+    "imReplyModePreviewDegrades": "このチャンネルはストリーミングプレビューに対応していないため、Preview は Final と同じ動作になります。"
   },
   "cron": {
     "title": "定期タスク",
@@ -3087,7 +3090,7 @@
       "description": "プロジェクトを切り替え/選択"
     },
     "imreply": {
-      "description": "IM 返信モードを設定 (final|split)、非ストリーミング限定"
+      "description": "IM 返信モードを設定 (split|final|preview)"
     }
   },
   "planMode": {

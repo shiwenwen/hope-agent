@@ -2640,8 +2640,11 @@
     "imReplyMode": "Chế độ trả lời IM",
     "imReplyModeFinal": "Chỉ câu trả lời cuối",
     "imReplyModeSplit": "Tách theo từng lượt",
-    "imReplyModeHint": "Mặc định chỉ gửi câu trả lời ở lượt cuối. Chế độ tách gửi mỗi lượt (kể cả phần dẫn dắt trước khi gọi công cụ) thành một tin nhắn riêng. Tệp / ảnh do công cụ tạo ra vẫn được gửi riêng trong cả hai chế độ.",
-    "imReplyModeStreamingHint": "Kênh này dùng xem trước trực tiếp — mỗi lượt đã xuất hiện trong tin nhắn gốc nên tách sẽ chỉ trùng lặp. Tùy chọn không áp dụng."
+    "imReplyModePreview": "Xem trước trực tiếp",
+    "imReplyModeSplitHint": "Mỗi lượt (lời dẫn + tệp do công cụ tạo ra) được gửi như tin nhắn độc lập theo đúng thứ tự mô hình tạo ra. Kênh phát trực tiếp vẫn giữ hiệu ứng đánh máy cho từng lượt. Khuyến nghị.",
+    "imReplyModeFinalHint": "Bỏ qua lời dẫn trước khi gọi công cụ. Người dùng chỉ thấy câu trả lời lượt cuối; tệp/ảnh được gửi ở cuối. Không có xem trước trực tiếp.",
+    "imReplyModePreviewHint": "Hiển thị toàn bộ phản hồi đã hợp nhất trong một tin nhắn duy nhất đang lớn dần (Telegram chỉnh sửa / Feishu cardkit / bản nháp Telegram DM); tệp/ảnh được gửi ở cuối. Chỉ kênh phát trực tiếp — kênh khác sẽ tự hạ về Final.",
+    "imReplyModePreviewDegrades": "Kênh này không có cơ chế xem trước trực tiếp, nên Preview hoạt động giống Final ở đây."
   },
   "cron": {
     "title": "Tác vụ định kỳ",
@@ -3087,7 +3090,7 @@
       "description": "Chuyển hoặc chọn dự án"
     },
     "imreply": {
-      "description": "Đặt chế độ trả lời IM (final|split), chỉ cho kênh không phát trực tiếp"
+      "description": "Đặt chế độ trả lời IM (split|final|preview)"
     }
   },
   "planMode": {

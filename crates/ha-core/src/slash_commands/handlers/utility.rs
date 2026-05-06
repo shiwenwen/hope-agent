@@ -366,15 +366,17 @@ pub fn handle_search(args: &str) -> Result<CommandResult, String> {
     })
 }
 
-/// /imreply [final|split] — Show or set the IM reply mode for the current
-/// channel account. **Only applies to non-streaming IM channels** (wechat / line /
-/// qqbot / irc / signal / whatsapp / imessage). Streaming channels (telegram /
-/// discord / feishu) ignore this setting because they show every round in the
-/// live preview anyway, so any post-hoc split would just duplicate text.
+/// /imreply [split|final|preview] — Show or set the IM reply mode for the
+/// current channel account. Three modes, see [`crate::channel::ImReplyMode`]:
 ///
-/// `final` (default) sends only the last-round assistant text; `split` sends
-/// each round as its own IM message so pre-tool narration ("我把头像发给你。")
-/// and the final answer ("已发。") stay separated.
+/// - **`split`** (default): each round (narration + media) delivered in time
+///   order as independent messages. Streaming channels still get a typewriter
+///   effect *per round*, just not "one growing message".
+/// - **`final`**: only the last-round narration + all media in one burst.
+///   No streaming preview.
+/// - **`preview`**: streaming channels render the full merged response in a
+///   single growing preview message (Telegram edit / Feishu cardkit / Telegram
+///   DM draft); non-streaming channels degrade to `final`.
 ///
 /// Persisted to `ChannelAccountConfig.settings.imReplyMode` via [`mutate_config`].
 pub async fn handle_imreply(
@@ -403,30 +405,26 @@ pub async fn handle_imreply(
                 channel_info.account_id
             )
         })?;
-    let channel_id = account.channel_id.clone();
     let current = account.im_reply_mode();
     drop(cfg);
-
-    if account_supports_stream_preview(&channel_id) {
-        return Err(format!(
-            "/imreply only applies to non-streaming IM channels (wechat / line / qqbot / irc / signal / whatsapp / imessage). Current channel `{}` uses streaming previews — every round already shows up in-place.",
-            channel_id
-        ));
-    }
 
     let arg = args.trim();
     if arg.is_empty() {
         return Ok(CommandResult {
             content: format!(
-                "**IM reply mode**: `{}`  _(non-streaming channels only)_\n\n- `final` — send only the last-round answer (default)\n- `split` — send each round as its own IM message\n\nUsage: `/imreply final` or `/imreply split`",
+                "**IM reply mode**: `{}`\n\n- `split` — each round in time order, separate messages (default; recommended)\n- `final` — only the last-round answer + all media at the end\n- `preview` — single growing preview message (streaming channels only; degrades to `final` elsewhere)\n\nUsage: `/imreply split` · `/imreply final` · `/imreply preview`",
                 current.as_str()
             ),
             action: Some(CommandAction::DisplayOnly),
         });
     }
 
-    let mode = crate::channel::ImReplyMode::parse(arg)
-        .ok_or_else(|| format!("Invalid mode: `{}`. Valid: final, split", arg))?;
+    let mode = crate::channel::ImReplyMode::parse(arg).ok_or_else(|| {
+        format!(
+            "Invalid mode: `{}`. Valid: split, final, preview",
+            arg
+        )
+    })?;
 
     let account_id = channel_info.account_id.clone();
     let mode_str = mode.as_str();
@@ -461,26 +459,6 @@ pub fn handle_prompts() -> CommandResult {
         content: String::new(),
         action: Some(CommandAction::ViewSystemPrompt),
     }
-}
-
-/// Whether a channel surfaces its replies through a streaming preview
-/// (`telegram` / `discord` / `feishu` etc). Mirrors the conditions in
-/// [`crate::channel::worker::streaming::select_stream_preview_transport`]
-/// minus the chat-type gate (which only refines `Draft` for Telegram DM):
-/// any channel whose plugin advertises `supports_card_stream` or
-/// `supports_edit` will get a live preview, regardless of chat type.
-///
-/// Returns false when the registry is unavailable or the channel isn't
-/// registered — fail-open so unknown channels are treated as non-streaming.
-fn account_supports_stream_preview(channel_id: &crate::channel::ChannelId) -> bool {
-    let Some(reg) = crate::globals::get_channel_registry() else {
-        return false;
-    };
-    let Some(plugin) = reg.get_plugin(channel_id) else {
-        return false;
-    };
-    let caps = plugin.capabilities();
-    caps.supports_card_stream || caps.supports_edit
 }
 
 /// Simple filename sanitization.
