@@ -39,7 +39,10 @@ pub async fn run_polling_loop(
             }
             result = tokio::time::timeout(
                 std::time::Duration::from_secs(poll_timeout as u64 + 15),
-                api.get_updates(offset, poll_timeout, &["message", "edited_message", "callback_query"])
+                // capabilities 声明 ChatType::Channel；getUpdates 默认不返回
+                // channel_post，必须在 allowed_updates 显式声明，否则 channel
+                // 帖子永远不进 inbound。
+                api.get_updates(offset, poll_timeout, &["message", "edited_message", "callback_query", "channel_post"])
             ) => {
                 match result {
                     Err(_timeout) => {

@@ -126,13 +126,22 @@ impl ChannelPlugin for LinePlugin {
             supports_unsend: false,
             supports_reply: true,
             supports_threads: false,
-            // TODO: native LINE media (imageMessage / videoMessage)
-            // not yet implemented. Note LINE requires an HTTPS public URL —
-            // the fallback text already uses `public_base_url` from config.
-            supports_media: Vec::new(),
+            // LINE imageMessage / videoMessage / audioMessage 不需要 multipart
+            // 上传——直接以 originalContentUrl + previewImageUrl 形式声明在
+            // message object，要求公网 HTTPS URL。Document 在 LINE Messaging
+            // API 没有原生类型（必须走 Flex 或链接），暂不支持。本地 FilePath /
+            // Bytes 暂不实现，由 dispatcher 走链接文本兜底。
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Audio,
+                MediaType::Voice,
+            ],
             supports_typing: false,
             supports_buttons: true,
-            max_message_length: Some(5000),
+            // LINE 文本上限 5000 字符；UTF-8 字节计算 CJK 占 3 bytes，4500 字节
+            // 留余量
+            max_message_length: Some(4500),
         }
     }
 
@@ -219,19 +228,63 @@ impl ChannelPlugin for LinePlugin {
     ) -> Result<DeliveryResult> {
         let (api, reply_tokens) = self.get_account_state(account_id).await?;
 
-        let text = match &payload.text {
-            Some(t) if !t.is_empty() => t.clone(),
-            _ => return Ok(DeliveryResult::ok("empty")),
-        };
+        let text = payload.text.clone().unwrap_or_default();
 
-        // Build messages: use a buttons template if buttons are present,
-        // otherwise send a plain text message.
-        let messages = if !payload.buttons.is_empty() {
+        // Build messages list. Order: media first（按 LINE 习惯），text 末尾，
+        // buttons template 替代纯文本（如同时存在按钮与媒体，按钮独立成一条
+        // template 与媒体并存）。LINE 单 reply/push 支持 1-5 条 message。
+        let mut messages: Vec<serde_json::Value> = Vec::new();
+
+        for media in &payload.media {
+            let url = match &media.data {
+                MediaData::Url(u) if u.starts_with("https://") => u.clone(),
+                // FilePath / Bytes / 非 HTTPS URL 暂不支持，由 dispatcher 走
+                // 链接文本兜底
+                _ => continue,
+            };
+            match media.media_type {
+                MediaType::Photo => {
+                    messages.push(serde_json::json!({
+                        "type": "image",
+                        "originalContentUrl": &url,
+                        "previewImageUrl": &url,
+                    }));
+                }
+                MediaType::Video => {
+                    let preview = media
+                        .caption
+                        .as_deref()
+                        .filter(|s| s.starts_with("https://"))
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| url.clone());
+                    messages.push(serde_json::json!({
+                        "type": "video",
+                        "originalContentUrl": &url,
+                        "previewImageUrl": preview,
+                    }));
+                }
+                MediaType::Audio | MediaType::Voice => {
+                    // LINE 要求 audio.duration（毫秒），未知时填 1000 兜底
+                    messages.push(serde_json::json!({
+                        "type": "audio",
+                        "originalContentUrl": &url,
+                        "duration": 1000,
+                    }));
+                }
+                _ => continue,
+            }
+        }
+
+        if !payload.buttons.is_empty() {
+            // buttons template 必须有 alt + text；text 长度上限 160（buttons
+            // template 限制），caption 由外侧 text fallback。
+            let alt = if text.is_empty() { "Choose an option" } else { &text };
+            let inner_text = crate::truncate_utf8(alt, 160);
             let actions: Vec<_> = payload
                 .buttons
                 .iter()
                 .flatten()
-                .take(3) // LINE buttons template supports at most 4 actions
+                .take(3)
                 .map(|b| {
                     serde_json::json!({
                         "type": "postback",
@@ -240,29 +293,38 @@ impl ChannelPlugin for LinePlugin {
                     })
                 })
                 .collect();
-
-            vec![serde_json::json!({
+            messages.push(serde_json::json!({
                 "type": "template",
-                "altText": &text,
+                "altText": alt,
                 "template": {
                     "type": "buttons",
-                    "text": crate::truncate_utf8(&text, 160),
+                    "text": inner_text,
                     "actions": actions,
                 }
-            })]
-        } else {
-            vec![serde_json::json!({
+            }));
+        } else if !text.is_empty() {
+            messages.push(serde_json::json!({
                 "type": "text",
                 "text": text,
-            })]
-        };
+            }));
+        }
 
-        // Try to use reply token first (valid for ~1 minute)
+        if messages.is_empty() {
+            return Ok(DeliveryResult::ok("empty"));
+        }
+
+        // LINE Reply/Push 单次 ≤ 5 条 message
+        if messages.len() > 5 {
+            messages.truncate(5);
+        }
+
+        // Try to use reply token first. LINE replyToken 官方文档约定 ~1 分钟
+        // 有效；之前 50s 安全余量过激进，30-50s 区间会无谓走 push（计费 +
+        // 不计入"免费消息"配额）。改 55s 留 5s buffer 应对时钟漂移。
         let reply_token = {
             let mut tokens = reply_tokens.lock().await;
             if let Some((token, ts)) = tokens.remove(chat_id) {
-                // Only use if less than 50 seconds old
-                if ts.elapsed().as_secs() < 50 {
+                if ts.elapsed().as_secs() < 55 {
                     Some(token)
                 } else {
                     None

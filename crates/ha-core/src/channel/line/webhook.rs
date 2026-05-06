@@ -288,12 +288,12 @@ async fn handle_message_event(
         }
     };
 
-    // Store reply token (valid for ~1 minute)
+    // Store reply token (LINE 官方约定 ~1 分钟有效；保守 55s 留 5s buffer
+    // 应对时钟漂移；与 send_message 中 reply_token 选用窗口一致)
     if let Some(reply_token) = event.get("replyToken").and_then(|v| v.as_str()) {
         let mut tokens = reply_tokens.lock().await;
-        // Clean up expired tokens (older than 50 seconds to be safe)
         let now = std::time::Instant::now();
-        tokens.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 50);
+        tokens.retain(|_, (_, ts)| now.duration_since(*ts).as_secs() < 55);
         tokens.insert(chat_id.clone(), (reply_token.to_string(), now));
     }
 
