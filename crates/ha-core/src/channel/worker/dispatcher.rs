@@ -463,15 +463,15 @@ async fn handle_inbound_message(
 
     let capabilities = plugin.capabilities();
     let reply_mode = account.im_reply_mode();
-    // Stream preview is only meaningful under `Preview` mode. Under `Split`
-    // we deliver each round as its own message (no growing-bubble effect)
-    // and under `Final` we send a single merged reply at the end. Forcing
-    // `None` for those modes lets the stream task drain events without
-    // creating any preview message.
-    let preview_transport = if reply_mode == ImReplyMode::Preview {
-        select_stream_preview_transport(&msg.chat_type, &capabilities)
-    } else {
-        None
+    // Stream preview is meaningful under `Preview` (one growing message)
+    // AND `Split` (per-round message with typewriter effect; the stream
+    // task closes each round inline). `Final` skips preview entirely so the
+    // user only sees the last-round answer at the end.
+    let preview_transport = match reply_mode {
+        ImReplyMode::Preview | ImReplyMode::Split => {
+            select_stream_preview_transport(&msg.chat_type, &capabilities)
+        }
+        ImReplyMode::Final => None,
     };
     let max_msg_len = capabilities.max_message_length.unwrap_or(4096);
     let stream_task = spawn_channel_stream_task(
@@ -483,6 +483,9 @@ async fn handle_inbound_message(
         msg.thread_id.clone(),
         preview_transport,
         max_msg_len,
+        reply_mode,
+        round_texts.clone(),
+        capabilities.clone(),
     );
 
     // 8. Convert inbound media to agent Attachments
@@ -579,6 +582,7 @@ async fn handle_inbound_message(
                         &drained_rounds,
                         &engine_result.response,
                         stream_outcome.preview.as_ref(),
+                        stream_outcome.finalized_rounds,
                         &capabilities,
                     )
                     .await
@@ -612,11 +616,12 @@ async fn handle_inbound_message(
             app_info!(
                 "channel",
                 "worker",
-                "[{}] Reply sent to {} (mode={}, rounds={}, text_chars={}, media={}, preview={})",
+                "[{}] Reply sent to {} (mode={}, rounds={}, finalized_inline={}, text_chars={}, media={}, preview={})",
                 channel_id_str,
                 msg.chat_id,
                 reply_mode.as_str(),
                 drained_rounds.len(),
+                stream_outcome.finalized_rounds,
                 metrics.text_chars,
                 metrics.media_count,
                 preview_transport.is_some(),
@@ -958,14 +963,22 @@ struct DeliveryMetrics {
 
 /// `ImReplyMode::Split`: deliver each round in time order.
 ///
-/// Pre-final rounds: send any narration as a standalone message, then fan
-/// out that round's media (each item on its own `send_message`). The final
-/// round goes through `send_final_reply`, which finalizes the (rare under
-/// Split) preview handle and runs the canonical text-chunks +
-/// native-or-fallback media path.
+/// Two execution paths share this function:
+///
+/// 1. **Streaming-capable channel (`finalized_rounds > 0`)**: the stream
+///    task already delivered rounds `0..finalized_rounds` inline (preview
+///    + media per round). We only handle `rounds[finalized_rounds..]`,
+///    which under normal flow is either empty (model ended on a tool_call)
+///    or exactly one entry (the final round whose preview is still open).
+///
+/// 2. **Non-streaming channel (`finalized_rounds == 0`)**: the stream task
+///    drained events without rendering. We iterate every round here, sending
+///    pre-final narration as one-shot `send_message` + media fan-out, and
+///    routing the last round through `send_final_reply`.
 ///
 /// Falls back to `engine_result.response` only if the sink saw no events at
 /// all — defensive for engine paths that don't stream through us.
+#[allow(clippy::too_many_arguments)]
 async fn deliver_split(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
@@ -973,6 +986,7 @@ async fn deliver_split(
     rounds: &[crate::chat_engine::RoundOutput],
     fallback_response: &str,
     preview: Option<&PreviewHandle>,
+    finalized_rounds: usize,
     caps: &ChannelCapabilities,
 ) -> DeliveryMetrics {
     let mut metrics = DeliveryMetrics::default();
@@ -984,8 +998,22 @@ async fn deliver_split(
         return metrics;
     }
 
-    let last_idx = rounds.len() - 1;
-    for (i, round) in rounds.iter().enumerate() {
+    // Tally already-finalized rounds so the post-turn log matches reality.
+    let split_at = finalized_rounds.min(rounds.len());
+    for r in &rounds[..split_at] {
+        metrics.text_chars += r.text.chars().count();
+        metrics.media_count += r.medias.len();
+    }
+
+    let remaining = &rounds[split_at..];
+    if remaining.is_empty() {
+        // Stream task finalized everything (model ended on a tool_call,
+        // last round had no trailing narration). Nothing left to ship.
+        return metrics;
+    }
+
+    let last_idx = remaining.len() - 1;
+    for (i, round) in remaining.iter().enumerate() {
         if i == last_idx {
             // Final round goes through the canonical finalize-+ -media path.
             send_final_reply(
@@ -1001,7 +1029,8 @@ async fn deliver_split(
             metrics.text_chars += round.text.chars().count();
             metrics.media_count += round.medias.len();
         } else {
-            // Pre-final round: narration → its own media.
+            // Pre-final round (only reached on non-streaming channels — the
+            // stream task would have finalized this round inline otherwise).
             if !round.text.trim().is_empty() {
                 let payload = ReplyPayload {
                     text: Some(round.text.clone()),
@@ -1172,6 +1201,29 @@ async fn deliver_media(
     items: &[crate::attachments::MediaItem],
     caps: &ChannelCapabilities,
 ) {
+    deliver_media_to_chat(
+        plugin,
+        account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+        items,
+        caps,
+    )
+    .await
+}
+
+/// Same as `deliver_media` but takes `chat_id` / `thread_id` directly so
+/// callsites without a `MsgContext` (e.g. the stream task's per-round
+/// fan-out under split-streaming) can reuse the same delivery + fallback
+/// path.
+pub(super) async fn deliver_media_to_chat(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    items: &[crate::attachments::MediaItem],
+    caps: &ChannelCapabilities,
+) {
     if items.is_empty() {
         return;
     }
@@ -1186,13 +1238,10 @@ async fn deliver_media(
             reply_to_message_id: None,
             parse_mode: None,
             buttons: Vec::new(),
-            thread_id: msg.thread_id.clone(),
+            thread_id: thread_id.map(|s| s.to_string()),
             draft_id: None,
         };
-        match plugin
-            .send_message(account_id, &msg.chat_id, &payload)
-            .await
-        {
+        match plugin.send_message(account_id, chat_id, &payload).await {
             Ok(r) if !r.success => {
                 app_warn!(
                     "channel",
@@ -1214,15 +1263,13 @@ async fn deliver_media(
         let payload = ReplyPayload {
             text: Some(text),
             reply_to_message_id: None,
-            thread_id: msg.thread_id.clone(),
+            thread_id: thread_id.map(|s| s.to_string()),
             parse_mode: None,
             buttons: Vec::new(),
             media: Vec::new(),
             draft_id: None,
         };
-        let _ = plugin
-            .send_message(account_id, &msg.chat_id, &payload)
-            .await;
+        let _ = plugin.send_message(account_id, chat_id, &payload).await;
     }
 }
 

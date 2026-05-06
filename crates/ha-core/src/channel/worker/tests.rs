@@ -98,3 +98,38 @@ fn draft_error_fallback_matches_unsupported_api_responses() {
     let err = "sendMessageDraft failed (404): method sendMessageDraft not found";
     assert!(should_fallback_from_draft_error(err));
 }
+
+/// Split-streaming detects round boundaries by string-matching the
+/// emitted `tool_call` event. `serde_json` defaults to `BTreeMap` (no
+/// `preserve_order`), so JSON keys serialize alphabetically and `type`
+/// lands mid-string — `contains("\"type\":\"tool_call\"")` works,
+/// `starts_with` would silently miss every event. Lock the contract
+/// here so a future preserve_order flag flip surfaces in CI.
+#[test]
+fn tool_call_event_contains_anchor_for_split_streaming_boundary() {
+    let event = serde_json::json!({
+        "type": "tool_call",
+        "call_id": "c1",
+        "name": "send_attachment",
+        "arguments": "{}",
+    });
+    let s = serde_json::to_string(&event).unwrap();
+    assert!(
+        s.contains("\"type\":\"tool_call\""),
+        "split-streaming round-boundary check would miss this: {s}"
+    );
+    assert!(
+        !s.starts_with("{\"type\""),
+        "if this fires, BTreeMap key ordering changed; review streaming.rs guard: {s}"
+    );
+}
+
+#[test]
+fn stream_preview_outcome_default_reports_zero_finalized_rounds() {
+    let outcome = StreamPreviewOutcome::default();
+    assert!(outcome.preview.is_none());
+    assert_eq!(
+        outcome.finalized_rounds, 0,
+        "default outcome must signal `dispatcher should ship every round`"
+    );
+}

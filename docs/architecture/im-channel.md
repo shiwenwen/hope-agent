@@ -714,7 +714,7 @@ pub fn spawn_dispatcher(
 
 | Mode | 行为 | 适用 |
 |------|------|------|
-| `split`（默认） | 每 round 的 narration 与该 round 工具产生的媒体按时序作为独立消息发送（narration → 该 round media → 下一 round narration → ...）。流式渠道每条仍是流式打字机，但不再是「单条不断增长」——按 round 切；非流式渠道每条一次性。 | 所有 |
+| `split`（默认） | 每 round 的 narration 与该 round 工具产生的媒体按时序作为独立消息发送（narration → 该 round media → 下一 round narration → ...）。**流式渠道每 round 都是真正的流式打字机**——stream task 在 `tool_call → text_delta` 边界把当前 preview finalize 掉、把该 round 媒体发完，再为下一 round 起一条全新 preview，每 round 用户都看到 typewriter；非流式渠道每条 narration 一次性。 | 所有 |
 | `final` | 丢弃中间 round narration，只发最后 round 的 text + 末尾发所有媒体。不启用流式预览。 | 所有 |
 | `preview` | 流式渠道用 stream preview transport（Telegram edit · Feishu cardkit · Telegram DM Draft）渲染合并文本——单条不断增长的消息，媒体末尾发。非流式渠道无 preview 可用，自动降级等同 `final`。 | 仅流式有差异 |
 
@@ -749,20 +749,37 @@ dispatcher 在 spawn stream task **之前**算出 mode，从而决定 `preview_t
 
 ```rust
 let reply_mode = account.im_reply_mode();
-let preview_transport = if reply_mode == ImReplyMode::Preview {
-    select_stream_preview_transport(&msg.chat_type, &capabilities)
-} else {
-    None  // Split / Final 都不创建 preview message
+let preview_transport = match reply_mode {
+    // Preview 单一growing message；Split 每 round 一条 typewriter preview。
+    ImReplyMode::Preview | ImReplyMode::Split => {
+        select_stream_preview_transport(&msg.chat_type, &capabilities)
+    }
+    ImReplyMode::Final => None,  // Final 只发最终结果，无 preview
 };
 ```
 
 `run_chat_engine` 返回后 drain rounds，按 mode 调三选一：
 
-- `deliver_split`：遍历 rounds，每个 pre-final round `send_message(text)` + `deliver_media(round.medias)`；最后 round 走 `send_final_reply`（保持 finalize-preview + canonical chunk-or-card 路径）。
+- `deliver_split`：跳过 `stream_outcome.finalized_rounds` 已经在 stream task 里发掉的 round，再处理剩下的（流式渠道下通常只剩"还没 finalize"的最后 round；非流式渠道下是全部 round）。pre-final round `send_message(text)` + `deliver_media(round.medias)`；最后 round 走 `send_final_reply`（finalize 当前 preview handle + canonical chunk-or-card + 媒体 fan-out）。
 - `deliver_final_only`：取 `rounds.last().text` + 合并所有 `medias`，一次 `send_final_reply`。
 - `deliver_preview_merged`：用 `engine_result.response`（合并文本）+ 合并所有 `medias`，走 `send_final_reply`，preview transport 在 stream task 已渲染完合并文本，finalize 时 edit/close。
 
-`deliver_media` 是从 `send_final_reply` 抽出的复用函数——`partition_media_by_channel` 后逐个 `send_message(media)`，不支持的 MIME 走 `build_media_fallback_lines` 转下载链接。
+`deliver_media_to_chat` 是 `send_final_reply` / split-streaming 共用的媒体投递函数——`partition_media_by_channel` 后逐个 `send_message(media)`，不支持的 MIME 走 `build_media_fallback_lines` 转下载链接（每条间 50ms 节流，避开 Telegram / LINE 单聊速率限制）。
+
+##### Split mode + 流式渠道：per-round preview 内联 finalize
+
+stream task 是真正的"按 round 切"执行者。`spawn_channel_stream_task` 拿 `reply_mode` / `round_texts` / `capabilities` 三个新参数后：
+
+- **常态 round 边界**：text_delta 抵达且 `in_tool_phase=true` → 调 `finalize_split_round` 把 accumulated 最后一次冲到当前 preview，再按 transport 关闭：
+  - **Message** transport：上一条 `edit_message` 已写入 final text，仅 reset `preview_message_id=None`，下一 round 自然 `send_message` 起新消息
+  - **Card** transport：`close_card_stream` 摘掉流式标记（卡片内容保持），reset `card_session=None`
+  - **Draft** transport：草稿是"输入中"指示符不是真消息，`send_message` 把当前 round 文本作为正式消息发出去
+- 然后从 `round_texts.completed[round_idx].medias` 取该 round 媒体，复用 `deliver_media_to_chat` 走原生发送 + 不支持 MIME 的 fallback 链路
+- 最后递增 `finalized_rounds` 计数（`StreamPreviewOutcome` 字段，dispatcher 用来跳过已发的 round）
+- **末段 round（model 以 tool_call 结束）**：stream end 时若 `in_tool_phase=true`，再 finalize 一次（最后 round 没有后续 narration），dispatcher 会看到 `finalized_rounds == rounds.len()` 而早返回
+- **末段 round（model 以 narration 结束）**：preview 留开，dispatcher `send_final_reply` 接力 finalize 最后那条 preview
+
+非流式渠道下 `preview_transport=None`，stream task 仅 drain events、`finalized_rounds=0`，`deliver_split` 走老路径——pre-final round 一次性 `send_message`、final round `send_final_reply`。
 
 #### 配置入口
 

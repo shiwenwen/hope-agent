@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
+use super::dispatcher::deliver_media_to_chat;
 use crate::channel::traits::ChannelPlugin;
 use crate::channel::types::*;
+use crate::chat_engine::RoundTextAccumulator;
 
 /// Cardkit single-element character ceiling, per Feishu docs (100,000
 /// characters per markdown element). Counted in `chars()` not bytes —
@@ -47,24 +49,45 @@ pub(super) enum PreviewHandle {
 #[derive(Debug, Default)]
 pub(super) struct StreamPreviewOutcome {
     pub preview: Option<PreviewHandle>,
+    /// Number of LLM rounds the stream task already finalized inline (only
+    /// non-zero under `ImReplyMode::Split` on streaming-capable channels).
+    /// The dispatcher must skip these in `deliver_split` to avoid sending
+    /// duplicate text or media; the caller's `drained_rounds[finalized_rounds..]`
+    /// slice is what's left for it to deliver.
+    pub finalized_rounds: usize,
 }
 
 /// Spawn a background task that receives streaming events from the chat engine
 /// and sends progressive previews to the IM channel.
 ///
-/// Preview flow (one of three branches per session):
-/// 1. Accumulate `text_delta` events from the chat engine
-/// 2. Periodically render the accumulated snapshot via:
-///    - **Draft**: `send_draft` for Telegram private chats (no rate limit), or
-///    - **Card**: cardkit `create_card_stream` + `update_card_element` for
-///      Feishu (host message never marked as edited), or
-///    - **Message**: `send_message` + `edit_message` for channels that only
-///      support message edits (host message ends up showing "edited" badge)
-/// 3. Caller commits the final response via `send_final_reply` using the
-///    `PreviewHandle` returned in `StreamPreviewOutcome`
+/// Two distinct preview behaviors driven by `reply_mode`:
 ///
-/// For channels without any preview transport, events are simply drained while
-/// the frontend still receives `channel:stream_delta` events.
+/// - **`Preview` mode**: legacy single-growing-message behavior. Text deltas
+///   from every round accumulate into one buffer that the preview transport
+///   keeps re-rendering. Caller commits via `send_final_reply` using the
+///   `PreviewHandle` returned in `StreamPreviewOutcome`.
+///
+/// - **`Split` mode + streaming-capable channel**: per-round preview. Each
+///   round gets its own preview message that streams typewriter-style; on
+///   round boundary (next round's first `text_delta` after a `tool_call`)
+///   the task finalizes the current preview, delivers that round's media,
+///   and resets state for the next round. The final round's preview is left
+///   open so the caller can finalize it via `send_final_reply` (matching
+///   the canonical chunk-or-card path). `finalized_rounds` reports how many
+///   rounds the task already shipped, so the dispatcher only delivers the
+///   trailing round.
+///
+/// - **`Final` / `Split` mode + non-streaming channel**: events are drained
+///   without rendering any preview. Dispatcher then ships rounds as one-shot
+///   `send_message` calls.
+///
+/// Preview transport selection (when active):
+/// - **Draft**: `send_draft` for Telegram private chats (no rate limit)
+/// - **Card**: cardkit `create_card_stream` + `update_card_element` for
+///   Feishu (host message never marked as edited)
+/// - **Message**: `send_message` + `edit_message` for channels that only
+///   support message edits (host message ends up showing "edited" badge)
+#[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_channel_stream_task(
     mut event_rx: mpsc::Receiver<String>,
     plugin: Arc<dyn ChannelPlugin>,
@@ -74,12 +97,21 @@ pub(super) fn spawn_channel_stream_task(
     thread_id: Option<String>,
     preview_transport: Option<StreamPreviewTransport>,
     max_msg_len: usize,
+    reply_mode: ImReplyMode,
+    round_texts: Arc<Mutex<RoundTextAccumulator>>,
+    capabilities: ChannelCapabilities,
 ) -> tokio::task::JoinHandle<StreamPreviewOutcome> {
     tokio::spawn(async move {
         let Some(mut preview_transport) = preview_transport else {
+            // Preview disabled: drain events. The dispatcher still gets
+            // round-aware text/media via `round_texts` (filled by the sink).
             while event_rx.recv().await.is_some() {}
             return StreamPreviewOutcome::default();
         };
+
+        // Per-round preview only kicks in under split mode. Preview / Final
+        // keep the legacy single-growing-buffer flow inside this task.
+        let split_streaming = matches!(reply_mode, ImReplyMode::Split);
 
         // Generate a stable draft_id for this streaming session.
         // Must be non-zero. Telegram animates changes to drafts with the same ID.
@@ -97,6 +129,13 @@ pub(super) fn spawn_channel_stream_task(
         let mut preview_message_id: Option<String> = None;
         let mut card_session: Option<CardSession> = None;
         let mut dirty = false;
+        // Tracks "saw a tool_call but not yet the next text_delta" — the
+        // signal that the current round has closed and the next text_delta
+        // (under split-streaming) must finalize this round before starting
+        // the next preview.
+        let mut in_tool_phase = false;
+        // Number of rounds we've already shipped via per-round finalize.
+        let mut finalized_rounds: usize = 0;
         // 1s cadence keeps us under Telegram's edit rate limit while feeling live.
         let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
         // Don't fire immediately
@@ -109,12 +148,38 @@ pub(super) fn spawn_channel_stream_task(
                 event = event_rx.recv() => {
                     match event {
                         Some(event_str) => {
-                            if let Some(text) = extract_text_delta(&event_str) {
+                            // Detect round boundaries on the same cheap-string
+                            // contract the sink uses (BTreeMap key order
+                            // means `"type":"…"` lands mid-string). Order
+                            // checks rarer-needle-first.
+                            if event_str.contains("\"type\":\"tool_call\"") {
+                                in_tool_phase = true;
+                            } else if let Some(text) = extract_text_delta(&event_str) {
+                                if in_tool_phase && split_streaming {
+                                    // Round just ended: flush + close current
+                                    // preview, deliver this round's media,
+                                    // then start a fresh preview for the new
+                                    // round's first chunk.
+                                    finalize_split_round(
+                                        &plugin, &account_id, &chat_id,
+                                        &reply_to_message_id, thread_id.as_deref(), max_msg_len,
+                                        &accumulated, draft_id, &mut preview_transport,
+                                        &mut preview_message_id, &mut card_session,
+                                        finalized_rounds, &round_texts, &capabilities,
+                                    ).await;
+                                    accumulated.clear();
+                                    finalized_rounds += 1;
+                                    // dirty stays as-is: we'll set it below
+                                    // when we push the new round's first
+                                    // chunk into `accumulated`.
+                                }
+                                in_tool_phase = false;
                                 accumulated.push_str(&text);
                                 dirty = true;
                             }
                         }
                         None => {
+                            // Stream ended.
                             if dirty && !accumulated.is_empty() {
                                 send_stream_preview(
                                     &plugin, &account_id, &chat_id,
@@ -122,6 +187,24 @@ pub(super) fn spawn_channel_stream_task(
                                     &accumulated, draft_id, &mut preview_transport,
                                     &mut preview_message_id, &mut card_session,
                                 ).await;
+                            }
+                            // Split mode + model ended on a tool_call: the
+                            // last "round" has narration in `accumulated`
+                            // and no further text will ever come. Finalize
+                            // it inline so the dispatcher has nothing left
+                            // to do.
+                            if in_tool_phase && split_streaming {
+                                finalize_split_round(
+                                    &plugin, &account_id, &chat_id,
+                                    &reply_to_message_id, thread_id.as_deref(), max_msg_len,
+                                    &accumulated, draft_id, &mut preview_transport,
+                                    &mut preview_message_id, &mut card_session,
+                                    finalized_rounds, &round_texts, &capabilities,
+                                ).await;
+                                accumulated.clear();
+                                preview_message_id = None;
+                                card_session = None;
+                                finalized_rounds += 1;
                             }
                             break;
                         }
@@ -155,8 +238,140 @@ pub(super) fn spawn_channel_stream_task(
             _ => None,
         };
 
-        StreamPreviewOutcome { preview }
+        StreamPreviewOutcome {
+            preview,
+            finalized_rounds,
+        }
     })
+}
+
+/// Close the current round's preview and deliver its media. Called from
+/// inside the stream task at split-streaming round boundaries (and at end
+/// of stream when the model finished on a tool_call).
+///
+/// Per transport:
+/// - **Message**: the last `edit_message` already wrote final text — no API
+///   call needed. Reset `preview_message_id` so the next round opens a
+///   fresh `send_message`.
+/// - **Card**: write whatever's still buffered (final flush), then
+///   `close_card_stream` to remove the streaming indicator.
+/// - **Draft**: drafts are typing-indicators, not real messages. We send
+///   the actual message via `send_message`, then leave the draft to be
+///   overwritten by the next round (or naturally clear when the bot's done).
+///
+/// Then deliver this round's media items (read from `round_texts.completed`,
+/// where the sink stashed them on tool_result events).
+#[allow(clippy::too_many_arguments)]
+async fn finalize_split_round(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    reply_to_message_id: &str,
+    thread_id: Option<&str>,
+    max_msg_len: usize,
+    accumulated: &str,
+    draft_id: i64,
+    preview_transport: &mut StreamPreviewTransport,
+    preview_message_id: &mut Option<String>,
+    card_session: &mut Option<CardSession>,
+    round_idx: usize,
+    round_texts: &Arc<Mutex<RoundTextAccumulator>>,
+    capabilities: &ChannelCapabilities,
+) {
+    // 1. Flush latest accumulated text so the preview reflects the round's
+    //    final content. (Skipped if accumulated is empty — round may have
+    //    been all-tool-call with zero narration.)
+    if !accumulated.is_empty() {
+        send_stream_preview(
+            plugin,
+            account_id,
+            chat_id,
+            reply_to_message_id,
+            thread_id,
+            max_msg_len,
+            accumulated,
+            draft_id,
+            preview_transport,
+            preview_message_id,
+            card_session,
+        )
+        .await;
+    }
+
+    // 2. Transport-specific close. Best-effort: any error here is cosmetic
+    //    (the user already sees the text); we still need to deliver media,
+    //    so we log + continue rather than bail.
+    match preview_transport {
+        StreamPreviewTransport::Message => {
+            // The latest edit_message wrote the final round text. Drop the
+            // message_id so the next round's first delta opens a fresh
+            // message instead of editing this one.
+        }
+        StreamPreviewTransport::Card => {
+            if let Some(session) = card_session.take() {
+                if !session.broken {
+                    if let Err(e) = plugin
+                        .close_card_stream(account_id, &session.card_id, session.sequence)
+                        .await
+                    {
+                        // Cosmetic — cardkit auto-closes after 10 minutes.
+                        app_warn!(
+                            "channel",
+                            "worker",
+                            "split-streaming close_card_stream failed (seq={}): {}",
+                            session.sequence,
+                            e
+                        );
+                    }
+                }
+            }
+        }
+        StreamPreviewTransport::Draft => {
+            // Draft is just a typing indicator — send the real message now.
+            if !accumulated.is_empty() {
+                let native_text = plugin.markdown_to_native(accumulated);
+                let payload = ReplyPayload {
+                    text: Some(native_text),
+                    reply_to_message_id: Some(reply_to_message_id.to_string()),
+                    thread_id: thread_id.map(|s| s.to_string()),
+                    parse_mode: Some(ParseMode::Html),
+                    ..ReplyPayload::text("")
+                };
+                if let Err(e) = plugin.send_message(account_id, chat_id, &payload).await {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "split-streaming draft → send_message failed: {}",
+                        e
+                    );
+                }
+            }
+        }
+    }
+    *preview_message_id = None;
+    *card_session = None;
+
+    // 3. Deliver this round's media. The sink already attached items to
+    //    `round_texts.completed[round_idx]` on `tool_result` arrival.
+    let medias = {
+        let guard = round_texts.lock().unwrap_or_else(|e| {
+            app_warn!(
+                "channel",
+                "worker",
+                "round_texts mutex poisoned in stream task: {}",
+                e
+            );
+            e.into_inner()
+        });
+        guard
+            .completed
+            .get(round_idx)
+            .map(|r| r.medias.clone())
+            .unwrap_or_default()
+    };
+    if !medias.is_empty() {
+        deliver_media_to_chat(plugin, account_id, chat_id, thread_id, &medias, capabilities).await;
+    }
 }
 
 /// Mutable state for an active card-streaming session. Only used inside
