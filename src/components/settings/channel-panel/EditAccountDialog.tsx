@@ -151,9 +151,7 @@ export default function EditAccountDialog({
       // baseUrl, etc.) when the user only touched the IM reply mode toggle.
       const settingsBase = {
         ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
-      }
-      if (selectedPlugin && !channelSupportsStreamPreview(selectedPlugin)) {
-        settingsBase.imReplyMode = imReplyMode
+        imReplyMode,
       }
       if (account.channelId === "wechat") {
         if (wechatConnection) {

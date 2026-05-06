@@ -133,3 +133,115 @@ fn stream_preview_outcome_default_reports_zero_finalized_rounds() {
         "default outcome must signal `dispatcher should ship every round`"
     );
 }
+
+// ── preview_carried_full_text decision matrix ────────────────────────
+//
+// Locks in the contract that the stream task uses to decide whether the
+// preview transport already shipped the round's full text or whether the
+// finalize path must fall back to chunked `send_text_chunks`. Skipping
+// that check on a "preview ran but silently dropped" outcome is exactly
+// the high-severity Codex finding from 2026-05-06: stream task
+// incremented `finalized_rounds`, dispatcher skipped the round, full
+// narration was lost.
+
+#[test]
+fn preview_carries_text_for_message_when_message_exists_and_fits() {
+    assert!(preview_carried_full_text(
+        StreamPreviewTransport::Message,
+        "hello world",
+        11,
+        Some("msg-1"),
+        None,
+        4096,
+    ));
+}
+
+#[test]
+fn preview_does_not_carry_text_for_message_when_oversized() {
+    // The pre-final round narration grew past Telegram's 4096 cap. Even
+    // though a preview message exists, the latest edits were silently
+    // dropped by `build_stream_preview_payload`. The stream task MUST
+    // chunk-send so the user sees the full text.
+    assert!(!preview_carried_full_text(
+        StreamPreviewTransport::Message,
+        "long",
+        4097,
+        Some("msg-1"),
+        None,
+        4096,
+    ));
+}
+
+#[test]
+fn preview_does_not_carry_text_for_message_when_no_message_was_created() {
+    // First text_delta already exceeded max_msg_len, so no preview
+    // message ever opened. Without the fallback the round vanishes.
+    assert!(!preview_carried_full_text(
+        StreamPreviewTransport::Message,
+        "any",
+        100,
+        None,
+        None,
+        4096,
+    ));
+}
+
+#[test]
+fn preview_carries_text_for_card_when_session_active_and_under_cardkit_cap() {
+    assert!(preview_carried_full_text(
+        StreamPreviewTransport::Card,
+        "feishu narration",
+        16,
+        None,
+        Some(false), // session active, not broken
+        4096,
+    ));
+}
+
+#[test]
+fn preview_does_not_carry_text_for_card_when_session_broken() {
+    // Mid-stream `update_card_element` failed → broken=true. Card
+    // content lags; chunk-send the full round to recover.
+    assert!(!preview_carried_full_text(
+        StreamPreviewTransport::Card,
+        "narration",
+        9,
+        None,
+        Some(true),
+        4096,
+    ));
+}
+
+#[test]
+fn preview_does_not_carry_text_for_draft_ever() {
+    // Drafts are typing indicators, not real messages. Even when the
+    // accumulated text would fit a single send, we must chunk-and-send
+    // so the user sees a real message in chat. (Chunk path correctly
+    // becomes a single send for short text.)
+    assert!(!preview_carried_full_text(
+        StreamPreviewTransport::Draft,
+        "short",
+        5,
+        None,
+        None,
+        4096,
+    ));
+}
+
+#[test]
+fn preview_carries_empty_round_trivially() {
+    // Zero-narration round (model went straight to tool_call). Nothing
+    // to ship via either path; finalize_split_round still proceeds to
+    // close the preview transport and deliver media.
+    for transport in [
+        StreamPreviewTransport::Message,
+        StreamPreviewTransport::Card,
+        StreamPreviewTransport::Draft,
+    ] {
+        assert!(
+            preview_carried_full_text(transport, "", 0, None, None, 4096),
+            "empty accumulated should always count as 'carried' for {:?}",
+            transport,
+        );
+    }
+}

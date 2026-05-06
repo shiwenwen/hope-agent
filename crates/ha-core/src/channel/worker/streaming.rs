@@ -245,15 +245,24 @@ pub(super) fn spawn_channel_stream_task(
 /// inside the stream task at split-streaming round boundaries (and at end
 /// of stream when the model finished on a tool_call).
 ///
+/// Delivery contract: always either ships the round's full narration via
+/// the preview transport, or falls back to chunked `send_text_chunks`. The
+/// preview path silently drops oversized text (`build_stream_preview_payload`
+/// returns `None` when `text.len() > max_msg_len`) and turns transient
+/// send/edit errors into log-only warnings, so the stream task can NOT
+/// trust "preview ran" as proof of delivery. We detect that case explicitly
+/// and fall back to chunked send so the dispatcher's `finalized_rounds`
+/// skip is safe to act on.
+///
 /// Per transport:
-/// - **Message**: the last `edit_message` already wrote final text — no API
-///   call needed. Reset `preview_message_id` so the next round opens a
-///   fresh `send_message`.
-/// - **Card**: write whatever's still buffered (final flush), then
-///   `close_card_stream` to remove the streaming indicator.
-/// - **Draft**: drafts are typing-indicators, not real messages. We send
-///   the actual message via `send_message`, then leave the draft to be
-///   overwritten by the next round (or naturally clear when the bot's done).
+/// - **Message**: if `accumulated` fits and the preview message exists,
+///   the preview already wrote the final text; just drop `preview_message_id`.
+///   Otherwise (oversized, or initial send never succeeded), chunk-send.
+/// - **Card**: cardkit elements hold ~100k chars (`CARD_ELEMENT_MAX_CHARS`),
+///   normally enough; if the session was never created or went broken,
+///   chunk-send; either way close the card best-effort.
+/// - **Draft**: drafts are typing-indicators, not real messages. Always
+///   chunk-send (handles oversized text correctly via `chunk_message`).
 ///
 /// Then deliver this round's media items (read from `round_texts.completed`,
 /// where the sink stashed them on tool_result events).
@@ -274,9 +283,9 @@ async fn finalize_split_round(
     round_texts: &Arc<Mutex<RoundTextAccumulator>>,
     capabilities: &ChannelCapabilities,
 ) {
-    // 1. Flush latest accumulated text so the preview reflects the round's
-    //    final content. (Skipped if accumulated is empty — round may have
-    //    been all-tool-call with zero narration.)
+    // 1. Flush latest accumulated text into the preview (best-effort —
+    //    oversized text returns None here and is rescued by the chunk
+    //    fallback below; transient errors are log-only).
     if !accumulated.is_empty() {
         send_stream_preview(
             plugin,
@@ -294,50 +303,48 @@ async fn finalize_split_round(
         .await;
     }
 
-    // 2. Transport-specific close. Best-effort: any error here is cosmetic
-    //    (the user already sees the text); we still need to deliver media,
-    //    so we log + continue rather than bail.
-    match preview_transport {
-        StreamPreviewTransport::Message => {
-            // The latest edit_message wrote the final round text. Drop the
-            // message_id so the next round's first delta opens a fresh
-            // message instead of editing this one.
-        }
-        StreamPreviewTransport::Card => {
-            if let Some(session) = card_session.take() {
-                if !session.broken {
-                    if let Err(e) = plugin
-                        .close_card_stream(account_id, &session.card_id, session.sequence)
-                        .await
-                    {
-                        // Cosmetic — cardkit auto-closes after 10 minutes.
-                        app_warn!(
-                            "channel",
-                            "worker",
-                            "split-streaming close_card_stream failed (seq={}): {}",
-                            session.sequence,
-                            e
-                        );
-                    }
-                }
-            }
-        }
-        StreamPreviewTransport::Draft => {
-            // Draft is just a typing indicator — send the real message now.
-            if !accumulated.is_empty() {
-                let native_text = plugin.markdown_to_native(accumulated);
-                let payload = ReplyPayload {
-                    text: Some(native_text),
-                    reply_to_message_id: Some(reply_to_message_id.to_string()),
-                    thread_id: thread_id.map(|s| s.to_string()),
-                    parse_mode: Some(ParseMode::Html),
-                    ..ReplyPayload::text("")
-                };
-                if let Err(e) = plugin.send_message(account_id, chat_id, &payload).await {
+    // 2. Decide whether the preview path actually carried this round's
+    //    text. When it didn't, fall through to a chunked send so the
+    //    user sees the full content.
+    let preview_carried_text = preview_carried_full_text(
+        *preview_transport,
+        accumulated,
+        plugin.markdown_to_native(accumulated).len(),
+        preview_message_id.as_deref(),
+        card_session.as_ref().map(|s| s.broken),
+        max_msg_len,
+    );
+
+    if !preview_carried_text {
+        // No preview message to edit (or it can't carry this size); send
+        // fresh chunks. Pass `preview=None` so `send_text_chunks` doesn't
+        // try to edit a broken/oversized preview.
+        super::dispatcher::send_text_chunks(
+            plugin,
+            account_id,
+            chat_id,
+            thread_id,
+            reply_to_message_id,
+            accumulated,
+            None,
+        )
+        .await;
+    }
+
+    // 3. Transport-specific close. Best-effort: any error here is
+    //    cosmetic (the text is already delivered above), so log + continue.
+    if let StreamPreviewTransport::Card = preview_transport {
+        if let Some(session) = card_session.take() {
+            if !session.broken {
+                if let Err(e) = plugin
+                    .close_card_stream(account_id, &session.card_id, session.sequence)
+                    .await
+                {
                     app_warn!(
                         "channel",
                         "worker",
-                        "split-streaming draft → send_message failed: {}",
+                        "split-streaming close_card_stream failed (seq={}): {}",
+                        session.sequence,
                         e
                     );
                 }
@@ -365,6 +372,45 @@ async fn finalize_split_round(
     };
     if !medias.is_empty() {
         deliver_media_to_chat(plugin, account_id, chat_id, thread_id, &medias, capabilities).await;
+    }
+}
+
+/// Pure helper for the split-streaming round-finalize delivery decision.
+///
+/// `accumulated_native_len` is the length of `markdown_to_native(accumulated)`
+/// in bytes (matches what `build_stream_preview_payload` checks against
+/// `max_msg_len`). `card_session_broken` is `Some(broken_flag)` if a card
+/// session exists, `None` otherwise.
+///
+/// Returns `true` when the existing preview state has demonstrably carried
+/// the full round narration — caller can stop. `false` means caller must
+/// chunk-and-send `accumulated` itself; the preview either silently dropped
+/// oversized content or never opened (initial send/edit error, oversized
+/// from the first delta).
+pub(super) fn preview_carried_full_text(
+    transport: StreamPreviewTransport,
+    accumulated: &str,
+    accumulated_native_len: usize,
+    preview_message_id: Option<&str>,
+    card_session_broken: Option<bool>,
+    max_msg_len: usize,
+) -> bool {
+    if accumulated.is_empty() {
+        return true;
+    }
+    match transport {
+        StreamPreviewTransport::Message => {
+            preview_message_id.is_some() && accumulated_native_len <= max_msg_len
+        }
+        StreamPreviewTransport::Card => {
+            // `Some(false)` = card exists and isn't broken
+            matches!(card_session_broken, Some(false))
+                && accumulated.chars().count() <= CARD_ELEMENT_MAX_CHARS
+        }
+        // Drafts are typing indicators, not real messages — always need a
+        // real `send_message` (which the chunk fallback does, correctly
+        // splitting oversized text).
+        StreamPreviewTransport::Draft => false,
     }
 }
 

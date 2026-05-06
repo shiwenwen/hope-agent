@@ -879,10 +879,16 @@ async fn finalize_card_stream(
 /// `send_message`. `preview` only honors the `Message` variant for the
 /// first chunk (replaces an existing preview via `edit_message`); all
 /// other variants are treated as no preview and send fresh.
-async fn send_text_chunks(
+///
+/// Public to the worker module so the stream task can use it as a
+/// guaranteed-delivery fallback when its preview-based path can't carry
+/// a round (text > max_msg_len, send/edit error, broken card session).
+pub(super) async fn send_text_chunks(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
-    msg: &MsgContext,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    reply_to_message_id: &str,
     response: &str,
     preview: Option<&PreviewHandle>,
 ) {
@@ -893,15 +899,15 @@ async fn send_text_chunks(
         let payload = if i == 0 {
             ReplyPayload {
                 text: Some(chunk.clone()),
-                reply_to_message_id: Some(msg.message_id.clone()),
-                thread_id: msg.thread_id.clone(),
+                reply_to_message_id: Some(reply_to_message_id.to_string()),
+                thread_id: thread_id.map(|s| s.to_string()),
                 parse_mode: Some(ParseMode::Html),
                 ..ReplyPayload::text("")
             }
         } else {
             ReplyPayload {
                 text: Some(chunk.clone()),
-                thread_id: msg.thread_id.clone(),
+                thread_id: thread_id.map(|s| s.to_string()),
                 parse_mode: Some(ParseMode::Html),
                 ..ReplyPayload::text("")
             }
@@ -911,7 +917,7 @@ async fn send_text_chunks(
             match preview {
                 Some(PreviewHandle::Message { message_id }) => {
                     match plugin
-                        .edit_message(account_id, &msg.chat_id, message_id, &payload)
+                        .edit_message(account_id, chat_id, message_id, &payload)
                         .await
                     {
                         Ok(result) => Ok(result),
@@ -922,22 +928,14 @@ async fn send_text_chunks(
                                 "Failed to finalize preview via edit, falling back to send: {}",
                                 e
                             );
-                            plugin
-                                .send_message(account_id, &msg.chat_id, &payload)
-                                .await
+                            plugin.send_message(account_id, chat_id, &payload).await
                         }
                     }
                 }
-                _ => {
-                    plugin
-                        .send_message(account_id, &msg.chat_id, &payload)
-                        .await
-                }
+                _ => plugin.send_message(account_id, chat_id, &payload).await,
             }
         } else {
-            plugin
-                .send_message(account_id, &msg.chat_id, &payload)
-                .await
+            plugin.send_message(account_id, chat_id, &payload).await
         };
 
         match delivery {
@@ -1192,7 +1190,16 @@ async fn send_final_reply(
             Some(PreviewHandle::Card { .. }) => None,
             other => other,
         };
-        send_text_chunks(plugin, account_id, msg, response, chunk_preview).await;
+        send_text_chunks(
+            plugin,
+            account_id,
+            &msg.chat_id,
+            msg.thread_id.as_deref(),
+            &msg.message_id,
+            response,
+            chunk_preview,
+        )
+        .await;
     }
 
     deliver_media_to_chat(
