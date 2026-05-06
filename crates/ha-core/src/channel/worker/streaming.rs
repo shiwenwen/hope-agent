@@ -4,12 +4,14 @@ use tokio::sync::mpsc;
 use crate::channel::traits::ChannelPlugin;
 use crate::channel::types::*;
 
-/// Conservative byte ceiling for a single cardkit markdown element.
-/// Cardkit documents ~100k characters per element; we leave headroom for
-/// protocol overhead. Independent of the IM-text `max_message_length`
-/// (cardkit elements aren't subject to that limit) so streaming previews
-/// keep flowing on responses larger than the channel's text-message cap.
-pub(super) const CARD_ELEMENT_MAX_BYTES: usize = 50_000;
+/// Cardkit single-element character ceiling, per Feishu docs (100,000
+/// characters per markdown element). Counted in `chars()` not bytes —
+/// CJK glyphs are 3 bytes UTF-8, so a byte-based limit would silently
+/// truncate at ~33k Chinese characters. Independent of IM-text
+/// `max_message_length` (cardkit elements aren't subject to that limit)
+/// so streaming previews keep flowing on responses larger than the
+/// channel's text-message cap.
+pub(super) const CARD_ELEMENT_MAX_CHARS: usize = 100_000;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StreamPreviewTransport {
@@ -287,7 +289,7 @@ async fn send_card_preview(
     raw_text: &str,
     card_session: &mut Option<CardSession>,
 ) -> Result<(), String> {
-    if raw_text.is_empty() || raw_text.len() > CARD_ELEMENT_MAX_BYTES {
+    if raw_text.is_empty() || raw_text.chars().count() > CARD_ELEMENT_MAX_CHARS {
         return Ok(());
     }
 

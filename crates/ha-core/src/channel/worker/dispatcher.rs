@@ -11,7 +11,7 @@ use super::media::convert_inbound_media_to_attachments;
 use super::slash::{dispatch_slash_for_channel, ChannelSlashOutcome};
 use super::streaming::{
     select_stream_preview_transport, spawn_channel_stream_task, PreviewHandle,
-    StreamPreviewOutcome, CARD_ELEMENT_MAX_BYTES,
+    StreamPreviewOutcome, CARD_ELEMENT_MAX_CHARS,
 };
 
 /// Maximum number of inbound messages processed concurrently.
@@ -774,13 +774,14 @@ async fn finalize_card_stream(
     sequence: i64,
     response: &str,
 ) -> bool {
-    if response.len() > CARD_ELEMENT_MAX_BYTES {
+    let response_chars = response.chars().count();
+    if response_chars > CARD_ELEMENT_MAX_CHARS {
         app_warn!(
             "channel",
             "worker",
-            "Final response too large for card element ({} > {}), falling back to text chunks",
-            response.len(),
-            CARD_ELEMENT_MAX_BYTES
+            "Final response too large for card element ({} chars > {}), falling back to text chunks",
+            response_chars,
+            CARD_ELEMENT_MAX_CHARS
         );
         let _ = plugin
             .close_card_stream(account_id, card_id, sequence)
