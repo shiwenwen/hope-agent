@@ -102,10 +102,17 @@ impl ChannelPlugin for QqBotPlugin {
             supports_polls: false,
             supports_reactions: false,
             max_message_length: Some(4096),
-            // TODO: native QQ Bot media (v2 groups/messages msg_type=7
-            // + channels multipart file_image) not yet implemented.
-            // Dispatcher falls back to a download-link text for now.
-            supports_media: Vec::new(),
+            // QQ Bot V2 c2c/group 走两步：POST /v2/{users|groups}/.../files →
+            // 拿 file_info → msg_type=7 + media。仅 url 来源（公网 HTTPS）支持
+            // 本批；Document/Sticker file_type=4 暂未开放，channel/dms 不支持，
+            // 这两类由 dispatcher 走链接文本兜底
+            supports_media: vec![
+                MediaType::Photo,
+                MediaType::Video,
+                MediaType::Voice,
+                MediaType::Audio,
+                MediaType::Animation,
+            ],
         }
     }
 
@@ -170,51 +177,142 @@ impl ChannelPlugin for QqBotPlugin {
             let text_content = payload.text.as_deref().unwrap_or("");
             let msg_id = payload.reply_to_message_id.as_deref();
 
-            let rows: Vec<_> = payload
-                .buttons
-                .iter()
-                .map(|row| {
-                    let buttons: Vec<_> = row
-                        .iter()
-                        .map(|b| {
-                            serde_json::json!({
-                                "id": b.callback_id(),
-                                "render_data": {
-                                    "label": &b.text,
-                                    "visited_label": &b.text,
-                                },
-                                "action": {
-                                    "type": 2,
-                                    "data": b.callback_id(),
-                                    "permission": { "type": 2 }
-                                }
+            // QQ Bot keyboard 仅 c2c/group 端点支持；channel/dms 走纯文本兜底
+            // （`[1] / [2] / [3]` 数字回复，与 IRC / 微信 / Signal 一致）。
+            // 否则审批按钮在频道里直接 send 失败 → 用户看不到按钮也看不到错误。
+            let supports_native_buttons =
+                chat_id.starts_with("c2c:") || chat_id.starts_with("group:");
+
+            if supports_native_buttons {
+                let rows: Vec<_> = payload
+                    .buttons
+                    .iter()
+                    .map(|row| {
+                        let buttons: Vec<_> = row
+                            .iter()
+                            .map(|b| {
+                                serde_json::json!({
+                                    "id": b.callback_id(),
+                                    "render_data": {
+                                        "label": &b.text,
+                                        "visited_label": &b.text,
+                                    },
+                                    "action": {
+                                        "type": 2,
+                                        "data": b.callback_id(),
+                                        "permission": { "type": 2 }
+                                    }
+                                })
                             })
-                        })
-                        .collect();
-                    serde_json::json!({ "buttons": buttons })
-                })
-                .collect();
+                            .collect();
+                        serde_json::json!({ "buttons": buttons })
+                    })
+                    .collect();
 
-            let keyboard = serde_json::json!({ "content": { "rows": rows } });
-            let result = api
-                .send_message_with_keyboard(chat_id, text_content, keyboard, msg_id)
-                .await?;
+                let keyboard = serde_json::json!({ "content": { "rows": rows } });
+                let result = api
+                    .send_message_with_keyboard(chat_id, text_content, keyboard, msg_id)
+                    .await?;
 
-            let response_msg_id = result
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("sent")
-                .to_string();
+                let response_msg_id = result
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("sent")
+                    .to_string();
 
-            return Ok(DeliveryResult::ok(response_msg_id));
+                return Ok(DeliveryResult::ok(response_msg_id));
+            } else {
+                // Channel / DMS 兜底：把按钮渲染成数字列表，用户回 1/2/3
+                let mut text_with_buttons = String::from(text_content);
+                if !text_with_buttons.is_empty() {
+                    text_with_buttons.push_str("\n\n");
+                }
+                let mut idx = 1;
+                for row in &payload.buttons {
+                    for b in row {
+                        text_with_buttons.push_str(&format!("[{}] {}\n", idx, b.text));
+                        idx += 1;
+                    }
+                }
+                text_with_buttons.push_str("\nReply with the number to choose.");
+
+                let result = if let Some(channel_id) = chat_id.strip_prefix("channel:") {
+                    api.send_channel_message(channel_id, &text_with_buttons, msg_id)
+                        .await?
+                } else if let Some(guild_id) = chat_id.strip_prefix("dms:") {
+                    api.send_dms_message(guild_id, &text_with_buttons, msg_id)
+                        .await?
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Unknown QQ Bot chat_id prefix: {}",
+                        crate::truncate_utf8(chat_id, 100)
+                    ));
+                };
+                let response_msg_id = result
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("sent")
+                    .to_string();
+                return Ok(DeliveryResult::ok(response_msg_id));
+            }
+        }
+
+        // 富媒体优先：QQ Bot V2 c2c/group 走两步上传（POST /files → 拿
+        // file_info → msg_type=7 + media）。channel/dms 暂不支持，降级到链接
+        // 文本（dispatcher 已用 supports_media 矩阵驱动，不会进到这里）。
+        let msg_id = payload.reply_to_message_id.as_deref();
+        if !payload.media.is_empty() {
+            let supports_native_media =
+                chat_id.starts_with("c2c:") || chat_id.starts_with("group:");
+            if supports_native_media {
+                let caption_root = payload.text.as_deref().unwrap_or("");
+                let mut last_msg_id = String::from("sent");
+                for media in &payload.media {
+                    let caption = media.caption.as_deref().unwrap_or(caption_root);
+                    let url = match &media.data {
+                        crate::channel::types::MediaData::Url(u) => u.clone(),
+                        // QQ Bot V2 上传只接收 url（公网 HTTPS）；本地附件交由
+                        // dispatcher 走链接文本兜底——这里 fallback 不发
+                        _ => continue,
+                    };
+                    let file_type = match media.media_type {
+                        MediaType::Photo => api::QqBotApi::FILE_TYPE_IMAGE,
+                        MediaType::Video | MediaType::Animation => {
+                            api::QqBotApi::FILE_TYPE_VIDEO
+                        }
+                        MediaType::Voice | MediaType::Audio => api::QqBotApi::FILE_TYPE_VOICE,
+                        // Document / Sticker 暂未开放（file_type=4 需特殊审核）
+                        _ => continue,
+                    };
+
+                    let result = if let Some(openid) = chat_id.strip_prefix("c2c:") {
+                        let file_info = api.post_c2c_files(openid, file_type, &url).await?;
+                        api.send_c2c_media(openid, &file_info, caption, msg_id)
+                            .await?
+                    } else if let Some(group_openid) = chat_id.strip_prefix("group:") {
+                        let file_info =
+                            api.post_group_files(group_openid, file_type, &url).await?;
+                        api.send_group_media(group_openid, &file_info, caption, msg_id)
+                            .await?
+                    } else {
+                        unreachable!("supports_native_media 已校验")
+                    };
+                    last_msg_id = result
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("sent")
+                        .to_string();
+                }
+                return Ok(DeliveryResult::ok(last_msg_id));
+            }
+            // channel/dms 富媒体未实现 → 落到下面文本路径，dispatcher 此前已加
+            // 链接兜底
         }
 
         if let Some(ref text) = payload.text {
             if text.is_empty() {
                 return Ok(DeliveryResult::ok("empty"));
             }
-
-            let msg_id = payload.reply_to_message_id.as_deref();
 
             // Route to the correct endpoint based on chat_id prefix
             let result = if let Some(openid) = chat_id.strip_prefix("c2c:") {
