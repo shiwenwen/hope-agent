@@ -21,7 +21,11 @@ impl TelegramBotApi {
     ///
     /// Uses a custom reqwest client with proper timeouts to prevent long-polling
     /// requests from hanging indefinitely on network issues.
-    pub fn new(token: &str, proxy_url: Option<&str>, _api_root: Option<&str>) -> Self {
+    ///
+    /// `api_root` 让用户切到自托管 Bot API server（处理 >50MB 文件 / 内网部署）
+    /// 或区域反代。设置后所有 send_* / get_* 都走该 base URL（teloxide 内部
+    /// `bot.set_api_url(url)`），与官方注释"respects custom apiRoot"对齐。
+    pub fn new(token: &str, proxy_url: Option<&str>, api_root: Option<&str>) -> Self {
         // Build a custom reqwest client with timeouts.
         // connect_timeout: fail fast if the server is unreachable (10s)
         // timeout: overall request timeout, must be longer than long-poll timeout (30s)
@@ -39,7 +43,19 @@ impl TelegramBotApi {
         let client = client_builder
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        let bot = Bot::with_client(token, client);
+        let mut bot = Bot::with_client(token, client);
+        if let Some(root) = api_root {
+            match reqwest::Url::parse(root) {
+                Ok(url) => bot = bot.set_api_url(url),
+                Err(e) => app_warn!(
+                    "channel",
+                    "telegram::api",
+                    "Invalid apiRoot '{}', falling back to default api.telegram.org: {}",
+                    crate::truncate_utf8(root, 200),
+                    e
+                ),
+            }
+        }
 
         Self {
             bot,

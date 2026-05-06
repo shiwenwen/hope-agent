@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use reqwest::Client;
 use serde_json::Value;
@@ -11,6 +13,11 @@ pub struct SignalClient {
     client: Client,
     base_url: String,
     account: String,
+    /// `inbound_msg_id (timestamp 字串) → sender_id` 缓存，由 SSE 解析时写入；
+    /// outbound `send` 拼 `quoteAuthor` 时读取。signal-cli 要求 reply 必须同时
+    /// 提供 quoteTimestamp + quoteAuthor，缺一即被忽略发为普通消息。LRU cap
+    /// 1024 自然驱逐过期条目。
+    quote_authors: Arc<tokio::sync::Mutex<lru::LruCache<String, String>>>,
 }
 
 impl SignalClient {
@@ -18,9 +25,19 @@ impl SignalClient {
     pub fn new(port: u16, account: String) -> Self {
         Self {
             client: Client::new(),
-            base_url: format!("http://localhost:{}", port),
+            // 与 daemon.rs 端绑定地址保持一致（127.0.0.1 而非 localhost）
+            base_url: format!("http://127.0.0.1:{}", port),
             account,
+            quote_authors: Arc::new(tokio::sync::Mutex::new(lru::LruCache::new(
+                std::num::NonZeroUsize::new(1024).expect("1024 is non-zero"),
+            ))),
         }
+    }
+
+    /// 取一个 inbound message_id 对应的 sender_id（由 SSE loop 缓存）。
+    pub async fn quote_author_for(&self, message_id: &str) -> Option<String> {
+        let mut cache = self.quote_authors.lock().await;
+        cache.get(message_id).cloned()
     }
 
     /// Make a JSON-RPC 2.0 call to the signal-cli daemon.
@@ -86,12 +103,17 @@ impl SignalClient {
     }
 
     /// Send a text message to a recipient (phone number or group ID).
+    ///
+    /// `quote_timestamp` + `quote_author` 必须成对——signal-cli `send` 文档
+    /// 要求 reply 必须同时提供 `quoteTimestamp` + `quoteAuthor`（最少这两
+    /// 字段），缺一即被忽略，发出去就是普通消息。
     pub async fn send_message(
         &self,
         recipient: &str,
         message: &str,
         _attachments: &[String],
         quote_timestamp: Option<i64>,
+        quote_author: Option<&str>,
     ) -> Result<Value> {
         let mut params = serde_json::json!({
             "account": self.account,
@@ -105,8 +127,10 @@ impl SignalClient {
             params["recipient"] = serde_json::json!([recipient]);
         }
 
-        if let Some(ts) = quote_timestamp {
+        // signal-cli quote 必须有 timestamp + author 才生效
+        if let (Some(ts), Some(author)) = (quote_timestamp, quote_author) {
             params["quoteTimestamp"] = Value::Number(serde_json::Number::from(ts));
+            params["quoteAuthor"] = Value::String(author.to_string());
         }
 
         self.rpc("send", params).await
@@ -410,6 +434,12 @@ impl SignalClient {
             raw: envelope.clone(),
         };
 
+        // 缓存 sender_id ←→ message_id 映射，供 outbound reply 拼 quoteAuthor 用
+        if !msg.message_id.is_empty() && !msg.sender_id.is_empty() {
+            let mut cache = self.quote_authors.lock().await;
+            cache.put(msg.message_id.clone(), msg.sender_id.clone());
+        }
+
         if inbound_tx.send(msg).await.is_err() {
             app_warn!(
                 "channel",
@@ -476,9 +506,72 @@ impl SignalClient {
     }
 }
 
-/// Check if a recipient string looks like a Signal group ID (base64).
-/// Group IDs are base64-encoded and typically longer than phone numbers.
+/// 判断 recipient 是否是 Signal 群组 ID。
+///
+/// Signal recipient 形态：
+/// - `+E164` 电话号（例如 `+15551234567`）
+/// - UUID（v4，含 `-`，36 chars）—— 新版用户 identifier
+/// - `u:username` 或 `@username` —— signal-cli 0.13+ username 形式
+/// - 群 ID v1：纯 base64 字符串（22 或 44 chars，无 `-` `:` `+` `@`）
+/// - 群 ID v2：以 `group.` 前缀（base64 字串）
 fn is_group_id(recipient: &str) -> bool {
-    // Phone numbers start with '+', group IDs don't
-    !recipient.starts_with('+')
+    if recipient.starts_with('+') {
+        return false;
+    }
+    if recipient.starts_with("u:") || recipient.starts_with('@') {
+        return false;
+    }
+    if recipient.starts_with("group.") {
+        return true;
+    }
+    // UUID 含 `-`，例如 `a3b1f5e8-...`
+    if recipient.contains('-') {
+        return false;
+    }
+    // 纯 base64 形态群 ID（v1）：22 或 44 字符无破折号
+    let len = recipient.len();
+    (len == 22 || len == 44)
+        && recipient
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '=')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_group_id_recognizes_phones() {
+        assert!(!is_group_id("+15551234567"));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_uuid() {
+        assert!(!is_group_id("a3b1f5e8-1234-4abc-9def-0123456789ab"));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_username() {
+        assert!(!is_group_id("u:alice"));
+        assert!(!is_group_id("@alice"));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_group_v2() {
+        assert!(is_group_id("group.AbCdEfGh1234567890=="));
+    }
+
+    #[test]
+    fn is_group_id_recognizes_base64_v1() {
+        // 22 chars base64
+        assert!(is_group_id("AbCdEfGhIjKlMnOpQrStUv"));
+        // 44 chars base64
+        assert!(is_group_id("AbCdEfGhIjKlMnOpQrStUvWxYz0123456789AbCdEfGh"));
+    }
+
+    #[test]
+    fn is_group_id_rejects_random_strings() {
+        // 短而不像 group id
+        assert!(!is_group_id("short"));
+    }
 }

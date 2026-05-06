@@ -387,6 +387,10 @@ async fn handle_slash_command(
     let timestamp = chrono::Utc::now();
     let message_id = format!("slash_{}", timestamp.timestamp_millis());
 
+    // Slash command 可以在 channel/group/DM 任意位置触发；必须按 channel_id
+    // 前缀分流，否则群级安全策略（channels[] / group_policy）会被 DM 策略绕过
+    let chat_type = chat_type_from_slack_channel_id(channel_id);
+
     let msg_ctx = MsgContext {
         channel_id: ChannelId::Slack,
         account_id: account_id.to_string(),
@@ -394,7 +398,7 @@ async fn handle_slash_command(
         sender_name: user_name.map(|s| s.to_string()),
         sender_username: user_name.map(|s| s.to_string()),
         chat_id: channel_id.to_string(),
-        chat_type: ChatType::Dm, // Slash commands are treated as DMs
+        chat_type,
         chat_title: None,
         thread_id: None,
         message_id,
@@ -433,14 +437,15 @@ fn convert_slack_event(
     let ts = event.get("ts").and_then(|v| v.as_str())?;
     let text = event.get("text").and_then(|v| v.as_str());
 
-    // Determine chat type from channel_type field
-    let channel_type = event
-        .get("channel_type")
-        .and_then(|v| v.as_str())
-        .unwrap_or("channel");
+    // 优先按 event.channel_type（Events API 字段：im / mpim / group / channel）
+    // 映射；缺失或未知时回退到按 channel id 前缀（D/G/C）猜测——与
+    // `chat_type_from_slack_channel_id` 保持一致。
+    let channel_type = event.get("channel_type").and_then(|v| v.as_str());
     let chat_type = match channel_type {
-        "im" => ChatType::Dm,
-        _ => ChatType::Group,
+        Some("im") => ChatType::Dm,
+        Some("mpim") | Some("group") => ChatType::Group,
+        Some("channel") => ChatType::Channel,
+        _ => chat_type_from_slack_channel_id(channel),
     };
 
     // Determine thread_ts: if present and different from ts, this is a threaded reply
@@ -537,4 +542,31 @@ fn parse_slack_files(event: &serde_json::Value) -> Vec<InboundMedia> {
             })
         })
         .collect()
+}
+
+/// 按 Slack channel id 前缀猜测 ChatType。
+/// - `D...` direct message (1-on-1) → Dm
+/// - `C...` public channel → Channel
+/// - `G...` private channel / multi-party IM → Group
+/// - 其它（不该出现）→ Group 兜底
+fn chat_type_from_slack_channel_id(channel_id: &str) -> ChatType {
+    match channel_id.chars().next() {
+        Some('D') => ChatType::Dm,
+        Some('C') => ChatType::Channel,
+        Some('G') => ChatType::Group,
+        _ => ChatType::Group,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn slack_channel_id_to_chat_type() {
+        assert_eq!(chat_type_from_slack_channel_id("D1234"), ChatType::Dm);
+        assert_eq!(chat_type_from_slack_channel_id("C5678"), ChatType::Channel);
+        assert_eq!(chat_type_from_slack_channel_id("G9ABC"), ChatType::Group);
+        assert_eq!(chat_type_from_slack_channel_id(""), ChatType::Group);
+    }
 }

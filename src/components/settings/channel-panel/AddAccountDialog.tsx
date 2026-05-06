@@ -95,6 +95,7 @@ export default function AddAccountDialog({
   // Google Chat-specific
   const [gchatCredentialsJson, setGchatCredentialsJson] = useState("")
   const [gchatWebhookUrl, setGchatWebhookUrl] = useState("")
+  const [gchatProjectNumber, setGchatProjectNumber] = useState("")
   // LINE-specific
   const [lineAccessToken, setLineAccessToken] = useState("")
   const [lineChannelSecret, setLineChannelSecret] = useState("")
@@ -150,7 +151,11 @@ export default function AddAccountDialog({
       case "whatsapp":
         return { baseUrl: whatsappBaseUrl.trim(), token: whatsappToken.trim() || null }
       case "googlechat":
-        return { credentialsJson: gchatCredentialsJson.trim(), webhookBaseUrl: gchatWebhookUrl.trim() || null }
+        return {
+          credentialsJson: gchatCredentialsJson.trim(),
+          webhookBaseUrl: gchatWebhookUrl.trim() || null,
+          projectNumber: gchatProjectNumber.trim(),
+        }
       case "line":
         return { channelAccessToken: lineAccessToken.trim(), channelSecret: lineChannelSecret.trim(), webhookBaseUrl: lineWebhookUrl.trim() || null }
       default:
@@ -168,7 +173,7 @@ export default function AddAccountDialog({
       case "signal": return !!signalAccount.trim()
       case "imessage": return true
       case "whatsapp": return !!whatsappBaseUrl.trim()
-      case "googlechat": return !!gchatCredentialsJson.trim()
+      case "googlechat": return !!gchatCredentialsJson.trim() && !!gchatProjectNumber.trim()
       case "line": return !!lineAccessToken.trim() && !!lineChannelSecret.trim()
       default: return !!token.trim()
     }
@@ -185,7 +190,7 @@ export default function AddAccountDialog({
       case "signal": return !!signalAccount.trim()
       case "imessage": return true
       case "whatsapp": return !!whatsappBaseUrl.trim()
-      case "googlechat": return !!gchatCredentialsJson.trim()
+      case "googlechat": return !!gchatCredentialsJson.trim() && !!gchatProjectNumber.trim()
       case "line": return !!lineAccessToken.trim() && !!lineChannelSecret.trim()
       default: return !!token.trim()
     }
@@ -664,6 +669,15 @@ export default function AddAccountDialog({
                       onChange={(e) => { setGchatCredentialsJson(e.target.value); setValidationResult(null); setValidationError(null) }}
                       className="font-mono text-xs"
                     />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>{t("channels.gchatProjectNumber", "Google Cloud Project Number")}</Label>
+                    <Input
+                      placeholder="123456789012"
+                      value={gchatProjectNumber}
+                      onChange={(e) => setGchatProjectNumber(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">{t("channels.gchatProjectNumberHint", "Required to verify Google-signed JWT on incoming webhooks")}</p>
                   </div>
                   <div className="space-y-2">
                     <Label>{t("channels.webhookUrl", "Public Webhook URL")}</Label>

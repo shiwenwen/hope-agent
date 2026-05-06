@@ -2631,6 +2631,8 @@
     "whatsappBridgeToken": "認証トークン（任意）",
     "whatsappHint": "WhatsApp ブリッジサービスの実行が必要です。HTTP API URL を指定してください。",
     "gchatCredentials": "サービスアカウント JSON",
+    "gchatProjectNumber": "Google Cloud プロジェクト番号",
+    "gchatProjectNumberHint": "受信 webhook の Google 署名 JWT 検証に必要",
     "gchatHint": "Chat API を有効にした Google Workspace サービスアカウントが必要です",
     "webhookUrl": "公開 Webhook URL",
     "webhookUrlHint": "デスクトップアプリは Webhook を受信するために公開 URL（ngrok など）が必要です",

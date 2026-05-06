@@ -1,3 +1,10 @@
+//! Telegram Bot API channel.
+//!
+//! - **Official API**: <https://core.telegram.org/bots/api>
+//! - **SDK / Reference**: teloxide 0.17 — <https://github.com/teloxide/teloxide>
+//! - **Protocol**: HTTPS long-polling (`getUpdates`) over teloxide `Bot`
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod format;
 pub mod media;
@@ -141,7 +148,10 @@ impl ChannelPlugin for TelegramPlugin {
             ],
             supports_typing: true,
             supports_buttons: true,
-            max_message_length: Some(4096),
+            // Telegram Bot API 上限 4096 UTF-16 code units；按 UTF-8 字节计算
+            // 中文 3 bytes ≈ 1365 字符，emoji surrogate 占 2 UTF-16 → 4096 字节
+            // 比 4096 字符宽松，但 emoji 多时会反向超限。3200 字节留余量。
+            max_message_length: Some(3200),
         }
     }
 

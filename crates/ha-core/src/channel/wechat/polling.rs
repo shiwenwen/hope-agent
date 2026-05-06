@@ -70,27 +70,43 @@ pub(crate) async fn run_polling_loop(
                     app_warn!(
                         "channel",
                         "wechat::polling",
-                        "WeChat getUpdates failed for '{}' (ret={:?} errcode={:?} errmsg={:?})",
+                        "WeChat getUpdates failed for '{}' (ret={:?} errcode={:?} errmsg={:?}, consec={})",
                         account_id,
                         resp.ret,
                         resp.errcode,
-                        resp.errmsg
+                        resp.errmsg,
+                        consecutive_failures,
                     );
 
+                    // OpenClaw types.ts 注释：errcode=-14 表示 session timeout。
+                    // 但网络抖动 / sync 漂移也可能瞬时返回 -14；要求 3 次连续才
+                    // 熔断（is_api_error=false 时 consecutive_failures 已重置）
+                    // 否则偶发抖动会让用户整小时收不到回复。
                     if should_stop_for_expired_session(&resp) {
-                        app_warn!(
-                            "channel",
-                            "wechat::polling",
-                            "WeChat session expired for '{}'; pausing API calls for 1 hour",
-                            account_id
-                        );
-                        shared.pause_account(&account_id).await;
-                        if sleep_or_cancel(&cancel, Duration::from_secs(3600)).await {
-                            break;
+                        if consecutive_failures < 3 {
+                            app_warn!(
+                                "channel",
+                                "wechat::polling",
+                                "WeChat session expired marker for '{}' (consec={}); not pausing yet, retrying after backoff",
+                                account_id,
+                                consecutive_failures
+                            );
+                        } else {
+                            app_warn!(
+                                "channel",
+                                "wechat::polling",
+                                "WeChat session expired for '{}' after {} consecutive errors; pausing API calls for 1 hour",
+                                account_id,
+                                consecutive_failures
+                            );
+                            shared.pause_account(&account_id).await;
+                            if sleep_or_cancel(&cancel, Duration::from_secs(3600)).await {
+                                break;
+                            }
+                            shared.clear_pause(&account_id).await;
+                            consecutive_failures = 0;
+                            continue;
                         }
-                        shared.clear_pause(&account_id).await;
-                        consecutive_failures = 0;
-                        continue;
                     }
 
                     let delay = if consecutive_failures >= 3 {

@@ -2631,6 +2631,8 @@
     "whatsappBridgeToken": "認證令牌（可選）",
     "whatsappHint": "需要運行 WhatsApp 橋接服務，填寫其 HTTP API 地址",
     "gchatCredentials": "Service Account JSON",
+    "gchatProjectNumber": "Google Cloud 專案編號",
+    "gchatProjectNumberHint": "用於驗證入站 webhook 的 Google 簽發 JWT",
     "gchatHint": "需要 Google Workspace 服務賬號并啟用 Chat API",
     "webhookUrl": "公網 Webhook URL",
     "webhookUrlHint": "桌面應用需要公網 URL（如 ngrok）才能接收 Webhook",

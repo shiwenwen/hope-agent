@@ -1,3 +1,13 @@
+//! IRC channel (RFC 2812 + IRCv3).
+//!
+//! - **Official spec**: <https://www.rfc-editor.org/rfc/rfc2812>（base IRC）+
+//!   <https://ircv3.net/specs/>（modern extensions: CAP / SASL / message-tags）
+//! - **SDK / Reference**: 无统一 SDK；参考实现
+//!   <https://ircv3.net/specs/extensions/sasl-3.1.html>
+//! - **Protocol**: TCP / TLS 直连，`\r\n` 分隔，行 ≤ 512 字节（含 CRLF），
+//!   PING/PONG 心跳，CAP LS 协商可选 SASL PLAIN
+//! - **Last reviewed**: 2026-05-05
+
 pub mod client;
 pub mod format;
 pub mod protocol;

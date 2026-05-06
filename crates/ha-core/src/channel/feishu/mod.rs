@@ -1,3 +1,13 @@
+//! Feishu / Lark channel (飞书 / Lark Suite).
+//!
+//! - **Official API**: <https://open.feishu.cn/document/> (cn) /
+//!   <https://open.larksuite.com/document/> (intl)
+//! - **SDK / Reference**: <https://github.com/larksuite/oapi-sdk-nodejs>
+//!   (官方 Node SDK，长连接帧协议 + 鉴权刷新参考实现)
+//! - **Protocol**: WebSocket 事件订阅（pbbp2 protobuf 帧）+ REST
+//!   `/open-apis/im/v1/messages` + `tenant_access_token` (TTL 7200s)
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod auth;
 pub mod data_cache;

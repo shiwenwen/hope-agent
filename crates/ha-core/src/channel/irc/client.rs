@@ -120,10 +120,12 @@ impl IrcClient {
 
     /// Send PRIVMSG to a target (channel or nick).
     pub async fn send_privmsg(&self, target: &str, text: &str) -> Result<()> {
-        // IRC messages have a max of ~512 bytes including the protocol overhead.
-        // Split long messages into chunks.
+        // RFC 2812 整行 ≤ 512 字节（含 CRLF）。服务端附加的 prefix
+        // `:nick!user@host PRIVMSG <target> :` ≈ 100 + 9 + target.len() + 4
+        // 字节；剩下的才是 text 上限。最少留 64 字节兜底（CJK 21 字符）。
         let sanitized = text.replace(['\r', '\n'], " ");
-        let max_text_len = 400; // Leave room for PRIVMSG command + target + overhead
+        let overhead = 100 + 9 + target.len() + 2 + 2;
+        let max_text_len = 512usize.saturating_sub(overhead).max(64);
         let mut remaining = sanitized.as_str();
 
         while !remaining.is_empty() {

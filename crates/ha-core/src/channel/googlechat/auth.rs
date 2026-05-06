@@ -5,6 +5,13 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
+/// Google Chat **app authentication**（service account JWT-bearer）必须用
+/// `chat.bot` scope；`chat.messages.create` / `chat.spaces.readonly` 是
+/// **user authentication** 专用 scope（OAuth 用户授权流），不能用于本仓
+/// 的 service account 流程，否则 spaces.list / messages.create 会
+/// `PERMISSION_DENIED`。
+///
+/// 参考：<https://developers.google.com/workspace/chat/authenticate-authorize-chat-app>
 const CHAT_SCOPE: &str = "https://www.googleapis.com/auth/chat.bot";
 /// Buffer before expiry to refresh the token (5 minutes).
 const EXPIRY_BUFFER_SECS: u64 = 300;

@@ -59,6 +59,17 @@ fn save_session(account_id: &str, session_id: &str, seq: u64) {
     }
 }
 
+/// Remove the saved session file. Used when server returns INVALID_SESSION
+/// (not resumable) — leaving the stale session_id on disk would put the
+/// account into an infinite "RESUME → INVALID_SESSION → reconnect" loop after
+/// process restart.
+async fn remove_session_file(account_id: &str) {
+    if let Ok(dir) = crate::paths::channel_dir("qqbot") {
+        let path = dir.join(format!("{}.session.json", account_id));
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+}
+
 /// Run the QQ Bot WebSocket gateway event loop.
 ///
 /// QQ Bot Gateway protocol (similar to Discord):
@@ -268,43 +279,16 @@ pub async fn run_qq_gateway(
         // Reset reconnect counter on successful connection
         reconnect_attempt = 0;
 
-        // 6. Start heartbeat and main event loop
-        let heartbeat_cancel = CancellationToken::new();
-        let heartbeat_token = heartbeat_cancel.clone();
-
+        // 6. Main event loop with integrated heartbeat
         // Shared seq counter for heartbeat
         let seq_holder = Arc::new(tokio::sync::Mutex::new(last_seq));
-        let _heartbeat_seq = seq_holder.clone();
 
-        // Spawn heartbeat task
-        let heartbeat_ws_url = gateway_url.clone();
-        let heartbeat_account_id = account_id.clone();
-        let main_cancel = cancel.clone();
-        tokio::spawn(async move {
-            let interval = std::time::Duration::from_millis(heartbeat_interval_ms);
-            loop {
-                tokio::select! {
-                    _ = heartbeat_cancel.cancelled() => break,
-                    _ = main_cancel.cancelled() => break,
-                    _ = tokio::time::sleep(interval) => {
-                        // Heartbeat is sent from the main loop since we can't share ws
-                        // The main loop will handle heartbeat timing
-                    }
-                }
-            }
-            app_debug!(
-                "channel",
-                "qqbot::gateway",
-                "Heartbeat task ended for account '{}' (url={})",
-                heartbeat_account_id,
-                crate::truncate_utf8(&heartbeat_ws_url, 60)
-            );
-        });
-
-        // Main event loop with integrated heartbeat
+        // 心跳定时器：tokio::time::interval 默认首 tick 立即触发，与官方
+        // botpy `gateway.py:_send_heart` 行为一致——HELLO 响应后第一次心跳
+        // 必须立即发，避免高延迟网络场景下 41s 等待窗口被服务端判超时强断。
+        // （之前的 `heartbeat_timer.tick().await; // consume immediate` 是误操作）
         let mut heartbeat_timer =
             tokio::time::interval(std::time::Duration::from_millis(heartbeat_interval_ms));
-        heartbeat_timer.tick().await; // consume the immediate first tick
 
         let mut session_active = true;
         while session_active {
@@ -316,7 +300,6 @@ pub async fn run_qq_gateway(
                         "Gateway cancelled for account '{}'",
                         account_id
                     );
-                    heartbeat_token.cancel();
                     ws.close().await;
                     // Save session before exit
                     if let Some(ref sid) = saved_session_id {
@@ -358,6 +341,11 @@ pub async fn run_qq_gateway(
                                 }
                                 GatewayAction::ReidentifyAndReconnect => {
                                     saved_session_id = None;
+                                    // 必须同步删磁盘 session 文件，否则进程重启后
+                                    // load_session 会读到过期的 session_id 又触发
+                                    // RESUME → INVALID_SESSION → reconnect 死循环
+                                    // 直到撞 MAX_RECONNECT_ATTEMPTS 才退出。
+                                    remove_session_file(&account_id).await;
                                     // Reset the sequence so the outer-loop resume check
                                     // (`saved_session_id.is_some() && last_seq > 0`) sees
                                     // a fresh-session state on the next iteration.
@@ -382,8 +370,6 @@ pub async fn run_qq_gateway(
                 }
             }
         }
-
-        heartbeat_token.cancel();
 
         // Save session state before reconnect
         {

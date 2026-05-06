@@ -5,24 +5,76 @@ use crate::channel::types::*;
 use crate::channel::webhook_server::{WebhookHandlerFn, WebhookRequest, WebhookResponse};
 
 use super::api::GoogleChatApi;
+use super::jwt::GoogleChatJwtVerifier;
+
+/// Per-process shared JWT verifier (caches Google public keys with 1h TTL).
+static JWT_VERIFIER: tokio::sync::OnceCell<Arc<GoogleChatJwtVerifier>> =
+    tokio::sync::OnceCell::const_new();
+
+async fn get_jwt_verifier() -> Arc<GoogleChatJwtVerifier> {
+    JWT_VERIFIER
+        .get_or_init(|| async { Arc::new(GoogleChatJwtVerifier::new()) })
+        .await
+        .clone()
+}
 
 /// Create a webhook handler function for Google Chat events.
 ///
-/// The handler receives incoming HTTP requests from Google Chat's webhook endpoint,
-/// parses the event payload, and forwards inbound messages through `inbound_tx`.
+/// The handler receives incoming HTTP requests from Google Chat's webhook
+/// endpoint, **强制**验证 Google 签发的 Bearer JWT，然后解析事件 payload
+/// 并通过 `inbound_tx` 转发入站消息。`project_number` 必须与 Google Cloud
+/// 项目号一致（JWT aud claim），否则任何能访问隧道 URL 的人都可以伪造事件。
 pub fn create_webhook_handler(
     api: Arc<GoogleChatApi>,
     account_id: String,
+    project_number: String,
     inbound_tx: mpsc::Sender<MsgContext>,
 ) -> WebhookHandlerFn {
     // Keep api alive for potential future use (e.g. downloading attachments)
     let _api = api;
+    // 空 project_number 直接拒——避免误配置导致鉴权降级
+    let project_number = Arc::new(project_number);
 
     Arc::new(move |req: WebhookRequest| {
         let account_id = account_id.clone();
         let inbound_tx = inbound_tx.clone();
+        let project_number = project_number.clone();
 
         Box::pin(async move {
+            if project_number.is_empty() {
+                app_warn!(
+                    "channel",
+                    "googlechat",
+                    "Rejecting webhook for '{}': project_number not configured",
+                    account_id
+                );
+                return WebhookResponse {
+                    status: 403,
+                    body: r#"{"error":"project_number not configured"}"#.to_string(),
+                };
+            }
+
+            // **必须**验证 Authorization Bearer JWT，否则放任任意伪造事件
+            let authz = req
+                .headers
+                .get("authorization")
+                .or_else(|| req.headers.get("Authorization"))
+                .map(|s| s.as_str());
+            let verifier = get_jwt_verifier().await;
+            if let Err(e) = verifier.verify_authz_header(authz, &project_number).await {
+                app_warn!(
+                    "channel",
+                    "googlechat",
+                    "Rejected webhook for '{}': JWT verification failed: {}",
+                    account_id,
+                    e
+                );
+                return WebhookResponse {
+                    status: 403,
+                    body: r#"{"error":"unauthorized"}"#.to_string(),
+                };
+            }
+
             // Parse the JSON body
             let body: serde_json::Value = match serde_json::from_slice(&req.body) {
                 Ok(v) => v,
@@ -81,10 +133,19 @@ pub fn create_webhook_handler(
                     );
                 }
                 "CARD_CLICKED" => {
-                    if let Some(action) = body
-                        .pointer("/action/actionMethodName")
+                    // Card v2 按钮 onClick.action.function 在事件回调中以
+                    // `common.invokedFunction` 字段返回（Google Chat API v1
+                    // event schema）；老 Card v1 / FormAction 用
+                    // `action.actionMethodName`。优先 v2，fallback v1，避免
+                    // 用 cardsV2 发出的审批按钮被点击时静默失败。
+                    let action_name = body
+                        .pointer("/common/invokedFunction")
                         .and_then(|v| v.as_str())
-                    {
+                        .or_else(|| {
+                            body.pointer("/action/actionMethodName")
+                                .and_then(|v| v.as_str())
+                        });
+                    if let Some(action) = action_name {
                         crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                             action,
                             "googlechat",

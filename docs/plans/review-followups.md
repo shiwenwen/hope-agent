@@ -30,7 +30,72 @@
 
 ## Open
 
+### F-057 IM channel 主动消息 / 媒体能力补完（跨 channel）
 
+- **来源**：2026-05-05 IM channel 全量审计 + 2026-05-06 codex review 回归
+- **现象**：本批**写过** QQ Bot c2c/group msg_type=7 两步上传 + LINE imageMessage/videoMessage/audioMessage HTTPS URL 路径；但 [`channel/worker/dispatcher.rs::to_outbound_media`](../../crates/ha-core/src/channel/worker/dispatcher.rs#L728) 优先给 `MediaData::FilePath`（hope-agent 本地缓存路径），而 QQ Bot V2 上传 / LINE message object 都只接收公网 HTTPS URL —— 两边在 plugin 内部 `match data { Url(_) => ..., _ => continue }` 把 FilePath 静默跳过。结果声明 `supports_media` 反而让 dispatcher 不再追 link fallback → 用户附件两头不到位。
+  - **2026-05-06 已回退**：QQ Bot + LINE `supports_media` 重新设为空，恢复 dispatcher 的链接文本兜底。两套两步上传 helper（`post_*_files` / `send_*_media` / `dispatch_media`、LINE message-object 构造）保留备用，等本地附件中转基建就绪再开
+- **剩余 channel 状态**：均降级为下载链接文本：
+  - Slack — files v2 流程（`files.getUploadURLExternal` + `files.completeUploadExternal`）
+  - Google Chat — `media.upload` + `attachment` resource name（需 Drive scope）
+  - Signal — signal-cli `--attachment <path>`
+  - iMessage — imsg `send_attachment` 子命令（待 stdio 协议字段）
+  - WhatsApp — bridge `media` 字段
+  - LINE / QQ Bot — 待本地附件中转 + 公网 HTTPS 暴露基建（hope-agent 自托管端点 / 用户配置 `public_base_url` 转发缓存附件）
+  - QQ Bot — channel/dms 端点 V2 不开放原生媒体上传，仍要走链接
+- **为什么留**：核心是缺"本地缓存附件 → 公网 HTTPS URL"的中转基建，而不是各 channel 的协议代码；本批已修核心稳定性问题（msg_seq / 心跳 / INVALID_SESSION / 速率限制 / chat_type 等），富媒体不阻塞首发文本
+- **改的话要做什么**：参照 [`channel/worker/dispatcher.rs::partition_media_by_channel`](../../crates/ha-core/src/channel/worker/dispatcher.rs) 已有的能力声明驱动下，逐 channel 补 `*/media.rs` 模块；先做 Slack（用户最多）+ Signal（调试方便）
+- **影响面**：能力承诺 vs 实际不一致，dispatcher 自动降级为链接文本但用户视觉体验差
+- **触发时机建议**：用户报"图片发不出来"时按 channel 优先级排队；新增 OAuth scope 时同步评估
+
+### F-058 IM channel WebSocket / 长连接 + IRCv3 + chat_type 协议层细化（跨 channel）
+
+- **来源**：2026-05-05 IM channel 全量审计
+- **现象**：协议层补完短板：
+  - **Discord** HEARTBEAT 缺 jitter（[`gateway.rs:205`](../../crates/ha-core/src/channel/discord/gateway.rs#L205)）；IDENTIFY connection properties `os: "macos"` 写死无视实际平台；`MESSAGE_CREATE` thread_id 永远 None（实际 Discord forum 消息走 thread channel_id）；ChatType 只 Dm/Group 缺 Channel/Forum 细化（要求 cache `channel.type`）
+  - **Slack** disconnect 信封未触发立即重连（[`socket.rs:265`](../../crates/ha-core/src/channel/slack/socket.rs#L265)）；action_id 长度上限 ≤ 255 校验
+  - **QQ Bot** shard `[0,1]` 写死、IDENTIFY `properties` 空；sandbox endpoint 切换；event_id 主动/被动消息区分
+  - **Signal** SSE `data:` 多空格剥取不一致；daemon readiness 主动 poll `/api/v1/check` 而非 sleep 2s
+  - **IRC** IRCv3 `CAP LS 302` + SASL PLAIN 协商（不接 SASL 在 Libera 等主流网络可能强踢）；IRCv3 message-tags 解析（`@key=value` 前缀）；channel name 用户输入自动补 `#`
+  - **iMessage** RPC 方法名（`chats.list` / `watch.subscribe` / `sendTyping`）需对照 [`steipete/imsg`](https://github.com/steipete/imsg) 实际 RPC 暴露面；`is_group` 完全信赖字段而非 participants.len() fallback
+- **为什么留**：单实例不可见，规模化或边界场景才暴露；IRCv3 SASL 是单 channel 50-100 行重写，独立 PR 更清楚
+- **改的话要做什么**：jitter 用 `interval * rand::random::<f64>()`；`os: std::env::consts::OS`；shard 字段从 capabilities 推断；tungstenite Message::Close.code 路由模板已在 Discord 落地，可参考迁移 Slack/QQ；IRCv3 见 <https://ircv3.net/specs/extensions/sasl-3.1.html>
+- **影响面**：稳定性 / 服务端可观测性 / 现代 IRCd 兼容性
+- **触发时机建议**：单 channel 大流量场景报"频繁断线"时；接 Libera/OFTC 网络的 IRC 用户报告"被踢"时
+
+### F-059 IM channel 速率限制 / 幂等增强（跨 channel）
+
+- **来源**：2026-05-05 IM channel 全量审计
+- **现象**：本批用 [`channel/rate_limit.rs`](../../crates/ha-core/src/channel/rate_limit.rs) 接了 Discord/Slack 429 + Retry-After；剩余：
+  - **Telegram** teloxide `Throttle` adaptor 包装 `Bot`（自动尊重 FloodWait `RetryAfter` 错误），需要在 [`Cargo.toml`](../../crates/ha-core/Cargo.toml) telmit feature 加 `throttle`，且持有 Bot 类型从 `Bot` 改 `Throttle<Bot>`，diff 较大
+  - **LINE** push API `X-Line-Retry-Key` UUID4 幂等头（避免网络重试重复扣费）+ 429 处理
+  - **Feishu** `auth.rs` 并发首次取 token 加 `OnceCell` singleflight 锁
+  - **WhatsApp** 连续失败 ≥3 后 `consecutive_failures` 清零，无最终告警；接 [`channel/start_watchdog.rs`](../../crates/ha-core/src/channel/start_watchdog.rs) 同款指数退避
+- **为什么留**：边界并发 / 长期失败场景才暴露；teloxide Throttle 改动面较大需独立验证
+- **改的话要做什么**：Telegram 切 Throttle；LINE push 生成 UUID4 复用；Feishu auth 用 `tokio::sync::OnceCell` 单飞；WhatsApp 改用 watchdog
+- **影响面**：偶发计费重复 / token 配额浪费 / 长期挂掉无告警
+- **触发时机建议**：用户报"消息重复" / "Feishu 503" / "Telegram FloodWait 螺旋" 时
+
+### F-060 IM channel 配置 / 错误信息 / 安全细节（跨 channel）
+
+- **来源**：2026-05-05 IM channel 全量审计
+- **现象**：纯优雅性 / 非阻塞首发的细节，逐 channel 列：
+  - **Telegram** `sendMessageDraft` 4xx fallback 软降级；媒体退到 `sendDocument` 丢类型语义（应按 media_type 分发到 `send_voice` / `send_animation` / `send_sticker`）
+  - **WeChat** 长轮询 timeout 1ms 边界 clamp（`next_timeout_ms.clamp(5_000, 60_000)`）；登录 `current_api_base_url` redirect 后持久化复用
+  - **Slack** `subtype=file_share` 子类型显式处理；slash command response_action ack 带 payload
+  - **Feishu** `auth/v3/tenant_access_token/internal` trailing slash 去除；ack `biz_rt` 写实际处理耗时；ack `payload_encoding`/`payload_type` 透传源帧；`card.action.trigger` ack 带 update payload
+  - **QQ Bot** mention space 补空（`strip_mention_tags`）；event_id 主动/被动消息区分；botpy 那边的 sandbox bool 字段
+  - **LINE** webhook 失败返回 404 而非 403 oracle；postback origin 校验（chat_id 与 pending approval 比对，防群聊跨 session 伪造审批）
+  - **Google Chat** `webhook_server` body limit 1MB → 4-8MB（多附件 message 接近）；message resource name 文档化
+  - **WhatsApp** baseUrl 缺失 + bridge HTTP 契约 README/SKILL 文档；empty text 返回 err 而非 ok
+  - **IRC** channel name 用户输入自动补 `#`；IRCv3 message-tags 解析；reconnect writer 重建用 `Arc<Mutex<Option<...>>>` 一次替换更直观
+  - **Signal** localhost vs 127.0.0.1（**已在本批修**）；readiness `/api/v1/check` 探活；username `u:` / `@` recipient form 完整支持
+  - **iMessage** `is_group` 完全信赖字段；JSON-RPC 帧协议探测（NDJSON vs Content-Length）；typing 实际能力验证后调整 `supports_typing`
+  - **跨 channel** approval callback `try_dispatch_interactive_callback(data, source)` 应加 `source_chat_id` 参数与 worker pending map chat_id 比对（LINE postback / 群聊场景跨用户伪造审批的根本防御）
+- **为什么留**：每条独立改动小（≤10 行），按 channel 维度逐个收效率最高
+- **改的话要做什么**：每个 bullet 独立改；可分多次小 PR 收
+- **影响面**：用户体验 / 调试体验 / 极端边界 + LINE postback 是潜在安全洞
+- **触发时机建议**：下一次动到对应 channel 文件时顺手收
 
 ### F-051 `currentSessionMeta` + `incognitoEnabled` 三处复制可推进 `useQuickChatSession` / `useChatSession`
 

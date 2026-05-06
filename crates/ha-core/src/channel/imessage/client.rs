@@ -152,17 +152,25 @@ impl IMessageClient {
     /// Reads lines from stdout, dispatches RPC responses to pending callers,
     /// and converts server-initiated notifications (newMessage) into `MsgContext`
     /// sent via `inbound_tx`.
+    ///
+    /// `ready_tx` 在 spawn 出来的 task 进入接收循环（即真正可以处理 RPC
+    /// response）之后立即 send。caller 必须 await 这个 oneshot 之后再调任何
+    /// RPC（如 watch_subscribe）——否则 RPC response 会在 task 启动之前回来，
+    /// pending oneshot 没人接，超时失败。
     pub async fn run_notification_loop(
         &self,
         account_id: String,
         inbound_tx: mpsc::Sender<MsgContext>,
         cancel: CancellationToken,
+        ready_tx: tokio::sync::oneshot::Sender<()>,
     ) {
         let process = self.process.clone();
         let pending = self.pending.clone();
         let stderr_cancel = cancel.clone();
 
         tokio::spawn(async move {
+            // 进入循环前发 ready 信号；oneshot::send 消耗 self，move 进 spawn 即可
+            let _ = ready_tx.send(());
             loop {
                 let line = {
                     let mut guard = process.lock().await;
@@ -456,13 +464,17 @@ impl IMessageClient {
             ChatType::Dm
         };
 
-        // Resolve chat_id: prefer chat_id number, then chat_guid, then chat_identifier, then sender
-        let chat_id = if let Some(cid) = payload.chat_id {
-            cid.to_string()
-        } else if let Some(ref guid) = payload.chat_guid {
+        // 解析 chat_id 优先级：chat_guid > chat_identifier > chat_id（数字）
+        // > sender。chat_guid 是 iMessage 协议层最稳定的会话标识（形如
+        // `iMessage;-;chat...`），跨消息复现一致；numeric chat_id 在 imsg
+        // 不同推送中可能缺失，导致同一会话有时映射到 numeric、有时到 guid，
+        // worker 侧把它们看作两个不同会话 → 群聊跨消息历史断裂、记忆丢失。
+        let chat_id = if let Some(ref guid) = payload.chat_guid {
             guid.clone()
         } else if let Some(ref identifier) = payload.chat_identifier {
             identifier.clone()
+        } else if let Some(cid) = payload.chat_id {
+            cid.to_string()
         } else {
             sender.to_string()
         };

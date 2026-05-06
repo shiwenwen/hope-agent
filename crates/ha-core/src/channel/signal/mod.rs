@@ -1,3 +1,12 @@
+//! Signal channel via signal-cli daemon.
+//!
+//! - **Official tool**: <https://github.com/AsamK/signal-cli>
+//! - **JSON-RPC spec**:
+//!   <https://github.com/AsamK/signal-cli/blob/master/man/signal-cli-jsonrpc.5.adoc>
+//! - **Protocol**: 子进程托管 signal-cli `--http=<addr>`，HTTP JSON-RPC
+//!   `/api/v1/rpc` 双向 + SSE `/api/v1/events` 推送实时事件
+//! - **Last reviewed**: 2026-05-05
+
 pub mod client;
 pub mod daemon;
 pub mod format;
@@ -149,10 +158,11 @@ impl ChannelPlugin for SignalPlugin {
             daemon_port
         );
 
-        // Create the client
+        // Create the client. SSE loop 内部 parse_data_payload 会顺手把
+        // (message_id → sender_id) 写到 client.quote_authors 缓存，给 outbound
+        // reply 拼 quoteAuthor 用。
         let client = Arc::new(SignalClient::new(daemon_port, phone.clone()));
 
-        // Store the running account
         {
             let mut accounts = self.accounts.lock().await;
             accounts.insert(
@@ -165,7 +175,6 @@ impl ChannelPlugin for SignalPlugin {
             );
         }
 
-        // Spawn the SSE event loop
         let account_id = account.id.clone();
         tokio::spawn(async move {
             client.run_sse_loop(account_id, inbound_tx, cancel).await;
@@ -203,12 +212,19 @@ impl ChannelPlugin for SignalPlugin {
                 return Ok(DeliveryResult::ok("empty"));
             }
 
-            let quote_ts = payload
-                .reply_to_message_id
-                .as_deref()
-                .and_then(|id| id.parse::<i64>().ok());
+            // signal-cli reply 必须 timestamp + author 配对，缺一即不发 quote
+            let (quote_ts, quote_author) = match payload.reply_to_message_id.as_deref() {
+                Some(reply_id) => (
+                    reply_id.parse::<i64>().ok(),
+                    client.quote_author_for(reply_id).await,
+                ),
+                None => (None, None),
+            };
 
-            match client.send_message(chat_id, text, &[], quote_ts).await {
+            match client
+                .send_message(chat_id, text, &[], quote_ts, quote_author.as_deref())
+                .await
+            {
                 Ok(result) => {
                     // signal-cli send returns the timestamp as message ID
                     let msg_id = result

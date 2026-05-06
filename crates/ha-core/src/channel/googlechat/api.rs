@@ -85,18 +85,25 @@ impl GoogleChatApi {
 
         let mut body = serde_json::json!({ "text": text });
 
+        // Google Chat API 两种 thread 引用：`thread.name` 仅接 resource name
+        // `spaces/{}/threads/{}`；其他自定义 key（如 cron 生成的任意字串）
+        // 必须走 `thread.threadKey`，不然返回 INVALID_ARGUMENT。
+        let mut reply_option_param = "";
         if let Some(tk) = thread_key {
-            body["thread"] = serde_json::json!({ "name": tk });
+            if tk.starts_with("spaces/") && tk.contains("/threads/") {
+                body["thread"] = serde_json::json!({ "name": tk });
+                reply_option_param = "?messageReplyOption=REPLY_MESSAGE_OR_FAIL";
+            } else {
+                body["thread"] = serde_json::json!({ "threadKey": tk });
+                reply_option_param = "?messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD";
+            }
         }
 
         if let Some(cards) = cards_v2 {
             body["cardsV2"] = serde_json::Value::Array(cards.to_vec());
         }
 
-        let mut url = format!("{}/{}/messages", CHAT_API_BASE, space);
-        if thread_key.is_some() {
-            url.push_str("?messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD");
-        }
+        let url = format!("{}/{}/messages{}", CHAT_API_BASE, space, reply_option_param);
 
         let resp = self
             .client

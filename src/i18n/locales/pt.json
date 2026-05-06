@@ -2631,6 +2631,8 @@
     "whatsappBridgeToken": "Token de autenticação (opcional)",
     "whatsappHint": "Requer um serviço bridge do WhatsApp em execução. Aponte para sua URL HTTP API.",
     "gchatCredentials": "JSON da Service Account",
+    "gchatProjectNumber": "Número do projeto do Google Cloud",
+    "gchatProjectNumberHint": "Necessário para verificar o JWT assinado pelo Google nos webhooks de entrada",
     "gchatHint": "Requer uma Service Account do Google Workspace com a Chat API ativada",
     "webhookUrl": "URL pública do Webhook",
     "webhookUrlHint": "Apps de desktop precisam de uma URL pública (ex.: ngrok) para receber webhooks",

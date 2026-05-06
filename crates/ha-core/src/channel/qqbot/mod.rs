@@ -1,3 +1,12 @@
+//! QQ Bot V2 channel (QQ 官方机器人).
+//!
+//! - **Official API**: <https://bot.q.qq.com/wiki/develop/api-v2/>
+//! - **SDK / Reference**: <https://github.com/tencent-connect/botpy>
+//!   (官方 Python SDK，opcode 协议 + IDENTIFY/RESUME + msg_seq 参考实现)
+//! - **Protocol**: WebSocket Gateway（Discord-like opcodes）+ REST `/v2/...`，
+//!   认证头 `Authorization: QQBot {access_token}` (NOT Bearer!)
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod auth;
 pub mod format;
@@ -13,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 use crate::channel::traits::ChannelPlugin;
 use crate::channel::types::*;
 
-use self::api::QqBotApi;
+use self::api::{QqBotApi, QqChatScope};
 use self::auth::QqBotAuth;
 
 /// Running account state for a single QQ Bot.
@@ -93,9 +102,13 @@ impl ChannelPlugin for QqBotPlugin {
             supports_polls: false,
             supports_reactions: false,
             max_message_length: Some(4096),
-            // TODO: native QQ Bot media (v2 groups/messages msg_type=7
-            // + channels multipart file_image) not yet implemented.
-            // Dispatcher falls back to a download-link text for now.
+            // 暂不声明原生媒体能力——dispatcher 的 to_outbound_media 优先
+            // 给 MediaData::FilePath（hope-agent 本地缓存路径），但 QQ Bot
+            // V2 上传 API 只接收公网 HTTPS URL，FilePath 会被静默跳过；同时
+            // channel/dms 端点完全不开放媒体上传。声明 supports_media 反而
+            // 让 dispatcher 不再追加链接文本兜底 → 媒体两头不到位。媒体能力
+            // 完整补完跟踪 review-followups F-057（含本地附件中转 / channel
+            // 端点替代方案）
             supports_media: Vec::new(),
         }
     }
@@ -155,95 +168,27 @@ impl ChannelPlugin for QqBotPlugin {
         payload: &ReplyPayload,
     ) -> Result<DeliveryResult> {
         let api = self.get_api(account_id).await?;
+        let scope = QqChatScope::parse(chat_id)?;
+        let msg_id = payload.reply_to_message_id.as_deref();
 
-        // Handle messages with inline keyboard buttons (approval prompts, etc.)
         if !payload.buttons.is_empty() {
-            let text_content = payload.text.as_deref().unwrap_or("");
-            let msg_id = payload.reply_to_message_id.as_deref();
-
-            let rows: Vec<_> = payload
-                .buttons
-                .iter()
-                .map(|row| {
-                    let buttons: Vec<_> = row
-                        .iter()
-                        .map(|b| {
-                            serde_json::json!({
-                                "id": b.callback_id(),
-                                "render_data": {
-                                    "label": &b.text,
-                                    "visited_label": &b.text,
-                                },
-                                "action": {
-                                    "type": 2,
-                                    "data": b.callback_id(),
-                                    "permission": { "type": 2 }
-                                }
-                            })
-                        })
-                        .collect();
-                    serde_json::json!({ "buttons": buttons })
-                })
-                .collect();
-
-            let keyboard = serde_json::json!({ "content": { "rows": rows } });
-            let result = api
-                .send_message_with_keyboard(chat_id, text_content, keyboard, msg_id)
-                .await?;
-
-            let response_msg_id = result
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("sent")
-                .to_string();
-
-            return Ok(DeliveryResult::ok(response_msg_id));
+            return dispatch_buttons(&api, &scope, payload, msg_id).await;
         }
-
-        if let Some(ref text) = payload.text {
-            if text.is_empty() {
-                return Ok(DeliveryResult::ok("empty"));
+        if !payload.media.is_empty() && scope.supports_native_media() {
+            if let Some(result) = dispatch_media(&api, &scope, payload, msg_id).await? {
+                return Ok(result);
             }
-
-            let msg_id = payload.reply_to_message_id.as_deref();
-
-            // Route to the correct endpoint based on chat_id prefix
-            let result = if let Some(openid) = chat_id.strip_prefix("c2c:") {
-                api.send_c2c_message(openid, text, msg_id).await?
-            } else if let Some(group_openid) = chat_id.strip_prefix("group:") {
-                api.send_group_message(group_openid, text, msg_id).await?
-            } else if let Some(channel_id_str) = chat_id.strip_prefix("channel:") {
-                api.send_channel_message(channel_id_str, text, msg_id)
-                    .await?
-            } else if let Some(guild_id) = chat_id.strip_prefix("dms:") {
-                api.send_dms_message(guild_id, text, msg_id).await?
-            } else {
-                return Err(anyhow::anyhow!(
-                    "Unknown QQ Bot chat_id format: {}",
-                    crate::truncate_utf8(chat_id, 100)
-                ));
-            };
-
-            // Extract message_id from response if available
-            let response_msg_id = result
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("sent")
-                .to_string();
-
-            return Ok(DeliveryResult::ok(response_msg_id));
+            // 没有可发的 url 媒体 → 落到下面文本路径，由 dispatcher 的链接兜底
         }
-
-        Ok(DeliveryResult::ok("no_content"))
+        dispatch_text(&api, &scope, payload, msg_id).await
     }
 
     async fn send_typing(&self, account_id: &str, chat_id: &str) -> Result<()> {
-        // Typing indicator is only supported for C2C messages
-        if let Some(openid) = chat_id.strip_prefix("c2c:") {
+        if let Ok(QqChatScope::C2c(openid)) = QqChatScope::parse(chat_id) {
             let api = self.get_api(account_id).await?;
             api.send_typing_c2c(openid).await?;
         }
-        // For group/channel, typing is not supported — silently ignore
+        // group / channel / dms typing 不支持 — silently ignore
         Ok(())
     }
 
@@ -349,5 +294,148 @@ impl ChannelPlugin for QqBotPlugin {
         let auth = Arc::new(QqBotAuth::new(&app_id, &client_secret));
         auth.get_token().await?;
         Ok(format!("QQ Bot ({})", app_id))
+    }
+}
+
+fn extract_response_id(value: &serde_json::Value) -> String {
+    value
+        .get("id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("sent")
+        .to_string()
+}
+
+/// keyboard 按钮：c2c/group 走 native；channel/dms 降级 `[1]/[2]/[3]` 数字回复
+/// （与 IRC / 微信 / Signal 一致）。
+async fn dispatch_buttons(
+    api: &QqBotApi,
+    scope: &QqChatScope<'_>,
+    payload: &ReplyPayload,
+    msg_id: Option<&str>,
+) -> Result<DeliveryResult> {
+    let text_content = payload.text.as_deref().unwrap_or("");
+
+    if scope.supports_native_keyboard() {
+        let rows: Vec<_> = payload
+            .buttons
+            .iter()
+            .map(|row| {
+                let buttons: Vec<_> = row
+                    .iter()
+                    .map(|b| {
+                        serde_json::json!({
+                            "id": b.callback_id(),
+                            "render_data": { "label": &b.text, "visited_label": &b.text },
+                            "action": {
+                                "type": 2,
+                                "data": b.callback_id(),
+                                "permission": { "type": 2 }
+                            }
+                        })
+                    })
+                    .collect();
+                serde_json::json!({ "buttons": buttons })
+            })
+            .collect();
+        let keyboard = serde_json::json!({ "content": { "rows": rows } });
+        let result = api
+            .send_message_with_keyboard(scope.clone(), text_content, keyboard, msg_id)
+            .await?;
+        return Ok(DeliveryResult::ok(extract_response_id(&result)));
+    }
+
+    let mut text = String::from(text_content);
+    if !text.is_empty() {
+        text.push_str("\n\n");
+    }
+    let mut idx = 1;
+    for row in &payload.buttons {
+        for b in row {
+            text.push_str(&format!("[{}] {}\n", idx, b.text));
+            idx += 1;
+        }
+    }
+    text.push_str("\nReply with the number to choose.");
+
+    let result = match scope {
+        QqChatScope::Channel(cid) => api.send_channel_message(cid, &text, msg_id).await?,
+        QqChatScope::Dms(gid) => api.send_dms_message(gid, &text, msg_id).await?,
+        // c2c / group 已在上面 supports_native_keyboard 分支处理
+        _ => unreachable!(),
+    };
+    Ok(DeliveryResult::ok(extract_response_id(&result)))
+}
+
+/// QQ Bot V2 c2c/group 富媒体两步上传（POST /files → file_info → msg_type=7）。
+/// 返回 `None` 表示 payload.media 全部不可发（无 url 来源），caller 应继续走
+/// 文本路径让 dispatcher 链接兜底。
+async fn dispatch_media(
+    api: &QqBotApi,
+    scope: &QqChatScope<'_>,
+    payload: &ReplyPayload,
+    msg_id: Option<&str>,
+) -> Result<Option<DeliveryResult>> {
+    let caption_root = payload.text.as_deref().unwrap_or("");
+    let mut last_msg_id: Option<String> = None;
+
+    for media in &payload.media {
+        let url = match &media.data {
+            MediaData::Url(u) => u.clone(),
+            // 仅 url 来源（公网 HTTPS）支持；本地 FilePath / Bytes 由 dispatcher
+            // 走链接文本兜底
+            _ => continue,
+        };
+        let Some(file_type) = qq_file_type(&media.media_type) else {
+            // Document / Sticker / 未开放类型
+            continue;
+        };
+        let caption = media.caption.as_deref().unwrap_or(caption_root);
+
+        let result = match scope {
+            QqChatScope::C2c(openid) => {
+                let file_info = api.post_c2c_files(openid, file_type, &url).await?;
+                api.send_c2c_media(openid, &file_info, caption, msg_id)
+                    .await?
+            }
+            QqChatScope::Group(gid) => {
+                let file_info = api.post_group_files(gid, file_type, &url).await?;
+                api.send_group_media(gid, &file_info, caption, msg_id)
+                    .await?
+            }
+            // caller 已校验 supports_native_media
+            _ => unreachable!(),
+        };
+        last_msg_id = Some(extract_response_id(&result));
+    }
+    Ok(last_msg_id.map(DeliveryResult::ok))
+}
+
+async fn dispatch_text(
+    api: &QqBotApi,
+    scope: &QqChatScope<'_>,
+    payload: &ReplyPayload,
+    msg_id: Option<&str>,
+) -> Result<DeliveryResult> {
+    let Some(text) = payload.text.as_deref().filter(|t| !t.is_empty()) else {
+        return Ok(DeliveryResult::ok("no_content"));
+    };
+    let result = match scope {
+        QqChatScope::C2c(openid) => api.send_c2c_message(openid, text, msg_id).await?,
+        QqChatScope::Group(gid) => api.send_group_message(gid, text, msg_id).await?,
+        QqChatScope::Channel(cid) => api.send_channel_message(cid, text, msg_id).await?,
+        QqChatScope::Dms(gid) => api.send_dms_message(gid, text, msg_id).await?,
+    };
+    Ok(DeliveryResult::ok(extract_response_id(&result)))
+}
+
+/// 把 hope-agent 的 [`MediaType`] 映射到 QQ Bot V2 wire-level file_type
+/// 数字。Document / Sticker 暂未开放（file_type=4 需特殊审核）→ None
+/// 让 caller 走链接文本兜底。
+fn qq_file_type(media_type: &MediaType) -> Option<u32> {
+    match media_type {
+        MediaType::Photo => Some(api::QqBotApi::FILE_TYPE_IMAGE),
+        MediaType::Video | MediaType::Animation => Some(api::QqBotApi::FILE_TYPE_VIDEO),
+        MediaType::Voice | MediaType::Audio => Some(api::QqBotApi::FILE_TYPE_VOICE),
+        _ => None,
     }
 }

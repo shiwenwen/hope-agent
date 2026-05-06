@@ -1,3 +1,12 @@
+//! Discord Bot channel.
+//!
+//! - **Official API**: <https://discord.com/developers/docs/intro>
+//! - **SDK / Reference**: <https://github.com/discord/discord-api-docs>
+//!   (canonical), gateway opcode 列表
+//!   <https://discord.com/developers/docs/topics/opcodes-and-status-codes>
+//! - **Protocol**: WebSocket Gateway v10 + REST + multipart file upload
+//! - **Last reviewed**: 2026-05-05
+
 pub mod api;
 pub mod format;
 pub mod gateway;
@@ -179,7 +188,10 @@ impl ChannelPlugin for DiscordPlugin {
             ],
             supports_typing: true,
             supports_buttons: true,
-            max_message_length: Some(2000),
+            // Discord 官方上限是 2000 字符；UTF-8 字节计算下 emoji surrogate
+            // pair 等多字节字符会顶到 6+ bytes，留 25% 余量到 1500 字节避免触发
+            // "Invalid Form Body" content_too_long
+            max_message_length: Some(1500),
         }
     }
 
