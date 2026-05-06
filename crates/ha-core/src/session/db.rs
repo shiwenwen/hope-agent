@@ -1526,10 +1526,12 @@ impl SessionDB {
             .conn
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        // Mark `stream_status='completed'` so the next startup sweep
+        // doesn't demote this row to `'orphaned'` (see `NewMessage::tool`).
         match metadata {
             Some(md) => {
                 conn.execute(
-                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, tool_metadata = ?4
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, tool_metadata = ?4, stream_status = 'completed'
                      WHERE session_id = ?5 AND tool_call_id = ?6",
                     params![
                         result,
@@ -1543,7 +1545,7 @@ impl SessionDB {
             }
             None => {
                 conn.execute(
-                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3
+                    "UPDATE messages SET tool_result = ?1, tool_duration_ms = ?2, is_error = ?3, stream_status = 'completed'
                      WHERE session_id = ?4 AND tool_call_id = ?5",
                     params![
                         result,

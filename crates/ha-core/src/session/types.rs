@@ -314,6 +314,11 @@ impl NewMessage {
     }
 
     /// Create a tool call/result message.
+    ///
+    /// Defaults `stream_status` to `'streaming'` so a crash between INSERT
+    /// (tool_call) and UPDATE (tool_result, → `'completed'`) leaves the row
+    /// recognizable by the startup orphan sweep +
+    /// [`crate::chat_engine::context::inject_orphaned_partial_summary`].
     pub fn tool(
         call_id: &str,
         name: &str,
@@ -343,7 +348,7 @@ impl NewMessage {
             tokens_cache_creation: None,
             tokens_cache_read: None,
             tool_metadata: None,
-            stream_status: None,
+            stream_status: Some("streaming".to_string()),
         }
     }
 
