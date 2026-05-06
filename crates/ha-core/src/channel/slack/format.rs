@@ -78,7 +78,8 @@ pub fn markdown_to_mrkdwn(md: &str) -> String {
             continue;
         }
 
-        // Bold: **text** -> *text*
+        // Bold: **text** -> *text*；inner content 内的 `<` `&` 仍要 escape
+        // 防 `**<@U123> & x**` 内的 mention/entity 起始字符破坏 Slack 解析
         if ch == '*' && chars.peek() == Some(&'*') {
             chars.next(); // consume second *
             result.push('*');
@@ -87,13 +88,13 @@ pub fn markdown_to_mrkdwn(md: &str) -> String {
                     chars.next(); // consume closing **
                     break;
                 }
-                result.push(c);
+                push_escaped(&mut result, c);
             }
             result.push('*');
             continue;
         }
 
-        // Strikethrough: ~~text~~ -> ~text~
+        // Strikethrough: ~~text~~ -> ~text~；同样 escape inner content
         if ch == '~' && chars.peek() == Some(&'~') {
             chars.next(); // consume second ~
             result.push('~');
@@ -102,7 +103,7 @@ pub fn markdown_to_mrkdwn(md: &str) -> String {
                     chars.next(); // consume closing ~~
                     break;
                 }
-                result.push(c);
+                push_escaped(&mut result, c);
             }
             result.push('~');
             continue;
@@ -309,6 +310,21 @@ mod tests {
     fn test_blockquote_preserved() {
         // `>` 不被转义，blockquote 渲染保留
         assert_eq!(markdown_to_mrkdwn("> quoted"), "> quoted");
+    }
+
+    #[test]
+    fn test_escape_inside_bold() {
+        // `**<@U123> & x**` 内的 `<` `&` 必须转义，否则 mention/entity 起始
+        // 字符破坏 Slack 解析；`>` 保持原样（行内不触发 blockquote）
+        assert_eq!(
+            markdown_to_mrkdwn("**<@U123> & x**"),
+            "*&lt;@U123> &amp; x*"
+        );
+    }
+
+    #[test]
+    fn test_escape_inside_strikethrough() {
+        assert_eq!(markdown_to_mrkdwn("~~<#C1> & y~~"), "~&lt;#C1> &amp; y~");
     }
 
     #[test]

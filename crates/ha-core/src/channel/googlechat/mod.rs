@@ -83,19 +83,17 @@ impl GoogleChatPlugin {
     }
 
     /// Extract the bot's Google Cloud project number (used as JWT `aud` claim
-    /// when verifying webhook events). 必填——未配置时入站 webhook 一律拒绝。
-    fn extract_project_number(credentials: &serde_json::Value) -> Result<String> {
+    /// when verifying webhook events).
+    ///
+    /// **Optional**：缺失只让入站 webhook 拒绝（无法验签 JWT），出站发送
+    /// 不依赖此字段——升级前保存的旧账号没有这字段，必须能继续启动出站
+    /// 能力，等用户在编辑弹窗补全 projectNumber 后再开入站。
+    fn extract_project_number(credentials: &serde_json::Value) -> Option<String> {
         credentials
             .get("projectNumber")
             .and_then(|v| v.as_str())
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Missing 'projectNumber' in Google Chat credentials \
-                     (required for JWT webhook verification)"
-                )
-            })
     }
 
     /// Get the API for a running account.
@@ -147,7 +145,7 @@ impl ChannelPlugin for GoogleChatPlugin {
     ) -> Result<()> {
         let cred_json = Self::extract_credentials_json(&account.credentials)?;
         let _webhook_base_url = Self::extract_webhook_base_url(&account.credentials);
-        let project_number = Self::extract_project_number(&account.credentials)?;
+        let project_number = Self::extract_project_number(&account.credentials);
 
         // Create auth and API instances
         let auth = GoogleChatAuth::from_json(&cred_json)?;
@@ -167,24 +165,35 @@ impl ChannelPlugin for GoogleChatPlugin {
             client_email
         );
 
-        // Start webhook server and register handler
-        let webhook_server = get_or_start_webhook_server().await?;
-        let handler = webhook::create_webhook_handler(
-            api.clone(),
-            account.id.clone(),
-            project_number,
-            inbound_tx,
-        );
-        webhook_server
-            .register_handler("googlechat", &account.id, handler)
-            .await;
+        // Start webhook server and register handler only when projectNumber
+        // 已配置；缺失时出站继续工作，入站静默 disable（不阻 start_account）
+        if let Some(project_number) = project_number {
+            let webhook_server = get_or_start_webhook_server().await?;
+            let handler = webhook::create_webhook_handler(
+                api.clone(),
+                account.id.clone(),
+                project_number,
+                inbound_tx,
+            );
+            webhook_server
+                .register_handler("googlechat", &account.id, handler)
+                .await;
 
-        app_info!(
-            "channel",
-            "googlechat",
-            "Webhook handler registered at /webhook/googlechat/{}",
-            account.id
-        );
+            app_info!(
+                "channel",
+                "googlechat",
+                "Webhook handler registered at /webhook/googlechat/{}",
+                account.id
+            );
+        } else {
+            app_warn!(
+                "channel",
+                "googlechat",
+                "Account '{}' has no projectNumber; inbound webhooks disabled. \
+                 Edit account credentials to enable receiving messages.",
+                account.id
+            );
+        }
 
         // Store running account state
         {

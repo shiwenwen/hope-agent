@@ -167,12 +167,15 @@ async fn convert_message(
     bot_id: i64,
     bot_username: &str,
 ) -> Option<MsgContext> {
-    // Extract sender info
-    let from = msg.from.as_ref()?;
+    // Broadcast channel post 通常没有 msg.from（频道身份发的，无个人 sender），
+    // 普通 group/dm 必有 from。from 缺失时用 chat.id 作 sender_id（与频道
+    // 等价），sender_name 取 chat.title。bot 自己发的消息仍只能靠 from.id 过滤。
+    let from = msg.from.as_ref();
 
-    // Skip messages from the bot itself
-    if from.id.0 as i64 == bot_id {
-        return None;
+    if let Some(f) = from {
+        if f.id.0 as i64 == bot_id {
+            return None;
+        }
     }
 
     // Determine chat type
@@ -249,21 +252,31 @@ async fn convert_message(
     // Reply-to message ID
     let reply_to = msg.reply_to_message().map(|r| r.id.0.to_string());
 
-    let sender_name = {
-        let mut name = from.first_name.clone();
-        if let Some(ref last) = from.last_name {
-            name.push(' ');
-            name.push_str(last);
+    // sender_id / sender_name fallback：channel_post 没有 from，用 chat.id +
+    // chat.title 等价表达"频道身份"。普通群/私聊有 from 时用 from.id +
+    // first_name (+ last_name)
+    let (sender_id, sender_name, sender_username) = match from {
+        Some(f) => {
+            let mut name = f.first_name.clone();
+            if let Some(ref last) = f.last_name {
+                name.push(' ');
+                name.push_str(last);
+            }
+            (f.id.0.to_string(), Some(name), f.username.clone())
         }
-        name
+        None => (
+            msg.chat.id.0.to_string(),
+            msg.chat.title().map(|t| t.to_string()),
+            None,
+        ),
     };
 
     Some(MsgContext {
         channel_id: ChannelId::Telegram,
         account_id: account_id.to_string(),
-        sender_id: from.id.0.to_string(),
-        sender_name: Some(sender_name),
-        sender_username: from.username.clone(),
+        sender_id,
+        sender_name,
+        sender_username,
         chat_id: msg.chat.id.0.to_string(),
         chat_type,
         chat_title: msg.chat.title().map(|t| t.to_string()),
