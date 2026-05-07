@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "新增專案",
     "archiveProject": "封存專案",
-    "bindChannelHelp": "綁定後，此 IM 群組發起的對話會自動加入此專案。",
-    "bindChannelLabel": "綁定 IM 頻道",
-    "boundChannel": "已綁定的 IM 頻道",
     "createFirstProject": "建立第一個專案",
     "defaultAgent": "預設 Agent",
     "defaultModel": "預設模型",
@@ -1686,7 +1683,6 @@
     "tabSessions": "對話",
     "unarchiveProject": "取消封存",
     "unassigned": "未指派",
-    "unbindChannel": "解除綁定",
     "uploadLogo": "上傳 Logo",
     "workingDir": {
       "clear": "清除",

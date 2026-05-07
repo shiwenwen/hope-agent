@@ -35,7 +35,14 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort
      FROM sessions s
-     LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
+     LEFT JOIN channel_conversations cc
+       ON cc.session_id = s.id
+      AND cc.id = (
+            SELECT cc2.id FROM channel_conversations cc2
+             WHERE cc2.session_id = s.id
+             ORDER BY cc2.is_primary DESC, cc2.updated_at DESC
+             LIMIT 1
+          )";
 
 impl SessionDB {
     /// Open (or create) the database at the given path, enable WAL mode,
@@ -2464,7 +2471,14 @@ impl SessionDB {
              FROM messages_fts fts
              JOIN messages m ON m.id = fts.rowid
              JOIN sessions s ON s.id = m.session_id
-             LEFT JOIN channel_conversations cc ON cc.session_id = s.id
+             LEFT JOIN channel_conversations cc
+                    ON cc.session_id = s.id
+                   AND cc.id = (
+                         SELECT cc2.id FROM channel_conversations cc2
+                          WHERE cc2.session_id = s.id
+                          ORDER BY cc2.is_primary DESC, cc2.updated_at DESC
+                          LIMIT 1
+                       )
              WHERE messages_fts MATCH ?1{}
              ORDER BY fts.rank
              LIMIT {}",

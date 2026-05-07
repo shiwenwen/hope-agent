@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "プロジェクトを追加",
     "archiveProject": "プロジェクトをアーカイブ",
-    "bindChannelHelp": "バインドすると、この IM チャットからの会話は自動的にこのプロジェクトに追加されます。",
-    "bindChannelLabel": "IM チャネルをバインド",
-    "boundChannel": "バインドされた IM チャネル",
     "createFirstProject": "最初のプロジェクトを作成",
     "defaultAgent": "デフォルト Agent",
     "defaultModel": "デフォルトモデル",
@@ -1686,7 +1683,6 @@
     "tabSessions": "セッション",
     "unarchiveProject": "アーカイブ解除",
     "unassigned": "未割当",
-    "unbindChannel": "バインド解除",
     "uploadLogo": "ロゴをアップロード",
     "workingDir": {
       "clear": "クリア",

@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "Thêm dự án",
     "archiveProject": "Lưu trữ dự án",
-    "bindChannelHelp": "Sau khi liên kết, các cuộc hội thoại từ cuộc trò chuyện IM này sẽ tự động thuộc về dự án này.",
-    "bindChannelLabel": "Liên kết với kênh IM",
-    "boundChannel": "Kênh IM đã liên kết",
     "createFirstProject": "Tạo dự án đầu tiên",
     "defaultAgent": "Agent mặc định",
     "defaultModel": "Model mặc định",
@@ -1686,7 +1683,6 @@
     "tabSessions": "Phiên",
     "unarchiveProject": "Bỏ lưu trữ",
     "unassigned": "Chưa gán",
-    "unbindChannel": "Hủy liên kết",
     "uploadLogo": "Tải logo lên",
     "workingDir": {
       "clear": "Xóa",

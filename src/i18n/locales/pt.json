@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "Adicionar projeto",
     "archiveProject": "Arquivar projeto",
-    "bindChannelHelp": "Após vincular, as conversas deste chat IM se juntarão automaticamente a este projeto.",
-    "bindChannelLabel": "Vincular um canal IM",
-    "boundChannel": "Canal IM vinculado",
     "createFirstProject": "Crie seu primeiro projeto",
     "defaultAgent": "Agent padrão",
     "defaultModel": "Modelo padrão",
@@ -1686,7 +1683,6 @@
     "tabSessions": "Sessões",
     "unarchiveProject": "Desarquivar",
     "unassigned": "Não atribuído",
-    "unbindChannel": "Desvincular",
     "uploadLogo": "Enviar logo",
     "workingDir": {
       "clear": "Limpar",

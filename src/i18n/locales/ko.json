@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "프로젝트 추가",
     "archiveProject": "프로젝트 아카이브",
-    "bindChannelHelp": "바인딩하면 이 IM 대화에서의 대화가 자동으로 이 프로젝트에 합류합니다.",
-    "bindChannelLabel": "IM 채널 바인딩",
-    "boundChannel": "바인딩된 IM 채널",
     "createFirstProject": "첫 프로젝트 만들기",
     "defaultAgent": "기본 Agent",
     "defaultModel": "기본 모델",
@@ -1686,7 +1683,6 @@
     "tabSessions": "세션",
     "unarchiveProject": "아카이브 해제",
     "unassigned": "미할당",
-    "unbindChannel": "바인딩 해제",
     "uploadLogo": "로고 업로드",
     "workingDir": {
       "clear": "지우기",

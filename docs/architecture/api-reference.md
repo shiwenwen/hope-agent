@@ -208,7 +208,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 
 `Project` 现支持 `workingDir: string | null` 字段，作为该项目下会话的默认工作目录。`create_project_cmd` / `update_project_cmd` 透传该字段，落库前做 canonicalize + is_dir 校验（空串等价于清除）。运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，在 `agent/config.rs` 构建系统提示前 lazy resolve，无快照——编辑项目工作目录后未单独设置的已有会话立即跟随；前端 `ChatTitleBar` 据此显示生效路径并区分来源。详见 [`AGENTS.md`](../../AGENTS.md) 「项目（Project）容器」段。
 
-`Project` 还支持 `boundChannel: { channelId, accountId } | null` —— 把项目绑定到一个 IM channel account。绑定后，channel worker `resolve_or_create_session` 在创建新会话前会查 `projects` 表并自动注入 `project_id`；同一 (channelId, accountId) 同时只能被一个项目认领（`projects` 表有 `idx_projects_bound_channel` 索引 + 写入路径冲突检测）。`update_project_cmd` 的 patch 用 double-Option：字段缺省=不变，`null`=解绑，对象=设置/重置绑定目标。前端编辑入口在 `ProjectSettingsSheet` 的 Overview tab。
+**Project ↔ IM Channel 反向认领已废弃**（Phase A1）。`Project.boundChannel` / `BoundChannel` 类型 + `projects.bound_channel_id` / `bound_channel_account_id` DB 列 + `idx_projects_bound_channel` 索引 + `find_by_bound_channel` API 全部删除；`UpdateProjectInput` 不再有 `boundChannel` 字段。IM 入站消息不再自动归属项目，新会话以 `project_id = NULL` 创建。要把会话归项目，从 IM chat 内 `/project <id>` 显式触发：handler 检测 `session.channel_info` 后发 `AssignProject` action，channel worker 调 `SessionDB::set_session_project` 直接 UPDATE 现有 `sessions.project_id`，**不创建新 session**。详见 [im-channel.md](./im-channel.md) 「Session 路由」章节。
 
 ### Sessions
 

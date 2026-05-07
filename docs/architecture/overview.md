@@ -167,7 +167,7 @@ graph LR
 - **三层文件注入**：项目目录清单恒注入；< 4KB 小文件按 8KB 预算内联；其余通过 `project_read_file` 工具按需读取（强制限制在 `project_extracted_dir` 内）
 - **记忆优先级**：Project > Agent > Global，预算紧张时项目记忆最先保留；属项目的会话默认把自动提取的记忆写入 Project scope
 - **默认工作目录**：`Project.working_dir` 是该项目下会话的默认工作目录；运行时合并优先级 `session.working_dir > project.working_dir > 不注入`，**lazy resolve**——改项目工作目录立即对未单独设置的已有会话生效。合并入口 `session::helpers::effective_session_working_dir`，被 system prompt、`exec` / `read` / `write` 的相对路径解析共同消费
-- **绑定 IM Channel**：`Project.bound_channel` 让项目认领一个 IM channel account，channel worker 创建新会话时自动注入 `project_id`，按"项目 → channel account → AppConfig → 默认"5 级链解析 agent
+- **IM 路由（无反向认领，Phase A1）**：项目不再认领 channel-account；IM 入站消息默认归 `project_id = NULL`，要归项目从 IM chat 内 `/project <id>` 显式触发，channel worker 调 `set_session_project` 直接改现有 session 不创建新行。Agent 解析按"显式 → 项目 → topic → group → tg-channel → channel-account → AppConfig → 默认"7 级链 (`agent::resolver::resolve_default_agent_id_full`)
 - **`/project [name]` 斜杠命令**：无参列项目选择器，有参直接进入对应项目新会话
 - **删除级联**：unassign 会话 → 删项目行 + `project_files`（FK）→ `rm -rf projects/{id}/` → 删项目记忆（跨 `memory.db` 单独执行）
 

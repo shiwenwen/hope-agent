@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "Add project",
     "archiveProject": "Archive Project",
-    "bindChannelHelp": "Once bound, conversations from this IM chat will automatically join this project.",
-    "bindChannelLabel": "Bind an IM channel",
-    "boundChannel": "Bound IM channel",
     "createFirstProject": "Create your first project",
     "defaultAgent": "Default Agent",
     "defaultModel": "Default Model",
@@ -1686,7 +1683,6 @@
     "tabSessions": "Sessions",
     "unarchiveProject": "Unarchive",
     "unassigned": "Unassigned",
-    "unbindChannel": "Unbind",
     "uploadLogo": "Upload logo",
     "workingDir": {
       "clear": "Clear",

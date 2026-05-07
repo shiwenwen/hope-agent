@@ -55,7 +55,7 @@ mut inbound_rx: mpsc::Receiver<MsgContext>,
 
 1. 用户回复 reaction（👍 / 🎉）触发 agent 行动（如"任务确认"）
 2. 用户撤回某条消息时，agent 同步从 session history 里删/标记
-3. bot 被踢出群时清理对应 channel session、解绑 project（如果 [Project.bound_channel](../architecture/project.md) 指了它）
+3. bot 被踢出群时清理对应 channel session（项目反向认领已废弃, Phase A1）
 4. 多人群里有新人 join 时，agent 可以选择性发欢迎 / 引导
 
 这些都需要"非消息事件"能从 channel 流到 dispatcher。

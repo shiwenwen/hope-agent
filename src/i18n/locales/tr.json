@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "Proje ekle",
     "archiveProject": "Projeyi arşivle",
-    "bindChannelHelp": "Bağlandıktan sonra bu IM sohbetinden gelen konuşmalar otomatik olarak bu projeye katılır.",
-    "bindChannelLabel": "Bir IM kanalı bağla",
-    "boundChannel": "Bağlı IM kanalı",
     "createFirstProject": "İlk projenizi oluşturun",
     "defaultAgent": "Varsayılan Agent",
     "defaultModel": "Varsayılan model",
@@ -1686,7 +1683,6 @@
     "tabSessions": "Oturumlar",
     "unarchiveProject": "Arşivden çıkar",
     "unassigned": "Atanmamış",
-    "unbindChannel": "Bağı kaldır",
     "uploadLogo": "Logo yükle",
     "workingDir": {
       "clear": "Temizle",

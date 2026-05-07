@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "添加项目",
     "archiveProject": "归档项目",
-    "bindChannelHelp": "绑定后，该 IM 群组发起的对话会自动落到此项目下",
-    "bindChannelLabel": "绑定 IM 渠道",
-    "boundChannel": "已绑定 IM 渠道",
     "createFirstProject": "创建第一个项目",
     "defaultAgent": "默认助手",
     "defaultModel": "默认模型",
@@ -1686,7 +1683,6 @@
     "tabSessions": "会话",
     "unarchiveProject": "取消归档",
     "unassigned": "未分配项目",
-    "unbindChannel": "解除绑定",
     "uploadLogo": "上传 Logo",
     "workingDir": {
       "clear": "清除",

@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "Добавить проект",
     "archiveProject": "Архивировать проект",
-    "bindChannelHelp": "После привязки разговоры из этого IM-чата будут автоматически добавляться в этот проект.",
-    "bindChannelLabel": "Привязать IM-канал",
-    "boundChannel": "Привязанный IM-канал",
     "createFirstProject": "Создайте свой первый проект",
     "defaultAgent": "Agent по умолчанию",
     "defaultModel": "Модель по умолчанию",
@@ -1686,7 +1683,6 @@
     "tabSessions": "Сессии",
     "unarchiveProject": "Разархивировать",
     "unassigned": "Не назначено",
-    "unbindChannel": "Отвязать",
     "uploadLogo": "Загрузить логотип",
     "workingDir": {
       "clear": "Очистить",

@@ -292,18 +292,17 @@ stateDiagram-v2
 | 用法 | 行为 | Action |
 |---|---|---|
 | `/project` | 列出全部未归档项目，桌面端弹「项目选择器」（markdown 列表 + 项目名 / emoji / 会话数 / 描述），用户继续键入 `/project <name>` 进入；同时 sidebar 项目树本来就可视，可选直接点 | `ShowProjectPicker { projects }` |
-| `/project <name>` | 模糊匹配（精确名 → 精确 id → 前缀 → 包含；歧义/无果直接报错） | `EnterProject { project_id }` |
+| `/project <name>` | 模糊匹配（精确名 → 精确 id → 前缀 → 包含；歧义/无果直接报错） | 桌面/HTTP: `EnterProject { project_id }`；IM: `AssignProject { project_id }` |
 
-**前端处理**（[ChatScreen.tsx:861-884](src/components/chat/ChatScreen.tsx#L861-L884)）：
+**前端处理**（[ChatScreen.tsx](../../src/components/chat/ChatScreen.tsx) `handleCommandAction`）：
 
 - `ShowProjectPicker`：渲染为 event 气泡 markdown 列表，附 `> /project <项目名>` 提示框
-- `EnterProject`：调 `handleNewChatInProject(project_id)` —— 在该项目下**新建会话**（agent 走 5 级解析链，详见 AGENTS.md「Agent 解析链」）；同步把 `draftIncognito` 关掉（项目与无痕互斥）
+- `EnterProject`：调 `handleNewChatInProject(project_id)` —— 在该项目下**新建会话**（agent 走 7 级解析链，详见 AGENTS.md「Agent 解析链」）；同步把 `draftIncognito` 关掉（项目与无痕互斥）
 
-**IM 渠道禁用**：
+**IM 渠道行为（Phase A1 后）**：
 
-- 注册表常量 `IM_DISABLED_COMMANDS = &["project"]`（[registry.rs:6](../../crates/ha-core/src/slash_commands/registry.rs#L6)）让命令从 IM slash 菜单（Discord / Telegram / Slack 同步阶段）剔除
-- handler 进入时再 self-check `session.channel_info.is_some()` —— 用户硬键入 `/project xxx` 也会直接返回 `DisplayOnly` 提示「在 IM 渠道不可用」，不会走到模糊匹配
-- 双层防御原因：IM session 已经绑定到 channel-account，不能再认领项目（项目 ↔ IM channel 是 0..1 ↔ 0..1，由项目侧 `bound_channel` 字段单向绑定，详见 AGENTS.md「绑定 IM Channel」）
+- `/project` **不再** 在 `IM_DISABLED_COMMANDS` 里（仅 `/agent` / `/handover` 仍然禁用）。`handler` 检测 `session.channel_info.is_some()` 后切换分支：发 `AssignProject` action,channel slash dispatcher 调 `SessionDB::set_session_project` UPDATE 现有 `sessions.project_id`，**不创建新 session**
+- 项目反向认领（旧 `Project.bound_channel`）已删除：IM 入站消息不再自动归项目，路由由 IM 端 `/project` 显式触发
 
 ---
 

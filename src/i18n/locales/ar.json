@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "إضافة مشروع",
     "archiveProject": "أرشفة المشروع",
-    "bindChannelHelp": "بعد الربط، ستنضم المحادثات من محادثة IM هذه تلقائيًا إلى هذا المشروع.",
-    "bindChannelLabel": "ربط قناة IM",
-    "boundChannel": "قناة IM مرتبطة",
     "createFirstProject": "أنشئ مشروعك الأول",
     "defaultAgent": "الوكيل الافتراضي",
     "defaultModel": "النموذج الافتراضي",
@@ -1686,7 +1683,6 @@
     "tabSessions": "الجلسات",
     "unarchiveProject": "إلغاء الأرشفة",
     "unassigned": "غير مُعيّن",
-    "unbindChannel": "إلغاء الربط",
     "uploadLogo": "رفع الشعار",
     "workingDir": {
       "clear": "مسح",

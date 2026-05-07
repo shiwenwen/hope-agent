@@ -1620,9 +1620,6 @@
   "project": {
     "addProject": "Tambah projek",
     "archiveProject": "Arkib projek",
-    "bindChannelHelp": "Selepas diikat, perbualan dari sembang IM ini akan menyertai projek ini secara automatik.",
-    "bindChannelLabel": "Ikatkan saluran IM",
-    "boundChannel": "Saluran IM yang terikat",
     "createFirstProject": "Cipta projek pertama anda",
     "defaultAgent": "Agent lalai",
     "defaultModel": "Model lalai",
@@ -1686,7 +1683,6 @@
     "tabSessions": "Sesi",
     "unarchiveProject": "Batal arkib",
     "unassigned": "Tidak ditugaskan",
-    "unbindChannel": "Lepaskan ikatan",
     "uploadLogo": "Muat naik logo",
     "workingDir": {
       "clear": "Kosongkan",

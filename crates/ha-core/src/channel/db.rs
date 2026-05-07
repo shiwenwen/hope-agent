@@ -388,6 +388,29 @@ impl ChannelDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
+        // Snapshot the existing row so we can backfill the previous
+        // session's primary if we're stealing it. Without this step a
+        // `/new` from a chat that was the previous session's primary
+        // leaves that session headless — outbound mirror / watcher
+        // fan-outs would then drop messages on the floor.
+        let existing: Option<(String, i64)> = if let Some(tid) = thread_id {
+            conn.query_row(
+                "SELECT session_id, is_primary FROM channel_conversations \
+                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
+                params![channel_id, account_id, chat_id, tid],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        } else {
+            conn.query_row(
+                "SELECT session_id, is_primary FROM channel_conversations \
+                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
+                params![channel_id, account_id, chat_id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        };
+
         // Ensure the new session has only one primary across all attaches.
         // Demote any existing primary rows that point at the new session
         // before we promote this chat.
@@ -412,9 +435,29 @@ impl ChannelDB {
             )?
         };
 
+        // Backfill primary on the orphaned previous session, if any.
+        let mut orphaned: Option<String> = None;
+        if rows > 0 {
+            if let Some((prev_sid, prev_primary)) = existing {
+                if prev_primary != 0 && prev_sid != new_session_id {
+                    conn.execute(
+                        "UPDATE channel_conversations SET is_primary = 1 \
+                         WHERE id = (SELECT id FROM channel_conversations \
+                                      WHERE session_id = ?1 \
+                                      ORDER BY updated_at DESC LIMIT 1)",
+                        params![prev_sid],
+                    )?;
+                    orphaned = Some(prev_sid);
+                }
+            }
+        }
+
         drop(conn);
         if rows > 0 {
             emit_primary_changed(new_session_id);
+            if let Some(prev_sid) = orphaned {
+                emit_primary_changed(&prev_sid);
+            }
         }
         Ok(rows > 0)
     }
@@ -448,13 +491,34 @@ impl ChannelDB {
         let now = chrono::Utc::now().to_rfc3339();
         let chat_type_s = chat_type_str(chat_type);
 
-        // 1. Demote any existing primary on the target session.
+        // 1. Snapshot the existing row, if any. If we're moving a
+        //    chat from session A → session B, we'll need to know
+        //    whether to backfill A's primary after the swap.
+        let existing: Option<(String, i64)> = if let Some(tid) = thread_id {
+            conn.query_row(
+                "SELECT session_id, is_primary FROM channel_conversations \
+                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
+                params![channel_id, account_id, chat_id, tid],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        } else {
+            conn.query_row(
+                "SELECT session_id, is_primary FROM channel_conversations \
+                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
+                params![channel_id, account_id, chat_id],
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+            )
+            .optional()?
+        };
+
+        // 2. Demote any existing primary on the target session.
         conn.execute(
             "UPDATE channel_conversations SET is_primary = 0 WHERE session_id = ?1",
             params![session_id],
         )?;
 
-        // 2. UPDATE the existing chat row, or INSERT a new one.
+        // 3. UPDATE the existing chat row, or INSERT a new one.
         let updated = if let Some(tid) = thread_id {
             conn.execute(
                 "UPDATE channel_conversations \
@@ -519,15 +583,37 @@ impl ChannelDB {
             )?;
         }
 
-        // 3. Make the attached session non-incognito (channel has external
+        // 4. Make the attached session non-incognito (channel has external
         //    counterparty whose messages must persist).
         conn.execute(
             "UPDATE sessions SET incognito = 0 WHERE id = ?1 AND incognito = 1",
             params![session_id],
         )?;
 
+        // 5. If the chat was previously primary for a *different*
+        //    session, that source session is now headless — promote
+        //    its next-most-recent attach so outbound deliveries
+        //    (final-reply mirror, primary watcher) still find a
+        //    receiver.
+        let mut orphaned: Option<String> = None;
+        if let Some((prev_sid, prev_primary)) = existing {
+            if prev_primary != 0 && prev_sid != session_id {
+                conn.execute(
+                    "UPDATE channel_conversations SET is_primary = 1 \
+                     WHERE id = (SELECT id FROM channel_conversations \
+                                  WHERE session_id = ?1 \
+                                  ORDER BY updated_at DESC LIMIT 1)",
+                    params![prev_sid],
+                )?;
+                orphaned = Some(prev_sid);
+            }
+        }
+
         drop(conn);
         emit_primary_changed(session_id);
+        if let Some(prev_sid) = orphaned {
+            emit_primary_changed(&prev_sid);
+        }
         Ok(())
     }
 
