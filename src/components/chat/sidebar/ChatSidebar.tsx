@@ -124,16 +124,14 @@ export default function ChatSidebar({
     switch (sessionFilter) {
       case "session":
         // Project-bound sessions render under their project group above —
-        // exclude them here to avoid duplicate rows.
-        return list.filter(
-          (s) => !s.isCron && !s.parentSessionId && !s.channelInfo && !s.projectId,
-        )
+        // exclude them here to avoid duplicate rows. IM-channel sessions
+        // are surfaced inline (the row already shows a channel icon)
+        // since the dedicated "channel" tab was retired in Phase B3.
+        return list.filter((s) => !s.isCron && !s.parentSessionId && !s.projectId)
       case "cron":
         return list.filter((s) => s.isCron)
       case "subagent":
         return list.filter((s) => !!s.parentSessionId)
-      case "channel":
-        return list.filter((s) => !!s.channelInfo)
       default:
         return list
     }

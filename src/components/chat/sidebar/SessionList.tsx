@@ -27,9 +27,10 @@ import type { SessionFilterType } from "./types"
 import SessionItem from "./SessionItem"
 import SearchResultItem from "./SearchResultItem"
 
-// Classify a search result into one of the sidebar filter types.
+// Classify a search result into one of the sidebar filter types. Channel
+// results fold into `session` — IM-driven conversations are still user
+// conversations, just sourced from a different surface.
 function classifyResult(r: SessionSearchResult): SessionFilterType {
-  if (r.channelType) return "channel"
   if (r.isCron) return "cron"
   if (r.parentSessionId) return "subagent"
   return "session"
@@ -197,11 +198,10 @@ export default function SessionList({
 
       {/* Session type filter tabs */}
       <div className="flex items-center gap-0.5 px-3 py-1.5 border-b border-border/40 overflow-x-auto scrollbar-none">
-        {(["all", "session", "channel", "cron", "subagent"] as const).map((filter) => {
+        {(["all", "session", "cron", "subagent"] as const).map((filter) => {
           const label = {
             all: t("chat.filterAll"),
             session: t("chat.filterSessions"),
-            channel: t("chat.filterChannel"),
             cron: t("chat.filterCron"),
             subagent: t("chat.filterSubagent"),
           }[filter]
@@ -217,8 +217,9 @@ export default function SessionList({
           } else {
             const filterSessions = {
               all: sessions,
-              session: sessions.filter((s) => !s.isCron && !s.parentSessionId && !s.channelInfo),
-              channel: sessions.filter((s) => !!s.channelInfo),
+              // Channel-bound conversations land under the unified "session"
+              // tab — they're still user chats, just surfaced from IM.
+              session: sessions.filter((s) => !s.isCron && !s.parentSessionId),
               cron: sessions.filter((s) => s.isCron),
               subagent: sessions.filter((s) => !!s.parentSessionId),
             }[filter]
@@ -230,8 +231,7 @@ export default function SessionList({
             if (isSearching) return
             const filterSessions = {
               all: sessions,
-              session: sessions.filter((s) => !s.isCron && !s.parentSessionId && !s.channelInfo),
-              channel: sessions.filter((s) => !!s.channelInfo),
+              session: sessions.filter((s) => !s.isCron && !s.parentSessionId),
               cron: sessions.filter((s) => s.isCron),
               subagent: sessions.filter((s) => !!s.parentSessionId),
             }[filter]
