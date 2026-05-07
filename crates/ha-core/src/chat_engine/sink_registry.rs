@@ -17,6 +17,7 @@
 //! per consumer regardless of how many extras are subscribed.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use crate::chat_engine::types::EventSink;
@@ -24,12 +25,18 @@ use crate::chat_engine::types::EventSink;
 /// Global multi-sink fan-out registry. One static instance per process.
 pub struct SinkRegistry {
     inner: Mutex<HashMap<String, Vec<Weak<dyn EventSink>>>>,
+    /// Total live entries across all sessions, kept in lockstep with
+    /// `inner`. `emit` reads this without acquiring the Mutex and
+    /// short-circuits when zero — most chat turns ship no extra sinks,
+    /// so this turns the per-frame `emit` into an atomic load.
+    total_active: AtomicUsize,
 }
 
 impl SinkRegistry {
     fn new() -> Self {
         Self {
             inner: Mutex::new(HashMap::new()),
+            total_active: AtomicUsize::new(0),
         }
     }
 
@@ -45,8 +52,11 @@ impl SinkRegistry {
     pub fn attach(&self, session_id: String, sink: Arc<dyn EventSink>) -> SinkHandle {
         let weak = Arc::downgrade(&sink);
         let ptr = sink_addr(&sink);
-        let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        map.entry(session_id.clone()).or_default().push(weak);
+        {
+            let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            map.entry(session_id.clone()).or_default().push(weak);
+        }
+        self.total_active.fetch_add(1, Ordering::Release);
         SinkHandle {
             session_id,
             sink_addr: ptr,
@@ -60,21 +70,29 @@ impl SinkRegistry {
     /// references are pruned opportunistically. Sink errors are swallowed —
     /// fan-out is best-effort and never blocks the engine.
     pub fn emit(&self, session_id: &str, event: &str) {
-        // Snapshot live sinks under the lock; release the lock before
-        // calling `send` so a slow sink can't stall other emitters.
+        if self.total_active.load(Ordering::Acquire) == 0 {
+            return;
+        }
         let live: Vec<Arc<dyn EventSink>> = {
             let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             let Some(weaks) = map.get_mut(session_id) else {
                 return;
             };
             let live: Vec<Arc<dyn EventSink>> = weaks.iter().filter_map(Weak::upgrade).collect();
-            // Prune dead entries while we hold the lock.
+            // Prune dead Weak entries opportunistically. A pruned entry
+            // here is a sink whose strong refs are all gone — its
+            // `total_active` decrement happened on `SinkHandle::drop`,
+            // so we don't touch the counter again.
+            let before = weaks.len();
             weaks.retain(|w| w.strong_count() > 0);
+            let _pruned = before - weaks.len();
             if weaks.is_empty() {
                 map.remove(session_id);
             }
             live
         };
+        // Release the lock before invoking sinks so a slow sink can't
+        // stall other emitters or deadlock with a concurrent attach.
         for sink in live {
             sink.send(event);
         }
@@ -89,27 +107,31 @@ impl SinkRegistry {
             .unwrap_or(0)
     }
 
-    fn detach(&self, session_id: &str, sink_addr: usize) {
-        let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(weaks) = map.get_mut(session_id) else {
-            return;
+    fn detach(&self, session_id: &str, target: usize) {
+        let removed = {
+            let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(weaks) = map.get_mut(session_id) else {
+                return;
+            };
+            let before = weaks.len();
+            weaks.retain(|w| match w.upgrade() {
+                Some(arc) => sink_addr(&arc) != target,
+                None => false,
+            });
+            let removed = before - weaks.len();
+            if weaks.is_empty() {
+                map.remove(session_id);
+            }
+            removed
         };
-        weaks.retain(|w| match w.upgrade() {
-            Some(arc) => sink_addr_arc(&arc) != sink_addr,
-            None => false,
-        });
-        if weaks.is_empty() {
-            map.remove(session_id);
+        if removed > 0 {
+            self.total_active.fetch_sub(removed, Ordering::Release);
         }
     }
 }
 
 fn sink_addr(arc: &Arc<dyn EventSink>) -> usize {
     Arc::as_ptr(arc) as *const () as usize
-}
-
-fn sink_addr_arc(arc: &Arc<dyn EventSink>) -> usize {
-    sink_addr(arc)
 }
 
 /// RAII detach guard for a registered sink. Drop releases the sink from the

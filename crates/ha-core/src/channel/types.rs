@@ -60,6 +60,22 @@ pub enum ChatType {
     Channel,
 }
 
+impl ChatType {
+    /// Parse the lowercased string form persisted in
+    /// `channel_conversations.chat_type` / surfaced from Tauri / HTTP
+    /// payloads. Unknown values fall back to `Dm` — the conservative
+    /// default for inbound resolution since solo chats are the only
+    /// safe assumption when metadata is missing.
+    pub fn from_lowercase(s: &str) -> Self {
+        match s {
+            "group" => Self::Group,
+            "forum" => Self::Forum,
+            "channel" => Self::Channel,
+            _ => Self::Dm,
+        }
+    }
+}
+
 // ── Media Type ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

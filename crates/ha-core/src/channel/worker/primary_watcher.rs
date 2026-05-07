@@ -108,8 +108,9 @@ pub fn spawn_channel_primary_watcher(
             }
 
             let store = crate::config::cached_config();
+            let mut sends: Vec<tokio::task::JoinHandle<()>> = Vec::with_capacity(attaches.len());
 
-            for conv in attaches.iter() {
+            for conv in attaches.into_iter() {
                 let account = match store.channels.find_account(&conv.account_id) {
                     Some(c) if c.notify_primary_changes => c.clone(),
                     _ => continue,
@@ -142,7 +143,6 @@ pub fn spawn_channel_primary_watcher(
                 } else {
                     DEMOTED_TEXT
                 };
-
                 let payload = ReplyPayload {
                     text: Some(plugin.markdown_to_native(text)),
                     thread_id: conv.thread_id.clone(),
@@ -150,19 +150,25 @@ pub fn spawn_channel_primary_watcher(
                     ..ReplyPayload::text("")
                 };
 
-                if let Err(e) = plugin
-                    .send_message(&account.id, &conv.chat_id, &payload)
-                    .await
-                {
-                    app_warn!(
-                        "channel",
-                        "primary_watcher",
-                        "send_message failed for {}/{}: {}",
-                        conv.channel_id,
-                        conv.chat_id,
-                        e
-                    );
-                }
+                let chat_id = conv.chat_id.clone();
+                let channel_id_str = conv.channel_id.clone();
+                let account_id = account.id.clone();
+                sends.push(tokio::spawn(async move {
+                    if let Err(e) = plugin.send_message(&account_id, &chat_id, &payload).await {
+                        app_warn!(
+                            "channel",
+                            "primary_watcher",
+                            "send_message failed for {}/{}: {}",
+                            channel_id_str,
+                            chat_id,
+                            e
+                        );
+                    }
+                }));
+            }
+
+            for h in sends {
+                let _ = h.await;
             }
         }
     });

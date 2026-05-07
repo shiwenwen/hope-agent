@@ -295,12 +295,11 @@ pub struct HandoverBody {
 /// `POST /api/channel/handover` — push a session out to an IM chat as a
 /// new attach (source=`handover`), promoted to primary on arrival.
 pub async fn handover(Json(body): Json<HandoverBody>) -> Result<Json<Value>, AppError> {
-    let resolved_chat_type = match body.chat_type.as_deref() {
-        Some("group") => ChatType::Group,
-        Some("forum") => ChatType::Forum,
-        Some("channel") => ChatType::Channel,
-        _ => ChatType::Dm,
-    };
+    let resolved_chat_type = body
+        .chat_type
+        .as_deref()
+        .map(ChatType::from_lowercase)
+        .unwrap_or(ChatType::Dm);
 
     channel_db()?
         .attach_session(

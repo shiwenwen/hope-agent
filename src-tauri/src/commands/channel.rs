@@ -280,12 +280,10 @@ pub async fn channel_handover_session(
     let channel_db = ha_core::get_channel_db()
         .ok_or_else(|| CmdError::msg("Channel DB not initialized"))?;
 
-    let resolved_chat_type = match chat_type.as_deref() {
-        Some("group") => crate::channel::types::ChatType::Group,
-        Some("forum") => crate::channel::types::ChatType::Forum,
-        Some("channel") => crate::channel::types::ChatType::Channel,
-        _ => crate::channel::types::ChatType::Dm,
-    };
+    let resolved_chat_type = chat_type
+        .as_deref()
+        .map(crate::channel::types::ChatType::from_lowercase)
+        .unwrap_or(crate::channel::types::ChatType::Dm);
 
     channel_db
         .attach_session(

@@ -215,14 +215,7 @@ fn handle_session_info(
             if !attaches.is_empty() {
                 lines.push(String::new());
                 lines.push("**Attached IM channels**".into());
-                for a in attaches.iter() {
-                    let star = if a.is_primary { "★ " } else { "" };
-                    let label = a.sender_name.as_deref().unwrap_or(&a.chat_id);
-                    lines.push(format!(
-                        "- {}{} · {} ({})",
-                        star, a.channel_id, label, a.chat_type
-                    ));
-                }
+                lines.extend(super::format_attached_channels_lines(&attaches, false));
             }
         }
     }

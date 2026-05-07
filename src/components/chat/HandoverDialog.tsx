@@ -63,26 +63,34 @@ export default function HandoverDialog({
 
   useEffect(() => {
     if (!open) return
-    void loadAccounts()
+    let cancelled = false
     setChatId("")
     setThreadId("")
     setChatType("dm")
     setStatus("idle")
     setErrorMessage("")
-  }, [open])
-
-  async function loadAccounts() {
-    try {
-      const list = await getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
-      setAccounts(list ?? [])
-      if ((list?.length ?? 0) > 0 && !accountId) {
-        setAccountId(list![0].id)
+    void (async () => {
+      try {
+        const list = await getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
+        if (cancelled) return
+        const accounts = list ?? []
+        setAccounts(accounts)
+        // Auto-select the first account whenever the dialog opens, so a
+        // re-open after the accounts list changed picks something
+        // current. The user can still pick another via the Select.
+        if (accounts.length > 0) {
+          setAccountId(accounts[0].id)
+        }
+      } catch (e) {
+        if (cancelled) return
+        logger.warn("chat", "HandoverDialog", "channel_list_accounts failed", e)
+        setAccounts([])
       }
-    } catch (e) {
-      logger.warn("chat", "HandoverDialog", "channel_list_accounts failed", e)
-      setAccounts([])
+    })()
+    return () => {
+      cancelled = true
     }
-  }
+  }, [open])
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null
   const canSubmit =

@@ -619,27 +619,44 @@ impl ChannelDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let target_sid: Option<String> = if let Some(tid) = thread_id {
+        let target: Option<(String, i64)> = if let Some(tid) = thread_id {
             conn.query_row(
-                "SELECT session_id FROM channel_conversations \
+                "SELECT session_id, is_primary FROM channel_conversations \
                  WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
                 params![channel_id, account_id, chat_id, tid],
-                |r| r.get(0),
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
             )
             .optional()?
         } else {
             conn.query_row(
-                "SELECT session_id FROM channel_conversations \
+                "SELECT session_id, is_primary FROM channel_conversations \
                  WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
                 params![channel_id, account_id, chat_id],
-                |r| r.get(0),
+                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
             )
             .optional()?
         };
 
-        let Some(sid) = target_sid else {
+        let Some((sid, was_primary)) = target else {
             return Ok(None);
         };
+
+        // Skip the demote/promote dance + watcher notification when the
+        // row is already the only primary on its session — saves a
+        // spurious "you are now primary" message on repeat calls.
+        if was_primary != 0 {
+            let other_primaries: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM channel_conversations \
+                 WHERE session_id = ?1 AND is_primary = 1 \
+                   AND NOT (channel_id = ?2 AND account_id = ?3 AND chat_id = ?4 \
+                            AND COALESCE(thread_id, '') = COALESCE(?5, ''))",
+                params![sid, channel_id, account_id, chat_id, thread_id],
+                |r| r.get(0),
+            )?;
+            if other_primaries == 0 {
+                return Ok(Some(sid));
+            }
+        }
 
         conn.execute(
             "UPDATE channel_conversations SET is_primary = 0 WHERE session_id = ?1",
@@ -663,6 +680,25 @@ impl ChannelDB {
         drop(conn);
         emit_primary_changed(&sid);
         Ok(Some(sid))
+    }
+
+    /// Cheap "is anything attached?" probe for the GUI → IM mirror fast
+    /// path: skips the row materialisation + ORDER BY that
+    /// [`Self::list_attached`] does, so chat-engine startup pays only an
+    /// `EXISTS` round-trip when the session has no IM attaches (the
+    /// common case for desktop-only users).
+    pub fn has_attached(&self, session_id: &str) -> Result<bool> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let exists: i64 = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM channel_conversations WHERE session_id = ?1)",
+            params![session_id],
+            |row| row.get(0),
+        )?;
+        Ok(exists != 0)
     }
 
     /// List every attach row for a session, primary first.

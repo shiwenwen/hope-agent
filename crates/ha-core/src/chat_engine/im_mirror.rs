@@ -43,11 +43,10 @@ use crate::chat_engine::sink_registry::{sink_registry, SinkHandle};
 use crate::chat_engine::stream_seq::ChatSource;
 use crate::chat_engine::types::{ChannelStreamSink, EventSink};
 
-/// One mirror tied to a single primary attach row. The order of fields
-/// matters for `Drop`: `_sink_handle` runs first so the sink leaves the
-/// registry before the surrounding state is moved out, but the join
-/// handle is awaited explicitly in `finalize` so we never rely on Drop
-/// for that.
+/// One mirror tied to a single primary attach row. Field order is
+/// load-bearing: `_sink_handle` drops before `stream_handle` so the
+/// sink leaves the registry before the join handle is dropped (which
+/// closes the spawn channel and lets the task exit cleanly).
 pub(crate) struct ImMirror {
     plugin: Arc<dyn ChannelPlugin>,
     account_id: String,
@@ -79,12 +78,9 @@ impl ImMirrorState {
     }
 }
 
-// On Drop, the inner `Vec<mpsc::Sender>` drops with it — that closes
-// every per-mirror channel so the spawned stream tasks observe
-// channel-close and exit (whatever progressive preview state they
-// reached). Sink handles in `mirrors` also drop, detaching from the
-// registry. Error / early-return paths thus clean up implicitly with
-// no extra ceremony from `run_chat_engine`.
+// On Drop, `event_txs` and the sink handles inside `mirrors` close out
+// — error paths therefore clean up implicitly without a manual cancel
+// step in `run_chat_engine`.
 
 /// Walk the session's primary IM attaches and spawn a streaming mirror
 /// for each. No-op for non-`Desktop` / non-`Http` turns or when channel
@@ -100,6 +96,24 @@ pub(crate) fn attach_im_mirrors(session_id: &str, source: ChatSource) -> ImMirro
     let Some(registry) = crate::globals::get_channel_registry() else {
         return ImMirrorState::default();
     };
+
+    // Cheap EXISTS probe before materialising rows + spinning tasks
+    // — the no-attach case (95%+ of desktop turns) avoids the ORDER BY
+    // and the per-attach plugin lookup.
+    match channel_db.has_attached(session_id) {
+        Ok(false) => return ImMirrorState::default(),
+        Err(e) => {
+            crate::app_warn!(
+                "channel",
+                "mirror",
+                "has_attached({}) failed: {}",
+                session_id,
+                e
+            );
+            return ImMirrorState::default();
+        }
+        Ok(true) => {}
+    }
 
     let attaches = match channel_db.list_attached(session_id) {
         Ok(v) => v,
@@ -142,12 +156,7 @@ pub(crate) fn attach_im_mirrors(session_id: &str, source: ChatSource) -> ImMirro
             None => continue,
         };
 
-        let chat_type_enum = match attach.chat_type.as_str() {
-            "group" => ChatType::Group,
-            "forum" => ChatType::Forum,
-            "channel" => ChatType::Channel,
-            _ => ChatType::Dm,
-        };
+        let chat_type_enum = ChatType::from_lowercase(&attach.chat_type);
         let capabilities = plugin.capabilities();
         let preview_transport = select_stream_preview_transport(&chat_type_enum, &capabilities);
         let max_msg_len = capabilities.max_message_length.unwrap_or(4096);
@@ -206,80 +215,93 @@ pub(crate) async fn finalize_im_mirrors(state: ImMirrorState, response: &str) {
     // Drop every sender so each stream task sees channel-close.
     drop(event_txs);
 
+    // Run mirrors in parallel — preview-message edits + chunk
+    // sends to one IM platform shouldn't block delivery to another.
+    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::with_capacity(mirrors.len());
     for mirror in mirrors {
-        let outcome = match mirror.stream_handle.await {
-            Ok(o) => o,
-            Err(e) => {
-                crate::app_warn!(
-                    "channel",
-                    "mirror",
-                    "Stream task join failed for {}/{}: {}",
-                    mirror.account_id,
-                    mirror.chat_id,
-                    e
-                );
-                continue;
-            }
+        let response = response.to_string();
+        tasks.push(tokio::spawn(async move {
+            finalize_one_mirror(mirror, &response).await;
+        }));
+    }
+    for t in tasks {
+        let _ = t.await;
+    }
+}
+
+async fn finalize_one_mirror(mirror: ImMirror, response: &str) {
+    let outcome = match mirror.stream_handle.await {
+        Ok(o) => o,
+        Err(e) => {
+            crate::app_warn!(
+                "channel",
+                "mirror",
+                "Stream task join failed for {}/{}: {}",
+                mirror.account_id,
+                mirror.chat_id,
+                e
+            );
+            return;
+        }
+    };
+
+    let native_text = mirror.plugin.markdown_to_native(response);
+    let chunks = mirror.plugin.chunk_message(&native_text);
+
+    for (i, chunk) in chunks.iter().enumerate() {
+        let payload = ReplyPayload {
+            text: Some(chunk.clone()),
+            thread_id: mirror.thread_id.clone(),
+            parse_mode: Some(ParseMode::Html),
+            ..ReplyPayload::text("")
         };
+        let result = deliver_chunk(&mirror, i, &payload, outcome.preview_message_id.as_deref()).await;
+        if let Err(e) = result {
+            crate::app_warn!(
+                "channel",
+                "mirror",
+                "Mirror final-reply chunk {} to {}/{} failed: {}",
+                i,
+                mirror.account_id,
+                mirror.chat_id,
+                e
+            );
+        }
+    }
+}
 
-        let native_text = mirror.plugin.markdown_to_native(response);
-        let chunks = mirror.plugin.chunk_message(&native_text);
-
-        for (i, chunk) in chunks.iter().enumerate() {
-            let payload = ReplyPayload {
-                text: Some(chunk.clone()),
-                thread_id: mirror.thread_id.clone(),
-                parse_mode: Some(ParseMode::Html),
-                ..ReplyPayload::text("")
-            };
-
-            let result = if i == 0 {
-                if let Some(preview_id) = outcome.preview_message_id.as_deref() {
-                    match mirror
-                        .plugin
-                        .edit_message(&mirror.account_id, &mirror.chat_id, preview_id, &payload)
-                        .await
-                    {
-                        Ok(r) => Ok(r),
-                        Err(e) => {
-                            crate::app_warn!(
-                                "channel",
-                                "mirror",
-                                "edit_message failed for {}/{}, falling back to send: {}",
-                                mirror.account_id,
-                                mirror.chat_id,
-                                e
-                            );
-                            mirror
-                                .plugin
-                                .send_message(&mirror.account_id, &mirror.chat_id, &payload)
-                                .await
-                        }
-                    }
-                } else {
-                    mirror
-                        .plugin
-                        .send_message(&mirror.account_id, &mirror.chat_id, &payload)
-                        .await
+/// First chunk replaces the preview if one exists; everything else is a
+/// plain send. Edit failures fall back to send so a dropped preview
+/// doesn't lose the response.
+async fn deliver_chunk(
+    mirror: &ImMirror,
+    index: usize,
+    payload: &ReplyPayload,
+    preview_id: Option<&str>,
+) -> anyhow::Result<crate::channel::types::DeliveryResult> {
+    if index == 0 {
+        if let Some(preview_id) = preview_id {
+            match mirror
+                .plugin
+                .edit_message(&mirror.account_id, &mirror.chat_id, preview_id, payload)
+                .await
+            {
+                Ok(r) => return Ok(r),
+                Err(e) => {
+                    crate::app_warn!(
+                        "channel",
+                        "mirror",
+                        "edit_message failed for {}/{}, falling back to send: {}",
+                        mirror.account_id,
+                        mirror.chat_id,
+                        e
+                    );
                 }
-            } else {
-                mirror
-                    .plugin
-                    .send_message(&mirror.account_id, &mirror.chat_id, &payload)
-                    .await
-            };
-
-            if let Err(e) = result {
-                crate::app_warn!(
-                    "channel",
-                    "mirror",
-                    "Mirror final-reply chunk {} to {}/{} failed: {}",
-                    i,
-                    mirror.account_id,
-                    mirror.chat_id,
-                    e
-                );
             }
         }
     }
+    mirror
+        .plugin
+        .send_message(&mirror.account_id, &mirror.chat_id, payload)
+        .await
 }

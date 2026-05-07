@@ -102,13 +102,17 @@ pub struct ChannelStreamSink {
     /// primary forwards events into `event_tx` (and from there to the IM
     /// channel preview / final reply); secondary observers still emit on the
     /// EventBus so attached UIs can render the stream, but stay silent on
-    /// the channel side. Toggleable at runtime so a primary swap (e.g.
-    /// `/session exit` promoting another chat) doesn't require rebuilding
-    /// the sink mid-turn.
+    /// the channel side.
+    ///
+    /// Wrapped in `Arc<AtomicBool>` so the dispatcher can clone-and-hold a
+    /// reference to flip gating mid-turn without rebuilding the sink (e.g.
+    /// when a primary swap fires from `/session exit`).
     pub is_primary: Arc<AtomicBool>,
 }
 
 impl ChannelStreamSink {
+    /// Build a sink in primary mode — the common case (IM-driven turn,
+    /// or any caller that wants events forwarded to the IM channel).
     pub fn new(
         session_id: String,
         event_tx: tokio::sync::mpsc::Sender<String>,
@@ -117,6 +121,9 @@ impl ChannelStreamSink {
         Self::with_primary(session_id, event_tx, pending_media, true)
     }
 
+    /// Build a sink with an explicit `is_primary` flag — used by
+    /// `chat_engine::im_mirror` when attaching observer sinks for
+    /// non-primary attaches (the IM channel side stays silent).
     pub fn with_primary(
         session_id: String,
         event_tx: tokio::sync::mpsc::Sender<String>,
@@ -129,12 +136,6 @@ impl ChannelStreamSink {
             pending_media,
             is_primary: Arc::new(AtomicBool::new(is_primary)),
         }
-    }
-
-    /// Shared handle to the `is_primary` flag — clone and hold elsewhere
-    /// (dispatcher / streaming task) to flip the gating mid-turn.
-    pub fn primary_flag(&self) -> Arc<AtomicBool> {
-        Arc::clone(&self.is_primary)
     }
 }
 

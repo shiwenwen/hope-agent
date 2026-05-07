@@ -1,6 +1,6 @@
 //! Default-agent resolution rules.
 //!
-//! There are seven places a default agent can come from. They are tried in
+//! There are eight places a default agent can come from. They are tried in
 //! the order below; the first non-empty one wins.
 //!
 //! 1. **Explicit caller** — caller passes an `agent_id` directly. The
