@@ -6,14 +6,12 @@
  * sidebar now renders project sessions inline as a nested tree node, so
  * having the same list inside this sheet is redundant.
  *
- * The Overview tab also surfaces the IM-channel binding for this project.
- *
  * The component is exported under its original name so existing imports in
  * `ChatScreen.tsx` keep working without churn; rename to
  * `ProjectSettingsSheet` is left as a follow-up.
  */
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { Pencil, Trash2, Archive, ArchiveRestore } from "lucide-react"
 
@@ -27,25 +25,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { getTransport } from "@/lib/transport-provider"
-import { logger } from "@/lib/logger"
-import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
 import type { Project, ProjectMeta, UpdateProjectInput } from "@/types/project"
 
 import ProjectFilesPanel from "./ProjectFilesPanel"
 import ProjectIcon from "./ProjectIcon"
-
-/** Sentinel value for "unbound" in the Radix Select — empty strings are
- *  rejected by Radix, so we map None ↔ this constant at the boundary. */
-const UNBOUND_SENTINEL = "__none__"
 
 interface ProjectOverviewDialogProps {
   open: boolean
@@ -80,27 +64,14 @@ export default function ProjectOverviewDialog({
   const [instructionsSaveStatus, setInstructionsSaveStatus] = useState<"idle" | "saved" | "failed">(
     "idle",
   )
-  const [channels, setChannels] = useState<ChannelAccountConfig[]>([])
-  const [savingChannel, setSavingChannel] = useState(false)
 
   useEffect(() => {
     if (!open || !project) return
     setTab("overview")
     setInstructionsDraft(project.instructions ?? "")
     setInstructionsSaveStatus("idle")
-    void loadChannels()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, project?.id])
-
-  async function loadChannels() {
-    try {
-      const accounts = await getTransport().call<ChannelAccountConfig[]>("channel_list_accounts")
-      setChannels(accounts ?? [])
-    } catch (e) {
-      logger.warn("chat", "ProjectOverviewDialog", "loadChannels failed", e)
-      setChannels([])
-    }
-  }
 
   async function handleSaveInstructions() {
     if (!project) return
@@ -115,27 +86,6 @@ export default function ProjectOverviewDialog({
       setTimeout(() => setInstructionsSaveStatus("idle"), 2000)
     }
   }
-
-  async function handleSaveBoundChannel(value: { channelId: string; accountId: string } | null) {
-    if (!project) return
-    setSavingChannel(true)
-    try {
-      // Patch boundChannel: `null` clears, an object sets. The backend
-      // double-Option pattern interprets these distinctly.
-      await onUpdateProject(project.id, { boundChannel: value })
-    } finally {
-      setSavingChannel(false)
-    }
-  }
-
-  const boundChannelLabel = useMemo(() => {
-    if (!project?.boundChannel) return null
-    const acc = channels.find(
-      (c) =>
-        c.id === project.boundChannel?.accountId && c.channelId === project.boundChannel?.channelId,
-    )
-    return acc?.label ?? `${project.boundChannel.channelId} / ${project.boundChannel.accountId}`
-  }, [project?.boundChannel, channels])
 
   if (!project) return null
 
@@ -215,63 +165,6 @@ export default function ProjectOverviewDialog({
               <StatCard label={t("project.overview.totalSessions")} value={project.sessionCount} />
               <StatCard label={t("project.overview.totalFiles")} value={project.fileCount} />
               <StatCard label={t("project.overview.totalMemories")} value={project.memoryCount} />
-            </div>
-
-            {/* Bound IM channel */}
-            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/80">
-                  {t("project.bindChannelLabel")}
-                </div>
-                {project.boundChannel && (
-                  <button
-                    onClick={() => handleSaveBoundChannel(null)}
-                    disabled={savingChannel}
-                    className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
-                  >
-                    {t("project.unbindChannel")}
-                  </button>
-                )}
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                {t("project.bindChannelHelp")}
-              </p>
-              <Select
-                value={project.boundChannel?.accountId ?? UNBOUND_SENTINEL}
-                disabled={savingChannel}
-                onValueChange={(v) => {
-                  if (v === UNBOUND_SENTINEL) {
-                    void handleSaveBoundChannel(null)
-                    return
-                  }
-                  const account = channels.find((c) => c.id === v)
-                  if (account) {
-                    void handleSaveBoundChannel({
-                      channelId: account.channelId,
-                      accountId: account.id,
-                    })
-                  }
-                }}
-              >
-                <SelectTrigger className="w-full h-8 text-sm">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNBOUND_SENTINEL}>
-                    — {t("project.unbindChannel")} —
-                  </SelectItem>
-                  {channels.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.label} ({c.channelId})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {boundChannelLabel && (
-                <div className="text-[11px] text-emerald-600 dark:text-emerald-400">
-                  ✓ {t("project.boundChannel")}: {boundChannelLabel}
-                </div>
-              )}
             </div>
 
             <Button

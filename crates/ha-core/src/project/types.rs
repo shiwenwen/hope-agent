@@ -40,25 +40,11 @@ pub struct Project {
     /// no `working_dir` set (session-level overrides project-level).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
-    /// Optional binding to one IM channel account. When set, any new
-    /// conversation surfaced by this channel + account is auto-routed to this
-    /// project (sessions are created with `project_id = this.id`). Only one
-    /// project may bind a given (channel, account) pair at a time.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bound_channel: Option<BoundChannel>,
     /// Unix milliseconds.
     pub created_at: i64,
     pub updated_at: i64,
     #[serde(default)]
     pub archived: bool,
-}
-
-/// Reference to one IM channel account that a project is bound to.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct BoundChannel {
-    pub channel_id: String,
-    pub account_id: String,
 }
 
 /// Project with counts aggregated from related tables, for listing / UI use.
@@ -97,9 +83,6 @@ pub struct CreateProjectInput {
     /// Empty string is normalized to `NULL` by the DB layer.
     #[serde(default)]
     pub working_dir: Option<String>,
-    /// Optional IM channel account to bind. `None` keeps the project unbound.
-    #[serde(default)]
-    pub bound_channel: Option<BoundChannel>,
 }
 
 /// Patch DTO. `None` means "do not change this field". Clearing a field is
@@ -130,25 +113,8 @@ pub struct UpdateProjectInput {
     /// Patch the project default working directory. Empty string clears it.
     #[serde(default)]
     pub working_dir: Option<String>,
-    /// Patch the IM channel binding. `Some(Some(_))` sets a binding,
-    /// `Some(None)` (i.e. JSON `null`) clears it; `None` (field absent) keeps
-    /// the existing value untouched.
-    #[serde(default, deserialize_with = "deserialize_bound_channel_patch")]
-    pub bound_channel: Option<Option<BoundChannel>>,
     #[serde(default)]
     pub archived: Option<bool>,
-}
-
-/// Distinguish "field absent" (do not change) from "field present with null"
-/// (clear the binding). Default Rust serde treats both as `None`; we need the
-/// double-Option to keep the patch semantics.
-fn deserialize_bound_channel_patch<'de, D>(
-    deserializer: D,
-) -> Result<Option<Option<BoundChannel>>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    Option::<BoundChannel>::deserialize(deserializer).map(Some)
 }
 
 // ── Project Files ───────────────────────────────────────────────

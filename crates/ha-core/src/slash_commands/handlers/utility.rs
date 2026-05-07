@@ -218,12 +218,6 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
     if let Some(working_dir) = project.working_dir.as_deref() {
         lines.push(format!("- **Working Directory**: `{}`", working_dir));
     }
-    if let Some(bound) = project.bound_channel.as_ref() {
-        lines.push(format!(
-            "- **Bound IM Channel**: `{}` / `{}`",
-            bound.channel_id, bound.account_id
-        ));
-    }
     if let Some(instructions) = project
         .instructions
         .as_deref()

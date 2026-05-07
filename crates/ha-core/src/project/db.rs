@@ -9,7 +9,7 @@ use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
 
 use super::types::{
-    BoundChannel, CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput,
+    CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput,
 };
 use crate::session::SessionDB;
 
@@ -47,9 +47,7 @@ impl ProjectDB {
                 updated_at        INTEGER NOT NULL,
                 archived          INTEGER NOT NULL DEFAULT 0,
                 logo              TEXT,
-                working_dir       TEXT,
-                bound_channel_id         TEXT,
-                bound_channel_account_id TEXT
+                working_dir       TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_projects_archived
                 ON projects(archived, updated_at DESC);
@@ -86,28 +84,19 @@ impl ProjectDB {
             conn.execute_batch("ALTER TABLE projects ADD COLUMN working_dir TEXT;")?;
         }
 
-        // Migration: add IM channel binding columns.
-        // The index is created unconditionally below — keep ALTER + index
-        // in separate batches so the index reference is never evaluated
-        // before the columns exist (regression: pre-bound_channel installs
-        // hit `CREATE INDEX … no such column` if both ran in one batch).
+        // Migration: drop the legacy bound_channel columns/index on upgrade.
+        // Project ↔ Channel reverse-claim is gone; routing is now explicit
+        // via /project <id> in IM. SQLite 3.35+ supports DROP COLUMN.
+        conn.execute_batch("DROP INDEX IF EXISTS idx_projects_bound_channel;")?;
         let has_bound_channel = conn
             .prepare("SELECT bound_channel_id FROM projects LIMIT 1")
             .is_ok();
-        if !has_bound_channel {
+        if has_bound_channel {
             conn.execute_batch(
-                "ALTER TABLE projects ADD COLUMN bound_channel_id TEXT;
-                 ALTER TABLE projects ADD COLUMN bound_channel_account_id TEXT;",
+                "ALTER TABLE projects DROP COLUMN bound_channel_id;
+                 ALTER TABLE projects DROP COLUMN bound_channel_account_id;",
             )?;
         }
-
-        // Idempotent — columns guaranteed to exist by this point (either
-        // from the initial CREATE TABLE on fresh installs or the ALTER
-        // above on upgrades).
-        conn.execute_batch(
-            "CREATE INDEX IF NOT EXISTS idx_projects_bound_channel
-                 ON projects(bound_channel_id, bound_channel_account_id);",
-        )?;
 
         Ok(())
     }
@@ -133,32 +122,11 @@ impl ProjectDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let bound_channel = input.bound_channel.clone();
-
-        if let Some(bc) = &bound_channel {
-            let conflict: Option<String> = conn
-                .query_row(
-                    "SELECT id FROM projects
-                     WHERE bound_channel_id = ?1 AND bound_channel_account_id = ?2 LIMIT 1",
-                    params![&bc.channel_id, &bc.account_id],
-                    |row| row.get::<_, String>(0),
-                )
-                .optional()?;
-            if let Some(other) = conflict {
-                anyhow::bail!(
-                    "channel binding already claimed by project {} (channel={}, account={})",
-                    other,
-                    bc.channel_id,
-                    bc.account_id
-                );
-            }
-        }
-
         conn.execute(
             "INSERT INTO projects (id, name, description, instructions, emoji, color,
                 default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                working_dir, bound_channel_id, bound_channel_account_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12, ?13, ?14)",
+                working_dir)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 0, ?11, ?12)",
             params![
                 id,
                 name,
@@ -172,8 +140,6 @@ impl ProjectDB {
                 now,
                 logo.as_deref(),
                 working_dir.as_deref(),
-                bound_channel.as_ref().map(|b| b.channel_id.as_str()),
-                bound_channel.as_ref().map(|b| b.account_id.as_str()),
             ],
         )?;
 
@@ -190,7 +156,6 @@ impl ProjectDB {
             default_model_id: normalize_optional(input.default_model_id.as_deref())
                 .map(str::to_string),
             working_dir,
-            bound_channel,
             created_at: now,
             updated_at: now,
             archived: false,
@@ -208,7 +173,7 @@ impl ProjectDB {
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                        working_dir, bound_channel_id, bound_channel_account_id
+                        working_dir
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -307,45 +272,6 @@ impl ProjectDB {
             params_vec.push(Box::new(validated));
         }
 
-        // Bound channel patch — `Some(Some(_))` sets, `Some(None)` clears,
-        // `None` (field absent) skips. Reject conflicting bindings.
-        if let Some(bc_patch) = &patch.bound_channel {
-            if let Some(bc) = bc_patch {
-                let conflict: Option<String> = conn
-                    .query_row(
-                        "SELECT id FROM projects
-                         WHERE bound_channel_id = ?1
-                           AND bound_channel_account_id = ?2
-                           AND id != ?3
-                         LIMIT 1",
-                        params![&bc.channel_id, &bc.account_id, id],
-                        |row| row.get::<_, String>(0),
-                    )
-                    .optional()?;
-                if let Some(other) = conflict {
-                    anyhow::bail!(
-                        "channel binding already claimed by project {} (channel={}, account={})",
-                        other,
-                        bc.channel_id,
-                        bc.account_id
-                    );
-                }
-                let idx_a = params_vec.len() + 1;
-                sets.push(format!("bound_channel_id = ?{}", idx_a));
-                params_vec.push(Box::new(bc.channel_id.clone()));
-                let idx_b = params_vec.len() + 1;
-                sets.push(format!("bound_channel_account_id = ?{}", idx_b));
-                params_vec.push(Box::new(bc.account_id.clone()));
-            } else {
-                let idx_a = params_vec.len() + 1;
-                sets.push(format!("bound_channel_id = ?{}", idx_a));
-                params_vec.push(Box::new(Option::<String>::None));
-                let idx_b = params_vec.len() + 1;
-                sets.push(format!("bound_channel_account_id = ?{}", idx_b));
-                params_vec.push(Box::new(Option::<String>::None));
-            }
-        }
-
         if let Some(archived) = patch.archived {
             let idx = params_vec.len() + 1;
             sets.push(format!("archived = ?{}", idx));
@@ -374,7 +300,7 @@ impl ProjectDB {
             .query_row(
                 "SELECT id, name, description, instructions, emoji, color,
                         default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                        working_dir, bound_channel_id, bound_channel_account_id
+                        working_dir
                  FROM projects WHERE id = ?1",
                 params![id],
                 row_to_project,
@@ -475,7 +401,7 @@ impl ProjectDB {
         let sql = format!(
             "SELECT p.id, p.name, p.description, p.instructions, p.emoji, p.color,
                     p.default_agent_id, p.default_model_id, p.created_at, p.updated_at, p.archived,
-                    p.logo, p.working_dir, p.bound_channel_id, p.bound_channel_account_id,
+                    p.logo, p.working_dir,
                     (SELECT COUNT(*) FROM sessions s WHERE s.project_id = p.id) AS session_count,
                     (SELECT COUNT(*)
                        FROM messages m
@@ -498,9 +424,9 @@ impl ProjectDB {
             let project = row_to_project(row)?;
             Ok(ProjectMeta {
                 project,
-                session_count: row.get::<_, i64>(15).unwrap_or(0) as u32,
-                unread_count: row.get::<_, i64>(16).unwrap_or(0) as u32,
-                file_count: row.get::<_, i64>(17).unwrap_or(0) as u32,
+                session_count: row.get::<_, i64>(13).unwrap_or(0) as u32,
+                unread_count: row.get::<_, i64>(14).unwrap_or(0) as u32,
+                file_count: row.get::<_, i64>(15).unwrap_or(0) as u32,
                 memory_count: 0,
             })
         })?;
@@ -510,35 +436,6 @@ impl ProjectDB {
             out.push(r?);
         }
         Ok(out)
-    }
-
-    /// Find the (single) project bound to the given IM channel account, if any.
-    /// Used by the channel worker on `ensure_conversation` to auto-route a
-    /// new session into a project.
-    pub fn find_by_bound_channel(
-        &self,
-        channel_id: &str,
-        account_id: &str,
-    ) -> Result<Option<Project>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let row = conn
-            .query_row(
-                "SELECT id, name, description, instructions, emoji, color,
-                        default_agent_id, default_model_id, created_at, updated_at, archived, logo,
-                        working_dir, bound_channel_id, bound_channel_account_id
-                 FROM projects
-                 WHERE bound_channel_id = ?1 AND bound_channel_account_id = ?2
-                   AND archived = 0
-                 LIMIT 1",
-                params![channel_id, account_id],
-                row_to_project,
-            )
-            .optional()?;
-        Ok(row)
     }
 
     // ── CRUD: project_files ─────────────────────────────────────
@@ -686,15 +583,6 @@ impl ProjectDB {
 // ── Row helpers ─────────────────────────────────────────────────
 
 fn row_to_project(row: &rusqlite::Row) -> rusqlite::Result<Project> {
-    let channel_id: Option<String> = row.get::<_, Option<String>>(13).unwrap_or(None);
-    let account_id: Option<String> = row.get::<_, Option<String>>(14).unwrap_or(None);
-    let bound_channel = match (channel_id, account_id) {
-        (Some(c), Some(a)) if !c.is_empty() && !a.is_empty() => Some(BoundChannel {
-            channel_id: c,
-            account_id: a,
-        }),
-        _ => None,
-    };
     Ok(Project {
         id: row.get(0)?,
         name: row.get(1)?,
@@ -709,7 +597,6 @@ fn row_to_project(row: &rusqlite::Row) -> rusqlite::Result<Project> {
         archived: row.get::<_, i64>(10).unwrap_or(0) != 0,
         logo: row.get::<_, Option<String>>(11).unwrap_or(None),
         working_dir: row.get::<_, Option<String>>(12).unwrap_or(None),
-        bound_channel,
     })
 }
 
@@ -778,23 +665,18 @@ mod tests {
     use std::sync::Arc;
     use tempfile::tempdir;
 
-    /// Regression: pre-bound_channel installs would panic on startup with
-    /// `no such column: bound_channel_id` because the initial CREATE TABLE
-    /// batch contained a CREATE INDEX that referenced columns added by a
-    /// later ALTER TABLE migration. Migration must be idempotent and safe
-    /// to run against an old schema with neither column.
+    /// Regression: legacy installs that still carry `bound_channel_*` columns
+    /// must boot cleanly — the migration drops them and the legacy index.
     #[test]
-    fn migrate_pre_bound_channel_schema() {
+    fn migrate_drops_legacy_bound_channel_columns() {
         let dir = tempdir().unwrap();
         let db_path = dir.path().join("sessions.db");
         let session_db = Arc::new(SessionDB::open(&db_path).unwrap());
 
-        // Simulate an old install: hand-create the projects table without
-        // the new bound_channel_* columns, plus the legacy indexes only.
+        // Simulate a legacy install: hand-create the projects table with
+        // the obsolete bound_channel_* columns + index.
         {
             let conn = session_db.conn.lock().unwrap();
-            // Drop any auto-created projects table from SessionDB::open so
-            // we're really starting from "old shape".
             conn.execute_batch(
                 "DROP TABLE IF EXISTS project_files;
                  DROP TABLE IF EXISTS projects;
@@ -809,23 +691,31 @@ mod tests {
                     default_model_id  TEXT,
                     created_at        INTEGER NOT NULL,
                     updated_at        INTEGER NOT NULL,
-                    archived          INTEGER NOT NULL DEFAULT 0
-                 );",
+                    archived          INTEGER NOT NULL DEFAULT 0,
+                    logo              TEXT,
+                    working_dir       TEXT,
+                    bound_channel_id         TEXT,
+                    bound_channel_account_id TEXT
+                 );
+                 CREATE INDEX idx_projects_bound_channel
+                    ON projects(bound_channel_id, bound_channel_account_id);",
             )
             .unwrap();
         }
 
-        // Migration must succeed without panicking.
         let project_db = ProjectDB::new(session_db.clone());
         project_db
             .migrate()
-            .expect("migrate should not fail on old schema");
+            .expect("migrate should drop legacy bound_channel columns");
 
-        // Both new columns now queryable.
         let conn = session_db.conn.lock().unwrap();
-        conn.prepare("SELECT bound_channel_id, bound_channel_account_id FROM projects LIMIT 1")
-            .expect("new columns should exist after migration");
-        // Index exists.
+        // Columns are gone.
+        assert!(
+            conn.prepare("SELECT bound_channel_id FROM projects LIMIT 1")
+                .is_err(),
+            "bound_channel_id should be dropped"
+        );
+        // Index is gone.
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_projects_bound_channel'",
@@ -833,7 +723,7 @@ mod tests {
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 1, "idx_projects_bound_channel should exist");
+        assert_eq!(count, 0, "idx_projects_bound_channel should be dropped");
     }
 
     /// Migration must also be idempotent — running it twice (subsequent

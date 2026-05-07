@@ -108,37 +108,15 @@ impl ChannelDB {
             return Ok(existing);
         }
 
-        // Resolve the bound project (if any) so the new session is auto-routed.
-        let bound_project: Option<(String, Option<String>)> = conn
-            .query_row(
-                "SELECT id, default_agent_id FROM projects
-                 WHERE bound_channel_id = ?1 AND bound_channel_account_id = ?2
-                   AND archived = 0
-                 LIMIT 1",
-                params![channel_id, account_id],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-            )
-            .optional()?;
-
         // Release lock before creating session (which also acquires the lock)
         drop(conn);
 
-        // Project default_agent overrides the caller-supplied (channel-level)
-        // agent_id — see `crate::agent::resolver` for the full precedence chain.
-        let (effective_agent_id, project_id_for_session) = match &bound_project {
-            Some((pid, Some(project_agent))) if !project_agent.trim().is_empty() => {
-                (project_agent.clone(), Some(pid.clone()))
-            }
-            Some((pid, _)) => (agent_id.to_string(), Some(pid.clone())),
-            None => (agent_id.to_string(), None),
-        };
-
-        // Create a new session — bound to a project when applicable.
-        let session_meta = self.session_db.create_session_with_project(
-            &effective_agent_id,
-            project_id_for_session.as_deref(),
-            None,
-        )?;
+        // Project ↔ channel reverse-claim is gone: IM messages no longer
+        // auto-route into a project. To attach a session to a project, use
+        // `/project <id>` from inside the IM chat.
+        let session_meta =
+            self.session_db
+                .create_session_with_project(agent_id, None, None)?;
         let session_id = session_meta.id;
 
         // Title is left as None here — auto_title from first message content
