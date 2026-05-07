@@ -9,6 +9,7 @@ use crate::provider::{ApiType, AuthProfile};
 use crate::session;
 
 use super::context::*;
+use super::im_mirror::{attach_im_mirrors, finalize_im_mirrors, ImMirrorState};
 use super::persister::StreamPersister;
 use super::sink_registry;
 use super::stream_broadcast;
@@ -185,6 +186,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     }
 
     let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source)?;
+
+    // Attach IM-mirror sinks for any primary attach this session has
+    // (Phase B7 follow-up). No-op for non-Desktop / non-Http sources.
+    // The state is held to the end of `run_chat_engine` so each
+    // mirror's stream task stays alive while the engine streams; the
+    // success path moves the state into `finalize_im_mirrors` to flush
+    // the final reply, and any error / early return drops the state so
+    // every sink detaches and every stream task observes channel-close.
+    let mut im_mirrors: ImMirrorState = attach_im_mirrors(&session_id, source);
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -578,16 +588,18 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         }
                     }
 
-                    // GUI / HTTP turns also push the final assistant
-                    // response to any IM chat currently primary-attached
-                    // to this session, so a handover-followed-by-GUI-input
-                    // workflow doesn't go silent on the IM side. IM
-                    // (Channel) and background (Subagent / ParentInjection)
-                    // sources are skipped — IM already delivers its own
-                    // reply, and background turns shouldn't surface in
-                    // user chats.
-                    if matches!(source, stream_seq::ChatSource::Desktop | stream_seq::ChatSource::Http) {
-                        deliver_final_to_attached_im(&session_id, &response).await;
+                    // GUI / HTTP turns flush IM mirrors here: drop every
+                    // mirror's event_tx so each preview-stream task
+                    // observes channel-close and returns its final
+                    // preview message id, then either edit_message
+                    // (preview existed) or send_message (no preview)
+                    // chunks of the final response per mirror. Subagent /
+                    // ParentInjection / Channel sources never reach this
+                    // branch with non-empty `im_mirrors` (see
+                    // `attach_im_mirrors` source filter), so the no-op
+                    // case is cheap.
+                    if !im_mirrors.is_empty() {
+                        finalize_im_mirrors(std::mem::take(&mut im_mirrors), &response).await;
                     }
 
                     return Ok(ChatEngineResult {
@@ -804,81 +816,6 @@ fn configure_agent(
         // Main-chat path: let provider tool loops re-read the live global effort
         // so UI toggles apply to the next API request, not only the next turn.
         agent.set_follow_global_reasoning_effort(true);
-    }
-}
-
-/// Push the final assistant response to every IM chat currently attached
-/// to `session_id`. Called only on GUI / HTTP successful chat completion
-/// — IM-triggered turns already deliver through their own
-/// `send_final_reply` path, and background turns deliberately stay off
-/// IM.
-///
-/// Best-effort: missing globals (channel registry / db not initialised)
-/// or per-attach plugin failures are logged and skipped, never returned
-/// to the caller. The chat engine has already persisted the response;
-/// we just mirror it out for visibility.
-async fn deliver_final_to_attached_im(session_id: &str, response: &str) {
-    let Some(channel_db) = crate::globals::get_channel_db() else {
-        return;
-    };
-    let Some(registry) = crate::globals::get_channel_registry() else {
-        return;
-    };
-    let attaches = match channel_db.list_attached(session_id) {
-        Ok(v) => v,
-        Err(e) => {
-            crate::app_warn!(
-                "channel",
-                "mirror",
-                "list_attached({}) failed: {}",
-                session_id,
-                e
-            );
-            return;
-        }
-    };
-
-    for attach in attaches.iter() {
-        if !attach.is_primary {
-            // Observers stay silent (see plan: only primary receives
-            // outbound). Future enhancement: secondary "tap" mode.
-            continue;
-        }
-
-        let channel_id_typed: crate::channel::types::ChannelId = match serde_json::from_value(
-            serde_json::Value::String(attach.channel_id.clone()),
-        ) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let plugin = match registry.get_plugin(&channel_id_typed) {
-            Some(p) => p,
-            None => continue,
-        };
-
-        let native_text = plugin.markdown_to_native(response);
-        let chunks = plugin.chunk_message(&native_text);
-        for chunk in chunks {
-            let payload = crate::channel::types::ReplyPayload {
-                text: Some(chunk),
-                thread_id: attach.thread_id.clone(),
-                parse_mode: Some(crate::channel::types::ParseMode::Html),
-                ..crate::channel::types::ReplyPayload::text("")
-            };
-            if let Err(e) = plugin
-                .send_message(&attach.account_id, &attach.chat_id, &payload)
-                .await
-            {
-                crate::app_warn!(
-                    "channel",
-                    "mirror",
-                    "Final-reply mirror to {}/{} failed: {}",
-                    attach.channel_id,
-                    attach.chat_id,
-                    e
-                );
-            }
-        }
     }
 }
 

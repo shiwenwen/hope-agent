@@ -11,7 +11,7 @@ pub(super) enum StreamPreviewTransport {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct StreamPreviewOutcome {
+pub struct StreamPreviewOutcome {
     pub preview_message_id: Option<String>,
 }
 
@@ -27,7 +27,7 @@ pub(super) struct StreamPreviewOutcome {
 ///
 /// For channels without any preview transport, events are simply drained while the
 /// frontend still receives `channel:stream_delta` events.
-pub(super) fn spawn_channel_stream_task(
+pub fn spawn_channel_stream_task(
     mut event_rx: mpsc::Receiver<String>,
     plugin: Arc<dyn ChannelPlugin>,
     account_id: String,
@@ -118,7 +118,7 @@ pub(super) fn extract_text_delta(event_str: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-pub(super) fn select_stream_preview_transport(
+pub fn select_stream_preview_transport(
     chat_type: &ChatType,
     capabilities: &ChannelCapabilities,
 ) -> Option<StreamPreviewTransport> {
