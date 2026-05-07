@@ -94,8 +94,8 @@ fn emit_stream_event(
         stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
         enveloped
     };
-    // Fan-out to any extra sinks attached to this session (handover targets,
-    // /session <id> observers, GUI ↔ IM mirrors). The primary `event_sink`
+    // Fan-out to any extra sinks attached to this session (live GUI ↔ IM
+    // mirror is the planned consumer — F-066). The primary `event_sink`
     // above is intentionally not registered, so each consumer fires once.
     sink_registry::sink_registry().emit(session_id, &payload);
 }

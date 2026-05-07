@@ -247,18 +247,16 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
     Some(lines)
 }
 
-/// `/status` IM-attach section: lists every chat currently attached to the
-/// session, marking the primary with `★`. Returns `None` when there are no
-/// attaches so the caller can skip the empty section header.
+/// `/status` IM-attach section: shows the chat currently attached to
+/// the session (1:1, so 0 or 1 row). Returns `None` when no attach
+/// exists so the caller can skip the empty section header.
 fn render_attached_channels_section(sid: &str) -> Option<Vec<String>> {
     let channel_db = crate::globals::get_channel_db()?;
-    let attaches = channel_db.list_attached(sid).ok()?;
-    if attaches.is_empty() {
-        return None;
-    }
-    let mut lines = vec!["**Attached IM Channels**".to_string()];
-    lines.extend(super::format_attached_channels_lines(&attaches, true));
-    Some(lines)
+    let attach = channel_db.get_conversation_by_session(sid).ok().flatten()?;
+    Some(vec![
+        "**Attached IM Channel**".to_string(),
+        super::format_attached_channel_line(&attach, true),
+    ])
 }
 
 /// /export — Export conversation as Markdown.

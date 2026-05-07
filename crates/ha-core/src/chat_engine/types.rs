@@ -287,46 +287,23 @@ pub struct ChannelStreamSink {
     /// as a markdown blockquote and forwarded to the streaming preview task
     /// as a synthesized `text_delta`.
     pub show_thinking: bool,
-    /// Whether this sink is the **primary** attach for the session. Only the
-    /// primary forwards events into `event_tx` (and from there to the IM
-    /// channel preview / final reply); secondary observers still emit on the
-    /// EventBus so attached UIs can render the stream, but stay silent on
-    /// the channel side.
-    ///
-    /// Wrapped in `Arc<AtomicBool>` so the dispatcher can clone-and-hold a
-    /// reference to flip gating mid-turn without rebuilding the sink (e.g.
-    /// when a primary swap fires from `/session exit`).
-    pub is_primary: Arc<AtomicBool>,
 }
 
 impl ChannelStreamSink {
-    /// Build a sink in primary mode — the common case (IM-driven turn,
-    /// or any caller that wants events forwarded to the IM channel).
+    /// Build a sink that forwards stream events to the IM streaming task
+    /// via `event_tx`. With 1:1 attach there's only one IM chat receiving
+    /// the live preview, so the sink unconditionally forwards.
     pub fn new(
         session_id: String,
         event_tx: tokio::sync::mpsc::Sender<String>,
         round_texts: Arc<Mutex<RoundTextAccumulator>>,
         show_thinking: bool,
     ) -> Self {
-        Self::with_primary(session_id, event_tx, round_texts, show_thinking, true)
-    }
-
-    /// Build a sink with an explicit `is_primary` flag — used by
-    /// `chat_engine::im_mirror` when attaching observer sinks for
-    /// non-primary attaches (the IM channel side stays silent).
-    pub fn with_primary(
-        session_id: String,
-        event_tx: tokio::sync::mpsc::Sender<String>,
-        round_texts: Arc<Mutex<RoundTextAccumulator>>,
-        show_thinking: bool,
-        is_primary: bool,
-    ) -> Self {
         Self {
             session_id,
             event_tx,
             round_texts,
             show_thinking,
-            is_primary: Arc::new(AtomicBool::new(is_primary)),
         }
     }
 
@@ -433,13 +410,7 @@ impl EventSink for ChannelStreamSink {
             }
             return;
         }
-        // Only the primary attach forwards events into the IM streaming
-        // task. Secondary observers still get the EventBus emit above so
-        // attached UIs render the stream — they just don't echo it back to
-        // the IM channel.
-        if self.is_primary.load(std::sync::atomic::Ordering::Relaxed) {
-            let _ = self.event_tx.try_send(event.to_string());
-        }
+        let _ = self.event_tx.try_send(event.to_string());
     }
 }
 

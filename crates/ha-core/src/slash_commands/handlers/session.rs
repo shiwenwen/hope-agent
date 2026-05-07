@@ -93,22 +93,18 @@ pub fn handle_rename(
 /// label, IM channel label) **or** any message body (FTS5) contains the
 /// query — important for IM users who can't visually scroll a sidebar nor
 /// open Cmd+F.
-pub fn handle_sessions(
-    session_db: &Arc<SessionDB>,
-    args: &str,
-) -> Result<CommandResult, String> {
+pub fn handle_sessions(session_db: &Arc<SessionDB>, args: &str) -> Result<CommandResult, String> {
     let query = args.trim();
     let all = session_db.list_sessions(None).map_err(|e| e.to_string())?;
 
     // Friendly agent display names; one IO per /sessions, fall back to bare
     // ids on error. `list_agents` also reads memory counts we discard —
     // acceptable since /sessions is user-initiated.
-    let agent_names: std::collections::HashMap<String, String> =
-        crate::agent_loader::list_agents()
-            .unwrap_or_default()
-            .into_iter()
-            .map(|a| (a.id, a.name))
-            .collect();
+    let agent_names: std::collections::HashMap<String, String> = crate::agent_loader::list_agents()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| (a.id, a.name))
+        .collect();
     let project_db = crate::globals::get_project_db();
 
     // No-query path caps before building picker items; query path keeps the
@@ -128,9 +124,7 @@ pub fn handle_sessions(
 
     let mut picker_items: Vec<SessionPickerItem> = candidates
         .iter()
-        .map(|s| {
-            build_picker_item(s, &agent_names, project_db, &mut project_label_cache)
-        })
+        .map(|s| build_picker_item(s, &agent_names, project_db, &mut project_label_cache))
         .collect();
 
     if !query.is_empty() {
@@ -178,10 +172,7 @@ fn apply_query_filter(
         .map(|(sid, raw)| {
             (
                 sid,
-                crate::session::strip_fts_snippet_sentinels(
-                    &raw,
-                    SESSION_PICKER_SNIPPET_BYTES,
-                ),
+                crate::session::strip_fts_snippet_sentinels(&raw, SESSION_PICKER_SNIPPET_BYTES),
             )
         })
         .collect();
@@ -191,8 +182,7 @@ fn apply_query_filter(
             item.snippet = Some(snippet.clone());
         }
     }
-    picker_items
-        .retain(|s| metadata_hits.contains(&s.id) || fts_snippets.contains_key(&s.id));
+    picker_items.retain(|s| metadata_hits.contains(&s.id) || fts_snippets.contains_key(&s.id));
 }
 
 fn render_picker_content(items: &[SessionPickerItem], query: &str, total: usize) -> String {
@@ -390,12 +380,10 @@ fn handle_session_info(
     }
 
     if let Some(channel_db) = crate::globals::get_channel_db() {
-        if let Ok(attaches) = channel_db.list_attached(sid) {
-            if !attaches.is_empty() {
-                lines.push(String::new());
-                lines.push("**Attached IM channels**".into());
-                lines.extend(super::format_attached_channels_lines(&attaches, false));
-            }
+        if let Ok(Some(attach)) = channel_db.get_conversation_by_session(sid) {
+            lines.push(String::new());
+            lines.push("**Attached IM channel**".into());
+            lines.push(super::format_attached_channel_line(&attach, false));
         }
     }
 

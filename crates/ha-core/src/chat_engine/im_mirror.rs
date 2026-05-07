@@ -1,15 +1,12 @@
 //! GUI / HTTP → IM final-reply mirror — pushes the assistant's final
-//! response to every primary IM attach for the session at the success
+//! response to the IM attach (if any) for the session at the success
 //! path of `run_chat_engine`. IM-driven and background turns skip this.
 //!
-//! Live (per-frame) GUI → IM streaming is **not** done here. Phase B7's
-//! initial follow-up wired up secondary `ChannelStreamSink` + per-mirror
-//! `spawn_channel_stream_task`, but main's split-streaming /
-//! per-round-preview rework (`ImReplyMode` / `RoundTextAccumulator`)
-//! reshaped that subsystem in incompatible ways. Re-implementing the
-//! live mirror on top of the new state machine is a follow-up; for now
-//! the must-have path — "the IM user sees the final answer" — runs
-//! through this module unchanged.
+//! With 1:1 attach, a session has at most one IM chat attached, so the
+//! mirror is a single `Option<ImMirror>`.
+//!
+//! Live (per-frame) GUI → IM streaming is **not** done here — see
+//! `docs/plans/review-followups.md` F-066 for the live-mirror follow-up.
 
 use std::sync::Arc;
 
@@ -17,7 +14,7 @@ use crate::channel::traits::ChannelPlugin;
 use crate::channel::types::{ParseMode, ReplyPayload};
 use crate::chat_engine::stream_seq::ChatSource;
 
-/// One mirror tied to a single primary attach row.
+/// The single IM attach to mirror to, captured at turn start.
 pub(crate) struct ImMirror {
     plugin: Arc<dyn ChannelPlugin>,
     account_id: String,
@@ -26,22 +23,22 @@ pub(crate) struct ImMirror {
 }
 
 /// Aggregate state held by `run_chat_engine` for a `Desktop` / `Http`
-/// turn. Default is empty — IM-only or background turns end up here.
+/// turn. Default is empty — IM-only or background turns end up here, as
+/// do desktop turns on sessions without an IM attach.
 #[derive(Default)]
 pub(crate) struct ImMirrorState {
-    mirrors: Vec<ImMirror>,
+    mirror: Option<ImMirror>,
 }
 
 impl ImMirrorState {
     pub(crate) fn is_empty(&self) -> bool {
-        self.mirrors.is_empty()
+        self.mirror.is_none()
     }
 }
 
-/// Walk the session's primary IM attaches and remember plugin + chat
+/// Look up the session's IM attach (if any) and remember plugin + chat
 /// coordinates for `finalize_im_mirrors`. No-op when the session has
-/// no IM attaches (the EXISTS probe short-circuits before any heavier
-/// work) or when channel globals aren't initialised.
+/// no IM attach or when channel globals aren't initialised.
 pub(crate) fn attach_im_mirrors(session_id: &str, source: ChatSource) -> ImMirrorState {
     if !matches!(source, ChatSource::Desktop | ChatSource::Http) {
         return ImMirrorState::default();
@@ -53,28 +50,14 @@ pub(crate) fn attach_im_mirrors(session_id: &str, source: ChatSource) -> ImMirro
         return ImMirrorState::default();
     };
 
-    match channel_db.has_attached(session_id) {
-        Ok(false) => return ImMirrorState::default(),
+    let attach = match channel_db.get_conversation_by_session(session_id) {
+        Ok(Some(c)) => c,
+        Ok(None) => return ImMirrorState::default(),
         Err(e) => {
             crate::app_warn!(
                 "channel",
                 "mirror",
-                "has_attached({}) failed: {}",
-                session_id,
-                e
-            );
-            return ImMirrorState::default();
-        }
-        Ok(true) => {}
-    }
-
-    let attaches = match channel_db.list_attached(session_id) {
-        Ok(v) => v,
-        Err(e) => {
-            crate::app_warn!(
-                "channel",
-                "mirror",
-                "list_attached({}) failed: {}",
+                "get_conversation_by_session({}) failed: {}",
                 session_id,
                 e
             );
@@ -82,56 +65,43 @@ pub(crate) fn attach_im_mirrors(session_id: &str, source: ChatSource) -> ImMirro
         }
     };
 
-    let mut state = ImMirrorState::default();
-    for attach in attaches.iter() {
-        if !attach.is_primary {
-            continue;
-        }
-
-        let channel_id_typed: crate::channel::types::ChannelId =
-            match serde_json::from_value(serde_json::Value::String(attach.channel_id.clone())) {
-                Ok(c) => c,
-                Err(e) => {
-                    crate::app_warn!(
-                        "channel",
-                        "mirror",
-                        "Unknown channel id {} on attach: {}",
-                        attach.channel_id,
-                        e
-                    );
-                    continue;
-                }
-            };
-
-        let plugin = match registry.get_plugin(&channel_id_typed) {
-            Some(p) => p,
-            None => continue,
+    let channel_id_typed: crate::channel::types::ChannelId =
+        match serde_json::from_value(serde_json::Value::String(attach.channel_id.clone())) {
+            Ok(c) => c,
+            Err(e) => {
+                crate::app_warn!(
+                    "channel",
+                    "mirror",
+                    "Unknown channel id {} on attach: {}",
+                    attach.channel_id,
+                    e
+                );
+                return ImMirrorState::default();
+            }
         };
 
-        state.mirrors.push(ImMirror {
+    let plugin = match registry.get_plugin(&channel_id_typed) {
+        Some(p) => p,
+        None => return ImMirrorState::default(),
+    };
+
+    ImMirrorState {
+        mirror: Some(ImMirror {
             plugin: plugin.clone(),
-            account_id: attach.account_id.clone(),
-            chat_id: attach.chat_id.clone(),
-            thread_id: attach.thread_id.clone(),
-        });
+            account_id: attach.account_id,
+            chat_id: attach.chat_id,
+            thread_id: attach.thread_id,
+        }),
     }
-    state
 }
 
-/// Send `response` (markdown) to every collected mirror in parallel.
-/// Per-mirror plugin errors are logged and skipped; the chat engine
-/// has already persisted the response, so a missed mirror is a
-/// missed echo not a missed turn.
+/// Send `response` (markdown) to the collected mirror, if any. Plugin
+/// errors are logged and swallowed; the chat engine has already
+/// persisted the response, so a missed mirror is a missed echo not a
+/// missed turn.
 pub(crate) async fn finalize_im_mirrors(state: ImMirrorState, response: &str) {
-    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::with_capacity(state.mirrors.len());
-    for mirror in state.mirrors {
-        let response = response.to_string();
-        tasks.push(tokio::spawn(async move {
-            send_to_mirror(&mirror, &response).await;
-        }));
-    }
-    for t in tasks {
-        let _ = t.await;
+    if let Some(mirror) = state.mirror {
+        send_to_mirror(&mirror, response).await;
     }
 }
 

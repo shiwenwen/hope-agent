@@ -13,9 +13,11 @@ pub struct ChannelDB {
 /// A row from the channel_conversations table.
 ///
 /// Each row is an "attach": one (channel, account, chat, thread) is currently
-/// associated with one `session_id`. Multiple chats can attach to the same
-/// session (multi-IM observe), but only one row per session is `is_primary`,
-/// which decides where outbound assistant text is delivered.
+/// associated with one `session_id`. The mapping is **1:1 in both
+/// directions** — a chat can only attach to one session at a time, and a
+/// session can only be reached from one IM chat at a time. When a new chat
+/// takes over a session, the previously-attached chat is physically
+/// detached and notified via [`EVENT_CHANNEL_SESSION_EVICTED`].
 #[derive(Debug, Clone)]
 pub struct ChannelConversation {
     pub id: i64,
@@ -27,11 +29,6 @@ pub struct ChannelConversation {
     pub sender_id: Option<String>,
     pub sender_name: Option<String>,
     pub chat_type: String,
-    /// Whether this row is the primary attach for `session_id`. Outbound
-    /// assistant text is only sent to the channel of the primary row;
-    /// secondary rows still observe streaming events but do not receive
-    /// final messages.
-    pub is_primary: bool,
     /// How this attach was created: `"inbound"` (auto, IM message), `"attach"`
     /// (explicit `/session <id>` from IM), or `"handover"` (explicit GUI
     /// handover or `/handover`).
@@ -48,22 +45,92 @@ pub const ATTACH_SOURCE_INBOUND: &str = "inbound";
 pub const ATTACH_SOURCE_ATTACH: &str = "attach";
 pub const ATTACH_SOURCE_HANDOVER: &str = "handover";
 
-/// EventBus topic emitted when the primary attach for a session changes —
-/// after [`ChannelDB::attach_session`], [`ChannelDB::detach_session`],
-/// [`ChannelDB::set_primary`], or [`ChannelDB::update_session`] mutates an
-/// `is_primary` row. Channel workers subscribe to deliver "you are now
-/// primary" / "you are now observing" messages on the wire.
+/// EventBus topic emitted when an existing IM attach is **evicted** because
+/// another chat is taking over the same `session_id` — see
+/// [`ChannelDB::attach_session`] / [`ChannelDB::update_session`]. The
+/// eviction watcher subscribes and pushes a "this chat has been taken
+/// over; you've left the previous session" notice to the affected chat.
 ///
-/// Payload shape: `{ "sessionId": "<sid>" }`. Subscribers re-query
-/// `list_attached` for the full detail to avoid baking a struct schema
-/// into the topic.
-pub const EVENT_CHANNEL_PRIMARY_CHANGED: &str = "channel:primary_changed";
+/// One event per evicted chat. Payload field names are listed in
+/// [`payload_keys`].
+pub const EVENT_CHANNEL_SESSION_EVICTED: &str = "channel:session_evicted";
 
-fn emit_primary_changed(session_id: &str) {
-    if let Some(bus) = crate::globals::get_event_bus() {
+/// JSON payload keys for [`EVENT_CHANNEL_SESSION_EVICTED`]. Shared between
+/// the emit site (db.rs) and the subscriber (eviction_watcher) so a
+/// rename can't drift the two halves out of sync.
+pub mod payload_keys {
+    pub const CHANNEL_ID: &str = "channelId";
+    pub const ACCOUNT_ID: &str = "accountId";
+    pub const CHAT_ID: &str = "chatId";
+    pub const THREAD_ID: &str = "threadId";
+    pub const SESSION_ID: &str = "sessionId";
+}
+
+/// One row evicted during a takeover: the chat that used to attach the
+/// target session before someone else came in.
+struct Evictee {
+    channel_id: String,
+    account_id: String,
+    chat_id: String,
+    thread_id: Option<String>,
+}
+
+/// Atomically delete every attach row bound to `target_session_id` whose
+/// chat is **not** `(channel_id, account_id, chat_id, thread_id)`, and
+/// return the deleted rows for downstream notification. One round-trip
+/// via `DELETE ... RETURNING` so attach_session / update_session don't
+/// pay a separate SELECT pass.
+fn evict_others(
+    conn: &rusqlite::Connection,
+    target_session_id: &str,
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+) -> Result<Vec<Evictee>> {
+    let mut stmt = conn.prepare(
+        "DELETE FROM channel_conversations \
+         WHERE session_id = ?1 \
+           AND NOT (channel_id = ?2 AND account_id = ?3 AND chat_id = ?4 \
+                    AND COALESCE(thread_id, '') = COALESCE(?5, '')) \
+         RETURNING channel_id, account_id, chat_id, thread_id",
+    )?;
+    let rows = stmt
+        .query_map(
+            params![
+                target_session_id,
+                channel_id,
+                account_id,
+                chat_id,
+                thread_id
+            ],
+            |r| {
+                Ok(Evictee {
+                    channel_id: r.get(0)?,
+                    account_id: r.get(1)?,
+                    chat_id: r.get(2)?,
+                    thread_id: r.get(3)?,
+                })
+            },
+        )?
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+fn emit_evictions(evictees: &[Evictee], session_id: &str) {
+    let Some(bus) = crate::globals::get_event_bus() else {
+        return;
+    };
+    for e in evictees {
         bus.emit(
-            EVENT_CHANNEL_PRIMARY_CHANGED,
-            serde_json::json!({ "sessionId": session_id }),
+            EVENT_CHANNEL_SESSION_EVICTED,
+            serde_json::json!({
+                payload_keys::CHANNEL_ID: e.channel_id,
+                payload_keys::ACCOUNT_ID: e.account_id,
+                payload_keys::CHAT_ID: e.chat_id,
+                payload_keys::THREAD_ID: e.thread_id,
+                payload_keys::SESSION_ID: session_id,
+            }),
         );
     }
 }
@@ -88,17 +155,16 @@ fn row_to_conversation(row: &rusqlite::Row) -> rusqlite::Result<ChannelConversat
         sender_id: row.get(6)?,
         sender_name: row.get(7)?,
         chat_type: row.get(8)?,
-        is_primary: row.get::<_, i64>(9)? != 0,
-        source: row.get(10)?,
-        attached_at: row.get(11)?,
-        created_at: row.get(12)?,
-        updated_at: row.get(13)?,
+        source: row.get(9)?,
+        attached_at: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
     })
 }
 
 const FULL_COLS: &str =
     "id, channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, \
-     chat_type, is_primary, source, attached_at, created_at, updated_at";
+     chat_type, source, attached_at, created_at, updated_at";
 
 impl ChannelDB {
     pub fn new(session_db: Arc<SessionDB>) -> Self {
@@ -108,12 +174,10 @@ impl ChannelDB {
     /// Run the migration to create channel_conversations table.
     /// Called once during app startup.
     ///
-    /// Pre-handover schema lacked `is_primary` / `source` / `attached_at` and
-    /// used a different UNIQUE shape that allowed multiple rows per chat. The
-    /// new model gives a chat a single attach row at any time, so we wipe the
-    /// legacy table and let it rebuild — the IM worker will lazily re-create
-    /// channel_conversations on the next inbound message. Project↔channel
-    /// reverse-claim is gone (see Phase A1) so no auto-routing is lost.
+    /// Two prior schema shapes get DROP-and-rebuilt: (a) the pre-handover
+    /// table without `source` / `attached_at`; (b) the multi-attach table
+    /// with `is_primary`. Both are dropped without preserving rows — the
+    /// IM worker re-creates entries lazily on the next inbound message.
     pub fn migrate(&self) -> Result<()> {
         let conn = self
             .session_db
@@ -124,12 +188,16 @@ impl ChannelDB {
         let has_table = conn
             .prepare("SELECT id FROM channel_conversations LIMIT 1")
             .is_ok();
+        let has_source = conn
+            .prepare("SELECT source FROM channel_conversations LIMIT 1")
+            .is_ok();
         let has_is_primary = conn
             .prepare("SELECT is_primary FROM channel_conversations LIMIT 1")
             .is_ok();
 
-        if has_table && !has_is_primary {
-            // Legacy schema — drop and rebuild on the new shape.
+        if has_table && (!has_source || has_is_primary) {
+            // Either legacy (no source) or multi-attach (still has
+            // is_primary) — drop and rebuild on the new 1:1 shape.
             conn.execute_batch("DROP TABLE IF EXISTS channel_conversations;")?;
         }
 
@@ -144,7 +212,6 @@ impl ChannelDB {
                 sender_id TEXT,
                 sender_name TEXT,
                 chat_type TEXT NOT NULL DEFAULT 'dm',
-                is_primary INTEGER NOT NULL DEFAULT 1,
                 source TEXT NOT NULL DEFAULT 'inbound',
                 attached_at TEXT,
                 created_at TEXT NOT NULL,
@@ -157,12 +224,13 @@ impl ChannelDB {
             -- chat have two attach rows.
             CREATE UNIQUE INDEX IF NOT EXISTS uq_channel_conv_chat
                 ON channel_conversations(channel_id, account_id, chat_id, COALESCE(thread_id, ''));
-            CREATE INDEX IF NOT EXISTS idx_channel_conv_session
+            -- 1:1 in the other direction too: at most one attach row per
+            -- session_id. attach_session evicts any existing row before
+            -- inserting/updating to enforce this.
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_channel_conv_session
                 ON channel_conversations(session_id);
             CREATE INDEX IF NOT EXISTS idx_channel_conv_lookup
-                ON channel_conversations(channel_id, account_id, chat_id);
-            CREATE INDEX IF NOT EXISTS idx_channel_conv_primary
-                ON channel_conversations(session_id, is_primary);",
+                ON channel_conversations(channel_id, account_id, chat_id);",
         )?;
 
         Ok(())
@@ -200,13 +268,7 @@ impl ChannelDB {
             .optional()?;
 
         if let Some(existing) = existing {
-            // Update timestamp and sender info — scoped to **this** attach row
-            // (the (channel, account, chat, thread) tuple), not the entire
-            // session. With multi-attach, a session can have several IM chats
-            // pointed at it; only the speaker's row should advance its
-            // `updated_at` / sender metadata. Touching every row would
-            // pollute `/status`, the channel chip, and the
-            // updated-at-based fallback in `detach_session`.
+            // Update timestamp + sender info on the existing attach row.
             let now = chrono::Utc::now().to_rfc3339();
             conn.execute(
                 "UPDATE channel_conversations \
@@ -264,13 +326,13 @@ impl ChannelDB {
         )?;
 
         // Insert channel_conversations mapping. Inbound from IM ⇒
-        // source = "inbound", is_primary = 1.
+        // source = "inbound".
         let now = chrono::Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO channel_conversations \
                 (channel_id, account_id, chat_id, thread_id, session_id, sender_id, sender_name, \
-                 chat_type, is_primary, source, attached_at, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?10, ?10)",
+                 chat_type, source, attached_at, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
             params![
                 channel_id,
                 account_id,
@@ -357,9 +419,9 @@ impl ChannelDB {
         Ok(rows)
     }
 
-    /// Look up the primary attach row for a session. Multi-IM observers
-    /// surface here too — but the primary is what callers (approval / ask_user
-    /// / final reply delivery) want, so we order is_primary DESC first.
+    /// Look up the IM attach row for a session, if any. With 1:1 attach
+    /// the unique index `uq_channel_conv_session` guarantees at most one
+    /// row per session.
     pub fn get_conversation_by_session(
         &self,
         session_id: &str,
@@ -370,11 +432,7 @@ impl ChannelDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let sql = format!(
-            "SELECT {FULL_COLS} FROM channel_conversations \
-             WHERE session_id = ?1 \
-             ORDER BY is_primary DESC, updated_at DESC LIMIT 1"
-        );
+        let sql = format!("SELECT {FULL_COLS} FROM channel_conversations WHERE session_id = ?1");
         let result = conn.query_row(&sql, params![session_id], row_to_conversation);
 
         match result {
@@ -385,9 +443,10 @@ impl ChannelDB {
     }
 
     /// Re-point an existing chat to a new session_id (used by `/new` and
-    /// `/agent` from inside an IM chat). The (channel, account, chat, thread)
-    /// row already exists; we just swap its session_id and bump `updated_at`.
-    /// Returns true when a row was updated.
+    /// `/agent` from inside an IM chat). Evicts any chat currently attached
+    /// to `new_session_id` so the 1:1 invariant holds, then swaps this
+    /// chat's session_id and bumps `updated_at`. Returns true when this
+    /// chat's row was updated.
     pub fn update_session(
         &self,
         channel_id: &str,
@@ -403,83 +462,47 @@ impl ChannelDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        // Snapshot the existing row so we can backfill the previous
-        // session's primary if we're stealing it. Without this step a
-        // `/new` from a chat that was the previous session's primary
-        // leaves that session headless — outbound mirror / watcher
-        // fan-outs would then drop messages on the floor.
-        let existing: Option<(String, i64)> = if let Some(tid) = thread_id {
-            conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
-                params![channel_id, account_id, chat_id, tid],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()?
-        } else {
-            conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
-                params![channel_id, account_id, chat_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()?
-        };
-
-        // Ensure the new session has only one primary across all attaches.
-        // Demote any existing primary rows that point at the new session
-        // before we promote this chat.
-        conn.execute(
-            "UPDATE channel_conversations SET is_primary = 0 WHERE session_id = ?1",
-            params![new_session_id],
+        // Evict any chat currently attached to new_session_id that is
+        // NOT this chat, so the 1:1 invariant on session_id holds. Same
+        // chat → same session_id is a no-op (the chat won't match its
+        // own coords). Each evictee gets a notice via emit_evictions
+        // after the lock is dropped.
+        let evicted = evict_others(
+            &conn,
+            new_session_id,
+            channel_id,
+            account_id,
+            chat_id,
+            thread_id,
         )?;
 
         let rows = if let Some(tid) = thread_id {
             conn.execute(
                 "UPDATE channel_conversations \
-                 SET session_id = ?1, is_primary = 1, updated_at = ?2 \
+                 SET session_id = ?1, updated_at = ?2 \
                  WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id = ?6",
                 params![new_session_id, now, channel_id, account_id, chat_id, tid],
             )?
         } else {
             conn.execute(
                 "UPDATE channel_conversations \
-                 SET session_id = ?1, is_primary = 1, updated_at = ?2 \
+                 SET session_id = ?1, updated_at = ?2 \
                  WHERE channel_id = ?3 AND account_id = ?4 AND chat_id = ?5 AND thread_id IS NULL",
                 params![new_session_id, now, channel_id, account_id, chat_id],
             )?
         };
 
-        // Backfill primary on the orphaned previous session, if any.
-        let mut orphaned: Option<String> = None;
-        if rows > 0 {
-            if let Some((prev_sid, prev_primary)) = existing {
-                if prev_primary != 0 && prev_sid != new_session_id {
-                    conn.execute(
-                        "UPDATE channel_conversations SET is_primary = 1 \
-                         WHERE id = (SELECT id FROM channel_conversations \
-                                      WHERE session_id = ?1 \
-                                      ORDER BY updated_at DESC LIMIT 1)",
-                        params![prev_sid],
-                    )?;
-                    orphaned = Some(prev_sid);
-                }
-            }
-        }
-
         drop(conn);
         if rows > 0 {
-            emit_primary_changed(new_session_id);
-            if let Some(prev_sid) = orphaned {
-                emit_primary_changed(&prev_sid);
-            }
+            emit_evictions(&evicted, new_session_id);
         }
         Ok(rows > 0)
     }
 
-    /// Attach (channel, account, chat, thread) to `session_id`, replacing any
-    /// existing attach for that chat. The new attach is set primary by
-    /// default; any other primary row on the same session is demoted.
+    /// Attach (channel, account, chat, thread) to `session_id`, evicting
+    /// whichever chat (if any) was previously attached to the same
+    /// `session_id` so the 1:1 invariant holds. Each evicted chat gets one
+    /// `EVENT_CHANNEL_SESSION_EVICTED` event after the lock is dropped.
     ///
     /// Used by `/session <id>` (source = "attach") and `/handover` /
     /// GUI handover flow (source = "handover"). Inbound auto-attach goes
@@ -506,38 +529,23 @@ impl ChannelDB {
         let now = chrono::Utc::now().to_rfc3339();
         let chat_type_s = chat_type_str(chat_type);
 
-        // 1. Snapshot the existing row, if any. If we're moving a
-        //    chat from session A → session B, we'll need to know
-        //    whether to backfill A's primary after the swap.
-        let existing: Option<(String, i64)> = if let Some(tid) = thread_id {
-            conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
-                params![channel_id, account_id, chat_id, tid],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()?
-        } else {
-            conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
-                params![channel_id, account_id, chat_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()?
-        };
-
-        // 2. Demote any existing primary on the target session.
-        conn.execute(
-            "UPDATE channel_conversations SET is_primary = 0 WHERE session_id = ?1",
-            params![session_id],
+        // 1. Physically detach any chat currently bound to the target
+        //    session that isn't the incoming chat — 1:1 invariant.
+        //    Each evictee gets a "you've been taken over" notice via
+        //    EVENT_CHANNEL_SESSION_EVICTED after we drop the lock.
+        let evicted = evict_others(
+            &conn, session_id, channel_id, account_id, chat_id, thread_id,
         )?;
 
-        // 3. UPDATE the existing chat row, or INSERT a new one.
+        // 2. UPDATE the existing chat row, or INSERT a new one. If the
+        //    incoming chat was previously attached to another session, the
+        //    UPDATE silently relocates it (the source session is now
+        //    headless — no notice to send because the only attach row was
+        //    this chat itself).
         let updated = if let Some(tid) = thread_id {
             conn.execute(
                 "UPDATE channel_conversations \
-                 SET session_id = ?1, source = ?2, attached_at = ?3, is_primary = 1, \
+                 SET session_id = ?1, source = ?2, attached_at = ?3, \
                      sender_id = COALESCE(?4, sender_id), \
                      sender_name = COALESCE(?5, sender_name), \
                      chat_type = ?6, updated_at = ?3 \
@@ -558,7 +566,7 @@ impl ChannelDB {
         } else {
             conn.execute(
                 "UPDATE channel_conversations \
-                 SET session_id = ?1, source = ?2, attached_at = ?3, is_primary = 1, \
+                 SET session_id = ?1, source = ?2, attached_at = ?3, \
                      sender_id = COALESCE(?4, sender_id), \
                      sender_name = COALESCE(?5, sender_name), \
                      chat_type = ?6, updated_at = ?3 \
@@ -581,8 +589,8 @@ impl ChannelDB {
             conn.execute(
                 "INSERT INTO channel_conversations \
                     (channel_id, account_id, chat_id, thread_id, session_id, sender_id, \
-                     sender_name, chat_type, is_primary, source, attached_at, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 1, ?9, ?10, ?10, ?10)",
+                     sender_name, chat_type, source, attached_at, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10, ?10)",
                 params![
                     channel_id,
                     account_id,
@@ -598,44 +606,23 @@ impl ChannelDB {
             )?;
         }
 
-        // 4. Make the attached session non-incognito (channel has external
+        // 3. Make the attached session non-incognito (channel has external
         //    counterparty whose messages must persist).
         conn.execute(
             "UPDATE sessions SET incognito = 0 WHERE id = ?1 AND incognito = 1",
             params![session_id],
         )?;
 
-        // 5. If the chat was previously primary for a *different*
-        //    session, that source session is now headless — promote
-        //    its next-most-recent attach so outbound deliveries
-        //    (final-reply mirror, primary watcher) still find a
-        //    receiver.
-        let mut orphaned: Option<String> = None;
-        if let Some((prev_sid, prev_primary)) = existing {
-            if prev_primary != 0 && prev_sid != session_id {
-                conn.execute(
-                    "UPDATE channel_conversations SET is_primary = 1 \
-                     WHERE id = (SELECT id FROM channel_conversations \
-                                  WHERE session_id = ?1 \
-                                  ORDER BY updated_at DESC LIMIT 1)",
-                    params![prev_sid],
-                )?;
-                orphaned = Some(prev_sid);
-            }
-        }
-
         drop(conn);
-        emit_primary_changed(session_id);
-        if let Some(prev_sid) = orphaned {
-            emit_primary_changed(&prev_sid);
-        }
+        emit_evictions(&evicted, session_id);
         Ok(())
     }
 
-    /// Remove the attach row for (channel, account, chat, thread). If the
-    /// removed row was the primary for its session, the most-recently-attached
-    /// remaining row on that session is promoted to primary.
-    /// Returns the detached `session_id` (or `None` when no row matched).
+    /// Remove the attach row for (channel, account, chat, thread). Returns
+    /// the detached `session_id` (or `None` when no row matched). 1:1
+    /// invariant means there's at most one row to delete; the session is
+    /// simply left headless after this call (no event needed — `/session
+    /// exit` already replies "Detached..." in the IM chat).
     pub fn detach_session(
         &self,
         channel_id: &str,
@@ -649,25 +636,25 @@ impl ChannelDB {
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let row: Option<(String, i64)> = if let Some(tid) = thread_id {
+        let sid: Option<String> = if let Some(tid) = thread_id {
             conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
+                "SELECT session_id FROM channel_conversations \
                  WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
                 params![channel_id, account_id, chat_id, tid],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+                |r| r.get::<_, String>(0),
             )
             .optional()?
         } else {
             conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
+                "SELECT session_id FROM channel_conversations \
                  WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
                 params![channel_id, account_id, chat_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
+                |r| r.get::<_, String>(0),
             )
             .optional()?
         };
 
-        let Some((sid, was_primary)) = row else {
+        let Some(sid) = sid else {
             return Ok(None);
         };
 
@@ -685,109 +672,12 @@ impl ChannelDB {
             )?;
         }
 
-        let primary_changed = was_primary != 0;
-        if primary_changed {
-            // Promote next-most-recent attach for this session (if any).
-            conn.execute(
-                "UPDATE channel_conversations SET is_primary = 1 \
-                 WHERE id = (SELECT id FROM channel_conversations \
-                              WHERE session_id = ?1 \
-                              ORDER BY updated_at DESC LIMIT 1)",
-                params![sid],
-            )?;
-        }
-
-        drop(conn);
-        if primary_changed {
-            emit_primary_changed(&sid);
-        }
-        Ok(Some(sid))
-    }
-
-    /// Promote the row matching (channel, account, chat, thread) to primary
-    /// for its session, demoting any other primary on the same session.
-    /// Returns the affected `session_id` (or `None` when no row matched).
-    pub fn set_primary(
-        &self,
-        channel_id: &str,
-        account_id: &str,
-        chat_id: &str,
-        thread_id: Option<&str>,
-    ) -> Result<Option<String>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-
-        let target: Option<(String, i64)> = if let Some(tid) = thread_id {
-            conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
-                params![channel_id, account_id, chat_id, tid],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()?
-        } else {
-            conn.query_row(
-                "SELECT session_id, is_primary FROM channel_conversations \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
-                params![channel_id, account_id, chat_id],
-                |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)),
-            )
-            .optional()?
-        };
-
-        let Some((sid, was_primary)) = target else {
-            return Ok(None);
-        };
-
-        // Skip the demote/promote dance + watcher notification when the
-        // row is already the only primary on its session — saves a
-        // spurious "you are now primary" message on repeat calls.
-        if was_primary != 0 {
-            let other_primaries: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM channel_conversations \
-                 WHERE session_id = ?1 AND is_primary = 1 \
-                   AND NOT (channel_id = ?2 AND account_id = ?3 AND chat_id = ?4 \
-                            AND COALESCE(thread_id, '') = COALESCE(?5, ''))",
-                params![sid, channel_id, account_id, chat_id, thread_id],
-                |r| r.get(0),
-            )?;
-            if other_primaries == 0 {
-                return Ok(Some(sid));
-            }
-        }
-
-        conn.execute(
-            "UPDATE channel_conversations SET is_primary = 0 WHERE session_id = ?1",
-            params![sid],
-        )?;
-
-        if let Some(tid) = thread_id {
-            conn.execute(
-                "UPDATE channel_conversations SET is_primary = 1 \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4",
-                params![channel_id, account_id, chat_id, tid],
-            )?;
-        } else {
-            conn.execute(
-                "UPDATE channel_conversations SET is_primary = 1 \
-                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL",
-                params![channel_id, account_id, chat_id],
-            )?;
-        }
-
-        drop(conn);
-        emit_primary_changed(&sid);
         Ok(Some(sid))
     }
 
     /// Cheap "is anything attached?" probe for the GUI → IM mirror fast
-    /// path: skips the row materialisation + ORDER BY that
-    /// [`Self::list_attached`] does, so chat-engine startup pays only an
-    /// `EXISTS` round-trip when the session has no IM attaches (the
-    /// common case for desktop-only users).
+    /// path: pays only an `EXISTS` round-trip when the session has no IM
+    /// attach (the common case for desktop-only users).
     pub fn has_attached(&self, session_id: &str) -> Result<bool> {
         let conn = self
             .session_db
@@ -800,25 +690,5 @@ impl ChannelDB {
             |row| row.get(0),
         )?;
         Ok(exists != 0)
-    }
-
-    /// List every attach row for a session, primary first.
-    pub fn list_attached(&self, session_id: &str) -> Result<Vec<ChannelConversation>> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-
-        let sql = format!(
-            "SELECT {FULL_COLS} FROM channel_conversations \
-             WHERE session_id = ?1 \
-             ORDER BY is_primary DESC, updated_at DESC"
-        );
-        let mut stmt = conn.prepare(&sql)?;
-        let rows = stmt
-            .query_map(params![session_id], row_to_conversation)?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(rows)
     }
 }

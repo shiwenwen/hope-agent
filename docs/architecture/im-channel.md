@@ -655,34 +655,37 @@ CREATE TABLE channel_conversations (
 
 ### `channel_conversations` Attach 模型
 
-每条 (channel, account, chat, thread) 任意时刻只能 attach 到一个 session,由 `COALESCE(thread_id, '')` unique index 保证(避开 SQLite NULL ≠ NULL 把同一 thread-less chat 切成多行的问题)。同一 session 可被多个 chat attach,但只 `is_primary = 1` 那行接收出站消息(其他行旁观)。
+**1:1 attach（双向）**:每个 (channel, account, chat, thread) 任意时刻只能 attach 到一个 session（`uq_channel_conv_chat`,`COALESCE(thread_id, '')` 避开 SQLite NULL ≠ NULL 切多行问题）;**且**每个 session 任意时刻只能被一个 IM chat attach（`uq_channel_conv_session`)。
 
-- **新列**:`is_primary` (NOT NULL DEFAULT 1) / `source` (`inbound`|`attach`|`handover`) / `attached_at`
+新 chat 通过 `/session <id>` 或 handover 接管时,目标 session 上的旧 attach 被**物理 detach**(不再保留 observer),并通过 `channel:session_evicted` 事件向被踢的 chat 发"会话被另一个 endpoint 接管"系统消息。被踢的 chat 后续再发消息走 inbound `resolve_or_create_session` 自动新建 session。
+
+- **列**:`source` (`inbound`|`attach`|`handover`) / `attached_at`
 - **helpers**([`channel/db.rs`](../../crates/ha-core/src/channel/db.rs)):
-  - `attach_session(...)` —— UPDATE 现有行或 INSERT,提到 primary,同 session 其他行降级
-  - `detach_session(...)` —— 删除 attach 行;如果删的是 primary,自动把同 session 最近一行升级为 primary
-  - `set_primary(...)` —— 显式 promote
-  - `list_attached(session_id)` —— 列出 session 上所有 attach 行(primary first)
-- **events**:任一切换 `is_primary` emit `channel:primary_changed { sessionId }`,channel worker 可订阅以发"你是 primary / 你正在旁观"系统消息(后续 PR)
-- **migration**:旧 schema 检测到没有 `is_primary` 列直接 DROP TABLE 重建;IM worker 在下一条入站消息时重新创建对应行
+  - `attach_session(...)` —— 先 `collect_evictees` + `delete_evictees` 把目标 session 上其他 chat 物理 detach,再 UPDATE/INSERT 当前 chat 到目标 session;最后 emit eviction 事件
+  - `update_session(...)` —— `/new` `/agent` 在 IM 内换 session 用,语义同 `attach_session`,只是更轻量
+  - `detach_session(...)` —— 删除 attach 行(`/session exit` 用);1:1 下不需要 promote next
+  - `get_conversation_by_session(session_id)` —— 取 session 的唯一 attach 行(若有)
+  - `has_attached(session_id)` —— EXISTS 探针,`im_mirror` 用于早返回
+- **events**:`channel:session_evicted { channelId, accountId, chatId, threadId, sessionId }` —— [`channel/worker/eviction_watcher.rs`](../../crates/ha-core/src/channel/worker/eviction_watcher.rs) 订阅后调对应 plugin 的 `send_message` 发硬编码英文带 emoji 的"this chat has been taken over by another endpoint"通知;`ChannelAccountConfig.notify_session_eviction`(默认 `true`) 可静音
+- **migration**:`migrate()` 检测旧 schema(无 `source` 列或还有 `is_primary` 列)直接 DROP TABLE 重建;IM worker 在下一条入站消息时重新创建对应行(按 user feedback「破坏性改动直接 drop,不留兼容路径」)
 
-### GUI → IM final-reply mirror (current) & SinkRegistry follow-up
+### GUI → IM final-reply mirror (current) & live mirror follow-up
 
-**当前实现**([`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 成功路径调 `attach_im_mirrors(session_id, source)` 收集 session 上所有 `is_primary` IM attach 的 plugin + chat 坐标,turn 结束时 `finalize_im_mirrors` 并发 `plugin.send_message` 把最终 assistant text 推到每个 attach。**不是逐 frame 流式**——IM 用户只看到收尾 echo,GUI 端通过原本的 EventSink + EventBus 路径看 live stream。IM 入站 turn 不走 mirror(它本身就是 channel 主路径)。
+**当前实现**([`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 成功路径调 `attach_im_mirrors(session_id, source)`,通过 `get_conversation_by_session(session_id)` 找到 session 的 IM attach(1:1 后只有 0 或 1 个),turn 结束时 `finalize_im_mirrors` 调 `plugin.send_message` 把最终 assistant text 推到该 attach。**不是逐 frame 流式**——IM 用户只看到收尾 echo,GUI 端通过原本的 EventSink + EventBus 路径看 live stream。IM 入站 turn 不走 mirror(它本身就是 channel 主路径)。
 
-**SinkRegistry**([`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs)):全局注册表 + RAII `SinkHandle` 类型已定义,`emit_stream_event` 末尾也已调 `sink_registry().emit(session_id, event)`,但**目前没有任何生产 `.attach()` caller**。live 多 sink fan-out(GUI ↔ IM 真双向流式)是 follow-up——main 的 split-streaming / `RoundTextAccumulator` 重塑了 IM stream task,次级 sink 需要在新状态机上协调 round 边界 / `ImReplyMode` 收尾。`ChannelStreamSink::is_primary` gate 已就位为 follow-up 准备:旁观 sink 通过 EventBus 让 UI 看流,但 `event_tx` 短路不发回 IM channel。
+**Live mirror follow-up**:`SinkRegistry`([`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs)) 类型 + `emit_stream_event` 末尾的 fan-out hook 已就位,但**目前没有任何生产 `.attach()` caller**。GUI ↔ IM 真双向流式镜像(让 IM chat 也看到 GUI 端 turn 的流式过程)是独立 follow-up,详见 [`docs/plans/review-followups.md`](../plans/review-followups.md) F-066。
 
 ### Slash 命令
 
 | 命令 | 行为 | IM 行为 |
 |---|---|---|
 | `/sessions` | 用户对话 session picker(过滤 cron / subagent / incognito) | inline buttons,callback `slash:session <id>` |
-| `/session [<id>\|exit]` | 无参显示 session info(含 attach 列表 + primary 标记);`<id>` attach;`exit` detach | attach 调 `attach_session(..., source="attach")`;detach 调 `detach_session` |
+| `/session [<id>\|exit]` | 无参显示 session info(含 IM attach 行,1:1);`<id>` attach;`exit` detach | attach 调 `attach_session(..., source="attach")`,踢掉旧 chat 并发驱逐通知;detach 调 `detach_session` |
 | `/projects` | 列所有未归档项目 | inline buttons,callback `slash:project <id>` |
 | `/project <name>` | 模糊匹配后切项目 | 发 `AssignProject` —— UPDATE `sessions.project_id`,**不创建新 session**;GUI 模式发 `EnterProject` 创建新 session 进入 |
 | `/handover <ch:acc:chat[:thread]>` | GUI 把当前 session 推到 IM chat | 不下发菜单;实际入口 GUI Handover dialog,slash 给 power user / 脚本 |
 
-`/status` 末尾追加 **Attached IM Channels** 段,列出每个 attach 行的 channel / chat 标识、是否 primary(`★`)、`attached_at`。
+`/status` 末尾追加 **Attached IM Channel** 段,显示该 session 的 IM attach 行(1:1,0 或 1 行) —— channel / chat 标识 + `attached_at`。
 
 ### IM 渠道禁用命令
 

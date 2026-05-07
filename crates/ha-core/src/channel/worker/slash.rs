@@ -823,12 +823,9 @@ fn render_session_picker_buttons_body(
     sessions: &[crate::slash_commands::types::SessionPickerItem],
 ) -> String {
     let total = sessions.len();
-    let mut lines: Vec<String> =
-        vec![format!("Pick a session ({}):", total)];
+    let mut lines: Vec<String> = vec![format!("Pick a session ({}):", total)];
     for s in sessions.iter().take(SESSION_PICKER_BUTTONS_BODY_LIMIT) {
-        lines.push(
-            crate::slash_commands::handlers::session::format_session_picker_line(s),
-        );
+        lines.push(crate::slash_commands::handlers::session::format_session_picker_line(s));
     }
     if total > SESSION_PICKER_BUTTONS_BODY_LIMIT {
         lines.push(format!(
@@ -854,9 +851,7 @@ fn render_session_picker_text(
             .to_string(),
     );
     for s in sessions.iter().take(SESSION_PICKER_TEXT_BODY_LIMIT) {
-        lines.push(
-            crate::slash_commands::handlers::session::format_session_picker_line(s),
-        );
+        lines.push(crate::slash_commands::handlers::session::format_session_picker_line(s));
     }
     if total > SESSION_PICKER_TEXT_BODY_LIMIT {
         lines.push(format!(

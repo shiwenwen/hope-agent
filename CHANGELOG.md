@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **IM session attach 改为 1:1（双向）+ 接管驱逐通知**：上午引入的 multi-attach + observer 设计（`is_primary` 列、demote/promote/backfill、`primary_watcher` 发"你是 primary / 你正在旁观"系统消息）整体下线，体验割裂、`/handover` 后旧 chat 还潜伏在 attach 表里没人通知。新模型：
+  - 任意时刻一个 session 只能被一个 (channel, account, chat, thread) attach；新 chat 通过 `/session <id>` 或 handover 接管时，旧 attach **物理 detach**（不再保留 observer）
+  - 新事件 `channel:session_evicted { channelId, accountId, chatId, threadId, sessionId }` —— [`eviction_watcher.rs`](crates/ha-core/src/channel/worker/eviction_watcher.rs)（原 `primary_watcher.rs` 重命名）订阅后调对应 plugin 的 `send_message` 发"📢 This chat has been taken over by another endpoint. You've left the previous session — send a new message to start a fresh one."
+  - 旧 chat 后续再发消息 → 走 inbound `resolve_or_create_session` 自动新建 session（已有逻辑零改动）
+  - **删除**：`channel_conversations.is_primary` 列 + `idx_channel_conv_primary` 索引；`set_primary` / `list_attached` helper；`EVENT_CHANNEL_PRIMARY_CHANGED` 事件 + `primary_watcher`；dispatcher 里 inbound 后的 `set_primary` auto-promote
+  - **新增 schema 约束**：`uq_channel_conv_session` UNIQUE(session_id) 在 DB 层兜底 1:1 不变量
+  - **配置字段重命名**：`ChannelAccountConfig.notify_primary_changes` → `notify_session_eviction`（默认 `true`，沿用旧默认）；GUI / Tauri / HTTP / 12 i18n locale 一并改名
+  - **简化**：`detach_session` 删 promote-next 分支；`update_session` 复用 evict 逻辑；`get_conversation_by_session` 删 `ORDER BY is_primary`；`im_mirror.rs` 由 `list_attached + filter is_primary` 改为单行 `get_conversation_by_session`；`/status` `/info` 显示删 `★` primary 标记
+  - **migration**：检测到旧 schema（无 `source` 列或还有 `is_primary` 列）直接 DROP TABLE 重建，不保留迁移路径
+  - 涉及 [`channel/db.rs`](crates/ha-core/src/channel/db.rs) / [`worker/eviction_watcher.rs`](crates/ha-core/src/channel/worker/eviction_watcher.rs) / [`worker/dispatcher.rs`](crates/ha-core/src/channel/worker/dispatcher.rs) / [`worker/mod.rs`](crates/ha-core/src/channel/worker/mod.rs) / [`app_init.rs`](crates/ha-core/src/app_init.rs) / [`channel/types.rs`](crates/ha-core/src/channel/types.rs) / [`channel/accounts.rs`](crates/ha-core/src/channel/accounts.rs) / [`chat_engine/im_mirror.rs`](crates/ha-core/src/chat_engine/im_mirror.rs) / [`slash_commands/handlers/{mod,session,utility}.rs`](crates/ha-core/src/slash_commands/handlers/) / [`ha-server/src/routes/channel.rs`](crates/ha-server/src/routes/channel.rs) / [`src-tauri/src/commands/channel.rs`](src-tauri/src/commands/channel.rs) / [`EditAccountDialog.tsx`](src/components/settings/channel-panel/EditAccountDialog.tsx) / [`channel-panel/types.ts`](src/components/settings/channel-panel/types.ts) / 12 i18n locale。架构契约见 [`AGENTS.md`](AGENTS.md) IM Channel 段，详见 [`docs/architecture/im-channel.md`](docs/architecture/im-channel.md) 「`channel_conversations` Attach 模型」节
+  - **Live mirror follow-up**：GUI ↔ IM 真双向流式镜像仍是 follow-up，详见 [`docs/plans/review-followups.md`](docs/plans/review-followups.md) F-066
+
 ### Fixed
 
 - **IM 渠道发送图片 / 文件链路两层修复（wechat 用户撞到的合并文本 + 图片丢失）**：

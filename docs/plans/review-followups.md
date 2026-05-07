@@ -61,6 +61,20 @@
 - **影响面**：UX 视觉冗余，但不影响功能
 - **触发时机建议**：做 picker UI / event 消息系统重构时一并处理
 
+### F-066 GUI ↔ IM live 双向流式镜像（Sink fan-out）
+
+- **来源**：2026-05-07 IM 1:1 attach 改造 PR / 用户讨论
+- **现象**：[`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs) 的 `attach_im_mirrors` + `finalize_im_mirrors` 只在 turn 成功结束后把最终 assistant text 一次性推到 IM attach。GUI / HTTP 触发的 turn 在 IM chat 那边**看不到流式过程**，只看到最后成品。`SinkRegistry` 类型 + `emit_stream_event` 末尾的 fan-out hook 已在 [`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs) 就位，但没有任何生产代码 `.attach()`
+- **为什么留**：本期 PR 主题是把 multi-attach + observer 简化为 1:1 + 接管驱逐通知，scope 仅限 attach 表语义；live mirror 是独立的设计议题，工程量大于本次。先把 attach 表语义梳理干净，下个 PR 实现 live mirror 时不用兼顾旧 multi-attach 语义
+- **改的话要做什么**：
+  - 在 split-streaming / `RoundTextAccumulator` 新状态机上重做 `SinkRegistry.attach()` 路径
+  - GUI 启动 turn 时按 `get_conversation_by_session(session_id)` 找到 IM attach（1:1 后只有一行），sink registry 注册一个走 plugin 的 stream sink
+  - 处理三种 IM transport（Draft / Card / Message）的 stream 显示一致性，参考 [`channel/worker/streaming.rs::select_stream_preview_transport`](../../crates/ha-core/src/channel/worker/streaming.rs)
+  - 流式 preview 的"打字机"语义在 GUI 触发的 turn 里也要适用（按 `ImReplyMode = split / preview`）
+  - 错误降级：plugin 调用失败时不阻塞 GUI 主流程，只 warn
+- **影响面**：体验割裂——用户在 IM chat 看 GUI 触发的 turn 体验不连贯（仿佛 agent 卡住半天再一次性回完）。无 bug 也无安全问题
+- **触发时机建议**：本次 1:1 attach 改造 PR 合入后立即开新 PR 跟进；或用户首次明确反馈"在 IM 看不到 GUI 端打字过程"时专开 PR
+
 ### F-057 IM channel 主动消息 / 媒体能力补完（跨 channel）
 
 - **来源**：2026-05-05 IM channel 全量审计 + 2026-05-06 codex review 回归

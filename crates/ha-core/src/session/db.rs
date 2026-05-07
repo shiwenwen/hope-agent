@@ -35,14 +35,7 @@ const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_
            cc.channel_id, cc.account_id, cc.chat_id, cc.chat_type, cc.sender_name,
            s.working_dir, s.title_source, s.reasoning_effort
      FROM sessions s
-     LEFT JOIN channel_conversations cc
-       ON cc.session_id = s.id
-      AND cc.id = (
-            SELECT cc2.id FROM channel_conversations cc2
-             WHERE cc2.session_id = s.id
-             ORDER BY cc2.is_primary DESC, cc2.updated_at DESC
-             LIMIT 1
-          )";
+     LEFT JOIN channel_conversations cc ON cc.session_id = s.id";
 
 impl SessionDB {
     /// Open (or create) the database at the given path, enable WAL mode,
@@ -2471,14 +2464,7 @@ impl SessionDB {
              FROM messages_fts fts
              JOIN messages m ON m.id = fts.rowid
              JOIN sessions s ON s.id = m.session_id
-             LEFT JOIN channel_conversations cc
-                    ON cc.session_id = s.id
-                   AND cc.id = (
-                         SELECT cc2.id FROM channel_conversations cc2
-                          WHERE cc2.session_id = s.id
-                          ORDER BY cc2.is_primary DESC, cc2.updated_at DESC
-                          LIMIT 1
-                       )
+             LEFT JOIN channel_conversations cc ON cc.session_id = s.id
              WHERE messages_fts MATCH ?1{}
              ORDER BY fts.rank
              LIMIT {}",
@@ -2555,8 +2541,7 @@ impl SessionDB {
         );
 
         let mut stmt = conn.prepare(&sql)?;
-        let rows =
-            stmt.query_map(params![fts_query], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let rows = stmt.query_map(params![fts_query], |row| Ok((row.get(0)?, row.get(1)?)))?;
         let results: Vec<(String, String)> = rows.filter_map(|r| r.ok()).collect();
         Ok(results)
     }
@@ -2756,9 +2741,7 @@ mod tests {
     use super::SessionDB;
 
     fn ensure_channel_conversations_table(db: &SessionDB) {
-        // Mirror the production schema in `ChannelDB::migrate` —
-        // SESSION_META_SELECT's correlated subquery references
-        // `cc2.is_primary`, so test fixtures need the column too.
+        // Mirror the production schema in `ChannelDB::migrate` (1:1 attach).
         let conn = db.conn.lock().expect("lock connection");
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS channel_conversations (
@@ -2771,7 +2754,6 @@ mod tests {
                 sender_id TEXT,
                 sender_name TEXT,
                 chat_type TEXT NOT NULL DEFAULT 'dm',
-                is_primary INTEGER NOT NULL DEFAULT 1,
                 source TEXT NOT NULL DEFAULT 'inbound',
                 attached_at TEXT,
                 created_at TEXT NOT NULL,

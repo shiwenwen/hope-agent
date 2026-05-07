@@ -492,14 +492,13 @@ pub struct ChannelAccountConfig {
     /// When true, all tool calls from this IM channel are automatically approved.
     #[serde(default)]
     pub auto_approve_tools: bool,
-    /// When true (default), the channel worker emits a system message into
-    /// the IM chat whenever its primary-attach status changes — i.e.
-    /// "you are now primary" / "you are now observing". Toggleable per
-    /// account so noisy multi-attach setups can stay quiet. Subscribers
-    /// listen on the `channel:primary_changed` EventBus topic emitted by
-    /// `ChannelDB::{attach,detach,set_primary,update}_session`.
+    /// When true (default), the eviction watcher emits a system message
+    /// into the IM chat when it gets evicted from a session because
+    /// another chat took it over (1:1 attach invariant). Toggleable per
+    /// account. Subscribers listen on the `channel:session_evicted`
+    /// EventBus topic emitted by `ChannelDB::{attach,update}_session`.
     #[serde(default = "crate::default_true")]
-    pub notify_primary_changes: bool,
+    pub notify_session_eviction: bool,
 }
 
 /// Settings JSON key controlling IM reply mode (see [`ImReplyMode`]).
@@ -616,7 +615,7 @@ mod tests {
             settings,
             security: SecurityConfig::default(),
             auto_approve_tools: false,
-            notify_primary_changes: true,
+            notify_session_eviction: true,
         }
     }
 

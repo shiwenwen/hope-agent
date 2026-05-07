@@ -19,32 +19,26 @@ fn session_db() -> Result<&'static std::sync::Arc<crate::session::SessionDB>, St
     require_session_db().map_err(|e| e.to_string())
 }
 
-/// Format `list_attached` rows as a markdown bullet list with `★`
-/// marking the primary attach. Used by `/status` and `/session`
-/// (info form) so both surfaces stay consistent.
-pub(super) fn format_attached_channels_lines(
-    attaches: &[ChannelConversation],
+/// Format the (sole, with 1:1 attach) IM-attach row as a markdown
+/// bullet line. Used by `/status` and `/session` (info form) so both
+/// surfaces stay consistent.
+pub(super) fn format_attached_channel_line(
+    a: &ChannelConversation,
     include_attached_at: bool,
-) -> Vec<String> {
-    attaches
-        .iter()
-        .map(|a| {
-            let star = if a.is_primary { "★ " } else { "" };
-            let label = a.sender_name.as_deref().unwrap_or(&a.chat_id);
-            let attached = if include_attached_at {
-                a.attached_at
-                    .as_deref()
-                    .map(|t| format!(" · attached `{}`", t))
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
-            format!(
-                "- {}**{}** · {} ({}){}",
-                star, a.channel_id, label, a.chat_type, attached
-            )
-        })
-        .collect()
+) -> String {
+    let label = a.sender_name.as_deref().unwrap_or(&a.chat_id);
+    let attached = if include_attached_at {
+        a.attached_at
+            .as_deref()
+            .map(|t| format!(" · attached `{}`", t))
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+    format!(
+        "- **{}** · {} ({}){}",
+        a.channel_id, label, a.chat_type, attached
+    )
 }
 
 /// Dispatch a parsed command to the appropriate handler.

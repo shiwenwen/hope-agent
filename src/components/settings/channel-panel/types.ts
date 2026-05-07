@@ -30,10 +30,11 @@ export interface ChannelAccountConfig {
   enabled: boolean
   agentId?: string | null
   autoApproveTools?: boolean
-  /** When true (default), the worker emits a "you are now primary /
-   *  observing" system message into the IM chat whenever this account's
-   *  attach `is_primary` flips. */
-  notifyPrimaryChanges?: boolean
+  /** When true (default), the eviction watcher emits a "this chat has
+   *  been taken over by another endpoint" system message whenever this
+   *  account is evicted from a session because another chat attached to
+   *  the same session_id (1:1 attach invariant). */
+  notifySessionEviction?: boolean
   credentials: Record<string, unknown>
   settings: Record<string, unknown>
   security: {
