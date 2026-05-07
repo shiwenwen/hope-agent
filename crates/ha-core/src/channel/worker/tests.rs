@@ -2,6 +2,7 @@ use super::dispatcher::merge_preview_round_texts;
 use super::streaming::*;
 use crate::channel::types::*;
 use crate::chat_engine::RoundOutput;
+use tokio::time::{Duration, Instant};
 
 fn caps(
     supports_draft: bool,
@@ -134,6 +135,30 @@ fn stream_preview_outcome_default_reports_zero_finalized_rounds() {
         outcome.finalized_rounds, 0,
         "default outcome must signal `dispatcher should ship every round`"
     );
+}
+
+#[test]
+fn stream_preview_flush_schedule_starts_fast_then_uses_safe_cadence() {
+    let start = Instant::now();
+    let mut schedule = StreamPreviewFlushSchedule::new(start);
+
+    assert!(!schedule.should_flush(
+        true,
+        true,
+        start + STREAM_PREVIEW_FIRST_FLUSH_DELAY - Duration::from_millis(1)
+    ));
+    assert!(schedule.should_flush(true, true, start + STREAM_PREVIEW_FIRST_FLUSH_DELAY));
+    assert!(!schedule.should_flush(false, true, start + Duration::from_secs(10)));
+    assert!(!schedule.should_flush(true, false, start + Duration::from_secs(10)));
+
+    let first_flush = start + STREAM_PREVIEW_FIRST_FLUSH_DELAY;
+    schedule.mark_flushed(first_flush);
+    assert!(!schedule.should_flush(
+        true,
+        true,
+        first_flush + STREAM_PREVIEW_FLUSH_INTERVAL - Duration::from_millis(1)
+    ));
+    assert!(schedule.should_flush(true, true, first_flush + STREAM_PREVIEW_FLUSH_INTERVAL));
 }
 
 #[test]

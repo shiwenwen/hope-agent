@@ -1,5 +1,6 @@
 use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
+use tokio::time::{Duration, Instant};
 
 use super::dispatcher::deliver_media_to_chat;
 use crate::channel::traits::ChannelPlugin;
@@ -14,6 +15,33 @@ use crate::chat_engine::RoundTextAccumulator;
 /// so streaming previews keep flowing on responses larger than the
 /// channel's text-message cap.
 pub(super) const CARD_ELEMENT_MAX_CHARS: usize = 100_000;
+pub(super) const STREAM_PREVIEW_FIRST_FLUSH_DELAY: Duration = Duration::from_millis(300);
+pub(super) const STREAM_PREVIEW_FLUSH_INTERVAL: Duration = Duration::from_millis(1000);
+
+#[derive(Debug)]
+pub(super) struct StreamPreviewFlushSchedule {
+    next_at: Instant,
+}
+
+impl StreamPreviewFlushSchedule {
+    pub(super) fn new(now: Instant) -> Self {
+        Self {
+            next_at: now + STREAM_PREVIEW_FIRST_FLUSH_DELAY,
+        }
+    }
+
+    pub(super) fn next_at(&self) -> Instant {
+        self.next_at
+    }
+
+    pub(super) fn should_flush(&self, dirty: bool, has_text: bool, now: Instant) -> bool {
+        dirty && has_text && now >= self.next_at
+    }
+
+    pub(super) fn mark_flushed(&mut self, now: Instant) {
+        self.next_at = now + STREAM_PREVIEW_FLUSH_INTERVAL;
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum StreamPreviewTransport {
@@ -103,7 +131,7 @@ pub(super) fn append_preview_round_text(accumulated: &mut String, text: &str, ne
 ///   support message edits (host message ends up showing "edited" badge)
 #[allow(clippy::too_many_arguments)]
 pub(super) fn spawn_channel_stream_task(
-    mut event_rx: mpsc::Receiver<String>,
+    mut event_rx: mpsc::UnboundedReceiver<String>,
     plugin: Arc<dyn ChannelPlugin>,
     account_id: String,
     chat_id: String,
@@ -149,15 +177,33 @@ pub(super) fn spawn_channel_stream_task(
         let mut in_tool_phase = false;
         // Number of rounds we've already shipped via per-round finalize.
         let mut finalized_rounds: usize = 0;
-        // 1s cadence keeps us under Telegram's edit rate limit while feeling live.
-        let mut interval = tokio::time::interval(std::time::Duration::from_millis(1000));
-        // Don't fire immediately
-        interval.tick().await;
+        let mut flush_schedule = StreamPreviewFlushSchedule::new(Instant::now());
 
         loop {
-            tokio::select! {
-                biased;
+            // Check the clock before polling the receiver. If model deltas
+            // arrive continuously, this prevents the preview flush from being
+            // starved until EOF.
+            if flush_schedule.should_flush(dirty, !accumulated.is_empty(), Instant::now()) {
+                send_stream_preview(
+                    &plugin,
+                    &account_id,
+                    &chat_id,
+                    reply_to_message_id.as_deref(),
+                    thread_id.as_deref(),
+                    max_msg_len,
+                    &accumulated,
+                    draft_id,
+                    &mut preview_transport,
+                    &mut preview_message_id,
+                    &mut card_session,
+                )
+                .await;
+                dirty = false;
+                flush_schedule.mark_flushed(Instant::now());
+                continue;
+            }
 
+            tokio::select! {
                 event = event_rx.recv() => {
                     match event {
                         Some(event_str) => {
@@ -180,6 +226,7 @@ pub(super) fn spawn_channel_stream_task(
                                         &mut preview_message_id, &mut card_session,
                                         finalized_rounds, &round_texts, &capabilities,
                                     ).await;
+                                    flush_schedule.mark_flushed(Instant::now());
                                     accumulated.clear();
                                     finalized_rounds += 1;
                                 }
@@ -221,7 +268,7 @@ pub(super) fn spawn_channel_stream_task(
                     }
                 }
 
-                _ = interval.tick() => {
+                _ = tokio::time::sleep_until(flush_schedule.next_at()), if dirty && !accumulated.is_empty() => {
                     if dirty && !accumulated.is_empty() {
                         send_stream_preview(
                             &plugin, &account_id, &chat_id,
@@ -230,6 +277,7 @@ pub(super) fn spawn_channel_stream_task(
                             &mut preview_message_id, &mut card_session,
                         ).await;
                         dirty = false;
+                        flush_schedule.mark_flushed(Instant::now());
                     }
                 }
             }
