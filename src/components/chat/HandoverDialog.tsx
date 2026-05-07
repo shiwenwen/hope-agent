@@ -1,22 +1,18 @@
 /**
  * HandoverDialog — push the current session out to an IM chat.
  *
- * Surfaces every configured channel-account and asks for a chat id (and
- * optional thread id for forum-style chats). Submitting calls the Phase B1
- * `channel_handover_session` invoke; the backend creates a fresh attach
- * row with `source = "handover"` and promotes it to primary.
- *
- * Kept intentionally lightweight — a fancier picker (history of chats,
- * group / DM toggles, etc.) is a Phase C+ refinement.
+ * Prefer a recent-conversation picker so users don't need to know the raw
+ * chat id. Manual entry remains available for first-time or scripted targets.
  */
 
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2 } from "lucide-react"
+import { Loader2, MessageSquare, PencilLine, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { IconTip } from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -46,6 +42,23 @@ type ChatType = "dm" | "group" | "forum" | "channel"
 
 const CHAT_TYPES: ChatType[] = ["dm", "group", "forum", "channel"]
 
+// Matches the shape returned by `channel_list_sessions`.
+interface ChannelConversationDto {
+  id: number
+  channelId: string
+  accountId: string
+  chatId: string
+  threadId?: string | null
+  sessionId: string
+  senderId?: string | null
+  senderName?: string | null
+  chatType: ChatType | string
+  createdAt: string
+  updatedAt: string
+}
+
+type TargetMode = "recent" | "manual"
+
 export default function HandoverDialog({
   open,
   onOpenChange,
@@ -57,6 +70,10 @@ export default function HandoverDialog({
   const [chatId, setChatId] = useState<string>("")
   const [threadId, setThreadId] = useState<string>("")
   const [chatType, setChatType] = useState<ChatType>("dm")
+  const [targetMode, setTargetMode] = useState<TargetMode>("recent")
+  const [conversationId, setConversationId] = useState<string>("")
+  const [conversations, setConversations] = useState<ChannelConversationDto[]>([])
+  const [loadingConversations, setLoadingConversations] = useState(false)
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<"idle" | "saved" | "failed">("idle")
   const [errorMessage, setErrorMessage] = useState<string>("")
@@ -67,6 +84,10 @@ export default function HandoverDialog({
     setChatId("")
     setThreadId("")
     setChatType("dm")
+    setTargetMode("recent")
+    setConversationId("")
+    setConversations([])
+    setLoadingConversations(false)
     setStatus("idle")
     setErrorMessage("")
     void (async () => {
@@ -93,11 +114,144 @@ export default function HandoverDialog({
   }, [open])
 
   const selectedAccount = accounts.find((a) => a.id === accountId) ?? null
+  const selectedConversation =
+    conversations.find((c) => String(c.id) === conversationId) ?? null
   const canSubmit =
-    !!sessionId && !!selectedAccount && chatId.trim().length > 0 && !busy
+    !!sessionId &&
+    !!selectedAccount &&
+    !busy &&
+    (targetMode === "recent"
+      ? !!selectedConversation
+      : chatId.trim().length > 0)
+
+  useEffect(() => {
+    if (!open || !selectedAccount) return
+    let cancelled = false
+
+    setConversations([])
+    setConversationId("")
+    setLoadingConversations(true)
+
+    void (async () => {
+      try {
+        const list = await getTransport().call<ChannelConversationDto[]>(
+          "channel_list_sessions",
+          {
+            channelId: selectedAccount.channelId,
+            accountId: selectedAccount.id,
+          },
+        )
+        if (cancelled) return
+        const conversations = list ?? []
+        setConversations(conversations)
+
+        if (conversations.length > 0) {
+          const first = conversations[0]
+          setTargetMode("recent")
+          setConversationId(String(first.id))
+          applyConversation(first)
+        } else {
+          setTargetMode("manual")
+          setChatId("")
+          setThreadId("")
+          setChatType("dm")
+        }
+      } catch (e) {
+        if (cancelled) return
+        logger.warn("chat", "HandoverDialog", "channel_list_sessions failed", e)
+        setConversations([])
+        setTargetMode("manual")
+      } finally {
+        if (!cancelled) setLoadingConversations(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, selectedAccount?.id, selectedAccount?.channelId])
+
+  function normalizeChatType(value: string): ChatType {
+    return CHAT_TYPES.includes(value as ChatType) ? (value as ChatType) : "dm"
+  }
+
+  function conversationLabel(conversation: ChannelConversationDto) {
+    const name = conversation.senderName?.trim()
+    return name && name.length > 0 ? name : conversation.chatId
+  }
+
+  function conversationMeta(conversation: ChannelConversationDto) {
+    const type = normalizeChatType(conversation.chatType)
+    const parts = [t(`chat.handover.dialog.chatTypes.${type}`)]
+    if (conversation.threadId) {
+      parts.push(`${t("chat.handover.dialog.threadId")}: ${conversation.threadId}`)
+    }
+    return parts.join(" · ")
+  }
+
+  function applyConversation(conversation: ChannelConversationDto) {
+    setChatId(conversation.chatId)
+    setThreadId(conversation.threadId ?? "")
+    setChatType(normalizeChatType(conversation.chatType))
+  }
+
+  function handlePickConversation(nextConversationId: string) {
+    setConversationId(nextConversationId)
+    const conversation = conversations.find((c) => String(c.id) === nextConversationId)
+    if (conversation) applyConversation(conversation)
+  }
+
+  async function refreshConversations() {
+    if (!selectedAccount || loadingConversations) return
+    setLoadingConversations(true)
+    try {
+      const list = await getTransport().call<ChannelConversationDto[]>(
+        "channel_list_sessions",
+        {
+          channelId: selectedAccount.channelId,
+          accountId: selectedAccount.id,
+        },
+      )
+      const conversations = list ?? []
+      setConversations(conversations)
+      if (conversations.length > 0) {
+        const keep =
+          conversations.find((c) => String(c.id) === conversationId) ??
+          conversations[0]
+        setTargetMode("recent")
+        setConversationId(String(keep.id))
+        applyConversation(keep)
+      } else {
+        setTargetMode("manual")
+        setConversationId("")
+      }
+    } catch (e) {
+      logger.warn("chat", "HandoverDialog", "refresh channel_list_sessions failed", e)
+      setConversations([])
+      setTargetMode("manual")
+    } finally {
+      setLoadingConversations(false)
+    }
+  }
+
+  function switchTargetMode(nextMode: TargetMode) {
+    if (nextMode === "recent" && conversations.length === 0) return
+    setTargetMode(nextMode)
+    if (nextMode === "recent") {
+      const conversation = selectedConversation ?? conversations[0]
+      if (conversation) {
+        setConversationId(String(conversation.id))
+        applyConversation(conversation)
+      }
+    }
+  }
 
   async function handleSubmit() {
     if (!canSubmit || !sessionId || !selectedAccount) return
+    const targetChatId =
+      targetMode === "recent" ? selectedConversation?.chatId : chatId.trim()
+    if (!targetChatId) return
     setBusy(true)
     setStatus("idle")
     setErrorMessage("")
@@ -106,7 +260,7 @@ export default function HandoverDialog({
         sessionId,
         channelId: selectedAccount.channelId,
         accountId: selectedAccount.id,
-        chatId: chatId.trim(),
+        chatId: targetChatId,
         threadId: threadId.trim() ? threadId.trim() : null,
         chatType,
       })
@@ -155,49 +309,141 @@ export default function HandoverDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="handover-chat">
-              {t("chat.handover.dialog.chatId")}
-            </Label>
-            <Input
-              id="handover-chat"
-              value={chatId}
-              onChange={(e) => setChatId(e.target.value)}
-              placeholder={t("chat.handover.dialog.chatIdPlaceholder")}
-              autoComplete="off"
-              spellCheck={false}
-            />
-          </div>
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+              <Label htmlFor="handover-conversation">
+                {t("chat.handover.dialog.target")}
+              </Label>
+              <div className="flex items-center gap-1">
+                <IconTip label={t("chat.handover.dialog.refreshConversations")}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={refreshConversations}
+                    disabled={!selectedAccount || loadingConversations}
+                    aria-label={t("chat.handover.dialog.refreshConversations")}
+                  >
+                    <RefreshCw
+                      className={`h-3.5 w-3.5 ${loadingConversations ? "animate-spin" : ""}`}
+                    />
+                  </Button>
+                </IconTip>
+                {conversations.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() =>
+                      switchTargetMode(targetMode === "manual" ? "recent" : "manual")
+                    }
+                  >
+                    {targetMode === "manual" ? (
+                      <MessageSquare className="mr-1 h-3.5 w-3.5" />
+                    ) : (
+                      <PencilLine className="mr-1 h-3.5 w-3.5" />
+                    )}
+                    {targetMode === "manual"
+                      ? t("chat.handover.dialog.chooseRecent")
+                      : t("chat.handover.dialog.manualEntry")}
+                  </Button>
+                )}
+              </div>
+            </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="handover-type">{t("chat.handover.dialog.chatType")}</Label>
-              <Select value={chatType} onValueChange={(v) => setChatType(v as ChatType)}>
-                <SelectTrigger id="handover-type">
-                  <SelectValue />
+            {targetMode === "recent" && conversations.length > 0 ? (
+              <Select value={conversationId} onValueChange={handlePickConversation}>
+                <SelectTrigger
+                  id="handover-conversation"
+                  className="h-auto min-h-9 items-start py-2 text-left [&>span]:line-clamp-none [&>span]:whitespace-normal"
+                >
+                  <SelectValue placeholder={t("chat.handover.dialog.selectConversation")}>
+                    {selectedConversation ? (
+                      <span className="flex min-w-0 flex-col gap-0.5">
+                        <span className="break-words text-sm leading-5">
+                          {conversationLabel(selectedConversation)}
+                        </span>
+                        <span className="break-words text-xs leading-4 text-muted-foreground">
+                          {conversationMeta(selectedConversation)}
+                        </span>
+                      </span>
+                    ) : null}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  {CHAT_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {t(`chat.handover.dialog.chatTypes.${type}`)}
+                  {conversations.map((conversation) => (
+                    <SelectItem
+                      key={conversation.id}
+                      value={String(conversation.id)}
+                      className="items-start py-2"
+                    >
+                      <span className="flex max-w-[min(22rem,calc(100vw-5rem))] flex-col gap-0.5 py-0.5">
+                        <span className="whitespace-normal break-words text-sm leading-5">
+                          {conversationLabel(conversation)}
+                        </span>
+                        <span className="whitespace-normal break-words text-xs leading-4 text-muted-foreground">
+                          {conversationMeta(conversation)}
+                        </span>
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="handover-thread">
-                {t("chat.handover.dialog.threadId")}
-              </Label>
+            ) : (
               <Input
-                id="handover-thread"
-                value={threadId}
-                onChange={(e) => setThreadId(e.target.value)}
-                placeholder={t("chat.handover.dialog.threadIdPlaceholder")}
+                id="handover-chat"
+                value={chatId}
+                onChange={(e) => setChatId(e.target.value)}
+                placeholder={t("chat.handover.dialog.chatIdPlaceholder")}
                 autoComplete="off"
                 spellCheck={false}
               />
-            </div>
+            )}
+
+            {loadingConversations ? (
+              <p className="text-xs text-muted-foreground">
+                {t("chat.handover.dialog.loadingConversations")}
+              </p>
+            ) : conversations.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                {t("chat.handover.dialog.noRecentConversations")}
+              </p>
+            ) : null}
           </div>
+
+          {targetMode === "manual" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="handover-type">{t("chat.handover.dialog.chatType")}</Label>
+                <Select value={chatType} onValueChange={(v) => setChatType(v as ChatType)}>
+                  <SelectTrigger id="handover-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CHAT_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {t(`chat.handover.dialog.chatTypes.${type}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="handover-thread">
+                  {t("chat.handover.dialog.threadId")}
+                </Label>
+                <Input
+                  id="handover-thread"
+                  value={threadId}
+                  onChange={(e) => setThreadId(e.target.value)}
+                  placeholder={t("chat.handover.dialog.threadIdPlaceholder")}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+              </div>
+            </div>
+          )}
 
           {status === "failed" && errorMessage && (
             <p className="text-xs text-destructive">{errorMessage}</p>

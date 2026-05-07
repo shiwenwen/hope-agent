@@ -1580,7 +1580,7 @@
         "button": "交班到 IM",
         "dialog": {
           "title": "交班工作階段",
-          "description": "將目前工作階段推送到 IM,後續 assistant 回覆會以該 chat 為主要接收端。",
+          "description": "將目前工作階段推送到 IM,後續 Agent 回覆會以該 chat 為主要接收端。",
           "account": "IM 帳號",
           "selectAccount": "選擇帳號",
           "chatId": "Chat ID",
@@ -7778,7 +7778,7 @@
         "button": "交班到 IM",
         "dialog": {
           "title": "交班会话",
-          "description": "把当前会话推到 IM,后续 assistant 回复将以该 chat 为主接收方。",
+          "description": "把当前会话推到 IM,后续 Agent 回复将以该 chat 为主接收方。",
           "account": "IM 账号",
           "selectAccount": "选择账号",
           "chatId": "Chat ID",
