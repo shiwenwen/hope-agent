@@ -92,7 +92,8 @@ pub(crate) async fn execute_claimed_job(
 
     // Persist the cron prompt before execution so `run_chat_engine` can reuse
     // the same DB contract as interactive chat without duplicating user rows.
-    let mut user_msg = crate::session::NewMessage::user(&prompt);
+    let mut user_msg = crate::session::NewMessage::user(&prompt)
+        .with_source(crate::chat_engine::ChatSource::Channel);
     user_msg.attachments_meta = Some(
         serde_json::json!({
             "cron_trigger": {
@@ -354,7 +355,8 @@ fn persist_failure_message_if_missing(
         return;
     }
 
-    let mut err_msg = crate::session::NewMessage::assistant(err_text);
+    let mut err_msg = crate::session::NewMessage::assistant(err_text)
+        .with_source(crate::chat_engine::ChatSource::Channel);
     err_msg.is_error = Some(true);
     let _ = session_db.append_message(session_id, &err_msg);
 }

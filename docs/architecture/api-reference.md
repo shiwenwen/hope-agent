@@ -652,6 +652,28 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `execute_slash_command` | `POST /api/slash-commands/execute` | ✅ |
 | `is_slash_command` | `POST /api/slash-commands/is-slash` | ✅ |
 
+#### `/status` output 字段（与 GUI 弹层对齐）
+
+`execute_slash_command` 返回的 `content` markdown 渲染按如下顺序拼接（值缺失时整行省略）；与 `ChatTitleBar.tsx` 的 Session Status popover 字段一一对应。
+
+| 字段 | 数据源 | 格式 |
+|---|---|---|
+| Hope Agent 版本 | `env!("CARGO_PKG_VERSION")` | `- **Hope Agent**: v0.1.0` |
+| Model + Auth type | `AppConfig.active_model` + `AvailableModel.api_type` | `- **Model**: Anthropic / Claude 3.7 Sonnet (api-key)`；Codex provider → `(oauth)` |
+| Agent | 调用方传入 `agent_id` | `- **Agent**: \`default\`` |
+| Title | `sessions.title` | `- **Title**: ...`（仅当非空） |
+| Session ID | 调用方传入 `session_id` | `- **Session ID**: \`<uuid>\`` |
+| Messages | `count_user_assistant_messages` | `- **Messages**: M user, N assistant` |
+| Permission Mode | `sessions.permission_mode` | `- **Permission Mode**: \`default\` \| \`smart\` \| \`yolo\`` |
+| Thinking | `sessions.reasoning_effort` → `live_reasoning_effort()` → `medium` | `- **Thinking**: high` |
+| Context | `messages` 最后一条 assistant 行的 `tokens_in_last`（fallback `tokens_in`）vs 该行 `model` 对应的 `context_window` | `- **Context**: 42k / 200k (21%)`；window=0 时仅显示已用值 |
+| Cache (last round) | 最后一条 assistant 的 `tokens_cache_creation` / `tokens_cache_read`（**不累计**） | `- **Cache (last round)**: write 2k · hit 38k`；两值都为 0 时整行省略 |
+| Updated | `sessions.updated_at` 相对时间 | `- **Updated**: just now` / `Nm ago` / `Nh ago` / `Nd ago` |
+| Current Project | `sessions.project_id` | 单独一段（项目名 / desc / agent / working dir / instructions / agent source） |
+| Attached IM Channels | `channel_db.list_attached(session_id)` | 单独一段（每行 `★` primary 标记 + channel:account:chat:thread + `attached_at`） |
+
+Context / Cache 共用单 SQL `get_session_last_assistant_token_row`，避免渲染时多次扫表。Context window 在当前激活模型与该行 `model` 列名不同时，按 `cached_config().providers` 反查兜底。
+
 ### MCP servers
 
 | Tauri Command | HTTP | 状态 |

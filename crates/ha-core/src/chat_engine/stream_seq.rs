@@ -62,6 +62,21 @@ impl ChatSource {
     pub fn tracks_seq(&self) -> bool {
         matches!(self, Self::Desktop | Self::Http | Self::Channel)
     }
+
+    /// Lowercase wire string used as the `messages.source` column value and
+    /// anywhere else a stable identifier is needed without paying for a
+    /// `Display` allocation. Mirrors the `Serialize` rename + `Display`
+    /// output. Stays a `&'static str` so callers can store it in `&str`
+    /// without allocations.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Desktop => "desktop",
+            Self::Http => "http",
+            Self::Channel => "channel",
+            Self::Subagent => "subagent",
+            Self::ParentInjection => "parent_injection",
+        }
+    }
 }
 
 impl fmt::Display for ChatSource {

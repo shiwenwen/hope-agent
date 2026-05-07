@@ -256,6 +256,11 @@ pub struct NewMessage {
     /// Initial stream_status for crash-resilient placeholder rows (see
     /// [`SessionMessage::stream_status`]). Default `None` for normal rows.
     pub stream_status: Option<String>,
+    /// Lowercase `ChatSource::as_str()` of the caller that drove the turn
+    /// this message belongs to. `None` for legacy rows + helper paths that
+    /// have no canonical source; readers fall back to `desktop` so old
+    /// unread badges aren't disturbed.
+    pub source: Option<String>,
 }
 
 impl NewMessage {
@@ -283,6 +288,7 @@ impl NewMessage {
             tokens_cache_read: None,
             tool_metadata: None,
             stream_status: None,
+            source: None,
         }
     }
 
@@ -310,6 +316,7 @@ impl NewMessage {
             tokens_cache_read: None,
             tool_metadata: None,
             stream_status: None,
+            source: None,
         }
     }
 
@@ -349,6 +356,7 @@ impl NewMessage {
             tokens_cache_read: None,
             tool_metadata: None,
             stream_status: Some("streaming".to_string()),
+            source: None,
         }
     }
 
@@ -376,6 +384,7 @@ impl NewMessage {
             tokens_cache_read: None,
             tool_metadata: None,
             stream_status: None,
+            source: None,
         }
     }
 
@@ -408,6 +417,7 @@ impl NewMessage {
             tokens_cache_read: None,
             tool_metadata: None,
             stream_status: None,
+            source: None,
         }
     }
 
@@ -435,6 +445,7 @@ impl NewMessage {
             tokens_cache_read: None,
             tool_metadata: None,
             stream_status: None,
+            source: None,
         }
     }
 
@@ -449,6 +460,14 @@ impl NewMessage {
     /// `self` for builder chaining; passing `None` is a no-op.
     pub fn with_tool_metadata(mut self, metadata: Option<String>) -> Self {
         self.tool_metadata = metadata;
+        self
+    }
+
+    /// Tag this message with the [`crate::chat_engine::stream_seq::ChatSource`]
+    /// that drove the turn. Builder-style so callers can write
+    /// `NewMessage::user("…").with_source(ChatSource::Channel)`.
+    pub fn with_source(mut self, source: crate::chat_engine::stream_seq::ChatSource) -> Self {
+        self.source = Some(source.as_str().to_string());
         self
     }
 }

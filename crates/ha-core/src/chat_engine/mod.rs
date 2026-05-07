@@ -4,6 +4,7 @@ pub mod context;
 mod engine;
 pub(crate) mod im_mirror;
 pub(crate) mod persister;
+pub(crate) mod quote;
 pub mod sink_registry;
 pub mod stream_broadcast;
 pub mod stream_seq;
@@ -11,6 +12,7 @@ mod types;
 
 pub use context::*;
 pub use engine::*;
+pub use stream_seq::ChatSource;
 // Re-export plan-context API from `crate::agent` so chat_engine callers can
 // keep `use crate::chat_engine::PlanResolvedContext;` ergonomics. The
 // canonical home is `crate::agent::plan_context` (avoids agent →

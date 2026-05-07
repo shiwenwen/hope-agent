@@ -409,7 +409,8 @@ impl ProjectDB {
                         AND s.parent_session_id IS NULL
                         AND cc.session_id IS NULL
                         AND m.id > COALESCE(s.last_read_message_id, 0)
-                        AND m.role = 'assistant') AS unread_count,
+                        AND m.role = 'assistant'
+                        AND COALESCE(m.source, 'desktop') != 'channel') AS unread_count,
                     (SELECT COUNT(*) FROM project_files f WHERE f.project_id = p.id) AS file_count
              FROM projects p
              {}

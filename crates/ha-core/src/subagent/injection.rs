@@ -303,7 +303,8 @@ pub(crate) async fn inject_and_run_parent(
         .has_injection_user_msg(&parent_session_id, &run_id)
         .unwrap_or(false);
     if !user_msg_already_written {
-        let mut user_msg = crate::session::NewMessage::user(&push_message);
+        let mut user_msg = crate::session::NewMessage::user(&push_message)
+            .with_source(crate::chat_engine::ChatSource::ParentInjection);
         user_msg.attachments_meta = Some(
             serde_json::json!({
                 "subagent_result": {
@@ -401,7 +402,8 @@ pub(crate) async fn inject_and_run_parent(
     if !succeeded && !cancel.load(Ordering::SeqCst) {
         let _ = session_db.append_message(
             &parent_session_id,
-            &crate::session::NewMessage::error_event(&format!("[injection failed] {}", last_error)),
+            &crate::session::NewMessage::error_event(&format!("[injection failed] {}", last_error))
+                .with_source(crate::chat_engine::ChatSource::ParentInjection),
         );
     }
 

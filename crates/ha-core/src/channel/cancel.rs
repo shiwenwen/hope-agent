@@ -43,4 +43,14 @@ impl ChannelCancelRegistry {
             map.remove(session_id);
         }
     }
+
+    /// Whether this session currently has a live cancel handle — i.e. a
+    /// channel-driven turn is in flight. Used by attach catch-up to decide
+    /// whether to append the "reply is being generated" hint.
+    pub fn is_active(&self, session_id: &str) -> bool {
+        match self.flags.lock() {
+            Ok(map) => map.contains_key(session_id),
+            Err(_) => false,
+        }
+    }
 }

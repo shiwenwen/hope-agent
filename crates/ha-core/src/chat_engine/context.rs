@@ -424,7 +424,12 @@ fn last_assistant_message_is(history: &[Value], content: &str) -> bool {
 }
 
 /// Parse tool_call and tool_result events from the streaming callback and persist to DB.
-pub fn persist_tool_event(db: &Arc<SessionDB>, session_id: &str, delta: &str) {
+pub fn persist_tool_event(
+    db: &Arc<SessionDB>,
+    session_id: &str,
+    source: super::stream_seq::ChatSource,
+    delta: &str,
+) {
     if let Ok(event) = serde_json::from_str::<serde_json::Value>(delta) {
         match event.get("type").and_then(|t| t.as_str()) {
             Some("tool_result") => {
@@ -455,7 +460,8 @@ pub fn persist_tool_event(db: &Arc<SessionDB>, session_id: &str, delta: &str) {
                     .get("arguments")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false);
+                let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false)
+                    .with_source(source);
                 let _ = db.append_message(session_id, &tool_msg);
             }
             _ => {}

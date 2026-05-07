@@ -47,7 +47,7 @@ pub(crate) const MEDIA_ITEMS_PREFIX: &str = "__MEDIA_ITEMS__";
 /// Extract structured media items from a tool result string.
 /// Returns (clean_result, media_items).
 /// If the result starts with `__MEDIA_ITEMS__[...]`, the JSON array is parsed and removed.
-pub(super) fn extract_media_items(result: &str) -> (String, Vec<MediaItem>) {
+pub(crate) fn extract_media_items(result: &str) -> (String, Vec<MediaItem>) {
     if let Some(rest) = result.strip_prefix(MEDIA_ITEMS_PREFIX) {
         if let Some((json_line, text)) = rest.split_once('\n') {
             if let Ok(items) = serde_json::from_str::<Vec<MediaItem>>(json_line) {

@@ -680,7 +680,28 @@ turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处
 
 **source filter**:`Subagent / ParentInjection / Channel / Cron` 直接 no-op(IM 入站自己有完整流式管线;subagent / cron 不应外溢到 IM)。
 
+**镜像消息加 user 引用前缀**([`chat_engine/quote.rs::build_user_quote_prefix`](../../crates/ha-core/src/chat_engine/quote.rs)):`finalize_im_live_mirror` 在调 `deliver_rounds` 之前,把触发该轮的 user 原文拼成 markdown blockquote,prepend 到传给 dispatcher 的 final response 文本。`attach_im_live_mirror` 入参带 `Option<LastUserSnapshot>`(owned `source / text / attachment_count`,引擎层从 `ChatSource::as_str()` / `message` / `attachments.len()` 直接构造),通过 `ImLiveMirrorState` 一直带到 finalize。契约:
+
+- 按 `source` 决定是否注入。`desktop` / `http` → 注入;其它 source 在 attach 阶段就已被过滤,这里再次防御性 skip。
+- 引用渲染规则:
+  - 第一行加 `> 💬 ` 前缀,后续行加 `> ` 前缀,user 文本超过 240 字符按 `truncate_description` 截断 + `…`。
+  - user 消息有附件时附加一行 `> [📎 N attachments]`(N 来自 `attach_im_live_mirror` 入参的 `attachment_count`)。
+  - 引用块与 assistant 正文之间空一行。
+- **不写回 `sessions.context_json` / `messages` 表**:引用只在镜像 chunk 拼接,assistant 消息持久化为干净版本,后续 turn 的 LLM 上下文不被引用块污染。
+- **覆盖范围**:quote 加在 `deliver_rounds` 的 `response` 参数上,实际由 `deliver_split / deliver_final_only / deliver_preview_merged` 决定何时露出——`Final` 模式 + rounds 为空 / `Split` 末轮 fallback 兜底场景中,引用前缀直接出现;live 流式预览阶段(已发完的 round)无法回插。
+
 > 历史:本能力之前是 follow-up F-066(详见 [`docs/plans/review-followups.md`](../plans/review-followups.md));旧版 `attach_im_mirrors` / `finalize_im_mirrors` 走「turn 末尾一次性 send_message」,与 src-tauri `chat.rs` 的 `relay_to_channel` 还存在 double-send。F-066 落地后 live mirror 完整接管 IM 投递,`relay_to_channel` 已删除。
+
+### Attach catch-up:接管已有会话立刻看到上一轮
+
+入口 [`channel/attach_sync.rs::deliver_attach_catchup`](../../crates/ha-core/src/channel/attach_sync.rs)。两条 attach 路径(IM `/session <id>` slash + GUI `/handover` HTTP / Tauri command)在 `attach_session` 成功 + `channel:primary_changed` emit 之后、回执「已接管」消息之前各调一次。
+
+契约:
+
+- **回填内容 = 最近一轮已完成的 assistant final text + 该轮 tool_result 媒体**(语义对应 `ImReplyMode::Final` 的 dispatcher 路径)。回填消息走 `plugin.markdown_to_native()` → `plugin.chunk_message()` → `plugin.send_message()`,不带 `reply_to_message_id`(没有 inbound 可回复);媒体走 `deliver_media_to_chat`(与 dispatcher 共用)。
+- **跳过条件**:新会话 / 无 assistant 消息 / 最近一轮无 text 也无 media。
+- **In-flight 提示**:`globals::get_channel_cancels()` 此刻仍持锁(意味着原触发端的 turn 还在跑)时,回填末尾追加一条「⏳ A reply is being generated and will arrive shortly.」系统提示。当前 in-flight turn 的真正 live 推送靠 GUI → IM mirror,不在 catch-up 范围。
+- **best-effort**:catch-up 失败只 `app_warn!`,不影响 attach 成功本身。db helper(`attach_session`)保持纯净——catch-up 是消息层行为,在 worker / route 层完成。
 
 ### Slash 命令
 

@@ -292,7 +292,8 @@ async fn handle_inbound_message(
         crate::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
 
     let user_text = msg.text.as_deref().unwrap_or("(media message)");
-    let mut user_msg = crate::session::NewMessage::user(user_text);
+    let mut user_msg = crate::session::NewMessage::user(user_text)
+        .with_source(crate::chat_engine::ChatSource::Channel);
     user_msg.attachments_meta = Some(
         serde_json::json!({
             "channel_inbound": {
@@ -348,6 +349,8 @@ async fn handle_inbound_message(
         let supports_buttons = plugin.capabilities().supports_buttons;
         match dispatch_slash_for_channel(
             channel_db,
+            &plugin,
+            &account,
             &channel_id_str,
             &msg.account_id,
             &msg.chat_id,
@@ -371,7 +374,8 @@ async fn handle_inbound_message(
                 if new_session_id.is_none() {
                     let _ = session_db.append_message(
                         effective_sid,
-                        &crate::session::NewMessage::event(&content),
+                        &crate::session::NewMessage::event(&content)
+                            .with_source(crate::chat_engine::ChatSource::Channel),
                     );
                 }
                 // Send reply to the IM channel
@@ -829,10 +833,14 @@ async fn finalize_card_stream(
 /// first chunk (replaces an existing preview via `edit_message`); all
 /// other variants are treated as no preview and send fresh.
 ///
-/// Public to the worker module so the stream task can use it as a
-/// guaranteed-delivery fallback when its preview-based path can't carry
-/// a round (text > max_msg_len, send/edit error, broken card session).
-pub(super) async fn send_text_chunks(
+/// `reply_to_message_id` only applies to chunk 0; pass `None` to send
+/// without quoting (catch-up / mirror paths that have no inbound message
+/// to reply to).
+///
+/// Visible to the rest of the crate so attach catch-up + future mirror
+/// paths can reuse the same chunk-aware `markdown_to_native` →
+/// `chunk_message` → `send_message` sequence used by the live dispatcher.
+pub(crate) async fn send_text_chunks(
     plugin: &Arc<dyn ChannelPlugin>,
     target: &DeliveryTarget<'_>,
     response: &str,
@@ -1173,7 +1181,7 @@ pub(super) async fn send_final_reply(
 /// both flood-protect tight loops. Used by `send_final_reply`, the
 /// `Split`-mode dispatcher's per-round fan-out, and the stream task's
 /// inline per-round delivery.
-pub(super) async fn deliver_media_to_chat(
+pub(crate) async fn deliver_media_to_chat(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
     chat_id: &str,

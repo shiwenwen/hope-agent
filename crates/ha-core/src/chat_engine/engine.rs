@@ -187,7 +187,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
     let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source)?;
 
-    let mut im_mirror = attach_im_live_mirror(&session_id, source);
+    let mut im_mirror = attach_im_live_mirror(
+        &session_id,
+        source,
+        Some(crate::chat_engine::im_mirror::LastUserSnapshot {
+            source: source.as_str().to_string(),
+            text: message.clone(),
+            attachment_count: attachments.len(),
+        }),
+    );
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -252,7 +260,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             });
             if let Ok(json_str) = serde_json::to_string(&event) {
                 emit_stream_event(&event_sink, &session_id, source, &json_str);
-                let _ = db.append_message(&session_id, &session::NewMessage::event(&json_str));
+                let _ = db.append_message(
+                    &session_id,
+                    &session::NewMessage::event(&json_str).with_source(source),
+                );
             }
         }
 
@@ -388,8 +399,11 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
 
                         let history_len_before = agent.get_conversation_history().len();
                         let chat_start = std::time::Instant::now();
-                        let persister =
-                            StreamPersister::new(db_owned.clone(), session_id_owned.clone());
+                        let persister = StreamPersister::new(
+                            db_owned.clone(),
+                            session_id_owned.clone(),
+                            source_for_cb,
+                        );
                         let persist_cb = persister.build_callback();
 
                         let chat_result = agent
@@ -581,6 +595,17 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         }
                     }
 
+                    // GUI / HTTP turns flush the live IM mirror here: drop
+                    // the sink handle so the preview-stream task observes
+                    // channel-close, then run `deliver_rounds` per
+                    // `imReplyMode`. The final assistant text passed in is
+                    // prepended with a markdown blockquote of the user's
+                    // question (see `chat_engine::quote`) so the IM user
+                    // gets context for what's being answered. Subagent /
+                    // ParentInjection / Channel sources never reach this
+                    // branch with `Some(state)` (see
+                    // `attach_im_live_mirror` source filter), so the
+                    // no-op case is cheap.
                     if let Some(state) = im_mirror.take() {
                         finalize_im_live_mirror(state, &response).await;
                     }
@@ -740,7 +765,10 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     );
     if persist_final_error_event {
         persist_failed_turn_context(&db, &session_id, &message, &final_error);
-        let _ = db.append_message(&session_id, &session::NewMessage::error_event(&final_error));
+        let _ = db.append_message(
+            &session_id,
+            &session::NewMessage::error_event(&final_error).with_source(source),
+        );
     }
     Err(final_error)
 }

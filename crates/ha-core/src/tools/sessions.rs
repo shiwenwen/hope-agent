@@ -278,7 +278,7 @@ pub(crate) async fn tool_sessions_send(
         .ok_or_else(|| anyhow::anyhow!("Target session '{}' not found", target_session_id))?;
 
     // Append user message to target session
-    let new_msg = NewMessage::user(message);
+    let new_msg = NewMessage::user(message).with_source(crate::chat_engine::ChatSource::Subagent);
     db.append_message(target_session_id, &new_msg)?;
 
     if !wait {

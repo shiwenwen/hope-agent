@@ -113,7 +113,7 @@ pub async fn dispatch(
         "help" => Ok(utility::handle_help(session_id)),
         "status" => {
             let store = crate::config::cached_config();
-            utility::handle_status(session_db()?, &store, session_id, agent_id)
+            utility::handle_status(session_db()?, &store, session_id, agent_id).await
         }
         "export" => utility::handle_export(session_db()?, session_id),
         "usage" => utility::handle_usage(session_db()?, session_id),
@@ -305,25 +305,6 @@ fn build_skill_path_pointer_prompt(name: &str, file_path: &str, args: &str) -> S
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::slash_commands::types::CommandAction;
-
-    #[tokio::test]
-    async fn think_alias_dispatches_like_thinking() {
-        let result = dispatch(None, "default", "think", "high")
-            .await
-            .expect("/think should dispatch to /thinking");
-
-        assert_eq!(result.content, "Thinking effort set to **high**");
-        match result.action {
-            Some(CommandAction::SetEffort { effort }) => assert_eq!(effort, "high"),
-            other => panic!("expected SetEffort action, got {other:?}"),
-        }
-    }
-}
-
 /// Dispatch a skill in fork mode: spawn a sub-agent to execute the skill.
 /// The skill's SKILL.md content is injected as extra system context.
 async fn dispatch_skill_fork(
@@ -356,4 +337,23 @@ async fn dispatch_skill_fork(
             skill_name: skill.name.clone(),
         }),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::slash_commands::types::CommandAction;
+
+    #[tokio::test]
+    async fn think_alias_dispatches_like_thinking() {
+        let result = dispatch(None, "default", "think", "high")
+            .await
+            .expect("/think should dispatch to /thinking");
+
+        assert_eq!(result.content, "Thinking effort set to **high**");
+        match result.action {
+            Some(CommandAction::SetEffort { effort }) => assert_eq!(effort, "high"),
+            other => panic!("expected SetEffort action, got {other:?}"),
+        }
+    }
 }

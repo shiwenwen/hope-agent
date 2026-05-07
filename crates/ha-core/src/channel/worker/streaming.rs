@@ -59,8 +59,12 @@ pub(super) enum StreamPreviewTransport {
 
 /// Persistent identity for the rendered preview, returned to the caller so
 /// `send_final_reply` can finalize using the matching path.
+///
+/// Visibility is `pub(crate)` so reused-by-attach-sync helpers in the
+/// dispatcher can take an `Option<&PreviewHandle>` parameter without
+/// dragging the worker's internal types into the public API surface.
 #[derive(Debug, Clone)]
-pub(super) enum PreviewHandle {
+pub(crate) enum PreviewHandle {
     /// `edit_message` rewrites this message_id at finalization.
     Message { message_id: String },
     /// Card-stream session. `broken=true` means an irrecoverable update

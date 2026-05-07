@@ -219,7 +219,8 @@ pub async fn chat(
     let persisted_content = ha_core::non_empty_trim_or(body.display_text.as_deref(), &body.message);
 
     // Save user message to DB
-    let mut user_msg = session::NewMessage::user(persisted_content);
+    let mut user_msg = session::NewMessage::user(persisted_content)
+        .with_source(ha_core::chat_engine::ChatSource::Http);
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         body.is_plan_trigger.unwrap_or(false),
         body.plan_comment.as_ref(),
@@ -266,7 +267,11 @@ pub async fn chat(
     if model_chain.is_empty() {
         let err = "No model configured. Please add a provider and set an active model.";
         ha_core::chat_engine::persist_failed_turn_context(&db, &sid, &body.message, err);
-        let _ = db.append_message(&sid, &session::NewMessage::error_event(err));
+        let _ = db.append_message(
+            &sid,
+            &session::NewMessage::error_event(err)
+                .with_source(ha_core::chat_engine::ChatSource::Http),
+        );
         return Err(AppError::bad_request(err));
     }
 

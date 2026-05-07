@@ -1,4 +1,5 @@
 pub mod accounts;
+pub mod attach_sync;
 pub mod cancel;
 pub mod config;
 pub mod db;

@@ -315,5 +315,61 @@ pub async fn handover(Json(body): Json<HandoverBody>) -> Result<Json<Value>, App
         )
         .map_err(|e| AppError::internal(format!("Handover failed: {}", e)))?;
 
+    // Replay the latest assistant turn (text + media) so the receiving IM
+    // chat isn't left with zero context — same catch-up the IM-side
+    // `/session <id>` slash command runs after a successful attach.
+    deliver_handover_catchup(
+        &body.session_id,
+        &body.channel_id,
+        &body.account_id,
+        &body.chat_id,
+        body.thread_id.as_deref(),
+    )
+    .await;
+
     Ok(Json(json!({ "ok": true })))
+}
+
+/// Look up the (plugin, account) pair for a (channel, account) and run
+/// the attach catch-up. Best-effort — failures only log so a missing
+/// plugin doesn't fail the handover itself (which already succeeded at
+/// the DB level above).
+async fn deliver_handover_catchup(
+    session_id: &str,
+    channel_id: &str,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+) {
+    let registry = match registry() {
+        Ok(r) => r,
+        Err(_) => return,
+    };
+    let parsed_channel: ChannelId =
+        match serde_json::from_value(serde_json::Value::String(channel_id.to_string())) {
+            Ok(c) => c,
+            Err(e) => {
+                ha_core::app_warn!(
+                    "channel",
+                    "handover",
+                    "Catch-up skipped — unknown channel id {}: {}",
+                    channel_id,
+                    e
+                );
+                return;
+            }
+        };
+    let plugin = match registry.get_plugin(&parsed_channel) {
+        Some(p) => p.clone(),
+        None => return,
+    };
+    let store = ha_core::config::cached_config();
+    let account = match store.channels.find_account(account_id) {
+        Some(a) => a.clone(),
+        None => return,
+    };
+    ha_core::channel::attach_sync::deliver_attach_catchup(
+        &plugin, &account, session_id, chat_id, thread_id,
+    )
+    .await;
 }

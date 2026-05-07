@@ -139,8 +139,11 @@ fn format_help_row(c: &SlashCommandDef) -> String {
     format!("- `/{}{}` — {}", c.name, arg_hint, c.description_en())
 }
 
-/// /status — Show session status.
-pub fn handle_status(
+/// /status — Show session status. Aligned with the GUI session-status popover
+/// (see `ChatTitleBar.tsx`): version, model + auth type, context window usage,
+/// per-turn cache stats, agent, session title + id, message count, permission
+/// mode, thinking effort, last-updated relative time, project, IM attaches.
+pub async fn handle_status(
     session_db: &Arc<SessionDB>,
     store: &AppConfig,
     session_id: Option<&str>,
@@ -148,40 +151,97 @@ pub fn handle_status(
 ) -> Result<CommandResult, String> {
     let mut lines = vec!["**Session Status**\n".to_string()];
 
-    // Agent info
-    lines.push(format!("- **Agent**: `{}`", agent_id));
+    lines.push(format!("- **Hope Agent**: v{}", env!("CARGO_PKG_VERSION")));
 
-    // Model info
-    if let Some(ref active) = store.active_model {
-        let models = provider::build_available_models(&store.providers);
-        let name = models
-            .iter()
+    let active_model_full = store.active_model.as_ref().and_then(|active| {
+        provider::build_available_models(&store.providers)
+            .into_iter()
             .find(|m| m.provider_id == active.provider_id && m.model_id == active.model_id)
-            .map(|m| format!("{} / {}", m.provider_name, m.model_name))
-            .unwrap_or_else(|| format!("{} / {}", active.provider_id, active.model_id));
-        lines.push(format!("- **Model**: {}", name));
+    });
+
+    if let Some(ref active) = store.active_model {
+        let (name, auth_label) = if let Some(model) = active_model_full.as_ref() {
+            (
+                format!("{} / {}", model.provider_name, model.model_name),
+                auth_label_for_api_type(&model.api_type),
+            )
+        } else {
+            (
+                format!("{} / {}", active.provider_id, active.model_id),
+                "api-key",
+            )
+        };
+        lines.push(format!("- **Model**: {} ({})", name, auth_label));
     } else {
         lines.push("- **Model**: not set".into());
     }
 
-    // Session info
+    lines.push(format!("- **Agent**: `{}`", agent_id));
+
     if let Some(sid) = session_id {
+        let meta = session_db.get_session(sid).ok().flatten();
+
+        if let Some(title) = meta
+            .as_ref()
+            .and_then(|m| m.title.as_deref())
+            .filter(|s| !s.trim().is_empty())
+        {
+            lines.push(format!("- **Title**: {}", truncate_description(title, 200)));
+        }
         lines.push(format!("- **Session ID**: `{}`", sid));
+
         if let Ok((user_count, assistant_count)) = session_db.count_user_assistant_messages(sid) {
             lines.push(format!(
                 "- **Messages**: {} user, {} assistant",
                 user_count, assistant_count
             ));
         }
+
         let mode = session_db
             .get_session_permission_mode(sid)
             .ok()
             .flatten()
             .unwrap_or(crate::permission::SessionMode::Default);
         lines.push(format!("- **Permission Mode**: `{}`", mode.as_str()));
-        if let Some(project_lines) = render_project_section(session_db, sid) {
-            lines.push(String::new());
-            lines.extend(project_lines);
+
+        let effort = resolve_status_reasoning_effort(meta.as_ref()).await;
+        lines.push(format!("- **Thinking**: {}", effort));
+
+        if let Ok(Some(tokens)) = session_db.get_session_last_assistant_token_row(sid) {
+            let context_window = active_model_full
+                .as_ref()
+                .map(|m| m.context_window)
+                .or_else(|| context_window_for_model_id(tokens.model.as_deref()))
+                .unwrap_or(0);
+            let used = tokens
+                .tokens_in_last
+                .or(tokens.tokens_in)
+                .unwrap_or(0)
+                .max(0) as u64;
+            lines.push(format_context_usage_line(used, context_window));
+
+            let creation = tokens.tokens_cache_creation.unwrap_or(0).max(0) as u64;
+            let read = tokens.tokens_cache_read.unwrap_or(0).max(0) as u64;
+            if creation > 0 || read > 0 {
+                lines.push(format!(
+                    "- **Cache (last round)**: write {} · hit {}",
+                    format_token_count(creation),
+                    format_token_count(read)
+                ));
+            }
+        }
+
+        if let Some(updated_at) = meta.as_ref().map(|m| m.updated_at.as_str()) {
+            if let Some(rel) = format_duration_since(updated_at) {
+                lines.push(format!("- **Updated**: {}", rel));
+            }
+        }
+
+        if let Some(meta_ref) = meta.as_ref() {
+            if let Some(project_lines) = render_project_section(meta_ref) {
+                lines.push(String::new());
+                lines.extend(project_lines);
+            }
         }
         if let Some(channel_lines) = render_attached_channels_section(sid) {
             lines.push(String::new());
@@ -197,8 +257,99 @@ pub fn handle_status(
     })
 }
 
-fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<String>> {
-    let meta = session_db.get_session(sid).ok().flatten()?;
+/// Auth descriptor for `/status`'s Model line — Codex provider runs on
+/// ChatGPT OAuth; everything else is API key.
+fn auth_label_for_api_type(api_type: &crate::provider::ApiType) -> &'static str {
+    match api_type {
+        crate::provider::ApiType::Codex => "oauth",
+        _ => "api-key",
+    }
+}
+
+/// Resolve the effective thinking effort to render in `/status`. Two-layer
+/// fallback: persisted `sessions.reasoning_effort` (UI / `/think` writes here)
+/// → live global `REASONING_EFFORT` cell (already maps `"none"` → `None`)
+/// → `"medium"` default. Mirrors the GUI popover's "Thinking" line.
+async fn resolve_status_reasoning_effort(meta: Option<&crate::session::SessionMeta>) -> String {
+    let from_session = meta
+        .and_then(|m| m.reasoning_effort.clone())
+        .filter(|s| !s.trim().is_empty() && s.trim() != "none");
+    let effort = match from_session {
+        Some(s) => Some(s),
+        None => crate::agent::live_reasoning_effort(None).await,
+    };
+    effort.unwrap_or_else(|| "medium".to_string())
+}
+
+/// Best-effort context window lookup when the row's model is no longer in the
+/// active provider list (model was removed, or row was written by a different
+/// provider). Returns `None` to let the renderer show only the absolute usage.
+fn context_window_for_model_id(model_id: Option<&str>) -> Option<u32> {
+    let id = model_id?.to_ascii_lowercase();
+    let cfg = crate::config::cached_config();
+    for provider in &cfg.providers {
+        for model in &provider.models {
+            if model.id.eq_ignore_ascii_case(&id) {
+                return Some(model.context_window);
+            }
+        }
+    }
+    None
+}
+
+fn format_context_usage_line(used: u64, context_window: u32) -> String {
+    if context_window == 0 {
+        return format!("- **Context**: {}", format_token_count(used));
+    }
+    let pct = ((used as f64 / context_window as f64) * 100.0).round() as u64;
+    format!(
+        "- **Context**: {} / {} ({}%)",
+        format_token_count(used),
+        format_token_count(context_window as u64),
+        pct
+    )
+}
+
+fn format_token_count(tokens: u64) -> String {
+    if tokens >= 1_000 {
+        format!("{}k", (tokens as f64 / 1_000.0).round() as u64)
+    } else {
+        tokens.to_string()
+    }
+}
+
+/// Format an RFC3339-ish timestamp as a coarse "2h ago" / "just now" relative
+/// string. Returns `None` when the timestamp is unparseable so the caller can
+/// drop the row entirely rather than render a broken value.
+///
+/// `sessions.updated_at` is always written via `Utc::now().to_rfc3339()`
+/// (see `SessionDB`), so RFC3339 is the only format we need to handle.
+fn format_duration_since(ts: &str) -> Option<String> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(ts)
+        .ok()?
+        .with_timezone(&chrono::Utc);
+    let now = chrono::Utc::now();
+    let delta = now.signed_duration_since(parsed);
+    let secs = delta.num_seconds();
+    if secs < 0 {
+        return Some("just now".to_string());
+    }
+    if secs < 60 {
+        return Some("just now".to_string());
+    }
+    let mins = secs / 60;
+    if mins < 60 {
+        return Some(format!("{}m ago", mins));
+    }
+    let hours = mins / 60;
+    if hours < 24 {
+        return Some(format!("{}h ago", hours));
+    }
+    let days = hours / 24;
+    Some(format!("{}d ago", days))
+}
+
+fn render_project_section(meta: &crate::session::SessionMeta) -> Option<Vec<String>> {
     let project_id = meta.project_id.as_deref()?;
     let project_db = crate::require_project_db().ok()?;
     let project = project_db.get(project_id).ok().flatten()?;
@@ -587,6 +738,175 @@ mod tests {
             }
             assert!(res.content.contains(&format!("**{}**", expected)));
         }
+    }
+
+    #[test]
+    fn format_token_count_collapses_thousands() {
+        assert_eq!(format_token_count(0), "0");
+        assert_eq!(format_token_count(999), "999");
+        assert_eq!(format_token_count(1_000), "1k");
+        assert_eq!(format_token_count(1_499), "1k");
+        assert_eq!(format_token_count(1_500), "2k");
+        assert_eq!(format_token_count(200_000), "200k");
+    }
+
+    #[test]
+    fn format_context_usage_line_handles_unknown_window() {
+        let s = format_context_usage_line(1_234, 0);
+        assert_eq!(s, "- **Context**: 1k");
+        let s = format_context_usage_line(50_000, 200_000);
+        assert_eq!(s, "- **Context**: 50k / 200k (25%)");
+    }
+
+    #[test]
+    fn format_duration_since_rolls_buckets() {
+        let now = chrono::Utc::now();
+        let just = now - chrono::Duration::seconds(5);
+        assert_eq!(
+            format_duration_since(&just.to_rfc3339()).as_deref(),
+            Some("just now")
+        );
+        let mins_ago = now - chrono::Duration::minutes(7);
+        assert_eq!(
+            format_duration_since(&mins_ago.to_rfc3339()).as_deref(),
+            Some("7m ago")
+        );
+        let hours_ago = now - chrono::Duration::hours(3);
+        assert_eq!(
+            format_duration_since(&hours_ago.to_rfc3339()).as_deref(),
+            Some("3h ago")
+        );
+        let days_ago = now - chrono::Duration::days(2);
+        assert_eq!(
+            format_duration_since(&days_ago.to_rfc3339()).as_deref(),
+            Some("2d ago")
+        );
+        assert!(format_duration_since("not-a-time").is_none());
+    }
+
+    #[test]
+    fn auth_label_for_api_type_branches() {
+        assert_eq!(
+            auth_label_for_api_type(&crate::provider::ApiType::Codex),
+            "oauth"
+        );
+        assert_eq!(
+            auth_label_for_api_type(&crate::provider::ApiType::Anthropic),
+            "api-key"
+        );
+        assert_eq!(
+            auth_label_for_api_type(&crate::provider::ApiType::OpenaiChat),
+            "api-key"
+        );
+    }
+
+    /// `SessionDB::open` doesn't create the `channel_conversations` table —
+    /// that lives in `ChannelDB::migrate` — but `SESSION_META_SELECT` LEFT
+    /// JOINs it. Mirror the prod schema for the `/status` test fixture so
+    /// `get_session` doesn't error out on a missing table.
+    fn ensure_channel_conversations_table(db: &SessionDB) {
+        let conn = db.conn.lock().expect("lock");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS channel_conversations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id TEXT NOT NULL,
+                account_id TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
+                thread_id TEXT,
+                session_id TEXT NOT NULL,
+                sender_id TEXT,
+                sender_name TEXT,
+                chat_type TEXT NOT NULL DEFAULT 'dm',
+                is_primary INTEGER NOT NULL DEFAULT 1,
+                source TEXT NOT NULL DEFAULT 'inbound',
+                attached_at TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            );",
+        )
+        .expect("create channel_conversations");
+    }
+
+    #[tokio::test]
+    async fn handle_status_renders_full_session_panel() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let meta = db.create_session("default").expect("create");
+        let sid = meta.id.clone();
+        db.update_session_title(&sid, "Glittery island recap")
+            .expect("title");
+        db.update_session_reasoning_effort(&sid, Some("high"))
+            .expect("effort");
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let assistant = crate::session::NewMessage {
+            role: crate::session::MessageRole::Assistant,
+            content: "ok".into(),
+            timestamp: now.clone(),
+            attachments_meta: None,
+            model: Some("test-model".into()),
+            tokens_in: Some(45_678),
+            tokens_out: Some(120),
+            reasoning_effort: Some("high".into()),
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_result: None,
+            tool_duration_ms: None,
+            is_error: None,
+            thinking: None,
+            ttft_ms: None,
+            tokens_in_last: Some(42_000),
+            tokens_cache_creation: Some(1_500),
+            tokens_cache_read: Some(38_000),
+            tool_metadata: None,
+            stream_status: None,
+            source: Some("desktop".into()),
+        };
+        db.append_message(&sid, &assistant).expect("append");
+
+        let store = AppConfig::default();
+        let result = handle_status(&db, &store, Some(&sid), "default")
+            .await
+            .expect("ok");
+        assert!(result.content.contains("**Hope Agent**: v"));
+        assert!(result.content.contains("**Title**: Glittery island recap"));
+        assert!(result
+            .content
+            .contains(&format!("**Session ID**: `{}`", sid)));
+        assert!(result.content.contains("**Messages**: 0 user, 1 assistant"));
+        assert!(result.content.contains("**Permission Mode**: `default`"));
+        assert!(result.content.contains("**Thinking**: high"));
+        assert!(result.content.contains("**Context**: 42k"));
+        assert!(result.content.contains("**Cache (last round)**:"));
+        assert!(result.content.contains("write 2k"));
+        assert!(result.content.contains("hit 38k"));
+        assert!(result.content.contains("**Updated**:"));
+    }
+
+    #[tokio::test]
+    async fn handle_status_skips_token_lines_when_no_assistant_msgs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let meta = db.create_session("default").expect("create");
+        let sid = meta.id.clone();
+
+        let store = AppConfig::default();
+        let result = handle_status(&db, &store, Some(&sid), "default")
+            .await
+            .expect("ok");
+        assert!(result.content.contains("**Hope Agent**: v"));
+        assert!(result
+            .content
+            .contains(&format!("**Session ID**: `{}`", sid)));
+        assert!(!result.content.contains("**Context**:"));
+        assert!(!result.content.contains("**Cache (last round)**:"));
+        assert!(result.content.contains("**Thinking**:"));
     }
 
     #[test]

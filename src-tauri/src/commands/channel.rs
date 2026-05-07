@@ -299,5 +299,30 @@ pub async fn channel_handover_session(
         )
         .map_err(|e| CmdError::msg(format!("Handover failed: {}", e)))?;
 
+    // Replay the latest assistant turn (text + media) so the receiving
+    // IM chat isn't dropped into a session with zero visible context.
+    // Same catch-up the IM-side `/session <id>` slash command runs;
+    // best-effort, missing plugin / account just no-ops.
+    if let Some(registry) = crate::get_channel_registry() {
+        let parsed_channel: ha_core::channel::types::ChannelId =
+            match serde_json::from_value(serde_json::Value::String(channel_id.clone())) {
+                Ok(c) => c,
+                Err(_) => return Ok(()),
+            };
+        if let Some(plugin) = registry.get_plugin(&parsed_channel) {
+            let store = ha_core::config::cached_config();
+            if let Some(account) = store.channels.find_account(&account_id).cloned() {
+                ha_core::channel::attach_sync::deliver_attach_catchup(
+                    plugin,
+                    &account,
+                    &session_id,
+                    &chat_id,
+                    thread_id.as_deref(),
+                )
+                .await;
+            }
+        }
+    }
+
     Ok(())
 }

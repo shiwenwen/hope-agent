@@ -8,7 +8,7 @@ mod event_rewrite;
 mod events;
 
 pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
-pub(crate) use events::MEDIA_ITEMS_PREFIX;
+pub(crate) use events::{extract_media_items, MEDIA_ITEMS_PREFIX};
 mod llm_adapter;
 mod plan_context;
 mod providers;

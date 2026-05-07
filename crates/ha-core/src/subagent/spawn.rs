@@ -157,7 +157,8 @@ pub async fn spawn_subagent(
 
         let _ = db.append_message(
             &child_session_id_exec,
-            &crate::session::NewMessage::user(&task),
+            &crate::session::NewMessage::user(&task)
+                .with_source(crate::chat_engine::ChatSource::Subagent),
         );
 
         let exec_result = std::panic::AssertUnwindSafe(tokio::time::timeout(
@@ -231,7 +232,8 @@ pub async fn spawn_subagent(
                 .unwrap_or("(no response)");
             let _ = db.append_message(
                 &child_session_id,
-                &crate::session::NewMessage::error_event(reply_text),
+                &crate::session::NewMessage::error_event(reply_text)
+                    .with_source(crate::chat_engine::ChatSource::Subagent),
             );
         }
 

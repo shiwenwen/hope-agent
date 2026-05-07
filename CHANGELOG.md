@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **IM attach catch-up — 接管已有会话立刻看到上一轮**：IM 端 `/session <id>` 或 GUI `/handover` attach 一个有历史的会话后，被接管侧立即收到最新一轮的 assistant final text + 该轮媒体（语义对应 `ImReplyMode::Final`），不再只看到「成功」消息断片接手。新会话或最新一轮无内容时跳过；当前 session 仍 in-flight（`globals::get_channel_cancels()` 仍持锁）时回填末尾追加「⏳ A reply is being generated and will arrive shortly.」。helper 入口 [`channel/attach_sync.rs::deliver_attach_catchup`](crates/ha-core/src/channel/attach_sync.rs)，best-effort —— 失败只 `app_warn!` 不影响 attach 本身。
+
+- **`messages.source` 字段 + 未读不再被 IM 回复污染**：所有写入 `messages` 的路径都带上 `ChatSource`（`desktop` / `http` / `channel` / `subagent` / `parentinjection`），未读 SQL 改为 `... AND COALESCE(m.source, 'desktop') != 'channel'`。IM 用户在 IM 那侧已经看完的 assistant 回复不再触发桌面端红点 badge，桌面端真正的未读保留。schema ALTER 兼容老行（NULL → desktop）。涉及 [`session/db.rs`](crates/ha-core/src/session/db.rs)（schema + INSERT + unread SQL）/ [`session/types.rs`](crates/ha-core/src/session/types.rs)（`NewMessage.source`）/ [`chat_engine/persister.rs`](crates/ha-core/src/chat_engine/persister.rs) + [`chat_engine/engine.rs`](crates/ha-core/src/chat_engine/engine.rs) + 7 个 append_message caller。
+
+- **GUI → IM 镜像加 user 引用前缀**：桌面 / HTTP 触发的 turn 镜像到 IM 时，在 assistant 回复正文前插入 markdown 引用块展示触发该轮的 user 原文（带 `> 💬` 前缀，最多 240 字符截断，附件折成 `[📎 N attachments]`），让 IM 接管者一眼看到「这是回答桌面上哪条问题」。`source=channel`（IM 自己问的）/ subagent / 无 user 消息时不插入；引用只在镜像 chunk 拼接，不写回 `sessions.context_json` 也不污染下一轮 LLM 上下文。helper 入口 [`chat_engine/quote.rs::build_user_quote_prefix`](crates/ha-core/src/chat_engine/quote.rs)，依赖 `messages.source` + `latest_user_message_for_quote` SQL。
+
+- **`/status` 对标 GUI 弹层补齐 7 字段**：[`slash_commands/handlers/utility.rs::handle_status`](crates/ha-core/src/slash_commands/handlers/utility.rs) 新增 Hope Agent 版本（`env!("CARGO_PKG_VERSION")`）、Auth 类型（追加在 Model 行尾，如 `... (api-key)` / `... (oauth)`）、Session title、Thinking effort（session > 全局 > medium 三层 fallback）、Context usage（最后一条 assistant 的 `tokens_in_last` / `tokens_in` vs `context_window`）、Cache info（最后一轮 `tokens_cache_creation` / `tokens_cache_read`，**不累计**）、Last updated（`sessions.updated_at` 相对时间 `just now` / `Nm ago` / `Nh ago` / `Nd ago`）。新增 SQL helper [`SessionDB::get_session_last_assistant_token_row`](crates/ha-core/src/session/db.rs) 单查询覆盖 Context + Cache 两段；context_window 找不到当前激活模型时回退按行 `model` 列 + `cached_config().providers` 反查。
+
 - **IM 渠道思考过程显示开关（`/reason` 斜杠命令 + GUI 开关，账号级持久化）**：之前 IM 渠道把模型的 `thinking_delta` 事件静默丢弃（`extract_text_delta` 只匹配 `text_delta`），Telegram / 飞书 / 等 IM 消息里看不到模型的 reasoning。现在每个 channel account 可独立开关：
   - **`/reason on` / `/reason off`**（IM 专用，桌面 / web session 拒绝）：写 `ChannelAccountConfig.settings.showThinking`；无参时打印当前状态 + 用法。`/reasoning` 作为静默别名（dispatch 接受，斜杠菜单只显示 `/reason`）。
   - **GUI 开关**：[`EditAccountDialog`](src/components/settings/channel-panel/EditAccountDialog.tsx) 在 IM Reply Mode 下方新增 `Switch`，与斜杠命令双向同步。

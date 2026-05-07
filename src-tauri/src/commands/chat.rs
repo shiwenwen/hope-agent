@@ -242,7 +242,8 @@ pub async fn chat(
     let persisted_content = ha_core::non_empty_trim_or(display_text.as_deref(), &message);
 
     // Save user message to DB
-    let mut user_msg = session::NewMessage::user(persisted_content);
+    let mut user_msg = session::NewMessage::user(persisted_content)
+        .with_source(ha_core::chat_engine::ChatSource::Desktop);
     user_msg.attachments_meta = session::build_chat_user_attachments_meta(
         is_plan_trigger.unwrap_or(false),
         plan_comment.as_ref(),
@@ -464,7 +465,12 @@ pub async fn chat(
                                     }
                                 }
                             }
-                            crate::chat_engine::persist_tool_event(&db_for_cb, &sid_for_cb, delta);
+                            crate::chat_engine::persist_tool_event(
+                                &db_for_cb,
+                                &sid_for_cb,
+                                ha_core::chat_engine::ChatSource::Desktop,
+                                delta,
+                            );
                             let _ = on_event_clone.send(delta.to_string());
                         },
                     )
@@ -474,7 +480,11 @@ pub async fn chat(
                     Err(e) => {
                         let err = e.to_string();
                         crate::chat_engine::persist_failed_turn_context(&db, &sid, &message, &err);
-                        let _ = db.append_message(&sid, &session::NewMessage::event(&err));
+                        let _ = db.append_message(
+                            &sid,
+                            &session::NewMessage::event(&err)
+                                .with_source(ha_core::chat_engine::ChatSource::Desktop),
+                        );
                         return Err(CmdError::msg(err));
                     }
                 };
@@ -483,7 +493,8 @@ pub async fn chat(
                 if let Ok(json_str) = serde_json::to_string(&usage_event) {
                     let _ = on_event.send(json_str);
                 }
-                let mut assistant_msg = session::NewMessage::assistant(&result);
+                let mut assistant_msg = session::NewMessage::assistant(&result)
+                    .with_source(ha_core::chat_engine::ChatSource::Desktop);
                 assistant_msg.tool_duration_ms = Some(duration_ms as i64);
                 assistant_msg.thinking = thinking;
                 if let Ok(usage) = captured_usage.lock() {
@@ -502,7 +513,11 @@ pub async fn chat(
             None => {
                 let err = "Agent not initialized. Please sign in first.".to_string();
                 crate::chat_engine::persist_failed_turn_context(&db, &sid, &message, &err);
-                let _ = db.append_message(&sid, &session::NewMessage::event(&err));
+                let _ = db.append_message(
+                    &sid,
+                    &session::NewMessage::event(&err)
+                        .with_source(ha_core::chat_engine::ChatSource::Desktop),
+                );
                 Err(CmdError::msg(err))
             }
         };

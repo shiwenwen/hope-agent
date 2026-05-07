@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use crate::channel::db::{ChannelDB, ATTACH_SOURCE_ATTACH};
-use crate::channel::types::{ChatType, InlineButton};
+use crate::channel::traits::ChannelPlugin;
+use crate::channel::types::{ChannelAccountConfig, ChatType, InlineButton};
 
 /// Outcome of dispatching a slash command from an IM channel message.
 pub(super) enum ChannelSlashOutcome {
@@ -32,6 +35,8 @@ pub(super) enum ChannelSlashOutcome {
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn dispatch_slash_for_channel(
     channel_db: &ChannelDB,
+    plugin: &Arc<dyn ChannelPlugin>,
+    account: &ChannelAccountConfig,
     channel_id: &str,
     account_id: &str,
     chat_id: &str,
@@ -463,6 +468,19 @@ pub(super) async fn dispatch_slash_for_channel(
                     buttons: vec![],
                 });
             }
+            // Replay the latest completed turn (assistant text + media) to
+            // this chat so the user attaching mid-conversation isn't
+            // dropped into a session with zero visible context. Best-effort
+            // — failures are logged inside the helper and don't fail the
+            // attach itself.
+            crate::channel::attach_sync::deliver_attach_catchup(
+                plugin,
+                account,
+                &target_sid,
+                chat_id,
+                thread_id,
+            )
+            .await;
             // Future inbound from this chat now resolves to `target_sid`;
             // surface the swap to the caller so it can adopt the new id.
             Ok(ChannelSlashOutcome::Reply {

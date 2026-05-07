@@ -744,6 +744,52 @@
 - **影响面**：纯位置 / 命名规范问题，无 bug
 - **触发时机建议**：如果未来要在非 React / 非 i18next 上下文（CLI / Node script）复用 transfer formatter 再说
 
+### F-063 `format_token_count` vs `slash_commands::handlers::context::format_row` 两份 token formatter
+
+- **来源**：2026-05-07 IM attach catch-up + GUI 一对多 / 一对一 / im_mirror 重构 PR `/simplify` review（reuse agent 标记）
+- **现象**：[`slash_commands/handlers/utility.rs::format_token_count`](../../crates/ha-core/src/slash_commands/handlers/utility.rs) 把 token 数 ≥1k 折成 `Nk` 字符串；[`slash_commands/handlers/context/format_row`](../../crates/ha-core/src/slash_commands/handlers/context.rs)（如存在等价）和 `dashboard/insights.rs` 等地方各自实现自己的 token / byte 格式化，逻辑相似但散在各处
+- **为什么留**：当前每处用法的精度需求略不同（utility 用 `(t/1000).round()` 整数 k；某些地方要保留一位小数），抽通用 util 需要先对齐"几位小数 / 是否带空格 / 是否走 i18n"等表面看起来无关紧要但其实容易撞口径的细节；本期 PR 主题是 attach 子系统，不动这个软债务
+- **改的话要做什么**：
+  - 在 `crate::util` 或 `crate::format` 加 `format_token_count(n: u64, opts: TokenFormatOpts) -> String`
+  - 把 utility.rs / context.rs / insights.rs / 前端 `formatBytes` 对齐口径
+  - 同步更新单测覆盖边界（999 vs 1000 / 1499 vs 1500 / 1_000_000 等）
+- **影响面**：纯代码卫生，无 bug
+- **触发时机建议**：下次有人为某个 token 显示口径漂移（例如 `/status` 显示 `1k` 但 `/usage` 显示 `1.0k`）开 issue 时一并清理
+
+### F-064 `ChannelCancelRegistry::is_active` vs `stream_seq::is_active` 语义重叠
+
+- **来源**：2026-05-07 IM attach catch-up + GUI 一对多 / 一对一 / im_mirror 重构 PR `/simplify` review
+- **现象**：attach catch-up 的"in-flight" hint 走 [`ChannelCancelRegistry::is_active`](../../crates/ha-core/src/channel/cancel.rs) —— 只覆盖 channel-source 在跑的会话；但同 session 也可能有 desktop / http 在跑的 turn（`stream_seq::is_active` 才能命中），catch-up 用户切到 IM 时如果 desktop 端正在等回复，hint 不会出现
+- **为什么留**：当前生产路径 catch-up 主要发生在 IM 用户主动 `/session <id>` 接管（多半是 channel turn），desktop 在跑还要主动切 IM 的 case 极少；扩到 `stream_seq::is_active` 覆盖更全的 source 集需要权衡 hint 文案（"a desktop reply is being generated"还是统一"reply is being generated"）
+- **改的话要做什么**：
+  - [`channel/attach_sync.rs::deliver_attach_catchup`](../../crates/ha-core/src/channel/attach_sync.rs) 用 `stream_seq::is_active(session_id)` OR 替代 `get_channel_cancels().is_active`
+  - 评估 hint 文案是否需要按 source 分支
+- **影响面**：罕见 case 下 hint 缺失（用户视觉略晚得知有回复在路上）
+- **触发时机建议**：下次重构 catch-up / 实现 GUI ↔ IM live mirror 时一起做（live mirror 也要查 stream 状态）
+
+### F-065 `NewMessage.source` 为 `Option<String>` 而非 `ChatSource` enum
+
+- **来源**：2026-05-07 IM attach catch-up + GUI 一对多 / 一对一 / im_mirror 重构 PR `/simplify` review
+- **现象**：[`session::NewMessage`](../../crates/ha-core/src/session/types.rs) 的 `source: Option<String>` 是字符串字段，写入时用 `ChatSource::as_str().to_string()`，读取时手写 `matches!(s.as_deref(), Some("desktop") | Some("http"))`。理论上 `Option<ChatSource>`（Copy enum）在内存里到 SQL 边界 stringify 一次更纯净，类型系统也能保证 source 字符串永远合法
+- **为什么留**：14+ 处 callsite（NewMessage::with_source、append_message、quote::build_user_quote_prefix 之前依赖、各种 helper 单测构造）都要改字段类型；本期 PR 改造已经动了 quote.rs 的 source 比较，直接改 enum 会让 PR diff 翻倍且与本期主题无关
+- **改的话要做什么**：
+  - `NewMessage.source: Option<ChatSource>`，写入侧 `Display` impl 已能转字符串
+  - SessionMessage 同步（如果有）
+  - 所有读 source 的地方改 enum match
+- **影响面**：纯类型安全 + 可读性。当前 source 字符串若拼错只在 runtime 静默不当 desktop / http 处理，没显式 error
+- **触发时机建议**：跨 PR 的 SessionMessage / NewMessage 字段类型清理时（同时还有 F-029 permission_mode / F-032 plan_mode 也想改 enum）一起做
+
+### F-066 `handover` catch-up 在 ha-server / src-tauri 两处重复 lookup-plugin-then-call
+
+- **来源**：2026-05-07 IM attach catch-up + GUI 一对多 / 一对一 / im_mirror 重构 PR `/simplify` review
+- **现象**：[`crates/ha-server/src/routes/channel.rs`](../../crates/ha-server/src/routes/channel.rs) 和 [`src-tauri/src/commands/channel.rs`](../../src-tauri/src/commands/channel.rs) 的 handover 路径分别走："channel_db.attach_session → registry.get_plugin → channel_account 查 cfg → deliver_attach_catchup" 这套序列，两处几乎逐行复制
+- **为什么留**：本期 PR `attach_sync.rs` 已经聚焦在 catch-up 的"渲染 + 发送"层，把 lookup 抽到 ha-core 单一 helper 涉及 attach / detach / handover 三条入口都改一遍；本期没动 attach / detach 入口，单抽 handover 的 lookup 价值有限
+- **改的话要做什么**：
+  - 在 [`crates/ha-core/src/channel/attach_sync.rs`](../../crates/ha-core/src/channel/attach_sync.rs) 加 `pub async fn handover_with_catchup(ctx: HandoverCtx) -> Result<()>` 之类的 helper，一站式做完 attach + plugin lookup + catch-up
+  - ha-server / src-tauri 两层薄壳直接调一行
+- **影响面**：纯代码卫生 + 防漂移；当前 ha-server / src-tauri 两边手写出现细微行为分歧（例如错误日志 category）
+- **触发时机建议**：与 E1 spawn 改造（catch-up 转 spawn 后台）合并时改最干净；或下次有人为 handover bug 同时改两个入口时
+
 ---
 
 ## Closed

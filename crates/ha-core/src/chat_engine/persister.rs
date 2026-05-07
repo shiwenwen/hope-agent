@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 
 use crate::session::{MessageRole, NewMessage, SessionDB};
 
+use super::stream_seq::ChatSource;
 use super::types::CapturedUsage;
 
 const FLUSH_INTERVAL: Duration = Duration::from_millis(500);
@@ -32,6 +33,10 @@ fn lock_or_poisoned<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub(crate) struct StreamPersister {
     db: Arc<SessionDB>,
     session_id: String,
+    /// `ChatSource` of the run that owns this persister. Tagged onto every
+    /// row this persister appends so `messages.source` reflects the caller
+    /// even for streaming placeholder / tool / final assistant rows.
+    source: ChatSource,
     pending_text: Mutex<String>,
     pending_thinking: Mutex<String>,
     thinking_start_time: Mutex<Option<Instant>>,
@@ -50,10 +55,11 @@ impl StreamPersister {
     /// Construct a registered persister. The returned `Arc` is also held
     /// (weakly) by [`super::active_persisters`] so a panic / signal hook
     /// can finalize any in-flight placeholder before the process exits.
-    pub(crate) fn new(db: Arc<SessionDB>, session_id: String) -> Arc<Self> {
+    pub(crate) fn new(db: Arc<SessionDB>, session_id: String, source: ChatSource) -> Arc<Self> {
         let me = Arc::new(Self {
             db,
             session_id,
+            source,
             pending_text: Mutex::new(String::new()),
             pending_thinking: Mutex::new(String::new()),
             thinking_start_time: Mutex::new(None),
@@ -119,7 +125,8 @@ impl StreamPersister {
                         .get("arguments")
                         .and_then(|v| v.as_str())
                         .unwrap_or("");
-                    let tool_msg = NewMessage::tool(call_id, name, arguments, "", None, false);
+                    let tool_msg = NewMessage::tool(call_id, name, arguments, "", None, false)
+                        .with_source(me.source);
                     let _ = me.db.append_message(&me.session_id, &tool_msg);
                 }
                 Some("tool_result") => {
@@ -207,11 +214,13 @@ impl StreamPersister {
                     .map(|t| t.elapsed().as_millis() as i64);
                 let mut msg = NewMessage::thinking_block_with_duration(&initial, duration);
                 msg.stream_status = Some("streaming".to_string());
+                msg.source = Some(self.source.as_str().to_string());
                 msg
             }
             _ => {
                 let mut msg = NewMessage::text_block(&initial);
                 msg.stream_status = Some("streaming".to_string());
+                msg.source = Some(self.source.as_str().to_string());
                 msg
             }
         };
@@ -349,7 +358,7 @@ impl StreamPersister {
         let duration = lock_or_poisoned(&self.thinking_start_time)
             .take()
             .map(|t| t.elapsed().as_millis() as i64);
-        let msg = NewMessage::thinking_block_with_duration(&pk, duration);
+        let msg = NewMessage::thinking_block_with_duration(&pk, duration).with_source(self.source);
         let _ = self.db.append_message(&self.session_id, &msg);
         pk.clear();
         self.had_thinking_blocks.store(true, Ordering::SeqCst);
@@ -411,6 +420,7 @@ impl StreamPersister {
         msg.ttft_ms = u.ttft_ms;
         msg.tokens_cache_creation = u.cache_creation_input_tokens;
         msg.tokens_cache_read = u.cache_read_input_tokens;
+        msg.source = Some(self.source.as_str().to_string());
         msg
     }
 }

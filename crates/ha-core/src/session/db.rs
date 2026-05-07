@@ -1,10 +1,27 @@
 use anyhow::Result;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
 use super::types::{ChannelSessionInfo, MessageRole, NewMessage, SessionMessage, SessionMeta};
+
+/// Token snapshot for the latest persisted assistant row of a session.
+/// Powers `/status`'s Context usage + Cache info panels in a single read.
+#[derive(Debug, Clone, Default)]
+pub struct LastAssistantTokens {
+    /// Cumulative input tokens for the turn (legacy fallback for context fill).
+    pub tokens_in: Option<i64>,
+    /// Last-round input tokens — preferred for context-window fill.
+    pub tokens_in_last: Option<i64>,
+    /// Cache-write tokens for the most recent turn.
+    pub tokens_cache_creation: Option<i64>,
+    /// Cache-read tokens for the most recent turn.
+    pub tokens_cache_read: Option<i64>,
+    /// Model id stamped on the row (for context-window lookup when the
+    /// active selection has changed mid-session).
+    pub model: Option<String>,
+}
 
 // ── Database Manager ─────────────────────────────────────────────
 
@@ -24,7 +41,7 @@ const LARGE_TURN_EXTENSION_LOG_THRESHOLD: usize = 200;
 const SESSION_META_SELECT: &str = "SELECT s.id, s.title, s.agent_id, s.provider_id, s.provider_name, s.model_id,
            s.created_at, s.updated_at,
            (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) as msg_count,
-           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant') as unread_count,
+           (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id AND m.id > COALESCE(s.last_read_message_id, 0) AND m.role = 'assistant' AND COALESCE(m.source, 'desktop') != 'channel') as unread_count,
            EXISTS(
              SELECT 1 FROM messages m
              WHERE m.session_id = s.id
@@ -95,10 +112,14 @@ impl SessionDB {
                 tokens_cache_creation INTEGER,
                 tokens_cache_read INTEGER,
                 tool_metadata TEXT,
+                source TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );
 
             CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
+            -- Composite index for role-filtered scans within a session
+            -- (last assistant token row, future last-user-message lookups).
+            CREATE INDEX IF NOT EXISTS idx_messages_session_role ON messages(session_id, role);
             CREATE INDEX IF NOT EXISTS idx_sessions_agent_id ON sessions(agent_id);
             CREATE INDEX IF NOT EXISTS idx_sessions_updated_at ON sessions(updated_at DESC);
 
@@ -248,6 +269,17 @@ impl SessionDB {
                    ON messages(session_id, stream_status)
                    WHERE stream_status = 'streaming';",
             )?;
+        }
+
+        // Migration: lowercase `ChatSource` of the caller that drove this
+        // turn (`desktop` / `http` / `channel` / `subagent` / `parent_injection`).
+        // Drives the IM-vs-desktop unread-badge split in `unread_count` and
+        // the GUI→IM mirror's user-quote prefix. Legacy rows stay NULL and
+        // are treated as `desktop` by readers (`COALESCE(source, 'desktop')`),
+        // preserving any existing unread badges.
+        let has_source = conn.prepare("SELECT source FROM messages LIMIT 1").is_ok();
+        if !has_source {
+            conn.execute_batch("ALTER TABLE messages ADD COLUMN source TEXT;")?;
         }
 
         // Migration: fix FTS delete trigger — must match INSERT trigger's WHEN clause
@@ -1450,8 +1482,8 @@ impl SessionDB {
                 attachments_meta, model, tokens_in, tokens_out, reasoning_effort,
                 tool_call_id, tool_name, tool_arguments, tool_result,
                 tool_duration_ms, is_error, thinking, ttft_ms, tokens_in_last,
-                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                tokens_cache_creation, tokens_cache_read, tool_metadata, stream_status, source)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 session_id,
                 msg.role.as_str(),
@@ -1475,6 +1507,7 @@ impl SessionDB {
                 msg.tokens_cache_read,
                 msg.tool_metadata,
                 msg.stream_status,
+                msg.source,
             ],
         )?;
 
@@ -1992,6 +2025,44 @@ impl SessionDB {
             }
         }
         Ok((user, assistant))
+    }
+
+    /// Token snapshot for the latest persisted assistant message.
+    ///
+    /// Used by `/status` to render Context usage + Cache info in lockstep with
+    /// the GUI session-status popover (see `ChatTitleBar` `getContextUsageTokens`).
+    /// Single SQL covers both panels — context-window usage prefers
+    /// `tokens_in_last` (last-round input) and falls back to cumulative
+    /// `tokens_in` for legacy rows; cache fields are last-round only and never
+    /// summed across turns.
+    pub fn get_session_last_assistant_token_row(
+        &self,
+        session_id: &str,
+    ) -> Result<Option<LastAssistantTokens>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+        let row = conn
+            .query_row(
+                "SELECT tokens_in, tokens_in_last, tokens_cache_creation, tokens_cache_read, model
+                 FROM messages
+                 WHERE session_id = ?1 AND role = 'assistant'
+                 ORDER BY id DESC
+                 LIMIT 1",
+                params![session_id],
+                |row| {
+                    Ok(LastAssistantTokens {
+                        tokens_in: row.get::<_, Option<i64>>(0)?,
+                        tokens_in_last: row.get::<_, Option<i64>>(1)?,
+                        tokens_cache_creation: row.get::<_, Option<i64>>(2)?,
+                        tokens_cache_read: row.get::<_, Option<i64>>(3)?,
+                        model: row.get::<_, Option<String>>(4)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(row)
     }
 
     /// Change the agent bound to a session. Only allowed when the session has

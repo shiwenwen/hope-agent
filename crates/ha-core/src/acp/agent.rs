@@ -332,9 +332,10 @@ impl AcpAgent {
         let attachments = extract_images_from_prompt(&req.prompt);
 
         // Save user message
-        let _ = self
-            .session_db
-            .append_message(&session_id, &session::NewMessage::user(&text));
+        let _ = self.session_db.append_message(
+            &session_id,
+            &session::NewMessage::user(&text).with_source(crate::chat_engine::ChatSource::Http),
+        );
 
         // Auto-generate fallback title
         if let Ok(Some(title)) =
@@ -759,7 +760,8 @@ impl AcpAgent {
 
                 match result {
                     Ok((response, thinking)) => {
-                        let mut assistant_msg = session::NewMessage::assistant(&response);
+                        let mut assistant_msg = session::NewMessage::assistant(&response)
+                            .with_source(crate::chat_engine::ChatSource::Http);
                         assistant_msg.thinking = thinking;
                         let _ = self
                             .session_db
@@ -995,7 +997,8 @@ fn persist_tool_event_inline(db: &Arc<SessionDB>, session_id: &str, delta: &str)
                     .get("arguments")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false);
+                let tool_msg = session::NewMessage::tool(call_id, name, arguments, "", None, false)
+                    .with_source(crate::chat_engine::ChatSource::Http);
                 let _ = db.append_message(session_id, &tool_msg);
             }
             _ => {}
