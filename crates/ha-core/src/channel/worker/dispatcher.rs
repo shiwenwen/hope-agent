@@ -1125,10 +1125,12 @@ async fn deliver_final_only(
 }
 
 /// `ImReplyMode::Preview`: keep the legacy "one growing preview message"
-/// behavior. Uses `engine_result.response` (the merged collected_text) as
-/// the canonical text — it matches what the live preview was rendering
-/// during the turn — and finalizes via `send_final_reply` so the preview
-/// transport's edit/close path runs. All media follow at the end.
+/// behavior. Joins per-round narration in time order to reconstruct the
+/// canonical final text — matches what the live preview was rendering
+/// (including `/reason on` thinking blockquotes inserted by
+/// `ChannelStreamSink`). Falls back to `engine_result.response` only when
+/// `rounds` is empty (the engine bailed before any text streamed). All
+/// media follow at the end via `send_final_reply`.
 ///
 /// Non-streaming channels reach this branch with `preview = None`; behavior
 /// degrades to the same as `Final` minus the "drop pre-final narration"
@@ -1142,17 +1144,36 @@ async fn deliver_preview_merged(
     preview: Option<&PreviewHandle>,
     caps: &ChannelCapabilities,
 ) -> DeliveryMetrics {
+    // Pre-/reason behavior used `fallback_response` directly; with
+    // `/reason on`, that text omits the reasoning blockquotes the user
+    // just watched stream in, so the final commit would replace the
+    // preview with a thinking-less version. Joining round texts (which
+    // the sink already formatted) preserves what was rendered.
+    let final_text: String = if rounds.is_empty() {
+        fallback_response.to_string()
+    } else {
+        let parts: Vec<&str> = rounds
+            .iter()
+            .map(|r| r.text.trim_end())
+            .filter(|t| !t.is_empty())
+            .collect();
+        if parts.is_empty() {
+            fallback_response.to_string()
+        } else {
+            parts.join("\n\n")
+        }
+    };
     let all_media: Vec<crate::attachments::MediaItem> = rounds
         .iter()
         .flat_map(|r| r.medias.iter().cloned())
         .collect();
     let media_count = all_media.len();
-    let text_chars = fallback_response.chars().count();
+    let text_chars = final_text.chars().count();
     send_final_reply(
         plugin,
         account_id,
         msg,
-        fallback_response,
+        &final_text,
         preview,
         &all_media,
         caps,

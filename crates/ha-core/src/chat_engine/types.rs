@@ -152,17 +152,26 @@ impl RoundTextAccumulator {
     /// a placeholder, since the closing of the previous round already
     /// happened in `on_tool_call` (which pushed its narration to
     /// `completed`). `current` was reset there too.
-    fn on_text(&mut self, text: &str) {
+    ///
+    /// Returns `true` when this call closed a thinking blockquote (pushed
+    /// the trailing `\n\n` separator). The IM channel sink mirrors that
+    /// separator into `event_tx` so the streaming preview task's running
+    /// `accumulated` buffer stays in sync with `current.text` —
+    /// otherwise split-streaming finalize would render a preview where
+    /// the answer text bleeds straight into the blockquote.
+    fn on_text(&mut self, text: &str) -> bool {
         if self.in_tool_phase {
             self.in_tool_phase = false;
         }
-        if self.thinking_active {
-            // Close the blockquote so the reply text rendered after it is
-            // a normal paragraph, not a continuation of the quote.
+        let closed_thinking = if self.thinking_active {
             self.current.text.push_str("\n\n");
             self.thinking_active = false;
-        }
+            true
+        } else {
+            false
+        };
         self.current.text.push_str(text);
+        closed_thinking
     }
 
     /// Append a thinking-delta chunk to the current round, formatted as a
@@ -194,18 +203,27 @@ impl RoundTextAccumulator {
     /// the same round — only the *first* tool_call rolls `current` into
     /// `completed`; subsequent tool_calls in the same round are no-ops for
     /// grouping (their results still attach correctly via `on_media`).
-    fn on_tool_call(&mut self) {
-        if !self.in_tool_phase {
-            if self.thinking_active {
-                // Close the blockquote so any later `tool_result` text
-                // rendering doesn't bleed into the quote.
-                self.current.text.push_str("\n\n");
-                self.thinking_active = false;
-            }
-            let prev = std::mem::take(&mut self.current);
-            self.completed.push(prev);
-            self.in_tool_phase = true;
+    ///
+    /// Returns `true` when this call closed a thinking blockquote on the
+    /// outgoing round (same contract as [`Self::on_text`] — sink must
+    /// synthesize the matching `\n\n` text_delta into the preview event
+    /// stream so per-round finalize doesn't ship a preview where the
+    /// blockquote eats the round boundary).
+    fn on_tool_call(&mut self) -> bool {
+        if self.in_tool_phase {
+            return false;
         }
+        let closed_thinking = if self.thinking_active {
+            self.current.text.push_str("\n\n");
+            self.thinking_active = false;
+            true
+        } else {
+            false
+        };
+        let prev = std::mem::take(&mut self.current);
+        self.completed.push(prev);
+        self.in_tool_phase = true;
+        closed_thinking
     }
 
     /// Attach media to the round currently in the tool phase. Falls back to
@@ -285,6 +303,20 @@ impl ChannelStreamSink {
             show_thinking,
         }
     }
+
+    /// Push a synthesized `text_delta` carrying the `\n\n` blockquote
+    /// closer that `RoundTextAccumulator` just appended to `current.text`.
+    /// Forwarded to `event_tx` ahead of the originating event (text_delta
+    /// or tool_call) so the streaming preview task's `accumulated`
+    /// stays byte-for-byte aligned with `current.text`.
+    fn forward_thinking_close_separator(&self) {
+        let synth = serde_json::json!({
+            "type": "text_delta",
+            "content": "\n\n",
+        })
+        .to_string();
+        let _ = self.event_tx.try_send(synth);
+    }
 }
 
 impl EventSink for ChannelStreamSink {
@@ -319,6 +351,7 @@ impl EventSink for ChannelStreamSink {
                 }
             }
         } else if event.contains("\"type\":\"text_delta\"") {
+            let mut closed_thinking = false;
             if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
                 if let Some(text) = val
                     .get("content")
@@ -326,13 +359,21 @@ impl EventSink for ChannelStreamSink {
                     .and_then(|v| v.as_str())
                 {
                     if let Ok(mut acc) = self.round_texts.lock() {
-                        acc.on_text(text);
+                        closed_thinking = acc.on_text(text);
                     }
                 }
             }
+            if closed_thinking {
+                self.forward_thinking_close_separator();
+            }
         } else if event.contains("\"type\":\"tool_call\"") {
-            if let Ok(mut acc) = self.round_texts.lock() {
-                acc.on_tool_call();
+            let closed_thinking = if let Ok(mut acc) = self.round_texts.lock() {
+                acc.on_tool_call()
+            } else {
+                false
+            };
+            if closed_thinking {
+                self.forward_thinking_close_separator();
             }
         } else if event.contains("\"type\":\"thinking_delta\"") {
             // EventBus already broadcast the original event for desktop UI
@@ -638,17 +679,68 @@ mod tests {
         let expected = "> 💭 **Thinking**\n> let me\n> think more.\n\nAnswer.";
         assert_eq!(drained[0].text, expected);
 
-        // Preview task receives synthesized text_delta events for thinking
-        // chunks, plus the real text_delta. No raw thinking_delta forwarded.
+        // Preview task receives: 2 synthesized text_delta events (one per
+        // thinking chunk) + 1 synthesized `\n\n` blockquote-close
+        // separator (emitted when on_text closed the blockquote) + 1 real
+        // text_delta for "Answer." = 4 total. The separator is what keeps
+        // split-streaming finalize from gluing the answer onto the quote.
+        // No raw thinking_delta forwarded.
         let mut forwarded: Vec<String> = Vec::new();
         while let Ok(s) = rx.try_recv() {
             forwarded.push(s);
         }
-        assert_eq!(forwarded.len(), 3);
+        assert_eq!(forwarded.len(), 4);
         for f in &forwarded {
             assert!(f.contains("\"type\":\"text_delta\""));
             assert!(!f.contains("thinking_delta"));
         }
+        // The third forward must be the `\n\n` separator and arrive
+        // BEFORE the real "Answer." text_delta (so the preview task's
+        // accumulated buffer mirrors `current.text` byte-for-byte).
+        assert!(forwarded[2].contains("\"content\":\"\\n\\n\""));
+        assert!(forwarded[3].contains("Answer."));
+    }
+
+    #[test]
+    fn closing_thinking_via_text_delta_forwards_separator_to_preview_task() {
+        // Regression: the IM split-streaming preview accumulator builds
+        // its buffer from forwarded text_delta events. If the accumulator
+        // closes the thinking blockquote with `\n\n` but the sink doesn't
+        // mirror that into event_tx, the preview message will look like
+        // `> 💭 ThinkingAnswer.` (quote bleeds into reply text).
+        let (sink, _rounds, mut rx) = mk_sink_with_rx(true);
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": "step 1"}),
+        );
+        emit(&sink, json!({"type": "text_delta", "content": "Answer."}));
+
+        let forwarded: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        // Order: thinking synth → \n\n separator → real text_delta.
+        assert_eq!(forwarded.len(), 3);
+        assert!(forwarded[0].contains("Thinking"));
+        assert_eq!(forwarded[1], r#"{"content":"\n\n","type":"text_delta"}"#);
+        assert!(forwarded[2].contains("Answer."));
+    }
+
+    #[test]
+    fn closing_thinking_via_tool_call_forwards_separator_to_preview_task() {
+        // Same regression as above but for the tool_call branch — split
+        // streaming relies on the tool_call event arriving AFTER the
+        // separator so finalize_split_round renders the round text
+        // including the trailing `\n\n` (matching `current.text`).
+        let (sink, _rounds, mut rx) = mk_sink_with_rx(true);
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": "step 1"}),
+        );
+        emit(&sink, tool_call("c1"));
+
+        let forwarded: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert_eq!(forwarded.len(), 3);
+        assert!(forwarded[0].contains("Thinking"));
+        assert_eq!(forwarded[1], r#"{"content":"\n\n","type":"text_delta"}"#);
+        assert!(forwarded[2].contains("\"type\":\"tool_call\""));
     }
 
     #[test]
