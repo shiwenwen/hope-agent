@@ -57,6 +57,20 @@ pub(super) struct StreamPreviewOutcome {
     pub finalized_rounds: usize,
 }
 
+pub(super) fn append_preview_round_text(accumulated: &mut String, text: &str, new_round: bool) {
+    if text.is_empty() {
+        return;
+    }
+    if new_round
+        && !accumulated.is_empty()
+        && !accumulated.ends_with('\n')
+        && !text.starts_with('\n')
+    {
+        accumulated.push('\n');
+    }
+    accumulated.push_str(text);
+}
+
 /// Spawn a background task that receives streaming events from the chat engine
 /// and sends progressive previews to the IM channel.
 ///
@@ -170,8 +184,9 @@ pub(super) fn spawn_channel_stream_task(
                                     accumulated.clear();
                                     finalized_rounds += 1;
                                 }
+                                let new_preview_round = in_tool_phase && !split_streaming;
                                 in_tool_phase = false;
-                                accumulated.push_str(&text);
+                                append_preview_round_text(&mut accumulated, &text, new_preview_round);
                                 dirty = true;
                             }
                         }

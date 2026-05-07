@@ -10,8 +10,8 @@ use crate::channel::types::*;
 use super::media::convert_inbound_media_to_attachments;
 use super::slash::{dispatch_slash_for_channel, ChannelSlashOutcome};
 use super::streaming::{
-    select_stream_preview_transport, spawn_channel_stream_task, PreviewHandle,
-    StreamPreviewOutcome, CARD_ELEMENT_MAX_CHARS,
+    append_preview_round_text, select_stream_preview_transport, spawn_channel_stream_task,
+    PreviewHandle, StreamPreviewOutcome, CARD_ELEMENT_MAX_CHARS,
 };
 
 /// Maximum number of inbound messages processed concurrently.
@@ -1178,11 +1178,10 @@ async fn deliver_final_only(
 
 /// `ImReplyMode::Preview`: keep the legacy "one growing preview message"
 /// behavior. Joins per-round narration in time order to reconstruct the
-/// canonical final text — matches what the live preview was rendering
-/// (including `/reason on` thinking blockquotes inserted by
-/// `ChannelStreamSink`). Falls back to `engine_result.response` only when
-/// `rounds` is empty (the engine bailed before any text streamed). All
-/// media follow at the end via `send_final_reply`.
+/// canonical final text with one newline at tool-round boundaries — matching
+/// what the live preview task rendered. Falls back to `engine_result.response`
+/// only when `rounds` is empty (the engine bailed before any text streamed).
+/// All media follow at the end via `send_final_reply`.
 ///
 /// Non-streaming channels reach this branch with `preview = None`; behavior
 /// degrades to the same as `Final` minus the "drop pre-final narration"
@@ -1196,18 +1195,10 @@ async fn deliver_preview_merged(
     preview: Option<&PreviewHandle>,
     caps: &ChannelCapabilities,
 ) -> DeliveryMetrics {
-    // Concatenate round texts with NO separator: the round_texts state
-    // machine is the byte-exact mirror of what the sink forwarded into
-    // the streaming preview task's `accumulated` buffer (round
-    // boundaries don't insert padding by themselves; the only `\n\n`
-    // separators that exist are the ones `on_thinking` / `on_text` /
-    // `on_tool_call` already pushed when closing a thinking blockquote).
-    // Joining with `\n\n` would insert extra blank lines between rounds
-    // that the live preview never showed — the final commit would jump.
     let final_text: String = if rounds.is_empty() {
         fallback_response.to_string()
     } else {
-        let merged: String = rounds.iter().map(|r| r.text.as_str()).collect();
+        let merged = merge_preview_round_texts(rounds);
         if merged.is_empty() {
             fallback_response.to_string()
         } else {
@@ -1234,6 +1225,15 @@ async fn deliver_preview_merged(
         text_chars,
         media_count,
     }
+}
+
+pub(super) fn merge_preview_round_texts(rounds: &[crate::chat_engine::RoundOutput]) -> String {
+    let mut merged = String::new();
+    for round in rounds {
+        let new_round = !merged.is_empty();
+        append_preview_round_text(&mut merged, &round.text, new_round);
+    }
+    merged
 }
 
 /// Send the final formatted response to the IM channel.

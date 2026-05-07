@@ -1,5 +1,7 @@
+use super::dispatcher::merge_preview_round_texts;
 use super::streaming::*;
 use crate::channel::types::*;
+use crate::chat_engine::RoundOutput;
 
 fn caps(
     supports_draft: bool,
@@ -131,6 +133,39 @@ fn stream_preview_outcome_default_reports_zero_finalized_rounds() {
     assert_eq!(
         outcome.finalized_rounds, 0,
         "default outcome must signal `dispatcher should ship every round`"
+    );
+}
+
+#[test]
+fn append_preview_round_text_inserts_line_break_between_rounds() {
+    let mut accumulated = "我把头像文件直接发给你。".to_string();
+    append_preview_round_text(&mut accumulated, "已发送。", true);
+    assert_eq!(accumulated, "我把头像文件直接发给你。\n已发送。");
+}
+
+#[test]
+fn append_preview_round_text_keeps_same_round_byte_exact() {
+    let mut accumulated = "hello".to_string();
+    append_preview_round_text(&mut accumulated, " world", false);
+    assert_eq!(accumulated, "hello world");
+}
+
+#[test]
+fn merge_preview_round_texts_uses_same_line_break_contract() {
+    let rounds = vec![
+        RoundOutput {
+            text: "我把头像文件直接发给你。".to_string(),
+            ..RoundOutput::default()
+        },
+        RoundOutput::default(),
+        RoundOutput {
+            text: "已发送。".to_string(),
+            ..RoundOutput::default()
+        },
+    ];
+    assert_eq!(
+        merge_preview_round_texts(&rounds),
+        "我把头像文件直接发给你。\n已发送。"
     );
 }
 

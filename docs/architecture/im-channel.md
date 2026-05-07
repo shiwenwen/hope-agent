@@ -747,7 +747,7 @@ pub fn spawn_dispatcher(
 |------|------|------|
 | `split`（默认） | 每 round 的 narration 与该 round 工具产生的媒体按时序作为独立消息发送（narration → 该 round media → 下一 round narration → ...）。**流式渠道每 round 都是真正的流式打字机**——stream task 在 `tool_call → text_delta` 边界把当前 preview finalize 掉、把该 round 媒体发完，再为下一 round 起一条全新 preview，每 round 用户都看到 typewriter；非流式渠道每条 narration 一次性。 | 所有 |
 | `final` | 丢弃中间 round narration，只发最后 round 的 text + 末尾发所有媒体。不启用流式预览。 | 所有 |
-| `preview` | 流式渠道用 stream preview transport（Telegram edit · Feishu cardkit · Telegram DM Draft）渲染合并文本——单条不断增长的消息，媒体末尾发。非流式渠道无 preview 可用，自动降级等同 `final`。 | 仅流式有差异 |
+| `preview` | 流式渠道用 stream preview transport（Telegram edit · Feishu cardkit · Telegram DM Draft）渲染合并文本——单条不断增长的消息，跨 tool round 的相邻 narration 之间插入一个 `\n`，媒体末尾发。非流式渠道无 preview 可用，自动降级等同 `final`。 | 仅流式有差异 |
 
 #### 实现：`RoundTextAccumulator` + state machine
 
@@ -793,7 +793,7 @@ let preview_transport = match reply_mode {
 
 - `deliver_split`：跳过 `stream_outcome.finalized_rounds` 已经在 stream task 里发掉的 round，再处理剩下的（流式渠道下通常只剩"还没 finalize"的最后 round；非流式渠道下是全部 round）。pre-final round `send_message(text)` + `deliver_media(round.medias)`；最后 round 走 `send_final_reply`（finalize 当前 preview handle + canonical chunk-or-card + 媒体 fan-out）。
 - `deliver_final_only`：取 `rounds.last().text` + 合并所有 `medias`，一次 `send_final_reply`。
-- `deliver_preview_merged`：把 drained rounds 的 `r.text` **空字符串 concat**（`rounds.iter().map(|r| r.text.as_str()).collect::<String>()`）+ 合并所有 `medias`，走 `send_final_reply`。round_texts state machine 是 sink 转给 stream task `accumulated` 的 byte-exact 镜像，concat 出来的字符串就是用户在流式期间看到的最后一帧逐字节相同 —— 不能用 `engine_result.response`（不含 thinking blockquote、`/reason on` 时会被 final commit 抹掉）也不能用 `join("\n\n")`（show_thinking=false 时会比预览多插空行）。仅当 rounds 全空时回退 `engine_result.response`。
+- `deliver_preview_merged`：用 `append_preview_round_text` 合并 drained rounds 的 `r.text`：同一 round 内 byte-exact `push_str`，跨 tool round 且边界两侧没有现成换行时插入一个 `\n`，再合并所有 `medias` 走 `send_final_reply`。round_texts state machine 是 sink 转给 stream task `accumulated` 的镜像，最终字符串必须跟用户在流式期间看到的最后一帧一致 —— 不能用 `engine_result.response`（不含 thinking blockquote、`/reason on` 时会被 final commit 抹掉），也不能无条件 `join("\n\n")`（show_thinking=false 时会比预览多插空行）。仅当 rounds 全空时回退 `engine_result.response`。
 
 `deliver_media_to_chat` 是 `send_final_reply` / split-streaming 共用的媒体投递函数——`partition_media_by_channel` 后逐个 `send_message(media)`，不支持的 MIME 走 `build_media_fallback_lines` 转下载链接（每条间 50ms 节流，避开 Telegram / LINE 单聊速率限制）。
 
@@ -859,7 +859,7 @@ show_thinking 跟 reply mode 正交，都在 round 文本层面工作：
 
 - **Split**：每 round 的 `RoundOutput.text` 已自带 `> 💭 **Thinking**\n> ...\n\n<answer>`；split mode delivery 把 round.text 当 narration 发，thinking blockquote 自然带过去。流式渠道下 stream task 的 per-round preview 也能实时打字机显示 thinking
 - **Final**：`deliver_final_only` 取 `rounds.last().text`，最后 round 若有 thinking 也带过去
-- **Preview**：`deliver_preview_merged` 把所有 round.text 空字符串 concat（见上节"Dispatcher 分发"末尾）—— concat 结果跟 stream `accumulated` byte-exact 一致，避免 commit 时 thinking 块被 `engine_result.response` 抹掉
+- **Preview**：`deliver_preview_merged` 用 `append_preview_round_text` 合并所有 round.text（同 round 原样追加，跨 tool round 补一个 `\n`）——结果跟 stream `accumulated` 一致，避免 commit 时 thinking 块被 `engine_result.response` 抹掉
 
 **默认 off**：保持升级前行为，老用户不会突然看到 reasoning 块挤到 IM 消息里。
 
