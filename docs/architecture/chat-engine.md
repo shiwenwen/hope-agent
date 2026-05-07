@@ -68,16 +68,16 @@ pub trait EventSink: Send + Sync + 'static {
 - **`NoopEventSink`**（定义在 `crates/ha-core/src/chat_engine/types.rs`）— 丢弃所有事件。HTTP 模式、Cron 定时任务、subagent fork-and-forget 等"没有实时 UI 消费方"的入口共用此 sink；真正的浏览器流式输出由 Chat Engine 的 `chat:stream_delta` EventBus 双写路径推到 `/ws/events`
 - **`ChannelStreamSink`**（定义在 `crates/ha-core/src/chat_engine/types.rs`）— 双路输出：(1) 通过 `EventBus` 发布 `channel:stream_delta` 事件推送到前端实时展示；(2) 通过 `mpsc::Sender` 转发到后台任务，驱动 IM 渠道的渐进式消息编辑（如 Telegram 消息实时更新）。`is_primary: Arc<AtomicBool>` gate 决定 (2) 是否真发到 IM——secondary observer 仅走 (1) 让 UI 渲染，不真发回 IM channel。Mid-turn 可 toggle。
 
-### SinkRegistry — 多 sink fan-out
+### GUI → IM final-reply mirror & SinkRegistry follow-up
 
-`ChatEngineParams.event_sink` 是 per-turn 的主 sink。同一 session 在 GUI ↔ IM 交班场景需要多 sink 同时观察（一个 IM chat 是 primary、另一个是旁观者；GUI 用户和 IM 用户共看一个 session 的流），主字段挂不下。新增[`crates/ha-core/src/chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs) 处理：
+GUI / HTTP 入口的 turn 在成功路径把最终 assistant text 推到所有 primary IM attach，让 IM 用户看到桌面用户在共享 session 里得到的回复。当前实现走 [`crates/ha-core/src/chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)：
 
-```rust
-SinkRegistry::instance().attach(session_id, sink) -> SinkHandle;  // RAII drop 自动 detach
-SinkRegistry::instance().emit(session_id, event);                  // fan-out 给所有额外 sink
-```
+- `attach_im_mirrors(session_id, source)` — `Desktop` / `Http` source 才返非空 state；`channel_db.has_attached(session_id)` 短路，再 `list_attached` 取 `is_primary` 行 + 解析 channel plugin。
+- `finalize_im_mirrors(state, response)` — 并发 `plugin.send_message` 投递；逐 mirror 失败只 `app_warn!`，因为 chat engine 已持久化 response，"漏 echo" ≠ "漏 turn"。
 
-`emit_stream_event`（[`engine.rs`](../../crates/ha-core/src/chat_engine/engine.rs)）末尾追加 `sink_registry().emit(session_id, event)` 调用。注册表存 `Weak<dyn EventSink>` opportunistic prune，主 `event_sink` **不入册**——每个 sink 实例对一个事件只 fire 一次。事件如何派发到 GUI 监听者由现有 EventBus / `chat:stream_delta` 路径处理；`SinkRegistry` 解决的是"运行时挂多个 sink"。
+**不是 live 流式**——是 turn 结束后一次性发送。GUI 看到的实时流由原本的 EventSink + EventBus 路径推动；IM 用户只收到收尾 echo。
+
+`SinkRegistry`（[`crates/ha-core/src/chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs)）的全局注册表 + RAII `SinkHandle` 类型已定义，`emit_stream_event` 末尾也已调 `sink_registry().emit(session_id, event)`。**但目前没有任何生产 `.attach()` caller**——live 多 sink fan-out 是 follow-up：main 的 split-streaming / `RoundTextAccumulator` 重塑了 IM stream task（per-round finalize / `ImReplyMode`），需要在新状态机上重做次级 sink 的 round 边界协调。当真正接上时，主 `event_sink` 仍**不入册**——每消费方收一次事件。
 
 ### ChatEngineParams
 

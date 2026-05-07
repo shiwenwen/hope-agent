@@ -395,31 +395,43 @@ pub(super) async fn dispatch_slash_for_channel(
             }
         }
 
-        // ── Session picker (`/sessions`) — render rows as inline buttons. ──
+        // ── Session picker (`/sessions`) — buttons on supporting channels,
+        //    text list w/ short ids on the rest. `handle_session` accepts a
+        //    unique prefix so the text path stays usable.
         Some(CommandAction::ShowSessionPicker { sessions }) => {
-            let buttons = build_picker_buttons(
-                "session",
-                sessions.iter().map(|s| {
-                    let id_short: String = s.id.chars().take(8).collect();
-                    let chip = s
-                        .channel_label
-                        .as_deref()
-                        .map(|c| format!(" · {}", c))
-                        .unwrap_or_default();
-                    let label = format!("{} · {}{}", id_short, s.title, chip);
-                    (s.id.clone(), id_short, label)
-                }),
-            );
-            let text = if sessions.is_empty() {
-                "No active sessions.".to_string()
+            if sessions.is_empty() {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: "No active sessions.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            if supports_buttons {
+                let buttons = build_picker_buttons(
+                    "session",
+                    sessions.iter().map(|s| {
+                        let id_short: String = s.id.chars().take(8).collect();
+                        let chip = s
+                            .channel_label
+                            .as_deref()
+                            .map(|c| format!(" · {}", c))
+                            .unwrap_or_default();
+                        let label = format!("{} · {}{}", id_short, s.title, chip);
+                        (s.id.clone(), id_short, label)
+                    }),
+                );
+                Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Pick a session ({}):", sessions.len()),
+                    new_session_id: None,
+                    buttons,
+                })
             } else {
-                format!("Pick a session ({}):", sessions.len())
-            };
-            Ok(ChannelSlashOutcome::Reply {
-                content: text,
-                new_session_id: None,
-                buttons,
-            })
+                Ok(ChannelSlashOutcome::Reply {
+                    content: render_session_picker_text(&sessions),
+                    new_session_id: None,
+                    buttons: vec![],
+                })
+            }
         }
 
         // ── /session <id> — attach this chat to the target session. ──
@@ -490,29 +502,42 @@ pub(super) async fn dispatch_slash_for_channel(
             })
         }
 
-        // ── Project picker (`/project` / `/projects` no args). ──
+        // ── Project picker (`/project` / `/projects` no args). Same
+        //    button-vs-text split as the session picker; text path tells
+        //    the user to type `/project <name>` since `handle_project`
+        //    fuzzy-matches the name.
         Some(CommandAction::ShowProjectPicker { projects }) => {
-            let buttons = build_picker_buttons(
-                "project",
-                projects.iter().map(|p| {
-                    let id_short: String = p.id.chars().take(8).collect();
-                    let label = match p.emoji.as_deref() {
-                        Some(e) if !e.is_empty() => format!("{} {}", e, p.name),
-                        _ => p.name.clone(),
-                    };
-                    (p.id.clone(), id_short, label)
-                }),
-            );
-            let text = if projects.is_empty() {
-                "No projects yet.".to_string()
+            if projects.is_empty() {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: "No projects yet.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            if supports_buttons {
+                let buttons = build_picker_buttons(
+                    "project",
+                    projects.iter().map(|p| {
+                        let id_short: String = p.id.chars().take(8).collect();
+                        let label = match p.emoji.as_deref() {
+                            Some(e) if !e.is_empty() => format!("{} {}", e, p.name),
+                            _ => p.name.clone(),
+                        };
+                        (p.id.clone(), id_short, label)
+                    }),
+                );
+                Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Pick a project ({}):", projects.len()),
+                    new_session_id: None,
+                    buttons,
+                })
             } else {
-                format!("Pick a project ({}):", projects.len())
-            };
-            Ok(ChannelSlashOutcome::Reply {
-                content: text,
-                new_session_id: None,
-                buttons,
-            })
+                Ok(ChannelSlashOutcome::Reply {
+                    content: render_project_picker_text(&projects),
+                    new_session_id: None,
+                    buttons: vec![],
+                })
+            }
         }
 
         // ── DisplayOnly and any unhandled actions — just return text ──
@@ -771,6 +796,57 @@ pub(super) fn render_model_picker_text(
     }
     if models.len() > 20 {
         lines.push(format!("… +{} more", models.len() - 20));
+    }
+    lines.join("\n")
+}
+
+/// Text fallback for `ShowSessionPicker` on channels without inline buttons.
+/// Lists up to 20 sessions with the 8-char short id (matches the button
+/// label format), then a one-line instruction. `handle_session` accepts
+/// either a full id or a unique prefix, so users on WeChat / iMessage /
+/// IRC / Signal / WhatsApp can copy the short id from the list and type
+/// `/session <short>` to attach.
+fn render_session_picker_text(
+    sessions: &[crate::slash_commands::types::SessionPickerItem],
+) -> String {
+    let mut lines = Vec::with_capacity(sessions.len().min(20) + 2);
+    lines.push("**Sessions** (use `/session <id>` to attach; 8-char prefix works):".to_string());
+    for s in sessions.iter().take(20) {
+        let id_short: String = s.id.chars().take(8).collect();
+        let chip = s
+            .channel_label
+            .as_deref()
+            .map(|c| format!(" · _{}_", c))
+            .unwrap_or_default();
+        lines.push(format!("- `{}` · {}{}", id_short, s.title, chip));
+    }
+    if sessions.len() > 20 {
+        lines.push(format!("… +{} more", sessions.len() - 20));
+    }
+    lines.join("\n")
+}
+
+/// Text fallback for `ShowProjectPicker` on channels without inline buttons.
+/// Lists up to 20 projects with their name + emoji + session count.
+/// `handle_project` already does fuzzy match on name, so the prompt
+/// instructs users to type `/project <name>`.
+fn render_project_picker_text(
+    projects: &[crate::slash_commands::types::ProjectPickerItem],
+) -> String {
+    let mut lines = Vec::with_capacity(projects.len().min(20) + 2);
+    lines.push("**Projects** (use `/project <name>` to switch):".to_string());
+    for p in projects.iter().take(20) {
+        let prefix = match p.emoji.as_deref() {
+            Some(e) if !e.is_empty() => format!("{} ", e),
+            _ => String::new(),
+        };
+        lines.push(format!(
+            "- {}**{}** — {} session(s)",
+            prefix, p.name, p.session_count
+        ));
+    }
+    if projects.len() > 20 {
+        lines.push(format!("… +{} more", projects.len() - 20));
     }
     lines.join("\n")
 }

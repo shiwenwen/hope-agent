@@ -200,15 +200,30 @@ impl ChannelDB {
             .optional()?;
 
         if let Some(existing) = existing {
-            // Update timestamp and sender info
+            // Update timestamp and sender info — scoped to **this** attach row
+            // (the (channel, account, chat, thread) tuple), not the entire
+            // session. With multi-attach, a session can have several IM chats
+            // pointed at it; only the speaker's row should advance its
+            // `updated_at` / sender metadata. Touching every row would
+            // pollute `/status`, the channel chip, and the
+            // updated-at-based fallback in `detach_session`.
             let now = chrono::Utc::now().to_rfc3339();
             conn.execute(
                 "UPDATE channel_conversations \
                  SET updated_at = ?1, \
                      sender_id = COALESCE(?2, sender_id), \
                      sender_name = COALESCE(?3, sender_name) \
-                 WHERE session_id = ?4",
-                params![now, sender_id, sender_name, existing],
+                 WHERE channel_id = ?4 AND account_id = ?5 AND chat_id = ?6 \
+                   AND (thread_id IS ?7 OR (?7 IS NULL AND thread_id IS NULL))",
+                params![
+                    now,
+                    sender_id,
+                    sender_name,
+                    channel_id,
+                    account_id,
+                    chat_id,
+                    thread_id,
+                ],
             )?;
             return Ok(existing);
         }

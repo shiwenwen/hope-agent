@@ -666,11 +666,11 @@ CREATE TABLE channel_conversations (
 - **events**:任一切换 `is_primary` emit `channel:primary_changed { sessionId }`,channel worker 可订阅以发"你是 primary / 你正在旁观"系统消息(后续 PR)
 - **migration**:旧 schema 检测到没有 `is_primary` 列直接 DROP TABLE 重建;IM worker 在下一条入站消息时重新创建对应行
 
-### 多 sink fan-out — `SinkRegistry`
+### GUI → IM final-reply mirror (current) & SinkRegistry follow-up
 
-[`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs) 全局注册表 + RAII `SinkHandle`。`emit_stream_event` 末尾向所有额外 sink fan-out;主 `event_sink`(per-turn)不入册,每消费方收一次。`Weak<dyn EventSink>` 持有,opportunistic prune,Drop 自动 detach。
+**当前实现**([`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 成功路径调 `attach_im_mirrors(session_id, source)` 收集 session 上所有 `is_primary` IM attach 的 plugin + chat 坐标,turn 结束时 `finalize_im_mirrors` 并发 `plugin.send_message` 把最终 assistant text 推到每个 attach。**不是逐 frame 流式**——IM 用户只看到收尾 echo,GUI 端通过原本的 EventSink + EventBus 路径看 live stream。IM 入站 turn 不走 mirror(它本身就是 channel 主路径)。
 
-GUI ↔ IM 双向 mirror 的可配置广播路径走这里:GUI handover 时把 IM `ChannelStreamSink` 注册进 registry,`emit_stream_event` 自动 fan-out。`ChannelStreamSink::is_primary` 字段决定旁观 sink 是否真把事件转发回 IM(default true,handover 配额时由 dispatcher mid-turn 切换)。
+**SinkRegistry**([`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs)):全局注册表 + RAII `SinkHandle` 类型已定义,`emit_stream_event` 末尾也已调 `sink_registry().emit(session_id, event)`,但**目前没有任何生产 `.attach()` caller**。live 多 sink fan-out(GUI ↔ IM 真双向流式)是 follow-up——main 的 split-streaming / `RoundTextAccumulator` 重塑了 IM stream task,次级 sink 需要在新状态机上协调 round 边界 / `ImReplyMode` 收尾。`ChannelStreamSink::is_primary` gate 已就位为 follow-up 准备:旁观 sink 通过 EventBus 让 UI 看流,但 `event_tx` 短路不发回 IM channel。
 
 ### Slash 命令
 

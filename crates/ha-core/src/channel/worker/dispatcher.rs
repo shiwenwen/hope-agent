@@ -416,6 +416,31 @@ async fn handle_inbound_message(
         engine_message = user_text.to_string();
     }
 
+    // 5b. Auto-promote inbound chat to primary. With multi-attach a session
+    // can have several IM chats pointed at it; before this guard, an observer
+    // chat sending a message would still get a primary-mode `ChannelStreamSink`
+    // built below and `deliver_*` would ship the agent response back to that
+    // observer, bypassing the `is_primary` invariant. Promoting here keeps
+    // "whoever speaks owns the agent" semantics and emits `channel:primary_changed`
+    // so the previous primary's UI / IM chat gets the demoted notification.
+    // `set_primary` is idempotent on already-primary rows (early-returns
+    // without touching the DB or firing events), so the new-conversation /
+    // single-attach common case stays free.
+    if let Err(e) = channel_db.set_primary(
+        &channel_id_str,
+        &msg.account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+    ) {
+        app_warn!(
+            "channel",
+            "worker",
+            "[{}] Failed to auto-promote inbound chat to primary: {}",
+            channel_id_str,
+            e
+        );
+    }
+
     // 6. Build channel context for prompt injection
     let chat_type_label = match msg.chat_type {
         ChatType::Dm => "direct message",

@@ -154,22 +154,46 @@ pub fn handle_session(
         });
     }
 
-    // Treat the remaining argument as a session id. Validate the id exists
-    // before emitting the action so a typo gets caught at the slash layer
-    // rather than blowing up inside `attach_session`.
-    let target_id = trimmed.to_string();
-    let exists = session_db
-        .get_session(&target_id)
-        .map_err(|e| e.to_string())?;
-    if exists.is_none() {
-        return Err(format!("Session `{}` not found", target_id));
-    }
+    // Treat the remaining argument as a session id (or unique prefix).
+    // Validate the id exists before emitting the action so a typo gets
+    // caught at the slash layer rather than blowing up inside
+    // `attach_session`. Prefix matching keeps the IM text fallback usable
+    // on non-button channels (WeChat / iMessage / IRC / Signal / WhatsApp)
+    // where users see the 8-char short id from the picker and type that.
+    let resolved = resolve_session_id_or_prefix(session_db, trimmed)?;
     Ok(CommandResult {
-        content: format!("Attaching to session `{}`...", target_id),
+        content: format!("Attaching to session `{}`...", resolved),
         action: Some(CommandAction::AttachToSession {
-            session_id: target_id,
+            session_id: resolved,
         }),
     })
+}
+
+/// Resolve `arg` to a full session id. Tries exact match first; on miss,
+/// looks for sessions whose id starts with `arg`. Errors with a helpful
+/// message when the prefix is ambiguous or no match exists.
+fn resolve_session_id_or_prefix(session_db: &Arc<SessionDB>, arg: &str) -> Result<String, String> {
+    if let Some(meta) = session_db.get_session(arg).map_err(|e| e.to_string())? {
+        return Ok(meta.id);
+    }
+    // Fallback: prefix scan. `list_sessions(None)` already excludes
+    // incognito; `/sessions` further filters cron / subagent rows for the
+    // picker, but for raw resolution we tolerate any non-incognito session
+    // — the user explicitly typed the id, after all.
+    let candidates: Vec<crate::session::SessionMeta> = session_db
+        .list_sessions(None)
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|s| s.id.starts_with(arg))
+        .collect();
+    match candidates.len() {
+        0 => Err(format!("Session `{}` not found", arg)),
+        1 => Ok(candidates.into_iter().next().unwrap().id),
+        n => Err(format!(
+            "Prefix `{}` is ambiguous — {} sessions match. Use a longer prefix or full id.",
+            arg, n
+        )),
+    }
 }
 
 fn handle_session_info(
