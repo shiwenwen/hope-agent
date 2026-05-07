@@ -84,7 +84,10 @@ pub(crate) fn spawn_stream_pipeline(
     };
     let preview_active = preview_transport.is_some();
 
-    let (event_tx, event_rx) = mpsc::channel::<String>(512);
+    // `EventSink::send` is synchronous. A bounded `try_send` would silently
+    // drop bursty text deltas while the preview task awaits IM network IO,
+    // which can make split-mode inline finalization skip incomplete text.
+    let (event_tx, event_rx) = mpsc::unbounded_channel::<String>();
     let round_texts = Arc::new(Mutex::new(RoundTextAccumulator::default()));
 
     let stream_task = spawn_channel_stream_task(

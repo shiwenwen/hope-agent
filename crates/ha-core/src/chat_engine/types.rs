@@ -277,7 +277,7 @@ impl RoundTextAccumulator {
 pub struct ChannelStreamSink {
     pub session_id: String,
     /// Forwards raw events to the channel streaming background task.
-    pub event_tx: tokio::sync::mpsc::Sender<String>,
+    pub event_tx: tokio::sync::mpsc::UnboundedSender<String>,
     /// Round-by-round text + media, see [`RoundTextAccumulator`].
     pub round_texts: Arc<Mutex<RoundTextAccumulator>>,
     /// Per-account `/reason` state. When `false` (default), `thinking_delta`
@@ -303,7 +303,7 @@ impl ChannelStreamSink {
     /// (true for inbound IM turns; false for the GUI → IM live mirror).
     pub fn new(
         session_id: String,
-        event_tx: tokio::sync::mpsc::Sender<String>,
+        event_tx: tokio::sync::mpsc::UnboundedSender<String>,
         round_texts: Arc<Mutex<RoundTextAccumulator>>,
         show_thinking: bool,
         broadcast_to_bus: bool,
@@ -328,7 +328,7 @@ impl ChannelStreamSink {
             "content": "\n\n",
         })
         .to_string();
-        let _ = self.event_tx.try_send(synth);
+        let _ = self.event_tx.send(synth);
     }
 }
 
@@ -415,14 +415,14 @@ impl EventSink for ChannelStreamSink {
                                 "content": appended,
                             })
                             .to_string();
-                            let _ = self.event_tx.try_send(synthesized);
+                            let _ = self.event_tx.send(synthesized);
                         }
                     }
                 }
             }
             return;
         }
-        let _ = self.event_tx.try_send(event.to_string());
+        let _ = self.event_tx.send(event.to_string());
     }
 }
 
@@ -520,7 +520,7 @@ mod tests {
 
     fn mk_sink() -> (ChannelStreamSink, Arc<Mutex<RoundTextAccumulator>>) {
         let rounds = Arc::new(Mutex::new(RoundTextAccumulator::default()));
-        let (tx, _rx) = tokio::sync::mpsc::channel::<String>(64);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), false, true);
         (sink, rounds)
     }
@@ -533,10 +533,10 @@ mod tests {
     ) -> (
         ChannelStreamSink,
         Arc<Mutex<RoundTextAccumulator>>,
-        tokio::sync::mpsc::Receiver<String>,
+        tokio::sync::mpsc::UnboundedReceiver<String>,
     ) {
         let rounds = Arc::new(Mutex::new(RoundTextAccumulator::default()));
-        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
         let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), show_thinking, true);
         (sink, rounds, rx)
     }
@@ -672,6 +672,30 @@ mod tests {
         let drained = rounds.lock().unwrap().drain();
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].text, "hi");
+    }
+
+    #[test]
+    fn channel_sink_forwards_bursty_text_without_preview_queue_drop() {
+        let (sink, rounds, mut rx) = mk_sink_with_rx(false);
+
+        for i in 0..2_000 {
+            emit(
+                &sink,
+                json!({"type": "text_delta", "content": format!("{i},")}),
+            );
+        }
+
+        let forwarded: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        assert_eq!(
+            forwarded.len(),
+            2_000,
+            "preview task input must not silently drop high-frequency deltas"
+        );
+
+        let drained = rounds.lock().unwrap().drain();
+        assert_eq!(drained.len(), 1);
+        assert!(drained[0].text.starts_with("0,1,2,"));
+        assert!(drained[0].text.ends_with("1999,"));
     }
 
     #[test]
