@@ -73,6 +73,12 @@ pub async fn dispatch(
 
         // ── Project ──
         "project" => project::handle_project(session_db()?, session_id, args),
+        "projects" => project::handle_projects(),
+
+        // ── Session picker / attach / handover ──
+        "sessions" => session::handle_sessions(session_db()?),
+        "session" => session::handle_session(session_db()?, session_id, args),
+        "handover" => session::handle_handover(session_db()?, session_id, args),
 
         // ── Team ──
         "team" => team::handle_team(args),

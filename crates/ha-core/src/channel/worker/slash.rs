@@ -1,4 +1,5 @@
-use crate::channel::db::ChannelDB;
+use crate::channel::db::{ChannelDB, ATTACH_SOURCE_ATTACH};
+use crate::channel::types::{ChatType, InlineButton};
 
 /// Outcome of dispatching a slash command from an IM channel message.
 pub(super) enum ChannelSlashOutcome {
@@ -21,12 +22,14 @@ pub(super) enum ChannelSlashOutcome {
 /// Returns a `ChannelSlashOutcome` describing what to do next:
 ///   - `Reply`       → send the content as a direct reply and skip the LLM.
 ///   - `PassThrough` → forward the (possibly rewritten) message to the LLM.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn dispatch_slash_for_channel(
     channel_db: &ChannelDB,
     channel_id: &str,
     account_id: &str,
     chat_id: &str,
     thread_id: Option<&str>,
+    chat_type: &ChatType,
     session_id: &str,
     agent_id: &str,
     text: &str,
@@ -363,6 +366,148 @@ pub(super) async fn dispatch_slash_for_channel(
                 build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
             Ok(ChannelSlashOutcome::Reply {
                 content: "Select a model:".into(),
+                new_session_id: None,
+                buttons,
+            })
+        }
+
+        // ── Session picker (`/sessions`) — render rows as inline buttons. ──
+        Some(CommandAction::ShowSessionPicker { sessions }) => {
+            let buttons: Vec<Vec<InlineButton>> = sessions
+                .iter()
+                .take(20)
+                .map(|s| {
+                    let id_short: String = s.id.chars().take(8).collect();
+                    let chip = s
+                        .channel_label
+                        .as_deref()
+                        .map(|c| format!(" · {}", c))
+                        .unwrap_or_default();
+                    let label = format!("{} · {}{}", id_short, s.title, chip);
+                    let cb = format!("slash:session {}", s.id);
+                    let cb = if cb.len() > 64 {
+                        format!("slash:session {}", id_short)
+                    } else {
+                        cb
+                    };
+                    vec![InlineButton {
+                        text: label,
+                        callback_data: Some(cb),
+                        url: None,
+                    }]
+                })
+                .collect();
+            let text = if sessions.is_empty() {
+                "No active sessions.".to_string()
+            } else {
+                format!("Pick a session ({}):", sessions.len())
+            };
+            Ok(ChannelSlashOutcome::Reply {
+                content: text,
+                new_session_id: None,
+                buttons,
+            })
+        }
+
+        // ── /session <id> — attach this chat to the target session. ──
+        Some(CommandAction::AttachToSession {
+            session_id: target_sid,
+        }) => {
+            if let Err(e) = channel_db.attach_session(
+                channel_id,
+                account_id,
+                chat_id,
+                thread_id,
+                &target_sid,
+                ATTACH_SOURCE_ATTACH,
+                None,
+                None,
+                chat_type,
+            ) {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Attach failed: {}", e),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            // Future inbound from this chat now resolves to `target_sid`;
+            // surface the swap to the caller so it can adopt the new id.
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: Some(target_sid),
+                buttons: vec![],
+            })
+        }
+
+        // ── /session exit — detach this chat from its session. ──
+        Some(CommandAction::DetachFromSession) => {
+            match channel_db.detach_session(channel_id, account_id, chat_id, thread_id) {
+                Ok(Some(_)) => Ok(ChannelSlashOutcome::Reply {
+                    content: "Detached. Send another message to start a new session.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                }),
+                Ok(None) => Ok(ChannelSlashOutcome::Reply {
+                    content: "No session attached to this chat.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                }),
+                Err(e) => Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Detach failed: {}", e),
+                    new_session_id: None,
+                    buttons: vec![],
+                }),
+            }
+        }
+
+        // ── /project <id> from IM — re-point the chat's session to a project. ──
+        Some(CommandAction::AssignProject { project_id }) => {
+            let session_db = crate::require_session_db()?;
+            if let Err(e) = session_db.set_session_project(session_id, Some(&project_id)) {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Failed to link project: {}", e),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+                buttons: vec![],
+            })
+        }
+
+        // ── Project picker (`/project` / `/projects` no args). ──
+        Some(CommandAction::ShowProjectPicker { projects }) => {
+            let buttons: Vec<Vec<InlineButton>> = projects
+                .iter()
+                .take(20)
+                .map(|p| {
+                    let id_short: String = p.id.chars().take(8).collect();
+                    let label = match p.emoji.as_deref() {
+                        Some(e) if !e.is_empty() => format!("{} {}", e, p.name),
+                        _ => p.name.clone(),
+                    };
+                    let cb = format!("slash:project {}", p.id);
+                    let cb = if cb.len() > 64 {
+                        format!("slash:project {}", id_short)
+                    } else {
+                        cb
+                    };
+                    vec![InlineButton {
+                        text: label,
+                        callback_data: Some(cb),
+                        url: None,
+                    }]
+                })
+                .collect();
+            let text = if projects.is_empty() {
+                "No projects yet.".to_string()
+            } else {
+                format!("Pick a project ({}):", projects.len())
+            };
+            Ok(ChannelSlashOutcome::Reply {
+                content: text,
                 new_session_id: None,
                 buttons,
             })

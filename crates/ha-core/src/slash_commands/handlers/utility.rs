@@ -182,6 +182,10 @@ pub fn handle_status(
             lines.push(String::new());
             lines.extend(project_lines);
         }
+        if let Some(channel_lines) = render_attached_channels_section(sid) {
+            lines.push(String::new());
+            lines.extend(channel_lines);
+        }
     } else {
         lines.push("- **Session**: none (new chat)".into());
     }
@@ -240,6 +244,36 @@ fn render_project_section(session_db: &Arc<SessionDB>, sid: &str) -> Option<Vec<
         channel_account.as_ref(),
     );
     lines.push(format!("- **Agent Source**: {}", source.label()));
+    Some(lines)
+}
+
+/// `/status` IM-attach section: lists every chat currently attached to the
+/// session, marking the primary with `★`. Returns `None` when there are no
+/// attaches so the caller can skip the empty section header.
+fn render_attached_channels_section(sid: &str) -> Option<Vec<String>> {
+    let channel_db = crate::globals::get_channel_db()?;
+    let attaches = channel_db.list_attached(sid).ok()?;
+    if attaches.is_empty() {
+        return None;
+    }
+
+    let mut lines = vec!["**Attached IM Channels**".to_string()];
+    for a in attaches.iter() {
+        let star = if a.is_primary { "★ " } else { "" };
+        let label = a
+            .sender_name
+            .clone()
+            .unwrap_or_else(|| a.chat_id.clone());
+        let attached = a
+            .attached_at
+            .as_deref()
+            .map(|t| format!(" · attached `{}`", t))
+            .unwrap_or_default();
+        lines.push(format!(
+            "- {}**{}** · {} ({}){}",
+            star, a.channel_id, label, a.chat_type, attached
+        ));
+    }
     Some(lines)
 }
 

@@ -48,6 +48,26 @@ pub const ATTACH_SOURCE_INBOUND: &str = "inbound";
 pub const ATTACH_SOURCE_ATTACH: &str = "attach";
 pub const ATTACH_SOURCE_HANDOVER: &str = "handover";
 
+/// EventBus topic emitted when the primary attach for a session changes —
+/// after [`ChannelDB::attach_session`], [`ChannelDB::detach_session`],
+/// [`ChannelDB::set_primary`], or [`ChannelDB::update_session`] mutates an
+/// `is_primary` row. Channel workers subscribe to deliver "you are now
+/// primary" / "you are now observing" messages on the wire.
+///
+/// Payload shape: `{ "sessionId": "<sid>" }`. Subscribers re-query
+/// `list_attached` for the full detail to avoid baking a struct schema
+/// into the topic.
+pub const EVENT_CHANNEL_PRIMARY_CHANGED: &str = "channel:primary_changed";
+
+fn emit_primary_changed(session_id: &str) {
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            EVENT_CHANNEL_PRIMARY_CHANGED,
+            serde_json::json!({ "sessionId": session_id }),
+        );
+    }
+}
+
 fn chat_type_str(chat_type: &ChatType) -> &'static str {
     match chat_type {
         ChatType::Dm => "dm",
@@ -392,6 +412,10 @@ impl ChannelDB {
             )?
         };
 
+        drop(conn);
+        if rows > 0 {
+            emit_primary_changed(new_session_id);
+        }
         Ok(rows > 0)
     }
 
@@ -502,6 +526,8 @@ impl ChannelDB {
             params![session_id],
         )?;
 
+        drop(conn);
+        emit_primary_changed(session_id);
         Ok(())
     }
 
@@ -558,7 +584,8 @@ impl ChannelDB {
             )?;
         }
 
-        if was_primary != 0 {
+        let primary_changed = was_primary != 0;
+        if primary_changed {
             // Promote next-most-recent attach for this session (if any).
             conn.execute(
                 "UPDATE channel_conversations SET is_primary = 1 \
@@ -569,6 +596,10 @@ impl ChannelDB {
             )?;
         }
 
+        drop(conn);
+        if primary_changed {
+            emit_primary_changed(&sid);
+        }
         Ok(Some(sid))
     }
 
@@ -629,6 +660,8 @@ impl ChannelDB {
             )?;
         }
 
+        drop(conn);
+        emit_primary_changed(&sid);
         Ok(Some(sid))
     }
 

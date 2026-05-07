@@ -329,6 +329,7 @@ async fn handle_inbound_message(
             &msg.account_id,
             &msg.chat_id,
             msg.thread_id.as_deref(),
+            &msg.chat_type,
             &session_id,
             &agent_id,
             user_text,
