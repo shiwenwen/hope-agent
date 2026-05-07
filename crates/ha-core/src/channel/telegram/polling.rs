@@ -446,7 +446,7 @@ fn convert_callback_query(
     let data = cb.data.as_ref()?;
     let msg = cb.message.as_ref()?.regular_message()?;
 
-    // Convert "slash:think high" → "/think high"
+    // Convert "slash:thinking high" → "/thinking high"
     let text = if let Some(rest) = data.strip_prefix("slash:") {
         format!("/{}", rest)
     } else {

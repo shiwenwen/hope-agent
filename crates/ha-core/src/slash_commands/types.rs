@@ -211,7 +211,7 @@ impl SlashCommandDef {
             "rename" => "Rename session",
             "model" => "Switch model",
             "models" => "List all available models",
-            "think" => "Set thinking effort",
+            "thinking" | "think" => "Set thinking effort",
             "remember" => "Save a memory",
             "forget" => "Delete a memory",
             "memories" => "List memories",

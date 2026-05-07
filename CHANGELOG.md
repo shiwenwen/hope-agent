@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`/thinking` 替代 `/think` 成为思考强度主命令**：斜杠菜单、`/help` 与 IM 命令列表展示 `/thinking <off|low|medium|high|xhigh>`；`/think` 保留为静默兼容别名，手打仍可用，同时保留技能命名冲突保护。
+
 - **GUI ↔ IM live 双向流式镜像（F-066）**：desktop / HTTP 触发的 turn 在 IM 端实时呈现 typewriter / per-round 边界 / 媒体投递，与 IM 入站 turn 对称。两个通道独立走各自的发送通路（GUI 走 Tauri IPC / `chat:stream_delta`，IM 走 plugin），`imReplyMode`（`split / preview / final`）只决定 IM 端的呈现。详见 [`docs/architecture/chat-engine.md`](docs/architecture/chat-engine.md) 「GUI ↔ IM live 流式镜像」节。
 
 ### Removed

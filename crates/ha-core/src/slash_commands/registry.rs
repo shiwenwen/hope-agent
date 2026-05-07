@@ -144,7 +144,7 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             description_raw: None,
         },
         SlashCommandDef {
-            name: "think".into(),
+            name: "thinking".into(),
             category: CommandCategory::Model,
             description_key: "slashCommands.think.description".into(),
             has_args: true,
