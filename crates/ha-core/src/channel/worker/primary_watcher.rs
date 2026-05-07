@@ -130,7 +130,7 @@ pub fn spawn_channel_primary_watcher(channel_db: Arc<ChannelDB>, registry: Arc<C
                 };
 
                 let plugin = match registry.get_plugin(&channel_id) {
-                    Some(p) => p,
+                    Some(p) => p.clone(),
                     None => continue,
                 };
 

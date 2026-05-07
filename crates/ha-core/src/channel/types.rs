@@ -616,6 +616,7 @@ mod tests {
             settings,
             security: SecurityConfig::default(),
             auto_approve_tools: false,
+            notify_primary_changes: true,
         }
     }
 
