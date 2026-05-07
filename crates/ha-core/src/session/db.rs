@@ -2706,6 +2706,9 @@ mod tests {
     use super::SessionDB;
 
     fn ensure_channel_conversations_table(db: &SessionDB) {
+        // Mirror the production schema in `ChannelDB::migrate` —
+        // SESSION_META_SELECT's correlated subquery references
+        // `cc2.is_primary`, so test fixtures need the column too.
         let conn = db.conn.lock().expect("lock connection");
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS channel_conversations (
@@ -2718,10 +2721,12 @@ mod tests {
                 sender_id TEXT,
                 sender_name TEXT,
                 chat_type TEXT NOT NULL DEFAULT 'dm',
+                is_primary INTEGER NOT NULL DEFAULT 1,
+                source TEXT NOT NULL DEFAULT 'inbound',
+                attached_at TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
-                UNIQUE (channel_id, account_id, chat_id, thread_id, session_id)
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             );",
         )
         .expect("create channel conversations table");
