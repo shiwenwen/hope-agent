@@ -152,6 +152,7 @@ impl ChannelPlugin for TelegramPlugin {
             // 中文 3 bytes ≈ 1365 字符，emoji surrogate 占 2 UTF-16 → 4096 字节
             // 比 4096 字符宽松，但 emoji 多时会反向超限。3200 字节留余量。
             max_message_length: Some(3200),
+            supports_card_stream: false,
         }
     }
 

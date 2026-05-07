@@ -73,7 +73,53 @@ export interface ChannelPluginInfo {
     supportsMedia: string[]
     supportsTyping: boolean
     maxMessageLength: number | null
+    supportsCardStream?: boolean
   }
+}
+
+/**
+ * Per-channel-account IM reply mode. Stored as a string in
+ * `ChannelAccountConfig.settings.imReplyMode`. Mirrors the Rust
+ * `ImReplyMode` enum.
+ *
+ * - `split` (default): each round (narration + media) delivered in time
+ *   order as independent messages. Streaming channels still get a typewriter
+ *   effect *per round*, just not "one growing message".
+ * - `final`: only the last-round narration + all media in one burst.
+ * - `preview`: streaming channels render the full merged response in a
+ *   single growing preview message; non-streaming channels degrade to
+ *   `final` since they have no preview transport.
+ */
+export type ImReplyMode = "split" | "final" | "preview"
+
+export const IM_REPLY_MODE_DEFAULT: ImReplyMode = "split"
+
+export const IM_REPLY_MODE_VALUES: ImReplyMode[] = ["split", "final", "preview"]
+
+export function readImReplyMode(account: { settings: unknown }): ImReplyMode {
+  const v = (account.settings as Record<string, unknown> | null | undefined)?.imReplyMode
+  if (v === "split" || v === "final" || v === "preview") return v
+  return IM_REPLY_MODE_DEFAULT
+}
+
+/**
+ * Per-channel-account toggle for whether the model's thinking/reasoning is
+ * included in outbound IM messages. Stored as a bool in
+ * `ChannelAccountConfig.settings.showThinking`. Mirrors the Rust
+ * `ChannelAccountConfig::show_thinking()`. Default `false` — reasoning
+ * stays out of IM unless the user opts in via the dialog toggle or the
+ * `/reason on` slash command.
+ */
+export const SHOW_THINKING_DEFAULT = false
+
+export function readShowThinking(account: { settings: unknown }): boolean {
+  const v = (account.settings as Record<string, unknown> | null | undefined)?.showThinking
+  return v === true
+}
+
+export function channelSupportsStreamPreview(plugin: ChannelPluginInfo | undefined): boolean {
+  const caps = plugin?.capabilities
+  return Boolean(caps?.supportsCardStream || caps?.supportsEdit)
 }
 
 export interface WeChatConnection {

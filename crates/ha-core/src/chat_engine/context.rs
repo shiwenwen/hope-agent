@@ -167,12 +167,12 @@ fn push_user_for_failed_turn(history: &mut Vec<Value>, user_message: &str) {
     history.push(json!({ "role": "user", "content": user_message }));
 }
 
-/// If the messages table contains `stream_status = 'orphaned'` rows after
-/// the last user message, the previous turn was interrupted mid-stream
-/// (modulo whatever rounds the round-level persist hook captured into
-/// `context_json`). Append a single `[System event]` assistant item that
-/// surfaces the visible partial text + the last tool call so the next turn
-/// can continue without rediscovering ground already covered.
+/// If the previous turn was interrupted mid-stream — text/thinking
+/// placeholders left at `stream_status = 'orphaned'` by the startup
+/// sweep, OR tool rows whose `tool_result` never got written — append one
+/// `[System event]` assistant item that surfaces the visible partial text
+/// + last tool call so the resume turn continues without rediscovering
+/// ground already covered. See [`is_interrupted_row`] for the predicate.
 ///
 /// Cost: invalidates prompt cache for exactly one turn (the resume turn),
 /// because the appended item changes the history-tail hash. Subsequent
@@ -191,9 +191,7 @@ fn inject_orphaned_partial_summary(
         return false;
     };
 
-    let has_orphan = segment
-        .iter()
-        .any(|m| m.stream_status.as_deref() == Some("orphaned"));
+    let has_orphan = segment.iter().any(is_interrupted_row);
     if !has_orphan {
         return false;
     }
@@ -211,12 +209,27 @@ fn inject_orphaned_partial_summary(
                     text_parts.push(t.to_string());
                 }
             }
-            session::MessageRole::Tool => {
+            session::MessageRole::Tool if is_interrupted_row(msg) => {
                 if let (Some(name), Some(args)) =
                     (msg.tool_name.as_ref(), msg.tool_arguments.as_ref())
                 {
                     let args_short = crate::util::truncate_utf8(args.trim(), 200);
                     last_tool = Some((name.clone(), args_short.to_string()));
+                }
+                // Persist the interruption marker into the row itself so
+                // the UI renders something concrete and the row stops
+                // matching `is_interrupted_row` on future reloads
+                // (the UPDATE writes a non-NULL `tool_duration_ms` and
+                // promotes `stream_status` to `'completed'`).
+                if let Some(call_id) = msg.tool_call_id.as_deref() {
+                    let _ = db.update_tool_result_with_metadata(
+                        session_id,
+                        call_id,
+                        INTERRUPTED_TOOL_RESULT,
+                        Some(0),
+                        true,
+                        None,
+                    );
                 }
             }
             _ => {}
@@ -226,16 +239,22 @@ fn inject_orphaned_partial_summary(
     let joined = text_parts.join("\n\n");
     let partial_text = crate::util::truncate_utf8(joined.trim(), 1500);
 
-    let mut summary = String::from("[System event] 上一轮在生成中被中断。");
+    let mut summary =
+        String::from("[System event] The previous turn was interrupted before it finished.");
     if !partial_text.is_empty() {
-        summary.push_str("已完成内容片段：");
+        summary.push_str(" Partial output already produced: ");
         summary.push_str(partial_text);
-        summary.push('。');
+        summary.push('.');
     }
     if let Some((name, args)) = last_tool {
-        summary.push_str(&format!("最后一次工具调用：{} {}。", name, args));
+        summary.push_str(&format!(
+            " Last tool call: {} {} ({}).",
+            name, args, INTERRUPTED_TOOL_RESULT
+        ));
     }
-    summary.push_str("请基于已完成内容继续，不要重复执行上面已经做过的工具调用。");
+    summary.push_str(
+        " Continue from what is already produced; do not re-run any tool calls listed above.",
+    );
 
     history.push(json!({ "role": "assistant", "content": summary }));
 
@@ -246,6 +265,31 @@ fn inject_orphaned_partial_summary(
         session_id
     );
     true
+}
+
+/// Synthetic `tool_result` written when recovering an interrupted tool
+/// row. Mirrors the format of [`Tool execution cancelled by user`] used
+/// by the user-cancel path in [`crate::agent::streaming_loop`], so the
+/// model treats both as "no usable output, move on".
+pub const INTERRUPTED_TOOL_RESULT: &str = "Tool execution was interrupted";
+
+/// True when this row represents an interrupted-but-not-finalized step.
+///
+/// - text/thinking placeholders: `stream_status='orphaned'` set by the
+///   startup sweep on rows previously marked `'streaming'`.
+/// - tool rows: orphaned via the same sweep, OR pre-fix legacy rows where
+///   `stream_status` is NULL and `tool_duration_ms` is NULL — the latter
+///   proves that [`crate::session::SessionDB::update_tool_result_with_metadata`]
+///   never ran on this row. Empty `tool_result` alone is not a valid
+///   signal: some tools (e.g. MCP servers returning empty `content`)
+///   legitimately persist an empty result alongside a non-NULL duration.
+fn is_interrupted_row(msg: &session::SessionMessage) -> bool {
+    if msg.stream_status.as_deref() == Some("orphaned") {
+        return true;
+    }
+    matches!(msg.role, session::MessageRole::Tool)
+        && msg.stream_status.is_none()
+        && msg.tool_duration_ms.is_none()
 }
 
 fn repair_failed_prefix_from_messages(
@@ -599,4 +643,109 @@ pub(super) fn schedule_memory_extraction_after_turn(
         );
     }
     idle_timeout
+}
+
+#[cfg(test)]
+mod is_interrupted_row_tests {
+    use super::*;
+    use crate::session::{MessageRole, SessionMessage};
+
+    fn fixture(role: MessageRole) -> SessionMessage {
+        SessionMessage {
+            id: 0,
+            session_id: "s".into(),
+            role,
+            content: String::new(),
+            timestamp: String::new(),
+            attachments_meta: None,
+            model: None,
+            tokens_in: None,
+            tokens_out: None,
+            reasoning_effort: None,
+            tool_call_id: None,
+            tool_name: None,
+            tool_arguments: None,
+            tool_result: None,
+            tool_duration_ms: None,
+            is_error: None,
+            thinking: None,
+            ttft_ms: None,
+            tokens_in_last: None,
+            tokens_cache_creation: None,
+            tokens_cache_read: None,
+            tool_metadata: None,
+            stream_status: None,
+        }
+    }
+
+    #[test]
+    fn text_block_orphaned_is_interrupted() {
+        let mut m = fixture(MessageRole::TextBlock);
+        m.stream_status = Some("orphaned".into());
+        assert!(is_interrupted_row(&m));
+    }
+
+    #[test]
+    fn text_block_completed_is_not_interrupted() {
+        let mut m = fixture(MessageRole::TextBlock);
+        m.stream_status = Some("completed".into());
+        assert!(!is_interrupted_row(&m));
+    }
+
+    #[test]
+    fn tool_row_orphaned_is_interrupted() {
+        let mut m = fixture(MessageRole::Tool);
+        m.stream_status = Some("orphaned".into());
+        assert!(is_interrupted_row(&m));
+    }
+
+    #[test]
+    fn tool_row_completed_is_not_interrupted() {
+        let mut m = fixture(MessageRole::Tool);
+        m.stream_status = Some("completed".into());
+        m.tool_result = Some("ok".into());
+        m.tool_duration_ms = Some(7);
+        assert!(!is_interrupted_row(&m));
+    }
+
+    /// Legacy rows pre-fix: stream_status NULL + tool_duration_ms NULL
+    /// proves `update_tool_result_with_metadata` never ran. Recovery
+    /// must detect these so the resume turn gets a `[System event]`
+    /// interrupted summary.
+    #[test]
+    fn tool_row_legacy_null_status_no_duration_is_interrupted() {
+        let m = fixture(MessageRole::Tool);
+        assert!(is_interrupted_row(&m));
+
+        let mut with_empty_result = fixture(MessageRole::Tool);
+        with_empty_result.tool_result = Some(String::new());
+        assert!(is_interrupted_row(&with_empty_result));
+    }
+
+    /// Codex review case: MCP tools may legitimately return empty
+    /// content (`tool_result=""`) but `update_tool_result_with_metadata`
+    /// still wrote a non-NULL `tool_duration_ms`. These are completed,
+    /// not interrupted — the empty-result signal alone would
+    /// misclassify them.
+    #[test]
+    fn tool_row_legacy_null_status_with_duration_is_not_interrupted() {
+        let mut m = fixture(MessageRole::Tool);
+        m.tool_result = Some(String::new());
+        m.tool_duration_ms = Some(12);
+        assert!(!is_interrupted_row(&m));
+
+        let mut none_result_with_duration = fixture(MessageRole::Tool);
+        none_result_with_duration.tool_duration_ms = Some(12);
+        assert!(!is_interrupted_row(&none_result_with_duration));
+    }
+
+    /// A live `streaming` tool row encountered during the same process
+    /// run is not interrupted; the startup sweep would have promoted it
+    /// to `orphaned` first if the prior process had died.
+    #[test]
+    fn tool_row_streaming_is_not_interrupted() {
+        let mut m = fixture(MessageRole::Tool);
+        m.stream_status = Some("streaming".into());
+        assert!(!is_interrupted_row(&m));
+    }
 }

@@ -22,6 +22,13 @@ pub(super) enum ChannelSlashOutcome {
 /// Returns a `ChannelSlashOutcome` describing what to do next:
 ///   - `Reply`       → send the content as a direct reply and skip the LLM.
 ///   - `PassThrough` → forward the (possibly rewritten) message to the LLM.
+///
+/// `supports_buttons` gates the "no-arg + arg_options ⇒ inline-keyboard
+/// picker" shortcut — channels without inline buttons (WeChat / iMessage /
+/// IRC / Signal / WhatsApp) would otherwise show a useless `Select an
+/// option for /xxx:` line with the buttons silently dropped, hiding the
+/// handler's actual help text. On those channels we skip the shortcut and
+/// let the handler render its normal no-arg response.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn dispatch_slash_for_channel(
     channel_db: &ChannelDB,
@@ -33,15 +40,17 @@ pub(super) async fn dispatch_slash_for_channel(
     session_id: &str,
     agent_id: &str,
     text: &str,
+    supports_buttons: bool,
 ) -> Result<ChannelSlashOutcome, anyhow::Error> {
     use crate::slash_commands::{handlers, parser};
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
 
-    // For commands with fixed arg_options and no args provided, return inline buttons
-    // so IM channel users (e.g. Telegram) can tap to select an option.
-    // Checks both built-in commands AND dynamic skill commands.
-    if args.trim().is_empty() {
+    // For commands with fixed arg_options and no args provided, return inline
+    // buttons so IM channel users (e.g. Telegram) can tap to select an option.
+    // Checks both built-in commands AND dynamic skill commands. Skipped on
+    // channels without inline-button support — see fn-level doc.
+    if supports_buttons && args.trim().is_empty() {
         use crate::slash_commands::registry;
 
         // First check built-in commands
@@ -356,19 +365,34 @@ pub(super) async fn dispatch_slash_for_channel(
             })
         }
 
-        // ── ShowModelPicker: render model list as inline buttons for IM channels ──
+        // ── ShowModelPicker: inline-button picker for channels that
+        //    support it; on others (WeChat / iMessage / IRC / Signal /
+        //    WhatsApp) render the list as text + usage hint so the user
+        //    can pick by typing `/model <name>`.
         Some(CommandAction::ShowModelPicker {
             models,
             active_provider_id,
             active_model_id,
         }) => {
-            let buttons =
-                build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
-            Ok(ChannelSlashOutcome::Reply {
-                content: "Select a model:".into(),
-                new_session_id: None,
-                buttons,
-            })
+            if supports_buttons {
+                let buttons =
+                    build_model_buttons_from_items(&models, &active_provider_id, &active_model_id);
+                Ok(ChannelSlashOutcome::Reply {
+                    content: "Select a model:".into(),
+                    new_session_id: None,
+                    buttons,
+                })
+            } else {
+                Ok(ChannelSlashOutcome::Reply {
+                    content: render_model_picker_text(
+                        &models,
+                        &active_provider_id,
+                        &active_model_id,
+                    ),
+                    new_session_id: None,
+                    buttons: vec![],
+                })
+            }
         }
 
         // ── Session picker (`/sessions`) — render rows as inline buttons. ──
@@ -639,6 +663,18 @@ async fn compact_context_now_core(
     Ok(result)
 }
 
+fn is_model_active(
+    item: &crate::slash_commands::types::ModelPickerItem,
+    active_provider_id: &Option<String>,
+    active_model_id: &Option<String>,
+) -> bool {
+    active_provider_id
+        .as_ref()
+        .zip(active_model_id.as_ref())
+        .map(|(pid, mid)| pid == &item.provider_id && mid == &item.model_id)
+        .unwrap_or(false)
+}
+
 /// Build inline keyboard buttons from model picker items.
 /// Each model gets a button with callback_data `slash:model <model_name>`.
 /// Telegram limits callback_data to 64 bytes, so we use model_name
@@ -652,12 +688,7 @@ pub(super) fn build_model_buttons_from_items(
     let mut row: Vec<crate::channel::types::InlineButton> = Vec::new();
 
     for m in models.iter().take(20) {
-        let is_active = active_provider_id
-            .as_ref()
-            .zip(active_model_id.as_ref())
-            .map(|(pid, mid)| pid == &m.provider_id && mid == &m.model_id)
-            .unwrap_or(false);
-        let label = if is_active {
+        let label = if is_model_active(m, active_provider_id, active_model_id) {
             format!("✓ {}", m.model_name)
         } else {
             m.model_name.clone()
@@ -707,4 +738,33 @@ fn build_picker_buttons(
             }]
         })
         .collect()
+}
+
+/// Text fallback for `ShowModelPicker` on channels without inline buttons.
+/// Lists up to 20 models with the active one marked, then a one-line
+/// instruction so the user can pick by typing `/model <name>`. Same 20-cap
+/// + same model_name preference as `build_model_buttons_from_items` so
+/// the button and text paths look identical.
+pub(super) fn render_model_picker_text(
+    models: &[crate::slash_commands::types::ModelPickerItem],
+    active_provider_id: &Option<String>,
+    active_model_id: &Option<String>,
+) -> String {
+    let mut lines = Vec::with_capacity(models.len().min(20) + 2);
+    lines.push("**Available models** (use `/model <name>` to switch):".to_string());
+    for m in models.iter().take(20) {
+        let prefix = if is_model_active(m, active_provider_id, active_model_id) {
+            "✓"
+        } else {
+            "-"
+        };
+        lines.push(format!(
+            "{} `{}` ({})",
+            prefix, m.model_name, m.provider_name
+        ));
+    }
+    if models.len() > 20 {
+        lines.push(format!("… +{} more", models.len() - 20));
+    }
+    lines.join("\n")
 }

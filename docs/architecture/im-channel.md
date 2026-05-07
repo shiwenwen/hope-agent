@@ -737,6 +737,138 @@ pub fn spawn_dispatcher(
 - **格式转换后发送**：先 `markdown_to_native()` 转格式，再 `chunk_message()` 分块，最后逐块发送
 - **错误通知**：Agent 执行失败时，向渠道发送错误提示消息
 
+### IM 回复模式：`ImReplyMode`（三态，所有渠道生效）
+
+`chat_engine::run_chat_engine` 返回的 `response` 是**所有 round 的 assistant text 累积合并**（streaming_loop 每 round `collected_text.push_str(&outcome.text)`）——对桌面 / Web UI 没问题，因为它实时收 `text_delta` 事件、能识别 round 边界。但对 IM 渠道，如果直接拿这个合并字符串当一条消息发，用户看到的就是「我把头像发给你。已发。」这种 round-0 thinking-out-loud + 最终回答粘成一团的体验，更糟的是工具产出的媒体（图 / 文件）全堆在末尾——失去了模型实际表达的时序。
+
+为此引入 `ImReplyMode`，**所有渠道（流式 + 非流式）共用一套语义**：
+
+| Mode | 行为 | 适用 |
+|------|------|------|
+| `split`（默认） | 每 round 的 narration 与该 round 工具产生的媒体按时序作为独立消息发送（narration → 该 round media → 下一 round narration → ...）。**流式渠道每 round 都是真正的流式打字机**——stream task 在 `tool_call → text_delta` 边界把当前 preview finalize 掉、把该 round 媒体发完，再为下一 round 起一条全新 preview，每 round 用户都看到 typewriter；非流式渠道每条 narration 一次性。 | 所有 |
+| `final` | 丢弃中间 round narration，只发最后 round 的 text + 末尾发所有媒体。不启用流式预览。 | 所有 |
+| `preview` | 流式渠道用 stream preview transport（Telegram edit · Feishu cardkit · Telegram DM Draft）渲染合并文本——单条不断增长的消息，媒体末尾发。非流式渠道无 preview 可用，自动降级等同 `final`。 | 仅流式有差异 |
+
+#### 实现：`RoundTextAccumulator` + state machine
+
+`ChannelStreamSink` 在 EventBus emit 之外维护一个 round 边界感知的累加器（[`chat_engine/types.rs`](../../crates/ha-core/src/chat_engine/types.rs)）：
+
+```rust
+pub struct RoundOutput {
+    pub text: String,           // 该 round 的 narration（pre-tool）
+    pub medias: Vec<MediaItem>, // 该 round 工具产生的媒体
+}
+
+pub struct RoundTextAccumulator {
+    pub completed: Vec<RoundOutput>, // 已关闭的 round
+    pub current: RoundOutput,        // in-flight round（最后 round 通常停在这里）
+    in_tool_phase: bool,             // round 内已见过 tool_call?
+}
+```
+
+事件处理（hot path 用 `event.contains(...)` cheap short-circuit，rarer-needle-first，规避全 JSON parse）：
+
+- `text_delta` → `current.text.push_str`。如果 `in_tool_phase=true` 说明前一 round 已闭、新 round 开始，先翻页再累加。
+- `tool_call`（round 边界） → `completed.push(take(current))`，`in_tool_phase=true`。**幂等**——同 round 多 `tool_call`（一次 LLM round 多 tool）只关一次。
+- `tool_result` 携带 `media_items` → 解析后 `on_media(items)` 挂到 `completed.last_mut()`（即刚关闭的那 round）；防御性 fallback 到 `current`。
+
+`run_chat_engine` 返回时 dispatcher 调 `RoundTextAccumulator::drain()` 拿一个时序排好的 `Vec<RoundOutput>`：`current` 非空时附在末尾作为「final round」，否则最后一个 `completed` 即 final。
+
+#### Dispatcher 分发：mode → transport + delivery
+
+dispatcher 在 spawn stream task **之前**算出 mode，从而决定 `preview_transport`：
+
+```rust
+let reply_mode = account.im_reply_mode();
+let preview_transport = match reply_mode {
+    // Preview 单一growing message；Split 每 round 一条 typewriter preview。
+    ImReplyMode::Preview | ImReplyMode::Split => {
+        select_stream_preview_transport(&msg.chat_type, &capabilities)
+    }
+    ImReplyMode::Final => None,  // Final 只发最终结果，无 preview
+};
+```
+
+`run_chat_engine` 返回后 drain rounds，按 mode 调三选一：
+
+- `deliver_split`：跳过 `stream_outcome.finalized_rounds` 已经在 stream task 里发掉的 round，再处理剩下的（流式渠道下通常只剩"还没 finalize"的最后 round；非流式渠道下是全部 round）。pre-final round `send_message(text)` + `deliver_media(round.medias)`；最后 round 走 `send_final_reply`（finalize 当前 preview handle + canonical chunk-or-card + 媒体 fan-out）。
+- `deliver_final_only`：取 `rounds.last().text` + 合并所有 `medias`，一次 `send_final_reply`。
+- `deliver_preview_merged`：把 drained rounds 的 `r.text` **空字符串 concat**（`rounds.iter().map(|r| r.text.as_str()).collect::<String>()`）+ 合并所有 `medias`，走 `send_final_reply`。round_texts state machine 是 sink 转给 stream task `accumulated` 的 byte-exact 镜像，concat 出来的字符串就是用户在流式期间看到的最后一帧逐字节相同 —— 不能用 `engine_result.response`（不含 thinking blockquote、`/reason on` 时会被 final commit 抹掉）也不能用 `join("\n\n")`（show_thinking=false 时会比预览多插空行）。仅当 rounds 全空时回退 `engine_result.response`。
+
+`deliver_media_to_chat` 是 `send_final_reply` / split-streaming 共用的媒体投递函数——`partition_media_by_channel` 后逐个 `send_message(media)`，不支持的 MIME 走 `build_media_fallback_lines` 转下载链接（每条间 50ms 节流，避开 Telegram / LINE 单聊速率限制）。
+
+##### Split mode + 流式渠道：per-round preview 内联 finalize
+
+stream task 是真正的"按 round 切"执行者。`spawn_channel_stream_task` 拿 `reply_mode` / `round_texts` / `capabilities` 三个新参数后：
+
+- **常态 round 边界**：text_delta 抵达且 `in_tool_phase=true` → 调 `finalize_split_round` 把 accumulated 最后一次冲到当前 preview，再按 transport 关闭：
+  - **Message** transport：上一条 `edit_message` 已写入 final text，仅 reset `preview_message_id=None`，下一 round 自然 `send_message` 起新消息
+  - **Card** transport：`close_card_stream` 摘掉流式标记（卡片内容保持），reset `card_session=None`
+  - **Draft** transport：草稿是"输入中"指示符不是真消息，`send_message` 把当前 round 文本作为正式消息发出去
+- 然后从 `round_texts.completed[round_idx].medias` 取该 round 媒体，复用 `deliver_media_to_chat` 走原生发送 + 不支持 MIME 的 fallback 链路
+- 最后递增 `finalized_rounds` 计数（`StreamPreviewOutcome` 字段，dispatcher 用来跳过已发的 round）
+- **末段 round（model 以 tool_call 结束）**：stream end 时若 `in_tool_phase=true`，再 finalize 一次（最后 round 没有后续 narration），dispatcher 会看到 `finalized_rounds == rounds.len()` 而早返回
+- **末段 round（model 以 narration 结束）**：preview 留开，dispatcher `send_final_reply` 接力 finalize 最后那条 preview
+
+非流式渠道下 `preview_transport=None`，stream task 仅 drain events、`finalized_rounds=0`，`deliver_split` 走老路径——pre-final round 一次性 `send_message`、final round `send_final_reply`。
+
+#### 配置入口
+
+- **GUI**：`Settings → Channels → 编辑账号 → IM Reply Mode` 下拉，三选项；选中 `preview` 而 channel 不支持流式预览时显示 hint「will degrade to Final」，但仍允许保存——避免阻塞用户。读 / 写 helper 在 [`src/components/settings/channel-panel/types.ts`](../../src/components/settings/channel-panel/types.ts) (`readImReplyMode` / `channelSupportsStreamPreview`)。
+- **IM 内**：`/imreply [split|final|preview]` 斜杠命令（[`slash_commands/handlers/utility.rs`](../../crates/ha-core/src/slash_commands/handlers/utility.rs) `handle_imreply`）。任何 channel 都可设置；桌面 / web session 拒绝（无 channel_info）。无参打印当前 mode + 三态说明。
+- **持久化**：`ChannelAccountConfig.settings.imReplyMode`，`im_reply_mode()` / `set_im_reply_mode()` helper（[`channel/types.rs`](../../crates/ha-core/src/channel/types.rs)）。账号级配置，跨重启持久。
+
+### Thinking 显示：`show_thinking` 与 `/reason`
+
+LLM 在 `text_delta` 之外还会发出 `thinking_delta`（Anthropic thinking blocks / OpenAI reasoning summaries / Codex），桌面 UI 实时把它渲染成「思考中」展开块。**IM 路径默认丢弃** —— `extract_text_delta` 只匹配 `text_delta`，preview task 看不到 reasoning，发到 Telegram / 飞书 / etc 的消息里没有思考过程。`/reason on` 把这个关掉的开关打开，账号级独立持久。
+
+#### 渲染契约：blockquote + `\n\n` 收尾
+
+`RoundTextAccumulator` 增加 `thinking_active: bool` 状态位 + 一个新方法 `on_thinking(text) -> String`（[`chat_engine/types.rs`](../../crates/ha-core/src/chat_engine/types.rs)）：
+
+- **首块 thinking_delta**：当 `thinking_active=false`，往 `current.text` 推 opener `> 💭 **Thinking**\n> `，置 `thinking_active=true`
+- **续块**：如果 chunk 含 `\n`，整段 `text.replace('\n', "\n> ")` 后追加 —— 多行 reasoning 全部留在 blockquote 内
+- **收尾**：`on_text` 或 `on_tool_call` 进入时若 `thinking_active=true`，先 push `\n\n` 关 quote 再处理本身（reset `thinking_active`）。`drain` 时也 reset，防跨 round 泄漏
+
+`on_thinking` 返回**实际追加到 `current.text` 的切片**（首块=opener+quoted_chunk，后续=quoted_chunk）；`on_text` / `on_tool_call` 改返回 `bool` 标记是否刚关闭 blockquote。这两个返回值是 **sink 端 stream/round_texts 双侧同步的关键**，下面解释。
+
+#### Sink 路由：EventBus 透传 + event_tx 合成
+
+`ChannelStreamSink::send` 拿到 `thinking_delta` 事件时根据 `show_thinking` 字段二选一：
+
+```rust
+// show_thinking=true 路径
+acc.on_thinking(text)  // 累加到 round_texts.current.text，返回追加切片
+  → 合成 {"type":"text_delta","content":<追加切片>}
+  → try_send 到 event_tx（preview task 用 extract_text_delta 接住，accumulated += <追加切片>）
+  → 不 forward 原 thinking_delta event_tx（preview task 不认）
+  → EventBus 仍 emit 原始 thinking_delta（桌面 UI 镜像渲染不变）
+
+// show_thinking=false 路径
+直接 return（既不进 acc，也不进 event_tx）
+EventBus 仍透传原 thinking_delta（桌面 UI 不受 IM 这边设置影响）
+```
+
+**关键约束：stream task `accumulated` 必须跟 `round_texts.current.text` byte-exact 同步**，否则 split-streaming 在 `tool_call → text_delta` 边界 finalize_split_round 用 `accumulated` 渲染 preview 时，会跟 round_texts 不一致 —— 例如 round_texts 在 `on_text` 关闭 thinking 时推了 `\n\n` 但 sink 没把这段 `\n\n` 转给 preview task 的话，用户最终看到的是 `> 💭 Thinking\n> step 1Answer.`（引用块吃掉正文）。
+
+**同步机制**：sink 的 `forward_thinking_close_separator()` —— `on_text` 或 `on_tool_call` 返回 `true`（刚关闭 blockquote）时，sink 合成一条 `{"type":"text_delta","content":"\n\n"}` **先于**原 text_delta / tool_call 事件投到 `event_tx`，preview task 顺序消费 → `accumulated` 就也带了 `\n\n`。
+
+#### 与 ImReplyMode 三态的交互
+
+show_thinking 跟 reply mode 正交，都在 round 文本层面工作：
+
+- **Split**：每 round 的 `RoundOutput.text` 已自带 `> 💭 **Thinking**\n> ...\n\n<answer>`；split mode delivery 把 round.text 当 narration 发，thinking blockquote 自然带过去。流式渠道下 stream task 的 per-round preview 也能实时打字机显示 thinking
+- **Final**：`deliver_final_only` 取 `rounds.last().text`，最后 round 若有 thinking 也带过去
+- **Preview**：`deliver_preview_merged` 把所有 round.text 空字符串 concat（见上节"Dispatcher 分发"末尾）—— concat 结果跟 stream `accumulated` byte-exact 一致，避免 commit 时 thinking 块被 `engine_result.response` 抹掉
+
+**默认 off**：保持升级前行为，老用户不会突然看到 reasoning 块挤到 IM 消息里。
+
+#### 配置入口
+
+- **GUI**：`Settings → Channels → 编辑账号` 里 IM Reply Mode 下方的 `Switch`（[`EditAccountDialog`](../../src/components/settings/channel-panel/EditAccountDialog.tsx)）。读 helper [`readShowThinking`](../../src/components/settings/channel-panel/types.ts)
+- **IM 内**：`/reason [on|off]` 斜杠命令（[`slash_commands/handlers/utility.rs`](../../crates/ha-core/src/slash_commands/handlers/utility.rs) `handle_reason`）。`/reasoning` 是静默别名（dispatch 接受，菜单不展示，registry 仅注册 `reason`；reserved 集合走 `SILENT_BUILTIN_ALIASES`，详见 [slash-commands.md §IM 专用命令 vs 静默别名](slash-commands.md)）。桌面 / web session 拒绝
+- **持久化**：`ChannelAccountConfig.settings.showThinking`（bool），`show_thinking()` / `set_show_thinking()` helper（[`channel/types.rs`](../../crates/ha-core/src/channel/types.rs)）
+
 ---
 
 ## Telegram 插件实现
@@ -997,6 +1129,35 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 | 方向 | 支持类型 | 说明 |
 |------|---------|------|
 | 出站 | Photo, Video, Audio, Document | image / file 消息**不带 caption**；同轮的 `payload.text` 由 dispatcher 单独发为 text 消息 |
+
+### 流式打字机：cardkit 卡片流式（无"已编辑"标记）
+
+飞书的 `update_message` API 会在客户端给消息留下永久"已编辑"标记。为避免每条 LLM 流式回复都被打标，飞书插件在 `capabilities` 上声明 `supports_card_stream: true`，让 [`worker/streaming.rs`](../../crates/ha-core/src/channel/worker/streaming.rs) 选用 `StreamPreviewTransport::Card` 走 cardkit 路径。
+
+**端点链路**（`base_url` 复用 [auth.rs:40-46](../../crates/ha-core/src/channel/feishu/auth.rs)，cn / intl 同形）：
+
+| 步骤 | API |
+|------|-----|
+| 1. 创建卡片 | `POST /open-apis/cardkit/v1/cards`，body `{"type":"card_json","data":<schema 2.0 JSON 字符串>}`，response `{data: {card_id}}` |
+| 2. 推到聊天 | `POST /open-apis/im/v1/messages?receive_id_type=chat_id`，`msg_type=interactive`，content `{"type":"card","data":{"card_id":"..."}}`，可带 `reply_to_message_id` |
+| 3. 流式追加 | `PUT /open-apis/cardkit/v1/cards/{card_id}/elements/{element_id}/content`，body `{"content":"<完整文本>","sequence":<i64>}`，**sequence 必须严格单调递增** |
+| 4. 关闭流式 | `PATCH /open-apis/cardkit/v1/cards/{card_id}/settings`，body `{"settings":"{\"config\":{\"streaming_mode\":false}}","sequence":<i64>}`（best-effort，10 分钟也会自动关） |
+
+卡片 schema 2.0 主体见 [`api.rs::FeishuApi::build_streaming_card_body`](../../crates/ha-core/src/channel/feishu/api.rs)：单个 `markdown` 元素，`element_id="streaming_text"`（常量在 `api.rs::STREAMING_ELEMENT_ID`）。`config.streaming_mode=true` 让客户端显示打字机加载态。
+
+**限制**：
+
+- 单卡片 update 频率：10 calls/sec（hope-agent 1s/次远低于此）
+- 单文本上限：100,000 字符
+- 卡片有效期：14 天；流式模式 10 分钟自动关闭
+
+**错误码 → `CardStreamError` 分类**（见 [api.rs::card_stream_error_from_code](../../crates/ha-core/src/channel/feishu/api.rs)）：`300317 SequenceOutOfOrder` / `200750 Expired` / `200850 TimedOut` / `300309 NotEnabled` / `300311 NoPermission` / 其它 `Other(code= msg)`。
+
+**降级**：
+
+- **创建期失败**（cardkit create 或 send_card_message 任一报错）：本轮丢弃 cardkit，把 `preview_transport` 写回 `Message`，本轮累计文本走旧 `send_message_preview`，后续轮按 Message 路径继续
+- **中后期失败**（`update_card_element` 报任何错，含 sequence 冲突）：进入 `card_session.broken=true`，后续 interval tick **不再发预览**；`send_final_reply` 在收尾时识别 `PreviewHandle::Card { broken: true, .. }`，跳过 cardkit close，发一条新 text 消息（带 `reply_to_message_id`）作为完整交付
+- **不做 sequence 重试**：300317 通常说明本地 sequence 与服务端不同步，直接 broken 比无谓重试更稳
 
 ---
 

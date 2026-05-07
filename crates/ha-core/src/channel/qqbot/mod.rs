@@ -110,6 +110,7 @@ impl ChannelPlugin for QqBotPlugin {
             // 完整补完跟踪 review-followups F-057（含本地附件中转 / channel
             // 端点替代方案）
             supports_media: Vec::new(),
+            supports_card_stream: false,
         }
     }
 

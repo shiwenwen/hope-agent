@@ -90,6 +90,56 @@ pub enum MediaType {
     Animation,
 }
 
+// ── IM Reply Mode ────────────────────────────────────────────────
+// Controls how the dispatcher delivers multi-round assistant output (text +
+// tool-produced media) over an IM channel. Three modes, all channels honor
+// the same setting — streaming vs non-streaming only changes whether each
+// round's text is rendered with a typewriter preview or as a single shot.
+//
+// **Round** here = one LLM `process_round` (an assistant message that may
+// contain narration + tool_calls). `RoundTextAccumulator` watches the
+// `text_delta` / `tool_call` / `tool_result` event stream and groups events
+// into per-round buckets; the dispatcher fans them out per `ImReplyMode`.
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImReplyMode {
+    /// (Default) Each round's text + media is delivered in time order, as
+    /// independent messages — narration → tool media → next narration → ...
+    /// Streaming channels still get a typewriter effect *per round*, just
+    /// not "one growing message"; non-streaming channels send each round in
+    /// one shot. Mirrors how the model actually narrated the work.
+    #[default]
+    Split,
+    /// Drop pre-tool narration; deliver only the final round's text plus all
+    /// tool media in one outbound burst. No streaming preview.
+    Final,
+    /// Streaming-only: render the full merged response in a single growing
+    /// preview message (Telegram edit / Feishu cardkit / Telegram DM draft),
+    /// finalize at the end, then send all media. Non-streaming channels
+    /// degrade to `Final` since they have no preview transport to speak of.
+    Preview,
+}
+
+impl ImReplyMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Split => "split",
+            Self::Final => "final",
+            Self::Preview => "preview",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "split" | "s" => Some(Self::Split),
+            "final" | "f" => Some(Self::Final),
+            "preview" | "p" => Some(Self::Preview),
+            _ => None,
+        }
+    }
+}
+
 // ── DM Policy ────────────────────────────────────────────────────
 // Direct-message access policy per channel account.
 
@@ -239,7 +289,58 @@ pub struct ChannelCapabilities {
     pub supports_buttons: bool,
     #[serde(default)]
     pub max_message_length: Option<usize>,
+    /// Channel offers a "card streaming" API that mutates a card element's
+    /// content in place without flagging the host message as edited.
+    /// Currently only Feishu (cardkit) implements this.
+    #[serde(default)]
+    pub supports_card_stream: bool,
 }
+
+// ── Card Stream Handle ───────────────────────────────────────────
+// Resource identifiers returned from a `create_card_stream` call.
+
+#[derive(Debug, Clone)]
+pub struct CardStreamHandle {
+    pub card_id: String,
+    pub element_id: String,
+}
+
+// ── Card Stream Error ────────────────────────────────────────────
+// Classified error from card streaming endpoints. Lets the streaming task
+// decide between local recovery, immediate degrade, or session abort
+// without hard-coding platform error codes.
+
+#[derive(Debug, Clone)]
+pub enum CardStreamError {
+    /// Sequence number not strictly increasing (Feishu 300317).
+    SequenceOutOfOrder,
+    /// Card past its 14-day TTL (Feishu 200750).
+    Expired,
+    /// Streaming session past its 10-minute auto-close window (Feishu 200850).
+    TimedOut,
+    /// Card was created without `streaming_mode=true` (Feishu 300309).
+    NotEnabled,
+    /// App scope or tenant token missing the card stream permission
+    /// (Feishu 300311).
+    NoPermission,
+    /// Anything else — network errors, parse failures, unknown codes.
+    Other(String),
+}
+
+impl std::fmt::Display for CardStreamError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SequenceOutOfOrder => write!(f, "card stream sequence out of order"),
+            Self::Expired => write!(f, "card expired"),
+            Self::TimedOut => write!(f, "card stream timed out"),
+            Self::NotEnabled => write!(f, "card stream mode not enabled"),
+            Self::NoPermission => write!(f, "card stream permission denied"),
+            Self::Other(msg) => write!(f, "{}", msg),
+        }
+    }
+}
+
+impl std::error::Error for CardStreamError {}
 
 // ── Inbound Message Context ──────────────────────────────────────
 // Normalized inbound message from any channel.
@@ -401,6 +502,64 @@ pub struct ChannelAccountConfig {
     pub notify_primary_changes: bool,
 }
 
+/// Settings JSON key controlling IM reply mode (see [`ImReplyMode`]).
+pub const SETTINGS_KEY_IM_REPLY_MODE: &str = "imReplyMode";
+
+/// Settings JSON key controlling whether the model's thinking/reasoning
+/// content is included in outbound IM messages (toggled via the `/reason`
+/// slash command). Default `false` — reasoning stays out of IM messages.
+pub const SETTINGS_KEY_SHOW_THINKING: &str = "showThinking";
+
+impl ChannelAccountConfig {
+    /// Read `settings.imReplyMode`, falling back to `ImReplyMode::default()`
+    /// when missing or unparseable.
+    pub fn im_reply_mode(&self) -> ImReplyMode {
+        self.settings
+            .get(SETTINGS_KEY_IM_REPLY_MODE)
+            .and_then(|v| v.as_str())
+            .and_then(ImReplyMode::parse)
+            .unwrap_or_default()
+    }
+
+    /// Write `settings.imReplyMode = mode` in place. Creates the settings
+    /// object if it was previously `null` / non-object.
+    pub fn set_im_reply_mode(&mut self, mode: ImReplyMode) {
+        if !self.settings.is_object() {
+            self.settings = serde_json::json!({});
+        }
+        if let Some(obj) = self.settings.as_object_mut() {
+            obj.insert(
+                SETTINGS_KEY_IM_REPLY_MODE.to_string(),
+                serde_json::Value::String(mode.as_str().to_string()),
+            );
+        }
+    }
+
+    /// Read `settings.showThinking`. Default `false` — reasoning is not
+    /// included in IM messages unless the user opts in via `/reason on` or
+    /// the channel-account dialog toggle.
+    pub fn show_thinking(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_SHOW_THINKING)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// Write `settings.showThinking = on`. Creates the settings object if
+    /// it was previously `null` / non-object.
+    pub fn set_show_thinking(&mut self, on: bool) {
+        if !self.settings.is_object() {
+            self.settings = serde_json::json!({});
+        }
+        if let Some(obj) = self.settings.as_object_mut() {
+            obj.insert(
+                SETTINGS_KEY_SHOW_THINKING.to_string(),
+                serde_json::Value::Bool(on),
+            );
+        }
+    }
+}
+
 // ── Channel Health ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -439,5 +598,104 @@ impl DeliveryResult {
             message_id: None,
             error: Some(error.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_account(settings: serde_json::Value) -> ChannelAccountConfig {
+        ChannelAccountConfig {
+            id: "x".into(),
+            channel_id: ChannelId::WeChat,
+            label: "x".into(),
+            enabled: true,
+            agent_id: None,
+            credentials: serde_json::Value::Null,
+            settings,
+            security: SecurityConfig::default(),
+            auto_approve_tools: false,
+        }
+    }
+
+    #[test]
+    fn im_reply_mode_parses_canonical_and_short_forms() {
+        assert_eq!(ImReplyMode::parse("split"), Some(ImReplyMode::Split));
+        assert_eq!(ImReplyMode::parse("final"), Some(ImReplyMode::Final));
+        assert_eq!(ImReplyMode::parse("preview"), Some(ImReplyMode::Preview));
+        // Single-letter shortcuts.
+        assert_eq!(ImReplyMode::parse("S"), Some(ImReplyMode::Split));
+        assert_eq!(ImReplyMode::parse("f"), Some(ImReplyMode::Final));
+        assert_eq!(ImReplyMode::parse("P"), Some(ImReplyMode::Preview));
+        assert_eq!(ImReplyMode::parse("  SPLIT  "), Some(ImReplyMode::Split));
+        assert_eq!(ImReplyMode::parse("merged"), None);
+        assert_eq!(ImReplyMode::parse(""), None);
+    }
+
+    #[test]
+    fn im_reply_mode_falls_back_to_default_when_settings_missing() {
+        // Default is Split — ungrouped accounts get the time-ordered behavior.
+        assert_eq!(
+            mk_account(serde_json::Value::Null).im_reply_mode(),
+            ImReplyMode::Split
+        );
+        assert_eq!(
+            mk_account(serde_json::json!({})).im_reply_mode(),
+            ImReplyMode::Split
+        );
+        assert_eq!(
+            mk_account(serde_json::json!({"imReplyMode": "garbage"})).im_reply_mode(),
+            ImReplyMode::Split
+        );
+    }
+
+    #[test]
+    fn set_im_reply_mode_initializes_and_overwrites_settings() {
+        // Null settings → object created.
+        let mut acc = mk_account(serde_json::Value::Null);
+        acc.set_im_reply_mode(ImReplyMode::Split);
+        assert_eq!(acc.settings["imReplyMode"], "split");
+        assert_eq!(acc.im_reply_mode(), ImReplyMode::Split);
+
+        // Existing keys preserved on update.
+        let mut acc = mk_account(serde_json::json!({"transport": "polling"}));
+        acc.set_im_reply_mode(ImReplyMode::Split);
+        assert_eq!(acc.settings["transport"], "polling");
+        assert_eq!(acc.settings["imReplyMode"], "split");
+
+        // Overwrite.
+        acc.set_im_reply_mode(ImReplyMode::Final);
+        assert_eq!(acc.settings["imReplyMode"], "final");
+    }
+
+    #[test]
+    fn show_thinking_defaults_to_false_when_missing_or_invalid() {
+        assert!(!mk_account(serde_json::Value::Null).show_thinking());
+        assert!(!mk_account(serde_json::json!({})).show_thinking());
+        // Non-bool values fall back to the default.
+        assert!(!mk_account(serde_json::json!({"showThinking": "yes"})).show_thinking());
+        assert!(!mk_account(serde_json::json!({"showThinking": 1})).show_thinking());
+        assert!(mk_account(serde_json::json!({"showThinking": true})).show_thinking());
+    }
+
+    #[test]
+    fn set_show_thinking_initializes_and_overwrites_settings() {
+        // Null settings → object created.
+        let mut acc = mk_account(serde_json::Value::Null);
+        acc.set_show_thinking(true);
+        assert_eq!(acc.settings["showThinking"], true);
+        assert!(acc.show_thinking());
+
+        // Sibling keys preserved.
+        let mut acc = mk_account(serde_json::json!({"imReplyMode": "split"}));
+        acc.set_show_thinking(true);
+        assert_eq!(acc.settings["imReplyMode"], "split");
+        assert_eq!(acc.settings["showThinking"], true);
+
+        // Overwrite back to false.
+        acc.set_show_thinking(false);
+        assert_eq!(acc.settings["showThinking"], false);
+        assert!(!acc.show_thinking());
     }
 }

@@ -97,6 +97,40 @@
 - **影响面**：用户体验 / 调试体验 / 极端边界 + LINE postback 是潜在安全洞
 - **触发时机建议**：下一次动到对应 channel 文件时顺手收
 
+### F-061 IM channel sink 与 stream task 在同一 event 流上重复检测 round 边界
+
+- **来源**：2026-05-06 split 模式 per-round 流式预览 PR `/simplify` review（quality + efficiency 两只 agent 同样标记）
+- **现象**：[`ChannelStreamSink::send`](../../crates/ha-core/src/chat_engine/types.rs)（types.rs:229-265）和 [`spawn_channel_stream_task`](../../crates/ha-core/src/channel/worker/streaming.rs)（streaming.rs:151-180）都在同一份 event 流上做 round 边界检测：
+  - sink 用 `event.contains("\"type\":\"tool_call\"")` 等 cheap-string 检测维护 `RoundTextAccumulator.in_tool_phase`（私有字段）
+  - stream task 自己又一次 `event_str.contains("\"type\":\"tool_call\"")` + 本地 `in_tool_phase: bool` 副本，并用 `extract_text_delta` 重新解析同一份 text_delta JSON（sink 已经用 `serde_json::from_str` 解析过推到 `current.text`）
+  - 同一份契约（"BTreeMap key 字母序，type 不在开头"）通过两个独立的 `contains` 检查实现，仅 [`worker/tests.rs::tool_call_event_contains_anchor_for_split_streaming_boundary`](../../crates/ha-core/src/channel/worker/tests.rs) 一处兜底
+- **为什么留**：unify 两条路都比 cleanup 重得多——
+  - 暴露 `in_tool_phase` 私有字段没用：sink 的 `on_text` 会立刻翻 false，stream task 在事件后读总看到 false
+  - 推迟 sink flag 翻转破坏 accumulator 现有 invariant；stream task 用 `completed.len()` 推断边界仍是另一种重复检测
+  - 干净方案是把 sink → stream task 的 `mpsc::Sender<String>` 换成 `mpsc::Sender<StreamEvent>`，sink 解析后发结构化变体——但前端 `channel:stream_delta` 事件目前消费 raw JSON string，触及 EventBus 契约 + `extract_text_delta` helper + 4 个测试
+  - 实际开销 ≈ 0：text_delta JSON ~40 byte，全 turn 双解析合计 ms 级
+- **改的话要做什么**：
+  - 干净版：定义 `enum StreamEvent { TextDelta(String), ToolCall { call_id, name }, ToolResult { medias }, Other(String) }`，sink 发结构化（保留 raw `Other` 兜底前端需要 raw 的场景），stream task 直接 match 不再 contains
+  - 折中版：保留 raw channel 但 stream task 不再 contains——而是周期性 `lock` accumulator 读 `completed.len() / current.text.len()` 推断状态（多了 mutex 抖动，但少了重复 parse）
+- **影响面**：纯 conceptual purity，无用户可见 bug；性能开销极低；潜在风险是字符串契约改了两处都得改
+- **触发时机建议**：下次重写 EventBus 事件契约 / 加新 channel-side stream 事件类型时顺手做
+
+### F-062 IM channel `deliver_media_to_chat` / `deliver_split` pre-final 50ms gap 不分渠道 capability
+
+- **来源**：2026-05-06 split 模式 per-round 流式预览 PR `/simplify` review（efficiency agent 标记，两条相关项）
+- **现象**：[`deliver_media_to_chat`](../../crates/ha-core/src/channel/worker/dispatcher.rs)（dispatcher.rs:1212-1245）和 [`deliver_split`](../../crates/ha-core/src/channel/worker/dispatcher.rs)（dispatcher.rs:1011-1027）每条媒体 / 每条 pre-final round 之间硬编码 `tokio::time::sleep(50ms)`，注释说"Telegram and LINE flood-protect tight loops"——但实际所有 12 个 channel 一律跟着 sleep，包括 Discord（5 req/s/channel 容量）、Feishu cardkit（独立 RPC 不撞 IM rate limit）、内部 webhook 类（无 rate limit）。一条消息 + 5 张图 = 250ms 纯等待
+- **为什么留**：
+  - 修要在 [`ChannelCapabilities`](../../crates/ha-core/src/channel/types.rs) 加 `min_send_interval_ms: Option<u64>` 字段，跨 12 个 plugin 都要补声明
+  - 还要校准每个渠道的实际限速（默认 None 还是 Some(50)？没人撞过的话只能查文档/做 stress test）
+  - 现有 50ms × N 在 IM 场景几乎无感（用户已经看到消息流式出现），没用户报告"图片发太慢"
+  - 属于"想到的优化"而非"撞到的问题"
+- **改的话要做什么**：
+  - `ChannelCapabilities` 加 `min_send_interval_ms: Option<u64>`（serde `default` 让旧持久化兼容）
+  - 12 个 plugin 的 `capabilities()` 逐个声明：Telegram/LINE → `Some(50)`；Discord/Feishu/Slack → `None` 或更小；其他逐个查文档
+  - `deliver_media_to_chat` / `deliver_split` 读字段决定是否 sleep
+- **影响面**：纯效率优化，无用户可见 bug；非限速渠道当前每张媒体多 50ms 等待
+- **触发时机建议**：用户实际报"Discord 群发图慢"或"内部 webhook 批量发慢"时；或下次有人在 dispatcher.rs 动 media 路径时顺手收
+
 ### F-051 `currentSessionMeta` + `incognitoEnabled` 三处复制可推进 `useQuickChatSession` / `useChatSession`
 
 - **来源**：2026-05-03 QuickChat → MessageList 复用 PR `/simplify` review (reuse + quality + efficiency 三只 agent 同样标记)

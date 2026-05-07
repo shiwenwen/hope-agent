@@ -10,7 +10,8 @@ use crate::channel::types::*;
 use super::media::convert_inbound_media_to_attachments;
 use super::slash::{dispatch_slash_for_channel, ChannelSlashOutcome};
 use super::streaming::{
-    select_stream_preview_transport, spawn_channel_stream_task, StreamPreviewOutcome,
+    select_stream_preview_transport, spawn_channel_stream_task, PreviewHandle,
+    StreamPreviewOutcome, CARD_ELEMENT_MAX_CHARS,
 };
 
 /// Maximum number of inbound messages processed concurrently.
@@ -343,6 +344,10 @@ async fn handle_inbound_message(
     // engine input so the LLM receives the skill instruction rather than the raw "/" text.
     let engine_message: String;
     if crate::slash_commands::parser::is_command(user_text) {
+        // Channels without inline-button support get the handler's verbose
+        // no-arg text response instead of the (un-tappable) `Select an
+        // option for /xxx:` shortcut.
+        let supports_buttons = plugin.capabilities().supports_buttons;
         match dispatch_slash_for_channel(
             channel_db,
             &channel_id_str,
@@ -353,6 +358,7 @@ async fn handle_inbound_message(
             &session_id,
             &agent_id,
             user_text,
+            supports_buttons,
         )
         .await
         {
@@ -482,15 +488,29 @@ async fn handle_inbound_message(
     // 8. Create ChannelStreamSink + spawn streaming background task
     let (event_tx, event_rx) = mpsc::channel::<String>(512);
 
-    // Collected MediaItems from tool_result events (send_attachment / image_generate).
-    // Drained after `run_chat_engine` returns to deliver files through the
-    // channel's native media API.
-    let pending_media = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
-        crate::attachments::MediaItem,
-    >::new()));
+    // Round-aware accumulator: text + media grouped per LLM round so the
+    // dispatcher can deliver them in time order under `ImReplyMode::Split`,
+    // or merge them under `Final` / `Preview`. See `RoundTextAccumulator`.
+    let round_texts = std::sync::Arc::new(std::sync::Mutex::new(
+        crate::chat_engine::RoundTextAccumulator::default(),
+    ));
 
     let capabilities = plugin.capabilities();
-    let preview_transport = select_stream_preview_transport(&msg.chat_type, &capabilities);
+    let reply_mode = account.im_reply_mode();
+    // `/reason` per-account toggle. When false, `ChannelStreamSink` drops
+    // `thinking_delta` events from the IM path entirely (the EventBus
+    // broadcast still fires for the desktop UI mirror).
+    let show_thinking = account.show_thinking();
+    // Stream preview is meaningful under `Preview` (one growing message)
+    // AND `Split` (per-round message with typewriter effect; the stream
+    // task closes each round inline). `Final` skips preview entirely so the
+    // user only sees the last-round answer at the end.
+    let preview_transport = match reply_mode {
+        ImReplyMode::Preview | ImReplyMode::Split => {
+            select_stream_preview_transport(&msg.chat_type, &capabilities)
+        }
+        ImReplyMode::Final => None,
+    };
     let max_msg_len = capabilities.max_message_length.unwrap_or(4096);
     let stream_task = spawn_channel_stream_task(
         event_rx,
@@ -501,6 +521,9 @@ async fn handle_inbound_message(
         msg.thread_id.clone(),
         preview_transport,
         max_msg_len,
+        reply_mode,
+        round_texts.clone(),
+        capabilities.clone(),
     );
 
     // 8. Convert inbound media to agent Attachments
@@ -549,7 +572,8 @@ async fn handle_inbound_message(
         event_sink: Arc::new(crate::chat_engine::ChannelStreamSink::new(
             session_id.clone(),
             event_tx,
-            pending_media.clone(),
+            round_texts.clone(),
+            show_thinking,
         )),
     };
 
@@ -574,40 +598,71 @@ async fn handle_inbound_message(
         }
     };
 
-    // Late async tool completions that land after this drain are deferred
-    // to a future turn — intentional; we don't want a stale attachment
-    // from turn N leaking into turn N+1.
-    let media_snapshot: Vec<crate::attachments::MediaItem> = {
-        let mut guard = pending_media.lock().unwrap_or_else(|e| {
-            app_warn!("channel", "worker", "pending_media poisoned: {}", e);
+    // Drain the round-aware accumulator. Late async tool completions that
+    // arrive after this drain are deferred to a future turn — intentional,
+    // a stale attachment from turn N must not leak into turn N+1.
+    let drained_rounds: Vec<crate::chat_engine::RoundOutput> = {
+        let mut guard = round_texts.lock().unwrap_or_else(|e| {
+            app_warn!("channel", "worker", "round_texts poisoned: {}", e);
             e.into_inner()
         });
-        std::mem::take(&mut *guard)
+        guard.drain()
     };
 
-    // 10. Process result — send final formatted response via sendMessage
+    // 10. Process result — fan out per `ImReplyMode`.
     match result {
         Ok(engine_result) => {
-            let response = &engine_result.response;
-            send_final_reply(
-                &plugin,
-                &account.id,
-                &msg,
-                response,
-                stream_outcome.preview_message_id.as_deref(),
-                &media_snapshot,
-                &capabilities,
-            )
-            .await;
+            let metrics = match reply_mode {
+                ImReplyMode::Split => {
+                    deliver_split(
+                        &plugin,
+                        &account.id,
+                        &msg,
+                        &drained_rounds,
+                        &engine_result.response,
+                        stream_outcome.preview.as_ref(),
+                        stream_outcome.finalized_rounds,
+                        &capabilities,
+                    )
+                    .await
+                }
+                ImReplyMode::Final => {
+                    deliver_final_only(
+                        &plugin,
+                        &account.id,
+                        &msg,
+                        &drained_rounds,
+                        &engine_result.response,
+                        &capabilities,
+                    )
+                    .await
+                }
+                ImReplyMode::Preview => {
+                    deliver_preview_merged(
+                        &plugin,
+                        &account.id,
+                        &msg,
+                        &drained_rounds,
+                        &engine_result.response,
+                        stream_outcome.preview.as_ref(),
+                        &capabilities,
+                    )
+                    .await
+                }
+            };
 
             app_info!(
                 "channel",
                 "worker",
-                "[{}] Reply sent to {} ({} chars, {} media)",
+                "[{}] Reply sent to {} (mode={}, rounds={}, finalized_inline={}, text_chars={}, media={}, preview={})",
                 channel_id_str,
                 msg.chat_id,
-                response.len(),
-                media_snapshot.len()
+                reply_mode.as_str(),
+                drained_rounds.len(),
+                stream_outcome.finalized_rounds,
+                metrics.text_chars,
+                metrics.media_count,
+                preview_transport.is_some(),
             );
         }
         Err(e) => {
@@ -627,26 +682,14 @@ async fn handle_inbound_message(
                 thread_id: msg.thread_id.clone(),
                 ..ReplyPayload::text("")
             };
-            if let Some(preview_message_id) = stream_outcome.preview_message_id.as_deref() {
-                if let Err(edit_err) = plugin
-                    .edit_message(&account.id, &msg.chat_id, preview_message_id, &payload)
-                    .await
-                {
-                    app_warn!(
-                        "channel",
-                        "worker",
-                        "Failed to replace preview with error reply: {}",
-                        edit_err
-                    );
-                    let _ = plugin
-                        .send_message(&account.id, &msg.chat_id, &payload)
-                        .await;
-                }
-            } else {
-                let _ = plugin
-                    .send_message(&account.id, &msg.chat_id, &payload)
-                    .await;
-            }
+            send_error_reply(
+                &plugin,
+                &account.id,
+                &msg.chat_id,
+                stream_outcome.preview.as_ref(),
+                &payload,
+            )
+            .await;
         }
     }
 
@@ -766,23 +809,122 @@ fn to_outbound_media(it: &crate::attachments::MediaItem, media_type: MediaType) 
     }
 }
 
-/// Send the final formatted response to the IM channel.
-///
-/// Order of delivery per turn:
-/// 1. Text chunks (markdown → native formatting → split).
-/// 2. One `send_message` per native-supported media item.
-/// 3. A final text message with download links for unsupported media (if any).
-///
-/// A 50 ms gap between sends is intentional: most IM APIs rate-limit per
-/// chat, and a tight loop trips flood protections on Telegram / LINE.
-async fn send_final_reply(
+/// Replace the current preview (if any) with an error reply, falling back to
+/// `send_message` whenever the preview path can't carry the error text. We
+/// don't try to keep cardkit alive on the error path — the user should see a
+/// plain text error attached to their original message.
+async fn send_error_reply(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
-    msg: &MsgContext,
+    chat_id: &str,
+    preview: Option<&PreviewHandle>,
+    payload: &ReplyPayload,
+) {
+    match preview {
+        Some(PreviewHandle::Message { message_id }) => {
+            if let Err(edit_err) = plugin
+                .edit_message(account_id, chat_id, message_id, payload)
+                .await
+            {
+                app_warn!(
+                    "channel",
+                    "worker",
+                    "Failed to replace preview with error reply: {}",
+                    edit_err
+                );
+                let _ = plugin.send_message(account_id, chat_id, payload).await;
+            }
+        }
+        Some(PreviewHandle::Card { .. }) | None => {
+            // Card path: leave the half-rendered card alone (it'll auto-close
+            // after 10 minutes server-side) and send the error as a fresh
+            // text reply so the user sees what went wrong.
+            let _ = plugin.send_message(account_id, chat_id, payload).await;
+        }
+    }
+}
+
+/// Write the full response into the streaming card and close streaming.
+/// Returns `true` on success — caller skips the chunked-text path. Returns
+/// `false` (after a best-effort `close_card_stream`) when the response is
+/// too large or `update_card_element` fails; caller must deliver the full
+/// response via `send_message` to avoid silent truncation.
+async fn finalize_card_stream(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    card_id: &str,
+    element_id: &str,
+    sequence: i64,
     response: &str,
-    preview_message_id: Option<&str>,
-    pending_media: &[crate::attachments::MediaItem],
-    caps: &ChannelCapabilities,
+) -> bool {
+    let response_chars = response.chars().count();
+    if response_chars > CARD_ELEMENT_MAX_CHARS {
+        app_warn!(
+            "channel",
+            "worker",
+            "Final response too large for card element ({} chars > {}), falling back to text chunks",
+            response_chars,
+            CARD_ELEMENT_MAX_CHARS
+        );
+        let _ = plugin
+            .close_card_stream(account_id, card_id, sequence)
+            .await;
+        return false;
+    }
+
+    if let Err(e) = plugin
+        .update_card_element(account_id, card_id, element_id, response, sequence)
+        .await
+    {
+        app_warn!(
+            "channel",
+            "worker",
+            "Final card update failed (seq={}): {} — falling back to text chunks",
+            sequence,
+            e
+        );
+        // Best-effort close so the streaming indicator stops. Errors here
+        // are cosmetic — the 10-minute auto-close is the safety net.
+        let _ = plugin
+            .close_card_stream(account_id, card_id, sequence + 1)
+            .await;
+        return false;
+    }
+
+    if let Err(e) = plugin
+        .close_card_stream(account_id, card_id, sequence + 1)
+        .await
+    {
+        // Card content was committed; close failure is cosmetic (10-min
+        // auto-close is the safety net), no fallback needed.
+        app_warn!(
+            "channel",
+            "worker",
+            "close_card_stream failed (seq={}): {}",
+            sequence + 1,
+            e
+        );
+    }
+
+    true
+}
+
+/// Split the response into native-rendered chunks and deliver them via
+/// `send_message`. `preview` only honors the `Message` variant for the
+/// first chunk (replaces an existing preview via `edit_message`); all
+/// other variants are treated as no preview and send fresh.
+///
+/// Public to the worker module so the stream task can use it as a
+/// guaranteed-delivery fallback when its preview-based path can't carry
+/// a round (text > max_msg_len, send/edit error, broken card session).
+pub(super) async fn send_text_chunks(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    reply_to_message_id: &str,
+    response: &str,
+    preview: Option<&PreviewHandle>,
 ) {
     let native_text = plugin.markdown_to_native(response);
     let chunks = plugin.chunk_message(&native_text);
@@ -791,48 +933,43 @@ async fn send_final_reply(
         let payload = if i == 0 {
             ReplyPayload {
                 text: Some(chunk.clone()),
-                reply_to_message_id: Some(msg.message_id.clone()),
-                thread_id: msg.thread_id.clone(),
+                reply_to_message_id: Some(reply_to_message_id.to_string()),
+                thread_id: thread_id.map(|s| s.to_string()),
                 parse_mode: Some(ParseMode::Html),
                 ..ReplyPayload::text("")
             }
         } else {
             ReplyPayload {
                 text: Some(chunk.clone()),
-                thread_id: msg.thread_id.clone(),
+                thread_id: thread_id.map(|s| s.to_string()),
                 parse_mode: Some(ParseMode::Html),
                 ..ReplyPayload::text("")
             }
         };
 
         let delivery = if i == 0 {
-            if let Some(message_id) = preview_message_id {
-                match plugin
-                    .edit_message(account_id, &msg.chat_id, message_id, &payload)
-                    .await
-                {
-                    Ok(result) => Ok(result),
-                    Err(e) => {
-                        app_warn!(
-                            "channel",
-                            "worker",
-                            "Failed to finalize preview via edit, falling back to send: {}",
-                            e
-                        );
-                        plugin
-                            .send_message(account_id, &msg.chat_id, &payload)
-                            .await
+            match preview {
+                Some(PreviewHandle::Message { message_id }) => {
+                    match plugin
+                        .edit_message(account_id, chat_id, message_id, &payload)
+                        .await
+                    {
+                        Ok(result) => Ok(result),
+                        Err(e) => {
+                            app_warn!(
+                                "channel",
+                                "worker",
+                                "Failed to finalize preview via edit, falling back to send: {}",
+                                e
+                            );
+                            plugin.send_message(account_id, chat_id, &payload).await
+                        }
                     }
                 }
-            } else {
-                plugin
-                    .send_message(account_id, &msg.chat_id, &payload)
-                    .await
+                _ => plugin.send_message(account_id, chat_id, &payload).await,
             }
         } else {
-            plugin
-                .send_message(account_id, &msg.chat_id, &payload)
-                .await
+            plugin.send_message(account_id, chat_id, &payload).await
         };
 
         match delivery {
@@ -851,12 +988,325 @@ async fn send_final_reply(
             }
         }
     }
+}
 
-    if pending_media.is_empty() {
+/// Aggregated counters used by the dispatcher for the post-turn log line.
+#[derive(Debug, Default)]
+struct DeliveryMetrics {
+    text_chars: usize,
+    media_count: usize,
+}
+
+/// `ImReplyMode::Split`: deliver each round in time order.
+///
+/// Two execution paths share this function:
+///
+/// 1. **Streaming-capable channel (`finalized_rounds > 0`)**: the stream
+///    task already delivered rounds `0..finalized_rounds` inline (preview
+///    + media per round). We only handle `rounds[finalized_rounds..]`,
+///    which under normal flow is either empty (model ended on a tool_call)
+///    or exactly one entry (the final round whose preview is still open).
+///
+/// 2. **Non-streaming channel (`finalized_rounds == 0`)**: the stream task
+///    drained events without rendering. We iterate every round here, sending
+///    pre-final narration as one-shot `send_message` + media fan-out, and
+///    routing the last round through `send_final_reply`.
+///
+/// Falls back to `engine_result.response` only if the sink saw no events at
+/// all — defensive for engine paths that don't stream through us.
+#[allow(clippy::too_many_arguments)]
+async fn deliver_split(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    msg: &MsgContext,
+    rounds: &[crate::chat_engine::RoundOutput],
+    fallback_response: &str,
+    preview: Option<&PreviewHandle>,
+    finalized_rounds: usize,
+    caps: &ChannelCapabilities,
+) -> DeliveryMetrics {
+    let mut metrics = DeliveryMetrics::default();
+    if rounds.is_empty() {
+        // Engine produced no rounds (sink never saw events). Use the merged
+        // response so the user still gets a reply.
+        send_final_reply(
+            plugin,
+            account_id,
+            msg,
+            fallback_response,
+            preview,
+            &[],
+            caps,
+        )
+        .await;
+        metrics.text_chars = fallback_response.chars().count();
+        return metrics;
+    }
+
+    // Tally already-finalized rounds so the post-turn log matches reality.
+    let split_at = finalized_rounds.min(rounds.len());
+    for r in &rounds[..split_at] {
+        metrics.text_chars += r.text.chars().count();
+        metrics.media_count += r.medias.len();
+    }
+
+    let remaining = &rounds[split_at..];
+    if remaining.is_empty() {
+        // Stream task finalized everything (model ended on a tool_call,
+        // last round had no trailing narration). Nothing left to ship.
+        return metrics;
+    }
+
+    let last_idx = remaining.len() - 1;
+    for (i, round) in remaining.iter().enumerate() {
+        if i == last_idx {
+            // Final round goes through the canonical finalize-+ -media path.
+            send_final_reply(
+                plugin,
+                account_id,
+                msg,
+                &round.text,
+                preview,
+                &round.medias,
+                caps,
+            )
+            .await;
+            metrics.text_chars += round.text.chars().count();
+            metrics.media_count += round.medias.len();
+        } else {
+            // Pre-final round (only reached on non-streaming channels — the
+            // stream task would have finalized this round inline otherwise).
+            if !round.text.trim().is_empty() {
+                let payload = ReplyPayload {
+                    text: Some(round.text.clone()),
+                    reply_to_message_id: None,
+                    thread_id: msg.thread_id.clone(),
+                    ..ReplyPayload::text("")
+                };
+                match plugin
+                    .send_message(account_id, &msg.chat_id, &payload)
+                    .await
+                {
+                    Ok(r) if !r.success => {
+                        app_warn!(
+                            "channel",
+                            "worker",
+                            "split-mode pre-round send failed: {}",
+                            r.error.unwrap_or_default()
+                        );
+                    }
+                    Err(e) => {
+                        app_warn!(
+                            "channel",
+                            "worker",
+                            "split-mode pre-round send error: {}",
+                            e
+                        );
+                    }
+                    _ => {}
+                }
+                metrics.text_chars += round.text.chars().count();
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            deliver_media_to_chat(
+                plugin,
+                account_id,
+                &msg.chat_id,
+                msg.thread_id.as_deref(),
+                &round.medias,
+                caps,
+            )
+            .await;
+            metrics.media_count += round.medias.len();
+        }
+    }
+    metrics
+}
+
+/// `ImReplyMode::Final`: send only the final round's narration plus all
+/// rounds' media, in one outbound burst. The dispatcher forces
+/// `preview_transport=None` for this mode, so no preview handle exists to
+/// finalize — go straight through `send_final_reply` with `None`.
+async fn deliver_final_only(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    msg: &MsgContext,
+    rounds: &[crate::chat_engine::RoundOutput],
+    fallback_response: &str,
+    caps: &ChannelCapabilities,
+) -> DeliveryMetrics {
+    let final_text: String = rounds
+        .last()
+        .map(|r| r.text.clone())
+        .filter(|t| !t.is_empty())
+        .unwrap_or_else(|| fallback_response.to_string());
+    let all_media: Vec<crate::attachments::MediaItem> = rounds
+        .iter()
+        .flat_map(|r| r.medias.iter().cloned())
+        .collect();
+    let media_count = all_media.len();
+    let text_chars = final_text.chars().count();
+    send_final_reply(plugin, account_id, msg, &final_text, None, &all_media, caps).await;
+    DeliveryMetrics {
+        text_chars,
+        media_count,
+    }
+}
+
+/// `ImReplyMode::Preview`: keep the legacy "one growing preview message"
+/// behavior. Joins per-round narration in time order to reconstruct the
+/// canonical final text — matches what the live preview was rendering
+/// (including `/reason on` thinking blockquotes inserted by
+/// `ChannelStreamSink`). Falls back to `engine_result.response` only when
+/// `rounds` is empty (the engine bailed before any text streamed). All
+/// media follow at the end via `send_final_reply`.
+///
+/// Non-streaming channels reach this branch with `preview = None`; behavior
+/// degrades to the same as `Final` minus the "drop pre-final narration"
+/// trim — i.e. a single message containing the merged text.
+async fn deliver_preview_merged(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    msg: &MsgContext,
+    rounds: &[crate::chat_engine::RoundOutput],
+    fallback_response: &str,
+    preview: Option<&PreviewHandle>,
+    caps: &ChannelCapabilities,
+) -> DeliveryMetrics {
+    // Concatenate round texts with NO separator: the round_texts state
+    // machine is the byte-exact mirror of what the sink forwarded into
+    // the streaming preview task's `accumulated` buffer (round
+    // boundaries don't insert padding by themselves; the only `\n\n`
+    // separators that exist are the ones `on_thinking` / `on_text` /
+    // `on_tool_call` already pushed when closing a thinking blockquote).
+    // Joining with `\n\n` would insert extra blank lines between rounds
+    // that the live preview never showed — the final commit would jump.
+    let final_text: String = if rounds.is_empty() {
+        fallback_response.to_string()
+    } else {
+        let merged: String = rounds.iter().map(|r| r.text.as_str()).collect();
+        if merged.is_empty() {
+            fallback_response.to_string()
+        } else {
+            merged
+        }
+    };
+    let all_media: Vec<crate::attachments::MediaItem> = rounds
+        .iter()
+        .flat_map(|r| r.medias.iter().cloned())
+        .collect();
+    let media_count = all_media.len();
+    let text_chars = final_text.chars().count();
+    send_final_reply(
+        plugin,
+        account_id,
+        msg,
+        &final_text,
+        preview,
+        &all_media,
+        caps,
+    )
+    .await;
+    DeliveryMetrics {
+        text_chars,
+        media_count,
+    }
+}
+
+/// Send the final formatted response to the IM channel.
+///
+/// Order of delivery per turn:
+/// 1. Text content (one of two paths — see below).
+/// 2. One `send_message` per native-supported media item.
+/// 3. A final text message with download links for unsupported media (if any).
+///
+/// A 50 ms gap between sends is intentional: most IM APIs rate-limit per
+/// chat, and a tight loop trips flood protections on Telegram / LINE.
+///
+/// Text routing is decided by `preview`:
+/// - `Card { broken: false, .. }`: write the **entire** raw response into the
+///   card element in one shot (cardkit elements hold ~100k chars, far above
+///   any IM `max_message_length`), then close streaming. On any failure
+///   (response oversize, update error, etc.) the card is closed best-effort
+///   and we fall through to plain text chunks below.
+/// - Anything else (`Message`, `Card{broken:true}`, `None`): split the
+///   markdown-to-native rendered response into chunks and `send_message` each
+///   one. For `Message`, the first chunk replaces the existing preview via
+///   `edit_message` (with `send_message` as a fallback).
+async fn send_final_reply(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    msg: &MsgContext,
+    response: &str,
+    preview: Option<&PreviewHandle>,
+    pending_media: &[crate::attachments::MediaItem],
+    caps: &ChannelCapabilities,
+) {
+    let card_finalized = match preview {
+        Some(PreviewHandle::Card {
+            card_id,
+            element_id,
+            sequence,
+            broken: false,
+            ..
+        }) => {
+            finalize_card_stream(plugin, account_id, card_id, element_id, *sequence, response).await
+        }
+        _ => false,
+    };
+
+    if !card_finalized {
+        // Card variants here are either `broken=true` or `broken=false` whose
+        // finalize just failed. In both cases the half-rendered card stays
+        // in chat (cardkit auto-closes it after 10 minutes); we deliver a
+        // fresh, complete text reply via send_message so the user sees the
+        // full response. Treat the preview as `None` for the chunk loop.
+        let chunk_preview = match preview {
+            Some(PreviewHandle::Card { .. }) => None,
+            other => other,
+        };
+        send_text_chunks(
+            plugin,
+            account_id,
+            &msg.chat_id,
+            msg.thread_id.as_deref(),
+            &msg.message_id,
+            response,
+            chunk_preview,
+        )
+        .await;
+    }
+
+    deliver_media_to_chat(
+        plugin,
+        account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+        pending_media,
+        caps,
+    )
+    .await;
+}
+
+/// Send a batch of media items through the channel, falling back to a text
+/// download link for unsupported MIME types. Each `send_message` is followed
+/// by a 50 ms gap to stay under per-chat rate limits — Telegram and LINE
+/// both flood-protect tight loops. Used by `send_final_reply`, the
+/// `Split`-mode dispatcher's per-round fan-out, and the stream task's
+/// inline per-round delivery.
+pub(super) async fn deliver_media_to_chat(
+    plugin: &Arc<dyn ChannelPlugin>,
+    account_id: &str,
+    chat_id: &str,
+    thread_id: Option<&str>,
+    items: &[crate::attachments::MediaItem],
+    caps: &ChannelCapabilities,
+) {
+    if items.is_empty() {
         return;
     }
 
-    let (native_items, fallback_items) = partition_media_by_channel(pending_media, caps);
+    let (native_items, fallback_items) = partition_media_by_channel(items, caps);
 
     for (it, t) in &native_items {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -866,13 +1316,10 @@ async fn send_final_reply(
             reply_to_message_id: None,
             parse_mode: None,
             buttons: Vec::new(),
-            thread_id: msg.thread_id.clone(),
+            thread_id: thread_id.map(|s| s.to_string()),
             draft_id: None,
         };
-        match plugin
-            .send_message(account_id, &msg.chat_id, &payload)
-            .await
-        {
+        match plugin.send_message(account_id, chat_id, &payload).await {
             Ok(r) if !r.success => {
                 app_warn!(
                     "channel",
@@ -894,15 +1341,13 @@ async fn send_final_reply(
         let payload = ReplyPayload {
             text: Some(text),
             reply_to_message_id: None,
-            thread_id: msg.thread_id.clone(),
+            thread_id: thread_id.map(|s| s.to_string()),
             parse_mode: None,
             buttons: Vec::new(),
             media: Vec::new(),
             draft_id: None,
         };
-        let _ = plugin
-            .send_message(account_id, &msg.chat_id, &payload)
-            .await;
+        let _ = plugin.send_message(account_id, chat_id, &payload).await;
     }
 }
 
@@ -937,6 +1382,7 @@ mod tests {
             supports_typing: false,
             supports_buttons: false,
             max_message_length: None,
+            supports_card_stream: false,
         }
     }
 

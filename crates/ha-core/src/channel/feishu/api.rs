@@ -4,6 +4,12 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use super::auth::FeishuAuth;
+use crate::channel::types::CardStreamError;
+
+/// Hard-coded element id used inside every streaming card we create. Lives
+/// here (not in mod.rs) because both `create_streaming_card` and the
+/// element-update / settings endpoints must agree on it.
+pub const STREAMING_ELEMENT_ID: &str = "streaming_text";
 
 /// Feishu bot info returned by the bot/v3/info endpoint.
 #[derive(Debug, Clone)]
@@ -64,6 +70,11 @@ struct SendMessageData {
 }
 
 #[derive(Debug, Deserialize)]
+struct CreateCardData {
+    card_id: String,
+}
+
+#[derive(Debug, Deserialize)]
 struct ImageUploadData {
     image_key: String,
 }
@@ -110,6 +121,41 @@ impl FeishuApi {
             .client
             .request(method, url)
             .header("Authorization", format!("Bearer {}", token)))
+    }
+
+    /// Read `resp`, validate the standard `{code, msg, data}` envelope, and
+    /// return the decoded `data` field. `label` only appears in error
+    /// messages so callers can disambiguate ("card create" vs "delete
+    /// message"). Returns `Ok(None)` when the response carries no `data`
+    /// (some endpoints like update / delete legitimately omit it on success).
+    async fn parse_envelope<T>(&self, resp: reqwest::Response, label: &str) -> Result<Option<T>>
+    where
+        T: serde::de::DeserializeOwned,
+    {
+        let status = resp.status();
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| anyhow!("Failed to read Feishu {} response: {}", label, e))?;
+        if !status.is_success() {
+            return Err(anyhow!(
+                "Feishu {} failed with HTTP {}: {}",
+                label,
+                status,
+                crate::truncate_utf8(&body, 512)
+            ));
+        }
+        let parsed: ApiResponse<T> = serde_json::from_str(&body)
+            .map_err(|e| anyhow!("Failed to parse Feishu {} response: {}", label, e))?;
+        if parsed.code != 0 {
+            return Err(anyhow!(
+                "Feishu {} error (code={}): {}",
+                label,
+                parsed.code,
+                parsed.msg
+            ));
+        }
+        Ok(parsed.data)
     }
 
     /// Get bot info (app_name, open_id).
@@ -434,31 +480,7 @@ impl FeishuApi {
             .await
             .map_err(|e| anyhow!("Failed to update Feishu message: {}", e))?;
 
-        let status = resp.status();
-        let resp_body = resp
-            .text()
-            .await
-            .map_err(|e| anyhow!("Failed to read Feishu update response: {}", e))?;
-
-        if !status.is_success() {
-            return Err(anyhow!(
-                "Feishu update message failed with HTTP {}: {}",
-                status,
-                crate::truncate_utf8(&resp_body, 512)
-            ));
-        }
-
-        let parsed: ApiResponse<serde_json::Value> = serde_json::from_str(&resp_body)
-            .map_err(|e| anyhow!("Failed to parse Feishu update response: {}", e))?;
-
-        if parsed.code != 0 {
-            return Err(anyhow!(
-                "Feishu update message error (code={}): {}",
-                parsed.code,
-                parsed.msg
-            ));
-        }
-
+        let _: Option<serde_json::Value> = self.parse_envelope(resp, "update message").await?;
         Ok(())
     }
 
@@ -473,31 +495,7 @@ impl FeishuApi {
             .await
             .map_err(|e| anyhow!("Failed to delete Feishu message: {}", e))?;
 
-        let status = resp.status();
-        let resp_body = resp
-            .text()
-            .await
-            .map_err(|e| anyhow!("Failed to read Feishu delete response: {}", e))?;
-
-        if !status.is_success() {
-            return Err(anyhow!(
-                "Feishu delete message failed with HTTP {}: {}",
-                status,
-                crate::truncate_utf8(&resp_body, 512)
-            ));
-        }
-
-        let parsed: ApiResponse<serde_json::Value> = serde_json::from_str(&resp_body)
-            .map_err(|e| anyhow!("Failed to parse Feishu delete response: {}", e))?;
-
-        if parsed.code != 0 {
-            return Err(anyhow!(
-                "Feishu delete message error (code={}): {}",
-                parsed.code,
-                parsed.msg
-            ));
-        }
-
+        let _: Option<serde_json::Value> = self.parse_envelope(resp, "delete message").await?;
         Ok(())
     }
 
@@ -565,6 +563,187 @@ impl FeishuApi {
         Ok(WsEndpointInfo { url, ping_interval })
     }
 
+    /// Build the schema 2.0 card body used by `create_streaming_card`.
+    /// Pulled out to a free helper so the JSON shape can be unit-tested
+    /// without an HTTP client.
+    pub(crate) fn build_streaming_card_body(initial_text: &str) -> serde_json::Value {
+        serde_json::json!({
+            "schema": "2.0",
+            "config": {
+                "streaming_mode": true,
+                "summary": {"content": ""}
+            },
+            "body": {
+                "elements": [
+                    {
+                        "tag": "markdown",
+                        "element_id": STREAMING_ELEMENT_ID,
+                        "content": initial_text
+                    }
+                ]
+            }
+        })
+    }
+
+    /// Create a streaming card on cardkit. Returns the card_id; the
+    /// element_id is the constant `STREAMING_ELEMENT_ID`. Subsequent
+    /// updates target that element.
+    pub async fn create_streaming_card(&self, initial_text: &str) -> Result<String> {
+        let url = format!("{}/open-apis/cardkit/v1/cards", self.base_url);
+        let card_json = Self::build_streaming_card_body(initial_text);
+        let body = serde_json::json!({
+            "type": "card_json",
+            "data": card_json.to_string(),
+        });
+
+        let resp = self
+            .authorized_request(reqwest::Method::POST, &url)
+            .await?
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to create Feishu streaming card: {}", e))?;
+
+        let data: CreateCardData = self
+            .parse_envelope(resp, "card create")
+            .await?
+            .ok_or_else(|| anyhow!("Feishu card create response missing 'data' field"))?;
+
+        Ok(data.card_id)
+    }
+
+    /// Push a previously-created card to a chat as an interactive message
+    /// referencing `card_id`. Returns the host message_id.
+    pub async fn send_card_reference(
+        &self,
+        receive_id: &str,
+        card_id: &str,
+        reply_to: Option<&str>,
+    ) -> Result<String> {
+        let content_value = serde_json::json!({
+            "type": "card",
+            "data": {"card_id": card_id}
+        });
+        let content = content_value.to_string();
+        let msg_type = "interactive";
+
+        if let Some(reply_msg_id) = reply_to {
+            let url = format!(
+                "{}/open-apis/im/v1/messages/{}/reply",
+                self.base_url, reply_msg_id
+            );
+            let body = serde_json::json!({
+                "msg_type": msg_type,
+                "content": content,
+            });
+            let resp = self
+                .authorized_request(reqwest::Method::POST, &url)
+                .await?
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| anyhow!("Failed to send Feishu card reference reply: {}", e))?;
+            return self.parse_send_response(resp).await;
+        }
+
+        let url = format!(
+            "{}/open-apis/im/v1/messages?receive_id_type=chat_id",
+            self.base_url
+        );
+        let body = serde_json::json!({
+            "receive_id": receive_id,
+            "msg_type": msg_type,
+            "content": content,
+        });
+        let resp = self
+            .authorized_request(reqwest::Method::POST, &url)
+            .await?
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to send Feishu card reference: {}", e))?;
+        self.parse_send_response(resp).await
+    }
+
+    /// Append text to a streaming card element. `sequence` must be strictly
+    /// increasing across all calls within one card lifetime.
+    pub async fn update_card_element(
+        &self,
+        card_id: &str,
+        element_id: &str,
+        content: &str,
+        sequence: i64,
+    ) -> std::result::Result<(), CardStreamError> {
+        let url = format!(
+            "{}/open-apis/cardkit/v1/cards/{}/elements/{}/content",
+            self.base_url, card_id, element_id
+        );
+        let body = serde_json::json!({
+            "content": content,
+            "sequence": sequence,
+        });
+
+        let req = self
+            .authorized_request(reqwest::Method::PUT, &url)
+            .await
+            .map_err(|e| CardStreamError::Other(e.to_string()))?;
+        let resp = req
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| CardStreamError::Other(format!("network: {}", e)))?;
+
+        let status = resp.status();
+        let resp_body = resp
+            .text()
+            .await
+            .map_err(|e| CardStreamError::Other(format!("read body: {}", e)))?;
+
+        if !status.is_success() {
+            return Err(CardStreamError::Other(format!(
+                "HTTP {}: {}",
+                status,
+                crate::truncate_utf8(&resp_body, 512)
+            )));
+        }
+
+        let parsed: ApiResponse<serde_json::Value> = serde_json::from_str(&resp_body)
+            .map_err(|e| CardStreamError::Other(format!("parse: {}", e)))?;
+
+        if parsed.code != 0 {
+            return Err(card_stream_error_from_code(parsed.code, &parsed.msg));
+        }
+
+        Ok(())
+    }
+
+    /// Disable streaming mode on a card via the settings endpoint.
+    /// Best-effort — caller logs errors but doesn't recover.
+    pub async fn close_card_streaming(&self, card_id: &str, sequence: i64) -> Result<()> {
+        let url = format!(
+            "{}/open-apis/cardkit/v1/cards/{}/settings",
+            self.base_url, card_id
+        );
+        let settings_value = serde_json::json!({
+            "config": {"streaming_mode": false}
+        });
+        let body = serde_json::json!({
+            "settings": settings_value.to_string(),
+            "sequence": sequence,
+        });
+
+        let resp = self
+            .authorized_request(reqwest::Method::PATCH, &url)
+            .await?
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to close Feishu card streaming: {}", e))?;
+
+        let _: Option<serde_json::Value> = self.parse_envelope(resp, "card close").await?;
+        Ok(())
+    }
+
     /// Parse a send/reply message response and extract the message_id.
     async fn parse_send_response(&self, resp: reqwest::Response) -> Result<String> {
         let status = resp.status();
@@ -610,4 +789,63 @@ fn build_part(
         .file_name(filename.to_string())
         .mime_str(mime)
         .map_err(|e| anyhow!("Invalid Feishu {} part mime '{}': {}", label, mime, e))
+}
+
+/// Translate a Feishu cardkit error code into the channel-agnostic
+/// `CardStreamError` variants. Unknown codes fall through to `Other`
+/// with the original `code= msg` formatting so logs stay greppable.
+pub(crate) fn card_stream_error_from_code(code: i64, msg: &str) -> CardStreamError {
+    match code {
+        300317 => CardStreamError::SequenceOutOfOrder,
+        200750 => CardStreamError::Expired,
+        200850 => CardStreamError::TimedOut,
+        300309 => CardStreamError::NotEnabled,
+        300311 => CardStreamError::NoPermission,
+        _ => CardStreamError::Other(format!("code={} {}", code, msg)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn streaming_card_body_has_required_shape() {
+        let body = FeishuApi::build_streaming_card_body("hello");
+        assert_eq!(body["schema"], "2.0");
+        assert_eq!(body["config"]["streaming_mode"], true);
+        let elements = body["body"]["elements"].as_array().expect("elements");
+        assert_eq!(elements.len(), 1);
+        assert_eq!(elements[0]["tag"], "markdown");
+        assert_eq!(elements[0]["element_id"], STREAMING_ELEMENT_ID);
+        assert_eq!(elements[0]["content"], "hello");
+    }
+
+    #[test]
+    fn card_stream_error_classifies_known_codes() {
+        assert!(matches!(
+            card_stream_error_from_code(300317, "out of order"),
+            CardStreamError::SequenceOutOfOrder
+        ));
+        assert!(matches!(
+            card_stream_error_from_code(200750, "expired"),
+            CardStreamError::Expired
+        ));
+        assert!(matches!(
+            card_stream_error_from_code(200850, "timed out"),
+            CardStreamError::TimedOut
+        ));
+        assert!(matches!(
+            card_stream_error_from_code(300309, "not enabled"),
+            CardStreamError::NotEnabled
+        ));
+        assert!(matches!(
+            card_stream_error_from_code(300311, "no permission"),
+            CardStreamError::NoPermission
+        ));
+        assert!(matches!(
+            card_stream_error_from_code(99999, "unknown"),
+            CardStreamError::Other(_)
+        ));
+    }
 }

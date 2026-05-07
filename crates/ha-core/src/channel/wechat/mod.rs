@@ -368,6 +368,7 @@ impl ChannelPlugin for WeChatPlugin {
             // 多次快速发消息会触发"发送频繁"风控；保守 1500 字节避免长回答
             // 被切多条 + 多媒体共发时刷屏。
             max_message_length: Some(1500),
+            supports_card_stream: false,
         }
     }
 

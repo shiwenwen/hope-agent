@@ -107,6 +107,7 @@ impl ChannelPlugin for WhatsAppPlugin {
             supports_typing: true,
             supports_buttons: false,
             max_message_length: Some(65536),
+            supports_card_stream: false,
         }
     }
 

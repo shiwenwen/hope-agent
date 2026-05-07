@@ -357,6 +357,29 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             ]),
             description_raw: None,
         },
+        SlashCommandDef {
+            name: "imreply".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.imreply.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[split|final|preview]".into()),
+            arg_options: Some(vec!["split".into(), "final".into(), "preview".into()]),
+            description_raw: None,
+        },
+        // `/reason` (alias `/reasoning`, dispatched silently — only the
+        // canonical name appears in IM slash menus). Toggles whether the
+        // model's thinking is rendered into outbound IM messages.
+        SlashCommandDef {
+            name: "reason".into(),
+            category: CommandCategory::Utility,
+            description_key: "slashCommands.reason.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[on|off]".into()),
+            arg_options: Some(vec!["on".into(), "off".into()]),
+            description_raw: None,
+        },
     ]
 }
 

@@ -228,6 +228,8 @@ impl SlashCommandDef {
             "recap" => "Generate a deep analysis recap report",
             "context" => "Show context window breakdown",
             "awareness" => "Toggle behavior awareness",
+            "imreply" => "Set IM reply mode (split|final|preview)",
+            "reason" => "Toggle whether the model's thinking is shown in IM messages",
             "project" => "Switch to or pick a project",
             "projects" => "List all projects",
             "sessions" => "Pick a session",

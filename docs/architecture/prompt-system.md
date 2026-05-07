@@ -119,6 +119,7 @@ graph LR
 | ------------- | ------------------------------------------- | --------------------------------- |
 | 触发条件      | 默认                                        | `openclaw_mode: true`             |
 | Identity 行   | `"You are {name}, a {role}, running on..."` | `"You are {name}, running on..."` |
+| Avatar 行     | `AgentConfig.avatar` 非空时追加 `"Your avatar image is at: {path}"`（`data:` URL 与超过 1KB 的字符串跳过，防止 base64 图片膨胀 prompt） | 同左 |
 | Personality   | `PersonalityConfig` 字段组装                | 跳过                              |
 | agent.md      | 补充说明                                    | 不使用                            |
 | persona.md    | 补充个性                                    | 不使用                            |

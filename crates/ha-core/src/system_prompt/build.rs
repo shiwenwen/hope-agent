@@ -70,6 +70,7 @@ pub fn build(
             "You are {}, running in Hope Agent on {} {}.",
             definition.config.name, os, arch
         ));
+        push_avatar_line(&mut sections, definition.config.avatar.as_deref());
         sections.push(APP_INTRO.to_string());
 
         // # Project Context — fixed 4-file order
@@ -126,6 +127,7 @@ pub fn build(
             "You are {}{}, running in Hope Agent on {} {}.",
             definition.config.name, role_suffix, os, arch
         ));
+        push_avatar_line(&mut sections, definition.config.avatar.as_deref());
         sections.push(APP_INTRO.to_string());
 
         // ② Personality — SoulMd mode injects soul.md verbatim + embodiment
@@ -460,6 +462,26 @@ fn push_core_memory_layer(
     out.push_str(&chunk);
     out.push_str(TRAILER);
     *remaining = remaining.saturating_sub(chunk.len() + overhead);
+}
+
+/// Append an avatar line right after the identity sentence so the model knows
+/// where to find its avatar image (local path or URL). The frontend renders
+/// avatars from the same string, so a markdown image reference produced by the
+/// model will resolve to the user-configured avatar.
+///
+/// Skips `data:` URLs (OpenClaw import accepts them — see
+/// `openclaw_import::agents::is_remote_avatar`) because base64-embedded images
+/// can run tens to hundreds of KB and would bloat every turn's system prompt.
+/// Also caps total length defensively in case some other string ever slips in.
+fn push_avatar_line(sections: &mut Vec<String>, avatar: Option<&str>) {
+    const MAX_AVATAR_LEN: usize = 1024;
+    let Some(avatar) = avatar.map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    if avatar.starts_with("data:") || avatar.len() > MAX_AVATAR_LEN {
+        return;
+    }
+    sections.push(format!("Your avatar image is at: {}", avatar));
 }
 
 fn build_incognito_section() -> String {
@@ -804,6 +826,150 @@ mod memory_section_tests {
         assert!(
             !out.contains("# File Path Formatting"),
             "non-desktop runtime should skip path-links guidance: {out}"
+        );
+    }
+
+    #[test]
+    fn avatar_line_injected_when_configured() {
+        let mut definition = mk_definition();
+        definition.config.avatar = Some("/Users/me/.hope-agent/avatars/foo.png".into());
+        let budget = MemoryBudgetConfig::default();
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            SessionMode::Default,
+        );
+        assert!(
+            out.contains("Your avatar image is at: /Users/me/.hope-agent/avatars/foo.png"),
+            "structured-mode prompt should include avatar line: {out}"
+        );
+    }
+
+    #[test]
+    fn avatar_line_omitted_when_blank_or_missing() {
+        let mut definition = mk_definition();
+        definition.config.avatar = Some("   ".into());
+        let budget = MemoryBudgetConfig::default();
+        let out_blank = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            SessionMode::Default,
+        );
+        definition.config.avatar = None;
+        let out_none = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            SessionMode::Default,
+        );
+        assert!(!out_blank.contains("Your avatar image is at:"));
+        assert!(!out_none.contains("Your avatar image is at:"));
+    }
+
+    #[test]
+    fn avatar_line_skipped_for_data_url() {
+        let mut definition = mk_definition();
+        definition.config.avatar = Some(
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgAAIAAAUAAeImBZsAAAAASUVORK5CYII="
+                .into(),
+        );
+        let budget = MemoryBudgetConfig::default();
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            SessionMode::Default,
+        );
+        assert!(
+            !out.contains("Your avatar image is at:"),
+            "data: URLs must not be injected (would bloat prompt with base64): {out}"
+        );
+        assert!(!out.contains("data:image/png"));
+    }
+
+    #[test]
+    fn avatar_line_skipped_when_path_is_oversized() {
+        let mut definition = mk_definition();
+        definition.config.avatar = Some(format!("https://example.com/{}.png", "a".repeat(2_000)));
+        let budget = MemoryBudgetConfig::default();
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            SessionMode::Default,
+        );
+        assert!(
+            !out.contains("Your avatar image is at:"),
+            "oversized avatar string must not be injected: prompt len {}",
+            out.len()
+        );
+    }
+
+    #[test]
+    fn avatar_line_injected_in_openclaw_mode() {
+        let mut definition = mk_definition();
+        definition.config.openclaw_mode = true;
+        definition.config.avatar = Some("https://example.com/a.png".into());
+        let budget = MemoryBudgetConfig::default();
+        let out = build(
+            &definition,
+            Some("gpt-5.4"),
+            Some("OpenAI"),
+            &[],
+            &budget,
+            None,
+            None,
+            &[],
+            None,
+            false,
+            None,
+            SessionMode::Default,
+        );
+        assert!(
+            out.contains("Your avatar image is at: https://example.com/a.png"),
+            "openclaw-mode prompt should include avatar line: {out}"
         );
     }
 

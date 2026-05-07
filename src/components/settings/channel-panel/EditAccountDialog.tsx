@@ -36,9 +36,17 @@ import type {
   AgentInfo,
   ChannelAccountConfig,
   ChannelPluginInfo,
+  ImReplyMode,
   TelegramGroupConfig,
   TelegramChannelConfig,
   WeChatConnection,
+} from "./types"
+import {
+  IM_REPLY_MODE_DEFAULT,
+  SHOW_THINKING_DEFAULT,
+  channelSupportsStreamPreview,
+  readImReplyMode,
+  readShowThinking,
 } from "./types"
 
 export default function EditAccountDialog({
@@ -66,6 +74,8 @@ export default function EditAccountDialog({
   const [groupPolicy, setGroupPolicy] = useState("open")
   const [autoApproveTools, setAutoApproveTools] = useState(false)
   const [notifyPrimaryChanges, setNotifyPrimaryChanges] = useState(true)
+  const [imReplyMode, setImReplyMode] = useState<ImReplyMode>(IM_REPLY_MODE_DEFAULT)
+  const [showThinking, setShowThinking] = useState<boolean>(SHOW_THINKING_DEFAULT)
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
   const [saving, setSaving] = useState(false)
@@ -75,6 +85,10 @@ export default function EditAccountDialog({
   const [validationError, setValidationError] = useState<string | null>(null)
   const [wechatConnection, setWeChatConnection] = useState<WeChatConnection | null>(null)
   const selectedAgent = agents.find((agent) => agent.id === agentId)
+  const selectedPlugin = account
+    ? plugins.find((p) => p.meta.id === account.channelId)
+    : undefined
+  const channelSupportsStreaming = channelSupportsStreamPreview(selectedPlugin)
 
   // Populate form when account changes
   useEffect(() => {
@@ -90,6 +104,8 @@ export default function EditAccountDialog({
       setChannels(account.security.channels ? { ...account.security.channels } : {})
       setAutoApproveTools(account.autoApproveTools ?? false)
       setNotifyPrimaryChanges(account.notifyPrimaryChanges ?? true)
+      setImReplyMode(readImReplyMode(account))
+      setShowThinking(readShowThinking(account))
       setValidationResult(null)
       setValidationError(null)
       setSaveError(null)
@@ -138,6 +154,13 @@ export default function EditAccountDialog({
       }
       // Only send credentials if token was changed
       const originalToken = (account.credentials as Record<string, string>).token ?? ""
+      // Start from existing settings so we never wipe sibling keys (transport,
+      // baseUrl, etc.) when the user only touched the IM reply mode toggle.
+      const settingsBase = {
+        ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
+        imReplyMode,
+        showThinking,
+      }
       if (account.channelId === "wechat") {
         if (wechatConnection) {
           params.credentials = {
@@ -146,13 +169,18 @@ export default function EditAccountDialog({
             userId: wechatConnection.userId ?? null,
           }
           params.settings = {
-            ...(account.settings as Record<string, unknown>),
+            ...settingsBase,
             transport: "longpoll",
             baseUrl: wechatConnection.baseUrl,
           }
+        } else {
+          params.settings = settingsBase
         }
-      } else if (token.trim() !== originalToken) {
-        params.credentials = { token: token.trim() }
+      } else {
+        if (token.trim() !== originalToken) {
+          params.credentials = { token: token.trim() }
+        }
+        params.settings = settingsBase
       }
       await getTransport().call("channel_update_account", params)
       onSaved()
@@ -349,6 +377,62 @@ export default function EditAccountDialog({
             <Switch
               checked={notifyPrimaryChanges}
               onCheckedChange={setNotifyPrimaryChanges}
+            />
+          </div>
+
+          {/* IM Reply Mode — three modes, all channels honor the same
+              setting. `preview` only has streaming-specific behavior on
+              channels that advertise a preview transport; non-streaming
+              channels silently degrade `preview` → `final`. */}
+          <div className="space-y-2">
+            <Label>{t("channels.imReplyMode")}</Label>
+            <Select
+              value={imReplyMode}
+              onValueChange={(v) => setImReplyMode(v as ImReplyMode)}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="split">
+                  {t("channels.imReplyModeSplit")}
+                </SelectItem>
+                <SelectItem value="final">
+                  {t("channels.imReplyModeFinal")}
+                </SelectItem>
+                <SelectItem value="preview">
+                  {t("channels.imReplyModePreview")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {(() => {
+                if (imReplyMode === "preview" && !channelSupportsStreaming) {
+                  return t("channels.imReplyModePreviewDegrades")
+                }
+                switch (imReplyMode) {
+                  case "split":
+                    return t("channels.imReplyModeSplitHint")
+                  case "final":
+                    return t("channels.imReplyModeFinalHint")
+                  case "preview":
+                    return t("channels.imReplyModePreviewHint")
+                }
+              })()}
+            </p>
+          </div>
+
+          {/* Show Thinking toggle — mirrors `/reason` slash command. */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>{t("channels.showThinking")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("channels.showThinkingHint")}
+              </p>
+            </div>
+            <Switch
+              checked={showThinking}
+              onCheckedChange={setShowThinking}
             />
           </div>
         </div>

@@ -116,6 +116,7 @@ impl ChannelPlugin for FeishuPlugin {
             supports_typing: false,
             supports_buttons: true,
             max_message_length: Some(4096),
+            supports_card_stream: true,
         }
     }
 
@@ -274,6 +275,60 @@ impl ChannelPlugin for FeishuPlugin {
     ) -> Result<()> {
         let api = self.get_account(account_id).await?;
         api.delete_message(message_id).await
+    }
+
+    async fn create_card_stream(
+        &self,
+        account_id: &str,
+        initial_text: &str,
+    ) -> Result<CardStreamHandle> {
+        let api = self.get_account(account_id).await?;
+        let card_id = api.create_streaming_card(initial_text).await?;
+        Ok(CardStreamHandle {
+            card_id,
+            element_id: api::STREAMING_ELEMENT_ID.to_string(),
+        })
+    }
+
+    async fn send_card_message(
+        &self,
+        account_id: &str,
+        chat_id: &str,
+        card_id: &str,
+        reply_to_message_id: Option<&str>,
+        _thread_id: Option<&str>,
+    ) -> Result<DeliveryResult> {
+        let api = self.get_account(account_id).await?;
+        let msg_id = api
+            .send_card_reference(chat_id, card_id, reply_to_message_id)
+            .await?;
+        Ok(DeliveryResult::ok(msg_id))
+    }
+
+    async fn update_card_element(
+        &self,
+        account_id: &str,
+        card_id: &str,
+        element_id: &str,
+        content: &str,
+        sequence: i64,
+    ) -> std::result::Result<(), CardStreamError> {
+        let api = self
+            .get_account(account_id)
+            .await
+            .map_err(|e| CardStreamError::Other(e.to_string()))?;
+        api.update_card_element(card_id, element_id, content, sequence)
+            .await
+    }
+
+    async fn close_card_stream(
+        &self,
+        account_id: &str,
+        card_id: &str,
+        sequence: i64,
+    ) -> Result<()> {
+        let api = self.get_account(account_id).await?;
+        api.close_card_streaming(card_id, sequence).await
     }
 
     async fn probe(&self, account: &ChannelAccountConfig) -> Result<ChannelHealth> {
