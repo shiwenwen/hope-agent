@@ -312,6 +312,26 @@ async fn handle_inbound_message(
     // Auto-generate fallback title from first message (same logic as normal chat)
     let _ = crate::session::ensure_first_message_title(&session_db, &session_id, user_text);
 
+    // Notify the desktop / web side that a fresh user message landed on
+    // this session from IM, so an attached GUI view can pull it into
+    // the conversation timeline without waiting for the stream-start
+    // round-trip. `channel:stream_start` covers the assistant side a
+    // moment later — this event is purely about the inbound user turn.
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "chat:user_message_appended",
+            serde_json::json!({
+                "sessionId": &session_id,
+                "source": "channel",
+                "channelId": &channel_id_str,
+                "accountId": &msg.account_id,
+                "chatId": &msg.chat_id,
+                "senderName": msg.sender_name.as_deref(),
+                "text": user_text,
+            }),
+        );
+    }
+
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.
 

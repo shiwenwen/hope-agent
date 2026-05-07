@@ -578,6 +578,18 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         }
                     }
 
+                    // GUI / HTTP turns also push the final assistant
+                    // response to any IM chat currently primary-attached
+                    // to this session, so a handover-followed-by-GUI-input
+                    // workflow doesn't go silent on the IM side. IM
+                    // (Channel) and background (Subagent / ParentInjection)
+                    // sources are skipped — IM already delivers its own
+                    // reply, and background turns shouldn't surface in
+                    // user chats.
+                    if matches!(source, stream_seq::ChatSource::Desktop | stream_seq::ChatSource::Http) {
+                        deliver_final_to_attached_im(&session_id, &response).await;
+                    }
+
                     return Ok(ChatEngineResult {
                         response,
                         model_used: Some(model_ref.clone()),
@@ -792,6 +804,81 @@ fn configure_agent(
         // Main-chat path: let provider tool loops re-read the live global effort
         // so UI toggles apply to the next API request, not only the next turn.
         agent.set_follow_global_reasoning_effort(true);
+    }
+}
+
+/// Push the final assistant response to every IM chat currently attached
+/// to `session_id`. Called only on GUI / HTTP successful chat completion
+/// — IM-triggered turns already deliver through their own
+/// `send_final_reply` path, and background turns deliberately stay off
+/// IM.
+///
+/// Best-effort: missing globals (channel registry / db not initialised)
+/// or per-attach plugin failures are logged and skipped, never returned
+/// to the caller. The chat engine has already persisted the response;
+/// we just mirror it out for visibility.
+async fn deliver_final_to_attached_im(session_id: &str, response: &str) {
+    let Some(channel_db) = crate::globals::get_channel_db() else {
+        return;
+    };
+    let Some(registry) = crate::globals::get_channel_registry() else {
+        return;
+    };
+    let attaches = match channel_db.list_attached(session_id) {
+        Ok(v) => v,
+        Err(e) => {
+            crate::app_warn!(
+                "channel",
+                "mirror",
+                "list_attached({}) failed: {}",
+                session_id,
+                e
+            );
+            return;
+        }
+    };
+
+    for attach in attaches.iter() {
+        if !attach.is_primary {
+            // Observers stay silent (see plan: only primary receives
+            // outbound). Future enhancement: secondary "tap" mode.
+            continue;
+        }
+
+        let channel_id_typed: crate::channel::types::ChannelId = match serde_json::from_value(
+            serde_json::Value::String(attach.channel_id.clone()),
+        ) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let plugin = match registry.get_plugin(&channel_id_typed) {
+            Some(p) => p,
+            None => continue,
+        };
+
+        let native_text = plugin.markdown_to_native(response);
+        let chunks = plugin.chunk_message(&native_text);
+        for chunk in chunks {
+            let payload = crate::channel::types::ReplyPayload {
+                text: Some(chunk),
+                thread_id: attach.thread_id.clone(),
+                parse_mode: Some(crate::channel::types::ParseMode::Html),
+                ..crate::channel::types::ReplyPayload::text("")
+            };
+            if let Err(e) = plugin
+                .send_message(&attach.account_id, &attach.chat_id, &payload)
+                .await
+            {
+                crate::app_warn!(
+                    "channel",
+                    "mirror",
+                    "Final-reply mirror to {}/{} failed: {}",
+                    attach.channel_id,
+                    attach.chat_id,
+                    e
+                );
+            }
+        }
     }
 }
 
