@@ -295,7 +295,30 @@
     "reasonModelNotFound": "Model tidak dijumpai",
     "reasonContextOverflow": "Konteks melebihi had",
     "reasonUnknown": "Ralat tidak diketahui",
-    "thinking": "Sedang berfikir..."
+    "thinking": "Sedang berfikir...",
+    "handover": {
+      "button": "Serahkan ke IM",
+      "dialog": {
+        "title": "Serahkan sesi",
+        "description": "Hantar sesi ini ke sembang IM. Balasan akan dihantar ke sana sebagai destinasi utama.",
+        "account": "Akaun IM",
+        "selectAccount": "Pilih akaun",
+        "chatId": "ID sembang",
+        "chatIdPlaceholder": "cth. 123456789 atau @username",
+        "chatType": "Jenis",
+        "chatTypes": {
+          "dm": "Mesej langsung",
+          "group": "Kumpulan",
+          "forum": "Forum",
+          "channel": "Saluran"
+        },
+        "threadId": "ID urutan",
+        "threadIdPlaceholder": "Pilihan",
+        "submit": "Serahkan",
+        "submitting": "Menyerahkan…",
+        "submitted": "Selesai"
+      }
+    }
   },
   "effort": {
     "none": "Mati",
@@ -3076,6 +3099,18 @@
     "buttonTip": "Arahan pantas",
     "project": {
       "description": "Tukar ke atau pilih projek"
+    },
+    "sessions": {
+      "description": "Pilih sesi"
+    },
+    "session": {
+      "description": "Tunjuk / sambung / keluar sesi semasa"
+    },
+    "projects": {
+      "description": "Senaraikan semua projek"
+    },
+    "handover": {
+      "description": "Serahkan sesi ke sembang IM"
     }
   },
   "planMode": {

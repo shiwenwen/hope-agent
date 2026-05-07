@@ -295,7 +295,30 @@
     "reasonModelNotFound": "模型不存在",
     "reasonContextOverflow": "上下文超限",
     "reasonUnknown": "未知错误",
-    "thinking": "执行中..."
+    "thinking": "执行中...",
+    "handover": {
+      "button": "交班到 IM",
+      "dialog": {
+        "title": "交班会话",
+        "description": "把当前会话推到 IM,后续 assistant 回复将以该 chat 为主接收方。",
+        "account": "IM 账号",
+        "selectAccount": "选择账号",
+        "chatId": "Chat ID",
+        "chatIdPlaceholder": "如 123456789 或 @username",
+        "chatType": "类型",
+        "chatTypes": {
+          "dm": "私聊",
+          "group": "群组",
+          "forum": "话题",
+          "channel": "频道"
+        },
+        "threadId": "Thread ID",
+        "threadIdPlaceholder": "可选",
+        "submit": "交班",
+        "submitting": "交班中…",
+        "submitted": "完成"
+      }
+    }
   },
   "effort": {
     "none": "关闭",
@@ -3076,6 +3099,18 @@
     "buttonTip": "快捷指令",
     "project": {
       "description": "切换或选择项目"
+    },
+    "sessions": {
+      "description": "选择会话"
+    },
+    "session": {
+      "description": "查看 / 接入 / 退出当前会话"
+    },
+    "projects": {
+      "description": "列出所有项目"
+    },
+    "handover": {
+      "description": "把会话交班到 IM"
     }
   },
   "planMode": {

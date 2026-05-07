@@ -295,7 +295,30 @@
     "reasonModelNotFound": "Model not found",
     "reasonContextOverflow": "Context overflow",
     "reasonUnknown": "Unknown error",
-    "thinking": "Running..."
+    "thinking": "Running...",
+    "handover": {
+      "button": "Hand over to IM",
+      "dialog": {
+        "title": "Hand over session",
+        "description": "Push this session to an IM chat. Replies will be delivered there as the new primary destination.",
+        "account": "IM account",
+        "selectAccount": "Select an account",
+        "chatId": "Chat ID",
+        "chatIdPlaceholder": "e.g. 123456789 or @username",
+        "chatType": "Chat type",
+        "chatTypes": {
+          "dm": "Direct message",
+          "group": "Group",
+          "forum": "Forum",
+          "channel": "Channel"
+        },
+        "threadId": "Thread ID",
+        "threadIdPlaceholder": "Optional",
+        "submit": "Hand over",
+        "submitting": "Handing over…",
+        "submitted": "Done"
+      }
+    }
   },
   "effort": {
     "none": "Off",
@@ -3076,6 +3099,18 @@
     "buttonTip": "Quick Commands",
     "project": {
       "description": "Switch to or pick a project"
+    },
+    "sessions": {
+      "description": "Pick a session"
+    },
+    "session": {
+      "description": "Show, attach to, or exit the current session"
+    },
+    "projects": {
+      "description": "List all projects"
+    },
+    "handover": {
+      "description": "Hand the session over to an IM chat"
     }
   },
   "planMode": {

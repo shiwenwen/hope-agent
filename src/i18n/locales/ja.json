@@ -295,7 +295,30 @@
     "reasonModelNotFound": "モデルが見つかりません",
     "reasonContextOverflow": "コンテキスト超過",
     "reasonUnknown": "不明なエラー",
-    "thinking": "実行中..."
+    "thinking": "実行中...",
+    "handover": {
+      "button": "IM へ引き継ぎ",
+      "dialog": {
+        "title": "セッションの引き継ぎ",
+        "description": "このセッションを IM チャットへ引き継ぎます。返信はそのチャットに送られます。",
+        "account": "IM アカウント",
+        "selectAccount": "アカウントを選択",
+        "chatId": "チャット ID",
+        "chatIdPlaceholder": "例: 123456789 または @username",
+        "chatType": "種類",
+        "chatTypes": {
+          "dm": "ダイレクト",
+          "group": "グループ",
+          "forum": "フォーラム",
+          "channel": "チャンネル"
+        },
+        "threadId": "スレッド ID",
+        "threadIdPlaceholder": "任意",
+        "submit": "引き継ぐ",
+        "submitting": "引き継ぎ中…",
+        "submitted": "完了"
+      }
+    }
   },
   "effort": {
     "none": "オフ",
@@ -3076,6 +3099,18 @@
     "buttonTip": "クイックコマンド",
     "project": {
       "description": "プロジェクトを切り替え/選択"
+    },
+    "sessions": {
+      "description": "セッションを選択"
+    },
+    "session": {
+      "description": "現在のセッションを表示 / 接続 / 終了"
+    },
+    "projects": {
+      "description": "すべてのプロジェクトを一覧"
+    },
+    "handover": {
+      "description": "セッションを IM へ引き継ぐ"
     }
   },
   "planMode": {

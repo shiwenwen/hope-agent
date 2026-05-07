@@ -13,6 +13,7 @@ import ChatSidebar from "@/components/chat/ChatSidebar"
 import ChatInput from "@/components/chat/ChatInput"
 import type { IncognitoDisabledReason } from "@/components/chat/input/IncognitoToggle"
 import ChatTitleBar from "@/components/chat/ChatTitleBar"
+import HandoverDialog from "@/components/chat/HandoverDialog"
 import MessageList from "@/components/chat/MessageList"
 import CrashRecoveryBanner from "@/components/common/CrashRecoveryBanner"
 import CanvasPanel from "@/components/chat/CanvasPanel"
@@ -97,6 +98,7 @@ export default function ChatScreen({
   // In-session "find in page" search bar state
   const [searchBarOpen, setSearchBarOpen] = useState(false)
   const [searchFocusSignal, setSearchFocusSignal] = useState(0)
+  const [handoverSessionId, setHandoverSessionId] = useState<string | null>(null)
   const openSessionSearch = useCallback(() => {
     setSearchBarOpen(true)
     setSearchFocusSignal((n) => n + 1)
@@ -1249,6 +1251,7 @@ export default function ChatScreen({
               : null
           }
           onOpenProjectSettings={openProjectOverview}
+          onOpenHandover={(sid) => setHandoverSessionId(sid)}
           agents={session.agents}
           onChangeAgent={handleChangeAgent}
         />
@@ -1447,6 +1450,14 @@ export default function ChatScreen({
           )}
         </div>
       </div>
+
+      <HandoverDialog
+        open={!!handoverSessionId}
+        onOpenChange={(o) => {
+          if (!o) setHandoverSessionId(null)
+        }}
+        sessionId={handoverSessionId}
+      />
     </>
   )
 }

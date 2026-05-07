@@ -17,6 +17,7 @@ import {
   FolderCheck,
   Loader2,
   Search,
+  Send,
   Ghost,
 } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -73,6 +74,8 @@ interface ChatTitleBarProps {
   project?: ProjectMeta | null
   /** Triggered by the project chip click — opens the settings sheet. */
   onOpenProjectSettings?: (project: ProjectMeta) => void
+  /** Opens the GUI handover dialog for the current session. */
+  onOpenHandover?: (sessionId: string) => void
   /** Available agents for the title-bar agent switcher. */
   agents?: AgentSummaryForSidebar[]
   /**
@@ -106,6 +109,7 @@ export default function ChatTitleBar({
   workingDirSource,
   project,
   onOpenProjectSettings,
+  onOpenHandover,
   agents = [],
   onChangeAgent,
 }: ChatTitleBarProps) {
@@ -674,6 +678,17 @@ export default function ChatTitleBar({
             </div>
           </div>
         </div>
+        {/* Handover Button — push the current session to an IM chat. */}
+        {onOpenHandover && currentSessionId && (
+          <IconTip label={t("chat.handover.button")}>
+            <button
+              className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => onOpenHandover(currentSessionId)}
+            >
+              <Send className="h-4 w-4" />
+            </button>
+          </IconTip>
+        )}
         {/* Settings Button */}
         {onOpenAgentSettings && (
           <IconTip label={t("settings.agentSettings")}>

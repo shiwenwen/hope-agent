@@ -295,7 +295,30 @@
     "reasonModelNotFound": "Không tìm thấy mô hình",
     "reasonContextOverflow": "Ngữ cảnh vượt giới hạn",
     "reasonUnknown": "Lỗi không xác định",
-    "thinking": "Đang suy nghĩ..."
+    "thinking": "Đang suy nghĩ...",
+    "handover": {
+      "button": "Bàn giao sang IM",
+      "dialog": {
+        "title": "Bàn giao phiên",
+        "description": "Đẩy phiên hiện tại sang một cuộc trò chuyện IM. Phản hồi sẽ tới đó như đích chính.",
+        "account": "Tài khoản IM",
+        "selectAccount": "Chọn tài khoản",
+        "chatId": "ID cuộc trò chuyện",
+        "chatIdPlaceholder": "ví dụ: 123456789 hoặc @username",
+        "chatType": "Loại",
+        "chatTypes": {
+          "dm": "Tin nhắn riêng",
+          "group": "Nhóm",
+          "forum": "Diễn đàn",
+          "channel": "Kênh"
+        },
+        "threadId": "ID chủ đề",
+        "threadIdPlaceholder": "Tùy chọn",
+        "submit": "Bàn giao",
+        "submitting": "Đang bàn giao…",
+        "submitted": "Xong"
+      }
+    }
   },
   "effort": {
     "none": "Tắt",
@@ -3076,6 +3099,18 @@
     "buttonTip": "Lệnh nhanh",
     "project": {
       "description": "Chuyển hoặc chọn dự án"
+    },
+    "sessions": {
+      "description": "Chọn phiên"
+    },
+    "session": {
+      "description": "Hiển thị / kết nối / thoát phiên hiện tại"
+    },
+    "projects": {
+      "description": "Liệt kê tất cả dự án"
+    },
+    "handover": {
+      "description": "Bàn giao phiên sang một cuộc trò chuyện IM"
     }
   },
   "planMode": {

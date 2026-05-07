@@ -295,7 +295,30 @@
     "reasonModelNotFound": "النموذج غير موجود",
     "reasonContextOverflow": "تجاوز السياق",
     "reasonUnknown": "خطأ غير معروف",
-    "thinking": "جارٍ التفكير..."
+    "thinking": "جارٍ التفكير...",
+    "handover": {
+      "button": "تحويل إلى IM",
+      "dialog": {
+        "title": "تحويل الجلسة",
+        "description": "ارسل الجلسة الحالية إلى محادثة IM. ستُسلَّم الردود هناك كهدف أساسي.",
+        "account": "حساب IM",
+        "selectAccount": "اختر حسابًا",
+        "chatId": "معرف المحادثة",
+        "chatIdPlaceholder": "مثال: 123456789 أو @username",
+        "chatType": "النوع",
+        "chatTypes": {
+          "dm": "رسالة مباشرة",
+          "group": "مجموعة",
+          "forum": "منتدى",
+          "channel": "قناة"
+        },
+        "threadId": "معرف الموضوع",
+        "threadIdPlaceholder": "اختياري",
+        "submit": "تحويل",
+        "submitting": "جارٍ التحويل…",
+        "submitted": "تم"
+      }
+    }
   },
   "effort": {
     "none": "إيقاف",
@@ -3076,6 +3099,18 @@
     "buttonTip": "أوامر سريعة",
     "project": {
       "description": "التبديل إلى مشروع أو اختياره"
+    },
+    "sessions": {
+      "description": "اختر جلسة"
+    },
+    "session": {
+      "description": "عرض / اتصال / خروج من الجلسة الحالية"
+    },
+    "projects": {
+      "description": "قائمة بجميع المشاريع"
+    },
+    "handover": {
+      "description": "تحويل الجلسة إلى محادثة IM"
     }
   },
   "planMode": {

@@ -295,7 +295,30 @@
     "reasonModelNotFound": "Model bulunamadı",
     "reasonContextOverflow": "Bağlam taşması",
     "reasonUnknown": "Bilinmeyen hata",
-    "thinking": "Düşünüyor..."
+    "thinking": "Düşünüyor...",
+    "handover": {
+      "button": "IM'e devret",
+      "dialog": {
+        "title": "Oturumu devret",
+        "description": "Bu oturumu bir IM sohbetine gönderir. Yanıtlar oraya birincil hedef olarak iletilir.",
+        "account": "IM hesabı",
+        "selectAccount": "Bir hesap seçin",
+        "chatId": "Sohbet kimliği",
+        "chatIdPlaceholder": "örn. 123456789 veya @username",
+        "chatType": "Tür",
+        "chatTypes": {
+          "dm": "Doğrudan mesaj",
+          "group": "Grup",
+          "forum": "Forum",
+          "channel": "Kanal"
+        },
+        "threadId": "Konu kimliği",
+        "threadIdPlaceholder": "İsteğe bağlı",
+        "submit": "Devret",
+        "submitting": "Devrediliyor…",
+        "submitted": "Tamam"
+      }
+    }
   },
   "effort": {
     "none": "Kapalı",
@@ -3076,6 +3099,18 @@
     "buttonTip": "Hızlı komutlar",
     "project": {
       "description": "Bir projeye geç veya seç"
+    },
+    "sessions": {
+      "description": "Bir oturum seç"
+    },
+    "session": {
+      "description": "Mevcut oturumu göster / bağlan / çık"
+    },
+    "projects": {
+      "description": "Tüm projeleri listele"
+    },
+    "handover": {
+      "description": "Oturumu bir IM sohbetine devret"
     }
   },
   "planMode": {

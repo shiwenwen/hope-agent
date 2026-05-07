@@ -41,7 +41,30 @@
       "sessionSearchNext": "次の一致",
       "sessionSearchClose": "閉じる",
       "pendingInteractionHint": "応答をお待ちしています",
-      "pendingInteractionInline": "応答待ち · {{count}}"
+      "pendingInteractionInline": "応答待ち · {{count}}",
+      "handover": {
+        "button": "IM へ引き継ぎ",
+        "dialog": {
+          "title": "セッションの引き継ぎ",
+          "description": "このセッションを IM チャットへ引き継ぎます。返信はそのチャットに送られます。",
+          "account": "IM アカウント",
+          "selectAccount": "アカウントを選択",
+          "chatId": "チャット ID",
+          "chatIdPlaceholder": "例: 123456789 または @username",
+          "chatType": "種類",
+          "chatTypes": {
+            "dm": "ダイレクト",
+            "group": "グループ",
+            "forum": "フォーラム",
+            "channel": "チャンネル"
+          },
+          "threadId": "スレッド ID",
+          "threadIdPlaceholder": "任意",
+          "submit": "引き継ぐ",
+          "submitting": "引き継ぎ中…",
+          "submitted": "完了"
+        }
+      }
     },
     "effort": {
       "none": "オフ"
@@ -543,6 +566,18 @@
       },
       "awareness": {
         "description": "行動認識を切替"
+      },
+      "sessions": {
+        "description": "セッションを選択"
+      },
+      "session": {
+        "description": "現在のセッションを表示 / 接続 / 終了"
+      },
+      "projects": {
+        "description": "すべてのプロジェクトを一覧"
+      },
+      "handover": {
+        "description": "セッションを IM へ引き継ぐ"
       }
     },
     "dangerousMode": {
@@ -764,7 +799,30 @@
       "sessionSearchNext": "다음 일치",
       "sessionSearchClose": "닫기",
       "pendingInteractionHint": "응답을 기다리는 중",
-      "pendingInteractionInline": "응답 대기 중 · {{count}}"
+      "pendingInteractionInline": "응답 대기 중 · {{count}}",
+      "handover": {
+        "button": "IM 으로 인계",
+        "dialog": {
+          "title": "세션 인계",
+          "description": "현재 세션을 IM 채팅으로 보냅니다. 이후 응답은 해당 채팅에 전달됩니다.",
+          "account": "IM 계정",
+          "selectAccount": "계정 선택",
+          "chatId": "채팅 ID",
+          "chatIdPlaceholder": "예: 123456789 또는 @username",
+          "chatType": "유형",
+          "chatTypes": {
+            "dm": "1:1 대화",
+            "group": "그룹",
+            "forum": "포럼",
+            "channel": "채널"
+          },
+          "threadId": "스레드 ID",
+          "threadIdPlaceholder": "선택 사항",
+          "submit": "인계",
+          "submitting": "인계 중…",
+          "submitted": "완료"
+        }
+      }
     },
     "effort": {
       "none": "끄기"
@@ -1266,6 +1324,18 @@
       },
       "awareness": {
         "description": "행동 인식 토글"
+      },
+      "sessions": {
+        "description": "세션 선택"
+      },
+      "session": {
+        "description": "현재 세션 표시 / 연결 / 종료"
+      },
+      "projects": {
+        "description": "모든 프로젝트 나열"
+      },
+      "handover": {
+        "description": "세션을 IM 채팅으로 인계"
       }
     },
     "dangerousMode": {
@@ -1487,7 +1557,30 @@
       "sessionSearchNext": "下一個",
       "sessionSearchClose": "關閉",
       "pendingInteractionHint": "等待您的回應",
-      "pendingInteractionInline": "等待回應 · {{count}} 項"
+      "pendingInteractionInline": "等待回應 · {{count}} 項",
+      "handover": {
+        "button": "交班到 IM",
+        "dialog": {
+          "title": "交班工作階段",
+          "description": "將目前工作階段推送到 IM,後續 assistant 回覆會以該 chat 為主要接收端。",
+          "account": "IM 帳號",
+          "selectAccount": "選擇帳號",
+          "chatId": "Chat ID",
+          "chatIdPlaceholder": "如 123456789 或 @username",
+          "chatType": "類型",
+          "chatTypes": {
+            "dm": "私聊",
+            "group": "群組",
+            "forum": "話題",
+            "channel": "頻道"
+          },
+          "threadId": "Thread ID",
+          "threadIdPlaceholder": "選填",
+          "submit": "交班",
+          "submitting": "交班中…",
+          "submitted": "完成"
+        }
+      }
     },
     "effort": {
       "none": "關閉"
@@ -1989,6 +2082,18 @@
       },
       "awareness": {
         "description": "切換行為感知"
+      },
+      "sessions": {
+        "description": "選擇工作階段"
+      },
+      "session": {
+        "description": "查看 / 接入 / 退出目前工作階段"
+      },
+      "projects": {
+        "description": "列出所有專案"
+      },
+      "handover": {
+        "description": "將工作階段交班到 IM"
       }
     },
     "dangerousMode": {
@@ -2210,7 +2315,30 @@
       "sessionSearchNext": "Sonraki",
       "sessionSearchClose": "Kapat",
       "pendingInteractionHint": "Yanıtınız bekleniyor",
-      "pendingInteractionInline": "Yanıt bekleniyor · {{count}}"
+      "pendingInteractionInline": "Yanıt bekleniyor · {{count}}",
+      "handover": {
+        "button": "IM'e devret",
+        "dialog": {
+          "title": "Oturumu devret",
+          "description": "Bu oturumu bir IM sohbetine gönderir. Yanıtlar oraya birincil hedef olarak iletilir.",
+          "account": "IM hesabı",
+          "selectAccount": "Bir hesap seçin",
+          "chatId": "Sohbet kimliği",
+          "chatIdPlaceholder": "örn. 123456789 veya @username",
+          "chatType": "Tür",
+          "chatTypes": {
+            "dm": "Doğrudan mesaj",
+            "group": "Grup",
+            "forum": "Forum",
+            "channel": "Kanal"
+          },
+          "threadId": "Konu kimliği",
+          "threadIdPlaceholder": "İsteğe bağlı",
+          "submit": "Devret",
+          "submitting": "Devrediliyor…",
+          "submitted": "Tamam"
+        }
+      }
     },
     "effort": {
       "none": "Kapalı"
@@ -2712,6 +2840,18 @@
       },
       "awareness": {
         "description": "Davranış farkındalığını aç/kapat"
+      },
+      "sessions": {
+        "description": "Bir oturum seç"
+      },
+      "session": {
+        "description": "Mevcut oturumu göster / bağlan / çık"
+      },
+      "projects": {
+        "description": "Tüm projeleri listele"
+      },
+      "handover": {
+        "description": "Oturumu bir IM sohbetine devret"
       }
     },
     "dangerousMode": {
@@ -2933,7 +3073,30 @@
       "sessionSearchNext": "Tiếp theo",
       "sessionSearchClose": "Đóng",
       "pendingInteractionHint": "Đang chờ phản hồi của bạn",
-      "pendingInteractionInline": "Đang chờ phản hồi · {{count}}"
+      "pendingInteractionInline": "Đang chờ phản hồi · {{count}}",
+      "handover": {
+        "button": "Bàn giao sang IM",
+        "dialog": {
+          "title": "Bàn giao phiên",
+          "description": "Đẩy phiên hiện tại sang một cuộc trò chuyện IM. Phản hồi sẽ tới đó như đích chính.",
+          "account": "Tài khoản IM",
+          "selectAccount": "Chọn tài khoản",
+          "chatId": "ID cuộc trò chuyện",
+          "chatIdPlaceholder": "ví dụ: 123456789 hoặc @username",
+          "chatType": "Loại",
+          "chatTypes": {
+            "dm": "Tin nhắn riêng",
+            "group": "Nhóm",
+            "forum": "Diễn đàn",
+            "channel": "Kênh"
+          },
+          "threadId": "ID chủ đề",
+          "threadIdPlaceholder": "Tùy chọn",
+          "submit": "Bàn giao",
+          "submitting": "Đang bàn giao…",
+          "submitted": "Xong"
+        }
+      }
     },
     "effort": {
       "none": "Tắt"
@@ -3435,6 +3598,18 @@
       },
       "awareness": {
         "description": "Bật/tắt nhận biết hành vi"
+      },
+      "sessions": {
+        "description": "Chọn phiên"
+      },
+      "session": {
+        "description": "Hiển thị / kết nối / thoát phiên hiện tại"
+      },
+      "projects": {
+        "description": "Liệt kê tất cả dự án"
+      },
+      "handover": {
+        "description": "Bàn giao phiên sang một cuộc trò chuyện IM"
       }
     },
     "dangerousMode": {
@@ -3656,7 +3831,30 @@
       "sessionSearchNext": "Próximo",
       "sessionSearchClose": "Fechar",
       "pendingInteractionHint": "Aguardando sua resposta",
-      "pendingInteractionInline": "Aguardando resposta · {{count}}"
+      "pendingInteractionInline": "Aguardando resposta · {{count}}",
+      "handover": {
+        "button": "Transferir para IM",
+        "dialog": {
+          "title": "Transferir sessão",
+          "description": "Envia esta sessão para um chat de IM. As respostas serão entregues lá como destino principal.",
+          "account": "Conta de IM",
+          "selectAccount": "Selecione uma conta",
+          "chatId": "ID do chat",
+          "chatIdPlaceholder": "ex: 123456789 ou @username",
+          "chatType": "Tipo",
+          "chatTypes": {
+            "dm": "Mensagem direta",
+            "group": "Grupo",
+            "forum": "Fórum",
+            "channel": "Canal"
+          },
+          "threadId": "ID do tópico",
+          "threadIdPlaceholder": "Opcional",
+          "submit": "Transferir",
+          "submitting": "Transferindo…",
+          "submitted": "Concluído"
+        }
+      }
     },
     "effort": {
       "none": "Desligado"
@@ -4158,6 +4356,18 @@
       },
       "awareness": {
         "description": "Alternar consciência de comportamento"
+      },
+      "sessions": {
+        "description": "Escolher uma sessão"
+      },
+      "session": {
+        "description": "Mostrar, conectar ou sair da sessão atual"
+      },
+      "projects": {
+        "description": "Listar todos os projetos"
+      },
+      "handover": {
+        "description": "Transferir a sessão para um chat de IM"
       }
     },
     "dangerousMode": {
@@ -4379,7 +4589,30 @@
       "sessionSearchNext": "Следующее",
       "sessionSearchClose": "Закрыть",
       "pendingInteractionHint": "Ожидание вашего ответа",
-      "pendingInteractionInline": "Ожидание ответа · {{count}}"
+      "pendingInteractionInline": "Ожидание ответа · {{count}}",
+      "handover": {
+        "button": "Передать в IM",
+        "dialog": {
+          "title": "Передача сессии",
+          "description": "Отправляет текущую сессию в чат IM. Ответы будут доставлены туда как основное место.",
+          "account": "Аккаунт IM",
+          "selectAccount": "Выберите аккаунт",
+          "chatId": "ID чата",
+          "chatIdPlaceholder": "например, 123456789 или @username",
+          "chatType": "Тип",
+          "chatTypes": {
+            "dm": "Личное сообщение",
+            "group": "Группа",
+            "forum": "Форум",
+            "channel": "Канал"
+          },
+          "threadId": "ID треда",
+          "threadIdPlaceholder": "Не обязательно",
+          "submit": "Передать",
+          "submitting": "Передача…",
+          "submitted": "Готово"
+        }
+      }
     },
     "effort": {
       "none": "Выкл"
@@ -4881,6 +5114,18 @@
       },
       "awareness": {
         "description": "Переключить отслеживание поведения"
+      },
+      "sessions": {
+        "description": "Выбрать сессию"
+      },
+      "session": {
+        "description": "Показать, подключиться или выйти из текущей сессии"
+      },
+      "projects": {
+        "description": "Список всех проектов"
+      },
+      "handover": {
+        "description": "Передать сессию в IM-чат"
       }
     },
     "dangerousMode": {
@@ -5102,7 +5347,30 @@
       "sessionSearchNext": "التالي",
       "sessionSearchClose": "إغلاق",
       "pendingInteractionHint": "في انتظار ردك",
-      "pendingInteractionInline": "في انتظار الرد · {{count}}"
+      "pendingInteractionInline": "في انتظار الرد · {{count}}",
+      "handover": {
+        "button": "تحويل إلى IM",
+        "dialog": {
+          "title": "تحويل الجلسة",
+          "description": "ارسل الجلسة الحالية إلى محادثة IM. ستُسلَّم الردود هناك كهدف أساسي.",
+          "account": "حساب IM",
+          "selectAccount": "اختر حسابًا",
+          "chatId": "معرف المحادثة",
+          "chatIdPlaceholder": "مثال: 123456789 أو @username",
+          "chatType": "النوع",
+          "chatTypes": {
+            "dm": "رسالة مباشرة",
+            "group": "مجموعة",
+            "forum": "منتدى",
+            "channel": "قناة"
+          },
+          "threadId": "معرف الموضوع",
+          "threadIdPlaceholder": "اختياري",
+          "submit": "تحويل",
+          "submitting": "جارٍ التحويل…",
+          "submitted": "تم"
+        }
+      }
     },
     "effort": {
       "none": "إيقاف"
@@ -5604,6 +5872,18 @@
       },
       "awareness": {
         "description": "تبديل وعي السلوك"
+      },
+      "sessions": {
+        "description": "اختر جلسة"
+      },
+      "session": {
+        "description": "عرض / اتصال / خروج من الجلسة الحالية"
+      },
+      "projects": {
+        "description": "قائمة بجميع المشاريع"
+      },
+      "handover": {
+        "description": "تحويل الجلسة إلى محادثة IM"
       }
     },
     "dangerousMode": {
@@ -5825,7 +6105,30 @@
       "sessionSearchNext": "Siguiente",
       "sessionSearchClose": "Cerrar",
       "pendingInteractionHint": "Esperando tu respuesta",
-      "pendingInteractionInline": "Esperando respuesta · {{count}}"
+      "pendingInteractionInline": "Esperando respuesta · {{count}}",
+      "handover": {
+        "button": "Transferir a IM",
+        "dialog": {
+          "title": "Transferir sesión",
+          "description": "Envía esta sesión a un chat de IM. Las respuestas se entregarán allí como destino principal.",
+          "account": "Cuenta de IM",
+          "selectAccount": "Selecciona una cuenta",
+          "chatId": "ID de chat",
+          "chatIdPlaceholder": "p. ej. 123456789 o @username",
+          "chatType": "Tipo",
+          "chatTypes": {
+            "dm": "Mensaje directo",
+            "group": "Grupo",
+            "forum": "Foro",
+            "channel": "Canal"
+          },
+          "threadId": "ID de hilo",
+          "threadIdPlaceholder": "Opcional",
+          "submit": "Transferir",
+          "submitting": "Transfiriendo…",
+          "submitted": "Hecho"
+        }
+      }
     },
     "effort": {
       "none": "Apagado"
@@ -6327,6 +6630,18 @@
       },
       "awareness": {
         "description": "Alternar conciencia de comportamiento"
+      },
+      "sessions": {
+        "description": "Elegir una sesión"
+      },
+      "session": {
+        "description": "Mostrar, conectar o salir de la sesión actual"
+      },
+      "projects": {
+        "description": "Listar todos los proyectos"
+      },
+      "handover": {
+        "description": "Transferir la sesión a un chat de IM"
       }
     },
     "dangerousMode": {
@@ -6548,7 +6863,30 @@
       "sessionSearchNext": "Seterusnya",
       "sessionSearchClose": "Tutup",
       "pendingInteractionHint": "Menunggu respons anda",
-      "pendingInteractionInline": "Menunggu respons · {{count}}"
+      "pendingInteractionInline": "Menunggu respons · {{count}}",
+      "handover": {
+        "button": "Serahkan ke IM",
+        "dialog": {
+          "title": "Serahkan sesi",
+          "description": "Hantar sesi ini ke sembang IM. Balasan akan dihantar ke sana sebagai destinasi utama.",
+          "account": "Akaun IM",
+          "selectAccount": "Pilih akaun",
+          "chatId": "ID sembang",
+          "chatIdPlaceholder": "cth. 123456789 atau @username",
+          "chatType": "Jenis",
+          "chatTypes": {
+            "dm": "Mesej langsung",
+            "group": "Kumpulan",
+            "forum": "Forum",
+            "channel": "Saluran"
+          },
+          "threadId": "ID urutan",
+          "threadIdPlaceholder": "Pilihan",
+          "submit": "Serahkan",
+          "submitting": "Menyerahkan…",
+          "submitted": "Selesai"
+        }
+      }
     },
     "effort": {
       "none": "Mati"
@@ -7050,6 +7388,18 @@
       },
       "awareness": {
         "description": "Togol Behavior Awareness"
+      },
+      "sessions": {
+        "description": "Pilih sesi"
+      },
+      "session": {
+        "description": "Tunjuk / sambung / keluar sesi semasa"
+      },
+      "projects": {
+        "description": "Senaraikan semua projek"
+      },
+      "handover": {
+        "description": "Serahkan sesi ke sembang IM"
       }
     },
     "dangerousMode": {
@@ -7331,6 +7681,45 @@
         "narrativeModelDesc": "覆盖打分用的模型。留空则跟随主对话 / recap 模型链。",
         "narrativeModelDefault": "跟随主对话 Agent",
         "narrativeModelClear": "清空"
+      }
+    },
+    "chat": {
+      "handover": {
+        "button": "交班到 IM",
+        "dialog": {
+          "title": "交班会话",
+          "description": "把当前会话推到 IM,后续 assistant 回复将以该 chat 为主接收方。",
+          "account": "IM 账号",
+          "selectAccount": "选择账号",
+          "chatId": "Chat ID",
+          "chatIdPlaceholder": "如 123456789 或 @username",
+          "chatType": "类型",
+          "chatTypes": {
+            "dm": "私聊",
+            "group": "群组",
+            "forum": "话题",
+            "channel": "频道"
+          },
+          "threadId": "Thread ID",
+          "threadIdPlaceholder": "可选",
+          "submit": "交班",
+          "submitting": "交班中…",
+          "submitted": "完成"
+        }
+      }
+    },
+    "slashCommands": {
+      "sessions": {
+        "description": "选择会话"
+      },
+      "session": {
+        "description": "查看 / 接入 / 退出当前会话"
+      },
+      "projects": {
+        "description": "列出所有项目"
+      },
+      "handover": {
+        "description": "把会话交班到 IM"
       }
     }
   }

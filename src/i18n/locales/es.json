@@ -295,7 +295,30 @@
     "reasonModelNotFound": "Modelo no encontrado",
     "reasonContextOverflow": "Desbordamiento de contexto",
     "reasonUnknown": "Error desconocido",
-    "thinking": "Pensando..."
+    "thinking": "Pensando...",
+    "handover": {
+      "button": "Transferir a IM",
+      "dialog": {
+        "title": "Transferir sesión",
+        "description": "Envía esta sesión a un chat de IM. Las respuestas se entregarán allí como destino principal.",
+        "account": "Cuenta de IM",
+        "selectAccount": "Selecciona una cuenta",
+        "chatId": "ID de chat",
+        "chatIdPlaceholder": "p. ej. 123456789 o @username",
+        "chatType": "Tipo",
+        "chatTypes": {
+          "dm": "Mensaje directo",
+          "group": "Grupo",
+          "forum": "Foro",
+          "channel": "Canal"
+        },
+        "threadId": "ID de hilo",
+        "threadIdPlaceholder": "Opcional",
+        "submit": "Transferir",
+        "submitting": "Transfiriendo…",
+        "submitted": "Hecho"
+      }
+    }
   },
   "effort": {
     "none": "Apagado",
@@ -3076,6 +3099,18 @@
     "buttonTip": "Comandos rápidos",
     "project": {
       "description": "Cambiar a un proyecto o elegir uno"
+    },
+    "sessions": {
+      "description": "Elegir una sesión"
+    },
+    "session": {
+      "description": "Mostrar, conectar o salir de la sesión actual"
+    },
+    "projects": {
+      "description": "Listar todos los proyectos"
+    },
+    "handover": {
+      "description": "Transferir la sesión a un chat de IM"
     }
   },
   "planMode": {

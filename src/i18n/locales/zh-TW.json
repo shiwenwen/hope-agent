@@ -295,7 +295,30 @@
     "reasonModelNotFound": "模型不存在",
     "reasonContextOverflow": "上下文超限",
     "reasonUnknown": "未知錯誤",
-    "thinking": "執行中..."
+    "thinking": "執行中...",
+    "handover": {
+      "button": "交班到 IM",
+      "dialog": {
+        "title": "交班工作階段",
+        "description": "將目前工作階段推送到 IM,後續 assistant 回覆會以該 chat 為主要接收端。",
+        "account": "IM 帳號",
+        "selectAccount": "選擇帳號",
+        "chatId": "Chat ID",
+        "chatIdPlaceholder": "如 123456789 或 @username",
+        "chatType": "類型",
+        "chatTypes": {
+          "dm": "私聊",
+          "group": "群組",
+          "forum": "話題",
+          "channel": "頻道"
+        },
+        "threadId": "Thread ID",
+        "threadIdPlaceholder": "選填",
+        "submit": "交班",
+        "submitting": "交班中…",
+        "submitted": "完成"
+      }
+    }
   },
   "effort": {
     "none": "關閉",
@@ -3076,6 +3099,18 @@
     "buttonTip": "快捷指令",
     "project": {
       "description": "切換或選擇項目"
+    },
+    "sessions": {
+      "description": "選擇工作階段"
+    },
+    "session": {
+      "description": "查看 / 接入 / 退出目前工作階段"
+    },
+    "projects": {
+      "description": "列出所有專案"
+    },
+    "handover": {
+      "description": "將工作階段交班到 IM"
     }
   },
   "planMode": {

@@ -295,7 +295,30 @@
     "reasonModelNotFound": "Модель не найдена",
     "reasonContextOverflow": "Переполнение контекста",
     "reasonUnknown": "Неизвестная ошибка",
-    "thinking": "Думаю..."
+    "thinking": "Думаю...",
+    "handover": {
+      "button": "Передать в IM",
+      "dialog": {
+        "title": "Передача сессии",
+        "description": "Отправляет текущую сессию в чат IM. Ответы будут доставлены туда как основное место.",
+        "account": "Аккаунт IM",
+        "selectAccount": "Выберите аккаунт",
+        "chatId": "ID чата",
+        "chatIdPlaceholder": "например, 123456789 или @username",
+        "chatType": "Тип",
+        "chatTypes": {
+          "dm": "Личное сообщение",
+          "group": "Группа",
+          "forum": "Форум",
+          "channel": "Канал"
+        },
+        "threadId": "ID треда",
+        "threadIdPlaceholder": "Не обязательно",
+        "submit": "Передать",
+        "submitting": "Передача…",
+        "submitted": "Готово"
+      }
+    }
   },
   "effort": {
     "none": "Выкл",
@@ -3076,6 +3099,18 @@
     "buttonTip": "Быстрые команды",
     "project": {
       "description": "Переключиться на проект или выбрать его"
+    },
+    "sessions": {
+      "description": "Выбрать сессию"
+    },
+    "session": {
+      "description": "Показать, подключиться или выйти из текущей сессии"
+    },
+    "projects": {
+      "description": "Список всех проектов"
+    },
+    "handover": {
+      "description": "Передать сессию в IM-чат"
     }
   },
   "planMode": {
