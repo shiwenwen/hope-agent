@@ -691,6 +691,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `channel_list_sessions` | `GET /api/channel/sessions` | ✅ |
 | `channel_wechat_start_login` | `POST /api/channel/wechat/login/start` | ✅ |
 | `channel_wechat_wait_login` | `POST /api/channel/wechat/login/wait` | ✅ |
+| `channel_handover_session` | `POST /api/channel/handover` | ✅ |
 
 ### Subagent / Team
 

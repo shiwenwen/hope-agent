@@ -193,6 +193,11 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - 12 个插件，状态文件落 `~/.hope-agent/channels/`；入站媒体走 plug → worker → `Attachment` → `~/.hope-agent/attachments/{session_id}/`
 - 工具审批通过 EventBus `approval_required` 监听，按 `supports_buttons` 走原生按钮或文本；`auto_approve_tools=true` 跳审批
 - **Auto-start 失败统一走 [`channel/start_watchdog.rs`](crates/ha-core/src/channel/start_watchdog.rs)**——退避 30s/60s/2m/5m，sweep 15s，user 操作永远胜过 watchdog；失败日志带 `classify_channel_error` 分类
+- **`channel_conversations` 一对一 attach + is_primary**：每个 (channel, account, chat, thread) 在任意时刻只关联一个 session（`COALESCE(thread_id, '')` unique index）。同一 session 可被多个 chat attach，但只有 `is_primary = 1` 那行会接收出站消息——其他行只是旁观者。helper 入口 [`channel/db.rs`](crates/ha-core/src/channel/db.rs)：`attach_session` / `detach_session` / `set_primary` / `list_attached`，**不要直接写 `channel_conversations`**。
+- **`source` 字段**：`inbound`（IM 入站新建）/ `attach`（`/session <id>` 显式接管）/ `handover`（GUI handover 或 `/handover` 推到该 chat）。
+- **GUI ↔ IM 多 sink fan-out**：核心走 [`chat_engine/sink_registry.rs`](crates/ha-core/src/chat_engine/sink_registry.rs) 全局 `SinkRegistry`，RAII `SinkHandle` 自动 detach，`emit_stream_event` 末尾 fan-out 到所有额外 sink；主 `event_sink` 不入册避免重复发送。
+- **新 slash 命令**：`/sessions`（picker 用户对话 session，过滤 cron / subagent / incognito）、`/session [<id>|exit]`（info / attach / detach）、`/projects`（picker）、`/handover <ch:acc:chat[:thread]>`（GUI 端推送，IM 不可见）。`IM_DISABLED_COMMANDS` 仅含 `agent` / `handover`。
+- **`channel:primary_changed` 事件**：`attach_session` / `detach_session` / `set_primary` / `update_session` 凡涉及 `is_primary` 切换都 emit 此事件 `{ sessionId }`，worker 消费后可发"你是 primary / 你正在旁观"系统消息。
 
 ### Dashboard / Recap / Learning
 
@@ -222,11 +227,11 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - 记忆优先级 Project > Agent > Global
 - **默认工作目录合并**：优先级 `session > project > 不注入`，**lazy resolve**；唯一入口 [`session/helpers.rs::effective_session_working_dir`](crates/ha-core/src/session/helpers.rs)，写校验入口 [`util.rs::canonicalize_working_dir`](crates/ha-core/src/util.rs)
 - 删除级联：unassign → 删 `projects` + `project_files`（FK） → `rm -rf projects/{id}/` → 删项目记忆（跨 db 单独执行）
-- **绑定 IM Channel**：`Project.bound_channel` 让一个项目认领 (channel, account)，channel worker 创建会话时反查注入；同一 (channel, account) 只能被一个项目认领
+- **IM 路由（无反向认领）**：项目不再认领 (channel, account)。要把 IM 中的会话归项目，从该 chat 内 `/project <id>`（或 picker）显式触发；`AssignProject` action 在 channel worker 内 UPDATE `sessions.project_id`，不再通过 channel→project 反查。**`Project.bound_channel` 已删除，不要重新引入**。
 
 ### Agent 解析链（默认 Agent）
 
-5 级：**显式参数 → `project.default_agent_id` → `channel_account.agent_id` → `AppConfig.default_agent_id` → 硬编码 `"default"`**。统一 helper：[`agent/resolver.rs::resolve_default_agent_id`](crates/ha-core/src/agent/resolver.rs)（带来源 tag 版本给 `/status`）。
+7 级（首个非空胜出）：**显式参数 → `project.default_agent_id` → `topic.agent_id` → `group.agent_id` → `tg_channel.agent_id` → `channel_account.agent_id` → `AppConfig.default_agent_id` → 硬编码 `"default"`**。统一入口 [`agent/resolver.rs::resolve_default_agent_id_full`](crates/ha-core/src/agent/resolver.rs)；无 IM 上下文的 desktop / HTTP 用 `resolve_default_agent_id` 包装（只传 project + channel_account）。**channel worker 不得自写解析链** —— Phase A5 已折叠到 resolver 单一真相源。
 
 ### 本地 LLM 助手
 

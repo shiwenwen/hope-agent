@@ -66,7 +66,18 @@ pub trait EventSink: Send + Sync + 'static {
 
 - **`ChannelSink`**（定义在 `src-tauri/src/commands/chat.rs`）— 包裹 `tauri::ipc::Channel<String>`，用于桌面模式 UI 直连。事件直接推送到 Tauri WebView 前端
 - **`NoopEventSink`**（定义在 `crates/ha-core/src/chat_engine/types.rs`）— 丢弃所有事件。HTTP 模式、Cron 定时任务、subagent fork-and-forget 等"没有实时 UI 消费方"的入口共用此 sink；真正的浏览器流式输出由 Chat Engine 的 `chat:stream_delta` EventBus 双写路径推到 `/ws/events`
-- **`ChannelStreamSink`**（定义在 `crates/ha-core/src/chat_engine/types.rs`）— 双路输出：(1) 通过 `EventBus` 发布 `channel:stream_delta` 事件推送到前端实时展示；(2) 通过 `mpsc::Sender` 转发到后台任务，驱动 IM 渠道的渐进式消息编辑（如 Telegram 消息实时更新）
+- **`ChannelStreamSink`**（定义在 `crates/ha-core/src/chat_engine/types.rs`）— 双路输出：(1) 通过 `EventBus` 发布 `channel:stream_delta` 事件推送到前端实时展示；(2) 通过 `mpsc::Sender` 转发到后台任务，驱动 IM 渠道的渐进式消息编辑（如 Telegram 消息实时更新）。`is_primary: Arc<AtomicBool>` gate 决定 (2) 是否真发到 IM——secondary observer 仅走 (1) 让 UI 渲染，不真发回 IM channel。Mid-turn 可 toggle。
+
+### SinkRegistry — 多 sink fan-out
+
+`ChatEngineParams.event_sink` 是 per-turn 的主 sink。同一 session 在 GUI ↔ IM 交班场景需要多 sink 同时观察（一个 IM chat 是 primary、另一个是旁观者；GUI 用户和 IM 用户共看一个 session 的流），主字段挂不下。新增[`crates/ha-core/src/chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs) 处理：
+
+```rust
+SinkRegistry::instance().attach(session_id, sink) -> SinkHandle;  // RAII drop 自动 detach
+SinkRegistry::instance().emit(session_id, event);                  // fan-out 给所有额外 sink
+```
+
+`emit_stream_event`（[`engine.rs`](../../crates/ha-core/src/chat_engine/engine.rs)）末尾追加 `sink_registry().emit(session_id, event)` 调用。注册表存 `Weak<dyn EventSink>` opportunistic prune，主 `event_sink` **不入册**——每个 sink 实例对一个事件只 fire 一次。事件如何派发到 GUI 监听者由现有 EventBus / `chat:stream_delta` 路径处理；`SinkRegistry` 解决的是"运行时挂多个 sink"。
 
 ### ChatEngineParams
 

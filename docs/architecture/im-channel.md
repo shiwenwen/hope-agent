@@ -636,43 +636,74 @@ CREATE TABLE channel_conversations (
 
 ---
 
-## Project 绑定与 IM 禁用命令
+## Session 路由 + Project / IM 禁用命令
 
-### Project.bound_channel — 项目认领 IM 渠道
+### Session 路由(无项目反向认领)
 
-项目侧通过 `Project.bound_channel: Option<{channel_id, account_id}>` 单向认领一个 IM channel account。绑定后，该 (channel, account) 下的所有 IM 入站消息在新建会话时自动归属到该项目。
+`Project.bound_channel` 反向认领模型已废弃(Phase A1)。IM 入站消息**不再自动归属项目** —— 创建出来的 session `project_id` 默认为 `NULL`,由用户在该 chat 内主动 `/project <id>` 显式归属。
 
-- **写入 contract（双层 patch）**：`UpdateProjectInput.bound_channel` 是 `Option<Option<BoundChannel>>` —— 字段缺省（`None`）= 不变，`Some(None)` = 解绑，`Some(Some(...))` = 设置/换绑
-- **唯一性约束**：同一 (channel_id, account_id) 同时只允许被一个未归档项目认领。DB 索引兜底，写入冲突时返回错误，前端「绑定 IM Channel」select 也据此过滤掉已被占用的 account
-- **会话路由**：[`channel/db.rs::resolve_or_create_session`](../../crates/ha-core/src/channel/db.rs) 在创建新会话前查 `projects WHERE bound_channel_id = ? AND bound_channel_account_id = ? AND archived = 0`，命中即把 `project_id` 注入 `create_session_with_project`，并按 5 级 agent 解析链覆盖 `agent_id`：
+- **入口**:[`channel/db.rs::resolve_or_create_session`](../../crates/ha-core/src/channel/db.rs) 不再查 `projects` 表,新会话以 `project_id = NULL` 创建。`/project <id>` 在 IM 模式下发 `AssignProject` action,被 channel slash dispatcher 翻译为 `SessionDB::set_session_project` UPDATE 当前 session 的 `project_id`,**不创建新 session**。
+- **agent 解析**:统一入口 [`agent::resolver::resolve_default_agent_id_full`](../../crates/ha-core/src/agent/resolver.rs),7 级链:
 
   ```
-  显式参数 → project.default_agent_id → channel_account.agent_id → AppConfig.default_agent_id → "default"
+  显式 → project.default_agent_id → topic.agent_id → group.agent_id
+       → tg_channel.agent_id → channel_account.agent_id
+       → AppConfig.default_agent_id → "default"
   ```
 
-  统一入口 [`crate::agent::resolver::resolve_default_agent_id`](../../crates/ha-core/src/agent/resolver.rs)（`_with_source` 版本带 tag 给 `/status` 显示命中位置）
+  channel worker 的私有 5 级解析(topic > group > channel > account > global)已删除——单一 helper。`AgentSource` 标签覆盖每个层级,`/status` 末尾输出 Agent Source 命中位置。
 
-- **`/status` 输出**：项目会话尾部追加项目摘要段并标注 Agent Source 来源（command / project / channel-account / app-config / default）
+### `channel_conversations` Attach 模型
+
+每条 (channel, account, chat, thread) 任意时刻只能 attach 到一个 session,由 `COALESCE(thread_id, '')` unique index 保证(避开 SQLite NULL ≠ NULL 把同一 thread-less chat 切成多行的问题)。同一 session 可被多个 chat attach,但只 `is_primary = 1` 那行接收出站消息(其他行旁观)。
+
+- **新列**:`is_primary` (NOT NULL DEFAULT 1) / `source` (`inbound`|`attach`|`handover`) / `attached_at`
+- **helpers**([`channel/db.rs`](../../crates/ha-core/src/channel/db.rs)):
+  - `attach_session(...)` —— UPDATE 现有行或 INSERT,提到 primary,同 session 其他行降级
+  - `detach_session(...)` —— 删除 attach 行;如果删的是 primary,自动把同 session 最近一行升级为 primary
+  - `set_primary(...)` —— 显式 promote
+  - `list_attached(session_id)` —— 列出 session 上所有 attach 行(primary first)
+- **events**:任一切换 `is_primary` emit `channel:primary_changed { sessionId }`,channel worker 可订阅以发"你是 primary / 你正在旁观"系统消息(后续 PR)
+- **migration**:旧 schema 检测到没有 `is_primary` 列直接 DROP TABLE 重建;IM worker 在下一条入站消息时重新创建对应行
+
+### 多 sink fan-out — `SinkRegistry`
+
+[`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs) 全局注册表 + RAII `SinkHandle`。`emit_stream_event` 末尾向所有额外 sink fan-out;主 `event_sink`(per-turn)不入册,每消费方收一次。`Weak<dyn EventSink>` 持有,opportunistic prune,Drop 自动 detach。
+
+GUI ↔ IM 双向 mirror 的可配置广播路径走这里:GUI handover 时把 IM `ChannelStreamSink` 注册进 registry,`emit_stream_event` 自动 fan-out。`ChannelStreamSink::is_primary` 字段决定旁观 sink 是否真把事件转发回 IM(default true,handover 配额时由 dispatcher mid-turn 切换)。
+
+### Slash 命令
+
+| 命令 | 行为 | IM 行为 |
+|---|---|---|
+| `/sessions` | 用户对话 session picker(过滤 cron / subagent / incognito) | inline buttons,callback `slash:session <id>` |
+| `/session [<id>\|exit]` | 无参显示 session info(含 attach 列表 + primary 标记);`<id>` attach;`exit` detach | attach 调 `attach_session(..., source="attach")`;detach 调 `detach_session` |
+| `/projects` | 列所有未归档项目 | inline buttons,callback `slash:project <id>` |
+| `/project <name>` | 模糊匹配后切项目 | 发 `AssignProject` —— UPDATE `sessions.project_id`,**不创建新 session**;GUI 模式发 `EnterProject` 创建新 session 进入 |
+| `/handover <ch:acc:chat[:thread]>` | GUI 把当前 session 推到 IM chat | 不下发菜单;实际入口 GUI Handover dialog,slash 给 power user / 脚本 |
+
+`/status` 末尾追加 **Attached IM Channels** 段,列出每个 attach 行的 channel / chat 标识、是否 primary(`★`)、`attached_at`。
 
 ### IM 渠道禁用命令
 
-部分桌面专属斜杠命令在 IM 渠道里既不下发菜单也不执行。**入口**：[`crates/ha-core/src/slash_commands/registry.rs::IM_DISABLED_COMMANDS`](../../crates/ha-core/src/slash_commands/registry.rs)。
+**入口**:[`slash_commands/registry.rs::IM_DISABLED_COMMANDS`](../../crates/ha-core/src/slash_commands/registry.rs)。
 
 ```rust
-pub const IM_DISABLED_COMMANDS: &[&str] = &["project", "agent"];
+pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover"];
 ```
 
-| 命令 | 禁用原因 | 引入 commit |
-|---|---|---|
-| `/agent` | IM dispatcher 每条入站消息都从 channel-account / topic / group 配置重算 `agent_id`（[`channel/worker/dispatcher.rs`](../../crates/ha-core/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一条入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override | `48fa4986` |
-| `/project` | IM session 已绑定 channel-account，不能再被另一个项目认领；项目 ↔ IM channel 关系由项目侧 `bound_channel` 字段单向维护（0..1 ↔ 0..1），不允许从 IM 内部反向切换 | `0fe6ec0a` |
+| 命令 | 禁用原因 |
+|---|---|
+| `/agent` | IM dispatcher 每条入站消息都从 channel-account / topic / group 配置重算 `agent_id`,不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移(`/agent` 切完后回复「Switched to X」,下一条入站消息又被 channel-account 配置拉回原 agent,幻觉切换)。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override |
+| `/handover` | GUI 端专用——把当前 chat 的 session 推给当前 chat 自己没有意义;IM 端等价操作是 `/session <id>` |
 
-**双层防御**：
+`/project` 不再禁用——Phase A1 删除项目反向认领后,IM 端 `/project` 改为"把当前 session 归该项目"语义,与任何唯一性约束都不冲突。
 
-1. **同步阶段过滤** —— Discord Application Commands、Telegram bot menu、Slack slash 同步阶段都先过 `IM_DISABLED_COMMANDS`，禁用命令不下发到平台菜单
-2. **handler 自检** —— 用户硬键入 `/project xxx` 或 `/agent xxx` 仍能到达分发器，[`handlers/project.rs`](../../crates/ha-core/src/slash_commands/handlers/project.rs) 与 [`handlers/agent.rs`](../../crates/ha-core/src/slash_commands/handlers/agent.rs) 入口检测 `session.channel_info.is_some()` 直接返回 `DisplayOnly` 提示「在 IM 渠道不可用」，不会走到模糊匹配 / 实际切换
+**双层防御**:
 
-新增此类命令时同时改两处：(1) `IM_DISABLED_COMMANDS` 常量让 IM 同步阶段不下发菜单；(2) handler 内自检 `session.channel_info`，处理用户绕过菜单硬键入的情况。
+1. **同步阶段过滤** —— Discord / Telegram / Slack 同步前过 `IM_DISABLED_COMMANDS`
+2. **handler 自检** —— 仅 `/agent` handler 仍按 `session.channel_info.is_some()` 拒绝执行;`/project` handler 改为按 channel_info 走 `EnterProject`(GUI) vs `AssignProject`(IM) 分支
+
 
 ---
 
