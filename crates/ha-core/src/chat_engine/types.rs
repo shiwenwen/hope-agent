@@ -334,42 +334,36 @@ impl EventSink for ChannelStreamSink {
             if let Ok(mut acc) = self.round_texts.lock() {
                 acc.on_tool_call();
             }
-        } else if event.contains("\"type\":\"thinking_delta\"") && self.show_thinking {
-            // EventBus already broadcast the original event (desktop UI
-            // mirror keeps rendering the thinking block). On the IM path we
-            // also fold the chunk into the round accumulator and forward a
-            // synthesized text_delta to the streaming preview task so its
-            // existing `extract_text_delta` logic renders the blockquote
-            // alongside real text without an extra branch.
-            if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
-                if let Some(text) = val
-                    .get("content")
-                    .or_else(|| val.get("text"))
-                    .and_then(|v| v.as_str())
-                {
-                    let appended = match self.round_texts.lock() {
-                        Ok(mut acc) => acc.on_thinking(text),
-                        Err(_) => String::new(),
-                    };
-                    if !appended.is_empty() {
-                        let synthesized = serde_json::json!({
-                            "type": "text_delta",
-                            "content": appended,
-                        })
-                        .to_string();
-                        let _ = self.event_tx.try_send(synthesized);
+        } else if event.contains("\"type\":\"thinking_delta\"") {
+            // EventBus already broadcast the original event for desktop UI
+            // mirroring. On the IM path we either fold the chunk into the
+            // round accumulator (and forward a synthesized text_delta to
+            // the streaming preview task so its existing `extract_text_delta`
+            // logic renders the blockquote) or drop it entirely. Either
+            // way we skip the raw event_tx forward at the bottom — the
+            // preview task only knows how to render text_delta.
+            if self.show_thinking {
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
+                    if let Some(text) = val
+                        .get("content")
+                        .or_else(|| val.get("text"))
+                        .and_then(|v| v.as_str())
+                    {
+                        let appended = match self.round_texts.lock() {
+                            Ok(mut acc) => acc.on_thinking(text),
+                            Err(_) => String::new(),
+                        };
+                        if !appended.is_empty() {
+                            let synthesized = serde_json::json!({
+                                "type": "text_delta",
+                                "content": appended,
+                            })
+                            .to_string();
+                            let _ = self.event_tx.try_send(synthesized);
+                        }
                     }
                 }
             }
-            // Skip the default forward — the synthesized text_delta is what
-            // the preview task should see; the original thinking_delta
-            // would only confuse `extract_text_delta`.
-            return;
-        } else if event.contains("\"type\":\"thinking_delta\"") {
-            // show_thinking == false: keep desktop UI happy via the EventBus
-            // emit above, but don't forward to the preview task or the
-            // round accumulator — IM messages stay reasoning-free (preserves
-            // the pre-/reason behavior).
             return;
         }
         let _ = self.event_tx.try_send(event.to_string());

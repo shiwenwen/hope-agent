@@ -495,8 +495,11 @@ pub async fn handle_reason(session_id: Option<&str>, args: &str) -> Result<Comma
         });
     }
 
-    let value =
-        parse_on_off(arg).ok_or_else(|| format!("Invalid value: `{}`. Valid: on, off", arg))?;
+    let value = match arg.to_ascii_lowercase().as_str() {
+        "on" => true,
+        "off" => false,
+        _ => return Err(format!("Invalid value: `{}`. Valid: on, off", arg)),
+    };
 
     let account_id = channel_info.account_id.clone();
     crate::config::mutate_config(("channel.showThinking", "slash:/reason"), |cfg| {
@@ -525,14 +528,6 @@ pub async fn handle_reason(session_id: Option<&str>, args: &str) -> Result<Comma
         ),
         action: Some(CommandAction::DisplayOnly),
     })
-}
-
-fn parse_on_off(s: &str) -> Option<bool> {
-    match s.trim().to_ascii_lowercase().as_str() {
-        "on" | "true" | "enable" | "enabled" | "yes" | "1" => Some(true),
-        "off" | "false" | "disable" | "disabled" | "no" | "0" => Some(false),
-        _ => None,
-    }
 }
 
 /// /prompts — Open the system prompt viewer.
