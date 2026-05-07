@@ -65,6 +65,7 @@ export default function EditAccountDialog({
   const [allowlistInput, setAllowlistInput] = useState("")
   const [groupPolicy, setGroupPolicy] = useState("open")
   const [autoApproveTools, setAutoApproveTools] = useState(false)
+  const [notifyPrimaryChanges, setNotifyPrimaryChanges] = useState(true)
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
   const [saving, setSaving] = useState(false)
@@ -88,6 +89,7 @@ export default function EditAccountDialog({
       setGroups(account.security.groups ? { ...account.security.groups } : {})
       setChannels(account.security.channels ? { ...account.security.channels } : {})
       setAutoApproveTools(account.autoApproveTools ?? false)
+      setNotifyPrimaryChanges(account.notifyPrimaryChanges ?? true)
       setValidationResult(null)
       setValidationError(null)
       setSaveError(null)
@@ -123,6 +125,7 @@ export default function EditAccountDialog({
         label: label.trim(),
         agentId: agentId || "",  // empty string = clear to default
         autoApproveTools,
+        notifyPrimaryChanges,
         security: {
           dmPolicy,
           groupAllowlist: account.security.groupAllowlist,
@@ -332,6 +335,20 @@ export default function EditAccountDialog({
             <Switch
               checked={autoApproveTools}
               onCheckedChange={setAutoApproveTools}
+            />
+          </div>
+
+          {/* Notify Primary Changes */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>{t("channels.notifyPrimaryChanges")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("channels.notifyPrimaryChangesHint")}
+              </p>
+            </div>
+            <Switch
+              checked={notifyPrimaryChanges}
+              onCheckedChange={setNotifyPrimaryChanges}
             />
           </div>
         </div>

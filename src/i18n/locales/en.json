@@ -2576,7 +2576,7 @@
     "remove": "Remove",
     "boundAgent": "Bound Agent",
     "boundAgentDefault": "Use global default Agent",
-    "boundAgentHint": "Select which Agent this channel will chat with. Different channels can bind different Agents.",
+    "boundAgentHint": "Soft default for new sessions in this channel — switching does not move sessions already created. Use /agent (desktop) or /handover for those.",
     "groupPolicy": "Group Policy",
     "groupPolicyOpen": "Open (mention gating only)",
     "groupPolicyAllowlist": "Allowlist (configured groups only)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Requires a Google Workspace service account with Chat API enabled",
     "webhookUrl": "Public Webhook URL",
     "webhookUrlHint": "Desktop apps need a public URL (e.g. ngrok) to receive webhooks",
-    "lineHint": "Get credentials from LINE Developers Console (Messaging API channel)"
+    "lineHint": "Get credentials from LINE Developers Console (Messaging API channel)",
+    "notifyPrimaryChanges": "Notify primary changes",
+    "notifyPrimaryChangesHint": "Send a system message into the IM chat when this account becomes (or stops being) the primary attach for a session."
   },
   "cron": {
     "title": "Scheduled Tasks",

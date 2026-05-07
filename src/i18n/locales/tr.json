@@ -2576,7 +2576,7 @@
     "remove": "Kaldır",
     "boundAgent": "Bağlı Agent",
     "boundAgentDefault": "Genel varsayılan Agent kullan",
-    "boundAgentHint": "Bu kanalın hangi Agent ile sohbet edeceğini seçin. Farklı kanallar farklı Agent'lara bağlanabilir.",
+    "boundAgentHint": "Bu kanaldaki yeni oturumlar için varsayılan Agent — değiştirmek mevcut oturumları taşımaz. Onlar için /agent (masaüstü) veya /handover kullanın.",
     "groupPolicy": "Grup politikası",
     "groupPolicyOpen": "Açık (yalnızca @bahsetme kontrolü)",
     "groupPolicyAllowlist": "İzin listesi (yalnızca yapılandırılmış gruplar)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Chat API etkinleştirilmiş bir Google Workspace service account gerektirir",
     "webhookUrl": "Genel Webhook URL",
     "webhookUrlHint": "Masaüstü uygulamaların webhook almak için genel bir URL'ye (örn. ngrok) ihtiyacı vardır",
-    "lineHint": "Kimlik bilgilerini LINE Developers Console'dan (Messaging API kanalı) alın"
+    "lineHint": "Kimlik bilgilerini LINE Developers Console'dan (Messaging API kanalı) alın",
+    "notifyPrimaryChanges": "Primary değişikliklerini bildir",
+    "notifyPrimaryChangesHint": "Bu hesap bir oturumun primary alıcısı olduğunda (veya olmaktan çıktığında) IM sohbetine sistem mesajı gönderir."
   },
   "cron": {
     "title": "Zamanlanmış görevler",

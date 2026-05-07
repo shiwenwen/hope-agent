@@ -2576,7 +2576,7 @@
     "remove": "Eliminar",
     "boundAgent": "Agent vinculado",
     "boundAgentDefault": "Usar Agent global por defecto",
-    "boundAgentHint": "Selecciona qué Agent usará este canal. Cada canal puede vincular un Agent distinto.",
+    "boundAgentHint": "Agente por defecto para nuevas sesiones en este canal — cambiarlo no migra las sesiones ya existentes. Usa /agent (escritorio) o /handover para esas.",
     "groupPolicy": "Política de grupo",
     "groupPolicyOpen": "Abierto (solo control por @mención)",
     "groupPolicyAllowlist": "Lista de permitidos (solo grupos configurados)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Requiere una Service Account de Google Workspace con la API de Chat activada",
     "webhookUrl": "URL pública del Webhook",
     "webhookUrlHint": "Las apps de escritorio necesitan una URL pública (p. ej. ngrok) para recibir webhooks",
-    "lineHint": "Obtén las credenciales desde LINE Developers Console (canal Messaging API)"
+    "lineHint": "Obtén las credenciales desde LINE Developers Console (canal Messaging API)",
+    "notifyPrimaryChanges": "Notificar cambios de primary",
+    "notifyPrimaryChangesHint": "Envía un mensaje del sistema al chat de IM cuando esta cuenta se convierta (o deje de ser) en la primary de una sesión."
   },
   "cron": {
     "title": "Tareas programadas",

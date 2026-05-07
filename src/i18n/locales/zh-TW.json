@@ -2576,7 +2576,7 @@
     "remove": "刪除",
     "boundAgent": "綁定 Agent",
     "boundAgentDefault": "使用全局默認 Agent",
-    "boundAgentHint": "選擇此渠道對話使用的 Agent，不同渠道可綁定不同 Agent",
+    "boundAgentHint": "本頻道新建工作階段的預設 Agent — 切換不會遷移已存在的工作階段,已建工作階段用 /agent(桌面)或 /handover 調整。",
     "groupPolicy": "群組策略",
     "groupPolicyOpen": "開放（僅靠 @mention 控制）",
     "groupPolicyAllowlist": "白名單（僅配置的群組）",
@@ -2654,7 +2654,9 @@
     "gchatHint": "需要 Google Workspace 服務賬號并啟用 Chat API",
     "webhookUrl": "公網 Webhook URL",
     "webhookUrlHint": "桌面應用需要公網 URL（如 ngrok）才能接收 Webhook",
-    "lineHint": "在 LINE Developers Console 獲取 Messaging API 頻道憑據"
+    "lineHint": "在 LINE Developers Console 獲取 Messaging API 頻道憑據",
+    "notifyPrimaryChanges": "primary 變化提醒",
+    "notifyPrimaryChangesHint": "當此帳號成為(或不再是)某工作階段的 primary 接收端時,在 IM 中發送系統訊息提示。"
   },
   "cron": {
     "title": "定時任務",

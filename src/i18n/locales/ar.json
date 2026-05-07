@@ -2576,7 +2576,7 @@
     "remove": "إزالة",
     "boundAgent": "Agent المرتبط",
     "boundAgentDefault": "استخدام Agent العام الافتراضي",
-    "boundAgentHint": "اختر Agent الذي ستتحدث معه هذه القناة. يمكن لكل قناة ربط Agent مختلف.",
+    "boundAgentHint": "الوكيل الافتراضي للجلسات الجديدة في هذه القناة — تغييره لا يُنقل الجلسات الموجودة. استخدم /agent (سطح المكتب) أو /handover لتلك.",
     "groupPolicy": "سياسة المجموعة",
     "groupPolicyOpen": "مفتوحة (التحكم بالإشارة @ فقط)",
     "groupPolicyAllowlist": "قائمة السماح (المجموعات المكوّنة فقط)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "يتطلب Service Account من Google Workspace مع تفعيل Chat API",
     "webhookUrl": "URL Webhook العام",
     "webhookUrlHint": "تطبيقات سطح المكتب تحتاج URL عام (مثل ngrok) لاستقبال webhooks",
-    "lineHint": "احصل على بيانات الاعتماد من LINE Developers Console (قناة Messaging API)"
+    "lineHint": "احصل على بيانات الاعتماد من LINE Developers Console (قناة Messaging API)",
+    "notifyPrimaryChanges": "الإشعار بتغيرات primary",
+    "notifyPrimaryChangesHint": "إرسال رسالة نظام إلى محادثة IM عندما يصبح هذا الحساب (أو يتوقف عن كونه) primary لجلسة."
   },
   "cron": {
     "title": "المهام المجدولة",

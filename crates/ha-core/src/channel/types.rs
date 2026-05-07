@@ -375,6 +375,14 @@ pub struct ChannelAccountConfig {
     /// When true, all tool calls from this IM channel are automatically approved.
     #[serde(default)]
     pub auto_approve_tools: bool,
+    /// When true (default), the channel worker emits a system message into
+    /// the IM chat whenever its primary-attach status changes — i.e.
+    /// "you are now primary" / "you are now observing". Toggleable per
+    /// account so noisy multi-attach setups can stay quiet. Subscribers
+    /// listen on the `channel:primary_changed` EventBus topic emitted by
+    /// `ChannelDB::{attach,detach,set_primary,update}_session`.
+    #[serde(default = "crate::default_true")]
+    pub notify_primary_changes: bool,
 }
 
 // ── Channel Health ───────────────────────────────────────────────

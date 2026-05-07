@@ -2576,7 +2576,7 @@
     "remove": "削除",
     "boundAgent": "バインド Agent",
     "boundAgentDefault": "グローバル既定 Agent を使用",
-    "boundAgentHint": "このチャネルで対話する Agent を選択します。チャネルごとに異なる Agent をバインド可能です。",
+    "boundAgentHint": "このチャネルで新規作成されるセッションのデフォルト Agent。切り替えても既存セッションは移行されません — それらは /agent(デスクトップ)または /handover を使用してください。",
     "groupPolicy": "グループポリシー",
     "groupPolicyOpen": "開放（@mention のみで制御）",
     "groupPolicyAllowlist": "許可リスト（設定済みグループのみ）",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Chat API を有効にした Google Workspace サービスアカウントが必要です",
     "webhookUrl": "公開 Webhook URL",
     "webhookUrlHint": "デスクトップアプリは Webhook を受信するために公開 URL（ngrok など）が必要です",
-    "lineHint": "LINE Developers Console (Messaging API チャネル) から認証情報を取得"
+    "lineHint": "LINE Developers Console (Messaging API チャネル) から認証情報を取得",
+    "notifyPrimaryChanges": "プライマリ変更を通知",
+    "notifyPrimaryChangesHint": "このアカウントがセッションのプライマリになった(または外れた)際、IM チャットにシステムメッセージを送ります。"
   },
   "cron": {
     "title": "定期タスク",

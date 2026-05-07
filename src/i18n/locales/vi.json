@@ -2576,7 +2576,7 @@
     "remove": "Xóa",
     "boundAgent": "Agent liên kết",
     "boundAgentDefault": "Sử dụng Agent mặc định toàn cục",
-    "boundAgentHint": "Chọn Agent mà kênh này sẽ trò chuyện. Các kênh khác nhau có thể liên kết Agent khác nhau.",
+    "boundAgentHint": "Agent mặc định cho phiên mới trong kênh này — chuyển đổi không di chuyển phiên đã tạo. Dùng /agent (máy tính) hoặc /handover cho những phiên đó.",
     "groupPolicy": "Chính sách nhóm",
     "groupPolicyOpen": "Mở (chỉ kiểm soát qua @mention)",
     "groupPolicyAllowlist": "Danh sách cho phép (chỉ nhóm đã cấu hình)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Yêu cầu Service Account Google Workspace với Chat API được bật",
     "webhookUrl": "URL Webhook công khai",
     "webhookUrlHint": "Ứng dụng desktop cần URL công khai (ví dụ ngrok) để nhận webhook",
-    "lineHint": "Lấy thông tin xác thực từ LINE Developers Console (kênh Messaging API)"
+    "lineHint": "Lấy thông tin xác thực từ LINE Developers Console (kênh Messaging API)",
+    "notifyPrimaryChanges": "Thông báo thay đổi primary",
+    "notifyPrimaryChangesHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này trở thành (hoặc thôi là) primary của một phiên."
   },
   "cron": {
     "title": "Tác vụ định kỳ",

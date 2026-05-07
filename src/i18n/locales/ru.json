@@ -2576,7 +2576,7 @@
     "remove": "Удалить",
     "boundAgent": "Привязанный Agent",
     "boundAgentDefault": "Использовать глобального Agent по умолчанию",
-    "boundAgentHint": "Выберите Agent для общения через этот канал. Каждый канал может привязывать своего Agent.",
+    "boundAgentHint": "Агент по умолчанию для новых сессий в этом канале — переключение не переносит уже созданные сессии. Для них используйте /agent (десктоп) или /handover.",
     "groupPolicy": "Политика групп",
     "groupPolicyOpen": "Открыто (только контроль через @упоминание)",
     "groupPolicyAllowlist": "Белый список (только настроенные группы)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Требуется Service Account Google Workspace с включённым Chat API",
     "webhookUrl": "Публичный Webhook URL",
     "webhookUrlHint": "Десктопным приложениям нужен публичный URL (например, ngrok) для приёма webhooks",
-    "lineHint": "Получите учётные данные в LINE Developers Console (канал Messaging API)"
+    "lineHint": "Получите учётные данные в LINE Developers Console (канал Messaging API)",
+    "notifyPrimaryChanges": "Уведомлять о смене primary",
+    "notifyPrimaryChangesHint": "Отправлять системное сообщение в IM, когда этот аккаунт становится (или перестаёт быть) primary для сессии."
   },
   "cron": {
     "title": "Запланированные задачи",

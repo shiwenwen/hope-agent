@@ -30,6 +30,10 @@ export interface ChannelAccountConfig {
   enabled: boolean
   agentId?: string | null
   autoApproveTools?: boolean
+  /** When true (default), the worker emits a "you are now primary /
+   *  observing" system message into the IM chat whenever this account's
+   *  attach `is_primary` flips. */
+  notifyPrimaryChanges?: boolean
   credentials: Record<string, unknown>
   settings: Record<string, unknown>
   security: {

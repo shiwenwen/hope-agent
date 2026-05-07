@@ -2576,7 +2576,7 @@
     "remove": "제거",
     "boundAgent": "바인딩된 Agent",
     "boundAgentDefault": "전역 기본 Agent 사용",
-    "boundAgentHint": "이 채널이 채팅할 Agent 를 선택합니다. 채널마다 다른 Agent 를 바인딩할 수 있습니다.",
+    "boundAgentHint": "이 채널의 새 세션 기본 Agent — 변경해도 기존 세션은 이동되지 않습니다. 이미 만든 세션은 /agent(데스크톱) 또는 /handover 를 사용하세요.",
     "groupPolicy": "그룹 정책",
     "groupPolicyOpen": "개방 (@mention 로만 제어)",
     "groupPolicyAllowlist": "허용 목록 (구성된 그룹만)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Chat API 가 활성화된 Google Workspace 서비스 계정이 필요합니다",
     "webhookUrl": "공개 Webhook URL",
     "webhookUrlHint": "데스크톱 앱은 Webhook 수신을 위해 공개 URL (예: ngrok) 이 필요합니다",
-    "lineHint": "LINE Developers Console (Messaging API 채널) 에서 자격 증명을 받으세요"
+    "lineHint": "LINE Developers Console (Messaging API 채널) 에서 자격 증명을 받으세요",
+    "notifyPrimaryChanges": "프라이머리 변경 알림",
+    "notifyPrimaryChangesHint": "이 계정이 세션의 프라이머리가 되거나 해제될 때 IM 채팅에 시스템 메시지를 보냅니다."
   },
   "cron": {
     "title": "예약 작업",

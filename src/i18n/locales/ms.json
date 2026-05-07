@@ -2576,7 +2576,7 @@
     "remove": "Buang",
     "boundAgent": "Agent terikat",
     "boundAgentDefault": "Gunakan Agent lalai global",
-    "boundAgentHint": "Pilih Agent yang akan diberi sembang oleh saluran ini. Saluran berbeza boleh mengikat Agent berbeza.",
+    "boundAgentHint": "Agent lalai untuk sesi baru dalam saluran ini — menukarnya tidak memindahkan sesi sedia ada. Gunakan /agent (desktop) atau /handover untuk yang itu.",
     "groupPolicy": "Polisi kumpulan",
     "groupPolicyOpen": "Terbuka (kawalan @sebutan sahaja)",
     "groupPolicyAllowlist": "Senarai dibenarkan (hanya kumpulan dikonfigurasi)",
@@ -2654,7 +2654,9 @@
     "gchatHint": "Memerlukan Service Account Google Workspace dengan Chat API didayakan",
     "webhookUrl": "URL Webhook awam",
     "webhookUrlHint": "Aplikasi desktop memerlukan URL awam (cth. ngrok) untuk menerima webhook",
-    "lineHint": "Dapatkan kelayakan dari LINE Developers Console (saluran Messaging API)"
+    "lineHint": "Dapatkan kelayakan dari LINE Developers Console (saluran Messaging API)",
+    "notifyPrimaryChanges": "Beritahu perubahan primary",
+    "notifyPrimaryChangesHint": "Hantar mesej sistem ke sembang IM apabila akaun ini menjadi (atau bukan lagi) primary untuk sesi."
   },
   "cron": {
     "title": "Tugasan berjadual",

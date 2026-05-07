@@ -2576,7 +2576,7 @@
     "remove": "删除",
     "boundAgent": "绑定 Agent",
     "boundAgentDefault": "使用全局默认 Agent",
-    "boundAgentHint": "选择此渠道对话使用的 Agent，不同渠道可绑定不同 Agent",
+    "boundAgentHint": "本渠道新建会话的默认 Agent — 切换不会迁移已存在的会话,已建会话用 /agent(桌面)或 /handover 调整。",
     "groupPolicy": "群组策略",
     "groupPolicyOpen": "开放（仅靠 @mention 控制）",
     "groupPolicyAllowlist": "白名单（仅配置的群组）",
@@ -2654,7 +2654,9 @@
     "gchatHint": "需要 Google Workspace 服务账号并启用 Chat API",
     "webhookUrl": "公网 Webhook URL",
     "webhookUrlHint": "桌面应用需要公网 URL（如 ngrok）才能接收 Webhook",
-    "lineHint": "在 LINE Developers Console 获取 Messaging API 频道凭据"
+    "lineHint": "在 LINE Developers Console 获取 Messaging API 频道凭据",
+    "notifyPrimaryChanges": "primary 变化提醒",
+    "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。"
   },
   "cron": {
     "title": "定时任务",
