@@ -163,6 +163,8 @@ sequenceDiagram
 | `/context` | 无 | 查看上下文窗口使用明细（分类 token 占比、压缩状态） | `ShowContextBreakdown` |
 | `/recap` | `[--full\|--range=7d\|--range=30d]` | 生成深度复盘报告（后台流式），`--full` 跳转 Dashboard | `RecapCard` 或 `OpenDashboardTab` |
 | `/awareness` | `[on\|off\|mode <x>\|status]` | 控制行为感知功能的全局开关与模式（详见下方） | `DisplayOnly` |
+| `/imreply` | `[split\|final\|preview]` 可选 | **IM 专用**：设置当前 channel-account 的回复模式（每 round 拆分 / 仅最终 / 流式合并预览）。无参打印当前值与三态说明。详见 [im-channel.md §IM 回复模式](im-channel.md) | `DisplayOnly` |
+| `/reason` | `[on\|off]` 可选 | **IM 专用**：开关 thinking_delta 在 IM 消息里渲染为 markdown blockquote（默认 off）。无参打印当前值。`/reasoning` 是静默别名（仅 dispatch 接受，菜单不展示，详见下方）。详见 [im-channel.md §Thinking 显示](im-channel.md) | `DisplayOnly` |
 
 **`/permission` 可选值**（与 `permission/engine.rs` 的三档 `SessionMode` 对齐）：
 
@@ -315,6 +317,21 @@ stateDiagram-v2
 | `/agent` | IM dispatcher 每条入站消息从 channel-account / topic / group 配置重算 agent_id（[`channel/worker/dispatcher.rs::resolved_agent_id`](../../crates/ha-core/src/channel/worker/dispatcher.rs)），不读 `sessions.agent_id`。允许 `/agent` 会让会话标签和实际运行 agent 永久漂移——`/agent` 切完后回复「Switched to X」，下一轮入站消息又被 channel-account 配置拉回原 agent，是幻觉切换。改 IM agent 应去「设置 → IM Channel → account → Agent」或 topic/group override |
 
 新增此类命令时同时改两处：(1) `IM_DISABLED_COMMANDS` 常量 让 IM 同步阶段不下发菜单；(2) handler 内自检 `session.channel_info`，处理用户绕过菜单硬键入的情况。
+
+---
+
+## IM 专用命令 vs 静默别名
+
+部分命令的语义只在 IM session 上下文里成立，handler 入口自检 `session.channel_info`，桌面 / Web session 直接报错「only works inside an IM channel session」：
+
+| 命令 | 写入位置 | 备注 |
+|---|---|---|
+| `/imreply [split\|final\|preview]` | `ChannelAccountConfig.settings.imReplyMode` | 详见 [im-channel.md §IM 回复模式](im-channel.md) |
+| `/reason [on\|off]` | `ChannelAccountConfig.settings.showThinking` | 详见 [im-channel.md §Thinking 显示](im-channel.md) |
+
+**静默 dispatch 别名**：`handlers::dispatch` match arm 接受多个名字（`"reason" \| "reasoning"`），但只有 canonical name 进 [`registry::all_commands`](../../crates/ha-core/src/slash_commands/registry.rs) 与 IM 菜单。`/reasoning` 是 `/reason` 的别名 —— 用户输入两者都能触发，但菜单只展示 `/reason`，避免视觉冗余。
+
+**reserved 集合契约**：所有静默别名必须登记进 [`slash_commands::SILENT_BUILTIN_ALIASES`](../../crates/ha-core/src/slash_commands/mod.rs)；`builtin_command_names()` 把别名一并塞进 `HashSet<String>`，[`resolve_skill_command_names`](../../crates/ha-core/src/slash_commands/mod.rs) 用这个集合判断 skill 是否需要 `_skill` 后缀。漏登记 → 同名 skill 会被 dispatch 静默遮蔽（match arm 优先于 `_ => handle_skill_command`）。新增静默别名时务必更新 `SILENT_BUILTIN_ALIASES`。
 
 ---
 

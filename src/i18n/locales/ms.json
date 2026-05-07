@@ -2644,7 +2644,9 @@
     "imReplyModeSplitHint": "Setiap pusingan (naratif + media dari alatnya) dihantar sebagai mesej berasingan mengikut susunan model menghasilkannya. Saluran strim masih mengekalkan kesan mesin taip setiap pusingan. Disyorkan.",
     "imReplyModeFinalHint": "Buang naratif sebelum panggilan alat. Pengguna hanya melihat jawapan pusingan terakhir; media dihantar di hujung. Tiada pratonton strim.",
     "imReplyModePreviewHint": "Memaparkan keseluruhan respons gabungan sebagai satu mesej yang tumbuh (sunting Telegram / cardkit Feishu / draf Telegram DM); media dihantar di hujung. Hanya saluran strim — saluran lain merosot kepada Final.",
-    "imReplyModePreviewDegrades": "Saluran ini tiada pengangkutan pratonton strim, jadi Preview di sini berkelakuan sama seperti Final."
+    "imReplyModePreviewDegrades": "Saluran ini tiada pengangkutan pratonton strim, jadi Preview di sini berkelakuan sama seperti Final.",
+    "showThinking": "Tunjukkan pemikiran dalam mesej IM",
+    "showThinkingHint": "Apabila dihidupkan, taakulan model dipaparkan sebagai blok petikan sebelum balasan setiap pusingan. Lalai dimatikan."
   },
   "cron": {
     "title": "Tugasan berjadual",
@@ -3091,6 +3093,9 @@
     },
     "imreply": {
       "description": "Tetapkan mod balasan IM (split|final|preview)"
+    },
+    "reason": {
+      "description": "Tukar sama ada pemikiran model disertakan dalam mesej IM."
     }
   },
   "planMode": {

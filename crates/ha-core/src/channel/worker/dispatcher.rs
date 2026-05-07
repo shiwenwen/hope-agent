@@ -468,6 +468,10 @@ async fn handle_inbound_message(
 
     let capabilities = plugin.capabilities();
     let reply_mode = account.im_reply_mode();
+    // `/reason` per-account toggle. When false, `ChannelStreamSink` drops
+    // `thinking_delta` events from the IM path entirely (the EventBus
+    // broadcast still fires for the desktop UI mirror).
+    let show_thinking = account.show_thinking();
     // Stream preview is meaningful under `Preview` (one growing message)
     // AND `Split` (per-round message with typewriter effect; the stream
     // task closes each round inline). `Final` skips preview entirely so the
@@ -540,6 +544,7 @@ async fn handle_inbound_message(
             session_id.clone(),
             event_tx,
             round_texts.clone(),
+            show_thinking,
         )),
     };
 
@@ -1120,10 +1125,12 @@ async fn deliver_final_only(
 }
 
 /// `ImReplyMode::Preview`: keep the legacy "one growing preview message"
-/// behavior. Uses `engine_result.response` (the merged collected_text) as
-/// the canonical text — it matches what the live preview was rendering
-/// during the turn — and finalizes via `send_final_reply` so the preview
-/// transport's edit/close path runs. All media follow at the end.
+/// behavior. Joins per-round narration in time order to reconstruct the
+/// canonical final text — matches what the live preview was rendering
+/// (including `/reason on` thinking blockquotes inserted by
+/// `ChannelStreamSink`). Falls back to `engine_result.response` only when
+/// `rounds` is empty (the engine bailed before any text streamed). All
+/// media follow at the end via `send_final_reply`.
 ///
 /// Non-streaming channels reach this branch with `preview = None`; behavior
 /// degrades to the same as `Final` minus the "drop pre-final narration"
@@ -1137,17 +1144,35 @@ async fn deliver_preview_merged(
     preview: Option<&PreviewHandle>,
     caps: &ChannelCapabilities,
 ) -> DeliveryMetrics {
+    // Concatenate round texts with NO separator: the round_texts state
+    // machine is the byte-exact mirror of what the sink forwarded into
+    // the streaming preview task's `accumulated` buffer (round
+    // boundaries don't insert padding by themselves; the only `\n\n`
+    // separators that exist are the ones `on_thinking` / `on_text` /
+    // `on_tool_call` already pushed when closing a thinking blockquote).
+    // Joining with `\n\n` would insert extra blank lines between rounds
+    // that the live preview never showed — the final commit would jump.
+    let final_text: String = if rounds.is_empty() {
+        fallback_response.to_string()
+    } else {
+        let merged: String = rounds.iter().map(|r| r.text.as_str()).collect();
+        if merged.is_empty() {
+            fallback_response.to_string()
+        } else {
+            merged
+        }
+    };
     let all_media: Vec<crate::attachments::MediaItem> = rounds
         .iter()
         .flat_map(|r| r.medias.iter().cloned())
         .collect();
     let media_count = all_media.len();
-    let text_chars = fallback_response.chars().count();
+    let text_chars = final_text.chars().count();
     send_final_reply(
         plugin,
         account_id,
         msg,
-        fallback_response,
+        &final_text,
         preview,
         &all_media,
         caps,

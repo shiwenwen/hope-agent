@@ -2644,7 +2644,9 @@
     "imReplyModeSplitHint": "Cada rodada (narração + mídia produzida pelas ferramentas) é entregue como mensagem independente, na ordem em que o modelo as emitiu. Em canais com streaming, cada rodada mantém o efeito máquina de escrever. Recomendado.",
     "imReplyModeFinalHint": "Descarta a narração anterior às ferramentas. O usuário vê apenas a resposta da última rodada; mídias chegam no final. Sem pré-visualização em streaming.",
     "imReplyModePreviewHint": "Renderiza toda a resposta combinada como uma única mensagem que cresce (edição do Telegram · cardkit do Feishu · rascunho do Telegram DM); mídias ao final. Somente canais com streaming — os demais degradam para Final.",
-    "imReplyModePreviewDegrades": "Este canal não tem transporte de pré-visualização em streaming, então Preview funciona igual a Final aqui."
+    "imReplyModePreviewDegrades": "Este canal não tem transporte de pré-visualização em streaming, então Preview funciona igual a Final aqui.",
+    "showThinking": "Mostrar o raciocínio nas mensagens de IM",
+    "showThinkingHint": "Quando ativado, o raciocínio do modelo é apresentado como bloco citado antes da resposta de cada rodada. Padrão desativado."
   },
   "cron": {
     "title": "Tarefas agendadas",
@@ -3091,6 +3093,9 @@
     },
     "imreply": {
       "description": "Definir modo de resposta IM (split|final|preview)"
+    },
+    "reason": {
+      "description": "Alternar se o raciocínio do modelo é incluído nas mensagens de IM."
     }
   },
   "planMode": {
