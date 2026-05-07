@@ -18,8 +18,8 @@ pub fn handle_new(session_db: &Arc<SessionDB>, agent_id: &str) -> Result<Command
 
     let mut lines = vec![format!("✅ New session — agent **{}**", agent_id)];
     if let Some(pid) = meta.project_id.as_deref() {
-        if let Some(project) = crate::globals::get_project_db()
-            .and_then(|db| db.get(pid).ok().flatten())
+        if let Some(project) =
+            crate::globals::get_project_db().and_then(|db| db.get(pid).ok().flatten())
         {
             lines.push(format!("- Project: **{}**", project.name));
         }
@@ -95,17 +95,11 @@ pub fn handle_sessions(session_db: &Arc<SessionDB>) -> Result<CommandResult, Str
         .iter()
         .map(|s| SessionPickerItem {
             id: s.id.clone(),
-            title: s
-                .title
-                .clone()
-                .unwrap_or_else(|| "(untitled)".to_string()),
+            title: s.title.clone().unwrap_or_else(|| "(untitled)".to_string()),
             agent_id: s.agent_id.clone(),
             project_id: s.project_id.clone(),
             channel_label: s.channel_info.as_ref().map(|c| {
-                let chat = c
-                    .sender_name
-                    .clone()
-                    .unwrap_or_else(|| c.chat_id.clone());
+                let chat = c.sender_name.clone().unwrap_or_else(|| c.chat_id.clone());
                 format!("{} · {}", c.channel_id, chat)
             }),
             updated_at: s.updated_at.clone(),
@@ -193,15 +187,12 @@ fn handle_session_info(
             "**Session** `{}`",
             meta.id.chars().take(8).collect::<String>()
         ),
-        format!(
-            "- Title: {}",
-            meta.title.as_deref().unwrap_or("(untitled)")
-        ),
+        format!("- Title: {}", meta.title.as_deref().unwrap_or("(untitled)")),
         format!("- Agent: `{}`", meta.agent_id),
     ];
     if let Some(pid) = meta.project_id.as_deref() {
-        if let Some(project) = crate::globals::get_project_db()
-            .and_then(|db| db.get(pid).ok().flatten())
+        if let Some(project) =
+            crate::globals::get_project_db().and_then(|db| db.get(pid).ok().flatten())
         {
             lines.push(format!("- Project: **{}**", project.name));
         }
@@ -251,9 +242,7 @@ pub fn handle_handover(
 
     let parts: Vec<&str> = trimmed.split(':').collect();
     if parts.len() < 3 || parts.len() > 4 {
-        return Err(
-            "Usage: /handover <channelId>:<accountId>:<chatId>[:<threadId>]".into(),
-        );
+        return Err("Usage: /handover <channelId>:<accountId>:<chatId>[:<threadId>]".into());
     }
     let channel_id = parts[0].trim();
     let account_id = parts[1].trim();
@@ -277,4 +266,3 @@ pub fn handle_handover(
         }),
     })
 }
-

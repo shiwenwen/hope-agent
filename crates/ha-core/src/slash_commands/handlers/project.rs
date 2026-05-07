@@ -128,7 +128,11 @@ pub fn handle_projects() -> Result<CommandResult, String> {
     let content = if summary_lines.is_empty() {
         String::new()
     } else {
-        format!("**Projects** ({})\n{}", items.len(), summary_lines.join("\n"))
+        format!(
+            "**Projects** ({})\n{}",
+            items.len(),
+            summary_lines.join("\n")
+        )
     };
 
     Ok(CommandResult {

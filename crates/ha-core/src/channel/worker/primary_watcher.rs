@@ -43,10 +43,7 @@ const DEMOTED_TEXT: &str =
 /// hasn't been initialised yet (server / acp paths bring the bus up
 /// before this is called, so in practice the early return only fires
 /// in unit-test contexts).
-pub fn spawn_channel_primary_watcher(
-    channel_db: Arc<ChannelDB>,
-    registry: Arc<ChannelRegistry>,
-) {
+pub fn spawn_channel_primary_watcher(channel_db: Arc<ChannelDB>, registry: Arc<ChannelRegistry>) {
     let Some(bus) = crate::globals::get_event_bus() else {
         return;
     };
@@ -116,22 +113,21 @@ pub fn spawn_channel_primary_watcher(
                     _ => continue,
                 };
 
-                let channel_id: crate::channel::types::ChannelId =
-                    match serde_json::from_value(serde_json::Value::String(
-                        conv.channel_id.clone(),
-                    )) {
-                        Ok(c) => c,
-                        Err(e) => {
-                            app_warn!(
-                                "channel",
-                                "primary_watcher",
-                                "Unknown channel_id {} on attach: {}",
-                                conv.channel_id,
-                                e
-                            );
-                            continue;
-                        }
-                    };
+                let channel_id: crate::channel::types::ChannelId = match serde_json::from_value(
+                    serde_json::Value::String(conv.channel_id.clone()),
+                ) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        app_warn!(
+                            "channel",
+                            "primary_watcher",
+                            "Unknown channel_id {} on attach: {}",
+                            conv.channel_id,
+                            e
+                        );
+                        continue;
+                    }
+                };
 
                 let plugin = match registry.get_plugin(&channel_id) {
                     Some(p) => p,

@@ -397,16 +397,19 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // ── Session picker (`/sessions`) — render rows as inline buttons. ──
         Some(CommandAction::ShowSessionPicker { sessions }) => {
-            let buttons = build_picker_buttons("session", sessions.iter().map(|s| {
-                let id_short: String = s.id.chars().take(8).collect();
-                let chip = s
-                    .channel_label
-                    .as_deref()
-                    .map(|c| format!(" · {}", c))
-                    .unwrap_or_default();
-                let label = format!("{} · {}{}", id_short, s.title, chip);
-                (s.id.clone(), id_short, label)
-            }));
+            let buttons = build_picker_buttons(
+                "session",
+                sessions.iter().map(|s| {
+                    let id_short: String = s.id.chars().take(8).collect();
+                    let chip = s
+                        .channel_label
+                        .as_deref()
+                        .map(|c| format!(" · {}", c))
+                        .unwrap_or_default();
+                    let label = format!("{} · {}{}", id_short, s.title, chip);
+                    (s.id.clone(), id_short, label)
+                }),
+            );
             let text = if sessions.is_empty() {
                 "No active sessions.".to_string()
             } else {
@@ -489,14 +492,17 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // ── Project picker (`/project` / `/projects` no args). ──
         Some(CommandAction::ShowProjectPicker { projects }) => {
-            let buttons = build_picker_buttons("project", projects.iter().map(|p| {
-                let id_short: String = p.id.chars().take(8).collect();
-                let label = match p.emoji.as_deref() {
-                    Some(e) if !e.is_empty() => format!("{} {}", e, p.name),
-                    _ => p.name.clone(),
-                };
-                (p.id.clone(), id_short, label)
-            }));
+            let buttons = build_picker_buttons(
+                "project",
+                projects.iter().map(|p| {
+                    let id_short: String = p.id.chars().take(8).collect();
+                    let label = match p.emoji.as_deref() {
+                        Some(e) if !e.is_empty() => format!("{} {}", e, p.name),
+                        _ => p.name.clone(),
+                    };
+                    (p.id.clone(), id_short, label)
+                }),
+            );
             let text = if projects.is_empty() {
                 "No projects yet.".to_string()
             } else {

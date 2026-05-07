@@ -8,9 +8,7 @@ use anyhow::Result;
 use rusqlite::{params, OptionalExtension};
 use std::sync::Arc;
 
-use super::types::{
-    CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput,
-};
+use super::types::{CreateProjectInput, Project, ProjectFile, ProjectMeta, UpdateProjectInput};
 use crate::session::SessionDB;
 
 /// Project persistence manager. Wraps `Arc<SessionDB>` to reuse its

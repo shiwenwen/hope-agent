@@ -277,8 +277,8 @@ pub async fn channel_handover_session(
     thread_id: Option<String>,
     chat_type: Option<String>,
 ) -> Result<(), CmdError> {
-    let channel_db = ha_core::get_channel_db()
-        .ok_or_else(|| CmdError::msg("Channel DB not initialized"))?;
+    let channel_db =
+        ha_core::get_channel_db().ok_or_else(|| CmdError::msg("Channel DB not initialized"))?;
 
     let resolved_chat_type = chat_type
         .as_deref()

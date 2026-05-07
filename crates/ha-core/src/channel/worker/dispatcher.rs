@@ -241,16 +241,14 @@ async fn handle_inbound_message(
     //    Only the IM-relevant levels are passed in here; project routing
     //    is now explicit (`/project <id>` from inside the chat).
     let (agent_id, _agent_source) = match msg.chat_type {
-        ChatType::Group | ChatType::Forum => {
-            crate::agent::resolver::resolve_default_agent_id_full(
-                None,
-                None,
-                topic_config,
-                effective_group_config,
-                None,
-                Some(&account),
-            )
-        }
+        ChatType::Group | ChatType::Forum => crate::agent::resolver::resolve_default_agent_id_full(
+            None,
+            None,
+            topic_config,
+            effective_group_config,
+            None,
+            Some(&account),
+        ),
         ChatType::Channel => crate::agent::resolver::resolve_default_agent_id_full(
             None,
             None,
