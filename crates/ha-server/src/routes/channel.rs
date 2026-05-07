@@ -274,3 +274,45 @@ pub async fn wechat_wait_login(
         ha_core::channel::wechat::login::wait_login(&body.session_key, body.timeout_ms).await?,
     ))
 }
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HandoverBody {
+    pub session_id: String,
+    pub channel_id: String,
+    pub account_id: String,
+    pub chat_id: String,
+    #[serde(default)]
+    pub thread_id: Option<String>,
+    /// Defaults to `dm` when omitted; the IM worker overwrites the column on
+    /// the next inbound message.
+    #[serde(default)]
+    pub chat_type: Option<String>,
+}
+
+/// `POST /api/channel/handover` — push a session out to an IM chat as a
+/// new attach (source=`handover`), promoted to primary on arrival.
+pub async fn handover(Json(body): Json<HandoverBody>) -> Result<Json<Value>, AppError> {
+    let resolved_chat_type = match body.chat_type.as_deref() {
+        Some("group") => ChatType::Group,
+        Some("forum") => ChatType::Forum,
+        Some("channel") => ChatType::Channel,
+        _ => ChatType::Dm,
+    };
+
+    channel_db()?
+        .attach_session(
+            &body.channel_id,
+            &body.account_id,
+            &body.chat_id,
+            body.thread_id.as_deref(),
+            &body.session_id,
+            ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
+            None,
+            None,
+            &resolved_chat_type,
+        )
+        .map_err(|e| AppError::internal(format!("Handover failed: {}", e)))?;
+
+    Ok(Json(json!({ "ok": true })))
+}

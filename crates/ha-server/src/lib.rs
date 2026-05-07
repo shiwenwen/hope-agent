@@ -1081,6 +1081,7 @@ fn build_router_with_cors(
             "/channel/wechat/login/wait",
             post(routes::channel::wechat_wait_login),
         )
+        .route("/channel/handover", post(routes::channel::handover))
         // Crash / Backup
         .route(
             "/crash/recovery-info",
