@@ -93,6 +93,7 @@ pub struct UpdateAccountParams {
     pub enabled: Option<bool>,
     pub agent_id: Option<String>,
     pub auto_approve_tools: Option<bool>,
+    pub notify_primary_changes: Option<bool>,
     pub credentials: Option<Value>,
     pub settings: Option<Value>,
     pub security: Option<SecurityConfig>,
@@ -144,6 +145,7 @@ pub async fn add_account(
         settings,
         security,
         auto_approve_tools: false,
+        notify_primary_changes: true,
     };
 
     store.channels.accounts.push(account.clone());
@@ -201,6 +203,9 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
     }
     if let Some(aat) = params.auto_approve_tools {
         account.auto_approve_tools = aat;
+    }
+    if let Some(npc) = params.notify_primary_changes {
+        account.notify_primary_changes = npc;
     }
     if let Some(c) = params.credentials {
         account.credentials = c;

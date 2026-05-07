@@ -510,6 +510,7 @@ fn spawn_channel_listeners() {
             channel_db.clone(),
             registry.clone(),
         );
+        channel::worker::spawn_channel_primary_watcher(channel_db.clone(), registry.clone());
         spawn_channel_menu_resync_listener(registry.clone());
     }
 }

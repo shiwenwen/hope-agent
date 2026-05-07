@@ -623,6 +623,7 @@ pub fn run() {
             commands::channel::channel_list_sessions,
             commands::channel::channel_wechat_start_login,
             commands::channel::channel_wechat_wait_login,
+            commands::channel::channel_handover_session,
             // MCP (Model Context Protocol) servers
             commands::mcp::mcp_list_servers,
             commands::mcp::mcp_get_server_status,

@@ -52,6 +52,7 @@ pub async fn channel_update_account(
     enabled: Option<bool>,
     agent_id: Option<String>,
     auto_approve_tools: Option<bool>,
+    notify_primary_changes: Option<bool>,
     credentials: Option<serde_json::Value>,
     settings: Option<serde_json::Value>,
     security: Option<SecurityConfig>,
@@ -63,6 +64,7 @@ pub async fn channel_update_account(
             enabled,
             agent_id,
             auto_approve_tools,
+            notify_primary_changes,
             credentials,
             settings,
             security,
@@ -256,4 +258,46 @@ pub async fn channel_wechat_wait_login(
     crate::channel::wechat::login::wait_login(&session_key, timeout_ms)
         .await
         .map_err(Into::into)
+}
+
+// ── Handover ─────────────────────────────────────────────────────
+
+/// Hand the given session over to an IM chat — pushes a fresh attach row
+/// for (channel, account, chat, thread) and promotes it to primary. Used
+/// by the GUI Handover dialog (Phase B2) and `/handover` slash command.
+///
+/// `chat_type` defaults to `dm` when not supplied; the IM worker overwrites
+/// it on the next inbound message from the chat.
+#[tauri::command]
+pub async fn channel_handover_session(
+    session_id: String,
+    channel_id: String,
+    account_id: String,
+    chat_id: String,
+    thread_id: Option<String>,
+    chat_type: Option<String>,
+) -> Result<(), CmdError> {
+    let channel_db =
+        ha_core::get_channel_db().ok_or_else(|| CmdError::msg("Channel DB not initialized"))?;
+
+    let resolved_chat_type = chat_type
+        .as_deref()
+        .map(crate::channel::types::ChatType::from_lowercase)
+        .unwrap_or(crate::channel::types::ChatType::Dm);
+
+    channel_db
+        .attach_session(
+            &channel_id,
+            &account_id,
+            &chat_id,
+            thread_id.as_deref(),
+            &session_id,
+            ha_core::channel::db::ATTACH_SOURCE_HANDOVER,
+            None,
+            None,
+            &resolved_chat_type,
+        )
+        .map_err(|e| CmdError::msg(format!("Handover failed: {}", e)))?;
+
+    Ok(())
 }

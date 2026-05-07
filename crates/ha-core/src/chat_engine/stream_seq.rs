@@ -39,8 +39,19 @@ pub enum ChatSource {
 
 impl ChatSource {
     /// Sources whose deltas reach a user-facing GUI via the global stream
-    /// broadcast bus (`chat:stream_delta` + `chat:stream_end`). Channel,
-    /// Subagent, and ParentInjection only use their per-call event_sink.
+    /// broadcast bus (`chat:stream_delta` + `chat:stream_end`).
+    ///
+    /// **Channel intentionally stays off the main bus.** IM-driven turns
+    /// already emit on `channel:stream_delta` via `ChannelStreamSink::send`,
+    /// and the GUI's `useChannelStreaming` hook subscribes to that. If we
+    /// also let Channel hit the main bus, `useChatStreamReattach`
+    /// (subscribed to `chat:stream_delta`) would re-apply the same deltas
+    /// for any cached / active GUI view of the same session — there's no
+    /// shared `_oc_seq` between the two paths to dedupe. GUI ↔ IM live
+    /// mirror needs a unified seq scheme to enable, tracked separately.
+    ///
+    /// Subagent / ParentInjection stay off the bus — those are background
+    /// turns the user shouldn't see streaming live.
     pub fn broadcasts_to_user_ui(&self) -> bool {
         matches!(self, Self::Desktop | Self::Http)
     }

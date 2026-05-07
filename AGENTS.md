@@ -206,6 +206,12 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
   - **dispatcher** 在 [`channel/worker/dispatcher.rs`](crates/ha-core/src/channel/worker/dispatcher.rs) 按 mode 调 `deliver_split` / `deliver_final_only` / `deliver_preview_merged` 三选一；`deliver_split` 跳过 `rounds[..finalized_rounds]`（stream task 已发），剩余 round 走 `send_message(text)` + `deliver_media`，最后 round 通过 `send_final_reply` 走 finalize 路径
 - **配置入口**：GUI（`EditAccountDialog` 三选项 Select，`preview` 选到非流式 channel 时 hint「will degrade to Final」）+ `/imreply [split|final|preview]` 斜杠命令
 - **`ChannelStreamSink` 短路条件用 `contains` 不能用 `starts_with`**：`emit_tool_result` 走 `serde_json::json!({...})` + 默认 `BTreeMap`，键按字母序输出（`call_id` 永远在前），任何 anchor 在 `{"type":...` 的 fast-path 都不会触发。`media_items` / `tool_result` / `text_delta` / `tool_call` 检测都用 `event.contains(...)`，rarer-needle-first
+- **`channel_conversations` 一对一 attach + is_primary**：每个 (channel, account, chat, thread) 在任意时刻只关联一个 session（`COALESCE(thread_id, '')` unique index）。同一 session 可被多个 chat attach，但只有 `is_primary = 1` 那行会接收出站消息——其他行只是旁观者。helper 入口 [`channel/db.rs`](crates/ha-core/src/channel/db.rs)：`attach_session` / `detach_session` / `set_primary` / `list_attached`，**不要直接写 `channel_conversations`**。
+- **`source` 字段**：`inbound`（IM 入站新建）/ `attach`（`/session <id>` 显式接管）/ `handover`（GUI handover 或 `/handover` 推到该 chat）。
+- **GUI → IM final-reply mirror**：当前生产路径走 [`chat_engine/im_mirror.rs`](crates/ha-core/src/chat_engine/im_mirror.rs)（`attach_im_mirrors` + `finalize_im_mirrors`）——desktop / HTTP 触发的 turn 在成功路径把最终 assistant text 推到所有 primary IM attach（非 IM 入站）。**不是逐 frame 流式**，是 turn 结束后一次性发送。`SinkRegistry`（[`chat_engine/sink_registry.rs`](crates/ha-core/src/chat_engine/sink_registry.rs)）的类型 + `emit_stream_event` 末尾的 fan-out hook 已经就位，但**没有任何生产代码 `.attach()`**——live 多 sink fan-out 是 follow-up（main 的 split-streaming / `RoundTextAccumulator` 重塑了 IM stream task，需要在新状态机上重做）。
+
+- **新 slash 命令**：`/sessions`（picker 用户对话 session，过滤 cron / subagent / incognito）、`/session [<id>|exit]`（info / attach / detach）、`/projects`（picker）、`/handover <ch:acc:chat[:thread]>`（GUI 端推送，IM 不可见）。`IM_DISABLED_COMMANDS` 仅含 `agent` / `handover`。
+- **`channel:primary_changed` 事件**：`attach_session` / `detach_session` / `set_primary` / `update_session` 凡涉及 `is_primary` 切换都 emit 此事件 `{ sessionId }`，worker 消费后可发"你是 primary / 你正在旁观"系统消息。
 
 ### Dashboard / Recap / Learning
 
@@ -235,11 +241,11 @@ ha-core 主要领域：`agent/` `chat_engine/` `context_compact/` `memory/` `ski
 - 记忆优先级 Project > Agent > Global
 - **默认工作目录合并**：优先级 `session > project > 不注入`，**lazy resolve**；唯一入口 [`session/helpers.rs::effective_session_working_dir`](crates/ha-core/src/session/helpers.rs)，写校验入口 [`util.rs::canonicalize_working_dir`](crates/ha-core/src/util.rs)
 - 删除级联：unassign → 删 `projects` + `project_files`（FK） → `rm -rf projects/{id}/` → 删项目记忆（跨 db 单独执行）
-- **绑定 IM Channel**：`Project.bound_channel` 让一个项目认领 (channel, account)，channel worker 创建会话时反查注入；同一 (channel, account) 只能被一个项目认领
+- **IM 路由（无反向认领）**：项目不再认领 (channel, account)。要把 IM 中的会话归项目，从该 chat 内 `/project <id>`（或 picker）显式触发；`AssignProject` action 在 channel worker 内 UPDATE `sessions.project_id`，不再通过 channel→project 反查。**`Project.bound_channel` 已删除，不要重新引入**。
 
 ### Agent 解析链（默认 Agent）
 
-5 级：**显式参数 → `project.default_agent_id` → `channel_account.agent_id` → `AppConfig.default_agent_id` → 硬编码 `"default"`**。统一 helper：[`agent/resolver.rs::resolve_default_agent_id`](crates/ha-core/src/agent/resolver.rs)（带来源 tag 版本给 `/status`）。
+7 级（首个非空胜出）：**显式参数 → `project.default_agent_id` → `topic.agent_id` → `group.agent_id` → `tg_channel.agent_id` → `channel_account.agent_id` → `AppConfig.default_agent_id` → 硬编码 `"default"`**。统一入口 [`agent/resolver.rs::resolve_default_agent_id_full`](crates/ha-core/src/agent/resolver.rs)；无 IM 上下文的 desktop / HTTP 用 `resolve_default_agent_id` 包装（只传 project + channel_account）。**channel worker 不得自写解析链** —— Phase A5 已折叠到 resolver 单一真相源。
 
 ### 本地 LLM 助手
 

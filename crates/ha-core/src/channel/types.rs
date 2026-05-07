@@ -60,6 +60,22 @@ pub enum ChatType {
     Channel,
 }
 
+impl ChatType {
+    /// Parse the lowercased string form persisted in
+    /// `channel_conversations.chat_type` / surfaced from Tauri / HTTP
+    /// payloads. Unknown values fall back to `Dm` — the conservative
+    /// default for inbound resolution since solo chats are the only
+    /// safe assumption when metadata is missing.
+    pub fn from_lowercase(s: &str) -> Self {
+        match s {
+            "group" => Self::Group,
+            "forum" => Self::Forum,
+            "channel" => Self::Channel,
+            _ => Self::Dm,
+        }
+    }
+}
+
 // ── Media Type ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -476,6 +492,14 @@ pub struct ChannelAccountConfig {
     /// When true, all tool calls from this IM channel are automatically approved.
     #[serde(default)]
     pub auto_approve_tools: bool,
+    /// When true (default), the channel worker emits a system message into
+    /// the IM chat whenever its primary-attach status changes — i.e.
+    /// "you are now primary" / "you are now observing". Toggleable per
+    /// account so noisy multi-attach setups can stay quiet. Subscribers
+    /// listen on the `channel:primary_changed` EventBus topic emitted by
+    /// `ChannelDB::{attach,detach,set_primary,update}_session`.
+    #[serde(default = "crate::default_true")]
+    pub notify_primary_changes: bool,
 }
 
 /// Settings JSON key controlling IM reply mode (see [`ImReplyMode`]).
@@ -592,6 +616,7 @@ mod tests {
             settings,
             security: SecurityConfig::default(),
             auto_approve_tools: false,
+            notify_primary_changes: true,
         }
     }
 

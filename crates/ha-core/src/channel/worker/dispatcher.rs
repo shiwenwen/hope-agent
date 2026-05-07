@@ -234,32 +234,38 @@ async fn handle_inbound_message(
         }
     }
 
-    // 3. Resolve agent_id:
-    // topic > group > channel > per-account > app global default > hardcoded default.
-    let app_default_agent_id = store
-        .default_agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID);
-    let base_agent_id = account
-        .agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(app_default_agent_id);
-
-    let resolved_agent_id = match msg.chat_type {
-        ChatType::Group | ChatType::Forum => topic_config
-            .and_then(|t| t.agent_id.as_deref())
-            .or_else(|| effective_group_config.and_then(|g| g.agent_id.as_deref()))
-            .unwrap_or(base_agent_id),
-        ChatType::Channel => channel_config
-            .and_then(|c| c.agent_id.as_deref())
-            .unwrap_or(base_agent_id),
-        ChatType::Dm => base_agent_id,
+    // 3. Resolve agent_id via the central resolver — the precedence chain
+    //    (project > topic > group > channel-override > channel-account >
+    //    global > hardcoded) lives in `agent::resolver` so /status, IM
+    //    dispatch, and desktop / HTTP all share one source of truth.
+    //    Only the IM-relevant levels are passed in here; project routing
+    //    is now explicit (`/project <id>` from inside the chat).
+    let (agent_id, _agent_source) = match msg.chat_type {
+        ChatType::Group | ChatType::Forum => crate::agent::resolver::resolve_default_agent_id_full(
+            None,
+            None,
+            topic_config,
+            effective_group_config,
+            None,
+            Some(&account),
+        ),
+        ChatType::Channel => crate::agent::resolver::resolve_default_agent_id_full(
+            None,
+            None,
+            None,
+            None,
+            channel_config,
+            Some(&account),
+        ),
+        ChatType::Dm => crate::agent::resolver::resolve_default_agent_id_full(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&account),
+        ),
     };
-    let agent_id = resolved_agent_id.to_string();
 
     // 3b. Resolve extra system prompt from group/topic/channel config
     let config_system_prompt = match msg.chat_type {
@@ -305,6 +311,26 @@ async fn handle_inbound_message(
     // Auto-generate fallback title from first message (same logic as normal chat)
     let _ = crate::session::ensure_first_message_title(&session_db, &session_id, user_text);
 
+    // Notify the desktop / web side that a fresh user message landed on
+    // this session from IM, so an attached GUI view can pull it into
+    // the conversation timeline without waiting for the stream-start
+    // round-trip. `channel:stream_start` covers the assistant side a
+    // moment later — this event is purely about the inbound user turn.
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "chat:user_message_appended",
+            serde_json::json!({
+                "sessionId": &session_id,
+                "source": "channel",
+                "channelId": &channel_id_str,
+                "accountId": &msg.account_id,
+                "chatId": &msg.chat_id,
+                "senderName": msg.sender_name.as_deref(),
+                "text": user_text,
+            }),
+        );
+    }
+
     // NOTE: We don't emit channel:message_update here because channel:stream_start
     // will handle frontend state. Emitting here would race with the stream placeholder.
 
@@ -326,6 +352,7 @@ async fn handle_inbound_message(
             &msg.account_id,
             &msg.chat_id,
             msg.thread_id.as_deref(),
+            &msg.chat_type,
             &session_id,
             &agent_id,
             user_text,
@@ -387,6 +414,31 @@ async fn handle_inbound_message(
         }
     } else {
         engine_message = user_text.to_string();
+    }
+
+    // 5b. Auto-promote inbound chat to primary. With multi-attach a session
+    // can have several IM chats pointed at it; before this guard, an observer
+    // chat sending a message would still get a primary-mode `ChannelStreamSink`
+    // built below and `deliver_*` would ship the agent response back to that
+    // observer, bypassing the `is_primary` invariant. Promoting here keeps
+    // "whoever speaks owns the agent" semantics and emits `channel:primary_changed`
+    // so the previous primary's UI / IM chat gets the demoted notification.
+    // `set_primary` is idempotent on already-primary rows (early-returns
+    // without touching the DB or firing events), so the new-conversation /
+    // single-attach common case stays free.
+    if let Err(e) = channel_db.set_primary(
+        &channel_id_str,
+        &msg.account_id,
+        &msg.chat_id,
+        msg.thread_id.as_deref(),
+    ) {
+        app_warn!(
+            "channel",
+            "worker",
+            "[{}] Failed to auto-promote inbound chat to primary: {}",
+            channel_id_str,
+            e
+        );
     }
 
     // 6. Build channel context for prompt injection

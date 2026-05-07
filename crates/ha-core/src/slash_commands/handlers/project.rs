@@ -2,15 +2,15 @@
 //!
 //! - No args → returns a `ShowProjectPicker` action so the front-end can
 //!   render an interactive picker (uses `ProjectPickerItem` rows).
-//! - With args → fuzzy-match the project name and emit `EnterProject`.
+//! - With args → fuzzy-match the project name and emit `EnterProject`
+//!   (desktop / HTTP) or `AssignProject` (IM-channel sessions).
 //!
-//! IM channels are forbidden from invoking `/project` because IM sessions
-//! are tied to a channel-account and cannot also be a "project session" of
-//! the desktop variety. The handler self-checks `session.channel_info` to
-//! enforce this without changing the dispatcher signature.
-//!
-//! See `docs/architecture/api-reference.md` for the full slash-command
-//! contract.
+//! Phase A1 removed the project↔channel reverse-claim, so IM chats now
+//! honour `/project <id>`: the action re-points the chat's current
+//! session to that project (no new session is spawned) and the channel
+//! slash dispatcher applies it. Desktop / HTTP sessions still get
+//! `EnterProject` because their UX expects a fresh session inside the
+//! project container.
 
 use crate::project::ProjectMeta;
 use crate::session::SessionDB;
@@ -23,18 +23,11 @@ pub fn handle_project(
     session_id: Option<&str>,
     args: &str,
 ) -> Result<CommandResult, String> {
-    // IM-channel guard — the IM_DISABLED_COMMANDS list in `registry.rs` keeps
-    // the menu in sync with this runtime check.
-    if let Some(sid) = session_id {
-        if let Ok(Some(meta)) = session_db.get_session(sid) {
-            if meta.channel_info.is_some() {
-                return Ok(CommandResult {
-                    content: "`/project` is not available in IM channels. Use the desktop or Web app to manage projects.".into(),
-                    action: Some(CommandAction::DisplayOnly),
-                });
-            }
-        }
-    }
+    // Detect IM-channel context — affects which CommandAction we emit.
+    let is_im_session = session_id
+        .and_then(|sid| session_db.get_session(sid).ok().flatten())
+        .map(|m| m.channel_info.is_some())
+        .unwrap_or(false);
 
     let project_db = crate::require_project_db().map_err(|e| e.to_string())?;
     let projects: Vec<ProjectMeta> = project_db.list(false).map_err(|e| e.to_string())?;
@@ -71,10 +64,79 @@ pub fn handle_project(
         |p: &ProjectMeta| p.project.name.clone(),
         "project",
     )?;
+
+    if is_im_session {
+        Ok(CommandResult {
+            content: format!(
+                "Linking this session to project **{}**…",
+                matched.project.name
+            ),
+            action: Some(CommandAction::AssignProject {
+                project_id: matched.project.id.clone(),
+            }),
+        })
+    } else {
+        Ok(CommandResult {
+            content: format!("Entering project **{}**…", matched.project.name),
+            action: Some(CommandAction::EnterProject {
+                project_id: matched.project.id.clone(),
+            }),
+        })
+    }
+}
+
+/// /projects — list projects as a picker (no fuzzy-match input).
+pub fn handle_projects() -> Result<CommandResult, String> {
+    let project_db = crate::require_project_db().map_err(|e| e.to_string())?;
+    let projects: Vec<ProjectMeta> = project_db.list(false).map_err(|e| e.to_string())?;
+
+    if projects.is_empty() {
+        return Ok(CommandResult {
+            content: "No projects yet. Create one from the sidebar first.".into(),
+            action: Some(CommandAction::DisplayOnly),
+        });
+    }
+
+    let items: Vec<ProjectPickerItem> = projects
+        .iter()
+        .map(|p| ProjectPickerItem {
+            id: p.project.id.clone(),
+            name: p.project.name.clone(),
+            emoji: p.project.emoji.clone(),
+            logo: p.project.logo.clone(),
+            color: p.project.color.clone(),
+            description: p.project.description.clone(),
+            session_count: p.session_count,
+        })
+        .collect();
+
+    let summary_lines: Vec<String> = items
+        .iter()
+        .take(10)
+        .map(|p| {
+            format!(
+                "- **{}**{} — {} session(s)",
+                p.name,
+                p.description
+                    .as_deref()
+                    .map(|d| format!(" — {}", d))
+                    .unwrap_or_default(),
+                p.session_count
+            )
+        })
+        .collect();
+    let content = if summary_lines.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "**Projects** ({})\n{}",
+            items.len(),
+            summary_lines.join("\n")
+        )
+    };
+
     Ok(CommandResult {
-        content: format!("Entering project **{}**…", matched.project.name),
-        action: Some(CommandAction::EnterProject {
-            project_id: matched.project.id.clone(),
-        }),
+        content,
+        action: Some(CommandAction::ShowProjectPicker { projects: items }),
     })
 }

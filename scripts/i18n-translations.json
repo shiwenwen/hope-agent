@@ -41,7 +41,34 @@
       "sessionSearchNext": "次の一致",
       "sessionSearchClose": "閉じる",
       "pendingInteractionHint": "応答をお待ちしています",
-      "pendingInteractionInline": "応答待ち · {{count}}"
+      "pendingInteractionInline": "応答待ち · {{count}}",
+      "handover": {
+        "button": "IM へ引き継ぎ",
+        "dialog": {
+          "title": "セッションの引き継ぎ",
+          "description": "このセッションを IM チャットへ引き継ぎます。返信はそのチャットに送られます。",
+          "account": "IM アカウント",
+          "selectAccount": "アカウントを選択",
+          "chatId": "チャット ID",
+          "chatIdPlaceholder": "例: 123456789 または @username",
+          "chatType": "種類",
+          "chatTypes": {
+            "dm": "ダイレクト",
+            "group": "グループ",
+            "forum": "フォーラム",
+            "channel": "チャンネル"
+          },
+          "threadId": "スレッド ID",
+          "threadIdPlaceholder": "任意",
+          "submit": "引き継ぐ",
+          "submitting": "引き継ぎ中…",
+          "submitted": "完了"
+        },
+        "done": "引き継ぎが完了しました。",
+        "failed": "引き継ぎに失敗しました:{{error}}"
+      },
+      "pickSession": "セッションを選択",
+      "detachOnDesktopNoop": "デスクトップでは IM チャットへの接続がないため、detach は何もしません。"
     },
     "effort": {
       "none": "オフ"
@@ -500,11 +527,7 @@
         "openHome": "プロジェクトホームを開く"
       },
       "openProjectSettings": "プロジェクト設定",
-      "noSessionsHint": "クリックして最初のセッションを作成",
-      "boundChannel": "バインドされた IM チャネル",
-      "bindChannelLabel": "IM チャネルをバインド",
-      "bindChannelHelp": "バインドすると、この IM チャットからの会話は自動的にこのプロジェクトに追加されます。",
-      "unbindChannel": "バインド解除"
+      "noSessionsHint": "クリックして最初のセッションを作成"
     },
     "provider": {
       "allowPrivateNetwork": "プライベートネットワークを許可",
@@ -547,6 +570,18 @@
       },
       "awareness": {
         "description": "行動認識を切替"
+      },
+      "sessions": {
+        "description": "セッションを選択"
+      },
+      "session": {
+        "description": "現在のセッションを表示 / 接続 / 終了"
+      },
+      "projects": {
+        "description": "すべてのプロジェクトを一覧"
+      },
+      "handover": {
+        "description": "セッションを IM へ引き継ぐ"
       }
     },
     "dangerousMode": {
@@ -724,6 +759,11 @@
       "channelAuthFailed": "IM チャネルのログインに失敗",
       "channelAuthFailedBody": "{{label}} の認証情報が拒否されました — 再認証してください",
       "channelAuthFailedFallback": "IM チャネルの認証情報が拒否されました — 再認証してください"
+    },
+    "channels": {
+      "boundAgentHint": "このチャネルで新規作成されるセッションのデフォルト Agent。切り替えても既存セッションは移行されません — それらは /agent(デスクトップ)または /handover を使用してください。",
+      "notifyPrimaryChanges": "プライマリ変更を通知",
+      "notifyPrimaryChangesHint": "このアカウントがセッションのプライマリになった(または外れた)際、IM チャットにシステムメッセージを送ります。"
     }
   },
   "ko": {
@@ -768,7 +808,34 @@
       "sessionSearchNext": "다음 일치",
       "sessionSearchClose": "닫기",
       "pendingInteractionHint": "응답을 기다리는 중",
-      "pendingInteractionInline": "응답 대기 중 · {{count}}"
+      "pendingInteractionInline": "응답 대기 중 · {{count}}",
+      "handover": {
+        "button": "IM 으로 인계",
+        "dialog": {
+          "title": "세션 인계",
+          "description": "현재 세션을 IM 채팅으로 보냅니다. 이후 응답은 해당 채팅에 전달됩니다.",
+          "account": "IM 계정",
+          "selectAccount": "계정 선택",
+          "chatId": "채팅 ID",
+          "chatIdPlaceholder": "예: 123456789 또는 @username",
+          "chatType": "유형",
+          "chatTypes": {
+            "dm": "1:1 대화",
+            "group": "그룹",
+            "forum": "포럼",
+            "channel": "채널"
+          },
+          "threadId": "스레드 ID",
+          "threadIdPlaceholder": "선택 사항",
+          "submit": "인계",
+          "submitting": "인계 중…",
+          "submitted": "완료"
+        },
+        "done": "인계 완료.",
+        "failed": "인계 실패: {{error}}"
+      },
+      "pickSession": "세션 선택",
+      "detachOnDesktopNoop": "데스크톱은 IM 채팅에 바인딩되지 않으므로 detach는 효과가 없습니다."
     },
     "effort": {
       "none": "끄기"
@@ -1227,11 +1294,7 @@
         "openHome": "프로젝트 홈 열기"
       },
       "openProjectSettings": "프로젝트 설정",
-      "noSessionsHint": "클릭하여 첫 세션 만들기",
-      "boundChannel": "바인딩된 IM 채널",
-      "bindChannelLabel": "IM 채널 바인딩",
-      "bindChannelHelp": "바인딩하면 이 IM 대화에서의 대화가 자동으로 이 프로젝트에 합류합니다.",
-      "unbindChannel": "바인딩 해제"
+      "noSessionsHint": "클릭하여 첫 세션 만들기"
     },
     "provider": {
       "allowPrivateNetwork": "사설 네트워크 허용",
@@ -1274,6 +1337,18 @@
       },
       "awareness": {
         "description": "행동 인식 토글"
+      },
+      "sessions": {
+        "description": "세션 선택"
+      },
+      "session": {
+        "description": "현재 세션 표시 / 연결 / 종료"
+      },
+      "projects": {
+        "description": "모든 프로젝트 나열"
+      },
+      "handover": {
+        "description": "세션을 IM 채팅으로 인계"
       }
     },
     "dangerousMode": {
@@ -1451,6 +1526,11 @@
       "channelAuthFailed": "IM 채널 로그인 실패",
       "channelAuthFailedBody": "{{label}} 자격 증명이 거부되었습니다 — 재인증해주세요",
       "channelAuthFailedFallback": "IM 채널 자격 증명이 거부되었습니다 — 재인증해주세요"
+    },
+    "channels": {
+      "boundAgentHint": "이 채널의 새 세션 기본 Agent — 변경해도 기존 세션은 이동되지 않습니다. 이미 만든 세션은 /agent(데스크톱) 또는 /handover 를 사용하세요.",
+      "notifyPrimaryChanges": "프라이머리 변경 알림",
+      "notifyPrimaryChangesHint": "이 계정이 세션의 프라이머리가 되거나 해제될 때 IM 채팅에 시스템 메시지를 보냅니다."
     }
   },
   "zh-TW": {
@@ -1495,7 +1575,34 @@
       "sessionSearchNext": "下一個",
       "sessionSearchClose": "關閉",
       "pendingInteractionHint": "等待您的回應",
-      "pendingInteractionInline": "等待回應 · {{count}} 項"
+      "pendingInteractionInline": "等待回應 · {{count}} 項",
+      "handover": {
+        "button": "交班到 IM",
+        "dialog": {
+          "title": "交班工作階段",
+          "description": "將目前工作階段推送到 IM,後續 assistant 回覆會以該 chat 為主要接收端。",
+          "account": "IM 帳號",
+          "selectAccount": "選擇帳號",
+          "chatId": "Chat ID",
+          "chatIdPlaceholder": "如 123456789 或 @username",
+          "chatType": "類型",
+          "chatTypes": {
+            "dm": "私聊",
+            "group": "群組",
+            "forum": "話題",
+            "channel": "頻道"
+          },
+          "threadId": "Thread ID",
+          "threadIdPlaceholder": "選填",
+          "submit": "交班",
+          "submitting": "交班中…",
+          "submitted": "完成"
+        },
+        "done": "交班完成。",
+        "failed": "交班失敗:{{error}}"
+      },
+      "pickSession": "選擇工作階段",
+      "detachOnDesktopNoop": "桌面端不繫結 IM chat,detach 在此處無效。"
     },
     "effort": {
       "none": "關閉"
@@ -1954,11 +2061,7 @@
         "openHome": "開啟專案首頁"
       },
       "openProjectSettings": "專案設定",
-      "noSessionsHint": "點擊建立第一個對話",
-      "boundChannel": "已綁定的 IM 頻道",
-      "bindChannelLabel": "綁定 IM 頻道",
-      "bindChannelHelp": "綁定後，此 IM 群組發起的對話會自動加入此專案。",
-      "unbindChannel": "解除綁定"
+      "noSessionsHint": "點擊建立第一個對話"
     },
     "provider": {
       "allowPrivateNetwork": "允許私有網路",
@@ -2001,6 +2104,18 @@
       },
       "awareness": {
         "description": "切換行為感知"
+      },
+      "sessions": {
+        "description": "選擇工作階段"
+      },
+      "session": {
+        "description": "查看 / 接入 / 退出目前工作階段"
+      },
+      "projects": {
+        "description": "列出所有專案"
+      },
+      "handover": {
+        "description": "將工作階段交班到 IM"
       }
     },
     "dangerousMode": {
@@ -2178,6 +2293,11 @@
       "channelAuthFailed": "IM 頻道登入失敗",
       "channelAuthFailedBody": "{{label}} 憑證被拒絕,請檢查或重新登入",
       "channelAuthFailedFallback": "有 IM 頻道帳號憑證被拒絕,需要重新登入"
+    },
+    "channels": {
+      "boundAgentHint": "本頻道新建工作階段的預設 Agent — 切換不會遷移已存在的工作階段,已建工作階段用 /agent(桌面)或 /handover 調整。",
+      "notifyPrimaryChanges": "primary 變化提醒",
+      "notifyPrimaryChangesHint": "當此帳號成為(或不再是)某工作階段的 primary 接收端時,在 IM 中發送系統訊息提示。"
     }
   },
   "tr": {
@@ -2222,7 +2342,34 @@
       "sessionSearchNext": "Sonraki",
       "sessionSearchClose": "Kapat",
       "pendingInteractionHint": "Yanıtınız bekleniyor",
-      "pendingInteractionInline": "Yanıt bekleniyor · {{count}}"
+      "pendingInteractionInline": "Yanıt bekleniyor · {{count}}",
+      "handover": {
+        "button": "IM'e devret",
+        "dialog": {
+          "title": "Oturumu devret",
+          "description": "Bu oturumu bir IM sohbetine gönderir. Yanıtlar oraya birincil hedef olarak iletilir.",
+          "account": "IM hesabı",
+          "selectAccount": "Bir hesap seçin",
+          "chatId": "Sohbet kimliği",
+          "chatIdPlaceholder": "örn. 123456789 veya @username",
+          "chatType": "Tür",
+          "chatTypes": {
+            "dm": "Doğrudan mesaj",
+            "group": "Grup",
+            "forum": "Forum",
+            "channel": "Kanal"
+          },
+          "threadId": "Konu kimliği",
+          "threadIdPlaceholder": "İsteğe bağlı",
+          "submit": "Devret",
+          "submitting": "Devrediliyor…",
+          "submitted": "Tamam"
+        },
+        "done": "Devir tamamlandı.",
+        "failed": "Devir başarısız: {{error}}"
+      },
+      "pickSession": "Bir oturum seç",
+      "detachOnDesktopNoop": "Masaüstünde IM sohbetine bağlama yok — detach burada etkisiz."
     },
     "effort": {
       "none": "Kapalı"
@@ -2681,11 +2828,7 @@
         "openHome": "Proje ana sayfasını aç"
       },
       "openProjectSettings": "Proje ayarları",
-      "noSessionsHint": "İlk oturumu oluşturmak için tıklayın",
-      "boundChannel": "Bağlı IM kanalı",
-      "bindChannelLabel": "Bir IM kanalı bağla",
-      "bindChannelHelp": "Bağlandıktan sonra bu IM sohbetinden gelen konuşmalar otomatik olarak bu projeye katılır.",
-      "unbindChannel": "Bağı kaldır"
+      "noSessionsHint": "İlk oturumu oluşturmak için tıklayın"
     },
     "provider": {
       "allowPrivateNetwork": "Özel ağa izin ver",
@@ -2728,6 +2871,18 @@
       },
       "awareness": {
         "description": "Davranış farkındalığını aç/kapat"
+      },
+      "sessions": {
+        "description": "Bir oturum seç"
+      },
+      "session": {
+        "description": "Mevcut oturumu göster / bağlan / çık"
+      },
+      "projects": {
+        "description": "Tüm projeleri listele"
+      },
+      "handover": {
+        "description": "Oturumu bir IM sohbetine devret"
       }
     },
     "dangerousMode": {
@@ -2905,6 +3060,11 @@
       "channelAuthFailed": "IM kanalı oturum açma başarısız",
       "channelAuthFailedBody": "{{label}} kimlik bilgileri reddedildi — lütfen yeniden kimlik doğrulayın",
       "channelAuthFailedFallback": "Bir IM kanalı hesabının kimlik bilgileri reddedildi — yeniden kimlik doğrulayın"
+    },
+    "channels": {
+      "boundAgentHint": "Bu kanaldaki yeni oturumlar için varsayılan Agent — değiştirmek mevcut oturumları taşımaz. Onlar için /agent (masaüstü) veya /handover kullanın.",
+      "notifyPrimaryChanges": "Primary değişikliklerini bildir",
+      "notifyPrimaryChangesHint": "Bu hesap bir oturumun primary alıcısı olduğunda (veya olmaktan çıktığında) IM sohbetine sistem mesajı gönderir."
     }
   },
   "vi": {
@@ -2949,7 +3109,34 @@
       "sessionSearchNext": "Tiếp theo",
       "sessionSearchClose": "Đóng",
       "pendingInteractionHint": "Đang chờ phản hồi của bạn",
-      "pendingInteractionInline": "Đang chờ phản hồi · {{count}}"
+      "pendingInteractionInline": "Đang chờ phản hồi · {{count}}",
+      "handover": {
+        "button": "Bàn giao sang IM",
+        "dialog": {
+          "title": "Bàn giao phiên",
+          "description": "Đẩy phiên hiện tại sang một cuộc trò chuyện IM. Phản hồi sẽ tới đó như đích chính.",
+          "account": "Tài khoản IM",
+          "selectAccount": "Chọn tài khoản",
+          "chatId": "ID cuộc trò chuyện",
+          "chatIdPlaceholder": "ví dụ: 123456789 hoặc @username",
+          "chatType": "Loại",
+          "chatTypes": {
+            "dm": "Tin nhắn riêng",
+            "group": "Nhóm",
+            "forum": "Diễn đàn",
+            "channel": "Kênh"
+          },
+          "threadId": "ID chủ đề",
+          "threadIdPlaceholder": "Tùy chọn",
+          "submit": "Bàn giao",
+          "submitting": "Đang bàn giao…",
+          "submitted": "Xong"
+        },
+        "done": "Đã bàn giao.",
+        "failed": "Bàn giao thất bại: {{error}}"
+      },
+      "pickSession": "Chọn phiên",
+      "detachOnDesktopNoop": "Trên máy tính không có liên kết IM chat — detach không có tác dụng ở đây."
     },
     "effort": {
       "none": "Tắt"
@@ -3408,11 +3595,7 @@
         "openHome": "Mở trang chủ dự án"
       },
       "openProjectSettings": "Cài đặt dự án",
-      "noSessionsHint": "Nhấp để tạo phiên đầu tiên",
-      "boundChannel": "Kênh IM đã liên kết",
-      "bindChannelLabel": "Liên kết với kênh IM",
-      "bindChannelHelp": "Sau khi liên kết, các cuộc hội thoại từ cuộc trò chuyện IM này sẽ tự động thuộc về dự án này.",
-      "unbindChannel": "Hủy liên kết"
+      "noSessionsHint": "Nhấp để tạo phiên đầu tiên"
     },
     "provider": {
       "allowPrivateNetwork": "Cho phép mạng nội bộ",
@@ -3455,6 +3638,18 @@
       },
       "awareness": {
         "description": "Bật/tắt nhận biết hành vi"
+      },
+      "sessions": {
+        "description": "Chọn phiên"
+      },
+      "session": {
+        "description": "Hiển thị / kết nối / thoát phiên hiện tại"
+      },
+      "projects": {
+        "description": "Liệt kê tất cả dự án"
+      },
+      "handover": {
+        "description": "Bàn giao phiên sang một cuộc trò chuyện IM"
       }
     },
     "dangerousMode": {
@@ -3632,6 +3827,11 @@
       "channelAuthFailed": "Đăng nhập kênh IM thất bại",
       "channelAuthFailedBody": "Thông tin xác thực {{label}} bị từ chối — vui lòng xác thực lại",
       "channelAuthFailedFallback": "Thông tin xác thực một tài khoản kênh IM bị từ chối — vui lòng xác thực lại"
+    },
+    "channels": {
+      "boundAgentHint": "Agent mặc định cho phiên mới trong kênh này — chuyển đổi không di chuyển phiên đã tạo. Dùng /agent (máy tính) hoặc /handover cho những phiên đó.",
+      "notifyPrimaryChanges": "Thông báo thay đổi primary",
+      "notifyPrimaryChangesHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này trở thành (hoặc thôi là) primary của một phiên."
     }
   },
   "pt": {
@@ -3676,7 +3876,34 @@
       "sessionSearchNext": "Próximo",
       "sessionSearchClose": "Fechar",
       "pendingInteractionHint": "Aguardando sua resposta",
-      "pendingInteractionInline": "Aguardando resposta · {{count}}"
+      "pendingInteractionInline": "Aguardando resposta · {{count}}",
+      "handover": {
+        "button": "Transferir para IM",
+        "dialog": {
+          "title": "Transferir sessão",
+          "description": "Envia esta sessão para um chat de IM. As respostas serão entregues lá como destino principal.",
+          "account": "Conta de IM",
+          "selectAccount": "Selecione uma conta",
+          "chatId": "ID do chat",
+          "chatIdPlaceholder": "ex: 123456789 ou @username",
+          "chatType": "Tipo",
+          "chatTypes": {
+            "dm": "Mensagem direta",
+            "group": "Grupo",
+            "forum": "Fórum",
+            "channel": "Canal"
+          },
+          "threadId": "ID do tópico",
+          "threadIdPlaceholder": "Opcional",
+          "submit": "Transferir",
+          "submitting": "Transferindo…",
+          "submitted": "Concluído"
+        },
+        "done": "Transferência concluída.",
+        "failed": "Transferência falhou: {{error}}"
+      },
+      "pickSession": "Escolher uma sessão",
+      "detachOnDesktopNoop": "Detach não tem efeito no desktop — nenhum chat de IM vinculado a esta sessão aqui."
     },
     "effort": {
       "none": "Desligado"
@@ -4135,11 +4362,7 @@
         "openHome": "Abrir página do projeto"
       },
       "openProjectSettings": "Configurações do projeto",
-      "noSessionsHint": "Clique para criar a primeira sessão",
-      "boundChannel": "Canal IM vinculado",
-      "bindChannelLabel": "Vincular um canal IM",
-      "bindChannelHelp": "Após vincular, as conversas deste chat IM se juntarão automaticamente a este projeto.",
-      "unbindChannel": "Desvincular"
+      "noSessionsHint": "Clique para criar a primeira sessão"
     },
     "provider": {
       "allowPrivateNetwork": "Permitir rede privada",
@@ -4182,6 +4405,18 @@
       },
       "awareness": {
         "description": "Alternar consciência de comportamento"
+      },
+      "sessions": {
+        "description": "Escolher uma sessão"
+      },
+      "session": {
+        "description": "Mostrar, conectar ou sair da sessão atual"
+      },
+      "projects": {
+        "description": "Listar todos os projetos"
+      },
+      "handover": {
+        "description": "Transferir a sessão para um chat de IM"
       }
     },
     "dangerousMode": {
@@ -4359,6 +4594,11 @@
       "channelAuthFailed": "Falha no login do canal IM",
       "channelAuthFailedBody": "Credenciais de {{label}} foram rejeitadas — autentique-se novamente",
       "channelAuthFailedFallback": "Credenciais de uma conta de canal IM foram rejeitadas — autentique-se novamente"
+    },
+    "channels": {
+      "boundAgentHint": "Agente padrão para novas sessões neste canal — alterá-lo não migra sessões já existentes. Use /agent (desktop) ou /handover para essas.",
+      "notifyPrimaryChanges": "Notificar mudanças de primary",
+      "notifyPrimaryChangesHint": "Envia uma mensagem de sistema ao chat de IM quando esta conta se tornar (ou deixar de ser) a primary de uma sessão."
     }
   },
   "ru": {
@@ -4403,7 +4643,34 @@
       "sessionSearchNext": "Следующее",
       "sessionSearchClose": "Закрыть",
       "pendingInteractionHint": "Ожидание вашего ответа",
-      "pendingInteractionInline": "Ожидание ответа · {{count}}"
+      "pendingInteractionInline": "Ожидание ответа · {{count}}",
+      "handover": {
+        "button": "Передать в IM",
+        "dialog": {
+          "title": "Передача сессии",
+          "description": "Отправляет текущую сессию в чат IM. Ответы будут доставлены туда как основное место.",
+          "account": "Аккаунт IM",
+          "selectAccount": "Выберите аккаунт",
+          "chatId": "ID чата",
+          "chatIdPlaceholder": "например, 123456789 или @username",
+          "chatType": "Тип",
+          "chatTypes": {
+            "dm": "Личное сообщение",
+            "group": "Группа",
+            "forum": "Форум",
+            "channel": "Канал"
+          },
+          "threadId": "ID треда",
+          "threadIdPlaceholder": "Не обязательно",
+          "submit": "Передать",
+          "submitting": "Передача…",
+          "submitted": "Готово"
+        },
+        "done": "Передача завершена.",
+        "failed": "Передача не удалась: {{error}}"
+      },
+      "pickSession": "Выбрать сессию",
+      "detachOnDesktopNoop": "На рабочем столе нет привязки к IM-чату — detach не имеет эффекта."
     },
     "effort": {
       "none": "Выкл"
@@ -4862,11 +5129,7 @@
         "openHome": "Открыть главную проекта"
       },
       "openProjectSettings": "Настройки проекта",
-      "noSessionsHint": "Нажмите, чтобы создать первую сессию",
-      "boundChannel": "Привязанный IM-канал",
-      "bindChannelLabel": "Привязать IM-канал",
-      "bindChannelHelp": "После привязки разговоры из этого IM-чата будут автоматически добавляться в этот проект.",
-      "unbindChannel": "Отвязать"
+      "noSessionsHint": "Нажмите, чтобы создать первую сессию"
     },
     "provider": {
       "allowPrivateNetwork": "Разрешить частную сеть",
@@ -4909,6 +5172,18 @@
       },
       "awareness": {
         "description": "Переключить отслеживание поведения"
+      },
+      "sessions": {
+        "description": "Выбрать сессию"
+      },
+      "session": {
+        "description": "Показать, подключиться или выйти из текущей сессии"
+      },
+      "projects": {
+        "description": "Список всех проектов"
+      },
+      "handover": {
+        "description": "Передать сессию в IM-чат"
       }
     },
     "dangerousMode": {
@@ -5086,6 +5361,11 @@
       "channelAuthFailed": "Ошибка входа в IM-канал",
       "channelAuthFailedBody": "Учётные данные {{label}} отклонены — авторизуйтесь снова",
       "channelAuthFailedFallback": "Учётные данные одного из IM-каналов отклонены — авторизуйтесь снова"
+    },
+    "channels": {
+      "boundAgentHint": "Агент по умолчанию для новых сессий в этом канале — переключение не переносит уже созданные сессии. Для них используйте /agent (десктоп) или /handover.",
+      "notifyPrimaryChanges": "Уведомлять о смене primary",
+      "notifyPrimaryChangesHint": "Отправлять системное сообщение в IM, когда этот аккаунт становится (или перестаёт быть) primary для сессии."
     }
   },
   "ar": {
@@ -5130,7 +5410,34 @@
       "sessionSearchNext": "التالي",
       "sessionSearchClose": "إغلاق",
       "pendingInteractionHint": "في انتظار ردك",
-      "pendingInteractionInline": "في انتظار الرد · {{count}}"
+      "pendingInteractionInline": "في انتظار الرد · {{count}}",
+      "handover": {
+        "button": "تحويل إلى IM",
+        "dialog": {
+          "title": "تحويل الجلسة",
+          "description": "ارسل الجلسة الحالية إلى محادثة IM. ستُسلَّم الردود هناك كهدف أساسي.",
+          "account": "حساب IM",
+          "selectAccount": "اختر حسابًا",
+          "chatId": "معرف المحادثة",
+          "chatIdPlaceholder": "مثال: 123456789 أو @username",
+          "chatType": "النوع",
+          "chatTypes": {
+            "dm": "رسالة مباشرة",
+            "group": "مجموعة",
+            "forum": "منتدى",
+            "channel": "قناة"
+          },
+          "threadId": "معرف الموضوع",
+          "threadIdPlaceholder": "اختياري",
+          "submit": "تحويل",
+          "submitting": "جارٍ التحويل…",
+          "submitted": "تم"
+        },
+        "done": "اكتمل التحويل.",
+        "failed": "فشل التحويل: {{error}}"
+      },
+      "pickSession": "اختر جلسة",
+      "detachOnDesktopNoop": "لا توجد محادثة IM مرتبطة بهذه الجلسة على سطح المكتب — detach لا يفعل شيئًا هنا."
     },
     "effort": {
       "none": "إيقاف"
@@ -5589,11 +5896,7 @@
         "openHome": "فتح الصفحة الرئيسية للمشروع"
       },
       "openProjectSettings": "إعدادات المشروع",
-      "noSessionsHint": "انقر لإنشاء الجلسة الأولى",
-      "boundChannel": "قناة IM مرتبطة",
-      "bindChannelLabel": "ربط قناة IM",
-      "bindChannelHelp": "بعد الربط، ستنضم المحادثات من محادثة IM هذه تلقائيًا إلى هذا المشروع.",
-      "unbindChannel": "إلغاء الربط"
+      "noSessionsHint": "انقر لإنشاء الجلسة الأولى"
     },
     "provider": {
       "allowPrivateNetwork": "السماح بالشبكة الخاصة",
@@ -5636,6 +5939,18 @@
       },
       "awareness": {
         "description": "تبديل وعي السلوك"
+      },
+      "sessions": {
+        "description": "اختر جلسة"
+      },
+      "session": {
+        "description": "عرض / اتصال / خروج من الجلسة الحالية"
+      },
+      "projects": {
+        "description": "قائمة بجميع المشاريع"
+      },
+      "handover": {
+        "description": "تحويل الجلسة إلى محادثة IM"
       }
     },
     "dangerousMode": {
@@ -5813,6 +6128,11 @@
       "channelAuthFailed": "فشل تسجيل الدخول إلى قناة IM",
       "channelAuthFailedBody": "تم رفض بيانات اعتماد {{label}} — يرجى إعادة المصادقة",
       "channelAuthFailedFallback": "تم رفض بيانات اعتماد حساب قناة IM — يرجى إعادة المصادقة"
+    },
+    "channels": {
+      "boundAgentHint": "الوكيل الافتراضي للجلسات الجديدة في هذه القناة — تغييره لا يُنقل الجلسات الموجودة. استخدم /agent (سطح المكتب) أو /handover لتلك.",
+      "notifyPrimaryChanges": "الإشعار بتغيرات primary",
+      "notifyPrimaryChangesHint": "إرسال رسالة نظام إلى محادثة IM عندما يصبح هذا الحساب (أو يتوقف عن كونه) primary لجلسة."
     }
   },
   "es": {
@@ -5857,7 +6177,34 @@
       "sessionSearchNext": "Siguiente",
       "sessionSearchClose": "Cerrar",
       "pendingInteractionHint": "Esperando tu respuesta",
-      "pendingInteractionInline": "Esperando respuesta · {{count}}"
+      "pendingInteractionInline": "Esperando respuesta · {{count}}",
+      "handover": {
+        "button": "Transferir a IM",
+        "dialog": {
+          "title": "Transferir sesión",
+          "description": "Envía esta sesión a un chat de IM. Las respuestas se entregarán allí como destino principal.",
+          "account": "Cuenta de IM",
+          "selectAccount": "Selecciona una cuenta",
+          "chatId": "ID de chat",
+          "chatIdPlaceholder": "p. ej. 123456789 o @username",
+          "chatType": "Tipo",
+          "chatTypes": {
+            "dm": "Mensaje directo",
+            "group": "Grupo",
+            "forum": "Foro",
+            "channel": "Canal"
+          },
+          "threadId": "ID de hilo",
+          "threadIdPlaceholder": "Opcional",
+          "submit": "Transferir",
+          "submitting": "Transfiriendo…",
+          "submitted": "Hecho"
+        },
+        "done": "Transferencia completada.",
+        "failed": "Transferencia fallida: {{error}}"
+      },
+      "pickSession": "Elegir una sesión",
+      "detachOnDesktopNoop": "Detach no tiene efecto en el escritorio — no hay un chat de IM vinculado a esta sesión aquí."
     },
     "effort": {
       "none": "Apagado"
@@ -6316,11 +6663,7 @@
         "openHome": "Abrir página del proyecto"
       },
       "openProjectSettings": "Configuración del proyecto",
-      "noSessionsHint": "Haz clic para crear la primera sesión",
-      "boundChannel": "Canal IM vinculado",
-      "bindChannelLabel": "Vincular un canal IM",
-      "bindChannelHelp": "Una vez vinculado, las conversaciones de este chat IM se unirán automáticamente a este proyecto.",
-      "unbindChannel": "Desvincular"
+      "noSessionsHint": "Haz clic para crear la primera sesión"
     },
     "provider": {
       "allowPrivateNetwork": "Permitir red privada",
@@ -6363,6 +6706,18 @@
       },
       "awareness": {
         "description": "Alternar conciencia de comportamiento"
+      },
+      "sessions": {
+        "description": "Elegir una sesión"
+      },
+      "session": {
+        "description": "Mostrar, conectar o salir de la sesión actual"
+      },
+      "projects": {
+        "description": "Listar todos los proyectos"
+      },
+      "handover": {
+        "description": "Transferir la sesión a un chat de IM"
       }
     },
     "dangerousMode": {
@@ -6540,6 +6895,11 @@
       "channelAuthFailed": "Error de inicio de sesión en canal IM",
       "channelAuthFailedBody": "Las credenciales de {{label}} fueron rechazadas — vuelve a autenticarte",
       "channelAuthFailedFallback": "Las credenciales de una cuenta de canal IM fueron rechazadas — vuelve a autenticarte"
+    },
+    "channels": {
+      "boundAgentHint": "Agente por defecto para nuevas sesiones en este canal — cambiarlo no migra las sesiones ya existentes. Usa /agent (escritorio) o /handover para esas.",
+      "notifyPrimaryChanges": "Notificar cambios de primary",
+      "notifyPrimaryChangesHint": "Envía un mensaje del sistema al chat de IM cuando esta cuenta se convierta (o deje de ser) en la primary de una sesión."
     }
   },
   "ms": {
@@ -6584,7 +6944,34 @@
       "sessionSearchNext": "Seterusnya",
       "sessionSearchClose": "Tutup",
       "pendingInteractionHint": "Menunggu respons anda",
-      "pendingInteractionInline": "Menunggu respons · {{count}}"
+      "pendingInteractionInline": "Menunggu respons · {{count}}",
+      "handover": {
+        "button": "Serahkan ke IM",
+        "dialog": {
+          "title": "Serahkan sesi",
+          "description": "Hantar sesi ini ke sembang IM. Balasan akan dihantar ke sana sebagai destinasi utama.",
+          "account": "Akaun IM",
+          "selectAccount": "Pilih akaun",
+          "chatId": "ID sembang",
+          "chatIdPlaceholder": "cth. 123456789 atau @username",
+          "chatType": "Jenis",
+          "chatTypes": {
+            "dm": "Mesej langsung",
+            "group": "Kumpulan",
+            "forum": "Forum",
+            "channel": "Saluran"
+          },
+          "threadId": "ID urutan",
+          "threadIdPlaceholder": "Pilihan",
+          "submit": "Serahkan",
+          "submitting": "Menyerahkan…",
+          "submitted": "Selesai"
+        },
+        "done": "Penyerahan selesai.",
+        "failed": "Penyerahan gagal: {{error}}"
+      },
+      "pickSession": "Pilih sesi",
+      "detachOnDesktopNoop": "Pada desktop tiada ikatan IM chat — detach tidak berkesan di sini."
     },
     "effort": {
       "none": "Mati"
@@ -7043,11 +7430,7 @@
         "openHome": "Buka laman projek"
       },
       "openProjectSettings": "Tetapan projek",
-      "noSessionsHint": "Klik untuk membuat sesi pertama",
-      "boundChannel": "Saluran IM yang terikat",
-      "bindChannelLabel": "Ikatkan saluran IM",
-      "bindChannelHelp": "Selepas diikat, perbualan dari sembang IM ini akan menyertai projek ini secara automatik.",
-      "unbindChannel": "Lepaskan ikatan"
+      "noSessionsHint": "Klik untuk membuat sesi pertama"
     },
     "provider": {
       "allowPrivateNetwork": "Benarkan rangkaian peribadi",
@@ -7090,6 +7473,18 @@
       },
       "awareness": {
         "description": "Togol Behavior Awareness"
+      },
+      "sessions": {
+        "description": "Pilih sesi"
+      },
+      "session": {
+        "description": "Tunjuk / sambung / keluar sesi semasa"
+      },
+      "projects": {
+        "description": "Senaraikan semua projek"
+      },
+      "handover": {
+        "description": "Serahkan sesi ke sembang IM"
       }
     },
     "dangerousMode": {
@@ -7267,6 +7662,11 @@
       "channelAuthFailed": "Log masuk saluran IM gagal",
       "channelAuthFailedBody": "Kelayakan {{label}} ditolak — sila sahkan semula",
       "channelAuthFailedFallback": "Kelayakan akaun saluran IM ditolak — sila sahkan semula"
+    },
+    "channels": {
+      "boundAgentHint": "Agent lalai untuk sesi baru dalam saluran ini — menukarnya tidak memindahkan sesi sedia ada. Gunakan /agent (desktop) atau /handover untuk yang itu.",
+      "notifyPrimaryChanges": "Beritahu perubahan primary",
+      "notifyPrimaryChangesHint": "Hantar mesej sistem ke sembang IM apabila akaun ini menjadi (atau bukan lagi) primary untuk sesi."
     }
   },
   "zh": {
@@ -7372,6 +7772,54 @@
         "narrativeModelDefault": "跟随主对话 Agent",
         "narrativeModelClear": "清空"
       }
+    },
+    "chat": {
+      "handover": {
+        "button": "交班到 IM",
+        "dialog": {
+          "title": "交班会话",
+          "description": "把当前会话推到 IM,后续 assistant 回复将以该 chat 为主接收方。",
+          "account": "IM 账号",
+          "selectAccount": "选择账号",
+          "chatId": "Chat ID",
+          "chatIdPlaceholder": "如 123456789 或 @username",
+          "chatType": "类型",
+          "chatTypes": {
+            "dm": "私聊",
+            "group": "群组",
+            "forum": "话题",
+            "channel": "频道"
+          },
+          "threadId": "Thread ID",
+          "threadIdPlaceholder": "可选",
+          "submit": "交班",
+          "submitting": "交班中…",
+          "submitted": "完成"
+        },
+        "done": "交班完成。",
+        "failed": "交班失败:{{error}}"
+      },
+      "pickSession": "选择会话",
+      "detachOnDesktopNoop": "桌面端不绑定 IM chat,detach 在此处无效。"
+    },
+    "slashCommands": {
+      "sessions": {
+        "description": "选择会话"
+      },
+      "session": {
+        "description": "查看 / 接入 / 退出当前会话"
+      },
+      "projects": {
+        "description": "列出所有项目"
+      },
+      "handover": {
+        "description": "把会话交班到 IM"
+      }
+    },
+    "channels": {
+      "boundAgentHint": "本渠道新建会话的默认 Agent — 切换不会迁移已存在的会话,已建会话用 /agent(桌面)或 /handover 调整。",
+      "notifyPrimaryChanges": "primary 变化提醒",
+      "notifyPrimaryChangesHint": "当该账号成为(或不再是)某 session 的 primary 接收方时,在 IM 中发送系统消息提示。"
     }
   }
 }

@@ -1,4 +1,5 @@
-use crate::channel::db::ChannelDB;
+use crate::channel::db::{ChannelDB, ATTACH_SOURCE_ATTACH};
+use crate::channel::types::{ChatType, InlineButton};
 
 /// Outcome of dispatching a slash command from an IM channel message.
 pub(super) enum ChannelSlashOutcome {
@@ -35,6 +36,7 @@ pub(super) async fn dispatch_slash_for_channel(
     account_id: &str,
     chat_id: &str,
     thread_id: Option<&str>,
+    chat_type: &ChatType,
     session_id: &str,
     agent_id: &str,
     text: &str,
@@ -393,6 +395,151 @@ pub(super) async fn dispatch_slash_for_channel(
             }
         }
 
+        // ── Session picker (`/sessions`) — buttons on supporting channels,
+        //    text list w/ short ids on the rest. `handle_session` accepts a
+        //    unique prefix so the text path stays usable.
+        Some(CommandAction::ShowSessionPicker { sessions }) => {
+            if sessions.is_empty() {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: "No active sessions.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            if supports_buttons {
+                let buttons = build_picker_buttons(
+                    "session",
+                    sessions.iter().map(|s| {
+                        let id_short: String = s.id.chars().take(8).collect();
+                        let chip = s
+                            .channel_label
+                            .as_deref()
+                            .map(|c| format!(" · {}", c))
+                            .unwrap_or_default();
+                        let label = format!("{} · {}{}", id_short, s.title, chip);
+                        (s.id.clone(), id_short, label)
+                    }),
+                );
+                Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Pick a session ({}):", sessions.len()),
+                    new_session_id: None,
+                    buttons,
+                })
+            } else {
+                Ok(ChannelSlashOutcome::Reply {
+                    content: render_session_picker_text(&sessions),
+                    new_session_id: None,
+                    buttons: vec![],
+                })
+            }
+        }
+
+        // ── /session <id> — attach this chat to the target session. ──
+        Some(CommandAction::AttachToSession {
+            session_id: target_sid,
+        }) => {
+            if let Err(e) = channel_db.attach_session(
+                channel_id,
+                account_id,
+                chat_id,
+                thread_id,
+                &target_sid,
+                ATTACH_SOURCE_ATTACH,
+                None,
+                None,
+                chat_type,
+            ) {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Attach failed: {}", e),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            // Future inbound from this chat now resolves to `target_sid`;
+            // surface the swap to the caller so it can adopt the new id.
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: Some(target_sid),
+                buttons: vec![],
+            })
+        }
+
+        // ── /session exit — detach this chat from its session. ──
+        Some(CommandAction::DetachFromSession) => {
+            match channel_db.detach_session(channel_id, account_id, chat_id, thread_id) {
+                Ok(Some(_)) => Ok(ChannelSlashOutcome::Reply {
+                    content: "Detached. Send another message to start a new session.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                }),
+                Ok(None) => Ok(ChannelSlashOutcome::Reply {
+                    content: "No session attached to this chat.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                }),
+                Err(e) => Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Detach failed: {}", e),
+                    new_session_id: None,
+                    buttons: vec![],
+                }),
+            }
+        }
+
+        // ── /project <id> from IM — re-point the chat's session to a project. ──
+        Some(CommandAction::AssignProject { project_id }) => {
+            let session_db = crate::require_session_db()?;
+            if let Err(e) = session_db.set_session_project(session_id, Some(&project_id)) {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Failed to link project: {}", e),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            Ok(ChannelSlashOutcome::Reply {
+                content: result.content,
+                new_session_id: None,
+                buttons: vec![],
+            })
+        }
+
+        // ── Project picker (`/project` / `/projects` no args). Same
+        //    button-vs-text split as the session picker; text path tells
+        //    the user to type `/project <name>` since `handle_project`
+        //    fuzzy-matches the name.
+        Some(CommandAction::ShowProjectPicker { projects }) => {
+            if projects.is_empty() {
+                return Ok(ChannelSlashOutcome::Reply {
+                    content: "No projects yet.".into(),
+                    new_session_id: None,
+                    buttons: vec![],
+                });
+            }
+            if supports_buttons {
+                let buttons = build_picker_buttons(
+                    "project",
+                    projects.iter().map(|p| {
+                        let id_short: String = p.id.chars().take(8).collect();
+                        let label = match p.emoji.as_deref() {
+                            Some(e) if !e.is_empty() => format!("{} {}", e, p.name),
+                            _ => p.name.clone(),
+                        };
+                        (p.id.clone(), id_short, label)
+                    }),
+                );
+                Ok(ChannelSlashOutcome::Reply {
+                    content: format!("Pick a project ({}):", projects.len()),
+                    new_session_id: None,
+                    buttons,
+                })
+            } else {
+                Ok(ChannelSlashOutcome::Reply {
+                    content: render_project_picker_text(&projects),
+                    new_session_id: None,
+                    buttons: vec![],
+                })
+            }
+        }
+
         // ── DisplayOnly and any unhandled actions — just return text ──
         _ => Ok(ChannelSlashOutcome::Reply {
             content: result.content,
@@ -598,6 +745,32 @@ pub(super) fn build_model_buttons_from_items(
     rows
 }
 
+/// Build a vertical inline-button list for a slash picker. Each row is
+/// `slash:<command> <id>`; if the resulting callback_data exceeds the
+/// 64-byte limit (Telegram), the truncated `id_short` is used instead.
+/// Items beyond 20 are dropped to keep the keyboard rendering tractable.
+fn build_picker_buttons(
+    command: &str,
+    items: impl Iterator<Item = (String, String, String)>,
+) -> Vec<Vec<InlineButton>> {
+    items
+        .take(20)
+        .map(|(id, id_short, label)| {
+            let cb = format!("slash:{} {}", command, id);
+            let cb = if cb.len() > 64 {
+                format!("slash:{} {}", command, id_short)
+            } else {
+                cb
+            };
+            vec![InlineButton {
+                text: label,
+                callback_data: Some(cb),
+                url: None,
+            }]
+        })
+        .collect()
+}
+
 /// Text fallback for `ShowModelPicker` on channels without inline buttons.
 /// Lists up to 20 models with the active one marked, then a one-line
 /// instruction so the user can pick by typing `/model <name>`. Same 20-cap
@@ -623,6 +796,57 @@ pub(super) fn render_model_picker_text(
     }
     if models.len() > 20 {
         lines.push(format!("… +{} more", models.len() - 20));
+    }
+    lines.join("\n")
+}
+
+/// Text fallback for `ShowSessionPicker` on channels without inline buttons.
+/// Lists up to 20 sessions with the 8-char short id (matches the button
+/// label format), then a one-line instruction. `handle_session` accepts
+/// either a full id or a unique prefix, so users on WeChat / iMessage /
+/// IRC / Signal / WhatsApp can copy the short id from the list and type
+/// `/session <short>` to attach.
+fn render_session_picker_text(
+    sessions: &[crate::slash_commands::types::SessionPickerItem],
+) -> String {
+    let mut lines = Vec::with_capacity(sessions.len().min(20) + 2);
+    lines.push("**Sessions** (use `/session <id>` to attach; 8-char prefix works):".to_string());
+    for s in sessions.iter().take(20) {
+        let id_short: String = s.id.chars().take(8).collect();
+        let chip = s
+            .channel_label
+            .as_deref()
+            .map(|c| format!(" · _{}_", c))
+            .unwrap_or_default();
+        lines.push(format!("- `{}` · {}{}", id_short, s.title, chip));
+    }
+    if sessions.len() > 20 {
+        lines.push(format!("… +{} more", sessions.len() - 20));
+    }
+    lines.join("\n")
+}
+
+/// Text fallback for `ShowProjectPicker` on channels without inline buttons.
+/// Lists up to 20 projects with their name + emoji + session count.
+/// `handle_project` already does fuzzy match on name, so the prompt
+/// instructs users to type `/project <name>`.
+fn render_project_picker_text(
+    projects: &[crate::slash_commands::types::ProjectPickerItem],
+) -> String {
+    let mut lines = Vec::with_capacity(projects.len().min(20) + 2);
+    lines.push("**Projects** (use `/project <name>` to switch):".to_string());
+    for p in projects.iter().take(20) {
+        let prefix = match p.emoji.as_deref() {
+            Some(e) if !e.is_empty() => format!("{} ", e),
+            _ => String::new(),
+        };
+        lines.push(format!(
+            "- {}**{}** — {} session(s)",
+            prefix, p.name, p.session_count
+        ));
+    }
+    if projects.len() > 20 {
+        lines.push(format!("… +{} more", projects.len() - 20));
     }
     lines.join("\n")
 }

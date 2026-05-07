@@ -9,7 +9,9 @@ use crate::provider::{ApiType, AuthProfile};
 use crate::session;
 
 use super::context::*;
+use super::im_mirror::{attach_im_mirrors, finalize_im_mirrors, ImMirrorState};
 use super::persister::StreamPersister;
+use super::sink_registry;
 use super::stream_broadcast;
 use super::stream_seq;
 use super::types::*;
@@ -83,13 +85,19 @@ fn emit_stream_event(
     source: stream_seq::ChatSource,
     event: &str,
 ) {
-    if !source.broadcasts_to_user_ui() {
+    let payload: String = if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
-        return;
-    }
-    let (enveloped, seq, stream_id) = stream_broadcast::inject_seq(session_id, event);
-    event_sink.send(&enveloped);
-    stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
+        event.to_string()
+    } else {
+        let (enveloped, seq, stream_id) = stream_broadcast::inject_seq(session_id, event);
+        event_sink.send(&enveloped);
+        stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
+        enveloped
+    };
+    // Fan-out to any extra sinks attached to this session (handover targets,
+    // /session <id> observers, GUI ↔ IM mirrors). The primary `event_sink`
+    // above is intentionally not registered, so each consumer fires once.
+    sink_registry::sink_registry().emit(session_id, &payload);
 }
 
 // ── Core Chat Engine ────────────────────────────────────────────────
@@ -178,6 +186,15 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     }
 
     let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source)?;
+
+    // Attach IM-mirror sinks for any primary attach this session has
+    // (Phase B7 follow-up). No-op for non-Desktop / non-Http sources.
+    // The state is held to the end of `run_chat_engine` so each
+    // mirror's stream task stays alive while the engine streams; the
+    // success path moves the state into `finalize_im_mirrors` to flush
+    // the final reply, and any error / early return drops the state so
+    // every sink detaches and every stream task observes channel-close.
+    let mut im_mirrors: ImMirrorState = attach_im_mirrors(&session_id, source);
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -569,6 +586,20 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 );
                             }
                         }
+                    }
+
+                    // GUI / HTTP turns flush IM mirrors here: drop every
+                    // mirror's event_tx so each preview-stream task
+                    // observes channel-close and returns its final
+                    // preview message id, then either edit_message
+                    // (preview existed) or send_message (no preview)
+                    // chunks of the final response per mirror. Subagent /
+                    // ParentInjection / Channel sources never reach this
+                    // branch with non-empty `im_mirrors` (see
+                    // `attach_im_mirrors` source filter), so the no-op
+                    // case is cheap.
+                    if !im_mirrors.is_empty() {
+                        finalize_im_mirrors(std::mem::take(&mut im_mirrors), &response).await;
                     }
 
                     return Ok(ChatEngineResult {

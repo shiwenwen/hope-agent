@@ -3,7 +3,14 @@ use super::types::{CommandCategory, SlashCommandDef};
 /// Commands that should not be exposed in IM channels (Discord / Telegram /
 /// Slack slash-command menus). The handler layer also self-checks via
 /// `session.channel_info` to refuse execution if a user types one anyway.
-pub const IM_DISABLED_COMMANDS: &[&str] = &["project", "agent"];
+///
+/// `/agent` stays disabled in IM (creating a new session under a different
+/// agent loses the channel-conversation context). `/handover` is GUI-only —
+/// pushing the current session out to a different chat from inside that chat
+/// has no useful semantics. `/project` is now allowed: it re-points the
+/// current chat's session to a project (replacing the legacy reverse-claim
+/// model that Phase A1 removed).
+pub const IM_DISABLED_COMMANDS: &[&str] = &["agent", "handover"];
 
 /// Whether a command is suppressed from the IM channel slash-command menu.
 pub fn is_im_disabled(name: &str) -> bool {
@@ -72,6 +79,46 @@ pub fn all_commands() -> Vec<SlashCommandDef> {
             args_optional: true,
             arg_placeholder: Some("[project name]".into()),
             // Dynamic — front-end fetches via `ShowProjectPicker` action.
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
+            name: "projects".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.projects.description".into(),
+            has_args: false,
+            args_optional: false,
+            arg_placeholder: None,
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
+            name: "sessions".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.sessions.description".into(),
+            has_args: false,
+            args_optional: false,
+            arg_placeholder: None,
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
+            name: "session".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.session.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[<id> | exit]".into()),
+            arg_options: None,
+            description_raw: None,
+        },
+        SlashCommandDef {
+            name: "handover".into(),
+            category: CommandCategory::Session,
+            description_key: "slashCommands.handover.description".into(),
+            has_args: true,
+            args_optional: true,
+            arg_placeholder: Some("[channel:account:chat[:thread]]".into()),
             arg_options: None,
             description_raw: None,
         },

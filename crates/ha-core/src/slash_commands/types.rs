@@ -115,12 +115,38 @@ pub enum CommandAction {
     /// IM channels: falls back to `CommandResult.content` markdown.
     ShowContextBreakdown { breakdown: ContextBreakdown },
     /// Show an interactive project picker card. Desktop renders a clickable
-    /// list; IM channels fall back to text since `/project` is forbidden in
-    /// IM context anyway.
+    /// list; IM channels render inline buttons.
     ShowProjectPicker { projects: Vec<ProjectPickerItem> },
     /// Enter a project — frontend should create a new session inside the
     /// project (using its `default_agent_id` if set) and switch to it.
     EnterProject { project_id: String },
+    /// Bind the current session to a project (used by `/project <id>` from
+    /// inside an IM chat). Desktop falls back to `EnterProject`; IM updates
+    /// `sessions.project_id` of the chat's current session in place.
+    AssignProject { project_id: String },
+    /// Show an interactive session picker card. Desktop renders a list;
+    /// IM channels render inline buttons keyed by session id (one row each).
+    ShowSessionPicker { sessions: Vec<SessionPickerItem> },
+    /// Open the given session — desktop switches the active session, IM
+    /// channels treat it as `AttachToSession`.
+    EnterSession { session_id: String },
+    /// Attach the current IM chat to `session_id` (used by `/session <id>`).
+    /// Desktop has no analog; if reached on desktop, treat as `EnterSession`.
+    AttachToSession { session_id: String },
+    /// Detach the current IM chat from its session (used by `/session exit`).
+    /// On desktop the action is a no-op (no chat-to-session binding to
+    /// release).
+    DetachFromSession,
+    /// Hand the current session over to an IM chat — pushes a new attach row
+    /// for (channel, account, chat, thread) and promotes it to primary.
+    /// Used by GUI `/handover` and the GUI Handover dialog.
+    HandoverToChannel {
+        session_id: String,
+        channel_id: String,
+        account_id: String,
+        chat_id: String,
+        thread_id: Option<String>,
+    },
 }
 
 /// Structured per-category context window usage snapshot.
@@ -205,6 +231,10 @@ impl SlashCommandDef {
             "imreply" => "Set IM reply mode (split|final|preview)",
             "reason" => "Toggle whether the model's thinking is shown in IM messages",
             "project" => "Switch to or pick a project",
+            "projects" => "List all projects",
+            "sessions" => "Pick a session",
+            "session" => "Show / attach / exit current chat's session",
+            "handover" => "Hand the current session over to an IM chat",
             _ => "Command",
         }
         .to_string()
@@ -236,4 +266,30 @@ pub struct ProjectPickerItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub session_count: u32,
+}
+
+/// A single session entry for the session picker card surfaced by `/sessions`.
+/// Filtered set: user-conversation sessions only (excluding incognito,
+/// cron-driven, and subagent child sessions).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionPickerItem {
+    pub id: String,
+    /// Display title (auto-generated from first message when not user-set).
+    pub title: String,
+    /// Agent that owns the session — surfaced so users can pick a session
+    /// running with the agent they want.
+    pub agent_id: String,
+    /// Project id when the session is assigned to one, else `None`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
+    /// `Some(label)` when the session is currently surfaced from an IM chat
+    /// (rendered as a small chip in the picker so the user knows it's
+    /// shared with IM).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel_label: Option<String>,
+    /// RFC3339 timestamp — most-recent activity, used by the picker for
+    /// ordering / display. Matches `SessionMeta.updated_at` shape so the
+    /// picker can be built without re-parsing.
+    pub updated_at: String,
 }

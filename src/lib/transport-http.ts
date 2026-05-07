@@ -451,6 +451,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   channel_list_sessions:           { method: "GET",    path: "/api/channel/sessions" },
   channel_wechat_start_login:      { method: "POST",   path: "/api/channel/wechat/login/start" },
   channel_wechat_wait_login:       { method: "POST",   path: "/api/channel/wechat/login/wait" },
+  channel_handover_session:        { method: "POST",   path: "/api/channel/handover" },
 
   // -- Subagent --
   list_subagent_runs:              { method: "GET",    path: "/api/subagent/runs" },
