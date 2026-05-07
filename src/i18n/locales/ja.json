@@ -3702,7 +3702,7 @@
       "description": "現在のセッションを表示 / 接続 / 終了"
     },
     "sessions": {
-      "description": "セッションを選択"
+      "description": "セッションを選択（検索クエリは任意）"
     },
     "status": {
       "description": "セッション状態"

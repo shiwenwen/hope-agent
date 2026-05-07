@@ -3702,7 +3702,7 @@
       "description": "Hiển thị / kết nối / thoát phiên hiện tại"
     },
     "sessions": {
-      "description": "Chọn phiên"
+      "description": "Chọn phiên (tùy chọn truy vấn tìm kiếm)"
     },
     "status": {
       "description": "Trạng thái phiên"

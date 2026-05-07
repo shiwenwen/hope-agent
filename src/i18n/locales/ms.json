@@ -3702,7 +3702,7 @@
       "description": "Tunjuk / sambung / keluar sesi semasa"
     },
     "sessions": {
-      "description": "Pilih sesi"
+      "description": "Pilih sesi (kueri carian pilihan)"
     },
     "status": {
       "description": "Status sesi"

@@ -399,29 +399,36 @@ pub(super) async fn dispatch_slash_for_channel(
         //    text list w/ short ids on the rest. `handle_session` accepts a
         //    unique prefix so the text path stays usable.
         Some(CommandAction::ShowSessionPicker { sessions }) => {
+            // Empty-picker text comes from the handler so the no-query
+            // case ("No active sessions.") and the no-match case ("No
+            // sessions match `foo`.") stay distinct on IM surfaces.
             if sessions.is_empty() {
                 return Ok(ChannelSlashOutcome::Reply {
-                    content: "No active sessions.".into(),
+                    content: result.content,
                     new_session_id: None,
                     buttons: vec![],
                 });
             }
             if supports_buttons {
+                // Body shows the first SESSION_PICKER_BODY_LIMIT rows with
+                // chips; the rest stay reachable through inline buttons.
+                // Telegram caps single messages at 4096 chars and Discord
+                // at 2000, so 30 rows × ~200 bytes/row easily overflows.
                 let buttons = build_picker_buttons(
                     "session",
                     sessions.iter().map(|s| {
                         let id_short: String = s.id.chars().take(8).collect();
-                        let chip = s
-                            .channel_label
-                            .as_deref()
-                            .map(|c| format!(" · {}", c))
-                            .unwrap_or_default();
-                        let label = format!("{} · {}{}", id_short, s.title, chip);
+                        let agent_chip = if s.agent_label.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" · {}", s.agent_label)
+                        };
+                        let label = format!("{} · {}{}", id_short, s.title, agent_chip);
                         (s.id.clone(), id_short, label)
                     }),
                 );
                 Ok(ChannelSlashOutcome::Reply {
-                    content: format!("Pick a session ({}):", sessions.len()),
+                    content: render_session_picker_buttons_body(&sessions),
                     new_session_id: None,
                     buttons,
                 })
@@ -800,28 +807,62 @@ pub(super) fn render_model_picker_text(
     lines.join("\n")
 }
 
-/// Text fallback for `ShowSessionPicker` on channels without inline buttons.
-/// Lists up to 20 sessions with the 8-char short id (matches the button
-/// label format), then a one-line instruction. `handle_session` accepts
-/// either a full id or a unique prefix, so users on WeChat / iMessage /
-/// IRC / Signal / WhatsApp can copy the short id from the list and type
-/// `/session <short>` to attach.
+/// Body row caps for `ShowSessionPicker` on IM channels. Picker rows can
+/// reach ~280 bytes (chip line + 160-byte FTS snippet), and Discord caps
+/// single messages at 2000 chars / Telegram at 4096; staying well below
+/// both limits avoids silent send failures while keeping the picker
+/// useful. The buttons branch shows fewer rows because the inline buttons
+/// already let users pick the truncated tail.
+const SESSION_PICKER_BUTTONS_BODY_LIMIT: usize = 8;
+const SESSION_PICKER_TEXT_BODY_LIMIT: usize = 12;
+
+/// Body for the buttons branch of `ShowSessionPicker` — header plus the
+/// first `SESSION_PICKER_BUTTONS_BODY_LIMIT` rows with chips. Sessions
+/// past the cap stay reachable via the inline buttons rendered alongside.
+fn render_session_picker_buttons_body(
+    sessions: &[crate::slash_commands::types::SessionPickerItem],
+) -> String {
+    let total = sessions.len();
+    let mut lines: Vec<String> =
+        vec![format!("Pick a session ({}):", total)];
+    for s in sessions.iter().take(SESSION_PICKER_BUTTONS_BODY_LIMIT) {
+        lines.push(
+            crate::slash_commands::handlers::session::format_session_picker_line(s),
+        );
+    }
+    if total > SESSION_PICKER_BUTTONS_BODY_LIMIT {
+        lines.push(format!(
+            "… +{} more (use the buttons below)",
+            total - SESSION_PICKER_BUTTONS_BODY_LIMIT
+        ));
+    }
+    lines.join("\n")
+}
+
+/// Text fallback for `ShowSessionPicker` on channels without inline
+/// buttons. `handle_session` accepts either a full id or a unique prefix,
+/// so users on WeChat / iMessage / IRC / Signal / WhatsApp copy the short
+/// id and type `/session <short>` to attach.
 fn render_session_picker_text(
     sessions: &[crate::slash_commands::types::SessionPickerItem],
 ) -> String {
-    let mut lines = Vec::with_capacity(sessions.len().min(20) + 2);
-    lines.push("**Sessions** (use `/session <id>` to attach; 8-char prefix works):".to_string());
-    for s in sessions.iter().take(20) {
-        let id_short: String = s.id.chars().take(8).collect();
-        let chip = s
-            .channel_label
-            .as_deref()
-            .map(|c| format!(" · _{}_", c))
-            .unwrap_or_default();
-        lines.push(format!("- `{}` · {}{}", id_short, s.title, chip));
+    let total = sessions.len();
+    let mut lines = Vec::with_capacity(total.min(SESSION_PICKER_TEXT_BODY_LIMIT) + 2);
+    lines.push(
+        "**Sessions** (use `/session <id>` to attach; 8-char prefix works; \
+         filter via `/sessions <query>`):"
+            .to_string(),
+    );
+    for s in sessions.iter().take(SESSION_PICKER_TEXT_BODY_LIMIT) {
+        lines.push(
+            crate::slash_commands::handlers::session::format_session_picker_line(s),
+        );
     }
-    if sessions.len() > 20 {
-        lines.push(format!("… +{} more", sessions.len() - 20));
+    if total > SESSION_PICKER_TEXT_BODY_LIMIT {
+        lines.push(format!(
+            "… +{} more (refine via `/sessions <query>`)",
+            total - SESSION_PICKER_TEXT_BODY_LIMIT
+        ));
     }
     lines.join("\n")
 }

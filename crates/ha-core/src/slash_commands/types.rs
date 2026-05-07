@@ -232,7 +232,7 @@ impl SlashCommandDef {
             "reason" => "Toggle whether the model's thinking is shown in IM messages",
             "project" => "Switch to or pick a project",
             "projects" => "List all projects",
-            "sessions" => "Pick a session",
+            "sessions" => "Pick a session (optional search query)",
             "session" => "Show / attach / exit current chat's session",
             "handover" => "Hand the current session over to an IM chat",
             _ => "Command",
@@ -280,9 +280,17 @@ pub struct SessionPickerItem {
     /// Agent that owns the session — surfaced so users can pick a session
     /// running with the agent they want.
     pub agent_id: String,
+    /// Friendly agent display label (`AgentConfig.name` if set, else
+    /// `agent_id`). Resolved by the handler so picker renderers don't have
+    /// to load agent definitions themselves.
+    pub agent_label: String,
     /// Project id when the session is assigned to one, else `None`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_id: Option<String>,
+    /// Project display label (emoji + name) when assigned. Resolved by the
+    /// handler so picker renderers don't have to hit the project DB.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_label: Option<String>,
     /// `Some(label)` when the session is currently surfaced from an IM chat
     /// (rendered as a small chip in the picker so the user knows it's
     /// shared with IM).
@@ -292,4 +300,11 @@ pub struct SessionPickerItem {
     /// ordering / display. Matches `SessionMeta.updated_at` shape so the
     /// picker can be built without re-parsing.
     pub updated_at: String,
+    /// `Some(text)` when the session was surfaced via message-content FTS
+    /// match (i.e. `/sessions <query>` matched inside a message rather than
+    /// the session metadata). Caller-formatted snippet, already stripped of
+    /// the FTS5 mark sentinels — pickers render it on a second line so the
+    /// user can see the match context without opening the session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub snippet: Option<String>,
 }

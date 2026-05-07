@@ -2511,6 +2511,56 @@ impl SessionDB {
         Ok(results)
     }
 
+    /// FTS5 search that returns up to `limit` *distinct* sessions (best-rank
+    /// snippet per session). Unlike `search_messages`, the limit is applied
+    /// at session granularity, so a single chatty session can't crowd out
+    /// other matching sessions in the results.
+    ///
+    /// Used by the `/sessions <query>` picker so a common term doesn't lose
+    /// matches just because one session has dozens of hits. Excludes
+    /// incognito sessions (the global-search invariant matches
+    /// `search_messages` with `session_id = None`).
+    pub fn search_distinct_session_snippets(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<(String, String)>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let fts_query = sanitize_fts_query(query);
+        if fts_query.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Window function partitions by session and keeps the top-ranked
+        // hit per session before applying the LIMIT, so 100 hits in one
+        // session don't displace single-hit sessions further down.
+        let sql = format!(
+            "SELECT session_id, snippet FROM (
+                 SELECT m.session_id AS session_id,
+                        snippet(messages_fts, 0, '\x02', '\x03', '…', 16) AS snippet,
+                        fts.rank AS rank,
+                        ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY fts.rank) AS rn
+                 FROM messages_fts fts
+                 JOIN messages m ON m.id = fts.rowid
+                 JOIN sessions s ON s.id = m.session_id
+                 WHERE messages_fts MATCH ?1 AND s.incognito = 0
+             ) WHERE rn = 1
+             ORDER BY rank
+             LIMIT {}",
+            limit
+        );
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows =
+            stmt.query_map(params![fts_query], |row| Ok((row.get(0)?, row.get(1)?)))?;
+        let results: Vec<(String, String)> = rows.filter_map(|r| r.ok()).collect();
+        Ok(results)
+    }
+
     /// Load a window of messages around a target message id.
     ///
     /// Returns `(messages_in_asc_order, total_count, has_more_before,
@@ -2940,6 +2990,19 @@ fn sanitize_fts_query(query: &str) -> String {
         .map(|t| format!("\"{}\"", t.replace('"', "")))
         .collect();
     tokens.join(" ")
+}
+
+/// Strip the FTS5 snippet sentinels (STX/ETX = U+0002/U+0003) emitted by
+/// `snippet(messages_fts, 0, …)` calls. Frontends that render `<mark>`
+/// split on these bytes; surfaces without a `<mark>` rendering pipeline
+/// (slash pickers, plain-text IM replies) want the bare text instead.
+/// Also collapses newlines to spaces and UTF-8-safe truncates to
+/// `max_bytes`.
+pub(crate) fn strip_fts_snippet_sentinels(raw: &str, max_bytes: usize) -> String {
+    let cleaned = raw
+        .replace(['\u{0002}', '\u{0003}'], "")
+        .replace(['\n', '\r'], " ");
+    crate::truncate_utf8(cleaned.trim(), max_bytes).to_string()
 }
 
 /// Filter sessions by their project assignment in `list_sessions_paged`.

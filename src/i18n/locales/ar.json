@@ -3702,7 +3702,7 @@
       "description": "عرض / اتصال / خروج من الجلسة الحالية"
     },
     "sessions": {
-      "description": "اختر جلسة"
+      "description": "اختر جلسة (استعلام بحث اختياري)"
     },
     "status": {
       "description": "حالة الجلسة"

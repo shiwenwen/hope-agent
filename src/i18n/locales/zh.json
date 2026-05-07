@@ -3702,7 +3702,7 @@
       "description": "查看 / 接入 / 退出当前会话"
     },
     "sessions": {
-      "description": "选择会话"
+      "description": "选择会话（可输入关键词搜索）"
     },
     "status": {
       "description": "显示会话状态"

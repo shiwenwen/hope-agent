@@ -3702,7 +3702,7 @@
       "description": "Mostrar, conectar o salir de la sesión actual"
     },
     "sessions": {
-      "description": "Elegir una sesión"
+      "description": "Elegir una sesión (consulta opcional)"
     },
     "status": {
       "description": "Estado de la sesión"

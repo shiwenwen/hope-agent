@@ -7,6 +7,14 @@ use std::sync::Arc;
 /// buttons without truncation.
 const SESSION_PICKER_LIMIT: usize = 30;
 
+/// FTS5 distinct-session cap. SQL-level dedupe means this is in distinct
+/// sessions, not raw messages — set to picker limit since we'll truncate
+/// to it anyway after the metadata-match union.
+const SESSION_FTS_LIMIT: usize = SESSION_PICKER_LIMIT;
+
+/// Snippet length cap (some IM platforms wrap long lines awkwardly).
+const SESSION_PICKER_SNIPPET_BYTES: usize = 160;
+
 /// /new — Create a new session, returning a markdown receipt with the agent
 /// name, project (if any), and effective working directory.
 pub fn handle_new(session_db: &Arc<SessionDB>, agent_id: &str) -> Result<CommandResult, String> {
@@ -77,60 +85,216 @@ pub fn handle_rename(
     })
 }
 
-/// /sessions — picker of user-conversation sessions, filtering out cron-driven,
-/// subagent-child, and incognito sessions (see `SessionMeta.is_regular_chat`
-/// for the policy rationale).
-pub fn handle_sessions(session_db: &Arc<SessionDB>) -> Result<CommandResult, String> {
+/// /sessions [query] — picker of user-conversation sessions, filtering out
+/// cron-driven, subagent-child, and incognito sessions (see
+/// `SessionMeta.is_regular_chat` for the policy rationale). When `args` is
+/// non-empty it acts as a case-insensitive filter that matches sessions if
+/// **either** the session metadata (title, short id, agent label, project
+/// label, IM channel label) **or** any message body (FTS5) contains the
+/// query — important for IM users who can't visually scroll a sidebar nor
+/// open Cmd+F.
+pub fn handle_sessions(
+    session_db: &Arc<SessionDB>,
+    args: &str,
+) -> Result<CommandResult, String> {
+    let query = args.trim();
     let all = session_db.list_sessions(None).map_err(|e| e.to_string())?;
-    // `list_sessions` already excludes incognito. Filter out cron + subagent
-    // children — channel-bound sessions stay in the list (they're real user
-    // conversations, just surfaced from IM).
-    let candidates: Vec<crate::session::SessionMeta> = all
-        .into_iter()
-        .filter(|s| !s.is_cron && s.parent_session_id.is_none())
-        .take(SESSION_PICKER_LIMIT)
-        .collect();
 
-    let picker_items: Vec<SessionPickerItem> = candidates
+    // Friendly agent display names; one IO per /sessions, fall back to bare
+    // ids on error. `list_agents` also reads memory counts we discard —
+    // acceptable since /sessions is user-initiated.
+    let agent_names: std::collections::HashMap<String, String> =
+        crate::agent_loader::list_agents()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|a| (a.id, a.name))
+            .collect();
+    let project_db = crate::globals::get_project_db();
+
+    // No-query path caps before building picker items; query path keeps the
+    // full set so search reaches beyond the most-recent 30.
+    let mut filtered = all
+        .into_iter()
+        .filter(|s| !s.is_cron && s.parent_session_id.is_none());
+    let candidates: Vec<crate::session::SessionMeta> = if query.is_empty() {
+        filtered.by_ref().take(SESSION_PICKER_LIMIT).collect()
+    } else {
+        filtered.collect()
+    };
+
+    // ProjectDB.get hits SQLite each call; cache by id (including misses).
+    let mut project_label_cache: std::collections::HashMap<String, Option<String>> =
+        std::collections::HashMap::new();
+
+    let mut picker_items: Vec<SessionPickerItem> = candidates
         .iter()
-        .map(|s| SessionPickerItem {
-            id: s.id.clone(),
-            title: s.title.clone().unwrap_or_else(|| "(untitled)".to_string()),
-            agent_id: s.agent_id.clone(),
-            project_id: s.project_id.clone(),
-            channel_label: s.channel_info.as_ref().map(|c| {
-                let chat = c.sender_name.clone().unwrap_or_else(|| c.chat_id.clone());
-                format!("{} · {}", c.channel_id, chat)
-            }),
-            updated_at: s.updated_at.clone(),
+        .map(|s| {
+            build_picker_item(s, &agent_names, project_db, &mut project_label_cache)
         })
         .collect();
 
-    let content = if picker_items.is_empty() {
-        "No active sessions.".to_string()
-    } else {
-        let mut lines = vec![format!("**Sessions** ({})", picker_items.len())];
-        for s in picker_items.iter().take(10) {
-            let id_short: String = s.id.chars().take(8).collect();
-            let chip = s
-                .channel_label
-                .as_deref()
-                .map(|c| format!(" · _{}_", c))
-                .unwrap_or_default();
-            lines.push(format!("- `{}` · {}{}", id_short, s.title, chip));
-        }
-        if picker_items.len() > 10 {
-            lines.push(format!("…and {} more", picker_items.len() - 10));
-        }
-        lines.join("\n")
-    };
+    if !query.is_empty() {
+        apply_query_filter(&mut picker_items, query, session_db);
+    }
 
+    let total = picker_items.len();
+    picker_items.truncate(SESSION_PICKER_LIMIT);
+
+    let content = render_picker_content(&picker_items, query, total);
     Ok(CommandResult {
         content,
         action: Some(CommandAction::ShowSessionPicker {
             sessions: picker_items,
         }),
     })
+}
+
+/// Apply `/sessions <query>` filter: metadata substring ∪ FTS5 message-body
+/// match. `picker_items` covers the non-cron / non-subagent / non-incognito
+/// candidate set, so retain over that set automatically drops cron /
+/// subagent FTS hits.
+fn apply_query_filter(
+    picker_items: &mut Vec<SessionPickerItem>,
+    query: &str,
+    session_db: &Arc<SessionDB>,
+) {
+    // Lowercase fields once per session; otherwise we'd re-allocate them
+    // for each haystack on every retain visit.
+    let needle = query.to_lowercase();
+    let metadata_hits: std::collections::HashSet<String> = picker_items
+        .iter()
+        .filter(|s| session_matches_query(s, &needle))
+        .map(|s| s.id.clone())
+        .collect();
+
+    // search_distinct_session_snippets dedupes at the SQL level so a single
+    // chatty session can't crowd out other matching sessions inside the
+    // FTS limit.
+    let fts_pairs = session_db
+        .search_distinct_session_snippets(query, SESSION_FTS_LIMIT)
+        .unwrap_or_default();
+    let fts_snippets: std::collections::HashMap<String, String> = fts_pairs
+        .into_iter()
+        .map(|(sid, raw)| {
+            (
+                sid,
+                crate::session::strip_fts_snippet_sentinels(
+                    &raw,
+                    SESSION_PICKER_SNIPPET_BYTES,
+                ),
+            )
+        })
+        .collect();
+
+    for item in picker_items.iter_mut() {
+        if let Some(snippet) = fts_snippets.get(&item.id) {
+            item.snippet = Some(snippet.clone());
+        }
+    }
+    picker_items
+        .retain(|s| metadata_hits.contains(&s.id) || fts_snippets.contains_key(&s.id));
+}
+
+fn render_picker_content(items: &[SessionPickerItem], query: &str, total: usize) -> String {
+    if items.is_empty() {
+        return if query.is_empty() {
+            "No active sessions.".to_string()
+        } else {
+            format!("No sessions match `{}`.", query)
+        };
+    }
+    let header = if query.is_empty() {
+        format!("**Sessions** ({})", total)
+    } else {
+        format!("**Sessions** matching `{}` ({})", query, total)
+    };
+    let mut lines = vec![header];
+    for s in items.iter().take(10) {
+        lines.push(format_session_picker_line(s));
+    }
+    if total > 10 {
+        lines.push(format!("…and {} more", total - 10));
+    }
+    lines.join("\n")
+}
+
+fn build_picker_item(
+    s: &crate::session::SessionMeta,
+    agent_names: &std::collections::HashMap<String, String>,
+    project_db: Option<&Arc<crate::project::ProjectDB>>,
+    project_label_cache: &mut std::collections::HashMap<String, Option<String>>,
+) -> SessionPickerItem {
+    let agent_label = agent_names
+        .get(&s.agent_id)
+        .filter(|n| !n.is_empty())
+        .cloned()
+        .unwrap_or_else(|| s.agent_id.clone());
+    let project_label = s.project_id.as_deref().and_then(|pid| {
+        project_label_cache
+            .entry(pid.to_string())
+            .or_insert_with(|| {
+                project_db
+                    .and_then(|db| db.get(pid).ok().flatten())
+                    .map(|p| p.display_label())
+            })
+            .clone()
+    });
+    SessionPickerItem {
+        id: s.id.clone(),
+        title: s.title.clone().unwrap_or_else(|| "(untitled)".to_string()),
+        agent_id: s.agent_id.clone(),
+        agent_label,
+        project_id: s.project_id.clone(),
+        project_label,
+        channel_label: s.channel_info.as_ref().map(|c| {
+            let chat = c.sender_name.clone().unwrap_or_else(|| c.chat_id.clone());
+            format!("{} · {}", c.channel_id, chat)
+        }),
+        updated_at: s.updated_at.clone(),
+        snippet: None,
+    }
+}
+
+fn session_matches_query(s: &SessionPickerItem, needle_lower: &str) -> bool {
+    let id_short: String = s.id.chars().take(8).collect();
+    let haystacks: [&str; 5] = [
+        &s.title,
+        &id_short,
+        &s.agent_label,
+        s.project_label.as_deref().unwrap_or(""),
+        s.channel_label.as_deref().unwrap_or(""),
+    ];
+    haystacks
+        .iter()
+        .any(|h| !h.is_empty() && h.to_lowercase().contains(needle_lower))
+}
+
+/// Format one session row for the markdown body of `/sessions`. Shared by
+/// the slash handler (GUI markdown) and the channel text-fallback so the
+/// two surfaces stay aligned. When the session was matched via message-body
+/// FTS, a second indented line shows the matched snippet.
+pub(crate) fn format_session_picker_line(s: &SessionPickerItem) -> String {
+    let id_short: String = s.id.chars().take(8).collect();
+    let mut chips: Vec<String> = Vec::with_capacity(3);
+    if !s.agent_label.is_empty() {
+        chips.push(format!("agent: {}", s.agent_label));
+    }
+    if let Some(pl) = s.project_label.as_deref() {
+        chips.push(format!("project: {}", pl));
+    }
+    if let Some(cl) = s.channel_label.as_deref() {
+        chips.push(cl.to_string());
+    }
+    let suffix = if chips.is_empty() {
+        String::new()
+    } else {
+        format!(" · _{}_", chips.join(" · "))
+    };
+    let head = format!("- `{}` · {}{}", id_short, s.title, suffix);
+    match s.snippet.as_deref() {
+        Some(sn) if !sn.is_empty() => format!("{}\n  > {}", head, sn),
+        _ => head,
+    }
 }
 
 /// /session — show / attach / exit. Sub-actions:

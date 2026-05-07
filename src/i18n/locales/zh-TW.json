@@ -3702,7 +3702,7 @@
       "description": "查看 / 接入 / 退出目前工作階段"
     },
     "sessions": {
-      "description": "選擇工作階段"
+      "description": "選擇工作階段（可輸入關鍵字搜尋）"
     },
     "status": {
       "description": "顯示會話狀態"

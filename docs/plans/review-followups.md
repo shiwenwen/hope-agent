@@ -30,6 +30,37 @@
 
 ## Open
 
+### F-063 `/sessions` 搜索：picker 期 `list_agents()` / `list_sessions(None)` 仍是全量 IO
+
+- **来源**：2026-05-07 `/sessions` 搜索能力 PR / `/simplify` review
+- **现象**：[`crates/ha-core/src/slash_commands/handlers/session.rs::handle_sessions`](../../crates/ha-core/src/slash_commands/handlers/session.rs) 每次调用都跑：
+  1. [`agent_loader::list_agents`](../../crates/ha-core/src/agent_loader.rs#L359) — 读全部 agent.json + 每个 agent 一次 SQLite `count(memory)`，但 picker 只用 `id → name` 映射
+  2. `list_sessions(None)` — 拉全部 SessionMeta 行；no-query 路径接着 `take(30)` 丢弃后续
+- **为什么留**：`/sessions` 是用户手动触发，非热点。当前 ≤ 10 agents、≤ 1k sessions 量级感觉不到延迟
+- **改的话要做什么**：
+  - `agent_loader` 加轻量 `list_agent_names() -> HashMap<String, String>` 跳过 memory_count（参照已有 `list_agent_ids` at `agent_loader.rs:429`）
+  - no-query 分支换 `list_sessions_paged(None, All, Some(SESSION_PICKER_LIMIT_OVERFETCH), None, None)` —— 注意 `list_sessions_paged` 不在 SQL 层过滤 `is_cron` / `parent_session_id`，得 over-fetch 后再 filter+truncate（如 limit=100 给 cron/subagent 留头）
+- **影响面**：纯性能；当前不会引发 bug
+- **触发时机建议**：有用户报告 1k+ sessions 库下 `/sessions` 卡顿时；或重构 `list_sessions_paged` 加入 type filter 时一并处理
+
+### F-064 Project emoji+name 拼接在 `channel/worker/slash.rs` 仍有两处内联
+
+- **来源**：2026-05-07 `/sessions` 搜索能力 PR / `/simplify` review
+- **现象**：本期已在 [`Project::display_label()`](../../crates/ha-core/src/project/types.rs) 抽出 emoji+name 格式化 helper，并在 `slash_commands/handlers/session.rs::build_picker_item` 用上。但 [`channel/worker/slash.rs:534-537`](../../crates/ha-core/src/channel/worker/slash.rs)（项目按钮 label）和 [`channel/worker/slash.rs:852-855`](../../crates/ha-core/src/channel/worker/slash.rs)（项目 picker text fallback）仍内联同一格式
+- **为什么留**：两处是 pre-existing 代码、与 `/sessions` PR 主题无关，同 PR 改会扩散 diff
+- **改的话要做什么**：把两处内联换成 `project.display_label()`（注意：那两处用的是 `ProjectPickerItem`，不是 `Project`，可能要在 `ProjectPickerItem` 上挂同名 helper 或 builder 时套）
+- **影响面**：纯代码重复
+- **触发时机建议**：下一次动 channel slash worker 项目 picker 渲染时
+
+### F-065 `/sessions` 消息内容 FTS 搜索还有重复显示问题（GUI）
+
+- **来源**：2026-05-07 `/sessions` 搜索能力 PR
+- **现象**：[`src/components/chat/ChatScreen.tsx`](../../src/components/chat/ChatScreen.tsx) 的 `case "showSessionPicker"` 把 `result.content`（Rust 端组装好的 markdown body）push 一遍，再用 `action.sessions` 自己拼一遍 markdown push 第二遍 —— 用户看到两条几乎一样的 event 消息。`showProjectPicker` 同款问题（pre-existing）
+- **为什么留**：本期是搜索功能 PR，重构事件渲染契约不在主题
+- **改的话要做什么**：要么 `result.content` 在 picker action 时不 push；要么 action handler 不再自拼 markdown（直接信任 `result.content`）。后者更彻底但要 i18n 在 server 端做
+- **影响面**：UX 视觉冗余，但不影响功能
+- **触发时机建议**：做 picker UI / event 消息系统重构时一并处理
+
 ### F-057 IM channel 主动消息 / 媒体能力补完（跨 channel）
 
 - **来源**：2026-05-05 IM channel 全量审计 + 2026-05-06 codex review 回归

@@ -971,16 +971,22 @@ export default function ChatScreen({
         }
         case "showSessionPicker": {
           // Markdown list, mirroring the showProjectPicker fallback. Each
-          // row carries the short id + title + optional channel chip; the
+          // row carries the short id + title + agent / project / channel
+          // chips so users can spot the right session at a glance; the
           // user types `/session <id>` (or clicks in the sidebar) to switch.
           const lines = [t("chat.pickSession") + ":"]
           for (const s of action.sessions) {
             const idShort = s.id.slice(0, 8)
-            const chip = s.channelLabel ? ` · _${s.channelLabel}_` : ""
-            lines.push(`- \`${idShort}\` · ${s.title}${chip}`)
+            const chips: string[] = []
+            if (s.agentLabel) chips.push(`agent: ${s.agentLabel}`)
+            if (s.projectLabel) chips.push(`project: ${s.projectLabel}`)
+            if (s.channelLabel) chips.push(s.channelLabel)
+            const suffix = chips.length ? ` · _${chips.join(" · ")}_` : ""
+            lines.push(`- \`${idShort}\` · ${s.title}${suffix}`)
+            if (s.snippet) lines.push(`  > ${s.snippet}`)
           }
           lines.push("")
-          lines.push("> `/session <id>`")
+          lines.push("> `/session <id>` · `/sessions <query>`")
           const pickerMsg: Message = {
             role: "event",
             content: lines.join("\n"),

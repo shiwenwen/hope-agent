@@ -3702,7 +3702,7 @@
       "description": "현재 세션 표시 / 연결 / 종료"
     },
     "sessions": {
-      "description": "세션 선택"
+      "description": "세션 선택 (검색어는 선택)"
     },
     "status": {
       "description": "세션 상태"

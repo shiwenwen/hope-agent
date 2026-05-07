@@ -3702,7 +3702,7 @@
       "description": "Mevcut oturumu göster / bağlan / çık"
     },
     "sessions": {
-      "description": "Bir oturum seç"
+      "description": "Bir oturum seç (isteğe bağlı arama)"
     },
     "status": {
       "description": "Oturum durumu"

@@ -103,12 +103,22 @@ export interface SessionPickerItem {
   id: string
   title: string
   agentId: string
+  /** Friendly agent name (`AgentConfig.name`), falling back to `agentId`.
+   *  Resolved server-side. */
+  agentLabel: string
   projectId?: string | null
+  /** Project display label (emoji + name) when the session is assigned to
+   *  a project. Resolved server-side. */
+  projectLabel?: string | null
   /** When set, the session is currently surfaced by an IM chat. Display as
    *  a small chip so the user can spot IM-shared sessions. */
   channelLabel?: string | null
   /** RFC3339 timestamp matching `SessionMeta.updatedAt` shape. */
   updatedAt: string
+  /** When set, the session was matched via FTS5 message-body search.
+   *  Already sanitized (FTS5 sentinels stripped, newlines collapsed,
+   *  truncated). Pickers should render it on a second indented line. */
+  snippet?: string | null
 }
 
 /** Matches Rust CommandResult struct */

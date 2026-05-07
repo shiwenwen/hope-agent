@@ -7,6 +7,7 @@ mod tasks;
 mod types;
 
 pub use db::{ProjectFilter, SessionDB, SessionSearchResult, SessionTypeFilter};
+pub(crate) use db::strip_fts_snippet_sentinels;
 pub use helpers::{
     auto_title, cleanup_orphan_incognito, db_path, effective_session_working_dir,
     ensure_first_message_title, is_session_incognito, lookup_session_meta,

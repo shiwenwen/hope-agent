@@ -47,6 +47,18 @@ pub struct Project {
     pub archived: bool,
 }
 
+impl Project {
+    /// Human-readable label combining the emoji prefix (when set) with the
+    /// name. Used by pickers and IM message bodies that don't have separate
+    /// rendering surfaces for the emoji.
+    pub fn display_label(&self) -> String {
+        match self.emoji.as_deref().filter(|e| !e.is_empty()) {
+            Some(e) => format!("{} {}", e, self.name),
+            None => self.name.clone(),
+        }
+    }
+}
+
 /// Project with counts aggregated from related tables, for listing / UI use.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

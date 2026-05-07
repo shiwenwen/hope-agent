@@ -3702,7 +3702,7 @@
       "description": "Show, attach to, or exit the current session"
     },
     "sessions": {
-      "description": "Pick a session"
+      "description": "Pick a session (optional search query)"
     },
     "status": {
       "description": "Session status"

@@ -105,7 +105,7 @@ pub async fn dispatch(
         "projects" => project::handle_projects(),
 
         // ── Session picker / attach / handover ──
-        "sessions" => session::handle_sessions(session_db()?),
+        "sessions" => session::handle_sessions(session_db()?, args),
         "session" => session::handle_session(session_db()?, session_id, args),
         "handover" => session::handle_handover(session_db()?, session_id, args),
 
