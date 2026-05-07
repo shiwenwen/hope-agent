@@ -674,21 +674,4 @@ impl ChannelDB {
 
         Ok(Some(sid))
     }
-
-    /// Cheap "is anything attached?" probe for the GUI → IM mirror fast
-    /// path: pays only an `EXISTS` round-trip when the session has no IM
-    /// attach (the common case for desktop-only users).
-    pub fn has_attached(&self, session_id: &str) -> Result<bool> {
-        let conn = self
-            .session_db
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        let exists: i64 = conn.query_row(
-            "SELECT EXISTS(SELECT 1 FROM channel_conversations WHERE session_id = ?1)",
-            params![session_id],
-            |row| row.get(0),
-        )?;
-        Ok(exists != 0)
-    }
 }

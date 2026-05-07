@@ -664,16 +664,23 @@ CREATE TABLE channel_conversations (
   - `attach_session(...)` —— 先 `collect_evictees` + `delete_evictees` 把目标 session 上其他 chat 物理 detach,再 UPDATE/INSERT 当前 chat 到目标 session;最后 emit eviction 事件
   - `update_session(...)` —— `/new` `/agent` 在 IM 内换 session 用,语义同 `attach_session`,只是更轻量
   - `detach_session(...)` —— 删除 attach 行(`/session exit` 用);1:1 下不需要 promote next
-  - `get_conversation_by_session(session_id)` —— 取 session 的唯一 attach 行(若有)
-  - `has_attached(session_id)` —— EXISTS 探针,`im_mirror` 用于早返回
+  - `get_conversation_by_session(session_id)` —— 取 session 的唯一 attach 行(若有);live mirror / `relay` / `/status` / cron / approval / ask_user 均通过此 helper 查 session 的 IM 入口
 - **events**:`channel:session_evicted { channelId, accountId, chatId, threadId, sessionId }` —— [`channel/worker/eviction_watcher.rs`](../../crates/ha-core/src/channel/worker/eviction_watcher.rs) 订阅后调对应 plugin 的 `send_message` 发硬编码英文带 emoji 的"this chat has been taken over by another endpoint"通知;`ChannelAccountConfig.notify_session_eviction`(默认 `true`) 可静音
 - **migration**:`migrate()` 检测旧 schema(无 `source` 列或还有 `is_primary` 列)直接 DROP TABLE 重建;IM worker 在下一条入站消息时重新创建对应行(按 user feedback「破坏性改动直接 drop,不留兼容路径」)
 
-### GUI → IM final-reply mirror (current) & live mirror follow-up
+### GUI ↔ IM live 流式镜像
 
-**当前实现**([`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 成功路径调 `attach_im_mirrors(session_id, source)`,通过 `get_conversation_by_session(session_id)` 找到 session 的 IM attach(1:1 后只有 0 或 1 个),turn 结束时 `finalize_im_mirrors` 调 `plugin.send_message` 把最终 assistant text 推到该 attach。**不是逐 frame 流式**——IM 用户只看到收尾 echo,GUI 端通过原本的 EventSink + EventBus 路径看 live stream。IM 入站 turn 不走 mirror(它本身就是 channel 主路径)。
+**实现**([`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 起始调 `attach_im_live_mirror(session_id, source)`,查 `get_conversation_by_session(session_id)` 拿到 session 的 IM attach(1:1 后 0 或 1 个),拿对应 account 的 `im_reply_mode()` / `show_thinking()` + plugin `capabilities()`,spawn `spawn_channel_stream_task` 起 IM 流式预览任务,把 `ChannelStreamSink` 注册到 [`SinkRegistry`](../../crates/ha-core/src/chat_engine/sink_registry.rs)。引擎 `emit_stream_event` 末尾的 fan-out hook 在每帧把 streaming event 转发到 IM 流式预览任务,IM 用户实时看到 typewriter / per-round 边界 finalize / 媒体投递。
 
-**Live mirror follow-up**:`SinkRegistry`([`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs)) 类型 + `emit_stream_event` 末尾的 fan-out hook 已就位,但**目前没有任何生产 `.attach()` caller**。GUI ↔ IM 真双向流式镜像(让 IM chat 也看到 GUI 端 turn 的流式过程)是独立 follow-up,详见 [`docs/plans/review-followups.md`](../plans/review-followups.md) F-066。
+turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处理完 buffered 事件 → drain `RoundTextAccumulator` → 复用 dispatcher 的 [`deliver_split` / `deliver_final_only` / `deliver_preview_merged`](../../crates/ha-core/src/channel/worker/dispatcher.rs)(已解耦 `MsgContext`,接受 `chat_id / thread_id / reply_to_message_id: Option<&str>` 三参显式形态),按 `ImReplyMode`(`split / preview / final`)渲染——与 IM 入站 turn 完全对称。
+
+**两个通道独立走自己的发送通路**:GUI 永远走 Tauri IPC stream / HTTP `chat:stream_delta` 广播,不受 `imReplyMode` 影响;`imReplyMode` 仅决定 IM 端的呈现形态(IM 入站 + GUI 镜像两侧共用同一份配置,行为对称)。
+
+**错误 / 取消路径**:engine 走 Err 不调 finalize,`ImLiveMirrorState` Drop 自动卸载 sink(RAII),stream task 收到 channel-close 后 drain 自然结束,IM 端保留半截 preview——与 IM 入站 cancel 行为一致(半截 preview 本身就是 turn 中止的视觉信号)。
+
+**source filter**:`Subagent / ParentInjection / Channel / Cron` 直接 no-op(IM 入站自己有完整流式管线;subagent / cron 不应外溢到 IM)。
+
+> 历史:本能力之前是 follow-up F-066(详见 [`docs/plans/review-followups.md`](../plans/review-followups.md));旧版 `attach_im_mirrors` / `finalize_im_mirrors` 走「turn 末尾一次性 send_message」,与 src-tauri `chat.rs` 的 `relay_to_channel` 还存在 double-send。F-066 落地后 live mirror 完整接管 IM 投递,`relay_to_channel` 已删除。
 
 ### Slash 命令
 

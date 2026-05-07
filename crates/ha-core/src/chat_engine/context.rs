@@ -463,58 +463,6 @@ pub fn persist_tool_event(db: &Arc<SessionDB>, session_id: &str, delta: &str) {
     }
 }
 
-/// If session is linked to an IM channel, forward the assistant reply.
-pub async fn relay_to_channel(session_id: &str, response: &str) {
-    let channel_db = match crate::get_channel_db() {
-        Some(db) => db,
-        None => return,
-    };
-    let registry = match crate::get_channel_registry() {
-        Some(r) => r,
-        None => return,
-    };
-
-    let conv = match channel_db.get_conversation_by_session(session_id) {
-        Ok(Some(c)) => c,
-        _ => return,
-    };
-
-    let store = crate::config::cached_config();
-    let account = match store.channels.find_account(&conv.account_id) {
-        Some(a) => a.clone(),
-        None => return,
-    };
-
-    let plugin = match registry.get_plugin(&account.channel_id) {
-        Some(p) => p,
-        None => return,
-    };
-
-    let native_text = plugin.markdown_to_native(response);
-    let chunks = plugin.chunk_message(&native_text);
-
-    for chunk in chunks {
-        let payload = crate::channel::types::ReplyPayload {
-            text: Some(chunk),
-            parse_mode: Some(crate::channel::types::ParseMode::Html),
-            thread_id: conv.thread_id.clone(),
-            ..crate::channel::types::ReplyPayload::text("")
-        };
-        if let Err(e) = plugin
-            .send_message(&account.id, &conv.chat_id, &payload)
-            .await
-        {
-            app_error!(
-                "channel",
-                "relay",
-                "Failed to relay to {}: {}",
-                conv.channel_id,
-                e
-            );
-        }
-    }
-}
-
 /// Schedule memory extraction after a successful turn. Returns the resolved
 /// idle_timeout_secs so the caller can schedule idle extraction without
 /// re-loading config.

@@ -548,14 +548,6 @@ pub async fn chat(
 
     match crate::chat_engine::run_chat_engine(engine_params).await {
         Ok(result) => {
-            // Relay to IM channel if this session is linked to one
-            crate::chat_engine::relay_to_channel(&sid, &result.response).await;
-
-            // Plan Mode auto-detection of plan content from LLM output is no
-            // longer supported — the model must call submit_plan explicitly.
-            // The plan file is only written by the submit_plan tool.
-
-            // Update the active agent instance for conversation continuity (UI chat only)
             if let Some(agent) = result.agent {
                 *state.agent.lock().await = Some(agent);
             }

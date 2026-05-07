@@ -69,23 +69,27 @@ impl SinkRegistry {
     /// Send `event` to every attached sink for `session_id`. Dead Weak
     /// references are pruned opportunistically. Sink errors are swallowed —
     /// fan-out is best-effort and never blocks the engine.
+    ///
+    /// The hot path (no extra sinks attached anywhere in the process —
+    /// every desktop-only turn) is one atomic load and an early return.
+    /// The slow path is pulled out to keep the inlined fast path tiny.
+    #[inline]
     pub fn emit(&self, session_id: &str, event: &str) {
         if self.total_active.load(Ordering::Acquire) == 0 {
             return;
         }
+        self.emit_slow(session_id, event);
+    }
+
+    #[cold]
+    fn emit_slow(&self, session_id: &str, event: &str) {
         let live: Vec<Arc<dyn EventSink>> = {
             let mut map = self.inner.lock().unwrap_or_else(|e| e.into_inner());
             let Some(weaks) = map.get_mut(session_id) else {
                 return;
             };
             let live: Vec<Arc<dyn EventSink>> = weaks.iter().filter_map(Weak::upgrade).collect();
-            // Prune dead Weak entries opportunistically. A pruned entry
-            // here is a sink whose strong refs are all gone — its
-            // `total_active` decrement happened on `SinkHandle::drop`,
-            // so we don't touch the counter again.
-            let before = weaks.len();
             weaks.retain(|w| w.strong_count() > 0);
-            let _pruned = before - weaks.len();
             if weaks.is_empty() {
                 map.remove(session_id);
             }

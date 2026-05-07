@@ -287,23 +287,33 @@ pub struct ChannelStreamSink {
     /// as a markdown blockquote and forwarded to the streaming preview task
     /// as a synthesized `text_delta`.
     pub show_thinking: bool,
+    /// True for inbound IM turns — every event is also re-broadcast on the
+    /// `channel:stream_delta` EventBus topic so the GUI can mirror the IM
+    /// session live. False for the GUI / HTTP live mirror, where the
+    /// originating turn already drives `chat:stream_delta`; re-emitting
+    /// `channel:stream_delta` would double-render the same frames in the
+    /// desktop view of an IM-attached session.
+    pub broadcast_to_bus: bool,
 }
 
 impl ChannelStreamSink {
     /// Build a sink that forwards stream events to the IM streaming task
-    /// via `event_tx`. With 1:1 attach there's only one IM chat receiving
-    /// the live preview, so the sink unconditionally forwards.
+    /// via `event_tx`. `broadcast_to_bus` controls whether the sink also
+    /// re-emits each event on the `channel:stream_delta` EventBus topic
+    /// (true for inbound IM turns; false for the GUI → IM live mirror).
     pub fn new(
         session_id: String,
         event_tx: tokio::sync::mpsc::Sender<String>,
         round_texts: Arc<Mutex<RoundTextAccumulator>>,
         show_thinking: bool,
+        broadcast_to_bus: bool,
     ) -> Self {
         Self {
             session_id,
             event_tx,
             round_texts,
             show_thinking,
+            broadcast_to_bus,
         }
     }
 
@@ -324,14 +334,16 @@ impl ChannelStreamSink {
 
 impl EventSink for ChannelStreamSink {
     fn send(&self, event: &str) {
-        if let Some(bus) = crate::globals::get_event_bus() {
-            bus.emit(
-                EVENT_CHANNEL_STREAM_DELTA,
-                serde_json::json!({
-                    "sessionId": &self.session_id,
-                    "event": event,
-                }),
-            );
+        if self.broadcast_to_bus {
+            if let Some(bus) = crate::globals::get_event_bus() {
+                bus.emit(
+                    EVENT_CHANNEL_STREAM_DELTA,
+                    serde_json::json!({
+                        "sessionId": &self.session_id,
+                        "event": event,
+                    }),
+                );
+            }
         }
         // Cheap short-circuits: avoid a full JSON parse on every frame.
         // serde_json's default Map is BTreeMap so keys serialize alphabetically;
@@ -509,7 +521,7 @@ mod tests {
     fn mk_sink() -> (ChannelStreamSink, Arc<Mutex<RoundTextAccumulator>>) {
         let rounds = Arc::new(Mutex::new(RoundTextAccumulator::default()));
         let (tx, _rx) = tokio::sync::mpsc::channel::<String>(64);
-        let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), false);
+        let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), false, true);
         (sink, rounds)
     }
 
@@ -525,7 +537,7 @@ mod tests {
     ) {
         let rounds = Arc::new(Mutex::new(RoundTextAccumulator::default()));
         let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
-        let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), show_thinking);
+        let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), show_thinking, true);
         (sink, rounds, rx)
     }
 

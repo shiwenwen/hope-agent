@@ -107,7 +107,7 @@ pub(super) fn spawn_channel_stream_task(
     plugin: Arc<dyn ChannelPlugin>,
     account_id: String,
     chat_id: String,
-    reply_to_message_id: String,
+    reply_to_message_id: Option<String>,
     thread_id: Option<String>,
     preview_transport: Option<StreamPreviewTransport>,
     max_msg_len: usize,
@@ -117,27 +117,26 @@ pub(super) fn spawn_channel_stream_task(
 ) -> tokio::task::JoinHandle<StreamPreviewOutcome> {
     tokio::spawn(async move {
         let Some(mut preview_transport) = preview_transport else {
-            // Preview disabled: drain events. The dispatcher still gets
-            // round-aware text/media via `round_texts` (filled by the sink).
             while event_rx.recv().await.is_some() {}
             return StreamPreviewOutcome::default();
         };
 
-        // Per-round preview only kicks in under split mode. Preview / Final
-        // keep the legacy single-growing-buffer flow inside this task.
         let split_streaming = matches!(reply_mode, ImReplyMode::Split);
 
-        // Generate a stable draft_id for this streaming session.
-        // Must be non-zero. Telegram animates changes to drafts with the same ID.
-        let draft_id: i64 = reply_to_message_id.parse::<i64>().unwrap_or_else(|_| {
-            // Fallback: use current timestamp as a unique non-zero ID
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(1)
-        });
-        // Ensure non-zero
-        let draft_id = if draft_id == 0 { 1 } else { draft_id };
+        // Telegram animates draft updates that share the same `draft_id`.
+        // Inbound turns reuse the user's incoming message id; live mirror
+        // (no inbound to anchor against) falls back to the current
+        // millisecond timestamp. Must be non-zero.
+        let draft_id: i64 = reply_to_message_id
+            .as_deref()
+            .and_then(|s| s.parse::<i64>().ok())
+            .filter(|n| *n != 0)
+            .unwrap_or_else(|| {
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(1)
+            });
 
         let mut accumulated = String::new();
         let mut preview_message_id: Option<String> = None;
@@ -176,7 +175,7 @@ pub(super) fn spawn_channel_stream_task(
                                     // round's first chunk.
                                     finalize_split_round(
                                         &plugin, &account_id, &chat_id,
-                                        &reply_to_message_id, thread_id.as_deref(), max_msg_len,
+                                        reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                         &accumulated, draft_id, &mut preview_transport,
                                         &mut preview_message_id, &mut card_session,
                                         finalized_rounds, &round_texts, &capabilities,
@@ -194,7 +193,7 @@ pub(super) fn spawn_channel_stream_task(
                             if dirty && !accumulated.is_empty() {
                                 send_stream_preview(
                                     &plugin, &account_id, &chat_id,
-                                    &reply_to_message_id, thread_id.as_deref(), max_msg_len,
+                                    reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                     &accumulated, draft_id, &mut preview_transport,
                                     &mut preview_message_id, &mut card_session,
                                 ).await;
@@ -207,7 +206,7 @@ pub(super) fn spawn_channel_stream_task(
                             if in_tool_phase && split_streaming {
                                 finalize_split_round(
                                     &plugin, &account_id, &chat_id,
-                                    &reply_to_message_id, thread_id.as_deref(), max_msg_len,
+                                    reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                                     &accumulated, draft_id, &mut preview_transport,
                                     &mut preview_message_id, &mut card_session,
                                     finalized_rounds, &round_texts, &capabilities,
@@ -226,7 +225,7 @@ pub(super) fn spawn_channel_stream_task(
                     if dirty && !accumulated.is_empty() {
                         send_stream_preview(
                             &plugin, &account_id, &chat_id,
-                            &reply_to_message_id, thread_id.as_deref(), max_msg_len,
+                            reply_to_message_id.as_deref(), thread_id.as_deref(), max_msg_len,
                             &accumulated, draft_id, &mut preview_transport,
                             &mut preview_message_id, &mut card_session,
                         ).await;
@@ -286,7 +285,7 @@ async fn finalize_split_round(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
     chat_id: &str,
-    reply_to_message_id: &str,
+    reply_to_message_id: Option<&str>,
     thread_id: Option<&str>,
     max_msg_len: usize,
     accumulated: &str,
@@ -298,9 +297,6 @@ async fn finalize_split_round(
     round_texts: &Arc<Mutex<RoundTextAccumulator>>,
     capabilities: &ChannelCapabilities,
 ) {
-    // 1. Flush latest accumulated text into the preview (best-effort —
-    //    oversized text returns None here and is rescued by the chunk
-    //    fallback below; transient errors are log-only).
     if !accumulated.is_empty() {
         send_stream_preview(
             plugin,
@@ -318,9 +314,6 @@ async fn finalize_split_round(
         .await;
     }
 
-    // 2. Decide whether the preview path actually carried this round's
-    //    text. When it didn't, fall through to a chunked send so the
-    //    user sees the full content.
     let preview_carried_text = preview_carried_full_text(
         *preview_transport,
         accumulated,
@@ -331,19 +324,13 @@ async fn finalize_split_round(
     );
 
     if !preview_carried_text {
-        // No preview message to edit (or it can't carry this size); send
-        // fresh chunks. Pass `preview=None` so `send_text_chunks` doesn't
-        // try to edit a broken/oversized preview.
-        super::dispatcher::send_text_chunks(
-            plugin,
+        let target = super::pipeline::DeliveryTarget {
             account_id,
             chat_id,
             thread_id,
             reply_to_message_id,
-            accumulated,
-            None,
-        )
-        .await;
+        };
+        super::dispatcher::send_text_chunks(plugin, &target, accumulated, None).await;
     }
 
     // 3. Transport-specific close. Best-effort: any error here is
@@ -495,7 +482,7 @@ pub(super) fn should_fallback_from_draft_error(error: &str) -> bool {
 
 pub(super) fn build_stream_preview_payload(
     plugin: &Arc<dyn ChannelPlugin>,
-    reply_to_message_id: &str,
+    reply_to_message_id: Option<&str>,
     thread_id: Option<&str>,
     text: &str,
     draft_id: i64,
@@ -509,7 +496,7 @@ pub(super) fn build_stream_preview_payload(
 
     Some(ReplyPayload {
         text: Some(text.to_string()),
-        reply_to_message_id: Some(reply_to_message_id.to_string()),
+        reply_to_message_id: reply_to_message_id.map(str::to_string),
         thread_id: thread_id.map(|s| s.to_string()),
         parse_mode: Some(ParseMode::Html),
         draft_id: Some(draft_id),
@@ -562,7 +549,7 @@ async fn send_card_preview(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
     chat_id: &str,
-    reply_to_message_id: &str,
+    reply_to_message_id: Option<&str>,
     thread_id: Option<&str>,
     raw_text: &str,
     card_session: &mut Option<CardSession>,
@@ -612,7 +599,7 @@ async fn send_card_preview(
             account_id,
             chat_id,
             &handle.card_id,
-            Some(reply_to_message_id),
+            reply_to_message_id,
             thread_id,
         )
         .await
@@ -639,7 +626,7 @@ async fn send_stream_preview(
     plugin: &Arc<dyn ChannelPlugin>,
     account_id: &str,
     chat_id: &str,
-    reply_to_message_id: &str,
+    reply_to_message_id: Option<&str>,
     thread_id: Option<&str>,
     max_msg_len: usize,
     text: &str,

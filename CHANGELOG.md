@@ -9,7 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **GUI ↔ IM live 双向流式镜像（F-066）**：desktop / HTTP 触发的 turn 在 IM 端实时呈现 typewriter / per-round 边界 / 媒体投递，与 IM 入站 turn 对称。两个通道独立走各自的发送通路（GUI 走 Tauri IPC / `chat:stream_delta`，IM 走 plugin），`imReplyMode`（`split / preview / final`）只决定 IM 端的呈现。详见 [`docs/architecture/chat-engine.md`](docs/architecture/chat-engine.md) 「GUI ↔ IM live 流式镜像」节。
+
+### Removed
+
+- **`chat_engine::context::relay_to_channel`** 与未消费的 **`channel_db::has_attached`** 删除——live mirror（`finalize_im_live_mirror`）完整接管 IM 投递，旧 desktop 路径与 `finalize_im_mirrors` 的 double-send bug 一并消除。
+
 ### Changed
+
+- **dispatcher 投递管线抽象**（F-066 配套）：新增 [`channel/worker/pipeline.rs`](crates/ha-core/src/channel/worker/pipeline.rs) 提供 `DeliveryTarget` / `spawn_stream_pipeline` / `await_stream_pipeline` / `deliver_rounds` 四件套，inbound dispatcher 与 live mirror 共用同一套 spawn / drain / dispatch 路径，不再各自维护并行实现。`deliver_split` / `deliver_final_only` / `deliver_preview_merged` / `send_final_reply` / `send_text_chunks` 不再接收 `&MsgContext`，改为 `&DeliveryTarget`；`spawn_channel_stream_task` 的 `reply_to_message_id` 端到端 `Option<String>`。`SinkRegistry::emit` fast-path 加 `#[inline]` + `#[cold]` slow-path 拆分。
 
 - **IM session attach 改为 1:1（双向）+ 接管驱逐通知**：上午引入的 multi-attach + observer 设计（`is_primary` 列、demote/promote/backfill、`primary_watcher` 发"你是 primary / 你正在旁观"系统消息）整体下线，体验割裂、`/handover` 后旧 chat 还潜伏在 attach 表里没人通知。新模型：
   - 任意时刻一个 session 只能被一个 (channel, account, chat, thread) attach；新 chat 通过 `/session <id>` 或 handover 接管时，旧 attach **物理 detach**（不再保留 observer）
@@ -21,9 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **简化**：`detach_session` 删 promote-next 分支；`update_session` 复用 evict 逻辑；`get_conversation_by_session` 删 `ORDER BY is_primary`；`im_mirror.rs` 由 `list_attached + filter is_primary` 改为单行 `get_conversation_by_session`；`/status` `/info` 显示删 `★` primary 标记
   - **migration**：检测到旧 schema（无 `source` 列或还有 `is_primary` 列）直接 DROP TABLE 重建，不保留迁移路径
   - 涉及 [`channel/db.rs`](crates/ha-core/src/channel/db.rs) / [`worker/eviction_watcher.rs`](crates/ha-core/src/channel/worker/eviction_watcher.rs) / [`worker/dispatcher.rs`](crates/ha-core/src/channel/worker/dispatcher.rs) / [`worker/mod.rs`](crates/ha-core/src/channel/worker/mod.rs) / [`app_init.rs`](crates/ha-core/src/app_init.rs) / [`channel/types.rs`](crates/ha-core/src/channel/types.rs) / [`channel/accounts.rs`](crates/ha-core/src/channel/accounts.rs) / [`chat_engine/im_mirror.rs`](crates/ha-core/src/chat_engine/im_mirror.rs) / [`slash_commands/handlers/{mod,session,utility}.rs`](crates/ha-core/src/slash_commands/handlers/) / [`ha-server/src/routes/channel.rs`](crates/ha-server/src/routes/channel.rs) / [`src-tauri/src/commands/channel.rs`](src-tauri/src/commands/channel.rs) / [`EditAccountDialog.tsx`](src/components/settings/channel-panel/EditAccountDialog.tsx) / [`channel-panel/types.ts`](src/components/settings/channel-panel/types.ts) / 12 i18n locale。架构契约见 [`AGENTS.md`](AGENTS.md) IM Channel 段，详见 [`docs/architecture/im-channel.md`](docs/architecture/im-channel.md) 「`channel_conversations` Attach 模型」节
-  - **Live mirror follow-up**：GUI ↔ IM 真双向流式镜像仍是 follow-up，详见 [`docs/plans/review-followups.md`](docs/plans/review-followups.md) F-066
+  - **Live mirror（F-066）已紧随其后落地**：见本版本 Added 段「GUI ↔ IM live 双向流式镜像」
 
 ### Fixed
+
+- **飞书 ask_user / approval 按钮点击无响应**：旧版 interactive card schema 1.0（`config.wide_screen_mode` + `tag: "action"` 这套）要求 button.value 是 object（key/value 都是 string），但发送侧塞的是字符串 `b.callback_id()`，飞书把它包成 object 回传，接收侧 `value.as_str()` 永远 None，整个 callback 被无声 drop。修复：发送侧统一包成 `{"hope_callback": "<id>"}`；接收侧兼容 string + object，并在解不出时 `app_warn!` 防再次 silent fail。涉及 [`channel/feishu/mod.rs`](crates/ha-core/src/channel/feishu/mod.rs) + [`channel/feishu/ws_event.rs`](crates/ha-core/src/channel/feishu/ws_event.rs)。
 
 - **IM 渠道发送图片 / 文件链路两层修复（wechat 用户撞到的合并文本 + 图片丢失）**：
   - **`ChannelStreamSink` 的 `media_items` 短路条件失效**：`emit_tool_result` 用 `serde_json::json!({...})` 构造 event，但 serde_json 默认 `Value::Object` 是 `BTreeMap`、键按字母序输出（`call_id` 永远在前），sink 里的 `event.starts_with("{\"type\":\"tool_result\"")` 永远 false。结果 `send_attachment` / `image_generate` 的所有媒体悄悄丢失，dispatcher 收到 `pending_media` 永远空、`Reply sent ... 0 media`。改成 `event.contains("\"media_items\"") && event.contains("\"type\":\"tool_result\"")`（rarer-first）。涉及 [`chat_engine/types.rs`](crates/ha-core/src/chat_engine/types.rs) + 4 个回归单测。

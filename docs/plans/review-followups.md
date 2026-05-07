@@ -30,6 +30,24 @@
 
 ## Open
 
+### F-068 `ChannelConversation.chat_type: String` 端到端类型化
+
+- **来源**：2026-05-07 F-066 `/simplify` review
+- **现象**：[`channel/db.rs:31`](../../crates/ha-core/src/channel/db.rs) 的 `ChannelConversation.chat_type` 是 `String`，`row_to_conversation` 把 SQLite `TEXT` 列读出来仍然是 `String`，调用方（[`channel/worker/dispatcher.rs`](../../crates/ha-core/src/channel/worker/dispatcher.rs)、[`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)）每次手动 `ChatType::from_lowercase(&attach.chat_type)` 转回 enum；写入侧通过 `chat_type_str(&ChatType)` 反向序列化。已有 [`ChatType`](../../crates/ha-core/src/channel/types.rs#L56) `#[serde(rename_all = "lowercase")]` enum
+- **为什么留**：F-066 scope 限于 GUI ↔ IM live mirror，DB 层 schema/接口动起来扩散面太大
+- **改的话要做什么**：`ChannelConversation.chat_type: ChatType`；`row_to_conversation` 用 `ChatType::from_lowercase` 解析；写路径用 `chat_type_str` 序列化（或给 `ChatType` 加 `FromSql/ToSql` impl 走 rusqlite 标准路径）。SQLite 列保持 `TEXT`，schema 不变
+- **影响面**：纯 stringly-typed 代码债，零行为变化
+- **触发时机建议**：下次动 `channel_conversations` schema / `ChannelConversation` 字段时
+
+### F-069 `resolve_session_im_target` helper for plugin/account/conversation 三联解析
+
+- **来源**：2026-05-07 F-066 `/simplify` review
+- **现象**：3 处生产代码做几乎相同的 `session_id → ChannelConversation → ChannelAccountConfig → Arc<dyn ChannelPlugin>` 解析样板（含 channel_db / cached_config / registry 三个 globals + `find_account` + `get_plugin`）：[`channel/worker/approval.rs:183`](../../crates/ha-core/src/channel/worker/approval.rs)、[`channel/worker/ask_user.rs:294`](../../crates/ha-core/src/channel/worker/ask_user.rs)、[`chat_engine/im_mirror.rs::attach_im_live_mirror`](../../crates/ha-core/src/chat_engine/im_mirror.rs)。每处 25-30 行
+- **为什么留**：F-066 scope 已改 im_mirror，approval / ask_user 两处旧代码不在主题；统一抽 helper 应当跨这 3 处一次性收
+- **改的话要做什么**：在 `channel/db.rs`（或新 `channel/helpers.rs`）加 `pub(crate) fn resolve_session_im_target(session_id: &str) -> Option<(ChannelConversation, ChannelAccountConfig, Arc<dyn ChannelPlugin>)>`；3 个 call site 收敛到 helper，warn 日志统一在 helper 内
+- **影响面**：纯代码重复
+- **触发时机建议**：下次动 approval / ask_user worker 或新增第 4 处需要 plugin 解析的 session lookup 时
+
 ### F-063 `/sessions` 搜索：picker 期 `list_agents()` / `list_sessions(None)` 仍是全量 IO
 
 - **来源**：2026-05-07 `/sessions` 搜索能力 PR / `/simplify` review
@@ -60,20 +78,6 @@
 - **改的话要做什么**：要么 `result.content` 在 picker action 时不 push；要么 action handler 不再自拼 markdown（直接信任 `result.content`）。后者更彻底但要 i18n 在 server 端做
 - **影响面**：UX 视觉冗余，但不影响功能
 - **触发时机建议**：做 picker UI / event 消息系统重构时一并处理
-
-### F-066 GUI ↔ IM live 双向流式镜像（Sink fan-out）
-
-- **来源**：2026-05-07 IM 1:1 attach 改造 PR / 用户讨论
-- **现象**：[`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs) 的 `attach_im_mirrors` + `finalize_im_mirrors` 只在 turn 成功结束后把最终 assistant text 一次性推到 IM attach。GUI / HTTP 触发的 turn 在 IM chat 那边**看不到流式过程**，只看到最后成品。`SinkRegistry` 类型 + `emit_stream_event` 末尾的 fan-out hook 已在 [`chat_engine/sink_registry.rs`](../../crates/ha-core/src/chat_engine/sink_registry.rs) 就位，但没有任何生产代码 `.attach()`
-- **为什么留**：本期 PR 主题是把 multi-attach + observer 简化为 1:1 + 接管驱逐通知，scope 仅限 attach 表语义；live mirror 是独立的设计议题，工程量大于本次。先把 attach 表语义梳理干净，下个 PR 实现 live mirror 时不用兼顾旧 multi-attach 语义
-- **改的话要做什么**：
-  - 在 split-streaming / `RoundTextAccumulator` 新状态机上重做 `SinkRegistry.attach()` 路径
-  - GUI 启动 turn 时按 `get_conversation_by_session(session_id)` 找到 IM attach（1:1 后只有一行），sink registry 注册一个走 plugin 的 stream sink
-  - 处理三种 IM transport（Draft / Card / Message）的 stream 显示一致性，参考 [`channel/worker/streaming.rs::select_stream_preview_transport`](../../crates/ha-core/src/channel/worker/streaming.rs)
-  - 流式 preview 的"打字机"语义在 GUI 触发的 turn 里也要适用（按 `ImReplyMode = split / preview`）
-  - 错误降级：plugin 调用失败时不阻塞 GUI 主流程，只 warn
-- **影响面**：体验割裂——用户在 IM chat 看 GUI 触发的 turn 体验不连贯（仿佛 agent 卡住半天再一次性回完）。无 bug 也无安全问题
-- **触发时机建议**：本次 1:1 attach 改造 PR 合入后立即开新 PR 跟进；或用户首次明确反馈"在 IM 看不到 GUI 端打字过程"时专开 PR
 
 ### F-057 IM channel 主动消息 / 媒体能力补完（跨 channel）
 
@@ -736,6 +740,12 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-066 GUI ↔ IM live 双向流式镜像（Sink fan-out）
+
+- **关闭于**：2026-05-07
+- **如何关闭**：新增 [`channel/worker/pipeline.rs`](../../crates/ha-core/src/channel/worker/pipeline.rs) 抽 `DeliveryTarget / spawn_stream_pipeline / await_stream_pipeline / deliver_rounds` 四件套，inbound dispatcher 与 [`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)（`attach_im_live_mirror` / `finalize_im_live_mirror`）共用同一套 spawn / drain / dispatch 路径。live mirror 起始把 `ChannelStreamSink` 注册到 `SinkRegistry`，引擎 `emit_stream_event` fan-out hook 转发每帧到 IM 流式预览任务；收尾按 `ImReplyMode` 调 `deliver_rounds`。详见 [`docs/architecture/chat-engine.md`](../architecture/chat-engine.md) 「GUI ↔ IM live 流式镜像」节
+- **附带清理**：删 `chat_engine/context.rs::relay_to_channel` 及其 desktop 调用（与新 finalize 重复 send）、未消费的 `channel_db.has_attached`
 
 ### F-044 / F-045 / F-046 / F-047 react-virtuoso 迁移期登记的 4 条 followup 全部失效
 
