@@ -395,6 +395,49 @@ impl ChannelDB {
         }
     }
 
+    /// Look up the persisted `chat_type` for a (channel, account, chat, thread)
+    /// quadruple. Used by callback re-injection paths (e.g. Feishu's
+    /// `card.action.trigger` → synthetic inbound) that don't carry chat_type
+    /// in their envelope but always follow at least one prior inbound message
+    /// which already populated the conversation row.
+    pub fn get_chat_type(
+        &self,
+        channel_id: &str,
+        account_id: &str,
+        chat_id: &str,
+        thread_id: Option<&str>,
+    ) -> Result<Option<ChatType>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let result = if let Some(tid) = thread_id {
+            conn.query_row(
+                "SELECT chat_type FROM channel_conversations \
+                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id = ?4 \
+                 ORDER BY updated_at DESC LIMIT 1",
+                params![channel_id, account_id, chat_id, tid],
+                |row| row.get::<_, String>(0),
+            )
+        } else {
+            conn.query_row(
+                "SELECT chat_type FROM channel_conversations \
+                 WHERE channel_id = ?1 AND account_id = ?2 AND chat_id = ?3 AND thread_id IS NULL \
+                 ORDER BY updated_at DESC LIMIT 1",
+                params![channel_id, account_id, chat_id],
+                |row| row.get::<_, String>(0),
+            )
+        };
+
+        match result {
+            Ok(s) => Ok(Some(ChatType::from_lowercase(&s))),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// List all channel conversations for a given channel and account.
     pub fn list_conversations(
         &self,

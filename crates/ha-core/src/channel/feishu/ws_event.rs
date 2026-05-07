@@ -15,6 +15,7 @@ use crate::channel::ws;
 use super::api::FeishuApi;
 use super::data_cache::DataCache;
 use super::proto::{Frame, Header};
+use super::HOPE_CALLBACK_KEY;
 
 /// Maximum number of consecutive reconnection attempts before giving up.
 const MAX_RECONNECT_ATTEMPTS: usize = 50;
@@ -571,14 +572,7 @@ async fn handle_data_frame(
         }
         "card.action.trigger" => {
             if let Some(event_data) = parsed.event {
-                if let Some(action) = event_data.get("action") {
-                    if let Some(value) = action.get("value").and_then(|v| v.as_str()) {
-                        crate::channel::worker::ask_user::try_dispatch_interactive_callback(
-                            value,
-                            "feishu:gateway",
-                        );
-                    }
-                }
+                handle_card_action(&event_data, account_id, inbound_tx).await;
             }
             Ok(())
         }
@@ -762,6 +756,126 @@ fn clean_mention_tags(text: &str) -> String {
     result.trim().to_string()
 }
 
+/// Route a `card.action.trigger` event by `hope_callback` prefix:
+/// - `slash:<cmd> <arg>` is re-injected as a synthetic inbound `/cmd arg` so
+///   the worker's normal slash dispatch handles it (same trick as
+///   [`telegram::polling::convert_callback_query`](super::super::telegram));
+/// - `approval:` / `ask_user:` go straight to the worker's interactive
+///   callback dispatcher.
+async fn handle_card_action(
+    event_data: &serde_json::Value,
+    account_id: &str,
+    inbound_tx: &mpsc::Sender<MsgContext>,
+) {
+    let Some(value) = extract_hope_callback(event_data) else {
+        app_warn!(
+            "channel",
+            "feishu:gateway",
+            "[{}] card.action.trigger value not recognized: {}",
+            account_id,
+            serde_json::to_string(event_data).unwrap_or_default()
+        );
+        return;
+    };
+
+    if let Some(rest) = value.strip_prefix("slash:") {
+        inject_slash_callback(rest, event_data, account_id, inbound_tx).await;
+    } else {
+        crate::channel::worker::ask_user::try_dispatch_interactive_callback(
+            value,
+            "feishu:gateway",
+        );
+    }
+}
+
+/// Take a JSON value at `path` and return it as a `String` (empty if missing
+/// or not a string).
+fn event_str_at(event_data: &serde_json::Value, path: &str) -> String {
+    event_data
+        .pointer(path)
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string()
+}
+
+/// Re-inject a `slash:<cmd> <arg>` callback as a synthetic inbound `/cmd arg`.
+///
+/// Feishu's `card.action.trigger` envelope doesn't carry chat_type, but every
+/// arg-picker button is preceded by a real inbound `/cmd` that already wrote
+/// `chat_type` into `channel_conversations`. We look it up by chat_id +
+/// thread_id; missing rows fall back to `Dm`, which is the conservative
+/// default — mirrors [`ChatType::from_lowercase`] and won't trip group
+/// mention-gating or wildcard group routing in
+/// [`worker::dispatcher`](super::super::worker::dispatcher).
+async fn inject_slash_callback(
+    rest: &str,
+    event_data: &serde_json::Value,
+    account_id: &str,
+    inbound_tx: &mpsc::Sender<MsgContext>,
+) {
+    let chat_id = event_str_at(event_data, "/context/open_chat_id");
+    if chat_id.is_empty() {
+        app_warn!(
+            "channel",
+            "feishu:gateway",
+            "[{}] slash callback dropped: missing context.open_chat_id ({})",
+            account_id,
+            rest
+        );
+        return;
+    }
+
+    let chat_type = crate::globals::get_channel_db()
+        .and_then(|db| {
+            db.get_chat_type(&ChannelId::Feishu.to_string(), account_id, &chat_id, None)
+                .ok()
+                .flatten()
+        })
+        .unwrap_or(ChatType::Dm);
+
+    let msg = MsgContext {
+        channel_id: ChannelId::Feishu,
+        account_id: account_id.to_string(),
+        sender_id: event_str_at(event_data, "/operator/open_id"),
+        sender_name: None,
+        sender_username: None,
+        chat_id,
+        chat_type,
+        chat_title: None,
+        thread_id: None,
+        message_id: event_str_at(event_data, "/context/open_message_id"),
+        text: Some(format!("/{}", rest)),
+        media: Vec::new(),
+        reply_to_message_id: None,
+        timestamp: chrono::Utc::now(),
+        was_mentioned: true,
+        // Mark as synthesized callback (not a real inbound) — mirrors
+        // telegram/polling.rs::convert_callback_query.
+        raw: serde_json::json!({"feishu_card_callback_rest": rest}),
+    };
+
+    if let Err(e) = inbound_tx.send(msg).await {
+        app_warn!(
+            "channel",
+            "feishu:gateway",
+            "[{}] Failed to inject slash callback into inbound: {}",
+            account_id,
+            e
+        );
+    }
+}
+
+/// Extract our `hope_callback` string from a `card.action.trigger` event.
+/// Returns `None` for any other shape — schema 1.0's bare-string value is
+/// deliberately not accepted.
+fn extract_hope_callback(event_data: &serde_json::Value) -> Option<&str> {
+    event_data
+        .get("action")
+        .and_then(|a| a.get("value"))
+        .and_then(|v| v.get(HOPE_CALLBACK_KEY))
+        .and_then(|x| x.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -876,5 +990,91 @@ mod tests {
     fn test_pong_malformed_json_ignored() {
         let frame = make_pong("not json");
         assert_eq!(handle_control_frame(&frame), None);
+    }
+
+    // ── card.action.trigger value extraction ─────────────────────────
+
+    #[test]
+    fn extract_hope_callback_from_schema_2_object() {
+        let event = serde_json::json!({
+            "action": {
+                "tag": "button",
+                "value": {"hope_callback": "approval:abc:allow_once"}
+            }
+        });
+        assert_eq!(
+            extract_hope_callback(&event),
+            Some("approval:abc:allow_once")
+        );
+    }
+
+    #[test]
+    fn extract_hope_callback_rejects_legacy_string_value() {
+        // schema 1.0 shape we used to emit. The fallback path is deliberately
+        // gone — this must now return None so the caller logs a warning.
+        let event = serde_json::json!({
+            "action": {"value": "approval:abc:allow_once"}
+        });
+        assert_eq!(extract_hope_callback(&event), None);
+    }
+
+    #[test]
+    fn extract_hope_callback_rejects_object_without_hope_callback() {
+        let event = serde_json::json!({
+            "action": {"value": {"other_key": "x"}}
+        });
+        assert_eq!(extract_hope_callback(&event), None);
+    }
+
+    #[test]
+    fn extract_hope_callback_handles_missing_action() {
+        let event = serde_json::json!({"foo": "bar"});
+        assert_eq!(extract_hope_callback(&event), None);
+    }
+
+    // ── slash: callback re-injection ─────────────────────────────────
+
+    #[tokio::test]
+    async fn inject_slash_callback_synthesizes_inbound_message() {
+        let event = serde_json::json!({
+            "operator": {"open_id": "ou_sender123"},
+            "context": {
+                "open_chat_id": "oc_chat456",
+                "open_message_id": "om_msg789",
+            },
+            "action": {
+                "tag": "button",
+                "value": {"hope_callback": "slash:think low"}
+            }
+        });
+
+        let (tx, mut rx) = mpsc::channel::<MsgContext>(1);
+        inject_slash_callback("think low", &event, "feishu-acc1", &tx).await;
+
+        let msg = rx.try_recv().expect("expected synthesized inbound message");
+        assert!(matches!(msg.channel_id, ChannelId::Feishu));
+        assert_eq!(msg.account_id, "feishu-acc1");
+        assert_eq!(msg.chat_id, "oc_chat456");
+        assert_eq!(msg.sender_id, "ou_sender123");
+        assert_eq!(msg.message_id, "om_msg789");
+        assert_eq!(msg.text.as_deref(), Some("/think low"));
+        assert!(msg.was_mentioned);
+        // No ChannelDB initialized in unit-test scope → Dm fallback (matches
+        // ChatType::from_lowercase's conservative default).
+        assert!(matches!(msg.chat_type, ChatType::Dm));
+    }
+
+    #[tokio::test]
+    async fn inject_slash_callback_drops_when_chat_id_missing() {
+        let event = serde_json::json!({
+            "operator": {"open_id": "ou_sender"},
+            "context": {},
+        });
+
+        let (tx, mut rx) = mpsc::channel::<MsgContext>(1);
+        inject_slash_callback("think low", &event, "acc", &tx).await;
+        // Empty chat_id — must NOT push a half-baked MsgContext (would confuse
+        // the worker downstream).
+        assert!(rx.try_recv().is_err());
     }
 }

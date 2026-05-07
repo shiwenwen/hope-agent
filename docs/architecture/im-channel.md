@@ -1169,6 +1169,46 @@ Socket Mode 信封格式：`{envelope_id, type, payload}`，收到后立即 ACK 
 - **中后期失败**（`update_card_element` 报任何错，含 sequence 冲突）：进入 `card_session.broken=true`，后续 interval tick **不再发预览**；`send_final_reply` 在收尾时识别 `PreviewHandle::Card { broken: true, .. }`，跳过 cardkit close，发一条新 text 消息（带 `reply_to_message_id`）作为完整交付
 - **不做 sequence 重试**：300317 通常说明本地 sequence 与服务端不同步，直接 broken 比无谓重试更稳
 
+### 按钮卡片：schema 2.0 内联（ask_user / approval）
+
+ask_user / approval 按钮也走 schema 2.0，但**不**走 cardkit API——按钮卡片是一次性、不需要后续 update 元素，所以直接把 schema 2.0 卡片 JSON 字符串化塞进 `POST /open-apis/im/v1/messages` 的 `content` 字段（`msg_type=interactive`）。一次 API call 完成。
+
+**端点**：复用 [`FeishuApi::send_interactive_card`](../../crates/ha-core/src/channel/feishu/api.rs)（同一个 helper 之前服务于 schema 1.0 卡片，现在 caller 切到 schema 2.0 卡片 JSON）。
+
+**卡片骨架**：见 [`mod.rs::build_button_card_v2`](../../crates/ha-core/src/channel/feishu/mod.rs)。
+
+```json
+{
+  "schema": "2.0",
+  "config": {"streaming_mode": false},
+  "body": {
+    "elements": [
+      {"tag": "markdown", "content": "<提示文本>"},
+      {"tag": "column_set", "horizontal_align": "left", "columns": [
+        {"tag": "column", "width": "auto", "elements": [{
+          "tag": "button",
+          "text": {"tag": "plain_text", "content": "✅ Allow Once"},
+          "type": "primary",
+          "behaviors": [{
+            "type": "callback",
+            "value": {"hope_callback": "approval:<request_id>:allow_once"}
+          }]
+        }]}
+      ]}
+    ]
+  }
+}
+```
+
+**回调路径**：用户点击按钮触发 `card.action.trigger` WS 事件；[`ws_event.rs::extract_hope_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 从 `event.action.value.hope_callback` 取出字符串，按前缀分两条路：
+
+- `slash:<cmd> <arg>`（无参 slash 命令的 arg picker，如 `/think` / `/permission`）→ [`inject_slash_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 从 envelope（`context.open_chat_id` / `operator.open_id` / `context.open_message_id`）合成一条 `text="/cmd arg"` 的 inbound `MsgContext`，丢回 `inbound_tx`，让 worker 走正常 slash 分发——和 [`telegram/polling.rs::convert_callback_query`](../../crates/ha-core/src/channel/telegram/polling.rs) 一致的回环。`chat_type` 通过 [`ChannelDB::get_chat_type`](../../crates/ha-core/src/channel/db.rs) 用 chat_id 反查既有 `channel_conversations` 行恢复（picker 按钮总是先于真实 `/cmd` inbound 出现，行已存在）；查不到回退 `Dm`（与 [`ChatType::from_lowercase`](../../crates/ha-core/src/channel/types.rs) 默认一致），避免 DM 用户按钮点击被误判为 Group 后走 mention-gating 或 wildcard group agent 路由
+- `approval:` / `ask_user:` → [`try_dispatch_interactive_callback`](../../crates/ha-core/src/channel/worker/ask_user.rs) 直接进 worker 内部的审批 / ask_user state machine
+
+**关键约束**：
+- `behaviors[callback].value` 必须是 object，且 key/value 都是 string——schema 2.0 callback value 不支持裸字符串
+- 接收侧只解 object → `hope_callback` 单一路径，不再兼容 schema 1.0 的字符串 fallback。解不出时打 `app_warn!`，避免 silent drop
+
 ---
 
 ## QQ Bot 插件实现

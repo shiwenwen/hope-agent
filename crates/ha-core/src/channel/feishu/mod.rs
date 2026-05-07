@@ -39,6 +39,57 @@ struct RunningAccount {
     bot_open_id: String,
 }
 
+/// Key under which we wrap the `callback_id` string inside button
+/// `behaviors[callback].value`. Schema 2.0 requires `value` to be an object
+/// with string key/value, so we round-trip our id through this single key —
+/// shared with [`ws_event::extract_hope_callback`].
+pub(super) const HOPE_CALLBACK_KEY: &str = "hope_callback";
+
+/// Build a schema-2.0 interactive card body for ask_user / approval buttons.
+fn build_button_card_v2(
+    text: Option<&str>,
+    buttons: &[Vec<crate::channel::types::InlineButton>],
+) -> serde_json::Value {
+    let columns: Vec<_> = buttons
+        .iter()
+        .flatten()
+        .map(|b| {
+            serde_json::json!({
+                "tag": "column",
+                "width": "auto",
+                "elements": [{
+                    "tag": "button",
+                    "text": {"tag": "plain_text", "content": &b.text},
+                    "type": "primary",
+                    "behaviors": [{
+                        "type": "callback",
+                        "value": {HOPE_CALLBACK_KEY: b.callback_id()},
+                    }],
+                }],
+            })
+        })
+        .collect();
+
+    let mut body_elements: Vec<serde_json::Value> = Vec::new();
+    if let Some(t) = text.filter(|s| !s.is_empty()) {
+        body_elements.push(serde_json::json!({
+            "tag": "markdown",
+            "content": t,
+        }));
+    }
+    body_elements.push(serde_json::json!({
+        "tag": "column_set",
+        "horizontal_align": "left",
+        "columns": columns,
+    }));
+
+    serde_json::json!({
+        "schema": "2.0",
+        "config": {"streaming_mode": false},
+        "body": {"elements": body_elements},
+    })
+}
+
 /// Feishu (飞书) / Lark channel plugin implementation.
 pub struct FeishuPlugin {
     accounts: Mutex<HashMap<String, RunningAccount>>,
@@ -197,37 +248,8 @@ impl ChannelPlugin for FeishuPlugin {
             }
         }
 
-        // If buttons are present, send as an interactive card
         if !payload.buttons.is_empty() {
-            let text_content = payload.text.as_deref().unwrap_or("");
-            let button_elements: Vec<_> = payload
-                .buttons
-                .iter()
-                .flatten()
-                .map(|b| {
-                    serde_json::json!({
-                        "tag": "button",
-                        "text": {"tag": "plain_text", "content": &b.text},
-                        "type": "primary",
-                        "value": b.callback_id(),
-                    })
-                })
-                .collect();
-
-            let card = serde_json::json!({
-                "config": {"wide_screen_mode": true},
-                "elements": [
-                    {
-                        "tag": "markdown",
-                        "content": text_content
-                    },
-                    {
-                        "tag": "action",
-                        "actions": button_elements
-                    }
-                ]
-            });
-
+            let card = build_button_card_v2(payload.text.as_deref(), &payload.buttons);
             let reply_to = payload.reply_to_message_id.as_deref();
             let msg_id = api.send_interactive_card(chat_id, card, reply_to).await?;
             return Ok(DeliveryResult::ok(msg_id));
@@ -427,5 +449,92 @@ impl ChannelPlugin for FeishuPlugin {
         let api = FeishuApi::new(auth);
         let info = api.get_bot_info().await?;
         Ok(info.app_name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::types::InlineButton;
+
+    #[test]
+    fn button_card_is_schema_2_with_behaviors_callback() {
+        let buttons = vec![vec![
+            InlineButton {
+                text: "✅ Allow Once".to_string(),
+                callback_data: Some("approval:abc:allow_once".to_string()),
+                url: None,
+            },
+            InlineButton {
+                text: "❌ Deny".to_string(),
+                callback_data: Some("approval:abc:deny".to_string()),
+                url: None,
+            },
+        ]];
+
+        let card = build_button_card_v2(Some("approve?"), &buttons);
+
+        assert_eq!(card["schema"], "2.0");
+        assert_eq!(card["config"]["streaming_mode"], false);
+
+        let elements = card["body"]["elements"].as_array().unwrap();
+        assert_eq!(elements.len(), 2, "expected markdown + column_set");
+        assert_eq!(elements[0]["tag"], "markdown");
+        assert_eq!(elements[0]["content"], "approve?");
+        assert_eq!(elements[1]["tag"], "column_set");
+
+        let columns = elements[1]["columns"].as_array().unwrap();
+        assert_eq!(columns.len(), 2);
+
+        let first_button = &columns[0]["elements"][0];
+        assert_eq!(first_button["tag"], "button");
+        assert_eq!(first_button["type"], "primary");
+        let behaviors = first_button["behaviors"].as_array().unwrap();
+        assert_eq!(behaviors.len(), 1);
+        assert_eq!(behaviors[0]["type"], "callback");
+        assert_eq!(
+            behaviors[0]["value"]["hope_callback"],
+            "approval:abc:allow_once"
+        );
+
+        let second_button = &columns[1]["elements"][0];
+        assert_eq!(
+            second_button["behaviors"][0]["value"]["hope_callback"],
+            "approval:abc:deny"
+        );
+    }
+
+    #[test]
+    fn button_card_omits_markdown_when_text_empty() {
+        let buttons = vec![vec![InlineButton {
+            text: "OK".to_string(),
+            callback_data: Some("ask_user:1:ok".to_string()),
+            url: None,
+        }]];
+
+        let card_none = build_button_card_v2(None, &buttons);
+        let elements_none = card_none["body"]["elements"].as_array().unwrap();
+        assert_eq!(elements_none.len(), 1, "no text => no markdown element");
+        assert_eq!(elements_none[0]["tag"], "column_set");
+
+        let card_empty = build_button_card_v2(Some(""), &buttons);
+        let elements_empty = card_empty["body"]["elements"].as_array().unwrap();
+        assert_eq!(elements_empty.len(), 1, "empty text => no markdown element");
+    }
+
+    #[test]
+    fn button_card_falls_back_to_button_text_when_no_callback_data() {
+        let buttons = vec![vec![InlineButton {
+            text: "RawText".to_string(),
+            callback_data: None,
+            url: None,
+        }]];
+        let card = build_button_card_v2(Some("t"), &buttons);
+        let columns = card["body"]["elements"][1]["columns"].as_array().unwrap();
+        // callback_id() returns the button text when callback_data is None.
+        assert_eq!(
+            columns[0]["elements"][0]["behaviors"][0]["value"]["hope_callback"],
+            "RawText"
+        );
     }
 }
