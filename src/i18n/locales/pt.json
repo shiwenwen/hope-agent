@@ -316,8 +316,12 @@
         "submit": "Transferir",
         "submitting": "Transferindo…",
         "submitted": "Concluído"
-      }
-    }
+      },
+      "done": "Transferência concluída.",
+      "failed": "Transferência falhou: {{error}}"
+    },
+    "pickSession": "Escolher uma sessão",
+    "detachOnDesktopNoop": "Detach não tem efeito no desktop — nenhum chat de IM vinculado a esta sessão aqui."
   },
   "effort": {
     "none": "Desligado",

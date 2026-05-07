@@ -316,8 +316,12 @@
         "submit": "Hand over",
         "submitting": "Handing over…",
         "submitted": "Done"
-      }
-    }
+      },
+      "done": "Handover completed.",
+      "failed": "Handover failed: {{error}}"
+    },
+    "pickSession": "Pick a session",
+    "detachOnDesktopNoop": "Detach has no effect on desktop — no IM chat is bound to this session here."
   },
   "effort": {
     "none": "Off",

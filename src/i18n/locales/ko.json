@@ -316,8 +316,12 @@
         "submit": "인계",
         "submitting": "인계 중…",
         "submitted": "완료"
-      }
-    }
+      },
+      "done": "인계 완료.",
+      "failed": "인계 실패: {{error}}"
+    },
+    "pickSession": "세션 선택",
+    "detachOnDesktopNoop": "데스크톱은 IM 채팅에 바인딩되지 않으므로 detach는 효과가 없습니다."
   },
   "effort": {
     "none": "끄기",

@@ -316,8 +316,12 @@
         "submit": "Serahkan",
         "submitting": "Menyerahkan…",
         "submitted": "Selesai"
-      }
-    }
+      },
+      "done": "Penyerahan selesai.",
+      "failed": "Penyerahan gagal: {{error}}"
+    },
+    "pickSession": "Pilih sesi",
+    "detachOnDesktopNoop": "Pada desktop tiada ikatan IM chat — detach tidak berkesan di sini."
   },
   "effort": {
     "none": "Mati",

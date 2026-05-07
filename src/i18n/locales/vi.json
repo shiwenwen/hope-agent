@@ -316,8 +316,12 @@
         "submit": "Bàn giao",
         "submitting": "Đang bàn giao…",
         "submitted": "Xong"
-      }
-    }
+      },
+      "done": "Đã bàn giao.",
+      "failed": "Bàn giao thất bại: {{error}}"
+    },
+    "pickSession": "Chọn phiên",
+    "detachOnDesktopNoop": "Trên máy tính không có liên kết IM chat — detach không có tác dụng ở đây."
   },
   "effort": {
     "none": "Tắt",

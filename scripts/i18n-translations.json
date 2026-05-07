@@ -63,8 +63,12 @@
           "submit": "引き継ぐ",
           "submitting": "引き継ぎ中…",
           "submitted": "完了"
-        }
-      }
+        },
+        "done": "引き継ぎが完了しました。",
+        "failed": "引き継ぎに失敗しました:{{error}}"
+      },
+      "pickSession": "セッションを選択",
+      "detachOnDesktopNoop": "デスクトップでは IM チャットへの接続がないため、detach は何もしません。"
     },
     "effort": {
       "none": "オフ"
@@ -826,8 +830,12 @@
           "submit": "인계",
           "submitting": "인계 중…",
           "submitted": "완료"
-        }
-      }
+        },
+        "done": "인계 완료.",
+        "failed": "인계 실패: {{error}}"
+      },
+      "pickSession": "세션 선택",
+      "detachOnDesktopNoop": "데스크톱은 IM 채팅에 바인딩되지 않으므로 detach는 효과가 없습니다."
     },
     "effort": {
       "none": "끄기"
@@ -1589,8 +1597,12 @@
           "submit": "交班",
           "submitting": "交班中…",
           "submitted": "完成"
-        }
-      }
+        },
+        "done": "交班完成。",
+        "failed": "交班失敗:{{error}}"
+      },
+      "pickSession": "選擇工作階段",
+      "detachOnDesktopNoop": "桌面端不繫結 IM chat,detach 在此處無效。"
     },
     "effort": {
       "none": "關閉"
@@ -2352,8 +2364,12 @@
           "submit": "Devret",
           "submitting": "Devrediliyor…",
           "submitted": "Tamam"
-        }
-      }
+        },
+        "done": "Devir tamamlandı.",
+        "failed": "Devir başarısız: {{error}}"
+      },
+      "pickSession": "Bir oturum seç",
+      "detachOnDesktopNoop": "Masaüstünde IM sohbetine bağlama yok — detach burada etkisiz."
     },
     "effort": {
       "none": "Kapalı"
@@ -3115,8 +3131,12 @@
           "submit": "Bàn giao",
           "submitting": "Đang bàn giao…",
           "submitted": "Xong"
-        }
-      }
+        },
+        "done": "Đã bàn giao.",
+        "failed": "Bàn giao thất bại: {{error}}"
+      },
+      "pickSession": "Chọn phiên",
+      "detachOnDesktopNoop": "Trên máy tính không có liên kết IM chat — detach không có tác dụng ở đây."
     },
     "effort": {
       "none": "Tắt"
@@ -3878,8 +3898,12 @@
           "submit": "Transferir",
           "submitting": "Transferindo…",
           "submitted": "Concluído"
-        }
-      }
+        },
+        "done": "Transferência concluída.",
+        "failed": "Transferência falhou: {{error}}"
+      },
+      "pickSession": "Escolher uma sessão",
+      "detachOnDesktopNoop": "Detach não tem efeito no desktop — nenhum chat de IM vinculado a esta sessão aqui."
     },
     "effort": {
       "none": "Desligado"
@@ -4641,8 +4665,12 @@
           "submit": "Передать",
           "submitting": "Передача…",
           "submitted": "Готово"
-        }
-      }
+        },
+        "done": "Передача завершена.",
+        "failed": "Передача не удалась: {{error}}"
+      },
+      "pickSession": "Выбрать сессию",
+      "detachOnDesktopNoop": "На рабочем столе нет привязки к IM-чату — detach не имеет эффекта."
     },
     "effort": {
       "none": "Выкл"
@@ -5404,8 +5432,12 @@
           "submit": "تحويل",
           "submitting": "جارٍ التحويل…",
           "submitted": "تم"
-        }
-      }
+        },
+        "done": "اكتمل التحويل.",
+        "failed": "فشل التحويل: {{error}}"
+      },
+      "pickSession": "اختر جلسة",
+      "detachOnDesktopNoop": "لا توجد محادثة IM مرتبطة بهذه الجلسة على سطح المكتب — detach لا يفعل شيئًا هنا."
     },
     "effort": {
       "none": "إيقاف"
@@ -6167,8 +6199,12 @@
           "submit": "Transferir",
           "submitting": "Transfiriendo…",
           "submitted": "Hecho"
-        }
-      }
+        },
+        "done": "Transferencia completada.",
+        "failed": "Transferencia fallida: {{error}}"
+      },
+      "pickSession": "Elegir una sesión",
+      "detachOnDesktopNoop": "Detach no tiene efecto en el escritorio — no hay un chat de IM vinculado a esta sesión aquí."
     },
     "effort": {
       "none": "Apagado"
@@ -6930,8 +6966,12 @@
           "submit": "Serahkan",
           "submitting": "Menyerahkan…",
           "submitted": "Selesai"
-        }
-      }
+        },
+        "done": "Penyerahan selesai.",
+        "failed": "Penyerahan gagal: {{error}}"
+      },
+      "pickSession": "Pilih sesi",
+      "detachOnDesktopNoop": "Pada desktop tiada ikatan IM chat — detach tidak berkesan di sini."
     },
     "effort": {
       "none": "Mati"
@@ -7755,8 +7795,12 @@
           "submit": "交班",
           "submitting": "交班中…",
           "submitted": "完成"
-        }
-      }
+        },
+        "done": "交班完成。",
+        "failed": "交班失败:{{error}}"
+      },
+      "pickSession": "选择会话",
+      "detachOnDesktopNoop": "桌面端不绑定 IM chat,detach 在此处无效。"
     },
     "slashCommands": {
       "sessions": {

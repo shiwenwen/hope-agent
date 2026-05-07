@@ -961,6 +961,81 @@ export default function ChatScreen({
           void handleNewChatInProject(action.projectId, undefined, false)
           break
         }
+        case "assignProject": {
+          // IM-mode action — desktop falls back to the "create new chat in
+          // project" flow so users still get a usable outcome if they
+          // somehow reach this branch from the GUI.
+          setDraftIncognito(false)
+          void handleNewChatInProject(action.projectId, undefined, false)
+          break
+        }
+        case "showSessionPicker": {
+          // Markdown list, mirroring the showProjectPicker fallback. Each
+          // row carries the short id + title + optional channel chip; the
+          // user types `/session <id>` (or clicks in the sidebar) to switch.
+          const lines = [t("chat.pickSession") + ":"]
+          for (const s of action.sessions) {
+            const idShort = s.id.slice(0, 8)
+            const chip = s.channelLabel ? ` · _${s.channelLabel}_` : ""
+            lines.push(`- \`${idShort}\` · ${s.title}${chip}`)
+          }
+          lines.push("")
+          lines.push("> `/session <id>`")
+          const pickerMsg: Message = {
+            role: "event",
+            content: lines.join("\n"),
+            timestamp: new Date().toISOString(),
+          }
+          session.setMessages((prev) => [...prev, pickerMsg])
+          break
+        }
+        case "enterSession":
+        case "attachToSession": {
+          // Desktop has no chat-to-session binding; both reduce to "switch
+          // to that session". Reuse the sidebar's switch path so history /
+          // pagination / agent restore behave identically.
+          void session.handleSwitchSession(action.sessionId)
+          break
+        }
+        case "detachFromSession": {
+          // GUI has no IM-attach to release. Surface a hint so /session exit
+          // typed from the desktop slash menu doesn't appear silent.
+          const msg: Message = {
+            role: "event",
+            content: t("chat.detachOnDesktopNoop"),
+            timestamp: new Date().toISOString(),
+          }
+          session.setMessages((prev) => [...prev, msg])
+          break
+        }
+        case "handoverToChannel": {
+          // Slash-form handover — mirrors what the title-bar Send icon does
+          // through HandoverDialog, but skips the dialog when the user
+          // already supplied channel:account:chat[:thread] inline.
+          try {
+            await getTransport().call<void>("channel_handover_session", {
+              sessionId: action.sessionId,
+              channelId: action.channelId,
+              accountId: action.accountId,
+              chatId: action.chatId,
+              threadId: action.threadId ?? null,
+            })
+            const msg: Message = {
+              role: "event",
+              content: t("chat.handover.done"),
+              timestamp: new Date().toISOString(),
+            }
+            session.setMessages((prev) => [...prev, msg])
+          } catch (e) {
+            const msg: Message = {
+              role: "event",
+              content: t("chat.handover.failed", { error: String(e) }),
+              timestamp: new Date().toISOString(),
+            }
+            session.setMessages((prev) => [...prev, msg])
+          }
+          break
+        }
         // result.content (rendered above as an event chip) is the only
         // user-facing surface today; richer wiring tracked in F-033.
         case "recapCard":

@@ -316,8 +316,12 @@
         "submit": "Devret",
         "submitting": "Devrediliyor…",
         "submitted": "Tamam"
-      }
-    }
+      },
+      "done": "Devir tamamlandı.",
+      "failed": "Devir başarısız: {{error}}"
+    },
+    "pickSession": "Bir oturum seç",
+    "detachOnDesktopNoop": "Masaüstünde IM sohbetine bağlama yok — detach burada etkisiz."
   },
   "effort": {
     "none": "Kapalı",

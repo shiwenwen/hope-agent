@@ -316,8 +316,12 @@
         "submit": "تحويل",
         "submitting": "جارٍ التحويل…",
         "submitted": "تم"
-      }
-    }
+      },
+      "done": "اكتمل التحويل.",
+      "failed": "فشل التحويل: {{error}}"
+    },
+    "pickSession": "اختر جلسة",
+    "detachOnDesktopNoop": "لا توجد محادثة IM مرتبطة بهذه الجلسة على سطح المكتب — detach لا يفعل شيئًا هنا."
   },
   "effort": {
     "none": "إيقاف",

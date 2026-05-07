@@ -316,8 +316,12 @@
         "submit": "引き継ぐ",
         "submitting": "引き継ぎ中…",
         "submitted": "完了"
-      }
-    }
+      },
+      "done": "引き継ぎが完了しました。",
+      "failed": "引き継ぎに失敗しました:{{error}}"
+    },
+    "pickSession": "セッションを選択",
+    "detachOnDesktopNoop": "デスクトップでは IM チャットへの接続がないため、detach は何もしません。"
   },
   "effort": {
     "none": "オフ",

@@ -38,6 +38,19 @@ export type CommandAction =
   | { type: "showContextBreakdown"; breakdown: ContextBreakdown }
   | { type: "showProjectPicker"; projects: ProjectPickerItem[] }
   | { type: "enterProject"; projectId: string }
+  | { type: "assignProject"; projectId: string }
+  | { type: "showSessionPicker"; sessions: SessionPickerItem[] }
+  | { type: "enterSession"; sessionId: string }
+  | { type: "attachToSession"; sessionId: string }
+  | { type: "detachFromSession" }
+  | {
+      type: "handoverToChannel"
+      sessionId: string
+      channelId: string
+      accountId: string
+      chatId: string
+      threadId?: string | null
+    }
   | { type: "skillFork"; runId: string; skillName: string }
   | { type: "recapCard"; reportId: string }
   | { type: "openDashboardTab"; tab: string }
@@ -82,6 +95,20 @@ export interface ProjectPickerItem {
   color?: string | null
   description?: string | null
   sessionCount: number
+}
+
+/** A session entry surfaced by the `/sessions` picker. Mirrors Rust
+ *  `SessionPickerItem`. */
+export interface SessionPickerItem {
+  id: string
+  title: string
+  agentId: string
+  projectId?: string | null
+  /** When set, the session is currently surfaced by an IM chat. Display as
+   *  a small chip so the user can spot IM-shared sessions. */
+  channelLabel?: string | null
+  /** RFC3339 timestamp matching `SessionMeta.updatedAt` shape. */
+  updatedAt: string
 }
 
 /** Matches Rust CommandResult struct */

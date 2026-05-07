@@ -316,8 +316,12 @@
         "submit": "交班",
         "submitting": "交班中…",
         "submitted": "完成"
-      }
-    }
+      },
+      "done": "交班完成。",
+      "failed": "交班失败:{{error}}"
+    },
+    "pickSession": "选择会话",
+    "detachOnDesktopNoop": "桌面端不绑定 IM chat,detach 在此处无效。"
   },
   "effort": {
     "none": "关闭",
