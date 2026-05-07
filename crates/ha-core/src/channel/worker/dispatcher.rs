@@ -1144,23 +1144,22 @@ async fn deliver_preview_merged(
     preview: Option<&PreviewHandle>,
     caps: &ChannelCapabilities,
 ) -> DeliveryMetrics {
-    // Pre-/reason behavior used `fallback_response` directly; with
-    // `/reason on`, that text omits the reasoning blockquotes the user
-    // just watched stream in, so the final commit would replace the
-    // preview with a thinking-less version. Joining round texts (which
-    // the sink already formatted) preserves what was rendered.
+    // Concatenate round texts with NO separator: the round_texts state
+    // machine is the byte-exact mirror of what the sink forwarded into
+    // the streaming preview task's `accumulated` buffer (round
+    // boundaries don't insert padding by themselves; the only `\n\n`
+    // separators that exist are the ones `on_thinking` / `on_text` /
+    // `on_tool_call` already pushed when closing a thinking blockquote).
+    // Joining with `\n\n` would insert extra blank lines between rounds
+    // that the live preview never showed — the final commit would jump.
     let final_text: String = if rounds.is_empty() {
         fallback_response.to_string()
     } else {
-        let parts: Vec<&str> = rounds
-            .iter()
-            .map(|r| r.text.trim_end())
-            .filter(|t| !t.is_empty())
-            .collect();
-        if parts.is_empty() {
+        let merged: String = rounds.iter().map(|r| r.text.as_str()).collect();
+        if merged.is_empty() {
             fallback_response.to_string()
         } else {
-            parts.join("\n\n")
+            merged
         }
     };
     let all_media: Vec<crate::attachments::MediaItem> = rounds

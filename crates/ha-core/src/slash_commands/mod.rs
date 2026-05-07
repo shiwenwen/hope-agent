@@ -66,15 +66,29 @@ pub fn resolve_skill_command_names<'a>(
     out
 }
 
+/// Silent dispatcher aliases — names accepted by the dispatch match arm
+/// in `handlers::mod.rs` but deliberately NOT registered in
+/// `registry::all_commands()` (so they don't appear in IM slash menus).
+/// They must still be reserved against skill name collisions, otherwise
+/// a user-defined `/<alias>` skill would be shadowed silently by the
+/// built-in dispatch.
+const SILENT_BUILTIN_ALIASES: &[&str] = &["reasoning"];
+
 /// Built-in (hardcoded) slash command names — cached since `registry::all_commands()`
-/// is compile-time constant.
+/// is compile-time constant. Includes silent dispatcher aliases (see
+/// [`SILENT_BUILTIN_ALIASES`]) so the skill collision check in
+/// [`resolve_skill_command_names`] sees them too.
 pub fn builtin_command_names() -> &'static HashSet<String> {
     static CACHE: OnceLock<HashSet<String>> = OnceLock::new();
     CACHE.get_or_init(|| {
-        registry::all_commands()
+        let mut names: HashSet<String> = registry::all_commands()
             .into_iter()
             .map(|c| c.name)
-            .collect()
+            .collect();
+        for alias in SILENT_BUILTIN_ALIASES {
+            names.insert((*alias).to_string());
+        }
+        names
     })
 }
 
@@ -88,8 +102,10 @@ pub async fn list_slash_commands() -> Result<Vec<SlashCommandDef>, String> {
         crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills);
     drop(store);
 
-    let reserved: HashSet<String> = commands.iter().map(|c| c.name.clone()).collect();
-    let resolved = resolve_skill_command_names(&skill_entries, &reserved);
+    // Use the cached reserved-name set so silent dispatcher aliases
+    // (e.g. `reasoning` for `/reason`) also block skill collisions.
+    let reserved = builtin_command_names();
+    let resolved = resolve_skill_command_names(&skill_entries, reserved);
 
     for entry in resolved {
         let skill = entry.skill;
@@ -213,4 +229,61 @@ pub(crate) fn truncate_description(s: &str, max_chars: usize) -> String {
     }
     let truncated: String = s.chars().take(max_chars - 1).collect();
     format!("{}…", truncated)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::skills::{SkillDisplay, SkillEntry, SkillRequires, SkillStatus};
+
+    fn mk_skill(name: &str) -> SkillEntry {
+        SkillEntry {
+            name: name.to_string(),
+            aliases: Vec::new(),
+            description: "stub".into(),
+            when_to_use: None,
+            source: "managed".into(),
+            file_path: format!("/tmp/{name}/SKILL.md"),
+            base_dir: format!("/tmp/{name}"),
+            requires: SkillRequires::default(),
+            skill_key: None,
+            user_invocable: None,
+            disable_model_invocation: None,
+            command_dispatch: None,
+            command_tool: None,
+            command_arg_mode: None,
+            command_arg_placeholder: None,
+            command_arg_options: None,
+            command_prompt_template: None,
+            install: Vec::new(),
+            allowed_tools: Vec::new(),
+            context_mode: None,
+            agent: None,
+            effort: None,
+            paths: None,
+            status: SkillStatus::Active,
+            authored_by: None,
+            rationale: None,
+            display: SkillDisplay::default(),
+        }
+    }
+
+    #[test]
+    fn silent_aliases_are_reserved_against_skills() {
+        // `/reasoning` is a silent dispatch alias for `/reason` — not in
+        // the registry, but must still block a same-named skill from
+        // resolving as `/reasoning` (otherwise the skill is silently
+        // shadowed by the built-in dispatch).
+        let reserved = builtin_command_names();
+        assert!(reserved.contains("reason"));
+        assert!(reserved.contains("reasoning"));
+
+        let skill = mk_skill("reasoning");
+        let resolved = resolve_skill_command_names(std::slice::from_ref(&skill), reserved);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].typed_name, "reasoning_skill",
+            "skill must not collide with silent built-in alias"
+        );
+    }
 }
