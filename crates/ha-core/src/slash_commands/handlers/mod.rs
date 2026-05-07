@@ -71,7 +71,9 @@ pub async fn dispatch(
             let store = crate::config::cached_config();
             model::handle_model(&store, "")
         }
-        "think" => model::handle_think(args),
+        // `think` is a silent alias for `thinking` (only `thinking` is in the
+        // registry / slash menu).
+        "thinking" | "think" => model::handle_think(args),
 
         // ── Memory ──
         "remember" => {
@@ -300,6 +302,25 @@ fn build_skill_path_pointer_prompt(name: &str, file_path: &str, args: &str) -> S
         format!("Use the skill '{name}'. Read the skill file at {file_path} for instructions.")
     } else {
         format!("Use the skill '{name}' to: {args}. Read the skill file at {file_path} for instructions.")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::slash_commands::types::CommandAction;
+
+    #[tokio::test]
+    async fn think_alias_dispatches_like_thinking() {
+        let result = dispatch(None, "default", "think", "high")
+            .await
+            .expect("/think should dispatch to /thinking");
+
+        assert_eq!(result.content, "Thinking effort set to **high**");
+        match result.action {
+            Some(CommandAction::SetEffort { effort }) => assert_eq!(effort, "high"),
+            other => panic!("expected SetEffort action, got {other:?}"),
+        }
     }
 }
 

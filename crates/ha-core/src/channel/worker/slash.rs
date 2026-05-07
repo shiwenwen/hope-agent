@@ -55,9 +55,10 @@ pub(super) async fn dispatch_slash_for_channel(
 
         // First check built-in commands
         let commands = registry::all_commands();
+        let lookup_name = crate::slash_commands::canonical_builtin_command_name(&name);
         let mut options_found: Option<Vec<String>> = commands
             .iter()
-            .find(|c| c.name == name)
+            .find(|c| c.name == lookup_name)
             .and_then(|c| c.arg_options.clone());
 
         // If not found in built-in, check dynamic skill commands

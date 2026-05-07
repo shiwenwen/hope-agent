@@ -233,7 +233,7 @@ pub struct AssistantAgent {
     /// When true, automatically approve all tool calls (IM channel auto-approve mode).
     pub(super) auto_approve_tools: bool,
     /// When true, every tool-loop round re-reads the live reasoning effort from
-    /// `AppState` so UI toggles / `/think` slash commands apply to the next API
+    /// `AppState` so UI toggles / `/thinking` slash commands apply to the next API
     /// request without waiting for the next user turn. Main-chat agents opt in
     /// via `configure_agent`; subagents / side_query / memory_extract / cron
     /// leave it `false` so their caller-specified effort isn't silently

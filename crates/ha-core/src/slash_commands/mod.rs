@@ -72,7 +72,18 @@ pub fn resolve_skill_command_names<'a>(
 /// They must still be reserved against skill name collisions, otherwise
 /// a user-defined `/<alias>` skill would be shadowed silently by the
 /// built-in dispatch.
-const SILENT_BUILTIN_ALIASES: &[&str] = &["reasoning"];
+const SILENT_BUILTIN_ALIASES: &[&str] = &["reasoning", "think"];
+
+/// Resolve silent built-in aliases to their canonical command names for
+/// metadata lookup paths (arg options, help text, etc.). Dispatch still matches
+/// aliases explicitly so the behavior stays obvious at the side-effect boundary.
+pub fn canonical_builtin_command_name(name: &str) -> &str {
+    match name {
+        "reasoning" => "reason",
+        "think" => "thinking",
+        _ => name,
+    }
+}
 
 /// Built-in (hardcoded) slash command names — cached since `registry::all_commands()`
 /// is compile-time constant. Includes silent dispatcher aliases (see
@@ -270,19 +281,31 @@ mod tests {
 
     #[test]
     fn silent_aliases_are_reserved_against_skills() {
-        // `/reasoning` is a silent dispatch alias for `/reason` — not in
-        // the registry, but must still block a same-named skill from
-        // resolving as `/reasoning` (otherwise the skill is silently
-        // shadowed by the built-in dispatch).
+        // `/reasoning` and `/think` are silent dispatch aliases — not in
+        // the registry, but must still block same-named skills from resolving
+        // to those names (otherwise the skill is silently shadowed by the
+        // built-in dispatch).
         let reserved = builtin_command_names();
         assert!(reserved.contains("reason"));
         assert!(reserved.contains("reasoning"));
+        assert!(reserved.contains("thinking"));
+        assert!(reserved.contains("think"));
+        assert_eq!(canonical_builtin_command_name("think"), "thinking");
+        assert_eq!(canonical_builtin_command_name("reasoning"), "reason");
 
         let skill = mk_skill("reasoning");
         let resolved = resolve_skill_command_names(std::slice::from_ref(&skill), reserved);
         assert_eq!(resolved.len(), 1);
         assert_eq!(
             resolved[0].typed_name, "reasoning_skill",
+            "skill must not collide with silent built-in alias"
+        );
+
+        let skill = mk_skill("think");
+        let resolved = resolve_skill_command_names(std::slice::from_ref(&skill), reserved);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].typed_name, "think_skill",
             "skill must not collide with silent built-in alias"
         );
     }

@@ -62,7 +62,7 @@ pub fn handle_model(store: &AppConfig, args: &str) -> Result<CommandResult, Stri
     })
 }
 
-/// /think <level> — Set reasoning effort.
+/// /thinking <level> — Set reasoning effort.
 pub fn handle_think(args: &str) -> Result<CommandResult, String> {
     let level = args.trim().to_lowercase();
     let valid = ["off", "none", "low", "medium", "high", "xhigh"];

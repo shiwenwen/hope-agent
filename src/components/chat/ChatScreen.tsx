@@ -618,7 +618,7 @@ export default function ChatScreen({
       }),
     )
 
-    // Effort changed from channel (/think)
+    // Effort changed from channel (/thinking)
     unlisteners.push(
       getTransport().listen("slash:effort_changed", (payload) => {
         const data = payload as string | { sessionId?: string; effort?: string }

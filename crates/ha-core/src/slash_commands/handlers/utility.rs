@@ -24,9 +24,10 @@ pub fn handle_help(session_id: Option<&str>) -> CommandResult {
 
     let cfg = crate::config::cached_config();
     let skills = crate::skills::get_invocable_skills(&cfg.extra_skills_dirs, &cfg.disabled_skills);
-    let reserved: std::collections::HashSet<String> =
-        commands.iter().map(|c| c.name.clone()).collect();
-    let resolved_skills = crate::slash_commands::resolve_skill_command_names(&skills, &reserved);
+    let resolved_skills = crate::slash_commands::resolve_skill_command_names(
+        &skills,
+        crate::slash_commands::builtin_command_names(),
+    );
     drop(cfg);
 
     let mut lines: Vec<String> = Vec::new();
@@ -119,7 +120,7 @@ fn is_session_in_im_channel(session_id: Option<&str>) -> bool {
 
 /// Render a single help row: `` `/cmd <args>` — description``. Uses fixed
 /// `arg_options` for the inline hint when available (e.g.
-/// `/think <off|low|medium|high|xhigh>`), otherwise falls back to
+/// `/thinking <off|low|medium|high|xhigh>`), otherwise falls back to
 /// `arg_placeholder`. `description_en()` is the same source IM channels use
 /// for their menu sync, so `/help` and Telegram / Discord menus stay in lockstep.
 fn format_help_row(c: &SlashCommandDef) -> String {

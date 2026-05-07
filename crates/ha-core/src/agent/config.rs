@@ -152,7 +152,7 @@ pub fn get_codex_models() -> Vec<CodexModel> {
 /// Returns the latest `AppState.reasoning_effort` (treating "none" as `None`)
 /// if AppState is initialized, otherwise falls back to the caller-provided
 /// value. Provider tool loops call this at the top of every round so a
-/// user-side toggle (UI picker, `/think` slash, channel command) applies to
+/// user-side toggle (UI picker, `/thinking` slash, channel command) applies to
 /// the very next API request instead of only to the next user message.
 pub async fn live_reasoning_effort(fallback: Option<&str>) -> Option<String> {
     if let Some(cell) = crate::globals::get_reasoning_effort_cell() {
