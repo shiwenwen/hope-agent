@@ -662,10 +662,16 @@ mod tests {
         // Round 0 has reasoning + tool_call. Round 1's reasoning should
         // get its own opener — `thinking_active` must reset on tool_call.
         let (sink, rounds, _rx) = mk_sink_with_rx(true);
-        emit(&sink, json!({"type": "thinking_delta", "content": "step 1"}));
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": "step 1"}),
+        );
         emit(&sink, tool_call("c1"));
         emit(&sink, tool_result_with_media("c1", vec![mk_media_item()]));
-        emit(&sink, json!({"type": "thinking_delta", "content": "step 2"}));
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": "step 2"}),
+        );
         emit(&sink, json!({"type": "text_delta", "content": "Done."}));
 
         let drained = rounds.lock().unwrap().drain();
