@@ -10,6 +10,7 @@ use crate::session;
 
 use super::context::*;
 use super::persister::StreamPersister;
+use super::sink_registry;
 use super::stream_broadcast;
 use super::stream_seq;
 use super::types::*;
@@ -83,13 +84,19 @@ fn emit_stream_event(
     source: stream_seq::ChatSource,
     event: &str,
 ) {
-    if !source.broadcasts_to_user_ui() {
+    let payload: String = if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
-        return;
-    }
-    let (enveloped, seq, stream_id) = stream_broadcast::inject_seq(session_id, event);
-    event_sink.send(&enveloped);
-    stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
+        event.to_string()
+    } else {
+        let (enveloped, seq, stream_id) = stream_broadcast::inject_seq(session_id, event);
+        event_sink.send(&enveloped);
+        stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
+        enveloped
+    };
+    // Fan-out to any extra sinks attached to this session (handover targets,
+    // /session <id> observers, GUI ↔ IM mirrors). The primary `event_sink`
+    // above is intentionally not registered, so each consumer fires once.
+    sink_registry::sink_registry().emit(session_id, &payload);
 }
 
 // ── Core Chat Engine ────────────────────────────────────────────────

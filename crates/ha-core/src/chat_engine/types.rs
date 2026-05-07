@@ -98,6 +98,14 @@ pub struct ChannelStreamSink {
     /// completes. The dispatcher owns the same `Arc` and drains this vec once
     /// `run_chat_engine` returns.
     pub pending_media: Arc<Mutex<Vec<MediaItem>>>,
+    /// Whether this sink is the **primary** attach for the session. Only the
+    /// primary forwards events into `event_tx` (and from there to the IM
+    /// channel preview / final reply); secondary observers still emit on the
+    /// EventBus so attached UIs can render the stream, but stay silent on
+    /// the channel side. Toggleable at runtime so a primary swap (e.g.
+    /// `/session exit` promoting another chat) doesn't require rebuilding
+    /// the sink mid-turn.
+    pub is_primary: Arc<AtomicBool>,
 }
 
 impl ChannelStreamSink {
@@ -106,11 +114,27 @@ impl ChannelStreamSink {
         event_tx: tokio::sync::mpsc::Sender<String>,
         pending_media: Arc<Mutex<Vec<MediaItem>>>,
     ) -> Self {
+        Self::with_primary(session_id, event_tx, pending_media, true)
+    }
+
+    pub fn with_primary(
+        session_id: String,
+        event_tx: tokio::sync::mpsc::Sender<String>,
+        pending_media: Arc<Mutex<Vec<MediaItem>>>,
+        is_primary: bool,
+    ) -> Self {
         Self {
             session_id,
             event_tx,
             pending_media,
+            is_primary: Arc::new(AtomicBool::new(is_primary)),
         }
+    }
+
+    /// Shared handle to the `is_primary` flag — clone and hold elsewhere
+    /// (dispatcher / streaming task) to flip the gating mid-turn.
+    pub fn primary_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.is_primary)
     }
 }
 
@@ -143,7 +167,13 @@ impl EventSink for ChannelStreamSink {
                 }
             }
         }
-        let _ = self.event_tx.try_send(event.to_string());
+        // Only the primary attach forwards events into the IM streaming
+        // task. Secondary observers still get the EventBus emit above so
+        // attached UIs render the stream — they just don't echo it back to
+        // the IM channel.
+        if self.is_primary.load(std::sync::atomic::Ordering::Relaxed) {
+            let _ = self.event_tx.try_send(event.to_string());
+        }
     }
 }
 

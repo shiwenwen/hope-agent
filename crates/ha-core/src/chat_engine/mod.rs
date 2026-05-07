@@ -3,6 +3,7 @@ pub mod active_turn;
 pub mod context;
 mod engine;
 pub(crate) mod persister;
+pub mod sink_registry;
 pub mod stream_broadcast;
 pub mod stream_seq;
 mod types;

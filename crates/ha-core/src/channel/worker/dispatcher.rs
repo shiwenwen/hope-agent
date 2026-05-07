@@ -233,32 +233,40 @@ async fn handle_inbound_message(
         }
     }
 
-    // 3. Resolve agent_id:
-    // topic > group > channel > per-account > app global default > hardcoded default.
-    let app_default_agent_id = store
-        .default_agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(crate::agent::resolver::HARDCODED_DEFAULT_AGENT_ID);
-    let base_agent_id = account
-        .agent_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        .unwrap_or(app_default_agent_id);
-
-    let resolved_agent_id = match msg.chat_type {
-        ChatType::Group | ChatType::Forum => topic_config
-            .and_then(|t| t.agent_id.as_deref())
-            .or_else(|| effective_group_config.and_then(|g| g.agent_id.as_deref()))
-            .unwrap_or(base_agent_id),
-        ChatType::Channel => channel_config
-            .and_then(|c| c.agent_id.as_deref())
-            .unwrap_or(base_agent_id),
-        ChatType::Dm => base_agent_id,
+    // 3. Resolve agent_id via the central resolver — the precedence chain
+    //    (project > topic > group > channel-override > channel-account >
+    //    global > hardcoded) lives in `agent::resolver` so /status, IM
+    //    dispatch, and desktop / HTTP all share one source of truth.
+    //    Only the IM-relevant levels are passed in here; project routing
+    //    is now explicit (`/project <id>` from inside the chat).
+    let (agent_id, _agent_source) = match msg.chat_type {
+        ChatType::Group | ChatType::Forum => {
+            crate::agent::resolver::resolve_default_agent_id_full(
+                None,
+                None,
+                topic_config,
+                effective_group_config,
+                None,
+                Some(&account),
+            )
+        }
+        ChatType::Channel => crate::agent::resolver::resolve_default_agent_id_full(
+            None,
+            None,
+            None,
+            None,
+            channel_config,
+            Some(&account),
+        ),
+        ChatType::Dm => crate::agent::resolver::resolve_default_agent_id_full(
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(&account),
+        ),
     };
-    let agent_id = resolved_agent_id.to_string();
 
     // 3b. Resolve extra system prompt from group/topic/channel config
     let config_system_prompt = match msg.chat_type {
