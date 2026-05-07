@@ -131,7 +131,20 @@ pub struct RoundTextAccumulator {
     /// True between the round's first tool_call and the next text_delta.
     /// Used to detect round-boundary transitions cheaply on each event.
     in_tool_phase: bool,
+    /// True between the first `thinking_delta` of a round and either the
+    /// first `text_delta` (which closes the blockquote with `\n\n`) or the
+    /// round's `tool_call` (which resets state for the next round). Only
+    /// touched when `ChannelStreamSink::show_thinking` is enabled — when
+    /// disabled, `on_thinking` is never called.
+    thinking_active: bool,
 }
+
+/// Markdown blockquote opener prepended to the first thinking chunk of a
+/// round when the channel account has `show_thinking = true`. Subsequent
+/// chunks reuse the trailing `> ` from the previous append; embedded
+/// newlines in chunks are rewritten to `\n> ` to keep the blockquote
+/// uninterrupted across multi-line reasoning.
+const THINKING_BLOCKQUOTE_OPENER: &str = "> 💭 **Thinking**\n> ";
 
 impl RoundTextAccumulator {
     /// Append text to the current round. If we just exited a tool phase,
@@ -143,7 +156,38 @@ impl RoundTextAccumulator {
         if self.in_tool_phase {
             self.in_tool_phase = false;
         }
+        if self.thinking_active {
+            // Close the blockquote so the reply text rendered after it is
+            // a normal paragraph, not a continuation of the quote.
+            self.current.text.push_str("\n\n");
+            self.thinking_active = false;
+        }
         self.current.text.push_str(text);
+    }
+
+    /// Append a thinking-delta chunk to the current round, formatted as a
+    /// markdown blockquote. Only invoked when `ChannelStreamSink::show_thinking`
+    /// is enabled — disabled mode drops thinking entirely without touching the
+    /// accumulator. Returns the exact slice appended to `current.text`, so
+    /// `ChannelStreamSink` can synthesize a matching `text_delta` event for
+    /// the streaming preview task to render.
+    pub fn on_thinking(&mut self, text: &str) -> String {
+        if self.in_tool_phase {
+            self.in_tool_phase = false;
+        }
+        let mut appended = String::new();
+        if !self.thinking_active {
+            appended.push_str(THINKING_BLOCKQUOTE_OPENER);
+            self.thinking_active = true;
+        }
+        // Keep multi-line reasoning inside the blockquote.
+        if text.contains('\n') {
+            appended.push_str(&text.replace('\n', "\n> "));
+        } else {
+            appended.push_str(text);
+        }
+        self.current.text.push_str(&appended);
+        appended
     }
 
     /// Mark the round as having entered its tool phase. Idempotent within
@@ -152,6 +196,12 @@ impl RoundTextAccumulator {
     /// grouping (their results still attach correctly via `on_media`).
     fn on_tool_call(&mut self) {
         if !self.in_tool_phase {
+            if self.thinking_active {
+                // Close the blockquote so any later `tool_result` text
+                // rendering doesn't bleed into the quote.
+                self.current.text.push_str("\n\n");
+                self.thinking_active = false;
+            }
             let prev = std::mem::take(&mut self.current);
             self.completed.push(prev);
             self.in_tool_phase = true;
@@ -196,6 +246,7 @@ impl RoundTextAccumulator {
             out.push(last);
         }
         self.in_tool_phase = false;
+        self.thinking_active = false;
         out
     }
 }
@@ -211,6 +262,13 @@ pub struct ChannelStreamSink {
     pub event_tx: tokio::sync::mpsc::Sender<String>,
     /// Round-by-round text + media, see [`RoundTextAccumulator`].
     pub round_texts: Arc<Mutex<RoundTextAccumulator>>,
+    /// Per-account `/reason` state. When `false` (default), `thinking_delta`
+    /// events are dropped from the IM path entirely (the EventBus broadcast
+    /// still goes out so the desktop UI mirroring the channel session keeps
+    /// rendering the thinking block). When `true`, thinking is accumulated
+    /// as a markdown blockquote and forwarded to the streaming preview task
+    /// as a synthesized `text_delta`.
+    pub show_thinking: bool,
 }
 
 impl ChannelStreamSink {
@@ -218,11 +276,13 @@ impl ChannelStreamSink {
         session_id: String,
         event_tx: tokio::sync::mpsc::Sender<String>,
         round_texts: Arc<Mutex<RoundTextAccumulator>>,
+        show_thinking: bool,
     ) -> Self {
         Self {
             session_id,
             event_tx,
             round_texts,
+            show_thinking,
         }
     }
 }
@@ -274,6 +334,43 @@ impl EventSink for ChannelStreamSink {
             if let Ok(mut acc) = self.round_texts.lock() {
                 acc.on_tool_call();
             }
+        } else if event.contains("\"type\":\"thinking_delta\"") && self.show_thinking {
+            // EventBus already broadcast the original event (desktop UI
+            // mirror keeps rendering the thinking block). On the IM path we
+            // also fold the chunk into the round accumulator and forward a
+            // synthesized text_delta to the streaming preview task so its
+            // existing `extract_text_delta` logic renders the blockquote
+            // alongside real text without an extra branch.
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(event) {
+                if let Some(text) = val
+                    .get("content")
+                    .or_else(|| val.get("text"))
+                    .and_then(|v| v.as_str())
+                {
+                    let appended = match self.round_texts.lock() {
+                        Ok(mut acc) => acc.on_thinking(text),
+                        Err(_) => String::new(),
+                    };
+                    if !appended.is_empty() {
+                        let synthesized = serde_json::json!({
+                            "type": "text_delta",
+                            "content": appended,
+                        })
+                        .to_string();
+                        let _ = self.event_tx.try_send(synthesized);
+                    }
+                }
+            }
+            // Skip the default forward — the synthesized text_delta is what
+            // the preview task should see; the original thinking_delta
+            // would only confuse `extract_text_delta`.
+            return;
+        } else if event.contains("\"type\":\"thinking_delta\"") {
+            // show_thinking == false: keep desktop UI happy via the EventBus
+            // emit above, but don't forward to the preview task or the
+            // round accumulator — IM messages stay reasoning-free (preserves
+            // the pre-/reason behavior).
+            return;
         }
         let _ = self.event_tx.try_send(event.to_string());
     }
@@ -374,8 +471,24 @@ mod tests {
     fn mk_sink() -> (ChannelStreamSink, Arc<Mutex<RoundTextAccumulator>>) {
         let rounds = Arc::new(Mutex::new(RoundTextAccumulator::default()));
         let (tx, _rx) = tokio::sync::mpsc::channel::<String>(64);
-        let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone());
+        let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), false);
         (sink, rounds)
+    }
+
+    /// Variant that surfaces the receiver so `/reason on` tests can verify
+    /// the synthesized `text_delta` events forwarded to the streaming
+    /// preview task.
+    fn mk_sink_with_rx(
+        show_thinking: bool,
+    ) -> (
+        ChannelStreamSink,
+        Arc<Mutex<RoundTextAccumulator>>,
+        tokio::sync::mpsc::Receiver<String>,
+    ) {
+        let rounds = Arc::new(Mutex::new(RoundTextAccumulator::default()));
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+        let sink = ChannelStreamSink::new("sess-1".into(), tx, rounds.clone(), show_thinking);
+        (sink, rounds, rx)
     }
 
     fn emit(sink: &ChannelStreamSink, value: serde_json::Value) {
@@ -483,6 +596,86 @@ mod tests {
         assert_eq!(drained.len(), 1);
         assert_eq!(drained[0].text, "hi");
         assert!(drained[0].medias.is_empty());
+    }
+
+    #[test]
+    fn show_thinking_off_drops_thinking_and_skips_event_forward() {
+        // Default behavior preserved: thinking is silently ignored, and
+        // the sink does NOT forward the thinking event to the preview
+        // task either (so the streaming preview never sees reasoning).
+        let (sink, rounds, mut rx) = mk_sink_with_rx(false);
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": "ponder"}),
+        );
+        emit(&sink, json!({"type": "text_delta", "content": "hi"}));
+
+        // event_tx received only the text_delta; thinking_delta was dropped.
+        let mut forwarded: Vec<String> = Vec::new();
+        while let Ok(s) = rx.try_recv() {
+            forwarded.push(s);
+        }
+        assert_eq!(forwarded.len(), 1);
+        assert!(forwarded[0].contains("\"type\":\"text_delta\""));
+        assert!(forwarded[0].contains("hi"));
+        // No thinking content leaked into the round text.
+        let drained = rounds.lock().unwrap().drain();
+        assert_eq!(drained.len(), 1);
+        assert_eq!(drained[0].text, "hi");
+    }
+
+    #[test]
+    fn show_thinking_on_wraps_thinking_in_blockquote_and_forwards_synthetic_text() {
+        let (sink, rounds, mut rx) = mk_sink_with_rx(true);
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": "let me\nthink"}),
+        );
+        emit(
+            &sink,
+            json!({"type": "thinking_delta", "content": " more."}),
+        );
+        emit(&sink, json!({"type": "text_delta", "content": "Answer."}));
+
+        // Round text: blockquote opener, multi-line reasoning quoted, then
+        // a separator and the reply.
+        let drained = rounds.lock().unwrap().drain();
+        assert_eq!(drained.len(), 1);
+        let expected = "> 💭 **Thinking**\n> let me\n> think more.\n\nAnswer.";
+        assert_eq!(drained[0].text, expected);
+
+        // Preview task receives synthesized text_delta events for thinking
+        // chunks, plus the real text_delta. No raw thinking_delta forwarded.
+        let mut forwarded: Vec<String> = Vec::new();
+        while let Ok(s) = rx.try_recv() {
+            forwarded.push(s);
+        }
+        assert_eq!(forwarded.len(), 3);
+        for f in &forwarded {
+            assert!(f.contains("\"type\":\"text_delta\""));
+            assert!(!f.contains("thinking_delta"));
+        }
+    }
+
+    #[test]
+    fn show_thinking_resets_across_tool_call_boundary() {
+        // Round 0 has reasoning + tool_call. Round 1's reasoning should
+        // get its own opener — `thinking_active` must reset on tool_call.
+        let (sink, rounds, _rx) = mk_sink_with_rx(true);
+        emit(&sink, json!({"type": "thinking_delta", "content": "step 1"}));
+        emit(&sink, tool_call("c1"));
+        emit(&sink, tool_result_with_media("c1", vec![mk_media_item()]));
+        emit(&sink, json!({"type": "thinking_delta", "content": "step 2"}));
+        emit(&sink, json!({"type": "text_delta", "content": "Done."}));
+
+        let drained = rounds.lock().unwrap().drain();
+        assert_eq!(drained.len(), 2);
+        // Round 0 closed with the trailing `\n\n` (tool_call closes the
+        // blockquote) before the round was rolled into `completed`.
+        assert_eq!(drained[0].text, "> 💭 **Thinking**\n> step 1\n\n");
+        assert_eq!(drained[0].medias.len(), 1);
+        // Round 1: fresh opener, no leftover state.
+        assert_eq!(drained[1].text, "> 💭 **Thinking**\n> step 2\n\nDone.");
     }
 
     #[test]

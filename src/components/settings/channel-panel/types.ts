@@ -98,6 +98,21 @@ export function readImReplyMode(account: { settings: unknown }): ImReplyMode {
   return IM_REPLY_MODE_DEFAULT
 }
 
+/**
+ * Per-channel-account toggle for whether the model's thinking/reasoning is
+ * included in outbound IM messages. Stored as a bool in
+ * `ChannelAccountConfig.settings.showThinking`. Mirrors the Rust
+ * `ChannelAccountConfig::show_thinking()`. Default `false` — reasoning
+ * stays out of IM unless the user opts in via the dialog toggle or the
+ * `/reason on` slash command.
+ */
+export const SHOW_THINKING_DEFAULT = false
+
+export function readShowThinking(account: { settings: unknown }): boolean {
+  const v = (account.settings as Record<string, unknown> | null | undefined)?.showThinking
+  return v === true
+}
+
 export function channelSupportsStreamPreview(plugin: ChannelPluginInfo | undefined): boolean {
   const caps = plugin?.capabilities
   return Boolean(caps?.supportsCardStream || caps?.supportsEdit)

@@ -449,6 +449,92 @@ pub async fn handle_imreply(session_id: Option<&str>, args: &str) -> Result<Comm
     })
 }
 
+/// `/reason` (alias `/reasoning`) — IM-only. Toggle whether the model's
+/// thinking/reasoning content is included in outbound IM messages for the
+/// current channel account. Default off — reasoning stays out of IM.
+///
+/// Persisted to `ChannelAccountConfig.settings.showThinking` via
+/// [`mutate_config`]. When enabled, the round accumulator wraps reasoning
+/// in a markdown blockquote (`> 💭 **Thinking**`) before the round's reply
+/// text.
+pub async fn handle_reason(session_id: Option<&str>, args: &str) -> Result<CommandResult, String> {
+    let Some(sid) = session_id else {
+        return Err("/reason only works inside an IM channel session.".into());
+    };
+    let session_db = crate::require_session_db().map_err(|e| e.to_string())?;
+    let channel_info = session_db
+        .get_session(sid)
+        .map_err(|e| e.to_string())?
+        .and_then(|m| m.channel_info)
+        .ok_or_else(|| "/reason only works inside an IM channel session.".to_string())?;
+
+    let cfg = crate::config::cached_config();
+    let account = cfg
+        .channels
+        .accounts
+        .iter()
+        .find(|a| a.id == channel_info.account_id)
+        .ok_or_else(|| {
+            format!(
+                "Channel account `{}` not found in config",
+                channel_info.account_id
+            )
+        })?;
+    let current = account.show_thinking();
+    drop(cfg);
+
+    let arg = args.trim();
+    if arg.is_empty() {
+        let current_label = if current { "on" } else { "off" };
+        return Ok(CommandResult {
+            content: format!(
+                "**Show thinking in IM**: `{}`\n\n- `on` — render the model's reasoning as a quoted block before each round's reply\n- `off` — drop reasoning from IM messages (default)\n\nUsage: `/reason on` · `/reason off`",
+                current_label
+            ),
+            action: Some(CommandAction::DisplayOnly),
+        });
+    }
+
+    let value =
+        parse_on_off(arg).ok_or_else(|| format!("Invalid value: `{}`. Valid: on, off", arg))?;
+
+    let account_id = channel_info.account_id.clone();
+    crate::config::mutate_config(("channel.showThinking", "slash:/reason"), |cfg| {
+        match cfg
+            .channels
+            .accounts
+            .iter_mut()
+            .find(|a| a.id == account_id)
+        {
+            Some(acc) => {
+                acc.set_show_thinking(value);
+                Ok(())
+            }
+            None => Err(anyhow::anyhow!(
+                "Channel account `{}` not found in config",
+                account_id
+            )),
+        }
+    })
+    .map_err(|e| e.to_string())?;
+
+    Ok(CommandResult {
+        content: format!(
+            "Show thinking set to **{}** for this channel account.",
+            if value { "on" } else { "off" }
+        ),
+        action: Some(CommandAction::DisplayOnly),
+    })
+}
+
+fn parse_on_off(s: &str) -> Option<bool> {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "on" | "true" | "enable" | "enabled" | "yes" | "1" => Some(true),
+        "off" | "false" | "disable" | "disabled" | "no" | "0" => Some(false),
+        _ => None,
+    }
+}
+
 /// /prompts — Open the system prompt viewer.
 pub fn handle_prompts() -> CommandResult {
     CommandResult {

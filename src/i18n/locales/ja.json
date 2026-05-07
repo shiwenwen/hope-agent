@@ -2644,7 +2644,9 @@
     "imReplyModeSplitHint": "各ラウンド（ナレーション + ツール出力のメディア）を、モデルが生成した順序で独立したメッセージとして送信します。ストリーミングチャンネルではラウンドごとにタイプライター効果が残ります。推奨。",
     "imReplyModeFinalHint": "ツール呼び出し前のナレーションを破棄。最終ラウンドの回答のみを送信し、ツールメディアは末尾に送られます。ストリーミングプレビューなし。",
     "imReplyModePreviewHint": "応答全体を 1 件の伸びるメッセージにまとめて表示します（Telegram 編集 / 飛書 cardkit / Telegram DM Draft）。ツールメディアは末尾。ストリーミング対応チャンネルのみ — 非対応では Final に降格。",
-    "imReplyModePreviewDegrades": "このチャンネルはストリーミングプレビューに対応していないため、Preview は Final と同じ動作になります。"
+    "imReplyModePreviewDegrades": "このチャンネルはストリーミングプレビューに対応していないため、Preview は Final と同じ動作になります。",
+    "showThinking": "IM メッセージに思考過程を表示",
+    "showThinkingHint": "有効にすると、各ラウンドの回答前にモデルの推論内容が引用ブロックとして挿入されます。既定はオフ。"
   },
   "cron": {
     "title": "定期タスク",
@@ -3091,6 +3093,9 @@
     },
     "imreply": {
       "description": "IM 返信モードを設定 (split|final|preview)"
+    },
+    "reason": {
+      "description": "IM メッセージにモデルの思考過程を含めるかを切り替えます。"
     }
   },
   "planMode": {

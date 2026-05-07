@@ -468,6 +468,10 @@ async fn handle_inbound_message(
 
     let capabilities = plugin.capabilities();
     let reply_mode = account.im_reply_mode();
+    // `/reason` per-account toggle. When false, `ChannelStreamSink` drops
+    // `thinking_delta` events from the IM path entirely (the EventBus
+    // broadcast still fires for the desktop UI mirror).
+    let show_thinking = account.show_thinking();
     // Stream preview is meaningful under `Preview` (one growing message)
     // AND `Split` (per-round message with typewriter effect; the stream
     // task closes each round inline). `Final` skips preview entirely so the
@@ -540,6 +544,7 @@ async fn handle_inbound_message(
             session_id.clone(),
             event_tx,
             round_texts.clone(),
+            show_thinking,
         )),
     };
 

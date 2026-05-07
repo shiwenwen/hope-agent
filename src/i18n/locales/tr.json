@@ -2644,7 +2644,9 @@
     "imReplyModeSplitHint": "Her tur (anlatım + araçlarının ürettiği medya), modelin yaydığı sırada bağımsız bir mesaj olarak gönderilir. Akış destekleyen kanallarda her tur yine daktilo efekti alır. Önerilir.",
     "imReplyModeFinalHint": "Araç çağrılarından önceki anlatımı atar. Kullanıcı yalnızca son turun yanıtını ve sonda tüm araç medyasını görür. Akış önizlemesi yok.",
     "imReplyModePreviewHint": "Tüm birleşik yanıtı tek bir büyüyen mesajda gösterir (Telegram düzenle / Feishu cardkit / Telegram DM taslak); araç medyası sonda gönderilir. Yalnızca akış destekleyen kanallar — diğerleri Final modunda çalışır.",
-    "imReplyModePreviewDegrades": "Bu kanalda akış önizleme aktarımı yok, bu nedenle Preview burada Final ile aynı davranır."
+    "imReplyModePreviewDegrades": "Bu kanalda akış önizleme aktarımı yok, bu nedenle Preview burada Final ile aynı davranır.",
+    "showThinking": "IM mesajlarında düşünme sürecini göster",
+    "showThinkingHint": "Etkinleştirildiğinde, modelin akıl yürütmesi her tur cevabından önce alıntı bloğu olarak eklenir. Varsayılan kapalı."
   },
   "cron": {
     "title": "Zamanlanmış görevler",
@@ -3091,6 +3093,9 @@
     },
     "imreply": {
       "description": "IM yanıt modunu ayarla (split|final|preview)"
+    },
+    "reason": {
+      "description": "IM mesajlarına modelin düşünme sürecinin dahil edilip edilmeyeceğini değiştirir."
     }
   },
   "planMode": {

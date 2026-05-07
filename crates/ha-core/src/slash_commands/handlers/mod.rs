@@ -92,6 +92,9 @@ pub async fn dispatch(
         "context" => context::handle_context(session_id, agent_id, args).await,
         "awareness" => awareness::handle_awareness(args),
         "imreply" => utility::handle_imreply(session_id, args).await,
+        // `reasoning` is a silent alias for `reason` (only `reason` is in the
+        // registry / slash menu).
+        "reason" | "reasoning" => utility::handle_reason(session_id, args).await,
 
         _ => {
             // Check if it matches a user-invocable skill command

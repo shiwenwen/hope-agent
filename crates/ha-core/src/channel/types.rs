@@ -481,6 +481,11 @@ pub struct ChannelAccountConfig {
 /// Settings JSON key controlling IM reply mode (see [`ImReplyMode`]).
 pub const SETTINGS_KEY_IM_REPLY_MODE: &str = "imReplyMode";
 
+/// Settings JSON key controlling whether the model's thinking/reasoning
+/// content is included in outbound IM messages (toggled via the `/reason`
+/// slash command). Default `false` — reasoning stays out of IM messages.
+pub const SETTINGS_KEY_SHOW_THINKING: &str = "showThinking";
+
 impl ChannelAccountConfig {
     /// Read `settings.imReplyMode`, falling back to `ImReplyMode::default()`
     /// when missing or unparseable.
@@ -502,6 +507,30 @@ impl ChannelAccountConfig {
             obj.insert(
                 SETTINGS_KEY_IM_REPLY_MODE.to_string(),
                 serde_json::Value::String(mode.as_str().to_string()),
+            );
+        }
+    }
+
+    /// Read `settings.showThinking`. Default `false` — reasoning is not
+    /// included in IM messages unless the user opts in via `/reason on` or
+    /// the channel-account dialog toggle.
+    pub fn show_thinking(&self) -> bool {
+        self.settings
+            .get(SETTINGS_KEY_SHOW_THINKING)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+    }
+
+    /// Write `settings.showThinking = on`. Creates the settings object if
+    /// it was previously `null` / non-object.
+    pub fn set_show_thinking(&mut self, on: bool) {
+        if !self.settings.is_object() {
+            self.settings = serde_json::json!({});
+        }
+        if let Some(obj) = self.settings.as_object_mut() {
+            obj.insert(
+                SETTINGS_KEY_SHOW_THINKING.to_string(),
+                serde_json::Value::Bool(on),
             );
         }
     }
@@ -614,5 +643,35 @@ mod tests {
         // Overwrite.
         acc.set_im_reply_mode(ImReplyMode::Final);
         assert_eq!(acc.settings["imReplyMode"], "final");
+    }
+
+    #[test]
+    fn show_thinking_defaults_to_false_when_missing_or_invalid() {
+        assert!(!mk_account(serde_json::Value::Null).show_thinking());
+        assert!(!mk_account(serde_json::json!({})).show_thinking());
+        // Non-bool values fall back to the default.
+        assert!(!mk_account(serde_json::json!({"showThinking": "yes"})).show_thinking());
+        assert!(!mk_account(serde_json::json!({"showThinking": 1})).show_thinking());
+        assert!(mk_account(serde_json::json!({"showThinking": true})).show_thinking());
+    }
+
+    #[test]
+    fn set_show_thinking_initializes_and_overwrites_settings() {
+        // Null settings → object created.
+        let mut acc = mk_account(serde_json::Value::Null);
+        acc.set_show_thinking(true);
+        assert_eq!(acc.settings["showThinking"], true);
+        assert!(acc.show_thinking());
+
+        // Sibling keys preserved.
+        let mut acc = mk_account(serde_json::json!({"imReplyMode": "split"}));
+        acc.set_show_thinking(true);
+        assert_eq!(acc.settings["imReplyMode"], "split");
+        assert_eq!(acc.settings["showThinking"], true);
+
+        // Overwrite back to false.
+        acc.set_show_thinking(false);
+        assert_eq!(acc.settings["showThinking"], false);
+        assert!(!acc.show_thinking());
     }
 }

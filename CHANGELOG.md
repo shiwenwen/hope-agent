@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **IM 渠道思考过程显示开关（`/reason` 斜杠命令 + GUI 开关，账号级持久化）**：之前 IM 渠道把模型的 `thinking_delta` 事件静默丢弃（`extract_text_delta` 只匹配 `text_delta`），Telegram / 飞书 / 等 IM 消息里看不到模型的 reasoning。现在每个 channel account 可独立开关：
+  - **`/reason on` / `/reason off`**（IM 专用，桌面 / web session 拒绝）：写 `ChannelAccountConfig.settings.showThinking`；无参时打印当前状态 + 用法。`/reasoning` 作为静默别名（dispatch 接受，斜杠菜单只显示 `/reason`）。
+  - **GUI 开关**：[`EditAccountDialog`](src/components/settings/channel-panel/EditAccountDialog.tsx) 在 IM Reply Mode 下方新增 `Switch`，与斜杠命令双向同步。
+  - **渲染格式**：开启时 `RoundTextAccumulator::on_thinking` 把每 round 第一个 thinking chunk 前面注入 `> 💭 **Thinking**\n> ` 开头，后续 chunk 内嵌 `\n` 改写为 `\n> ` 维持 blockquote；遇到 `text_delta` 或 `tool_call` 时 push `\n\n` 收尾。`ChannelStreamSink` 在 `thinking_delta` 分支同时调 `acc.on_thinking()` + 合成一条 text_delta 投到 stream task event_tx，preview 渲染零改动复用 `extract_text_delta` 路径。关闭时直接 return（既不进 acc，也不进 event_tx），EventBus 仍透传原 `thinking_delta` 给桌面 UI 镜像渲染。
+  - **默认 off**：保留升级前行为，避免老用户的 IM 对话突然出现 reasoning 块。
+  - 涉及 [`channel/types.rs`](crates/ha-core/src/channel/types.rs)（+ `SETTINGS_KEY_SHOW_THINKING` + `show_thinking()` / `set_show_thinking()` + 2 单测）/ [`chat_engine/types.rs`](crates/ha-core/src/chat_engine/types.rs)（`RoundTextAccumulator.thinking_active` + `on_thinking` + `ChannelStreamSink.show_thinking` + 3 单测）/ [`channel/worker/dispatcher.rs`](crates/ha-core/src/channel/worker/dispatcher.rs)（透传 `account.show_thinking()`）/ [`slash_commands/registry.rs`](crates/ha-core/src/slash_commands/registry.rs) + [`handlers/mod.rs`](crates/ha-core/src/slash_commands/handlers/mod.rs) + [`handlers/utility.rs`](crates/ha-core/src/slash_commands/handlers/utility.rs)（`handle_reason` + `parse_on_off`）/ [`channel-panel/types.ts`](src/components/settings/channel-panel/types.ts) + [`EditAccountDialog.tsx`](src/components/settings/channel-panel/EditAccountDialog.tsx)（Switch 行）/ 12 个 i18n locale（`slashCommands.reason.description` / `channels.showThinking` / `channels.showThinkingHint`）。
+
 - **IM 渠道回复模式 `ImReplyMode`（split / final / preview）+ `/imreply` 斜杠命令**：之前所有 IM 渠道把多 round 文本（round 0 narration「我把头像发给你。」+ round 1 final「已发。」）合并成一条发，工具产出的媒体（图 / 文件）全堆在末尾——失去模型实际表达的时序。三态全新机制：
   - **`split`（默认）**：每 round 的 narration 与该 round 工具产生的媒体按时序作为独立消息发送（narration → 该 round media → 下一 round narration → ...）。**流式渠道每 round 都是真正的流式打字机** —— stream task 在 `tool_call → text_delta` 边界把当前 preview finalize 掉、按 transport 收尾（Message reset preview_message_id / Card `close_card_stream` / Draft 把草稿落地为正式消息）、把该 round 媒体发完，再为下一 round 起一条全新 preview，每 round 用户都看到 typewriter（不是「一条不断增长」也不是「一次性闪现」）；非流式渠道每条 narration 一次性。
   - **`final`**：丢弃中间 round narration，只发最后 round 的 text + 末尾发所有媒体。不启用流式预览。

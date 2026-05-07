@@ -2644,7 +2644,9 @@
     "imReplyModeSplitHint": "每一轮（旁白 + 工具产出的媒体）按模型生成顺序作为独立消息发送。流式渠道每一轮仍是流式打字机效果。推荐。",
     "imReplyModeFinalHint": "丢弃工具调用前的旁白，只发最后一轮回答，工具媒体在末尾发送。无流式预览。",
     "imReplyModePreviewHint": "把整段合并回复渲染成单条不断增长的消息（Telegram 编辑 / 飞书 cardkit / Telegram DM Draft），工具媒体在末尾发送。仅对流式渠道生效——非流式渠道会自动降级为「仅最终回答」。",
-    "imReplyModePreviewDegrades": "当前渠道不支持流式预览，预览模式在此等同于「仅最终回答」。"
+    "imReplyModePreviewDegrades": "当前渠道不支持流式预览，预览模式在此等同于「仅最终回答」。",
+    "showThinking": "在 IM 消息中显示思考过程",
+    "showThinkingHint": "开启后，每轮回复前会以引用块形式插入模型的思考过程。默认关闭。"
   },
   "cron": {
     "title": "定时任务",
@@ -3091,6 +3093,9 @@
     },
     "imreply": {
       "description": "设置 IM 回复模式 (split|final|preview)"
+    },
+    "reason": {
+      "description": "切换 IM 消息中是否包含模型思考过程。"
     }
   },
   "planMode": {

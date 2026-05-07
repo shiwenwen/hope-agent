@@ -43,8 +43,10 @@ import type {
 } from "./types"
 import {
   IM_REPLY_MODE_DEFAULT,
+  SHOW_THINKING_DEFAULT,
   channelSupportsStreamPreview,
   readImReplyMode,
+  readShowThinking,
 } from "./types"
 
 export default function EditAccountDialog({
@@ -72,6 +74,7 @@ export default function EditAccountDialog({
   const [groupPolicy, setGroupPolicy] = useState("open")
   const [autoApproveTools, setAutoApproveTools] = useState(false)
   const [imReplyMode, setImReplyMode] = useState<ImReplyMode>(IM_REPLY_MODE_DEFAULT)
+  const [showThinking, setShowThinking] = useState<boolean>(SHOW_THINKING_DEFAULT)
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
   const [channels, setChannels] = useState<Record<string, TelegramChannelConfig>>({})
   const [saving, setSaving] = useState(false)
@@ -100,6 +103,7 @@ export default function EditAccountDialog({
       setChannels(account.security.channels ? { ...account.security.channels } : {})
       setAutoApproveTools(account.autoApproveTools ?? false)
       setImReplyMode(readImReplyMode(account))
+      setShowThinking(readShowThinking(account))
       setValidationResult(null)
       setValidationError(null)
       setSaveError(null)
@@ -152,6 +156,7 @@ export default function EditAccountDialog({
       const settingsBase = {
         ...((account.settings as Record<string, unknown> | null | undefined) ?? {}),
         imReplyMode,
+        showThinking,
       }
       if (account.channelId === "wechat") {
         if (wechatConnection) {
@@ -398,6 +403,20 @@ export default function EditAccountDialog({
                 }
               })()}
             </p>
+          </div>
+
+          {/* Show Thinking toggle — mirrors `/reason` slash command. */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>{t("channels.showThinking")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("channels.showThinkingHint")}
+              </p>
+            </div>
+            <Switch
+              checked={showThinking}
+              onCheckedChange={setShowThinking}
+            />
           </div>
         </div>
 

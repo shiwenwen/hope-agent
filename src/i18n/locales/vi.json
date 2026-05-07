@@ -2644,7 +2644,9 @@
     "imReplyModeSplitHint": "Mỗi lượt (lời dẫn + tệp do công cụ tạo ra) được gửi như tin nhắn độc lập theo đúng thứ tự mô hình tạo ra. Kênh phát trực tiếp vẫn giữ hiệu ứng đánh máy cho từng lượt. Khuyến nghị.",
     "imReplyModeFinalHint": "Bỏ qua lời dẫn trước khi gọi công cụ. Người dùng chỉ thấy câu trả lời lượt cuối; tệp/ảnh được gửi ở cuối. Không có xem trước trực tiếp.",
     "imReplyModePreviewHint": "Hiển thị toàn bộ phản hồi đã hợp nhất trong một tin nhắn duy nhất đang lớn dần (Telegram chỉnh sửa / Feishu cardkit / bản nháp Telegram DM); tệp/ảnh được gửi ở cuối. Chỉ kênh phát trực tiếp — kênh khác sẽ tự hạ về Final.",
-    "imReplyModePreviewDegrades": "Kênh này không có cơ chế xem trước trực tiếp, nên Preview hoạt động giống Final ở đây."
+    "imReplyModePreviewDegrades": "Kênh này không có cơ chế xem trước trực tiếp, nên Preview hoạt động giống Final ở đây.",
+    "showThinking": "Hiển thị quá trình suy luận trong tin nhắn IM",
+    "showThinkingHint": "Khi bật, lập luận của mô hình hiển thị dưới dạng khối trích dẫn trước câu trả lời của mỗi vòng. Mặc định tắt."
   },
   "cron": {
     "title": "Tác vụ định kỳ",
@@ -3091,6 +3093,9 @@
     },
     "imreply": {
       "description": "Đặt chế độ trả lời IM (split|final|preview)"
+    },
+    "reason": {
+      "description": "Bật/tắt việc đưa quá trình suy luận của mô hình vào tin nhắn IM."
     }
   },
   "planMode": {
