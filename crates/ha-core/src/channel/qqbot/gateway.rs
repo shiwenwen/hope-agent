@@ -331,6 +331,7 @@ pub async fn run_qq_gateway(
                             match handle_gateway_message(
                                 &text,
                                 &account_id,
+                                &api,
                                 &inbound_tx,
                                 &seq_holder,
                                 &mut saved_session_id,
@@ -445,6 +446,7 @@ enum GatewayAction {
 async fn handle_gateway_message(
     text: &str,
     account_id: &str,
+    api: &Arc<QqBotApi>,
     inbound_tx: &mpsc::Sender<MsgContext>,
     seq_holder: &Arc<tokio::sync::Mutex<u64>>,
     saved_session_id: &mut Option<String>,
@@ -570,10 +572,79 @@ async fn handle_gateway_message(
                 }
                 "INTERACTION_CREATE" => {
                     if let Some(d) = data {
-                        if let Some(button_data) = d
+                        // ACK first (Tencent demands < 5 s; otherwise the
+                        // gateway considers the click failed and may resend
+                        // the same INTERACTION_CREATE).
+                        if let Some(interaction_id) = d.get("id").and_then(|v| v.as_str()) {
+                            let api_clone = api.clone();
+                            let interaction_id = interaction_id.to_string();
+                            tokio::spawn(async move {
+                                if let Err(e) = api_clone.ack_interaction(&interaction_id).await {
+                                    app_warn!(
+                                        "channel",
+                                        "qqbot::gateway",
+                                        "ack_interaction failed for {}: {}",
+                                        crate::truncate_utf8(&interaction_id, 30),
+                                        e
+                                    );
+                                }
+                            });
+                        }
+
+                        let button_data = d
                             .pointer("/data/resolved/button_data")
                             .and_then(|v| v.as_str())
-                        {
+                            .unwrap_or("");
+
+                        if let Some(rest) = button_data.strip_prefix("slash:") {
+                            // chat_id 拼法必须与 convert_*_message 完全一致
+                            // (c2c:{openid} / group:{openid} / channel:{id})
+                            // 否则 channel_db.get_chat_type 命中不到先前 inbound 写的行
+                            let chat_type_field =
+                                d.get("chat_type").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let chat_id = match chat_type_field {
+                                1 => d
+                                    .pointer("/data/resolved/user_openid")
+                                    .or_else(|| d.get("user_openid"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|u| format!("c2c:{}", u))
+                                    .unwrap_or_default(),
+                                2 => d
+                                    .get("group_openid")
+                                    .and_then(|v| v.as_str())
+                                    .map(|g| format!("group:{}", g))
+                                    .unwrap_or_default(),
+                                _ => d
+                                    .get("channel_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|c| format!("channel:{}", c))
+                                    .unwrap_or_default(),
+                            };
+                            let sender_id = d
+                                .pointer("/data/resolved/user_id")
+                                .or_else(|| d.pointer("/data/resolved/user_openid"))
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let message_id = d
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+
+                            crate::channel::worker::slash_callback::inject_slash_callback(
+                                ChannelId::QqBot,
+                                account_id,
+                                &chat_id,
+                                None,
+                                &sender_id,
+                                &message_id,
+                                rest,
+                                inbound_tx,
+                                "qqbot::gateway",
+                            )
+                            .await;
+                        } else if !button_data.is_empty() {
                             crate::channel::worker::ask_user::try_dispatch_interactive_callback(
                                 button_data,
                                 "qqbot::gateway",

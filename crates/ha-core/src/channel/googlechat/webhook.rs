@@ -146,10 +146,45 @@ pub fn create_webhook_handler(
                                 .and_then(|v| v.as_str())
                         });
                     if let Some(action) = action_name {
-                        crate::channel::worker::ask_user::try_dispatch_interactive_callback(
-                            action,
-                            "googlechat",
-                        );
+                        if let Some(rest) = action.strip_prefix("slash:") {
+                            let chat_id = body
+                                .pointer("/space/name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let sender_id = body
+                                .pointer("/user/name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let message_id = body
+                                .pointer("/message/name")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let thread_id = body
+                                .pointer("/message/thread/name")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+
+                            crate::channel::worker::slash_callback::inject_slash_callback(
+                                ChannelId::GoogleChat,
+                                &account_id,
+                                &chat_id,
+                                thread_id.as_deref(),
+                                &sender_id,
+                                &message_id,
+                                rest,
+                                &inbound_tx,
+                                "googlechat",
+                            )
+                            .await;
+                        } else {
+                            crate::channel::worker::ask_user::try_dispatch_interactive_callback(
+                                action,
+                                "googlechat",
+                            );
+                        }
                     }
                 }
                 other => {

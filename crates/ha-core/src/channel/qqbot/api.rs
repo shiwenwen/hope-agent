@@ -392,6 +392,25 @@ impl QqBotApi {
             .await?;
         Ok(())
     }
+
+    /// Acknowledge an INTERACTION_CREATE (button click) event.
+    ///
+    /// POST /interactions/{interaction_id} with `code: 0` (success). Tencent
+    /// expects the ack within 5 s; without it the gateway considers the
+    /// callback failed and may resend the same `INTERACTION_CREATE`. Other
+    /// codes (1=async, 2=invalid, 3=hidden, 4=quiet failure, 5=visible
+    /// failure) are reserved for richer flows we don't yet need.
+    pub async fn ack_interaction(&self, interaction_id: &str) -> Result<()> {
+        let path = format!("/interactions/{}", interaction_id);
+        let _: serde_json::Value = self
+            .qq_request(
+                reqwest::Method::PUT,
+                &path,
+                Some(serde_json::json!({"code": 0})),
+            )
+            .await?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

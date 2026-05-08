@@ -715,6 +715,27 @@ turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处
 
 `/status` 末尾追加 **Attached IM Channel** 段,显示该 session 的 IM attach 行(1:1,0 或 1 行) —— channel / chat 标识 + `attached_at`。
 
+### 按钮回调路由(7 渠道单一真相源)
+
+支持按钮的 7 个渠道(Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat)对**无参 slash 命令**会弹 `arg_options` picker([`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs)),按钮 `callback_data = "slash:cmd arg"`。
+
+**统一入口**:[`channel/worker/slash_callback.rs::inject_slash_callback`](../../crates/ha-core/src/channel/worker/slash_callback.rs) ——
+签名 `(channel_id, account_id, chat_id, thread_id, sender_id, message_id, rest, inbound_tx, source)`。helper 内部用 `channel_db.get_chat_type` 查 `channel_conversations` (arg-picker 按钮永远在一条真实 inbound `/cmd` 之后,行已存在),缺行 fallback `Dm` (与 `ChatType::from_lowercase` 一致)。每个渠道在自己的 button-callback 入口先 `strip_prefix("slash:")`,再调 helper:
+
+| 渠道 | callback 入口 | chat_id 拼法 |
+|---|---|---|
+| Telegram | [`polling.rs::inject_slash_callback_from_query`](../../crates/ha-core/src/channel/telegram/polling.rs) | `msg.chat.id.0` |
+| Feishu | [`ws_event.rs::inject_slash_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs) (thin wrapper) | `context.open_chat_id` |
+| Discord | [`gateway.rs::INTERACTION_CREATE` type=3](../../crates/ha-core/src/channel/discord/gateway.rs) | `d.channel_id` |
+| Slack | [`socket.rs::handle_interactive_payload`](../../crates/ha-core/src/channel/slack/socket.rs) | `payload.channel.id` (含 thread_ts) |
+| QQ Bot | [`gateway.rs::INTERACTION_CREATE`](../../crates/ha-core/src/channel/qqbot/gateway.rs) | `c2c:{openid}` / `group:{openid}` / `channel:{id}` (与 `convert_*_message` 一致) |
+| LINE | [`webhook.rs::postback`](../../crates/ha-core/src/channel/line/webhook.rs) | group→`groupId` / room→`roomId` / DM→`userId` |
+| Google Chat | [`webhook.rs::CARD_CLICKED`](../../crates/ha-core/src/channel/googlechat/webhook.rs) | `space.name` (含 message thread.name) |
+
+**ack 协议**:Discord 用 type=6 DEFERRED_UPDATE_MESSAGE([`gateway.rs::ack_component_interaction`](../../crates/ha-core/src/channel/discord/gateway.rs)),QQ Bot 用 `PUT /interactions/{id}/responses` `code:0`([`QqBotApi::ack_interaction`](../../crates/ha-core/src/channel/qqbot/api.rs))——两者都是 fire-and-forget spawn,不阻塞 dispatcher。Slack / LINE / Google Chat 通过 webhook HTTP 200 响应自动 ack;Feishu / Telegram 通过各自原生路径 ack。
+
+非 `slash:` 前缀的 callback (`approval:` / `ask_user:`) 走 [`worker::ask_user::try_dispatch_interactive_callback`](../../crates/ha-core/src/channel/worker/ask_user.rs) 老路径,不变。
+
 ### IM 渠道禁用命令
 
 **入口**:[`slash_commands/registry.rs::IM_DISABLED_COMMANDS`](../../crates/ha-core/src/slash_commands/registry.rs)。

@@ -72,7 +72,7 @@ pub async fn run_polling_loop(
                             for update in updates {
                                 offset = update.id.0 as i32 + 1;
 
-                                if let Some(msg_ctx) = convert_update(&api, &update, &account_id, bot_id, &bot_username).await {
+                                if let Some(msg_ctx) = convert_update(&api, &update, &account_id, bot_id, &bot_username, &inbound_tx).await {
                                     if let Err(e) = inbound_tx.send(msg_ctx).await {
                                         app_error!("channel", "telegram::polling", "Failed to send inbound message: {}", e);
                                     }
@@ -117,12 +117,18 @@ pub async fn run_polling_loop(
 
 /// Convert a teloxide Update into our MsgContext.
 /// Returns None if the update doesn't contain a processable message.
+///
+/// `inbound_tx` is threaded through for the `slash:` callback branch so the
+/// shared [`crate::channel::worker::slash_callback::inject_slash_callback`]
+/// helper can synthesize `MsgContext` and forward it asynchronously, matching
+/// the path taken by Feishu / Discord / Slack / QQ Bot / LINE / Google Chat.
 async fn convert_update(
     api: &TelegramBotApi,
     update: &teloxide::types::Update,
     account_id: &str,
     bot_id: i64,
     bot_username: &str,
+    inbound_tx: &mpsc::Sender<MsgContext>,
 ) -> Option<MsgContext> {
     use teloxide::types::UpdateKind;
 
@@ -142,7 +148,7 @@ async fn convert_update(
             convert_message(api, msg, account_id, bot_id, bot_username).await
         }
         UpdateKind::CallbackQuery(cb) => {
-            // Handle approval / ask_user callbacks directly (don't create MsgContext)
+            // Handle approval / ask_user / slash callbacks directly (don't create MsgContext)
             if let Some(data) = cb.data.as_ref() {
                 if crate::channel::worker::approval::is_approval_callback(data) {
                     handle_approval_callback_query(api, cb).await;
@@ -152,8 +158,12 @@ async fn convert_update(
                     handle_ask_user_callback_query(api, cb).await;
                     return None;
                 }
+                if let Some(rest) = data.strip_prefix("slash:") {
+                    inject_slash_callback_from_query(cb, account_id, rest, inbound_tx).await;
+                    return None;
+                }
             }
-            convert_callback_query(cb, account_id)
+            None
         }
         _ => None,
     }
@@ -435,70 +445,47 @@ async fn handle_ask_user_callback_query(api: &TelegramBotApi, cb: &teloxide::typ
     }
 }
 
-/// Convert a Telegram CallbackQuery (inline button click) into a MsgContext.
-///
-/// Callback data with format "slash:<command> <arg>" is converted to "/<command> <arg>"
-/// so the worker processes it as a normal slash command.
-fn convert_callback_query(
+/// Re-inject a `slash:<cmd> <arg>` Telegram CallbackQuery as a synthetic
+/// inbound `/cmd arg` via the shared helper, so all 7 button-capable channels
+/// share one synthesis path. Telegram is one of the few channels that can
+/// derive `chat_type` directly from the teloxide `Message` envelope (no
+/// channel_db lookup needed) — but the helper signature accepts that loss
+/// gracefully (DB lookup falls back to whatever `Message` would have given
+/// us, then `Dm`).
+async fn inject_slash_callback_from_query(
     cb: &teloxide::types::CallbackQuery,
     account_id: &str,
-) -> Option<MsgContext> {
-    let data = cb.data.as_ref()?;
-    let msg = cb.message.as_ref()?.regular_message()?;
-
-    // Convert "slash:thinking high" → "/thinking high"
-    let text = if let Some(rest) = data.strip_prefix("slash:") {
-        format!("/{}", rest)
-    } else {
-        return None; // Unknown callback format, ignore
+    rest: &str,
+    inbound_tx: &mpsc::Sender<MsgContext>,
+) {
+    let Some(msg) = cb.message.as_ref().and_then(|m| m.regular_message()) else {
+        app_warn!(
+            "channel",
+            "telegram::polling",
+            "[{}] slash callback dropped: callback has no regular message ({})",
+            account_id,
+            rest
+        );
+        return;
     };
 
-    let from = &cb.from;
-
-    let chat_type = match msg.chat.kind {
-        teloxide::types::ChatKind::Private(_) => ChatType::Dm,
-        teloxide::types::ChatKind::Public(ref public) => match public.kind {
-            teloxide::types::PublicChatKind::Supergroup(ref sg) => {
-                if sg.is_forum {
-                    ChatType::Forum
-                } else {
-                    ChatType::Group
-                }
-            }
-            teloxide::types::PublicChatKind::Group => ChatType::Group,
-            teloxide::types::PublicChatKind::Channel(_) => ChatType::Channel,
-        },
-    };
-
+    let chat_id = msg.chat.id.0.to_string();
     let thread_id = msg.thread_id.map(|tid| tid.to_string());
+    let sender_id = cb.from.id.0.to_string();
+    let message_id = msg.id.0.to_string();
 
-    let sender_name = {
-        let mut name = from.first_name.clone();
-        if let Some(ref last) = from.last_name {
-            name.push(' ');
-            name.push_str(last);
-        }
-        name
-    };
-
-    Some(MsgContext {
-        channel_id: ChannelId::Telegram,
-        account_id: account_id.to_string(),
-        sender_id: from.id.0.to_string(),
-        sender_name: Some(sender_name),
-        sender_username: from.username.clone(),
-        chat_id: msg.chat.id.0.to_string(),
-        chat_type,
-        chat_title: msg.chat.title().map(|t| t.to_string()),
-        thread_id,
-        message_id: msg.id.0.to_string(),
-        text: Some(text),
-        media: Vec::new(),
-        reply_to_message_id: None,
-        timestamp: msg.date,
-        was_mentioned: true,
-        raw: serde_json::json!({ "callback_query_id": cb.id }),
-    })
+    crate::channel::worker::slash_callback::inject_slash_callback(
+        ChannelId::Telegram,
+        account_id,
+        &chat_id,
+        thread_id.as_deref(),
+        &sender_id,
+        &message_id,
+        rest,
+        inbound_tx,
+        "telegram::polling",
+    )
+    .await;
 }
 
 /// Check if the bot is addressed in a group message.

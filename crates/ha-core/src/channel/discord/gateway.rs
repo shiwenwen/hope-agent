@@ -412,18 +412,36 @@ pub async fn run_gateway_loop(
                                             );
                                             // Acknowledge the interaction (type 6 = DEFERRED_UPDATE_MESSAGE)
                                             // so Discord doesn't show "interaction failed".
-                                            let api_clone = api.clone();
-                                            let interaction_id = d["id"].as_str().unwrap_or("").to_string();
-                                            let interaction_token = d["token"].as_str().unwrap_or("").to_string();
+                                            ack_component_interaction(api.clone(), &d);
+                                        } else if let Some(rest) = custom_id.strip_prefix("slash:") {
+                                            // Ack first so the button doesn't render as failed.
+                                            ack_component_interaction(api.clone(), &d);
+                                            // Re-inject as synthetic inbound `/cmd arg`.
+                                            let chat_id = d["channel_id"].as_str().unwrap_or("").to_string();
+                                            let sender_id = d
+                                                .get("member")
+                                                .and_then(|m| m.get("user"))
+                                                .or_else(|| d.get("user"))
+                                                .and_then(|u| u.get("id"))
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("")
+                                                .to_string();
+                                            let message_id = d["id"].as_str().unwrap_or("").to_string();
+                                            let rest_owned = rest.to_string();
+                                            let inbound_tx_clone = inbound_tx.clone();
+                                            let account_id_clone = account_id.clone();
                                             tokio::spawn(async move {
-                                                let _ = api_clone
-                                                    .create_interaction_response(
-                                                        &interaction_id,
-                                                        &interaction_token,
-                                                        6,
-                                                        None,
-                                                    )
-                                                    .await;
+                                                crate::channel::worker::slash_callback::inject_slash_callback(
+                                                    ChannelId::Discord,
+                                                    &account_id_clone,
+                                                    &chat_id,
+                                                    None,
+                                                    &sender_id,
+                                                    &message_id,
+                                                    &rest_owned,
+                                                    &inbound_tx_clone,
+                                                    "discord::gateway",
+                                                ).await;
                                             });
                                         }
                                         // Don't pass component interactions to convert_interaction
@@ -753,6 +771,23 @@ fn convert_message_create(
         was_mentioned,
         raw: d.clone(),
     })
+}
+
+/// Fire-and-forget ACK for a component interaction (button click) using
+/// type=6 DEFERRED_UPDATE_MESSAGE so Discord doesn't display
+/// "interaction failed". Used by the ask_user and slash callback paths;
+/// the approval path uses type=7 UPDATE_MESSAGE to edit the message inline.
+fn ack_component_interaction(api: Arc<DiscordApi>, d: &serde_json::Value) {
+    let interaction_id = d["id"].as_str().unwrap_or("").to_string();
+    let interaction_token = d["token"].as_str().unwrap_or("").to_string();
+    if interaction_id.is_empty() || interaction_token.is_empty() {
+        return;
+    }
+    tokio::spawn(async move {
+        let _ = api
+            .create_interaction_response(&interaction_id, &interaction_token, 6, None)
+            .await;
+    });
 }
 
 /// Handle an approval button component interaction: submit the approval response

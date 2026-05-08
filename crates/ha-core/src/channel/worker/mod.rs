@@ -5,6 +5,7 @@ pub(crate) mod eviction_watcher;
 mod media;
 pub(crate) mod pipeline;
 mod slash;
+pub(crate) mod slash_callback;
 mod streaming;
 
 pub use dispatcher::spawn_dispatcher;
