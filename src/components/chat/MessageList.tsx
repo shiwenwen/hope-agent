@@ -134,14 +134,23 @@ export default function MessageList({
   const [displayedStartMessagesLength, setDisplayedStartMessagesLength] = useState(
     messages.length,
   )
+  // Tracks the previous `messages[0]` so a length change can be classified
+  // as prepend (Load More) vs append (streaming) vs reload (cap-rebuild).
+  const [prevFirstMessage, setPrevFirstMessage] = useState<Message | null>(
+    messages[0] ?? null,
+  )
   if (displayedStartSession !== sessionKey) {
     setDisplayedStartSession(sessionKey)
     setDisplayedStartMessagesLength(messages.length)
     setDisplayedStart(0)
+    setPrevFirstMessage(messages[0] ?? null)
   } else if (displayedStartMessagesLength !== messages.length) {
-    // Message content streaming reuses the same item, so this only runs on append/reload.
+    // Message content streaming reuses the same item, so this only runs on append/reload/prepend.
     const prevLength = displayedStartMessagesLength
+    const prependCount = messages.length - prevLength
+    const prevFirst = prevFirstMessage
     setDisplayedStartMessagesLength(messages.length)
+    setPrevFirstMessage(messages[0] ?? null)
     if (
       displayedStart !== 0 &&
       (messages.length < prevLength || displayedStart >= messages.length)
@@ -149,6 +158,39 @@ export default function MessageList({
       // Snap to tail; on a head-trim resetting to 0 would mount every
       // surviving bubble in a single frame.
       setDisplayedStart(Math.max(0, messages.length - MAX_DOM_MESSAGES))
+    } else if (
+      // Prepend (Load More) detected: push the window forward by the
+      // newly-prepended count so `items[0]` stays the same DOM node.
+      // Without this, items.slice(0) would mount every prepended bubble
+      // in a single commit; their async-rendered subtrees (KaTeX,
+      // Mermaid, Shiki, images) finalize their heights over the next
+      // several frames, but `[overflow-anchor:none]` (line 589) opted
+      // out of browser auto-anchoring and the useLayoutEffect below
+      // only compensates once with stale dimensions — leaving scrollTop
+      // pinned at the macOS WebKit rubber-band overscroll value (~-9)
+      // while scrollHeight balloons, so the viewport reads blank until
+      // the user scrolls and triggers a layout flush.
+      //
+      // Identity check below confirms it's an actual prepend, not a
+      // reload that happens to grow the array. `dbId` is the stable
+      // identity (database row id) — `chatUtils.mergeMessagesByDbId`
+      // replaces in-place with new object references when the backend
+      // re-sends the same row, so a pure reference compare
+      // (`messages[prependCount] === prevFirst`) silently fails. Fall
+      // back to reference compare only when neither side has a dbId
+      // (streaming placeholders, never the case at messages[0] in
+      // practice). `!atBottomRef.current` skips the case where streaming
+      // append raced past in the same tick (no actual prepend; user is
+      // at bottom anyway).
+      prependCount > 0 &&
+      !atBottomRef.current &&
+      prevFirst != null &&
+      messages[prependCount] != null &&
+      (prevFirst.dbId != null && messages[prependCount].dbId != null
+        ? messages[prependCount].dbId === prevFirst.dbId
+        : messages[prependCount] === prevFirst)
+    ) {
+      setDisplayedStart((s) => s + prependCount)
     }
   }
   // Refs mirror state/props for the scroll listener which is bound in an
@@ -222,6 +264,18 @@ export default function MessageList({
       !atBottomRef.current
     ) {
       el.scrollTop += newHeight - oldHeight
+    }
+    // Defensive clamp. Two failure modes covered:
+    //   1. macOS WebKit/Tauri rubber-band: an upward overscroll at the top
+    //      can leave scrollTop at a small negative value (e.g. -9). With
+    //      `[overflow-anchor:none]` the browser doesn't auto-correct, and
+    //      the viewport reads the gap as blank.
+    //   2. Window advance (`displayedStart` increment) shrinks scrollHeight
+    //      below the prior scrollTop on the next commit; without a clamp,
+    //      scrollTop sticks above the new max until the next user scroll.
+    const maxTop = Math.max(0, newHeight - el.clientHeight)
+    if (el.scrollTop < 0 || el.scrollTop > maxTop) {
+      el.scrollTop = Math.max(0, Math.min(el.scrollTop, maxTop))
     }
     prevScrollHeightRef.current = newHeight
     prevFirstItemMsgRef.current = newFirst
@@ -586,7 +640,13 @@ export default function MessageList({
         // prepend), and the `useLayoutEffect` top-anchor below tries to do
         // the same — the result is double-compensation, which the user reads
         // as "the scroll keeps moving by itself after the load finished".
-        className="h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none]"
+        // `overscroll-behavior-y: none` disables macOS WebKit/Tauri rubber-
+        // band overscroll, which on a long Load-More'd conversation can
+        // leave scrollTop sitting at a small negative value (e.g. -41) past
+        // the gesture's end — a bug we observed where the negative gap +
+        // async KaTeX/Mermaid/Shiki layout settling created a multi-frame
+        // blank viewport even after the messages had committed to the DOM.
+        className="h-full overflow-y-auto overflow-x-hidden px-4 [overflow-anchor:none] [overscroll-behavior-y:none]"
       >
         <div ref={contentRef}>
         {hasMore && displayedStart === 0 && (
