@@ -55,7 +55,7 @@
       },
       "nsis": {
         "installMode": "perMachine",
-        "languages": ["English", "SimplifiedChinese"]
+        "languages": ["English"]
       }
     }
   },
