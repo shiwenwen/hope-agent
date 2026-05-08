@@ -89,7 +89,7 @@
 
 ### 普通用户
 
-> ✨ **Release 状态**：0.1.0 首发已上架，安装包见下方 [Releases](https://github.com/shiwenwen/hope-agent/releases) 链接。
+> 📦 安装包：[Releases](https://github.com/shiwenwen/hope-agent/releases)
 
 1. 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载对应平台安装包
    - macOS：`Hope-Agent_*.dmg`

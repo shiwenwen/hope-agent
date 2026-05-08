@@ -89,7 +89,7 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 
 ### For users
 
-> ✨ **Release status**: 0.1.0 first public release is live — grab the installers from [Releases](https://github.com/shiwenwen/hope-agent/releases) below.
+> 📦 Installers: [Releases](https://github.com/shiwenwen/hope-agent/releases)
 
 1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
    - macOS: `Hope-Agent_*.dmg`
