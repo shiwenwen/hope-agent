@@ -239,6 +239,12 @@ export default function MessageList({
     }
     const el = containerRef.current
     if (!el) return
+    // Defensive unlock: stale lock can survive edge timing (gesture + stream
+    // frame ordering) even after we've effectively returned to bottom.
+    // Keeping the lock in this state disables follow-bottom permanently.
+    if (atBottomRef.current && userScrollLockRef.current) {
+      userScrollLockRef.current = false
+    }
     if (!atBottomRef.current || userScrollLockRef.current) return
     el.scrollTop = el.scrollHeight
   }, [messages, sessionKey])
