@@ -804,15 +804,41 @@ export default function ChatScreen({
     async (result: CommandResult) => {
       const action = result.action
 
-      // Skip the event chip for newSession (we clear anyway) and skill passThrough
-      // (the user bubble already shows "/skillname args", the chip would duplicate).
-      if (result.content && action?.type !== "newSession" && !result._isSkillPassThrough) {
-        const eventMsg: Message = {
+      // Skip history rows for session-spawning commands and skill passThrough
+      // (the real user bubble already shows "/skillname args"). Other slash
+      // controls are persisted by the backend as event rows; mirror that
+      // immediately in the current in-memory timeline.
+      const shouldShowSlashHistory =
+        action?.type !== "newSession" &&
+        action?.type !== "switchAgent" &&
+        action?.type !== "passThrough" &&
+        !result._isSkillPassThrough
+      const slashHistoryMessages: Message[] = []
+      if (shouldShowSlashHistory && result._slashCommandText) {
+        const now = new Date().toISOString()
+        slashHistoryMessages.push({
+          role: "event",
+          content: result._slashCommandText,
+          timestamp: now,
+          slashEvent: { kind: "command", displayAs: "user" },
+        })
+        if (result.content) {
+          slashHistoryMessages.push({
+            role: "event",
+            content: result.content,
+            timestamp: now,
+            slashEvent: { kind: "result", command: result._slashCommandText },
+          })
+        }
+      } else if (result.content && shouldShowSlashHistory) {
+        slashHistoryMessages.push({
           role: "event",
           content: result.content,
           timestamp: new Date().toISOString(),
-        }
-        session.setMessages((prev) => [...prev, eventMsg])
+        })
+      }
+      if (slashHistoryMessages.length > 0) {
+        session.setMessages((prev) => [...prev, ...slashHistoryMessages])
       }
 
       if (!action) return
@@ -856,7 +882,7 @@ export default function ChatScreen({
           }
           break
         case "sessionCleared":
-          session.setMessages([])
+          session.setMessages(slashHistoryMessages)
           void refreshUnreadState()
           break
         case "passThrough":

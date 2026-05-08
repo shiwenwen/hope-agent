@@ -310,6 +310,8 @@ pub(super) fn emit_usage(
         "cache_creation_input_tokens": usage.cache_creation_input_tokens,
         "cache_read_input_tokens": usage.cache_read_input_tokens,
         "last_input_tokens": usage.last_input_tokens,
+        "last_cache_creation_input_tokens": usage.last_cache_creation_input_tokens,
+        "last_cache_read_input_tokens": usage.last_cache_read_input_tokens,
         "model": model,
     });
     if let Some(ttft) = ttft_ms {
@@ -334,6 +336,8 @@ pub(super) fn emit_usage(
                     "output_tokens": usage.output_tokens,
                     "cache_creation": usage.cache_creation_input_tokens,
                     "cache_read": usage.cache_read_input_tokens,
+                    "last_cache_creation": usage.last_cache_creation_input_tokens,
+                    "last_cache_read": usage.last_cache_read_input_tokens,
                 })
                 .to_string(),
             ),

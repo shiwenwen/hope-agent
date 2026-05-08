@@ -8,7 +8,10 @@ use std::collections::HashSet;
 use std::sync::OnceLock;
 
 use crate::skills::SkillEntry;
-use types::{CommandCategory, CommandResult, SlashCommandDef};
+use types::{
+    CommandAction, CommandCategory, CommandResult, ModelPickerItem, ProjectPickerItem,
+    SessionPickerItem, SlashCommandDef,
+};
 
 /// A user-typed slash command name paired with the originating SkillEntry.
 /// `typed_name` may differ from the skill's canonical name when collision
@@ -167,6 +170,34 @@ pub async fn execute_slash_command(
 
     let result = handlers::dispatch(session_id.as_deref(), &agent_id, &name, &args).await?;
 
+    if let Some(sid) = session_id.as_deref() {
+        if should_persist_slash_history(result.action.as_ref()) {
+            match crate::get_session_db() {
+                Some(db) => {
+                    if let Err(e) = append_slash_history_result_events(
+                        &db,
+                        sid,
+                        &command_text,
+                        &result,
+                        crate::chat_engine::ChatSource::Desktop,
+                    ) {
+                        app_warn!(
+                            "slash_cmd",
+                            "history",
+                            "Failed to persist slash command history: {}",
+                            e
+                        );
+                    }
+                }
+                None => app_warn!(
+                    "slash_cmd",
+                    "history",
+                    "SessionDB unavailable while persisting slash command history"
+                ),
+            }
+        }
+    }
+
     app_info!(
         "slash_cmd",
         "dispatch",
@@ -179,6 +210,238 @@ pub async fn execute_slash_command(
     );
 
     Ok(result)
+}
+
+/// Persist a control slash command to visible transcript without feeding it
+/// to the LLM. The command row is styled like a user bubble by the frontend;
+/// the result row remains a normal event chip/card.
+pub fn append_slash_history_events(
+    session_db: &crate::session::SessionDB,
+    session_id: &str,
+    command_text: &str,
+    result_content: Option<&str>,
+    source: crate::chat_engine::ChatSource,
+) -> anyhow::Result<Vec<i64>> {
+    let command_text = command_text.trim();
+    if command_text.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut ids = Vec::with_capacity(2);
+
+    let mut command_msg = crate::session::NewMessage::event(command_text).with_source(source);
+    command_msg.attachments_meta = Some(
+        serde_json::json!({
+            "slash_command": {
+                "kind": "command",
+                "displayAs": "user",
+            }
+        })
+        .to_string(),
+    );
+    ids.push(session_db.append_message(session_id, &command_msg)?);
+
+    if let Some(result_content) = result_content.filter(|s| !s.trim().is_empty()) {
+        let mut result_msg = crate::session::NewMessage::event(result_content).with_source(source);
+        result_msg.attachments_meta = Some(
+            serde_json::json!({
+                "slash_command": {
+                    "kind": "result",
+                    "command": command_text,
+                }
+            })
+            .to_string(),
+        );
+        ids.push(session_db.append_message(session_id, &result_msg)?);
+    }
+
+    Ok(ids)
+}
+
+/// Persist a full `CommandResult`, including markdown fallbacks for structured
+/// actions whose live desktop UI is card/modal based and therefore has empty
+/// `content`.
+pub fn append_slash_history_result_events(
+    session_db: &crate::session::SessionDB,
+    session_id: &str,
+    command_text: &str,
+    result: &CommandResult,
+    source: crate::chat_engine::ChatSource,
+) -> anyhow::Result<Vec<i64>> {
+    let fallback = slash_history_result_content(result);
+    append_slash_history_events(
+        session_db,
+        session_id,
+        command_text,
+        fallback.as_deref(),
+        source,
+    )
+}
+
+fn slash_history_result_content(result: &CommandResult) -> Option<String> {
+    if !result.content.trim().is_empty() {
+        return Some(result.content.clone());
+    }
+
+    let action = result.action.as_ref()?;
+    match action {
+        CommandAction::ShowModelPicker {
+            models,
+            active_provider_id,
+            active_model_id,
+        } => Some(render_model_picker_history(
+            models,
+            active_provider_id.as_deref(),
+            active_model_id.as_deref(),
+        )),
+        CommandAction::ShowProjectPicker { projects } => {
+            Some(render_project_picker_history(projects))
+        }
+        CommandAction::ShowSessionPicker { sessions } => {
+            Some(render_session_picker_history(sessions))
+        }
+        CommandAction::EnterPlanMode => Some("Entered plan mode.".into()),
+        CommandAction::ExitPlanMode { .. } => Some("Exited plan mode.".into()),
+        CommandAction::ApprovePlan { .. } => Some("Plan approved. Starting execution.".into()),
+        CommandAction::ShowPlan { plan_content } => {
+            Some(format!("**Current Plan**\n\n{}", plan_content))
+        }
+        CommandAction::ViewSystemPrompt => Some("Opened system prompt viewer.".into()),
+        CommandAction::OpenDashboardTab { tab } => Some(format!("Opened Dashboard tab `{}`.", tab)),
+        CommandAction::RecapCard { report_id } => Some(format!(
+            "Started recap report `{}`.",
+            crate::truncate_utf8(report_id, 8)
+        )),
+        CommandAction::SkillFork { run_id, skill_name } => Some(format!(
+            "Skill **{}** forked to sub-agent (run: {}). Result will be injected when complete.",
+            skill_name,
+            crate::truncate_utf8(run_id, 8)
+        )),
+        CommandAction::EnterProject { project_id } => Some(format!(
+            "Entering project `{}`.",
+            crate::truncate_utf8(project_id, 8)
+        )),
+        CommandAction::AssignProject { project_id } => Some(format!(
+            "Linked this session to project `{}`.",
+            crate::truncate_utf8(project_id, 8)
+        )),
+        CommandAction::EnterSession { session_id } => Some(format!(
+            "Opening session `{}`.",
+            crate::truncate_utf8(session_id, 8)
+        )),
+        CommandAction::AttachToSession { session_id } => Some(format!(
+            "Attached this chat to session `{}`.",
+            crate::truncate_utf8(session_id, 8)
+        )),
+        CommandAction::DetachFromSession => Some("Detached this chat from its session.".into()),
+        CommandAction::HandoverToChannel {
+            channel_id,
+            account_id,
+            chat_id,
+            thread_id,
+            ..
+        } => {
+            let thread = thread_id
+                .as_deref()
+                .map(|t| format!(":{}", t))
+                .unwrap_or_default();
+            Some(format!(
+                "Handed this session over to `{channel_id}:{account_id}:{chat_id}{thread}`."
+            ))
+        }
+        _ => None,
+    }
+}
+
+const HISTORY_PICKER_LIMIT: usize = 20;
+
+fn render_model_picker_history(
+    models: &[ModelPickerItem],
+    active_provider_id: Option<&str>,
+    active_model_id: Option<&str>,
+) -> String {
+    let mut lines = vec![format!("**Models** ({})", models.len())];
+    for item in models.iter().take(HISTORY_PICKER_LIMIT) {
+        let active = active_provider_id == Some(item.provider_id.as_str())
+            && active_model_id == Some(item.model_id.as_str());
+        let marker = if active { " (active)" } else { "" };
+        lines.push(format!(
+            "- **{}** / {} `{}`{}",
+            item.provider_name, item.model_name, item.model_id, marker
+        ));
+    }
+    append_truncated_note(&mut lines, models.len());
+    lines.join("\n")
+}
+
+fn render_project_picker_history(projects: &[ProjectPickerItem]) -> String {
+    let mut lines = vec![format!("**Projects** ({})", projects.len())];
+    for item in projects.iter().take(HISTORY_PICKER_LIMIT) {
+        let emoji = item
+            .emoji
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!("{s} "))
+            .unwrap_or_default();
+        let desc = item
+            .description
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| format!(" - {}", crate::truncate_utf8(s, 120)))
+            .unwrap_or_default();
+        lines.push(format!(
+            "- {}**{}** - {} session(s){}",
+            emoji, item.name, item.session_count, desc
+        ));
+    }
+    append_truncated_note(&mut lines, projects.len());
+    lines.join("\n")
+}
+
+fn render_session_picker_history(sessions: &[SessionPickerItem]) -> String {
+    let mut lines = vec![format!("**Sessions** ({})", sessions.len())];
+    for item in sessions.iter().take(HISTORY_PICKER_LIMIT) {
+        let id_short = crate::truncate_utf8(&item.id, 8);
+        let mut chips = Vec::new();
+        if !item.agent_label.is_empty() {
+            chips.push(format!("agent: {}", item.agent_label));
+        }
+        if let Some(project) = item.project_label.as_deref().filter(|s| !s.is_empty()) {
+            chips.push(format!("project: {}", project));
+        }
+        if let Some(channel) = item.channel_label.as_deref().filter(|s| !s.is_empty()) {
+            chips.push(channel.to_string());
+        }
+        let suffix = if chips.is_empty() {
+            String::new()
+        } else {
+            format!(" - {}", chips.join(" / "))
+        };
+        lines.push(format!("- `{}` **{}**{}", id_short, item.title, suffix));
+        if let Some(snippet) = item.snippet.as_deref().filter(|s| !s.is_empty()) {
+            lines.push(format!("  > {}", snippet));
+        }
+    }
+    append_truncated_note(&mut lines, sessions.len());
+    lines.join("\n")
+}
+
+fn append_truncated_note(lines: &mut Vec<String>, total: usize) {
+    if total > HISTORY_PICKER_LIMIT {
+        lines.push(format!("- ... and {} more", total - HISTORY_PICKER_LIMIT));
+    }
+}
+
+/// PassThrough slash commands become real user turns, so they must keep the
+/// normal message/context path. `/new` creates a different conversation and
+/// should not seed the old or fresh transcript with a control event.
+pub fn should_persist_slash_history(action: Option<&CommandAction>) -> bool {
+    !matches!(
+        action,
+        Some(CommandAction::PassThrough { .. })
+            | Some(CommandAction::NewSession { .. })
+            | Some(CommandAction::SwitchAgent { .. })
+    )
 }
 
 /// Quick check if text is a slash command.
@@ -308,5 +571,90 @@ mod tests {
             resolved[0].typed_name, "think_skill",
             "skill must not collide with silent built-in alias"
         );
+    }
+
+    #[test]
+    fn slash_history_events_are_event_rows_with_user_display_metadata() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = crate::session::SessionDB::open(&path).expect("open");
+        let meta = db.create_session("default").expect("session");
+
+        let ids = append_slash_history_events(
+            &db,
+            &meta.id,
+            "/status",
+            Some("All systems nominal."),
+            crate::chat_engine::ChatSource::Desktop,
+        )
+        .expect("append slash history");
+        assert_eq!(ids.len(), 2);
+
+        let messages = db.load_session_messages(&meta.id).expect("messages");
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0].role, crate::session::MessageRole::Event);
+        assert_eq!(messages[0].content, "/status");
+        assert!(messages[0]
+            .attachments_meta
+            .as_deref()
+            .expect("command meta")
+            .contains("\"displayAs\":\"user\""));
+        assert_eq!(messages[1].role, crate::session::MessageRole::Event);
+        assert_eq!(messages[1].content, "All systems nominal.");
+        assert!(messages[1]
+            .attachments_meta
+            .as_deref()
+            .expect("result meta")
+            .contains("\"kind\":\"result\""));
+    }
+
+    #[test]
+    fn slash_history_result_events_persist_structured_action_fallback() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = crate::session::SessionDB::open(&path).expect("open");
+        let meta = db.create_session("default").expect("session");
+        let result = CommandResult {
+            content: String::new(),
+            action: Some(CommandAction::ShowModelPicker {
+                models: vec![ModelPickerItem {
+                    provider_id: "p1".into(),
+                    provider_name: "OpenAI".into(),
+                    model_id: "gpt-test".into(),
+                    model_name: "GPT Test".into(),
+                }],
+                active_provider_id: Some("p1".into()),
+                active_model_id: Some("gpt-test".into()),
+            }),
+        };
+
+        let ids = append_slash_history_result_events(
+            &db,
+            &meta.id,
+            "/model",
+            &result,
+            crate::chat_engine::ChatSource::Desktop,
+        )
+        .expect("append slash history");
+        assert_eq!(ids.len(), 2);
+
+        let messages = db.load_session_messages(&meta.id).expect("messages");
+        assert_eq!(messages[0].content, "/model");
+        assert!(messages[1].content.contains("**Models** (1)"));
+        assert!(messages[1].content.contains("GPT Test"));
+        assert!(messages[1].content.contains("(active)"));
+    }
+
+    #[test]
+    fn pass_through_slash_history_stays_on_normal_chat_path() {
+        assert!(!should_persist_slash_history(Some(
+            &CommandAction::PassThrough {
+                message: "expanded".into(),
+            },
+        )));
+        assert!(should_persist_slash_history(Some(
+            &CommandAction::DisplayOnly
+        )));
+        assert!(should_persist_slash_history(None));
     }
 }

@@ -510,15 +510,15 @@ export default function ChatTitleBar({
                       className="w-full mt-1 px-2 py-1 text-[11px] rounded-md border border-border/50 text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors flex items-center justify-center gap-1"
                       onClick={async () => {
                         try {
-                          const result = await getTransport().call<{
-                            content: string
-                            action?: import("@/components/chat/slash-commands/types").CommandAction
-                          }>("execute_slash_command", {
+                          const result = await getTransport().call<
+                            import("@/components/chat/slash-commands/types").CommandResult
+                          >("execute_slash_command", {
                             sessionId: currentSessionId,
                             agentId: currentAgentId,
                             commandText: "/context",
                           })
                           setShowStatus(false)
+                          result._slashCommandText = "/context"
                           onCommandAction?.(result)
                         } catch (e) {
                           logger.error("ui", "ChatTitleBar::viewContext", "View context failed", e)

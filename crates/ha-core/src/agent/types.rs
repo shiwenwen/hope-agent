@@ -398,10 +398,8 @@ impl ThinkTagFilter {
 }
 
 /// Token usage for one chat turn, aggregated across every round of the
-/// tool loop. Counts are cumulative; `last_input_tokens` is the single
-/// exception — it tracks the most recent round's prompt size, which is
-/// the correct denominator for a "context window usage" UI (cumulative
-/// sums past 100% once the loop runs multiple rounds).
+/// tool loop. Counts are cumulative; the `last_*` fields track the most
+/// recent API round for status UIs where cumulative sums are misleading.
 #[derive(Debug, Clone, Default)]
 pub struct ChatUsage {
     pub input_tokens: u64,
@@ -409,18 +407,54 @@ pub struct ChatUsage {
     pub cache_creation_input_tokens: u64,
     pub cache_read_input_tokens: u64,
     pub last_input_tokens: u64,
+    pub last_cache_creation_input_tokens: u64,
+    pub last_cache_read_input_tokens: u64,
 }
 
 impl ChatUsage {
     /// Fold one round's usage into the running turn total. Cumulative
-    /// fields accumulate; `last_input_tokens` is overwritten so callers
-    /// always see the most recent round's prompt size.
+    /// fields accumulate; `last_*` fields are overwritten so callers can
+    /// render the most recent round without summing over a tool loop.
     pub fn accumulate_round(&mut self, round: &ChatUsage) {
         self.input_tokens += round.input_tokens;
         self.output_tokens += round.output_tokens;
         self.cache_creation_input_tokens += round.cache_creation_input_tokens;
         self.cache_read_input_tokens += round.cache_read_input_tokens;
         self.last_input_tokens = round.input_tokens;
+        self.last_cache_creation_input_tokens = round.cache_creation_input_tokens;
+        self.last_cache_read_input_tokens = round.cache_read_input_tokens;
+    }
+}
+
+#[cfg(test)]
+mod chat_usage_tests {
+    use super::ChatUsage;
+
+    #[test]
+    fn accumulate_round_keeps_cache_totals_and_last_round_cache() {
+        let mut usage = ChatUsage::default();
+        usage.accumulate_round(&ChatUsage {
+            input_tokens: 10,
+            output_tokens: 1,
+            cache_creation_input_tokens: 5,
+            cache_read_input_tokens: 20,
+            ..Default::default()
+        });
+        usage.accumulate_round(&ChatUsage {
+            input_tokens: 30,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 7,
+            ..Default::default()
+        });
+
+        assert_eq!(usage.input_tokens, 40);
+        assert_eq!(usage.output_tokens, 3);
+        assert_eq!(usage.cache_creation_input_tokens, 5);
+        assert_eq!(usage.cache_read_input_tokens, 27);
+        assert_eq!(usage.last_input_tokens, 30);
+        assert_eq!(usage.last_cache_creation_input_tokens, 0);
+        assert_eq!(usage.last_cache_read_input_tokens, 7);
     }
 }
 

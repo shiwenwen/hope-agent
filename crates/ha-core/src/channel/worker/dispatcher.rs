@@ -287,53 +287,13 @@ async fn handle_inbound_message(
         &agent_id,
     )?;
 
-    // 4. Save user message to session
+    // 4. Prepare inbound text. Reply-only slash commands (e.g. /status)
+    // are persisted as event history below, but never as user turns and
+    // never into model-facing context.
     let session_db =
         crate::get_session_db().ok_or_else(|| anyhow::anyhow!("SessionDB not initialized"))?;
 
     let user_text = msg.text.as_deref().unwrap_or("(media message)");
-    let mut user_msg = crate::session::NewMessage::user(user_text)
-        .with_source(crate::chat_engine::ChatSource::Channel);
-    user_msg.attachments_meta = Some(
-        serde_json::json!({
-            "channel_inbound": {
-                "channelId": channel_id_str,
-                "accountId": msg.account_id,
-                "senderId": msg.sender_id,
-                "senderName": msg.sender_name,
-                "chatId": msg.chat_id,
-                "messageId": msg.message_id,
-            }
-        })
-        .to_string(),
-    );
-    let _ = session_db.append_message(&session_id, &user_msg);
-
-    // Auto-generate fallback title from first message (same logic as normal chat)
-    let _ = crate::session::ensure_first_message_title(&session_db, &session_id, user_text);
-
-    // Notify the desktop / web side that a fresh user message landed on
-    // this session from IM, so an attached GUI view can pull it into
-    // the conversation timeline without waiting for the stream-start
-    // round-trip. `channel:stream_start` covers the assistant side a
-    // moment later — this event is purely about the inbound user turn.
-    if let Some(bus) = crate::globals::get_event_bus() {
-        bus.emit(
-            "chat:user_message_appended",
-            serde_json::json!({
-                "sessionId": &session_id,
-                "source": "channel",
-                "channelId": &channel_id_str,
-                "accountId": &msg.account_id,
-                "chatId": &msg.chat_id,
-                "senderName": msg.sender_name.as_deref(),
-                "text": user_text,
-            }),
-        );
-    }
-
-    // NOTE: We don't emit channel:message_update here because channel:stream_start
-    // will handle frontend state. Emitting here would race with the stream placeholder.
 
     // 5. Send typing indicator
     let _ = plugin.send_typing(&account.id, &msg.chat_id).await;
@@ -369,14 +329,21 @@ async fn handle_inbound_message(
                 buttons,
             }) => {
                 let effective_sid = new_session_id.as_deref().unwrap_or(&session_id);
-                // Only persist reply to the OLD session; skip for new sessions
-                // (e.g. /new) so auto_title can work on the first real message.
                 if new_session_id.is_none() {
-                    let _ = session_db.append_message(
+                    if let Err(e) = crate::slash_commands::append_slash_history_events(
+                        &session_db,
                         effective_sid,
-                        &crate::session::NewMessage::event(&content)
-                            .with_source(crate::chat_engine::ChatSource::Channel),
-                    );
+                        user_text,
+                        Some(&content),
+                        crate::chat_engine::ChatSource::Channel,
+                    ) {
+                        app_warn!(
+                            "channel",
+                            "worker",
+                            "Failed to persist slash command history: {}",
+                            e
+                        );
+                    }
                 }
                 let slash_target = DeliveryTarget {
                     account_id: &account.id,
@@ -409,6 +376,51 @@ async fn handle_inbound_message(
     } else {
         engine_message = user_text.to_string();
     }
+
+    // 5b. Persist only messages that will enter the chat engine. Reply-only
+    // slash commands returned above after writing event history.
+    let mut user_msg = crate::session::NewMessage::user(user_text)
+        .with_source(crate::chat_engine::ChatSource::Channel);
+    user_msg.attachments_meta = Some(
+        serde_json::json!({
+            "channel_inbound": {
+                "channelId": channel_id_str,
+                "accountId": msg.account_id,
+                "senderId": msg.sender_id,
+                "senderName": msg.sender_name,
+                "chatId": msg.chat_id,
+                "messageId": msg.message_id,
+            }
+        })
+        .to_string(),
+    );
+    let _ = session_db.append_message(&session_id, &user_msg);
+
+    // Auto-generate fallback title from the first real message (same logic as normal chat).
+    let _ = crate::session::ensure_first_message_title(&session_db, &session_id, user_text);
+
+    // Notify the desktop / web side that a fresh user message landed on
+    // this session from IM, so an attached GUI view can pull it into
+    // the conversation timeline without waiting for the stream-start
+    // round-trip. `channel:stream_start` covers the assistant side a
+    // moment later — this event is purely about the inbound user turn.
+    if let Some(bus) = crate::globals::get_event_bus() {
+        bus.emit(
+            "chat:user_message_appended",
+            serde_json::json!({
+                "sessionId": &session_id,
+                "source": "channel",
+                "channelId": &channel_id_str,
+                "accountId": &msg.account_id,
+                "chatId": &msg.chat_id,
+                "senderName": msg.sender_name.as_deref(),
+                "text": user_text,
+            }),
+        );
+    }
+
+    // NOTE: We don't emit channel:message_update here because channel:stream_start
+    // will handle frontend state. Emitting here would race with the stream placeholder.
 
     // 6. Build channel context for prompt injection
     let chat_type_label = match msg.chat_type {

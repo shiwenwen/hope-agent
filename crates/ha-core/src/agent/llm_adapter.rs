@@ -423,8 +423,10 @@ impl<'a> LlmApiAdapter for CodexAdapter<'a> {
                 return Err(e);
             }
         };
-        // One-shot is single-round: last == only input.
+        // One-shot is single-round: last == only round.
         usage.last_input_tokens = usage.input_tokens;
+        usage.last_cache_creation_input_tokens = usage.cache_creation_input_tokens;
+        usage.last_cache_read_input_tokens = usage.cache_read_input_tokens;
 
         Ok(OneShotResult { text, usage })
     }
@@ -584,21 +586,25 @@ pub(super) fn extract_anthropic_usage(result: &Value) -> ChatUsage {
         .and_then(|u| u.get("input_tokens"))
         .and_then(|v| v.as_u64())
         .unwrap_or(0);
+    let cache_creation = usage
+        .and_then(|u| u.get("cache_creation_input_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let cache_read = usage
+        .and_then(|u| u.get("cache_read_input_tokens"))
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     ChatUsage {
         input_tokens,
         output_tokens: usage
             .and_then(|u| u.get("output_tokens"))
             .and_then(|v| v.as_u64())
             .unwrap_or(0),
-        cache_creation_input_tokens: usage
-            .and_then(|u| u.get("cache_creation_input_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0),
-        cache_read_input_tokens: usage
-            .and_then(|u| u.get("cache_read_input_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0),
+        cache_creation_input_tokens: cache_creation,
+        cache_read_input_tokens: cache_read,
         last_input_tokens: input_tokens,
+        last_cache_creation_input_tokens: cache_creation,
+        last_cache_read_input_tokens: cache_read,
     }
 }
 
@@ -627,6 +633,8 @@ pub(super) fn extract_openai_usage(result: &Value) -> ChatUsage {
         cache_read_input_tokens: cached,
         // One-shot calls are single-round: last == only == total.
         last_input_tokens: input_tokens,
+        last_cache_creation_input_tokens: 0,
+        last_cache_read_input_tokens: cached,
     }
 }
 

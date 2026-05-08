@@ -667,7 +667,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | Permission Mode | `sessions.permission_mode` | `- **Permission Mode**: \`default\` \| \`smart\` \| \`yolo\`` |
 | Thinking | `sessions.reasoning_effort` → `live_reasoning_effort()` → `medium` | `- **Thinking**: high` |
 | Context | `messages` 最后一条 assistant 行的 `tokens_in_last`（fallback `tokens_in`）vs 该行 `model` 对应的 `context_window` | `- **Context**: 42k / 200k (21%)`；window=0 时仅显示已用值 |
-| Cache (last round) | 最后一条 assistant 的 `tokens_cache_creation` / `tokens_cache_read`（**不累计**） | `- **Cache (last round)**: write 2k · hit 38k`；两值都为 0 时整行省略 |
+| Cache (last round) | 最后一条 assistant 的 `tokens_cache_creation` / `tokens_cache_read`（**不累计**；来自该 turn 最后一次 API round） | `- **Cache (last round)**: write 2k · hit 38k`；字段存在时即使两值都是 0 也显示，字段缺失时整行省略 |
 | Updated | `sessions.updated_at` 相对时间 | `- **Updated**: just now` / `Nm ago` / `Nh ago` / `Nd ago` |
 | Current Project | `sessions.project_id` | 单独一段（项目名 / desc / agent / working dir / instructions / agent source） |
 | Attached IM Channels | `channel_db.list_attached(session_id)` | 单独一段（每行 `★` primary 标记 + channel:account:chat:thread + `attached_at`） |

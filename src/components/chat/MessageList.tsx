@@ -4,7 +4,7 @@ import { ArrowDown, Ghost } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { logger } from "@/lib/logger"
 import { applyInlineHighlight, clearInlineHighlight } from "@/lib/inlineHighlight"
-import { isCenteredSystemMessage } from "./chatUtils"
+import { isCenteredSystemMessage, isUserAlignedMessage } from "./chatUtils"
 import MessageBubble from "./MessageBubble"
 import MessageContextMenu from "./MessageContextMenu"
 import LoadMoreRow from "./LoadMoreRow"
@@ -614,7 +614,7 @@ export default function MessageList({
                 msg.dbId === highlightMessageId && "message-hit-pulse",
                 isCenteredSystemMessage(msg)
                   ? "justify-items-center"
-                  : msg.role === "user" && !msg.fromAgentId
+                  : isUserAlignedMessage(msg) && !msg.fromAgentId
                     ? "justify-items-end"
                     : "justify-items-start",
                 isLast &&

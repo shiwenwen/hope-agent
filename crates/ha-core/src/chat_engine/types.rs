@@ -29,6 +29,10 @@ pub struct CapturedUsage {
     /// Cache-read input tokens (Anthropic prompt cache hit or
     /// OpenAI-style `input_tokens_details.cached_tokens`).
     pub cache_read_input_tokens: Option<i64>,
+    /// Cache-creation input tokens for the most recent API round.
+    pub last_cache_creation_input_tokens: Option<i64>,
+    /// Cache-read input tokens for the most recent API round.
+    pub last_cache_read_input_tokens: Option<i64>,
 }
 
 impl CapturedUsage {
@@ -62,6 +66,18 @@ impl CapturedUsage {
             .and_then(|v| v.as_i64())
         {
             self.cache_read_input_tokens = Some(v);
+        }
+        if let Some(v) = event
+            .get("last_cache_creation_input_tokens")
+            .and_then(|v| v.as_i64())
+        {
+            self.last_cache_creation_input_tokens = Some(v);
+        }
+        if let Some(v) = event
+            .get("last_cache_read_input_tokens")
+            .and_then(|v| v.as_i64())
+        {
+            self.last_cache_read_input_tokens = Some(v);
         }
     }
 }
@@ -538,6 +554,23 @@ mod tests {
     use super::*;
     use crate::attachments::{MediaItem, MediaKind};
     use serde_json::json;
+
+    #[test]
+    fn captured_usage_absorbs_last_round_cache_fields() {
+        let mut usage = CapturedUsage::default();
+        usage.absorb_event(&json!({
+            "type": "usage",
+            "cache_creation_input_tokens": 12,
+            "cache_read_input_tokens": 34,
+            "last_cache_creation_input_tokens": 5,
+            "last_cache_read_input_tokens": 8,
+        }));
+
+        assert_eq!(usage.cache_creation_input_tokens, Some(12));
+        assert_eq!(usage.cache_read_input_tokens, Some(34));
+        assert_eq!(usage.last_cache_creation_input_tokens, Some(5));
+        assert_eq!(usage.last_cache_read_input_tokens, Some(8));
+    }
 
     fn mk_media_item() -> MediaItem {
         MediaItem {

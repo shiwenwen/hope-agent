@@ -615,6 +615,8 @@ impl AssistantAgent {
                             "output_tokens": total_usage.output_tokens,
                             "cache_creation": total_usage.cache_creation_input_tokens,
                             "cache_read": total_usage.cache_read_input_tokens,
+                            "last_cache_creation": total_usage.last_cache_creation_input_tokens,
+                            "last_cache_read": total_usage.last_cache_read_input_tokens,
                         }
                     })
                     .to_string(),

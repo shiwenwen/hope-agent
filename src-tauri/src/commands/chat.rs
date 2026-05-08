@@ -503,8 +503,12 @@ pub async fn chat(
                     assistant_msg.tokens_in_last = usage.last_input_tokens;
                     assistant_msg.model = usage.model.clone();
                     assistant_msg.ttft_ms = usage.ttft_ms;
-                    assistant_msg.tokens_cache_creation = usage.cache_creation_input_tokens;
-                    assistant_msg.tokens_cache_read = usage.cache_read_input_tokens;
+                    assistant_msg.tokens_cache_creation = usage
+                        .last_cache_creation_input_tokens
+                        .or(usage.cache_creation_input_tokens);
+                    assistant_msg.tokens_cache_read = usage
+                        .last_cache_read_input_tokens
+                        .or(usage.cache_read_input_tokens);
                 }
                 let _ = db.append_message(&sid, &assistant_msg);
                 crate::chat_engine::save_agent_context(&db, &sid, agent);

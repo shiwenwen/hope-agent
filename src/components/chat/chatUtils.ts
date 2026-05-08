@@ -35,12 +35,18 @@ function parseMediaItemsHeader(result: string): MediaItem[] | undefined {
  *  sub-agent result, cron trigger, plan-mode approve/resume) rather than as
  *  a user/assistant bubble. */
 export function isCenteredSystemMessage(msg: Message): boolean {
+  if (isUserAlignedMessage(msg)) return false
   return (
     msg.role === "event" ||
     !!msg.isSubagentResult ||
     !!msg.isCronTrigger ||
     !!msg.isPlanTrigger
   )
+}
+
+/** True when a message should align and style like a human user bubble. */
+export function isUserAlignedMessage(msg: Message): boolean {
+  return msg.role === "user" || msg.slashEvent?.displayAs === "user"
 }
 
 /** Format token count: ≥10000 → "12.3k", else "1,234". */
@@ -367,10 +373,27 @@ export function parseSessionMessages(
         dbId: msg.id,
       })
     } else if (msg.role === "event") {
+      let slashEvent: Message["slashEvent"] | undefined
+      if (msg.attachmentsMeta) {
+        try {
+          const meta = JSON.parse(msg.attachmentsMeta)
+          const slash = meta?.slash_command
+          if (slash?.kind === "command" || slash?.kind === "result") {
+            slashEvent = {
+              kind: slash.kind,
+              command: typeof slash.command === "string" ? slash.command : undefined,
+              displayAs: slash.displayAs === "user" ? "user" : undefined,
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }
       displayMessages.push({
         role: "event",
         content: msg.content,
         timestamp: msg.timestamp,
+        slashEvent,
         dbId: msg.id,
       })
     }
@@ -513,6 +536,9 @@ function messageContentEqual(a: Message, b: Message): boolean {
     a.dbId === b.dbId &&
     a.role === b.role &&
     a.content === b.content &&
+    a.slashEvent?.kind === b.slashEvent?.kind &&
+    a.slashEvent?.displayAs === b.slashEvent?.displayAs &&
+    a.slashEvent?.command === b.slashEvent?.command &&
     a.thinking === b.thinking &&
     a.timestamp === b.timestamp &&
     a.model === b.model &&

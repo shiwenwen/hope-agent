@@ -6,7 +6,13 @@ import { cn } from "@/lib/utils"
 import { IconTip } from "@/components/ui/tooltip"
 import { Copy, Check, Info, Network, Timer, PlayCircle, ChevronDown } from "lucide-react"
 import ChannelIcon from "@/components/common/ChannelIcon"
-import { formatTokens, formatDuration, formatMessageTime, extractModifiedFiles } from "../chatUtils"
+import {
+  formatTokens,
+  formatDuration,
+  formatMessageTime,
+  extractModifiedFiles,
+  isUserAlignedMessage,
+} from "../chatUtils"
 import MarkdownRenderer from "@/components/common/MarkdownRenderer"
 import FileAttachments from "./FileAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
@@ -271,8 +277,9 @@ function MessageBubbleInner({
       return null
     }
   }, [msg.content, msg.role])
+  const isUserAligned = isUserAlignedMessage(msg)
 
-  if (msg.role === "event") {
+  if (msg.role === "event" && !isUserAligned) {
     // Interactive model picker card
     if (msg.modelPickerData) {
       return (
@@ -438,7 +445,7 @@ function MessageBubbleInner({
         <div
           className={cn(
             "px-4 py-2.5 rounded-xl text-sm leading-relaxed overflow-hidden break-words select-text",
-            msg.role === "user" && !msg.fromAgentId
+            isUserAligned && !msg.fromAgentId
               ? "bg-[var(--color-user-bubble)] text-foreground whitespace-pre-wrap"
               : msg.fromAgentId
                 ? "bg-purple-500/10 border border-purple-500/20 text-foreground whitespace-pre-wrap"
@@ -479,7 +486,7 @@ function MessageBubbleInner({
             <div
               className={cn(
                 "mt-1 text-[10px] leading-none select-none",
-                msg.role === "user" ? "text-foreground/40 text-right" : "text-muted-foreground/60",
+                isUserAligned ? "text-foreground/40 text-right" : "text-muted-foreground/60",
               )}
             >
               {formatMessageTime(msg.timestamp)}
@@ -494,7 +501,7 @@ function MessageBubbleInner({
         <div
           className={cn(
             "flex items-center gap-0.5 mt-0.5 h-6",
-            msg.role === "user" ? "justify-end" : "justify-start",
+            isUserAligned ? "justify-end" : "justify-start",
             (!msg.content || !(isHovered || isCopied || detailsIndex === index)) &&
               "invisible",
           )}

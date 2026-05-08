@@ -125,6 +125,8 @@ export interface SessionPickerItem {
 export interface CommandResult {
   content: string
   action?: CommandAction
+  /** Frontend-only: the raw slash command text the user invoked. */
+  _slashCommandText?: string
   /** Frontend-only: set by useSlashCommands when a skill passThrough is detected */
   _isSkillPassThrough?: boolean
   /** Frontend-only: user arguments extracted from skill command (e.g. "把主题改成深色") */

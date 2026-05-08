@@ -359,13 +359,13 @@ Worker Dispatcher (worker.rs)
     ├── 1. 查找 ChannelAccountConfig
     ├── 2. check_access() 权限校验
     ├── 3. resolve_or_create_session() 查找/创建会话
-    ├── 4. append_message(user_msg) 保存用户消息
-    ├── 5. send_typing() 发送输入中指示器
-    ├── 5a. [斜杠命令拦截] is_slash_command(user_text)?
+    ├── 4. send_typing() 发送输入中指示器
+    ├── 5. [斜杠命令预拦截] is_slash_command(user_text)?
     │       ├── YES → dispatch_slash_for_channel()
-    │       │           ├── Reply 类 (help/status/new/clear/...) → 直接回复，跳过 LLM，return
+    │       │           ├── Reply 类 (help/status/clear/model/...) → command/result 落 event，直接回复，跳过 LLM，return
     │       │           └── PassThrough 类 (技能调用/search) → 替换为转换后指令，继续 ↓
     │       └── NO  → 继续 ↓
+    ├── 5b. append_message(user_msg) 保存真实对话用户消息
     ├── 6. chat_engine::run_chat_engine() 共享聊天引擎
     │       ├── 构建 Agent（model chain + failover）
     │       ├── 恢复会话历史 (restore_agent_context)
@@ -785,7 +785,7 @@ pub fn spawn_dispatcher(
 **关键设计决策：**
 
 - **并发处理**：每条入站消息在独立 `tokio::spawn` 中处理，不阻塞其他消息
-- **斜杠命令拦截**：在调用 LLM 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并转发给 `slash_commands::handlers::dispatch()`。`Reply` 类命令（`/help`、`/new`、`/clear`、`/model`、`/status` 等）直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM（详见 [斜杠命令系统](slash-commands.md)）
+- **斜杠命令拦截**：在调用 LLM 和写入 user turn 之前，`dispatch_slash_for_channel()` 检测以 `/` 开头的消息并转发给 `slash_commands::handlers::dispatch()`。`Reply` 类命令（`/help`、`/clear`、`/model`、`/status` 等）把原始 slash 与结果落为 `messages.role="event"`（command event 带 `displayAs="user"` 供 GUI 渲染成用户气泡），直接回复并跳过 LLM；`PassThrough` 类命令（技能调用、`/search`）将转换后的指令作为 `engine_message` 交给 LLM，并按真实对话 user turn 落库（详见 [斜杠命令系统](slash-commands.md)）
 - **共享 ChatEngine**：调用 `chat_engine::run_chat_engine()` — 与 UI 聊天使用完全相同的 Agent 执行引擎，拥有相同的能力：流式输出、会话历史恢复、工具事件持久化、Failover 降级、Context compaction、Token 跟踪、异步记忆提取
 - **EventSink 抽象**：UI 聊天在桌面通过 `ChannelSink`（Tauri Channel）推流，在 HTTP 模式通过 `chat:stream_delta` EventBus 推到 `/ws/events`；IM 聊天通过 `ChannelStreamSink`（EventBus）推流到前端 + 累积 text_delta 发送 `channel:stream_delta` 事件
 - **每个渠道可绑定独立 Agent**：`ChannelAccountConfig.agent_id` 字段支持每个渠道账户绑定不同 Agent，未设置时回退到全局默认

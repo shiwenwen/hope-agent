@@ -138,6 +138,13 @@ export interface Message {
     channelId: string
     senderName?: string
   }
+  /** Slash command history rows are stored as event messages so they never
+   *  enter LLM context. Command rows can still render as user bubbles. */
+  slashEvent?: {
+    kind: "command" | "result"
+    command?: string
+    displayAs?: "user"
+  }
   /** Model picker data for rendering interactive model selection cards */
   modelPickerData?: {
     models: { providerId: string; providerName: string; modelId: string; modelName: string }[]

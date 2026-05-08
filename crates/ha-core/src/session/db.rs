@@ -14,9 +14,9 @@ pub struct LastAssistantTokens {
     pub tokens_in: Option<i64>,
     /// Last-round input tokens — preferred for context-window fill.
     pub tokens_in_last: Option<i64>,
-    /// Cache-write tokens for the most recent turn.
+    /// Cache-write tokens for the most recent API round in the turn.
     pub tokens_cache_creation: Option<i64>,
-    /// Cache-read tokens for the most recent turn.
+    /// Cache-read tokens for the most recent API round in the turn.
     pub tokens_cache_read: Option<i64>,
     /// Model id stamped on the row (for context-window lookup when the
     /// active selection has changed mid-session).

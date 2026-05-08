@@ -444,8 +444,10 @@ impl StreamPersister {
         msg.tokens_in_last = u.last_input_tokens;
         msg.model = u.model.clone();
         msg.ttft_ms = u.ttft_ms;
-        msg.tokens_cache_creation = u.cache_creation_input_tokens;
-        msg.tokens_cache_read = u.cache_read_input_tokens;
+        msg.tokens_cache_creation = u
+            .last_cache_creation_input_tokens
+            .or(u.cache_creation_input_tokens);
+        msg.tokens_cache_read = u.last_cache_read_input_tokens.or(u.cache_read_input_tokens);
         msg.source = Some(self.source.as_str().to_string());
         msg
     }

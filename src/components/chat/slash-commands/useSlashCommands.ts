@@ -47,6 +47,7 @@ function annotateSkillPassThrough(
   commandText: string,
   rawArgs: string,
 ): void {
+  result._slashCommandText = commandText
   if (result.action?.type !== "passThrough" || cmd.category !== "skill") return
   result._isSkillPassThrough = true
   result._skillCommandText = commandText
@@ -203,6 +204,7 @@ export function useSlashCommands(
         actionsRef.current.onCommandAction({
           content: `Error: ${err}`,
           action: { type: "displayOnly" },
+          _slashCommandText: commandText,
         })
       } finally {
         setExecuting(false)
@@ -233,6 +235,7 @@ export function useSlashCommands(
           actionsRef.current.onCommandAction({
             content: `Error: ${err}`,
             action: { type: "displayOnly" },
+            _slashCommandText: commandText,
           }),
         )
         .finally(() => {

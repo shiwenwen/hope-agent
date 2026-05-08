@@ -141,7 +141,7 @@ fn format_help_row(c: &SlashCommandDef) -> String {
 
 /// /status — Show session status. Aligned with the GUI session-status popover
 /// (see `ChatTitleBar.tsx`): version, model + auth type, context window usage,
-/// per-turn cache stats, agent, session title + id, message count, permission
+/// last-round cache stats, agent, session title + id, message count, permission
 /// mode, thinking effort, last-updated relative time, project, IM attaches.
 pub async fn handle_status(
     session_db: &Arc<SessionDB>,
@@ -220,9 +220,9 @@ pub async fn handle_status(
                 .max(0) as u64;
             lines.push(format_context_usage_line(used, context_window));
 
-            let creation = tokens.tokens_cache_creation.unwrap_or(0).max(0) as u64;
-            let read = tokens.tokens_cache_read.unwrap_or(0).max(0) as u64;
-            if creation > 0 || read > 0 {
+            if tokens.tokens_cache_creation.is_some() || tokens.tokens_cache_read.is_some() {
+                let creation = tokens.tokens_cache_creation.unwrap_or(0).max(0) as u64;
+                let read = tokens.tokens_cache_read.unwrap_or(0).max(0) as u64;
                 lines.push(format!(
                     "- **Cache (last round)**: write {} · hit {}",
                     format_token_count(creation),
@@ -907,6 +907,29 @@ mod tests {
         assert!(!result.content.contains("**Context**:"));
         assert!(!result.content.contains("**Cache (last round)**:"));
         assert!(result.content.contains("**Thinking**:"));
+    }
+
+    #[tokio::test]
+    async fn handle_status_renders_zero_cache_when_usage_reported() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("sessions.db");
+        let db = Arc::new(SessionDB::open(&path).expect("open"));
+        ensure_channel_conversations_table(&db);
+        let meta = db.create_session("default").expect("create");
+        let sid = meta.id.clone();
+
+        let mut assistant = crate::session::NewMessage::assistant("ok");
+        assistant.tokens_in_last = Some(12_000);
+        assistant.tokens_cache_creation = Some(0);
+        assistant.tokens_cache_read = Some(0);
+        db.append_message(&sid, &assistant).expect("append");
+
+        let result = handle_status(&db, &AppConfig::default(), Some(&sid), "default")
+            .await
+            .expect("ok");
+        assert!(result
+            .content
+            .contains("**Cache (last round)**: write 0 · hit 0"));
     }
 
     #[test]
