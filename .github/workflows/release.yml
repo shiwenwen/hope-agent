@@ -35,8 +35,12 @@ jobs:
             os: macos-14
             args: "--target aarch64-apple-darwin"
           # Linux x64 — AppImage + deb.
+          # ubuntu-24.04 is required because xcap (screen capture) pulls
+          # libspa-sys v0.9, which expects pipewire ≥ 1.0 headers. The
+          # libpipewire-0.3-dev shipped with ubuntu-22.04 is 0.3.48 and
+          # fails to compile (struct spa_video_info_raw missing `flags`).
           - platform: linux-x64
-            os: ubuntu-22.04
+            os: ubuntu-24.04
             args: ""
           # Windows x64 — MSI (wix) + NSIS. Code signing certificate is
           # not wired up yet; bundles are unsigned. See
