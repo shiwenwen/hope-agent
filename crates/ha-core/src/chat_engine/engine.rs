@@ -9,7 +9,7 @@ use crate::provider::{ApiType, AuthProfile};
 use crate::session;
 
 use super::context::*;
-use super::im_mirror::{attach_im_live_mirror, finalize_im_live_mirror};
+use super::im_mirror::{abort_im_live_mirror, attach_im_live_mirror, finalize_im_live_mirror};
 use super::persister::StreamPersister;
 use super::sink_registry;
 use super::stream_broadcast;
@@ -195,7 +195,8 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
             text: message.clone(),
             attachment_count: attachments.len(),
         }),
-    );
+    )
+    .await;
 
     let total_models = model_chain.len();
     let mut last_error: Option<String> = None;
@@ -489,6 +490,20 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);
 
+                    // GUI / HTTP turns mirror into the attached IM chat via
+                    // the live stream sink. Kick the final IM flush before
+                    // ending the frontend lifecycle and before running
+                    // post-turn side effects so title/memory work cannot
+                    // delay the remote chat's finalization. It runs in the
+                    // background so slow IM network calls never hold the GUI
+                    // path open.
+                    if let Some(state) = im_mirror.take() {
+                        let mirror_response = response.clone();
+                        tokio::spawn(async move {
+                            finalize_im_live_mirror(state, &mirror_response).await;
+                        });
+                    }
+
                     // The user-visible response is complete once the final
                     // assistant row is durable. End the frontend stream here;
                     // memory extraction and other follow-ups below must not
@@ -593,21 +608,6 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                 );
                             }
                         }
-                    }
-
-                    // GUI / HTTP turns flush the live IM mirror here: drop
-                    // the sink handle so the preview-stream task observes
-                    // channel-close, then run `deliver_rounds` per
-                    // `imReplyMode`. The final assistant text passed in is
-                    // prepended with a markdown blockquote of the user's
-                    // question (see `chat_engine::quote`) so the IM user
-                    // gets context for what's being answered. Subagent /
-                    // ParentInjection / Channel sources never reach this
-                    // branch with `Some(state)` (see
-                    // `attach_im_live_mirror` source filter), so the
-                    // no-op case is cheap.
-                    if let Some(state) = im_mirror.take() {
-                        finalize_im_live_mirror(state, &response).await;
                     }
 
                     return Ok(ChatEngineResult {
@@ -751,6 +751,17 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 }
             }
         }
+    }
+
+    // All non-success paths (cancel, exhausted, no-profile, compaction
+    // give-up) converge here. If the IM mirror is still attached, kick its
+    // abort path so a pre-emitted user-quote message in the IM chat gets
+    // a "(interrupted)" follow-up instead of dangling alone. Spawn so a
+    // slow IM API doesn't hold the engine return open.
+    if let Some(state) = im_mirror.take() {
+        tokio::spawn(async move {
+            abort_im_live_mirror(state).await;
+        });
     }
 
     let final_error =

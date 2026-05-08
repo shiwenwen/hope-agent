@@ -1,19 +1,19 @@
-//! GUI / HTTP → IM mirror — user-message quote prefix.
+//! GUI / HTTP → IM mirror — user-message quote.
 //!
-//! When a desktop / HTTP turn's final assistant reply is mirrored to an
-//! IM chat, the IM user has no idea **what question** the agent is
-//! answering — they only see the response in isolation. This helper
-//! renders a markdown blockquote of the latest user message that
-//! triggered the turn so the IM user gets the same context the desktop
-//! user sees in their chat thread.
+//! When a desktop / HTTP turn's reply is mirrored to an IM chat, the IM
+//! user has no idea **what question** the agent is answering — they only
+//! see the response in isolation. This helper renders a markdown
+//! blockquote of the latest user message that triggered the turn; the
+//! mirror sends it as its own IM message before the stream pipeline
+//! opens so the quote sits at the top of the IM exchange across all
+//! three reply modes (`split` / `preview` / `final`).
 //!
 //! Channel-source turns (the IM user themselves asked) are skipped —
 //! they already see their own message right above the reply.
 //!
-//! The quote prefix is **only** prepended to the IM-bound chunk; the
-//! `messages` table / `sessions.context_json` keep the unmodified
-//! assistant text so subsequent context windows + desktop history are
-//! unaffected.
+//! The quote is a separate IM message; the `messages` table /
+//! `sessions.context_json` are unaffected so subsequent context windows
+//! and desktop history stay clean.
 
 use crate::slash_commands::truncate_description;
 
@@ -65,7 +65,7 @@ pub fn build_user_quote_prefix(last_user: Option<&LastUserView<'_>>) -> Option<S
 /// `> `-prefixed markdown blockquote followed by a blank line.
 ///
 /// Uses a single forward-pass state machine over `lines()`:
-/// - line 0 non-empty: `> 💬 {line}`
+/// - line 0 non-empty: `> 💬: {line}`
 /// - line 0 empty: `>` (rare but keeps the quote connected)
 /// - subsequent non-empty: `> {line}`
 /// - subsequent empty: `>`
@@ -85,7 +85,7 @@ pub(crate) fn render_quote_prefix(text: &str, attachment_count: usize) -> Option
             let is_first = idx == 0;
             let is_blank = line.trim().is_empty();
             let rendered = match (is_first, is_blank) {
-                (true, false) => format!("> 💬 {line}"),
+                (true, false) => format!("> 💬: {line}"),
                 (true, true) => ">".to_string(),
                 (false, false) => format!("> {line}"),
                 (false, true) => ">".to_string(),
@@ -126,13 +126,13 @@ mod tests {
     #[test]
     fn single_line_text() {
         let q = render_quote_prefix("hello world", 0).unwrap();
-        assert_eq!(q, "> 💬 hello world\n\n");
+        assert_eq!(q, "> 💬: hello world\n\n");
     }
 
     #[test]
     fn multi_line_text() {
         let q = render_quote_prefix("line one\nline two\nline three", 0).unwrap();
-        assert_eq!(q, "> 💬 line one\n> line two\n> line three\n\n");
+        assert_eq!(q, "> 💬: line one\n> line two\n> line three\n\n");
     }
 
     #[test]
@@ -140,7 +140,7 @@ mod tests {
         let long = "a".repeat(300);
         let q = render_quote_prefix(&long, 0).unwrap();
         // truncate_description(s, 240) keeps 239 + '…' = 240 chars body.
-        assert!(q.starts_with("> 💬 "));
+        assert!(q.starts_with("> 💬: "));
         assert!(q.ends_with("…\n\n"));
     }
 
@@ -159,14 +159,14 @@ mod tests {
     #[test]
     fn text_plus_attachments() {
         let q = render_quote_prefix("look at this", 3).unwrap();
-        assert_eq!(q, "> 💬 look at this\n> [📎 3 attachments]\n\n");
+        assert_eq!(q, "> 💬: look at this\n> [📎 3 attachments]\n\n");
     }
 
     #[test]
     fn blank_line_inside_user_message_collapses_to_bare_marker() {
         // Sanity: empty middle line keeps the blockquote connected as `>`.
         let q = render_quote_prefix("first\n\nthird", 0).unwrap();
-        assert_eq!(q, "> 💬 first\n>\n> third\n\n");
+        assert_eq!(q, "> 💬: first\n>\n> third\n\n");
     }
 
     #[test]
@@ -194,7 +194,7 @@ mod tests {
                 attachment_count: 0,
             }))
             .unwrap();
-            assert_eq!(q, "> 💬 hello\n\n");
+            assert_eq!(q, "> 💬: hello\n\n");
         }
     }
 }
