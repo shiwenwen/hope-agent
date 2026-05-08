@@ -15,14 +15,14 @@
 ```mermaid
 graph TD
     subgraph Workspace
-        OC_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
-        OC_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
-        OC_CORE["ha-core<br/>(核心业务逻辑)<br/>457 个 .rs 文件<br/>零 Tauri 依赖"]
+        HA_TAURI["src-tauri<br/>(Tauri 桌面壳)<br/>tauri 2.10 + 7 plugins"]
+        HA_SERVER["ha-server<br/>(HTTP/WS 服务)<br/>axum 0.8"]
+        HA_CORE["ha-core<br/>(核心业务逻辑)<br/>457 个 .rs 文件<br/>零 Tauri 依赖"]
     end
 
-    OC_TAURI -->|"依赖"| OC_SERVER
-    OC_TAURI -->|"依赖"| OC_CORE
-    OC_SERVER -->|"依赖"| OC_CORE
+    HA_TAURI -->|"依赖"| HA_SERVER
+    HA_TAURI -->|"依赖"| HA_CORE
+    HA_SERVER -->|"依赖"| HA_CORE
 
 ```
 
