@@ -459,7 +459,7 @@ async fn handle_interactive_payload(
             let thread_id = payload
                 .pointer("/message/thread_ts")
                 .and_then(|v| v.as_str())
-                .filter(|tid| !tid.is_empty() && Some(*tid) != Some(message_id.as_str()))
+                .filter(|tid| !tid.is_empty() && *tid != message_id.as_str())
                 .map(|s| s.to_string());
 
             crate::channel::worker::slash_callback::inject_slash_callback(

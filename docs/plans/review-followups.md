@@ -30,6 +30,15 @@
 
 ## Open
 
+### F-071 跨 channel 推广 `json_str_at` 微 helper
+
+- **来源**：2026-05-08 F-070 `/simplify` review
+- **现象**：[`channel/feishu/ws_event.rs::event_str_at`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 抽出了 `pointer(path).and_then(|v| v.as_str()).unwrap_or_default().to_string()` 的 micro-helper，但其它 channel 仍在内联同款链：[`googlechat/webhook.rs`](../../crates/ha-core/src/channel/googlechat/webhook.rs) CARD_CLICKED 分支 4 处、[`slack/socket.rs::handle_interactive_payload`](../../crates/ha-core/src/channel/slack/socket.rs) 4 处、[`qqbot/gateway.rs`](../../crates/ha-core/src/channel/qqbot/gateway.rs) INTERACTION_CREATE 分支 ~6 处、[`line/webhook.rs::handle_message_event`](../../crates/ha-core/src/channel/line/webhook.rs) 多处
+- **为什么留**：F-070 主题是 `slash:` 回调路由统一，跨 channel 推广 micro-helper 是独立的样板清理；本期改 5 个 channel 已扩散面够大
+- **改的话要做什么**：把 `event_str_at` 移到 [`crate::util`](../../crates/ha-core/src/util.rs) 命名为 `json_str_at(value: &serde_json::Value, path: &str) -> String`（保留 owned-String 形态，consumer 多直接进 `MsgContext` field）；feishu 改用统一入口；跨 5 个 channel 的内联点逐个替换。各点都很机械，可以一次性 `/simplify` 收掉
+- **影响面**：纯样板减少；行为零变化
+- **触发时机建议**：下次任一 channel 的 webhook / gateway 解析层重构时，或独立 sweep PR
+
 ### F-068 `ChannelConversation.chat_type: String` 端到端类型化
 
 - **来源**：2026-05-07 F-066 `/simplify` review

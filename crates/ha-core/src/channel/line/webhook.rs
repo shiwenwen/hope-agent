@@ -198,31 +198,17 @@ pub fn create_webhook_handler(
                             event.pointer("/postback/data").and_then(|v| v.as_str())
                         {
                             if let Some(rest) = postback_data.strip_prefix("slash:") {
-                                let source_type = event
-                                    .pointer("/source/type")
+                                let source = event.get("source").cloned().unwrap_or_default();
+                                let source_type = source
+                                    .get("type")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("user");
-                                let user_id = event
-                                    .pointer("/source/userId")
+                                let user_id = source
+                                    .get("userId")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("")
                                     .to_string();
-                                // chat_id 拼法必须与 handle_message_event 完全一致
-                                // (group/room 用各自 id，DM 回退 userId)，否则
-                                // channel_db.get_chat_type 命中不到先前 inbound 行
-                                let chat_id = match source_type {
-                                    "group" => event
-                                        .pointer("/source/groupId")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                    "room" => event
-                                        .pointer("/source/roomId")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                    _ => user_id.clone(),
-                                };
+                                let chat_id = chat_id_from_source(&source, source_type, &user_id);
                                 // postback 无 message_id，按 timestamp 合成一个稳定串
                                 let ts = event
                                     .get("timestamp")
@@ -262,6 +248,29 @@ pub fn create_webhook_handler(
             }
         })
     })
+}
+
+/// Resolve a LINE event's chat_id from its `source` object.
+///
+/// LINE encodes the conversation kind in `source.type` (`user` / `group` /
+/// `room`) with the actual identifier under `groupId` / `roomId` / `userId`
+/// respectively. DMs fall back to `user_id_fallback` so caller can pass the
+/// already-extracted `source.userId` without a redundant lookup.
+fn chat_id_from_source(
+    source: &serde_json::Value,
+    source_type: &str,
+    user_id_fallback: &str,
+) -> String {
+    let key = match source_type {
+        "group" => "groupId",
+        "room" => "roomId",
+        _ => return user_id_fallback.to_string(),
+    };
+    source
+        .get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 
 /// Handle a LINE message event and forward to inbound_tx.
@@ -312,28 +321,11 @@ async fn handle_message_event(
         .unwrap_or("")
         .to_string();
 
-    let (chat_type, chat_id) = match source_type {
-        "group" => {
-            let group_id = source
-                .get("groupId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            (ChatType::Group, group_id)
-        }
-        "room" => {
-            let room_id = source
-                .get("roomId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            (ChatType::Group, room_id)
-        }
-        _ => {
-            // DM: chat_id is the user's ID
-            (ChatType::Dm, user_id.clone())
-        }
+    let chat_type = match source_type {
+        "group" | "room" => ChatType::Group,
+        _ => ChatType::Dm,
     };
+    let chat_id = chat_id_from_source(&source, source_type, &user_id);
 
     // Store reply token (LINE 官方约定 ~1 分钟有效；保守 55s 留 5s buffer
     // 应对时钟漂移；与 send_message 中 reply_token 选用窗口一致)
