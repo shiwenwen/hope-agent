@@ -471,7 +471,7 @@ useEffect(() => {
 - `/permission default | smart | yolo` —— 切换 `SessionMeta.permission_mode`，落点为 [`SessionDB::update_session_permission_mode`](../../crates/ha-core/src/session/db.rs)；
   - 桌面端通过 `CommandAction::SetToolPermission` → `useChatStream.setPermissionMode` → `POST /api/chat/permission-mode` 写入；
   - IM 端在 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) 的 `SetToolPermission` 分支直接调 SessionDB，并 emit EventBus 事件 `permission:mode_changed`（payload `{ sessionId, mode }`）供桌面端订阅刷新。
-- 命令必须传参：`arg_options` 在 IM 端被 [`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs) 渲染成内联按钮（无参用户输入直接收到 default / smart / yolo 三按钮选单），桌面前端同样靠 `argOptions` 弹子菜单。
+- 命令必须传参：`arg_options` 在 IM 端按渠道能力分流——支持按钮的渠道（Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat）渲成 inline keyboard 三按钮选单（default / smart / yolo），不支持按钮的（WeChat / iMessage / IRC / Signal / WhatsApp）回 `Usage: /permission <mode>` + Options 文本列表，用户复制粘贴选项即可（[`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs)）。桌面前端同样靠 `argOptions` 弹子菜单。
 - 查看当前模式走 `/status` 命令（输出里有 `Permission Mode` 行），或直接看桌面标题栏 `PermissionModeSwitcher` dropdown。
 - `IM_DISABLED_COMMANDS` 不含 `permission`，IM 内可直接调用。
 

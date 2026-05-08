@@ -719,6 +719,8 @@ turn 收尾走 `finalize_im_live_mirror`:drop SinkHandle → 等 stream task 处
 
 支持按钮的 7 个渠道(Telegram / Feishu / Discord / Slack / QQ Bot / LINE / Google Chat)对**无参 slash 命令**会弹 `arg_options` picker([`channel/worker/slash.rs`](../../crates/ha-core/src/channel/worker/slash.rs)),按钮 `callback_data = "slash:cmd arg"`。
 
+不支持按钮的 5 个渠道(WeChat / iMessage / IRC / Signal / WhatsApp)上,**`args_optional=false` + 有 `arg_options`** 的命令(`/thinking` / `/permission` / `/plan`)无参时会回一段 `Usage: /cmd <placeholder>` + 选项列表的文本提示,代替 handler 默认的 `Invalid X: \`\`` 错误,让用户能直接看到合法值并复制粘贴。`args_optional=true` 的命令(`/imreply` / `/sessions` / `/recap` / `/team` / `/awareness` / `/reason` 等)在这些渠道上保持原有 handler 路径不变 —— 它们的 handler 自带"无参 = 显示当前状态 / picker"分支。Skill 命令统一按 `args_optional=true` 处理(skill 默认无参可跑,不拦)。
+
 **统一入口**:[`channel/worker/slash_callback.rs::inject_slash_callback`](../../crates/ha-core/src/channel/worker/slash_callback.rs) ——
 签名 `(channel_id, account_id, chat_id, thread_id, sender_id, message_id, rest, inbound_tx, source)`。helper 内部用 `channel_db.get_chat_type` 查 `channel_conversations` (arg-picker 按钮永远在一条真实 inbound `/cmd` 之后,行已存在),缺行 fallback `Dm` (与 `ChatType::from_lowercase` 一致)。每个渠道在自己的 button-callback 入口先 `strip_prefix("slash:")`,再调 helper:
 

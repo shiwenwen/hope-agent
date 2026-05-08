@@ -1,4 +1,5 @@
 use super::dispatcher::merge_preview_round_texts;
+use super::slash::render_options_help_text;
 use super::streaming::*;
 use crate::channel::types::*;
 use crate::chat_engine::RoundOutput;
@@ -304,4 +305,38 @@ fn preview_carries_empty_round_trivially() {
             transport,
         );
     }
+}
+
+#[test]
+fn options_help_text_lists_every_option_with_placeholder() {
+    let text = render_options_help_text(
+        "thinking",
+        Some("<level>"),
+        &[
+            "off".into(),
+            "low".into(),
+            "medium".into(),
+            "high".into(),
+            "xhigh".into(),
+        ],
+    );
+    assert!(
+        text.starts_with("Usage: `/thinking <level>`"),
+        "missing usage line: {text}"
+    );
+    for opt in ["off", "low", "medium", "high", "xhigh"] {
+        assert!(
+            text.contains(&format!("- `{opt}`")),
+            "missing option {opt} in: {text}"
+        );
+    }
+}
+
+#[test]
+fn options_help_text_falls_back_to_generic_placeholder() {
+    let text = render_options_help_text("perm", None, &["yes".into(), "no".into()]);
+    assert!(
+        text.starts_with("Usage: `/perm <option>`"),
+        "expected generic <option> placeholder: {text}"
+    );
 }

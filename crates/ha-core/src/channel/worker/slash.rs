@@ -26,12 +26,17 @@ pub(super) enum ChannelSlashOutcome {
 ///   - `Reply`       → send the content as a direct reply and skip the LLM.
 ///   - `PassThrough` → forward the (possibly rewritten) message to the LLM.
 ///
-/// `supports_buttons` gates the "no-arg + arg_options ⇒ inline-keyboard
-/// picker" shortcut — channels without inline buttons (WeChat / iMessage /
-/// IRC / Signal / WhatsApp) would otherwise show a useless `Select an
-/// option for /xxx:` line with the buttons silently dropped, hiding the
-/// handler's actual help text. On those channels we skip the shortcut and
-/// let the handler render its normal no-arg response.
+/// **No-arg shortcut for commands with fixed `arg_options`**:
+///   - `supports_buttons` → render `arg_options` as an inline-keyboard picker.
+///   - `!supports_buttons` + `args_optional=false` → render a `Usage / Options`
+///     text hint (WeChat / iMessage / IRC / Signal / WhatsApp), so the user
+///     sees the legal values up front instead of the handler's bare
+///     "Invalid X: \`\`" error.
+///   - `!supports_buttons` + `args_optional=true` → fall through to the
+///     handler so commands like `/imreply` / `/sessions` / `/recap` get to
+///     show their custom no-arg response (current state / picker / etc.).
+///   Skill commands have no `args_optional` field and are treated as
+///   optional-args (skills typically run no-arg by default).
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn dispatch_slash_for_channel(
     channel_db: &ChannelDB,
@@ -51,50 +56,41 @@ pub(super) async fn dispatch_slash_for_channel(
 
     let (name, args) = parser::parse(text).map_err(|e| anyhow::anyhow!(e))?;
 
-    // For commands with fixed arg_options and no args provided, return inline
-    // buttons so IM channel users (e.g. Telegram) can tap to select an option.
-    // Checks both built-in commands AND dynamic skill commands. Skipped on
-    // channels without inline-button support — see fn-level doc.
-    if supports_buttons && args.trim().is_empty() {
-        use crate::slash_commands::registry;
-
-        // First check built-in commands
-        let commands = registry::all_commands();
-        let lookup_name = crate::slash_commands::canonical_builtin_command_name(&name);
-        let mut options_found: Option<Vec<String>> = commands
-            .iter()
-            .find(|c| c.name == lookup_name)
-            .and_then(|c| c.arg_options.clone());
-
-        // If not found in built-in, check dynamic skill commands
-        if options_found.is_none() {
-            let store = crate::config::cached_config();
-            let skills = crate::skills::get_invocable_skills(
-                &store.extra_skills_dirs,
-                &store.disabled_skills,
-            );
-            options_found = skills
-                .into_iter()
-                .find(|s| crate::skills::normalize_skill_command_name(&s.name) == name)
-                .and_then(|s| s.command_arg_options);
-        }
-
-        if let Some(options) = options_found {
-            let buttons: Vec<Vec<crate::channel::types::InlineButton>> = options
-                .iter()
-                .map(|opt| {
-                    vec![crate::channel::types::InlineButton {
-                        text: opt.clone(),
-                        callback_data: Some(format!("slash:{} {}", name, opt)),
-                        url: None,
-                    }]
-                })
-                .collect();
-            return Ok(ChannelSlashOutcome::Reply {
-                content: format!("Select an option for /{}:", name),
-                new_session_id: None,
-                buttons,
-            });
+    // No-arg shortcut for commands that advertise a fixed `arg_options` set —
+    // see fn-level doc for the supports_buttons / args_optional matrix.
+    if args.trim().is_empty() {
+        if let Some(help) = lookup_command_help(&name) {
+            if let Some(options) = help.arg_options.as_ref() {
+                if supports_buttons {
+                    let buttons: Vec<Vec<InlineButton>> = options
+                        .iter()
+                        .map(|opt| {
+                            vec![InlineButton {
+                                text: opt.clone(),
+                                callback_data: Some(format!("slash:{} {}", name, opt)),
+                                url: None,
+                            }]
+                        })
+                        .collect();
+                    return Ok(ChannelSlashOutcome::Reply {
+                        content: format!("Select an option for /{}:", name),
+                        new_session_id: None,
+                        buttons,
+                    });
+                } else if !help.args_optional {
+                    return Ok(ChannelSlashOutcome::Reply {
+                        content: render_options_help_text(
+                            &name,
+                            help.arg_placeholder.as_deref(),
+                            options,
+                        ),
+                        new_session_id: None,
+                        buttons: vec![],
+                    });
+                }
+                // !supports_buttons + args_optional → fall through to the
+                // handler so its custom no-arg branch can render.
+            }
         }
     }
 
@@ -877,6 +873,71 @@ fn render_session_picker_text(
             "… +{} more (refine via `/sessions <query>`)",
             total - SESSION_PICKER_TEXT_BODY_LIMIT
         ));
+    }
+    lines.join("\n")
+}
+
+/// Resolved arg-help metadata for a slash command, gathered from either the
+/// built-in registry or the dynamic skill catalog. Drives the no-arg shortcut
+/// in `dispatch_slash_for_channel`.
+struct CommandHelp {
+    arg_options: Option<Vec<String>>,
+    arg_placeholder: Option<String>,
+    /// Built-in commands honour `SlashCommandDef.args_optional`. Skill commands
+    /// have no equivalent field — skills almost always run no-arg by default,
+    /// so we treat them as `args_optional = true` to let the handler's normal
+    /// dispatch path (PassThrough / template expansion) run unimpeded.
+    args_optional: bool,
+}
+
+/// Look up arg-help metadata for `name` across built-in and skill commands.
+/// Returns `None` only when `name` matches neither — in that case the handler
+/// will reject it and we don't want to short-circuit.
+fn lookup_command_help(name: &str) -> Option<CommandHelp> {
+    use crate::slash_commands::{canonical_builtin_command_name, registry};
+
+    let lookup_name = canonical_builtin_command_name(name);
+    if let Some(def) = registry::all_commands()
+        .into_iter()
+        .find(|c| c.name == lookup_name)
+    {
+        return Some(CommandHelp {
+            arg_options: def.arg_options,
+            arg_placeholder: def.arg_placeholder,
+            args_optional: def.args_optional,
+        });
+    }
+
+    let store = crate::config::cached_config();
+    let skill =
+        crate::skills::get_invocable_skills(&store.extra_skills_dirs, &store.disabled_skills)
+            .into_iter()
+            .find(|s| crate::skills::normalize_skill_command_name(&s.name) == name)?;
+    Some(CommandHelp {
+        arg_options: skill.command_arg_options,
+        arg_placeholder: skill.command_arg_placeholder,
+        args_optional: true,
+    })
+}
+
+/// Text-only "Usage + Options" hint for IM channels without inline buttons
+/// (WeChat / iMessage / IRC / Signal / WhatsApp). Replaces the handler's
+/// otherwise-cryptic `Invalid X: \`\`` error for required-arg commands like
+/// `/thinking`, `/permission`, `/plan`. Mirrors the option set the buttons
+/// branch would have shown so users can copy-paste an option as the next
+/// message.
+pub(super) fn render_options_help_text(
+    name: &str,
+    placeholder: Option<&str>,
+    options: &[String],
+) -> String {
+    let usage_arg = placeholder.unwrap_or("<option>");
+    let mut lines = Vec::with_capacity(options.len() + 3);
+    lines.push(format!("Usage: `/{} {}`", name, usage_arg));
+    lines.push(String::new());
+    lines.push("Options:".to_string());
+    for opt in options {
+        lines.push(format!("- `{}`", opt));
     }
     lines.join("\n")
 }
