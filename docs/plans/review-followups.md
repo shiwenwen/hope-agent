@@ -30,15 +30,6 @@
 
 ## Open
 
-### F-070 非 Telegram / 飞书 channel 的 `slash:` callback 全部 silent drop
-
-- **来源**：2026-05-07 飞书按钮交互 fix
-- **现象**：无参 slash 命令（`/think`、`/permission` 等）在支持按钮的渠道弹 `arg_options` picker，按钮 callback 前缀是 `slash:cmd arg`（[`channel/worker/slash.rs:82`](../../crates/ha-core/src/channel/worker/slash.rs#L82)）。worker 内部唯一的 callback dispatcher [`try_dispatch_interactive_callback`](../../crates/ha-core/src/channel/worker/ask_user.rs#L653) 只识别 `approval:` / `ask_user:`，**`slash:` 完全没人接**。telegram 单独在自己 [`polling.rs::convert_callback_query`](../../crates/ha-core/src/channel/telegram/polling.rs#L442) 里把 `slash:cmd arg` 转成 `text="/cmd arg"` 的 inbound `MsgContext` 重新走 inbound 流程；本期 fix 给飞书加了对称的 [`inject_slash_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs)。**剩余 5 个支持按钮的渠道（Discord / Slack / QQ Bot / LINE / Google Chat）按钮点了仍然 silent drop**——这不是 schema bug，是回调路由缺失
-- **为什么留**：本期 PR 只为修飞书用户撞到的具体问题，跨 5 个 channel 的批量改造范围溢出
-- **改的话要做什么**：把"`slash:cmd arg` → 合成 inbound `MsgContext`"模式抽成 channel-agnostic helper（输入是 `(channel_id, account_id, chat_id, sender_id, message_id, slash_callback_payload)`），让每个 channel 在自己的回调入口调一次。或者给 `try_dispatch_interactive_callback` 加 `slash:` 分支并要求 caller 提供 `(inbound_tx, MsgContext skeleton)`；前一种侵入性更小。涉及 [`channel/discord/gateway.rs`](../../crates/ha-core/src/channel/discord/gateway.rs)、[`channel/slack/socket.rs`](../../crates/ha-core/src/channel/slack/socket.rs)、[`channel/qqbot/gateway.rs`](../../crates/ha-core/src/channel/qqbot/gateway.rs)、[`channel/line/`](../../crates/ha-core/src/channel/line/)、[`channel/googlechat/`](../../crates/ha-core/src/channel/googlechat/) 中各自的 button-callback handler
-- **影响面**：用户在 Discord / Slack / QQ Bot / LINE / Google Chat 中发无参 `/think` `/permission` 等命令，按下任一选项按钮都"点了没反应"——和飞书改之前的现象一致
-- **触发时机建议**：下次动这 5 个渠道任一的 callback handler 时，或者作为独立的 cross-channel slash callback 统一 PR
-
 ### F-068 `ChannelConversation.chat_type: String` 端到端类型化
 
 - **来源**：2026-05-07 F-066 `/simplify` review
@@ -795,6 +786,17 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-070 非 Telegram / 飞书 channel 的 `slash:` callback 全部 silent drop
+
+- **关闭于**：2026-05-08
+- **如何关闭**：抽 [`channel/worker/slash_callback.rs::inject_slash_callback`](../../crates/ha-core/src/channel/worker/slash_callback.rs) channel-agnostic helper（签名 `(channel_id, account_id, chat_id, thread_id, sender_id, message_id, rest, inbound_tx, source)`），用 `channel_db.get_chat_type` lookup + `Dm` fallback 复刻 Feishu 健壮性。**7 个支持按钮的渠道全部走同一 helper**：
+  - 新接 Discord ([`gateway.rs::INTERACTION_CREATE`](../../crates/ha-core/src/channel/discord/gateway.rs))、Slack ([`socket.rs::handle_interactive_payload`](../../crates/ha-core/src/channel/slack/socket.rs))、QQ Bot ([`gateway.rs::INTERACTION_CREATE`](../../crates/ha-core/src/channel/qqbot/gateway.rs))、LINE ([`webhook.rs::postback`](../../crates/ha-core/src/channel/line/webhook.rs))、Google Chat ([`webhook.rs::CARD_CLICKED`](../../crates/ha-core/src/channel/googlechat/webhook.rs))
+  - Feishu [`ws_event.rs::inject_slash_callback`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 改为 thin wrapper delegate 到 helper
+  - Telegram 删除 `convert_callback_query`，改为 [`polling.rs::inject_slash_callback_from_query`](../../crates/ha-core/src/channel/telegram/polling.rs) 复用 helper
+- **附带 fix**：QQ Bot `INTERACTION_CREATE` 之前完全没 ack，Tencent 5s 内不收到 `PUT /interactions/{id}/responses` 视为失败可能重发同一事件——本 PR 加 [`QqBotApi::ack_interaction`](../../crates/ha-core/src/channel/qqbot/api.rs) 并在 `INTERACTION_CREATE` 入口 fire-and-forget spawn ack（与 Discord type=6 ack 模式对齐）
+- **附带清理**：Discord 把 ask_user / slash 路径的 type=6 ack 抽成 [`gateway.rs::ack_component_interaction`](../../crates/ha-core/src/channel/discord/gateway.rs) 共享 helper
+- **影响面**：用户在 Discord / Slack / QQ Bot / LINE / Google Chat 中发无参 `/think` `/permission` 等命令，按下选项按钮可正常工作（之前 silent drop）
 
 ### F-066 GUI ↔ IM live 双向流式镜像（Sink fan-out）
 

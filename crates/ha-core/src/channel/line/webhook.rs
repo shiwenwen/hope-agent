@@ -197,10 +197,57 @@ pub fn create_webhook_handler(
                         if let Some(postback_data) =
                             event.pointer("/postback/data").and_then(|v| v.as_str())
                         {
-                            crate::channel::worker::ask_user::try_dispatch_interactive_callback(
-                                postback_data,
-                                "line",
-                            );
+                            if let Some(rest) = postback_data.strip_prefix("slash:") {
+                                let source_type = event
+                                    .pointer("/source/type")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("user");
+                                let user_id = event
+                                    .pointer("/source/userId")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                // chat_id 拼法必须与 handle_message_event 完全一致
+                                // (group/room 用各自 id，DM 回退 userId)，否则
+                                // channel_db.get_chat_type 命中不到先前 inbound 行
+                                let chat_id = match source_type {
+                                    "group" => event
+                                        .pointer("/source/groupId")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    "room" => event
+                                        .pointer("/source/roomId")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    _ => user_id.clone(),
+                                };
+                                // postback 无 message_id，按 timestamp 合成一个稳定串
+                                let ts = event
+                                    .get("timestamp")
+                                    .and_then(|v| v.as_i64())
+                                    .unwrap_or_else(|| chrono::Utc::now().timestamp_millis());
+                                let message_id = format!("postback_{}", ts);
+
+                                crate::channel::worker::slash_callback::inject_slash_callback(
+                                    ChannelId::Line,
+                                    &account_id,
+                                    &chat_id,
+                                    None,
+                                    &user_id,
+                                    &message_id,
+                                    rest,
+                                    &inbound_tx,
+                                    "line",
+                                )
+                                .await;
+                            } else {
+                                crate::channel::worker::ask_user::try_dispatch_interactive_callback(
+                                    postback_data,
+                                    "line",
+                                );
+                            }
                         }
                     }
                     other => {

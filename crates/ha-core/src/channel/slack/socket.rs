@@ -241,16 +241,7 @@ async fn handle_envelope(
         }
         "interactive" => {
             if let Some(payload) = envelope.get("payload") {
-                if let Some(actions) = payload.get("actions").and_then(|v| v.as_array()) {
-                    for action in actions {
-                        if let Some(action_id) = action.get("action_id").and_then(|v| v.as_str()) {
-                            crate::channel::worker::ask_user::try_dispatch_interactive_callback(
-                                action_id,
-                                "slack::socket",
-                            );
-                        }
-                    }
-                }
+                handle_interactive_payload(payload, account_id, inbound_tx).await;
             }
         }
         "hello" => {
@@ -422,6 +413,73 @@ async fn handle_slash_command(
             "Failed to send slash command inbound: {}",
             e
         );
+    }
+}
+
+/// Handle a Slack `interactive` envelope payload (block_actions / button click).
+///
+/// Routes each action by `action_id` prefix:
+/// - `slash:<cmd> <arg>` → re-inject as synthetic inbound `/cmd arg` via the
+///   shared helper, picking up chat / user / thread metadata from the payload
+/// - `approval:` / `ask_user:` → existing interactive dispatcher (consumed
+///   without an inbound message)
+async fn handle_interactive_payload(
+    payload: &serde_json::Value,
+    account_id: &str,
+    inbound_tx: &mpsc::Sender<MsgContext>,
+) {
+    let Some(actions) = payload.get("actions").and_then(|v| v.as_array()) else {
+        return;
+    };
+
+    for action in actions {
+        let Some(action_id) = action.get("action_id").and_then(|v| v.as_str()) else {
+            continue;
+        };
+
+        if let Some(rest) = action_id.strip_prefix("slash:") {
+            let chat_id = payload
+                .pointer("/channel/id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let sender_id = payload
+                .pointer("/user/id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            // Slack message identifier is the `ts` of the original message
+            // hosting the buttons; thread_ts is set when the message was
+            // posted in a thread.
+            let message_id = payload
+                .pointer("/message/ts")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let thread_id = payload
+                .pointer("/message/thread_ts")
+                .and_then(|v| v.as_str())
+                .filter(|tid| !tid.is_empty() && Some(*tid) != Some(message_id.as_str()))
+                .map(|s| s.to_string());
+
+            crate::channel::worker::slash_callback::inject_slash_callback(
+                ChannelId::Slack,
+                account_id,
+                &chat_id,
+                thread_id.as_deref(),
+                &sender_id,
+                &message_id,
+                rest,
+                inbound_tx,
+                "slack::socket",
+            )
+            .await;
+        } else {
+            crate::channel::worker::ask_user::try_dispatch_interactive_callback(
+                action_id,
+                "slack::socket",
+            );
+        }
     }
 }
 

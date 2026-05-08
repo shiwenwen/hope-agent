@@ -757,9 +757,10 @@ fn clean_mention_tags(text: &str) -> String {
 }
 
 /// Route a `card.action.trigger` event by `hope_callback` prefix:
-/// - `slash:<cmd> <arg>` is re-injected as a synthetic inbound `/cmd arg` so
-///   the worker's normal slash dispatch handles it (same trick as
-///   [`telegram::polling::convert_callback_query`](super::super::telegram));
+/// - `slash:<cmd> <arg>` is re-injected as a synthetic inbound `/cmd arg` via
+///   the shared [`crate::channel::worker::slash_callback::inject_slash_callback`]
+///   helper (same path as Telegram / Discord / Slack / QQ Bot / LINE / Google
+///   Chat) so the worker's normal slash dispatch handles it;
 /// - `approval:` / `ask_user:` go straight to the worker's interactive
 ///   callback dispatcher.
 async fn handle_card_action(
@@ -800,13 +801,10 @@ fn event_str_at(event_data: &serde_json::Value, path: &str) -> String {
 
 /// Re-inject a `slash:<cmd> <arg>` callback as a synthetic inbound `/cmd arg`.
 ///
-/// Feishu's `card.action.trigger` envelope doesn't carry chat_type, but every
-/// arg-picker button is preceded by a real inbound `/cmd` that already wrote
-/// `chat_type` into `channel_conversations`. We look it up by chat_id +
-/// thread_id; missing rows fall back to `Dm`, which is the conservative
-/// default — mirrors [`ChatType::from_lowercase`] and won't trip group
-/// mention-gating or wildcard group routing in
-/// [`worker::dispatcher`](super::super::worker::dispatcher).
+/// Feishu's `card.action.trigger` envelope doesn't carry chat_type — the
+/// shared helper resolves it from `channel_conversations` (every arg-picker
+/// button is preceded by a real inbound `/cmd` that already wrote the row),
+/// falling back to `Dm` if missing.
 async fn inject_slash_callback(
     rest: &str,
     event_data: &serde_json::Value,
@@ -814,55 +812,21 @@ async fn inject_slash_callback(
     inbound_tx: &mpsc::Sender<MsgContext>,
 ) {
     let chat_id = event_str_at(event_data, "/context/open_chat_id");
-    if chat_id.is_empty() {
-        app_warn!(
-            "channel",
-            "feishu:gateway",
-            "[{}] slash callback dropped: missing context.open_chat_id ({})",
-            account_id,
-            rest
-        );
-        return;
-    }
+    let sender_id = event_str_at(event_data, "/operator/open_id");
+    let message_id = event_str_at(event_data, "/context/open_message_id");
 
-    let chat_type = crate::globals::get_channel_db()
-        .and_then(|db| {
-            db.get_chat_type(&ChannelId::Feishu.to_string(), account_id, &chat_id, None)
-                .ok()
-                .flatten()
-        })
-        .unwrap_or(ChatType::Dm);
-
-    let msg = MsgContext {
-        channel_id: ChannelId::Feishu,
-        account_id: account_id.to_string(),
-        sender_id: event_str_at(event_data, "/operator/open_id"),
-        sender_name: None,
-        sender_username: None,
-        chat_id,
-        chat_type,
-        chat_title: None,
-        thread_id: None,
-        message_id: event_str_at(event_data, "/context/open_message_id"),
-        text: Some(format!("/{}", rest)),
-        media: Vec::new(),
-        reply_to_message_id: None,
-        timestamp: chrono::Utc::now(),
-        was_mentioned: true,
-        // Mark as synthesized callback (not a real inbound) — mirrors
-        // telegram/polling.rs::convert_callback_query.
-        raw: serde_json::json!({"feishu_card_callback_rest": rest}),
-    };
-
-    if let Err(e) = inbound_tx.send(msg).await {
-        app_warn!(
-            "channel",
-            "feishu:gateway",
-            "[{}] Failed to inject slash callback into inbound: {}",
-            account_id,
-            e
-        );
-    }
+    crate::channel::worker::slash_callback::inject_slash_callback(
+        ChannelId::Feishu,
+        account_id,
+        &chat_id,
+        None,
+        &sender_id,
+        &message_id,
+        rest,
+        inbound_tx,
+        "feishu:gateway",
+    )
+    .await;
 }
 
 /// Extract our `hope_callback` string from a `card.action.trigger` event.
