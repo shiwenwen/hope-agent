@@ -89,7 +89,7 @@
 
 ### 普通用户
 
-> 🛠 **Release 状态**：0.1.0 已可用但未发布二进制——我们想再打磨一轮首次体验再发。代码随时可用，如果你感兴趣，`pnpm tauri build` 即可得到与 Release 完全一致的产物，详见下方「开发者」。
+> ✨ **Release 状态**：0.1.0 首发已上架，安装包见下方 [Releases](https://github.com/shiwenwen/hope-agent/releases) 链接。
 
 1. 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载对应平台安装包
    - macOS：`Hope-Agent_*.dmg`

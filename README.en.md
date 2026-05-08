@@ -89,7 +89,7 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 
 ### For users
 
-> 🛠 **Release status**: 0.1.0 is usable but we haven't shipped binaries yet — we want one more polish pass on the first-run experience before we do. The code is ready whenever you are; if you're curious, `pnpm tauri build` produces the exact same artifact the Release will. See **For developers** below.
+> ✨ **Release status**: 0.1.0 first public release is live — grab the installers from [Releases](https://github.com/shiwenwen/hope-agent/releases) below.
 
 1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
    - macOS: `Hope-Agent_*.dmg`
