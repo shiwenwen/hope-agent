@@ -285,6 +285,7 @@
       "dialog": {
         "title": "Bàn giao phiên",
         "description": "Đẩy phiên hiện tại sang một cuộc trò chuyện IM. Phản hồi sẽ tới đó như đích chính.",
+        "syncNotice": "Desktop/Web vẫn đồng bộ hoàn toàn — bạn có thể tiếp tục trò chuyện liền mạch ở bất kỳ máy khách nào. Cuộc trò chuyện IM chỉ là nơi nhận bổ sung.",
         "account": "Tài khoản IM",
         "selectAccount": "Chọn tài khoản",
         "target": "Cuộc trò chuyện đích",

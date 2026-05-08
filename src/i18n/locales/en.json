@@ -285,6 +285,7 @@
       "dialog": {
         "title": "Hand over session",
         "description": "Push this session to an IM chat. Replies will be delivered there as the new primary destination.",
+        "syncNotice": "Desktop/Web stays fully in sync — you can keep chatting from any client seamlessly. The IM chat is just an additional delivery target.",
         "account": "IM account",
         "selectAccount": "Select an account",
         "target": "Target chat",

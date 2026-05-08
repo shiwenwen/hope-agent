@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { Loader2, MessageSquare, PencilLine, RefreshCw } from "lucide-react"
+import { Info, Loader2, MessageSquare, PencilLine, RefreshCw } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -288,6 +288,14 @@ export default function HandoverDialog({
             {t("chat.handover.dialog.description")}
           </DialogDescription>
         </DialogHeader>
+
+        <div
+          role="note"
+          className="flex items-start gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-foreground/80"
+        >
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" aria-hidden="true" />
+          <span>{t("chat.handover.dialog.syncNotice")}</span>
+        </div>
 
         <div className="space-y-3 py-2">
           <div className="space-y-1.5">

@@ -285,6 +285,7 @@
       "dialog": {
         "title": "Serahkan sesi",
         "description": "Hantar sesi ini ke sembang IM. Balasan akan dihantar ke sana sebagai destinasi utama.",
+        "syncNotice": "Desktop/Web kekal disegerakkan sepenuhnya — anda boleh terus bersembang dari mana-mana klien tanpa gangguan. Sembang IM hanyalah destinasi penghantaran tambahan.",
         "account": "Akaun IM",
         "selectAccount": "Pilih akaun",
         "target": "Sembang sasaran",

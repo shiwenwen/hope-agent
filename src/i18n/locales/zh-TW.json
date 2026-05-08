@@ -285,6 +285,7 @@
       "dialog": {
         "title": "交班工作階段",
         "description": "將目前工作階段推送到 IM,後續 Agent 回覆會以該 chat 為主要接收端。",
+        "syncNotice": "桌面/Web 端不受影響,工作階段保持完全同步——你可以在任何端繼續無縫對話,IM 只是新增的接收端。",
         "account": "IM 帳號",
         "selectAccount": "選擇帳號",
         "target": "目標對話",

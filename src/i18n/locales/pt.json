@@ -285,6 +285,7 @@
       "dialog": {
         "title": "Transferir sessão",
         "description": "Envia esta sessão para um chat de IM. As respostas serão entregues lá como destino principal.",
+        "syncNotice": "Desktop/Web continuam totalmente sincronizados — você pode seguir conversando em qualquer cliente sem interrupções. O chat de IM é apenas um destino de entrega adicional.",
         "account": "Conta de IM",
         "selectAccount": "Selecione uma conta",
         "target": "Chat de destino",

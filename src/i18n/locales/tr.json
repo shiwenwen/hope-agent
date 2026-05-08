@@ -285,6 +285,7 @@
       "dialog": {
         "title": "Oturumu devret",
         "description": "Bu oturumu bir IM sohbetine gönderir. Yanıtlar oraya birincil hedef olarak iletilir.",
+        "syncNotice": "Masaüstü/Web tamamen senkronize kalır — herhangi bir istemciden kesintisiz sohbete devam edebilirsiniz. IM sohbeti yalnızca ek bir teslim hedefidir.",
         "account": "IM hesabı",
         "selectAccount": "Bir hesap seçin",
         "target": "Hedef sohbet",
