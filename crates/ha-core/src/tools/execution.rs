@@ -666,6 +666,16 @@ pub async fn execute_tool_with_context(
             super::feishu::bitable::TOOL_BITABLE_BATCH_UPDATE_RECORDS => {
                 super::feishu::bitable::execute_batch_update_records(args).await
             }
+            // Feishu bitable views + dashboards (PR C5).
+            super::feishu::bitable::TOOL_BITABLE_LIST_VIEWS => {
+                super::feishu::bitable::execute_list_views(args).await
+            }
+            super::feishu::bitable::TOOL_BITABLE_GET_VIEW => {
+                super::feishu::bitable::execute_get_view(args).await
+            }
+            super::feishu::bitable::TOOL_BITABLE_LIST_DASHBOARDS => {
+                super::feishu::bitable::execute_list_dashboards(args).await
+            }
             // Feishu drive (PR C3).
             super::feishu::drive::TOOL_DRIVE_LIST_FILES => {
                 super::feishu::drive::execute_list_files(args).await

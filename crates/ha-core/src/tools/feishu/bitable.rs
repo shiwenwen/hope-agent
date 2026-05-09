@@ -23,6 +23,9 @@ pub const TOOL_BITABLE_LIST_RECORDS: &str = "feishu_bitable_list_records";
 pub const TOOL_BITABLE_SEARCH_RECORDS: &str = "feishu_bitable_search_records";
 pub const TOOL_BITABLE_CREATE_RECORD: &str = "feishu_bitable_create_record";
 pub const TOOL_BITABLE_BATCH_UPDATE_RECORDS: &str = "feishu_bitable_batch_update_records";
+pub const TOOL_BITABLE_LIST_VIEWS: &str = "feishu_bitable_list_views";
+pub const TOOL_BITABLE_GET_VIEW: &str = "feishu_bitable_get_view";
+pub const TOOL_BITABLE_LIST_DASHBOARDS: &str = "feishu_bitable_list_dashboards";
 
 const CONFIG_HINT: &str =
     "Configure a Feishu IM channel account in Settings → Channels to enable bitable tools.";
@@ -171,6 +174,91 @@ pub fn create_record_tool() -> ToolDefinition {
                 "account": account_param(),
             },
             "required": ["app_token", "table_id", "fields"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+pub fn list_views_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_BITABLE_LIST_VIEWS.into(),
+        description:
+            "List all views (grid / kanban / gantt / calendar / gallery / form) attached to a \
+             Feishu (Lark) bitable table. Use the returned `view_id` with \
+             `feishu_bitable_list_records` (`view_id` argument) or `feishu_bitable_get_view` \
+             to drill into a specific view. Required Feishu app scope: `bitable:app.read` or \
+             `bitable:app`."
+                .into(),
+        tier: configured_tier(),
+        internal: false,
+        concurrent_safe: true,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "app_token": {"type": "string"},
+                "table_id":  {"type": "string"},
+                "page_token": {"type": "string"},
+                "page_size":  {"type": "integer", "description": "Items per page, default 100."},
+                "account": account_param(),
+            },
+            "required": ["app_token", "table_id"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+pub fn get_view_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_BITABLE_GET_VIEW.into(),
+        description:
+            "Fetch a single Feishu (Lark) bitable view's full configuration — its `view_type`, \
+             filter rules, sort spec, hidden field list, row height, etc. Useful when the agent \
+             needs to understand how a view shapes its records before querying or when \
+             explaining a view to the user. For just listing records under a view, use \
+             `feishu_bitable_list_records` with `view_id`. Required Feishu app scope: \
+             `bitable:app.read` or `bitable:app`."
+                .into(),
+        tier: configured_tier(),
+        internal: false,
+        concurrent_safe: true,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "app_token": {"type": "string"},
+                "table_id":  {"type": "string"},
+                "view_id":   {"type": "string"},
+                "account": account_param(),
+            },
+            "required": ["app_token", "table_id", "view_id"],
+            "additionalProperties": false
+        }),
+    }
+}
+
+pub fn list_dashboards_tool() -> ToolDefinition {
+    ToolDefinition {
+        name: TOOL_BITABLE_LIST_DASHBOARDS.into(),
+        description:
+            "List all dashboards (analytics / chart panels) attached to a Feishu (Lark) bitable \
+             app. Returns dashboard IDs and names; the underlying chart definitions are not \
+             exposed by this endpoint. Required Feishu app scope: `bitable:app.read` or \
+             `bitable:app`."
+                .into(),
+        tier: configured_tier(),
+        internal: false,
+        concurrent_safe: true,
+        async_capable: false,
+        parameters: json!({
+            "type": "object",
+            "properties": {
+                "app_token": {"type": "string"},
+                "page_token": {"type": "string"},
+                "page_size":  {"type": "integer", "description": "Items per page, default 100."},
+                "account": account_param(),
+            },
+            "required": ["app_token"],
             "additionalProperties": false
         }),
     }
@@ -360,6 +448,41 @@ pub(crate) async fn execute_batch_update_records(args: &Value) -> Result<String>
         .bitable_batch_update_records(app_token, table_id, records)
         .await?;
     Ok(serde_json::to_string(&result)?)
+}
+
+pub(crate) async fn execute_list_views(args: &Value) -> Result<String> {
+    let app_token = get_required_str(args, "app_token")?;
+    let table_id = get_required_str(args, "table_id")?;
+    let page_token = get_str(args, "page_token");
+    let page_size = get_u32(args, "page_size")?;
+    let account = get_str(args, "account");
+    let api = resolve_feishu_api(account).await?;
+    let page = api
+        .bitable_list_views(app_token, table_id, page_token, page_size)
+        .await?;
+    Ok(serde_json::to_string(&page)?)
+}
+
+pub(crate) async fn execute_get_view(args: &Value) -> Result<String> {
+    let app_token = get_required_str(args, "app_token")?;
+    let table_id = get_required_str(args, "table_id")?;
+    let view_id = get_required_str(args, "view_id")?;
+    let account = get_str(args, "account");
+    let api = resolve_feishu_api(account).await?;
+    let view = api.bitable_get_view(app_token, table_id, view_id).await?;
+    Ok(serde_json::to_string(&view)?)
+}
+
+pub(crate) async fn execute_list_dashboards(args: &Value) -> Result<String> {
+    let app_token = get_required_str(args, "app_token")?;
+    let page_token = get_str(args, "page_token");
+    let page_size = get_u32(args, "page_size")?;
+    let account = get_str(args, "account");
+    let api = resolve_feishu_api(account).await?;
+    let page = api
+        .bitable_list_dashboards(app_token, page_token, page_size)
+        .await?;
+    Ok(serde_json::to_string(&page)?)
 }
 
 #[cfg(test)]

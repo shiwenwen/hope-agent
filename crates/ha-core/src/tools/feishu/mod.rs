@@ -190,11 +190,15 @@ pub fn get_feishu_tools() -> Vec<ToolDefinition> {
         docx::get_blocks_tool(),
         docx::append_block_tool(),
         docx::update_block_text_tool(),
-        // C2 — bitable
+        // C2 — bitable records
         bitable::list_records_tool(),
         bitable::search_records_tool(),
         bitable::create_record_tool(),
         bitable::batch_update_records_tool(),
+        // C5 — bitable views + dashboards
+        bitable::list_views_tool(),
+        bitable::get_view_tool(),
+        bitable::list_dashboards_tool(),
         // C3 — drive
         drive::list_files_tool(),
         drive::upload_media_tool(),

@@ -65,6 +65,56 @@ pub struct BitableBatchUpdateResult {
     pub records: Vec<BitableRecord>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BitableView {
+    pub view_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_name: Option<String>,
+    /// `grid` / `kanban` / `gantt` / `calendar` / `gallery` / `form` / etc.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub view_type: Option<String>,
+    /// View-specific configuration (filter / sort / hidden_fields / row_height
+    /// / etc.). Shape depends on `view_type`; pass through as JSON.
+    #[serde(default, skip_serializing_if = "serde_json::Value::is_null")]
+    pub property: Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BitableViewsPage {
+    #[serde(default)]
+    pub items: Vec<BitableView>,
+    #[serde(default)]
+    pub has_more: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct BitableViewData {
+    view: BitableView,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BitableDashboard {
+    pub dashboard_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashboard_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BitableDashboardsPage {
+    #[serde(default)]
+    pub dashboards: Vec<BitableDashboard>,
+    #[serde(default)]
+    pub has_more: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+}
+
 // ── Public methods on FeishuApi ─────────────────────────────────
 
 impl FeishuApi {
@@ -234,6 +284,120 @@ impl FeishuApi {
             .map_err(|e| anyhow!("Failed to POST bitable_batch_update_records: {}", e))?;
         Ok(self
             .parse_envelope::<BitableBatchUpdateResult>(resp, "bitable_batch_update_records")
+            .await?
+            .unwrap_or_default())
+    }
+
+    /// `GET /open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/views`
+    /// — paginated list of views in a table.
+    pub async fn bitable_list_views(
+        &self,
+        app_token: &str,
+        table_id: &str,
+        page_token: Option<&str>,
+        page_size: Option<u32>,
+    ) -> Result<BitableViewsPage> {
+        let mut url = format!(
+            "{}/open-apis/bitable/v1/apps/{}/tables/{}/views",
+            self.base_url(),
+            app_token,
+            table_id
+        );
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(t) = page_token {
+            params.push(("page_token", t.to_string()));
+        }
+        if let Some(s) = page_size {
+            params.push(("page_size", s.to_string()));
+        }
+        if !params.is_empty() {
+            let qs = params
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+                .collect::<Vec<_>>()
+                .join("&");
+            url.push('?');
+            url.push_str(&qs);
+        }
+        let resp = self
+            .authorized_request(reqwest::Method::GET, &url)
+            .await?
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to GET bitable_list_views: {}", e))?;
+        Ok(self
+            .parse_envelope::<BitableViewsPage>(resp, "bitable_list_views")
+            .await?
+            .unwrap_or_default())
+    }
+
+    /// `GET /open-apis/bitable/v1/apps/{app_token}/tables/{table_id}/views/{view_id}`
+    /// — fetch a single view's full configuration (filter, sort, hidden
+    /// fields, row height, etc.). Useful when the agent needs to understand
+    /// how a view shapes its records before querying.
+    pub async fn bitable_get_view(
+        &self,
+        app_token: &str,
+        table_id: &str,
+        view_id: &str,
+    ) -> Result<BitableView> {
+        let url = format!(
+            "{}/open-apis/bitable/v1/apps/{}/tables/{}/views/{}",
+            self.base_url(),
+            app_token,
+            table_id,
+            view_id
+        );
+        let resp = self
+            .authorized_request(reqwest::Method::GET, &url)
+            .await?
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to GET bitable_get_view: {}", e))?;
+        let data: BitableViewData = self
+            .parse_envelope(resp, "bitable_get_view")
+            .await?
+            .ok_or_else(|| anyhow!("bitable_get_view response missing 'data'"))?;
+        Ok(data.view)
+    }
+
+    /// `GET /open-apis/bitable/v1/apps/{app_token}/dashboards` — list
+    /// dashboards (analytics views) attached to a bitable app.
+    pub async fn bitable_list_dashboards(
+        &self,
+        app_token: &str,
+        page_token: Option<&str>,
+        page_size: Option<u32>,
+    ) -> Result<BitableDashboardsPage> {
+        let mut url = format!(
+            "{}/open-apis/bitable/v1/apps/{}/dashboards",
+            self.base_url(),
+            app_token
+        );
+        let mut params: Vec<(&str, String)> = Vec::new();
+        if let Some(t) = page_token {
+            params.push(("page_token", t.to_string()));
+        }
+        if let Some(s) = page_size {
+            params.push(("page_size", s.to_string()));
+        }
+        if !params.is_empty() {
+            let qs = params
+                .iter()
+                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
+                .collect::<Vec<_>>()
+                .join("&");
+            url.push('?');
+            url.push_str(&qs);
+        }
+        let resp = self
+            .authorized_request(reqwest::Method::GET, &url)
+            .await?
+            .send()
+            .await
+            .map_err(|e| anyhow!("Failed to GET bitable_list_dashboards: {}", e))?;
+        Ok(self
+            .parse_envelope::<BitableDashboardsPage>(resp, "bitable_list_dashboards")
             .await?
             .unwrap_or_default())
     }
@@ -453,5 +617,97 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("99991663"), "{}", err);
+    }
+
+    #[tokio::test]
+    async fn list_views_returns_view_array() {
+        let server = MockServer::start().await;
+        let api = mock_api(&server).await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/open-apis/bitable/v1/apps/bascnAbc/tables/tblXyz/views",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "items": [
+                        {"view_id": "vewA", "view_name": "Grid", "view_type": "grid"},
+                        {"view_id": "vewB", "view_name": "Calendar", "view_type": "calendar"}
+                    ],
+                    "has_more": false
+                }
+            })))
+            .mount(&server)
+            .await;
+        let page = api
+            .bitable_list_views("bascnAbc", "tblXyz", None, None)
+            .await
+            .unwrap();
+        assert_eq!(page.items.len(), 2);
+        assert_eq!(page.items[0].view_id, "vewA");
+        assert_eq!(page.items[1].view_type.as_deref(), Some("calendar"));
+    }
+
+    #[tokio::test]
+    async fn get_view_returns_full_view_with_property() {
+        let server = MockServer::start().await;
+        let api = mock_api(&server).await;
+        Mock::given(method("GET"))
+            .and(path(
+                "/open-apis/bitable/v1/apps/bascnAbc/tables/tblXyz/views/vewA",
+            ))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "view": {
+                        "view_id": "vewA",
+                        "view_name": "Done items",
+                        "view_type": "grid",
+                        "property": {
+                            "filter_info": {"conjunction": "and", "conditions": []},
+                            "hidden_fields": ["Notes"]
+                        }
+                    }
+                }
+            })))
+            .mount(&server)
+            .await;
+        let view = api
+            .bitable_get_view("bascnAbc", "tblXyz", "vewA")
+            .await
+            .unwrap();
+        assert_eq!(view.view_id, "vewA");
+        assert_eq!(view.view_name.as_deref(), Some("Done items"));
+        assert!(view.property.is_object());
+        assert!(view.property.get("hidden_fields").is_some());
+    }
+
+    #[tokio::test]
+    async fn list_dashboards_returns_array() {
+        let server = MockServer::start().await;
+        let api = mock_api(&server).await;
+        Mock::given(method("GET"))
+            .and(path("/open-apis/bitable/v1/apps/bascnAbc/dashboards"))
+            .and(query_param("page_size", "10"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 0,
+                "msg": "success",
+                "data": {
+                    "dashboards": [
+                        {"dashboard_id": "dashA", "dashboard_name": "OKR overview"}
+                    ],
+                    "has_more": false
+                }
+            })))
+            .mount(&server)
+            .await;
+        let page = api
+            .bitable_list_dashboards("bascnAbc", None, Some(10))
+            .await
+            .unwrap();
+        assert_eq!(page.dashboards.len(), 1);
+        assert_eq!(page.dashboards[0].dashboard_id, "dashA");
     }
 }
