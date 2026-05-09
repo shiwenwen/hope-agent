@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import { TeamMessageFeed } from "./TeamMessageFeed"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { TeamMember, TeamMessage } from "./teamTypes"
 
 const rafSpy = vi.spyOn(window, "requestAnimationFrame").mockImplementation(
@@ -34,7 +35,7 @@ const members: TeamMember[] = [
     memberId: "lead",
     teamId: "team-a",
     name: "Lead",
-    agentId: "default",
+    agentId: DEFAULT_AGENT_ID,
     role: "lead",
     status: "idle",
     color: "#2563eb",

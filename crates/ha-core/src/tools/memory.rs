@@ -41,7 +41,7 @@ pub(crate) async fn tool_save_memory(args: &Value, ctx: &super::ToolExecContext)
     let agent_id = args
         .get("agent_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("default");
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
 
     let tags: Vec<String> = args
         .get("tags")

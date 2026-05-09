@@ -17,8 +17,8 @@
 //!    soft default users see when they configure a Telegram / Slack /
 //!    LINE / etc. account.
 //! 7. **Global default** — `AppConfig.default_agent_id`, configured in
-//!    settings. Defaults to `"default"`.
-//! 8. **Hardcoded fallback** — the literal string `"default"`. Last-resort
+//!    settings. Defaults to `"ha-main"`.
+//! 8. **Hardcoded fallback** — the literal string `"ha-main"`. Last-resort
 //!    safety net so we always return a non-empty id.
 //!
 //! Pass `None` for any level you do not have in scope (e.g. desktop flows
@@ -32,8 +32,10 @@ use crate::channel::{
 };
 use crate::project::Project;
 
-/// Hardcoded last-resort agent id.
-pub const HARDCODED_DEFAULT_AGENT_ID: &str = "default";
+/// Hardcoded last-resort agent id. Re-exported from [`crate::agent_loader`]
+/// so resolver-internal sites and tooling that already imports the resolver
+/// don't need to know about the `agent_loader` module's existence.
+pub use crate::agent_loader::DEFAULT_AGENT_ID as HARDCODED_DEFAULT_AGENT_ID;
 
 /// Normalize an incoming `default_agent_id` override: trim whitespace, treat
 /// empty/whitespace-only as `None`. Used by every write path
@@ -54,7 +56,7 @@ pub fn normalize_default_agent_id(input: Option<&str>) -> Option<String> {
 /// context. The `AppConfig.default_agent_id` field is read from the cached
 /// global config snapshot.
 ///
-/// Returns a non-empty `String` (always — falls back to `"default"`).
+/// Returns a non-empty `String` (always — falls back to `"ha-main"`).
 ///
 /// Convenience wrapper around [`resolve_default_agent_id_full`] for callers
 /// without IM topic / group / channel scope (desktop / HTTP).

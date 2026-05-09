@@ -9,6 +9,7 @@ import {
   materializeMessages,
   reloadAndMergeSessionMessages,
 } from "../chatUtils"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useSessionPagination } from "./useSessionPagination"
 import { useChannelStreaming } from "./useChannelStreaming"
 import { PAGE_SIZE, SESSION_CACHE_LRU_LIMIT } from "./constants"
@@ -135,7 +136,7 @@ export function useChatSession({
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
-  const [currentAgentId, setCurrentAgentId] = useState("default")
+  const [currentAgentId, setCurrentAgentId] = useState<string>(DEFAULT_AGENT_ID)
   const [agentName, setAgentName] = useState("")
   const [loading, setLoading] = useState(false)
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(new Set())
@@ -392,7 +393,7 @@ export function useChatSession({
   // Load agent list. Also pulls the global `default_agent_id` so the
   // implicit "current agent" state matches what the user configured in
   // settings — without this, `currentAgentId` is stuck at the hardcoded
-  // "default" until the user switches manually, defeating the setting.
+  // "ha-main" until the user switches manually, defeating the setting.
   const reloadAgents = useCallback(async () => {
     try {
       const [list, defaultId] = await Promise.all([
@@ -409,7 +410,7 @@ export function useChatSession({
         const id =
           typeof defaultId === "string" && defaultId.trim().length > 0
             ? defaultId
-            : "default"
+            : DEFAULT_AGENT_ID
         setCurrentAgentId(id)
         const match = list.find((a) => a.id === id)
         if (match) setAgentName(match.name)
@@ -800,7 +801,7 @@ export function useChatSession({
         // When the caller does not supply an explicit agentId, leave it
         // undefined so `create_session_cmd` runs the resolver chain
         // (project.default_agent_id → AppConfig.default_agent_id →
-        // hardcoded "default"). Falling back to the in-UI `currentAgentId`
+        // hardcoded "ha-main"). Falling back to the in-UI `currentAgentId`
         // here would pin the new session to whichever agent the user happened
         // to be chatting with last, bypassing project / global defaults.
         const explicitAgent =

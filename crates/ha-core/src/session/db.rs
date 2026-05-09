@@ -75,7 +75,7 @@ impl SessionDB {
             "CREATE TABLE IF NOT EXISTS sessions (
                 id TEXT PRIMARY KEY,
                 title TEXT,
-                agent_id TEXT NOT NULL DEFAULT 'default',
+                agent_id TEXT NOT NULL DEFAULT 'ha-main',
                 provider_id TEXT,
                 provider_name TEXT,
                 model_id TEXT,
@@ -471,7 +471,7 @@ impl SessionDB {
                 member_id TEXT PRIMARY KEY,
                 team_id TEXT NOT NULL,
                 name TEXT NOT NULL,
-                agent_id TEXT NOT NULL DEFAULT 'default',
+                agent_id TEXT NOT NULL DEFAULT 'ha-main',
                 role TEXT NOT NULL DEFAULT 'worker',
                 status TEXT NOT NULL DEFAULT 'idle',
                 run_id TEXT,
@@ -2877,7 +2877,9 @@ mod tests {
         let db = SessionDB::open(&db_path).expect("open session db");
         ensure_channel_conversations_table(&db);
 
-        let created = db.create_session("default").expect("create session");
+        let created = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
         assert_eq!(
             created.title_source,
             crate::session_title::TITLE_SOURCE_MANUAL
@@ -2939,7 +2941,7 @@ mod tests {
         ensure_channel_conversations_table(&db);
 
         let created = db
-            .create_session_with_project("default", None, Some(true))
+            .create_session_with_project(crate::agent_loader::DEFAULT_AGENT_ID, None, Some(true))
             .expect("create session");
         assert!(
             created.incognito,
@@ -2975,7 +2977,9 @@ mod tests {
         let db = SessionDB::open(&db_path).expect("open session db");
         ensure_channel_conversations_table(&db);
 
-        let created = db.create_session("default").expect("create session");
+        let created = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
         assert!(
             created.working_dir.is_none(),
             "fresh session should have no working_dir"

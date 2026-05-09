@@ -1,8 +1,11 @@
 [package]
 name = "ha-server"
 version = "0.1.0"
-edition = "2021"
 description = "Hope Agent HTTP/WebSocket server"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
 build = "build.rs"
 
 [build-dependencies]

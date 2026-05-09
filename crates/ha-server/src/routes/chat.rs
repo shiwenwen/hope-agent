@@ -456,7 +456,9 @@ pub async fn respond_to_approval(
 pub async fn get_system_prompt(
     axum::extract::Query(q): axum::extract::Query<SystemPromptQuery>,
 ) -> Result<Json<Value>, AppError> {
-    let agent_id = q.agent_id.unwrap_or_else(|| "default".to_string());
+    let agent_id = q
+        .agent_id
+        .unwrap_or_else(|| ha_core::agent_loader::DEFAULT_AGENT_ID.to_string());
 
     // Resolve model and provider name from active model in store
     let store = ha_core::config::cached_config();
@@ -523,7 +525,9 @@ pub async fn save_attachment(multipart: Multipart) -> Result<Json<Value>, AppErr
 pub async fn get_system_prompt_post(
     Json(body): Json<SystemPromptBody>,
 ) -> Result<Json<Value>, AppError> {
-    let agent_id = body.agent_id.unwrap_or_else(|| "default".to_string());
+    let agent_id = body
+        .agent_id
+        .unwrap_or_else(|| ha_core::agent_loader::DEFAULT_AGENT_ID.to_string());
     let store = ha_core::config::cached_config();
     let (model, provider_name) = if let Some(ref active) = store.active_model {
         let prov = store.providers.iter().find(|p| p.id == active.provider_id);

@@ -21,6 +21,7 @@ import {
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
 import type { AvailableModel, ActiveModel, SessionMode } from "@/types/chat"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
 import { useUrlPreview } from "@/hooks/useUrlPreview"
 import SlashCommandMenu from "../slash-commands/SlashCommandMenu"
@@ -124,7 +125,7 @@ export default function ChatInput({
   onDiscardPending,
   onStop,
   currentSessionId,
-  currentAgentId = "default",
+  currentAgentId = DEFAULT_AGENT_ID,
   onCommandAction,
   permissionMode,
   onPermissionModeChange,

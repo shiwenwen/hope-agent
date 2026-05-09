@@ -45,19 +45,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-
----
-
-## Quick Import Sources
-
-Hope Agent's Skills setting (and the equivalent step in Onboarding) offers a "Quick Import" button that scans common locations for third-party skill catalogs and adds them to `extra_skills_dirs`. Hope Agent **does not vendor** these projects — content is loaded at runtime from the user's own machine if present.
-
-| Source | Origin |
-|---|---|
-| Claude Code user-level skills (`~/.claude/skills/`) | Anthropic Claude Code |
-| Claude Code plugin skills (`~/.claude/plugins/*/skills/`) | Various Claude Code plugins |
-| Anthropic Agent Skills marketplace (`~/.claude/plugins/marketplaces/anthropic-agent-skills/`) | Anthropic, PBC — Proprietary; governed by Anthropic Consumer/Commercial Terms |
-| OpenClaw skills (`~/Codes/openclaw/skills/`, etc.) | <https://github.com/> · MIT |
-| Hermes Agent skills (`~/Codes/hermes-agent/skills/`, etc.) | <https://github.com/NousResearch/hermes> · MIT |
-
-When Quick Import surfaces the Anthropic marketplace path, the UI shows a license-warning indicator. Use is governed by your agreement with Anthropic.

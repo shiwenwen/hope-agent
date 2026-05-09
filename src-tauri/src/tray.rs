@@ -561,7 +561,7 @@ mod tests {
             id: id.to_string(),
             title: title.map(|t| t.to_string()),
             title_source: "manual".to_string(),
-            agent_id: "default".to_string(),
+            agent_id: ha_core::agent_loader::DEFAULT_AGENT_ID.to_string(),
             provider_id: None,
             provider_name: None,
             model_id: None,

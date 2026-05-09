@@ -19,6 +19,7 @@ import type {
   ToolCall,
 } from "@/types/chat"
 import type { Message } from "@/types/chat"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 
 const NO_GROUP_TOOLS = new Set([
   "ask_user_question",
@@ -69,7 +70,7 @@ function extractSubagentRuns(tool: ToolCall): SubagentGroupRun[] {
     return [
       {
         runId,
-        agentId: args.agent_id || "default",
+        agentId: args.agent_id || DEFAULT_AGENT_ID,
         task: args.task || "",
       },
     ]
@@ -89,7 +90,7 @@ function extractSubagentRuns(tool: ToolCall): SubagentGroupRun[] {
       const def = taskDefs[idx] || {}
       out.push({
         runId: obj.run_id,
-        agentId: def.agent_id || "default",
+        agentId: def.agent_id || DEFAULT_AGENT_ID,
         task: def.task || "",
       })
     }

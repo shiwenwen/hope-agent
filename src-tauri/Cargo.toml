@@ -2,11 +2,10 @@
 name = "hope-agent"
 version = "0.1.0"
 description = "Hope Agent - Personal AI Assistant with deep system integration"
-authors = ["shiwenwen"]
-license = "MIT"
-repository = "https://github.com/shiwenwen/hope-agent"
-edition = "2021"
-rust-version = "1.77.2"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

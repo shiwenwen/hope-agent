@@ -81,8 +81,9 @@ jobs:
           "C:\Program Files\NASM" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       # Tauri on Linux pulls WebKit2GTK + a handful of gtk helpers.
-      # libpipewire-0.3-dev is required by xcap (screen capture) via
-      # pipewire-sys for Wayland support.
+      # xcap (screen capture) needs the full Wayland screenshot stack:
+      # libpipewire-0.3-dev, libgbm-dev, libegl-dev, libwayland-dev
+      # (otherwise `-lgbm` link-step fails).
       - name: Install Linux build deps
         if: runner.os == 'Linux'
         run: |
@@ -93,6 +94,9 @@ jobs:
             libayatana-appindicator3-dev \
             librsvg2-dev \
             libpipewire-0.3-dev \
+            libgbm-dev \
+            libegl-dev \
+            libwayland-dev \
             patchelf
 
       - name: Install dependencies

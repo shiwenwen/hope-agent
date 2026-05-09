@@ -11,6 +11,7 @@ import type {
   AgentSummaryForSidebar,
 } from "@/types/chat"
 import { normalizeEffortForModel } from "@/types/chat"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { AgentConfig } from "@/components/settings/types"
 
 const STORAGE_PREFIX = "quickchat:lastSession:"
@@ -84,7 +85,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   const [messages, setMessages] = useState<Message[]>([])
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null)
   const currentSessionIdRef = useRef<string | null>(null)
-  const [currentAgentId, setCurrentAgentId] = useState("default")
+  const [currentAgentId, setCurrentAgentId] = useState<string>(DEFAULT_AGENT_ID)
   const [agentName, setAgentName] = useState("")
   const [agents, setAgents] = useState<AgentSummaryForSidebar[]>([])
   const [loading, setLoading] = useState(false)
@@ -202,7 +203,7 @@ export function useQuickChatSession(open: boolean): UseQuickChatSessionReturn {
   const reloadSessions = useCallback(async () => {
     try {
       const [list] = await getTransport().call<[SessionMeta[], number]>("list_sessions_cmd", {
-        agentId: currentAgentId === "default" ? null : currentAgentId,
+        agentId: currentAgentId === DEFAULT_AGENT_ID ? null : currentAgentId,
       })
       setSessions(list)
     } catch {

@@ -41,6 +41,7 @@ import {
 import { cn } from "@/lib/utils"
 import { parseMcpToolName } from "@/lib/mcp"
 import type { FileChangeMetadata, FileChangesMetadata, ToolCall } from "@/types/chat"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { IconTip } from "@/components/ui/tooltip"
 import SubagentBlock from "@/components/chat/SubagentBlock"
 import ToolMediaPreview from "@/components/chat/message/ToolMediaPreview"
@@ -289,7 +290,7 @@ export default function ToolCallBlock({ tool, shimmer, onOpenDiff }: ToolCallBlo
           /* ignore */
         }
       }
-      return { agentId: args.agent_id || "default", task: args.task || "", runId }
+      return { agentId: args.agent_id || DEFAULT_AGENT_ID, task: args.task || "", runId }
     } catch {
       return null
     }

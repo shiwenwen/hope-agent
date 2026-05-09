@@ -285,5 +285,5 @@ pub struct CreateTeamMemberSpec {
 }
 
 fn default_agent_id() -> String {
-    "default".to_string()
+    crate::agent_loader::DEFAULT_AGENT_ID.to_string()
 }

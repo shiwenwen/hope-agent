@@ -39,6 +39,8 @@ impl ChannelStoreConfig {
     /// Legacy effective channel Agent ID when no app-level context is
     /// available.
     pub fn agent_id(&self) -> &str {
-        self.default_agent_id.as_deref().unwrap_or("default")
+        self.default_agent_id
+            .as_deref()
+            .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID)
     }
 }

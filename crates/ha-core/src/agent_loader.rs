@@ -6,9 +6,9 @@ use crate::paths;
 
 // ── Constants ────────────────────────────────────────────────────
 
-pub const DEFAULT_AGENT_ID: &str = "default";
+pub const DEFAULT_AGENT_ID: &str = "ha-main";
 
-/// Whether `agent_id` is the hardcoded "main" agent (`"default"`).
+/// Whether `agent_id` is the hardcoded "main" agent (`"ha-main"`).
 ///
 /// Used by tool-tier default resolution: Tier 2 / Tier 3 tools have
 /// separate `default_for_main` / `default_for_others` flags so that the
@@ -17,7 +17,7 @@ pub const DEFAULT_AGENT_ID: &str = "default";
 ///
 /// Note: this is independent of `AppConfig.default_agent_id`, which only
 /// controls "which agent picks up new chats". Even if the user changes
-/// `default_agent_id`, the literal `"default"` agent remains the main one.
+/// `default_agent_id`, the literal `"ha-main"` agent remains the main one.
 pub fn is_main_agent(agent_id: &str) -> bool {
     agent_id == DEFAULT_AGENT_ID
 }
@@ -413,7 +413,7 @@ pub fn list_agents() -> Result<Vec<AgentSummary>> {
         });
     }
 
-    // Sort: "default" first, then alphabetical
+    // Sort: main agent first, then alphabetical
     summaries.sort_by(|a, b| {
         let a_default = a.id == DEFAULT_AGENT_ID;
         let b_default = b.id == DEFAULT_AGENT_ID;
@@ -561,7 +561,7 @@ pub fn render_persona_to_soul_md(id: &str) -> Result<String> {
 
 // ── Delete Agent ─────────────────────────────────────────────────
 
-/// Delete an agent directory. Refuses to delete "default".
+/// Delete an agent directory. Refuses to delete the main agent.
 pub fn delete_agent(id: &str) -> Result<()> {
     if id == DEFAULT_AGENT_ID {
         anyhow::bail!("Cannot delete the default agent");

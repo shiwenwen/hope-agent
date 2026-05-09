@@ -386,7 +386,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `get_default_agent_id` | `GET /api/config/default-agent` | ✅ |
 | `set_default_agent_id` | `PUT /api/config/default-agent` | ✅ |
 
-`get_default_agent_id` 返回 `Option<String>`（HTTP body 为标量 `"my-agent"` 或 `null`）；`set_default_agent_id` 接受 `{ agentId: string | null }`，空串 / null 清除全局默认（resolver 链路回退到硬编码 `"default"`）。新建会话时按「显式参数 → project.default_agent_id → channel_account.agent_id → AppConfig.default_agent_id → "default"」链路解析（统一 helper：`crate::agent::resolver::resolve_default_agent_id`）。
+`get_default_agent_id` 返回 `Option<String>`（HTTP body 为标量 `"my-agent"` 或 `null`）；`set_default_agent_id` 接受 `{ agentId: string | null }`，空串 / null 清除全局默认（resolver 链路回退到硬编码 `"ha-main"`，见 `agent_loader::DEFAULT_AGENT_ID`）。新建会话时按「显式参数 → project.default_agent_id → channel_account.agent_id → AppConfig.default_agent_id → "ha-main"」链路解析（统一 helper：`crate::agent::resolver::resolve_default_agent_id`）。
 
 ### Context compaction
 

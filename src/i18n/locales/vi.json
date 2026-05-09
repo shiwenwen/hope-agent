@@ -1390,6 +1390,7 @@
       },
       "notFound": "Không phát hiện cấu hình OpenClaw. Bạn có thể tiếp tục với cài đặt mới.",
       "partial": "Đã nhập có cảnh báo",
+      "retry": "Thử lại",
       "providers": {
         "apiTypeWarning": "Đường tương thích",
         "envRef": "từ biến môi trường",

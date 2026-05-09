@@ -834,7 +834,9 @@ mod tests {
         let path = dir.path().join("sessions.db");
         let db = Arc::new(SessionDB::open(&path).expect("open"));
         ensure_channel_conversations_table(&db);
-        let meta = db.create_session("default").expect("create");
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
         let sid = meta.id.clone();
         db.update_session_title(&sid, "Glittery island recap")
             .expect("title");
@@ -869,9 +871,14 @@ mod tests {
         db.append_message(&sid, &assistant).expect("append");
 
         let store = AppConfig::default();
-        let result = handle_status(&db, &store, Some(&sid), "default")
-            .await
-            .expect("ok");
+        let result = handle_status(
+            &db,
+            &store,
+            Some(&sid),
+            crate::agent_loader::DEFAULT_AGENT_ID,
+        )
+        .await
+        .expect("ok");
         assert!(result.content.contains("**Hope Agent**: v"));
         assert!(result.content.contains("**Title**: Glittery island recap"));
         assert!(result
@@ -893,13 +900,20 @@ mod tests {
         let path = dir.path().join("sessions.db");
         let db = Arc::new(SessionDB::open(&path).expect("open"));
         ensure_channel_conversations_table(&db);
-        let meta = db.create_session("default").expect("create");
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
         let sid = meta.id.clone();
 
         let store = AppConfig::default();
-        let result = handle_status(&db, &store, Some(&sid), "default")
-            .await
-            .expect("ok");
+        let result = handle_status(
+            &db,
+            &store,
+            Some(&sid),
+            crate::agent_loader::DEFAULT_AGENT_ID,
+        )
+        .await
+        .expect("ok");
         assert!(result.content.contains("**Hope Agent**: v"));
         assert!(result
             .content
@@ -915,7 +929,9 @@ mod tests {
         let path = dir.path().join("sessions.db");
         let db = Arc::new(SessionDB::open(&path).expect("open"));
         ensure_channel_conversations_table(&db);
-        let meta = db.create_session("default").expect("create");
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create");
         let sid = meta.id.clone();
 
         let mut assistant = crate::session::NewMessage::assistant("ok");
@@ -924,9 +940,14 @@ mod tests {
         assistant.tokens_cache_read = Some(0);
         db.append_message(&sid, &assistant).expect("append");
 
-        let result = handle_status(&db, &AppConfig::default(), Some(&sid), "default")
-            .await
-            .expect("ok");
+        let result = handle_status(
+            &db,
+            &AppConfig::default(),
+            Some(&sid),
+            crate::agent_loader::DEFAULT_AGENT_ID,
+        )
+        .await
+        .expect("ok");
         assert!(result
             .content
             .contains("**Cache (last round)**: write 0 · hit 0"));

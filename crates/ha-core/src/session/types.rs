@@ -481,7 +481,7 @@ mod tests {
             id: id.to_string(),
             title: None,
             title_source: default_title_source(),
-            agent_id: "default".to_string(),
+            agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
             provider_id: None,
             provider_name: None,
             model_id: None,

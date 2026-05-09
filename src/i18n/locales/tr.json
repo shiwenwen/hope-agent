@@ -1390,6 +1390,7 @@
       },
       "notFound": "OpenClaw yapılandırması algılanmadı. Yeni bir kurulumla devam edebilirsiniz.",
       "partial": "Uyarılarla içe aktarıldı",
+      "retry": "Tekrar dene",
       "providers": {
         "apiTypeWarning": "Uyumluluk yolu",
         "envRef": "ortam değişkeninden",

@@ -148,7 +148,7 @@ hope-agent acp [OPTIONS]
 | 参数                                  | 短选项 | 类型   | 默认        | 说明                                                                                                |
 | ------------------------------------- | ------ | ------ | ----------- | --------------------------------------------------------------------------------------------------- |
 | `--verbose` / `-v`                    | `-v`   | flag   | off         | 在 stderr 打印启动 banner（版本 / agent id / 协议）                                                |
-| `--agent-id ID` / `-a ID`             | `-a`   | string | `"default"` | 指定使用哪个 agent。**不存在时不会兜底**——会在 ACP 会话内拿到错误                                  |
+| `--agent-id ID` / `-a ID`             | `-a`   | string | `"ha-main"` | 指定使用哪个 agent。**不存在时不会兜底**——会在 ACP 会话内拿到错误                                  |
 | `--dangerously-skip-all-approvals`    | —      | flag   | off         | 同全局，被 acp 解析器静默 consume                                                                   |
 | `--version`                           | —      | flag   | —           | 打印 `hope-agent-acp X.Y.Z` 后退出                                                                |
 | `--help` / `-h`                       | —      | flag   | —           | 打印帮助后退出                                                                                      |

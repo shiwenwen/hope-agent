@@ -58,7 +58,9 @@ pub(crate) async fn execute_claimed_job(
     let (prompt, agent_id) = match &job.payload {
         CronPayload::AgentTurn { prompt, agent_id } => (
             prompt.clone(),
-            agent_id.clone().unwrap_or_else(|| "default".to_string()),
+            agent_id
+                .clone()
+                .unwrap_or_else(|| crate::agent_loader::DEFAULT_AGENT_ID.to_string()),
         ),
     };
 

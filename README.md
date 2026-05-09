@@ -31,7 +31,7 @@
 
 ## 缘起
 
-普通人需要一个**打开就能用**的 AI 助手——下载安装包双击打开就行，不用先装运行时，也不用先学一套命令行，更不用担心看不懂配置、服务半夜崩了没人管。Hope Agent 不只是桌面 GUI，它还能以 HTTP/WS 服务常驻，放在 NAS、自家服务器或云主机上 7×24 跑着，同时接入 IM 渠道、对接 IDE（ACP）；但我们相信大多数普通人的入口仍然是桌面，所以在**桌面 GUI 和系统深度融合**上投入了最多的精力，同时把性能、稳定性和交互细节一起打磨好。也希望它能陪着你长期用下去——同一份会话跨设备和聊天接续，记忆和技能慢慢累积下来。
+普通人需要一个**打开就能用**的 AI 助手——下载安装即用，不用先装运行时、学命令行，更不用担心看不懂配置、服务半夜崩了没人管，**走到哪都能接着用**。Hope Agent 不只是桌面 GUI，它还能以 HTTP/WS 服务常驻，放在 NAS、自家服务器或云主机上 7×24 跑着，同时接入 IM 渠道、对接 IDE（ACP）；但我们相信大多数普通人的入口仍然是桌面，所以在**桌面 GUI 和系统深度融合**上投入了最多的精力，同时把性能、稳定性和交互细节一起打磨好。也希望它能陪着你长期用下去——同一份会话跨设备、跨入口接续，让工作随你切换平台而不中断，记忆和技能慢慢累积下来。
 
 > Hope Agent 早期曾受 [openclaw](https://github.com/openclaw/openclaw) 影响，感谢他们在本地 AI 助手方向上的先行工作——我们选择了不同的实现路径。
 
@@ -98,6 +98,15 @@
    - Windows：`Hope-Agent_*.exe` / `Hope-Agent_*.msi`（尚未完成充分测试）
 2. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
 3. 桌面安装包内置 GitHub Releases 自动更新；应用内可在 **设置 → 关于** 里检查更新并一键安装
+
+> 若 macOS 启动时提示"已损坏"或"无法验证开发者"，请在终端执行以下命令：
+>
+> ```bash
+> sudo xattr -cr /Applications/Hope\ Agent.app
+> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
+> ```
+
+> 若 Windows 启动时提示"由于找不到 MSVCP140_1.dll，无法继续执行代码"或类似缺失 `VCRUNTIME140.dll` / `MSVCP140.dll` 的报错，请安装 [Microsoft Visual C++ 2015–2022 运行库（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)后重启应用。
 
 ### 开发者
 

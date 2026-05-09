@@ -651,7 +651,7 @@ CREATE TABLE channel_conversations (
   ```
   显式 → project.default_agent_id → topic.agent_id → group.agent_id
        → tg_channel.agent_id → channel_account.agent_id
-       → AppConfig.default_agent_id → "default"
+       → AppConfig.default_agent_id → "ha-main"
   ```
 
   channel worker 的私有 5 级解析(topic > group > channel > account > global)已删除——单一 helper。`AgentSource` 标签覆盖每个层级,`/status` 末尾输出 Agent Source 命中位置。
@@ -1378,7 +1378,7 @@ Channel 配置存储在 `~/.hope-agent/config.json` 的 `AppConfig.channels` 字
 // TypeScript 等效类型
 interface ChannelStoreConfig {
   accounts: ChannelAccountConfig[]
-  defaultAgentId?: string    // 默认使用的 Agent（默认 "default"）
+  defaultAgentId?: string    // 默认使用的 Agent（默认 "ha-main"）
   defaultModel?: ActiveModel // 默认模型（使用全局 activeModel 时为 null）
 }
 
@@ -1421,7 +1421,7 @@ interface ChannelAccountConfig {
         }
       }
     ],
-    "defaultAgentId": "default",
+    "defaultAgentId": "ha-main",
     "defaultModel": null
   }
 }
