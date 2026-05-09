@@ -105,6 +105,8 @@
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
+> 若 Windows 启动时提示"由于找不到 MSVCP140_1.dll，无法继续执行代码"或类似缺失 `VCRUNTIME140.dll` / `MSVCP140.dll` 的报错，请安装 [Microsoft Visual C++ 2015–2022 运行库（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)后重启应用。
+
 ### 开发者
 
 ```bash
