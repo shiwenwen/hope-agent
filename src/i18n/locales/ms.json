@@ -1390,6 +1390,7 @@
       },
       "notFound": "Tiada konfigurasi OpenClaw dikesan. Boleh teruskan dengan persediaan baru.",
       "partial": "Diimport dengan amaran",
+      "retry": "Cuba lagi",
       "providers": {
         "apiTypeWarning": "Laluan keserasian",
         "envRef": "dari pemboleh ubah env",

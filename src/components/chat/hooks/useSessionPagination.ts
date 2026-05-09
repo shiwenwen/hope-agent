@@ -160,6 +160,7 @@ export function useSessionPagination({
     sessionCacheRef,
     sessionsRef,
     setMessages,
+    userPaginatedDepthRef,
   ])
 
   // Forward-pagination twin of `handleLoadMore` — fires when the user scrolls
@@ -228,6 +229,7 @@ export function useSessionPagination({
     sessionCacheRef,
     sessionsRef,
     setMessages,
+    userPaginatedDepthRef,
   ])
 
   // Drop the partial around-window and reload the live tail. Wired to
@@ -275,6 +277,7 @@ export function useSessionPagination({
     sessionCacheRef,
     sessionsRef,
     setMessages,
+    userPaginatedDepthRef,
   ])
 
   return {
