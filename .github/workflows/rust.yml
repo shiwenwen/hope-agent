@@ -2,9 +2,9 @@ name: Rust
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "release/**"]
   push:
-    branches: [main]
+    branches: [main, "release/**"]
 
 concurrency:
   group: rust-${{ github.ref }}
