@@ -1390,6 +1390,7 @@
       },
       "notFound": "No OpenClaw configuration detected. You can continue with a fresh setup.",
       "partial": "Imported with warnings",
+      "retry": "Retry",
       "providers": {
         "apiTypeWarning": "Compatibility path",
         "envRef": "from env",
