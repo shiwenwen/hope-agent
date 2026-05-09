@@ -20,7 +20,7 @@
 use std::sync::LazyLock;
 
 use crate::agent_config::{CapabilityToggles, FilterConfig};
-use crate::agent_loader::{is_main_agent, DEFAULT_AGENT_ID};
+use crate::agent_loader::is_main_agent;
 use crate::config::AppConfig;
 
 use super::definitions::{CoreSubclass, ToolDefinition, ToolTier};
@@ -300,6 +300,7 @@ pub fn all_dispatchable_tools() -> &'static [ToolDefinition] {
 mod tests {
     use super::*;
     use crate::agent_config::{CapabilityToggles, FilterConfig};
+    use crate::agent_loader::DEFAULT_AGENT_ID;
 
     /// Test fixture — owns the data so each `&` reference in DispatchContext
     /// is valid for the duration of the test.
