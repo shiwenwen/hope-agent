@@ -836,6 +836,26 @@ impl FeishuApi {
     }
 }
 
+/// Append a percent-encoded query string to `url`. No-op for empty `params`;
+/// otherwise writes `?k1=v1&k2=v2…`. Sibling `api_<module>.rs` modules use
+/// this so each endpoint's pagination / filter assembly stays identical.
+pub(super) fn append_query(url: &mut String, params: &[(&str, String)]) {
+    if params.is_empty() {
+        return;
+    }
+    url.push('?');
+    let mut first = true;
+    for (k, v) in params {
+        if !first {
+            url.push('&');
+        }
+        first = false;
+        url.push_str(k);
+        url.push('=');
+        url.push_str(&urlencoding::encode(v));
+    }
+}
+
 pub(super) fn build_part(
     bytes: Vec<u8>,
     filename: &str,
@@ -904,5 +924,39 @@ mod tests {
             card_stream_error_from_code(99999, "unknown"),
             CardStreamError::Other(_)
         ));
+    }
+}
+
+#[cfg(test)]
+pub(super) mod test_support {
+    //! Shared wiremock fixtures for `api_*.rs` tests. Each sibling test
+    //! module mounts the auth-token endpoint and builds a [`FeishuApi`]
+    //! pointed at the mock server — extracted here so the boilerplate
+    //! lives in one place.
+
+    use std::sync::Arc;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    use super::FeishuApi;
+    use crate::channel::feishu::auth::FeishuAuth;
+
+    /// Mount the `/open-apis/auth/v3/tenant_access_token/internal/` endpoint
+    /// on `server` and return a [`FeishuApi`] pointed at it. The token
+    /// returned (`"t-fake-token"`) is what subsequent tests can match
+    /// against in the `Authorization: Bearer …` header if they care.
+    pub async fn mock_api(server: &MockServer) -> FeishuApi {
+        Mock::given(method("POST"))
+            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "code": 0,
+                "msg": "ok",
+                "tenant_access_token": "t-fake-token",
+                "expire": 7200
+            })))
+            .mount(server)
+            .await;
+        let domain = server.uri();
+        FeishuApi::new(Arc::new(FeishuAuth::new("cli_test", "secret_test", &domain)))
     }
 }

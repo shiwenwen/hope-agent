@@ -1,6 +1,6 @@
 //! hire (招聘 / Lark Hire) REST methods.
 //!
-//! C9 of the v0.2.0 Feishu roadmap. Note: not all tenants subscribe to
+//! Note: not all tenants subscribe to
 //! the hire module; calls return code `99991663` (param) or
 //! `1061004` (module not enabled) when unavailable. Surface this in the
 //! tool descriptions.
@@ -121,15 +121,7 @@ async fn list_endpoint(
     if let Some(s) = page_size {
         params.push(("page_size", s.to_string()));
     }
-    if !params.is_empty() {
-        let qs = params
-            .iter()
-            .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-            .collect::<Vec<_>>()
-            .join("&");
-        url.push('?');
-        url.push_str(&qs);
-    }
+    super::api::append_query(&mut url, &params);
     let resp = api
         .authorized_request(reqwest::Method::GET, &url)
         .await?
@@ -144,22 +136,9 @@ async fn list_endpoint(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::channel::feishu::auth::FeishuAuth;
-    use std::sync::Arc;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    async fn mock_api(server: &MockServer) -> FeishuApi {
-        Mock::given(method("POST"))
-            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "code": 0, "msg": "ok", "tenant_access_token": "t", "expire": 7200
-            })))
-            .mount(server)
-            .await;
-        FeishuApi::new(Arc::new(FeishuAuth::new("c", "s", &server.uri())))
-    }
+    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn list_jobs_returns_items() {

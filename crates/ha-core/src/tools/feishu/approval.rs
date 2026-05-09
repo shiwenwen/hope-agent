@@ -6,12 +6,12 @@
 //! - [`feishu_approval_list_instances`] — paginated instance code list
 //! - [`feishu_approval_subscribe`] — enable event push (no-op until B.2)
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api};
 
 pub const TOOL_APPROVAL_CREATE_INSTANCE: &str = "feishu_approval_create_instance";
 pub const TOOL_APPROVAL_GET_INSTANCE: &str = "feishu_approval_get_instance";
@@ -22,20 +22,8 @@ pub const TOOL_APPROVAL_SUBSCRIBE: &str = "feishu_approval_subscribe";
 const CONFIG_HINT: &str =
     "Configure a Feishu IM channel account in Settings → Channels to enable approval tools.";
 
-fn account_param() -> Value {
-    json!({
-        "type": "string",
-        "description": "Feishu channel account ID. Required only when more than one Feishu account is configured."
-    })
-}
-
 fn cfg() -> ToolTier {
-    ToolTier::Configured {
-        default_for_main: false,
-        default_for_others: false,
-        default_deferred: true,
-        config_hint: CONFIG_HINT,
-    }
+    configured_tier(CONFIG_HINT)
 }
 
 pub fn create_instance_tool() -> ToolDefinition {
@@ -172,66 +160,55 @@ pub fn subscribe_tool() -> ToolDefinition {
     }
 }
 
-fn s<'a>(args: &'a Value, k: &str) -> Option<&'a str> {
-    args.get(k).and_then(|v| v.as_str())
-}
-fn r<'a>(args: &'a Value, k: &str) -> Result<&'a str> {
-    s(args, k).ok_or_else(|| anyhow!("`{}` is required and must be a string", k))
-}
-fn u32_opt(args: &Value, k: &str) -> Result<Option<u32>> {
-    match args.get(k) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .and_then(|x| u32::try_from(x).ok())
-            .map(Some)
-            .ok_or_else(|| anyhow!("`{}` must fit u32", k)),
-        _ => Err(anyhow!("`{}` must be an integer", k)),
-    }
-}
-
 pub(crate) async fn execute_create_instance(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let res = api
-        .approval_create_instance(r(args, "approval_code")?, r(args, "user_id")?, r(args, "form")?)
+        .approval_create_instance(
+            arg_required_str(args, "approval_code")?,
+            arg_required_str(args, "user_id")?,
+            arg_required_str(args, "form")?,
+        )
         .await?;
     Ok(serde_json::to_string(&res)?)
 }
 
 pub(crate) async fn execute_get_instance(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
-    let inst = api.approval_get_instance(r(args, "instance_code")?).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
+    let inst = api
+        .approval_get_instance(arg_required_str(args, "instance_code")?)
+        .await?;
     Ok(serde_json::to_string(&inst)?)
 }
 
 pub(crate) async fn execute_cancel_instance(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     api.approval_cancel_instance(
-        r(args, "approval_code")?,
-        r(args, "instance_code")?,
-        r(args, "user_id")?,
+        arg_required_str(args, "approval_code")?,
+        arg_required_str(args, "instance_code")?,
+        arg_required_str(args, "user_id")?,
     )
     .await?;
     Ok(serde_json::json!({"ok": true}).to_string())
 }
 
 pub(crate) async fn execute_list_instances(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let list = api
         .approval_list_instances(
-            r(args, "approval_code")?,
-            s(args, "start_time"),
-            s(args, "end_time"),
-            s(args, "page_token"),
-            u32_opt(args, "page_size")?,
+            arg_required_str(args, "approval_code")?,
+            arg_str(args, "start_time"),
+            arg_str(args, "end_time"),
+            arg_str(args, "page_token"),
+            arg_u32(args, "page_size")?,
         )
         .await?;
     Ok(serde_json::to_string(&list)?)
 }
 
 pub(crate) async fn execute_subscribe(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
-    api.approval_subscribe(r(args, "approval_code")?).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
+    api.approval_subscribe(arg_required_str(args, "approval_code")?)
+        .await?;
     Ok(serde_json::json!({"ok": true}).to_string())
 }
 

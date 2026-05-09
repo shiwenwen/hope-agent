@@ -1,6 +1,6 @@
 //! contact (联系人 / Lark Contact) REST methods.
 //!
-//! C8 of the v0.2.0 Feishu roadmap. Sensitive: returns employee
+//! Sensitive: returns employee
 //! personal info (name / email / mobile / department / job_title /
 //! avatar). Tools must surface this in the description so the agent
 //! handles it carefully (no echoing in untrusted contexts, no
@@ -56,10 +56,10 @@ impl FeishuApi {
             self.base_url(),
             user_id
         );
-        if let Some(t) = user_id_type {
-            url.push_str("?user_id_type=");
-            url.push_str(&urlencoding::encode(t));
-        }
+        let params: Vec<(&str, String)> = user_id_type
+            .map(|t| vec![("user_id_type", t.to_string())])
+            .unwrap_or_default();
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -89,10 +89,10 @@ impl FeishuApi {
             ));
         }
         let mut url = format!("{}/open-apis/contact/v3/users/batch", self.base_url());
-        if let Some(t) = user_id_type {
-            url.push_str("?user_id_type=");
-            url.push_str(&urlencoding::encode(t));
-        }
+        let params: Vec<(&str, String)> = user_id_type
+            .map(|t| vec![("user_id_type", t.to_string())])
+            .unwrap_or_default();
+        super::api::append_query(&mut url, &params);
         let body = serde_json::json!({"user_ids": user_ids});
         let resp = self
             .authorized_request(reqwest::Method::POST, &url)
@@ -118,10 +118,10 @@ impl FeishuApi {
             self.base_url(),
             department_id
         );
-        if let Some(t) = department_id_type {
-            url.push_str("?department_id_type=");
-            url.push_str(&urlencoding::encode(t));
-        }
+        let params: Vec<(&str, String)> = department_id_type
+            .map(|t| vec![("department_id_type", t.to_string())])
+            .unwrap_or_default();
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -143,18 +143,18 @@ impl FeishuApi {
         page_size: Option<u32>,
     ) -> Result<ContactSearchResult> {
         let mut url = format!(
-            "{}/open-apis/contact/v3/users/find_by_department?department_id={}",
-            self.base_url(),
-            urlencoding::encode(department_id)
+            "{}/open-apis/contact/v3/users/find_by_department",
+            self.base_url()
         );
+        let mut params: Vec<(&str, String)> =
+            vec![("department_id", department_id.to_string())];
         if let Some(t) = page_token {
-            url.push_str("&page_token=");
-            url.push_str(&urlencoding::encode(t));
+            params.push(("page_token", t.to_string()));
         }
         if let Some(s) = page_size {
-            url.push_str("&page_size=");
-            url.push_str(&s.to_string());
+            params.push(("page_size", s.to_string()));
         }
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -170,23 +170,9 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::channel::feishu::auth::FeishuAuth;
-    use std::sync::Arc;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    async fn mock_api(server: &MockServer) -> FeishuApi {
-        Mock::given(method("POST"))
-            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "code": 0, "msg": "ok",
-                "tenant_access_token": "t", "expire": 7200
-            })))
-            .mount(server)
-            .await;
-        FeishuApi::new(Arc::new(FeishuAuth::new("c", "s", &server.uri())))
-    }
+    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn get_user_returns_user_object() {

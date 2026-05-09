@@ -9,32 +9,20 @@
 //! Wiki node creation / child listing are deferred to v0.3+
 //! (`feishu-business-tools.md` §9 P3).
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{account_param, arg_required_str, arg_str, configured_tier, resolve_feishu_api};
 
 pub const TOOL_WIKI_GET_NODE: &str = "feishu_wiki_get_node";
 
 const CONFIG_HINT: &str =
     "Configure a Feishu IM channel account in Settings → Channels to enable wiki tools.";
 
-fn account_param() -> Value {
-    json!({
-        "type": "string",
-        "description": "Feishu channel account ID. Required only when more than one Feishu account is configured; otherwise the only configured account is used."
-    })
-}
-
-fn configured_tier() -> ToolTier {
-    ToolTier::Configured {
-        default_for_main: false,
-        default_for_others: false,
-        default_deferred: true,
-        config_hint: CONFIG_HINT,
-    }
+fn cfg() -> ToolTier {
+    configured_tier(CONFIG_HINT)
 }
 
 pub fn get_node_tool() -> ToolDefinition {
@@ -48,7 +36,7 @@ pub fn get_node_tool() -> ToolDefinition {
              modify the actual content. Required Feishu app scope: `wiki:wiki.readonly` or \
              `wiki:wiki`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -71,22 +59,12 @@ pub fn get_node_tool() -> ToolDefinition {
     }
 }
 
-// ── Argument helpers ────────────────────────────────────────────
-
-fn get_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(|v| v.as_str())
-}
-
-fn get_required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
-    get_str(args, key).ok_or_else(|| anyhow!("`{}` is required and must be a string", key))
-}
-
 // ── Execute fn ──────────────────────────────────────────────────
 
 pub(crate) async fn execute_get_node(args: &Value) -> Result<String> {
-    let token = get_required_str(args, "token")?;
-    let obj_type = get_str(args, "obj_type");
-    let account = get_str(args, "account");
+    let token = arg_required_str(args, "token")?;
+    let obj_type = arg_str(args, "obj_type");
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let node = api.wiki_get_node(token, obj_type).await?;
     Ok(serde_json::to_string(&node)?)

@@ -1,7 +1,7 @@
 //! Feishu business tools — shared resolver + tools-vec scaffold.
 //!
 //! All `feishu_*` tools (docx / bitable / drive / wiki / approval / calendar
-//! / contact / hire — landing in PR C1-C9) share one entry point:
+//! / contact / hire) share one entry point:
 //! [`resolve_feishu_api`]. It locates the right Feishu account from the
 //! user's configured channels and returns an [`Arc<FeishuApi>`] whose
 //! tenant access token is shared, auto-refreshing, and cached across
@@ -20,8 +20,7 @@
 //! token (no double-login).
 //!
 //! `get_feishu_tools()` is the single entry point used by
-//! [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`]. PR C1 onwards each append
-//! their `feishu_<module>_*` tools to the returned vec.
+//! [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`].
 
 pub mod approval;
 pub mod bitable;
@@ -33,6 +32,7 @@ pub mod hire;
 pub mod wiki;
 
 use anyhow::{anyhow, Result};
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Mutex;
@@ -41,7 +41,7 @@ use crate::channel::feishu::api::FeishuApi;
 use crate::channel::feishu::auth::FeishuAuth;
 use crate::channel::types::{ChannelAccountConfig, ChannelId};
 use crate::config::cached_config;
-use crate::tools::definitions::ToolDefinition;
+use crate::tools::definitions::{ToolDefinition, ToolTier};
 
 // ── Auth cache ──────────────────────────────────────────────────
 
@@ -74,6 +74,18 @@ pub fn enumerate_feishu_accounts() -> Vec<ChannelAccountConfig> {
         .filter(|a| a.channel_id == ChannelId::Feishu)
         .cloned()
         .collect()
+}
+
+/// Allocation-free presence probe used by the dispatcher's hot path
+/// (`is_globally_configured` runs once per Feishu tool per LLM round); a
+/// full `enumerate_feishu_accounts` would deep-clone every account just to
+/// check `is_empty()`.
+pub fn has_any_account_configured() -> bool {
+    cached_config()
+        .channels
+        .accounts
+        .iter()
+        .any(|a| a.channel_id == ChannelId::Feishu)
 }
 
 fn extract_creds(account: &ChannelAccountConfig) -> Result<CredsSnapshot> {
@@ -181,53 +193,40 @@ pub async fn resolve_feishu_api(account: Option<&str>) -> Result<Arc<FeishuApi>>
 
 // ── Tools list ──────────────────────────────────────────────────
 
-/// Returns the full set of Feishu business tool definitions.
-///
-/// Each sub-system landed in its own PR appends to this vec; the dispatch
-/// layer extends [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`] from here
-/// once and the vec grows monotonically as v0.2.0 progresses (C1 docx
-/// → C9 hire).
+/// Returns the full set of Feishu business tool definitions. The dispatch
+/// layer extends [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`] from here.
 pub fn get_feishu_tools() -> Vec<ToolDefinition> {
     vec![
-        // C1 — docx
         docx::create_tool(),
         docx::get_blocks_tool(),
         docx::append_block_tool(),
         docx::update_block_text_tool(),
-        // C2 — bitable records
         bitable::list_records_tool(),
         bitable::search_records_tool(),
         bitable::create_record_tool(),
         bitable::batch_update_records_tool(),
-        // C5 — bitable views + dashboards
         bitable::list_views_tool(),
         bitable::get_view_tool(),
         bitable::list_dashboards_tool(),
-        // C3 — drive
         drive::list_files_tool(),
         drive::upload_media_tool(),
         drive::download_media_tool(),
-        // C4 — wiki
         wiki::get_node_tool(),
-        // C6 — approval
         approval::create_instance_tool(),
         approval::get_instance_tool(),
         approval::cancel_instance_tool(),
         approval::list_instances_tool(),
         approval::subscribe_tool(),
-        // C7 — calendar
         calendar::list_tool(),
         calendar::create_event_tool(),
         calendar::list_events_tool(),
         calendar::update_event_tool(),
         calendar::delete_event_tool(),
         calendar::attendees_create_tool(),
-        // C8 — contact
         contact::get_user_tool(),
         contact::batch_get_users_tool(),
         contact::get_department_tool(),
         contact::search_users_by_department_tool(),
-        // C9 — hire
         hire::list_jobs_tool(),
         hire::get_job_tool(),
         hire::list_talents_tool(),
@@ -236,12 +235,86 @@ pub fn get_feishu_tools() -> Vec<ToolDefinition> {
     ]
 }
 
-/// Whether at least one Feishu account is configured. The dispatcher reads
-/// this in `is_globally_configured` so all `feishu_*` tools fall to
-/// `HintOnly` when the user has the agent capability enabled but no
-/// account configured yet.
-pub fn has_any_account_configured() -> bool {
-    !enumerate_feishu_accounts().is_empty()
+// ── Shared tool-definition helpers ──────────────────────────────
+//
+// All `tools/feishu/<module>.rs` files reuse these so the per-module
+// boilerplate is just the schema + execute fn.
+
+/// JSON schema fragment for the optional `account` argument every Feishu
+/// tool accepts (multi-account routing — single-account users can omit it).
+pub(super) fn account_param() -> Value {
+    json!({
+        "type": "string",
+        "description": "Feishu channel account ID. Required only when more than one Feishu account is configured; otherwise the only configured account is used."
+    })
+}
+
+/// Standard Tier 3 Configured tier for `feishu_*` tools — off-by-default,
+/// supports deferred-loading, with a module-specific config_hint surfaced
+/// in the `# Unconfigured Capabilities` section of system prompts.
+pub(super) fn configured_tier(config_hint: &'static str) -> ToolTier {
+    ToolTier::Configured {
+        default_for_main: false,
+        default_for_others: false,
+        default_deferred: true,
+        config_hint,
+    }
+}
+
+// ── Shared argument extraction helpers ──────────────────────────
+//
+// Used by every `execute_*` function to parse `serde_json::Value` into typed
+// Rust args. Centralized so the early "missing/wrong-type" `anyhow::Error`
+// messages stay consistent across all 35 feishu_* tools.
+
+pub(super) fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
+    args.get(key).and_then(|v| v.as_str())
+}
+
+pub(super) fn arg_required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
+    arg_str(args, key)
+        .ok_or_else(|| anyhow!("`{}` is required and must be a string", key))
+}
+
+pub(super) fn arg_u32(args: &Value, key: &str) -> Result<Option<u32>> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Number(n)) => n
+            .as_u64()
+            .and_then(|x| u32::try_from(x).ok())
+            .map(Some)
+            .ok_or_else(|| anyhow!("`{}` must be a non-negative integer fitting in u32", key)),
+        _ => Err(anyhow!("`{}` must be an integer", key)),
+    }
+}
+
+pub(super) fn arg_required_object(args: &Value, key: &str) -> Result<Value> {
+    args.get(key)
+        .filter(|v| v.is_object())
+        .cloned()
+        .ok_or_else(|| anyhow!("`{}` is required and must be an object", key))
+}
+
+pub(super) fn arg_required_array(args: &Value, key: &str) -> Result<Value> {
+    args.get(key)
+        .filter(|v| v.is_array())
+        .cloned()
+        .ok_or_else(|| anyhow!("`{}` is required and must be an array", key))
+}
+
+pub(super) fn arg_required_string_array(args: &Value, key: &str) -> Result<Vec<String>> {
+    let arr = args
+        .get(key)
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| anyhow!("`{}` is required and must be an array of strings", key))?;
+    let mut out = Vec::with_capacity(arr.len());
+    for (i, v) in arr.iter().enumerate() {
+        let s = v
+            .as_str()
+            .ok_or_else(|| anyhow!("`{}[{}]` must be a string", key, i))?;
+        out.push(s.to_string());
+    }
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -389,7 +462,44 @@ mod tests {
     }
 
     #[test]
-    fn scaffold_returns_no_tools() {
-        assert!(get_feishu_tools().is_empty());
+    fn get_feishu_tools_returns_full_catalog() {
+        // 35 tools across 8 modules; the assertion is a sanity floor not an
+        // exact count so adding a tool doesn't churn the test.
+        let tools = get_feishu_tools();
+        assert!(tools.len() >= 30, "expected ≥30 feishu tools, got {}", tools.len());
+        assert!(tools.iter().all(|t| t.name.starts_with("feishu_")));
+    }
+
+    #[test]
+    fn configured_tier_is_off_by_default_and_supports_deferred() {
+        match configured_tier("test hint") {
+            ToolTier::Configured {
+                default_for_main,
+                default_for_others,
+                default_deferred,
+                config_hint,
+            } => {
+                assert!(!default_for_main);
+                assert!(!default_for_others);
+                assert!(default_deferred);
+                assert_eq!(config_hint, "test hint");
+            }
+            _ => panic!("must be Tier 3 Configured"),
+        }
+    }
+
+    #[test]
+    fn arg_helpers_validate_types() {
+        let v = json!({"s": "x", "n": 5, "neg": -1, "obj": {"k": "v"}, "arr": ["a"]});
+        assert_eq!(arg_str(&v, "s"), Some("x"));
+        assert_eq!(arg_str(&v, "missing"), None);
+        assert!(arg_required_str(&v, "missing").is_err());
+        assert_eq!(arg_u32(&v, "n").unwrap(), Some(5));
+        assert_eq!(arg_u32(&v, "missing").unwrap(), None);
+        assert!(arg_u32(&v, "neg").is_err());
+        assert!(arg_required_object(&v, "obj").is_ok());
+        assert!(arg_required_object(&v, "s").is_err());
+        assert!(arg_required_array(&v, "arr").is_ok());
+        assert!(arg_required_string_array(&v, "arr").is_ok());
     }
 }

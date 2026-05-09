@@ -77,15 +77,12 @@ impl FeishuApi {
         token: &str,
         obj_type: Option<&str>,
     ) -> Result<WikiNode> {
-        let mut url = format!(
-            "{}/open-apis/wiki/v2/spaces/get_node?token={}",
-            self.base_url(),
-            urlencoding::encode(token)
-        );
+        let mut url = format!("{}/open-apis/wiki/v2/spaces/get_node", self.base_url());
+        let mut params: Vec<(&str, String)> = vec![("token", token.to_string())];
         if let Some(t) = obj_type {
-            url.push_str("&obj_type=");
-            url.push_str(&urlencoding::encode(t));
+            params.push(("obj_type", t.to_string()));
         }
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -102,27 +99,9 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::channel::feishu::auth::FeishuAuth;
-    use std::sync::Arc;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    async fn mock_api(server: &MockServer) -> FeishuApi {
-        Mock::given(method("POST"))
-            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "code": 0,
-                "msg": "ok",
-                "tenant_access_token": "t-fake-token",
-                "expire": 7200
-            })))
-            .mount(server)
-            .await;
-        let domain = server.uri();
-        let auth = Arc::new(FeishuAuth::new("cli_test", "secret_test", &domain));
-        FeishuApi::new(auth)
-    }
+    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn get_node_returns_resolved_obj_token() {

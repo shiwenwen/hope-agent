@@ -4,12 +4,12 @@
 //! Feishu code `1061004` ("module not enabled"). Tool descriptions
 //! surface this so the LLM can guide the user to the admin panel.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api};
 
 pub const TOOL_HIRE_LIST_JOBS: &str = "feishu_hire_list_jobs";
 pub const TOOL_HIRE_GET_JOB: &str = "feishu_hire_get_job";
@@ -22,16 +22,8 @@ const HINT: &str =
 
 const MODULE_HINT: &str = " Note: Feishu's hire module must be enabled for this tenant — error code `1061004` means the admin needs to enable hire in the workspace settings first.";
 
-fn account_param() -> Value {
-    json!({"type": "string", "description": "Feishu channel account ID; required only with multiple accounts."})
-}
 fn cfg() -> ToolTier {
-    ToolTier::Configured {
-        default_for_main: false,
-        default_for_others: false,
-        default_deferred: true,
-        config_hint: HINT,
-    }
+    configured_tier(HINT)
 }
 
 fn pagination_only(extra_required: &[&str]) -> Value {
@@ -146,52 +138,34 @@ pub fn list_applications_tool() -> ToolDefinition {
     }
 }
 
-fn s<'a>(args: &'a Value, k: &str) -> Option<&'a str> {
-    args.get(k).and_then(|v| v.as_str())
-}
-fn rs<'a>(args: &'a Value, k: &str) -> Result<&'a str> {
-    s(args, k).ok_or_else(|| anyhow!("`{}` is required and must be a string", k))
-}
-fn u32_opt(args: &Value, k: &str) -> Result<Option<u32>> {
-    match args.get(k) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .and_then(|x| u32::try_from(x).ok())
-            .map(Some)
-            .ok_or_else(|| anyhow!("`{}` must fit u32", k)),
-        _ => Err(anyhow!("`{}` must be an integer", k)),
-    }
-}
-
 pub(crate) async fn execute_list_jobs(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .hire_list_jobs(s(args, "page_token"), u32_opt(args, "page_size")?)
+        .hire_list_jobs(arg_str(args, "page_token"), arg_u32(args, "page_size")?)
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_get_job(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
-    let r = api.hire_get_job(rs(args, "job_id")?).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
+    let r = api.hire_get_job(arg_required_str(args, "job_id")?).await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_list_talents(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .hire_list_talents(s(args, "page_token"), u32_opt(args, "page_size")?)
+        .hire_list_talents(arg_str(args, "page_token"), arg_u32(args, "page_size")?)
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_get_talent(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
-    let r = api.hire_get_talent(rs(args, "talent_id")?).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
+    let r = api.hire_get_talent(arg_required_str(args, "talent_id")?).await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_list_applications(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .hire_list_applications(s(args, "page_token"), u32_opt(args, "page_size")?)
+        .hire_list_applications(arg_str(args, "page_token"), arg_u32(args, "page_size")?)
         .await?;
     Ok(serde_json::to_string(&r)?)
 }

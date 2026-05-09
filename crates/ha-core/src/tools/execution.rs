@@ -642,7 +642,6 @@ pub async fn execute_tool_with_context(
             super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
             super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
             super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
-            // Feishu docx (PR C1).
             super::feishu::docx::TOOL_DOCX_CREATE => super::feishu::docx::execute_create(args).await,
             super::feishu::docx::TOOL_DOCX_GET_BLOCKS => {
                 super::feishu::docx::execute_get_blocks(args).await
@@ -653,7 +652,6 @@ pub async fn execute_tool_with_context(
             super::feishu::docx::TOOL_DOCX_UPDATE_BLOCK_TEXT => {
                 super::feishu::docx::execute_update_block_text(args).await
             }
-            // Feishu bitable (PR C2).
             super::feishu::bitable::TOOL_BITABLE_LIST_RECORDS => {
                 super::feishu::bitable::execute_list_records(args).await
             }
@@ -666,7 +664,6 @@ pub async fn execute_tool_with_context(
             super::feishu::bitable::TOOL_BITABLE_BATCH_UPDATE_RECORDS => {
                 super::feishu::bitable::execute_batch_update_records(args).await
             }
-            // Feishu bitable views + dashboards (PR C5).
             super::feishu::bitable::TOOL_BITABLE_LIST_VIEWS => {
                 super::feishu::bitable::execute_list_views(args).await
             }
@@ -676,7 +673,6 @@ pub async fn execute_tool_with_context(
             super::feishu::bitable::TOOL_BITABLE_LIST_DASHBOARDS => {
                 super::feishu::bitable::execute_list_dashboards(args).await
             }
-            // Feishu drive (PR C3).
             super::feishu::drive::TOOL_DRIVE_LIST_FILES => {
                 super::feishu::drive::execute_list_files(args).await
             }
@@ -686,11 +682,9 @@ pub async fn execute_tool_with_context(
             super::feishu::drive::TOOL_DRIVE_DOWNLOAD_MEDIA => {
                 super::feishu::drive::execute_download_media(args).await
             }
-            // Feishu wiki (PR C4).
             super::feishu::wiki::TOOL_WIKI_GET_NODE => {
                 super::feishu::wiki::execute_get_node(args).await
             }
-            // Feishu approval (PR C6).
             super::feishu::approval::TOOL_APPROVAL_CREATE_INSTANCE => {
                 super::feishu::approval::execute_create_instance(args).await
             }
@@ -706,7 +700,6 @@ pub async fn execute_tool_with_context(
             super::feishu::approval::TOOL_APPROVAL_SUBSCRIBE => {
                 super::feishu::approval::execute_subscribe(args).await
             }
-            // Feishu calendar (PR C7).
             super::feishu::calendar::TOOL_CALENDAR_LIST => {
                 super::feishu::calendar::execute_list(args).await
             }
@@ -725,7 +718,6 @@ pub async fn execute_tool_with_context(
             super::feishu::calendar::TOOL_CALENDAR_ATTENDEES_CREATE => {
                 super::feishu::calendar::execute_attendees_create(args).await
             }
-            // Feishu contact (PR C8).
             super::feishu::contact::TOOL_CONTACT_GET_USER => {
                 super::feishu::contact::execute_get_user(args).await
             }
@@ -738,7 +730,6 @@ pub async fn execute_tool_with_context(
             super::feishu::contact::TOOL_CONTACT_SEARCH_USERS_BY_DEPARTMENT => {
                 super::feishu::contact::execute_search_users_by_department(args).await
             }
-            // Feishu hire (PR C9).
             super::feishu::hire::TOOL_HIRE_LIST_JOBS => {
                 super::feishu::hire::execute_list_jobs(args).await
             }

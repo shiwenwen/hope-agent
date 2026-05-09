@@ -833,6 +833,59 @@
 
 ---
 
+### F-075 飞书入站事件 `event.clone()` 每条 fan-out 一次
+
+- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Efficiency Agent HIGH #2/#3)
+- **现象**：[`channel/feishu/inbound_events.rs`](../../crates/ha-core/src/channel/feishu/inbound_events.rs) 的 `parse_read_receipt_list` (≈line 165) 与 `parse_user_added_or_deleted` (≈line 220) 在 `.map()` 内对每条受体 / 每个用户 `event.clone()`，扁平化 fan-out 出 N 个 `InboundEvent` 时 deep clone N 次。读回执批量带 100 个 `message_id` = 100 次 `serde_json::Value` deep clone；50 人入群同理。
+- **为什么留**：`EventCommon.raw: Value` 是字段定义；改成 `Arc<Value>` 是 type-level 改造，会触动 6 variants 的所有受用方（dispatcher log handlers / 未来 B.2 业务行为）。当前 v0.2.0 非消息事件 dispatcher log-only，clone 成本只是 CPU + 内存峰值，无 user-visible bug。Phase B.2 接业务行为时会顺手做这次改造（届时 raw 也可能根本不需要，可以 drop）。
+- **改的话要做什么**：
+  - `channel/types.rs::EventCommon.raw` 改 `Arc<serde_json::Value>`
+  - 6 variants 的所有 emit / read 站点跟着改（3 dispatcher log_* + 1 inbound_events.rs + 1 inbound_events 测试 + 1 序列化 contract）
+  - 或者：`take last on iter()` 模式只让最后一条 move 不 clone，其余 clone — 省一次但不解决 N-1 问题
+- **影响面**：纯性能 / 内存。读回执 100 条批量场景下 ~100KB - 1MB 临时分配；正常 1-2 条场景无感知。
+
+### F-076 飞书 `auth_cache` 用 `Mutex` 而非 `RwLock`
+
+- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Efficiency Agent MEDIUM #4)
+- **现象**：[`tools/feishu/mod.rs::auth_cache`](../../crates/ha-core/src/tools/feishu/mod.rs) 用 `tokio::sync::Mutex<HashMap<String, (CredsSnapshot, Arc<FeishuAuth>)>>`；缓存命中（hot path）只读 + creds 比较 + `Arc::clone`，但所有并发 `feishu_*` tool 串行通过 mutex。
+- **为什么留**：当前预期并发上限 5-10 ≤ tool calls；实战未观察到 lock contention。改 `RwLock` + 写路径 double-check 是 30 行的小重构，但当前没有用户痛点。
+- **改的话要做什么**：换 `RwLock`；命中走 `read().get(...).cloned()`；miss 走 `write()` + 二次 check 防 race。
+- **影响面**：性能。LLM 启用 deferred-tools + 同时 fan-out 10+ feishu 调用时显著；常规场景无感。
+
+### F-077 飞书 `inbound_media::materialize_inbound` 串行下载多媒体
+
+- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Efficiency Agent MEDIUM #5)
+- **现象**：[`channel/feishu/ws_event.rs::handle_message_event`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 在 `for p in &parsed { materialize_inbound(...).await }` 串行下载每条 inbound media。飞书 `media` msg_type 单条消息可能含 video + cover image 两个 file_key，串行下载累计延迟。
+- **为什么留**：飞书单条消息典型只有 1 个媒体（image / file / sticker / 单 audio），串行延迟 < 500ms 用户无感。`media` 消息类型是少数场景。drop-in 替换 `futures::future::join_all` 即可，但当前没痛点。
+- **改的话要做什么**：`futures::future::join_all(parsed.iter().map(|p| materialize_inbound(...)))`，再 `filter_map(Option::Some)` 过滤失败；现有 import / signature 全够。
+- **影响面**：延迟。多媒体场景每条额外 ~500ms-2s；典型场景无差异。
+
+### F-078 飞书业务 tool 6+ 参数函数签名应改 builder / request struct
+
+- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Code Quality Agent MEDIUM #7)
+- **现象**：[`channel/feishu/api_bitable.rs::bitable_list_records`](../../crates/ha-core/src/channel/feishu/api_bitable.rs) 6 个位置参数（`app_token, table_id, view_id?, filter?, page_token?, page_size?`），同形 `bitable_search_records` / `calendar_list_events` / `contact_search_users_by_department` / `bitable_list_views`。tools 层 `execute_*` 也跟着传 5+ 个参数。
+- **为什么留**：调用都在同一文件 + 当期已有 type-safe `Option<&str>`，foot-gun 风险低；改成 `BitableListReq { ... }` 涉及 4-5 个文件 ~80 行。
+- **改的话要做什么**：每个 list/search 类方法引入 `XxxRequest` 结构（builder 风格更佳），api_*.rs + tools/feishu/*.rs execute_* 跟着改。
+- **影响面**：可读性。当前 6 个 `None` / `Some(...)` 顺序错了编译过不了，但 review 时容易看错。
+
+### F-079 飞书 `parent_type` 写死 `"explorer"` — 不能上传到 docx 内嵌图片
+
+- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Code Quality Agent MEDIUM #8)
+- **现象**：[`tools/feishu/drive.rs::execute_upload_media`](../../crates/ha-core/src/tools/feishu/drive.rs) 调 API 时硬编码 `parent_type = "explorer"`。Feishu API 支持 `explorer` / `docx_image` / `sheet_image` / `bitable_image` / `vc_virtual_background` / `slides_image` 等多种 parent_type。
+- **为什么留**：90% 用例是 drive folder upload，`explorer` 够用；上传到 docx 内嵌图片是少数场景，需要 LLM 知道 parent_type 含义且配合 docx 块创建流程。当前没有用户反馈。
+- **改的话要做什么**：tool schema 加可选 `parent_type` 字段（默认 `"explorer"`），api_drive.rs 已经接受 `parent_type` 参数，只需透传。或者引入 `enum DriveParentType { Explorer, DocxImage, ... }`。
+- **影响面**：功能盲点。想上传图片到 docx 块的 LLM 走不通；当前无人触发。
+
+### F-080 飞书业务 tool 名常量分散在每个 `tools/feishu/<module>.rs`
+
+- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Code Quality Agent MEDIUM #6)
+- **现象**：现有非飞书 tool 名常量都集中在 [`tools/mod.rs`](../../crates/ha-core/src/tools/mod.rs) 的 `pub const TOOL_*` 块；新增 35 个 `feishu_*` tool 散落在 `tools/feishu/<module>.rs` 各自 `pub const TOOL_DOCX_CREATE` 等，dispatcher 通过 `super::feishu::docx::TOOL_*` 跨模块引用。两套约定共存。
+- **为什么留**：把 35 个常量集中到 `tools/mod.rs` 让该文件膨胀很多（且后续 v0.3 加更多 feishu_* tool 还会膨胀）；当前每模块自治反而更模块化。`permission::rules::extract_path_arg` 已经按 review 改成走常量引用而非字符串字面量（F-079 同期修复），跨模块引用模式实证可行。
+- **改的话要做什么**：要么集中到 `tools/mod.rs`（与 read/write 风格一致），要么从 `tools/feishu/mod.rs` 显式 re-export 所有 `TOOL_*` 常量给 dispatcher 用单一短前缀。两选一。
+- **影响面**：风格一致性，无功能影响。
+
+---
+
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。

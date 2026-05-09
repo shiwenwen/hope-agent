@@ -79,15 +79,7 @@ impl FeishuApi {
         if let Some(s) = page_size {
             params.push(("page_size", s.to_string()));
         }
-        if !params.is_empty() {
-            let qs = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-                .collect::<Vec<_>>()
-                .join("&");
-            url.push('?');
-            url.push_str(&qs);
-        }
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -177,26 +169,9 @@ impl FeishuApi {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::feishu::auth::FeishuAuth;
-    use std::sync::Arc;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    async fn mock_api(server: &MockServer) -> FeishuApi {
-        Mock::given(method("POST"))
-            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "code": 0,
-                "msg": "ok",
-                "tenant_access_token": "t-fake-token",
-                "expire": 7200
-            })))
-            .mount(server)
-            .await;
-        let domain = server.uri();
-        let auth = Arc::new(FeishuAuth::new("cli_test", "secret_test", &domain));
-        FeishuApi::new(auth)
-    }
+    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn list_files_passes_pagination() {

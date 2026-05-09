@@ -1,11 +1,14 @@
 //! Feishu calendar (日历 / Lark Calendar) — 6 LLM tools.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{
+    account_param, arg_required_array, arg_required_object, arg_required_str, arg_str, arg_u32,
+    configured_tier, resolve_feishu_api,
+};
 
 pub const TOOL_CALENDAR_LIST: &str = "feishu_calendar_list";
 pub const TOOL_CALENDAR_CREATE_EVENT: &str = "feishu_calendar_create_event";
@@ -17,16 +20,8 @@ pub const TOOL_CALENDAR_ATTENDEES_CREATE: &str = "feishu_calendar_attendees_crea
 const HINT: &str =
     "Configure a Feishu IM channel account in Settings → Channels to enable calendar tools.";
 
-fn account_param() -> Value {
-    json!({"type": "string", "description": "Feishu channel account ID; required only with multiple accounts."})
-}
 fn cfg() -> ToolTier {
-    ToolTier::Configured {
-        default_for_main: false,
-        default_for_others: false,
-        default_deferred: true,
-        config_hint: HINT,
-    }
+    configured_tier(HINT)
 }
 
 pub fn list_tool() -> ToolDefinition {
@@ -186,87 +181,57 @@ pub fn attendees_create_tool() -> ToolDefinition {
     }
 }
 
-fn s<'a>(args: &'a Value, k: &str) -> Option<&'a str> {
-    args.get(k).and_then(|v| v.as_str())
-}
-fn rs<'a>(args: &'a Value, k: &str) -> Result<&'a str> {
-    s(args, k).ok_or_else(|| anyhow!("`{}` is required and must be a string", k))
-}
-fn ro(args: &Value, k: &str) -> Result<Value> {
-    args.get(k)
-        .filter(|v| v.is_object())
-        .cloned()
-        .ok_or_else(|| anyhow!("`{}` is required and must be an object", k))
-}
-fn ra(args: &Value, k: &str) -> Result<Value> {
-    args.get(k)
-        .filter(|v| v.is_array())
-        .cloned()
-        .ok_or_else(|| anyhow!("`{}` is required and must be an array", k))
-}
-fn u32_opt(args: &Value, k: &str) -> Result<Option<u32>> {
-    match args.get(k) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .and_then(|x| u32::try_from(x).ok())
-            .map(Some)
-            .ok_or_else(|| anyhow!("`{}` must fit u32", k)),
-        _ => Err(anyhow!("`{}` must be an integer", k)),
-    }
-}
-
 pub(crate) async fn execute_list(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .calendar_list(s(args, "page_token"), u32_opt(args, "page_size")?)
+        .calendar_list(arg_str(args, "page_token"), arg_u32(args, "page_size")?)
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_create_event(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .calendar_create_event(rs(args, "calendar_id")?, ro(args, "event")?)
+        .calendar_create_event(arg_required_str(args, "calendar_id")?, arg_required_object(args, "event")?)
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_list_events(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
         .calendar_list_events(
-            rs(args, "calendar_id")?,
-            s(args, "start_time"),
-            s(args, "end_time"),
-            s(args, "page_token"),
-            u32_opt(args, "page_size")?,
+            arg_required_str(args, "calendar_id")?,
+            arg_str(args, "start_time"),
+            arg_str(args, "end_time"),
+            arg_str(args, "page_token"),
+            arg_u32(args, "page_size")?,
         )
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_update_event(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
         .calendar_update_event(
-            rs(args, "calendar_id")?,
-            rs(args, "event_id")?,
-            ro(args, "patch")?,
+            arg_required_str(args, "calendar_id")?,
+            arg_required_str(args, "event_id")?,
+            arg_required_object(args, "patch")?,
         )
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_delete_event(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
-    api.calendar_delete_event(rs(args, "calendar_id")?, rs(args, "event_id")?)
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
+    api.calendar_delete_event(arg_required_str(args, "calendar_id")?, arg_required_str(args, "event_id")?)
         .await?;
     Ok(serde_json::json!({"ok": true}).to_string())
 }
 pub(crate) async fn execute_attendees_create(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
         .calendar_attendees_create(
-            rs(args, "calendar_id")?,
-            rs(args, "event_id")?,
-            ra(args, "attendees")?,
+            arg_required_str(args, "calendar_id")?,
+            arg_required_str(args, "event_id")?,
+            arg_required_array(args, "attendees")?,
         )
         .await?;
     Ok(serde_json::to_string(&r)?)

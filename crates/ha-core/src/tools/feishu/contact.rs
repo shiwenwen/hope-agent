@@ -4,12 +4,15 @@
 //! email / mobile / department / job title / avatar). Surface this in
 //! the tool descriptions so the agent treats results carefully.
 
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{
+    account_param, arg_required_str, arg_required_string_array, arg_str, arg_u32, configured_tier,
+    resolve_feishu_api,
+};
 
 pub const TOOL_CONTACT_GET_USER: &str = "feishu_contact_get_user";
 pub const TOOL_CONTACT_BATCH_GET_USERS: &str = "feishu_contact_batch_get_users";
@@ -22,16 +25,8 @@ const HINT: &str =
 
 const SENSITIVE_HINT: &str = " ⚠️ Returns employee personal info (name / email / mobile / department / job_title / avatar). Treat results as sensitive — don't echo verbatim into untrusted contexts.";
 
-fn account_param() -> Value {
-    json!({"type": "string", "description": "Feishu channel account ID; required only with multiple accounts."})
-}
 fn cfg() -> ToolTier {
-    ToolTier::Configured {
-        default_for_main: false,
-        default_for_others: false,
-        default_deferred: true,
-        config_hint: HINT,
-    }
+    configured_tier(HINT)
 }
 
 pub fn get_user_tool() -> ToolDefinition {
@@ -136,66 +131,34 @@ pub fn search_users_by_department_tool() -> ToolDefinition {
     }
 }
 
-fn s<'a>(args: &'a Value, k: &str) -> Option<&'a str> {
-    args.get(k).and_then(|v| v.as_str())
-}
-fn rs<'a>(args: &'a Value, k: &str) -> Result<&'a str> {
-    s(args, k).ok_or_else(|| anyhow!("`{}` is required and must be a string", k))
-}
-fn ras(args: &Value, k: &str) -> Result<Vec<String>> {
-    let arr = args
-        .get(k)
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| anyhow!("`{}` is required and must be an array of strings", k))?;
-    let mut out = Vec::with_capacity(arr.len());
-    for (i, v) in arr.iter().enumerate() {
-        let s = v
-            .as_str()
-            .ok_or_else(|| anyhow!("`{}[{}]` must be a string", k, i))?;
-        out.push(s.to_string());
-    }
-    Ok(out)
-}
-fn u32_opt(args: &Value, k: &str) -> Result<Option<u32>> {
-    match args.get(k) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .and_then(|x| u32::try_from(x).ok())
-            .map(Some)
-            .ok_or_else(|| anyhow!("`{}` must fit u32", k)),
-        _ => Err(anyhow!("`{}` must be an integer", k)),
-    }
-}
-
 pub(crate) async fn execute_get_user(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let u = api
-        .contact_get_user(rs(args, "user_id")?, s(args, "user_id_type"))
+        .contact_get_user(arg_required_str(args, "user_id")?, arg_str(args, "user_id_type"))
         .await?;
     Ok(serde_json::to_string(&u)?)
 }
 pub(crate) async fn execute_batch_get_users(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .contact_batch_get_users(ras(args, "user_ids")?, s(args, "user_id_type"))
+        .contact_batch_get_users(arg_required_string_array(args, "user_ids")?, arg_str(args, "user_id_type"))
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_get_department(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let d = api
-        .contact_get_department(rs(args, "department_id")?, s(args, "department_id_type"))
+        .contact_get_department(arg_required_str(args, "department_id")?, arg_str(args, "department_id_type"))
         .await?;
     Ok(serde_json::to_string(&d)?)
 }
 pub(crate) async fn execute_search_users_by_department(args: &Value) -> Result<String> {
-    let api = resolve_feishu_api(s(args, "account")).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
         .contact_search_users_by_department(
-            rs(args, "department_id")?,
-            s(args, "page_token"),
-            u32_opt(args, "page_size")?,
+            arg_required_str(args, "department_id")?,
+            arg_str(args, "page_token"),
+            arg_u32(args, "page_size")?,
         )
         .await?;
     Ok(serde_json::to_string(&r)?)

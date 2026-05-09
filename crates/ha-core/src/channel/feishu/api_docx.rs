@@ -19,7 +19,7 @@ use super::api::FeishuApi;
 
 // ── Response types ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DocxDocument {
     pub document_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,7 +33,7 @@ struct DocxCreateData {
     document: DocxDocument,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DocxBlocksPage {
     #[serde(default)]
     pub items: Vec<serde_json::Value>,
@@ -43,7 +43,7 @@ pub struct DocxBlocksPage {
     pub has_more: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DocxAppendResult {
     #[serde(default)]
     pub children: Vec<serde_json::Value>,
@@ -55,7 +55,7 @@ pub struct DocxAppendResult {
     pub client_token: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DocxBlockPatchResult {
     #[serde(default)]
     pub block: serde_json::Value,
@@ -111,22 +111,14 @@ impl FeishuApi {
             self.base_url(),
             document_id
         );
-        let mut params: Vec<(String, String)> = Vec::new();
+        let mut params: Vec<(&str, String)> = Vec::new();
         if let Some(token) = page_token {
-            params.push(("page_token".into(), token.to_string()));
+            params.push(("page_token", token.to_string()));
         }
         if let Some(size) = page_size {
-            params.push(("page_size".into(), size.to_string()));
+            params.push(("page_size", size.to_string()));
         }
-        if !params.is_empty() {
-            let qs = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-                .collect::<Vec<_>>()
-                .join("&");
-            url.push('?');
-            url.push_str(&qs);
-        }
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -216,43 +208,8 @@ impl FeishuApi {
     }
 }
 
-// ── Default impls so `parse_envelope` returning None doesn't error ──
-
-impl Default for DocxBlocksPage {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            page_token: None,
-            has_more: false,
-        }
-    }
-}
-
-impl Default for DocxAppendResult {
-    fn default() -> Self {
-        Self {
-            children: Vec::new(),
-            document_revision_id: None,
-            client_token: None,
-        }
-    }
-}
-
-impl Default for DocxBlockPatchResult {
-    fn default() -> Self {
-        Self {
-            block: serde_json::Value::Null,
-            document_revision_id: None,
-            client_token: None,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::channel::feishu::auth::FeishuAuth;
-    use std::sync::Arc;
     use wiremock::matchers::{header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -260,24 +217,7 @@ mod tests {
     /// token cache via the mock's auth endpoint so the test doesn't need
     /// real network. Auth endpoint returns a fake token that's accepted by
     /// every subsequent request matcher.
-    async fn mock_api(server: &MockServer) -> FeishuApi {
-        // Token mint endpoint — FeishuAuth calls this lazily on first
-        // get_token(); responds with a 7200s token.
-        Mock::given(method("POST"))
-            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "code": 0,
-                "msg": "ok",
-                "tenant_access_token": "t-fake-token",
-                "expire": 7200
-            })))
-            .mount(server)
-            .await;
-
-        let domain = server.uri();
-        let auth = Arc::new(FeishuAuth::new("cli_test", "secret_test", &domain));
-        FeishuApi::new(auth)
-    }
+    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn docx_create_returns_document_id() {

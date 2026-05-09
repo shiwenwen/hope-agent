@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use crate::channel::feishu::api_drive::DRIVE_UPLOAD_MAX_BYTES;
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api};
 
 pub const TOOL_DRIVE_LIST_FILES: &str = "feishu_drive_list_files";
 pub const TOOL_DRIVE_UPLOAD_MEDIA: &str = "feishu_drive_upload_media";
@@ -26,20 +26,8 @@ pub const TOOL_DRIVE_DOWNLOAD_MEDIA: &str = "feishu_drive_download_media";
 const CONFIG_HINT: &str =
     "Configure a Feishu IM channel account in Settings → Channels to enable drive tools.";
 
-fn account_param() -> Value {
-    json!({
-        "type": "string",
-        "description": "Feishu channel account ID. Required only when more than one Feishu account is configured; otherwise the only configured account is used."
-    })
-}
-
-fn configured_tier() -> ToolTier {
-    ToolTier::Configured {
-        default_for_main: false,
-        default_for_others: false,
-        default_deferred: true,
-        config_hint: CONFIG_HINT,
-    }
+fn cfg() -> ToolTier {
+    configured_tier(CONFIG_HINT)
 }
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -52,7 +40,7 @@ pub fn list_files_tool() -> ToolDefinition {
              sheet + bitable + folder + shortcut). Omit `folder_token` to list the user's drive \
              root. Required Feishu app scope: `drive:drive.read` or `drive:drive`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -83,7 +71,7 @@ pub fn upload_media_tool() -> ToolDefinition {
              Note: `path` MUST be an absolute path on this machine; protected-path policies \
              (`~/.ssh/`, `*.pem`, etc.) apply just like the `read` tool."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: false,
         async_capable: false,
@@ -124,7 +112,7 @@ pub fn download_media_tool() -> ToolDefinition {
              `drive:drive.read` or `drive:drive`. Protected-path policies apply just like the \
              `write` tool."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: false,
         async_capable: false,
@@ -147,28 +135,6 @@ pub fn download_media_tool() -> ToolDefinition {
     }
 }
 
-// ── Argument helpers ────────────────────────────────────────────
-
-fn get_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(|v| v.as_str())
-}
-
-fn get_required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
-    get_str(args, key).ok_or_else(|| anyhow!("`{}` is required and must be a string", key))
-}
-
-fn get_u32(args: &Value, key: &str) -> Result<Option<u32>> {
-    match args.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .and_then(|x| u32::try_from(x).ok())
-            .map(Some)
-            .ok_or_else(|| anyhow!("`{}` must be a non-negative integer fitting in u32", key)),
-        _ => Err(anyhow!("`{}` must be an integer", key)),
-    }
-}
-
 /// Require a tilde-expanded absolute path. Mirrors what `tools/read.rs`,
 /// `tools/write.rs` etc. expect — keeps the protected-path engine working
 /// (it normalizes lexically) and avoids ambiguous "where did the file go"
@@ -188,10 +154,10 @@ fn require_absolute_path(raw: &str) -> Result<PathBuf> {
 // ── Execute fns ─────────────────────────────────────────────────
 
 pub(crate) async fn execute_list_files(args: &Value) -> Result<String> {
-    let folder_token = get_str(args, "folder_token");
-    let page_token = get_str(args, "page_token");
-    let page_size = get_u32(args, "page_size")?;
-    let account = get_str(args, "account");
+    let folder_token = arg_str(args, "folder_token");
+    let page_token = arg_str(args, "page_token");
+    let page_size = arg_u32(args, "page_size")?;
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let page = api
         .drive_list_files(folder_token, page_token, page_size)
@@ -200,11 +166,11 @@ pub(crate) async fn execute_list_files(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_upload_media(args: &Value) -> Result<String> {
-    let path_str = get_required_str(args, "path")?;
-    let folder_token = get_required_str(args, "folder_token")?;
-    let file_name_arg = get_str(args, "file_name");
-    let mime = get_str(args, "mime");
-    let account = get_str(args, "account");
+    let path_str = arg_required_str(args, "path")?;
+    let folder_token = arg_required_str(args, "folder_token")?;
+    let file_name_arg = arg_str(args, "file_name");
+    let mime = arg_str(args, "mime");
+    let account = arg_str(args, "account");
 
     let local_path = require_absolute_path(path_str)?;
     let metadata = tokio::fs::metadata(&local_path)
@@ -247,9 +213,9 @@ pub(crate) async fn execute_upload_media(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_download_media(args: &Value) -> Result<String> {
-    let file_token = get_required_str(args, "file_token")?;
-    let path_str = get_required_str(args, "path")?;
-    let account = get_str(args, "account");
+    let file_token = arg_required_str(args, "file_token")?;
+    let path_str = arg_required_str(args, "path")?;
+    let account = arg_str(args, "account");
 
     let local_path = require_absolute_path(path_str)?;
     if let Some(parent) = local_path.parent() {

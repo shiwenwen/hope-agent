@@ -17,7 +17,10 @@ use serde_json::{json, Value};
 use crate::channel::feishu::api_bitable::BITABLE_BATCH_UPDATE_MAX;
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{
+    account_param, arg_required_object, arg_required_str, arg_str, arg_u32, configured_tier,
+    resolve_feishu_api,
+};
 
 pub const TOOL_BITABLE_LIST_RECORDS: &str = "feishu_bitable_list_records";
 pub const TOOL_BITABLE_SEARCH_RECORDS: &str = "feishu_bitable_search_records";
@@ -30,20 +33,8 @@ pub const TOOL_BITABLE_LIST_DASHBOARDS: &str = "feishu_bitable_list_dashboards";
 const CONFIG_HINT: &str =
     "Configure a Feishu IM channel account in Settings → Channels to enable bitable tools.";
 
-fn account_param() -> Value {
-    json!({
-        "type": "string",
-        "description": "Feishu channel account ID. Required only when more than one Feishu account is configured; otherwise the only configured account is used."
-    })
-}
-
-fn configured_tier() -> ToolTier {
-    ToolTier::Configured {
-        default_for_main: false,
-        default_for_others: false,
-        default_deferred: true,
-        config_hint: CONFIG_HINT,
-    }
+fn cfg() -> ToolTier {
+    configured_tier(CONFIG_HINT)
 }
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -57,7 +48,7 @@ pub fn list_records_tool() -> ToolDefinition {
              field projection / sort, prefer `feishu_bitable_search_records`. Required Feishu app \
              scope: `bitable:app.read` or `bitable:app`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -105,7 +96,7 @@ pub fn search_records_tool() -> ToolDefinition {
              same paginated shape as `feishu_bitable_list_records`. Required Feishu app scope: \
              `bitable:app.read` or `bitable:app`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -158,7 +149,7 @@ pub fn create_record_tool() -> ToolDefinition {
              table's user-defined column schema (Field Name → value). Required Feishu app scope: \
              `bitable:app`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: false,
         async_capable: false,
@@ -189,7 +180,7 @@ pub fn list_views_tool() -> ToolDefinition {
              to drill into a specific view. Required Feishu app scope: `bitable:app.read` or \
              `bitable:app`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -219,7 +210,7 @@ pub fn get_view_tool() -> ToolDefinition {
              `feishu_bitable_list_records` with `view_id`. Required Feishu app scope: \
              `bitable:app.read` or `bitable:app`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -246,7 +237,7 @@ pub fn list_dashboards_tool() -> ToolDefinition {
              exposed by this endpoint. Required Feishu app scope: `bitable:app.read` or \
              `bitable:app`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -273,7 +264,7 @@ pub fn batch_update_records_tool() -> ToolDefinition {
              the listed fields are written; other fields are preserved. For full-row replacement, \
              delete and re-create. Required Feishu app scope: `bitable:app`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: false,
         async_capable: false,
@@ -300,35 +291,6 @@ pub fn batch_update_records_tool() -> ToolDefinition {
             "additionalProperties": false
         }),
     }
-}
-
-// ── Argument helpers ────────────────────────────────────────────
-
-fn get_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(|v| v.as_str())
-}
-
-fn get_required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
-    get_str(args, key).ok_or_else(|| anyhow!("`{}` is required and must be a string", key))
-}
-
-fn get_u32(args: &Value, key: &str) -> Result<Option<u32>> {
-    match args.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) => n
-            .as_u64()
-            .and_then(|x| u32::try_from(x).ok())
-            .map(Some)
-            .ok_or_else(|| anyhow!("`{}` must be a non-negative integer fitting in u32", key)),
-        _ => Err(anyhow!("`{}` must be an integer", key)),
-    }
-}
-
-fn get_required_object(args: &Value, key: &str) -> Result<Value> {
-    args.get(key)
-        .filter(|v| v.is_object())
-        .cloned()
-        .ok_or_else(|| anyhow!("`{}` is required and must be an object", key))
 }
 
 fn get_required_records(args: &Value) -> Result<Vec<Value>> {
@@ -373,13 +335,13 @@ fn get_required_records(args: &Value) -> Result<Vec<Value>> {
 // ── Execute fns ─────────────────────────────────────────────────
 
 pub(crate) async fn execute_list_records(args: &Value) -> Result<String> {
-    let app_token = get_required_str(args, "app_token")?;
-    let table_id = get_required_str(args, "table_id")?;
-    let view_id = get_str(args, "view_id");
-    let filter = get_str(args, "filter");
-    let page_token = get_str(args, "page_token");
-    let page_size = get_u32(args, "page_size")?;
-    let account = get_str(args, "account");
+    let app_token = arg_required_str(args, "app_token")?;
+    let table_id = arg_required_str(args, "table_id")?;
+    let view_id = arg_str(args, "view_id");
+    let filter = arg_str(args, "filter");
+    let page_token = arg_str(args, "page_token");
+    let page_size = arg_u32(args, "page_size")?;
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let page = api
         .bitable_list_records(app_token, table_id, view_id, filter, page_token, page_size)
@@ -388,16 +350,16 @@ pub(crate) async fn execute_list_records(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_search_records(args: &Value) -> Result<String> {
-    let app_token = get_required_str(args, "app_token")?;
-    let table_id = get_required_str(args, "table_id")?;
-    let page_token = get_str(args, "page_token");
-    let page_size = get_u32(args, "page_size")?;
-    let account = get_str(args, "account");
+    let app_token = arg_required_str(args, "app_token")?;
+    let table_id = arg_required_str(args, "table_id")?;
+    let page_token = arg_str(args, "page_token");
+    let page_size = arg_u32(args, "page_size")?;
+    let account = arg_str(args, "account");
 
     // Build the search body from explicit fields so the LLM doesn't have
     // to know Feishu's exact request shape — only required fields go in.
     let mut body = serde_json::Map::new();
-    if let Some(v) = get_str(args, "view_id") {
+    if let Some(v) = arg_str(args, "view_id") {
         body.insert("view_id".into(), Value::String(v.into()));
     }
     if let Some(v) = args.get("field_names").filter(|v| v.is_array()) {
@@ -427,10 +389,10 @@ pub(crate) async fn execute_search_records(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_create_record(args: &Value) -> Result<String> {
-    let app_token = get_required_str(args, "app_token")?;
-    let table_id = get_required_str(args, "table_id")?;
-    let fields = get_required_object(args, "fields")?;
-    let account = get_str(args, "account");
+    let app_token = arg_required_str(args, "app_token")?;
+    let table_id = arg_required_str(args, "table_id")?;
+    let fields = arg_required_object(args, "fields")?;
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let rec = api
         .bitable_create_record(app_token, table_id, fields)
@@ -439,10 +401,10 @@ pub(crate) async fn execute_create_record(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_batch_update_records(args: &Value) -> Result<String> {
-    let app_token = get_required_str(args, "app_token")?;
-    let table_id = get_required_str(args, "table_id")?;
+    let app_token = arg_required_str(args, "app_token")?;
+    let table_id = arg_required_str(args, "table_id")?;
     let records = get_required_records(args)?;
-    let account = get_str(args, "account");
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let result = api
         .bitable_batch_update_records(app_token, table_id, records)
@@ -451,11 +413,11 @@ pub(crate) async fn execute_batch_update_records(args: &Value) -> Result<String>
 }
 
 pub(crate) async fn execute_list_views(args: &Value) -> Result<String> {
-    let app_token = get_required_str(args, "app_token")?;
-    let table_id = get_required_str(args, "table_id")?;
-    let page_token = get_str(args, "page_token");
-    let page_size = get_u32(args, "page_size")?;
-    let account = get_str(args, "account");
+    let app_token = arg_required_str(args, "app_token")?;
+    let table_id = arg_required_str(args, "table_id")?;
+    let page_token = arg_str(args, "page_token");
+    let page_size = arg_u32(args, "page_size")?;
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let page = api
         .bitable_list_views(app_token, table_id, page_token, page_size)
@@ -464,20 +426,20 @@ pub(crate) async fn execute_list_views(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_get_view(args: &Value) -> Result<String> {
-    let app_token = get_required_str(args, "app_token")?;
-    let table_id = get_required_str(args, "table_id")?;
-    let view_id = get_required_str(args, "view_id")?;
-    let account = get_str(args, "account");
+    let app_token = arg_required_str(args, "app_token")?;
+    let table_id = arg_required_str(args, "table_id")?;
+    let view_id = arg_required_str(args, "view_id")?;
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let view = api.bitable_get_view(app_token, table_id, view_id).await?;
     Ok(serde_json::to_string(&view)?)
 }
 
 pub(crate) async fn execute_list_dashboards(args: &Value) -> Result<String> {
-    let app_token = get_required_str(args, "app_token")?;
-    let page_token = get_str(args, "page_token");
-    let page_size = get_u32(args, "page_size")?;
-    let account = get_str(args, "account");
+    let app_token = arg_required_str(args, "app_token")?;
+    let page_token = arg_str(args, "page_token");
+    let page_size = arg_u32(args, "page_size")?;
+    let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let page = api
         .bitable_list_dashboards(app_token, page_token, page_size)

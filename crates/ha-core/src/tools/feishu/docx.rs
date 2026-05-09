@@ -17,7 +17,9 @@ use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::resolve_feishu_api;
+use super::{
+    account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api,
+};
 
 pub const TOOL_DOCX_CREATE: &str = "feishu_docx_create";
 pub const TOOL_DOCX_GET_BLOCKS: &str = "feishu_docx_get_blocks";
@@ -27,25 +29,8 @@ pub const TOOL_DOCX_UPDATE_BLOCK_TEXT: &str = "feishu_docx_update_block_text";
 const CONFIG_HINT: &str =
     "Configure a Feishu IM channel account in Settings → Channels to enable docx tools.";
 
-fn account_param() -> Value {
-    json!({
-        "type": "string",
-        "description": "Feishu channel account ID. Required only when more than one Feishu account is configured; otherwise the only configured account is used."
-    })
-}
-
-fn configured_tier() -> ToolTier {
-    ToolTier::Configured {
-        // Off-by-default — Feishu tools are niche; enabling them on every
-        // agent would bloat prompts. Users opt in via Agent → Capabilities.
-        default_for_main: false,
-        default_for_others: false,
-        // Eligible for the deferred-loading pool (10+ feishu_* tools land
-        // by v0.2.0; users with deferredTools.enabled can move them to
-        // tool_search to keep the eager schema small).
-        default_deferred: true,
-        config_hint: CONFIG_HINT,
-    }
+fn cfg() -> ToolTier {
+    configured_tier(CONFIG_HINT)
 }
 
 // ── Tool definitions ────────────────────────────────────────────
@@ -58,7 +43,7 @@ pub fn create_tool() -> ToolDefinition {
              passed to other docx_* tools to read or modify content. Required Feishu app scope: \
              `docx:document`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: false,
         async_capable: false,
@@ -88,7 +73,7 @@ pub fn get_blocks_tool() -> ToolDefinition {
              `page_token` if more pages exist. Pass that token back as `page_token` to fetch the \
              next page. Required Feishu app scope: `docx:document.readonly` or `docx:document`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: true,
         async_capable: false,
@@ -126,7 +111,7 @@ pub fn append_block_tool() -> ToolDefinition {
              the document's root block ID (typically equal to `document_id`) as `parent_block_id`. \
              Required Feishu app scope: `docx:document`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: false,
         async_capable: false,
@@ -166,7 +151,7 @@ pub fn update_block_text_tool() -> ToolDefinition {
              array of the block. To preserve inline styling, prefer creating a fresh block with \
              `feishu_docx_append_block`. Required Feishu app scope: `docx:document`."
                 .into(),
-        tier: configured_tier(),
+        tier: cfg(),
         internal: false,
         concurrent_safe: false,
         async_capable: false,
@@ -193,74 +178,54 @@ pub fn update_block_text_tool() -> ToolDefinition {
     }
 }
 
-// ── Argument helpers ────────────────────────────────────────────
-
-fn get_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
-    args.get(key).and_then(|v| v.as_str())
-}
-
-fn get_required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
-    get_str(args, key).ok_or_else(|| anyhow!("`{}` is required and must be a string", key))
-}
-
-fn get_u32(args: &Value, key: &str) -> Result<Option<u32>> {
-    match args.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::Number(n)) => n.as_u64().and_then(|x| u32::try_from(x).ok()).map(Some).ok_or_else(
-            || anyhow!("`{}` must be a non-negative integer fitting in u32", key),
-        ),
-        _ => Err(anyhow!("`{}` must be an integer", key)),
-    }
-}
-
 // ── Execute fns ─────────────────────────────────────────────────
 
 pub(crate) async fn execute_create(args: &Value) -> Result<String> {
-    let title = get_str(args, "title");
-    let folder_token = get_str(args, "folder_token");
-    let account = get_str(args, "account");
-    let api = resolve_feishu_api(account).await?;
-    let doc = api.docx_create(title, folder_token).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
+    let doc = api
+        .docx_create(arg_str(args, "title"), arg_str(args, "folder_token"))
+        .await?;
     Ok(serde_json::to_string(&doc)?)
 }
 
 pub(crate) async fn execute_get_blocks(args: &Value) -> Result<String> {
-    let document_id = get_required_str(args, "document_id")?;
-    let page_token = get_str(args, "page_token");
-    let page_size = get_u32(args, "page_size")?;
-    let account = get_str(args, "account");
-    let api = resolve_feishu_api(account).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let page = api
-        .docx_get_blocks(document_id, page_token, page_size)
+        .docx_get_blocks(
+            arg_required_str(args, "document_id")?,
+            arg_str(args, "page_token"),
+            arg_u32(args, "page_size")?,
+        )
         .await?;
     Ok(serde_json::to_string(&page)?)
 }
 
 pub(crate) async fn execute_append_block(args: &Value) -> Result<String> {
-    let document_id = get_required_str(args, "document_id")?;
-    let parent_block_id = get_required_str(args, "parent_block_id")?;
     let block = args
         .get("block")
         .filter(|v| v.is_object())
         .cloned()
         .ok_or_else(|| anyhow!("`block` is required and must be an object"))?;
-    let index = get_u32(args, "index")?;
-    let account = get_str(args, "account");
-    let api = resolve_feishu_api(account).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let result = api
-        .docx_append_block(document_id, parent_block_id, block, index)
+        .docx_append_block(
+            arg_required_str(args, "document_id")?,
+            arg_required_str(args, "parent_block_id")?,
+            block,
+            arg_u32(args, "index")?,
+        )
         .await?;
     Ok(serde_json::to_string(&result)?)
 }
 
 pub(crate) async fn execute_update_block_text(args: &Value) -> Result<String> {
-    let document_id = get_required_str(args, "document_id")?;
-    let block_id = get_required_str(args, "block_id")?;
-    let text = get_required_str(args, "text")?;
-    let account = get_str(args, "account");
-    let api = resolve_feishu_api(account).await?;
+    let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let result = api
-        .docx_update_block_text(document_id, block_id, text)
+        .docx_update_block_text(
+            arg_required_str(args, "document_id")?,
+            arg_required_str(args, "block_id")?,
+            arg_required_str(args, "text")?,
+        )
         .await?;
     Ok(serde_json::to_string(&result)?)
 }
@@ -334,16 +299,5 @@ mod tests {
         assert!(err.to_string().contains("text"), "{}", err);
     }
 
-    #[test]
-    fn get_u32_rejects_negative() {
-        let v = json!({"page_size": -5});
-        let err = get_u32(&v, "page_size").unwrap_err();
-        assert!(err.to_string().contains("u32"), "{}", err);
-    }
-
-    #[test]
-    fn get_u32_returns_none_for_missing() {
-        let v = json!({});
-        assert_eq!(get_u32(&v, "page_size").unwrap(), None);
-    }
+    // arg_u32 / arg_str etc. are exercised by `super::tests` in mod.rs.
 }

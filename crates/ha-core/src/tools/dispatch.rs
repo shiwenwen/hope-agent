@@ -291,9 +291,6 @@ static ALL_DISPATCHABLE_TOOLS: LazyLock<Vec<ToolDefinition>> = LazyLock::new(|| 
         get_submit_plan_tool(),
         super::job_status::get_job_status_tool(),
     ]);
-    // Feishu business tools (docx / bitable / drive / wiki / approval /
-    // calendar / contact / hire). Empty in PR C0 (scaffold); each C1-C9 PR
-    // appends its own definitions inside `tools/feishu/`.
     tools.extend(super::feishu::get_feishu_tools());
     tools
 });

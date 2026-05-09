@@ -1,6 +1,6 @@
 //! calendar (日历 / Lark Calendar) REST methods.
 //!
-//! C7 of the v0.2.0 Feishu roadmap. Six endpoints:
+//! Six endpoints:
 //! - `calendar_list` — list calendars the user has access to
 //! - `calendar_create_event` — create a new event in a calendar
 //! - `calendar_list_events` — list events with optional time range
@@ -69,15 +69,7 @@ impl FeishuApi {
         if let Some(s) = page_size {
             params.push(("page_size", s.to_string()));
         }
-        if !params.is_empty() {
-            let qs = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-                .collect::<Vec<_>>()
-                .join("&");
-            url.push('?');
-            url.push_str(&qs);
-        }
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -142,15 +134,7 @@ impl FeishuApi {
         if let Some(v) = page_size {
             params.push(("page_size", v.to_string()));
         }
-        if !params.is_empty() {
-            let qs = params
-                .iter()
-                .map(|(k, v)| format!("{}={}", k, urlencoding::encode(v)))
-                .collect::<Vec<_>>()
-                .join("&");
-            url.push('?');
-            url.push_str(&qs);
-        }
+        super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::GET, &url)
             .await?
@@ -239,23 +223,9 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::channel::feishu::auth::FeishuAuth;
-    use std::sync::Arc;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-
-    async fn mock_api(server: &MockServer) -> FeishuApi {
-        Mock::given(method("POST"))
-            .and(path("/open-apis/auth/v3/tenant_access_token/internal/"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "code": 0, "msg": "ok",
-                "tenant_access_token": "t", "expire": 7200
-            })))
-            .mount(server)
-            .await;
-        FeishuApi::new(Arc::new(FeishuAuth::new("c", "s", &server.uri())))
-    }
+    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn list_returns_calendars() {
