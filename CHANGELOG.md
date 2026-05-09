@@ -5,6 +5,17 @@ All notable changes to Hope Agent will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **飞书完整对齐 v0.2.0 / Phase A 收尾 + Phase B + Phase C**（roadmap 见 `docs/plans/`）：
+  - **PR A1**：飞书入站消息解析图 / 文件 / 语音 / 视频 / 贴纸——之前 `ws_event.rs` 硬编码 `media: Vec::new()`，用户发的所有非文本内容全部丢弃。新增 [`channel/feishu/inbound_media.rs`](crates/ha-core/src/channel/feishu/inbound_media.rs) 按 `msg_type` 解析 `content` JSON 提取 `image_key` / `file_key`，调 `GET /im/v1/messages/{id}/resources/{key}?type=` 下载到 `~/.hope-agent/channels/feishu/inbound-temp/`，`InboundMedia.file_url` 指本地路径。`capabilities.supports_media` 同步补 `Voice` / `Sticker`。
+  - **PR B0**：`InboundEvent` 跨 12 channel 入站事件枚举基建。`ChannelPlugin::start_account` 签名 `mpsc::Sender<MsgContext>` → `mpsc::Sender<InboundEvent>`；6 variants（Message / Reaction / MessageEdited / MessageRecalled / Membership / ReadReceipt）；非 Message 全 dispatcher log-only，业务行为延后 v0.3+ Phase B.2。`app_init` mpsc buffer 256 → 1024。
+  - **PR B1**：飞书 9 种新事件解析（`im.message.reaction.created/deleted_v1` / `im.message.recalled_v1` / `im.message.message_read_v1` / `im.chat.member.{user,bot}.{added,deleted}_v1` / `im.chat.{created,disbanded}_v1`）。新增 [`channel/feishu/inbound_events.rs`](crates/ha-core/src/channel/feishu/inbound_events.rs)；`message_id_list` 多条 / `users` 数组多人 fan-out 成多条 `InboundEvent`。
+  - **PR C0**：飞书业务工具基础设施。新增 [`tools/feishu/mod.rs`](crates/ha-core/src/tools/feishu/mod.rs) `resolve_feishu_api(Option<&str>)` + multi/single/no 三态选择 + 按 `account_id` 缓存 `Arc<FeishuAuth>`，与 IM 渠道 `start_account` 状态完全解耦。`tools/dispatch.rs::ALL_DISPATCHABLE_TOOLS` 接入 `feishu::get_feishu_tools()`（C0 空 vec 占位）；`is_globally_configured` 用 `n.starts_with("feishu_")` 通配。
+  - **PR C1**：docx 4 tools — `feishu_docx_create` / `feishu_docx_get_blocks` / `feishu_docx_append_block` / `feishu_docx_update_block_text`。新增 [`channel/feishu/api_docx.rs`](crates/ha-core/src/channel/feishu/api_docx.rs) 4 个 REST 方法 + [`tools/feishu/docx.rs`](crates/ha-core/src/tools/feishu/docx.rs) 4 个 `ToolDefinition`。Tier 3 Configured，`default_for_main = false`，`default_deferred = true`。引入 `wiremock` dev-dep；7 单测覆盖 happy / envelope error / pagination / HTTP 5xx。[`docs/architecture/tool-system.md`](docs/architecture/tool-system.md) 新增「飞书业务 toolset」一节作为 C 阶段总入口。
+
 ## [0.1.0] - 2026-05-08
 
 首次公开发布。本节按 Keep a Changelog 的 Added / Changed / Fixed / Documentation / Removed 分类汇总 0.1.0 全部改动。

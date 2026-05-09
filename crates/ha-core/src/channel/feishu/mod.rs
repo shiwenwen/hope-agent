@@ -9,6 +9,7 @@
 //! - **Last reviewed**: 2026-05-05
 
 pub mod api;
+pub mod api_docx;
 pub mod auth;
 pub mod data_cache;
 pub mod format;

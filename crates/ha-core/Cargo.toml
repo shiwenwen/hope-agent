@@ -84,6 +84,7 @@ winreg = "0.52"
 
 [dev-dependencies]
 tempfile = "3"
+wiremock = "0.6"
 
 [lints]
 workspace = true

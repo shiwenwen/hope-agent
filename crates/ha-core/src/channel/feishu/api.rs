@@ -110,8 +110,15 @@ impl FeishuApi {
         }
     }
 
+    /// The Feishu base URL (`https://open.feishu.cn` etc.), exposed to
+    /// sibling `api_<module>.rs` files so they can build endpoint URLs
+    /// without duplicating domain resolution.
+    pub(super) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     /// Get an authorized request builder with the current access token.
-    async fn authorized_request(
+    pub(super) async fn authorized_request(
         &self,
         method: reqwest::Method,
         url: &str,
@@ -128,7 +135,11 @@ impl FeishuApi {
     /// messages so callers can disambiguate ("card create" vs "delete
     /// message"). Returns `Ok(None)` when the response carries no `data`
     /// (some endpoints like update / delete legitimately omit it on success).
-    async fn parse_envelope<T>(&self, resp: reqwest::Response, label: &str) -> Result<Option<T>>
+    pub(super) async fn parse_envelope<T>(
+        &self,
+        resp: reqwest::Response,
+        label: &str,
+    ) -> Result<Option<T>>
     where
         T: serde::de::DeserializeOwned,
     {

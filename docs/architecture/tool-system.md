@@ -1177,6 +1177,39 @@ block-beta
 
 ---
 
+## 飞书业务 toolset
+
+v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 / 云盘 / 知识库 / 审批 / 日历 / 联系人 / 招聘）做成 internal tools。设计与 PR 切分见 [`docs/plans/feishu-business-tools.md`](../plans/feishu-business-tools.md)；本节只列**对工具系统的契约**。
+
+**凭据复用**：所有 `feishu_*` tool 共享 [`tools::feishu::resolve_feishu_api`](../../crates/ha-core/src/tools/feishu/mod.rs)，从 [`cached_config().channels.accounts`](../../crates/ha-core/src/config/persistence.rs) 找出已配置的飞书账号，按账号 ID 缓存 [`FeishuAuth`](../../crates/ha-core/src/channel/feishu/auth.rs) —— 与 IM 渠道是否 `start_account` 解耦，**即使没有运行 WS 网关，业务 tool 也能用**（[`feishu-business-tools.md` §6.5`](../plans/feishu-business-tools.md) Option B）。token mutex 共享，7200s 内不会双登。
+
+**多账号路由**：每个 tool schema 都有可选 `account` 参数；零账号报错引导用户去 Settings → Channels；单账号自动选；多账号且未指定 `account` 时报错列出可选 ID。
+
+**Tier 与默认值**：全部 Tier 3 Configured，`default_for_main = false / default_for_others = false`（用户主动开），`default_deferred = true`（首版后预计 40+ 飞书 tool，鼓励放进 deferred 池）。`is_globally_configured` 用 `n.starts_with("feishu_")` 通配——所有飞书 tool 共享一个全局配置门：「至少一个飞书账号已配」。未配但 agent 已开 → `HintOnly`，system prompt `# Unconfigured Capabilities` 段引导。
+
+**SSRF 豁免**：飞书域名（feishu.cn / larksuite.com / 自部署）按既有 `channel/feishu/api.rs::authorized_request` 惯例豁免 `security::ssrf::check_url`。每个 `api_<module>.rs` 顶部 doc 注明此豁免，新增非飞书出站 tool 仍必走 SSRF。
+
+**风险等级**：所有飞书业务 tool 标 **MEDIUM**（影响范围限于飞书租户内，不涉及本机文件 / 全局键位 / 凭据）。例外：
+- 审批 `feishu_approval_create` / `feishu_approval_cancel` 标 **HIGH**（创建审批实例影响审批流；C6 PR 落地）
+- 联系人 `feishu_contact_*` 仍是 MEDIUM 但 doc 必须警示「读取员工个人信息」（C8 PR 落地）
+
+**当前已实现 tool**：
+
+| PR | tool | 用途 |
+|---|---|---|
+| C1 | `feishu_docx_create` | 新建空文档，返回 `document_id` |
+| C1 | `feishu_docx_get_blocks` | 列文档全部 block（分页） |
+| C1 | `feishu_docx_append_block` | 在指定 parent 下追加 block |
+| C1 | `feishu_docx_update_block_text` | 覆盖式改 block 文本 |
+
+C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
+
+**测试基线**：每个 `api_<module>.rs` 用 [`wiremock`](https://crates.io/crates/wiremock) 启动 mock HTTP server，覆盖 happy path + 飞书 envelope 错误码（如 `99991672` 权限不足）+ HTTP 5xx。`tools::feishu::*::execute_*` 单测验证参数缺失/类型错误的早期 `anyhow::Error` 路径。
+
+**配套技能**（v0.2.0 收尾）：[`skills/feishu/SKILL.md`](../../skills/feishu/SKILL.md) wrapper skill，`paths: ["飞书","feishu","lark"]` 条件激活，包含常见工作流剧本（OKR 周报 / 审批 / 会议邀请）+ scope 速查表 + 错误码翻译。
+
+---
+
 ## 关键源文件索引
 
 | 文件 | 职责 |

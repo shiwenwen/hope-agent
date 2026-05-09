@@ -642,6 +642,17 @@ pub async fn execute_tool_with_context(
             super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
             super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
             super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
+            // Feishu docx (PR C1).
+            super::feishu::docx::TOOL_DOCX_CREATE => super::feishu::docx::execute_create(args).await,
+            super::feishu::docx::TOOL_DOCX_GET_BLOCKS => {
+                super::feishu::docx::execute_get_blocks(args).await
+            }
+            super::feishu::docx::TOOL_DOCX_APPEND_BLOCK => {
+                super::feishu::docx::execute_append_block(args).await
+            }
+            super::feishu::docx::TOOL_DOCX_UPDATE_BLOCK_TEXT => {
+                super::feishu::docx::execute_update_block_text(args).await
+            }
             // MCP-sourced tools all share the `mcp__<server>__<tool>`
             // prefix; dispatch them through the dedicated subsystem.
             n if crate::mcp::catalog::is_mcp_tool_name(n) => {

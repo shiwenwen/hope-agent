@@ -85,6 +85,10 @@ pub fn is_globally_configured(name: &str, app_config: &AppConfig) -> bool {
         TOOL_CANVAS => app_config.canvas.enabled,
         TOOL_SEND_NOTIFICATION => app_config.notification.enabled,
         TOOL_SUBAGENT | TOOL_ACP_SPAWN => true,
+        // All `feishu_*` tools share the same provisioning gate — at least
+        // one Feishu channel account configured. Falls to HintOnly when the
+        // user enabled the agent capability but hasn't added an account.
+        n if n.starts_with("feishu_") => crate::tools::feishu::has_any_account_configured(),
         _ => true,
     }
 }

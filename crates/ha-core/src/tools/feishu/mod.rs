@@ -20,17 +20,10 @@
 //! token (no double-login).
 //!
 //! `get_feishu_tools()` is the single entry point used by
-//! [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`]. It returns an empty vec in
-//! C0 (this PR is scaffold-only); each subsequent C1-C9 PR appends its own
-//! `feishu_<module>_*` tool definitions.
+//! [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`]. PR C1 onwards each append
+//! their `feishu_<module>_*` tools to the returned vec.
 
-// Helpers below (`resolve_feishu_api`, `enumerate_feishu_accounts`,
-// `select_account`, `extract_creds`, the auth cache) are intentionally not
-// called by anything yet — PR C0 is scaffold-only. PR C1 (docx) will be the
-// first concrete tool that wires them up. Suppress the dead-code lint until
-// then to keep the merge clean; the tests exercise `select_account` /
-// `extract_creds` so no logic ships uncovered.
-#![allow(dead_code)]
+pub mod docx;
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -183,12 +176,25 @@ pub async fn resolve_feishu_api(account: Option<&str>) -> Result<Arc<FeishuApi>>
 
 /// Returns the full set of Feishu business tool definitions.
 ///
-/// Empty in PR C0 (this PR — scaffold only). Each subsequent PR
-/// (C1 docx → C9 hire) appends its own tool definitions to this vec; the
-/// dispatch layer extends [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`] from
-/// here once and the vec grows monotonically.
+/// Each sub-system landed in its own PR appends to this vec; the dispatch
+/// layer extends [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`] from here
+/// once and the vec grows monotonically as v0.2.0 progresses (C1 docx
+/// → C9 hire).
 pub fn get_feishu_tools() -> Vec<ToolDefinition> {
-    Vec::new()
+    vec![
+        docx::create_tool(),
+        docx::get_blocks_tool(),
+        docx::append_block_tool(),
+        docx::update_block_text_tool(),
+    ]
+}
+
+/// Whether at least one Feishu account is configured. The dispatcher reads
+/// this in `is_globally_configured` so all `feishu_*` tools fall to
+/// `HintOnly` when the user has the agent capability enabled but no
+/// account configured yet.
+pub fn has_any_account_configured() -> bool {
+    !enumerate_feishu_accounts().is_empty()
 }
 
 #[cfg(test)]
