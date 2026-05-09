@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { lazy, Suspense, useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -49,7 +49,13 @@ import MemoryPanel from "@/components/settings/MemoryPanel"
 import PermissionsPanel from "@/components/settings/PermissionsPanel"
 import CrashHistoryPanel from "@/components/settings/CrashHistoryPanel"
 import NotificationPanel from "@/components/settings/NotificationPanel"
-import DeveloperPanel from "@/components/settings/DeveloperPanel"
+// Developer-only panel (clears sessions / cron / memory / config). Lazy-loaded
+// behind a `!import.meta.env.PROD` guard so Vite tree-shakes the whole module
+// + its alert-dialog deps out of release bundles, and the entry never appears
+// in the settings sidebar for end users (avoids accidental data wipe).
+const DeveloperPanel = !import.meta.env.PROD
+  ? lazy(() => import("@/components/settings/DeveloperPanel"))
+  : null
 import SandboxPanel from "@/components/settings/SandboxPanel"
 import AcpControlPanel from "@/components/settings/AcpControlPanel"
 import ChannelPanel from "@/components/settings/channel-panel"
@@ -181,11 +187,18 @@ const SECTIONS: SettingsSectionItem[] = [
     icon: <Info className="h-4 w-4" />,
     labelKey: "settings.about",
   },
-  {
-    id: "developer",
-    icon: <Code className="h-4 w-4" />,
-    labelKey: "settings.developer",
-  },
+  // Developer entry only present in dev builds — see DeveloperPanel comment
+  // above. The conditional spread + tree-shakeable `import.meta.env.PROD`
+  // ensures the section vanishes from the sidebar in release.
+  ...(!import.meta.env.PROD
+    ? [
+        {
+          id: "developer" as const,
+          icon: <Code className="h-4 w-4" />,
+          labelKey: "settings.developer",
+        },
+      ]
+    : []),
 ]
 
 export default function SettingsView({
@@ -210,9 +223,14 @@ export default function SettingsView({
   const { t } = useTranslation()
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
   const { unseenCount: skillDraftUnseen } = useDraftSkillsStore()
-  const [activeSection, setActiveSection] = useState<SettingsSection>(
-    initialSection ?? "modelConfig",
-  )
+  const [activeSection, setActiveSection] = useState<SettingsSection>(() => {
+    const initial = initialSection ?? "modelConfig"
+    // Release builds don't ship the developer panel; fall back if anything
+    // (initialSection prop, settings:navigate event, stale storage) tries
+    // to land here so the user doesn't see an empty pane.
+    if (initial === "developer" && import.meta.env.PROD) return "modelConfig"
+    return initial
+  })
   const [modelConfigTab, setModelConfigTab] = useState("providers")
   const [addingProvider, setAddingProvider] = useState(false)
   const [editingProvider, setEditingProvider] = useState<ProviderConfig | null>(null)
@@ -220,7 +238,15 @@ export default function SettingsView({
   useEffect(() => {
     const handleNavigate = (event: Event) => {
       const detail = (event as CustomEvent<{ section?: SettingsSection; modelTab?: string }>).detail
-      if (detail?.section) setActiveSection(detail.section)
+      if (detail?.section) {
+        // Same release-build guard as the initial state — refuse to land on
+        // a section that isn't shipped.
+        if (detail.section === "developer" && import.meta.env.PROD) {
+          setActiveSection("modelConfig")
+        } else {
+          setActiveSection(detail.section)
+        }
+      }
       if (detail?.modelTab) setModelConfigTab(detail.modelTab)
     }
     window.addEventListener("settings:navigate", handleNavigate)
@@ -344,7 +370,11 @@ export default function SettingsView({
             {activeSection === "logs" && <LogPanel />}
             {activeSection === "about" && <AboutPanel />}
             {activeSection === "server" && <ServerPanel />}
-            {activeSection === "developer" && <DeveloperPanel />}
+            {activeSection === "developer" && DeveloperPanel && (
+              <Suspense fallback={null}>
+                <DeveloperPanel />
+              </Suspense>
+            )}
           </div>
         </div>
       </div>
