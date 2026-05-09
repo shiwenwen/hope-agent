@@ -676,6 +676,10 @@ pub async fn execute_tool_with_context(
             super::feishu::drive::TOOL_DRIVE_DOWNLOAD_MEDIA => {
                 super::feishu::drive::execute_download_media(args).await
             }
+            // Feishu wiki (PR C4).
+            super::feishu::wiki::TOOL_WIKI_GET_NODE => {
+                super::feishu::wiki::execute_get_node(args).await
+            }
             // MCP-sourced tools all share the `mcp__<server>__<tool>`
             // prefix; dispatch them through the dedicated subsystem.
             n if crate::mcp::catalog::is_mcp_tool_name(n) => {

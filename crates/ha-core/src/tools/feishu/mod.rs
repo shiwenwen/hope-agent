@@ -26,6 +26,7 @@
 pub mod bitable;
 pub mod docx;
 pub mod drive;
+pub mod wiki;
 
 use anyhow::{anyhow, Result};
 use std::collections::HashMap;
@@ -198,6 +199,8 @@ pub fn get_feishu_tools() -> Vec<ToolDefinition> {
         drive::list_files_tool(),
         drive::upload_media_tool(),
         drive::download_media_tool(),
+        // C4 — wiki
+        wiki::get_node_tool(),
     ]
 }
 

@@ -1208,6 +1208,7 @@ v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 /
 | C3 | `feishu_drive_list_files` | 列云盘文件夹内容（含 doc / sheet / bitable / file / folder） |
 | C3 | `feishu_drive_upload_media` | 上传本地文件到云盘（≤20MB；走 protected-path 审批） |
 | C3 | `feishu_drive_download_media` | 按 file_token 下载到本地（走 protected-path 审批） |
+| C4 | `feishu_wiki_get_node` | 由 wiki token 反查节点元信息（space_id / obj_token / obj_type 等） |
 
 C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
 

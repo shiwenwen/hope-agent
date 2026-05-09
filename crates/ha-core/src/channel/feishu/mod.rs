@@ -12,6 +12,7 @@ pub mod api;
 pub mod api_bitable;
 pub mod api_docx;
 pub mod api_drive;
+pub mod api_wiki;
 pub mod auth;
 pub mod data_cache;
 pub mod format;
