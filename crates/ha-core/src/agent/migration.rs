@@ -4,12 +4,15 @@
 //!
 //! Touches:
 //! - on-disk dirs: `agents/default/`, `default-home/`, `plans/default/`
+//! - `agents/*/agent.json`: `subagents.allowedAgents` / `deniedAgents`
+//!   array entries (per-agent delegation allow/deny lists)
 //! - `sessions.db` (also hosts `projects` / channel tables): `sessions`,
 //!   `team_members`, `teams.lead_agent_id`, `subagent_runs.parent_agent_id`,
 //!   `subagent_runs.child_agent_id`, `projects.default_agent_id`
 //! - `cron.db`: `cron_jobs.payload_json` (rewrites the embedded `agent_id`
 //!   inside each `AgentTurn` payload)
 //! - `logs.db`: `logs.agent_id`
+//! - `memory.db`: `memories.scope_agent_id` for `scope_type='agent'` rows
 //! - `async_jobs.db` (best-effort, only when the file already exists)
 //! - `canvas/canvas.db` (best-effort, only when the file already exists)
 //! - global config (`config.json`): `default_agent_id`,
@@ -22,7 +25,10 @@
 //! so subsequent startups short-circuit; each step is also independently
 //! idempotent (WHERE clauses become no-ops after the first run, dir
 //! renames check existence first), so a crash mid-migration leaves the
-//! next run able to resume.
+//! next run able to resume. **The sentinel is only written when the disk
+//! rename completes cleanly** — when both `default/` and `ha-main/` exist
+//! (manual user setup), the migration aborts without touching DBs / config
+//! and re-prompts on next startup.
 
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
@@ -39,9 +45,17 @@ const OLD_DEFAULT_ID: &str = "default";
 /// no-op once the sentinel is present. Pulls live DB handles from the
 /// `globals::*` registries (`SESSION_DB` / `CRON_DB` / `LOG_DB` are
 /// initialised earlier in `init_runtime`); opens fresh connections for
-/// `async_jobs.db` / `canvas/canvas.db`, which are either lazy-initialised
-/// elsewhere (canvas has no global registry) or not yet stored at this
-/// point in the runtime lifecycle (async_jobs is set later).
+/// `async_jobs.db` / `canvas/canvas.db` / `memory.db`, which are either
+/// lazy-initialised elsewhere (canvas has no global registry) or not yet
+/// stored at this point in the runtime lifecycle (async_jobs is set
+/// later); for memory we'd need to reach through an `Arc<dyn
+/// MemoryBackend>` trait object which doesn't expose the raw connection.
+///
+/// **Order contract**: callers MUST run this before `ensure_default_agent()`
+/// (which would otherwise pre-create an empty `agents/<DEFAULT_AGENT_ID>/`
+/// template, making the rename refuse and orphan the user's legacy data).
+/// Both desktop (`src-tauri/src/lib.rs`) and server (`src-tauri/src/main.rs`)
+/// run `init_runtime` before `ensure_default_agent` for this reason.
 pub fn migrate_default_agent_id_to_ha_main() -> Result<()> {
     let sentinel = paths::root_dir()?.join(".agent-id-renamed");
     if sentinel.exists() {
@@ -54,7 +68,21 @@ pub fn migrate_default_agent_id_to_ha_main() -> Result<()> {
         return Ok(());
     }
 
-    rename_disk_dirs()?;
+    // Disk dir rename is the only step that can hit a true blocking conflict
+    // (both legacy and new dir present, with possibly distinct user data).
+    // When that happens, abort everything — DB / config rewrite would orphan
+    // the legacy `agents/default/` data behind a sentinel that says "done".
+    if !rename_disk_dirs()? {
+        app_warn!(
+            "agent",
+            "migration",
+            "aborting migration: directory conflict between legacy 'default' \
+             and new '{}' agent dirs. Resolve manually (merge or delete one); \
+             rerun the app to retry.",
+            DEFAULT_AGENT_ID
+        );
+        return Ok(());
+    }
 
     if let Some(db) = SESSION_DB.get() {
         update_session_db(db)?;
@@ -71,7 +99,9 @@ pub fn migrate_default_agent_id_to_ha_main() -> Result<()> {
         "async_tool_jobs",
     )?;
     update_external_db_if_present("canvas.db", paths::canvas_db_path()?, "canvas_projects")?;
+    update_memory_db_if_present()?;
 
+    update_agent_configs()?;
     update_config_in_place()?;
 
     std::fs::write(&sentinel, b"")
@@ -87,28 +117,35 @@ pub fn migrate_default_agent_id_to_ha_main() -> Result<()> {
     Ok(())
 }
 
-fn rename_disk_dirs() -> Result<()> {
-    rename_dir_if_present(
+/// Rename the three legacy disk dirs. Returns `false` when any rename had to
+/// be skipped because both the legacy and the new path are populated — caller
+/// must abort the rest of the migration in that case so DB / config don't
+/// silently re-point sessions to a fresh-template `ha-main` while the user's
+/// real data sits in `default/`.
+fn rename_disk_dirs() -> Result<bool> {
+    let mut all_clear = true;
+    all_clear &= rename_dir_if_present(
         &paths::agent_dir(OLD_DEFAULT_ID)?,
         &paths::agent_dir(DEFAULT_AGENT_ID)?,
     )?;
-    rename_dir_if_present(
+    all_clear &= rename_dir_if_present(
         &paths::agent_home_dir(OLD_DEFAULT_ID)?,
         &paths::agent_home_dir(DEFAULT_AGENT_ID)?,
     )?;
     let plans = paths::plans_dir()?;
-    rename_dir_if_present(&plans.join(OLD_DEFAULT_ID), &plans.join(DEFAULT_AGENT_ID))?;
-    Ok(())
+    all_clear &= rename_dir_if_present(&plans.join(OLD_DEFAULT_ID), &plans.join(DEFAULT_AGENT_ID))?;
+    Ok(all_clear)
 }
 
-fn rename_dir_if_present(from: &Path, to: &Path) -> Result<()> {
+/// Rename `from` → `to`. Returns:
+/// - `Ok(true)` if rename succeeded or `from` was absent (nothing to do).
+/// - `Ok(false)` if both `from` and `to` exist (refused — caller decides
+///   whether to abort).
+fn rename_dir_if_present(from: &Path, to: &Path) -> Result<bool> {
     if !from.exists() {
-        return Ok(());
+        return Ok(true);
     }
     if to.exists() {
-        // User somehow has both — refuse to overwrite their `ha-main` data.
-        // Surface a warning so they know to merge / drop one side manually;
-        // SQL + config rewrites still proceed, since they're non-destructive.
         app_warn!(
             "agent",
             "migration",
@@ -116,7 +153,7 @@ fn rename_dir_if_present(from: &Path, to: &Path) -> Result<()> {
             from.display(),
             to.display()
         );
-        return Ok(());
+        return Ok(false);
     }
     if let Some(parent) = to.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -130,7 +167,7 @@ fn rename_dir_if_present(from: &Path, to: &Path) -> Result<()> {
         from.display(),
         to.display()
     );
-    Ok(())
+    Ok(true)
 }
 
 fn update_session_db(session_db: &crate::session::SessionDB) -> Result<()> {
@@ -288,6 +325,103 @@ fn log_rewrite(label: &str, n: usize) {
     }
 }
 
+/// Memory DB needs a dedicated helper because its schema diverges from the
+/// other agent_id-bearing tables: the column is `scope_agent_id` and the
+/// row is only relevant when `scope_type = 'agent'` (project-scoped rows
+/// share the schema but use `scope_project_id`).
+fn update_memory_db_if_present() -> Result<()> {
+    let path = paths::memory_db_path()?;
+    if !path.exists() {
+        return Ok(());
+    }
+    let conn =
+        Connection::open(&path).with_context(|| format!("open memory db at {}", path.display()))?;
+    if !table_exists(&conn, "memories") {
+        return Ok(());
+    }
+    let n = conn.execute(
+        "UPDATE memories SET scope_agent_id = ?1 \
+         WHERE scope_type = 'agent' AND scope_agent_id = ?2",
+        params![DEFAULT_AGENT_ID, OLD_DEFAULT_ID],
+    )?;
+    log_rewrite("memory.db", n);
+    Ok(())
+}
+
+/// Walk every `agents/<id>/agent.json` and rewrite legacy `"default"`
+/// occurrences inside `subagents.allowedAgents` / `subagents.deniedAgents`.
+/// These are user-authored allow/deny lists where the literal `"default"`
+/// referenced the main agent — left unrewritten, post-rename delegation
+/// would silently match a non-existent id.
+fn update_agent_configs() -> Result<()> {
+    let agents_dir = paths::agents_dir()?;
+    let entries = match std::fs::read_dir(&agents_dir) {
+        Ok(e) => e,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => return Err(err.into()),
+    };
+    let mut rewritten_files: usize = 0;
+    for entry in entries.flatten() {
+        if !entry.path().is_dir() {
+            continue;
+        }
+        let json_path = entry.path().join("agent.json");
+        if !json_path.exists() {
+            continue;
+        }
+        let content = match std::fs::read_to_string(&json_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        let mut value: serde_json::Value = match serde_json::from_str(&content) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if rewrite_subagent_allowlists_in_value(&mut value) {
+            // Pretty-write to match `save_agent_config` so a subsequent open in
+            // the agent editor doesn't reformat the whole file.
+            let new_content = serde_json::to_string_pretty(&value)?;
+            std::fs::write(&json_path, new_content)
+                .with_context(|| format!("write migrated agent.json at {}", json_path.display()))?;
+            rewritten_files += 1;
+        }
+    }
+    if rewritten_files > 0 {
+        app_info!(
+            "agent",
+            "migration",
+            "agents/*/agent.json: rewrote subagents allow/deny in {} file(s) '{}' → '{}'",
+            rewritten_files,
+            OLD_DEFAULT_ID,
+            DEFAULT_AGENT_ID
+        );
+    }
+    Ok(())
+}
+
+/// Rewrite `subagents.allowedAgents` / `subagents.deniedAgents` array entries
+/// whose value equals the legacy `"default"`. Conservative — touches only
+/// these two specific paths, not any other `Vec<String>` in the JSON, so
+/// fields that legitimately store `"default"` (theme, etc.) are untouched.
+fn rewrite_subagent_allowlists_in_value(value: &mut serde_json::Value) -> bool {
+    let mut changed = false;
+    let Some(subagents) = value.get_mut("subagents").and_then(|v| v.as_object_mut()) else {
+        return false;
+    };
+    for key in ["allowedAgents", "deniedAgents"] {
+        let Some(arr) = subagents.get_mut(key).and_then(|v| v.as_array_mut()) else {
+            continue;
+        };
+        for item in arr.iter_mut() {
+            if item.as_str() == Some(OLD_DEFAULT_ID) {
+                *item = serde_json::Value::String(DEFAULT_AGENT_ID.to_string());
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
 /// Helper: rewrite `*slot` to the new id when it equals the legacy literal,
 /// flipping `*changed` so the caller can decide whether to log.
 fn rewrite_legacy_id(slot: &mut Option<String>, changed: &mut bool) {
@@ -381,5 +515,58 @@ mod tests {
             assert_eq!(s, keep);
             assert!(!c);
         }
+    }
+
+    #[test]
+    fn rewrite_subagent_allowlists_replaces_in_both_lists() {
+        let mut value = serde_json::json!({
+            "name": "Hope",
+            "subagents": {
+                "allowedAgents": [OLD_DEFAULT_ID, "coder"],
+                "deniedAgents": [OLD_DEFAULT_ID],
+                "maxConcurrent": 3,
+            },
+        });
+        assert!(rewrite_subagent_allowlists_in_value(&mut value));
+        assert_eq!(
+            value["subagents"]["allowedAgents"],
+            serde_json::json!([DEFAULT_AGENT_ID, "coder"])
+        );
+        assert_eq!(
+            value["subagents"]["deniedAgents"],
+            serde_json::json!([DEFAULT_AGENT_ID])
+        );
+        // Unrelated fields untouched.
+        assert_eq!(value["subagents"]["maxConcurrent"], 3);
+        assert_eq!(value["name"], "Hope");
+    }
+
+    #[test]
+    fn rewrite_subagent_allowlists_no_op_when_subagents_missing_or_clean() {
+        // `subagents` block missing entirely.
+        let mut a = serde_json::json!({ "name": "Hope" });
+        assert!(!rewrite_subagent_allowlists_in_value(&mut a));
+
+        // Lists present but no legacy id inside.
+        let mut b = serde_json::json!({
+            "subagents": {
+                "allowedAgents": ["coder", "researcher"],
+                "deniedAgents": [],
+            },
+        });
+        assert!(!rewrite_subagent_allowlists_in_value(&mut b));
+    }
+
+    #[test]
+    fn rewrite_subagent_allowlists_only_touches_allow_deny_paths() {
+        // A field that legitimately holds the literal "default" elsewhere
+        // in agent.json (e.g. a personality preset id) must NOT be rewritten.
+        // Conservative — we only walk `subagents.{allowed,denied}Agents`.
+        let mut value = serde_json::json!({
+            "personality": { "preset": OLD_DEFAULT_ID },
+            "subagents": { "allowedAgents": [] },
+        });
+        assert!(!rewrite_subagent_allowlists_in_value(&mut value));
+        assert_eq!(value["personality"]["preset"], OLD_DEFAULT_ID);
     }
 }

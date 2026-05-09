@@ -367,16 +367,21 @@ fn run_server(args: &[String]) {
         }
         _ => {}
     }
-    if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
-        eprintln!("[server] Warning: failed to ensure default agent: {}", e);
-    }
-
     // Initialize core runtime: opens every DB, sets every OnceLock,
     // bootstraps a default EventBus, registers channel plugins, and brings
     // up the ACP control plane. Server mode wants the same singleton set
     // as desktop — only the GUI-specific pieces (Tauri webview, embedded
     // HTTP server, EventBus → frontend bridge) differ.
+    //
+    // Must run before `ensure_default_agent`: the legacy `"default"` →
+    // `"ha-main"` agent-id rename inside `init_runtime` would otherwise
+    // race with `ensure_default_agent` pre-creating an empty `agents/ha-main/`
+    // template and orphan the user's customised legacy data.
     ha_core::init_runtime("server");
+
+    if let Err(e) = ha_core::agent_loader::ensure_default_agent() {
+        eprintln!("[server] Warning: failed to ensure default agent: {}", e);
+    }
 
     let session_db = ha_core::require_session_db()
         .expect("init_runtime contract")
