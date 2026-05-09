@@ -13,12 +13,12 @@
 //!
 //! Reference: <https://open.feishu.cn/document/uAjLw4CM/ukTMukTMukTM/reference/im-v1/message/events/receive>
 //!
-//! Parsing is sync (no I/O); materialization downloads bytes via
-//! `FeishuApi::download_resource`, persists them under
-//! `~/.hope-agent/channels/feishu/inbound-temp/`, and produces an
-//! [`InboundMedia`] whose `file_url` is the local path. Failures are logged
-//! and yield `None` — the surrounding text + raw event still reach the
-//! dispatcher so the agent can fall back gracefully.
+//! Parsing is sync (no I/O); materialization streams bytes chunk-by-chunk
+//! through `FeishuApi::download_resource_to_file` straight onto disk under
+//! `~/.hope-agent/channels/feishu/inbound-temp/` (no in-memory buffer), and
+//! produces an [`InboundMedia`] whose `file_url` is the local path.
+//! Failures are logged and yield `None` — the surrounding text + raw event
+//! still reach the dispatcher so the agent can fall back gracefully.
 
 use serde::{Deserialize, Serialize};
 
@@ -245,10 +245,15 @@ pub fn take_pending_refs(msg: &mut MsgContext) -> Vec<ParsedMediaRef> {
     serde_json::from_value(value).unwrap_or_default()
 }
 
-/// Download a parsed media ref to local disk and return an [`InboundMedia`]
-/// pointing at the on-disk path. Returns `None` (with warn log) on download
-/// or persistence failure — the caller should keep the surrounding message
-/// reaching the dispatcher even if media materialization fails.
+/// Download a parsed media ref straight to local disk (no in-memory buffer)
+/// and return an [`InboundMedia`] pointing at the on-disk path. Returns
+/// `None` (with warn log) on download or persistence failure — the caller
+/// should keep the surrounding message reaching the dispatcher even if
+/// media materialization fails. Aligns with the GUI attachment model:
+/// non-image files only ever flow as `file_path` on the LLM side
+/// ([`channel/worker/media.rs::convert_inbound_media_to_attachments`])
+/// so streaming chunk-by-chunk to disk avoids ever holding the full body
+/// in memory — a 1 GB inbound video occupies ~16 KB of buffer at a time.
 pub async fn materialize_inbound(
     api: &FeishuApi,
     message_id: &str,
@@ -269,23 +274,6 @@ pub async fn materialize_inbound(
             return None;
         }
     }
-    let bytes = match api
-        .download_resource(message_id, &parsed.key, parsed.resource_type.as_str())
-        .await
-    {
-        Ok(b) => b,
-        Err(e) => {
-            app_warn!(
-                "channel",
-                "feishu:inbound",
-                "[{}] Failed to download media key='{}': {}",
-                account_id,
-                parsed.key,
-                e
-            );
-            return None;
-        }
-    };
 
     let dir = match crate::paths::channel_dir("feishu") {
         Ok(d) => d.join("inbound-temp"),
@@ -320,19 +308,24 @@ pub async fn materialize_inbound(
         .as_millis();
     let path = dir.join(format!("{}-{}.{}", ts, safe_key, ext));
 
-    if let Err(e) = tokio::fs::write(&path, &bytes).await {
-        app_warn!(
-            "channel",
-            "feishu:inbound",
-            "[{}] Failed to write inbound media to {:?}: {}",
-            account_id,
-            path,
-            e
-        );
-        return None;
-    }
+    let on_disk_size = match api
+        .download_resource_to_file(message_id, &parsed.key, parsed.resource_type.as_str(), &path)
+        .await
+    {
+        Ok(n) => n,
+        Err(e) => {
+            app_warn!(
+                "channel",
+                "feishu:inbound",
+                "[{}] Failed to download media key='{}': {}",
+                account_id,
+                parsed.key,
+                e
+            );
+            return None;
+        }
+    };
 
-    let on_disk_size = bytes.len() as u64;
     Some(InboundMedia {
         media_type: parsed.media_type.clone(),
         file_id: parsed.key.clone(),

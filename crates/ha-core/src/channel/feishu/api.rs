@@ -367,13 +367,22 @@ impl FeishuApi {
     /// message. `resource_type` must be `"image"` for `image_key` references
     /// (image messages) and `"file"` for `file_key` references (file / audio
     /// / video / sticker messages).
-    pub async fn download_resource(
+    /// Download an `im/v1/messages/.../resources/...` attachment directly
+    /// to `dest`, streaming each HTTP chunk to disk so the full body never
+    /// materializes in memory — a single user-sent video can be hundreds
+    /// of MB. Returns the on-disk byte count on success. On any failure
+    /// (network, HTTP error, cap overrun) the partial file at `dest` is
+    /// removed so we never leave a half-written attachment that callers
+    /// could mistake for a complete download.
+    pub async fn download_resource_to_file(
         &self,
         message_id: &str,
         key: &str,
         resource_type: &str,
-    ) -> Result<Vec<u8>> {
+        dest: &std::path::Path,
+    ) -> Result<u64> {
         use futures_util::StreamExt;
+        use tokio::io::AsyncWriteExt;
 
         let url = format!(
             "{}/open-apis/im/v1/messages/{}/resources/{}?type={}",
@@ -400,8 +409,8 @@ impl FeishuApi {
             ));
         }
 
-        // Reject early if the server advertises a body that exceeds the cap
-        // — saves us reading even one chunk for clearly oversize files.
+        // Reject early if the server advertises a body over the cap —
+        // saves us opening a file for clearly oversize attachments.
         if let Some(len) = resp.content_length() {
             if len > super::inbound_media::INBOUND_DOWNLOAD_MAX_BYTES {
                 return Err(anyhow!(
@@ -413,29 +422,62 @@ impl FeishuApi {
             }
         }
 
-        // Stream chunks and bail mid-flight if the running total trips the
-        // cap (covers chunked-encoding responses without Content-Length).
-        let cap = super::inbound_media::INBOUND_DOWNLOAD_MAX_BYTES as usize;
-        let mut buf: Vec<u8> = Vec::new();
+        let mut file = tokio::fs::File::create(dest).await.map_err(|e| {
+            anyhow!(
+                "Failed to open destination {:?} for Feishu resource '{}': {}",
+                dest,
+                key,
+                e
+            )
+        })?;
+
+        let mut total: u64 = 0;
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| {
-                anyhow!(
-                    "Failed to read Feishu resource bytes (key='{}'): {}",
-                    key,
-                    e
-                )
-            })?;
-            if buf.len().saturating_add(chunk.len()) > cap {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    abort_partial_download(dest).await;
+                    return Err(anyhow!(
+                        "Failed to read Feishu resource bytes (key='{}'): {}",
+                        key,
+                        e
+                    ));
+                }
+            };
+            let next_total = total.saturating_add(chunk.len() as u64);
+            if next_total > super::inbound_media::INBOUND_DOWNLOAD_MAX_BYTES {
+                drop(file);
+                abort_partial_download(dest).await;
                 return Err(anyhow!(
                     "Feishu resource '{}' exceeds {} byte cap mid-stream",
                     key,
                     super::inbound_media::INBOUND_DOWNLOAD_MAX_BYTES
                 ));
             }
-            buf.extend_from_slice(&chunk);
+            if let Err(e) = file.write_all(&chunk).await {
+                drop(file);
+                abort_partial_download(dest).await;
+                return Err(anyhow!(
+                    "Failed to write Feishu resource '{}' to {:?}: {}",
+                    key,
+                    dest,
+                    e
+                ));
+            }
+            total = next_total;
         }
-        Ok(buf)
+        if let Err(e) = file.flush().await {
+            drop(file);
+            abort_partial_download(dest).await;
+            return Err(anyhow!(
+                "Failed to flush Feishu resource '{}' to {:?}: {}",
+                key,
+                dest,
+                e
+            ));
+        }
+        Ok(total)
     }
 
     /// Generic multipart POST: send `form`, decode `{code, msg, data}`, return `data`.
@@ -864,6 +906,23 @@ impl FeishuApi {
             .ok_or_else(|| anyhow!("Feishu send response missing 'data' field"))?;
 
         Ok(data.message_id)
+    }
+}
+
+/// Best-effort cleanup of a partially-written download. `download_resource_to_file`
+/// uses this on every error path so we never leave a truncated file at
+/// `dest` that callers could mistake for a complete download.
+async fn abort_partial_download(dest: &std::path::Path) {
+    if let Err(e) = tokio::fs::remove_file(dest).await {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            app_warn!(
+                "channel",
+                "feishu",
+                "Failed to clean up partial inbound download {:?}: {}",
+                dest,
+                e
+            );
+        }
     }
 }
 
