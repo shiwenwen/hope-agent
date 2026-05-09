@@ -29,7 +29,10 @@ pub(crate) async fn tool_search(args: &Value, ctx: &ToolExecContext) -> Result<S
     // Load this session's AgentConfig to feed the dispatcher. tool_search is
     // a cold path (the model only calls it occasionally), so re-reading
     // agent.json is not a hot-loop concern.
-    let agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+    let agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
     let agent_def = crate::agent_loader::load_agent(agent_id).ok();
     let default_cfg = crate::agent_config::AgentConfig::default();
     let agent_cfg = agent_def

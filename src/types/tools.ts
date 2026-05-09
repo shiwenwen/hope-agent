@@ -32,10 +32,10 @@ export const TOOL_ACP_SPAWN = "acp_spawn" as const
 /**
  * Hardcoded ID of the "main" agent. Mirrors `agent_loader::DEFAULT_AGENT_ID`
  * on the Rust side. The user can change which agent picks up new chats via
- * `AppConfig.default_agent_id`, but the literal "default" agent is always
+ * `AppConfig.default_agent_id`, but the literal "ha-main" agent is always
  * the main one (it gets richer Tier 2/3 toggle defaults).
  */
-export const DEFAULT_AGENT_ID = "default" as const
+export const DEFAULT_AGENT_ID = "ha-main" as const
 
 export const isMainAgent = (id: string) => id === DEFAULT_AGENT_ID
 

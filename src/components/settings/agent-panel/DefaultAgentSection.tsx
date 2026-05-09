@@ -9,6 +9,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select"
 import { AgentSelectDisplay } from "@/components/common/AgentSelectDisplay"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { AgentSummary } from "./types"
 
 interface DefaultAgentSectionProps {
@@ -28,7 +29,7 @@ export default function DefaultAgentSection({
   loading = false,
 }: DefaultAgentSectionProps) {
   const { t } = useTranslation()
-  const [defaultAgentId, setDefaultAgentId] = useState<string>("default")
+  const [defaultAgentId, setDefaultAgentId] = useState<string>(DEFAULT_AGENT_ID)
   const [loaded, setLoaded] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -39,7 +40,9 @@ export default function DefaultAgentSection({
       .then((currentId) => {
         if (cancelled) return
         const id =
-          typeof currentId === "string" && currentId.trim().length > 0 ? currentId : "default"
+          typeof currentId === "string" && currentId.trim().length > 0
+            ? currentId
+            : DEFAULT_AGENT_ID
         setDefaultAgentId(id)
         setLoaded(true)
       })
@@ -97,13 +100,13 @@ export default function DefaultAgentSection({
         <SelectContent>
           {sortedAgents.length === 0 ? (
             <>
-              {defaultAgentId !== "default" && (
+              {defaultAgentId !== DEFAULT_AGENT_ID && (
                 <SelectItem value={defaultAgentId} textValue={defaultAgentId}>
                   <AgentSelectDisplay fallbackName={defaultAgentId} />
                 </SelectItem>
               )}
-              <SelectItem value="default" textValue="default">
-                <AgentSelectDisplay fallbackName="default" />
+              <SelectItem value={DEFAULT_AGENT_ID} textValue={DEFAULT_AGENT_ID}>
+                <AgentSelectDisplay fallbackName={DEFAULT_AGENT_ID} />
               </SelectItem>
             </>
           ) : (

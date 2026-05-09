@@ -142,7 +142,7 @@ mod tests {
         AwarenessEntry {
             session_id: id.into(),
             title: title.into(),
-            agent_id: "default".into(),
+            agent_id: crate::agent_loader::DEFAULT_AGENT_ID.into(),
             agent_name: Some("Coder".into()),
             session_kind: SessionKind::Regular,
             updated_at: "2025-01-01T00:00:00Z".into(),

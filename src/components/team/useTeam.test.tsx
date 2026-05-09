@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest"
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react"
 
 import { useTeam } from "./useTeam"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { Team, TeamMember, TeamMessage, TeamTask } from "./teamTypes"
 
 const transportMock = vi.hoisted(() => ({
@@ -31,7 +32,7 @@ function team(teamId: string): Team {
     teamId,
     name: teamId,
     leadSessionId: "session-1",
-    leadAgentId: "default",
+    leadAgentId: DEFAULT_AGENT_ID,
     status: "active",
     createdAt: "2026-04-26T00:00:00.000Z",
     updatedAt: "2026-04-26T00:00:00.000Z",

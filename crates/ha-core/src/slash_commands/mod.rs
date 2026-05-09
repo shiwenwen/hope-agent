@@ -578,7 +578,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
         let db = crate::session::SessionDB::open(&path).expect("open");
-        let meta = db.create_session("default").expect("session");
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("session");
 
         let ids = append_slash_history_events(
             &db,
@@ -613,7 +615,9 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("sessions.db");
         let db = crate::session::SessionDB::open(&path).expect("open");
-        let meta = db.create_session("default").expect("session");
+        let meta = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("session");
         let result = CommandResult {
             content: String::new(),
             action: Some(CommandAction::ShowModelPicker {

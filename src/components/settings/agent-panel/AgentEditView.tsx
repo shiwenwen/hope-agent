@@ -25,6 +25,7 @@ import type {
   AgentTab,
 } from "./types"
 import { DEFAULT_PERSONALITY, TABS } from "./types"
+import { isMainAgent } from "@/types/tools"
 import IdentityTab from "./tabs/IdentityTab"
 import PersonalityTab from "./tabs/PersonalityTab"
 import CapabilitiesTab from "./tabs/CapabilitiesTab"
@@ -219,7 +220,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
   }
 
   const handleDelete = async () => {
-    if (agentId === "default") return
+    if (isMainAgent(agentId)) return
     if (!config) return
     try {
       await getTransport().call("delete_agent", { id: agentId })
@@ -514,7 +515,7 @@ export default function AgentEditView({ agentId, onBack }: AgentEditViewProps) {
       {/* Bottom bar: delete + save */}
       <div className="shrink-0 flex items-center justify-between px-6 py-3 border-t border-border/30">
         <div>
-          {agentId !== "default" && (
+          {!isMainAgent(agentId) && (
             <Button
               variant="ghost"
               size="sm"

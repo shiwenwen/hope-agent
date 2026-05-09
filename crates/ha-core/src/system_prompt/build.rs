@@ -582,7 +582,7 @@ mod memory_section_tests {
 
     fn mk_definition() -> AgentDefinition {
         AgentDefinition {
-            id: "default".into(),
+            id: crate::agent_loader::DEFAULT_AGENT_ID.into(),
             dir: PathBuf::from("/tmp/default"),
             config: AgentConfig::default(),
             agent_md: None,
