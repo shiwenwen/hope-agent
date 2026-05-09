@@ -831,6 +831,27 @@
 - **影响面**：当前 Windows 中文用户首次安装 / 卸载 installer UI 是英文（一次性体验，应用内仍是中文）
 - **触发时机建议**：v0.1.1 或下一次动 windows release packaging 时
 
+### F-075 WKWebView release 默认右键菜单含 "Reload" — 需要禁用 webview context menu
+
+- **来源**：2026-05-10 v0.1.0 release build 实测（fix/0.1-check-for-updates-menu 自测）
+- **现象**：release 桌面 app 右键 webview 主区域，弹出 macOS WKWebView 内置上下文菜单，里面有 "Reload" 等开发者风味选项；非编辑区域不该出现 reload。Tauri 这边没注册任何 reload 菜单（dev_reload_webview 在 `#[cfg(debug_assertions)]` gate 后），是 WKWebView 默认行为
+- **为什么留**：当前 PR 主题是 updater 菜单 + 错误诊断，禁用 context menu 是独立 UI 行为变更，影响所有页面（含输入框系统右键），需要做白名单逻辑（输入框保留 cut/copy/paste/Look up，非编辑区禁用），不在本期 scope
+- **改的话要做什么**：在前端入口（[`src/main.tsx`](../../src/main.tsx) 或 [`App.tsx`](../../src/App.tsx)）加全局 contextmenu listener，仅在 release（`import.meta.env.PROD`）+ Tauri 模式下 `e.preventDefault()`；按 `target` 是否 `HTMLInputElement / HTMLTextAreaElement / contenteditable` 决定是否保留默认菜单。或后端方案：用 webview2 / wkwebview API 全局禁 context menu（侵入性更大）
+- **影响面**：用户视角的"开发者风味泄露"，无功能问题；纯观感
+- **触发时机建议**：下次有人改前端入口 / 做 release UI polish 时
+
+### F-076 plugin-process `relaunch()` 与 single-instance 锁的潜在 race
+
+- **来源**：2026-05-10 fix/0.1-check-for-updates-menu 自测期间（实际未触发，仅理论分析）
+- **现象**：[`src-tauri/src/lib.rs:110-118`](../../src-tauri/src/lib.rs) 注册了 `tauri_plugin_single_instance`；plugin-updater 的 `downloadAndInstall` 完成后我们调 `relaunch()`，内部 `Command::spawn(new_process)` → `std::process::exit(0)`。理论 race：新进程在老进程释放 single-instance 锁之前启动 → callback 老进程后 self-exit → 老进程也 exit → 没有进程在跑。OS 级文件锁随进程 cleanup 释放，是否真触发取决于内核调度
+- **为什么留**：本期实测没触发（v0.1.1 install + relaunch 一次成功跑通）；macOS 实际表现里 .app 替换 + cleanup + spawn 间隔足够大，race 没发生。先记下根因路径
+- **改的话要做什么**：如果用户报「更新已安装但没重启」，三个方向二选一：
+  - **方案 A**：让 single-instance plugin 在 callback 里识别"是 relaunch 触发的二次启动"，不 self-exit 改为 retry acquire；需要 plugin 上游 API 或 fork
+  - **方案 B**：在调 `relaunch()` 前主动让老进程释放 single-instance lock（如有 plugin API）
+  - **方案 C**：放弃 plugin-updater 自带的 relaunch，自己实现 spawn-with-delay：spawn 一个 detached shell 命令 `sleep 1 && open -a "Hope Agent.app"` 后立即 exit，把锁释放和新进程启动用时间窗口隔开
+- **影响面**：理论 bug。命中时用户看到「更新已安装，正在重新启动 Hope Agent...」但 app 没起来（前端 fallback 文案 `about.updateRestartManually` 已经覆盖了"用户感知"层）
+- **触发时机建议**：用户实际报上来时启动调查；或下次动 plugin-process / single-instance 集成时
+
 ---
 
 ## Closed
