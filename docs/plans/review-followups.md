@@ -892,6 +892,25 @@
 - **改的话要做什么**：要么 ①入站后立刻 move（而非 copy）到 session attachments dir，下载层文件随 session 删除一起清；要么 ②给 `inbound-temp/` 加独立 GC 任务（轮询 mtime > 7 天 / 总大小 > N GB 触发清理）；要么 ③`materialize_inbound` 写完后只用临时文件做 mid-step，等 `convert_inbound_media_to_attachments` 复制成功后立即 delete 源文件。①与现有 1:1 attach 模型不冲突，最简洁。
 - **影响面**：长期运行的 IM bot 磁盘占用单调增长，但不立刻致命；有大量入站附件的租户可能在几周到几个月后撞 ENOSPC。其它 channel（telegram / discord / etc.）的 inbound-temp/ 等价目录也都没有 GC，是同类问题——本期只就飞书登记，将来若动 GC 该是 channel-agnostic 设计。
 
+### F-082 IM 入站附件路径 12 渠道一致性 hardening（飞书模板外推）
+
+- **来源**：2026-05-09 v0.2.0 飞书入站媒体 review P2 后续盘点 12 渠道现状
+- **现象**：飞书这次把入站附件做成「parse 轻量 ref → 入队 → ack → dispatcher gating → `materialize_pending_media` chunk-streaming 到磁盘 → 512 MiB cap → 失败清理」一整套之后，回头看其它 11 个渠道，行为差异很大、问题各不相同：
+  - **eager-download 阻塞 dispatch（同飞书 review 前的毛病）**：
+    - **Telegram** [`telegram/polling.rs::download_inbound_media_to_temp`](../../crates/ha-core/src/channel/telegram/polling.rs) 在 polling loop 内同步 `bot.download_file(&mut dst)` 拉完才发 `MsgContext`——非 mention 群消息也下载，且没 size cap（teloxide 内部是流式 `&mut File` 的，不至于 OOM，但磁盘 / 时延无界）
+    - **WeChat** [`wechat/media.rs::download_plain_media`](../../crates/ha-core/src/channel/wechat/media.rs) 比飞书旧版还激进：`response.bytes()` 全量到 `Vec<u8>` → AES-128 解密 → `save_inbound_bytes`，单条 100 MB 的群文件吃 100 MB RSS + 解密峰值再翻倍，dispatch 全程被阻塞
+  - **URL pass-through（"做了一半"，下游 LLM 能不能用全看运气）**：
+    - **Discord** [`discord/gateway.rs`](../../crates/ha-core/src/channel/discord/gateway.rs) 直接把 CDN URL 喂 LLM——可以工作但 URL **24h 过期**，超时后 LLM 走 `web_fetch` 会拿到 410；session 中段引用旧附件就失效
+    - **Slack** [`slack/socket.rs::parse_slack_files`](../../crates/ha-core/src/channel/slack/socket.rs) 给的是 `url_private` / `url_private_download`，**需要 `Authorization: Bearer xoxb-…`**，模型 `web_fetch` 没这个 token → 实际上拿到的是个废链接
+    - **Signal** [`signal/client.rs::extract_media`](../../crates/ha-core/src/channel/signal/client.rs) 干脆 `file_url: None`，只给 attachment id —— 模型完全看不到内容
+  - **完全没接（6 渠道）**：Google Chat / iMessage / IRC（协议本身不传媒体，跳过） / LINE / QQ Bot / WhatsApp 入站全 drop——用户发图 agent 看不到
+- **为什么留**：本期 PR scope 是「飞书完整对齐」，跨 channel 的入站附件统一是独立工作量，且每个 channel 的下载语义不同（Discord 公开 CDN / Slack 需 token / Signal 走 signal-cli `--receive-attachments` / WeChat 要 AES-128 解密 / Telegram 走 teloxide），不可能一个 PR 全做完。飞书这次的实现刚好成了模板，但外推应该按 channel 各自一个 follow-up PR 推。
+- **改的话要做什么**：分阶段做。
+  - **阶段 1（高优）**：把飞书现有的 deferred + chunk-streaming + size-cap 三件套抽成 channel-agnostic helper（`channel/inbound_media_common.rs::stream_to_disk(url, headers, dest, cap) -> Result<u64>` + `embed_pending_refs/take_pending_refs` 已经 generic 了），让 Telegram / WeChat 迁过去——`materialize_pending_media` trait 已经存在，直接 override 即可
+  - **阶段 2（中优）**：Slack 改成 server-side 下载（用 bot token 下载 + 写盘）；Signal 改用 signal-cli `--receive-attachments` 让 daemon 自己落盘再读路径；Discord 可选——CDN URL 24h 内能用，要不要 server-side 下载是产品决策（落盘永久 vs URL 短期）
+  - **阶段 3（低优）**：Google Chat / LINE / QQ Bot / WhatsApp / iMessage 补入站媒体解析。这些渠道用户量小、协议各异，按反馈推
+- **影响面**：当前线上能稳定接收图片 / 文件的只有飞书（修复后）+ Telegram + WeChat + Discord（CDN URL 临时窗口内）；Slack / Signal 用户发图 LLM 实际拿不到；6 渠道完全看不到。所有 eager-download 渠道在 mention gating 关闭的群里都会无差别下载非 @bot 的附件——飞书 review P1 揭示的"群里 @ 别人也下载"问题在 Telegram / WeChat 上同样存在。
+
 ---
 
 ## Closed
