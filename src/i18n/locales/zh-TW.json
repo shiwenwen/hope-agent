@@ -22,6 +22,8 @@
     "updateDownloadProgress": "下載進度：{{percent}}%",
     "updateInstall": "安裝 v{{version}}",
     "updateInstallFailed": "下載或安裝更新失敗。",
+    "updateErrorDetails": "錯誤詳情",
+    "updateErrorLogHint": "完整堆疊已寫入 ~/.hope-agent/logs.db（category: updater），可透過 /ha-logs 排查或在回報問題時附上該檔案。",
     "updateInstalled": "更新已安裝，正在重新啟動 Hope Agent...",
     "updateInstalling": "正在安裝 v{{version}}...",
     "updateRestartManually": "更新已安裝，但自動重啟失敗，請手動退出後重新打開 Hope Agent。",

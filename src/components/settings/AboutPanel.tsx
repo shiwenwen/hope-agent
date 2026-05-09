@@ -14,6 +14,7 @@ import {
   type DesktopUpdate,
 } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 
 interface HighlightItem {
@@ -32,8 +33,19 @@ export default function AboutPanel() {
   const [installingUpdate, setInstallingUpdate] = useState(false)
   const [pendingUpdate, setPendingUpdate] = useState<DesktopUpdate | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
   const desktopUpdaterAvailable = isDesktopUpdaterAvailable()
+
+  function describeError(err: unknown): string {
+    if (err instanceof Error) return err.message || err.toString()
+    if (typeof err === "string") return err
+    try {
+      return JSON.stringify(err)
+    } catch {
+      return String(err)
+    }
+  }
 
   // Sync from global store: if auto-check found an update, reflect it here
   const syncedRef = useRef(false)
@@ -96,6 +108,7 @@ export default function AboutPanel() {
   async function handleCheckForUpdates() {
     setCheckingUpdate(true)
     setUpdateStatus(t("about.updateChecking"))
+    setUpdateError(null)
     setDownloadPercent(null)
 
     try {
@@ -111,10 +124,15 @@ export default function AboutPanel() {
       void setGlobalPendingUpdate(update)
       setUpdateStatus(t("about.updateAvailable", { version: update.version }))
     } catch (err) {
-      console.error("[updater] check failed", err)
+      const detail = describeError(err)
+      logger.error("updater", "AboutPanel::handleCheckForUpdates", "check failed", {
+        error: detail,
+        currentVersion: appVersion,
+      })
       setPendingUpdate(null)
       void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateCheckFailed"))
+      setUpdateError(detail)
     } finally {
       setCheckingUpdate(false)
     }
@@ -134,7 +152,12 @@ export default function AboutPanel() {
 
     setInstallingUpdate(true)
     setDownloadPercent(0)
+    setUpdateError(null)
     setUpdateStatus(t("about.updateInstalling", { version: pendingUpdate.version }))
+    logger.info("updater", "AboutPanel::handleInstallUpdate", "install started", {
+      fromVersion: appVersion,
+      toVersion: pendingUpdate.version,
+    })
 
     let downloaded = 0
     let contentLength = 0
@@ -161,6 +184,11 @@ export default function AboutPanel() {
       await setPendingUpdate(null)
       void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateInstalled"))
+      logger.info(
+        "updater",
+        "AboutPanel::handleInstallUpdate",
+        "install completed, scheduling relaunch",
+      )
       // Give the user a beat to see the "installed, restarting" message
       // before the process exits — without this the UI flips to a blank
       // pre-relaunch state and the whole flow feels like nothing happened.
@@ -171,12 +199,22 @@ export default function AboutPanel() {
         // relaunch() normally never returns (process exits). If it threw,
         // surface a manual-restart hint instead of silently leaving the
         // user staring at the "installed" message.
-        console.error("[updater] relaunch failed", err)
+        const detail = describeError(err)
+        logger.error("updater", "AboutPanel::handleInstallUpdate", "relaunch failed", {
+          error: detail,
+        })
         setUpdateStatus(t("about.updateRestartManually"))
+        setUpdateError(detail)
       }
     } catch (err) {
-      console.error("[updater] install failed", err)
+      const detail = describeError(err)
+      logger.error("updater", "AboutPanel::handleInstallUpdate", "install failed", {
+        error: detail,
+        fromVersion: appVersion,
+        toVersion: pendingUpdate.version,
+      })
       setUpdateStatus(t("about.updateInstallFailed"))
+      setUpdateError(detail)
     } finally {
       setInstallingUpdate(false)
     }
@@ -279,6 +317,20 @@ export default function AboutPanel() {
                   </div>
                 )}
               </div>
+            )}
+
+            {updateError && (
+              <details className="mt-3 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-xs">
+                <summary className="cursor-pointer select-none font-medium text-destructive/90">
+                  {t("about.updateErrorDetails")}
+                </summary>
+                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+                  {updateError}
+                </pre>
+                <p className="mt-2 text-[11px] text-muted-foreground/80">
+                  {t("about.updateErrorLogHint")}
+                </p>
+              </details>
             )}
 
             <p className="mt-6 max-w-4xl text-2xl font-semibold leading-tight tracking-tight text-foreground lg:text-4xl">

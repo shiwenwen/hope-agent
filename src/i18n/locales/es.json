@@ -22,6 +22,8 @@
     "updateDownloadProgress": "Progreso de descarga: {{percent}}%",
     "updateInstall": "Instalar v{{version}}",
     "updateInstallFailed": "La descarga o instalación de la actualización falló.",
+    "updateErrorDetails": "Detalles del error",
+    "updateErrorLogHint": "El registro completo se guardó en ~/.hope-agent/logs.db (category: updater). Usa /ha-logs para revisarlo o adjunta ese archivo al reportar el problema.",
     "updateInstalled": "Actualización instalada. Reiniciando Hope Agent...",
     "updateInstalling": "Instalando v{{version}}...",
     "updateRestartManually": "La actualización se instaló pero el reinicio automático falló. Por favor cierra Hope Agent manualmente y vuelve a abrirlo.",

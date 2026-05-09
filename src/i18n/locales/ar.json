@@ -22,6 +22,8 @@
     "updateDownloadProgress": "تقدم التنزيل: {{percent}}%",
     "updateInstall": "تثبيت v{{version}}",
     "updateInstallFailed": "فشل تنزيل التحديث أو تثبيته.",
+    "updateErrorDetails": "تفاصيل الخطأ",
+    "updateErrorLogHint": "تم تسجيل التتبع الكامل في ~/.hope-agent/logs.db (category: updater). استخدم /ha-logs للتحقيق أو أرفق هذا الملف عند الإبلاغ عن المشكلة.",
     "updateInstalled": "تم تثبيت التحديث. جارٍ إعادة تشغيل Hope Agent...",
     "updateInstalling": "جارٍ تثبيت v{{version}}...",
     "updateRestartManually": "تم تثبيت التحديث ولكن فشلت إعادة التشغيل التلقائية. يرجى إنهاء Hope Agent يدويًا ثم إعادة فتحه.",

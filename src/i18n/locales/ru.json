@@ -22,6 +22,8 @@
     "updateDownloadProgress": "Прогресс загрузки: {{percent}}%",
     "updateInstall": "Установить v{{version}}",
     "updateInstallFailed": "Не удалось скачать или установить обновление.",
+    "updateErrorDetails": "Подробности ошибки",
+    "updateErrorLogHint": "Полный трейс записан в ~/.hope-agent/logs.db (category: updater). Используйте /ha-logs для разбора или приложите этот файл к отчёту о проблеме.",
     "updateInstalled": "Обновление установлено. Перезапускаю Hope Agent...",
     "updateInstalling": "Установка v{{version}}...",
     "updateRestartManually": "Обновление установлено, но автоматический перезапуск не удался. Закройте Hope Agent вручную и откройте его снова.",

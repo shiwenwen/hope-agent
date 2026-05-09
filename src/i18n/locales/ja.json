@@ -22,6 +22,8 @@
     "updateDownloadProgress": "ダウンロード進捗: {{percent}}%",
     "updateInstall": "v{{version}} をインストール",
     "updateInstallFailed": "更新のダウンロードまたはインストールに失敗しました。",
+    "updateErrorDetails": "エラー詳細",
+    "updateErrorLogHint": "完全なトレースは ~/.hope-agent/logs.db に書き込まれています（category: updater）。/ha-logs で確認するか、問題報告の際に該当ファイルを添付してください。",
     "updateInstalled": "更新をインストールしました。Hope Agent を再起動しています...",
     "updateInstalling": "v{{version}} をインストール中...",
     "updateRestartManually": "更新はインストールされましたが、自動再起動に失敗しました。Hope Agent を手動で終了して再度開いてください。",
