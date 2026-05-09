@@ -13,6 +13,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Rust 自身静态链接 C runtime（`+crt-static`）**：新增 [`src-tauri/.cargo/config.toml`](src-tauri/.cargo/config.toml) 给 `x86_64-pc-windows-msvc` 与 `aarch64-pc-windows-msvc` 两个 target 加 `rustflags = ["-C", "target-feature=+crt-static"]`，让 Rust 自身代码不再依赖 `VCRUNTIME140.dll` / `MSVCP140.dll` 等动态 C runtime 库——即使用户机器从未装过 VC++ Redistributable 也能跑 hope-agent.exe，跟 NSIS hook 内嵌 vcredist 形成双保险（hook 仍然兜底 native sys crate 引入的独立 C++ 依赖）。代价：Windows 二进制体积 +几 MB。
 
+### Security
+
+- **CI 校验 vcredist 来源签名**：[`.github/workflows/release.yml`](.github/workflows/release.yml) Windows job 在 `pnpm fetch:vcredist` 后增加 `Verify VC++ Redistributable Authenticode signature` 步——用 PowerShell `Get-AuthenticodeSignature` 校验下载文件的 Authenticode 状态为 `Valid` 且签名 subject 含 `CN=Microsoft Corporation`，校验不过即 fail build。防止 `aka.ms` 短链 / Microsoft CDN 被中间人攻击时，把篡改后的 exe 打进 release 并在用户机器上提权执行。
+
+- **NSIS hook 接受 vcredist 退出码、失败时弹错误对话框**：[`installer-hooks.nsh`](src-tauri/windows/installer-hooks.nsh) 之前 `ExecWait` 拿到退出码 `$0` 后未做任何判断，下载损坏 / 杀毒拦截 / 磁盘满等场景会被静默吞掉，hope-agent 安装看似成功但启动仍报 DLL 缺失。现在显式接受 `0`（已装）/ `1638`（已是最新）/ `3010`（成功但需重启）三个 Microsoft 标准成功码，其它码 `DetailPrint` 失败码 + 弹 `MessageBox` 告知用户「Hope Agent 已装但 vcredist 失败」并附 `aka.ms` 手动下载链接。
+
+- **停止发布 Windows MSI artifact**：[`src-tauri/tauri.windows.conf.json`](src-tauri/tauri.windows.conf.json) 加 `bundle.targets: ["nsis"]`，Windows release 不再产出 WiX `*.msi`（之前会同时产 `*.msi` + `*.msi.sig` × 2 语种共 4 个 artifact）。原因：`installerHooks` 仅对 NSIS 生效，MSI 走 WiX 没有等价的 vcredist 嵌入 / POSTINSTALL 入口，下载 MSI 的用户仍会撞 DLL 缺失。Hope Agent 当前阶段没有需要 MSI 的企业组策略 / IT 部署场景，统一走 NSIS `*-setup.exe`；如需企业部署，后续单独评估 WiX merge module 或 bootstrapper。
+
 ### Documentation
 
 - **README Windows 启动 DLL 缺失提示**：根目录 [`README.md`](README.md) + [`README.en.md`](README.en.md) 在 macOS「已损坏 / 无法验证开发者」段后追加 Windows blockquote，遇到 `MSVCP140_1.dll` / `VCRUNTIME140.dll` 缺失时引导用户安装 VC++ 2015-2022 Redistributable。本期同时落地了安装器内嵌方案（见 Changed 段），对 v0.1.0 老安装包用户继续作为兜底说明保留。

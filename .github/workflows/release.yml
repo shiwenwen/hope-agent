@@ -109,6 +109,20 @@ jobs:
         if: runner.os == 'Windows'
         run: pnpm fetch:vcredist
 
+      - name: Verify VC++ Redistributable Authenticode signature (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $sig = Get-AuthenticodeSignature src-tauri\resources\vc_redist.x64.exe
+          if ($sig.Status -ne 'Valid') {
+            throw "vc_redist.x64.exe Authenticode status is not Valid: $($sig.Status) — $($sig.StatusMessage)"
+          }
+          $subject = $sig.SignerCertificate.Subject
+          if ($subject -notmatch 'CN=Microsoft Corporation') {
+            throw "vc_redist.x64.exe signer is not Microsoft: $subject"
+          }
+          Write-Host "vc_redist.x64.exe Authenticode signature OK ($subject)"
+
       - name: Build & draft release
         uses: tauri-apps/tauri-action@v0.5.14
         env:
