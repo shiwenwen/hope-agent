@@ -129,6 +129,12 @@ pub fn extract_path_arg(tool: &str, args: &serde_json::Value) -> Option<PathBuf>
             .get("path")
             .or_else(|| args.get("file_path"))
             .and_then(|v| v.as_str()),
+        // Feishu drive tools touch local paths (upload reads from `path`,
+        // download writes to `path`). Treat them like read/write at the
+        // protected-path layer so `~/.ssh/...` etc. trigger the same gate.
+        "feishu_drive_upload_media" | "feishu_drive_download_media" => {
+            args.get("path").and_then(|v| v.as_str())
+        }
         "exec" | "process" | "apply_patch" => args.get("cwd").and_then(|v| v.as_str()),
         _ => None,
     };

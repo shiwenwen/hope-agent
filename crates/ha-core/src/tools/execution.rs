@@ -666,6 +666,16 @@ pub async fn execute_tool_with_context(
             super::feishu::bitable::TOOL_BITABLE_BATCH_UPDATE_RECORDS => {
                 super::feishu::bitable::execute_batch_update_records(args).await
             }
+            // Feishu drive (PR C3).
+            super::feishu::drive::TOOL_DRIVE_LIST_FILES => {
+                super::feishu::drive::execute_list_files(args).await
+            }
+            super::feishu::drive::TOOL_DRIVE_UPLOAD_MEDIA => {
+                super::feishu::drive::execute_upload_media(args).await
+            }
+            super::feishu::drive::TOOL_DRIVE_DOWNLOAD_MEDIA => {
+                super::feishu::drive::execute_download_media(args).await
+            }
             // MCP-sourced tools all share the `mcp__<server>__<tool>`
             // prefix; dispatch them through the dedicated subsystem.
             n if crate::mcp::catalog::is_mcp_tool_name(n) => {

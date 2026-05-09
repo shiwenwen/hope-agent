@@ -409,7 +409,7 @@ impl FeishuApi {
 
     /// Generic multipart POST: send `form`, decode `{code, msg, data}`, return `data`.
     /// `label` only appears in error messages to disambiguate image vs file uploads.
-    async fn upload_multipart<T: serde::de::DeserializeOwned>(
+    pub(super) async fn upload_multipart<T: serde::de::DeserializeOwned>(
         &self,
         url: &str,
         form: reqwest::multipart::Form,
@@ -836,7 +836,7 @@ impl FeishuApi {
     }
 }
 
-fn build_part(
+pub(super) fn build_part(
     bytes: Vec<u8>,
     filename: &str,
     mime: &str,
