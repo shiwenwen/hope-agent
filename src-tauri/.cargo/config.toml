@@ -1,0 +1,9 @@
+# Statically link the MSVC C/C++ runtime so hope-agent.exe doesn't require
+# VCRUNTIME140 / MSVCP140 to be present on the user's machine. The NSIS
+# installer still bundles vc_redist.x64.exe (see windows/installer-hooks.nsh)
+# as a fallback for any native lib that pulls a dynamic C++ runtime anyway.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

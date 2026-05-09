@@ -30,23 +30,6 @@
 
 ## Open
 
-### F-075 Rust `+crt-static` 消除 MSVCP140 动态依赖
-
-- **来源**：2026-05-09 Windows VC++ Redistributable 自动安装方案讨论
-- **现象**：v0.1.0 Windows 用户在没装过 VC++ 运行库的纯净系统上启动报「由于找不到 MSVCP140_1.dll」。当期通过 NSIS POSTINSTALL hook 嵌入 `vc_redist.x64.exe` 静默安装解决了根因；但 Rust + MSVC 工具链产物**仍然**动态链接 VCRUNTIME140 / MSVCP140，理论上可以通过在 [`src-tauri/.cargo/config.toml`](../../src-tauri/.cargo/config.toml) 加 `rustflags = ["-C", "target-feature=+crt-static"]`（x86_64-pc-windows-msvc + aarch64-pc-windows-msvc 两 target）让 Rust 自身代码静态链接 CRT，**减少**对 vcredist 的依赖
-- **为什么留**：当期 NSIS hook 已彻底解决用户可见的 DLL 缺失问题；`+crt-static` 是减少依赖的优化，不是修复；潜在风险——hope-agent 用了不少 native sys crate（image / video / native TLS），有 link error 可能；本地无 Windows runner，要改动后等 CI Windows clippy/test job 才能验证
-- **改的话要做什么**：新建 `src-tauri/.cargo/config.toml`：
-  ```toml
-  [target.x86_64-pc-windows-msvc]
-  rustflags = ["-C", "target-feature=+crt-static"]
-
-  [target.aarch64-pc-windows-msvc]
-  rustflags = ["-C", "target-feature=+crt-static"]
-  ```
-  推到分支让 GitHub Actions Windows clippy/test job 验证不破坏 build。如果验证通过，这是 strict improvement——即使用户机器从来没装过 vcredist 也能直接跑 hope-agent.exe（NSIS hook 仍然作为 native lib 引入的 C++ 依赖兜底）；如果出现 link error，定位是哪个 sys crate 拉了 dynamic CRT 依赖，case-by-case 决定（forking + patch / 或放弃这条路径）
-- **影响面**：纯优化；用户可见行为不变（NSIS hook 已经 100% 兜底）
-- **触发时机建议**：下次有 Windows-related 工程改动顺手做；或者发现某个 native crate 升级后 build 阻塞时一并验证
-
 ### F-071 跨 channel 推广 `json_str_at` 微 helper
 
 - **来源**：2026-05-08 F-070 `/simplify` review
