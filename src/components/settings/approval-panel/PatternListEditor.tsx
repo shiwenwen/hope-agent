@@ -139,9 +139,14 @@ export default function PatternListEditor({
             }
           }}
           disabled={busy}
-          className="text-xs h-8"
+          className="flex-1 text-xs h-8"
         />
-        <Button onClick={addPattern} size="sm" disabled={busy || !draft.trim()} className="h-8">
+        <Button
+          onClick={addPattern}
+          size="sm"
+          disabled={busy || !draft.trim()}
+          className="shrink-0 h-8"
+        >
           <Plus className="h-3.5 w-3.5 mr-1" />
           {t("common.add")}
         </Button>

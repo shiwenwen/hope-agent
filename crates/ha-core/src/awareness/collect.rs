@@ -229,7 +229,7 @@ mod tests {
             id: id.into(),
             title: None,
             title_source: crate::session_title::TITLE_SOURCE_MANUAL.into(),
-            agent_id: "default".into(),
+            agent_id: crate::agent_loader::DEFAULT_AGENT_ID.into(),
             provider_id: None,
             provider_name: None,
             model_id: None,

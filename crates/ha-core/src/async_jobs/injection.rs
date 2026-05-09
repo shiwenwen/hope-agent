@@ -70,7 +70,7 @@ pub fn dispatch_injection(
             .ok()
             .flatten()
             .map(|s| s.agent_id)
-            .unwrap_or_else(|| "default".to_string()),
+            .unwrap_or_else(|| crate::agent_loader::DEFAULT_AGENT_ID.to_string()),
     };
 
     // Deduplicate in-flight dispatches inside this process. Replay on startup

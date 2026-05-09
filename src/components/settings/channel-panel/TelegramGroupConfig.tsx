@@ -151,7 +151,13 @@ export default function TelegramGroupChannelConfig({
               onKeyDown={(e) => { if (e.key === "Enter") addGroup() }}
               className="flex-1"
             />
-            <Button variant="outline" size="sm" onClick={addGroup} disabled={!newGroupId.trim()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addGroup}
+              disabled={!newGroupId.trim()}
+              className="shrink-0"
+            >
               <Plus className="h-4 w-4 mr-1" />
               {t("channels.addGroup")}
             </Button>
@@ -261,7 +267,13 @@ export default function TelegramGroupChannelConfig({
             onKeyDown={(e) => { if (e.key === "Enter") addChannel() }}
             className="flex-1"
           />
-          <Button variant="outline" size="sm" onClick={addChannel} disabled={!newChannelId.trim()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addChannel}
+            disabled={!newChannelId.trim()}
+            className="shrink-0"
+          >
             <Plus className="h-4 w-4 mr-1" />
             {t("channels.addChannel")}
           </Button>

@@ -40,7 +40,7 @@ Spawning → Running → Completed
 | `run_id` | `String` | UUID v4，运行唯一标识 |
 | `parent_session_id` | `String` | 父会话 ID |
 | `parent_agent_id` | `String` | 父 Agent ID |
-| `child_agent_id` | `String` | 子 Agent ID（如 `"default"`） |
+| `child_agent_id` | `String` | 子 Agent ID（如 `"ha-main"`） |
 | `child_session_id` | `String` | 隔离子会话 ID（通过 `create_session_with_parent` 创建，关联父会话） |
 | `task` | `String` | 任务描述原文 |
 | `status` | `SubagentStatus` | 六态状态枚举 |

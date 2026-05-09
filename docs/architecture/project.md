@@ -216,8 +216,8 @@ CREATE INDEX IF NOT EXISTS idx_project_files_project
 | 1 | **显式参数** | 调用方在 API / Tauri 命令里直接传 `agent_id` |
 | 2 | **`project.default_agent_id`** | session 落入项目，项目设置了默认 Agent |
 | 3 | **`channel_account.agent_id`** | IM channel account 配了 per-account agent override |
-| 4 | **`AppConfig.default_agent_id`** | 全局设置，默认 `Some("default")` |
-| 5 | **硬编码 `"default"`** | 兜底常量 |
+| 4 | **`AppConfig.default_agent_id`** | 全局设置，默认 `Some("ha-main")` |
+| 5 | **硬编码 `"ha-main"`** | 兜底常量（`agent_loader::DEFAULT_AGENT_ID`） |
 
 ### 配套 API
 

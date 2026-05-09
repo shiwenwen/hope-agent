@@ -42,7 +42,10 @@ async fn action_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     })?;
 
     // Check agent-level ACP permission
-    let parent_agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+    let parent_agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
     if let Ok(def) = crate::agent_loader::load_agent(parent_agent_id) {
         if !def.config.acp.enabled {
             return Err(anyhow::anyhow!(

@@ -371,6 +371,7 @@ export default function AddAccountDialog({
                       size="sm"
                       onClick={handleValidate}
                       disabled={!token.trim() || validating}
+                      className="shrink-0"
                     >
                       {validating ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
@@ -410,7 +411,7 @@ export default function AddAccountDialog({
                       onBlur={() => { if (token.trim() && !validationResult && !validating) handleValidate() }}
                       className="flex-1"
                     />
-                    <Button variant="outline" size="sm" onClick={handleValidate} disabled={!token.trim() || validating}>
+                    <Button variant="outline" size="sm" onClick={handleValidate} disabled={!token.trim() || validating} className="shrink-0">
                       {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                     </Button>
                   </div>
@@ -443,7 +444,7 @@ export default function AddAccountDialog({
                         onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
                         className="flex-1"
                       />
-                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                         {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                       </Button>
                     </div>
@@ -475,7 +476,7 @@ export default function AddAccountDialog({
                         onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
                         className="flex-1"
                       />
-                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                         {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                       </Button>
                     </div>
@@ -519,7 +520,7 @@ export default function AddAccountDialog({
                         onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
                         className="flex-1"
                       />
-                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                         {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                       </Button>
                     </div>
@@ -566,7 +567,7 @@ export default function AddAccountDialog({
                         onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
                         className="flex-1"
                       />
-                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                         {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                       </Button>
                     </div>
@@ -604,7 +605,7 @@ export default function AddAccountDialog({
                         onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
                         className="flex-1"
                       />
-                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                         {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                       </Button>
                     </div>
@@ -642,7 +643,7 @@ export default function AddAccountDialog({
                         onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
                         className="flex-1"
                       />
-                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                         {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                       </Button>
                     </div>
@@ -689,7 +690,7 @@ export default function AddAccountDialog({
                     <p className="text-xs text-muted-foreground">{t("channels.webhookUrlHint", "Desktop apps need a public URL (e.g. ngrok) to receive webhooks")}</p>
                   </div>
                   <div className="flex gap-2">
-                    <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                    <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                       {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                     </Button>
                   </div>
@@ -720,7 +721,7 @@ export default function AddAccountDialog({
                         onBlur={() => { if (canValidate() && !validationResult && !validating) handleValidate() }}
                         className="flex-1"
                       />
-                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating}>
+                      <Button variant="outline" size="sm" onClick={handleValidate} disabled={!canValidate() || validating} className="shrink-0">
                         {validating ? <Loader2 className="h-4 w-4 animate-spin" /> : t("channels.testConnection")}
                       </Button>
                     </div>

@@ -87,6 +87,14 @@ pub fn run() {
         log::error!("Failed to initialize data directories: {}", e);
     }
 
+    // Bring up the core runtime first so the legacy `"default"` → `"ha-main"`
+    // agent-id rename runs BEFORE `ensure_default_agent` would otherwise
+    // pre-create an empty `agents/ha-main/` template — that pre-creation
+    // would block the rename and orphan the user's customised legacy data.
+    // `init_runtime` is idempotent, so the later `init_tauri_app_state`
+    // call is a no-op for these side effects.
+    ha_core::init_runtime("desktop");
+
     // Ensure default agent exists
     if let Err(e) = agent_loader::ensure_default_agent() {
         log::error!("Failed to ensure default agent: {}", e);

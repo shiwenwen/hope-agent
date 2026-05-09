@@ -346,7 +346,7 @@ mod tests {
 
     #[tokio::test]
     async fn think_alias_dispatches_like_thinking() {
-        let result = dispatch(None, "default", "think", "high")
+        let result = dispatch(None, crate::agent_loader::DEFAULT_AGENT_ID, "think", "high")
             .await
             .expect("/think should dispatch to /thinking");
 

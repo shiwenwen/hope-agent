@@ -406,7 +406,11 @@ mod tests {
 
     #[test]
     fn candidate_hash_stable() {
-        let a = SessionAwareness::new("sess-ct-1", "default", AwarenessConfig::default());
+        let a = SessionAwareness::new(
+            "sess-ct-1",
+            crate::agent_loader::DEFAULT_AGENT_ID,
+            AwarenessConfig::default(),
+        );
         assert!(a.update_candidate_hash(&["x".into(), "y".into()]));
         assert!(!a.update_candidate_hash(&["y".into(), "x".into()])); // sorted
         assert!(a.update_candidate_hash(&["x".into(), "z".into()]));
@@ -414,7 +418,11 @@ mod tests {
 
     #[test]
     fn claim_extraction_is_one_shot() {
-        let a = SessionAwareness::new("sess-ct-2", "default", AwarenessConfig::default());
+        let a = SessionAwareness::new(
+            "sess-ct-2",
+            crate::agent_loader::DEFAULT_AGENT_ID,
+            AwarenessConfig::default(),
+        );
         assert!(a.claim_extraction());
         assert!(!a.claim_extraction());
     }

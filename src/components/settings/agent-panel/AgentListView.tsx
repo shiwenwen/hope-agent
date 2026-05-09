@@ -13,6 +13,7 @@ import {
 } from "lucide-react"
 import type { AgentSummary, AgentConfig } from "./types"
 import { DEFAULT_PERSONALITY } from "./types"
+import { isMainAgent } from "@/types/tools"
 import OpenClawImportDialog from "./OpenClawImportDialog"
 import DefaultAgentSection from "./DefaultAgentSection"
 import { AgentAvatarBadge } from "@/components/common/AgentSelectDisplay"
@@ -226,7 +227,7 @@ export default function AgentListView({ onEditAgent }: { onEditAgent: (id: strin
               <div className="flex-1 text-left min-w-0">
                 <div className="font-medium truncate flex items-center gap-2">
                   {agent.name}
-                  {agent.id === "default" && (
+                  {isMainAgent(agent.id) && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground font-medium">
                       {t("settings.agentDefault")}
                     </span>

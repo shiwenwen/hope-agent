@@ -12,7 +12,7 @@ pub async fn create_session_cmd(
     state: State<'_, AppState>,
 ) -> Result<session::SessionMeta, CmdError> {
     // Caller-supplied agent_id wins. Otherwise resolve via the standard
-    // precedence chain: project default → global default → hardcoded "default".
+    // precedence chain: project default → global default → hardcoded "ha-main".
     // Channel-level fallback is irrelevant here (this command is only invoked
     // from desktop / web, never from the IM channel worker path).
     let agent_id = match agent_id {

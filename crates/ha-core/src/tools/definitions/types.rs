@@ -20,7 +20,7 @@ pub enum ToolTier {
 
     /// Tier 2: Agent 默认开/关，用户可关闭。
     Standard {
-        /// 主 agent (`id == "default"`) 的默认开关状态
+        /// 主 agent (`id == "ha-main"`) 的默认开关状态
         default_for_main: bool,
         /// 其他新建 agent 的默认开关状态
         default_for_others: bool,

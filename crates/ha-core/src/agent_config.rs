@@ -255,7 +255,7 @@ pub struct CapabilitiesConfig {
     /// image_generate / send_notification / subagent / acp_spawn).
     ///
     /// `None` for a field means "inherit the tier's default for this agent
-    /// kind" — i.e. `default_for_main` when `agent_id == "default"`,
+    /// kind" — i.e. `default_for_main` when `agent_id == "ha-main"`,
     /// `default_for_others` otherwise. `Some(true/false)` is an explicit
     /// override that survives any future changes to tier defaults.
     #[serde(default)]
@@ -665,7 +665,7 @@ impl SubagentConfig {
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct AgentDefinition {
-    /// Agent ID (directory name, e.g. "default", "coder")
+    /// Agent ID (directory name, e.g. "ha-main", "coder")
     pub id: String,
 
     /// Absolute path to the agent directory

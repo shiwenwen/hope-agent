@@ -10,6 +10,7 @@ mod events;
 pub use event_rewrite::{rewrite_envelope_event_for_http, rewrite_event_for_http};
 pub(crate) use events::{extract_media_items, MEDIA_ITEMS_PREFIX};
 mod llm_adapter;
+pub mod migration;
 mod plan_context;
 mod providers;
 pub mod resolver;
@@ -110,7 +111,7 @@ impl AssistantAgent {
             user_agent: USER_AGENT.to_string(),
             thinking_style: ThinkingStyle::Anthropic,
             conversation_history: std::sync::Mutex::new(Vec::new()),
-            agent_id: "default".to_string(),
+            agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
             extra_system_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
@@ -159,7 +160,7 @@ impl AssistantAgent {
             user_agent: USER_AGENT.to_string(),
             thinking_style: ThinkingStyle::Openai,
             conversation_history: std::sync::Mutex::new(Vec::new()),
-            agent_id: "default".to_string(),
+            agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
             extra_system_context: None,
             context_window: 200_000,
             compact_config: crate::context_compact::CompactConfig::default(),
@@ -333,7 +334,7 @@ impl AssistantAgent {
             user_agent: config.user_agent.clone(),
             thinking_style: effective_thinking_style,
             conversation_history: std::sync::Mutex::new(Vec::new()),
-            agent_id: "default".to_string(),
+            agent_id: crate::agent_loader::DEFAULT_AGENT_ID.to_string(),
             extra_system_context: None,
             context_window,
             compact_config: crate::context_compact::CompactConfig::default(),
