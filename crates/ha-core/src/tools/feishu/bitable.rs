@@ -312,11 +312,7 @@ fn get_required_records(args: &Value) -> Result<Vec<Value>> {
         let obj = item
             .as_object()
             .ok_or_else(|| anyhow!("`records[{}]` must be an object", i))?;
-        if !obj
-            .get("record_id")
-            .map(|v| v.is_string())
-            .unwrap_or(false)
-        {
+        if !obj.get("record_id").map(|v| v.is_string()).unwrap_or(false) {
             return Err(anyhow!(
                 "`records[{}].record_id` is required and must be a string",
                 i
@@ -524,8 +520,7 @@ mod tests {
 
     #[test]
     fn records_validation_missing_record_id_errors() {
-        let err =
-            get_required_records(&json!({"records": [{"fields": {}}]})).unwrap_err();
+        let err = get_required_records(&json!({"records": [{"fields": {}}]})).unwrap_err();
         assert!(err.to_string().contains("record_id"), "{}", err);
     }
 

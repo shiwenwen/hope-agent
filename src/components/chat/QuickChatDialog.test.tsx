@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import type { ReactElement } from "react"
 
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import QuickChatDialog from "./QuickChatDialog"
 
 function renderWithProviders(ui: ReactElement) {
@@ -33,7 +34,7 @@ const sessionShape = {
   currentSessionId: "session-123",
   setCurrentSessionId: vi.fn(),
   currentSessionIdRef: { current: "session-123" },
-  currentAgentId: "default",
+  currentAgentId: DEFAULT_AGENT_ID,
   agentName: "Main",
   agents: [],
   loading: false,

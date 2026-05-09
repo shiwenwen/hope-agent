@@ -305,6 +305,7 @@ pub fn all_dispatchable_tools() -> &'static [ToolDefinition] {
 mod tests {
     use super::*;
     use crate::agent_config::{CapabilityToggles, FilterConfig};
+    use crate::agent_loader::DEFAULT_AGENT_ID;
 
     /// Test fixture — owns the data so each `&` reference in DispatchContext
     /// is valid for the duration of the test.
@@ -360,7 +361,7 @@ mod tests {
                 subclass: CoreSubclass::FileSystem,
             },
         );
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::InjectEager);
     }
 
@@ -373,7 +374,7 @@ mod tests {
                 subclass: CoreSubclass::PlanMode,
             },
         );
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
     }
 
@@ -382,7 +383,7 @@ mod tests {
         let mut f = Fixture::new();
         f.memory_enabled = false;
         let def = def_with_tier("save_memory", ToolTier::Memory);
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
     }
 
@@ -390,7 +391,7 @@ mod tests {
     fn tier_memory_eager_when_enabled() {
         let f = Fixture::new();
         let def = def_with_tier("save_memory", ToolTier::Memory);
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::InjectEager);
     }
 
@@ -399,7 +400,7 @@ mod tests {
         let mut f = Fixture::new();
         f.mcp_enabled = false;
         let def = def_with_tier("mcp_resource", ToolTier::Mcp);
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
     }
 
@@ -414,7 +415,7 @@ mod tests {
                 default_deferred: false,
             },
         );
-        let main_fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let main_fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(main_fate, ToolFate::InjectEager);
         let other_fate = resolve_tool_fate(&def, &f.ctx("translator"));
         assert_eq!(other_fate, ToolFate::Hidden);
@@ -432,7 +433,7 @@ mod tests {
                 default_deferred: false,
             },
         );
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
     }
 
@@ -452,7 +453,7 @@ mod tests {
                 config_hint: "Settings → Tools → Web Search",
             },
         );
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert!(matches!(fate, ToolFate::HintOnly { .. }));
     }
 
@@ -472,7 +473,7 @@ mod tests {
                 subclass: CoreSubclass::FileSystem,
             },
         );
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
     }
 
@@ -494,7 +495,7 @@ mod tests {
             concurrent_safe: false,
             async_capable: false,
         };
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::InjectEager);
     }
 
@@ -511,7 +512,7 @@ mod tests {
                 config_hint: "Settings → Tools → Web Search",
             },
         );
-        let fate = resolve_tool_fate(&def, &f.ctx("default"));
+        let fate = resolve_tool_fate(&def, &f.ctx(DEFAULT_AGENT_ID));
         assert_eq!(fate, ToolFate::Hidden);
     }
 }

@@ -9,7 +9,9 @@ use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::{account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api};
+use super::{
+    account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api,
+};
 
 pub const TOOL_HIRE_LIST_JOBS: &str = "feishu_hire_list_jobs";
 pub const TOOL_HIRE_GET_JOB: &str = "feishu_hire_get_job";
@@ -31,11 +33,10 @@ fn pagination_only(extra_required: &[&str]) -> Value {
     props.insert("page_token".into(), json!({"type": "string"}));
     props.insert("page_size".into(), json!({"type": "integer"}));
     props.insert("account".into(), account_param());
-    let mut required: Vec<&str> = extra_required.into();
     json!({
         "type": "object",
         "properties": props,
-        "required": required.drain(..).collect::<Vec<_>>(),
+        "required": extra_required,
         "additionalProperties": false
     })
 }
@@ -159,7 +160,9 @@ pub(crate) async fn execute_list_talents(args: &Value) -> Result<String> {
 }
 pub(crate) async fn execute_get_talent(args: &Value) -> Result<String> {
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
-    let r = api.hire_get_talent(arg_required_str(args, "talent_id")?).await?;
+    let r = api
+        .hire_get_talent(arg_required_str(args, "talent_id")?)
+        .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_list_applications(args: &Value) -> Result<String> {

@@ -269,11 +269,7 @@ mod tests {
     #[tokio::test]
     async fn execute_get_blocks_requires_document_id() {
         let err = execute_get_blocks(&json!({})).await.unwrap_err();
-        assert!(
-            err.to_string().contains("document_id"),
-            "{}",
-            err
-        );
+        assert!(err.to_string().contains("document_id"), "{}", err);
     }
 
     #[tokio::test]

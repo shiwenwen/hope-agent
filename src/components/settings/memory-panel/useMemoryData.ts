@@ -5,6 +5,7 @@ import { parsePayload } from "@/lib/transport"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
 import type { MemoryEntry, MemorySearchQuery, NewMemory, AgentInfo, MemoryView } from "./types"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useMemoryExtract } from "./useMemoryExtract"
 import { useMemoryStats } from "./useMemoryStats"
 import {
@@ -228,7 +229,7 @@ export function useMemoryData({ agentId, isAgentMode }: UseMemoryDataParams) {
 
   // ── CRUD handlers ──
   function buildNewMemoryEntry(): NewMemory {
-    const scopeAgentId = isAgentMode ? agentId! : (selectedAgentId ?? "default")
+    const scopeAgentId = isAgentMode ? agentId! : (selectedAgentId ?? DEFAULT_AGENT_ID)
     return {
       memoryType: formType,
       scope: formScope === "global" ? { kind: "global" } : { kind: "agent", id: scopeAgentId },

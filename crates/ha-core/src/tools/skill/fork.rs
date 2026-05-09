@@ -17,7 +17,10 @@ pub(super) async fn execute(
         .session_id
         .as_deref()
         .ok_or_else(|| anyhow!("Cannot fork skill outside of a chat session"))?;
-    let agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+    let agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
 
     // skip_parent_injection=true: the skill tool itself feeds the result back
     // as a tool_result; the EventBus injection path would otherwise deliver

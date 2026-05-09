@@ -71,7 +71,18 @@ impl<'a> ResolveContext<'a> {
 
 /// Hardcoded edit-class tool names — these always require approval in
 /// Default mode. Memoized as a slice rather than a HashSet for cheap matches.
-const EDIT_TOOLS: &[&str] = &["write", "edit", "apply_patch"];
+///
+/// `feishu_drive_download_media` writes arbitrary bytes to a local path the
+/// model picks, so it must clear the same approval bar as `write` —
+/// otherwise the protected-paths gate is the only line of defense and a
+/// model could quietly overwrite ordinary workspace / home files in Default
+/// mode without prompting.
+const EDIT_TOOLS: &[&str] = &[
+    "write",
+    "edit",
+    "apply_patch",
+    crate::tools::feishu::drive::TOOL_DRIVE_DOWNLOAD_MEDIA,
+];
 
 fn is_edit_tool(name: &str) -> bool {
     EDIT_TOOLS.contains(&name)

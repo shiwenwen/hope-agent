@@ -223,9 +223,9 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
+    use super::super::api::test_support::mock_api;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn list_returns_calendars() {

@@ -40,7 +40,7 @@ serde tag 区分，目前仅一种类型：
 
 | 类型 | 字段 | 说明 |
 |------|------|------|
-| `AgentTurn` | `prompt: String`, `agent_id: Option<String>` | 以指定 prompt 调用 Agent 对话，`agent_id` 缺省为 `"default"` |
+| `AgentTurn` | `prompt: String`, `agent_id: Option<String>` | 以指定 prompt 调用 Agent 对话，`agent_id` 缺省为 `"ha-main"`（`DEFAULT_AGENT_ID`） |
 
 ### CronJobStatus（五态枚举）
 

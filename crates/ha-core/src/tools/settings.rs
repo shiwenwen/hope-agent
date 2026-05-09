@@ -1061,7 +1061,7 @@ mod tests {
                     "settings": { "guildId": "12345" }
                 }
             ],
-            "defaultAgentId": "default",
+            "defaultAgentId": "ha-main",
             "defaultModel": null
         });
 
@@ -1076,7 +1076,7 @@ mod tests {
         assert_eq!(arr[0]["channelId"], "telegram");
         assert_eq!(arr[0]["enabled"], true);
         assert_eq!(arr[0]["autoApproveTools"], false);
-        assert_eq!(redacted["defaultAgentId"], "default");
+        assert_eq!(redacted["defaultAgentId"], "ha-main");
     }
 
     #[test]

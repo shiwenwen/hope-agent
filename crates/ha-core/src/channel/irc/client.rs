@@ -564,7 +564,11 @@ impl IrcClient {
                         raw: serde_json::json!({ "line": line }),
                     };
 
-                    if inbound_tx.send(InboundEvent::Message(msg_ctx)).await.is_err() {
+                    if inbound_tx
+                        .send(InboundEvent::Message(msg_ctx))
+                        .await
+                        .is_err()
+                    {
                         app_warn!(
                             "channel",
                             "irc",

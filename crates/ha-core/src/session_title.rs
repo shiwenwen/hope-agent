@@ -303,7 +303,9 @@ mod tests {
             uuid::Uuid::new_v4()
         ));
         let db = SessionDB::open(&db_path).expect("open session db");
-        let session = db.create_session("default").expect("create session");
+        let session = db
+            .create_session(crate::agent_loader::DEFAULT_AGENT_ID)
+            .expect("create session");
         db.append_message(
             &session.id,
             &crate::session::NewMessage::user("第一条用户消息"),

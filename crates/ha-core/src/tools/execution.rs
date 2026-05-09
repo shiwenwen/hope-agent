@@ -597,8 +597,13 @@ pub async fn execute_tool_with_context(
             TOOL_UPDATE_MEMORY => memory::tool_update_memory(args).await,
             TOOL_DELETE_MEMORY => memory::tool_delete_memory(args).await,
             TOOL_UPDATE_CORE_MEMORY => {
-                memory::tool_update_core_memory(args, ctx.agent_id.as_deref().unwrap_or("default"))
-                    .await
+                memory::tool_update_core_memory(
+                    args,
+                    ctx.agent_id
+                        .as_deref()
+                        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID),
+                )
+                .await
             }
             TOOL_MANAGE_CRON => cron::tool_manage_cron(args, ctx.session_id.as_deref()).await,
             TOOL_BROWSER => browser::tool_browser(args, ctx.session_id.as_deref()).await,
@@ -642,7 +647,9 @@ pub async fn execute_tool_with_context(
             super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
             super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
             super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
-            super::feishu::docx::TOOL_DOCX_CREATE => super::feishu::docx::execute_create(args).await,
+            super::feishu::docx::TOOL_DOCX_CREATE => {
+                super::feishu::docx::execute_create(args).await
+            }
             super::feishu::docx::TOOL_DOCX_GET_BLOCKS => {
                 super::feishu::docx::execute_get_blocks(args).await
             }

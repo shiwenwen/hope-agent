@@ -234,7 +234,11 @@ impl IMessageClient {
                                 if let Some(params) = parsed.get("params") {
                                     match Self::parse_notification(params, &account_id) {
                                         Some(msg_ctx) => {
-                                            if inbound_tx.send(InboundEvent::Message(msg_ctx)).await.is_err() {
+                                            if inbound_tx
+                                                .send(InboundEvent::Message(msg_ctx))
+                                                .await
+                                                .is_err()
+                                            {
                                                 app_warn!(
                                                     "channel",
                                                     "imessage",

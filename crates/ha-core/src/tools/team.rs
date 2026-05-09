@@ -58,7 +58,10 @@ async fn action_create(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         .session_id
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("No session context"))?;
-    let agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+    let agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
 
     // Resolved template (used both as DB source and to stamp team.template_id)
     let template = if let Some(key) = args.get("template").and_then(|v| v.as_str()) {
@@ -191,7 +194,7 @@ async fn action_add_member(args: &Value) -> Result<String> {
     let agent_id = args
         .get("agent_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("default");
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
     let role = args
         .get("role")
         .and_then(|v| v.as_str())

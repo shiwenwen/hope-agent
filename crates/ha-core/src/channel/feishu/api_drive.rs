@@ -168,10 +168,10 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
+    use super::super::api::test_support::mock_api;
     use super::*;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn list_files_passes_pagination() {
@@ -301,10 +301,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let err = api
-            .drive_list_files(None, None, None)
-            .await
-            .unwrap_err();
+        let err = api.drive_list_files(None, None, None).await.unwrap_err();
         assert!(err.to_string().contains("99991672"), "{}", err);
     }
 }

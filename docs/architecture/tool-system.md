@@ -22,7 +22,7 @@
 
 ### Tier 2: Standard（标准工具）
 
-Agent 默认开启、用户可在 Agent 设置里关闭。每个工具在定义时声明 `default_for_main` / `default_for_others` 两个默认值——前者作用于硬编码主 agent（`agent_id == "default"`），后者作用于其他新建 agent：
+Agent 默认开启、用户可在 Agent 设置里关闭。每个工具在定义时声明 `default_for_main` / `default_for_others` 两个默认值——前者作用于硬编码主 agent（`agent_id == "ha-main"`，即 `agent_loader::DEFAULT_AGENT_ID`），后者作用于其他新建 agent：
 
 | 工具 | main | others | defer_capable |
 |---|---|---|---|

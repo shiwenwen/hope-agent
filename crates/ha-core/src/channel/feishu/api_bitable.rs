@@ -373,10 +373,10 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
+    use super::super::api::test_support::mock_api;
     use super::*;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn list_records_passes_view_filter_pagination() {
@@ -478,11 +478,7 @@ mod tests {
             .await;
 
         let rec = api
-            .bitable_create_record(
-                "bascnAbc",
-                "tblXyz",
-                serde_json::json!({"Name": "Hello"}),
-            )
+            .bitable_create_record("bascnAbc", "tblXyz", serde_json::json!({"Name": "Hello"}))
             .await
             .unwrap();
         assert_eq!(rec.record_id.as_deref(), Some("recNew"));

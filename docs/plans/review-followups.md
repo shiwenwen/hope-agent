@@ -884,6 +884,14 @@
 - **改的话要做什么**：要么集中到 `tools/mod.rs`（与 read/write 风格一致），要么从 `tools/feishu/mod.rs` 显式 re-export 所有 `TOOL_*` 常量给 dispatcher 用单一短前缀。两选一。
 - **影响面**：风格一致性，无功能影响。
 
+### F-081 飞书 `inbound-temp/` 缺 GC，长期累积可能撑爆磁盘
+
+- **来源**：2026-05-09 v0.2.0 飞书入站媒体 review P2 后续讨论
+- **现象**：[`channel/feishu/inbound_media.rs`](../../crates/ha-core/src/channel/feishu/inbound_media.rs) 把入站附件落在 `~/.hope-agent/channels/feishu/inbound-temp/`，由 [`channel/worker/media.rs::convert_inbound_media_to_attachments`](../../crates/ha-core/src/channel/worker/media.rs) 复制一份到 session attachments dir 喂给 LLM。源文件**永远留在 `inbound-temp/`**，没有 GC——长期跑下来同一个用户群里发的图片、视频、PDF 全部累计在这个目录里，最终撑爆磁盘。`INBOUND_DOWNLOAD_MAX_BYTES = 512 MiB` 单文件 cap 防不住"100 个 100 MB 文件 = 10 GB"的累计形态。
+- **为什么留**：本期讨论里把磁盘防御明确从单文件 cap 解耦——cap 只做 sanity tripwire（防 multi-GB 异常 body），磁盘 GC 该在专门的层做。本期不动 GC 是因为：①还没见过用户实际撞这个问题；②正确的方案需要决定 GC 策略（按 mtime 滚动 / 总大小水位 / 按 session 生命周期挂钩 / 按账号配额），不是改一个 cap 能解决的。
+- **改的话要做什么**：要么 ①入站后立刻 move（而非 copy）到 session attachments dir，下载层文件随 session 删除一起清；要么 ②给 `inbound-temp/` 加独立 GC 任务（轮询 mtime > 7 天 / 总大小 > N GB 触发清理）；要么 ③`materialize_inbound` 写完后只用临时文件做 mid-step，等 `convert_inbound_media_to_attachments` 复制成功后立即 delete 源文件。①与现有 1:1 attach 模型不冲突，最简洁。
+- **影响面**：长期运行的 IM bot 磁盘占用单调增长，但不立刻致命；有大量入站附件的租户可能在几周到几个月后撞 ENOSPC。其它 channel（telegram / discord / etc.）的 inbound-temp/ 等价目录也都没有 GC，是同类问题——本期只就飞书登记，将来若动 GC 该是 channel-agnostic 设计。
+
 ---
 
 ## Closed

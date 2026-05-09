@@ -462,6 +462,26 @@ impl ChannelPlugin for FeishuPlugin {
         let info = api.get_bot_info().await?;
         Ok(info.app_name)
     }
+
+    async fn materialize_pending_media(
+        &self,
+        account: &ChannelAccountConfig,
+        msg: &mut MsgContext,
+    ) -> Result<()> {
+        let pending = inbound_media::take_pending_refs(msg);
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let api = self.get_account(&account.id).await?;
+        for parsed in &pending {
+            if let Some(m) =
+                inbound_media::materialize_inbound(&api, &msg.message_id, parsed, &account.id).await
+            {
+                msg.media.push(m);
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

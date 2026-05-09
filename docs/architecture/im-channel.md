@@ -358,6 +358,9 @@ mpsc::channel<MsgContext>  ← 所有渠道共享一个 inbound channel
 Worker Dispatcher (worker.rs)
     ├── 1. 查找 ChannelAccountConfig
     ├── 2. check_access() 权限校验
+    ├── 2c. mention/access gating 通过后调用 materialize_pending_media()
+    │       └── 飞书：把 ws_event 阶段挂到 raw["_hopePendingMedia"] 的轻量 ref
+    │           真正下载到本地（其它渠道默认 no-op，下载已在 plugin 内同步完成）
     ├── 3. resolve_or_create_session() 查找/创建会话
     ├── 4. send_typing() 发送输入中指示器
     ├── 5. [斜杠命令预拦截] is_slash_command(user_text)?
@@ -648,7 +651,7 @@ CREATE TABLE channel_conversations (
   ```
   显式 → project.default_agent_id → topic.agent_id → group.agent_id
        → tg_channel.agent_id → channel_account.agent_id
-       → AppConfig.default_agent_id → "default"
+       → AppConfig.default_agent_id → "ha-main"
   ```
 
   channel worker 的私有 5 级解析(topic > group > channel > account > global)已删除——单一 helper。`AgentSource` 标签覆盖每个层级,`/status` 末尾输出 Agent Source 命中位置。
@@ -1375,7 +1378,7 @@ Channel 配置存储在 `~/.hope-agent/config.json` 的 `AppConfig.channels` 字
 // TypeScript 等效类型
 interface ChannelStoreConfig {
   accounts: ChannelAccountConfig[]
-  defaultAgentId?: string    // 默认使用的 Agent（默认 "default"）
+  defaultAgentId?: string    // 默认使用的 Agent（默认 "ha-main"）
   defaultModel?: ActiveModel // 默认模型（使用全局 activeModel 时为 null）
 }
 
@@ -1418,7 +1421,7 @@ interface ChannelAccountConfig {
         }
       }
     ],
-    "defaultAgentId": "default",
+    "defaultAgentId": "ha-main",
     "defaultModel": null
   }
 }

@@ -38,7 +38,14 @@ impl FeishuApi {
         page_token: Option<&str>,
         page_size: Option<u32>,
     ) -> Result<HireListResult> {
-        list_endpoint(self, "/open-apis/hire/v1/jobs", page_token, page_size, "hire_list_jobs").await
+        list_endpoint(
+            self,
+            "/open-apis/hire/v1/jobs",
+            page_token,
+            page_size,
+            "hire_list_jobs",
+        )
+        .await
     }
 
     pub async fn hire_get_job(&self, job_id: &str) -> Result<Value> {
@@ -136,9 +143,9 @@ async fn list_endpoint(
 
 #[cfg(test)]
 mod tests {
+    use super::super::api::test_support::mock_api;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn list_jobs_returns_items() {

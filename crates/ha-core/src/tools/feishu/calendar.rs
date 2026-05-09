@@ -191,7 +191,10 @@ pub(crate) async fn execute_list(args: &Value) -> Result<String> {
 pub(crate) async fn execute_create_event(args: &Value) -> Result<String> {
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .calendar_create_event(arg_required_str(args, "calendar_id")?, arg_required_object(args, "event")?)
+        .calendar_create_event(
+            arg_required_str(args, "calendar_id")?,
+            arg_required_object(args, "event")?,
+        )
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
@@ -221,8 +224,11 @@ pub(crate) async fn execute_update_event(args: &Value) -> Result<String> {
 }
 pub(crate) async fn execute_delete_event(args: &Value) -> Result<String> {
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
-    api.calendar_delete_event(arg_required_str(args, "calendar_id")?, arg_required_str(args, "event_id")?)
-        .await?;
+    api.calendar_delete_event(
+        arg_required_str(args, "calendar_id")?,
+        arg_required_str(args, "event_id")?,
+    )
+    .await?;
     Ok(serde_json::json!({"ok": true}).to_string())
 }
 pub(crate) async fn execute_attendees_create(args: &Value) -> Result<String> {

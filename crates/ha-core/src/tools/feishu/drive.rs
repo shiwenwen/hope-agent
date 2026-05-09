@@ -17,7 +17,9 @@ use std::path::{Path, PathBuf};
 use crate::channel::feishu::api_drive::DRIVE_UPLOAD_MAX_BYTES;
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::{account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api};
+use super::{
+    account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api,
+};
 
 pub const TOOL_DRIVE_LIST_FILES: &str = "feishu_drive_list_files";
 pub const TOOL_DRIVE_UPLOAD_MEDIA: &str = "feishu_drive_upload_media";
@@ -333,9 +335,7 @@ mod tests {
 
     #[tokio::test]
     async fn download_requires_file_token_and_path() {
-        let err = execute_download_media(&json!({}))
-            .await
-            .unwrap_err();
+        let err = execute_download_media(&json!({})).await.unwrap_err();
         assert!(err.to_string().contains("file_token"), "{}", err);
 
         let err = execute_download_media(&json!({"file_token": "boxcnA"}))

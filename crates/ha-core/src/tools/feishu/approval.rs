@@ -11,7 +11,9 @@ use serde_json::{json, Value};
 
 use crate::tools::definitions::{ToolDefinition, ToolTier};
 
-use super::{account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api};
+use super::{
+    account_param, arg_required_str, arg_str, arg_u32, configured_tier, resolve_feishu_api,
+};
 
 pub const TOOL_APPROVAL_CREATE_INSTANCE: &str = "feishu_approval_create_instance";
 pub const TOOL_APPROVAL_GET_INSTANCE: &str = "feishu_approval_get_instance";
@@ -58,11 +60,10 @@ pub fn create_instance_tool() -> ToolDefinition {
 pub fn get_instance_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_APPROVAL_GET_INSTANCE.into(),
-        description:
-            "Fetch a Feishu (Lark) approval instance's full state: status (`PENDING` / \
+        description: "Fetch a Feishu (Lark) approval instance's full state: status (`PENDING` / \
              `APPROVED` / `REJECTED` / `CANCELED` / etc.), submitted form, timeline, and task \
              list. Required Feishu app scope: `approval:approval.readonly` or `approval:approval`."
-                .into(),
+            .into(),
         tier: cfg(),
         internal: false,
         concurrent_safe: true,

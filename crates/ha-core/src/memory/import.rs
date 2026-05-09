@@ -37,7 +37,7 @@ pub fn parse_import_json(json_str: &str) -> Result<Vec<NewMemory>> {
         let agent_id = item
             .get("agentId")
             .and_then(|v| v.as_str())
-            .unwrap_or("default");
+            .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
 
         let tags: Vec<String> = item
             .get("tags")

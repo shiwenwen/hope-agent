@@ -50,12 +50,12 @@ pub struct ContactSearchResult {
 impl FeishuApi {
     /// `GET /open-apis/contact/v3/users/{user_id}` — fetch one user.
     /// `user_id_type` ∈ `open_id` / `union_id` / `user_id`.
-    pub async fn contact_get_user(&self, user_id: &str, user_id_type: Option<&str>) -> Result<Value> {
-        let mut url = format!(
-            "{}/open-apis/contact/v3/users/{}",
-            self.base_url(),
-            user_id
-        );
+    pub async fn contact_get_user(
+        &self,
+        user_id: &str,
+        user_id_type: Option<&str>,
+    ) -> Result<Value> {
+        let mut url = format!("{}/open-apis/contact/v3/users/{}", self.base_url(), user_id);
         let params: Vec<(&str, String)> = user_id_type
             .map(|t| vec![("user_id_type", t.to_string())])
             .unwrap_or_default();
@@ -146,8 +146,7 @@ impl FeishuApi {
             "{}/open-apis/contact/v3/users/find_by_department",
             self.base_url()
         );
-        let mut params: Vec<(&str, String)> =
-            vec![("department_id", department_id.to_string())];
+        let mut params: Vec<(&str, String)> = vec![("department_id", department_id.to_string())];
         if let Some(t) = page_token {
             params.push(("page_token", t.to_string()));
         }
@@ -170,9 +169,9 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
+    use super::super::api::test_support::mock_api;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn get_user_returns_user_object() {
@@ -206,10 +205,7 @@ mod tests {
         let server = MockServer::start().await;
         let api = mock_api(&server).await;
         let many: Vec<String> = (0..51).map(|i| format!("ou_{}", i)).collect();
-        let err = api
-            .contact_batch_get_users(many, None)
-            .await
-            .unwrap_err();
+        let err = api.contact_batch_get_users(many, None).await.unwrap_err();
         assert!(err.to_string().contains("max"), "{}", err);
     }
 

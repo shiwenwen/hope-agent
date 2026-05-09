@@ -149,8 +149,7 @@ impl FeishuApi {
         page_size: Option<u32>,
     ) -> Result<ApprovalInstanceList> {
         let mut url = format!("{}/open-apis/approval/v4/instances", self.base_url());
-        let mut params: Vec<(&str, String)> =
-            vec![("approval_code", approval_code.to_string())];
+        let mut params: Vec<(&str, String)> = vec![("approval_code", approval_code.to_string())];
         if let Some(v) = start_time {
             params.push(("start_time", v.to_string()));
         }
@@ -199,9 +198,9 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
+    use super::super::api::test_support::mock_api;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn create_instance_returns_code() {

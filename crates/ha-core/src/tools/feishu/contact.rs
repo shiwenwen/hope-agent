@@ -134,21 +134,30 @@ pub fn search_users_by_department_tool() -> ToolDefinition {
 pub(crate) async fn execute_get_user(args: &Value) -> Result<String> {
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let u = api
-        .contact_get_user(arg_required_str(args, "user_id")?, arg_str(args, "user_id_type"))
+        .contact_get_user(
+            arg_required_str(args, "user_id")?,
+            arg_str(args, "user_id_type"),
+        )
         .await?;
     Ok(serde_json::to_string(&u)?)
 }
 pub(crate) async fn execute_batch_get_users(args: &Value) -> Result<String> {
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
-        .contact_batch_get_users(arg_required_string_array(args, "user_ids")?, arg_str(args, "user_id_type"))
+        .contact_batch_get_users(
+            arg_required_string_array(args, "user_ids")?,
+            arg_str(args, "user_id_type"),
+        )
         .await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_get_department(args: &Value) -> Result<String> {
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let d = api
-        .contact_get_department(arg_required_str(args, "department_id")?, arg_str(args, "department_id_type"))
+        .contact_get_department(
+            arg_required_str(args, "department_id")?,
+            arg_str(args, "department_id_type"),
+        )
         .await?;
     Ok(serde_json::to_string(&d)?)
 }

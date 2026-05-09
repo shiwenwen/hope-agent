@@ -198,7 +198,7 @@ fn log_read_receipt(ev: &ReadReceiptEvent) {
 async fn handle_inbound_message(
     registry: &ChannelRegistry,
     channel_db: &ChannelDB,
-    msg: MsgContext,
+    mut msg: MsgContext,
 ) -> anyhow::Result<()> {
     let channel_id_str = msg.channel_id.to_string();
     let sender_label = msg
@@ -314,6 +314,23 @@ async fn handle_inbound_message(
             );
             return Ok(());
         }
+    }
+
+    // 2d. Hydrate any deferred-download attachments now that gating has
+    //     cleared. Channels that download eagerly (Telegram, Slack, etc.)
+    //     leave the trait method as a no-op; Feishu uses this hook so the
+    //     gateway ack isn't blocked on attachment downloads. Failures are
+    //     non-fatal — the surrounding text still reaches the agent.
+    if let Err(e) = plugin.materialize_pending_media(&account, &mut msg).await {
+        app_warn!(
+            "channel",
+            "worker",
+            "[{}] Failed to materialize pending media for {} in {}: {}",
+            channel_id_str,
+            msg.message_id,
+            msg.chat_id,
+            e
+        );
     }
 
     // 3. Resolve agent_id via the central resolver — the precedence chain

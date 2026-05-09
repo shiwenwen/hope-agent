@@ -272,8 +272,7 @@ pub(super) fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
 }
 
 pub(super) fn arg_required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
-    arg_str(args, key)
-        .ok_or_else(|| anyhow!("`{}` is required and must be a string", key))
+    arg_str(args, key).ok_or_else(|| anyhow!("`{}` is required and must be a string", key))
 }
 
 pub(super) fn arg_u32(args: &Value, key: &str) -> Result<Option<u32>> {
@@ -379,7 +378,11 @@ mod tests {
     fn select_account_single_with_wrong_id_errors() {
         let accounts = vec![make_account("acc1", ChannelId::Feishu, "cli_a")];
         let err = select_account(accounts, Some("acc2")).unwrap_err();
-        assert!(err.to_string().contains("'acc2' is not configured"), "{}", err);
+        assert!(
+            err.to_string().contains("'acc2' is not configured"),
+            "{}",
+            err
+        );
     }
 
     #[test]
@@ -466,7 +469,11 @@ mod tests {
         // 35 tools across 8 modules; the assertion is a sanity floor not an
         // exact count so adding a tool doesn't churn the test.
         let tools = get_feishu_tools();
-        assert!(tools.len() >= 30, "expected ≥30 feishu tools, got {}", tools.len());
+        assert!(
+            tools.len() >= 30,
+            "expected ≥30 feishu tools, got {}",
+            tools.len()
+        );
         assert!(tools.iter().all(|t| t.name.starts_with("feishu_")));
     }
 

@@ -72,11 +72,7 @@ impl FeishuApi {
     /// `obj_type` is optional and defaults to `"wiki"` per Feishu's API; if
     /// the token is the underlying obj (e.g. `doxcnXxx` instead of
     /// `wikcnXxx`), the caller should pass the matching obj_type.
-    pub async fn wiki_get_node(
-        &self,
-        token: &str,
-        obj_type: Option<&str>,
-    ) -> Result<WikiNode> {
+    pub async fn wiki_get_node(&self, token: &str, obj_type: Option<&str>) -> Result<WikiNode> {
         let mut url = format!("{}/open-apis/wiki/v2/spaces/get_node", self.base_url());
         let mut params: Vec<(&str, String)> = vec![("token", token.to_string())];
         if let Some(t) = obj_type {
@@ -99,9 +95,9 @@ impl FeishuApi {
 
 #[cfg(test)]
 mod tests {
+    use super::super::api::test_support::mock_api;
     use wiremock::matchers::{method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
-    use super::super::api::test_support::mock_api;
 
     #[tokio::test]
     async fn get_node_returns_resolved_obj_token() {
@@ -162,10 +158,7 @@ mod tests {
             .mount(&server)
             .await;
 
-        let node = api
-            .wiki_get_node("doxcnY", Some("docx"))
-            .await
-            .unwrap();
+        let node = api.wiki_get_node("doxcnY", Some("docx")).await.unwrap();
         assert_eq!(node.obj_token, "doxcnY");
     }
 

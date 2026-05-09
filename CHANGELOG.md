@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **飞书入站媒体下载放在 ACK 与 mention/access gating 之后**（review P1）：之前 [`channel/feishu/ws_event.rs`](crates/ha-core/src/channel/feishu/ws_event.rs) `handle_message_event` 在发 `InboundEvent::Message` 之前同步 download + 落盘，群里没 @bot 的图片/文件也会下载，且把 WS data-frame 的 ack 推迟到下载完成后——容易触发飞书重投与连接抖动。改为：WS handler 只解析轻量 `ParsedMediaRef`，挂在 `MsgContext.raw["_hopePendingMedia"]` 上立刻入队 → 立刻 ack；新增 [`ChannelPlugin::materialize_pending_media`](crates/ha-core/src/channel/traits.rs) 默认 no-op，[`FeishuPlugin`](crates/ha-core/src/channel/feishu/mod.rs) 覆盖；`worker/dispatcher.rs::handle_inbound_message` 在 access + mention 双重 gating 通过后才调用，下载失败仅 warn 不阻断消息。
+- **飞书 inbound resource 下载改成边收边写盘（chunk-streaming）+ 512 MiB sanity cap**（review P2）：[`channel/feishu/api.rs`](crates/ha-core/src/channel/feishu/api.rs) 老的 `download_resource` 直接 `resp.bytes().await` 把整个响应吞进内存——单条几百 MB 的飞书文件能直接拖死 worker。改为新的 `download_resource_to_file(dest)`：先读 `Content-Length` 早 reject 明显超标，再 `bytes_stream()` + `tokio::io::AsyncWriteExt::write_all` 把每个 chunk 直接落到 `~/.hope-agent/channels/feishu/inbound-temp/`，全程 RAM 占用是单 chunk 大小（~16 KB），与 GUI 附件模型对齐——非图片只把磁盘路径喂给 LLM（[`channel/worker/media.rs::convert_inbound_media_to_attachments`](crates/ha-core/src/channel/worker/media.rs) 这一层早就只对图片 base64，文件只传 `file_path`，所以下载层从一次性吞内存改成流式 strictly better）。任何错误（HTTP 错误 / 网络中断 / cap 超限）走 `abort_partial_download` 删半截文件，不留垃圾。`materialize_inbound` 仍按 `parsed.file_size` 做 pre-flight 跳过明显超标。Cap 常量 `INBOUND_DOWNLOAD_MAX_BYTES = 512 MiB` 在 [`inbound_media.rs`](crates/ha-core/src/channel/feishu/inbound_media.rs)——覆盖飞书全部合法场景（图 30 MB / 文件 100 MB / 视频 200 MB），保留作"multi-GB 异常 body"的 sanity tripwire；磁盘 GC 留 follow-up。
+- **`feishu_drive_download_media` 纳入 edit-class 审批**（review P1）：tool 直接把字节写入模型自选的本地路径，原本只靠 [`permission::rules::extract_path_arg`](crates/ha-core/src/permission/rules.rs) 的 protected-path 模式护住敏感目录——但普通 workspace / home 路径下 Default 模式会直接放行，模型可以静默覆盖用户文件。把它和 `write` / `edit` / `apply_patch` 一起列入 [`permission::engine::EDIT_TOOLS`](crates/ha-core/src/permission/engine.rs)，所有非 YOLO 模式都先弹审批。
+
 ### Added
 
 - **飞书完整对齐 v0.2.0 / Phase A 收尾 + Phase B + Phase C**（roadmap 见 `docs/plans/`）：
@@ -1151,6 +1157,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **新增依赖**：`regex`、`ignore`、`glob` crate
 
 ### Changed
+
+- **默认 agent 硬编码 ID 由 `"default"` 改名为 `"ha-main"`**：`agent_loader::DEFAULT_AGENT_ID` / `agent::resolver::HARDCODED_DEFAULT_AGENT_ID`（后者改为前者的 `pub use` 重导出）/ `AppConfig.default_agent_id` 默认值 / `sessions.agent_id` `team_members.agent_id` 两条 SQL DEFAULT 子句、前端 `@/types/tools::DEFAULT_AGENT_ID` 全部对齐到 `"ha-main"`；散落在 ha-core / ha-server / src-tauri / 前端 ~50 处的 `"default"` 字面量收敛到常量（permission mode / 个性预设 / SSRF 策略等无关「default」语义未触动）。新启动钩子 [`agent::migration::migrate_default_agent_id_to_ha_main`](crates/ha-core/src/agent/migration.rs) 在 init_runtime（Primary tier）一次性把磁盘目录（`agents/default/` / `default-home/` / `plans/default/`）、SQLite agent_id 列（sessions / team_members / teams / subagent_runs / projects / async_tool_jobs / canvas_projects / logs）、`cron_jobs.payload_json` 内嵌 agent_id 与 `config.json` 各级 agent_id（`default_agent_id` / `recap.analysisAgent` / `channels.defaultAgentId` / `channels.accounts[*].agent_id` + Telegram `security.groups[*].agent_id` / `groups[*].topics[*].agent_id` / `channels[*].agent_id`）原地 rename 到 `"ha-main"`，落 sentinel `~/.hope-agent/.agent-id-renamed` 后续启动短路；每步独立 idempotent，崩溃可恢复。新代码不要重新引入字面量 `"default"` 作为 agent id —— 一律走常量；详见 [`AGENTS.md`](AGENTS.md) 「Agent 解析链」节。
 
 - **dispatcher 投递管线抽象**（F-066 配套）：新增 [`channel/worker/pipeline.rs`](crates/ha-core/src/channel/worker/pipeline.rs) 提供 `DeliveryTarget` / `spawn_stream_pipeline` / `await_stream_pipeline` / `deliver_rounds` 四件套，inbound dispatcher 与 live mirror 共用同一套 spawn / drain / dispatch 路径，不再各自维护并行实现。`deliver_split` / `deliver_final_only` / `deliver_preview_merged` / `send_final_reply` / `send_text_chunks` 不再接收 `&MsgContext`，改为 `&DeliveryTarget`；`spawn_channel_stream_task` 的 `reply_to_message_id` 端到端 `Option<String>`。`SinkRegistry::emit` fast-path 加 `#[inline]` + `#[cold]` slow-path 拆分。
 

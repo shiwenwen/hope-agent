@@ -281,7 +281,6 @@ pub async fn run_feishu_gateway(
                         &bytes,
                         &mut conn,
                         &cache,
-                        api.as_ref(),
                         &account_id,
                         &bot_open_id,
                         &inbound_tx,
@@ -425,7 +424,6 @@ async fn handle_frame(
     bytes: &[u8],
     conn: &mut ws::WsConnection,
     cache: &DataCache,
-    api: &FeishuApi,
     account_id: &str,
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<InboundEvent>,
@@ -436,8 +434,7 @@ async fn handle_frame(
     match frame.method {
         METHOD_CONTROL => Ok(handle_control_frame(&frame)),
         METHOD_DATA => {
-            handle_data_frame(frame, conn, cache, api, account_id, bot_open_id, inbound_tx)
-                .await?;
+            handle_data_frame(frame, conn, cache, account_id, bot_open_id, inbound_tx).await?;
             Ok(None)
         }
         other => {
@@ -525,7 +522,6 @@ async fn handle_data_frame(
     mut frame: Frame,
     conn: &mut ws::WsConnection,
     cache: &DataCache,
-    api: &FeishuApi,
     account_id: &str,
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<InboundEvent>,
@@ -570,7 +566,7 @@ async fn handle_data_frame(
     let dispatch_result: anyhow::Result<()> = match event_type {
         "im.message.receive_v1" => {
             if let Some(event_data) = parsed.event {
-                handle_message_event(event_data, api, account_id, bot_open_id, inbound_tx).await
+                handle_message_event(event_data, account_id, bot_open_id, inbound_tx).await
             } else {
                 Ok(())
             }
@@ -588,10 +584,7 @@ async fn handle_data_frame(
             // the debug log so unknown events stay diagnosable.
             if let Some(event_data) = parsed.event {
                 let recognized = inbound_events::try_dispatch_non_message(
-                    event_type,
-                    event_data,
-                    account_id,
-                    inbound_tx,
+                    event_type, event_data, account_id, inbound_tx,
                 )
                 .await;
                 if !recognized {
@@ -662,9 +655,16 @@ async fn send_ack(conn: &mut ws::WsConnection, src: Frame, code: i32) -> anyhow:
 }
 
 /// Process an `im.message.receive_v1` event and forward as MsgContext.
+///
+/// Media parsing happens here (cheap, sync) but downloads are deferred —
+/// the parsed refs ride along inside the outgoing `MsgContext.raw` and the
+/// dispatcher invokes `ChannelPlugin::materialize_pending_media` only after
+/// access + mention gating clears. This keeps the WS event-data ack on
+/// schedule (the gateway expects sub-second turnaround) and avoids
+/// downloading attachments from messages that were never going to be
+/// processed (e.g. a non-mentioned image in a group chat).
 async fn handle_message_event(
     event_data: serde_json::Value,
-    api: &FeishuApi,
     account_id: &str,
     bot_open_id: &str,
     inbound_tx: &mpsc::Sender<InboundEvent>,
@@ -699,21 +699,11 @@ async fn handle_message_event(
             .map(|t| clean_mention_tags(&t))
     });
 
-    // Parse + materialize media (image / file / audio / media / sticker).
-    // Failures are logged and skipped per-item — the surrounding text + raw
-    // event still reach the dispatcher so the agent can fall back gracefully.
-    let media = match (message.message_type.as_deref(), message.content.as_deref()) {
+    // Parse media refs (sync, no I/O). Actual download is deferred to
+    // the dispatcher via `ChannelPlugin::materialize_pending_media`.
+    let pending_media = match (message.message_type.as_deref(), message.content.as_deref()) {
         (Some(msg_type), Some(content_str)) if !message_id.is_empty() => {
-            let parsed = inbound_media::parse_message_media(msg_type, content_str, account_id);
-            let mut out = Vec::with_capacity(parsed.len());
-            for p in &parsed {
-                if let Some(m) =
-                    inbound_media::materialize_inbound(api, &message_id, p, account_id).await
-                {
-                    out.push(m);
-                }
-            }
-            out
+            inbound_media::parse_message_media(msg_type, content_str, account_id)
         }
         _ => Vec::new(),
     };
@@ -732,6 +722,9 @@ async fn handle_message_event(
         })
         .unwrap_or(false);
 
+    let mut raw = event_data;
+    inbound_media::embed_pending_refs(&mut raw, pending_media);
+
     let msg = MsgContext {
         channel_id: ChannelId::Feishu,
         account_id: account_id.to_string(),
@@ -744,11 +737,11 @@ async fn handle_message_event(
         thread_id: None,
         message_id,
         text,
-        media,
+        media: Vec::new(),
         reply_to_message_id: None,
         timestamp: chrono::Utc::now(),
         was_mentioned,
-        raw: event_data,
+        raw,
     };
 
     if let Err(e) = inbound_tx.send(InboundEvent::Message(msg)).await {

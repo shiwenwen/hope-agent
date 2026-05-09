@@ -190,6 +190,22 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Used during account setup to verify the token/API key is valid.
     async fn validate_credentials(&self, credentials: &serde_json::Value) -> Result<String>;
 
+    // ── Inbound Materialization ───────────────────────────────────
+
+    /// Hydrate any deferred-download attachments on `msg`. Plugins that
+    /// download media synchronously inside `start_account` (Telegram,
+    /// Slack, etc.) leave this as a no-op. Plugins that defer downloads
+    /// — currently Feishu — populate `msg.media` here so the dispatcher
+    /// has already cleared access + mention gating before any network or
+    /// disk I/O happens, and so the platform's WS ack can fire promptly.
+    async fn materialize_pending_media(
+        &self,
+        _account: &ChannelAccountConfig,
+        _msg: &mut MsgContext,
+    ) -> Result<()> {
+        Ok(())
+    }
+
     // ── Slash command menu ────────────────────────────────────────
 
     /// Re-sync the channel-side slash command menu against the current

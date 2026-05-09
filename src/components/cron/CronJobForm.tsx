@@ -24,6 +24,7 @@ import {
 } from "./cronHelpers"
 import CronExpressionBuilder from "./CronExpressionBuilder"
 import type { AgentInfo } from "@/types/chat"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { ChannelAccountConfig } from "@/components/settings/channel-panel/types"
 
 // Matches the shape returned by `channel_list_sessions` (see
@@ -106,7 +107,7 @@ export default function CronJobForm({ job, defaultDate, onSave, onCancel }: Cron
   )
 
   const [message, setMessage] = useState(job?.payload.prompt ?? "")
-  const [agentId, setAgentId] = useState(job?.payload.agentId ?? "default")
+  const [agentId, setAgentId] = useState(job?.payload.agentId ?? DEFAULT_AGENT_ID)
   const [maxFailures, setMaxFailures] = useState(String(job?.maxFailures ?? 5))
   const [notifyOnComplete, setNotifyOnComplete] = useState(job?.notifyOnComplete ?? true)
   const [deliveryTargets, setDeliveryTargets] = useState<CronDeliveryTarget[]>(

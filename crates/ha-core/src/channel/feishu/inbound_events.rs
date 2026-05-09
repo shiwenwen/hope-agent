@@ -74,11 +74,7 @@ struct ReactionTypeField {
     emoji_type: Option<String>,
 }
 
-fn parse_reaction(
-    event: serde_json::Value,
-    account_id: &str,
-    added: bool,
-) -> Option<InboundEvent> {
+fn parse_reaction(event: serde_json::Value, account_id: &str, added: bool) -> Option<InboundEvent> {
     let p: ReactionPayload = match serde_json::from_value(event.clone()) {
         Ok(v) => v,
         Err(e) => {
@@ -92,10 +88,7 @@ fn parse_reaction(
         }
     };
     let message_id = p.message_id?;
-    let sender_id = p
-        .user_id
-        .and_then(|u| u.open_id)
-        .unwrap_or_default();
+    let sender_id = p.user_id.and_then(|u| u.open_id).unwrap_or_default();
     let emoji = p
         .reaction_type
         .and_then(|t| t.emoji_type)
@@ -384,22 +377,20 @@ pub async fn try_dispatch_non_message(
         "im.message.reaction.deleted_v1" => parse_reaction(event_data, account_id, false)
             .into_iter()
             .collect(),
-        "im.message.recalled_v1" => parse_recalled(event_data, account_id)
-            .into_iter()
-            .collect(),
+        "im.message.recalled_v1" => parse_recalled(event_data, account_id).into_iter().collect(),
         "im.message.message_read_v1" => parse_read_receipt_list(event_data, account_id),
-        "im.chat.member.user.added_v1" => {
-            parse_user_added_or_deleted(event_data, account_id, true)
-        }
+        "im.chat.member.user.added_v1" => parse_user_added_or_deleted(event_data, account_id, true),
         "im.chat.member.user.deleted_v1" => {
             parse_user_added_or_deleted(event_data, account_id, false)
         }
         "im.chat.member.bot.added_v1" => parse_bot_added_or_deleted(event_data, account_id, true)
             .into_iter()
             .collect(),
-        "im.chat.member.bot.deleted_v1" => parse_bot_added_or_deleted(event_data, account_id, false)
-            .into_iter()
-            .collect(),
+        "im.chat.member.bot.deleted_v1" => {
+            parse_bot_added_or_deleted(event_data, account_id, false)
+                .into_iter()
+                .collect()
+        }
         "im.chat.created_v1" => parse_chat_created(event_data, account_id)
             .into_iter()
             .collect(),
@@ -518,8 +509,7 @@ mod tests {
             },
             "message_id_list": ["om_a", "om_b", "om_c"]
         });
-        let (recognized, events) =
-            dispatch_and_collect("im.message.message_read_v1", event).await;
+        let (recognized, events) = dispatch_and_collect("im.message.message_read_v1", event).await;
         assert!(recognized);
         assert_eq!(events.len(), 3);
         let ids: Vec<&str> = events
@@ -551,7 +541,10 @@ mod tests {
         assert_eq!(events.len(), 2);
         match &events[0] {
             InboundEvent::Membership(m) => match &m.action {
-                MembershipAction::UserJoined { user_id, inviter_id } => {
+                MembershipAction::UserJoined {
+                    user_id,
+                    inviter_id,
+                } => {
                     assert_eq!(user_id, "ou_alice");
                     assert_eq!(inviter_id.as_deref(), Some("ou_admin"));
                 }
