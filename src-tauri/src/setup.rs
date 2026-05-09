@@ -16,12 +16,14 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         )?;
     }
 
+    // tauri-plugin-updater reads the verification pubkey from
+    // `tauri.conf.json#plugins.updater.pubkey` automatically — single source
+    // of truth. An explicit `.pubkey()` here previously diverged from the
+    // config (different key_id) and silently failed signature verification
+    // on every install, surfacing only as a generic "install failed" toast.
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    app.handle().plugin(
-        tauri_plugin_updater::Builder::new()
-            .pubkey(include_str!("../updater.pub.pem").trim())
-            .build(),
-    )?;
+    app.handle()
+        .plugin(tauri_plugin_updater::Builder::new().build())?;
 
     // macOS: custom app menu — Cmd+Q hides window instead of quitting
     #[cfg(target_os = "macos")]
