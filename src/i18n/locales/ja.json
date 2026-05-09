@@ -1390,6 +1390,7 @@
       },
       "notFound": "OpenClaw 設定が検出されませんでした。新規セットアップを続行できます。",
       "partial": "インポート完了（警告あり）",
+      "retry": "再試行",
       "providers": {
         "apiTypeWarning": "互換性パス",
         "envRef": "環境変数から",
