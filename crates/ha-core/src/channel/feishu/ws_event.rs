@@ -14,6 +14,7 @@ use crate::channel::ws;
 
 use super::api::FeishuApi;
 use super::data_cache::DataCache;
+use super::inbound_events;
 use super::inbound_media;
 use super::proto::{Frame, Header};
 use super::HOPE_CALLBACK_KEY;
@@ -581,13 +582,36 @@ async fn handle_data_frame(
             Ok(())
         }
         _ => {
-            app_debug!(
-                "channel",
-                "feishu:gateway",
-                "[{}] Ignoring event type: {}",
-                account_id,
-                event_type
-            );
+            // Try the non-message event dispatcher (reactions / recalls /
+            // read receipts / membership / chat lifecycle). Returns false
+            // if the event_type isn't one we surface yet — fall through to
+            // the debug log so unknown events stay diagnosable.
+            if let Some(event_data) = parsed.event {
+                let recognized = inbound_events::try_dispatch_non_message(
+                    event_type,
+                    event_data,
+                    account_id,
+                    inbound_tx,
+                )
+                .await;
+                if !recognized {
+                    app_debug!(
+                        "channel",
+                        "feishu:gateway",
+                        "[{}] Ignoring event type: {}",
+                        account_id,
+                        event_type
+                    );
+                }
+            } else {
+                app_debug!(
+                    "channel",
+                    "feishu:gateway",
+                    "[{}] Ignoring event type with empty payload: {}",
+                    account_id,
+                    event_type
+                );
+            }
             Ok(())
         }
     };

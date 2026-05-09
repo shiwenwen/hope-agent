@@ -12,6 +12,7 @@ pub mod api;
 pub mod auth;
 pub mod data_cache;
 pub mod format;
+pub mod inbound_events;
 pub mod inbound_media;
 pub mod media;
 pub mod proto;
