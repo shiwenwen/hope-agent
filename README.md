@@ -98,6 +98,13 @@
 2. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
 3. 桌面安装包内置 GitHub Releases 自动更新；应用内可在 **设置 → 关于** 里检查更新并一键安装
 
+> macOS 启动时若提示"已损坏"或"无法验证开发者"，在终端跑：
+>
+> ```bash
+> sudo xattr -cr /Applications/Hope\ Agent.app
+> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
+> ```
+
 ### 开发者
 
 ```bash

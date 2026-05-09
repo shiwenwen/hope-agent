@@ -98,6 +98,13 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 2. First launch: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
 3. Desktop installers ship with GitHub Releases auto-update; inside the app you can go to **Settings → About** to check and install updates
 
+> If macOS shows "damaged" or "cannot verify developer", run in Terminal:
+>
+> ```bash
+> sudo xattr -cr /Applications/Hope\ Agent.app
+> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
+> ```
+
 ### For developers
 
 ```bash
