@@ -29,6 +29,7 @@ pub mod calendar;
 pub mod contact;
 pub mod docx;
 pub mod drive;
+pub mod hire;
 pub mod wiki;
 
 use anyhow::{anyhow, Result};
@@ -226,6 +227,12 @@ pub fn get_feishu_tools() -> Vec<ToolDefinition> {
         contact::batch_get_users_tool(),
         contact::get_department_tool(),
         contact::search_users_by_department_tool(),
+        // C9 — hire
+        hire::list_jobs_tool(),
+        hire::get_job_tool(),
+        hire::list_talents_tool(),
+        hire::get_talent_tool(),
+        hire::list_applications_tool(),
     ]
 }
 

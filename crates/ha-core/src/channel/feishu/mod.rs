@@ -15,6 +15,7 @@ pub mod api_calendar;
 pub mod api_contact;
 pub mod api_docx;
 pub mod api_drive;
+pub mod api_hire;
 pub mod api_wiki;
 pub mod auth;
 pub mod data_cache;

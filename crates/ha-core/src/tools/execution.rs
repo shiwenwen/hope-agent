@@ -738,6 +738,22 @@ pub async fn execute_tool_with_context(
             super::feishu::contact::TOOL_CONTACT_SEARCH_USERS_BY_DEPARTMENT => {
                 super::feishu::contact::execute_search_users_by_department(args).await
             }
+            // Feishu hire (PR C9).
+            super::feishu::hire::TOOL_HIRE_LIST_JOBS => {
+                super::feishu::hire::execute_list_jobs(args).await
+            }
+            super::feishu::hire::TOOL_HIRE_GET_JOB => {
+                super::feishu::hire::execute_get_job(args).await
+            }
+            super::feishu::hire::TOOL_HIRE_LIST_TALENTS => {
+                super::feishu::hire::execute_list_talents(args).await
+            }
+            super::feishu::hire::TOOL_HIRE_GET_TALENT => {
+                super::feishu::hire::execute_get_talent(args).await
+            }
+            super::feishu::hire::TOOL_HIRE_LIST_APPLICATIONS => {
+                super::feishu::hire::execute_list_applications(args).await
+            }
             // MCP-sourced tools all share the `mcp__<server>__<tool>`
             // prefix; dispatch them through the dedicated subsystem.
             n if crate::mcp::catalog::is_mcp_tool_name(n) => {

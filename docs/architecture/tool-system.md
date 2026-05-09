@@ -1227,6 +1227,11 @@ v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 /
 | C8 | `feishu_contact_batch_get_users` | 批量查用户（≤50；敏感） |
 | C8 | `feishu_contact_get_department` | 查部门 info |
 | C8 | `feishu_contact_search_users_by_department` | 列部门下用户（敏感） |
+| C9 | `feishu_hire_list_jobs` | 列招聘岗位（需 hire 模块开通） |
+| C9 | `feishu_hire_get_job` | 查岗位详情 |
+| C9 | `feishu_hire_list_talents` | 列人才库（敏感） |
+| C9 | `feishu_hire_get_talent` | 查候选人详情（敏感） |
+| C9 | `feishu_hire_list_applications` | 列投递记录 |
 
 C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
 
