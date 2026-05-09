@@ -236,6 +236,7 @@ export default function SsrfPolicySection() {
                 variant="outline"
                 onClick={addHost}
                 disabled={!newHost.trim()}
+                className="shrink-0"
               >
                 {t("common.add")}
               </Button>

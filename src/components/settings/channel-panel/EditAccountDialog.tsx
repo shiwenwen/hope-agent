@@ -240,6 +240,7 @@ export default function EditAccountDialog({
                   size="sm"
                   onClick={handleValidate}
                   disabled={!token.trim() || validating}
+                  className="shrink-0"
                 >
                   {validating ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

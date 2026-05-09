@@ -419,6 +419,7 @@ export default function BrowserPanel() {
                 variant="outline"
                 onClick={onCreateProfile}
                 disabled={creating || !newProfileName.trim()}
+                className="shrink-0"
               >
                 {creating ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -507,6 +508,7 @@ export default function BrowserPanel() {
                 variant="outline"
                 onClick={onConnect}
                 disabled={busy !== null || !connectUrl.trim()}
+                className="shrink-0"
               >
                 {busy === "connect" ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
