@@ -61,6 +61,11 @@ static ALERT_COOLDOWN: Lazy<Mutex<HashMap<String, Instant>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 static SESSION_SILENCED: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
 static LOOP_SPAWNED: AtomicBool = AtomicBool::new(false);
+/// Suppresses the "Ollama unreachable" warning between sweeps. We log on the
+/// transition into unreachable (once), then stay quiet until a sweep succeeds
+/// — without this gate the watchdog spams the same line every 60s on machines
+/// that have a local Ollama target configured but no Ollama installed.
+static UNREACHABLE_LOGGED: AtomicBool = AtomicBool::new(false);
 
 // ── Public types (mirrored on the TS side) ─────────────────────────
 
@@ -186,20 +191,34 @@ async fn run_one_pass() {
     if !cfg.local_llm.auto_maintenance.enabled {
         return;
     }
+    // No Ollama target configured (no Ollama-backed active model, no Ollama
+    // embedding) → nothing for the watchdog to do. Skip silently so we don't
+    // probe / warn on machines where the user never opted into local LLM.
+    if resolve_default_tag(ModelKind::Chat, &cfg).is_none()
+        && resolve_default_tag(ModelKind::Embedding, &cfg).is_none()
+    {
+        UNREACHABLE_LOGGED.store(false, Ordering::SeqCst);
+        return;
+    }
     // If the daemon is down, try to bring it up. start_ollama() is idempotent
     // (returns Ok early when ping succeeds) and will attempt to spawn ollama
     // serve when it doesn't. Failing here means Ollama isn't installed or the
     // binary is unusable — the user has to fix that themselves; nothing the
     // watchdog can do.
     if let Err(e) = super::start_ollama().await {
-        crate::app_warn!(
-            "local_llm",
-            "auto_maintainer",
-            "Skipping pass — Ollama is unreachable and could not be auto-started: {:#}",
-            e
-        );
+        // Only warn on the transition into unreachable. Subsequent ticks stay
+        // quiet until a sweep succeeds (which clears the gate below).
+        if !UNREACHABLE_LOGGED.swap(true, Ordering::SeqCst) {
+            crate::app_warn!(
+                "local_llm",
+                "auto_maintainer",
+                "Skipping pass — Ollama is unreachable and could not be auto-started (further occurrences suppressed until reachable): {:#}",
+                e
+            );
+        }
         return;
     }
+    UNREACHABLE_LOGGED.store(false, Ordering::SeqCst);
     let installed = match list_local_ollama_models().await {
         Ok(v) => v,
         Err(e) => {

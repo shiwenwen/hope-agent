@@ -105,6 +105,8 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 > sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
 > ```
 
+> If Windows reports "MSVCP140_1.dll was not found" or a similar missing `VCRUNTIME140.dll` / `MSVCP140.dll` error on launch, install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and relaunch the application.
+
 ### For developers
 
 ```bash
