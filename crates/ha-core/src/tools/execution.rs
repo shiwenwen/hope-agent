@@ -690,6 +690,22 @@ pub async fn execute_tool_with_context(
             super::feishu::wiki::TOOL_WIKI_GET_NODE => {
                 super::feishu::wiki::execute_get_node(args).await
             }
+            // Feishu approval (PR C6).
+            super::feishu::approval::TOOL_APPROVAL_CREATE_INSTANCE => {
+                super::feishu::approval::execute_create_instance(args).await
+            }
+            super::feishu::approval::TOOL_APPROVAL_GET_INSTANCE => {
+                super::feishu::approval::execute_get_instance(args).await
+            }
+            super::feishu::approval::TOOL_APPROVAL_CANCEL_INSTANCE => {
+                super::feishu::approval::execute_cancel_instance(args).await
+            }
+            super::feishu::approval::TOOL_APPROVAL_LIST_INSTANCES => {
+                super::feishu::approval::execute_list_instances(args).await
+            }
+            super::feishu::approval::TOOL_APPROVAL_SUBSCRIBE => {
+                super::feishu::approval::execute_subscribe(args).await
+            }
             // MCP-sourced tools all share the `mcp__<server>__<tool>`
             // prefix; dispatch them through the dedicated subsystem.
             n if crate::mcp::catalog::is_mcp_tool_name(n) => {

@@ -9,6 +9,7 @@
 //! - **Last reviewed**: 2026-05-05
 
 pub mod api;
+pub mod api_approval;
 pub mod api_bitable;
 pub mod api_docx;
 pub mod api_drive;

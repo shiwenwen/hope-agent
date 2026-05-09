@@ -1212,6 +1212,11 @@ v0.2.0 起把飞书除 IM 之外的核心业务 API（云文档 / 多维表格 /
 | C5 | `feishu_bitable_list_views` | 列多维表格表的所有视图（grid / kanban / gantt / calendar / gallery / form） |
 | C5 | `feishu_bitable_get_view` | 取单个视图完整配置（filter / sort / hidden_fields / 等） |
 | C5 | `feishu_bitable_list_dashboards` | 列多维表格 app 下所有看板（dashboard_id + name） |
+| C6 | `feishu_approval_create_instance` | **HIGH** 提交新审批实例 |
+| C6 | `feishu_approval_get_instance` | 查审批实例状态 / 表单 / 时间线 |
+| C6 | `feishu_approval_cancel_instance` | **HIGH** 撤销实例 |
+| C6 | `feishu_approval_list_instances` | 按 approval_code + 时间区间列实例码 |
+| C6 | `feishu_approval_subscribe` | 启用审批事件推送（v0.2.0 仅 log；行为留 v0.3+ B.2） |
 
 C2-C9 PR 各自往 [`tools::feishu::get_feishu_tools`](../../crates/ha-core/src/tools/feishu/mod.rs) 追加自己的 tool 定义，本表持续 grow。
 

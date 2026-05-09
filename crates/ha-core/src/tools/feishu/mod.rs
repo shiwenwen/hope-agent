@@ -23,6 +23,7 @@
 //! [`tools::dispatch::ALL_DISPATCHABLE_TOOLS`]. PR C1 onwards each append
 //! their `feishu_<module>_*` tools to the returned vec.
 
+pub mod approval;
 pub mod bitable;
 pub mod docx;
 pub mod drive;
@@ -205,6 +206,12 @@ pub fn get_feishu_tools() -> Vec<ToolDefinition> {
         drive::download_media_tool(),
         // C4 — wiki
         wiki::get_node_tool(),
+        // C6 — approval
+        approval::create_instance_tool(),
+        approval::get_instance_tool(),
+        approval::cancel_instance_tool(),
+        approval::list_instances_tool(),
+        approval::subscribe_tool(),
     ]
 }
 
