@@ -135,7 +135,7 @@ fn run_child() {
 
 fn run_acp_server(args: &[String]) {
     let mut verbose = false;
-    let mut agent_id = "default".to_string();
+    let mut agent_id = ha_core::agent_loader::DEFAULT_AGENT_ID.to_string();
 
     let mut i = 0;
     while i < args.len() {

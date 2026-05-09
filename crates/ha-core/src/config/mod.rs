@@ -225,7 +225,7 @@ fn default_tool_call_narration_enabled() -> bool {
 }
 
 fn default_default_agent_id() -> Option<String> {
-    Some("default".to_string())
+    Some(crate::agent_loader::DEFAULT_AGENT_ID.to_string())
 }
 
 pub(crate) fn default_tool_timeout() -> u64 {
@@ -385,7 +385,7 @@ pub struct AppConfig {
     #[serde(default)]
     pub fallback_models: Vec<ActiveModel>,
     /// Global default agent id used when neither the explicit caller nor a
-    /// session/project/channel specifies one. Defaults to `"default"`.
+    /// session/project/channel specifies one. Defaults to `"ha-main"`.
     #[serde(default = "default_default_agent_id")]
     pub default_agent_id: Option<String>,
     /// Extra directories to scan for skills

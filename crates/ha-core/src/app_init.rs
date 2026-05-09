@@ -324,6 +324,26 @@ pub fn init_runtime(role: &'static str) {
         // Backstop the live close-on-leave path: incognito sessions left from a
         // crash / SIGKILL / power loss never reach the frontend purge call.
         crate::session::cleanup_orphan_incognito(&session_db);
+
+        // One-shot rename of the legacy `"default"` agent id to the new
+        // hardcoded `DEFAULT_AGENT_ID` (`"ha-main"`). Idempotent — writes a
+        // sentinel and short-circuits on subsequent startups. Failure is
+        // logged but non-fatal: the app keeps booting on the old id, and the
+        // next startup retries.
+        let cron_db_ref = CRON_DB.get().expect("CRON_DB initialized above");
+        let log_db_ref = LOG_DB.get().expect("LOG_DB initialized above");
+        if let Err(e) = crate::agent::migration::migrate_default_agent_id_to_ha_main(
+            session_db.as_ref(),
+            cron_db_ref.as_ref(),
+            log_db_ref.as_ref(),
+        ) {
+            app_error!(
+                "agent",
+                "migration",
+                "default-agent-id rename migration failed: {}",
+                e
+            );
+        }
     }
 
     // Initialize IM Channel system
@@ -446,7 +466,7 @@ pub fn build_app_state() -> AppState {
         auth_result: Arc::new(Mutex::new(None)),
         reasoning_effort,
         codex_token,
-        current_agent_id: Mutex::new("default".to_string()),
+        current_agent_id: Mutex::new(crate::agent_loader::DEFAULT_AGENT_ID.to_string()),
         session_db,
         project_db,
         chat_cancel: Arc::new(AtomicBool::new(false)),

@@ -19,6 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import type { AgentSummary } from "@/components/settings/types"
+import { DEFAULT_AGENT_ID } from "@/types/tools"
 import type { TeamTemplate, TeamTemplateMember } from "@/components/team/teamTypes"
 import MemberRow from "./MemberRow"
 
@@ -36,7 +37,7 @@ function makeBlankMember(index: number): TeamTemplateMember {
   return {
     name: "",
     role: "worker",
-    agentId: "default",
+    agentId: DEFAULT_AGENT_ID,
     color: palette[index % palette.length],
     description: "",
   }

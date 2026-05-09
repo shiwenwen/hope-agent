@@ -65,7 +65,7 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
     let agent_id = args
         .get("agent_id")
         .and_then(|v| v.as_str())
-        .unwrap_or("default")
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID)
         .to_string();
 
     let timeout_secs = args
@@ -82,7 +82,10 @@ async fn do_spawn(args: &Value, ctx: &ToolExecContext) -> Result<String> {
         anyhow::anyhow!("No session context — cannot spawn sub-agent outside a chat session")
     })?;
 
-    let parent_agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+    let parent_agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
 
     // Check agent-level permission via the dispatcher (Tier 3 subagent toggle).
     let agent_def = crate::agent_loader::load_agent(parent_agent_id).ok();
@@ -379,7 +382,10 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
     let parent_session_id = ctx.session_id.as_deref().ok_or_else(|| {
         anyhow::anyhow!("No session context — cannot spawn sub-agents outside a chat session")
     })?;
-    let parent_agent_id = ctx.agent_id.as_deref().unwrap_or("default");
+    let parent_agent_id = ctx
+        .agent_id
+        .as_deref()
+        .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID);
 
     let max_batch = subagent::max_batch_size_for_agent(parent_agent_id);
     if tasks.len() > max_batch {
@@ -401,7 +407,7 @@ async fn action_batch_spawn(args: &Value, ctx: &ToolExecContext) -> Result<Strin
         let agent_id = task_def
             .get("agent_id")
             .and_then(|v| v.as_str())
-            .unwrap_or("default")
+            .unwrap_or(crate::agent_loader::DEFAULT_AGENT_ID)
             .to_string();
         let label = task_def
             .get("label")

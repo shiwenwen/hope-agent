@@ -56,7 +56,7 @@ Session 模块是 Hope Agent 的会话与消息持久化系统，基于 SQLite W
 | `id` | `String` | UUID v4 主键 |
 | `title` | `Option<String>` | 会话标题 |
 | `title_source` | `String` | 标题来源：`"manual"` / `"first_message"` / `"llm"`（默认 manual） |
-| `agent_id` | `String` | 关联 Agent ID，默认 `"default"` |
+| `agent_id` | `String` | 关联 Agent ID，默认 `"ha-main"`（`agent_loader::DEFAULT_AGENT_ID`） |
 | `provider_id` | `Option<String>` | 当前使用的 Provider ID |
 | `provider_name` | `Option<String>` | Provider 显示名称 |
 | `model_id` | `Option<String>` | 当前使用的模型 ID |

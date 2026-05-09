@@ -121,7 +121,7 @@ pub async fn create_session(
     Json(body): Json<CreateSessionBody>,
 ) -> Result<Json<ha_core::session::SessionMeta>, AppError> {
     // Caller-supplied agent_id wins. Otherwise follow the same resolver chain
-    // as the desktop command: project default → global default → "default".
+    // as the desktop command: project default → global default → "ha-main".
     let explicit_agent_id = body
         .agent_id
         .as_deref()
