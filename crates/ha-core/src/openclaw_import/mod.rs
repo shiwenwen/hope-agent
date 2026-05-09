@@ -16,7 +16,7 @@ mod providers;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::path::PathBuf;
 
 pub use agents::{ImportAgentRequest, ImportResult, OpenClawAgentPreview};
@@ -30,8 +30,8 @@ use crate::memory::types::{MemoryScope, NewMemory};
 #[serde(rename_all = "camelCase")]
 pub struct MemoryPreview {
     pub global_md_present: bool,
-    /// (agent_id, estimated entry count) — only includes agents whose
-    /// MEMORY.md actually exists on disk.
+    /// (agent_id, estimated importable item count) — includes core
+    /// MEMORY.md entries plus OpenClaw SQLite memory chunks.
     pub agent_md_counts: Vec<(String, usize)>,
 }
 
@@ -218,15 +218,37 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
     }
 
     let mut memories_added = 0usize;
-    let mut all_entries: Vec<NewMemory> = Vec::new();
+    let mut db_entries: Vec<NewMemory> = Vec::new();
+    let mut requested_agent_memories: BTreeSet<String> =
+        req.import_agent_memories.iter().cloned().collect();
+    for areq in &req.import_agents {
+        if areq
+            .import_files
+            .iter()
+            .any(|file| agents::is_memory_markdown_file(file))
+        {
+            requested_agent_memories.insert(areq.target_id.clone());
+        }
+    }
 
     if req.import_global_memory {
         let path = memory::global_memory_path(&state_dir);
         if path.exists() {
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
-                    let entries = memory::parse_openclaw_memory_md(&content, MemoryScope::Global);
-                    all_entries.extend(entries);
+                    let count = memory::estimate_entries(&content);
+                    match write_global_memory_md(&content) {
+                        Ok(written) => {
+                            if written {
+                                memories_added += count;
+                            }
+                        }
+                        Err(e) => warnings.push(format!(
+                            "Failed to write global memory.md from {}: {}",
+                            path.display(),
+                            e
+                        )),
+                    }
                 }
                 Err(e) => warnings.push(format!(
                     "Failed to read global MEMORY.md at {}: {}",
@@ -237,7 +259,7 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
         }
     }
 
-    if !req.import_agent_memories.is_empty() {
+    if !requested_agent_memories.is_empty() {
         // Build (target_id → source_id) so we can find the right MEMORY.md.
         let request_pairs: std::collections::HashMap<&str, &str> = req
             .import_agents
@@ -245,7 +267,7 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
             .map(|a| (a.target_id.as_str(), a.source_id.as_str()))
             .collect();
 
-        for target_id in &req.import_agent_memories {
+        for target_id in &requested_agent_memories {
             let Some(source_id) = request_pairs.get(target_id.as_str()) else {
                 warnings.push(format!(
                     "Memory selected for target agent '{}' but no matching import request",
@@ -260,16 +282,47 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
                 ));
                 continue;
             }
-            let Some(path) = memory::agent_memory_path(&state_dir, source_id) else {
+            let Some(source_agent) = source_map.get(source_id) else {
+                warnings.push(format!(
+                    "Memory selected for source agent '{}' but it was not found in OpenClaw config",
+                    source_id
+                ));
+                continue;
+            };
+            let Some(path) = resolve_agent_memory_path(&state_dir, source_agent) else {
+                if let Some(sqlite_path) = memory::agent_sqlite_memory_path(&state_dir, source_id) {
+                    match memory::parse_openclaw_sqlite_memory_db(
+                        &sqlite_path,
+                        MemoryScope::Agent {
+                            id: target_id.clone(),
+                        },
+                    ) {
+                        Ok(entries) => db_entries.extend(entries),
+                        Err(e) => warnings.push(format!(
+                            "Failed to import OpenClaw SQLite memory at {}: {}",
+                            sqlite_path.display(),
+                            e
+                        )),
+                    }
+                }
                 continue;
             };
             match std::fs::read_to_string(&path) {
                 Ok(content) => {
-                    let scope = MemoryScope::Agent {
-                        id: target_id.clone(),
-                    };
-                    let entries = memory::parse_openclaw_memory_md(&content, scope);
-                    all_entries.extend(entries);
+                    let count = memory::estimate_entries(&content);
+                    match write_agent_memory_md(target_id, &content) {
+                        Ok(written) => {
+                            if written {
+                                memories_added += count;
+                            }
+                        }
+                        Err(e) => warnings.push(format!(
+                            "Failed to write memory.md for target agent '{}' from {}: {}",
+                            target_id,
+                            path.display(),
+                            e
+                        )),
+                    }
                 }
                 Err(e) => warnings.push(format!(
                     "Failed to read MEMORY.md at {}: {}",
@@ -277,14 +330,30 @@ pub fn import_openclaw_full(req: &OpenClawImportRequest) -> Result<OpenClawImpor
                     e
                 )),
             }
+
+            if let Some(sqlite_path) = memory::agent_sqlite_memory_path(&state_dir, source_id) {
+                match memory::parse_openclaw_sqlite_memory_db(
+                    &sqlite_path,
+                    MemoryScope::Agent {
+                        id: target_id.clone(),
+                    },
+                ) {
+                    Ok(entries) => db_entries.extend(entries),
+                    Err(e) => warnings.push(format!(
+                        "Failed to import OpenClaw SQLite memory at {}: {}",
+                        sqlite_path.display(),
+                        e
+                    )),
+                }
+            }
         }
     }
 
-    if !all_entries.is_empty() {
+    if !db_entries.is_empty() {
         if let Some(backend) = crate::globals::get_memory_backend() {
-            match backend.import_entries(all_entries, true) {
+            match backend.import_entries(db_entries, true) {
                 Ok(result) => {
-                    memories_added = result.created;
+                    memories_added += result.created;
                     if result.skipped_duplicate > 0 {
                         warnings.push(format!(
                             "{} memory entries skipped as duplicates",
@@ -378,13 +447,17 @@ fn build_memory_preview(
         if agent.id.is_empty() {
             continue;
         }
-        if let Some(path) = memory::agent_memory_path(state_dir, &agent.id) {
-            let count = std::fs::read_to_string(&path)
+        let mut count = 0usize;
+        if let Some(path) = resolve_agent_memory_path(state_dir, agent) {
+            count += std::fs::read_to_string(&path)
                 .map(|s| memory::estimate_entries(&s))
                 .unwrap_or(0);
-            if count > 0 {
-                agent_md_counts.push((agent.id.clone(), count));
-            }
+        }
+        if let Some(path) = memory::agent_sqlite_memory_path(state_dir, &agent.id) {
+            count += memory::sqlite_memory_entry_count(&path).unwrap_or(0);
+        }
+        if count > 0 {
+            agent_md_counts.push((agent.id.clone(), count));
         }
     }
 
@@ -392,6 +465,107 @@ fn build_memory_preview(
         global_md_present,
         agent_md_counts,
     }
+}
+
+fn resolve_agent_memory_path(
+    state_dir: &std::path::Path,
+    agent: &agents::OpenClawAgent,
+) -> Option<PathBuf> {
+    let workspace = agents::resolve_workspace(state_dir, agent);
+    ["MEMORY.md", "memory.md"]
+        .into_iter()
+        .map(|name| workspace.join(name))
+        .find(|path| path.exists())
+        .or_else(|| memory::agent_memory_path(state_dir, &agent.id))
+}
+
+fn write_global_memory_md(content: &str) -> Result<bool> {
+    write_core_memory_md(crate::paths::root_dir()?.join("memory.md"), content)
+}
+
+fn write_agent_memory_md(agent_id: &str, content: &str) -> Result<bool> {
+    let dir = crate::paths::agent_dir(agent_id)?;
+    write_core_memory_md(dir.join("memory.md"), content)
+}
+
+fn write_core_memory_md(path: PathBuf, content: &str) -> Result<bool> {
+    if content.trim().is_empty() {
+        return Ok(false);
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+    }
+    backup_existing_core_memory_md(&path)?;
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    let merged = merge_openclaw_memory_section(&existing, content);
+    std::fs::write(&path, merged).with_context(|| format!("Failed to write {}", path.display()))?;
+    Ok(true)
+}
+
+const OPENCLAW_MEMORY_BEGIN: &str = "<!-- BEGIN OPENCLAW MEMORY IMPORT -->";
+const OPENCLAW_MEMORY_END: &str = "<!-- END OPENCLAW MEMORY IMPORT -->";
+
+fn merge_openclaw_memory_section(existing: &str, imported: &str) -> String {
+    let section = format!("## OpenClaw MEMORY.md\n\n{}\n", imported.trim_end());
+    let wrapped = format!(
+        "{}\n{}\n{}",
+        OPENCLAW_MEMORY_BEGIN, section, OPENCLAW_MEMORY_END
+    );
+
+    if let Some(start) = existing.find(OPENCLAW_MEMORY_BEGIN) {
+        if let Some(rel_end) = existing[start..].find(OPENCLAW_MEMORY_END) {
+            let end = start + rel_end + OPENCLAW_MEMORY_END.len();
+            let mut out = String::new();
+            out.push_str(existing[..start].trim_end());
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            out.push_str(&wrapped);
+            let suffix = existing[end..].trim_start();
+            if !suffix.is_empty() {
+                out.push_str("\n\n");
+                out.push_str(suffix);
+            }
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            return out;
+        }
+    }
+
+    let mut out = existing.trim_end().to_string();
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(&wrapped);
+    out.push('\n');
+    out
+}
+
+fn backup_existing_core_memory_md(path: &std::path::Path) -> Result<()> {
+    if !path.exists() {
+        return Ok(());
+    }
+    let root = crate::paths::root_dir()?;
+    let backup_root = crate::paths::backups_dir()?.join("openclaw-memory-import");
+    let ts = chrono::Utc::now()
+        .format("%Y-%m-%dT%H-%M-%S-%3f")
+        .to_string();
+    let relative = path.strip_prefix(&root).unwrap_or(path);
+    let backup_path = backup_root.join(ts).join(relative);
+    if let Some(parent) = backup_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create {}", parent.display()))?;
+    }
+    std::fs::copy(path, &backup_path).with_context(|| {
+        format!(
+            "Failed to backup existing memory.md from {} to {}",
+            path.display(),
+            backup_path.display()
+        )
+    })?;
+    Ok(())
 }
 
 // ── Tests ────────────────────────────────────────────────────────
@@ -596,6 +770,182 @@ mod tests {
         assert!(has_oauth_warn);
 
         std::env::remove_var("OPENCLAW_STATE_DIR");
+    }
+
+    #[test]
+    fn scan_accepts_legacy_string_agent_model() {
+        let temp = tempdir().expect("tempdir");
+        let openclaw_json = serde_json::json!({
+            "agents": {
+                "list": [
+                    {
+                        "id": "finance-manager",
+                        "name": "Finance Manager",
+                        "model": "bailian/qwen3.5-plus"
+                    }
+                ]
+            },
+            "models": { "providers": {} }
+        });
+        write(
+            &temp.path().join("openclaw.json"),
+            &openclaw_json.to_string(),
+        );
+        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
+
+        let preview = scan_openclaw_full().expect("scan");
+        assert_eq!(preview.agents.len(), 1);
+        assert_eq!(
+            preview.agents[0].model_info.as_deref(),
+            Some("bailian/qwen3.5-plus")
+        );
+
+        std::env::remove_var("OPENCLAW_STATE_DIR");
+    }
+
+    #[test]
+    fn workspace_memory_is_memory_not_agent_markdown() {
+        let temp = tempdir().expect("tempdir");
+        let openclaw_json = serde_json::json!({
+            "agents": {
+                "list": [
+                    {
+                        "id": "main",
+                        "name": "Main",
+                        "workspace": temp.path().join("workspace")
+                    }
+                ]
+            },
+            "models": { "providers": {} }
+        });
+        write(
+            &temp.path().join("openclaw.json"),
+            &openclaw_json.to_string(),
+        );
+        write(&temp.path().join("workspace/AGENTS.md"), "# Main agent\n");
+        write(
+            &temp.path().join("workspace/MEMORY.md"),
+            "- prefers concise replies\n",
+        );
+        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
+
+        let preview = scan_openclaw_full().expect("scan");
+        assert_eq!(preview.agents.len(), 1);
+        assert_eq!(preview.agents[0].available_files, vec!["agents.md"]);
+        assert_eq!(
+            preview.memories.agent_md_counts,
+            vec![("main".to_string(), 1)]
+        );
+
+        std::env::remove_var("OPENCLAW_STATE_DIR");
+    }
+
+    #[test]
+    fn workspace_memory_wins_over_legacy_agent_memory() {
+        let temp = tempdir().expect("tempdir");
+        let workspace = temp.path().join("workspace");
+        let openclaw_json = serde_json::json!({
+            "agents": {
+                "list": [
+                    {
+                        "id": "main",
+                        "name": "Main",
+                        "workspace": workspace.to_string_lossy()
+                    }
+                ]
+            },
+            "models": { "providers": {} }
+        });
+        write(
+            &temp.path().join("openclaw.json"),
+            &openclaw_json.to_string(),
+        );
+        write(
+            &temp.path().join("agents/main/agent/MEMORY.md"),
+            "- legacy\n",
+        );
+        write(&workspace.join("MEMORY.md"), "- workspace\n");
+        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
+
+        let root = read_agents_root(temp.path()).expect("read agents");
+        let path = resolve_agent_memory_path(temp.path(), &root.agents.list[0]).expect("memory");
+        assert_eq!(path, workspace.join("MEMORY.md"));
+
+        std::env::remove_var("OPENCLAW_STATE_DIR");
+    }
+
+    #[test]
+    fn import_writes_markdown_memory_to_core_memory_files() {
+        let openclaw = tempdir().expect("openclaw tempdir");
+        let hope = tempdir().expect("hope tempdir");
+        let workspace = openclaw.path().join("workspace");
+        let openclaw_json = serde_json::json!({
+            "agents": {
+                "list": [
+                    {
+                        "id": "main",
+                        "name": "Main",
+                        "workspace": workspace.to_string_lossy()
+                    }
+                ]
+            },
+            "models": { "providers": {} }
+        });
+        write(
+            &openclaw.path().join("openclaw.json"),
+            &openclaw_json.to_string(),
+        );
+        write(&openclaw.path().join("MEMORY.md"), "- global preference\n");
+        write(&workspace.join("AGENTS.md"), "# Main agent\n");
+        write(&workspace.join("MEMORY.md"), "- agent preference\n");
+        write(&hope.path().join("memory.md"), "- existing global\n");
+        write(
+            &hope.path().join("agents/main/memory.md"),
+            "- existing agent\n",
+        );
+
+        std::env::set_var("OPENCLAW_STATE_DIR", openclaw.path());
+        std::env::set_var("HA_DATA_DIR", hope.path());
+
+        let summary = import_openclaw_full(&OpenClawImportRequest {
+            import_provider_keys: Vec::new(),
+            import_agents: vec![ImportAgentRequest {
+                source_id: "main".to_string(),
+                target_id: "main".to_string(),
+                name: "Main".to_string(),
+                emoji: None,
+                vibe: None,
+                sandbox: false,
+                // Legacy/stale frontend payloads may still include memory.md.
+                import_files: vec!["agents.md".to_string(), "memory.md".to_string()],
+            }],
+            import_global_memory: true,
+            import_agent_memories: vec!["main".to_string()],
+        })
+        .expect("import");
+
+        assert_eq!(summary.memories_added, 2);
+        let global = std::fs::read_to_string(hope.path().join("memory.md")).expect("global memory");
+        assert!(global.contains("- existing global"));
+        assert!(global.contains(OPENCLAW_MEMORY_BEGIN));
+        assert!(global.contains("- global preference"));
+
+        let agent_memory = std::fs::read_to_string(hope.path().join("agents/main/memory.md"))
+            .expect("agent memory");
+        assert!(agent_memory.contains("- existing agent"));
+        assert!(agent_memory.contains(OPENCLAW_MEMORY_BEGIN));
+        assert!(agent_memory.contains("- agent preference"));
+        assert!(
+            hope.path().join("backups/openclaw-memory-import").exists(),
+            "existing memory files should be backed up before merge"
+        );
+        assert!(
+            !hope.path().join("agents/main/memory.md/memory.md").exists(),
+            "memory.md must not be treated as an agent markdown folder"
+        );
+
+        std::env::remove_var("OPENCLAW_STATE_DIR");
+        std::env::remove_var("HA_DATA_DIR");
     }
 
     #[test]

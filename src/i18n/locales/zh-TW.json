@@ -1390,6 +1390,7 @@
       },
       "notFound": "未偵測到 OpenClaw 設定。可以從空白設定開始。",
       "partial": "已匯入（有警告）",
+      "retry": "重試",
       "providers": {
         "apiTypeWarning": "相容路徑",
         "envRef": "從環境變數",
