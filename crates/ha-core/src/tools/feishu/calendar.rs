@@ -189,13 +189,10 @@ pub(crate) async fn execute_list(args: &Value) -> Result<String> {
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_create_event(args: &Value) -> Result<String> {
+    let calendar_id = arg_required_str(args, "calendar_id")?;
+    let event = arg_required_object(args, "event")?;
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
-    let r = api
-        .calendar_create_event(
-            arg_required_str(args, "calendar_id")?,
-            arg_required_object(args, "event")?,
-        )
-        .await?;
+    let r = api.calendar_create_event(calendar_id, event).await?;
     Ok(serde_json::to_string(&r)?)
 }
 pub(crate) async fn execute_list_events(args: &Value) -> Result<String> {

@@ -162,13 +162,12 @@ pub fn subscribe_tool() -> ToolDefinition {
 }
 
 pub(crate) async fn execute_create_instance(args: &Value) -> Result<String> {
+    let approval_code = arg_required_str(args, "approval_code")?;
+    let user_id = arg_required_str(args, "user_id")?;
+    let form = arg_required_str(args, "form")?;
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let res = api
-        .approval_create_instance(
-            arg_required_str(args, "approval_code")?,
-            arg_required_str(args, "user_id")?,
-            arg_required_str(args, "form")?,
-        )
+        .approval_create_instance(approval_code, user_id, form)
         .await?;
     Ok(serde_json::to_string(&res)?)
 }

@@ -189,10 +189,11 @@ pub(crate) async fn execute_create(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_get_blocks(args: &Value) -> Result<String> {
+    let document_id = arg_required_str(args, "document_id")?;
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let page = api
         .docx_get_blocks(
-            arg_required_str(args, "document_id")?,
+            document_id,
             arg_str(args, "page_token"),
             arg_u32(args, "page_size")?,
         )
@@ -219,13 +220,12 @@ pub(crate) async fn execute_append_block(args: &Value) -> Result<String> {
 }
 
 pub(crate) async fn execute_update_block_text(args: &Value) -> Result<String> {
+    let document_id = arg_required_str(args, "document_id")?;
+    let block_id = arg_required_str(args, "block_id")?;
+    let text = arg_required_str(args, "text")?;
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let result = api
-        .docx_update_block_text(
-            arg_required_str(args, "document_id")?,
-            arg_required_str(args, "block_id")?,
-            arg_required_str(args, "text")?,
-        )
+        .docx_update_block_text(document_id, block_id, text)
         .await?;
     Ok(serde_json::to_string(&result)?)
 }
