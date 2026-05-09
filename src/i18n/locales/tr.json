@@ -24,6 +24,7 @@
     "updateInstallFailed": "Güncelleme indirilemedi veya kurulamadı.",
     "updateInstalled": "Güncelleme yüklendi. Hope Agent yeniden başlatılıyor...",
     "updateInstalling": "v{{version}} sürümü yükleniyor...",
+    "updateRestartManually": "Güncelleme yüklendi ancak otomatik yeniden başlatma başarısız oldu. Lütfen Hope Agent'ı manuel olarak kapatıp yeniden açın.",
     "updateReady": "Yeni bir masaüstü sürümünü GitHub Releases'ten kontrol edebilir veya Hope Agent'ın güncellemeyi senin için kurmasına izin verebilirsin.",
     "updateUpToDate": "v{{version}} sürümünde güncelsin.",
     "version": "Sürüm"

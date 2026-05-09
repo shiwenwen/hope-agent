@@ -24,6 +24,7 @@
     "updateInstallFailed": "Не удалось скачать или установить обновление.",
     "updateInstalled": "Обновление установлено. Перезапускаю Hope Agent...",
     "updateInstalling": "Установка v{{version}}...",
+    "updateRestartManually": "Обновление установлено, но автоматический перезапуск не удался. Закройте Hope Agent вручную и откройте его снова.",
     "updateReady": "Можно посмотреть новый настольный релиз на GitHub Releases или поручить Hope Agent установить его напрямую.",
     "updateUpToDate": "У вас уже установлена последняя версия v{{version}}.",
     "version": "Версия"

@@ -24,6 +24,7 @@
     "updateInstallFailed": "更新のダウンロードまたはインストールに失敗しました。",
     "updateInstalled": "更新をインストールしました。Hope Agent を再起動しています...",
     "updateInstalling": "v{{version}} をインストール中...",
+    "updateRestartManually": "更新はインストールされましたが、自動再起動に失敗しました。Hope Agent を手動で終了して再度開いてください。",
     "updateReady": "GitHub Releases で新しいデスクトップ版を確認するか、Hope Agent に直接更新をインストールさせることができます。",
     "updateUpToDate": "現在の v{{version}} は最新です。",
     "version": "バージョン"

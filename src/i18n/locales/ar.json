@@ -24,6 +24,7 @@
     "updateInstallFailed": "فشل تنزيل التحديث أو تثبيته.",
     "updateInstalled": "تم تثبيت التحديث. جارٍ إعادة تشغيل Hope Agent...",
     "updateInstalling": "جارٍ تثبيت v{{version}}...",
+    "updateRestartManually": "تم تثبيت التحديث ولكن فشلت إعادة التشغيل التلقائية. يرجى إنهاء Hope Agent يدويًا ثم إعادة فتحه.",
     "updateReady": "يمكنك مراجعة GitHub Releases لإصدار سطح مكتب أحدث أو ترك Hope Agent يثبّت التحديث لك.",
     "updateUpToDate": "أنت تستخدم أحدث إصدار v{{version}}.",
     "version": "الإصدار"

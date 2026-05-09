@@ -24,6 +24,7 @@
     "updateInstallFailed": "Falha ao baixar ou instalar a atualização.",
     "updateInstalled": "Atualização instalada. Reiniciando o Hope Agent...",
     "updateInstalling": "Instalando v{{version}}...",
+    "updateRestartManually": "A atualização foi instalada, mas o reinício automático falhou. Saia do Hope Agent manualmente e abra-o novamente.",
     "updateReady": "Você pode conferir uma nova versão desktop no GitHub Releases ou deixar o Hope Agent instalá-la para você.",
     "updateUpToDate": "Você já está na versão mais recente v{{version}}.",
     "version": "Versão"

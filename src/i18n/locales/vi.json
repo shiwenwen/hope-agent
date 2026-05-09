@@ -24,6 +24,7 @@
     "updateInstallFailed": "Tải xuống hoặc cài đặt bản cập nhật thất bại.",
     "updateInstalled": "Đã cài đặt bản cập nhật. Đang khởi động lại Hope Agent...",
     "updateInstalling": "Đang cài đặt v{{version}}...",
+    "updateRestartManually": "Đã cài đặt bản cập nhật nhưng tự động khởi động lại thất bại. Vui lòng thoát Hope Agent thủ công rồi mở lại.",
     "updateReady": "Bạn có thể xem bản desktop mới trên GitHub Releases hoặc để Hope Agent tự cài đặt cho bạn.",
     "updateUpToDate": "Bạn đang ở phiên bản mới nhất v{{version}}.",
     "version": "Phiên bản"

@@ -10,6 +10,7 @@ import { useDesktopAlerts } from "@/hooks/useDesktopAlerts"
 import {
   autoCheckForUpdate,
   relaunchDesktopApp,
+  requestManualCheck,
   setPendingUpdate as setGlobalPendingUpdate,
   startPeriodicUpdateCheck,
 } from "@/lib/desktopUpdater"
@@ -169,12 +170,20 @@ export default function App() {
     const unlistenNewSession = getTransport().listen("new-session", () => {
       setView("chat")
     })
+    // macOS app menu's "Check for Updates..." emits this alongside
+    // `open-settings`. Registered at App level (always mounted) so the
+    // request isn't lost when AboutPanel hasn't mounted yet — the request
+    // is queued in the desktopUpdater store and replayed on subscribe.
+    const unlistenUpdateCheck = getTransport().listen("desktop-update-check", () => {
+      requestManualCheck()
+    })
     const unlistenLanguage = listenLanguageConfigChange()
     const unlistenTheme = listenThemeConfigChange()
     const unlistenNotification = listenNotificationConfigChange()
     return () => {
       unlistenSettings()
       unlistenNewSession()
+      unlistenUpdateCheck()
       unlistenLanguage()
       unlistenTheme()
       unlistenNotification()

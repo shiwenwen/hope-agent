@@ -34,6 +34,7 @@ pub(crate) struct TrayStatusLabels {
 /// macOS application menu label translations.
 pub(crate) struct MacosAppMenuLabels {
     pub(crate) about: &'static str,
+    pub(crate) check_for_updates: &'static str,
     pub(crate) settings: &'static str,
     pub(crate) hide: &'static str,
 }
@@ -352,61 +353,73 @@ pub(crate) fn macos_app_menu_labels(lang: &str) -> MacosAppMenuLabels {
     match lang {
         "zh" | "zh-CN" => MacosAppMenuLabels {
             about: "关于 Hope Agent",
+            check_for_updates: "检查更新...",
             settings: "设置...",
             hide: "隐藏 Hope Agent",
         },
         "zh-TW" => MacosAppMenuLabels {
             about: "關於 Hope Agent",
+            check_for_updates: "檢查更新...",
             settings: "設定...",
             hide: "隱藏 Hope Agent",
         },
         "ja" => MacosAppMenuLabels {
             about: "Hope Agent について",
+            check_for_updates: "アップデートを確認...",
             settings: "設定...",
             hide: "Hope Agent を非表示",
         },
         "ko" => MacosAppMenuLabels {
             about: "Hope Agent 정보",
+            check_for_updates: "업데이트 확인...",
             settings: "설정...",
             hide: "Hope Agent 숨기기",
         },
         "es" => MacosAppMenuLabels {
             about: "Acerca de Hope Agent",
+            check_for_updates: "Buscar actualizaciones...",
             settings: "Configuración...",
             hide: "Ocultar Hope Agent",
         },
         "pt" => MacosAppMenuLabels {
             about: "Sobre o Hope Agent",
+            check_for_updates: "Verificar atualizações...",
             settings: "Configurações...",
             hide: "Ocultar Hope Agent",
         },
         "ru" => MacosAppMenuLabels {
             about: "О Hope Agent",
+            check_for_updates: "Проверить обновления...",
             settings: "Настройки...",
             hide: "Скрыть Hope Agent",
         },
         "ar" => MacosAppMenuLabels {
             about: "حول Hope Agent",
+            check_for_updates: "التحقق من التحديثات...",
             settings: "الإعدادات...",
             hide: "إخفاء Hope Agent",
         },
         "tr" => MacosAppMenuLabels {
             about: "Hope Agent Hakkında",
+            check_for_updates: "Güncellemeleri kontrol et...",
             settings: "Ayarlar...",
             hide: "Hope Agent'ı Gizle",
         },
         "vi" => MacosAppMenuLabels {
             about: "Giới thiệu Hope Agent",
+            check_for_updates: "Kiểm tra cập nhật...",
             settings: "Cài đặt...",
             hide: "Ẩn Hope Agent",
         },
         "ms" => MacosAppMenuLabels {
             about: "Perihal Hope Agent",
+            check_for_updates: "Semak kemas kini...",
             settings: "Tetapan...",
             hide: "Sembunyikan Hope Agent",
         },
         _ => MacosAppMenuLabels {
             about: "About Hope Agent",
+            check_for_updates: "Check for Updates...",
             settings: "Settings...",
             hide: "Hide Hope Agent",
         },
@@ -480,6 +493,7 @@ mod tests {
         let labels = macos_app_menu_labels("zh");
 
         assert_eq!(labels.about, "关于 Hope Agent");
+        assert_eq!(labels.check_for_updates, "检查更新...");
         assert_eq!(labels.settings, "设置...");
         assert_eq!(labels.hide, "隐藏 Hope Agent");
     }
@@ -489,6 +503,7 @@ mod tests {
         let labels = macos_app_menu_labels("fr");
 
         assert_eq!(labels.about, "About Hope Agent");
+        assert_eq!(labels.check_for_updates, "Check for Updates...");
         assert_eq!(labels.settings, "Settings...");
         assert_eq!(labels.hide, "Hide Hope Agent");
     }

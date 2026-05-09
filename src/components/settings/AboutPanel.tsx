@@ -10,6 +10,7 @@ import {
   isDesktopUpdaterAvailable,
   relaunchDesktopApp,
   setPendingUpdate as setGlobalPendingUpdate,
+  subscribeManualCheckRequests,
   type DesktopUpdate,
 } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
@@ -43,6 +44,21 @@ export default function AboutPanel() {
       setUpdateStatus(t("about.updateAvailable", { version: globalPendingUpdate.version }))
     }
   }, [globalPendingUpdate, t])
+
+  // Subscribe to manual-check requests from the desktopUpdater store.
+  // The store is fed by App.tsx's `desktop-update-check` listener (always
+  // mounted) and queues a single pending request when no subscriber is
+  // present, so requests fired before this panel mounts (e.g. from the
+  // macOS app menu while the user is on the chat view) are replayed on
+  // subscribe rather than dropped. `checkRef` keeps the subscription stable
+  // while still calling the latest closure with current state.
+  const checkRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const unsubscribe = subscribeManualCheckRequests(() => {
+      checkRef.current()
+    })
+    return unsubscribe
+  }, [])
 
   const highlights: HighlightItem[] = [
     {
@@ -94,7 +110,8 @@ export default function AboutPanel() {
       setPendingUpdate(update)
       void setGlobalPendingUpdate(update)
       setUpdateStatus(t("about.updateAvailable", { version: update.version }))
-    } catch {
+    } catch (err) {
+      console.error("[updater] check failed", err)
       setPendingUpdate(null)
       void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateCheckFailed"))
@@ -102,6 +119,15 @@ export default function AboutPanel() {
       setCheckingUpdate(false)
     }
   }
+
+  // Keep `checkRef` pointing at the latest closure so the menu listener
+  // (registered once, see the `desktop-update-check` effect) always invokes
+  // the freshest version with current state.
+  useEffect(() => {
+    checkRef.current = () => {
+      void handleCheckForUpdates()
+    }
+  })
 
   async function handleInstallUpdate() {
     if (!pendingUpdate) return
@@ -135,8 +161,21 @@ export default function AboutPanel() {
       await setPendingUpdate(null)
       void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateInstalled"))
-      await relaunchDesktopApp()
-    } catch {
+      // Give the user a beat to see the "installed, restarting" message
+      // before the process exits — without this the UI flips to a blank
+      // pre-relaunch state and the whole flow feels like nothing happened.
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      try {
+        await relaunchDesktopApp()
+      } catch (err) {
+        // relaunch() normally never returns (process exits). If it threw,
+        // surface a manual-restart hint instead of silently leaving the
+        // user staring at the "installed" message.
+        console.error("[updater] relaunch failed", err)
+        setUpdateStatus(t("about.updateRestartManually"))
+      }
+    } catch (err) {
+      console.error("[updater] install failed", err)
       setUpdateStatus(t("about.updateInstallFailed"))
     } finally {
       setInstallingUpdate(false)
@@ -170,7 +209,7 @@ export default function AboutPanel() {
                   <span className="inline-flex items-center rounded-full border border-border/70 bg-secondary/40 px-3 py-1 text-sm font-medium text-muted-foreground">
                     v{appVersion}
                   </span>
-                  {desktopUpdaterAvailable && !pendingUpdate && (
+                  {desktopUpdaterAvailable && (
                     <Button
                       variant="outline"
                       size="sm"

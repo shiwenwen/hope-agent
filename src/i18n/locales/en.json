@@ -24,6 +24,7 @@
     "updateInstallFailed": "Update download or install failed.",
     "updateInstalled": "Update installed. Relaunching Hope Agent...",
     "updateInstalling": "Installing v{{version}}...",
+    "updateRestartManually": "Update installed but Hope Agent didn't restart automatically. Please quit and reopen the app.",
     "updateReady": "Check GitHub Releases for a newer desktop build or let Hope Agent install one for you.",
     "updateUpToDate": "You're up to date on v{{version}}.",
     "version": "Version"
