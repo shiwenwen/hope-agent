@@ -574,7 +574,43 @@ fn backup_existing_core_memory_md(path: &std::path::Path) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_env_vars<T>(vars: &[(&str, &Path)], f: impl FnOnce() -> T) -> T {
+        let _guard = env_lock().lock().expect("lock OpenClaw import test env");
+        let previous: Vec<_> = vars
+            .iter()
+            .map(|(key, _)| (*key, std::env::var_os(key)))
+            .collect();
+        for (key, value) in vars {
+            std::env::set_var(key, value);
+        }
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+
+        for (key, value) in previous {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+
+        match result {
+            Ok(value) => value,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
+
+    fn with_openclaw_state_dir<T>(state_dir: &Path, f: impl FnOnce() -> T) -> T {
+        with_env_vars(&[("OPENCLAW_STATE_DIR", state_dir)], f)
+    }
 
     fn write(path: &Path, content: &str) {
         if let Some(parent) = path.parent() {
@@ -709,67 +745,64 @@ mod tests {
     #[test]
     fn scan_returns_not_present_when_empty_dir() {
         let temp = tempdir().expect("tempdir");
-        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
-
-        let preview = scan_openclaw_full().expect("scan");
-        assert!(!preview.state_dir_present);
-        assert!(preview.providers.is_empty());
-        assert!(preview.agents.is_empty());
-
-        std::env::remove_var("OPENCLAW_STATE_DIR");
+        with_openclaw_state_dir(temp.path(), || {
+            let preview = scan_openclaw_full().expect("scan");
+            assert!(!preview.state_dir_present);
+            assert!(preview.providers.is_empty());
+            assert!(preview.agents.is_empty());
+        });
     }
 
     #[test]
     fn scan_with_mock_openclaw_state() {
         let temp = tempdir().expect("tempdir");
         make_mock_openclaw(temp.path());
-        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
 
-        let preview = scan_openclaw_full().expect("scan");
-        assert!(preview.state_dir_present);
+        with_openclaw_state_dir(temp.path(), || {
+            let preview = scan_openclaw_full().expect("scan");
+            assert!(preview.state_dir_present);
 
-        // 2 providers
-        assert_eq!(preview.providers.len(), 2);
-        let anth = preview
-            .providers
-            .iter()
-            .find(|p| p.source_key == "anthropic")
-            .expect("anthropic provider preview");
-        assert_eq!(anth.api_type, crate::provider::ApiType::Anthropic);
-        // Two profiles: api_key (will_import=true), oauth (will_import=false)
-        assert_eq!(anth.profiles.len(), 3); // work, cli, plus the apiKey-derived "anthropic default"
-        let importable = anth.profiles.iter().filter(|p| p.will_import).count();
-        // Work key + apiKey fallback (2). OAuth is excluded.
-        assert_eq!(importable, 2);
-        let oauth_profile = anth
-            .profiles
-            .iter()
-            .find(|p| p.credential_kind == CredentialKind::OAuth)
-            .expect("oauth profile preview");
-        assert!(!oauth_profile.will_import);
+            // 2 providers
+            assert_eq!(preview.providers.len(), 2);
+            let anth = preview
+                .providers
+                .iter()
+                .find(|p| p.source_key == "anthropic")
+                .expect("anthropic provider preview");
+            assert_eq!(anth.api_type, crate::provider::ApiType::Anthropic);
+            // Two profiles: api_key (will_import=true), oauth (will_import=false)
+            assert_eq!(anth.profiles.len(), 3); // work, cli, plus the apiKey-derived "anthropic default"
+            let importable = anth.profiles.iter().filter(|p| p.will_import).count();
+            // Work key + apiKey fallback (2). OAuth is excluded.
+            assert_eq!(importable, 2);
+            let oauth_profile = anth
+                .profiles
+                .iter()
+                .find(|p| p.credential_kind == CredentialKind::OAuth)
+                .expect("oauth profile preview");
+            assert!(!oauth_profile.will_import);
 
-        let ollama = preview
-            .providers
-            .iter()
-            .find(|p| p.source_key == "ollama-local")
-            .expect("ollama provider preview");
-        assert!(ollama.api_type_warning.is_some());
+            let ollama = preview
+                .providers
+                .iter()
+                .find(|p| p.source_key == "ollama-local")
+                .expect("ollama provider preview");
+            assert!(ollama.api_type_warning.is_some());
 
-        // 1 agent
-        assert_eq!(preview.agents.len(), 1);
-        assert_eq!(preview.agents[0].id, "default");
-        // emoji + identity name
-        assert_eq!(preview.agents[0].name, "Lily");
+            // 1 agent
+            assert_eq!(preview.agents.len(), 1);
+            assert_eq!(preview.agents[0].id, "default");
+            // emoji + identity name
+            assert_eq!(preview.agents[0].name, "Lily");
 
-        // Memory inventory
-        assert!(preview.memories.global_md_present);
-        assert_eq!(preview.memories.agent_md_counts.len(), 1);
+            // Memory inventory
+            assert!(preview.memories.global_md_present);
+            assert_eq!(preview.memories.agent_md_counts.len(), 1);
 
-        // OAuth warning recorded
-        let has_oauth_warn = preview.warnings.iter().any(|w| w.contains("OAuth profile"));
-        assert!(has_oauth_warn);
-
-        std::env::remove_var("OPENCLAW_STATE_DIR");
+            // OAuth warning recorded
+            let has_oauth_warn = preview.warnings.iter().any(|w| w.contains("OAuth profile"));
+            assert!(has_oauth_warn);
+        });
     }
 
     #[test]
@@ -791,16 +824,15 @@ mod tests {
             &temp.path().join("openclaw.json"),
             &openclaw_json.to_string(),
         );
-        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
 
-        let preview = scan_openclaw_full().expect("scan");
-        assert_eq!(preview.agents.len(), 1);
-        assert_eq!(
-            preview.agents[0].model_info.as_deref(),
-            Some("bailian/qwen3.5-plus")
-        );
-
-        std::env::remove_var("OPENCLAW_STATE_DIR");
+        with_openclaw_state_dir(temp.path(), || {
+            let preview = scan_openclaw_full().expect("scan");
+            assert_eq!(preview.agents.len(), 1);
+            assert_eq!(
+                preview.agents[0].model_info.as_deref(),
+                Some("bailian/qwen3.5-plus")
+            );
+        });
     }
 
     #[test]
@@ -827,17 +859,16 @@ mod tests {
             &temp.path().join("workspace/MEMORY.md"),
             "- prefers concise replies\n",
         );
-        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
 
-        let preview = scan_openclaw_full().expect("scan");
-        assert_eq!(preview.agents.len(), 1);
-        assert_eq!(preview.agents[0].available_files, vec!["agents.md"]);
-        assert_eq!(
-            preview.memories.agent_md_counts,
-            vec![("main".to_string(), 1)]
-        );
-
-        std::env::remove_var("OPENCLAW_STATE_DIR");
+        with_openclaw_state_dir(temp.path(), || {
+            let preview = scan_openclaw_full().expect("scan");
+            assert_eq!(preview.agents.len(), 1);
+            assert_eq!(preview.agents[0].available_files, vec!["agents.md"]);
+            assert_eq!(
+                preview.memories.agent_md_counts,
+                vec![("main".to_string(), 1)]
+            );
+        });
     }
 
     #[test]
@@ -865,13 +896,13 @@ mod tests {
             "- legacy\n",
         );
         write(&workspace.join("MEMORY.md"), "- workspace\n");
-        std::env::set_var("OPENCLAW_STATE_DIR", temp.path());
 
-        let root = read_agents_root(temp.path()).expect("read agents");
-        let path = resolve_agent_memory_path(temp.path(), &root.agents.list[0]).expect("memory");
-        assert_eq!(path, workspace.join("MEMORY.md"));
-
-        std::env::remove_var("OPENCLAW_STATE_DIR");
+        with_openclaw_state_dir(temp.path(), || {
+            let root = read_agents_root(temp.path()).expect("read agents");
+            let path =
+                resolve_agent_memory_path(temp.path(), &root.agents.list[0]).expect("memory");
+            assert_eq!(path, workspace.join("MEMORY.md"));
+        });
     }
 
     #[test]
@@ -904,48 +935,52 @@ mod tests {
             "- existing agent\n",
         );
 
-        std::env::set_var("OPENCLAW_STATE_DIR", openclaw.path());
-        std::env::set_var("HA_DATA_DIR", hope.path());
+        with_env_vars(
+            &[
+                ("OPENCLAW_STATE_DIR", openclaw.path()),
+                ("HA_DATA_DIR", hope.path()),
+            ],
+            || {
+                let summary = import_openclaw_full(&OpenClawImportRequest {
+                    import_provider_keys: Vec::new(),
+                    import_agents: vec![ImportAgentRequest {
+                        source_id: "main".to_string(),
+                        target_id: "main".to_string(),
+                        name: "Main".to_string(),
+                        emoji: None,
+                        vibe: None,
+                        sandbox: false,
+                        // Legacy/stale frontend payloads may still include memory.md.
+                        import_files: vec!["agents.md".to_string(), "memory.md".to_string()],
+                    }],
+                    import_global_memory: true,
+                    import_agent_memories: vec!["main".to_string()],
+                })
+                .expect("import");
 
-        let summary = import_openclaw_full(&OpenClawImportRequest {
-            import_provider_keys: Vec::new(),
-            import_agents: vec![ImportAgentRequest {
-                source_id: "main".to_string(),
-                target_id: "main".to_string(),
-                name: "Main".to_string(),
-                emoji: None,
-                vibe: None,
-                sandbox: false,
-                // Legacy/stale frontend payloads may still include memory.md.
-                import_files: vec!["agents.md".to_string(), "memory.md".to_string()],
-            }],
-            import_global_memory: true,
-            import_agent_memories: vec!["main".to_string()],
-        })
-        .expect("import");
+                assert_eq!(summary.memories_added, 2);
+                let global =
+                    std::fs::read_to_string(hope.path().join("memory.md")).expect("global memory");
+                assert!(global.contains("- existing global"));
+                assert!(global.contains(OPENCLAW_MEMORY_BEGIN));
+                assert!(global.contains("- global preference"));
 
-        assert_eq!(summary.memories_added, 2);
-        let global = std::fs::read_to_string(hope.path().join("memory.md")).expect("global memory");
-        assert!(global.contains("- existing global"));
-        assert!(global.contains(OPENCLAW_MEMORY_BEGIN));
-        assert!(global.contains("- global preference"));
-
-        let agent_memory = std::fs::read_to_string(hope.path().join("agents/main/memory.md"))
-            .expect("agent memory");
-        assert!(agent_memory.contains("- existing agent"));
-        assert!(agent_memory.contains(OPENCLAW_MEMORY_BEGIN));
-        assert!(agent_memory.contains("- agent preference"));
-        assert!(
-            hope.path().join("backups/openclaw-memory-import").exists(),
-            "existing memory files should be backed up before merge"
+                let agent_memory =
+                    std::fs::read_to_string(hope.path().join("agents/main/memory.md"))
+                        .expect("agent memory");
+                assert!(agent_memory.contains("- existing agent"));
+                assert!(agent_memory.contains(OPENCLAW_MEMORY_BEGIN));
+                assert!(agent_memory.contains("- agent preference"));
+                assert!(
+                    hope.path().join("backups/openclaw-memory-import").exists(),
+                    "existing memory files should be backed up before merge"
+                );
+                assert!(
+                    !hope.path().join("agents/main/memory.md/memory.md").exists(),
+                    "memory.md must not be treated as an agent markdown folder"
+                );
+            },
         );
-        assert!(
-            !hope.path().join("agents/main/memory.md/memory.md").exists(),
-            "memory.md must not be treated as an agent markdown folder"
-        );
-
-        std::env::remove_var("OPENCLAW_STATE_DIR");
-        std::env::remove_var("HA_DATA_DIR");
     }
 
     #[test]
