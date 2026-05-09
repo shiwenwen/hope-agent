@@ -120,7 +120,7 @@ pub async fn run_feishu_gateway(
     api: Arc<FeishuApi>,
     account_id: String,
     bot_open_id: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
     let mut reconnect_attempts: usize = 0;
@@ -427,7 +427,7 @@ async fn handle_frame(
     api: &FeishuApi,
     account_id: &str,
     bot_open_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) -> anyhow::Result<Option<Duration>> {
     let frame =
         Frame::decode(bytes).map_err(|e| anyhow::anyhow!("Failed to decode pbbp2 frame: {}", e))?;
@@ -527,7 +527,7 @@ async fn handle_data_frame(
     api: &FeishuApi,
     account_id: &str,
     bot_open_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) -> anyhow::Result<()> {
     let ty = find_header(&frame, HK_TYPE).unwrap_or("");
     if ty != TY_EVENT && ty != TY_CARD {
@@ -643,7 +643,7 @@ async fn handle_message_event(
     api: &FeishuApi,
     account_id: &str,
     bot_open_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) -> anyhow::Result<()> {
     let evt: MessageReceiveEvent = serde_json::from_value(event_data.clone())
         .map_err(|e| anyhow::anyhow!("Failed to parse message receive event: {}", e))?;
@@ -727,7 +727,7 @@ async fn handle_message_event(
         raw: event_data,
     };
 
-    if let Err(e) = inbound_tx.send(msg).await {
+    if let Err(e) = inbound_tx.send(InboundEvent::Message(msg)).await {
         app_warn!(
             "channel",
             "feishu:gateway",
@@ -790,7 +790,7 @@ fn clean_mention_tags(text: &str) -> String {
 async fn handle_card_action(
     event_data: &serde_json::Value,
     account_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let Some(value) = extract_hope_callback(event_data) else {
         app_warn!(
@@ -833,7 +833,7 @@ async fn inject_slash_callback(
     rest: &str,
     event_data: &serde_json::Value,
     account_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let chat_id = event_str_at(event_data, "/context/open_chat_id");
     let sender_id = event_str_at(event_data, "/operator/open_id");
@@ -1036,10 +1036,14 @@ mod tests {
             }
         });
 
-        let (tx, mut rx) = mpsc::channel::<MsgContext>(1);
+        let (tx, mut rx) = mpsc::channel::<InboundEvent>(1);
         inject_slash_callback("think low", &event, "feishu-acc1", &tx).await;
 
-        let msg = rx.try_recv().expect("expected synthesized inbound message");
+        let event = rx.try_recv().expect("expected synthesized inbound event");
+        let msg = match event {
+            InboundEvent::Message(m) => m,
+            other => panic!("expected Message variant, got {:?}", other),
+        };
         assert!(matches!(msg.channel_id, ChannelId::Feishu));
         assert_eq!(msg.account_id, "feishu-acc1");
         assert_eq!(msg.chat_id, "oc_chat456");
@@ -1059,7 +1063,7 @@ mod tests {
             "context": {},
         });
 
-        let (tx, mut rx) = mpsc::channel::<MsgContext>(1);
+        let (tx, mut rx) = mpsc::channel::<InboundEvent>(1);
         inject_slash_callback("think low", &event, "acc", &tx).await;
         // Empty chat_id — must NOT push a half-baked MsgContext (would confuse
         // the worker downstream).

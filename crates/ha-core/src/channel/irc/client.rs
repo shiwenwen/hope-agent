@@ -155,7 +155,7 @@ impl IrcClient {
     pub async fn connect_and_run(
         creds: IrcCredentials,
         account_id: String,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<Self> {
         let (writer, mut reader) = Self::connect_raw(&creds.server, creds.port, creds.tls).await?;
@@ -317,7 +317,7 @@ impl IrcClient {
         creds: IrcCredentials,
         account_id: String,
         mut current_nick: String,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) {
         let mut attempt: usize = 0;
@@ -473,7 +473,7 @@ impl IrcClient {
         writer: &Mutex<IrcWriter>,
         account_id: &str,
         current_nick: &mut String,
-        inbound_tx: &mpsc::Sender<MsgContext>,
+        inbound_tx: &mpsc::Sender<InboundEvent>,
         cancel: &CancellationToken,
     ) -> String {
         loop {
@@ -564,7 +564,7 @@ impl IrcClient {
                         raw: serde_json::json!({ "line": line }),
                     };
 
-                    if inbound_tx.send(msg_ctx).await.is_err() {
+                    if inbound_tx.send(InboundEvent::Message(msg_ctx)).await.is_err() {
                         app_warn!(
                             "channel",
                             "irc",

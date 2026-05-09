@@ -114,7 +114,7 @@ impl ChannelPlugin for WhatsAppPlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: tokio::sync::mpsc::Sender<MsgContext>,
+        inbound_tx: tokio::sync::mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let base_url = Self::extract_base_url(&account.credentials)?;

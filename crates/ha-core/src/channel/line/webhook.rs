@@ -56,7 +56,7 @@ pub fn create_webhook_handler(
     api: Arc<LineApi>,
     account_id: String,
     channel_secret: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     reply_tokens: ReplyTokenStore,
 ) -> WebhookHandlerFn {
     Arc::new(move |req: WebhookRequest| {
@@ -278,7 +278,7 @@ async fn handle_message_event(
     event: &serde_json::Value,
     api: &LineApi,
     account_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
     reply_tokens: &ReplyTokenStore,
 ) {
     let message = match event.get("message") {
@@ -411,7 +411,7 @@ async fn handle_message_event(
         raw: event.clone(),
     };
 
-    if let Err(e) = inbound_tx.send(msg_ctx).await {
+    if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
         app_error!("channel", "line", "Failed to send inbound message: {}", e);
     }
 }

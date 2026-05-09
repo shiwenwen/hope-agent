@@ -328,7 +328,11 @@ pub fn init_runtime(role: &'static str) {
 
     // Initialize IM Channel system
     {
-        let (mut registry, inbound_rx) = channel::ChannelRegistry::new(256);
+        // Inbound buffer 1024: non-Message events (reactions / read receipts /
+        // membership / etc.) can be high-volume on busy chats and we don't
+        // want them to back-pressure real chat messages. v0.2.0 keeps the
+        // non-Message variants log-only so per-event work is < 1ms.
+        let (mut registry, inbound_rx) = channel::ChannelRegistry::new(1024);
 
         // Register built-in channel plugins
         registry.register_plugin(Arc::new(channel::telegram::TelegramPlugin::new()));

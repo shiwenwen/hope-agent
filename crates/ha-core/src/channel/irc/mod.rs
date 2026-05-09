@@ -148,7 +148,7 @@ impl ChannelPlugin for IrcPlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let creds = Self::extract_credentials(&account.credentials)?;

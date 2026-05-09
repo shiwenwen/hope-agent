@@ -25,12 +25,15 @@ pub trait ChannelPlugin: Send + Sync + 'static {
     /// Start listening for messages on the given account.
     ///
     /// The plugin should spawn its own background tasks (polling loop, webhook
-    /// server, etc.) and send inbound messages through `inbound_tx`.
-    /// The `cancel` token signals graceful shutdown.
+    /// server, etc.) and send inbound events through `inbound_tx`. Most
+    /// channels will only emit [`InboundEvent::Message`]; channels that
+    /// surface reactions / edits / recalls / membership / read receipts may
+    /// emit the corresponding non-Message variants. The `cancel` token signals
+    /// graceful shutdown.
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()>;
 

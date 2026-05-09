@@ -28,7 +28,7 @@ pub fn create_webhook_handler(
     api: Arc<GoogleChatApi>,
     account_id: String,
     project_number: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
 ) -> WebhookHandlerFn {
     // Keep api alive for potential future use (e.g. downloading attachments)
     let _api = api;
@@ -205,7 +205,7 @@ pub fn create_webhook_handler(
 async fn handle_message_event(
     body: &serde_json::Value,
     account_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let message = match body.get("message") {
         Some(m) => m,
@@ -311,7 +311,7 @@ async fn handle_message_event(
         raw: body.clone(),
     };
 
-    if let Err(e) = inbound_tx.send(msg).await {
+    if let Err(e) = inbound_tx.send(InboundEvent::Message(msg)).await {
         app_error!(
             "channel",
             "googlechat",

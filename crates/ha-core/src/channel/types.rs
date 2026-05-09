@@ -396,6 +396,128 @@ pub struct InboundMedia {
     pub caption: Option<String>,
 }
 
+// ── Inbound Event ────────────────────────────────────────────────
+// Top-level event delivered from a channel plugin to the dispatcher.
+// `Message` is the canonical payload (a user wrote something for the bot to
+// respond to). All other variants are out-of-band signals — they may or may
+// not trigger an agent round depending on the dispatcher's policy for each
+// variant. v0.2.0 keeps non-Message variants log-only at the dispatcher;
+// business behavior (sync edits, recall removal, welcome templates) is
+// deferred to v0.3+.
+
+/// Top-level event from a channel plugin to the dispatcher.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum InboundEvent {
+    /// A new user message — full chat round trigger.
+    Message(MsgContext),
+    /// User added or removed an emoji reaction on an existing message.
+    Reaction(ReactionEvent),
+    /// User edited the text/content of a previously sent message.
+    /// Feishu does not currently expose this; Telegram/Discord do.
+    MessageEdited(EditedMessageEvent),
+    /// Message was withdrawn by sender. Channel-specific recall windows
+    /// (e.g. Feishu 24h, Telegram 48h) determine availability.
+    MessageRecalled(RecalledMessageEvent),
+    /// Membership change in a chat — user/bot joined or left.
+    Membership(MembershipEvent),
+    /// User read the bot's last sent message. Spammy on busy chats — the
+    /// dispatcher's default policy is to log+drop unless explicitly enabled.
+    ReadReceipt(ReadReceiptEvent),
+}
+
+/// Common envelope shared by all non-Message inbound events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventCommon {
+    pub channel_id: ChannelId,
+    pub account_id: String,
+    pub chat_id: String,
+    pub chat_type: ChatType,
+    pub timestamp: chrono::DateTime<chrono::Utc>,
+    /// Raw platform-specific payload for diagnostics / debugging.
+    #[serde(default)]
+    pub raw: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReactionEvent {
+    #[serde(flatten)]
+    pub common: EventCommon,
+    pub message_id: String,
+    pub sender_id: String,
+    pub emoji: String,
+    /// `true` = reaction added; `false` = removed.
+    pub added: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EditedMessageEvent {
+    #[serde(flatten)]
+    pub common: EventCommon,
+    pub message_id: String,
+    pub sender_id: String,
+    pub new_text: Option<String>,
+    pub edited_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecalledMessageEvent {
+    #[serde(flatten)]
+    pub common: EventCommon,
+    pub message_id: String,
+    /// Some channels (Telegram) report who recalled; others don't.
+    pub recalled_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "action", rename_all = "snake_case")]
+pub enum MembershipAction {
+    UserJoined {
+        user_id: String,
+        inviter_id: Option<String>,
+    },
+    UserLeft {
+        user_id: String,
+        kicked_by: Option<String>,
+    },
+    BotJoined {
+        added_by: Option<String>,
+    },
+    BotLeft {
+        removed_by: Option<String>,
+    },
+    ChatCreated,
+    ChatDisbanded,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MembershipEvent {
+    #[serde(flatten)]
+    pub common: EventCommon,
+    #[serde(flatten)]
+    pub action: MembershipAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReadReceiptEvent {
+    #[serde(flatten)]
+    pub common: EventCommon,
+    pub message_id: String,
+    pub reader_id: String,
+}
+
+impl From<MsgContext> for InboundEvent {
+    fn from(msg: MsgContext) -> Self {
+        InboundEvent::Message(msg)
+    }
+}
+
 // ── Outbound Reply Payload ───────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

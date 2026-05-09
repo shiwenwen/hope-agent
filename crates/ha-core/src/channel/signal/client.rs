@@ -182,7 +182,7 @@ impl SignalClient {
     pub async fn run_sse_loop(
         &self,
         account_id: String,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) {
         let backoff_secs = [1u64, 2, 5, 10, 30, 60];
@@ -246,7 +246,7 @@ impl SignalClient {
         &self,
         url: &str,
         account_id: &str,
-        inbound_tx: &mpsc::Sender<MsgContext>,
+        inbound_tx: &mpsc::Sender<InboundEvent>,
         cancel: &CancellationToken,
     ) -> Result<()> {
         use futures_util::StreamExt;
@@ -336,7 +336,7 @@ impl SignalClient {
         &self,
         data: &str,
         account_id: &str,
-        inbound_tx: &mpsc::Sender<MsgContext>,
+        inbound_tx: &mpsc::Sender<InboundEvent>,
     ) -> Result<()> {
         let envelope: Value =
             serde_json::from_str(data).context("Failed to parse SSE event data as JSON")?;
@@ -440,7 +440,7 @@ impl SignalClient {
             cache.put(msg.message_id.clone(), msg.sender_id.clone());
         }
 
-        if inbound_tx.send(msg).await.is_err() {
+        if inbound_tx.send(InboundEvent::Message(msg)).await.is_err() {
             app_warn!(
                 "channel",
                 "signal-sse",

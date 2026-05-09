@@ -82,7 +82,7 @@ async fn remove_session_file(account_id: &str) {
 pub async fn run_qq_gateway(
     api: Arc<QqBotApi>,
     account_id: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
     app_info!(
@@ -447,7 +447,7 @@ async fn handle_gateway_message(
     text: &str,
     account_id: &str,
     api: &Arc<QqBotApi>,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
     seq_holder: &Arc<tokio::sync::Mutex<u64>>,
     saved_session_id: &mut Option<String>,
 ) -> GatewayAction {
@@ -517,7 +517,7 @@ async fn handle_gateway_message(
                 "C2C_MESSAGE_CREATE" => {
                     if let Some(d) = data {
                         if let Some(msg_ctx) = convert_c2c_message(d, account_id) {
-                            if let Err(e) = inbound_tx.send(msg_ctx).await {
+                            if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
                                     "qqbot::gateway",
@@ -531,7 +531,7 @@ async fn handle_gateway_message(
                 "GROUP_AT_MESSAGE_CREATE" => {
                     if let Some(d) = data {
                         if let Some(msg_ctx) = convert_group_message(d, account_id) {
-                            if let Err(e) = inbound_tx.send(msg_ctx).await {
+                            if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
                                     "qqbot::gateway",
@@ -545,7 +545,7 @@ async fn handle_gateway_message(
                 "AT_MESSAGE_CREATE" => {
                     if let Some(d) = data {
                         if let Some(msg_ctx) = convert_channel_message(d, account_id) {
-                            if let Err(e) = inbound_tx.send(msg_ctx).await {
+                            if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
                                     "qqbot::gateway",
@@ -559,7 +559,7 @@ async fn handle_gateway_message(
                 "DIRECT_MESSAGE_CREATE" => {
                     if let Some(d) = data {
                         if let Some(msg_ctx) = convert_dms_message(d, account_id) {
-                            if let Err(e) = inbound_tx.send(msg_ctx).await {
+                            if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                 app_error!(
                                     "channel",
                                     "qqbot::gateway",

@@ -26,14 +26,14 @@ impl ChannelWorkerHandle {
 pub struct ChannelRegistry {
     plugins: HashMap<ChannelId, Arc<dyn ChannelPlugin>>,
     workers: Mutex<HashMap<String, ChannelWorkerHandle>>,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
 }
 
 impl ChannelRegistry {
-    /// Create a new registry. Returns the registry and the inbound message receiver.
+    /// Create a new registry. Returns the registry and the inbound event receiver.
     ///
     /// Call `register_plugin()` on the returned registry before wrapping in `Arc`.
-    pub fn new(buffer_size: usize) -> (Self, mpsc::Receiver<MsgContext>) {
+    pub fn new(buffer_size: usize) -> (Self, mpsc::Receiver<InboundEvent>) {
         let (tx, rx) = mpsc::channel(buffer_size);
         let registry = Self {
             plugins: HashMap::new(),

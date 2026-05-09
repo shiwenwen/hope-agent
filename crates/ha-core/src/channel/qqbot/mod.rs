@@ -117,7 +117,7 @@ impl ChannelPlugin for QqBotPlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let (app_id, client_secret) = Self::extract_credentials(&account.credentials)?;

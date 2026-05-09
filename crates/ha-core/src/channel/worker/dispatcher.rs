@@ -42,17 +42,19 @@ pub(super) fn emit_stream_lifecycle(event_name: &str, session_id: &str) {
     }
 }
 
-/// Spawn the inbound message dispatcher as a background tokio task.
+/// Spawn the inbound event dispatcher as a background tokio task.
 ///
-/// This task receives `MsgContext` from all channel plugins and:
-/// 1. Validates access control
-/// 2. Resolves or creates a session
-/// 3. Builds an AssistantAgent and runs the chat
-/// 4. Sends the response back through the channel
+/// This task receives [`InboundEvent`] from all channel plugins and:
+/// - For [`InboundEvent::Message`] — validates access, resolves or creates a
+///   session, runs the chat round, sends the response back.
+/// - For non-Message variants (reaction / edited / recalled / membership /
+///   read receipt) — currently log-only. Business behavior (sync session
+///   messages on edit/recall, BotLeft cleanup, welcome templates) is deferred
+///   to v0.3+ Phase B.2.
 pub fn spawn_dispatcher(
     registry: Arc<ChannelRegistry>,
     channel_db: Arc<ChannelDB>,
-    mut inbound_rx: mpsc::Receiver<MsgContext>,
+    mut inbound_rx: mpsc::Receiver<InboundEvent>,
 ) {
     // Use a dedicated thread with its own tokio runtime, since this is called
     // during init_app_state() before Tauri's async runtime is available.
@@ -75,31 +77,42 @@ pub fn spawn_dispatcher(
                 app_info!(
                     "channel",
                     "worker",
-                    "Inbound message dispatcher started (max_concurrent={})",
+                    "Inbound event dispatcher started (max_concurrent={})",
                     MAX_CONCURRENT_INBOUND
                 );
                 let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_INBOUND));
 
-                while let Some(msg) = inbound_rx.recv().await {
-                    let registry = registry.clone();
-                    let channel_db = channel_db.clone();
-                    let permit = semaphore.clone().acquire_owned().await;
+                while let Some(event) = inbound_rx.recv().await {
+                    match event {
+                        InboundEvent::Message(msg) => {
+                            let registry = registry.clone();
+                            let channel_db = channel_db.clone();
+                            let permit = semaphore.clone().acquire_owned().await;
 
-                    // Handle each message in a separate task, limited by semaphore
-                    tokio::spawn(async move {
-                        let _permit = permit; // held until task completes
-                        if let Err(e) = handle_inbound_message(&registry, &channel_db, msg).await {
-                            app_error!(
-                                "channel",
-                                "worker",
-                                "Failed to handle inbound message: {}",
-                                e
-                            );
+                            // Handle each message in a separate task, limited by semaphore
+                            tokio::spawn(async move {
+                                let _permit = permit; // held until task completes
+                                if let Err(e) =
+                                    handle_inbound_message(&registry, &channel_db, msg).await
+                                {
+                                    app_error!(
+                                        "channel",
+                                        "worker",
+                                        "Failed to handle inbound message: {}",
+                                        e
+                                    );
+                                }
+                            });
                         }
-                    });
+                        InboundEvent::Reaction(ev) => log_reaction(&ev),
+                        InboundEvent::MessageEdited(ev) => log_message_edited(&ev),
+                        InboundEvent::MessageRecalled(ev) => log_message_recalled(&ev),
+                        InboundEvent::Membership(ev) => log_membership(&ev),
+                        InboundEvent::ReadReceipt(ev) => log_read_receipt(&ev),
+                    }
                 }
 
-                app_info!("channel", "worker", "Inbound message dispatcher stopped");
+                app_info!("channel", "worker", "Inbound event dispatcher stopped");
             });
         })
     {
@@ -110,6 +123,75 @@ pub fn spawn_dispatcher(
             e
         );
     }
+}
+
+// ── Non-Message event handlers (log-only in v0.2.0) ──────────────
+// Business behavior (sync edits to messages table, recall removal, BotLeft
+// cleanup, auto-welcome on join) is deferred to v0.3+ Phase B.2. For now we
+// just surface the event in the application log so operators / agent self-
+// diagnosis can see that the plumbing works.
+
+fn log_reaction(ev: &ReactionEvent) {
+    app_info!(
+        "channel",
+        "inbound",
+        "[{}/{}] reaction {} {} on msg={} by={}",
+        ev.common.channel_id,
+        ev.common.account_id,
+        if ev.added { "+" } else { "-" },
+        ev.emoji,
+        ev.message_id,
+        ev.sender_id
+    );
+}
+
+fn log_message_edited(ev: &EditedMessageEvent) {
+    app_info!(
+        "channel",
+        "inbound",
+        "[{}/{}] message_edited msg={} by={} edited_at={}",
+        ev.common.channel_id,
+        ev.common.account_id,
+        ev.message_id,
+        ev.sender_id,
+        ev.edited_at
+    );
+}
+
+fn log_message_recalled(ev: &RecalledMessageEvent) {
+    app_info!(
+        "channel",
+        "inbound",
+        "[{}/{}] message_recalled msg={} by={}",
+        ev.common.channel_id,
+        ev.common.account_id,
+        ev.message_id,
+        ev.recalled_by.as_deref().unwrap_or("?")
+    );
+}
+
+fn log_membership(ev: &MembershipEvent) {
+    app_info!(
+        "channel",
+        "inbound",
+        "[{}/{}] membership chat={} action={:?}",
+        ev.common.channel_id,
+        ev.common.account_id,
+        ev.common.chat_id,
+        ev.action
+    );
+}
+
+fn log_read_receipt(ev: &ReadReceiptEvent) {
+    app_info!(
+        "channel",
+        "inbound",
+        "[{}/{}] read_receipt msg={} reader={}",
+        ev.common.channel_id,
+        ev.common.account_id,
+        ev.message_id,
+        ev.reader_id
+    );
 }
 
 /// Process a single inbound message from a channel.
@@ -1403,7 +1485,7 @@ mod tests {
         async fn start_account(
             &self,
             _account: &ChannelAccountConfig,
-            _inbound_tx: mpsc::Sender<MsgContext>,
+            _inbound_tx: mpsc::Sender<InboundEvent>,
             _cancel: CancellationToken,
         ) -> Result<()> {
             Ok(())

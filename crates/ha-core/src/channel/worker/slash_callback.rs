@@ -1,6 +1,6 @@
 use tokio::sync::mpsc;
 
-use crate::channel::types::{ChannelId, ChatType, MsgContext};
+use crate::channel::types::{ChannelId, ChatType, InboundEvent, MsgContext};
 
 /// Re-inject a `slash:<cmd> <arg>` button-callback payload as a synthetic
 /// inbound `/cmd arg` message, so the worker processes it through the normal
@@ -23,7 +23,7 @@ pub async fn inject_slash_callback(
     sender_id: &str,
     message_id: &str,
     rest: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
     source: &'static str,
 ) {
     if chat_id.is_empty() {
@@ -64,7 +64,7 @@ pub async fn inject_slash_callback(
         raw: serde_json::json!({ "slash_callback_rest": rest }),
     };
 
-    if let Err(e) = inbound_tx.send(msg).await {
+    if let Err(e) = inbound_tx.send(InboundEvent::Message(msg)).await {
         app_warn!(
             "channel",
             source,
@@ -95,7 +95,11 @@ mod tests {
         )
         .await;
 
-        let msg = rx.recv().await.expect("inbound msg sent");
+        let event = rx.recv().await.expect("inbound event sent");
+        let msg = match event {
+            InboundEvent::Message(m) => m,
+            other => panic!("expected Message variant, got {:?}", other),
+        };
         assert_eq!(msg.channel_id, ChannelId::Discord);
         assert_eq!(msg.account_id, "acct-1");
         assert_eq!(msg.chat_id, "channel-42");
@@ -141,7 +145,11 @@ mod tests {
             "test",
         )
         .await;
-        let msg = rx.recv().await.expect("inbound msg sent");
+        let event = rx.recv().await.expect("inbound event sent");
+        let msg = match event {
+            InboundEvent::Message(m) => m,
+            other => panic!("expected Message variant, got {:?}", other),
+        };
         assert_eq!(msg.thread_id.as_deref(), Some("1700000000.000100"));
         assert_eq!(msg.text.as_deref(), Some("/permission yolo"));
     }

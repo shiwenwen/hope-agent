@@ -141,7 +141,7 @@ impl ChannelPlugin for GoogleChatPlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let cred_json = Self::extract_credentials_json(&account.credentials)?;

@@ -145,7 +145,7 @@ impl ChannelPlugin for LinePlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         _cancel: CancellationToken,
     ) -> Result<()> {
         let access_token = Self::extract_access_token(&account.credentials)?;

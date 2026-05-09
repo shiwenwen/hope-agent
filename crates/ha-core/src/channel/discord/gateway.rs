@@ -32,7 +32,7 @@ pub async fn run_gateway_loop(
     account_id: String,
     bot_id: String,
     bot_username: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
     app_info!(
@@ -368,7 +368,7 @@ pub async fn run_gateway_loop(
                                         &bot_id,
                                         &bot_username,
                                     ) {
-                                        if let Err(e) = inbound_tx.send(ctx).await {
+                                        if let Err(e) = inbound_tx.send(InboundEvent::Message(ctx)).await {
                                             app_error!(
                                                 "channel",
                                                 "discord::gateway",
@@ -449,7 +449,7 @@ pub async fn run_gateway_loop(
                                         d,
                                         &account_id,
                                     ) {
-                                        if let Err(e) = inbound_tx.send(ctx).await {
+                                        if let Err(e) = inbound_tx.send(InboundEvent::Message(ctx)).await {
                                             app_error!(
                                                 "channel",
                                                 "discord::gateway",

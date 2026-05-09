@@ -375,7 +375,7 @@ impl ChannelPlugin for WeChatPlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: tokio::sync::mpsc::Sender<MsgContext>,
+        inbound_tx: tokio::sync::mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let token = Self::extract_token(&account.credentials)?;

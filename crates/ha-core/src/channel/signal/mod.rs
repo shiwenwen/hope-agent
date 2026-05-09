@@ -124,7 +124,7 @@ impl ChannelPlugin for SignalPlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let phone = Self::extract_account(&account.credentials)?;

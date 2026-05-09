@@ -6,7 +6,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-use crate::channel::types::{ChannelId, ChatType, MsgContext};
+use crate::channel::types::{ChannelId, ChatType, InboundEvent, MsgContext};
 
 use super::api::{
     GetUpdatesResponse, MessageItem, WeChatApi, WeChatMessage, DEFAULT_WECHAT_CDN_BASE_URL,
@@ -22,7 +22,7 @@ pub(crate) async fn run_polling_loop(
     api: Arc<WeChatApi>,
     shared: Arc<WeChatSharedState>,
     account_id: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
     let mut next_timeout_ms = 35_000;
@@ -196,7 +196,7 @@ pub(crate) async fn run_polling_loop(
                             }
                         }
 
-                        if let Err(err) = inbound_tx.send(msg).await {
+                        if let Err(err) = inbound_tx.send(InboundEvent::Message(msg)).await {
                             app_error!(
                                 "channel",
                                 "wechat::polling",

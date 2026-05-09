@@ -99,7 +99,7 @@ impl ChannelPlugin for IMessagePlugin {
     async fn start_account(
         &self,
         account: &ChannelAccountConfig,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
     ) -> Result<()> {
         let imsg_path = Self::extract_imsg_path(&account.credentials);
@@ -180,7 +180,7 @@ impl ChannelPlugin for IMessagePlugin {
     async fn start_account(
         &self,
         _account: &ChannelAccountConfig,
-        _inbound_tx: mpsc::Sender<MsgContext>,
+        _inbound_tx: mpsc::Sender<InboundEvent>,
         _cancel: CancellationToken,
     ) -> Result<()> {
         Err(anyhow::anyhow!("iMessage is only supported on macOS"))

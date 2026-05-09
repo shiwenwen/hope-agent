@@ -7,7 +7,7 @@ use tokio::sync::{mpsc, oneshot, Mutex};
 use tokio_util::sync::CancellationToken;
 
 use crate::channel::process_manager::ManagedProcess;
-use crate::channel::types::{ChannelId, ChatType, MsgContext};
+use crate::channel::types::{ChannelId, ChatType, InboundEvent, MsgContext};
 
 /// Default timeout for RPC calls in milliseconds.
 const RPC_TIMEOUT_MS: u64 = 10_000;
@@ -160,7 +160,7 @@ impl IMessageClient {
     pub async fn run_notification_loop(
         &self,
         account_id: String,
-        inbound_tx: mpsc::Sender<MsgContext>,
+        inbound_tx: mpsc::Sender<InboundEvent>,
         cancel: CancellationToken,
         ready_tx: tokio::sync::oneshot::Sender<()>,
     ) {
@@ -234,7 +234,7 @@ impl IMessageClient {
                                 if let Some(params) = parsed.get("params") {
                                     match Self::parse_notification(params, &account_id) {
                                         Some(msg_ctx) => {
-                                            if inbound_tx.send(msg_ctx).await.is_err() {
+                                            if inbound_tx.send(InboundEvent::Message(msg_ctx)).await.is_err() {
                                                 app_warn!(
                                                     "channel",
                                                     "imessage",

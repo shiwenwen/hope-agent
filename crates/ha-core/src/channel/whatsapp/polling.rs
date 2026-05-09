@@ -5,7 +5,7 @@ use chrono::{TimeZone, Utc};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
-use crate::channel::types::{ChannelId, ChatType, MsgContext};
+use crate::channel::types::{ChannelId, ChatType, InboundEvent, MsgContext};
 
 use super::api::{BridgeMessage, WhatsAppApi};
 
@@ -34,7 +34,7 @@ fn normalize_unix_seconds(ts: i64) -> i64 {
 pub(crate) async fn run_whatsapp_polling(
     api: Arc<WhatsAppApi>,
     account_id: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
     let mut last_timestamp: i64 = Utc::now().timestamp();
@@ -79,7 +79,7 @@ pub(crate) async fn run_whatsapp_polling(
                     }
 
                     if let Some(ctx) = convert_bridge_message(&account_id, msg) {
-                        if let Err(err) = inbound_tx.send(ctx).await {
+                        if let Err(err) = inbound_tx.send(InboundEvent::Message(ctx)).await {
                             app_error!(
                                 "channel",
                                 "whatsapp::polling",

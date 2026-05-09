@@ -21,7 +21,7 @@ pub async fn run_socket_mode(
     app_token: String,
     account_id: String,
     bot_id: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
     app_info!(
@@ -195,7 +195,7 @@ async fn handle_envelope(
     text: &str,
     account_id: &str,
     bot_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let envelope: serde_json::Value = match serde_json::from_str(text) {
         Ok(v) => v,
@@ -279,7 +279,7 @@ async fn handle_event(
     event: &serde_json::Value,
     account_id: &str,
     bot_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let event_type = event.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -305,7 +305,7 @@ async fn handle_event(
             }
 
             if let Some(msg_ctx) = convert_slack_event(event, account_id, bot_id, false) {
-                if let Err(e) = inbound_tx.send(msg_ctx).await {
+                if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                     app_warn!(
                         "channel",
                         "slack::socket",
@@ -324,7 +324,7 @@ async fn handle_event(
             }
 
             if let Some(msg_ctx) = convert_slack_event(event, account_id, bot_id, true) {
-                if let Err(e) = inbound_tx.send(msg_ctx).await {
+                if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                     app_warn!(
                         "channel",
                         "slack::socket",
@@ -351,7 +351,7 @@ async fn handle_slash_command(
     payload: &serde_json::Value,
     account_id: &str,
     bot_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let command = payload
         .get("command")
@@ -406,7 +406,7 @@ async fn handle_slash_command(
         return;
     }
 
-    if let Err(e) = inbound_tx.send(msg_ctx).await {
+    if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
         app_warn!(
             "channel",
             "slack::socket",
@@ -426,7 +426,7 @@ async fn handle_slash_command(
 async fn handle_interactive_payload(
     payload: &serde_json::Value,
     account_id: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let Some(actions) = payload.get("actions").and_then(|v| v.as_array()) else {
         return;

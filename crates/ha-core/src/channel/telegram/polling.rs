@@ -14,7 +14,7 @@ pub async fn run_polling_loop(
     account_id: String,
     bot_id: i64,
     bot_username: String,
-    inbound_tx: mpsc::Sender<MsgContext>,
+    inbound_tx: mpsc::Sender<InboundEvent>,
     cancel: CancellationToken,
 ) {
     let mut offset: i32 = 0;
@@ -73,7 +73,7 @@ pub async fn run_polling_loop(
                                 offset = update.id.0 as i32 + 1;
 
                                 if let Some(msg_ctx) = convert_update(&api, &update, &account_id, bot_id, &bot_username, &inbound_tx).await {
-                                    if let Err(e) = inbound_tx.send(msg_ctx).await {
+                                    if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {
                                         app_error!("channel", "telegram::polling", "Failed to send inbound message: {}", e);
                                     }
                                 }
@@ -128,7 +128,7 @@ async fn convert_update(
     account_id: &str,
     bot_id: i64,
     bot_username: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) -> Option<MsgContext> {
     use teloxide::types::UpdateKind;
 
@@ -456,7 +456,7 @@ async fn inject_slash_callback_from_query(
     cb: &teloxide::types::CallbackQuery,
     account_id: &str,
     rest: &str,
-    inbound_tx: &mpsc::Sender<MsgContext>,
+    inbound_tx: &mpsc::Sender<InboundEvent>,
 ) {
     let Some(msg) = cb.message.as_ref().and_then(|m| m.regular_message()) else {
         app_warn!(
