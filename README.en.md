@@ -31,7 +31,7 @@
 
 ## Why Hope Agent
 
-Ordinary people deserve an AI assistant that just **opens and works** — download an installer, double-click, no runtimes to install, no CLI to learn first, no cryptic config to decipher, no service quietly crashing at 3am with no one to fix it. Hope Agent isn't only a desktop app — it also runs as an HTTP/WS service you can park on a NAS, home server, or cloud VM and leave running 24/7, while it hooks into IM channels and talks to IDEs over ACP — but we believe the door most people walk through is still the desktop, so that's where we put the most effort: **a first-class desktop GUI deeply integrated with the OS**, polished together with performance, stability, and the small interaction details. And we want it to grow with you over the long run — one conversation that hands off across your devices and chats, with memory and skills quietly accruing along the way.
+Ordinary people deserve an AI assistant that just **opens and works** — download an installer, install it, no runtimes or CLI to learn, no cryptic config to decipher, no service quietly crashing at 3am with no one to fix it, **and picks up wherever you go**. Hope Agent isn't only a desktop app — it also runs as an HTTP/WS service you can park on a NAS, home server, or cloud VM and leave running 24/7, while it hooks into IM channels and talks to IDEs over ACP — but we believe the door most people walk through is still the desktop, so that's where we put the most effort: **a first-class desktop GUI deeply integrated with the OS**, polished together with performance, stability, and the small interaction details. And we want it to grow with you over the long run — one conversation that follows you across devices, chats, and platforms, with memory and skills quietly accruing along the way.
 
 > Hope Agent was influenced in its early days by [openclaw](https://github.com/openclaw/openclaw) — credit to them for their pioneering work on local AI assistants. We took a different implementation path.
 
@@ -98,6 +98,15 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
    - Windows: `Hope-Agent_*.exe` / `Hope-Agent_*.msi` (not yet fully tested)
 2. First launch: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
 3. Desktop installers ship with GitHub Releases auto-update; inside the app you can go to **Settings → About** to check and install updates
+
+> If macOS reports "damaged" or "cannot verify the developer" on first launch, execute the following commands in Terminal:
+>
+> ```bash
+> sudo xattr -cr /Applications/Hope\ Agent.app
+> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
+> ```
+
+> If Windows reports "MSVCP140_1.dll was not found" or a similar missing `VCRUNTIME140.dll` / `MSVCP140.dll` error on launch, install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and relaunch the application.
 
 ### For developers
 

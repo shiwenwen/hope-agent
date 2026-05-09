@@ -1390,6 +1390,7 @@
       },
       "notFound": "Configuração do OpenClaw não detectada. Você pode continuar com uma configuração nova.",
       "partial": "Importado com avisos",
+      "retry": "Tentar novamente",
       "providers": {
         "apiTypeWarning": "Caminho de compatibilidade",
         "envRef": "da variável de ambiente",

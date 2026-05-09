@@ -45,10 +45,29 @@ pub(super) struct OpenClawAgent {
     pub params: Option<serde_json::Value>,
 }
 
-#[derive(Deserialize, Default, Clone)]
-#[serde(default)]
+#[derive(Default, Clone)]
 pub(super) struct OpenClawAgentModel {
     pub primary: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for OpenClawAgentModel {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = serde_json::Value::deserialize(deserializer)?;
+        let primary = match raw {
+            serde_json::Value::String(primary) => Some(primary),
+            serde_json::Value::Object(mut obj) => obj.remove("primary").and_then(|v| match v {
+                serde_json::Value::String(primary) => Some(primary),
+                _ => None,
+            }),
+            _ => None,
+        }
+        .filter(|s| !s.is_empty());
+
+        Ok(Self { primary })
+    }
 }
 
 #[derive(Deserialize, Default, Clone)]
@@ -128,9 +147,11 @@ const FILE_MAP: &[(&str, &str)] = &[
     ("SOUL.md", "soul.md"),
     ("TOOLS.md", "tools.md"),
     ("IDENTITY.md", "identity.md"),
-    ("MEMORY.md", "memory.md"),
-    ("memory.md", "memory.md"),
 ];
+
+pub(super) fn is_memory_markdown_file(file: &str) -> bool {
+    file.eq_ignore_ascii_case("memory.md")
+}
 
 pub(super) fn is_remote_avatar(s: &str) -> bool {
     s.starts_with("http") || s.starts_with("data:")
@@ -152,7 +173,7 @@ fn extract_temperature(agent: &OpenClawAgent) -> Option<f64> {
 }
 
 /// Resolve the workspace dir for an agent, given the OpenClaw state dir.
-fn resolve_workspace(state_dir: &Path, agent: &OpenClawAgent) -> PathBuf {
+pub(super) fn resolve_workspace(state_dir: &Path, agent: &OpenClawAgent) -> PathBuf {
     if let Some(ws) = &agent.workspace {
         paths::expand_tilde(ws)
     } else {
@@ -163,15 +184,8 @@ fn resolve_workspace(state_dir: &Path, agent: &OpenClawAgent) -> PathBuf {
 fn list_available_files(state_dir: &Path, agent: &OpenClawAgent) -> Vec<String> {
     let ws = resolve_workspace(state_dir, agent);
     let mut files = Vec::new();
-    let mut seen_memory = false;
     for &(src, dst) in FILE_MAP {
         if ws.join(src).exists() {
-            if dst == "memory.md" {
-                if seen_memory {
-                    continue;
-                }
-                seen_memory = true;
-            }
             files.push(dst.to_string());
         }
     }
@@ -317,6 +331,10 @@ pub(super) fn import_single_agent(
 
     let ws = resolve_workspace(state_dir, source);
     for file_name in &req.import_files {
+        if is_memory_markdown_file(file_name) {
+            continue;
+        }
+
         let src_path = FILE_MAP
             .iter()
             .filter(|&&(_, dst)| dst == file_name.as_str())

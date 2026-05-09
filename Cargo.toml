@@ -6,6 +6,17 @@ members = [
 ]
 resolver = "2"
 
+# Shared package metadata. Each crate opts in via `<field>.workspace = true`.
+# Version stays per-crate (synced by `pnpm sync:version`); license / authors /
+# repository / edition are uniform across the workspace.
+[workspace.package]
+license = "MIT"
+authors = ["shiwenwen"]
+repository = "https://github.com/shiwenwen/hope-agent"
+edition = "2021"
+# MSRV 不显式声明：rust-toolchain.toml 已经锁 1.95 作为构建工具链；
+# 这三个 crate 不发布到 crates.io，没有作为下游依赖被消费的场景。
+
 # Shared lint policy. Each crate opts in via `[lints] workspace = true`.
 #
 # `allow` entries fall into three groups:

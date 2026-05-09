@@ -1,0 +1,40 @@
+# CODEOWNERS — 关键路径强制 maintainer review
+#
+# 规则：GitHub 在 PR 里命中以下 glob 时自动请求 owner review，
+# 配合分支保护"Require code owners review"，关键路径不可被 bypass。
+#
+# 一般路径不在此文件内，PR 普通 review 即可。
+
+# === 治理 / 法律 / 安全合规 ===
+/LICENSE                          @shiwenwen
+/SECURITY.md                      @shiwenwen
+/CODE_OF_CONDUCT.md               @shiwenwen
+/CONTRIBUTING.md                  @shiwenwen
+/CONTRIBUTING.en.md               @shiwenwen
+/THIRD_PARTY_NOTICES.md           @shiwenwen
+/AGENTS.md                        @shiwenwen
+/.github/CODEOWNERS               @shiwenwen
+
+# === CI / 发布管线 ===
+/.github/                         @shiwenwen
+/.husky/                          @shiwenwen
+/scripts/                         @shiwenwen
+
+# === Tauri / 桌面打包配置（含 updater 公钥）===
+/src-tauri/tauri.conf.json        @shiwenwen
+/src-tauri/Cargo.toml             @shiwenwen
+
+# === Workspace 清单与版本来源 ===
+/Cargo.toml                       @shiwenwen
+/Cargo.lock                       @shiwenwen
+/package.json                     @shiwenwen
+/pnpm-lock.yaml                   @shiwenwen
+
+# === 安全 / 凭据 / 权限引擎 ===
+/crates/ha-core/src/security/     @shiwenwen
+/crates/ha-core/src/permission/   @shiwenwen
+/crates/ha-core/src/paths.rs      @shiwenwen
+
+# === 跨 PR 契约：架构文档 ===
+/docs/architecture/               @shiwenwen
+/docs/README.md                   @shiwenwen

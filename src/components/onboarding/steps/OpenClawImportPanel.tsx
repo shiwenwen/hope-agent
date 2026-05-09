@@ -699,7 +699,7 @@ function ImportActionRow({
   const buttonLabel = canContinue
     ? t("onboarding.importOpenClaw.continue")
     : saveStatus === "failed"
-      ? t("project.question.retry")
+      ? t("onboarding.importOpenClaw.retry")
       : saveStatus === "idle"
         ? t(current.labelKey, { n: totalSelected })
         : t(current.labelKey)
