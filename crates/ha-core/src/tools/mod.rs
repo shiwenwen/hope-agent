@@ -15,6 +15,7 @@ mod edit;
 mod enter_plan_mode;
 mod exec;
 mod execution;
+pub(crate) mod feishu;
 mod find;
 mod grep;
 pub(crate) mod image;
