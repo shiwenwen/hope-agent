@@ -105,6 +105,10 @@ jobs:
       - name: Verify tag matches app version
         run: pnpm release:verify -- --tag "${{ env.RELEASE_TAG }}"
 
+      - name: Fetch VC++ Redistributable (Windows)
+        if: runner.os == 'Windows'
+        run: pnpm fetch:vcredist
+
       - name: Build & draft release
         uses: tauri-apps/tauri-action@v0.5.14
         env:

@@ -8,6 +8,7 @@ dist/
 target/
 src-tauri/target/
 src-tauri/WixTools/
+src-tauri/resources/vc_redist.x64.exe
 
 # Python (skill-creator scripts, eval helpers)
 __pycache__/
