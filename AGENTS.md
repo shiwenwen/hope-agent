@@ -55,6 +55,8 @@ pnpm test                                                                    # C
 
 ## 分支与发布
 
+> 实操流程（PR 工作流、tag 推送、cherry-pick backport、避坑速查）见 [`docs/release-process.md`](docs/release-process.md)。本节仅列契约面。
+
 `main` 承载下一个 minor 版本的开发，已发布的 minor 版本对应一条 `release/X.Y` 维护分支用于 patch 修复。两条分支之间**只允许 cherry-pick，不允许 merge**——`merge main → release/X.Y` 会把未发布功能拖入维护分支。
 
 ### 工作流
