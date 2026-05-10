@@ -31,6 +31,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **飞书 inbound resource 下载改成边收边写盘（chunk-streaming）+ 512 MiB sanity cap**（review P2）：[`channel/feishu/api.rs`](crates/ha-core/src/channel/feishu/api.rs) 老的 `download_resource` 直接 `resp.bytes().await` 把整个响应吞进内存——单条几百 MB 的飞书文件能直接拖死 worker。改为新的 `download_resource_to_file(dest)`：先读 `Content-Length` 早 reject 明显超标，再 `bytes_stream()` + `tokio::io::AsyncWriteExt::write_all` 把每个 chunk 直接落到 `~/.hope-agent/channels/feishu/inbound-temp/`，全程 RAM 占用是单 chunk 大小（~16 KB），与 GUI 附件模型对齐——非图片只把磁盘路径喂给 LLM（[`channel/worker/media.rs::convert_inbound_media_to_attachments`](crates/ha-core/src/channel/worker/media.rs) 这一层早就只对图片 base64，文件只传 `file_path`，所以下载层从一次性吞内存改成流式 strictly better）。任何错误（HTTP 错误 / 网络中断 / cap 超限）走 `abort_partial_download` 删半截文件，不留垃圾。`materialize_inbound` 仍按 `parsed.file_size` 做 pre-flight 跳过明显超标。Cap 常量 `INBOUND_DOWNLOAD_MAX_BYTES = 512 MiB` 在 [`inbound_media.rs`](crates/ha-core/src/channel/feishu/inbound_media.rs)——覆盖飞书全部合法场景（图 30 MB / 文件 100 MB / 视频 200 MB），保留作"multi-GB 异常 body"的 sanity tripwire；磁盘 GC 留 follow-up。
 - **`feishu_drive_download_media` 纳入 edit-class 审批**（review P1）：tool 直接把字节写入模型自选的本地路径，原本只靠 [`permission::rules::extract_path_arg`](crates/ha-core/src/permission/rules.rs) 的 protected-path 模式护住敏感目录——但普通 workspace / home 路径下 Default 模式会直接放行，模型可以静默覆盖用户文件。把它和 `write` / `edit` / `apply_patch` 一起列入 [`permission::engine::EDIT_TOOLS`](crates/ha-core/src/permission/engine.rs)，所有非 YOLO 模式都先弹审批。
 
+## [0.1.2] - 2026-05-10
+
+### Added
+
+- macOS 顶部菜单栏新增「Hope Agent → 检查更新...」入口；About 面板「检查更新」按钮始终可见，发现新版后仍可重新检查 (#134)
+- 自动更新失败时 UI 多出折叠「错误详情」面板，完整堆栈写入 `~/.hope-agent/logs.db`（category=updater），便于 `/ha-logs` 自查或反馈时附带 (#134)
+- GitHub Release body 与 `latest.json#notes` 自动从 `docs/release-notes/<tag>.md` 注入，应用内更新提示弹窗显示版本具体说明而非「See CHANGELOG.md for details.」(#134)
+
+### Fixed
+
+- 自动更新点「安装」后失败的签名验证 bug：编入二进制的公钥与 GitHub Release 资产签名实际密钥不是同一把，install 阶段必抛错；改为 `tauri.conf.json` 单一真相源 (#134)
+- 从聊天页或非「关于」面板打开 macOS 菜单「检查更新」时请求丢失：事件先于面板挂载发出无人接收，改为 queue 在 store 里等订阅到位重放 (#134)
+- 自动更新下载完成后 UI 卡住没反应：补 1.5s 等待让「已安装」文案显示再 relaunch；relaunch 失败兜底显示「请手动退出后重新打开」(#134)
+- 设置面板「开发者模式」（一键清空 sessions / cron / memory / config / 全部数据）出现在 release 包，普通用户有误触风险；改为仅 dev 构建可见，模块也从 release bundle tree-shake 剥离 (#134)
+
 ## [0.1.1] - 2026-05-09
 
 维护版本，主修 v0.1.0 在纯净 Windows 上启动报 `MSVCP140_1.dll` / `VCRUNTIME140.dll` 缺失，外加几个独立的修复与治理基线。
