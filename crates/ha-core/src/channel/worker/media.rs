@@ -157,8 +157,45 @@ fn persist_channel_media_to_session(
     if canonical_src == dest {
         return Some(dest.to_string_lossy().to_string());
     }
-    match std::fs::copy(&canonical_src, &dest) {
-        Ok(_) => Some(dest.to_string_lossy().to_string()),
+    // Move (rename) the inbound-temp file into the session attachments dir so
+    // the source doesn't accumulate forever (per F-081). Cross-fs renames fall
+    // back to copy + remove. canonicalize() above + the channels_root prefix
+    // check still gates path traversal — only files genuinely living under
+    // ~/.hope-agent/channels/<id>/ are eligible.
+    match std::fs::rename(&canonical_src, &dest) {
+        Ok(()) => Some(dest.to_string_lossy().to_string()),
+        Err(err) if is_cross_device_rename(&err) => {
+            app_debug!(
+                "channel",
+                "worker",
+                "Cross-fs rename for inbound media '{}' — falling back to copy + remove",
+                source_path
+            );
+            match std::fs::copy(&canonical_src, &dest) {
+                Ok(_) => {
+                    if let Err(rm_err) = std::fs::remove_file(&canonical_src) {
+                        app_warn!(
+                            "channel",
+                            "worker",
+                            "Copied inbound media '{}' but failed to remove source: {}",
+                            source_path,
+                            rm_err
+                        );
+                    }
+                    Some(dest.to_string_lossy().to_string())
+                }
+                Err(copy_err) => {
+                    app_warn!(
+                        "channel",
+                        "worker",
+                        "Failed to persist inbound media '{}' to session dir (cross-fs copy): {}",
+                        source_path,
+                        copy_err
+                    );
+                    None
+                }
+            }
+        }
         Err(err) => {
             app_warn!(
                 "channel",
@@ -169,5 +206,85 @@ fn persist_channel_media_to_session(
             );
             None
         }
+    }
+}
+
+/// `std::fs::rename` returns `ErrorKind::CrossesDevices` on Rust 1.85+ when
+/// source and destination live on different filesystems. Older toolchains
+/// surface this as raw `errno = EXDEV`; check both for portability.
+fn is_cross_device_rename(err: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+    if err.kind() == ErrorKind::CrossesDevices {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        const EXDEV: i32 = 18;
+        if err.raw_os_error() == Some(EXDEV) {
+            return true;
+        }
+    }
+    #[cfg(windows)]
+    {
+        // ERROR_NOT_SAME_DEVICE
+        if err.raw_os_error() == Some(17) {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write as _;
+
+    /// F-081: persist must move (not copy) inbound-temp files into the
+    /// session attachments dir, so the source doesn't accumulate forever.
+    /// Uses `HA_DATA_DIR` to redirect channels_dir into a tempdir so the
+    /// safety check (`canonical_src starts_with channels_root`) passes.
+    #[test]
+    fn persist_moves_source_into_session_dir() {
+        let data_root = tempfile::tempdir().unwrap();
+        // Redirect ~/.hope-agent root into the tempdir for the duration of
+        // this test. `HA_DATA_DIR` is read by paths::root_dir().
+        std::env::set_var("HA_DATA_DIR", data_root.path());
+
+        let inbound_dir = crate::paths::channels_dir()
+            .unwrap()
+            .join("feishu")
+            .join("inbound-temp");
+        std::fs::create_dir_all(&inbound_dir).unwrap();
+        let src = inbound_dir.join("inbound-fixture.bin");
+        {
+            let mut f = std::fs::File::create(&src).unwrap();
+            f.write_all(b"hello world").unwrap();
+        }
+
+        let session_dir = data_root.path().join("session-attachments");
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let src_string = src.to_string_lossy().to_string();
+        let media = InboundMedia {
+            media_type: MediaType::Document,
+            file_id: "fixture".to_string(),
+            file_url: Some(src_string.clone()),
+            mime_type: Some("application/octet-stream".to_string()),
+            file_size: None,
+            caption: None,
+        };
+        let dest_path =
+            persist_channel_media_to_session(Some(&session_dir), &media, &src_string)
+                .expect("persist should succeed");
+
+        let dest = std::path::PathBuf::from(&dest_path);
+        assert!(dest.exists(), "destination file should exist after move");
+        assert!(
+            !src.exists(),
+            "source file should be gone after move (F-081)"
+        );
+        let content = std::fs::read(&dest).unwrap();
+        assert_eq!(content, b"hello world");
+
+        std::env::remove_var("HA_DATA_DIR");
     }
 }
