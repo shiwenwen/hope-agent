@@ -1,6 +1,6 @@
 # Hope Agent 技术文档索引
 
-> 项目开发指南见 [AGENTS.md](../AGENTS.md) | 更新日志见 [CHANGELOG.md](../CHANGELOG.md)
+> 项目开发指南见 [AGENTS.md](../AGENTS.md) | 更新日志见 [CHANGELOG.md](../CHANGELOG.md) | 发版流程见 [release-process.md](release-process.md)
 
 ---
 
@@ -106,7 +106,7 @@
 | --- | --- | --- |
 | v0.1.0 | [v0.1.0.md](release-notes/v0.1.0.md) | [v0.1.0.en.md](release-notes/v0.1.0.en.md) |
 
-> 任一改动需在同次提交内中英双份同步（AGENTS.md 强制约定）。
+> 任一改动需在同次提交内中英双份同步（AGENTS.md 强制约定）。完整发版流程（PR 工作流、tag 推送、cherry-pick backport、避坑速查）见 [release-process.md](release-process.md)。
 
 ---
 
