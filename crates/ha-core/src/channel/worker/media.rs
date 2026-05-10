@@ -272,9 +272,8 @@ mod tests {
             file_size: None,
             caption: None,
         };
-        let dest_path =
-            persist_channel_media_to_session(Some(&session_dir), &media, &src_string)
-                .expect("persist should succeed");
+        let dest_path = persist_channel_media_to_session(Some(&session_dir), &media, &src_string)
+            .expect("persist should succeed");
 
         let dest = std::path::PathBuf::from(&dest_path);
         assert!(dest.exists(), "destination file should exist after move");

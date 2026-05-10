@@ -647,9 +647,7 @@ pub async fn execute_tool_with_context(
             super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
             super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
             super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
-            super::feishu::TOOL_DOCX_CREATE => {
-                super::feishu::docx::execute_create(args).await
-            }
+            super::feishu::TOOL_DOCX_CREATE => super::feishu::docx::execute_create(args).await,
             super::feishu::TOOL_DOCX_GET_BLOCKS => {
                 super::feishu::docx::execute_get_blocks(args).await
             }
@@ -689,9 +687,7 @@ pub async fn execute_tool_with_context(
             super::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA => {
                 super::feishu::drive::execute_download_media(args).await
             }
-            super::feishu::TOOL_WIKI_GET_NODE => {
-                super::feishu::wiki::execute_get_node(args).await
-            }
+            super::feishu::TOOL_WIKI_GET_NODE => super::feishu::wiki::execute_get_node(args).await,
             super::feishu::TOOL_APPROVAL_CREATE_INSTANCE => {
                 super::feishu::approval::execute_create_instance(args).await
             }
@@ -707,9 +703,7 @@ pub async fn execute_tool_with_context(
             super::feishu::TOOL_APPROVAL_SUBSCRIBE => {
                 super::feishu::approval::execute_subscribe(args).await
             }
-            super::feishu::TOOL_CALENDAR_LIST => {
-                super::feishu::calendar::execute_list(args).await
-            }
+            super::feishu::TOOL_CALENDAR_LIST => super::feishu::calendar::execute_list(args).await,
             super::feishu::TOOL_CALENDAR_CREATE_EVENT => {
                 super::feishu::calendar::execute_create_event(args).await
             }
@@ -740,9 +734,7 @@ pub async fn execute_tool_with_context(
             super::feishu::TOOL_HIRE_LIST_JOBS => {
                 super::feishu::hire::execute_list_jobs(args).await
             }
-            super::feishu::TOOL_HIRE_GET_JOB => {
-                super::feishu::hire::execute_get_job(args).await
-            }
+            super::feishu::TOOL_HIRE_GET_JOB => super::feishu::hire::execute_get_job(args).await,
             super::feishu::TOOL_HIRE_LIST_TALENTS => {
                 super::feishu::hire::execute_list_talents(args).await
             }

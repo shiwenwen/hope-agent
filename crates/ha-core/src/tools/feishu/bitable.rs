@@ -380,13 +380,15 @@ pub(crate) async fn execute_search_records(args: &Value) -> Result<String> {
 
     let api = resolve_feishu_api(account).await?;
     let page = api
-        .bitable_search_records(crate::channel::feishu::api_bitable::BitableSearchRecordsReq {
-            app_token,
-            table_id,
-            body: Value::Object(body),
-            page_token,
-            page_size,
-        })
+        .bitable_search_records(
+            crate::channel::feishu::api_bitable::BitableSearchRecordsReq {
+                app_token,
+                table_id,
+                body: Value::Object(body),
+                page_token,
+                page_size,
+            },
+        )
         .await?;
     Ok(serde_json::to_string(&page)?)
 }
