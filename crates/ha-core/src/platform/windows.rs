@@ -233,3 +233,8 @@ pub(super) fn os_version_string() -> String {
         (None, None) => "Windows (unknown build)".to_string(),
     }
 }
+
+pub(super) fn is_cross_device_rename_raw(err: &std::io::Error) -> bool {
+    // ERROR_NOT_SAME_DEVICE
+    err.raw_os_error() == Some(17)
+}

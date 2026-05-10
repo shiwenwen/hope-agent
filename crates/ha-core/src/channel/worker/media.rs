@@ -164,7 +164,7 @@ fn persist_channel_media_to_session(
     // ~/.hope-agent/channels/<id>/ are eligible.
     match std::fs::rename(&canonical_src, &dest) {
         Ok(()) => Some(dest.to_string_lossy().to_string()),
-        Err(err) if is_cross_device_rename(&err) => {
+        Err(err) if crate::platform::is_cross_device_rename(&err) => {
             app_debug!(
                 "channel",
                 "worker",
@@ -209,35 +209,35 @@ fn persist_channel_media_to_session(
     }
 }
 
-/// `std::fs::rename` returns `ErrorKind::CrossesDevices` on Rust 1.85+ when
-/// source and destination live on different filesystems. Older toolchains
-/// surface this as raw `errno = EXDEV`; check both for portability.
-fn is_cross_device_rename(err: &std::io::Error) -> bool {
-    use std::io::ErrorKind;
-    if err.kind() == ErrorKind::CrossesDevices {
-        return true;
-    }
-    #[cfg(unix)]
-    {
-        const EXDEV: i32 = 18;
-        if err.raw_os_error() == Some(EXDEV) {
-            return true;
-        }
-    }
-    #[cfg(windows)]
-    {
-        // ERROR_NOT_SAME_DEVICE
-        if err.raw_os_error() == Some(17) {
-            return true;
-        }
-    }
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write as _;
+    use std::sync::{Mutex, OnceLock};
+
+    /// Global lock for tests that mutate `HA_DATA_DIR`. cargo test runs tests
+    /// in parallel by default; without this lock two tests writing the env var
+    /// would race and read each other's tempdir paths. `catch_unwind` ensures
+    /// we restore the previous value even if the inner closure panics.
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_data_dir<T>(dir: &std::path::Path, f: impl FnOnce() -> T) -> T {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        let previous = std::env::var_os("HA_DATA_DIR");
+        std::env::set_var("HA_DATA_DIR", dir);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
+        match previous {
+            Some(v) => std::env::set_var("HA_DATA_DIR", v),
+            None => std::env::remove_var("HA_DATA_DIR"),
+        }
+        match result {
+            Ok(v) => v,
+            Err(payload) => std::panic::resume_unwind(payload),
+        }
+    }
 
     /// F-081: persist must move (not copy) inbound-temp files into the
     /// session attachments dir, so the source doesn't accumulate forever.
@@ -246,44 +246,41 @@ mod tests {
     #[test]
     fn persist_moves_source_into_session_dir() {
         let data_root = tempfile::tempdir().unwrap();
-        // Redirect ~/.hope-agent root into the tempdir for the duration of
-        // this test. `HA_DATA_DIR` is read by paths::root_dir().
-        std::env::set_var("HA_DATA_DIR", data_root.path());
+        with_data_dir(data_root.path(), || {
+            let inbound_dir = crate::paths::channels_dir()
+                .unwrap()
+                .join("feishu")
+                .join("inbound-temp");
+            std::fs::create_dir_all(&inbound_dir).unwrap();
+            let src = inbound_dir.join("inbound-fixture.bin");
+            {
+                let mut f = std::fs::File::create(&src).unwrap();
+                f.write_all(b"hello world").unwrap();
+            }
 
-        let inbound_dir = crate::paths::channels_dir()
-            .unwrap()
-            .join("feishu")
-            .join("inbound-temp");
-        std::fs::create_dir_all(&inbound_dir).unwrap();
-        let src = inbound_dir.join("inbound-fixture.bin");
-        {
-            let mut f = std::fs::File::create(&src).unwrap();
-            f.write_all(b"hello world").unwrap();
-        }
+            let session_dir = data_root.path().join("session-attachments");
+            std::fs::create_dir_all(&session_dir).unwrap();
+            let src_string = src.to_string_lossy().to_string();
+            let media = InboundMedia {
+                media_type: MediaType::Document,
+                file_id: "fixture".to_string(),
+                file_url: Some(src_string.clone()),
+                mime_type: Some("application/octet-stream".to_string()),
+                file_size: None,
+                caption: None,
+            };
+            let dest_path =
+                persist_channel_media_to_session(Some(&session_dir), &media, &src_string)
+                    .expect("persist should succeed");
 
-        let session_dir = data_root.path().join("session-attachments");
-        std::fs::create_dir_all(&session_dir).unwrap();
-        let src_string = src.to_string_lossy().to_string();
-        let media = InboundMedia {
-            media_type: MediaType::Document,
-            file_id: "fixture".to_string(),
-            file_url: Some(src_string.clone()),
-            mime_type: Some("application/octet-stream".to_string()),
-            file_size: None,
-            caption: None,
-        };
-        let dest_path = persist_channel_media_to_session(Some(&session_dir), &media, &src_string)
-            .expect("persist should succeed");
-
-        let dest = std::path::PathBuf::from(&dest_path);
-        assert!(dest.exists(), "destination file should exist after move");
-        assert!(
-            !src.exists(),
-            "source file should be gone after move (F-081)"
-        );
-        let content = std::fs::read(&dest).unwrap();
-        assert_eq!(content, b"hello world");
-
-        std::env::remove_var("HA_DATA_DIR");
+            let dest = std::path::PathBuf::from(&dest_path);
+            assert!(dest.exists(), "destination file should exist after move");
+            assert!(
+                !src.exists(),
+                "source file should be gone after move (F-081)"
+            );
+            let content = std::fs::read(&dest).unwrap();
+            assert_eq!(content, b"hello world");
+        });
     }
 }

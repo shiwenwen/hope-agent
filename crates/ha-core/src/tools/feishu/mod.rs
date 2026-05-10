@@ -88,7 +88,12 @@ struct CredsSnapshot {
     domain: String,
 }
 
-type AuthCache = RwLock<HashMap<String, (CredsSnapshot, Arc<FeishuAuth>)>>;
+/// Caches `Arc<FeishuApi>` (not `Arc<FeishuAuth>`) — `FeishuApi::new` builds
+/// a fresh `reqwest::Client` (with its own connection pool) so re-creating
+/// it on every `resolve_feishu_api` call would defeat HTTP keep-alive +
+/// connection reuse. The Arc lets read-lock hits hand out the same client
+/// without per-call allocation.
+type AuthCache = RwLock<HashMap<String, (CredsSnapshot, Arc<FeishuApi>)>>;
 
 fn auth_cache() -> &'static AuthCache {
     static CELL: OnceLock<AuthCache> = OnceLock::new();
@@ -208,27 +213,28 @@ pub async fn resolve_feishu_api(account: Option<&str>) -> Result<Arc<FeishuApi>>
     let creds = extract_creds(&target)?;
 
     // Hot path: read lock, allocation-free hit when creds unchanged.
-    if let Some((cached_creds, cached_auth)) = auth_cache().read().await.get(&target.id) {
+    if let Some((cached_creds, cached_api)) = auth_cache().read().await.get(&target.id) {
         if *cached_creds == creds {
-            return Ok(Arc::new(FeishuApi::new(cached_auth.clone())));
+            return Ok(Arc::clone(cached_api));
         }
     }
 
     // Cold path: take write lock, double-check (another writer may have inserted
     // while we were waiting), insert / replace.
     let mut cache = auth_cache().write().await;
-    if let Some((cached_creds, cached_auth)) = cache.get(&target.id) {
+    if let Some((cached_creds, cached_api)) = cache.get(&target.id) {
         if *cached_creds == creds {
-            return Ok(Arc::new(FeishuApi::new(cached_auth.clone())));
+            return Ok(Arc::clone(cached_api));
         }
     }
-    let fresh = Arc::new(FeishuAuth::new(
+    let auth = Arc::new(FeishuAuth::new(
         &creds.app_id,
         &creds.app_secret,
         &creds.domain,
     ));
-    cache.insert(target.id.clone(), (creds, fresh.clone()));
-    Ok(Arc::new(FeishuApi::new(fresh)))
+    let api = Arc::new(FeishuApi::new(auth));
+    cache.insert(target.id.clone(), (creds, Arc::clone(&api)));
+    Ok(api)
 }
 
 // ── Tools list ──────────────────────────────────────────────────
