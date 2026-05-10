@@ -213,31 +213,6 @@ fn persist_channel_media_to_session(
 mod tests {
     use super::*;
     use std::io::Write as _;
-    use std::sync::{Mutex, OnceLock};
-
-    /// Global lock for tests that mutate `HA_DATA_DIR`. cargo test runs tests
-    /// in parallel by default; without this lock two tests writing the env var
-    /// would race and read each other's tempdir paths. `catch_unwind` ensures
-    /// we restore the previous value even if the inner closure panics.
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn with_data_dir<T>(dir: &std::path::Path, f: impl FnOnce() -> T) -> T {
-        let _guard = env_lock().lock().expect("env lock poisoned");
-        let previous = std::env::var_os("HA_DATA_DIR");
-        std::env::set_var("HA_DATA_DIR", dir);
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        match previous {
-            Some(v) => std::env::set_var("HA_DATA_DIR", v),
-            None => std::env::remove_var("HA_DATA_DIR"),
-        }
-        match result {
-            Ok(v) => v,
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
-    }
 
     /// F-081: persist must move (not copy) inbound-temp files into the
     /// session attachments dir, so the source doesn't accumulate forever.
@@ -246,7 +221,7 @@ mod tests {
     #[test]
     fn persist_moves_source_into_session_dir() {
         let data_root = tempfile::tempdir().unwrap();
-        with_data_dir(data_root.path(), || {
+        crate::test_support::with_env_vars(&[("HA_DATA_DIR", data_root.path())], || {
             let inbound_dir = crate::paths::channels_dir()
                 .unwrap()
                 .join("feishu")

@@ -833,33 +833,6 @@
 
 ---
 
-### F-083 飞书 `FeishuAuth::get_token` token 缓存命中态仍走 `Mutex` 串行
-
-- **来源**：2026-05-10 F-075~F-081 `/simplify` review (Efficiency Agent HIGH #2)
-- **现象**：F-077 把 `materialize_pending_media` 改 `join_all` 后，多媒体并发下载理论上 N×加速，但 [`crates/ha-core/src/channel/feishu/auth.rs::get_token`](../../crates/ha-core/src/channel/feishu/auth.rs) 内部用 `tokio::sync::Mutex<Option<CachedToken>>`，**即便缓存命中**也要 acquire mutex 才能读 token；同 account 上 N 个并发 `download_resource_to_file` 排队过同一把 mutex，并发优势被部分抵消（mutex 持有时间是 ~微秒级，但 N 大时仍是瓶颈）。
-- **为什么留**：本期 F-076 scope 是 `tools/feishu/mod.rs::auth_cache`（resolve_feishu_api 入口的 client cache），`auth.rs` 的 token cache 是飞书 SDK 内部独立位置，不在 7 条 followup 范围。F-077 的并发提升仍真实存在（reqwest 网络层并行），只是被 token mutex 限制了上限；当前用户实测多媒体场景仍快于改前。
-- **改的话要做什么**：把 [`auth.rs`](../../crates/ha-core/src/channel/feishu/auth.rs) `Mutex<Option<CachedToken>>` 改 `RwLock`：read 命中直接返 token；miss / 过期走 write + 二次 check + refresh。需要小心 token refresh 时多 reader 同时撞期：用 `OnceCell` singleflight 或在 write 持锁时刷新。
-- **影响面**：性能。同 account 并发 ≥ 5 个 feishu 网络调用（多媒体下载、批量 bitable 写入等）时显著；常规 1-2 调用无感。
-- **触发时机建议**：用户实测撞到飞书并发瓶颈，或下次动 `feishu/auth.rs` 的 token 刷新逻辑时。
-
-### F-084 飞书 `enumerate_feishu_accounts` 每次 `resolve_feishu_api` 都 clone 全量账号 vec
-
-- **来源**：2026-05-10 F-075~F-081 `/simplify` review (Efficiency Agent MEDIUM #4)
-- **现象**：[`tools/feishu/mod.rs::resolve_feishu_api`](../../crates/ha-core/src/tools/feishu/mod.rs) 每次都先 `enumerate_feishu_accounts() -> Vec<ChannelAccountConfig>`，里面 `cached_config().channels.accounts.iter().filter().cloned().collect()`——把全部 feishu 账号 deep clone 一遍，再交给 `select_account` 找一个。租户配 1-2 个账号时 ~1KB 临时分配；20+ 账号 ~20KB——本期 F-076 RwLock 命中态省下的 ns 级开销被这里抵消。
-- **为什么留**：本期 F-076 scope 是 `auth_cache` 锁形态（Mutex → RwLock），不动 account selection 路径。`select_account` 当前签名要求 `Vec<ChannelAccountConfig>` ownership；改 borrow 形态需要重写 select_account 签名。
-- **改的话要做什么**：`select_account` 改接 `&[ChannelAccountConfig]`（或迭代器），`enumerate_feishu_accounts` 改成 borrow-only `pub fn first_feishu_or<'a>(want: Option<&str>) -> Option<&'a ChannelAccountConfig>` 直接从 cached_config 借引用；命中态 0 alloc。
-- **影响面**：性能。≥ 5 feishu 账号 + 高频 tool call（deferred-tools 启用时）显著；常规 1-2 账号无感。
-- **触发时机建议**：与 F-076 / F-083 一起做时顺手；或 `tools/feishu` 重构 PR 时。
-
-### F-085 测试 helper `with_env_vars` + `env_lock` 可跨 module 提升到 test_support
-
-- **来源**：2026-05-10 F-075~F-081 `/simplify` review (Code Quality Agent HIGH #1)
-- **现象**：本期 [`channel/worker/media.rs::tests::with_data_dir`](../../crates/ha-core/src/channel/worker/media.rs) 复制了 [`openclaw_import/mod.rs::tests::with_env_vars`](../../crates/ha-core/src/openclaw_import/mod.rs) 的 `OnceLock<Mutex<()>> + catch_unwind` pattern（防 cargo test 并行下两个 test 撞同一 env var）。两份实现是事实重复；下一处需要在测试里改 `HA_DATA_DIR` 的地方还得 copy 第三遍。
-- **为什么留**：本期 scope 是 F-081（move 语义），不是 test infra。把 helper 提升到 ha-core 测试公共模块涉及 visibility / `#[cfg(test)] pub mod test_support` 设计决策，是独立 cleanup。
-- **改的话要做什么**：在 ha-core 加 `#[cfg(test)] pub(crate) mod test_support` 或类似入口，导出 `with_env_vars(&[(&str, &Path)], FnOnce)` 通用版（值的形态比当前两份各自的 hard-coded `HA_DATA_DIR` 更通用）；media.rs / openclaw_import/mod.rs 两处复用。
-- **影响面**：DRY，无功能影响。
-- **触发时机建议**：第三处需要测试 env 隔离时；或独立 test infra cleanup PR。
-
 ### F-082 IM 入站附件路径 12 渠道一致性 hardening（飞书模板外推）
 
 - **来源**：2026-05-09 v0.2.0 飞书入站媒体 review P2 后续盘点 12 渠道现状
@@ -885,10 +858,10 @@
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
 
-### F-075 ~ F-081 飞书 v0.2.0 review followup 一次性清算
+### F-075 ~ F-081 + F-083 ~ F-085 飞书 v0.2.0 review followup 一次性清算（10 条）
 
-- **关闭于**：2026-05-10，分支 `refactor/feishu-followups`（7 commits）
-- **如何关闭**：把 v0.2.0 飞书完整对齐 PR 留下的 7 条 followup 一次性收掉，剔除 F-082（跨 11 渠道入站附件 hardening，独立分阶段 PR 推）：
+- **关闭于**：2026-05-10，分支 `refactor/feishu-followups`
+- **如何关闭**：把 v0.2.0 飞书完整对齐 PR 留下的 7 条 followup（F-075 ~ F-081）一次性收掉，剔除 F-082（跨 11 渠道入站附件 hardening，独立分阶段 PR 推）；本分支 `/simplify` review 又发现 3 条新 followup（F-083 / F-084 / F-085），不外溢——同分支顺手清掉：
 
   - **F-077** `perf(channel/feishu): F-077 materialize_pending_media 并发下载入站多媒体` (a06c7a40) —— [`channel/feishu/mod.rs::materialize_pending_media`](../../crates/ha-core/src/channel/feishu/mod.rs) 串行 `for ... await` 改 `futures_util::future::join_all`，单条 media 含多个 file_key 时累计延迟从 N×往返降到 1 次往返
   - **F-079** `feat(tools/feishu): F-079 feishu_drive_upload_media 暴露 parent_type` (052ee1e2) —— [`tools/feishu/drive.rs::upload_media_tool`](../../crates/ha-core/src/tools/feishu/drive.rs) schema 加可选 `parent_type` 字段（enum 6 值），默认 `explorer` 保向后兼容；可上传到 docx_image / sheet_image / bitable_image / slides_image / vc_virtual_background
@@ -897,6 +870,10 @@
   - **F-078** `refactor(channel/feishu): F-078 5 个 list/search 函数 builder 化` (a546e5fb) —— api_bitable.rs / api_calendar.rs / api_contact.rs 引入 `BitableListRecordsReq` / `BitableSearchRecordsReq` / `BitableListViewsReq` / `CalendarListEventsReq` / `ContactSearchUsersByDepartmentReq` 5 个命名字段 struct，避免 4-6 个 `Option<&str>` 位置参数容易传错
   - **F-075** `perf(channel/types): F-075 EventCommon.raw 共享 Arc<Value> 避免 fan-out 时 deep-clone` (8a7db8d4) —— [`channel/types.rs::EventCommon.raw`](../../crates/ha-core/src/channel/types.rs) 改 `Arc<serde_json::Value>`，workspace serde 启用 `rc` feature 让序列化对端透明；feishu/inbound_events.rs 6 个 EventCommon 构造点跟着改（5 个 single + 2 个 list），100 条 read-receipt 批量从 ~100KB-1MB 临时分配降到一次 + 100 次指针 bump；新增单测断言 fan-out 共用一个 Arc
   - **F-081** `fix(channel/worker): F-081 inbound 媒体 move 而非 copy 防 inbound-temp 累积` (6ae3aa0e) —— [`channel/worker/media.rs::persist_channel_media_to_session`](../../crates/ha-core/src/channel/worker/media.rs) `std::fs::copy` 改 `std::fs::rename`，跨 fs 失败 fallback `copy + remove_file`；channel-agnostic 修复，所有 11 个使用 persist 的渠道都顺手得到 inbound-temp/ GC（`rg -n "inbound-temp"` 已确认无第二处读路径）
+  - **`/simplify` 修复**（commit `be4557a6`） —— `auth_cache` cache `Arc<FeishuApi>` 而非 `Arc<FeishuAuth>` 让 hot path 0 分配（避免每次 `reqwest::Client::new()` 丢 connection pool）；`is_cross_device_rename` 抽到 [`crate::platform::`](../../crates/ha-core/src/platform/mod.rs) 与 platform 模块「跨平台 errno 集中」设计契合；F-081 测试用 `OnceLock<Mutex<()>> + catch_unwind` 隔离 env var 防 cargo test parallel 撞 race
+  - **F-083** 飞书 `auth.rs::get_token` token cache `Mutex<Option<CachedToken>>` 改 `RwLock` + double-check refresh —— hot path（命中态）read lock 完全并行；refresh path 写锁串行（singleflight），HTTP request 持锁防 concurrent refresh 撞 race。F-077 `join_all` 的并发优势真正落地（之前内层 token mutex 把 N 个并发 token 读串行化）
+  - **F-084** `enumerate_feishu_accounts` 删除（命中态 clone 全量账号 vec）；`select_account` 签名改 `&[&ChannelAccountConfig]` borrow 形态，`resolve_feishu_api` 内联 walk cached_config 收集指针 vec，最终只 clone 选中的 1 个 account（不再 clone N 个）
+  - **F-085** 抽 [`crate::test_support::with_env_vars`](../../crates/ha-core/src/test_support.rs)（`#[cfg(test)] pub(crate) mod`，仅测试构建可见）—— 把 [`openclaw_import/mod.rs::tests::with_env_vars`](../../crates/ha-core/src/openclaw_import/mod.rs) 与本期 `channel/worker/media.rs::tests::with_data_dir` 两份事实重复合一；media.rs / openclaw_import/mod.rs 两处都用统一入口
 - **不做的事**：F-082（跨 11 渠道入站附件 hardening，独立分阶段 PR）；MsgContext.raw 同步改 Arc（与 F-075 fan-out 痛点无关，保留 Value 避免 `Arc::make_mut` 复杂度）；inbound-temp/ 独立 GC 任务（move 语义已让源文件随 session 自然清，不再需要）
 - **影响面**：飞书入站延迟（多媒体场景）↓、并发吞吐（auth_cache 命中态）↑、读回执 / 入群 fan-out 内存峰值↓、磁盘 GC 兜底（11 渠道）；新增 `feishu_drive_upload_media` 的 `parent_type` 选项让 LLM 可上传图片到 docx/sheet/bitable 块；feishu list/search 调用点可读性 ↑
 

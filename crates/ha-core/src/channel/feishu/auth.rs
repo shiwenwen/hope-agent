@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use serde::Deserialize;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 use tokio::time::Instant;
 
 /// Cached tenant access token with expiration time.
@@ -13,12 +13,18 @@ struct CachedToken {
 ///
 /// Handles tenant_access_token acquisition and automatic refresh.
 /// The token expires every 2 hours; we refresh 5 minutes before expiry.
+///
+/// `cached_token` is an `RwLock` so concurrent tool calls all share a read
+/// lock on the cache hit path (the common case — refresh runs ~once every
+/// 7140s). The refresh path takes a write lock, which serializes refreshes
+/// (singleflight) and briefly blocks readers — a fair trade-off given how
+/// rare refresh is.
 pub struct FeishuAuth {
     app_id: String,
     app_secret: String,
     base_url: String,
     client: reqwest::Client,
-    cached_token: Mutex<Option<CachedToken>>,
+    cached_token: RwLock<Option<CachedToken>>,
 }
 
 /// Response from the tenant_access_token API.
@@ -44,7 +50,7 @@ impl FeishuAuth {
             app_secret: app_secret.to_string(),
             base_url,
             client: reqwest::Client::new(),
-            cached_token: Mutex::new(None),
+            cached_token: RwLock::new(None),
         }
     }
 
@@ -67,24 +73,34 @@ impl FeishuAuth {
     /// Returns a cached token if it's still valid (with a 5-minute safety buffer).
     /// Otherwise, requests a new token from the Feishu API.
     pub async fn get_token(&self) -> Result<String> {
-        // Check cache first
+        let buffer = std::time::Duration::from_secs(5 * 60);
+
+        // Hot path: read lock — concurrent tool calls all share the read lock
+        // and return the cached token without serializing on a mutex.
         {
-            let cached = self.cached_token.lock().await;
-            if let Some(ref ct) = *cached {
-                // Return cached if not expiring within 5 minutes
-                let buffer = std::time::Duration::from_secs(5 * 60);
+            let guard = self.cached_token.read().await;
+            if let Some(ct) = guard.as_ref() {
                 if ct.expires_at > Instant::now() + buffer {
                     return Ok(ct.token.clone());
                 }
             }
         }
 
-        // Request new token
+        // Refresh path: write lock + double-check (singleflight). Holding the
+        // write lock across the HTTP request briefly blocks readers, but it
+        // ensures concurrent refreshers serialize and the second-onwards waiter
+        // sees the now-fresh token via the double-check.
+        let mut guard = self.cached_token.write().await;
+        if let Some(ct) = guard.as_ref() {
+            if ct.expires_at > Instant::now() + buffer {
+                return Ok(ct.token.clone());
+            }
+        }
+
         let url = format!(
             "{}/open-apis/auth/v3/tenant_access_token/internal/",
             self.base_url
         );
-
         let resp = self
             .client
             .post(&url)
@@ -126,15 +142,10 @@ impl FeishuAuth {
             .ok_or_else(|| anyhow!("Feishu token response missing tenant_access_token"))?;
 
         let expire_secs = token_resp.expire.unwrap_or(7200);
-
-        // Cache the token
-        {
-            let mut cached = self.cached_token.lock().await;
-            *cached = Some(CachedToken {
-                token: token.clone(),
-                expires_at: Instant::now() + std::time::Duration::from_secs(expire_secs),
-            });
-        }
+        *guard = Some(CachedToken {
+            token: token.clone(),
+            expires_at: Instant::now() + std::time::Duration::from_secs(expire_secs),
+        });
 
         app_info!(
             "channel",

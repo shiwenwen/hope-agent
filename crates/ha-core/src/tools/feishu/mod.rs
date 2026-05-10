@@ -102,22 +102,8 @@ fn auth_cache() -> &'static AuthCache {
 
 // ── Account enumeration & extraction ────────────────────────────
 
-/// Pull all configured Feishu accounts from the cached AppConfig. Honors
-/// the live config — picks up account adds/removes/edits without restart.
-pub fn enumerate_feishu_accounts() -> Vec<ChannelAccountConfig> {
-    cached_config()
-        .channels
-        .accounts
-        .iter()
-        .filter(|a| a.channel_id == ChannelId::Feishu)
-        .cloned()
-        .collect()
-}
-
 /// Allocation-free presence probe used by the dispatcher's hot path
-/// (`is_globally_configured` runs once per Feishu tool per LLM round); a
-/// full `enumerate_feishu_accounts` would deep-clone every account just to
-/// check `is_empty()`.
+/// (`is_globally_configured` runs once per Feishu tool per LLM round).
 pub fn has_any_account_configured() -> bool {
     cached_config()
         .channels
@@ -168,23 +154,26 @@ fn extract_creds(account: &ChannelAccountConfig) -> Result<CredsSnapshot> {
 // ── Account selection (testable, no global config dep) ──────────
 
 /// Pick the right [`ChannelAccountConfig`] for a tool call given the candidate
-/// list and (optional) caller-provided account ID. Pure function — used as
-/// the testable core of [`resolve_feishu_api`].
-fn select_account(
-    accounts: Vec<ChannelAccountConfig>,
+/// list (borrowed) and (optional) caller-provided account ID. Pure function —
+/// used as the testable core of [`resolve_feishu_api`]. Returning a borrow
+/// lets `resolve_feishu_api` clone exactly one account (the chosen one)
+/// instead of cloning the entire candidate vec on the hot path.
+fn select_account<'a>(
+    accounts: &[&'a ChannelAccountConfig],
     account: Option<&str>,
-) -> Result<ChannelAccountConfig> {
+) -> Result<&'a ChannelAccountConfig> {
     match (account, accounts.len()) {
         (Some(id), _) => accounts
-            .into_iter()
+            .iter()
+            .copied()
             .find(|a| a.id == id)
             .ok_or_else(|| anyhow!("Feishu account '{}' is not configured", id)),
         (None, 0) => Err(anyhow!(
             "No Feishu channel account configured. Add one in Settings → Channels."
         )),
-        (None, 1) => Ok(accounts.into_iter().next().expect("len==1")),
+        (None, 1) => Ok(accounts[0]),
         (None, _) => {
-            let ids: Vec<String> = accounts.into_iter().map(|a| a.id).collect();
+            let ids: Vec<&str> = accounts.iter().map(|a| a.id.as_str()).collect();
             Err(anyhow!(
                 "{} Feishu accounts configured ({}); pass `account` to disambiguate.",
                 ids.len(),
@@ -209,11 +198,24 @@ fn select_account(
 /// share the 7200s tenant access token (no double-login). Cache invalidates
 /// on credential change.
 pub async fn resolve_feishu_api(account: Option<&str>) -> Result<Arc<FeishuApi>> {
-    let target = select_account(enumerate_feishu_accounts(), account)?;
-    let creds = extract_creds(&target)?;
+    // Walk cached_config without cloning every Feishu account — collect a
+    // Vec<&ChannelAccountConfig> of pointers and pick exactly one to clone
+    // after select_account decides who.
+    let cfg = cached_config();
+    let candidates: Vec<&ChannelAccountConfig> = cfg
+        .channels
+        .accounts
+        .iter()
+        .filter(|a| a.channel_id == ChannelId::Feishu)
+        .collect();
+    let chosen = select_account(&candidates, account)?;
+    let target_id = chosen.id.clone();
+    let creds = extract_creds(chosen)?;
+    drop(candidates);
+    drop(cfg);
 
     // Hot path: read lock, allocation-free hit when creds unchanged.
-    if let Some((cached_creds, cached_api)) = auth_cache().read().await.get(&target.id) {
+    if let Some((cached_creds, cached_api)) = auth_cache().read().await.get(&target_id) {
         if *cached_creds == creds {
             return Ok(Arc::clone(cached_api));
         }
@@ -222,7 +224,7 @@ pub async fn resolve_feishu_api(account: Option<&str>) -> Result<Arc<FeishuApi>>
     // Cold path: take write lock, double-check (another writer may have inserted
     // while we were waiting), insert / replace.
     let mut cache = auth_cache().write().await;
-    if let Some((cached_creds, cached_api)) = cache.get(&target.id) {
+    if let Some((cached_creds, cached_api)) = cache.get(&target_id) {
         if *cached_creds == creds {
             return Ok(Arc::clone(cached_api));
         }
@@ -233,7 +235,7 @@ pub async fn resolve_feishu_api(account: Option<&str>) -> Result<Arc<FeishuApi>>
         &creds.domain,
     ));
     let api = Arc::new(FeishuApi::new(auth));
-    cache.insert(target.id.clone(), (creds, Arc::clone(&api)));
+    cache.insert(target_id, (creds, Arc::clone(&api)));
     Ok(api)
 }
 
@@ -386,9 +388,13 @@ mod tests {
         }
     }
 
+    fn refs(accounts: &[ChannelAccountConfig]) -> Vec<&ChannelAccountConfig> {
+        accounts.iter().collect()
+    }
+
     #[test]
     fn select_account_no_accounts_no_id_errors() {
-        let err = select_account(Vec::new(), None).unwrap_err();
+        let err = select_account(&[], None).unwrap_err();
         assert!(
             err.to_string().contains("No Feishu channel account"),
             "{}",
@@ -398,7 +404,7 @@ mod tests {
 
     #[test]
     fn select_account_no_accounts_with_id_errors() {
-        let err = select_account(Vec::new(), Some("missing")).unwrap_err();
+        let err = select_account(&[], Some("missing")).unwrap_err();
         assert!(
             err.to_string().contains("'missing' is not configured"),
             "{}",
@@ -409,21 +415,21 @@ mod tests {
     #[test]
     fn select_account_single_no_id_picks_only_one() {
         let accounts = vec![make_account("acc1", ChannelId::Feishu, "cli_a")];
-        let picked = select_account(accounts, None).unwrap();
+        let picked = select_account(&refs(&accounts), None).unwrap();
         assert_eq!(picked.id, "acc1");
     }
 
     #[test]
     fn select_account_single_with_matching_id_returns_it() {
         let accounts = vec![make_account("acc1", ChannelId::Feishu, "cli_a")];
-        let picked = select_account(accounts, Some("acc1")).unwrap();
+        let picked = select_account(&refs(&accounts), Some("acc1")).unwrap();
         assert_eq!(picked.id, "acc1");
     }
 
     #[test]
     fn select_account_single_with_wrong_id_errors() {
         let accounts = vec![make_account("acc1", ChannelId::Feishu, "cli_a")];
-        let err = select_account(accounts, Some("acc2")).unwrap_err();
+        let err = select_account(&refs(&accounts), Some("acc2")).unwrap_err();
         assert!(
             err.to_string().contains("'acc2' is not configured"),
             "{}",
@@ -437,7 +443,7 @@ mod tests {
             make_account("acc1", ChannelId::Feishu, "cli_a"),
             make_account("acc2", ChannelId::Feishu, "cli_b"),
         ];
-        let err = select_account(accounts, None).unwrap_err();
+        let err = select_account(&refs(&accounts), None).unwrap_err();
         let s = err.to_string();
         assert!(s.contains("2 Feishu accounts configured"), "{}", s);
         assert!(s.contains("acc1"), "{}", s);
@@ -451,7 +457,7 @@ mod tests {
             make_account("acc1", ChannelId::Feishu, "cli_a"),
             make_account("acc2", ChannelId::Feishu, "cli_b"),
         ];
-        let picked = select_account(accounts, Some("acc2")).unwrap();
+        let picked = select_account(&refs(&accounts), Some("acc2")).unwrap();
         assert_eq!(picked.id, "acc2");
     }
 
