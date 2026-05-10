@@ -63,6 +63,10 @@ git checkout -b release/v0.1.2
 
 顶部互加 `简体中文 · English` 切换链接（AGENTS.md 强制约定）。文件名必须与 tag 严格对应（带 `v` 前缀），CI 据此填充 `latest.json#notes`。
 
+**链接一律用完整 GitHub URL（tag pin），禁止相对路径**：release notes 内所有跨文件链接必须使用 `https://github.com/shiwenwen/hope-agent/blob/v<X>.<Y>.<Z>/...` 形式的绝对 URL，不要用 `./` 或 `../`。包括中英切换链接、CHANGELOG 锚点、历史 release notes 引用。
+
+原因：[release.yml](../.github/workflows/release.yml) 把 release notes 注入 GitHub Release body 与 `latest.json#notes`；前者 GitHub 会代解析相对路径，后者在桌面应用内的「发现新版」弹窗里渲染时已脱离 GitHub 上下文，相对路径必 broken。tag pin 在 release.yml 触发时（tag push 后）已含本文件，永不漂移；用 `main` 分支引用则需要等 backport 合并才生效，时序上有窗口期。
+
 **(b) 更新 CHANGELOG**
 
 [CHANGELOG.md](../CHANGELOG.md) 顶部新增 `## [0.1.2]` 段，每条 entry 单行 + `(#PR)` 引用，面向用户视角。具体规范见 AGENTS.md "## 文档维护"。
@@ -231,6 +235,7 @@ git cherry-pick -x <sha>     # 加 (cherry picked from commit <sha>)
 |---|---|---|
 | `pnpm version X.Y.Z` 不带 `--no-git-tag-version` | 本地直接产 commit + tag，但 branch protection 不让推到 `main` / `release/**`，发版卡死 | 一律 `--no-git-tag-version`，version commit 走 PR |
 | release notes 文件名错（如 `0.1.2.md` 缺 `v` 前缀，或拼写错误） | `latest.json#notes` 落 fallback 文字 `See CHANGELOG.md for details.`，客户端弹窗看到通用文字 | 文件名严格匹配 tag：`docs/release-notes/v<X>.<Y>.<Z>.md` |
+| release notes 用相对路径（`./` `../`） | 注入到 `latest.json#notes` 后桌面应用「发现新版」弹窗里链接全 broken（不在 GitHub 渲染上下文里） | 一律 `https://github.com/shiwenwen/hope-agent/blob/v<X>.<Y>.<Z>/...` 完整 URL（tag pin） |
 | 忘记同 PR 合双语 release notes | 中英任一缺失，AGENTS.md 文档约定违例 | 一个发版 PR 必有 4 个文件改动：CHANGELOG + 中文 notes + 英文 notes + 三个 version 文件 |
 | draft Release 不 publish | updater endpoint 抓不到，已发布版本对客户端不可见 | §1.4 必须人工 publish |
 | 在功能分支 `pnpm version` 带 commit/tag | squash merge 后本地 tag 指向不在 main 上的死 commit，需要重打 | 始终 `--no-git-tag-version`，tag 在 PR 合并后的目标分支 HEAD 上重新打 |
