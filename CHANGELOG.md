@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- macOS 顶部菜单栏新增「Hope Agent → 检查更新...」入口；About 面板「检查更新」按钮始终可见，发现新版后仍可重新检查 (#134)
+- 自动更新失败时 UI 多出折叠「错误详情」面板，完整堆栈写入 `~/.hope-agent/logs.db`（category=updater），便于 `/ha-logs` 自查或反馈时附带 (#134)
+- GitHub Release body 与 `latest.json#notes` 自动从 `docs/release-notes/<tag>.md` 注入，应用内更新提示弹窗显示版本具体说明而非「See CHANGELOG.md for details.」(#134)
+
+### Fixed
+
+- 自动更新点「安装」后失败的签名验证 bug：编入二进制的公钥与 GitHub Release 资产签名实际密钥不是同一把，install 阶段必抛错；改为 `tauri.conf.json` 单一真相源 (#134)
+- 从聊天页或非「关于」面板打开 macOS 菜单「检查更新」时请求丢失：事件先于面板挂载发出无人接收，改为 queue 在 store 里等订阅到位重放 (#134)
+- 自动更新下载完成后 UI 卡住没反应：补 1.5s 等待让「已安装」文案显示再 relaunch；relaunch 失败兜底显示「请手动退出后重新打开」(#134)
+- 设置面板「开发者模式」（一键清空 sessions / cron / memory / config / 全部数据）出现在 release 包，普通用户有误触风险；改为仅 dev 构建可见，模块也从 release bundle tree-shake 剥离 (#134)
+
 ## [0.1.1] - 2026-05-09
 
 维护版本，主修 v0.1.0 在纯净 Windows 上启动报 `MSVCP140_1.dll` / `VCRUNTIME140.dll` 缺失，外加几个独立的修复与治理基线。
