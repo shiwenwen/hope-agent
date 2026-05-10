@@ -6,6 +6,7 @@ const rootDir = process.cwd()
 const packageJsonPath = path.join(rootDir, "package.json")
 const cargoTomlPath = path.join(rootDir, "src-tauri", "Cargo.toml")
 const tauriConfigPath = path.join(rootDir, "src-tauri", "tauri.conf.json")
+const cargoLockPath = path.join(rootDir, "Cargo.lock")
 
 const args = process.argv.slice(2)
 let expectedTag = null
@@ -27,14 +28,24 @@ if (!cargoVersionMatch) {
   process.exit(1)
 }
 
+const cargoLock = readFileSync(cargoLockPath, "utf8")
+const cargoLockHopeAgentMatch = cargoLock.match(/name = "hope-agent"\nversion = "(.*)"/)
+
+if (!cargoLockHopeAgentMatch) {
+  console.error("[release:verify] could not find hope-agent version in Cargo.lock")
+  process.exit(1)
+}
+
 const packageVersion = packageJson.version
 const tauriVersion = tauriConfig.version
 const cargoVersion = cargoVersionMatch[1]
+const cargoLockVersion = cargoLockHopeAgentMatch[1]
 
 const mismatches = [
   ["package.json", packageVersion],
   ["src-tauri/tauri.conf.json", tauriVersion],
   ["src-tauri/Cargo.toml", cargoVersion],
+  ["Cargo.lock (hope-agent)", cargoLockVersion],
 ].filter(([, value], _, all) => value !== all[0][1])
 
 if (mismatches.length > 0) {
@@ -42,6 +53,7 @@ if (mismatches.length > 0) {
   console.error(`  package.json: ${packageVersion}`)
   console.error(`  src-tauri/tauri.conf.json: ${tauriVersion}`)
   console.error(`  src-tauri/Cargo.toml: ${cargoVersion}`)
+  console.error(`  Cargo.lock (hope-agent): ${cargoLockVersion}`)
   process.exit(1)
 }
 
