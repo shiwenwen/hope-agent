@@ -66,7 +66,8 @@ pub fn upload_media_tool() -> ToolDefinition {
     ToolDefinition {
         name: TOOL_DRIVE_UPLOAD_MEDIA.into(),
         description:
-            "Upload a local file (≤ 20 MB) to a Feishu (Lark) drive folder. Returns the new \
+            "Upload a local file (≤ 20 MB) to a Feishu (Lark) drive folder OR embed it as media \
+             inside a docx / sheet / bitable / slides / vc-virtual-background. Returns the new \
              `file_token` which you can later pass to `feishu_drive_download_media`. Files larger \
              than 20 MB need the segmented upload v2 protocol (deferred to a future release). \
              Required Feishu app scope: `drive:drive`. \
@@ -86,7 +87,12 @@ pub fn upload_media_tool() -> ToolDefinition {
                 },
                 "folder_token": {
                     "type": "string",
-                    "description": "Destination folder token. Use the user's drive root token if omitting; many tenants require an explicit folder."
+                    "description": "Destination token. When `parent_type` is `explorer` (default) this is a folder token (use the user's drive root if omitting; many tenants require an explicit folder). When `parent_type` is `docx_image` / `sheet_image` / `bitable_image` / `slides_image` / `vc_virtual_background`, pass the host document/sheet/bitable token instead — for `docx_image` use the docx_id (not block_id); Feishu rebinds via subsequent block insertion."
+                },
+                "parent_type": {
+                    "type": "string",
+                    "enum": ["explorer", "docx_image", "sheet_image", "bitable_image", "vc_virtual_background", "slides_image"],
+                    "description": "Where this media is being uploaded to. Defaults to `explorer` (regular drive folder upload). Other values embed the upload as media inside the corresponding host artifact — see Feishu open API docs for the full enum."
                 },
                 "file_name": {
                     "type": "string",
@@ -172,6 +178,7 @@ pub(crate) async fn execute_upload_media(args: &Value) -> Result<String> {
     let folder_token = arg_required_str(args, "folder_token")?;
     let file_name_arg = arg_str(args, "file_name");
     let mime = arg_str(args, "mime");
+    let parent_type = arg_str(args, "parent_type").unwrap_or("explorer");
     let account = arg_str(args, "account");
 
     let local_path = require_absolute_path(path_str)?;
@@ -209,7 +216,7 @@ pub(crate) async fn execute_upload_media(args: &Value) -> Result<String> {
 
     let api = resolve_feishu_api(account).await?;
     let result = api
-        .drive_upload_media(&file_name, "explorer", folder_token, bytes, mime)
+        .drive_upload_media(&file_name, parent_type, folder_token, bytes, mime)
         .await?;
     Ok(serde_json::to_string(&result)?)
 }
