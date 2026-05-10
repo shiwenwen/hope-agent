@@ -144,7 +144,7 @@ async fn execute_tool_with_cancel(
         res = tools::execute_tool_with_context(name, args, &local_ctx) => {
             match res {
                 Ok(r) => r,
-                Err(e) => format!("Tool error: {}", e),
+                Err(e) => tools::ToolRejection::render_error(&e),
             }
         }
         _ = async {
@@ -153,7 +153,7 @@ async fn execute_tool_with_cancel(
                 if cancel_clone.load(Ordering::SeqCst) { break; }
             }
         } => {
-            String::from("Tool execution cancelled by user")
+            tools::ToolRejection::cancelled(name).to_tool_result()
         }
     };
     let elapsed_ms = tool_start.elapsed().as_millis() as u64;

@@ -22,8 +22,11 @@
     "updateDownloadProgress": "Download progress: {{percent}}%",
     "updateInstall": "Install v{{version}}",
     "updateInstallFailed": "Update download or install failed.",
+    "updateErrorDetails": "Error details",
+    "updateErrorLogHint": "Full traces are written to ~/.hope-agent/logs.db (category: updater) — run /ha-logs or share that file when reporting an issue.",
     "updateInstalled": "Update installed. Relaunching Hope Agent...",
     "updateInstalling": "Installing v{{version}}...",
+    "updateRestartManually": "Update installed but Hope Agent didn't restart automatically. Please quit and reopen the app.",
     "updateReady": "Check GitHub Releases for a newer desktop build or let Hope Agent install one for you.",
     "updateUpToDate": "You're up to date on v{{version}}.",
     "version": "Version"

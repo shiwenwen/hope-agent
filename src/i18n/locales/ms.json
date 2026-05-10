@@ -22,8 +22,11 @@
     "updateDownloadProgress": "Kemajuan muat turun: {{percent}}%",
     "updateInstall": "Pasang v{{version}}",
     "updateInstallFailed": "Muat turun atau pemasangan kemas kini gagal.",
+    "updateErrorDetails": "Butiran ralat",
+    "updateErrorLogHint": "Jejak penuh telah ditulis ke ~/.hope-agent/logs.db (category: updater). Gunakan /ha-logs untuk menyiasat atau lampirkan fail tersebut semasa melaporkan masalah.",
     "updateInstalled": "Kemas kini telah dipasang. Sedang memulakan semula Hope Agent...",
     "updateInstalling": "Sedang memasang v{{version}}...",
+    "updateRestartManually": "Kemas kini telah dipasang tetapi mulakan semula automatik gagal. Sila keluar Hope Agent secara manual lalu buka semula.",
     "updateReady": "Anda boleh melihat binaan desktop baharu di GitHub Releases atau biarkan Hope Agent memasang kemas kini itu untuk anda.",
     "updateUpToDate": "Anda sudah menggunakan versi terkini v{{version}}.",
     "version": "Versi"

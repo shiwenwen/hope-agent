@@ -57,13 +57,13 @@ pnpm test                                                                    # C
 
 > 实操流程（PR 工作流、tag 推送、cherry-pick backport、避坑速查）见 [`docs/release-process.md`](docs/release-process.md)。本节仅列契约面。
 
-`main` 承载下一个 minor 版本的开发，已发布的 minor 版本对应一条 `release/X.Y` 维护分支用于 patch 修复。两条分支之间**只允许 cherry-pick，不允许 merge**——`merge main → release/X.Y` 会把未发布功能拖入维护分支。
+`main` 承载下一个 minor 版本的开发，已发布的 minor 版本对应一条 `release/vX.Y` 维护分支用于 patch 修复。两条分支之间**只允许 cherry-pick，不允许 merge**——`merge main → release/vX.Y` 会把未发布功能拖入维护分支。
 
 ### 工作流
 
-- **修 bug**：从 `release/X.Y` 切 `fix/X.Y-<topic>`，PR base 选 `release/X.Y`；合并并发版后 cherry-pick 回 `main` 再单独发 PR
+- **修 bug**：从 `release/vX.Y` 切 `fix/vX.Y-<topic>`，PR base 选 `release/vX.Y`；合并并发版后 cherry-pick 回 `main` 再单独发 PR
 - **新功能**：从 `main` 切 `feat/<topic>`，PR base 选 `main`
-- **新 minor 发版**：`main` 上 `pnpm version X.Y.0` 打 tag，再 `git branch release/X.Y vX.Y.0 && git push -u origin release/X.Y`，CI 与 protection 通过 ruleset 通配符自动覆盖
+- **新 minor 发版**：`main` 上 `pnpm version X.Y.0` 打 tag，再 `git branch release/vX.Y vX.Y.0 && git push -u origin release/vX.Y`，CI 与 protection 通过 ruleset 通配符自动覆盖
 
 ### CI 与 branch protection
 

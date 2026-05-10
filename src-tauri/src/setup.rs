@@ -16,12 +16,14 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         )?;
     }
 
+    // tauri-plugin-updater reads the verification pubkey from
+    // `tauri.conf.json#plugins.updater.pubkey` automatically — single source
+    // of truth. An explicit `.pubkey()` here previously diverged from the
+    // config (different key_id) and silently failed signature verification
+    // on every install, surfacing only as a generic "install failed" toast.
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
-    app.handle().plugin(
-        tauri_plugin_updater::Builder::new()
-            .pubkey(include_str!("../updater.pub.pem").trim())
-            .build(),
-    )?;
+    app.handle()
+        .plugin(tauri_plugin_updater::Builder::new().build())?;
 
     // macOS: custom app menu — Cmd+Q hides window instead of quitting
     #[cfg(target_os = "macos")]
@@ -30,6 +32,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
         let labels =
             crate::menu_labels::macos_app_menu_labels(&crate::menu_labels::resolve_language());
         let about = MenuItemBuilder::with_id("open_about", labels.about).build(app)?;
+        let check_updates =
+            MenuItemBuilder::with_id("check_for_updates", labels.check_for_updates).build(app)?;
         let settings = MenuItemBuilder::with_id("open_settings", labels.settings)
             .accelerator("CmdOrCtrl+,")
             .build(app)?;
@@ -38,6 +42,8 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
             .build(app)?;
         let app_submenu = SubmenuBuilder::new(app, "Hope Agent")
             .item(&about)
+            .separator()
+            .item(&check_updates)
             .separator()
             .item(&settings)
             .separator()
@@ -105,6 +111,19 @@ pub(crate) fn app_setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::
                         let _ = window.set_focus();
                     }
                     let _ = app_handle.emit("open-settings", ());
+                }
+                "check_for_updates" => {
+                    if let Some(window) = app_handle.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                    // Open the About panel and signal it to run a manual check.
+                    // AboutPanel listens for `desktop-update-check` and triggers
+                    // the same flow as its in-panel "Check for Updates" button.
+                    let _ =
+                        app_handle.emit("open-settings", serde_json::json!({ "section": "about" }));
+                    let _ = app_handle.emit("desktop-update-check", ());
                 }
                 "hide_quit" => {
                     if let Some(window) = app_handle.get_webview_window("main") {

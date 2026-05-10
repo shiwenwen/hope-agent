@@ -22,8 +22,11 @@
     "updateDownloadProgress": "다운로드 진행률: {{percent}}%",
     "updateInstall": "v{{version}} 설치",
     "updateInstallFailed": "업데이트 다운로드 또는 설치에 실패했습니다.",
+    "updateErrorDetails": "오류 세부정보",
+    "updateErrorLogHint": "전체 추적이 ~/.hope-agent/logs.db에 기록되었습니다(category: updater). /ha-logs로 확인하거나 문제 보고 시 해당 파일을 첨부해 주세요.",
     "updateInstalled": "업데이트가 설치되었습니다. Hope Agent를 다시 시작하는 중입니다...",
     "updateInstalling": "v{{version}} 설치 중...",
+    "updateRestartManually": "업데이트가 설치되었지만 자동 재시작에 실패했습니다. Hope Agent를 수동으로 종료한 후 다시 실행해 주세요.",
     "updateReady": "GitHub Releases에서 새 데스크톱 빌드를 확인하거나 Hope Agent가 직접 업데이트를 설치하게 할 수 있습니다.",
     "updateUpToDate": "현재 v{{version}}이 최신 버전입니다.",
     "version": "버전"
