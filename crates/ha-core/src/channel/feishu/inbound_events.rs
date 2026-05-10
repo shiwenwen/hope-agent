@@ -11,6 +11,7 @@
 //! and <https://open.feishu.cn/document/server-docs/group/chat-events>
 
 use serde::Deserialize;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::channel::types::{
@@ -102,7 +103,7 @@ fn parse_reaction(event: serde_json::Value, account_id: &str, added: bool) -> Op
             // most common context; Dm reactions also exist but are rare.
             chat_type: ChatType::Group,
             timestamp: now_utc(),
-            raw: event,
+            raw: Arc::new(event),
         },
         message_id,
         sender_id,
@@ -139,7 +140,7 @@ fn parse_recalled(event: serde_json::Value, account_id: &str) -> Option<InboundE
             chat_id: p.chat_id.unwrap_or_default(),
             chat_type: ChatType::Group,
             timestamp: now_utc(),
-            raw: event,
+            raw: Arc::new(event),
         },
         message_id,
         recalled_by: None,
@@ -170,6 +171,9 @@ fn parse_read_receipt_list(event: serde_json::Value, account_id: &str) -> Vec<In
         .and_then(|h| h.open_id)
         .unwrap_or_default();
     let messages = p.message_id_list.unwrap_or_default();
+    // Share a single Arc<Value> across the fan-out: a 100-message read-receipt
+    // batch used to deep-clone the raw payload 100 times.
+    let raw = Arc::new(event);
     messages
         .into_iter()
         .map(|message_id| {
@@ -181,7 +185,7 @@ fn parse_read_receipt_list(event: serde_json::Value, account_id: &str) -> Vec<In
                     chat_id: String::new(),
                     chat_type: ChatType::Group,
                     timestamp: now_utc(),
-                    raw: event.clone(),
+                    raw: Arc::clone(&raw),
                 },
                 message_id,
                 reader_id: reader_id.clone(),
@@ -223,6 +227,9 @@ fn parse_user_added_or_deleted(
     };
     let operator = p.operator_id.and_then(|h| h.open_id);
     let chat_id = p.chat_id.unwrap_or_default();
+    // Share a single Arc<Value> across the fan-out so a 50-user batch doesn't
+    // deep-clone the raw payload 50 times.
+    let raw = Arc::new(event);
     p.users
         .unwrap_or_default()
         .into_iter()
@@ -246,7 +253,7 @@ fn parse_user_added_or_deleted(
                     chat_id: chat_id.clone(),
                     chat_type: ChatType::Group,
                     timestamp: now_utc(),
-                    raw: event.clone(),
+                    raw: Arc::clone(&raw),
                 },
                 action,
             })
@@ -294,7 +301,7 @@ fn parse_bot_added_or_deleted(
             chat_id: p.chat_id.unwrap_or_default(),
             chat_type: ChatType::Group,
             timestamp: now_utc(),
-            raw: event,
+            raw: Arc::new(event),
         },
         action,
     }))
@@ -325,7 +332,7 @@ fn parse_chat_created(event: serde_json::Value, account_id: &str) -> Option<Inbo
             chat_id: p.chat_id.unwrap_or_default(),
             chat_type: map_chat_type(p.chat_type.as_deref()),
             timestamp: now_utc(),
-            raw: event,
+            raw: Arc::new(event),
         },
         action: MembershipAction::ChatCreated,
     }))
@@ -351,7 +358,7 @@ fn parse_chat_disbanded(event: serde_json::Value, account_id: &str) -> Option<In
             chat_id: p.chat_id.unwrap_or_default(),
             chat_type: ChatType::Group,
             timestamp: now_utc(),
-            raw: event,
+            raw: Arc::new(event),
         },
         action: MembershipAction::ChatDisbanded,
     }))
@@ -522,6 +529,37 @@ mod tests {
         assert_eq!(ids, vec!["om_a", "om_b", "om_c"]);
         if let InboundEvent::ReadReceipt(r) = &events[0] {
             assert_eq!(r.reader_id, "ou_reader");
+        }
+    }
+
+    /// Per F-075: read-receipt fan-out should share one Arc<Value> for `raw`
+    /// across N messages instead of deep-cloning the payload N times. A 100-msg
+    /// batch used to allocate ~100 KB; now it allocates once + N pointer bumps.
+    #[tokio::test]
+    async fn read_receipt_fan_out_shares_raw_arc() {
+        let ids: Vec<String> = (0..100).map(|i| format!("om_{}", i)).collect();
+        let event = serde_json::json!({
+            "reader": {"reader_id": {"open_id": "ou_reader"}},
+            "message_id_list": ids,
+        });
+        let (_, events) = dispatch_and_collect("im.message.message_read_v1", event).await;
+        assert_eq!(events.len(), 100);
+        // Pull the first event's raw Arc as anchor; every other event must
+        // alias to the same allocation (Arc::ptr_eq).
+        let anchor = match &events[0] {
+            InboundEvent::ReadReceipt(r) => Arc::clone(&r.common.raw),
+            _ => panic!("expected ReadReceipt"),
+        };
+        for ev in &events[1..] {
+            match ev {
+                InboundEvent::ReadReceipt(r) => {
+                    assert!(
+                        Arc::ptr_eq(&anchor, &r.common.raw),
+                        "raw Arc should be shared across the fan-out, not deep-cloned"
+                    );
+                }
+                _ => panic!("expected ReadReceipt"),
+            }
         }
     }
 

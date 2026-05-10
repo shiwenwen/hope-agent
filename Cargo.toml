@@ -103,7 +103,7 @@ should_implement_trait = "allow"
 doc_lazy_continuation = "allow"
 
 [workspace.dependencies]
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"

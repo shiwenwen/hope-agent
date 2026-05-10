@@ -436,8 +436,14 @@ pub struct EventCommon {
     pub chat_type: ChatType,
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Raw platform-specific payload for diagnostics / debugging.
-    #[serde(default)]
-    pub raw: serde_json::Value,
+    /// Wrapped in `Arc` so per-source fan-out (e.g. read-receipt batches with
+    /// 100 message_ids → 100 events) shares one buffer instead of deep-cloning.
+    #[serde(default = "default_raw_arc")]
+    pub raw: std::sync::Arc<serde_json::Value>,
+}
+
+fn default_raw_arc() -> std::sync::Arc<serde_json::Value> {
+    std::sync::Arc::new(serde_json::Value::Null)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
