@@ -163,9 +163,11 @@ pub(crate) async fn execute_search_users_by_department(args: &Value) -> Result<S
     let api = resolve_feishu_api(arg_str(args, "account")).await?;
     let r = api
         .contact_search_users_by_department(
-            arg_required_str(args, "department_id")?,
-            arg_str(args, "page_token"),
-            arg_u32(args, "page_size")?,
+            crate::channel::feishu::api_contact::ContactSearchUsersByDepartmentReq {
+                department_id: arg_required_str(args, "department_id")?,
+                page_token: arg_str(args, "page_token"),
+                page_size: arg_u32(args, "page_size")?,
+            },
         )
         .await?;
     Ok(serde_json::to_string(&r)?)

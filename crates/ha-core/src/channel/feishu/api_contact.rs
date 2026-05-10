@@ -14,6 +14,15 @@ use serde_json::Value;
 
 use super::api::FeishuApi;
 
+// ── Request structs ─────────────────────────────────────────────
+
+/// Args for [`FeishuApi::contact_search_users_by_department`].
+pub struct ContactSearchUsersByDepartmentReq<'a> {
+    pub department_id: &'a str,
+    pub page_token: Option<&'a str>,
+    pub page_size: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContactUser {
     /// Pass-through of Feishu's user object — names / IDs / mobile / email / etc.
@@ -138,19 +147,18 @@ impl FeishuApi {
     /// `GET /open-apis/contact/v3/users/find_by_department` — list users in a department.
     pub async fn contact_search_users_by_department(
         &self,
-        department_id: &str,
-        page_token: Option<&str>,
-        page_size: Option<u32>,
+        req: ContactSearchUsersByDepartmentReq<'_>,
     ) -> Result<ContactSearchResult> {
         let mut url = format!(
             "{}/open-apis/contact/v3/users/find_by_department",
             self.base_url()
         );
-        let mut params: Vec<(&str, String)> = vec![("department_id", department_id.to_string())];
-        if let Some(t) = page_token {
+        let mut params: Vec<(&str, String)> =
+            vec![("department_id", req.department_id.to_string())];
+        if let Some(t) = req.page_token {
             params.push(("page_token", t.to_string()));
         }
-        if let Some(s) = page_size {
+        if let Some(s) = req.page_size {
             params.push(("page_size", s.to_string()));
         }
         super::api::append_query(&mut url, &params);
