@@ -103,10 +103,9 @@ async fn handle_exec_approval_timeout(
                 timeout_secs,
                 command
             );
-            Err(anyhow::anyhow!(
-                "Command execution denied: approval timed out after {}s: {}",
+            Err(super::rejection::ToolRejection::approval_timeout(
+                TOOL_EXEC,
                 timeout_secs,
-                command
             ))
         }
         crate::config::ApprovalTimeoutAction::Proceed => {
@@ -315,10 +314,15 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
             crate::permission::Decision::Deny { reason } => {
                 let mut registry = get_registry().lock().await;
                 registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
-                return Err(anyhow::anyhow!(
-                    "Command execution denied: {} (cmd: {})",
+                app_warn!(
+                    "tool",
+                    "exec",
+                    "Command execution denied by policy ({}): {}",
                     reason,
                     command
+                );
+                return Err(super::rejection::ToolRejection::denied_by_policy(
+                    TOOL_EXEC, reason,
                 ));
             }
             crate::permission::Decision::Ask { reason } => {
@@ -364,10 +368,13 @@ pub(crate) async fn tool_exec(args: &Value, ctx: &super::ToolExecContext) -> Res
                         Ok(ApprovalResponse::Deny) => {
                             let mut registry = get_registry().lock().await;
                             registry.mark_exited(&session_id, None, None, ProcessStatus::Failed);
-                            return Err(anyhow::anyhow!(
+                            app_warn!(
+                                "tool",
+                                "exec",
                                 "Command execution denied by user: {}",
                                 command
-                            ));
+                            );
+                            return Err(super::rejection::ToolRejection::denied_by_user(TOOL_EXEC));
                         }
                         Err(ApprovalCheckError::TimedOut { timeout_secs }) => {
                             handle_exec_approval_timeout(&session_id, command, timeout_secs)

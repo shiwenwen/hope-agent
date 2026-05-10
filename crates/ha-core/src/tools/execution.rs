@@ -411,7 +411,9 @@ pub async fn execute_tool_with_context(
         match decision {
             crate::permission::Decision::Allow => {}
             crate::permission::Decision::Deny { reason } => {
-                return Err(anyhow::anyhow!("Tool '{}' denied: {}", name, reason));
+                return Err(super::rejection::ToolRejection::denied_by_policy(
+                    name, reason,
+                ));
             }
             crate::permission::Decision::Ask { reason } => {
                 let desc = format!("tool: {} {}", name, {
@@ -454,7 +456,7 @@ pub async fn execute_tool_with_context(
                         }
                     }
                     Ok(approval::ApprovalResponse::Deny) => {
-                        return Err(anyhow::anyhow!("Tool '{}' execution denied by user", name));
+                        return Err(super::rejection::ToolRejection::denied_by_user(name));
                     }
                     Err(approval::ApprovalCheckError::TimedOut { timeout_secs }) => {
                         match approval::approval_timeout_action() {
@@ -466,10 +468,9 @@ pub async fn execute_tool_with_context(
                                     name,
                                     timeout_secs
                                 );
-                                return Err(anyhow::anyhow!(
-                                    "Tool '{}' execution denied: approval timed out after {}s",
+                                return Err(super::rejection::ToolRejection::approval_timeout(
                                     name,
-                                    timeout_secs
+                                    timeout_secs,
                                 ));
                             }
                             crate::config::ApprovalTimeoutAction::Proceed => {
