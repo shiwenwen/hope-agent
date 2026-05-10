@@ -647,109 +647,109 @@ pub async fn execute_tool_with_context(
             super::TOOL_SKILL => skill::tool_skill(args, ctx).await,
             super::TOOL_MCP_RESOURCE => crate::mcp::resources::tool_mcp_resource(args).await,
             super::TOOL_MCP_PROMPT => crate::mcp::prompts::tool_mcp_prompt(args).await,
-            super::feishu::docx::TOOL_DOCX_CREATE => {
+            super::feishu::TOOL_DOCX_CREATE => {
                 super::feishu::docx::execute_create(args).await
             }
-            super::feishu::docx::TOOL_DOCX_GET_BLOCKS => {
+            super::feishu::TOOL_DOCX_GET_BLOCKS => {
                 super::feishu::docx::execute_get_blocks(args).await
             }
-            super::feishu::docx::TOOL_DOCX_APPEND_BLOCK => {
+            super::feishu::TOOL_DOCX_APPEND_BLOCK => {
                 super::feishu::docx::execute_append_block(args).await
             }
-            super::feishu::docx::TOOL_DOCX_UPDATE_BLOCK_TEXT => {
+            super::feishu::TOOL_DOCX_UPDATE_BLOCK_TEXT => {
                 super::feishu::docx::execute_update_block_text(args).await
             }
-            super::feishu::bitable::TOOL_BITABLE_LIST_RECORDS => {
+            super::feishu::TOOL_BITABLE_LIST_RECORDS => {
                 super::feishu::bitable::execute_list_records(args).await
             }
-            super::feishu::bitable::TOOL_BITABLE_SEARCH_RECORDS => {
+            super::feishu::TOOL_BITABLE_SEARCH_RECORDS => {
                 super::feishu::bitable::execute_search_records(args).await
             }
-            super::feishu::bitable::TOOL_BITABLE_CREATE_RECORD => {
+            super::feishu::TOOL_BITABLE_CREATE_RECORD => {
                 super::feishu::bitable::execute_create_record(args).await
             }
-            super::feishu::bitable::TOOL_BITABLE_BATCH_UPDATE_RECORDS => {
+            super::feishu::TOOL_BITABLE_BATCH_UPDATE_RECORDS => {
                 super::feishu::bitable::execute_batch_update_records(args).await
             }
-            super::feishu::bitable::TOOL_BITABLE_LIST_VIEWS => {
+            super::feishu::TOOL_BITABLE_LIST_VIEWS => {
                 super::feishu::bitable::execute_list_views(args).await
             }
-            super::feishu::bitable::TOOL_BITABLE_GET_VIEW => {
+            super::feishu::TOOL_BITABLE_GET_VIEW => {
                 super::feishu::bitable::execute_get_view(args).await
             }
-            super::feishu::bitable::TOOL_BITABLE_LIST_DASHBOARDS => {
+            super::feishu::TOOL_BITABLE_LIST_DASHBOARDS => {
                 super::feishu::bitable::execute_list_dashboards(args).await
             }
-            super::feishu::drive::TOOL_DRIVE_LIST_FILES => {
+            super::feishu::TOOL_DRIVE_LIST_FILES => {
                 super::feishu::drive::execute_list_files(args).await
             }
-            super::feishu::drive::TOOL_DRIVE_UPLOAD_MEDIA => {
+            super::feishu::TOOL_DRIVE_UPLOAD_MEDIA => {
                 super::feishu::drive::execute_upload_media(args).await
             }
-            super::feishu::drive::TOOL_DRIVE_DOWNLOAD_MEDIA => {
+            super::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA => {
                 super::feishu::drive::execute_download_media(args).await
             }
-            super::feishu::wiki::TOOL_WIKI_GET_NODE => {
+            super::feishu::TOOL_WIKI_GET_NODE => {
                 super::feishu::wiki::execute_get_node(args).await
             }
-            super::feishu::approval::TOOL_APPROVAL_CREATE_INSTANCE => {
+            super::feishu::TOOL_APPROVAL_CREATE_INSTANCE => {
                 super::feishu::approval::execute_create_instance(args).await
             }
-            super::feishu::approval::TOOL_APPROVAL_GET_INSTANCE => {
+            super::feishu::TOOL_APPROVAL_GET_INSTANCE => {
                 super::feishu::approval::execute_get_instance(args).await
             }
-            super::feishu::approval::TOOL_APPROVAL_CANCEL_INSTANCE => {
+            super::feishu::TOOL_APPROVAL_CANCEL_INSTANCE => {
                 super::feishu::approval::execute_cancel_instance(args).await
             }
-            super::feishu::approval::TOOL_APPROVAL_LIST_INSTANCES => {
+            super::feishu::TOOL_APPROVAL_LIST_INSTANCES => {
                 super::feishu::approval::execute_list_instances(args).await
             }
-            super::feishu::approval::TOOL_APPROVAL_SUBSCRIBE => {
+            super::feishu::TOOL_APPROVAL_SUBSCRIBE => {
                 super::feishu::approval::execute_subscribe(args).await
             }
-            super::feishu::calendar::TOOL_CALENDAR_LIST => {
+            super::feishu::TOOL_CALENDAR_LIST => {
                 super::feishu::calendar::execute_list(args).await
             }
-            super::feishu::calendar::TOOL_CALENDAR_CREATE_EVENT => {
+            super::feishu::TOOL_CALENDAR_CREATE_EVENT => {
                 super::feishu::calendar::execute_create_event(args).await
             }
-            super::feishu::calendar::TOOL_CALENDAR_LIST_EVENTS => {
+            super::feishu::TOOL_CALENDAR_LIST_EVENTS => {
                 super::feishu::calendar::execute_list_events(args).await
             }
-            super::feishu::calendar::TOOL_CALENDAR_UPDATE_EVENT => {
+            super::feishu::TOOL_CALENDAR_UPDATE_EVENT => {
                 super::feishu::calendar::execute_update_event(args).await
             }
-            super::feishu::calendar::TOOL_CALENDAR_DELETE_EVENT => {
+            super::feishu::TOOL_CALENDAR_DELETE_EVENT => {
                 super::feishu::calendar::execute_delete_event(args).await
             }
-            super::feishu::calendar::TOOL_CALENDAR_ATTENDEES_CREATE => {
+            super::feishu::TOOL_CALENDAR_ATTENDEES_CREATE => {
                 super::feishu::calendar::execute_attendees_create(args).await
             }
-            super::feishu::contact::TOOL_CONTACT_GET_USER => {
+            super::feishu::TOOL_CONTACT_GET_USER => {
                 super::feishu::contact::execute_get_user(args).await
             }
-            super::feishu::contact::TOOL_CONTACT_BATCH_GET_USERS => {
+            super::feishu::TOOL_CONTACT_BATCH_GET_USERS => {
                 super::feishu::contact::execute_batch_get_users(args).await
             }
-            super::feishu::contact::TOOL_CONTACT_GET_DEPARTMENT => {
+            super::feishu::TOOL_CONTACT_GET_DEPARTMENT => {
                 super::feishu::contact::execute_get_department(args).await
             }
-            super::feishu::contact::TOOL_CONTACT_SEARCH_USERS_BY_DEPARTMENT => {
+            super::feishu::TOOL_CONTACT_SEARCH_USERS_BY_DEPARTMENT => {
                 super::feishu::contact::execute_search_users_by_department(args).await
             }
-            super::feishu::hire::TOOL_HIRE_LIST_JOBS => {
+            super::feishu::TOOL_HIRE_LIST_JOBS => {
                 super::feishu::hire::execute_list_jobs(args).await
             }
-            super::feishu::hire::TOOL_HIRE_GET_JOB => {
+            super::feishu::TOOL_HIRE_GET_JOB => {
                 super::feishu::hire::execute_get_job(args).await
             }
-            super::feishu::hire::TOOL_HIRE_LIST_TALENTS => {
+            super::feishu::TOOL_HIRE_LIST_TALENTS => {
                 super::feishu::hire::execute_list_talents(args).await
             }
-            super::feishu::hire::TOOL_HIRE_GET_TALENT => {
+            super::feishu::TOOL_HIRE_GET_TALENT => {
                 super::feishu::hire::execute_get_talent(args).await
             }
-            super::feishu::hire::TOOL_HIRE_LIST_APPLICATIONS => {
+            super::feishu::TOOL_HIRE_LIST_APPLICATIONS => {
                 super::feishu::hire::execute_list_applications(args).await
             }
             // MCP-sourced tools all share the `mcp__<server>__<tool>`

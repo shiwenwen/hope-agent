@@ -31,6 +31,39 @@ pub mod drive;
 pub mod hire;
 pub mod wiki;
 
+// ── Tool name re-exports ────────────────────────────────────────
+//
+// All `feishu_*` tool name constants are owned by their respective
+// sub-module (each module stays self-contained), but the dispatcher / permission
+// engine only needs `super::feishu::TOOL_*` — keeps call sites short and
+// avoids leaking sub-module structure into unrelated crates.
+pub use approval::{
+    TOOL_APPROVAL_CANCEL_INSTANCE, TOOL_APPROVAL_CREATE_INSTANCE, TOOL_APPROVAL_GET_INSTANCE,
+    TOOL_APPROVAL_LIST_INSTANCES, TOOL_APPROVAL_SUBSCRIBE,
+};
+pub use bitable::{
+    TOOL_BITABLE_BATCH_UPDATE_RECORDS, TOOL_BITABLE_CREATE_RECORD, TOOL_BITABLE_GET_VIEW,
+    TOOL_BITABLE_LIST_DASHBOARDS, TOOL_BITABLE_LIST_RECORDS, TOOL_BITABLE_LIST_VIEWS,
+    TOOL_BITABLE_SEARCH_RECORDS,
+};
+pub use calendar::{
+    TOOL_CALENDAR_ATTENDEES_CREATE, TOOL_CALENDAR_CREATE_EVENT, TOOL_CALENDAR_DELETE_EVENT,
+    TOOL_CALENDAR_LIST, TOOL_CALENDAR_LIST_EVENTS, TOOL_CALENDAR_UPDATE_EVENT,
+};
+pub use contact::{
+    TOOL_CONTACT_BATCH_GET_USERS, TOOL_CONTACT_GET_DEPARTMENT, TOOL_CONTACT_GET_USER,
+    TOOL_CONTACT_SEARCH_USERS_BY_DEPARTMENT,
+};
+pub use docx::{
+    TOOL_DOCX_APPEND_BLOCK, TOOL_DOCX_CREATE, TOOL_DOCX_GET_BLOCKS, TOOL_DOCX_UPDATE_BLOCK_TEXT,
+};
+pub use drive::{TOOL_DRIVE_DOWNLOAD_MEDIA, TOOL_DRIVE_LIST_FILES, TOOL_DRIVE_UPLOAD_MEDIA};
+pub use hire::{
+    TOOL_HIRE_GET_JOB, TOOL_HIRE_GET_TALENT, TOOL_HIRE_LIST_APPLICATIONS, TOOL_HIRE_LIST_JOBS,
+    TOOL_HIRE_LIST_TALENTS,
+};
+pub use wiki::TOOL_WIKI_GET_NODE;
+
 use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
