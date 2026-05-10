@@ -105,6 +105,30 @@ jobs:
       - name: Verify tag matches app version
         run: pnpm release:verify -- --tag "${{ env.RELEASE_TAG }}"
 
+      # Extract per-version release notes for both the GitHub Release body
+      # and the Tauri updater `latest.json#notes` field (tauri-action copies
+      # `releaseBody` into the updater manifest). Falls back to a generic
+      # blurb when the notes file is missing so a release never blocks on
+      # documentation. `shell: bash` is forced so the same heredoc works on
+      # the Windows runner (git-bash is available on windows-latest).
+      - name: Extract release notes
+        id: notes
+        shell: bash
+        run: |
+          notes_file="docs/release-notes/${RELEASE_TAG}.md"
+          if [ -f "$notes_file" ]; then
+            body=$(cat "$notes_file")
+          else
+            body="See CHANGELOG.md for details."
+          fi
+          {
+            echo "body<<HA_NOTES_EOF"
+            echo "$body"
+            echo ""
+            echo "Binaries are attached to this draft release. Review them before publishing."
+            echo "HA_NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Fetch VC++ Redistributable (Windows)
         if: runner.os == 'Windows'
         run: pnpm fetch:vcredist
@@ -132,11 +156,7 @@ jobs:
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: "Hope Agent ${{ env.RELEASE_TAG }}"
-          releaseBody: |
-            See CHANGELOG.md for details.
-
-            Binaries are attached to this draft release. Review them
-            before publishing.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true

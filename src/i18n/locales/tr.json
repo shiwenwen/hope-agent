@@ -22,8 +22,11 @@
     "updateDownloadProgress": "İndirme ilerlemesi: %{{percent}}",
     "updateInstall": "v{{version}} sürümünü yükle",
     "updateInstallFailed": "Güncelleme indirilemedi veya kurulamadı.",
+    "updateErrorDetails": "Hata ayrıntıları",
+    "updateErrorLogHint": "Tam izleme ~/.hope-agent/logs.db dosyasına yazıldı (category: updater). Araştırmak için /ha-logs kullanın veya sorunu bildirirken bu dosyayı ekleyin.",
     "updateInstalled": "Güncelleme yüklendi. Hope Agent yeniden başlatılıyor...",
     "updateInstalling": "v{{version}} sürümü yükleniyor...",
+    "updateRestartManually": "Güncelleme yüklendi ancak otomatik yeniden başlatma başarısız oldu. Lütfen Hope Agent'ı manuel olarak kapatıp yeniden açın.",
     "updateReady": "Yeni bir masaüstü sürümünü GitHub Releases'ten kontrol edebilir veya Hope Agent'ın güncellemeyi senin için kurmasına izin verebilirsin.",
     "updateUpToDate": "v{{version}} sürümünde güncelsin.",
     "version": "Sürüm"
