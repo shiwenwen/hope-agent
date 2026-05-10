@@ -30,6 +30,20 @@ if (nextCargoToml === cargoToml) {
 
 writeFileSync(cargoTomlPath, nextCargoToml)
 
+// hope-agent 是 workspace package，cargo update 只 bump Cargo.lock 里的 workspace 版本，
+// --offline 避免查 registry。漏掉这步会让 CI 的 `cargo clippy --locked` 卡住。
+try {
+  execSync("cargo update -p hope-agent --offline --quiet", {
+    cwd: rootDir,
+    stdio: "inherit",
+  })
+} catch {
+  console.error(
+    "[sync-version] failed to sync Cargo.lock; ensure Rust toolchain is installed, or run `cargo update -p hope-agent` manually",
+  )
+  process.exit(1)
+}
+
 if (process.env.npm_lifecycle_event === "version") {
   try {
     execSync("git rev-parse --is-inside-work-tree", {
@@ -37,7 +51,7 @@ if (process.env.npm_lifecycle_event === "version") {
       stdio: "ignore",
     })
     execSync(
-      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json",
+      "git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json Cargo.lock",
       {
         cwd: rootDir,
         stdio: "ignore",
@@ -49,4 +63,4 @@ if (process.env.npm_lifecycle_event === "version") {
 }
 
 console.log(`[sync-version] synced desktop version to ${version}`)
-console.log("[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json")
+console.log("[sync-version] updated: src-tauri/Cargo.toml, src-tauri/tauri.conf.json, Cargo.lock")
