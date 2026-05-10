@@ -535,14 +535,16 @@ mod tests {
     /// Per F-075: read-receipt fan-out should share one Arc<Value> for `raw`
     /// across N messages instead of deep-cloning the payload N times. A 100-msg
     /// batch used to allocate ~100 KB; now it allocates once + N pointer bumps.
-    #[tokio::test]
-    async fn read_receipt_fan_out_shares_raw_arc() {
+    /// Calls `parse_read_receipt_list` directly to avoid the mpsc(8) bottleneck
+    /// in `dispatch_and_collect` that would deadlock on 100-event fan-out.
+    #[test]
+    fn read_receipt_fan_out_shares_raw_arc() {
         let ids: Vec<String> = (0..100).map(|i| format!("om_{}", i)).collect();
         let event = serde_json::json!({
             "reader": {"reader_id": {"open_id": "ou_reader"}},
             "message_id_list": ids,
         });
-        let (_, events) = dispatch_and_collect("im.message.message_read_v1", event).await;
+        let events = parse_read_receipt_list(event, "feishu-acc1");
         assert_eq!(events.len(), 100);
         // Pull the first event's raw Arc as anchor; every other event must
         // alias to the same allocation (Arc::ptr_eq).
