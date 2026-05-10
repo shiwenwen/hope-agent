@@ -35,7 +35,7 @@ use anyhow::{anyhow, Result};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 use crate::channel::feishu::api::FeishuApi;
 use crate::channel::feishu::auth::FeishuAuth;
@@ -55,11 +55,11 @@ struct CredsSnapshot {
     domain: String,
 }
 
-type AuthCache = Mutex<HashMap<String, (CredsSnapshot, Arc<FeishuAuth>)>>;
+type AuthCache = RwLock<HashMap<String, (CredsSnapshot, Arc<FeishuAuth>)>>;
 
 fn auth_cache() -> &'static AuthCache {
     static CELL: OnceLock<AuthCache> = OnceLock::new();
-    CELL.get_or_init(|| Mutex::new(HashMap::new()))
+    CELL.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
 // ── Account enumeration & extraction ────────────────────────────
@@ -174,21 +174,28 @@ pub async fn resolve_feishu_api(account: Option<&str>) -> Result<Arc<FeishuApi>>
     let target = select_account(enumerate_feishu_accounts(), account)?;
     let creds = extract_creds(&target)?;
 
-    let mut cache = auth_cache().lock().await;
-    let auth = match cache.get(&target.id) {
-        Some((cached_creds, cached_auth)) if *cached_creds == creds => cached_auth.clone(),
-        _ => {
-            let fresh = Arc::new(FeishuAuth::new(
-                &creds.app_id,
-                &creds.app_secret,
-                &creds.domain,
-            ));
-            cache.insert(target.id.clone(), (creds, fresh.clone()));
-            fresh
+    // Hot path: read lock, allocation-free hit when creds unchanged.
+    if let Some((cached_creds, cached_auth)) = auth_cache().read().await.get(&target.id) {
+        if *cached_creds == creds {
+            return Ok(Arc::new(FeishuApi::new(cached_auth.clone())));
         }
-    };
+    }
 
-    Ok(Arc::new(FeishuApi::new(auth)))
+    // Cold path: take write lock, double-check (another writer may have inserted
+    // while we were waiting), insert / replace.
+    let mut cache = auth_cache().write().await;
+    if let Some((cached_creds, cached_auth)) = cache.get(&target.id) {
+        if *cached_creds == creds {
+            return Ok(Arc::new(FeishuApi::new(cached_auth.clone())));
+        }
+    }
+    let fresh = Arc::new(FeishuAuth::new(
+        &creds.app_id,
+        &creds.app_secret,
+        &creds.domain,
+    ));
+    cache.insert(target.id.clone(), (creds, fresh.clone()));
+    Ok(Arc::new(FeishuApi::new(fresh)))
 }
 
 // ── Tools list ──────────────────────────────────────────────────
