@@ -9,10 +9,9 @@ use uuid::Uuid;
 use crate::channel::types::{ChannelId, ChatType, InboundEvent, MsgContext};
 
 use super::api::{
-    GetUpdatesResponse, MessageItem, WeChatApi, WeChatMessage, DEFAULT_WECHAT_CDN_BASE_URL,
-    MESSAGE_ITEM_TYPE_TEXT, MESSAGE_ITEM_TYPE_VOICE, MESSAGE_TYPE_BOT,
+    GetUpdatesResponse, MessageItem, WeChatApi, WeChatMessage, MESSAGE_ITEM_TYPE_TEXT,
+    MESSAGE_ITEM_TYPE_VOICE, MESSAGE_TYPE_BOT,
 };
-use super::media;
 use super::WeChatSharedState;
 
 const RETRY_DELAY: Duration = Duration::from_secs(2);
@@ -168,33 +167,20 @@ pub(crate) async fn run_polling_loop(
                     let msg_id_str = update.message_id.map(|v| v.to_string()).unwrap_or_default();
 
                     if let Some(mut msg) = convert_update(&account_id, update) {
-                        // Extract inbound media from non-text items
-                        for item in &item_list {
-                            if item.item_type == MESSAGE_ITEM_TYPE_TEXT {
-                                continue;
-                            }
-                            match media::download_inbound_media(
-                                &msg_id_str,
-                                item,
-                                DEFAULT_WECHAT_CDN_BASE_URL,
-                            )
-                            .await
-                            {
-                                Ok(Some(inbound_media)) => {
-                                    msg.media.push(inbound_media);
-                                }
-                                Ok(None) => {}
-                                Err(err) => {
-                                    app_warn!(
-                                        "channel",
-                                        "wechat::polling",
-                                        "Failed to download inbound media for msg '{}': {}",
-                                        msg_id_str,
-                                        err
-                                    );
-                                }
-                            }
-                        }
+                        // Parse non-text items into deferred refs and stash
+                        // them on `msg.raw`. Actual CDN download + AES decrypt
+                        // happens in WeChatPlugin::materialize_pending_media
+                        // after dispatcher gating — pre-F-082 this ran inline
+                        // here and blocked the polling task for the full
+                        // ciphertext fetch + decrypt cycle.
+                        let pending = super::inbound_media::parse_message_items(
+                            &item_list,
+                            &msg_id_str,
+                        );
+                        crate::channel::inbound_media_common::embed_pending_refs(
+                            &mut msg.raw,
+                            pending,
+                        );
 
                         if let Err(err) = inbound_tx.send(InboundEvent::Message(msg)).await {
                             app_error!(

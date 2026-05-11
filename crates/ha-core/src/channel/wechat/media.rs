@@ -435,6 +435,21 @@ async fn download_plain_media(media: &CdnMedia, cdn_base_url: &str) -> Result<Ve
         .await
         .with_context(|| format!("Failed to download WeChat media '{}'", download_url))?;
     let status = response.status();
+    // Reject early when the CDN advertises a body that would blow past
+    // the inbound media cap — saves us buffering hundreds of MB in
+    // memory before the eventual decrypt step. Mid-stream growth is
+    // still bounded by reqwest's default body limit; F-082 commit 14
+    // replaces this whole in-mem path with stream_to_disk to plug the
+    // remaining RSS leak entirely.
+    if let Some(len) = response.content_length() {
+        if len > crate::channel::inbound_media_common::INBOUND_DOWNLOAD_MAX_BYTES {
+            return Err(anyhow::anyhow!(
+                "WeChat CDN body size {} bytes exceeds {} byte cap",
+                len,
+                crate::channel::inbound_media_common::INBOUND_DOWNLOAD_MAX_BYTES
+            ));
+        }
+    }
     let bytes = response
         .bytes()
         .await
@@ -443,6 +458,13 @@ async fn download_plain_media(media: &CdnMedia, cdn_base_url: &str) -> Result<Ve
         return Err(anyhow::anyhow!(
             "WeChat CDN download failed with {}",
             status
+        ));
+    }
+    if (bytes.len() as u64) > crate::channel::inbound_media_common::INBOUND_DOWNLOAD_MAX_BYTES {
+        return Err(anyhow::anyhow!(
+            "WeChat CDN body {} bytes (post-fetch) exceeds {} byte cap",
+            bytes.len(),
+            crate::channel::inbound_media_common::INBOUND_DOWNLOAD_MAX_BYTES
         ));
     }
     Ok(bytes.to_vec())
