@@ -99,6 +99,8 @@ brew tap shiwenwen/hope-agent
 brew install --cask hope-agent
 ```
 
+> 已经手动装过 `Hope Agent.app`？在 `brew install` 后面加 `--adopt`（让 cask 接管同版本的现有应用，不重新下载）或 `--force`（强制重下覆盖）。
+
 装完后：
 
 - 桌面 GUI：Launchpad / 应用程序文件夹（点 Hope Agent 图标启动），或终端 `open -a "Hope Agent"`
