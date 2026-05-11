@@ -392,6 +392,13 @@ async fn handle_message_event(
         .map(|ts| chrono::DateTime::from_timestamp_millis(ts).unwrap_or_else(chrono::Utc::now))
         .unwrap_or_else(chrono::Utc::now);
 
+    // Parse binary message types (image / video / audio / file) into
+    // deferred refs; LinePlugin::materialize_pending_media downloads the
+    // bytes via the Content API after dispatcher gating.
+    let pending_media = super::inbound_media::parse_message(message);
+    let mut raw = event.clone();
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending_media);
+
     let msg_ctx = MsgContext {
         channel_id: ChannelId::Line,
         account_id: account_id.to_string(),
@@ -408,7 +415,7 @@ async fn handle_message_event(
         reply_to_message_id: None,
         timestamp,
         was_mentioned,
-        raw: event.clone(),
+        raw,
     };
 
     if let Err(e) = inbound_tx.send(InboundEvent::Message(msg_ctx)).await {

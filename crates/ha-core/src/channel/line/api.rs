@@ -175,4 +175,27 @@ impl LineApi {
 
         serde_json::from_str(&body).context("Failed to parse group member profile JSON")
     }
+
+    /// Download a LINE message attachment to disk using the Content API.
+    /// LINE serves message content (image / video / audio / file) on a
+    /// dedicated host: `https://api-data.line.me/v2/bot/message/{id}/content`
+    /// — separate from the main `api.line.me` host that serves replies.
+    pub async fn download_message_content_to_disk(
+        &self,
+        message_id: &str,
+        dest: &std::path::Path,
+        cap_bytes: u64,
+    ) -> Result<u64> {
+        if message_id.is_empty() {
+            anyhow::bail!("Empty LINE message id");
+        }
+        let url = format!(
+            "https://api-data.line.me/v2/bot/message/{}/content",
+            urlencoding::encode(message_id)
+        );
+        let builder = self.client.get(&url).bearer_auth(&self.channel_access_token);
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes)
+            .await
+            .context("LINE content download")
+    }
 }
