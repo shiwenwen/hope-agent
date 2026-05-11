@@ -99,7 +99,13 @@ brew tap shiwenwen/hope-agent
 brew install --cask hope-agent
 ```
 
-安装完毕后命令行也能直接用 `hope-agent server start` / `hope-agent acp`（cask 已自动建立软链）。当前仅提供 Apple Silicon (arm64) 构建，Intel Mac 走 Rosetta 2 自动兼容（首次启动 macOS 会引导安装 Rosetta）。
+装完后：
+
+- 桌面 GUI：Launchpad / 应用程序文件夹（点 Hope Agent 图标启动），或终端 `open -a "Hope Agent"`
+- 后台服务：`hope-agent server start`
+- ACP（IDE 集成）：`hope-agent acp`
+
+当前仅 Apple Silicon 构建，Intel Mac 走 Rosetta 2 自动兼容。
 
 **其他平台 / 手动下载：**
 

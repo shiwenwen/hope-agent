@@ -99,7 +99,13 @@ brew tap shiwenwen/hope-agent
 brew install --cask hope-agent
 ```
 
-After installation `hope-agent server start` / `hope-agent acp` work directly from the shell — the cask installs a symlink into your Homebrew `bin` directory. Only an Apple Silicon (arm64) build is published today; Intel Macs run it under Rosetta 2 (macOS will offer to install Rosetta on first launch if it is not already present).
+After install:
+
+- Desktop GUI: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` from a terminal
+- Headless server: `hope-agent server start`
+- ACP (IDE integration): `hope-agent acp`
+
+Apple Silicon only; Intel Macs run under Rosetta 2.
 
 **Other platforms / manual download:**
 
