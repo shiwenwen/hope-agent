@@ -137,7 +137,13 @@ jobs:
           # very first run when the package is not yet in db/.
           reprepro -b apt remove stable hope-agent || true
 
-          reprepro -b apt includedeb stable "$GITHUB_WORKSPACE/artifacts/$DEB_NAME"
+          # `-S utils -P optional` provides default Section + Priority for
+          # the deb. Tauri's bundler currently does not emit a Section
+          # field in the .deb control file, and reprepro refuses to
+          # publish a package without one. `utils` is the Debian default
+          # for misc-purpose command-line / desktop tools.
+          reprepro -b apt -S utils -P optional \
+            includedeb stable "$GITHUB_WORKSPACE/artifacts/$DEB_NAME"
 
           echo "--- apt index ---"
           ls -la apt/dists/stable/
