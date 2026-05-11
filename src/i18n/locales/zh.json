@@ -1507,6 +1507,11 @@
       "subtitle": "接入已有 API Key(OpenAI / Anthropic / DeepSeek 等)或运行本地模型。之后可以在设置中修改或添加。",
       "title": "选择模型服务商"
     },
+    "searchProvider": {
+      "saveAndContinue": "保存并继续",
+      "subtitle": "选择 Hope Agent 需要获取最新信息时使用的网页搜索后端。DuckDuckGo 无需密钥；API Provider 可以现在配置，也可以稍后再加。",
+      "title": "配置网页搜索"
+    },
     "rerun": {
       "button": "重新运行引导向导",
       "confirm": "重新运行",
@@ -1563,6 +1568,7 @@
         "profile": "个人资料",
         "provider": "模型服务商",
         "safety": "工具审批",
+        "searchProvider": "搜索 Provider",
         "server": "访问模式",
         "skills": "技能"
       },

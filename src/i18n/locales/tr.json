@@ -1507,6 +1507,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Kaydet ve devam et",
+      "subtitle": "Hope Agent güncel bilgiye ihtiyaç duyduğunda kullanacağı web arama arka ucunu seçin. DuckDuckGo anahtar gerektirmez; API Provider'lar şimdi veya daha sonra eklenebilir.",
+      "title": "Web aramasını yapılandır"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1563,6 +1568,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Arama Provider",
         "server": "Access mode",
         "skills": "Skills"
       },

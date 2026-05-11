@@ -12,6 +12,7 @@ pub mod personality;
 pub mod profile;
 pub mod provider;
 pub mod safety;
+pub mod search_provider;
 pub mod server;
 pub mod skills;
 pub mod summary;
