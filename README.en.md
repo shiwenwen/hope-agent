@@ -99,6 +99,8 @@ brew tap shiwenwen/hope-agent
 brew install --cask hope-agent
 ```
 
+> Already have `Hope Agent.app` installed manually? Append `--adopt` to let the cask take over your existing same-version app without re-downloading, or `--force` to overwrite.
+
 After install:
 
 - Desktop GUI: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` from a terminal
