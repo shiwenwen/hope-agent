@@ -411,6 +411,37 @@ impl QqBotApi {
             .await?;
         Ok(())
     }
+
+    /// Download a QQ Bot CDN attachment URL to disk. URLs in inbound
+    /// `attachments[]` are short-lived signed Tencent CDN links that
+    /// resolve **without** auth headers — the signature is in the URL
+    /// itself. We still pin the host to `*.qq.com` / `*.qpic.cn` etc. so
+    /// a poisoned gateway payload can't redirect us, and run the SSRF
+    /// classifier on the resolved IP.
+    pub async fn download_cdn_to_disk(
+        &self,
+        url: &str,
+        dest: &std::path::Path,
+        cap_bytes: u64,
+    ) -> Result<u64> {
+        let parsed_url = url::Url::parse(url).map_err(|e| anyhow!("Invalid QQ URL: {}", e))?;
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| anyhow!("QQ URL has no host: {}", url))?;
+        let host_ok = host.ends_with(".qq.com")
+            || host.ends_with(".qpic.cn")
+            || host.ends_with(".gtimg.cn")
+            || host.ends_with(".myqcloud.com");
+        if !host_ok {
+            return Err(anyhow!("Refusing to download from non-QQ host: {}", host));
+        }
+        crate::security::ssrf::check_url(url, crate::security::ssrf::SsrfPolicy::Default, &[])
+            .await
+            .map_err(|e| anyhow!("QQ CDN URL blocked: {}", e))?;
+
+        let builder = self.client.get(url);
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
+    }
 }
 
 #[cfg(test)]
