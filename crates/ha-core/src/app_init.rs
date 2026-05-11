@@ -149,6 +149,30 @@ pub fn init_runtime(role: &'static str) {
             e
         ),
     }
+    match session_db.recover_stale_chat_turns() {
+        Ok(n) => {
+            let cleared = crate::chat_engine::active_turn::clear_all();
+            if n > 0 || cleared > 0 {
+                app_info!(
+                    "session",
+                    "turn",
+                    "marked {} stale chat turn(s) interrupted on startup; cleared {} active turn(s)",
+                    n,
+                    cleared
+                );
+            }
+        }
+        Err(e) => {
+            let cleared = crate::chat_engine::active_turn::clear_all();
+            app_warn!(
+                "session",
+                "turn",
+                "startup chat turn recovery failed: {}; cleared {} active turn(s)",
+                e,
+                cleared
+            );
+        }
+    }
 
     // Initialize the MemoryDB
     let memory_db_path = fatal(

@@ -457,7 +457,11 @@
       "titleBarInherited": "Наследовано от проекта",
       "titleBarSession": "Рабочий каталог",
       "truncated": "Показаны только первые записи — каталог слишком велик для отображения целиком."
-    }
+    },
+    "taskProgressRunning": "Выполняется {{completed}}/{{total}}",
+    "taskProgressCancelling": "Остановка {{completed}}/{{total}}",
+    "taskProgressWaiting": "Ожидает продолжения {{completed}}/{{total}}",
+    "taskProgressFailed": "Ошибка {{completed}}/{{total}}"
   },
   "codexAuth": {
     "expiredDescription": "Ваш OAuth-токен Codex больше не действителен. Войдите снова, чтобы продолжить.",

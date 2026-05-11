@@ -457,7 +457,11 @@
       "titleBarInherited": "繼承自專案",
       "titleBarSession": "目前工作目錄",
       "truncated": "僅顯示前若干條——該目錄條目過多，瀏覽器無法全部展示。"
-    }
+    },
+    "taskProgressRunning": "正在執行 {{completed}}/{{total}}",
+    "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
+    "taskProgressWaiting": "等待繼續 {{completed}}/{{total}}",
+    "taskProgressFailed": "執行失敗 {{completed}}/{{total}}"
   },
   "codexAuth": {
     "expiredDescription": "你的 Codex OAuth 認證令牌已失效，請重新登錄以繼續使用。",

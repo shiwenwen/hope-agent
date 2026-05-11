@@ -754,6 +754,8 @@ export default function ChatScreen({
     setLoadingSessionIds: session.setLoadingSessionIds,
     sessionCacheRef: session.sessionCacheRef,
     reloadSessions: refreshUnreadState,
+    onTurnStarted: stream.handleTurnStarted,
+    onTurnEnded: stream.handleTurnEnded,
   })
 
   // ── Plan Mode Hook ─────────────────────────────────────────
@@ -1387,6 +1389,11 @@ export default function ChatScreen({
             <MessageList
               messages={session.messages}
               loading={session.loading}
+              executionState={
+                session.currentSessionId
+                  ? stream.executionStateBySession.get(session.currentSessionId) ?? null
+                  : null
+              }
               agents={session.agents}
               hasMore={session.hasMore}
               loadingMore={session.loadingMore}
@@ -1480,6 +1487,11 @@ export default function ChatScreen({
                   onExitPlanMode={planMode.exitPlanMode}
                   onTogglePlanPanel={() => planMode.setShowPanel((p) => !p)}
                   taskProgressSnapshot={taskProgressSnapshot}
+                  executionState={
+                    session.currentSessionId
+                      ? stream.executionStateBySession.get(session.currentSessionId) ?? null
+                      : null
+                  }
                 />
               </div>
             )}

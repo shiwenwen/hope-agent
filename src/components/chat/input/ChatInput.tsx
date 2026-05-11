@@ -20,7 +20,7 @@ import {
   FolderPlus,
 } from "lucide-react"
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu"
-import type { AvailableModel, ActiveModel, SessionMode } from "@/types/chat"
+import type { AvailableModel, ActiveModel, ChatTurnStatus, SessionMode } from "@/types/chat"
 import { DEFAULT_AGENT_ID } from "@/types/tools"
 import { useSlashCommands, type SlashCommandActions } from "../slash-commands/useSlashCommands"
 import { useUrlPreview } from "@/hooks/useUrlPreview"
@@ -105,6 +105,7 @@ interface ChatInputProps {
   onTogglePlanPanel?: () => void
   // Session-scoped Todo progress
   taskProgressSnapshot?: TaskProgressSnapshot | null
+  executionState?: ChatTurnStatus | null
 }
 
 export default function ChatInput({
@@ -144,6 +145,7 @@ export default function ChatInput({
   onExitPlanMode,
   onTogglePlanPanel,
   taskProgressSnapshot,
+  executionState,
 }: ChatInputProps) {
   const { t } = useTranslation()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -266,6 +268,13 @@ export default function ChatInput({
   const visibleTaskProgress = shouldShowTaskProgressPanel(taskProgressSnapshot)
     ? taskProgressSnapshot
     : null
+  const taskExecutionState =
+    executionState === "running" ||
+    executionState === "cancelling" ||
+    executionState === "interrupted" ||
+    executionState === "failed"
+      ? executionState
+      : "idle"
 
   const renderInlineAddControls = () => (
     <>
@@ -426,7 +435,11 @@ export default function ChatInput({
         />
 
         {visibleTaskProgress && (
-          <TaskProgressPanel snapshot={visibleTaskProgress} variant="embedded" />
+          <TaskProgressPanel
+            snapshot={visibleTaskProgress}
+            variant="embedded"
+            executionState={executionState ? taskExecutionState : loading ? "running" : "idle"}
+          />
         )}
 
         {/* Attached files preview (rendered above textarea) */}

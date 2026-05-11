@@ -4,6 +4,7 @@
 
 use super::stream_seq;
 use crate::globals;
+use crate::session::{ChatTurnInterruptReason, ChatTurnStatus};
 use serde_json::json;
 
 /// Event name the frontend listens on for resumable stream deltas.
@@ -11,6 +12,9 @@ pub const EVENT_CHAT_STREAM_DELTA: &str = "chat:stream_delta";
 
 /// Event name emitted once at `run_chat` completion.
 pub const EVENT_CHAT_STREAM_END: &str = "chat:stream_end";
+
+/// Event emitted once a user-facing turn id is known.
+pub const EVENT_CHAT_TURN_STARTED: &str = "chat:turn_started";
 
 /// Counterpart for IM channel worker sessions — same envelope shape
 /// (`{sessionId, event}`), different name so subscribers can filter.
@@ -21,7 +25,11 @@ pub const EVENT_CHANNEL_STREAM_DELTA: &str = "channel:stream_delta";
 /// or isn't an object, return the original event — defensive, lets the
 /// frontend still see the event (without dedup guarantee) rather than
 /// dropping it.
-pub fn inject_seq(session_id: &str, event: &str) -> (String, u64, Option<String>) {
+pub fn inject_seq(
+    session_id: &str,
+    event: &str,
+    turn_id: Option<&str>,
+) -> (String, u64, Option<String>) {
     let seq = stream_seq::next_seq(session_id);
     let stream_id = stream_seq::stream_id(session_id);
     match serde_json::from_str::<serde_json::Value>(event) {
@@ -29,6 +37,9 @@ pub fn inject_seq(session_id: &str, event: &str) -> (String, u64, Option<String>
             map.insert("_oc_seq".into(), json!(seq));
             if let Some(id) = stream_id.as_deref() {
                 map.insert("_oc_stream_id".into(), json!(id));
+            }
+            if let Some(id) = turn_id {
+                map.insert("_oc_turn_id".into(), json!(id));
             }
             let out = serde_json::Value::Object(map).to_string();
             (out, seq, stream_id)
@@ -54,14 +65,38 @@ pub fn broadcast_delta(session_id: &str, event: &str, seq: u64, stream_id: Optio
     }
 }
 
+pub fn broadcast_turn_started(session_id: &str, turn_id: &str, stream_id: Option<&str>) {
+    if let Some(bus) = globals::get_event_bus() {
+        bus.emit(
+            EVENT_CHAT_TURN_STARTED,
+            json!({
+                "sessionId": session_id,
+                "turnId": turn_id,
+                "streamId": stream_id,
+            }),
+        );
+    }
+}
+
 /// Emit `chat:stream_end` once when `run_chat` completes (success or failure).
-pub fn broadcast_stream_end(session_id: &str, stream_id: &str) {
+pub fn broadcast_stream_end(
+    session_id: &str,
+    stream_id: Option<&str>,
+    turn_id: Option<&str>,
+    status: Option<ChatTurnStatus>,
+    interrupt_reason: Option<ChatTurnInterruptReason>,
+    error: Option<&str>,
+) {
     if let Some(bus) = globals::get_event_bus() {
         bus.emit(
             EVENT_CHAT_STREAM_END,
             json!({
                 "sessionId": session_id,
                 "streamId": stream_id,
+                "turnId": turn_id,
+                "status": status.map(|s| s.as_str()),
+                "interruptReason": interrupt_reason.map(|r| r.as_str()),
+                "error": error,
             }),
         );
     }

@@ -13,6 +13,7 @@ import { AskUserQuestionResult, SubmitPlanResult } from "./PlanResultBlocks"
 import { TASK_TOOL_NAMES } from "@/components/chat/tasks/taskProgress"
 import { getFailedToolCount, getToolExecutionState } from "./executionStatus"
 import type {
+  ChatTurnStatus,
   ContentBlock,
   FileChangeMetadata,
   FileChangesMetadata,
@@ -104,6 +105,7 @@ interface MessageContentProps {
   msg: Message
   loading: boolean
   isLast: boolean
+  executionState?: ChatTurnStatus | null
   sessionId?: string | null
   onOpenPlanPanel?: () => void
   onSwitchSession?: (sessionId: string) => void
@@ -184,6 +186,7 @@ export function AssistantContentBlocks({
   msg,
   loading,
   isLast,
+  executionState,
   sessionId,
   onOpenPlanPanel,
   onSwitchSession,
@@ -217,6 +220,7 @@ export function AssistantContentBlocks({
 
   const units: RenderUnit[] = []
   const isStreamingMessage = loading && isLast
+  const taskExecutionState = executionState ?? (isStreamingMessage ? "running" : "idle")
 
   // Pre-compute first task_* position + latest task_* tool with a result,
   // so all task_create / task_update / task_list calls in this message
@@ -294,7 +298,13 @@ export function AssistantContentBlocks({
         if (i === firstTaskIdx && latestTaskTool) {
           units.push({
             key: latestTaskTool.callId,
-            node: <TaskBlock key={latestTaskTool.callId} tool={latestTaskTool} />,
+            node: (
+              <TaskBlock
+                key={latestTaskTool.callId}
+                tool={latestTaskTool}
+                executionState={taskExecutionState}
+              />
+            ),
           })
         }
         i++

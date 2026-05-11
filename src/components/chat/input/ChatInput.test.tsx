@@ -4,6 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 
 import type { ActiveModel, AvailableModel } from "@/types/chat"
+import type { TaskProgressSnapshot } from "@/components/chat/tasks/taskProgress"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import ChatInput from "./ChatInput"
 import IncognitoToggle from "./IncognitoToggle"
@@ -43,6 +44,24 @@ const model: AvailableModel = {
 const activeModel: ActiveModel = {
   providerId: model.providerId,
   modelId: model.modelId,
+}
+
+const inProgressTaskSnapshot: TaskProgressSnapshot = {
+  tasks: [
+    {
+      id: 1,
+      sessionId: "s1",
+      content: "Run tests",
+      activeForm: "Running tests",
+      status: "in_progress",
+      createdAt: "2026-04-29T00:00:00.000Z",
+      updatedAt: "2026-04-29T00:00:00.000Z",
+    },
+  ],
+  total: 1,
+  completed: 0,
+  remaining: 1,
+  inProgress: true,
 }
 
 function renderChatInput(overrides: Partial<Parameters<typeof ChatInput>[0]> = {}) {
@@ -140,5 +159,38 @@ describe("ChatInput", () => {
     fireEvent.click(screen.getByRole("button", { name: "chat.incognito" }))
 
     expect(onIncognitoChange).toHaveBeenCalledWith(false)
+  })
+
+  test("explicit interrupted execution state wins over loading for task progress", () => {
+    renderChatInput({
+      loading: true,
+      taskProgressSnapshot: inProgressTaskSnapshot,
+      executionState: "interrupted",
+    })
+
+    expect(screen.getByText("chat.taskProgressWaiting")).toBeTruthy()
+    expect(screen.queryByText("chat.taskProgressRunning")).toBeNull()
+  })
+
+  test("explicit cancelling execution state wins over loading for task progress", () => {
+    renderChatInput({
+      loading: true,
+      taskProgressSnapshot: inProgressTaskSnapshot,
+      executionState: "cancelling",
+    })
+
+    expect(screen.getByText("chat.taskProgressCancelling")).toBeTruthy()
+    expect(screen.queryByText("chat.taskProgressRunning")).toBeNull()
+  })
+
+  test("explicit failed execution state wins over loading for task progress", () => {
+    renderChatInput({
+      loading: true,
+      taskProgressSnapshot: inProgressTaskSnapshot,
+      executionState: "failed",
+    })
+
+    expect(screen.getByText("chat.taskProgressFailed")).toBeTruthy()
+    expect(screen.queryByText("chat.taskProgressRunning")).toBeNull()
   })
 })

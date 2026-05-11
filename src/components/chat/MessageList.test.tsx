@@ -19,7 +19,17 @@ vi.mock("react-i18next", () => ({
 }))
 
 vi.mock("./MessageBubble", () => ({
-  default: ({ msg }: { msg: Message }) => <div data-testid="message-bubble">{msg.content}</div>,
+  default: ({
+    msg,
+    executionState,
+  }: {
+    msg: Message
+    executionState?: string | null
+  }) => (
+    <div data-testid="message-bubble" data-execution-state={executionState ?? "none"}>
+      {msg.content}
+    </div>
+  ),
 }))
 
 vi.mock("./ask-user/AskUserQuestionBlock", () => ({
@@ -136,6 +146,50 @@ describe("MessageList", () => {
 
     expect(screen.getByText("visible user message")).toBeTruthy()
     expect(screen.queryByText("hidden meta")).toBeNull()
+  })
+
+  test("passes execution state only to the current assistant bubble", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "assistant", content: "old task", dbId: 1 }),
+          baseMessage({ role: "assistant", content: "current task", dbId: 2 }),
+        ]}
+        loading
+        executionState="running"
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const bubbles = screen.getAllByTestId("message-bubble")
+    expect(bubbles[0].getAttribute("data-execution-state")).toBe("none")
+    expect(bubbles[1].getAttribute("data-execution-state")).toBe("running")
+  })
+
+  test("keeps failed terminal state on the current assistant bubble after loading ends", () => {
+    render(
+      <MessageList
+        messages={[
+          baseMessage({ role: "assistant", content: "old task", dbId: 1 }),
+          baseMessage({ role: "assistant", content: "failed task", dbId: 2 }),
+        ]}
+        loading={false}
+        executionState="failed"
+        agents={[]}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        sessionId="s1"
+      />,
+    )
+
+    const bubbles = screen.getAllByTestId("message-bubble")
+    expect(bubbles[0].getAttribute("data-execution-state")).toBe("none")
+    expect(bubbles[1].getAttribute("data-execution-state")).toBe("failed")
   })
 
   test("renders LoadMoreRow when hasMore is true and click triggers onLoadMore", () => {

@@ -26,6 +26,7 @@ import type {
   AgentSummaryForSidebar,
   ProfileRotationEvent,
   ContextCompactedEvent,
+  ChatTurnStatus,
 } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
@@ -35,6 +36,7 @@ export interface MessageBubbleProps {
   index: number
   isLast: boolean
   loading: boolean
+  executionState?: ChatTurnStatus | null
   agents: AgentSummaryForSidebar[]
   // Hover & interaction state
   isHovered: boolean
@@ -245,6 +247,7 @@ function MessageBubbleInner({
   index,
   isLast,
   loading,
+  executionState,
   agents,
   isHovered,
   onHover,
@@ -468,6 +471,7 @@ function MessageBubbleInner({
               msg={msg}
               loading={loading}
               isLast={isLast}
+              executionState={executionState}
               sessionId={sessionId}
               onOpenPlanPanel={onOpenPlanPanel}
               onSwitchSession={onSwitchSession}

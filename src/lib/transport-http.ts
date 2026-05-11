@@ -862,7 +862,7 @@ export class HttpTransport implements Transport {
     // bridge `session_created` so the in-hook __pending__ cache key gets
     // renamed in place — POST /api/chat returns the real sessionId in its
     // body, so synthesizing the event after the response is sufficient.
-    const resp = await this.call<{ sessionId: string; response: string }>(
+    const resp = await this.call<{ sessionId: string; response: string; turnId?: string }>(
       "chat",
       args,
     );
@@ -871,6 +871,15 @@ export class HttpTransport implements Transport {
         JSON.stringify({
           type: "session_created",
           session_id: resp.sessionId,
+        }),
+      );
+    }
+    if (resp.turnId) {
+      onEvent(
+        JSON.stringify({
+          type: "turn_started",
+          session_id: resp.sessionId,
+          turn_id: resp.turnId,
         }),
       );
     }

@@ -17,12 +17,13 @@ import {
 } from "./chatScrollKeys"
 import type { AskUserQuestionGroup } from "./ask-user/AskUserQuestionBlock"
 import type { PlanCardData } from "./plan-mode/PlanCardBlock"
-import type { Message, AgentSummaryForSidebar } from "@/types/chat"
+import type { ChatTurnStatus, Message, AgentSummaryForSidebar } from "@/types/chat"
 import type { PlanModeState } from "./plan-mode/usePlanMode"
 
 interface MessageListProps {
   messages: Message[]
   loading: boolean
+  executionState?: ChatTurnStatus | null
   agents: AgentSummaryForSidebar[]
   hasMore: boolean
   loadingMore: boolean
@@ -70,9 +71,20 @@ const LOAD_MORE_THRESHOLD_PX = 200
 const MAX_DOM_MESSAGES = 200
 const UNLOAD_BATCH = 30
 
+function shouldPassExecutionStateToBubble(
+  isLast: boolean,
+  loading: boolean,
+  executionState: ChatTurnStatus | null | undefined,
+): boolean {
+  if (!isLast) return false
+  if (!executionState || executionState === "completed") return false
+  return loading || executionState !== "running"
+}
+
 export default function MessageList({
   messages,
   loading,
+  executionState,
   agents,
   hasMore,
   loadingMore,
@@ -668,6 +680,13 @@ export default function MessageList({
           // the post-stream "flicker" (markdown / shiki / katex subtree
           // rebuilds when each bubble's loading prop changes).
           const bubbleLoading = isLast ? loading : false
+          const bubbleExecutionState = shouldPassExecutionStateToBubble(
+            isLast,
+            bubbleLoading,
+            executionState,
+          )
+            ? executionState
+            : null
           return (
             <div
               key={rowKey}
@@ -691,6 +710,7 @@ export default function MessageList({
                 index={originalIndex}
                 isLast={isLast}
                 loading={bubbleLoading}
+                executionState={bubbleExecutionState}
                 agents={agents}
                 isHovered={hoveredMsgIndex === originalIndex}
                 onHover={setHoveredMsgIndex}

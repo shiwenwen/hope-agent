@@ -457,7 +457,11 @@
       "titleBarInherited": "Herdado do projeto",
       "titleBarSession": "Diretório de trabalho",
       "truncated": "Apenas as primeiras entradas são exibidas — este diretório é grande demais para o navegador."
-    }
+    },
+    "taskProgressRunning": "Em execução {{completed}}/{{total}}",
+    "taskProgressCancelling": "Parando {{completed}}/{{total}}",
+    "taskProgressWaiting": "Aguardando continuar {{completed}}/{{total}}",
+    "taskProgressFailed": "Falhou {{completed}}/{{total}}"
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",

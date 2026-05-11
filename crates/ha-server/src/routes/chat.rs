@@ -73,6 +73,7 @@ pub struct ChatRequest {
 pub struct ChatResponse {
     pub session_id: String,
     pub response: String,
+    pub turn_id: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -82,6 +83,8 @@ pub struct StopChatRequest {
     /// "stop the current chat" semantics — frontend calls `stop_chat` with
     /// no args).
     pub session_id: Option<String>,
+    #[serde(default)]
+    pub turn_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,9 +207,13 @@ pub async fn chat(
         *cell.lock().await = effort.clone();
     }
 
+    let turn_id = uuid::Uuid::new_v4().to_string();
+    let cancel = Arc::new(AtomicBool::new(false));
     let _active_turn_guard = ha_core::chat_engine::active_turn::try_acquire(
         &sid,
         ha_core::chat_engine::stream_seq::ChatSource::Http,
+        turn_id.clone(),
+        cancel.clone(),
     )
     .map_err(|e| {
         AppError::conflict_with_code(
@@ -226,7 +233,14 @@ pub async fn chat(
         body.plan_comment.as_ref(),
         None,
     );
-    let _ = db.append_message(&sid, &user_msg);
+    let user_message_id = db.append_message(&sid, &user_msg).ok();
+    let _turn = db.create_chat_turn_with_id(
+        &turn_id,
+        &sid,
+        ha_core::chat_engine::ChatSource::Http.as_str(),
+        None,
+        user_message_id,
+    )?;
 
     // Auto-generate fallback title from first user message (prefer display text so titles read naturally).
     let _ = session::ensure_first_message_title(&db, &sid, persisted_content);
@@ -266,6 +280,21 @@ pub async fn chat(
 
     if model_chain.is_empty() {
         let err = "No model configured. Please add a provider and set an active model.";
+        let _ = db.finish_chat_turn_once(
+            &turn_id,
+            session::ChatTurnStatus::Failed,
+            None,
+            Some(err),
+            None,
+        );
+        ha_core::chat_engine::stream_broadcast::broadcast_stream_end(
+            &sid,
+            None,
+            Some(&turn_id),
+            Some(session::ChatTurnStatus::Failed),
+            None,
+            Some(err),
+        );
         ha_core::chat_engine::persist_failed_turn_context(&db, &sid, &body.message, err);
         let _ = db.append_message(
             &sid,
@@ -285,8 +314,8 @@ pub async fn chat(
             .or(store.temperature)
     });
 
-    // Create per-session cancel flag
-    let cancel = Arc::new(AtomicBool::new(false));
+    // Register per-session cancel flag after validation. The active-turn
+    // guard above already prevents duplicate user-message persistence.
     {
         let mut cancels = ctx
             .chat_cancels
@@ -302,6 +331,7 @@ pub async fn chat(
     let engine_params = ChatEngineParams {
         session_id: sid.clone(),
         agent_id: agent_id.clone(),
+        turn_id: Some(turn_id.clone()),
         message: body.message.clone(),
         display_text: body.display_text.clone(),
         attachments: body.attachments,
@@ -344,6 +374,7 @@ pub async fn chat(
     Ok(Json(ChatResponse {
         session_id: sid,
         response: result.response,
+        turn_id,
     }))
 }
 
@@ -368,14 +399,37 @@ pub async fn stop_chat(
             .read()
             .map_err(|_| AppError::internal("chat cancel registry lock poisoned"))?;
         if let Some(sid) = body.session_id.as_deref() {
-            if let Some(cancel) = cancels.get(sid) {
-                cancel.store(true, Ordering::SeqCst);
-                stopped = true;
-                stopped_count = 1;
+            if let Some(active) = ha_core::chat_engine::active_turn::current(sid) {
+                let matches_turn = body
+                    .turn_id
+                    .as_deref()
+                    .map(|id| id == active.turn_id)
+                    .unwrap_or(true);
+                if matches_turn {
+                    active.cancel.store(true, Ordering::SeqCst);
+                    let _ = ctx.session_db.mark_chat_turn_cancelling(
+                        &active.turn_id,
+                        session::ChatTurnInterruptReason::UserStop,
+                    );
+                    stopped = true;
+                    stopped_count = 1;
+                }
+            } else if body.turn_id.is_none() {
+                if let Some(cancel) = cancels.get(sid) {
+                    cancel.store(true, Ordering::SeqCst);
+                    stopped = true;
+                    stopped_count = 1;
+                }
             }
         } else {
             for (sid, cancel) in cancels.iter() {
                 cancel.store(true, Ordering::SeqCst);
+                if let Some(active) = ha_core::chat_engine::active_turn::current(sid) {
+                    let _ = ctx.session_db.mark_chat_turn_cancelling(
+                        &active.turn_id,
+                        session::ChatTurnInterruptReason::UserStop,
+                    );
+                }
                 active_session_ids.push(sid.clone());
                 stopped_count += 1;
             }
@@ -384,7 +438,11 @@ pub async fn stop_chat(
     }
 
     let runtime_cancellations = if let Some(sid) = body.session_id.as_deref() {
-        ha_core::runtime_tasks::cancel_runtime_tasks_for_session(Some(sid)).await?
+        if stopped {
+            ha_core::runtime_tasks::cancel_runtime_tasks_for_session(Some(sid)).await?
+        } else {
+            Vec::new()
+        }
     } else if active_session_ids.is_empty() {
         ha_core::runtime_tasks::cancel_runtime_tasks_for_session(None).await?
     } else {
@@ -399,7 +457,7 @@ pub async fn stop_chat(
         return Ok(Json(json!({
             "stopped": stopped,
             "scope": "session",
-            "reason": if stopped { Value::Null } else { json!("no active chat for session") },
+            "reason": if stopped { Value::Null } else { json!("no matching active chat for session") },
             "runtimeCancellations": runtime_cancellations,
         })));
     }

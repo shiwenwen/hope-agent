@@ -5,6 +5,16 @@ export interface AgentInfo {
   avatar?: string | null
 }
 
+export type ChatTurnStatus = "running" | "cancelling" | "completed" | "interrupted" | "failed"
+
+export type ChatTurnInterruptReason =
+  | "user_stop"
+  | "shutdown"
+  | "crash_recovery"
+  | "tool_cancel"
+  | "runtime_cancel"
+  | "unknown"
+
 /** Structured media item emitted by tools (e.g. send_attachment) — richer than
  *  mediaUrls; carries filename, MIME, size, and a kind flag used by the UI to
  *  decide between image preview and file-card rendering.

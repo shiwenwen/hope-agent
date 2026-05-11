@@ -38,11 +38,19 @@ struct StreamLifecycle {
     session_id: String,
     stream_id: Option<String>,
     source: stream_seq::ChatSource,
+    turn_id: Option<String>,
+    terminal_status: Option<session::ChatTurnStatus>,
+    interrupt_reason: Option<session::ChatTurnInterruptReason>,
+    terminal_error: Option<String>,
     finished: bool,
 }
 
 impl StreamLifecycle {
-    fn begin(session_id: &str, source: stream_seq::ChatSource) -> Result<Self, String> {
+    fn begin(
+        session_id: &str,
+        source: stream_seq::ChatSource,
+        turn_id: Option<String>,
+    ) -> Result<Self, String> {
         let stream_id = source
             .tracks_seq()
             .then(|| stream_seq::begin(session_id, source))
@@ -52,8 +60,26 @@ impl StreamLifecycle {
             session_id: session_id.to_string(),
             stream_id,
             source,
+            turn_id,
+            terminal_status: None,
+            interrupt_reason: None,
+            terminal_error: None,
             finished: false,
         })
+    }
+
+    fn set_terminal(
+        &mut self,
+        status: session::ChatTurnStatus,
+        interrupt_reason: Option<session::ChatTurnInterruptReason>,
+        error: Option<String>,
+    ) {
+        debug_assert!(status.is_terminal());
+        if self.terminal_status.is_none() {
+            self.terminal_status = Some(status);
+            self.interrupt_reason = interrupt_reason;
+            self.terminal_error = error;
+        }
     }
 
     fn finish(&mut self) {
@@ -62,7 +88,14 @@ impl StreamLifecycle {
         }
         if let Some(ref stream_id) = self.stream_id {
             if self.source.broadcasts_to_user_ui() {
-                stream_broadcast::broadcast_stream_end(&self.session_id, stream_id);
+                stream_broadcast::broadcast_stream_end(
+                    &self.session_id,
+                    Some(stream_id),
+                    self.turn_id.as_deref(),
+                    self.terminal_status,
+                    self.interrupt_reason,
+                    self.terminal_error.as_deref(),
+                );
             }
             stream_seq::end(&self.session_id);
         }
@@ -84,13 +117,15 @@ fn emit_stream_event(
     event_sink: &std::sync::Arc<dyn EventSink>,
     session_id: &str,
     source: stream_seq::ChatSource,
+    turn_id: Option<&str>,
     event: &str,
 ) {
     let payload: String = if !source.broadcasts_to_user_ui() {
         event_sink.send(event);
         event.to_string()
     } else {
-        let (enveloped, seq, stream_id) = stream_broadcast::inject_seq(session_id, event);
+        let (enveloped, seq, stream_id) =
+            stream_broadcast::inject_seq(session_id, event, turn_id);
         event_sink.send(&enveloped);
         stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
         enveloped
@@ -112,6 +147,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
     let ChatEngineParams {
         session_id,
         agent_id,
+        turn_id,
         message,
         display_text,
         attachments,
@@ -187,7 +223,24 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         }
     }
 
-    let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source)?;
+    let mut stream_lifecycle = StreamLifecycle::begin(&session_id, source, turn_id.clone())?;
+    if let (Some(ref turn_id), Some(ref stream_id)) =
+        (turn_id.as_ref(), stream_lifecycle.stream_id.as_ref())
+    {
+        let _ = super::active_turn::set_stream_id(&session_id, turn_id, stream_id);
+        if let Err(e) = db.update_chat_turn_stream_id(turn_id, stream_id) {
+            app_warn!(
+                "chat",
+                "turn",
+                "Failed to persist stream id for turn {}: {}",
+                turn_id,
+                e
+            );
+        }
+        if source.broadcasts_to_user_ui() {
+            stream_broadcast::broadcast_turn_started(&session_id, turn_id, Some(stream_id));
+        }
+    }
 
     // IM-mirror prefers the friendly `display_text` (e.g. `Using skill **X**...`
     // rendered for `/skill` invocations) so attached IM chats see what the
@@ -281,7 +334,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 "error": last_error.as_deref().unwrap_or(""),
             });
             if let Ok(json_str) = serde_json::to_string(&event) {
-                emit_stream_event(&event_sink, &session_id, source, &json_str);
+                emit_stream_event(&event_sink, &session_id, source, turn_id.as_deref(), &json_str);
                 let _ = db.append_message(
                     &session_id,
                     &session::NewMessage::event(&json_str).with_source(source),
@@ -327,7 +380,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "to_profile": to.label,
                         "reason": reason,
                     })) {
-                        emit_stream_event(&event_sink, &session_id, source, &json_str);
+                        emit_stream_event(
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            &json_str,
+                        );
                         // Persist as `role=event` so the GUI's
                         // ProfileRotationBanner survives session reload.
                         let _ = db.append_message(
@@ -372,6 +431,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     let source_for_cb = source;
                     let cancel_for_op = cancel_ref.clone();
                     let cancel_for_check = cancel_for_op.clone();
+                    let turn_id_for_cb = turn_id.clone();
 
                     let agent_id_owned = agent_id_ref.clone();
                     let session_id_owned = session_id_ref.clone();
@@ -446,6 +506,7 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                                         &event_sink_for_cb,
                                         &session_for_cb,
                                         source_for_cb,
+                                        turn_id_for_cb.as_deref(),
                                         delta,
                                     );
                                 },
@@ -505,14 +566,20 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                         "duration_ms": duration_ms,
                     });
                     if let Ok(json_str) = serde_json::to_string(&usage_event) {
-                        emit_stream_event(&event_sink, &session_id, source, &json_str);
+                        emit_stream_event(
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            &json_str,
+                        );
                     }
 
                     persister.flush_remaining_thinking();
                     let trailing_text = persister.take_trailing_text();
                     let assistant_msg =
                         persister.build_assistant_message(&trailing_text, thinking, duration_ms);
-                    let _ = db.append_message(&session_id, &assistant_msg);
+                    let assistant_id = db.append_message(&session_id, &assistant_msg).ok();
 
                     // Persist conversation context
                     save_agent_context(&db, &session_id, &agent);
@@ -535,6 +602,20 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                     // assistant row is durable. End the frontend stream here;
                     // memory extraction and other follow-ups below must not
                     // keep the stop button/sidebar spinner alive.
+                    let mut terminal_status = session::ChatTurnStatus::Completed;
+                    let mut interrupt_reason = None;
+                    if let Some(ref turn_id) = turn_id {
+                        if let Ok(Some(turn)) = db.finish_chat_turn_after_execution(
+                            turn_id,
+                            cancel.load(std::sync::atomic::Ordering::SeqCst),
+                            None,
+                            assistant_id,
+                        ) {
+                            terminal_status = turn.status;
+                            interrupt_reason = turn.interrupt_reason;
+                        }
+                    }
+                    stream_lifecycle.set_terminal(terminal_status, interrupt_reason, None);
                     stream_lifecycle.finish();
 
                     if post_turn_effects {
@@ -735,7 +816,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             "description": compact_result.description,
                         },
                     })) {
-                        emit_stream_event(&event_sink, &session_id, source, &event_str);
+                        emit_stream_event(
+                            &event_sink,
+                            &session_id,
+                            source,
+                            turn_id.as_deref(),
+                            &event_str,
+                        );
                         // emergency_compact always runs Tier ≥ 3 — persist
                         // unconditionally so the GUI's ContextCompactedBanner
                         // survives session reload. Per-turn pre-LLM compaction
@@ -779,7 +866,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                             "type": "codex_auth_expired",
                             "error": &err_str,
                         })) {
-                            emit_stream_event(&event_sink, &session_id, source, &json_str);
+                            emit_stream_event(
+                                &event_sink,
+                                &session_id,
+                                source,
+                                turn_id.as_deref(),
+                                &json_str,
+                            );
                         }
                     }
 
@@ -849,6 +942,34 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
         session_id,
         final_error
     );
+    let is_interrupted = cancel.load(std::sync::atomic::Ordering::SeqCst);
+    if let Some(ref turn_id) = turn_id {
+        let status = if is_interrupted {
+            session::ChatTurnStatus::Interrupted
+        } else {
+            session::ChatTurnStatus::Failed
+        };
+        let reason = is_interrupted.then_some(session::ChatTurnInterruptReason::RuntimeCancel);
+        if let Ok(Some(turn)) = db.finish_chat_turn_after_execution(
+            turn_id,
+            is_interrupted,
+            Some(final_error.as_str()),
+            None,
+        ) {
+            stream_lifecycle.set_terminal(
+                turn.status,
+                turn.interrupt_reason,
+                (turn.status == session::ChatTurnStatus::Failed)
+                    .then(|| turn.error.unwrap_or_else(|| final_error.clone())),
+            );
+        } else {
+            stream_lifecycle.set_terminal(
+                status,
+                reason,
+                (!is_interrupted).then_some(final_error.clone()),
+            );
+        }
+    }
     if persist_final_error_event {
         persist_failed_turn_context(&db, &session_id, &message, &final_error);
         let _ = db.append_message(
@@ -926,7 +1047,7 @@ mod stream_lifecycle_tests {
 
         {
             let mut lifecycle =
-                StreamLifecycle::begin(sid, stream_seq::ChatSource::Desktop).unwrap();
+                StreamLifecycle::begin(sid, stream_seq::ChatSource::Desktop, None).unwrap();
             assert!(stream_seq::is_active(sid));
 
             lifecycle.finish();

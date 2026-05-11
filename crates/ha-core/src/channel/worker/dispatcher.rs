@@ -647,6 +647,7 @@ async fn handle_inbound_message(
     let engine_params = crate::chat_engine::ChatEngineParams {
         session_id: session_id.clone(),
         agent_id: agent_id.clone(),
+        turn_id: None,
         message: engine_message,
         // IM-inbound turns echo the user's typed text via the IM client
         // itself (no GUI display_text mechanism); leave the mirror quote on

@@ -9,6 +9,8 @@ import type {
   ActiveModel,
   AgentSummaryForSidebar,
   SessionMode,
+  ChatTurnStatus,
+  ChatTurnInterruptReason,
 } from "@/types/chat"
 import type { ApprovalRequest } from "@/components/chat/ApprovalDialog"
 import {
@@ -125,6 +127,13 @@ export interface UseChatStreamReturn {
     requestId: string,
     response: "allow_once" | "allow_always" | "deny",
   ) => Promise<void>
+  handleTurnStarted: (sessionId: string, turnId: string) => void
+  handleTurnEnded: (
+    sessionId: string,
+    status?: ChatTurnStatus | null,
+    interruptReason?: ChatTurnInterruptReason | null,
+  ) => void
+  executionStateBySession: Map<string, ChatTurnStatus>
 }
 
 export function useChatStream({
@@ -186,6 +195,13 @@ export function useChatStream({
   const [showCodexAuthExpired, setShowCodexAuthExpired] = useState(false)
   const [permissionMode, setPermissionModeState] = useState<SessionMode>("default")
   const permissionModeRef = useRef<SessionMode>("default")
+  const [executionStateBySession, setExecutionStateBySession] = useState<
+    Map<string, ChatTurnStatus>
+  >(() => new Map())
+  const activeTurnBySessionRef = useRef<Map<string, string>>(new Map())
+  const lastTurnStatusBySessionRef = useRef<
+    Map<string, { status: ChatTurnStatus; interruptReason?: ChatTurnInterruptReason | null }>
+  >(new Map())
 
   // Persist the new mode to the session row whenever the title-bar switcher
   // changes it. Backend re-reads the column at the start of each tool round,
@@ -232,8 +248,22 @@ export function useChatStream({
 
   useEffect(() => {
     const unlisten = getTransport().listen("chat:stream_end", (raw) => {
-      const sid = (raw as { sessionId?: string } | null)?.sessionId
+      const payload = raw as {
+        sessionId?: string
+        turnId?: string | null
+        status?: ChatTurnStatus | null
+        interruptReason?: ChatTurnInterruptReason | null
+      } | null
+      const sid = payload?.sessionId
       if (!sid) return
+      if (payload?.turnId) activeTurnBySessionRef.current.delete(sid)
+      if (payload?.status) {
+        lastTurnStatusBySessionRef.current.set(sid, {
+          status: payload.status,
+          interruptReason: payload.interruptReason ?? null,
+        })
+        setExecutionStateBySession((prev) => new Map(prev).set(sid, payload.status!))
+      }
       const streamId = streamIdFromPayload(raw)
       if (streamId) endedStreamIdsRef.current.set(sid, streamId)
       discardPendingStreamDeltas(sid, deltaBuffersRef)
@@ -310,14 +340,54 @@ export function useChatStream({
   }, [])
 
   async function handleStop() {
+    const sid = currentSessionIdRef.current ?? currentSessionId ?? null
+    if (!sid) {
+      const active = Array.from(activeTurnBySessionRef.current.entries()).at(-1)
+      if (!active) return
+      const [activeSid, activeTurnId] = active
+      try {
+        await getTransport().call("stop_chat", {
+          sessionId: activeSid,
+          turnId: activeTurnId,
+        })
+      } catch (e) {
+        logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
+      }
+      return
+    }
     try {
       await getTransport().call("stop_chat", {
-        sessionId: currentSessionIdRef.current ?? currentSessionId ?? null,
+        sessionId: sid,
+        turnId: activeTurnBySessionRef.current.get(sid) ?? null,
       })
     } catch (e) {
       logger.error("ui", "ChatScreen::stop", "Failed to stop chat", e)
     }
   }
+
+  const handleTurnStarted = useCallback((sessionId: string, turnId: string) => {
+    activeTurnBySessionRef.current.set(sessionId, turnId)
+    lastTurnStatusBySessionRef.current.set(sessionId, { status: "running" })
+    setExecutionStateBySession((prev) => new Map(prev).set(sessionId, "running"))
+  }, [])
+
+  const handleTurnEnded = useCallback(
+    (
+      sessionId: string,
+      status?: ChatTurnStatus | null,
+      interruptReason?: ChatTurnInterruptReason | null,
+    ) => {
+      activeTurnBySessionRef.current.delete(sessionId)
+      if (status) {
+        lastTurnStatusBySessionRef.current.set(sessionId, {
+          status,
+          interruptReason: interruptReason ?? null,
+        })
+        setExecutionStateBySession((prev) => new Map(prev).set(sessionId, status))
+      }
+    },
+    [],
+  )
 
   /**
    * Send a message. If `directText` is provided, use it directly instead of the input box.
@@ -474,6 +544,18 @@ export function useChatStream({
         return true
       }
 
+      const handleTurnStartedEvent = (event: Record<string, unknown>): boolean => {
+        if (
+          event.type !== "turn_started" ||
+          typeof event.session_id !== "string" ||
+          typeof event.turn_id !== "string"
+        ) {
+          return false
+        }
+        handleTurnStarted(event.session_id, event.turn_id)
+        return true
+      }
+
       const shouldDropStreamEvent = (
         event: Record<string, unknown>,
         sid: string,
@@ -495,6 +577,7 @@ export function useChatStream({
 
       const dispatchStreamEvent = (event: Record<string, unknown>) => {
         if (handleSessionCreated(event)) return
+        if (handleTurnStartedEvent(event)) return
 
         const sid = targetSid()
         if (shouldDropStreamEvent(event, sid)) return
@@ -616,6 +699,18 @@ export function useChatStream({
             "get_session_stream_state",
             { sessionId: sid },
           )
+          if (state.turnId && state.active) {
+            activeTurnBySessionRef.current.set(sid, state.turnId)
+          } else if (!state.active) {
+            activeTurnBySessionRef.current.delete(sid)
+          }
+          if (state.status) {
+            lastTurnStatusBySessionRef.current.set(sid, {
+              status: state.status,
+              interruptReason: state.interruptReason ?? null,
+            })
+            setExecutionStateBySession((prev) => new Map(prev).set(sid, state.status!))
+          }
           const streamId = state.streamId || undefined
           if (streamId) endedStreamIdsRef.current.delete(sid)
           const cursorKey = streamCursorKey(sid, streamId)
@@ -767,5 +862,8 @@ export function useChatStream({
     handleSend,
     handleStop,
     handleApprovalResponse,
+    handleTurnStarted,
+    handleTurnEnded,
+    executionStateBySession,
   }
 }

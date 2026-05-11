@@ -457,7 +457,11 @@
       "titleBarInherited": "Projeden devralındı",
       "titleBarSession": "Çalışma dizini",
       "truncated": "Yalnızca ilk girdiler gösteriliyor — bu dizin tarayıcının tamamını göstermesi için çok büyük."
-    }
+    },
+    "taskProgressRunning": "Çalışıyor {{completed}}/{{total}}",
+    "taskProgressCancelling": "Durduruluyor {{completed}}/{{total}}",
+    "taskProgressWaiting": "Devam etmeyi bekliyor {{completed}}/{{total}}",
+    "taskProgressFailed": "Başarısız {{completed}}/{{total}}"
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
