@@ -173,10 +173,8 @@ pub(crate) async fn run_polling_loop(
                         // after dispatcher gating — pre-F-082 this ran inline
                         // here and blocked the polling task for the full
                         // ciphertext fetch + decrypt cycle.
-                        let pending = super::inbound_media::parse_message_items(
-                            &item_list,
-                            &msg_id_str,
-                        );
+                        let pending =
+                            super::inbound_media::parse_message_items(&item_list, &msg_id_str);
                         crate::channel::inbound_media_common::embed_pending_refs(
                             &mut msg.raw,
                             pending,

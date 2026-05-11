@@ -431,7 +431,11 @@ impl ChannelPlugin for WeChatPlugin {
         // overlapped while serializing the decrypts — fine for the
         // common case of a single attachment per message.
         let results = futures_util::future::join_all(pending.iter().map(|p| {
-            inbound_media::materialize_inbound(p, api::DEFAULT_WECHAT_CDN_BASE_URL, _account.id.as_str())
+            inbound_media::materialize_inbound(
+                p,
+                api::DEFAULT_WECHAT_CDN_BASE_URL,
+                _account.id.as_str(),
+            )
         }))
         .await;
         for m in results.into_iter().flatten() {

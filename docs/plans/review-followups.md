@@ -854,24 +854,22 @@
 
 ---
 
-### F-082 阶段 2 / 3 — Telegram / WeChat hardening 残余
-
-> **PR-1（阶段 1 — 9 渠道功能补齐）已落地，详见 Closed**。本条目仅追踪剩余的两条性能 hardening。
-
-- **来源**：2026-05-09 v0.2.0 飞书入站媒体 review P2 + 2026-05-11 阶段 1 PR-1 收尾
-- **残留现象**：
-  - **Telegram** [`telegram/polling.rs::download_inbound_media_to_temp`](../../crates/ha-core/src/channel/telegram/polling.rs) 在 polling loop 内同步 `bot.download_file(&mut dst)` 拉完才发 `MsgContext`——非 mention 群消息也下载，且没 size cap（teloxide 内部是流式 `&mut File` 的，不至于 OOM，但磁盘 / 时延无界）
-  - **WeChat** [`wechat/media.rs::download_plain_media`](../../crates/ha-core/src/channel/wechat/media.rs) `response.bytes()` 全量到 `Vec<u8>` → AES-128 解密 → `save_inbound_bytes`，单条 100 MB 的群文件吃 100 MB RSS + 解密峰值再翻倍，dispatch 全程被阻塞
-- **改的话要做什么**：
-  - **阶段 2（性能优化）**：Telegram / WeChat 迁同一 deferred + stream_to_disk pattern（helper 已抽好，[`crates/ha-core/src/channel/inbound_media_common.rs::stream_to_disk`](../../crates/ha-core/src/channel/inbound_media_common.rs)），消除"群里 @ 别人也下载"流量浪费 + WeChat in-mem 全量。WeChat 阶段 2 阶段保持 in-mem AES 解密 + 加 512MiB cap 兜底（不让大文件爆 RAM）
-  - **阶段 3（PoC）**：WeChat AES streaming 改磁盘缓冲二段法（落盘 .enc → 整文件 decrypt + PKCS#7 unpad → 写解密结果，RSS 上限 = 一次解密 buffer 不再无界）
-- **影响面**：阶段 1 已让所有渠道功能正常；阶段 2 / 3 是 hardening。Telegram / WeChat 当前 eager-download 模式功能正常但有"群里 @ 别人也下载"流量浪费 + WeChat 大文件 RSS 峰值。
-
----
-
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-082 阶段 2 / 3 — Telegram / WeChat hardening 收尾
+
+- **关闭于**：2026-05-11，分支 `feature/f-082-inbound-media-hardening` PR-2 commit 12-14
+- **如何关闭**：把 PR-1 抽好的 [`channel/inbound_media_common.rs::stream_to_disk`](../../crates/ha-core/src/channel/inbound_media_common.rs) helper pattern 推到剩余两个 eager-download 渠道，并彻底解决 WeChat AES 100 MB 文件吃 ~200 MB RSS 的内存峰值：
+
+  - **commit 12（Telegram deferred）** — `telegram/inbound_media.rs` 新增 + `polling.rs::convert_message` 改 parse-only，refs 经 `embed_pending_refs` 挂到 raw，`materialize_pending_media` 在 dispatcher gating 后跑 `stream_to_disk`。`TelegramBotApi::download_file_to_path` 删除改 `download_file_to_disk(file_id, dest, cap_bytes)`，绕过 teloxide downloader 直拼 `{api_url}/file/bot{token}/{path}` URL，用构造时 clone 的 reqwest::Client（保留 proxy + 60s timeout）。关键回归：mention gating 关闭的群里非 @bot 附件 dispatcher 否决之前不下载
+  - **commit 13（WeChat deferred + cap 兜底）** — `wechat/inbound_media.rs` 新增 ParsedMediaRef 直接嵌 `MessageItem`（aes_key + encrypt_query_param + file metadata 全在它子结构上，单一真相源），polling.rs 改 parse + embed；`materialize_pending_media` 先 declared cap 检查（image.mid_size / video.video_size / file.len 三字段反射）再 delegate 到 `media::download_inbound_media`（暂保留 in-mem AES）；`download_plain_media` 加 Content-Length cap 早拒 + post-fetch saturating 检查
+  - **commit 14（WeChat AES 磁盘缓冲二段法 streaming）** — `materialize_inbound` 重写：阶段 1 `stream_to_disk` 落密文到 `inbound-temp/<ts>-<msg>.enc`，阶段 2 `spawn_blocking` 内跑 OpenSSL `Crypter::update` / `Crypter::finalize` 增量 AES-128-ECB 解密（PKCS#7 unpad 由 finalize 自动处理），16 KiB read/write buffer 写到 `<msg>.<ext>`，阶段 3 删 `.enc`。**RSS 上限 = 16 KiB 缓冲 + 一个 cipher block_size，与文件大小无关**。同步删 `media.rs` 全部 in-mem 路径死代码（download_inbound_media / download_and_decrypt_media / download_plain_media / save_inbound_bytes / save_inbound_named_file / inbound_temp_dir / sanitize_name / file_identifier / normalize_extension），暴露 parse_aes_key / build_cdn_download_url / mime_from_filename 为 pub(super)
+
+- **测试**：每个 channel 的 inbound_media 模块 4-8 个单测覆盖 parse / declared_size / extract_spec 各类型分支；**streaming_decrypt_round_trips_with_pkcs7_padding** 用 17 字节明文（强制 pad 到 32 字节双 block）跑 encrypt → 写 tempfile → streaming_decrypt → assert 恢复一致，覆盖 finalize() unpad 路径。`cargo test -p ha-core --lib channel` **420/420** 通过（PR-1 412 + PR-2 新增 8）；clippy `-D warnings` 干净
+- **影响面**：12 渠道入站附件全部走同一 deferred + stream_to_disk + cap + cleanup pattern，无例外；WeChat 大文件 RSS 峰值与文件大小解耦；Telegram 在 mention gating 关闭的群里不再无差别下载非 @bot 附件
+- **回退**：commit 14 失败可单独 revert 回到 commit 13（in-mem AES + cap 兜底），功能不退化；commit 12 + 13 + 14 完全正交三步可独立 revert
 
 ### F-082 阶段 1 — 9 渠道 inbound 附件 deferred + stream_to_disk 一致性
 

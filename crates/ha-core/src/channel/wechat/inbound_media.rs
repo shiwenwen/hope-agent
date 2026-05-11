@@ -314,7 +314,9 @@ pub async fn materialize_inbound(
             .extension()
             .and_then(|e| e.to_str())
             .map(|s| s.to_ascii_lowercase())
-            .filter(|s| !s.is_empty() && s.len() <= 8 && s.chars().all(|c| c.is_ascii_alphanumeric()))
+            .filter(|s| {
+                !s.is_empty() && s.len() <= 8 && s.chars().all(|c| c.is_ascii_alphanumeric())
+            })
             .unwrap_or_else(|| spec.default_ext.to_string()),
         None => spec.default_ext.to_string(),
     };
@@ -514,7 +516,10 @@ mod tests {
 
     #[test]
     fn declared_size_uses_per_type_field() {
-        assert_eq!(declared_size(&image_item(Some(1024), Some("k"))), Some(1024));
+        assert_eq!(
+            declared_size(&image_item(Some(1024), Some("k"))),
+            Some(1024)
+        );
         assert_eq!(declared_size(&video_item(Some(2048))), Some(2048));
         assert_eq!(
             declared_size(&file_item(Some("4096"), Some("x.pdf"))),
@@ -553,7 +558,7 @@ mod tests {
     #[test]
     fn extract_spec_rejects_missing_aes_key() {
         let item = image_item(Some(100), None); // aes_key None
-        // image without `aeskey` (hex) and without media.aes_key returns None.
+                                                // image without `aeskey` (hex) and without media.aes_key returns None.
         assert!(extract_spec(&item).is_none());
     }
 
