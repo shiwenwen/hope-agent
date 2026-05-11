@@ -1,0 +1,199 @@
+name: Update Linux Repo
+
+# Build & sign the apt + dnf/yum indexes hosted at
+# https://shiwenwen.github.io/hope-agent-linux-repo/, then push them
+# back to the bucket repo whenever a Release is published.
+#
+# Triggers:
+#   - release.published — auto-fires after a draft Release is manually
+#     published (see docs/release-process.md §1.4).
+#   - workflow_dispatch — manual re-run against an existing tag.
+#
+# Required repo secrets:
+#   GPG_SIGNING_KEY    — ASCII-armored ed25519 private key for repo metadata
+#                        signing. Generated 2026-05-11 in a docker container.
+#                        Fingerprint must match the public key published at
+#                        https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg
+#   LINUX_REPO_TOKEN   — fine-grained PAT with `Contents: Read and write`
+#                        on shiwenwen/hope-agent-linux-repo only.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sync (for example v0.1.2)
+        required: true
+        type: string
+
+concurrency:
+  group: update-linux-repo
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update-linux-repo:
+    runs-on: ubuntu-latest
+    env:
+      LINUX_REPO: shiwenwen/hope-agent-linux-repo
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v6
+
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          set -euo pipefail
+          tag="${TAG}"
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::tag '$tag' does not look like a release tag (expected vX.Y.Z[-pre])"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "deb_name=Hope.Agent_${version}_amd64.deb" >> "$GITHUB_OUTPUT"
+          echo "rpm_name=Hope.Agent-${version}-1.x86_64.rpm" >> "$GITHUB_OUTPUT"
+          # Also push to env so subsequent shell steps can interpolate
+          # without GitHub Actions context syntax (cleaner inside heredocs).
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "DEB_NAME=Hope.Agent_${version}_amd64.deb" >> "$GITHUB_ENV"
+          echo "RPM_NAME=Hope.Agent-${version}-1.x86_64.rpm" >> "$GITHUB_ENV"
+
+      - name: Install build dependencies (reprepro + createrepo_c)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq reprepro createrepo-c
+
+      - name: Download deb + rpm from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "$DEB_NAME" \
+            --pattern "$RPM_NAME" \
+            --dir artifacts
+          ls -la artifacts/
+
+      - name: Import GPG signing key
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/gpg"
+          mkdir -p "$GNUPGHOME"
+          chmod 700 "$GNUPGHOME"
+          echo "GNUPGHOME=$GNUPGHOME" >> "$GITHUB_ENV"
+          # Quiet pinentry so non-interactive imports don't hang
+          echo "pinentry-mode loopback" > "$GNUPGHOME/gpg.conf"
+          printf '%s\n' "$GPG_PRIVATE_KEY" | gpg --batch --import 2>&1
+          # Derive the LONG key id (16 hex) for SignWith / --default-key
+          KEY_ID=$(gpg --list-secret-keys --keyid-format=long --with-colons | awk -F: '/^sec/ {print $5; exit}')
+          if [[ -z "$KEY_ID" || ${#KEY_ID} -ne 16 ]]; then
+            echo "::error::failed to derive 16-char GPG long key id (got '$KEY_ID')"
+            exit 1
+          fi
+          echo "GPG_KEY_ID=$KEY_ID" >> "$GITHUB_ENV"
+          # Trust ultimate so reprepro doesn't complain about untrusted key
+          echo -e "5\ny\n" | gpg --batch --command-fd 0 --edit-key "$KEY_ID" trust 2>&1 | tail -3
+          echo "Imported and trusted GPG key: $KEY_ID"
+
+      - name: Checkout linux-repo bucket
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.LINUX_REPO }}
+          token: ${{ secrets.LINUX_REPO_TOKEN }}
+          path: bucket
+
+      - name: Build apt index (reprepro)
+        run: |
+          set -euo pipefail
+          cd bucket
+          mkdir -p apt/conf
+
+          # Render distributions config with the live key fingerprint.
+          # Rebuilding it every run means rotating the GPG key needs no
+          # template change — the workflow picks up the new fingerprint
+          # automatically from the imported secret.
+          cat > apt/conf/distributions <<EOF
+          Codename: stable
+          Suite: stable
+          Components: main
+          Architectures: amd64
+          SignWith: ${GPG_KEY_ID}
+          Description: Hope Agent apt repository (auto-published, see https://github.com/shiwenwen/hope-agent)
+          EOF
+
+          # Idempotent re-add: reprepro refuses to replace an existing
+          # version, so for workflow_dispatch re-runs against the same
+          # tag we remove the package first. The `|| true` covers the
+          # very first run when the package is not yet in db/.
+          reprepro -b apt remove stable hope-agent || true
+
+          reprepro -b apt includedeb stable "$GITHUB_WORKSPACE/artifacts/$DEB_NAME"
+
+          echo "--- apt index ---"
+          ls -la apt/dists/stable/
+          ls -la apt/pool/main/h/hope-agent/ || true
+
+      - name: Build yum/dnf index (createrepo_c + GPG sign metadata)
+        run: |
+          set -euo pipefail
+          cd bucket
+          mkdir -p rpm/stable/x86_64
+
+          # Overwrite the rpm file (same version re-run is idempotent;
+          # different version accumulates).
+          cp -f "$GITHUB_WORKSPACE/artifacts/$RPM_NAME" rpm/stable/x86_64/
+
+          # Regenerate / update repodata. --update is incremental: it
+          # reuses existing checksums for unchanged rpms and only
+          # rescans the new one. Falls back to a full scan on first run.
+          createrepo_c --update rpm/stable/x86_64/
+
+          # Sign the repomd.xml. dnf with repo_gpgcheck=1 validates this
+          # detached signature against the public key the user imported
+          # (gpgkey= in hope-agent.repo).
+          gpg --batch --yes --default-key "$GPG_KEY_ID" \
+              --detach-sign --armor \
+              rpm/stable/x86_64/repodata/repomd.xml
+
+          # Sync the .repo template from the main repo (single source of
+          # truth: linux-repo/rpm/hope-agent.repo).
+          cp -f "$GITHUB_WORKSPACE/linux-repo/rpm/hope-agent.repo" rpm/hope-agent.repo
+
+          echo "--- yum index ---"
+          ls -la rpm/stable/x86_64/repodata/
+
+      - name: Commit and push if changed
+        working-directory: bucket
+        run: |
+          set -euo pipefail
+          git config user.name  "hope-agent-bot"
+          git config user.email "hope-agent-bot@users.noreply.github.com"
+
+          # Stage everything we touched. Same gotcha as before: `git diff`
+          # alone ignores untracked paths, so stage first and inspect
+          # `git diff --cached`.
+          git add apt rpm
+
+          if git diff --cached --quiet; then
+            echo "No repo changes for $TAG; skipping push."
+            exit 0
+          fi
+
+          git commit -m "hope-agent ${VERSION}
+
+          deb: ${DEB_NAME}
+          rpm: ${RPM_NAME}
+          Source: ${{ github.repository }}@${TAG}
+          GPG key: ${GPG_KEY_ID}
+          "
+          git push origin HEAD
