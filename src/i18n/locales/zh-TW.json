@@ -22,8 +22,11 @@
     "updateDownloadProgress": "下載進度：{{percent}}%",
     "updateInstall": "安裝 v{{version}}",
     "updateInstallFailed": "下載或安裝更新失敗。",
+    "updateErrorDetails": "錯誤詳情",
+    "updateErrorLogHint": "完整堆疊已寫入 ~/.hope-agent/logs.db（category: updater），可透過 /ha-logs 排查或在回報問題時附上該檔案。",
     "updateInstalled": "更新已安裝，正在重新啟動 Hope Agent...",
     "updateInstalling": "正在安裝 v{{version}}...",
+    "updateRestartManually": "更新已安裝，但自動重啟失敗，請手動退出後重新打開 Hope Agent。",
     "updateReady": "可以在 GitHub Releases 查看新版本，也可以讓 Hope Agent 直接安裝桌面更新。",
     "updateUpToDate": "目前已是最新版本 v{{version}}。",
     "version": "版本"
@@ -164,6 +167,8 @@
     "noAccounts": "尚未配置任何 IM 渠道賬戶",
     "notifySessionEviction": "工作階段被接管提醒",
     "notifySessionEvictionHint": "當本帳號被另一個聊天接管同一工作階段而被踢出時，向 IM 聊天發送系統訊息提示（1:1 attach）。",
+    "notifyStartup": "服務重啟提醒",
+    "notifyStartupHint": "服務重啟後，向本帳號近期活躍的聊天發送一條「已恢復」系統訊息。",
     "pluginDesc_discord": "Discord Bot 渠道",
     "pluginDesc_feishu": "飛書 / Lark 機器人",
     "pluginDesc_googlechat": "Google Chat（Workspace）",
@@ -1355,6 +1360,8 @@
     "mcpAuthRequiredFallback": "有 MCP 伺服器需要完成 OAuth 授權",
     "off": "關閉",
     "on": "開啟",
+    "startupDesc": "服務重啟後，向最近 72 小時活躍過的 IM 聊天發送一條「已恢復」提示。帳號層級的開關請在各 IM 通道的帳號設定中調整。",
+    "startupToggle": "重啟後向 IM 發送已恢復提示",
     "title": "通知設置"
   },
   "onboarding": {

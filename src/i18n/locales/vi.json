@@ -22,8 +22,11 @@
     "updateDownloadProgress": "Tiến độ tải xuống: {{percent}}%",
     "updateInstall": "Cài đặt v{{version}}",
     "updateInstallFailed": "Tải xuống hoặc cài đặt bản cập nhật thất bại.",
+    "updateErrorDetails": "Chi tiết lỗi",
+    "updateErrorLogHint": "Toàn bộ trace đã được ghi vào ~/.hope-agent/logs.db (category: updater). Dùng /ha-logs để tra cứu hoặc đính kèm tệp đó khi báo lỗi.",
     "updateInstalled": "Đã cài đặt bản cập nhật. Đang khởi động lại Hope Agent...",
     "updateInstalling": "Đang cài đặt v{{version}}...",
+    "updateRestartManually": "Đã cài đặt bản cập nhật nhưng tự động khởi động lại thất bại. Vui lòng thoát Hope Agent thủ công rồi mở lại.",
     "updateReady": "Bạn có thể xem bản desktop mới trên GitHub Releases hoặc để Hope Agent tự cài đặt cho bạn.",
     "updateUpToDate": "Bạn đang ở phiên bản mới nhất v{{version}}.",
     "version": "Phiên bản"
@@ -164,6 +167,8 @@
     "noAccounts": "Chưa có tài khoản kênh IM nào được cấu hình",
     "notifySessionEviction": "Thông báo tiếp quản phiên",
     "notifySessionEvictionHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này bị tách khỏi phiên vì cuộc trò chuyện khác đã tiếp quản (gắn 1:1).",
+    "notifyStartup": "Gửi thông báo \"đã quay lại trực tuyến\"",
+    "notifyStartupHint": "Sau khi dịch vụ khởi động lại, gửi một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện trên tài khoản này từng hoạt động gần đây.",
     "pluginDesc_discord": "Kênh Discord Bot",
     "pluginDesc_feishu": "Bot Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1355,6 +1360,8 @@
     "mcpAuthRequiredFallback": "Một máy chủ MCP cần ủy quyền OAuth",
     "off": "Tắt",
     "on": "Bật",
+    "startupDesc": "Sau khi dịch vụ khởi động lại, đăng một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện IM từng hoạt động trong 72 giờ qua. Tắt thông báo theo tài khoản nằm trong từng tài khoản kênh.",
+    "startupToggle": "Thông báo \"đã quay lại\" sau khởi động lại",
     "title": "Cài đặt thông báo"
   },
   "onboarding": {

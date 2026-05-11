@@ -30,6 +30,7 @@ fn risk_level(category: &str) -> &'static str {
         | "language"
         | "ui_effects"
         | "notification"
+        | "startup_notification"
         | "canvas"
         | "image"
         | "pdf"
@@ -299,6 +300,7 @@ fn read_category(category: &str) -> Result<Value> {
         "compact" => Ok(serde_json::to_value(&cfg.compact)?),
         "session_title" => Ok(serde_json::to_value(&cfg.session_title)?),
         "notification" => Ok(serde_json::to_value(&cfg.notification)?),
+        "startup_notification" => Ok(serde_json::to_value(&cfg.startup_notification)?),
         "temperature" => Ok(json!({ "temperature": cfg.temperature })),
         "tool_timeout" => Ok(json!({ "toolTimeout": cfg.tool_timeout })),
         "approval" => Ok(json!({
@@ -448,7 +450,7 @@ fn get_all_overview() -> Result<String> {
     // Expose risk classification so the model can decide when to double-confirm.
     let risk_levels = json!({
         "low": [
-            "user", "theme", "language", "ui_effects", "notification",
+            "user", "theme", "language", "ui_effects", "notification", "startup_notification",
             "canvas", "image", "pdf", "image_generate", "temperature", "tool_timeout",
             "default_agent"
         ],
@@ -627,6 +629,7 @@ fn update_app_config(category: &str, values: &Value) -> Result<String> {
         "compact" => merge_field(&mut store.compact, values)?,
         "session_title" => merge_field(&mut store.session_title, values)?,
         "notification" => merge_field(&mut store.notification, values)?,
+        "startup_notification" => merge_field(&mut store.startup_notification, values)?,
         "image_generate" => merge_field(&mut store.image_generate, values)?,
         "canvas" => merge_field(&mut store.canvas, values)?,
         "image" => merge_field(&mut store.image, values)?,

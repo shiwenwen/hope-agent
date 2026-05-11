@@ -58,6 +58,7 @@ If the response includes `sideEffect`, surface it to the user (e.g. "this requir
 | `language` | `language` (`auto`/`zh`/`en`/…) |
 | `ui_effects` | `uiEffectsEnabled` |
 | `notification` | `enabled` |
+| `startup_notification` | `enabled` (default `true`), `windowSecs` (lookback for "active" chats, default 259200 = 72h), `globalMax` (cap on the number of chats **actually notified** per boot — applied after silencing / cooldown filters so they can't starve fresh chats; default 30), `cooldownSecs` (per-chat silence after a notice, default 1800 = 30 min), `crashLoopThreshold` (suppress entirely when `HOPE_AGENT_CRASH_COUNT >= N`, default 3). Drives the short "back online" notice fanned out to recently-active IM chats after every fresh process boot (see `channel::worker::startup_watcher`). Each send task waits up to 30s for its IM account worker to flip to running (covers OAuth-y handshakes) before bailing — a timeout does **not** burn cooldown, so the next boot retries. Per-account silencing lives on `ChannelAccountConfig.notify_startup` and must be edited in the Channels GUI (this skill cannot reach it). |
 | `canvas` | `enabled`, `autoShow`, `defaultContentType` (e.g. `code` / `html`), `maxProjects`, `maxVersionsPerProject`, `panelWidth` |
 | `image` | `maxImages` |
 | `pdf` | `maxPdfs`, `maxVisionPages` |

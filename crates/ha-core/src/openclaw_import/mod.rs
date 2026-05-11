@@ -573,40 +573,9 @@ fn backup_existing_core_memory_md(path: &std::path::Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::with_env_vars;
     use std::path::Path;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn with_env_vars<T>(vars: &[(&str, &Path)], f: impl FnOnce() -> T) -> T {
-        let _guard = env_lock().lock().expect("lock OpenClaw import test env");
-        let previous: Vec<_> = vars
-            .iter()
-            .map(|(key, _)| (*key, std::env::var_os(key)))
-            .collect();
-        for (key, value) in vars {
-            std::env::set_var(key, value);
-        }
-
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-
-        for (key, value) in previous {
-            if let Some(value) = value {
-                std::env::set_var(key, value);
-            } else {
-                std::env::remove_var(key);
-            }
-        }
-
-        match result {
-            Ok(value) => value,
-            Err(payload) => std::panic::resume_unwind(payload),
-        }
-    }
 
     fn with_openclaw_state_dir<T>(state_dir: &Path, f: impl FnOnce() -> T) -> T {
         with_env_vars(&[("OPENCLAW_STATE_DIR", state_dir)], f)

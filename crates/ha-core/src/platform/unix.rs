@@ -162,3 +162,9 @@ pub(super) fn os_version_string() -> String {
 
     sysinfo::System::long_os_version().unwrap_or_else(|| "unknown".to_string())
 }
+
+pub(super) fn is_cross_device_rename_raw(err: &std::io::Error) -> bool {
+    // EXDEV — same value on Linux, macOS, and the BSDs.
+    const EXDEV: i32 = 18;
+    err.raw_os_error() == Some(EXDEV)
+}

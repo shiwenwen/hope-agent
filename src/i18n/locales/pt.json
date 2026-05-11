@@ -22,8 +22,11 @@
     "updateDownloadProgress": "Progresso do download: {{percent}}%",
     "updateInstall": "Instalar v{{version}}",
     "updateInstallFailed": "Falha ao baixar ou instalar a atualização.",
+    "updateErrorDetails": "Detalhes do erro",
+    "updateErrorLogHint": "O registro completo foi gravado em ~/.hope-agent/logs.db (category: updater). Use /ha-logs para investigar ou anexe esse arquivo ao relatar o problema.",
     "updateInstalled": "Atualização instalada. Reiniciando o Hope Agent...",
     "updateInstalling": "Instalando v{{version}}...",
+    "updateRestartManually": "A atualização foi instalada, mas o reinício automático falhou. Saia do Hope Agent manualmente e abra-o novamente.",
     "updateReady": "Você pode conferir uma nova versão desktop no GitHub Releases ou deixar o Hope Agent instalá-la para você.",
     "updateUpToDate": "Você já está na versão mais recente v{{version}}.",
     "version": "Versão"
@@ -164,6 +167,8 @@
     "noAccounts": "Nenhuma conta de canal IM configurada",
     "notifySessionEviction": "Notificar tomada de sessão",
     "notifySessionEvictionHint": "Envia uma mensagem de sistema ao chat de IM quando esta conta é desanexada de uma sessão porque outro chat a assumiu (attach 1:1).",
+    "notifyStartup": "Enviar aviso de volta online",
+    "notifyStartupHint": "Após reinício do serviço, envia um aviso curto \"de volta online\" para os chats desta conta que estiveram ativos recentemente.",
     "pluginDesc_discord": "Canal Discord Bot",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1355,6 +1360,8 @@
     "mcpAuthRequiredFallback": "Um servidor MCP precisa de autorização OAuth",
     "off": "Desligado",
     "on": "Ligado",
+    "startupDesc": "Após reinício do serviço, publica um aviso curto \"de volta online\" nos chats de IM que estiveram ativos nas últimas 72h. O silenciamento por conta fica em cada conta de canal.",
+    "startupToggle": "Aviso de volta online após reinício",
     "title": "Configurações de notificação"
   },
   "onboarding": {

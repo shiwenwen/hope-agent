@@ -974,7 +974,7 @@ flowchart TD
 |------|------|
 | **允许一次**（AllowOnce） | 本次放行，下次同样弹出 |
 | **始终允许**（AllowAlways） | Auto 模式：写入 `exec-approvals.json` allowlist；AskEveryTime 模式：等同于 AllowOnce（不写 allowlist） |
-| **拒绝**（Deny） | 工具返回错误 `"Tool '{}' execution denied by user"` |
+| **拒绝**（Deny） | 工具返回类型化错误 [`ToolRejection::DeniedByUser`](../../crates/ha-core/src/tools/rejection.rs)，由 [`streaming_loop`](../../crates/ha-core/src/agent/streaming_loop.rs) 出口渲染为 `Tool error: Tool '<name>' execution denied by user. The tool did not execute and no side effects occurred. STOP what you are doing and wait for the user to tell you how to proceed.`；带 `Tool error:` 前缀触发 `is_error` 通道（UI 标红、warn 日志）|
 
 审批等待超时默认 5 分钟，可通过 `config.json` 的 `approvalTimeoutSecs` 配置，`0` 表示不限时。超时后的行为由 `approvalTimeoutAction` 控制：默认 `deny`，阻止工具执行；可选 `proceed`，记录 warning 后继续执行工具。
 

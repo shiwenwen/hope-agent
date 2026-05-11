@@ -29,6 +29,7 @@ pub(crate) mod pdf;
 mod process;
 mod project_read_file;
 pub(crate) mod read;
+pub(crate) mod rejection;
 mod runtime_cancel;
 mod send_attachment;
 pub(crate) mod skill;
@@ -59,6 +60,7 @@ pub use definitions::{
     is_async_capable, is_concurrent_safe, is_internal_tool, CoreSubclass, ToolDefinition, ToolTier,
 };
 pub use execution::{execute_tool_with_context, ToolExecContext};
+pub use rejection::ToolRejection;
 
 // ── Tool Name Constants ──────────────────────────────────────────
 

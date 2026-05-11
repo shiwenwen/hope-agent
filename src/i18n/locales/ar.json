@@ -22,8 +22,11 @@
     "updateDownloadProgress": "تقدم التنزيل: {{percent}}%",
     "updateInstall": "تثبيت v{{version}}",
     "updateInstallFailed": "فشل تنزيل التحديث أو تثبيته.",
+    "updateErrorDetails": "تفاصيل الخطأ",
+    "updateErrorLogHint": "تم تسجيل التتبع الكامل في ~/.hope-agent/logs.db (category: updater). استخدم /ha-logs للتحقيق أو أرفق هذا الملف عند الإبلاغ عن المشكلة.",
     "updateInstalled": "تم تثبيت التحديث. جارٍ إعادة تشغيل Hope Agent...",
     "updateInstalling": "جارٍ تثبيت v{{version}}...",
+    "updateRestartManually": "تم تثبيت التحديث ولكن فشلت إعادة التشغيل التلقائية. يرجى إنهاء Hope Agent يدويًا ثم إعادة فتحه.",
     "updateReady": "يمكنك مراجعة GitHub Releases لإصدار سطح مكتب أحدث أو ترك Hope Agent يثبّت التحديث لك.",
     "updateUpToDate": "أنت تستخدم أحدث إصدار v{{version}}.",
     "version": "الإصدار"
@@ -164,6 +167,8 @@
     "noAccounts": "لم يتم تكوين أي حسابات قنوات IM بعد",
     "notifySessionEviction": "إشعار استلام الجلسة",
     "notifySessionEvictionHint": "إرسال رسالة نظام إلى محادثة IM عند فصل هذا الحساب عن جلسة بسبب استيلاء محادثة أخرى عليها (ربط 1:1).",
+    "notifyStartup": "إرسال إشعار «عاد للعمل»",
+    "notifyStartupHint": "بعد إعادة تشغيل الخدمة، يرسل إشعارًا قصيرًا «عاد للعمل» إلى الدردشات التي كانت نشطة مؤخرًا على هذا الحساب.",
     "pluginDesc_discord": "قناة Discord Bot",
     "pluginDesc_feishu": "بوت Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1355,6 +1360,8 @@
     "mcpAuthRequiredFallback": "خادم MCP يحتاج إلى تفويض OAuth",
     "off": "إيقاف",
     "on": "تشغيل",
+    "startupDesc": "بعد إعادة تشغيل الخدمة، يُنشر إشعار قصير «عاد للعمل» في دردشات الرسائل الفورية التي كانت نشطة خلال آخر 72 ساعة. كتم الصوت لكل حساب يُضبط في إعدادات الحساب على كل قناة.",
+    "startupToggle": "إشعار «عاد للعمل» بعد إعادة التشغيل",
     "title": "إعدادات الإشعارات"
   },
   "onboarding": {

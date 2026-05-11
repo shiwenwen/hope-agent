@@ -88,6 +88,67 @@ impl Default for NotificationConfig {
     }
 }
 
+// ── Startup Notification Config ─────────────────────────────────
+
+/// Configuration for the IM startup-notification subsystem
+/// (`crates/ha-core/src/channel/worker/startup_watcher.rs`).
+///
+/// On every fresh process boot the watcher fans a short "back online" notice
+/// out to every IM chat that had a non-incognito, non-cron, non-subagent
+/// conversation within `window_secs`. Each chat is rate-limited by
+/// `cooldown_secs` (per chat) and the entire fan-out is capped at
+/// `global_max`. Crash loops (`HOPE_AGENT_CRASH_COUNT >=
+/// crash_loop_threshold`) suppress the notice entirely.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupNotificationConfig {
+    /// Master switch. When false the watcher is a no-op.
+    #[serde(default = "crate::default_true")]
+    pub enabled: bool,
+    /// Activity window for picking recipients (seconds). Default 72h.
+    #[serde(default = "default_startup_window_secs")]
+    pub window_secs: u64,
+    /// Hard upper bound on the number of chats notified in one boot,
+    /// across all channels and accounts. Default 30. Prevents fan-out
+    /// blowup on machines with many active conversations.
+    #[serde(default = "default_startup_global_max")]
+    pub global_max: usize,
+    /// Per-chat cooldown (seconds) — a chat that was notified more
+    /// recently than this is silently skipped. Default 1800 (30 min).
+    #[serde(default = "default_startup_cooldown_secs")]
+    pub cooldown_secs: u64,
+    /// If `HOPE_AGENT_CRASH_COUNT` env var is set to a number `>=` this
+    /// threshold, the watcher suppresses the notice entirely to avoid
+    /// pestering the user during a crash loop. Default 3.
+    #[serde(default = "default_startup_crash_threshold")]
+    pub crash_loop_threshold: u32,
+}
+
+fn default_startup_window_secs() -> u64 {
+    72 * 3600
+}
+fn default_startup_global_max() -> usize {
+    30
+}
+fn default_startup_cooldown_secs() -> u64 {
+    30 * 60
+}
+fn default_startup_crash_threshold() -> u32 {
+    3
+}
+
+impl Default for StartupNotificationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            window_secs: default_startup_window_secs(),
+            global_max: default_startup_global_max(),
+            cooldown_secs: default_startup_cooldown_secs(),
+            crash_loop_threshold: default_startup_crash_threshold(),
+        }
+    }
+}
+
 // ── Deferred Tools Config ───────────────────────────────────────
 
 /// Configuration for deferred tool loading.
@@ -464,6 +525,12 @@ pub struct AppConfig {
     /// Notification configuration
     #[serde(default)]
     pub notification: NotificationConfig,
+    /// IM startup-notification configuration. Drives the short "back
+    /// online" notice sent on every fresh boot to chats active within
+    /// `startup_notification.window_secs`. See
+    /// `channel::worker::startup_watcher`.
+    #[serde(default)]
+    pub startup_notification: StartupNotificationConfig,
     /// Image generation configuration
     #[serde(default)]
     pub image_generate: crate::tools::image_generate::ImageGenConfig,
@@ -677,6 +744,7 @@ impl Default for AppConfig {
             compact: crate::context_compact::CompactConfig::default(),
             session_title: crate::session_title::SessionTitleConfig::default(),
             notification: NotificationConfig::default(),
+            startup_notification: StartupNotificationConfig::default(),
             image_generate: crate::tools::image_generate::ImageGenConfig::default(),
             canvas: crate::tools::canvas::CanvasConfig::default(),
             image: crate::tools::image::ImageToolConfig::default(),

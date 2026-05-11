@@ -340,7 +340,14 @@ pub(crate) async fn execute_list_records(args: &Value) -> Result<String> {
     let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let page = api
-        .bitable_list_records(app_token, table_id, view_id, filter, page_token, page_size)
+        .bitable_list_records(crate::channel::feishu::api_bitable::BitableListRecordsReq {
+            app_token,
+            table_id,
+            view_id,
+            filter,
+            page_token,
+            page_size,
+        })
         .await?;
     Ok(serde_json::to_string(&page)?)
 }
@@ -374,11 +381,13 @@ pub(crate) async fn execute_search_records(args: &Value) -> Result<String> {
     let api = resolve_feishu_api(account).await?;
     let page = api
         .bitable_search_records(
-            app_token,
-            table_id,
-            Value::Object(body),
-            page_token,
-            page_size,
+            crate::channel::feishu::api_bitable::BitableSearchRecordsReq {
+                app_token,
+                table_id,
+                body: Value::Object(body),
+                page_token,
+                page_size,
+            },
         )
         .await?;
     Ok(serde_json::to_string(&page)?)
@@ -416,7 +425,12 @@ pub(crate) async fn execute_list_views(args: &Value) -> Result<String> {
     let account = arg_str(args, "account");
     let api = resolve_feishu_api(account).await?;
     let page = api
-        .bitable_list_views(app_token, table_id, page_token, page_size)
+        .bitable_list_views(crate::channel::feishu::api_bitable::BitableListViewsReq {
+            app_token,
+            table_id,
+            page_token,
+            page_size,
+        })
         .await?;
     Ok(serde_json::to_string(&page)?)
 }

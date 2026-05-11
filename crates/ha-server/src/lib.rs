@@ -566,6 +566,14 @@ fn build_router_with_cors(
             put(routes::config::save_notification_config),
         )
         .route(
+            "/config/startup-notification",
+            get(routes::config::get_startup_notification_config),
+        )
+        .route(
+            "/config/startup-notification",
+            put(routes::config::save_startup_notification_config),
+        )
+        .route(
             "/config/tool-timeout",
             get(routes::config::get_tool_timeout),
         )

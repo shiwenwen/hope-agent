@@ -10,9 +10,11 @@ import {
   isDesktopUpdaterAvailable,
   relaunchDesktopApp,
   setPendingUpdate as setGlobalPendingUpdate,
+  subscribeManualCheckRequests,
   type DesktopUpdate,
 } from "@/lib/desktopUpdater"
 import { useDesktopUpdateStore } from "@/hooks/useDesktopUpdateStore"
+import { logger } from "@/lib/logger"
 import { getTransport } from "@/lib/transport-provider"
 
 interface HighlightItem {
@@ -31,8 +33,19 @@ export default function AboutPanel() {
   const [installingUpdate, setInstallingUpdate] = useState(false)
   const [pendingUpdate, setPendingUpdate] = useState<DesktopUpdate | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
   const [downloadPercent, setDownloadPercent] = useState<number | null>(null)
   const desktopUpdaterAvailable = isDesktopUpdaterAvailable()
+
+  function describeError(err: unknown): string {
+    if (err instanceof Error) return err.message || err.toString()
+    if (typeof err === "string") return err
+    try {
+      return JSON.stringify(err)
+    } catch {
+      return String(err)
+    }
+  }
 
   // Sync from global store: if auto-check found an update, reflect it here
   const syncedRef = useRef(false)
@@ -43,6 +56,21 @@ export default function AboutPanel() {
       setUpdateStatus(t("about.updateAvailable", { version: globalPendingUpdate.version }))
     }
   }, [globalPendingUpdate, t])
+
+  // Subscribe to manual-check requests from the desktopUpdater store.
+  // The store is fed by App.tsx's `desktop-update-check` listener (always
+  // mounted) and queues a single pending request when no subscriber is
+  // present, so requests fired before this panel mounts (e.g. from the
+  // macOS app menu while the user is on the chat view) are replayed on
+  // subscribe rather than dropped. `checkRef` keeps the subscription stable
+  // while still calling the latest closure with current state.
+  const checkRef = useRef<() => void>(() => {})
+  useEffect(() => {
+    const unsubscribe = subscribeManualCheckRequests(() => {
+      checkRef.current()
+    })
+    return unsubscribe
+  }, [])
 
   const highlights: HighlightItem[] = [
     {
@@ -80,6 +108,7 @@ export default function AboutPanel() {
   async function handleCheckForUpdates() {
     setCheckingUpdate(true)
     setUpdateStatus(t("about.updateChecking"))
+    setUpdateError(null)
     setDownloadPercent(null)
 
     try {
@@ -94,21 +123,41 @@ export default function AboutPanel() {
       setPendingUpdate(update)
       void setGlobalPendingUpdate(update)
       setUpdateStatus(t("about.updateAvailable", { version: update.version }))
-    } catch {
+    } catch (err) {
+      const detail = describeError(err)
+      logger.error("updater", "AboutPanel::handleCheckForUpdates", "check failed", {
+        error: detail,
+        currentVersion: appVersion,
+      })
       setPendingUpdate(null)
       void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateCheckFailed"))
+      setUpdateError(detail)
     } finally {
       setCheckingUpdate(false)
     }
   }
+
+  // Keep `checkRef` pointing at the latest closure so the menu listener
+  // (registered once, see the `desktop-update-check` effect) always invokes
+  // the freshest version with current state.
+  useEffect(() => {
+    checkRef.current = () => {
+      void handleCheckForUpdates()
+    }
+  })
 
   async function handleInstallUpdate() {
     if (!pendingUpdate) return
 
     setInstallingUpdate(true)
     setDownloadPercent(0)
+    setUpdateError(null)
     setUpdateStatus(t("about.updateInstalling", { version: pendingUpdate.version }))
+    logger.info("updater", "AboutPanel::handleInstallUpdate", "install started", {
+      fromVersion: appVersion,
+      toVersion: pendingUpdate.version,
+    })
 
     let downloaded = 0
     let contentLength = 0
@@ -135,9 +184,37 @@ export default function AboutPanel() {
       await setPendingUpdate(null)
       void setGlobalPendingUpdate(null)
       setUpdateStatus(t("about.updateInstalled"))
-      await relaunchDesktopApp()
-    } catch {
+      logger.info(
+        "updater",
+        "AboutPanel::handleInstallUpdate",
+        "install completed, scheduling relaunch",
+      )
+      // Give the user a beat to see the "installed, restarting" message
+      // before the process exits — without this the UI flips to a blank
+      // pre-relaunch state and the whole flow feels like nothing happened.
+      await new Promise((resolve) => setTimeout(resolve, 1500))
+      try {
+        await relaunchDesktopApp()
+      } catch (err) {
+        // relaunch() normally never returns (process exits). If it threw,
+        // surface a manual-restart hint instead of silently leaving the
+        // user staring at the "installed" message.
+        const detail = describeError(err)
+        logger.error("updater", "AboutPanel::handleInstallUpdate", "relaunch failed", {
+          error: detail,
+        })
+        setUpdateStatus(t("about.updateRestartManually"))
+        setUpdateError(detail)
+      }
+    } catch (err) {
+      const detail = describeError(err)
+      logger.error("updater", "AboutPanel::handleInstallUpdate", "install failed", {
+        error: detail,
+        fromVersion: appVersion,
+        toVersion: pendingUpdate.version,
+      })
       setUpdateStatus(t("about.updateInstallFailed"))
+      setUpdateError(detail)
     } finally {
       setInstallingUpdate(false)
     }
@@ -170,7 +247,7 @@ export default function AboutPanel() {
                   <span className="inline-flex items-center rounded-full border border-border/70 bg-secondary/40 px-3 py-1 text-sm font-medium text-muted-foreground">
                     v{appVersion}
                   </span>
-                  {desktopUpdaterAvailable && !pendingUpdate && (
+                  {desktopUpdaterAvailable && (
                     <Button
                       variant="outline"
                       size="sm"
@@ -240,6 +317,20 @@ export default function AboutPanel() {
                   </div>
                 )}
               </div>
+            )}
+
+            {updateError && (
+              <details className="mt-3 rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-xs">
+                <summary className="cursor-pointer select-none font-medium text-destructive/90">
+                  {t("about.updateErrorDetails")}
+                </summary>
+                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[11px] leading-relaxed text-muted-foreground">
+                  {updateError}
+                </pre>
+                <p className="mt-2 text-[11px] text-muted-foreground/80">
+                  {t("about.updateErrorLogHint")}
+                </p>
+              </details>
             )}
 
             <p className="mt-6 max-w-4xl text-2xl font-semibold leading-tight tracking-tight text-foreground lg:text-4xl">

@@ -42,14 +42,14 @@ PR (含 release notes + CHANGELOG + version bump)
 
 ## 1. patch 发版完整步骤
 
-以从 `release/0.1` 发 `v0.1.2` 为例。
+以从 `release/v0.1` 发 `v0.1.2` 为例。
 
 ### 1.1 准备发版 PR
 
 从目标维护分支切发版 PR 分支：
 
 ```bash
-git checkout release/0.1 && git pull
+git checkout release/v0.1 && git pull
 git checkout -b release/v0.1.2
 ```
 
@@ -62,6 +62,10 @@ git checkout -b release/v0.1.2
 - [docs/release-notes/v0.1.2.en.md](release-notes/) — 英文
 
 顶部互加 `简体中文 · English` 切换链接（AGENTS.md 强制约定）。文件名必须与 tag 严格对应（带 `v` 前缀），CI 据此填充 `latest.json#notes`。
+
+**链接一律用完整 GitHub URL（tag pin），禁止相对路径**：release notes 内所有跨文件链接必须使用 `https://github.com/shiwenwen/hope-agent/blob/v<X>.<Y>.<Z>/...` 形式的绝对 URL，不要用 `./` 或 `../`。包括中英切换链接、CHANGELOG 锚点、历史 release notes 引用。
+
+原因：[release.yml](../.github/workflows/release.yml) 把 release notes 注入 GitHub Release body 与 `latest.json#notes`；前者 GitHub 会代解析相对路径，后者在桌面应用内的「发现新版」弹窗里渲染时已脱离 GitHub 上下文，相对路径必 broken。tag pin 在 release.yml 触发时（tag push 后）已含本文件，永不漂移；用 `main` 分支引用则需要等 backport 合并才生效，时序上有窗口期。
 
 **(b) 更新 CHANGELOG**
 
@@ -83,20 +87,20 @@ git add CHANGELOG.md \
         package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
 git commit -m "release: v0.1.2"
 git push -u origin release/v0.1.2
-gh pr create --base release/0.1 --title "release: v0.1.2" \
+gh pr create --base release/v0.1 --title "release: v0.1.2" \
   --body "release notes 见 docs/release-notes/v0.1.2.md"
 ```
 
 ### 1.2 合并 PR
 
-走完 8 项 status check（CI 必须全绿），由 reviewer 合并到 `release/0.1`。merge / squash / rebase 任选，hash 漂移不影响后续 tag。
+走完 8 项 status check（CI 必须全绿），由 reviewer 合并到 `release/v0.1`。merge / squash / rebase 任选，hash 漂移不影响后续 tag。
 
 ### 1.3 打 tag 推 tag 触发 CI
 
 PR 合并后，本地：
 
 ```bash
-git checkout release/0.1 && git pull
+git checkout release/v0.1 && git pull
 git tag v0.1.2
 git push origin v0.1.2
 ```
@@ -132,24 +136,24 @@ GitHub Releases 页找到 `Hope Agent v0.1.2` draft，确认：
 
 ### 2.1 PR base 改为 main
 
-§1.1 的 PR base 从 `release/0.1` 换成 `main`。
+§1.1 的 PR base 从 `release/v0.1` 换成 `main`。
 
 ### 2.2 tag 在 main HEAD 打
 
-§1.3 的 `git checkout release/0.1` 改为 `git checkout main`。
+§1.3 的 `git checkout release/v0.1` 改为 `git checkout main`。
 
 ### 2.3 发版后切维护分支
 
 tag 推送 + Release publish 完成后，**额外**切一条新维护分支并推送：
 
 ```bash
-git branch release/0.2 v0.2.0
-git push -u origin release/0.2
+git branch release/v0.2 v0.2.0
+git push -u origin release/v0.2
 ```
 
 CI 触发条件 ([lint.yml](../.github/workflows/lint.yml) / [rust.yml](../.github/workflows/rust.yml) 的 `branches: [main, "release/**"]`) 与 GitHub ruleset `main-branch-protection` 的 `refs/heads/release/**` 通配符自动覆盖新分支，不需要手配。
 
-后续 `v0.2.x` 系列 patch 在 `release/0.2` 上发，按 §1 流程走。
+后续 `v0.2.x` 系列 patch 在 `release/v0.2` 上发，按 §1 流程走。
 
 ---
 
@@ -162,7 +166,7 @@ CI 触发条件 ([lint.yml](../.github/workflows/lint.yml) / [rust.yml](../.gith
 每发一版 patch 后立刻批量 cherry-pick 该版本所有 commit 到 main：
 
 ```bash
-# 列出 v0.1.1 → v0.1.2 之间 release/0.1 上的所有 commit
+# 列出 v0.1.1 → v0.1.2 之间 release/v0.1 上的所有 commit
 git log v0.1.1..v0.1.2 --oneline
 
 # 切 backport 分支并一次性 cherry-pick 整段
@@ -174,7 +178,7 @@ git cherry-pick v0.1.1..v0.1.2
 git push -u origin backport/v0.1.2-to-main
 gh pr create --base main \
   --title "backport: v0.1.2 fixes to main" \
-  --body "cherry-pick 自 release/0.1, 含 v0.1.1..v0.1.2 全部 commit"
+  --body "cherry-pick 自 release/v0.1, 含 v0.1.1..v0.1.2 全部 commit"
 ```
 
 N 个 fix 只开一个 backport PR，节奏可控。
@@ -231,6 +235,7 @@ git cherry-pick -x <sha>     # 加 (cherry picked from commit <sha>)
 |---|---|---|
 | `pnpm version X.Y.Z` 不带 `--no-git-tag-version` | 本地直接产 commit + tag，但 branch protection 不让推到 `main` / `release/**`，发版卡死 | 一律 `--no-git-tag-version`，version commit 走 PR |
 | release notes 文件名错（如 `0.1.2.md` 缺 `v` 前缀，或拼写错误） | `latest.json#notes` 落 fallback 文字 `See CHANGELOG.md for details.`，客户端弹窗看到通用文字 | 文件名严格匹配 tag：`docs/release-notes/v<X>.<Y>.<Z>.md` |
+| release notes 用相对路径（`./` `../`） | 注入到 `latest.json#notes` 后桌面应用「发现新版」弹窗里链接全 broken（不在 GitHub 渲染上下文里） | 一律 `https://github.com/shiwenwen/hope-agent/blob/v<X>.<Y>.<Z>/...` 完整 URL（tag pin） |
 | 忘记同 PR 合双语 release notes | 中英任一缺失，AGENTS.md 文档约定违例 | 一个发版 PR 必有 4 个文件改动：CHANGELOG + 中文 notes + 英文 notes + 三个 version 文件 |
 | draft Release 不 publish | updater endpoint 抓不到，已发布版本对客户端不可见 | §1.4 必须人工 publish |
 | 在功能分支 `pnpm version` 带 commit/tag | squash merge 后本地 tag 指向不在 main 上的死 commit，需要重打 | 始终 `--no-git-tag-version`，tag 在 PR 合并后的目标分支 HEAD 上重新打 |
@@ -265,8 +270,8 @@ git cherry-pick -x <sha>     # 加 (cherry picked from commit <sha>)
 ### 5.3 常用 git 命令
 
 ```bash
-# 看 release/0.1 上 main 没有的 commit（待 backport 候选）
-git log origin/main..origin/release/0.1 --oneline
+# 看 release/v0.1 上 main 没有的 commit（待 backport 候选）
+git log origin/main..origin/release/v0.1 --oneline
 
 # 看两版之间的 commit（构造 backport 范围）
 git log v0.1.1..v0.1.2 --oneline

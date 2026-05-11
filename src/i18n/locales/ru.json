@@ -22,8 +22,11 @@
     "updateDownloadProgress": "Прогресс загрузки: {{percent}}%",
     "updateInstall": "Установить v{{version}}",
     "updateInstallFailed": "Не удалось скачать или установить обновление.",
+    "updateErrorDetails": "Подробности ошибки",
+    "updateErrorLogHint": "Полный трейс записан в ~/.hope-agent/logs.db (category: updater). Используйте /ha-logs для разбора или приложите этот файл к отчёту о проблеме.",
     "updateInstalled": "Обновление установлено. Перезапускаю Hope Agent...",
     "updateInstalling": "Установка v{{version}}...",
+    "updateRestartManually": "Обновление установлено, но автоматический перезапуск не удался. Закройте Hope Agent вручную и откройте его снова.",
     "updateReady": "Можно посмотреть новый настольный релиз на GitHub Releases или поручить Hope Agent установить его напрямую.",
     "updateUpToDate": "У вас уже установлена последняя версия v{{version}}.",
     "version": "Версия"
@@ -164,6 +167,8 @@
     "noAccounts": "Нет настроенных аккаунтов IM-каналов",
     "notifySessionEviction": "Уведомлять о перехвате сессии",
     "notifySessionEvictionHint": "Отправлять системное сообщение в IM, когда этот аккаунт открепляется от сессии, потому что другой чат её перехватил (1:1 attach).",
+    "notifyStartup": "Отправлять уведомление «снова в сети»",
+    "notifyStartupHint": "После перезапуска сервиса в чатах этого аккаунта, активных недавно, появится короткое уведомление «снова в сети».",
     "pluginDesc_discord": "Канал Discord Bot",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1355,6 +1360,8 @@
     "mcpAuthRequiredFallback": "Серверу MCP требуется авторизация OAuth",
     "off": "Выкл",
     "on": "Вкл",
+    "startupDesc": "После перезапуска сервиса публикует короткое уведомление «снова в сети» в IM-чатах, активных за последние 72 ч. Отключение на уровне аккаунта настраивается в каждой учётной записи канала.",
+    "startupToggle": "Уведомление «снова в сети» после перезапуска",
     "title": "Настройки уведомлений"
   },
   "onboarding": {

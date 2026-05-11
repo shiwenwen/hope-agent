@@ -831,66 +831,28 @@
 - **影响面**：当前 Windows 中文用户首次安装 / 卸载 installer UI 是英文（一次性体验，应用内仍是中文）
 - **触发时机建议**：v0.1.1 或下一次动 windows release packaging 时
 
+### F-075 WKWebView release 默认右键菜单含 "Reload" — 需要禁用 webview context menu
+
+- **来源**：2026-05-10 v0.1.0 release build 实测（fix/0.1-check-for-updates-menu 自测）
+- **现象**：release 桌面 app 右键 webview 主区域，弹出 macOS WKWebView 内置上下文菜单，里面有 "Reload" 等开发者风味选项；非编辑区域不该出现 reload。Tauri 这边没注册任何 reload 菜单（dev_reload_webview 在 `#[cfg(debug_assertions)]` gate 后），是 WKWebView 默认行为
+- **为什么留**：当前 PR 主题是 updater 菜单 + 错误诊断，禁用 context menu 是独立 UI 行为变更，影响所有页面（含输入框系统右键），需要做白名单逻辑（输入框保留 cut/copy/paste/Look up，非编辑区禁用），不在本期 scope
+- **改的话要做什么**：在前端入口（[`src/main.tsx`](../../src/main.tsx) 或 [`App.tsx`](../../src/App.tsx)）加全局 contextmenu listener，仅在 release（`import.meta.env.PROD`）+ Tauri 模式下 `e.preventDefault()`；按 `target` 是否 `HTMLInputElement / HTMLTextAreaElement / contenteditable` 决定是否保留默认菜单。或后端方案：用 webview2 / wkwebview API 全局禁 context menu（侵入性更大）
+- **影响面**：用户视角的"开发者风味泄露"，无功能问题；纯观感
+- **触发时机建议**：下次有人改前端入口 / 做 release UI polish 时
+
+### F-076 plugin-process `relaunch()` 与 single-instance 锁的潜在 race
+
+- **来源**：2026-05-10 fix/0.1-check-for-updates-menu 自测期间（实际未触发，仅理论分析）
+- **现象**：[`src-tauri/src/lib.rs:110-118`](../../src-tauri/src/lib.rs) 注册了 `tauri_plugin_single_instance`；plugin-updater 的 `downloadAndInstall` 完成后我们调 `relaunch()`，内部 `Command::spawn(new_process)` → `std::process::exit(0)`。理论 race：新进程在老进程释放 single-instance 锁之前启动 → callback 老进程后 self-exit → 老进程也 exit → 没有进程在跑。OS 级文件锁随进程 cleanup 释放，是否真触发取决于内核调度
+- **为什么留**：本期实测没触发（v0.1.1 install + relaunch 一次成功跑通）；macOS 实际表现里 .app 替换 + cleanup + spawn 间隔足够大，race 没发生。先记下根因路径
+- **改的话要做什么**：如果用户报「更新已安装但没重启」，三个方向二选一：
+  - **方案 A**：让 single-instance plugin 在 callback 里识别"是 relaunch 触发的二次启动"，不 self-exit 改为 retry acquire；需要 plugin 上游 API 或 fork
+  - **方案 B**：在调 `relaunch()` 前主动让老进程释放 single-instance lock（如有 plugin API）
+  - **方案 C**：放弃 plugin-updater 自带的 relaunch，自己实现 spawn-with-delay：spawn 一个 detached shell 命令 `sleep 1 && open -a "Hope Agent.app"` 后立即 exit，把锁释放和新进程启动用时间窗口隔开
+- **影响面**：理论 bug。命中时用户看到「更新已安装，正在重新启动 Hope Agent...」但 app 没起来（前端 fallback 文案 `about.updateRestartManually` 已经覆盖了"用户感知"层）
+- **触发时机建议**：用户实际报上来时启动调查；或下次动 plugin-process / single-instance 集成时
+
 ---
-
-### F-075 飞书入站事件 `event.clone()` 每条 fan-out 一次
-
-- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Efficiency Agent HIGH #2/#3)
-- **现象**：[`channel/feishu/inbound_events.rs`](../../crates/ha-core/src/channel/feishu/inbound_events.rs) 的 `parse_read_receipt_list` (≈line 165) 与 `parse_user_added_or_deleted` (≈line 220) 在 `.map()` 内对每条受体 / 每个用户 `event.clone()`，扁平化 fan-out 出 N 个 `InboundEvent` 时 deep clone N 次。读回执批量带 100 个 `message_id` = 100 次 `serde_json::Value` deep clone；50 人入群同理。
-- **为什么留**：`EventCommon.raw: Value` 是字段定义；改成 `Arc<Value>` 是 type-level 改造，会触动 6 variants 的所有受用方（dispatcher log handlers / 未来 B.2 业务行为）。当前 v0.2.0 非消息事件 dispatcher log-only，clone 成本只是 CPU + 内存峰值，无 user-visible bug。Phase B.2 接业务行为时会顺手做这次改造（届时 raw 也可能根本不需要，可以 drop）。
-- **改的话要做什么**：
-  - `channel/types.rs::EventCommon.raw` 改 `Arc<serde_json::Value>`
-  - 6 variants 的所有 emit / read 站点跟着改（3 dispatcher log_* + 1 inbound_events.rs + 1 inbound_events 测试 + 1 序列化 contract）
-  - 或者：`take last on iter()` 模式只让最后一条 move 不 clone，其余 clone — 省一次但不解决 N-1 问题
-- **影响面**：纯性能 / 内存。读回执 100 条批量场景下 ~100KB - 1MB 临时分配；正常 1-2 条场景无感知。
-
-### F-076 飞书 `auth_cache` 用 `Mutex` 而非 `RwLock`
-
-- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Efficiency Agent MEDIUM #4)
-- **现象**：[`tools/feishu/mod.rs::auth_cache`](../../crates/ha-core/src/tools/feishu/mod.rs) 用 `tokio::sync::Mutex<HashMap<String, (CredsSnapshot, Arc<FeishuAuth>)>>`；缓存命中（hot path）只读 + creds 比较 + `Arc::clone`，但所有并发 `feishu_*` tool 串行通过 mutex。
-- **为什么留**：当前预期并发上限 5-10 ≤ tool calls；实战未观察到 lock contention。改 `RwLock` + 写路径 double-check 是 30 行的小重构，但当前没有用户痛点。
-- **改的话要做什么**：换 `RwLock`；命中走 `read().get(...).cloned()`；miss 走 `write()` + 二次 check 防 race。
-- **影响面**：性能。LLM 启用 deferred-tools + 同时 fan-out 10+ feishu 调用时显著；常规场景无感。
-
-### F-077 飞书 `inbound_media::materialize_inbound` 串行下载多媒体
-
-- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Efficiency Agent MEDIUM #5)
-- **现象**：[`channel/feishu/ws_event.rs::handle_message_event`](../../crates/ha-core/src/channel/feishu/ws_event.rs) 在 `for p in &parsed { materialize_inbound(...).await }` 串行下载每条 inbound media。飞书 `media` msg_type 单条消息可能含 video + cover image 两个 file_key，串行下载累计延迟。
-- **为什么留**：飞书单条消息典型只有 1 个媒体（image / file / sticker / 单 audio），串行延迟 < 500ms 用户无感。`media` 消息类型是少数场景。drop-in 替换 `futures::future::join_all` 即可，但当前没痛点。
-- **改的话要做什么**：`futures::future::join_all(parsed.iter().map(|p| materialize_inbound(...)))`，再 `filter_map(Option::Some)` 过滤失败；现有 import / signature 全够。
-- **影响面**：延迟。多媒体场景每条额外 ~500ms-2s；典型场景无差异。
-
-### F-078 飞书业务 tool 6+ 参数函数签名应改 builder / request struct
-
-- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Code Quality Agent MEDIUM #7)
-- **现象**：[`channel/feishu/api_bitable.rs::bitable_list_records`](../../crates/ha-core/src/channel/feishu/api_bitable.rs) 6 个位置参数（`app_token, table_id, view_id?, filter?, page_token?, page_size?`），同形 `bitable_search_records` / `calendar_list_events` / `contact_search_users_by_department` / `bitable_list_views`。tools 层 `execute_*` 也跟着传 5+ 个参数。
-- **为什么留**：调用都在同一文件 + 当期已有 type-safe `Option<&str>`，foot-gun 风险低；改成 `BitableListReq { ... }` 涉及 4-5 个文件 ~80 行。
-- **改的话要做什么**：每个 list/search 类方法引入 `XxxRequest` 结构（builder 风格更佳），api_*.rs + tools/feishu/*.rs execute_* 跟着改。
-- **影响面**：可读性。当前 6 个 `None` / `Some(...)` 顺序错了编译过不了，但 review 时容易看错。
-
-### F-079 飞书 `parent_type` 写死 `"explorer"` — 不能上传到 docx 内嵌图片
-
-- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Code Quality Agent MEDIUM #8)
-- **现象**：[`tools/feishu/drive.rs::execute_upload_media`](../../crates/ha-core/src/tools/feishu/drive.rs) 调 API 时硬编码 `parent_type = "explorer"`。Feishu API 支持 `explorer` / `docx_image` / `sheet_image` / `bitable_image` / `vc_virtual_background` / `slides_image` 等多种 parent_type。
-- **为什么留**：90% 用例是 drive folder upload，`explorer` 够用；上传到 docx 内嵌图片是少数场景，需要 LLM 知道 parent_type 含义且配合 docx 块创建流程。当前没有用户反馈。
-- **改的话要做什么**：tool schema 加可选 `parent_type` 字段（默认 `"explorer"`），api_drive.rs 已经接受 `parent_type` 参数，只需透传。或者引入 `enum DriveParentType { Explorer, DocxImage, ... }`。
-- **影响面**：功能盲点。想上传图片到 docx 块的 LLM 走不通；当前无人触发。
-
-### F-080 飞书业务 tool 名常量分散在每个 `tools/feishu/<module>.rs`
-
-- **来源**：2026-05-09 v0.2.0 飞书完整对齐 `/simplify` review (Code Quality Agent MEDIUM #6)
-- **现象**：现有非飞书 tool 名常量都集中在 [`tools/mod.rs`](../../crates/ha-core/src/tools/mod.rs) 的 `pub const TOOL_*` 块；新增 35 个 `feishu_*` tool 散落在 `tools/feishu/<module>.rs` 各自 `pub const TOOL_DOCX_CREATE` 等，dispatcher 通过 `super::feishu::docx::TOOL_*` 跨模块引用。两套约定共存。
-- **为什么留**：把 35 个常量集中到 `tools/mod.rs` 让该文件膨胀很多（且后续 v0.3 加更多 feishu_* tool 还会膨胀）；当前每模块自治反而更模块化。`permission::rules::extract_path_arg` 已经按 review 改成走常量引用而非字符串字面量（F-079 同期修复），跨模块引用模式实证可行。
-- **改的话要做什么**：要么集中到 `tools/mod.rs`（与 read/write 风格一致），要么从 `tools/feishu/mod.rs` 显式 re-export 所有 `TOOL_*` 常量给 dispatcher 用单一短前缀。两选一。
-- **影响面**：风格一致性，无功能影响。
-
-### F-081 飞书 `inbound-temp/` 缺 GC，长期累积可能撑爆磁盘
-
-- **来源**：2026-05-09 v0.2.0 飞书入站媒体 review P2 后续讨论
-- **现象**：[`channel/feishu/inbound_media.rs`](../../crates/ha-core/src/channel/feishu/inbound_media.rs) 把入站附件落在 `~/.hope-agent/channels/feishu/inbound-temp/`，由 [`channel/worker/media.rs::convert_inbound_media_to_attachments`](../../crates/ha-core/src/channel/worker/media.rs) 复制一份到 session attachments dir 喂给 LLM。源文件**永远留在 `inbound-temp/`**，没有 GC——长期跑下来同一个用户群里发的图片、视频、PDF 全部累计在这个目录里，最终撑爆磁盘。`INBOUND_DOWNLOAD_MAX_BYTES = 512 MiB` 单文件 cap 防不住"100 个 100 MB 文件 = 10 GB"的累计形态。
-- **为什么留**：本期讨论里把磁盘防御明确从单文件 cap 解耦——cap 只做 sanity tripwire（防 multi-GB 异常 body），磁盘 GC 该在专门的层做。本期不动 GC 是因为：①还没见过用户实际撞这个问题；②正确的方案需要决定 GC 策略（按 mtime 滚动 / 总大小水位 / 按 session 生命周期挂钩 / 按账号配额），不是改一个 cap 能解决的。
-- **改的话要做什么**：要么 ①入站后立刻 move（而非 copy）到 session attachments dir，下载层文件随 session 删除一起清；要么 ②给 `inbound-temp/` 加独立 GC 任务（轮询 mtime > 7 天 / 总大小 > N GB 触发清理）；要么 ③`materialize_inbound` 写完后只用临时文件做 mid-step，等 `convert_inbound_media_to_attachments` 复制成功后立即 delete 源文件。①与现有 1:1 attach 模型不冲突，最简洁。
-- **影响面**：长期运行的 IM bot 磁盘占用单调增长，但不立刻致命；有大量入站附件的租户可能在几周到几个月后撞 ENOSPC。其它 channel（telegram / discord / etc.）的 inbound-temp/ 等价目录也都没有 GC，是同类问题——本期只就飞书登记，将来若动 GC 该是 channel-agnostic 设计。
 
 ### F-082 IM 入站附件路径 12 渠道一致性 hardening（飞书模板外推）
 
@@ -916,6 +878,25 @@
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-075 ~ F-081 + F-083 ~ F-085 飞书 v0.2.0 review followup 一次性清算（10 条）
+
+- **关闭于**：2026-05-10，分支 `refactor/feishu-followups`
+- **如何关闭**：把 v0.2.0 飞书完整对齐 PR 留下的 7 条 followup（F-075 ~ F-081）一次性收掉，剔除 F-082（跨 11 渠道入站附件 hardening，独立分阶段 PR 推）；本分支 `/simplify` review 又发现 3 条新 followup（F-083 / F-084 / F-085），不外溢——同分支顺手清掉：
+
+  - **F-077** `perf(channel/feishu): F-077 materialize_pending_media 并发下载入站多媒体` (a06c7a40) —— [`channel/feishu/mod.rs::materialize_pending_media`](../../crates/ha-core/src/channel/feishu/mod.rs) 串行 `for ... await` 改 `futures_util::future::join_all`，单条 media 含多个 file_key 时累计延迟从 N×往返降到 1 次往返
+  - **F-079** `feat(tools/feishu): F-079 feishu_drive_upload_media 暴露 parent_type` (052ee1e2) —— [`tools/feishu/drive.rs::upload_media_tool`](../../crates/ha-core/src/tools/feishu/drive.rs) schema 加可选 `parent_type` 字段（enum 6 值），默认 `explorer` 保向后兼容；可上传到 docx_image / sheet_image / bitable_image / slides_image / vc_virtual_background
+  - **F-076** `perf(tools/feishu): F-076 auth_cache Mutex 改 RwLock + double-check` (8f96a6f3) —— [`tools/feishu/mod.rs::auth_cache`](../../crates/ha-core/src/tools/feishu/mod.rs) `tokio::sync::Mutex` → `RwLock`，命中 hot path 走 read 锁完全并发，miss / creds 失配走 write + 二次 get 防 race
+  - **F-080** `refactor(tools/feishu): F-080 35 个 feishu_* tool 常量在 mod.rs 集中 re-export` (233d5cf2) —— 各模块内 `pub const TOOL_*` 保留每模块自治，`tools/feishu/mod.rs` 用 `pub use` 集中 re-export；execution.rs 35 处 + permission/rules.rs 2 处 + permission/engine.rs 1 处全改 `super::feishu::TOOL_*` 单一短前缀，零未迁移点
+  - **F-078** `refactor(channel/feishu): F-078 5 个 list/search 函数 builder 化` (a546e5fb) —— api_bitable.rs / api_calendar.rs / api_contact.rs 引入 `BitableListRecordsReq` / `BitableSearchRecordsReq` / `BitableListViewsReq` / `CalendarListEventsReq` / `ContactSearchUsersByDepartmentReq` 5 个命名字段 struct，避免 4-6 个 `Option<&str>` 位置参数容易传错
+  - **F-075** `perf(channel/types): F-075 EventCommon.raw 共享 Arc<Value> 避免 fan-out 时 deep-clone` (8a7db8d4) —— [`channel/types.rs::EventCommon.raw`](../../crates/ha-core/src/channel/types.rs) 改 `Arc<serde_json::Value>`，workspace serde 启用 `rc` feature 让序列化对端透明；feishu/inbound_events.rs 6 个 EventCommon 构造点跟着改（5 个 single + 2 个 list），100 条 read-receipt 批量从 ~100KB-1MB 临时分配降到一次 + 100 次指针 bump；新增单测断言 fan-out 共用一个 Arc
+  - **F-081** `fix(channel/worker): F-081 inbound 媒体 move 而非 copy 防 inbound-temp 累积` (6ae3aa0e) —— [`channel/worker/media.rs::persist_channel_media_to_session`](../../crates/ha-core/src/channel/worker/media.rs) `std::fs::copy` 改 `std::fs::rename`，跨 fs 失败 fallback `copy + remove_file`；channel-agnostic 修复，所有 11 个使用 persist 的渠道都顺手得到 inbound-temp/ GC（`rg -n "inbound-temp"` 已确认无第二处读路径）
+  - **`/simplify` 修复**（commit `be4557a6`） —— `auth_cache` cache `Arc<FeishuApi>` 而非 `Arc<FeishuAuth>` 让 hot path 0 分配（避免每次 `reqwest::Client::new()` 丢 connection pool）；`is_cross_device_rename` 抽到 [`crate::platform::`](../../crates/ha-core/src/platform/mod.rs) 与 platform 模块「跨平台 errno 集中」设计契合；F-081 测试用 `OnceLock<Mutex<()>> + catch_unwind` 隔离 env var 防 cargo test parallel 撞 race
+  - **F-083** 飞书 `auth.rs::get_token` token cache `Mutex<Option<CachedToken>>` 改 `RwLock` + double-check refresh —— hot path（命中态）read lock 完全并行；refresh path 写锁串行（singleflight），HTTP request 持锁防 concurrent refresh 撞 race。F-077 `join_all` 的并发优势真正落地（之前内层 token mutex 把 N 个并发 token 读串行化）
+  - **F-084** `enumerate_feishu_accounts` 删除（命中态 clone 全量账号 vec）；`select_account` 签名改 `&[&ChannelAccountConfig]` borrow 形态，`resolve_feishu_api` 内联 walk cached_config 收集指针 vec，最终只 clone 选中的 1 个 account（不再 clone N 个）
+  - **F-085** 抽 [`crate::test_support::with_env_vars`](../../crates/ha-core/src/test_support.rs)（`#[cfg(test)] pub(crate) mod`，仅测试构建可见）—— 把 [`openclaw_import/mod.rs::tests::with_env_vars`](../../crates/ha-core/src/openclaw_import/mod.rs) 与本期 `channel/worker/media.rs::tests::with_data_dir` 两份事实重复合一；media.rs / openclaw_import/mod.rs 两处都用统一入口
+- **不做的事**：F-082（跨 11 渠道入站附件 hardening，独立分阶段 PR）；MsgContext.raw 同步改 Arc（与 F-075 fan-out 痛点无关，保留 Value 避免 `Arc::make_mut` 复杂度）；inbound-temp/ 独立 GC 任务（move 语义已让源文件随 session 自然清，不再需要）
+- **影响面**：飞书入站延迟（多媒体场景）↓、并发吞吐（auth_cache 命中态）↑、读回执 / 入群 fan-out 内存峰值↓、磁盘 GC 兜底（11 渠道）；新增 `feishu_drive_upload_media` 的 `parent_type` 选项让 LLM 可上传图片到 docx/sheet/bitable 块；feishu list/search 调用点可读性 ↑
 
 ### F-070 非 Telegram / 飞书 channel 的 `slash:` callback 全部 silent drop
 

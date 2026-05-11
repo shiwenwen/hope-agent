@@ -22,8 +22,11 @@
     "updateDownloadProgress": "ダウンロード進捗: {{percent}}%",
     "updateInstall": "v{{version}} をインストール",
     "updateInstallFailed": "更新のダウンロードまたはインストールに失敗しました。",
+    "updateErrorDetails": "エラー詳細",
+    "updateErrorLogHint": "完全なトレースは ~/.hope-agent/logs.db に書き込まれています（category: updater）。/ha-logs で確認するか、問題報告の際に該当ファイルを添付してください。",
     "updateInstalled": "更新をインストールしました。Hope Agent を再起動しています...",
     "updateInstalling": "v{{version}} をインストール中...",
+    "updateRestartManually": "更新はインストールされましたが、自動再起動に失敗しました。Hope Agent を手動で終了して再度開いてください。",
     "updateReady": "GitHub Releases で新しいデスクトップ版を確認するか、Hope Agent に直接更新をインストールさせることができます。",
     "updateUpToDate": "現在の v{{version}} は最新です。",
     "version": "バージョン"
@@ -164,6 +167,8 @@
     "noAccounts": "IM チャネルアカウントが未設定です",
     "notifySessionEviction": "セッション引き継ぎ通知",
     "notifySessionEvictionHint": "別のチャットが同じセッションを引き継いだことでこのアカウントが切り離された際、IM チャットにシステムメッセージを送ります（1:1 attach）。",
+    "notifyStartup": "再起動時に復旧通知を送信",
+    "notifyStartupHint": "サービス再起動後、このアカウントで直近活発だったチャットに「復旧しました」という短い通知を送信します。",
     "pluginDesc_discord": "Discord Bot チャネル",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1355,6 +1360,8 @@
     "mcpAuthRequiredFallback": "MCP サーバーが OAuth 認可を必要としています",
     "off": "オフ",
     "on": "オン",
+    "startupDesc": "サービス再起動後、過去 72 時間以内に活発だった IM チャットに短い「復旧しました」通知を送信します。アカウントごとのミュートは各 IM チャネル設定で管理します。",
+    "startupToggle": "再起動時の IM 復旧通知",
     "title": "通知設定"
   },
   "onboarding": {

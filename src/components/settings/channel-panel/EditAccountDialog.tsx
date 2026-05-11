@@ -74,6 +74,7 @@ export default function EditAccountDialog({
   const [groupPolicy, setGroupPolicy] = useState("open")
   const [autoApproveTools, setAutoApproveTools] = useState(false)
   const [notifySessionEviction, setNotifySessionEviction] = useState(true)
+  const [notifyStartup, setNotifyStartup] = useState(true)
   const [imReplyMode, setImReplyMode] = useState<ImReplyMode>(IM_REPLY_MODE_DEFAULT)
   const [showThinking, setShowThinking] = useState<boolean>(SHOW_THINKING_DEFAULT)
   const [groups, setGroups] = useState<Record<string, TelegramGroupConfig>>({})
@@ -104,6 +105,7 @@ export default function EditAccountDialog({
       setChannels(account.security.channels ? { ...account.security.channels } : {})
       setAutoApproveTools(account.autoApproveTools ?? false)
       setNotifySessionEviction(account.notifySessionEviction ?? true)
+      setNotifyStartup(account.notifyStartup ?? true)
       setImReplyMode(readImReplyMode(account))
       setShowThinking(readShowThinking(account))
       setValidationResult(null)
@@ -142,6 +144,7 @@ export default function EditAccountDialog({
         agentId: agentId || "",  // empty string = clear to default
         autoApproveTools,
         notifySessionEviction,
+        notifyStartup,
         security: {
           dmPolicy,
           groupAllowlist: account.security.groupAllowlist,
@@ -378,6 +381,20 @@ export default function EditAccountDialog({
             <Switch
               checked={notifySessionEviction}
               onCheckedChange={setNotifySessionEviction}
+            />
+          </div>
+
+          {/* Startup back-online notice */}
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label>{t("channels.notifyStartup")}</Label>
+              <p className="text-xs text-muted-foreground">
+                {t("channels.notifyStartupHint")}
+              </p>
+            </div>
+            <Switch
+              checked={notifyStartup}
+              onCheckedChange={setNotifyStartup}
             />
           </div>
 

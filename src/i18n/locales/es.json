@@ -22,8 +22,11 @@
     "updateDownloadProgress": "Progreso de descarga: {{percent}}%",
     "updateInstall": "Instalar v{{version}}",
     "updateInstallFailed": "La descarga o instalación de la actualización falló.",
+    "updateErrorDetails": "Detalles del error",
+    "updateErrorLogHint": "El registro completo se guardó en ~/.hope-agent/logs.db (category: updater). Usa /ha-logs para revisarlo o adjunta ese archivo al reportar el problema.",
     "updateInstalled": "Actualización instalada. Reiniciando Hope Agent...",
     "updateInstalling": "Instalando v{{version}}...",
+    "updateRestartManually": "La actualización se instaló pero el reinicio automático falló. Por favor cierra Hope Agent manualmente y vuelve a abrirlo.",
     "updateReady": "Puedes revisar GitHub Releases para una versión nueva de escritorio o dejar que Hope Agent la instale por ti.",
     "updateUpToDate": "Ya tienes la versión más reciente: v{{version}}.",
     "version": "Versión"
@@ -164,6 +167,8 @@
     "noAccounts": "Aún no hay cuentas de canales IM configuradas",
     "notifySessionEviction": "Notificar toma de control de sesión",
     "notifySessionEvictionHint": "Envía un mensaje del sistema al chat de IM cuando esta cuenta es desvinculada de una sesión porque otro chat la asumió (attach 1:1).",
+    "notifyStartup": "Enviar aviso de vuelta en línea",
+    "notifyStartupHint": "Tras un reinicio del servicio, envía un breve aviso «de vuelta en línea» a los chats de esta cuenta que estuvieron activos recientemente.",
     "pluginDesc_discord": "Canal Discord Bot",
     "pluginDesc_feishu": "Bot de Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1355,6 +1360,8 @@
     "mcpAuthRequiredFallback": "Un servidor MCP necesita autorización OAuth",
     "off": "Desactivado",
     "on": "Activado",
+    "startupDesc": "Tras un reinicio del servicio, publica un breve aviso «de vuelta en línea» en los chats de IM que estuvieron activos en las últimas 72 h. El silenciamiento por cuenta vive en cada cuenta de canal.",
+    "startupToggle": "Aviso de vuelta en línea tras reinicio",
     "title": "Ajustes de notificaciones"
   },
   "onboarding": {

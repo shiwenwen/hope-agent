@@ -3,6 +3,11 @@ import { getTransport } from "@/lib/transport-provider"
 import { useTranslation } from "react-i18next"
 import { Switch } from "@/components/ui/switch"
 import {
+  loadStartupNotificationConfig,
+  saveStartupNotificationConfig,
+  type StartupNotificationConfig,
+} from "@/lib/startup-notification"
+import {
   Select,
   SelectTrigger,
   SelectValue,
@@ -27,31 +32,44 @@ interface AgentInfo extends BaseAgentInfo {
 export default function NotificationPanel() {
   const { t } = useTranslation()
   const [config, setConfig] = useState<NotificationConfig | null>(null)
+  const [startupConfig, setStartupConfig] = useState<StartupNotificationConfig | null>(null)
   const [agents, setAgents] = useState<AgentInfo[]>([])
   const [saving, setSaving] = useState(false)
+  const [savingStartup, setSavingStartup] = useState(false)
 
-  // Load global config + agents with their notification settings
+  // Load global config + startup config + agents in parallel — the
+  // three calls are independent. Startup config tolerates failure (old
+  // backend without the route) by leaving its toggle hidden.
   const loadData = useCallback(async () => {
-    try {
-      const cfg = await loadNotificationConfig()
-      setConfig(cfg)
-
-      const agentList =
-        await getTransport().call<BaseAgentInfo[]>("list_agents")
-      const agentsWithNotify = await Promise.all(
-        agentList.map(async (a) => {
-          try {
-            const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", { id: a.id })
-            return { ...a, notifyOnComplete: agentConfig.notifyOnComplete ?? null }
-          } catch {
-            return { ...a, notifyOnComplete: null }
-          }
-        }),
-      )
-      setAgents(agentsWithNotify)
-    } catch (e) {
-      logger.error("settings", "NotificationPanel::load", "Failed to load config", e)
+    const [cfgResult, startupResult, agentsResult] = await Promise.allSettled([
+      loadNotificationConfig(),
+      loadStartupNotificationConfig(),
+      getTransport().call<BaseAgentInfo[]>("list_agents"),
+    ])
+    if (cfgResult.status === "fulfilled") {
+      setConfig(cfgResult.value)
+    } else {
+      logger.error("settings", "NotificationPanel::load", "Failed to load config", cfgResult.reason)
     }
+    if (startupResult.status === "fulfilled") {
+      setStartupConfig(startupResult.value)
+    } else {
+      logger.error("settings", "NotificationPanel::loadStartup", "Failed to load startup config", startupResult.reason)
+    }
+    if (agentsResult.status !== "fulfilled") {
+      return
+    }
+    const agentsWithNotify = await Promise.all(
+      agentsResult.value.map(async (a) => {
+        try {
+          const agentConfig = await getTransport().call<AgentConfig>("get_agent_config", { id: a.id })
+          return { ...a, notifyOnComplete: agentConfig.notifyOnComplete ?? null }
+        } catch {
+          return { ...a, notifyOnComplete: null }
+        }
+      }),
+    )
+    setAgents(agentsWithNotify)
   }, [])
 
   useEffect(() => {
@@ -69,6 +87,20 @@ export default function NotificationPanel() {
       logger.error("settings", "NotificationPanel::save", "Failed to save config", e)
     } finally {
       setSaving(false)
+    }
+  }
+
+  const handleStartupToggle = async (enabled: boolean) => {
+    if (!startupConfig) return
+    const next = { ...startupConfig, enabled }
+    setStartupConfig(next)
+    setSavingStartup(true)
+    try {
+      await saveStartupNotificationConfig(next)
+    } catch (e) {
+      logger.error("settings", "NotificationPanel::saveStartup", "Failed to save startup config", e)
+    } finally {
+      setSavingStartup(false)
     }
   }
 
@@ -100,6 +132,23 @@ export default function NotificationPanel() {
           <Switch checked={config.enabled} onCheckedChange={handleGlobalToggle} disabled={saving} />
         </div>
       </div>
+
+      {/* IM Startup Back-Online Notice */}
+      {startupConfig && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium">{t("notification.startupToggle")}</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">{t("notification.startupDesc")}</p>
+            </div>
+            <Switch
+              checked={startupConfig.enabled}
+              onCheckedChange={handleStartupToggle}
+              disabled={savingStartup}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Agent Notifications */}
       <div className="space-y-3">
