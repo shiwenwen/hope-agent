@@ -1,8 +1,6 @@
 use crate::channel::types::InlineButton;
 use anyhow::Result;
-use std::path::Path;
 use std::time::Duration;
-use teloxide::net::Download;
 use teloxide::prelude::*;
 use teloxide::types::{
     BotCommand, CallbackQueryId, ChatAction, ChatId, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -14,6 +12,13 @@ pub struct TelegramBotApi {
     bot: Bot,
     /// Stored proxy URL for raw HTTP requests (sendMessageDraft etc.)
     proxy_url: Option<String>,
+    /// Shared `reqwest::Client` clone used for inbound media downloads.
+    /// Cloning is cheap (`Arc`-internal); we keep our own handle so
+    /// [`download_file_to_disk`] can hit the Telegram file CDN with the
+    /// same proxy / timeout settings teloxide is using, while routing
+    /// the bytes through [`inbound_media_common::stream_to_disk`] (cap
+    /// + cleanup) instead of teloxide's downloader which has neither.
+    http_client: reqwest::Client,
 }
 
 impl TelegramBotApi {
@@ -43,7 +48,7 @@ impl TelegramBotApi {
         let client = client_builder
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        let mut bot = Bot::with_client(token, client);
+        let mut bot = Bot::with_client(token, client.clone());
         if let Some(root) = api_root {
             match reqwest::Url::parse(root) {
                 Ok(url) => bot = bot.set_api_url(url),
@@ -60,6 +65,7 @@ impl TelegramBotApi {
         Self {
             bot,
             proxy_url: proxy_url.map(|s| s.to_string()),
+            http_client: client,
         }
     }
 
@@ -305,18 +311,38 @@ impl TelegramBotApi {
             .map_err(|e| anyhow::anyhow!("getFile failed: {}", e))
     }
 
-    /// Download file bytes by file_id and save them to a local path.
-    pub async fn download_file_to_path(&self, file_id: &str, path: &Path) -> Result<()> {
+    /// Download a file by `file_id` to `dest`, enforcing `cap_bytes`.
+    ///
+    /// Goes around teloxide's `bot.download_file` because it has no size
+    /// cap and no failure cleanup. We `get_file` first to resolve the
+    /// CDN path, reject early when the returned metadata already
+    /// exceeds the cap, then push the bytes through
+    /// [`crate::channel::inbound_media_common::stream_to_disk`] using
+    /// our own `reqwest::Client` clone — same proxy / timeout settings
+    /// teloxide is configured with.
+    pub async fn download_file_to_disk(
+        &self,
+        file_id: &str,
+        dest: &std::path::Path,
+        cap_bytes: u64,
+    ) -> Result<u64> {
         let file = self.get_file(file_id).await?;
-        if let Some(parent) = path.parent() {
+        if (file.size as u64) > cap_bytes {
+            anyhow::bail!(
+                "Telegram file size {} bytes exceeds {} byte cap",
+                file.size,
+                cap_bytes
+            );
+        }
+        if let Some(parent) = dest.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
-        let mut dst = tokio::fs::File::create(path).await?;
-        self.bot
-            .download_file(&file.path, &mut dst)
-            .await
-            .map_err(|e| anyhow::anyhow!("downloadFile failed: {}", e))?;
-        Ok(())
+        let api_url_owned = self.bot.api_url();
+        let api_url = api_url_owned.as_str().trim_end_matches('/');
+        let token = self.bot.token();
+        let url = format!("{}/file/bot{}/{}", api_url, token, file.path);
+        let builder = self.http_client.get(&url);
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
     }
 
     /// Send a photo.
