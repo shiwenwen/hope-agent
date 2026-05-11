@@ -304,12 +304,11 @@ impl SessionDB {
         } else {
             ChatTurnStatus::Completed
         };
-        let final_reason = interrupted
-            .then_some(
-                current
-                    .interrupt_reason
-                    .unwrap_or(ChatTurnInterruptReason::RuntimeCancel),
-            );
+        let final_reason = interrupted.then_some(
+            current
+                .interrupt_reason
+                .unwrap_or(ChatTurnInterruptReason::RuntimeCancel),
+        );
         let final_error = (final_status == ChatTurnStatus::Failed)
             .then_some(error)
             .flatten();
@@ -412,7 +411,9 @@ mod tests {
     #[test]
     fn terminal_status_is_written_once() {
         let db = temp_db();
-        let session = db.create_session_with_project("ha-main", None, None).unwrap();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
         let turn = db
             .create_chat_turn(&session.id, "desktop", Some("stream-1"), Some(1))
             .unwrap();
@@ -448,7 +449,9 @@ mod tests {
     #[test]
     fn recover_stale_running_turns_marks_interrupted() {
         let db = temp_db();
-        let session = db.create_session_with_project("ha-main", None, None).unwrap();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
         let turn = db
             .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
             .unwrap();
@@ -466,7 +469,9 @@ mod tests {
     #[test]
     fn execution_success_after_cancelling_finishes_interrupted() {
         let db = temp_db();
-        let session = db.create_session_with_project("ha-main", None, None).unwrap();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
         let turn = db
             .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
             .unwrap();
@@ -489,7 +494,9 @@ mod tests {
     #[test]
     fn execution_failure_after_cancel_request_finishes_interrupted_without_error() {
         let db = temp_db();
-        let session = db.create_session_with_project("ha-main", None, None).unwrap();
+        let session = db
+            .create_session_with_project("ha-main", None, None)
+            .unwrap();
         let turn = db
             .create_chat_turn(&session.id, "desktop", Some("stream-1"), None)
             .unwrap();

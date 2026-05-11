@@ -43,13 +43,12 @@ pub struct SessionStreamState {
 /// Snapshot the current stream state for a session.
 pub fn session_stream_state(session_id: &str) -> SessionStreamState {
     let active_turn = active_turn::current(session_id);
-    let latest_turn = crate::get_session_db()
-        .and_then(|db| db.get_latest_chat_turn(session_id).ok().flatten());
+    let latest_turn =
+        crate::get_session_db().and_then(|db| db.get_latest_chat_turn(session_id).ok().flatten());
     let status = active_turn
         .as_ref()
         .and_then(|active| {
-            crate::get_session_db()
-                .and_then(|db| db.get_chat_turn(&active.turn_id).ok().flatten())
+            crate::get_session_db().and_then(|db| db.get_chat_turn(&active.turn_id).ok().flatten())
         })
         .map(|turn| turn.status)
         .or_else(|| latest_turn.as_ref().map(|turn| turn.status));

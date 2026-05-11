@@ -50,7 +50,13 @@ fn finish_turn_once_and_broadcast(
     error: Option<&str>,
     assistant_message_id: Option<i64>,
 ) {
-    let _ = db.finish_chat_turn_once(turn_id, status, interrupt_reason, error, assistant_message_id);
+    let _ = db.finish_chat_turn_once(
+        turn_id,
+        status,
+        interrupt_reason,
+        error,
+        assistant_message_id,
+    );
     broadcast_turn_end(session_id, turn_id, status, interrupt_reason, error);
 }
 
@@ -66,21 +72,26 @@ fn finish_turn_after_execution_and_broadcast(
         .finish_chat_turn_after_execution(turn_id, cancel_requested, error, assistant_message_id)
         .ok()
         .flatten();
-    let status = turn
-        .as_ref()
-        .map(|turn| turn.status)
-        .unwrap_or_else(|| {
-            if cancel_requested {
-                session::ChatTurnStatus::Interrupted
-            } else if error.is_some() {
-                session::ChatTurnStatus::Failed
-            } else {
-                session::ChatTurnStatus::Completed
-            }
-        });
+    let status = turn.as_ref().map(|turn| turn.status).unwrap_or_else(|| {
+        if cancel_requested {
+            session::ChatTurnStatus::Interrupted
+        } else if error.is_some() {
+            session::ChatTurnStatus::Failed
+        } else {
+            session::ChatTurnStatus::Completed
+        }
+    });
     let interrupt_reason = turn.as_ref().and_then(|turn| turn.interrupt_reason);
-    let terminal_error = (status == session::ChatTurnStatus::Failed).then_some(error).flatten();
-    broadcast_turn_end(session_id, turn_id, status, interrupt_reason, terminal_error);
+    let terminal_error = (status == session::ChatTurnStatus::Failed)
+        .then_some(error)
+        .flatten();
+    broadcast_turn_end(
+        session_id,
+        turn_id,
+        status,
+        interrupt_reason,
+        terminal_error,
+    );
     turn
 }
 

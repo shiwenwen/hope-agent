@@ -124,8 +124,7 @@ fn emit_stream_event(
         event_sink.send(event);
         event.to_string()
     } else {
-        let (enveloped, seq, stream_id) =
-            stream_broadcast::inject_seq(session_id, event, turn_id);
+        let (enveloped, seq, stream_id) = stream_broadcast::inject_seq(session_id, event, turn_id);
         event_sink.send(&enveloped);
         stream_broadcast::broadcast_delta(session_id, &enveloped, seq, stream_id.as_deref());
         enveloped
@@ -334,7 +333,13 @@ pub async fn run_chat_engine(params: ChatEngineParams) -> Result<ChatEngineResul
                 "error": last_error.as_deref().unwrap_or(""),
             });
             if let Ok(json_str) = serde_json::to_string(&event) {
-                emit_stream_event(&event_sink, &session_id, source, turn_id.as_deref(), &json_str);
+                emit_stream_event(
+                    &event_sink,
+                    &session_id,
+                    source,
+                    turn_id.as_deref(),
+                    &json_str,
+                );
                 let _ = db.append_message(
                     &session_id,
                     &session::NewMessage::event(&json_str).with_source(source),
