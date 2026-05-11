@@ -92,10 +92,27 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 
 > 📦 Installers: [Releases](https://github.com/shiwenwen/hope-agent/releases)
 
+**macOS (Homebrew, recommended):**
+
+```bash
+brew tap shiwenwen/hope-agent
+brew install --cask hope-agent
+```
+
+After install:
+
+- Desktop GUI: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` from a terminal
+- Headless server: `hope-agent server start`
+- ACP (IDE integration): `hope-agent acp`
+
+Apple Silicon only; Intel Macs run under Rosetta 2.
+
+**Other platforms / manual download:**
+
 1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
-   - macOS: `Hope-Agent_*.dmg`
-   - Linux: `hope-agent_*.AppImage`
-   - Windows: `Hope-Agent_*.exe` / `Hope-Agent_*.msi` (not yet fully tested)
+   - macOS: `Hope.Agent_*.dmg`
+   - Linux: `Hope.Agent_*.AppImage` / `Hope.Agent_*.deb` / `Hope.Agent_*.rpm`
+   - Windows: `Hope.Agent_*-setup.exe` (not yet fully tested)
 2. First launch: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
 3. Desktop installers ship with GitHub Releases auto-update; inside the app you can go to **Settings → About** to check and install updates
 

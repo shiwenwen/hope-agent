@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **macOS Homebrew Cask 安装**：新增 `brew tap shiwenwen/hope-agent && brew install --cask hope-agent` 安装路径，cask 同时建立 `hope-agent` 命令行软链方便 `server` / `acp` 子命令调用；release publish 后由 [`update-homebrew-tap.yml`](.github/workflows/update-homebrew-tap.yml) 自动渲染 [`homebrew/hope-agent.rb.tmpl`](homebrew/hope-agent.rb.tmpl) 并推到 [shiwenwen/homebrew-hope-agent](https://github.com/shiwenwen/homebrew-hope-agent) tap repo。当前仅提供 Apple Silicon 构建，Intel Mac 走 Rosetta 2。
 - **服务启动 / 重启在 IM 通道感知**：所有运行模式（桌面 / `hope-agent server` / `hope-agent acp`）冷启 / 升级 / 主动重启 / 崩溃恢复时，向最近 72 小时活跃过的 IM 聊天发送一条简短系统消息「Hope Agent is back online」。每个聊天 30 min cooldown 防重复，全局 30 条上限防极端 fan-out，`HOPE_AGENT_CRASH_COUNT ≥ 3` 自动静音避免 crash-loop 刷屏。多进程通过 `runtime_lock` 防双发。GUI 入口：通知设置面板的"重启提醒"开关 + 每个 IM 账号设置里的"服务重启提醒"开关（账号级默认开启）。
 - 新增「导出对话」功能：Sidebar 右键菜单 + 标题栏按钮均可触发，支持 Markdown / JSON / HTML 三种格式，可选包含工具调用与思考过程；桌面端走原生保存对话框，浏览器端走 Blob 下载。`/export` 斜杠命令同步升级为 `[md|json|html] [full|tools|thinking]` 位置参数（无参等价旧行为）。
 - **飞书完整对齐 v0.2.0 / Phase A 收尾 + Phase B + Phase C**（roadmap 见 `docs/plans/`）：

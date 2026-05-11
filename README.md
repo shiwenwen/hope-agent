@@ -92,10 +92,27 @@
 
 > 📦 安装包：[Releases](https://github.com/shiwenwen/hope-agent/releases)
 
+**macOS（Homebrew，推荐）：**
+
+```bash
+brew tap shiwenwen/hope-agent
+brew install --cask hope-agent
+```
+
+装完后：
+
+- 桌面 GUI：Launchpad / 应用程序文件夹（点 Hope Agent 图标启动），或终端 `open -a "Hope Agent"`
+- 后台服务：`hope-agent server start`
+- ACP（IDE 集成）：`hope-agent acp`
+
+当前仅 Apple Silicon 构建，Intel Mac 走 Rosetta 2 自动兼容。
+
+**其他平台 / 手动下载：**
+
 1. 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载对应平台安装包
-   - macOS：`Hope-Agent_*.dmg`
-   - Linux：`hope-agent_*.AppImage`
-   - Windows：`Hope-Agent_*.exe` / `Hope-Agent_*.msi`（尚未完成充分测试）
+   - macOS：`Hope.Agent_*.dmg`
+   - Linux：`Hope.Agent_*.AppImage` / `Hope.Agent_*.deb` / `Hope.Agent_*.rpm`
+   - Windows：`Hope.Agent_*-setup.exe`（尚未完成充分测试）
 2. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
 3. 桌面安装包内置 GitHub Releases 自动更新；应用内可在 **设置 → 关于** 里检查更新并一键安装
 

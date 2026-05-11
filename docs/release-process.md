@@ -128,6 +128,24 @@ GitHub Releases 页找到 `Hope Agent v0.1.2` draft，确认：
 
 详见 [§3 backport 策略](#3-backport-策略)。
 
+### 1.6 Homebrew tap 自动同步
+
+Publish Release 后 [`.github/workflows/update-homebrew-tap.yml`](../.github/workflows/update-homebrew-tap.yml) 由 `release.published` 事件自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<version>_aarch64.dmg`
+2. `sha256sum` 算 DMG 摘要
+3. `sed` 把 [`homebrew/hope-agent.rb.tmpl`](../homebrew/hope-agent.rb.tmpl) 的 `__VERSION__` / `__SHA256__` 占位符替换，渲染为 `Casks/hope-agent.rb`
+4. 用 `HOMEBREW_TAP_TOKEN`（fine-grained PAT，仅授 `shiwenwen/homebrew-hope-agent` 的 `Contents: Read and write`）push 到 tap repo
+
+正常路径**不需要任何人工操作**。下列情况需要手动 `gh workflow run update-homebrew-tap.yml -f tag=vX.Y.Z`：
+
+- cask 模板本身改了（如新增 caveats / zap 路径），想立即对已发布版本生效，不等下个 release
+- workflow 因为 token 过期 / tap repo 不存在等原因失败过，修复后重跑
+
+**tap repo 初始化（一次性）**：详见 [`homebrew/README.md`](../homebrew/README.md)。仓库名必须是 `homebrew-hope-agent`（Homebrew 约定 `homebrew-<tapname>`），否则 `brew tap shiwenwen/hope-agent` 找不到。
+
+**cask 模板单一真相源在主仓 [`homebrew/hope-agent.rb.tmpl`](../homebrew/hope-agent.rb.tmpl)**。不要在 tap repo 里直接改 `Casks/hope-agent.rb`——下次发版会被 CI 覆盖。
+
 ---
 
 ## 2. 新 minor 发版差异
