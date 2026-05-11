@@ -197,4 +197,47 @@ impl SlackApi {
         data.url
             .ok_or_else(|| anyhow!("apps.connections.open returned ok but no URL"))
     }
+
+    /// Download a Slack-hosted file (`url_private` / `url_private_download`)
+    /// to `dest` using the bot token. Slack's private file URLs return a
+    /// login page (HTTP 200, HTML body) when fetched without
+    /// `Authorization: Bearer xoxb-…`, so the LLM's `web_fetch` can't
+    /// reach them — this method is the only way inbound Slack attachments
+    /// become locally readable.
+    ///
+    /// Validates the URL host is `*.slack.com` (Slack's own CDN) so a
+    /// poisoned event payload can't redirect the bot's token to an
+    /// attacker-controlled host. SSRF check runs as well for the IP
+    /// classification layer.
+    pub async fn download_file_to_disk(
+        &self,
+        url: &str,
+        dest: &std::path::Path,
+        cap_bytes: u64,
+    ) -> Result<u64> {
+        // Host pin first — cheap, catches the obvious injection.
+        let parsed_url = url::Url::parse(url).map_err(|e| anyhow!("Invalid Slack URL: {}", e))?;
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| anyhow!("Slack URL has no host: {}", url))?;
+        let host_ok = host == "files.slack.com" || host == "slack.com" || host.ends_with(".slack.com");
+        if !host_ok {
+            return Err(anyhow!(
+                "Refusing to download with bot token from non-Slack host: {}",
+                host
+            ));
+        }
+        // SSRF layer — pinned host could in theory still DNS-resolve to a
+        // private IP (e.g. internal split-horizon DNS); the policy check
+        // refuses metadata/private/loopback by default.
+        crate::security::ssrf::check_url(url, crate::security::ssrf::SsrfPolicy::Default, &[])
+            .await
+            .map_err(|e| anyhow!("Slack file URL blocked: {}", e))?;
+
+        let builder = self
+            .client
+            .get(url)
+            .header("Authorization", format!("Bearer {}", self.bot_token));
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
+    }
 }
