@@ -57,6 +57,12 @@
         "installMode": "perMachine",
         "languages": ["English"]
       }
+    },
+    "linux": {
+      "deb": {
+        "section": "utils",
+        "priority": "optional"
+      }
     }
   },
   "plugins": {

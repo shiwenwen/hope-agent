@@ -155,6 +155,27 @@ yay -S hope-agent-bin   # 或 paru / 任意 AUR helper
 
 预编译二进制版（沿用 GitHub Release 的 `.deb`），不从源码编译。
 
+##### Debian / Ubuntu（apt）
+
+```bash
+curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/hope-agent.gpg
+echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://shiwenwen.github.io/hope-agent-linux-repo/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/hope-agent.list
+sudo apt update
+sudo apt install hope-agent
+```
+
+##### Fedora / RHEL（dnf）
+
+```bash
+sudo dnf config-manager --add-repo \
+  https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
+sudo dnf install hope-agent
+```
+
+openSUSE 用户走 `sudo zypper addrepo ...` 相同 URL 即可。
+
 ##### 手动安装（AppImage / deb / rpm）
 
 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载：

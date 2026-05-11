@@ -182,6 +182,33 @@ Publish Release 后 [`.github/workflows/update-homebrew-tap.yml`](../.github/wor
 
 > Scoop 默认对 `.exe` URL 用 7zip 解压（不跑 NSIS installer），所以 manifest 不需要 `installer.script`——`hope-agent.exe` 解压出来就是直接可用的单文件 binary。
 
+### 1.9 Linux apt + dnf/yum 软件源自动同步
+
+托管在 GitHub Pages（[shiwenwen.github.io/hope-agent-linux-repo](https://shiwenwen.github.io/hope-agent-linux-repo/)），用户安装命令见根仓 [`README.md`](../README.md) 「普通用户 → Linux → Debian/Ubuntu」/「Fedora/RHEL」段。
+
+Release publish 后 [`.github/workflows/update-linux-repo.yml`](../.github/workflows/update-linux-repo.yml) 由 `release.published` 自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<v>_amd64.deb` + `Hope.Agent-<v>-1.x86_64.rpm`
+2. `gpg --batch --import` 把 `GPG_SIGNING_KEY` secret 导入临时 `GNUPGHOME`，从 imported key 解出 long fingerprint
+3. CI 在 bucket repo 动态渲染 `apt/conf/distributions`，`SignWith:` 填入当前 fingerprint（密钥轮换无需改模板）
+4. `reprepro -b apt includedeb stable …` 重建 apt index 并签 `InRelease` / `Release.gpg`（reprepro 自动用 SignWith 字段指向的 key 签）
+5. `createrepo_c --update rpm/stable/x86_64/` 增量更新 yum index
+6. `gpg --detach-sign --armor` 签 `repomd.xml`（产 `repomd.xml.asc`），让 dnf `repo_gpgcheck=1` 能验签
+7. 同步 [`linux-repo/rpm/hope-agent.repo`](../linux-repo/rpm/hope-agent.repo) 模板到 bucket repo 根 `rpm/hope-agent.repo`
+8. 用 `LINUX_REPO_TOKEN`（fine-grained PAT，仅授 `shiwenwen/hope-agent-linux-repo` 的 `Contents: Read and write`）push 到 bucket repo
+9. GitHub Pages ~1 min 后重新发布
+
+手动重跑：`gh workflow run update-linux-repo.yml -f tag=vX.Y.Z`（同 tag 重跑是幂等的——reprepro 先 `remove`，createrepo_c `--update` 覆盖）。
+
+**首次配置 + 密钥轮换流程**：详见 [`linux-repo/README.md`](../linux-repo/README.md)。两个必备 secret：
+
+- `GPG_SIGNING_KEY` — ed25519 私钥（专用密钥，与 maintainer 个人身份独立）
+- `LINUX_REPO_TOKEN` — fine-grained PAT，仅 `Contents: Read and write` on `shiwenwen/hope-agent-linux-repo`
+
+**模板单一真相源在主仓 [`linux-repo/`](../linux-repo/)**。不要直接 push bucket repo 的 `apt/` / `rpm/`——下次发版会被 CI 覆盖。**`pubkey.gpg` 和 bucket repo 的 `README.md` 不由 CI 维护**，密钥轮换时手动 PUT。
+
+> reprepro 的 `apt/db/` 是 incremental state（包含 packages 的 sha256 索引），**必须 commit 到 bucket repo**，否则下次跑会丢失历史版本记录、重新生成所有 index。`apt/conf/distributions` 同样 commit（每次 CI 跑会覆盖渲染）。
+
 ---
 
 ## 2. 新 minor 发版差异

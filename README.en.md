@@ -155,6 +155,27 @@ yay -S hope-agent-bin   # or paru / any AUR helper
 
 Pre-built binary package (repackaged from the GitHub Release `.deb`) — no source compilation.
 
+##### Debian / Ubuntu (apt)
+
+```bash
+curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/hope-agent.gpg
+echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://shiwenwen.github.io/hope-agent-linux-repo/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/hope-agent.list
+sudo apt update
+sudo apt install hope-agent
+```
+
+##### Fedora / RHEL (dnf)
+
+```bash
+sudo dnf config-manager --add-repo \
+  https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
+sudo dnf install hope-agent
+```
+
+openSUSE users can `sudo zypper addrepo …` the same URL.
+
 ##### Manual install (AppImage / deb / rpm)
 
 From [Releases](https://github.com/shiwenwen/hope-agent/releases):
