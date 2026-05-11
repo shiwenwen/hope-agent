@@ -166,15 +166,22 @@ sudo apt update
 sudo apt install hope-agent
 ```
 
-##### Fedora / RHEL（dnf）
+##### Fedora / RHEL / CentOS（dnf / yum）
 
 ```bash
-sudo dnf config-manager --add-repo \
-  https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
-sudo dnf install hope-agent
+sudo curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo \
+  -o /etc/yum.repos.d/hope-agent.repo
+sudo dnf install hope-agent     # 或 sudo yum install hope-agent
 ```
 
-openSUSE 用户走 `sudo zypper addrepo ...` 相同 URL 即可。
+> 历史命令 `sudo dnf config-manager --add-repo …` 在 dnf5（Fedora 41+）已经废弃，用上面的 `curl` 写法对 dnf4 / dnf5 / yum / zypper 都兼容。
+
+openSUSE 用户：
+
+```bash
+sudo zypper addrepo https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
+sudo zypper install hope-agent
+```
 
 ##### 手动安装（AppImage / deb / rpm）
 

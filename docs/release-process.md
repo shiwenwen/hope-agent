@@ -184,7 +184,7 @@ Publish Release 后 [`.github/workflows/update-homebrew-tap.yml`](../.github/wor
 
 ### 1.9 Linux apt + dnf/yum 软件源自动同步
 
-托管在 GitHub Pages（[shiwenwen.github.io/hope-agent-linux-repo](https://shiwenwen.github.io/hope-agent-linux-repo/)），用户安装命令见根仓 [`README.md`](../README.md) 「普通用户 → Linux → Debian/Ubuntu」/「Fedora/RHEL」段。
+托管在 GitHub Pages（[shiwenwen.github.io/hope-agent-linux-repo](https://shiwenwen.github.io/hope-agent-linux-repo/)），用户安装命令见根仓 [`README.md`](../README.md) 「普通用户 → Linux → Debian/Ubuntu」/「Fedora/RHEL/CentOS」段（dnf 与 yum 同 URL 通用，curl 下载 `.repo` 文件方式兼容 dnf4 / dnf5 / yum / zypper）。
 
 Release publish 后 [`.github/workflows/update-linux-repo.yml`](../.github/workflows/update-linux-repo.yml) 由 `release.published` 自动触发：
 
