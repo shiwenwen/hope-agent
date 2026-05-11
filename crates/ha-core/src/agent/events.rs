@@ -297,6 +297,16 @@ pub(super) fn emit_max_rounds_notice(on_delta: &(impl Fn(&str) + Send), max_roun
     notice
 }
 
+pub(super) fn emit_round_limit_event(on_delta: &(impl Fn(&str) + Send), max_rounds: u32) {
+    emit_event(
+        on_delta,
+        &json!({
+            "type": "round_limit_reached",
+            "max_rounds": max_rounds,
+        }),
+    );
+}
+
 pub(super) fn emit_usage(
     on_delta: &(impl Fn(&str) + Send),
     usage: &ChatUsage,
