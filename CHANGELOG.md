@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Windows Scoop 安装**：新增 `scoop bucket add hope-agent https://github.com/shiwenwen/scoop-hope-agent && scoop install hope-agent` 安装路径；manifest 单一真相源在 [`scoop/hope-agent.json.tmpl`](scoop/hope-agent.json.tmpl)，release publish 后由 [`update-scoop-bucket.yml`](.github/workflows/update-scoop-bucket.yml) 自动渲染并推到 [shiwenwen/scoop-hope-agent](https://github.com/shiwenwen/scoop-hope-agent) bucket repo。Scoop 用 7zip 解压 NSIS installer 拿到 `hope-agent.exe` 单文件 binary（不跑 setup.exe），install 后既有 GUI 启动器也有 `hope-agent` PowerShell shim。当前仅 x64。
+- **README 普通用户段重组**：从"按包管理器/手动混排"重排为"平台 → 装法"两层（macOS / Windows / Linux 各自分 "包管理器（推荐）" + "手动安装"），每个平台底下自包含启动方式（桌面 GUI / 后台服务 / ACP）；"首次启动 & 自动更新" 单独成段不再每平台重复。中英双语同步。
 - **Arch Linux AUR 安装**：新增 `yay -S hope-agent-bin`（或 paru / 任意 AUR helper）安装路径；PKGBUILD / .SRCINFO 单一真相源在 [`aur/hope-agent-bin/`](aur/hope-agent-bin/)，release publish 后由 [`update-aur.yml`](.github/workflows/update-aur.yml) 自动渲染并推到 AUR `hope-agent-bin` 仓库。当前仅 x86_64，沿用 release `.deb` 重打。
 - **Web Search 新增博查 AI Search provider**：设置 → Tools → Web Search 可配置 Bocha API Key，并参与现有 provider 排序 / fallback 链路；`web_search` 工具会把通用 freshness 映射到博查时间过滤，解析 `webPages.value[]` 为统一的 title / URL / snippet 结果，出站请求继续走统一 SSRF policy gate。
 - **macOS Homebrew Cask 安装**：新增 `brew tap shiwenwen/hope-agent && brew install --cask hope-agent` 安装路径，cask 同时建立 `hope-agent` 命令行软链方便 `server` / `acp` 子命令调用；release publish 后由 [`update-homebrew-tap.yml`](.github/workflows/update-homebrew-tap.yml) 自动渲染 [`homebrew/hope-agent.rb.tmpl`](homebrew/hope-agent.rb.tmpl) 并推到 [shiwenwen/homebrew-hope-agent](https://github.com/shiwenwen/homebrew-hope-agent) tap repo。当前仅提供 Apple Silicon 构建，Intel Mac 走 Rosetta 2。
