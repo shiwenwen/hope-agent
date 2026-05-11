@@ -424,6 +424,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `restore_plan_version` | `POST /api/plan/{sessionId}/version/restore` | ✅ |
 | `plan_rollback` | `POST /api/plan/{sessionId}/rollback` | ✅ |
 | `cancel_plan_subagent` | `POST /api/plan/{sessionId}/cancel` | ✅ |
+| `list_plans` | `POST /api/plan/list` | ✅ |
+| `resolve_plan_mention` | `POST /api/plan/resolve-mention` | ✅ |
 | `respond_ask_user_question` | `POST /api/ask_user/respond` | ✅ |
 | `get_pending_ask_user_group` | `GET /api/plan/{sessionId}/pending-ask-user` | ✅ |
 | `set_plan_subagent` | `POST /api/config/plan-subagent` | ✅ |
@@ -474,6 +476,7 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 | `dashboard_learning_timeline` | `POST /api/dashboard/learning/timeline` | ✅ |
 | `dashboard_top_skills` | `POST /api/dashboard/learning/top-skills` | ✅ |
 | `dashboard_recall_stats` | `POST /api/dashboard/learning/recall-stats` | ✅ |
+| `dashboard_plan_stats` | `POST /api/dashboard/plan-stats` | ✅ |
 
 ### Async / Deferred tools + Memory selection
 

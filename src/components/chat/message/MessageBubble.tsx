@@ -18,6 +18,7 @@ import FileAttachments from "./FileAttachments"
 import FallbackBanner from "@/components/chat/FallbackBanner"
 import ProfileRotationBanner from "@/components/chat/ProfileRotationBanner"
 import ContextCompactedBanner from "@/components/chat/ContextCompactedBanner"
+import RoundLimitReachedBanner from "@/components/chat/RoundLimitReachedBanner"
 import MessageUrlPreviews from "./MessageUrlPreviews"
 import { AssistantContentBlocks } from "./MessageContent"
 import { PlanCommentBubble } from "./PlanCommentBubble"
@@ -26,6 +27,7 @@ import type {
   AgentSummaryForSidebar,
   ProfileRotationEvent,
   ContextCompactedEvent,
+  RoundLimitReachedEvent,
 } from "@/types/chat"
 import ModelPickerCard from "@/components/chat/ModelPickerCard"
 import ContextBreakdownCard from "@/components/chat/context-view/ContextBreakdownCard"
@@ -56,6 +58,7 @@ export interface MessageBubbleProps {
   onOpenDiff?: (
     metadata: import("@/types/chat").FileChangeMetadata | import("@/types/chat").FileChangesMetadata,
   ) => void
+  onResume?: (message: string) => void
 }
 
 const TOOL_JOB_AGENT_PREFIX = "tool_job:"
@@ -257,6 +260,7 @@ function MessageBubbleInner({
   onSwitchModel,
   onViewSystemPrompt,
   onOpenDiff,
+  onResume,
 }: MessageBubbleProps) {
   const { t } = useTranslation()
   const [detailsIndex, setDetailsIndex] = useState<number | null>(null)
@@ -314,6 +318,14 @@ function MessageBubbleInner({
     if (eventPayload?.type === "context_compacted") {
       const data = (eventPayload.data ?? eventPayload) as ContextCompactedEvent
       return <ContextCompactedBanner event={data} />
+    }
+    if (eventPayload?.type === "round_limit_reached") {
+      return (
+        <RoundLimitReachedBanner
+          event={eventPayload as RoundLimitReachedEvent}
+          onResume={onResume}
+        />
+      )
     }
     return (
       <div className="max-w-[80%] px-3 py-1.5 rounded-lg text-xs text-muted-foreground bg-muted/50 border border-border/50 text-center [&_p]:m-0">

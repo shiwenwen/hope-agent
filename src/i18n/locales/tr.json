@@ -386,6 +386,11 @@
     "renameSession": "Yeniden adlandır",
     "renameSessionPlaceholder": "Yeni başlığı girin...",
     "revealInFolder": "Klasörde göster",
+    "roundLimitReachedBody": "Bu turda {{count}} araç çağrısı turunun tamamı kullanıldı ancak görev tamamlanmamış olabilir. Mevcut ilerlemeden devam etmek için aşağıdaki düğmeyle \"Devam\" gönderin; Ayarlar → Aracı → Yetenekler bölümünden `max_tool_rounds` değerini de artırabilirsiniz.",
+    "roundLimitReachedBodyNoCount": "Bu turun araç çağrısı turları tükendi. Mevcut ilerlemeden devam etmek için aşağıdaki düğmeyle \"Devam\" gönderin.",
+    "roundLimitReachedTitle": "Araç çağrısı sınırına ulaşıldı",
+    "roundLimitResumeButton": "Devam",
+    "roundLimitResumeMessage": "Devam",
     "scrollToBottom": "Aşağı kaydır",
     "searchPlaceholder": "Sohbetlerde ara...",
     "searchTruncatedHint": "İlk {{count}} eşleşme gösteriliyor — daha fazlası için sorguyu daraltın.",
@@ -841,7 +846,8 @@
       "system": "Sistem",
       "tasks": "Görevler",
       "tokens": "Token kullanımı",
-      "tools": "Araç kullanımı"
+      "tools": "Araç kullanımı",
+      "plans": "Planlar"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -889,6 +895,21 @@
       "frequency": "Çağrı sıklığı",
       "name": "Ad",
       "totalMs": "Toplam (ms)"
+    },
+    "plans": {
+      "active": "Devam ediyor",
+      "avgExecution": "Ortalama yürütme süresi",
+      "byAgent": "Agent bazında",
+      "byAgentCompleted": "Tamamlanan",
+      "byProject": "Proje bazında",
+      "completionRate": "Tamamlanma oranı",
+      "created": "Oluşturulan",
+      "creationTrend": "Oluşturma trendi (30 gün)",
+      "empty": "Seçili pencerede Plan verisi yok.",
+      "noProject": "Proje yok",
+      "sampleSize": "{{count}} tamamlanmış örnek",
+      "stateDistribution": "Durum dağılımı",
+      "total": "Toplam Plan"
     }
   },
   "diffPanel": {
@@ -1502,6 +1523,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Kaydet ve devam et",
+      "subtitle": "Hope Agent güncel bilgiye ihtiyaç duyduğunda kullanacağı web arama arka ucunu seçin. DuckDuckGo anahtar gerektirmez; API Provider'lar şimdi veya daha sonra eklenebilir.",
+      "title": "Web aramasını yapılandır"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1558,6 +1584,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Arama Provider",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3938,5 +3965,36 @@
     "openaiChatDesc": "/v1/chat/completions uyumlu servisler",
     "openaiResponsesDesc": "/v1/responses uyumlu servisler",
     "selectApiType": "API Türü Seçin"
+  },
+  "plans": {
+    "addToChat": "Plan referansını mevcut sohbete ekle",
+    "badge": {
+      "archived": "Arşivlenmiş",
+      "completed": "Tamamlandı",
+      "executing": "Yürütülüyor",
+      "orphan": "Sahipsiz",
+      "planning": "Planlanıyor",
+      "review": "İnceleme"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Henüz Plan yok.",
+    "emptyPlan": "Bu Plan dosyası boş.",
+    "filter": {
+      "allAgents": "Tüm Agent'lar",
+      "state": {
+        "all": "Tüm durumlar",
+        "archived": "Arşivlenmiş (çıkış)",
+        "completed": "Tamamlandı",
+        "executing": "Yürütülüyor",
+        "planning": "Planlanıyor",
+        "review": "İnceleme"
+      }
+    },
+    "openInSession": "Oturumda aç",
+    "refresh": "Yenile",
+    "selectHint": "Sol taraftan bir Plan seçin.",
+    "sessionDeleted": "Sahip oturum silinmiş",
+    "title": "Planlar",
+    "untitled": "İsimsiz plan"
   }
 }

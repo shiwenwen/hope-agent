@@ -386,6 +386,11 @@
     "renameSession": "Переименовать",
     "renameSessionPlaceholder": "Введите новое название...",
     "revealInFolder": "Показать в папке",
+    "roundLimitReachedBody": "В этом ходе израсходованы все {{count}} раундов вызовов инструментов, задача могла остаться незавершённой. Нажмите кнопку ниже, чтобы отправить «Продолжить», и я возобновлю работу с текущего места. Также можно увеличить `max_tool_rounds` в Настройки → Агент → Возможности.",
+    "roundLimitReachedBodyNoCount": "Лимит раундов вызовов инструментов в этом ходе исчерпан. Нажмите кнопку ниже, чтобы отправить «Продолжить», и я возобновлю работу с текущего места.",
+    "roundLimitReachedTitle": "Достигнут лимит вызовов инструментов",
+    "roundLimitResumeButton": "Продолжить",
+    "roundLimitResumeMessage": "Продолжить",
     "scrollToBottom": "Прокрутить вниз",
     "searchPlaceholder": "Поиск по разговорам...",
     "searchTruncatedHint": "Показаны первые {{count}} совпадений — уточните запрос, чтобы увидеть больше.",
@@ -841,7 +846,8 @@
       "system": "Система",
       "tasks": "Задачи",
       "tokens": "Использование токенов",
-      "tools": "Использование инструментов"
+      "tools": "Использование инструментов",
+      "plans": "Планы"
     },
     "task": {
       "activeJobs": "Активные",
@@ -889,6 +895,21 @@
       "frequency": "Частота вызовов",
       "name": "Название",
       "totalMs": "Всего (мс)"
+    },
+    "plans": {
+      "active": "В работе",
+      "avgExecution": "Среднее время выполнения",
+      "byAgent": "По Agent",
+      "byAgentCompleted": "Завершено",
+      "byProject": "По проектам",
+      "completionRate": "Доля завершённых",
+      "created": "Создано",
+      "creationTrend": "Тренд создания (30 дней)",
+      "empty": "Нет данных Plan в выбранном окне.",
+      "noProject": "Без проекта",
+      "sampleSize": "Выборка из {{count}} завершённых",
+      "stateDistribution": "Распределение по состояниям",
+      "total": "Всего планов"
     }
   },
   "diffPanel": {
@@ -1502,6 +1523,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Сохранить и продолжить",
+      "subtitle": "Выберите backend веб-поиска, который Hope Agent будет использовать для актуальной информации. DuckDuckGo работает без ключа; API Provider можно добавить сейчас или позже.",
+      "title": "Настроить веб-поиск"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1558,6 +1584,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Provider поиска",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3938,5 +3965,36 @@
     "openaiChatDesc": "Сервисы, совместимые с /v1/chat/completions",
     "openaiResponsesDesc": "Сервисы, совместимые с /v1/responses",
     "selectApiType": "Выберите тип API"
+  },
+  "plans": {
+    "addToChat": "Добавить ссылку на Plan в текущий чат",
+    "badge": {
+      "archived": "Архивировано",
+      "completed": "Завершено",
+      "executing": "Выполняется",
+      "orphan": "Сирота",
+      "planning": "Планирование",
+      "review": "На проверке"
+    },
+    "count": "Планов: {{count}}",
+    "empty": "Планов пока нет.",
+    "emptyPlan": "Файл Plan пуст.",
+    "filter": {
+      "allAgents": "Все Agent",
+      "state": {
+        "all": "Все состояния",
+        "archived": "Архив (выход)",
+        "completed": "Завершено",
+        "executing": "Выполняется",
+        "planning": "Планирование",
+        "review": "На проверке"
+      }
+    },
+    "openInSession": "Открыть в сессии",
+    "refresh": "Обновить",
+    "selectHint": "Выберите Plan слева, чтобы посмотреть содержимое.",
+    "sessionDeleted": "Сессия-владелец удалена",
+    "title": "Планы",
+    "untitled": "Plan без названия"
   }
 }

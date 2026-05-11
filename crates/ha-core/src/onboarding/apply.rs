@@ -111,7 +111,7 @@ pub fn apply_safety(input: SafetyStepInput) -> Result<()> {
     save_config(&cfg)
 }
 
-/// Step 6 — skills. `disabled` overwrites the existing disabled list, which
+/// Skills. `disabled` overwrites the existing disabled list, which
 /// is what the wizard expects: it round-trips the current list to the UI
 /// and writes back the edited version.
 pub fn apply_skills(disabled: Vec<String>) -> Result<()> {
@@ -121,7 +121,18 @@ pub fn apply_skills(disabled: Vec<String>) -> Result<()> {
     save_config(&cfg)
 }
 
-/// Step 7 — server. `bind_addr` of `None` keeps current; same for `api_key`.
+/// Web search provider. The GUI writes through the existing
+/// settings endpoint; CLI onboarding uses this shared core helper so the
+/// backup reason and provider backfill semantics stay aligned.
+pub fn apply_web_search(mut config: crate::tools::web_search::WebSearchConfig) -> Result<()> {
+    let _g = crate::backup::scope_save_reason("onboarding", "search-provider");
+    crate::tools::web_search::backfill_providers(&mut config);
+    let mut cfg = load_config()?;
+    cfg.web_search = config;
+    save_config(&cfg)
+}
+
+/// Server. `bind_addr` of `None` keeps current; same for `api_key`.
 /// Pass `Some(String::new())` to clear `api_key`.
 #[derive(Debug, Clone, Default)]
 pub struct ServerStepInput {

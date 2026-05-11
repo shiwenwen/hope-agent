@@ -54,6 +54,10 @@ interface ChatScreenProps {
   onSessionNavigated?: () => void
   onUnreadCountChange?: (count: number) => void
   sessionsRefreshTrigger?: number
+  /** Free-form text to append to the chat input on next render (e.g. `@plan:abcd:v0`). */
+  pendingChatInsert?: string
+  /** Called once the insert has been consumed so App can clear the pending slot. */
+  onChatInsertConsumed?: () => void
 }
 
 export default function ChatScreen({
@@ -63,6 +67,8 @@ export default function ChatScreen({
   onSessionNavigated,
   onUnreadCountChange,
   sessionsRefreshTrigger,
+  pendingChatInsert,
+  onChatInsertConsumed,
 }: ChatScreenProps) {
   const { t } = useTranslation()
 
@@ -736,6 +742,17 @@ export default function ChatScreen({
     stream.setPermissionMode(mode)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.currentSessionId, session.sessions, stream.setPermissionMode])
+
+  // Consume a `@plan:xxx` (or any free-form text) injection from the global
+  // Plans view: append once with a leading space, then notify App so the slot
+  // clears. Runs after `stream` is initialized so `setInput` is available.
+  useEffect(() => {
+    if (!pendingChatInsert) return
+    const sep = stream.input && !stream.input.endsWith(" ") ? " " : ""
+    stream.setInput(`${stream.input}${sep}${pendingChatInsert} `)
+    onChatInsertConsumed?.()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingChatInsert])
 
   // ── Stream Reattach Hook ────────────────────────────────────
   // Rehydrates chat streaming after frontend reload / window reopen / browser
@@ -1418,6 +1435,9 @@ export default function ChatScreen({
                 void session.handleSwitchSession(sid)
               }}
               onOpenDiff={diffPanel.openDiff}
+              onResume={(message) => {
+                void stream.handleSend(message)
+              }}
             />
 
             {/* Memory extraction toast — absolute-positioned above ChatInput

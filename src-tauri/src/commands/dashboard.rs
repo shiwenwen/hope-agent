@@ -151,3 +151,11 @@ pub async fn dashboard_recall_stats(
 ) -> Result<dashboard::RecallStats, CmdError> {
     dashboard::query_recall_stats(&state.session_db, window_days).map_err(Into::into)
 }
+
+#[tauri::command]
+pub async fn dashboard_plan_stats(
+    filter: DashboardFilter,
+    _state: State<'_, AppState>,
+) -> Result<dashboard::PlanStats, CmdError> {
+    dashboard::query_plan_stats(&filter).map_err(Into::into)
+}

@@ -25,6 +25,7 @@ pub mod misc;
 pub mod onboarding;
 pub mod permission;
 pub mod plan;
+pub mod plan_index;
 pub mod project;
 pub mod provider;
 pub mod recap;

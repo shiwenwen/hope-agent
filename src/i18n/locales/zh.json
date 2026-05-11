@@ -386,6 +386,11 @@
     "renameSession": "重命名",
     "renameSessionPlaceholder": "输入新标题...",
     "revealInFolder": "打开所在文件夹",
+    "roundLimitReachedBody": "本轮已用满 {{count}} 轮工具调用，任务可能尚未完成。点击下方按钮发送「继续」，我会接着当前进度继续推进；也可以在 设置 → Agent → 能力 中调高 `max_tool_rounds`。",
+    "roundLimitReachedBodyNoCount": "本轮工具调用轮次已用满。点击下方按钮发送「继续」，我会接着当前进度继续推进。",
+    "roundLimitReachedTitle": "已达工具调用上限",
+    "roundLimitResumeButton": "继续",
+    "roundLimitResumeMessage": "继续",
     "scrollToBottom": "回到底部",
     "searchPlaceholder": "搜索会话...",
     "searchTruncatedHint": "已显示前 {{count}} 条匹配，请细化关键词查看更多。",
@@ -831,11 +836,27 @@
       "systemUptime": "系统运行",
       "virtualMem": "虚拟内存"
     },
+    "plans": {
+      "active": "进行中",
+      "avgExecution": "平均执行时长",
+      "byAgent": "按 Agent 分组",
+      "byAgentCompleted": "已完成",
+      "byProject": "按项目分组",
+      "completionRate": "完成率",
+      "created": "新建",
+      "creationTrend": "30 天创建趋势",
+      "empty": "所选时间窗内暂无 Plan 数据。",
+      "noProject": "未归属项目",
+      "sampleSize": "已采样 {{count}} 个完成的 Plan",
+      "stateDistribution": "状态分布",
+      "total": "Plan 总数"
+    },
     "tabs": {
       "dreaming": "记忆梦境",
       "errors": "异常监控",
       "insights": "综合概览",
       "learning": "学习追踪",
+      "plans": "Plan",
       "recap": "复盘",
       "sessions": "会话分析",
       "system": "系统监控",
@@ -1502,6 +1523,11 @@
       "subtitle": "接入已有 API Key(OpenAI / Anthropic / DeepSeek 等)或运行本地模型。之后可以在设置中修改或添加。",
       "title": "选择模型服务商"
     },
+    "searchProvider": {
+      "saveAndContinue": "保存并继续",
+      "subtitle": "选择 Hope Agent 需要获取最新信息时使用的网页搜索后端。DuckDuckGo 无需密钥；API Provider 可以现在配置，也可以稍后再加。",
+      "title": "配置网页搜索"
+    },
     "rerun": {
       "button": "重新运行引导向导",
       "confirm": "重新运行",
@@ -1558,6 +1584,7 @@
         "profile": "个人资料",
         "provider": "模型服务商",
         "safety": "工具审批",
+        "searchProvider": "搜索 Provider",
         "server": "访问模式",
         "skills": "技能"
       },
@@ -1578,6 +1605,37 @@
       "subtitle": "越用越懂你的 AI 助手——桌面、云端、IM，随叫随到。\n下面是一个简短的引导——除了选择模型，其它每一步都可以跳过。",
       "title": "欢迎使用 Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "把该 Plan 添加到当前会话",
+    "badge": {
+      "archived": "已归档",
+      "completed": "已完成",
+      "executing": "执行中",
+      "orphan": "孤儿文件",
+      "planning": "规划中",
+      "review": "审核中"
+    },
+    "count": "共 {{count}} 个 Plan",
+    "empty": "暂无 Plan。",
+    "emptyPlan": "该 Plan 文件为空。",
+    "filter": {
+      "allAgents": "全部 Agent",
+      "state": {
+        "all": "全部状态",
+        "archived": "已归档（已退出）",
+        "completed": "已完成",
+        "executing": "执行中",
+        "planning": "规划中",
+        "review": "审核中"
+      }
+    },
+    "openInSession": "跳转到所属会话",
+    "refresh": "刷新",
+    "selectHint": "请在左侧选择一个 Plan 查看内容。",
+    "sessionDeleted": "所属会话已删除",
+    "title": "Plan 历史",
+    "untitled": "未命名 Plan"
   },
   "planMode": {
     "approveAndExecute": "开始执行",

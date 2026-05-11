@@ -153,6 +153,12 @@ impl StreamPersister {
                         metadata_json.as_deref(),
                     );
                 }
+                Some("round_limit_reached") => {
+                    let _ = me.db.append_message(
+                        &me.session_id,
+                        &NewMessage::event(delta).with_source(me.source),
+                    );
+                }
                 Some("context_compacted") => {
                     // Persist Tier ≥ 2 only — Tier 0/1 reactive micro-compact
                     // fires every turn and would flood the event timeline.
