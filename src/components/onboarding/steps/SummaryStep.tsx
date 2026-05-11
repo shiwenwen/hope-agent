@@ -9,6 +9,7 @@ import {
   Languages,
   MessageSquare,
   Puzzle,
+  Search,
   Server as ServerIcon,
   Shield,
   Smile,
@@ -19,6 +20,7 @@ import {
 import alphaLogoUrl from "@/assets/alpha-logo.png"
 import { Button } from "@/components/ui/button"
 import { getTransport } from "@/lib/transport-provider"
+import { PROVIDER_META } from "@/components/settings/web-search-panel/constants"
 
 import type { OnboardingDraft, OnboardingStepKey } from "../types"
 
@@ -39,14 +41,27 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
   const { t } = useTranslation()
   const [ips, setIps] = useState<string[]>([])
   const [copied, setCopied] = useState<"url" | "key" | null>(null)
+  const [searchProviderId, setSearchProviderId] = useState<string | null>(null)
 
   useEffect(() => {
     void (async () => {
       try {
-        const list = await getTransport().call<string[]>("list_local_ips")
+        const [list, webSearch] = await Promise.all([
+          getTransport()
+            .call<string[]>("list_local_ips")
+            .catch(() => []),
+          getTransport()
+            .call<{ providers?: Array<{ id: string; enabled?: boolean }> }>(
+              "get_web_search_config",
+            )
+            .catch(() => null),
+        ])
         if (Array.isArray(list)) setIps(list)
+        const enabled = webSearch?.providers?.find((entry) => entry.enabled)
+        setSearchProviderId(enabled?.id ?? null)
       } catch {
         setIps([])
+        setSearchProviderId(null)
       }
     })()
   }, [])
@@ -56,6 +71,9 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
   const host = bindMode === "lan" && ips[0] ? ips[0] : "localhost"
   const base = `http://${host}:8420`
   const fullUrl = apiKey ? `${base}/?token=${apiKey}` : `${base}/`
+  const searchProviderValue = searchProviderId
+    ? t(PROVIDER_META[searchProviderId]?.labelKey ?? searchProviderId)
+    : ""
 
   async function copy(value: string, tag: "url" | "key") {
     try {
@@ -92,6 +110,12 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
       labelKey: "onboarding.summary.items.provider",
       value: skipped.has("provider") ? "" : t("onboarding.summary.providerDone"),
       icon: Cpu,
+    },
+    {
+      key: "search-provider",
+      labelKey: "onboarding.summary.items.searchProvider",
+      value: searchProviderValue,
+      icon: Search,
     },
     {
       key: "profile",
@@ -160,7 +184,10 @@ export function SummaryStep({ draft, skipped }: SummaryStepProps) {
       {/* Summary chips — two-column on ≥sm, each chip is self-contained */}
       <div className="grid gap-2 sm:grid-cols-2">
         {entries.map((entry) => {
-          const isSkipped = skipped.has(entry.key) || !entry.value
+          const isSkipped =
+            entry.key === "search-provider"
+              ? !entry.value
+              : skipped.has(entry.key) || !entry.value
           const Icon = entry.icon
           return (
             <div

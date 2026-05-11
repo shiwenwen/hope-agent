@@ -836,11 +836,27 @@
       "systemUptime": "System Uptime",
       "virtualMem": "Virtual Memory"
     },
+    "plans": {
+      "active": "In Progress",
+      "avgExecution": "Avg Execution Time",
+      "byAgent": "By Agent",
+      "byAgentCompleted": "Completed",
+      "byProject": "By Project",
+      "completionRate": "Completion Rate",
+      "created": "Created",
+      "creationTrend": "Creation Trend (30 days)",
+      "empty": "No plan data in the selected window.",
+      "noProject": "No project",
+      "sampleSize": "Sampled {{count}} completed runs",
+      "stateDistribution": "State Distribution",
+      "total": "Total Plans"
+    },
     "tabs": {
       "dreaming": "Dreams",
       "errors": "Errors",
       "insights": "Insights",
       "learning": "Learning",
+      "plans": "Plans",
       "recap": "Recap",
       "sessions": "Sessions",
       "system": "System",
@@ -1507,6 +1523,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Save and continue",
+      "subtitle": "Choose the web search backend Hope Agent should use when it needs current information. DuckDuckGo works without a key; API providers can be added now or later.",
+      "title": "Configure web search"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1563,6 +1584,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Search provider",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -1583,6 +1605,37 @@
       "subtitle": "An AI assistant that knows you better the more you use it — on desktop, in the cloud, across IM, always on call.\nA quick walkthrough follows — every step is optional except picking a model.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Add plan reference to current chat",
+    "badge": {
+      "archived": "Archived",
+      "completed": "Completed",
+      "executing": "Executing",
+      "orphan": "Orphan",
+      "planning": "Planning",
+      "review": "Review"
+    },
+    "count": "{{count}} plans",
+    "empty": "No plans yet.",
+    "emptyPlan": "This plan file is empty.",
+    "filter": {
+      "allAgents": "All agents",
+      "state": {
+        "all": "All states",
+        "archived": "Archived (exited)",
+        "completed": "Completed",
+        "executing": "Executing",
+        "planning": "Planning",
+        "review": "Review"
+      }
+    },
+    "openInSession": "Open in session",
+    "refresh": "Refresh",
+    "selectHint": "Select a plan on the left to view its content.",
+    "sessionDeleted": "Owning session deleted",
+    "title": "Plans",
+    "untitled": "Untitled plan"
   },
   "planMode": {
     "approveAndExecute": "Start Execution",

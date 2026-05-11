@@ -391,9 +391,10 @@ impl Default for EmbeddedServerConfig {
 
 // ── Onboarding State ────────────────────────────────────────────
 
-/// Current onboarding wizard version. Bump this to force existing users
-/// through the wizard again after meaningful additions (new steps, new
-/// required fields, etc.).
+/// Current onboarding wizard version. Bump this only when existing users
+/// must re-walk the flow after meaningful required additions. Optional
+/// steps that should appear only for new installs and manual reruns keep
+/// this value unchanged.
 pub const CURRENT_ONBOARDING_VERSION: u32 = 1;
 
 /// First-run onboarding wizard state. Drives both the GUI wizard

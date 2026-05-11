@@ -42,6 +42,7 @@ import {
 // Lazy-loaded views (heavy dependencies: recharts, cron UI)
 const DashboardView = lazy(() => import("@/components/dashboard/DashboardView"))
 const CronCalendarView = lazy(() => import("@/components/cron/CronCalendarView"))
+const PlansView = lazy(() => import("@/components/plans/PlansView"))
 
 export default function App() {
   const { t, i18n } = useTranslation()
@@ -59,6 +60,7 @@ export default function App() {
     | "channels"
     | "calendar"
     | "dashboard"
+    | "plans"
   >("loading")
   const [agentIdForSettings, setAgentIdForSettings] = useState<string | undefined>(undefined)
   const [settingsInitialSection, setSettingsInitialSection] = useState<SettingsSection | undefined>(
@@ -67,6 +69,8 @@ export default function App() {
   const [settingsInitialSectionRequestKey, setSettingsInitialSectionRequestKey] = useState(0)
   const [userAvatar, setUserAvatar] = useState<string | null>(null)
   const [pendingSessionId, setPendingSessionId] = useState<string | undefined>(undefined)
+  // PlansView pushes `@plan:<short_id>:v<n>` tokens here; ChatInput appends and clears.
+  const [pendingChatInsert, setPendingChatInsert] = useState<string | undefined>(undefined)
   const [totalUnreadCount, setTotalUnreadCount] = useState(0)
   const [sessionsRefreshTrigger, setSessionsRefreshTrigger] = useState(0)
   const { pendingUpdate: globalPendingUpdate } = useDesktopUpdateStore()
@@ -420,6 +424,7 @@ export default function App() {
                 }}
                 onOpenCalendar={() => setView("calendar")}
                 onOpenDashboard={() => setView("dashboard")}
+                onOpenPlans={() => setView("plans")}
                 userAvatar={userAvatar}
                 totalUnreadCount={totalUnreadCount}
                 onMarkAllRead={() => setSessionsRefreshTrigger((n) => n + 1)}
@@ -514,6 +519,27 @@ export default function App() {
                   <DashboardView onBack={() => setView("chat")} />
                 </Suspense>
               )}
+              {view === "plans" && (
+                <Suspense
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                      <div className="animate-spin h-6 w-6 border-2 border-foreground border-t-transparent rounded-full" />
+                    </div>
+                  }
+                >
+                  <PlansView
+                    onBack={() => setView("chat")}
+                    onJumpToSession={(sessionId) => {
+                      setPendingSessionId(sessionId)
+                      setView("chat")
+                    }}
+                    onInsertMention={(token) => {
+                      setPendingChatInsert(token)
+                      setView("chat")
+                    }}
+                  />
+                </Suspense>
+              )}
               <div className={view === "chat" ? "flex-1 flex overflow-hidden" : "hidden"}>
                 <ChatScreen
                   onOpenAgentSettings={(agentId) => {
@@ -525,6 +551,8 @@ export default function App() {
                   onSessionNavigated={() => setPendingSessionId(undefined)}
                   onUnreadCountChange={setTotalUnreadCount}
                   sessionsRefreshTrigger={sessionsRefreshTrigger}
+                  pendingChatInsert={pendingChatInsert}
+                  onChatInsertConsumed={() => setPendingChatInsert(undefined)}
                 />
               </div>
 

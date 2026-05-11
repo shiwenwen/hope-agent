@@ -846,7 +846,8 @@
       "system": "النظام",
       "tasks": "المهام",
       "tokens": "استخدام الرموز",
-      "tools": "استخدام الأدوات"
+      "tools": "استخدام الأدوات",
+      "plans": "الخطط"
     },
     "task": {
       "activeJobs": "النشطة",
@@ -894,6 +895,21 @@
       "frequency": "تكرار الاستدعاءات",
       "name": "الاسم",
       "totalMs": "الإجمالي (ms)"
+    },
+    "plans": {
+      "active": "قيد التنفيذ",
+      "avgExecution": "متوسط زمن التنفيذ",
+      "byAgent": "حسب Agent",
+      "byAgentCompleted": "مكتمل",
+      "byProject": "حسب المشروع",
+      "completionRate": "نسبة الإكمال",
+      "created": "تم إنشاؤها",
+      "creationTrend": "اتجاه الإنشاء (30 يومًا)",
+      "empty": "لا توجد بيانات خطط في النافذة المختارة.",
+      "noProject": "بدون مشروع",
+      "sampleSize": "تم أخذ عينة من {{count}} مكتملة",
+      "stateDistribution": "توزيع الحالات",
+      "total": "إجمالي الخطط"
     }
   },
   "diffPanel": {
@@ -1507,6 +1523,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "حفظ ومتابعة",
+      "subtitle": "اختر خلفية بحث الويب التي سيستخدمها Hope Agent عند الحاجة إلى معلومات حديثة. يعمل DuckDuckGo بدون مفتاح، ويمكن إضافة موفري API الآن أو لاحقاً.",
+      "title": "إعداد بحث الويب"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1563,6 +1584,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "موفر البحث",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3943,5 +3965,36 @@
     "openaiChatDesc": "خدمات متوافقة مع /v1/chat/completions",
     "openaiResponsesDesc": "خدمات متوافقة مع /v1/responses",
     "selectApiType": "اختر نوع API"
+  },
+  "plans": {
+    "addToChat": "إضافة مرجع الخطة إلى المحادثة الحالية",
+    "badge": {
+      "archived": "مؤرشف",
+      "completed": "مكتمل",
+      "executing": "قيد التنفيذ",
+      "orphan": "يتيم",
+      "planning": "قيد التخطيط",
+      "review": "قيد المراجعة"
+    },
+    "count": "{{count}} خطة",
+    "empty": "لا توجد خطط بعد.",
+    "emptyPlan": "ملف الخطة فارغ.",
+    "filter": {
+      "allAgents": "كل الـ Agent",
+      "state": {
+        "all": "كل الحالات",
+        "archived": "مؤرشف (تم الخروج)",
+        "completed": "مكتمل",
+        "executing": "قيد التنفيذ",
+        "planning": "قيد التخطيط",
+        "review": "قيد المراجعة"
+      }
+    },
+    "openInSession": "الفتح في الجلسة",
+    "refresh": "تحديث",
+    "selectHint": "اختر خطة على اليسار لعرض محتواها.",
+    "sessionDeleted": "تم حذف الجلسة المالكة",
+    "title": "الخطط",
+    "untitled": "خطة بدون عنوان"
   }
 }

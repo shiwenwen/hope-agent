@@ -500,3 +500,41 @@ export type RecapProgress =
   | { phase: "persisting" }
   | { phase: "done"; reportId: string }
   | { phase: "failed"; reportId: string; message: string }
+
+// ── Plan Stats ──────────────────────────────────────────────────
+
+export interface PlanStateDistribution {
+  off: number
+  planning: number
+  review: number
+  executing: number
+  completed: number
+}
+
+export interface PlanAgentBucket {
+  agentId: string
+  total: number
+  completed: number
+}
+
+export interface PlanProjectBucket {
+  projectId: string | null
+  total: number
+  completed: number
+}
+
+export interface PlanTrendPoint {
+  date: string
+  created: number
+}
+
+export interface PlanStats {
+  total: number
+  stateDistribution: PlanStateDistribution
+  completionRate: number
+  byAgent: PlanAgentBucket[]
+  byProject: PlanProjectBucket[]
+  creationTrend: PlanTrendPoint[]
+  avgExecutionDurationSecs: number | null
+  sampledDurationCount: number
+}

@@ -846,7 +846,8 @@
       "system": "Hệ thống",
       "tasks": "Tác vụ",
       "tokens": "Sử dụng token",
-      "tools": "Sử dụng công cụ"
+      "tools": "Sử dụng công cụ",
+      "plans": "Plan"
     },
     "task": {
       "activeJobs": "Hoạt động",
@@ -894,6 +895,21 @@
       "frequency": "Tần suất gọi",
       "name": "Tên",
       "totalMs": "Tổng (ms)"
+    },
+    "plans": {
+      "active": "Đang tiến hành",
+      "avgExecution": "Thời gian thực thi trung bình",
+      "byAgent": "Theo Agent",
+      "byAgentCompleted": "Hoàn tất",
+      "byProject": "Theo dự án",
+      "completionRate": "Tỷ lệ hoàn tất",
+      "created": "Tạo",
+      "creationTrend": "Xu hướng tạo (30 ngày)",
+      "empty": "Không có dữ liệu Plan trong khoảng đã chọn.",
+      "noProject": "Không có dự án",
+      "sampleSize": "Đã lấy mẫu {{count}} lần hoàn tất",
+      "stateDistribution": "Phân bố trạng thái",
+      "total": "Tổng số Plan"
     }
   },
   "diffPanel": {
@@ -1507,6 +1523,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Lưu và tiếp tục",
+      "subtitle": "Chọn backend tìm kiếm web mà Hope Agent dùng khi cần thông tin mới nhất. DuckDuckGo không cần khóa; các API Provider có thể thêm bây giờ hoặc sau.",
+      "title": "Cấu hình tìm kiếm web"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1563,6 +1584,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Provider tìm kiếm",
         "server": "Access mode",
         "skills": "Skills"
       },
@@ -3943,5 +3965,36 @@
     "openaiChatDesc": "Dịch vụ tương thích /v1/chat/completions",
     "openaiResponsesDesc": "Dịch vụ tương thích /v1/responses",
     "selectApiType": "Chọn loại API"
+  },
+  "plans": {
+    "addToChat": "Thêm tham chiếu Plan vào cuộc trò chuyện hiện tại",
+    "badge": {
+      "archived": "Đã lưu trữ",
+      "completed": "Hoàn tất",
+      "executing": "Đang thực thi",
+      "orphan": "Mồ côi",
+      "planning": "Đang lên kế hoạch",
+      "review": "Đang xét duyệt"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Chưa có Plan nào.",
+    "emptyPlan": "Tệp Plan này trống.",
+    "filter": {
+      "allAgents": "Tất cả Agent",
+      "state": {
+        "all": "Tất cả trạng thái",
+        "archived": "Đã lưu trữ (đã thoát)",
+        "completed": "Hoàn tất",
+        "executing": "Đang thực thi",
+        "planning": "Đang lên kế hoạch",
+        "review": "Đang xét duyệt"
+      }
+    },
+    "openInSession": "Mở trong phiên",
+    "refresh": "Làm mới",
+    "selectHint": "Chọn một Plan ở bên trái để xem nội dung.",
+    "sessionDeleted": "Phiên sở hữu đã bị xoá",
+    "title": "Lịch sử Plan",
+    "untitled": "Plan chưa đặt tên"
   }
 }
