@@ -3617,6 +3617,7 @@
     "webSearchNeedsConfig": "구성 필요",
     "webSearchNeedsKey": "키 필요",
     "webSearchProviderBrave": "Brave Search",
+    "webSearchProviderBocha": "Bocha AI Search",
     "webSearchProviderDDG": "DuckDuckGo",
     "webSearchProviderGoogle": "Google Custom Search",
     "webSearchProviderGrok": "Grok (X.AI)",

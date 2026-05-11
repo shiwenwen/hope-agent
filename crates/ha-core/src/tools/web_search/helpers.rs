@@ -9,8 +9,9 @@ pub(super) const HTML_RESPONSE_BYTE_CAP: usize = 1_500_000;
 /// Cap for JSON search-API responses — plenty for ≤10 results.
 pub(super) const JSON_RESPONSE_BYTE_CAP: usize = 1_000_000;
 
-/// SSRF-check a user-configurable search URL (only SearXNG uses this today;
-/// vendor APIs are fixed public endpoints and don't need it).
+/// SSRF-check a search URL before outbound requests. SearXNG is
+/// user-configurable; fixed vendor endpoints still use this to keep new HTTP
+/// exits behind the same policy gate.
 pub(super) async fn check_search_url(url: &str) -> Result<()> {
     let cfg = &crate::config::cached_config().ssrf;
     crate::security::ssrf::check_url(url, cfg.default_policy, &cfg.trusted_hosts)

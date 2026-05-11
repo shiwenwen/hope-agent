@@ -146,6 +146,24 @@ Publish Release 后 [`.github/workflows/update-homebrew-tap.yml`](../.github/wor
 
 **cask 模板单一真相源在主仓 [`homebrew/hope-agent.rb.tmpl`](../homebrew/hope-agent.rb.tmpl)**。不要在 tap repo 里直接改 `Casks/hope-agent.rb`——下次发版会被 CI 覆盖。
 
+### 1.7 AUR 自动同步
+
+与 §1.6 Homebrew tap 同模式，Release publish 后 [`.github/workflows/update-aur.yml`](../.github/workflows/update-aur.yml) 由 `release.published` 自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<version>_amd64.deb`
+2. `sha256sum` 算 deb 摘要
+3. `sed` 渲染 [`aur/hope-agent-bin/PKGBUILD.tmpl`](../aur/hope-agent-bin/PKGBUILD.tmpl) + [`.SRCINFO.tmpl`](../aur/hope-agent-bin/.SRCINFO.tmpl)
+4. 用 `AUR_SSH_PRIVATE_KEY`（专用 ed25519 deploy key，公钥已绑到 maintainer 的 AUR 账号）SSH push 到 `ssh://aur@aur.archlinux.org/hope-agent-bin.git`
+
+正常路径**不需要任何人工操作**。下列情况需要手动 `gh workflow run update-aur.yml -f tag=vX.Y.Z`：
+
+- PKGBUILD / .SRCINFO 模板本身改了（如改 deps / 改 pkgdesc），想立即对已发布版本生效
+- workflow 因为 SSH key / AUR 账号变化等原因失败过，修复后重跑
+
+**AUR 账号 + SSH key 初始化（一次性）**：详见 [`aur/README.md`](../aur/README.md)。
+
+**模板单一真相源在主仓 [`aur/hope-agent-bin/`](../aur/hope-agent-bin/)**。不要直接 push AUR 仓库——下次发版会被 CI 覆盖。**改 PKGBUILD 字段时必须同步改 .SRCINFO** 字段（两个文件结构是平行的），否则 AUR Web UI 元数据会与 PKGBUILD 不一致。
+
 ---
 
 ## 2. 新 minor 发版差异

@@ -39,7 +39,7 @@ pub fn get_web_search_tool() -> ToolDefinition {
                 "freshness": {
                     "type": "string",
                     "enum": ["day", "week", "month", "year"],
-                    "description": "Time filter: only return results from the specified period. Supported by: Brave, SearXNG, Perplexity, Google, Tavily."
+                    "description": "Time filter: only return results from the specified period. Supported by: Bocha, Brave, SearXNG, Perplexity, Google, Tavily."
                 }
             },
             "required": ["query"],

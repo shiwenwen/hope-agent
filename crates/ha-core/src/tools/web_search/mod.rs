@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::ttl_cache::TtlCache;
 
+mod bocha;
 mod brave;
 mod duckduckgo;
 mod google;
@@ -31,6 +32,8 @@ pub enum WebSearchProvider {
     DuckDuckGo,
     /// SearXNG self-hosted meta-search — free, needs instance URL
     Searxng,
+    /// Bocha AI Search API — requires API key
+    Bocha,
     /// Brave Search API — requires API key
     Brave,
     /// Perplexity Sonar API — requires API key
@@ -50,6 +53,7 @@ impl std::fmt::Display for WebSearchProvider {
         match self {
             Self::DuckDuckGo => write!(f, "DuckDuckGo"),
             Self::Searxng => write!(f, "SearXNG"),
+            Self::Bocha => write!(f, "Bocha"),
             Self::Brave => write!(f, "Brave"),
             Self::Perplexity => write!(f, "Perplexity"),
             Self::Google => write!(f, "Google"),
@@ -66,7 +70,7 @@ impl std::fmt::Display for WebSearchProvider {
 pub struct WebSearchProviderEntry {
     pub id: WebSearchProvider,
     pub enabled: bool,
-    /// API key (Brave / Perplexity / Google / Grok / Kimi)
+    /// API key (Bocha / Brave / Perplexity / Google / Grok / Kimi)
     #[serde(default)]
     pub api_key: Option<String>,
     /// Second credential (Google CX)
@@ -129,6 +133,13 @@ fn default_providers() -> Vec<WebSearchProviderEntry> {
         },
         WebSearchProviderEntry {
             id: WebSearchProvider::Tavily,
+            enabled: false,
+            api_key: None,
+            api_key2: None,
+            base_url: None,
+        },
+        WebSearchProviderEntry {
+            id: WebSearchProvider::Bocha,
             enabled: false,
             api_key: None,
             api_key2: None,
@@ -327,6 +338,10 @@ pub(crate) async fn tool_web_search(args: &Value) -> Result<String> {
             WebSearchProvider::Brave => {
                 let key = entry.api_key.as_deref().unwrap_or("");
                 brave::search_brave(key, query, count, &params, timeout).await
+            }
+            WebSearchProvider::Bocha => {
+                let key = entry.api_key.as_deref().unwrap_or("");
+                bocha::search_bocha(key, query, count, &params, timeout).await
             }
             WebSearchProvider::Perplexity => {
                 let key = entry.api_key.as_deref().unwrap_or("");

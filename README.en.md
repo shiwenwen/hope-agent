@@ -99,6 +99,8 @@ brew tap shiwenwen/hope-agent
 brew install --cask hope-agent
 ```
 
+> Already have `Hope Agent.app` installed manually? Append `--adopt` to let the cask take over your existing same-version app without re-downloading, or `--force` to overwrite.
+
 After install:
 
 - Desktop GUI: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` from a terminal
@@ -106,6 +108,14 @@ After install:
 - ACP (IDE integration): `hope-agent acp`
 
 Apple Silicon only; Intel Macs run under Rosetta 2.
+
+**Arch Linux / Manjaro (AUR):**
+
+```bash
+yay -S hope-agent-bin   # or paru / any AUR helper
+```
+
+Pre-built binary package (repackaged from the GitHub Release `.deb`) — no source compilation.
 
 **Other platforms / manual download:**
 
