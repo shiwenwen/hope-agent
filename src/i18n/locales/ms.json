@@ -846,7 +846,8 @@
       "system": "Sistem",
       "tasks": "Tugasan",
       "tokens": "Penggunaan Token",
-      "tools": "Penggunaan Alat"
+      "tools": "Penggunaan Alat",
+      "plans": "Plan"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -894,6 +895,21 @@
       "frequency": "Kekerapan panggilan",
       "name": "Nama",
       "totalMs": "Jumlah (ms)"
+    },
+    "plans": {
+      "active": "Sedang berlangsung",
+      "avgExecution": "Tempoh perlaksanaan purata",
+      "byAgent": "Mengikut Agent",
+      "byAgentCompleted": "Selesai",
+      "byProject": "Mengikut projek",
+      "completionRate": "Kadar penyelesaian",
+      "created": "Dicipta",
+      "creationTrend": "Trend penciptaan (30 hari)",
+      "empty": "Tiada data Plan dalam tempoh dipilih.",
+      "noProject": "Tanpa projek",
+      "sampleSize": "Disampel {{count}} larian selesai",
+      "stateDistribution": "Taburan keadaan",
+      "total": "Jumlah Plan"
     }
   },
   "diffPanel": {
@@ -3949,5 +3965,36 @@
     "openaiChatDesc": "Perkhidmatan serasi dengan /v1/chat/completions",
     "openaiResponsesDesc": "Perkhidmatan serasi dengan /v1/responses",
     "selectApiType": "Pilih Jenis API"
+  },
+  "plans": {
+    "addToChat": "Tambah rujukan Plan ke perbualan semasa",
+    "badge": {
+      "archived": "Diarkibkan",
+      "completed": "Selesai",
+      "executing": "Sedang dijalankan",
+      "orphan": "Yatim",
+      "planning": "Sedang merancang",
+      "review": "Dalam semakan"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Tiada Plan lagi.",
+    "emptyPlan": "Fail Plan ini kosong.",
+    "filter": {
+      "allAgents": "Semua Agent",
+      "state": {
+        "all": "Semua keadaan",
+        "archived": "Diarkibkan (keluar)",
+        "completed": "Selesai",
+        "executing": "Sedang dijalankan",
+        "planning": "Sedang merancang",
+        "review": "Dalam semakan"
+      }
+    },
+    "openInSession": "Buka dalam sesi",
+    "refresh": "Muat semula",
+    "selectHint": "Pilih satu Plan di sebelah kiri untuk melihat kandungannya.",
+    "sessionDeleted": "Sesi pemilik telah dipadam",
+    "title": "Plan",
+    "untitled": "Plan tanpa tajuk"
   }
 }

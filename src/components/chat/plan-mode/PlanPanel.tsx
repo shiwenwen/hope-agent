@@ -379,8 +379,11 @@ export function PlanPanel({
         <ClipboardList className={cn("h-4 w-4", iconColor)} />
         <span className="text-sm font-medium truncate flex-1">{t("planMode.panelTitle")}</span>
         <div className="flex items-center gap-0.5">
-          {/* Version history button */}
-          {(planState === "review" || planState === "planning") && (
+          {/* Version history button — visible whenever a plan file exists so
+              users can review historical revisions even after `/plan exit`
+              archives the plan to off-state. Restore is still gated to
+              writable states inside the version list overlay below. */}
+          {showMarkdown && (
             <IconTip label={t("planMode.versions")}>
               <button
                 className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
@@ -453,32 +456,37 @@ export function PlanPanel({
             </button>
           </div>
           <div className="space-y-1 max-h-[200px] overflow-y-auto">
-            {versions.map((v) => (
-              <div
-                key={v.version}
-                className={cn(
-                  "flex items-center gap-2 px-2 py-1.5 rounded text-xs",
-                  v.isCurrent ? "bg-blue-500/10 text-blue-600" : "hover:bg-secondary/60",
-                )}
-              >
-                <span className="font-medium">v{v.version}</span>
-                <span className="text-muted-foreground flex-1 truncate">
-                  {v.modifiedAt ? new Date(v.modifiedAt).toLocaleString() : ""}
-                </span>
-                {v.isCurrent ? (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600">
-                    {t("planMode.currentVersion")}
+            {versions.map((v) => {
+              const canRestore =
+                !v.isCurrent && (planState === "planning" || planState === "review")
+              return (
+                <div
+                  key={v.version}
+                  className={cn(
+                    "flex items-center gap-2 px-2 py-1.5 rounded text-xs",
+                    v.isCurrent ? "bg-blue-500/10 text-blue-600" : "hover:bg-secondary/60",
+                  )}
+                >
+                  <span className="font-medium">v{v.version}</span>
+                  <span className="text-muted-foreground flex-1 truncate">
+                    {v.modifiedAt ? new Date(v.modifiedAt).toLocaleString() : ""}
                   </span>
-                ) : (
-                  <button
-                    className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
-                    onClick={() => handleRestoreVersion(v.filePath)}
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-            ))}
+                  {v.isCurrent && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-600">
+                      {t("planMode.currentVersion")}
+                    </span>
+                  )}
+                  {canRestore && (
+                    <button
+                      className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground"
+                      onClick={() => handleRestoreVersion(v.filePath)}
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
             {versions.length === 0 && (
               <div className="text-xs text-muted-foreground text-center py-3">
                 {t("planMode.noVersions")}

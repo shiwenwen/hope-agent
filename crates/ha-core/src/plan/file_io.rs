@@ -224,10 +224,7 @@ pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
         let meta = std::fs::metadata(&path)?;
         let modified = meta
             .modified()
-            .map(|t| {
-                let dt: chrono::DateTime<chrono::Local> = t.into();
-                dt.to_rfc3339()
-            })
+            .map(format_sys_time_rfc3339)
             .unwrap_or_default();
         let current_version = {
             let store_ref = store();
@@ -259,10 +256,7 @@ pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
                         let meta = std::fs::metadata(entry.path()).ok();
                         let modified = meta
                             .and_then(|m| m.modified().ok())
-                            .map(|t| {
-                                let dt: chrono::DateTime<chrono::Local> = t.into();
-                                dt.to_rfc3339()
-                            })
+                            .map(format_sys_time_rfc3339)
                             .unwrap_or_default();
                         versions.push(PlanVersionInfo {
                             version: v,
@@ -284,6 +278,43 @@ pub fn list_plan_versions(session_id: &str) -> Result<Vec<PlanVersionInfo>> {
 /// Load content of a specific plan version.
 pub fn load_plan_version(file_path: &str) -> Result<String> {
     Ok(std::fs::read_to_string(file_path)?)
+}
+
+/// Format a `SystemTime` as a local RFC3339 string. Returns the empty string
+/// if the time conversion fails — callers treat empty as "unknown".
+pub(crate) fn format_sys_time_rfc3339(t: std::time::SystemTime) -> String {
+    let dt: chrono::DateTime<chrono::Local> = t.into();
+    dt.to_rfc3339()
+}
+
+/// Extract the first `# Heading` line from plan markdown, if any.
+///
+/// Used by the cross-session plan index and the `@plan:` mention resolver
+/// to surface a readable label without opening the file. YAML front matter
+/// (a `---` fenced block at the very top) is skipped. Returns `None` when
+/// the first non-blank line after front matter is not a level-1 heading.
+pub fn extract_plan_title(content: &str) -> Option<String> {
+    let mut lines = content.lines().peekable();
+    if matches!(lines.peek().map(|l| l.trim()), Some("---")) {
+        lines.next();
+        for line in lines.by_ref() {
+            if line.trim() == "---" {
+                break;
+            }
+        }
+    }
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix("# ") {
+            let title = rest.trim();
+            return (!title.is_empty()).then(|| title.to_string());
+        }
+        return None;
+    }
+    None
 }
 
 /// One-time migration: move legacy flat-layout plan files

@@ -293,6 +293,23 @@ Learning Tracker 把 skill / memory / MCP 三类关键事件写入 `session.db` 
 - 读：上述 4 个查询函数按 `kind IN (...)` + `ts >= now - window_days` 做窗口聚合
 - 表归属在 `session.db` 而非独立库，避免新增 SQLite 文件；与 sessions / messages 共享连接池
 
+## Plan 统计（plan_stats.rs）
+
+> 新增于 2026-05-11。Dashboard "Plans" tab 的数据源；Tauri `dashboard_plan_stats` / HTTP `POST /api/dashboard/plan-stats`。
+
+| 维度 | 来源 | 备注 |
+|---|---|---|
+| `total` | `list_all_plans` 计数 | 所有磁盘上有 plan 文件的 session（含已 `/plan exit` 归档） |
+| `stateDistribution` | live `PLAN_STORE` 优先，fallback `sessions.plan_mode` | 5 桶：planning / review / executing / completed / off-with-content |
+| `completionRate` | `completed / total` | 仅看 state，不看 task 完成度 |
+| `byAgent[]` | groupBy `agent_id`，top 10，按总数降序 | 同时给出 `completed` 子计数供完成率对比 |
+| `byProject[]` | groupBy `project_id`（含 `null` 桶），top 10 | "无项目"桶用 `projectId: null` 标识 |
+| `creationTrend[]` | 文件 ctime / mtime 按日聚合，最近 30 天 | 缺失日期填 0，保证 LineChart 连续 |
+| `avgExecutionDurationSecs` | `(updated_at - executing_started_at)` 均值 | 仅对 `state = completed` 且 `executing_started_at` 非空 的样本计算；剔除 `>= 7 天` outlier，[`MAX_EXECUTION_DURATION_SECS`](../../crates/ha-core/src/dashboard/plan_stats.rs) |
+| `sampledDurationCount` | 上一指标贡献的样本数 | 让 UI 能展示"n = 12"避免误以为是稳定均值 |
+
+**性能**：纯内存聚合，复用 `list_all_plans` 的单次扫盘。预期 < 5000 plan 时 < 100ms。如果未来超过该量级，再引入 `plans` 事件表。
+
 ## 成本估算引擎
 
 ### 计算流程

@@ -1,6 +1,7 @@
 mod constants;
 mod file_io;
 mod git;
+mod index;
 mod store;
 mod subagent;
 #[cfg(test)]
@@ -30,8 +31,13 @@ pub use store::{
 // File I/O
 pub use file_io::migrate_flat_plans_to_subdirs;
 pub use file_io::{
-    delete_plan_file, find_plan_file, list_plan_versions, load_plan_file, load_plan_version,
-    save_plan_file,
+    delete_plan_file, extract_plan_title, find_plan_file, list_plan_versions, load_plan_file,
+    load_plan_version, save_plan_file,
+};
+
+// Cross-session index (read-only)
+pub use index::{
+    list_all_plans, resolve_plan_mention, PlanIndexEntry, PlanIndexFilter, PlanMentionResolution,
 };
 
 // Git

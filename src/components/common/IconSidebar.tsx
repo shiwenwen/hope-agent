@@ -26,6 +26,7 @@ import {
   MessageCircle,
   CalendarDays,
   BarChart3,
+  ClipboardList,
   Server,
   Sun,
   Moon,
@@ -49,6 +50,7 @@ interface IconSidebarProps {
     | "channels"
     | "calendar"
     | "dashboard"
+    | "plans"
   onOpenSettings: (section?: SettingsSection) => void
   onOpenChat: () => void
   onOpenAgents: () => void
@@ -59,6 +61,7 @@ interface IconSidebarProps {
   onOpenProfile: () => void
   onOpenCalendar: () => void
   onOpenDashboard: () => void
+  onOpenPlans: () => void
   userAvatar?: string | null
   totalUnreadCount?: number
   onMarkAllRead?: () => void
@@ -76,6 +79,7 @@ export default function IconSidebar({
   onOpenProfile,
   onOpenCalendar,
   onOpenDashboard,
+  onOpenPlans,
   userAvatar,
   totalUnreadCount,
   onMarkAllRead,
@@ -262,6 +266,25 @@ export default function IconSidebar({
               onClick={onOpenCalendar}
             >
               <CalendarDays className="h-4 w-4" />
+            </Button>
+          </IconTip>
+        </div>
+
+        {/* Plans (read-only history viewer) entry */}
+        <div className="w-full flex justify-center mt-1">
+          <IconTip label={t("plans.title")} side="right">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "rounded-xl h-8 w-8",
+                view === "plans"
+                  ? "bg-primary/10 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={onOpenPlans}
+            >
+              <ClipboardList className="h-4 w-4" />
             </Button>
           </IconTip>
         </div>

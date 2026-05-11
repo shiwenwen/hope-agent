@@ -572,6 +572,7 @@ pub fn run() {
             commands::dashboard::dashboard_learning_timeline,
             commands::dashboard::dashboard_top_skills,
             commands::dashboard::dashboard_recall_stats,
+            commands::dashboard::dashboard_plan_stats,
             // Recap (deep analysis reports)
             commands::recap::recap_generate,
             commands::recap::recap_list_reports,
@@ -598,6 +599,9 @@ pub fn run() {
             commands::plan::get_plan_checkpoint,
             commands::plan::get_plan_file_path,
             commands::plan::cancel_plan_subagent,
+            // Cross-session plan index (read-only)
+            commands::plan_index::list_plans,
+            commands::plan_index::resolve_plan_mention,
             // ACP control plane
             commands::acp_control::acp_list_backends,
             commands::acp_control::acp_health_check,

@@ -846,7 +846,8 @@
       "system": "Sistem",
       "tasks": "Görevler",
       "tokens": "Token kullanımı",
-      "tools": "Araç kullanımı"
+      "tools": "Araç kullanımı",
+      "plans": "Planlar"
     },
     "task": {
       "activeJobs": "Aktif",
@@ -894,6 +895,21 @@
       "frequency": "Çağrı sıklığı",
       "name": "Ad",
       "totalMs": "Toplam (ms)"
+    },
+    "plans": {
+      "active": "Devam ediyor",
+      "avgExecution": "Ortalama yürütme süresi",
+      "byAgent": "Agent bazında",
+      "byAgentCompleted": "Tamamlanan",
+      "byProject": "Proje bazında",
+      "completionRate": "Tamamlanma oranı",
+      "created": "Oluşturulan",
+      "creationTrend": "Oluşturma trendi (30 gün)",
+      "empty": "Seçili pencerede Plan verisi yok.",
+      "noProject": "Proje yok",
+      "sampleSize": "{{count}} tamamlanmış örnek",
+      "stateDistribution": "Durum dağılımı",
+      "total": "Toplam Plan"
     }
   },
   "diffPanel": {
@@ -3949,5 +3965,36 @@
     "openaiChatDesc": "/v1/chat/completions uyumlu servisler",
     "openaiResponsesDesc": "/v1/responses uyumlu servisler",
     "selectApiType": "API Türü Seçin"
+  },
+  "plans": {
+    "addToChat": "Plan referansını mevcut sohbete ekle",
+    "badge": {
+      "archived": "Arşivlenmiş",
+      "completed": "Tamamlandı",
+      "executing": "Yürütülüyor",
+      "orphan": "Sahipsiz",
+      "planning": "Planlanıyor",
+      "review": "İnceleme"
+    },
+    "count": "{{count}} Plan",
+    "empty": "Henüz Plan yok.",
+    "emptyPlan": "Bu Plan dosyası boş.",
+    "filter": {
+      "allAgents": "Tüm Agent'lar",
+      "state": {
+        "all": "Tüm durumlar",
+        "archived": "Arşivlenmiş (çıkış)",
+        "completed": "Tamamlandı",
+        "executing": "Yürütülüyor",
+        "planning": "Planlanıyor",
+        "review": "İnceleme"
+      }
+    },
+    "openInSession": "Oturumda aç",
+    "refresh": "Yenile",
+    "selectHint": "Sol taraftan bir Plan seçin.",
+    "sessionDeleted": "Sahip oturum silinmiş",
+    "title": "Planlar",
+    "untitled": "İsimsiz plan"
   }
 }

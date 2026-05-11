@@ -846,7 +846,8 @@
       "system": "Sistema",
       "tasks": "Tarefas",
       "tokens": "Uso de tokens",
-      "tools": "Uso de ferramentas"
+      "tools": "Uso de ferramentas",
+      "plans": "Planos"
     },
     "task": {
       "activeJobs": "Ativas",
@@ -894,6 +895,21 @@
       "frequency": "Frequência de chamadas",
       "name": "Nome",
       "totalMs": "Total (ms)"
+    },
+    "plans": {
+      "active": "Em andamento",
+      "avgExecution": "Tempo médio de execução",
+      "byAgent": "Por Agent",
+      "byAgentCompleted": "Concluídos",
+      "byProject": "Por projeto",
+      "completionRate": "Taxa de conclusão",
+      "created": "Criados",
+      "creationTrend": "Tendência de criação (30 dias)",
+      "empty": "Sem dados de Plan na janela selecionada.",
+      "noProject": "Sem projeto",
+      "sampleSize": "{{count}} execuções concluídas amostradas",
+      "stateDistribution": "Distribuição de estados",
+      "total": "Total de planos"
     }
   },
   "diffPanel": {
@@ -3949,5 +3965,36 @@
     "openaiChatDesc": "Serviços compatíveis com /v1/chat/completions",
     "openaiResponsesDesc": "Serviços compatíveis com /v1/responses",
     "selectApiType": "Selecione o Tipo de API"
+  },
+  "plans": {
+    "addToChat": "Adicionar referência do Plan ao chat atual",
+    "badge": {
+      "archived": "Arquivado",
+      "completed": "Concluído",
+      "executing": "Executando",
+      "orphan": "Órfão",
+      "planning": "Planejando",
+      "review": "Em revisão"
+    },
+    "count": "{{count}} planos",
+    "empty": "Sem planos ainda.",
+    "emptyPlan": "Este arquivo de Plan está vazio.",
+    "filter": {
+      "allAgents": "Todos os Agents",
+      "state": {
+        "all": "Todos os estados",
+        "archived": "Arquivado (saída)",
+        "completed": "Concluído",
+        "executing": "Executando",
+        "planning": "Planejando",
+        "review": "Em revisão"
+      }
+    },
+    "openInSession": "Abrir na sessão",
+    "refresh": "Atualizar",
+    "selectHint": "Selecione um Plan à esquerda para ver o conteúdo.",
+    "sessionDeleted": "Sessão proprietária excluída",
+    "title": "Planos",
+    "untitled": "Plan sem título"
   }
 }

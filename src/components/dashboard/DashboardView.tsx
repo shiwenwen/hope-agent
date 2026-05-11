@@ -28,6 +28,7 @@ import SystemMetricsSection from "./SystemMetricsSection"
 import RecapTab from "./recap/RecapTab"
 import DreamingTab from "./dreaming/DreamingTab"
 import LearningTab from "./learning/LearningTab"
+import PlanStatsSection from "./PlanStatsSection"
 import type {
   DashboardFilter as DashboardFilterState,
   OverviewStatsWithDelta,
@@ -41,6 +42,7 @@ import type {
   Granularity,
   DetailListType,
   AutoRefreshInterval,
+  PlanStats,
 } from "./types"
 import { autoRefreshMs } from "./types"
 
@@ -110,6 +112,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
   const [taskData, setTaskData] = useState<DashboardTaskData | null>(null)
   const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null)
   const [systemHistory, setSystemHistory] = useState<SystemHistoryPoint[]>([])
+  const [planStats, setPlanStats] = useState<PlanStats | null>(null)
   const [granularity, setGranularity] = useState<Granularity>("day")
   const [autoRefresh, setAutoRefresh] = useState<AutoRefreshInterval>("off")
   const [lastRefreshAt, setLastRefreshAt] = useState<Date | null>(null)
@@ -181,6 +184,11 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
           case "tasks": {
             const tkd = await getTransport().call<DashboardTaskData>("dashboard_tasks", { filter })
             setTaskData(tkd)
+            break
+          }
+          case "plans": {
+            const ps = await getTransport().call<PlanStats>("dashboard_plan_stats", { filter })
+            setPlanStats(ps)
             break
           }
           case "system": {
@@ -445,6 +453,7 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
               <TabsTrigger value="sessions">{t("dashboard.tabs.sessions")}</TabsTrigger>
               <TabsTrigger value="errors">{t("dashboard.tabs.errors")}</TabsTrigger>
               <TabsTrigger value="tasks">{t("dashboard.tabs.tasks")}</TabsTrigger>
+              <TabsTrigger value="plans">{t("dashboard.tabs.plans")}</TabsTrigger>
               <TabsTrigger value="system">{t("dashboard.tabs.system")}</TabsTrigger>
               <TabsTrigger value="recap">{t("dashboard.tabs.recap")}</TabsTrigger>
               <TabsTrigger value="learning">{t("dashboard.tabs.learning")}</TabsTrigger>
@@ -497,6 +506,14 @@ export default function DashboardView({ onBack }: { onBack: () => void }) {
           </TabsContent>
           <TabsContent value="tasks">
             <TaskSection data={taskData} loading={loading} />
+          </TabsContent>
+          <TabsContent value="plans">
+            <PlanStatsSection
+              data={planStats}
+              loading={loading}
+              agentNameMap={agentNameMap}
+              onDrillDownAgent={(agentId) => setFilter((f) => ({ ...f, agentId }))}
+            />
           </TabsContent>
           <TabsContent value="system">
             <SystemMetricsSection data={systemMetrics} history={systemHistory} loading={loading} />
