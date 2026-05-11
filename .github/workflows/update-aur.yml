@@ -1,0 +1,173 @@
+name: Update AUR
+
+# Sync the PKGBUILD + .SRCINFO templates in `aur/hope-agent-bin/` into
+# the AUR git repo (ssh://aur@aur.archlinux.org/hope-agent-bin.git)
+# whenever a release is published.
+#
+# Triggers:
+#   - release.published — auto-fires after a draft Release is manually
+#     published (see docs/release-process.md §1.4).
+#   - workflow_dispatch — manual re-run against an existing tag, for when
+#     the PKGBUILD template itself changes and you want to backfill an
+#     already-published release without cutting a new version.
+#
+# Required repo secrets:
+#   AUR_SSH_PRIVATE_KEY — ed25519 private key whose public half is
+#                         registered on the maintainer's AUR account.
+#                         Setup steps live in aur/README.md.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sync (for example v0.1.2)
+        required: true
+        type: string
+
+concurrency:
+  group: update-aur
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update-aur:
+    runs-on: ubuntu-latest
+    env:
+      AUR_PKG: hope-agent-bin
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v6
+
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          tag="${TAG}"
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::tag '$tag' does not look like a release tag (expected vX.Y.Z[-pre])"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "deb_name=Hope.Agent_${version}_amd64.deb" >> "$GITHUB_OUTPUT"
+
+      - name: Download .deb from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "${{ steps.ver.outputs.deb_name }}" \
+            --dir .
+          ls -la "${{ steps.ver.outputs.deb_name }}"
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          set -euo pipefail
+          sum=$(sha256sum "${{ steps.ver.outputs.deb_name }}" | awk '{print $1}')
+          if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
+            echo "::error::sha256sum returned unexpected output: $sum"
+            exit 1
+          fi
+          echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+
+      - name: Render PKGBUILD + .SRCINFO from templates
+        run: |
+          set -euo pipefail
+          mkdir -p rendered
+          sed -e "s/__PKGVER__/${{ steps.ver.outputs.version }}/g" \
+              -e "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" \
+              aur/hope-agent-bin/PKGBUILD.tmpl > rendered/PKGBUILD
+          sed -e "s/__PKGVER__/${{ steps.ver.outputs.version }}/g" \
+              -e "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" \
+              aur/hope-agent-bin/.SRCINFO.tmpl > rendered/.SRCINFO
+
+          # Refuse to push if any placeholder leaked through.
+          for f in rendered/PKGBUILD rendered/.SRCINFO; do
+            if grep -qE '__PKGVER__|__SHA256__' "$f"; then
+              echo "::error::$f still contains template placeholders"
+              cat "$f"
+              exit 1
+            fi
+          done
+
+          echo "--- rendered PKGBUILD ---"
+          cat rendered/PKGBUILD
+          echo "--- rendered .SRCINFO ---"
+          cat rendered/.SRCINFO
+
+      - name: Install AUR SSH key
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+
+          # Pin AUR host key to known_hosts (avoid TOFU prompt on first
+          # clone). `ssh-keyscan -t ed25519,rsa` covers both modern and
+          # legacy host keys aur.archlinux.org publishes.
+          ssh-keyscan -t ed25519,rsa aur.archlinux.org > ~/.ssh/known_hosts 2>/dev/null
+          chmod 600 ~/.ssh/known_hosts
+
+          cat > ~/.ssh/config <<EOF
+          Host aur.archlinux.org
+              HostName aur.archlinux.org
+              User aur
+              IdentityFile ~/.ssh/aur
+              IdentitiesOnly yes
+              StrictHostKeyChecking yes
+          EOF
+          chmod 600 ~/.ssh/config
+
+      - name: Clone AUR repo (or init if first push)
+        id: clone
+        run: |
+          set -euo pipefail
+          # `git clone` against an empty/uninitialized AUR package succeeds
+          # with an empty working tree; pushing back will then create the
+          # package server-side. If the package does not exist at all yet,
+          # the SSH server returns "fatal: ... does not appear to be a git
+          # repository" — fall back to `git init` + remote add.
+          if git clone "ssh://aur@aur.archlinux.org/${AUR_PKG}.git" aur-repo 2>clone.err; then
+            echo "cloned existing AUR repo"
+          else
+            echo "clone failed, treating as first push:"
+            cat clone.err
+            mkdir -p aur-repo
+            cd aur-repo
+            git init -b master
+            git remote add origin "ssh://aur@aur.archlinux.org/${AUR_PKG}.git"
+          fi
+
+      - name: Copy renders + commit + push
+        working-directory: aur-repo
+        run: |
+          set -euo pipefail
+          git config user.name  "hope-agent-bot"
+          git config user.email "hope-agent-bot@users.noreply.github.com"
+
+          cp ../rendered/PKGBUILD .
+          cp ../rendered/.SRCINFO .
+
+          git add PKGBUILD .SRCINFO
+          if git diff --cached --quiet; then
+            echo "No PKGBUILD changes for $TAG; skipping push."
+            exit 0
+          fi
+
+          git commit -m "hope-agent-bin ${{ steps.ver.outputs.version }}
+
+          deb sha256: ${{ steps.sha.outputs.sha256 }}
+          Source: ${{ github.repository }}@$TAG
+          "
+          git push origin HEAD:master

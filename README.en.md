@@ -109,6 +109,14 @@ After install:
 
 Apple Silicon only; Intel Macs run under Rosetta 2.
 
+**Arch Linux / Manjaro (AUR):**
+
+```bash
+yay -S hope-agent-bin   # or paru / any AUR helper
+```
+
+Pre-built binary package (repackaged from the GitHub Release `.deb`) — no source compilation.
+
 **Other platforms / manual download:**
 
 1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):

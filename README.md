@@ -109,6 +109,14 @@ brew install --cask hope-agent
 
 当前仅 Apple Silicon 构建，Intel Mac 走 Rosetta 2 自动兼容。
 
+**Arch Linux / Manjaro（AUR）：**
+
+```bash
+yay -S hope-agent-bin   # 或 paru / 任意 AUR helper
+```
+
+预编译二进制版（沿用 GitHub Release 的 `.deb`），不从源码编译。
+
 **其他平台 / 手动下载：**
 
 1. 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载对应平台安装包

@@ -1,0 +1,20 @@
+# Maintainer: shiwenwen <shiwenwendevelopment@gmail.com>
+
+pkgname=hope-agent-bin
+pkgver=__PKGVER__
+pkgrel=1
+pkgdesc='Local-first AI assistant desktop app — cross-device sessions, IM channel routing'
+arch=('x86_64')
+url='https://github.com/shiwenwen/hope-agent'
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator')
+provides=('hope-agent')
+conflicts=('hope-agent')
+options=('!strip' '!debug')
+source=("hope-agent-${pkgver}.deb::${url}/releases/download/v${pkgver}/Hope.Agent_${pkgver}_amd64.deb")
+sha256sums=('__SHA256__')
+
+package() {
+    bsdtar -xf "${srcdir}/hope-agent-${pkgver}.deb" -C "${srcdir}"
+    bsdtar -xf "${srcdir}/data.tar.gz" -C "${pkgdir}"
+}
