@@ -836,11 +836,27 @@
       "systemUptime": "System Uptime",
       "virtualMem": "Virtual Memory"
     },
+    "plans": {
+      "active": "In Progress",
+      "avgExecution": "Avg Execution Time",
+      "byAgent": "By Agent",
+      "byAgentCompleted": "Completed",
+      "byProject": "By Project",
+      "completionRate": "Completion Rate",
+      "created": "Created",
+      "creationTrend": "Creation Trend (30 days)",
+      "empty": "No plan data in the selected window.",
+      "noProject": "No project",
+      "sampleSize": "Sampled {{count}} completed runs",
+      "stateDistribution": "State Distribution",
+      "total": "Total Plans"
+    },
     "tabs": {
       "dreaming": "Dreams",
       "errors": "Errors",
       "insights": "Insights",
       "learning": "Learning",
+      "plans": "Plans",
       "recap": "Recap",
       "sessions": "Sessions",
       "system": "System",
@@ -1583,6 +1599,37 @@
       "subtitle": "An AI assistant that knows you better the more you use it — on desktop, in the cloud, across IM, always on call.\nA quick walkthrough follows — every step is optional except picking a model.",
       "title": "Welcome to Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "Add plan reference to current chat",
+    "badge": {
+      "archived": "Archived",
+      "completed": "Completed",
+      "executing": "Executing",
+      "orphan": "Orphan",
+      "planning": "Planning",
+      "review": "Review"
+    },
+    "count": "{{count}} plans",
+    "empty": "No plans yet.",
+    "emptyPlan": "This plan file is empty.",
+    "filter": {
+      "allAgents": "All agents",
+      "state": {
+        "all": "All states",
+        "archived": "Archived (exited)",
+        "completed": "Completed",
+        "executing": "Executing",
+        "planning": "Planning",
+        "review": "Review"
+      }
+    },
+    "openInSession": "Open in session",
+    "refresh": "Refresh",
+    "selectHint": "Select a plan on the left to view its content.",
+    "sessionDeleted": "Owning session deleted",
+    "title": "Plans",
+    "untitled": "Untitled plan"
   },
   "planMode": {
     "approveAndExecute": "Start Execution",

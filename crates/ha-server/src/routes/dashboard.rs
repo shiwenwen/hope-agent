@@ -175,3 +175,9 @@ pub async fn recall_stats(
         body.window_days,
     )?))
 }
+
+pub async fn plan_stats(
+    Json(body): Json<FilterBody>,
+) -> Result<Json<dashboard::PlanStats>, AppError> {
+    Ok(Json(dashboard::query_plan_stats(&body.filter)?))
+}

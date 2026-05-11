@@ -846,7 +846,8 @@
       "system": "システム監視",
       "tasks": "タスク統計",
       "tokens": "トークン使用量",
-      "tools": "ツール使用"
+      "tools": "ツール使用",
+      "plans": "Plan"
     },
     "task": {
       "activeJobs": "アクティブ",
@@ -894,6 +895,21 @@
       "frequency": "呼び出し頻度",
       "name": "ツール名",
       "totalMs": "合計 (ms)"
+    },
+    "plans": {
+      "active": "進行中",
+      "avgExecution": "平均実行時間",
+      "byAgent": "Agent 別",
+      "byAgentCompleted": "完了",
+      "byProject": "プロジェクト別",
+      "completionRate": "完了率",
+      "created": "作成",
+      "creationTrend": "作成トレンド (30 日)",
+      "empty": "選択した期間に Plan がありません。",
+      "noProject": "プロジェクトなし",
+      "sampleSize": "完了 {{count}} 件をサンプリング",
+      "stateDistribution": "状態分布",
+      "total": "Plan 総数"
     }
   },
   "diffPanel": {
@@ -3943,5 +3959,36 @@
     "openaiChatDesc": "/v1/chat/completions 互換サービス",
     "openaiResponsesDesc": "/v1/responses 互換サービス",
     "selectApiType": "API タイプを選択"
+  },
+  "plans": {
+    "addToChat": "現在のチャットに Plan 参照を追加",
+    "badge": {
+      "archived": "アーカイブ済み",
+      "completed": "完了",
+      "executing": "実行中",
+      "orphan": "孤立",
+      "planning": "計画中",
+      "review": "レビュー中"
+    },
+    "count": "Plan: {{count}} 件",
+    "empty": "Plan はありません。",
+    "emptyPlan": "この Plan ファイルは空です。",
+    "filter": {
+      "allAgents": "すべての Agent",
+      "state": {
+        "all": "すべての状態",
+        "archived": "アーカイブ (終了済み)",
+        "completed": "完了",
+        "executing": "実行中",
+        "planning": "計画中",
+        "review": "レビュー中"
+      }
+    },
+    "openInSession": "所属セッションへ移動",
+    "refresh": "更新",
+    "selectHint": "左側で Plan を選択してください。",
+    "sessionDeleted": "所属セッションは削除されました",
+    "title": "Plan 履歴",
+    "untitled": "無題の Plan"
   }
 }

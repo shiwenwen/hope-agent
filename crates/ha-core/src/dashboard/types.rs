@@ -366,3 +366,57 @@ pub struct DashboardInsights {
     pub top_sessions: Vec<TopSession>,
     pub model_efficiency: Vec<ModelEfficiency>,
 }
+
+// ── Plan Statistics Types ───────────────────────────────────────
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanStateDistribution {
+    /// `state=off` but a plan file is still on disk — i.e. archived after
+    /// the user ran `/plan exit`.
+    pub off: u64,
+    pub planning: u64,
+    pub review: u64,
+    pub executing: u64,
+    pub completed: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanAgentBucket {
+    pub agent_id: String,
+    pub total: u64,
+    pub completed: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanProjectBucket {
+    /// `None` represents the "no project" bucket.
+    pub project_id: Option<String>,
+    pub total: u64,
+    pub completed: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanTrendPoint {
+    pub date: String,
+    pub created: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlanStats {
+    pub total: u64,
+    pub state_distribution: PlanStateDistribution,
+    pub completion_rate: f64,
+    pub by_agent: Vec<PlanAgentBucket>,
+    pub by_project: Vec<PlanProjectBucket>,
+    pub creation_trend: Vec<PlanTrendPoint>,
+    pub avg_execution_duration_secs: Option<f64>,
+    /// Number of completed plans contributing to `avg_execution_duration_secs`
+    /// after outlier trimming — surfaced so the UI can show "n=12" alongside
+    /// the average instead of pretending it's a stable population mean.
+    pub sampled_duration_count: u64,
+}

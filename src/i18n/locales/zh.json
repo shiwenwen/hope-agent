@@ -836,11 +836,27 @@
       "systemUptime": "系统运行",
       "virtualMem": "虚拟内存"
     },
+    "plans": {
+      "active": "进行中",
+      "avgExecution": "平均执行时长",
+      "byAgent": "按 Agent 分组",
+      "byAgentCompleted": "已完成",
+      "byProject": "按项目分组",
+      "completionRate": "完成率",
+      "created": "新建",
+      "creationTrend": "30 天创建趋势",
+      "empty": "所选时间窗内暂无 Plan 数据。",
+      "noProject": "未归属项目",
+      "sampleSize": "已采样 {{count}} 个完成的 Plan",
+      "stateDistribution": "状态分布",
+      "total": "Plan 总数"
+    },
     "tabs": {
       "dreaming": "记忆梦境",
       "errors": "异常监控",
       "insights": "综合概览",
       "learning": "学习追踪",
+      "plans": "Plan",
       "recap": "复盘",
       "sessions": "会话分析",
       "system": "系统监控",
@@ -1583,6 +1599,37 @@
       "subtitle": "越用越懂你的 AI 助手——桌面、云端、IM，随叫随到。\n下面是一个简短的引导——除了选择模型，其它每一步都可以跳过。",
       "title": "欢迎使用 Hope Agent"
     }
+  },
+  "plans": {
+    "addToChat": "把该 Plan 添加到当前会话",
+    "badge": {
+      "archived": "已归档",
+      "completed": "已完成",
+      "executing": "执行中",
+      "orphan": "孤儿文件",
+      "planning": "规划中",
+      "review": "审核中"
+    },
+    "count": "共 {{count}} 个 Plan",
+    "empty": "暂无 Plan。",
+    "emptyPlan": "该 Plan 文件为空。",
+    "filter": {
+      "allAgents": "全部 Agent",
+      "state": {
+        "all": "全部状态",
+        "archived": "已归档（已退出）",
+        "completed": "已完成",
+        "executing": "执行中",
+        "planning": "规划中",
+        "review": "审核中"
+      }
+    },
+    "openInSession": "跳转到所属会话",
+    "refresh": "刷新",
+    "selectHint": "请在左侧选择一个 Plan 查看内容。",
+    "sessionDeleted": "所属会话已删除",
+    "title": "Plan 历史",
+    "untitled": "未命名 Plan"
   },
   "planMode": {
     "approveAndExecute": "开始执行",

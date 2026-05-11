@@ -30,6 +30,35 @@
 
 ## Open
 
+### F-084 抽 `usePlanVersions(sessionId)` hook 让 PlanPanel + PlansView 共用版本拉取逻辑
+
+- **来源**：2026-05-11 历史 Plan 查看器 `/simplify` review（quality agent）
+- **现象**：[`PlanPanel.tsx`](../../src/components/chat/plan-mode/PlanPanel.tsx) 和 [`PlansView.tsx`](../../src/components/plans/PlansView.tsx) 都各自维护 `useState<PlanVersionInfoTs[]>` + `useEffect` cancel 标记 + `getTransport().call("get_plan_versions" / "load_plan_version_content")` 串行调用。两处独立的 `cancelled` 局部变量是典型 copy-paste
+- **为什么留**：本期 `/simplify` 已落 P0/P1 的 read_dir 合并、Promise.all 并发、derive selectedEntry 等改动；抽 hook 涉及 PlanPanel 既有路径回归测试，独立 PR 收益更稳
+- **改的话要做什么**：新建 `src/components/chat/plan-mode/usePlanVersions.ts` 返回 `{ versions, selectedVersion, content, loading, loadVersion }`，PlanPanel 和 PlansView 都消费它；顺手把 `get_plan_versions` + `load_plan_version_content` 合并成单 RPC `get_plan_detail` 进一步减一次 RTT
+- **影响面**：纯重复代码消除 + 一次 RTT 节省，零行为变化
+- **触发时机建议**：下次动 plan version 切换 UI / 新增第三处版本浏览入口时
+
+### F-085 `dashboard_plan_stats` 加短 TTL 内存缓存
+
+- **来源**：2026-05-11 历史 Plan 查看器 `/simplify` review（efficiency agent）
+- **现象**：[`plan_stats::query_plan_stats`](../../crates/ha-core/src/dashboard/plan_stats.rs) 每次 dashboard 切到 Plans tab / auto-refresh 都全盘扫 `~/.hope-agent/plans/<agent>/<session>/`。当前实测 < 1000 plan 时 < 50ms，但 dashboard auto-refresh ≥ 30s 时仍是无谓 IO；多个浏览器 tab 同时刷会放大成本
+- **为什么留**：plan 总数承诺保持在 10⁴ 内（注释 [`plan_stats.rs:7`](../../crates/ha-core/src/dashboard/plan_stats.rs)），且 Plans tab 不在 default 视图（用户主动切换才触发），先观察实际负载再决定加缓存
+- **改的话要做什么**：复用 [`crate::ttl_cache::TtlCache`](../../crates/ha-core/src/ttl_cache.rs)（F-028 已实现）或简单 `OnceCell<RwLock<(Instant, PlanStats)>>` 缓存 5-10s；或更彻底——给 `plans/` 目录加 notify watcher 触发主动失效。同时考虑给 [`plan::list_all_plans`](../../crates/ha-core/src/plan/index.rs) 加同款缓存（dashboard + Plans view 共用一份）
+- **影响面**：性能优化，非功能性
+- **触发时机建议**：实测出现 dashboard Plans tab 加载明显卡顿 / plan 总数突破 5000 时
+
+### F-086 `list_all_plans` 把 `get_session` + `get_session_plan_executing_started_at` 合并为单 SQL
+
+- **来源**：2026-05-11 历史 Plan 查看器 `/simplify` review（efficiency agent）
+- **现象**：[`plan::index::list_all_plans`](../../crates/ha-core/src/plan/index.rs) 内层每个 session 触发两次独立 DB 查询：`SessionDB::get_session(session_id)` 拿 SessionMeta + `SessionDB::get_session_plan_executing_started_at(session_id)` 单独拉一列。两查询同表同行，可合并为一个 `SELECT title, project_id, plan_mode, plan_executing_started_at FROM sessions WHERE id = ?` 的内联查询，减一半 roundtrip
+- **为什么留**：本期 `/simplify` 已合并文件 IO（read_dir 一次），DB 这层属于次级优化；扩展 SessionMeta 字段 / 新增专用 getter 都会有连带改动面，留独立 PR 更清爽
+- **改的话要做什么**：扩展 `SessionMeta.plan_executing_started_at: Option<String>` 字段（已在 DB schema 但 struct 未持有），让 `get_session` 一次性返回。或新增 `SessionDB::get_session_with_plan_meta(id)` 专用 getter 让 `list_all_plans` 用
+- **影响面**：每个 session N×1 DB roundtrip → N×1 单条查询；N 大时收益显著
+- **触发时机建议**：实测 plan 总数 > 1000 时 `list_all_plans` 出现可感知延迟，或下次动 `SessionMeta` 字段时
+
+---
+
 ### F-083 抽 `materialize_pending_media` / `materialize_inbound` 共用骨架（消 ~500 LOC 9 渠道样板）
 
 - **来源**：2026-05-11 F-082 `/simplify` review（reuse pass H1+H2）

@@ -246,6 +246,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   restore_plan_version:            { method: "POST",   path: "/api/plan/{sessionId}/version/restore" },
   plan_rollback:                   { method: "POST",   path: "/api/plan/{sessionId}/rollback" },
   cancel_plan_subagent:            { method: "POST",   path: "/api/plan/{sessionId}/cancel" },
+  list_plans:                      { method: "POST",   path: "/api/plan/list" },
+  resolve_plan_mention:            { method: "POST",   path: "/api/plan/resolve-mention" },
   respond_ask_user_question:       { method: "POST",   path: "/api/ask_user/respond" },
   get_pending_ask_user_group:      { method: "GET",    path: "/api/plan/{sessionId}/pending-ask-user" },
   set_plan_subagent:               { method: "POST",   path: "/api/config/plan-subagent" },
@@ -433,6 +435,7 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   dashboard_learning_timeline:     { method: "POST",   path: "/api/dashboard/learning/timeline" },
   dashboard_top_skills:            { method: "POST",   path: "/api/dashboard/learning/top-skills" },
   dashboard_recall_stats:          { method: "POST",   path: "/api/dashboard/learning/recall-stats" },
+  dashboard_plan_stats:            { method: "POST",   path: "/api/dashboard/plan-stats" },
 
   // -- Slash commands --
   list_slash_commands:             { method: "GET",    path: "/api/slash-commands" },
