@@ -1,0 +1,134 @@
+name: Update Scoop Bucket
+
+# Sync the manifest template in `scoop/hope-agent.json.tmpl` into the
+# bucket repo (shiwenwen/scoop-hope-agent → bucket/hope-agent.json)
+# whenever a release is published.
+#
+# Triggers:
+#   - release.published — auto-fires after a draft Release is manually
+#     published (see docs/release-process.md §1.4).
+#   - workflow_dispatch — manual re-run against an existing tag, for when
+#     the manifest template itself changes and you want to backfill an
+#     already-published release without cutting a new version.
+#
+# Required repo secrets:
+#   SCOOP_BUCKET_TOKEN — fine-grained PAT with `Contents: Read and write`
+#                        on shiwenwen/scoop-hope-agent only.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to sync (for example v0.1.2)
+        required: true
+        type: string
+
+concurrency:
+  group: update-scoop-bucket
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  update-bucket:
+    runs-on: ubuntu-latest
+    env:
+      BUCKET_REPO: shiwenwen/scoop-hope-agent
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.event.release.tag_name }}
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v6
+
+      - name: Resolve version from tag
+        id: ver
+        run: |
+          tag="${TAG}"
+          version="${tag#v}"
+          if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "::error::tag '$tag' does not look like a release tag (expected vX.Y.Z[-pre])"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "exe_name=Hope.Agent_${version}_x64-setup.exe" >> "$GITHUB_OUTPUT"
+
+      - name: Download setup.exe from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern "${{ steps.ver.outputs.exe_name }}" \
+            --dir .
+          ls -la "${{ steps.ver.outputs.exe_name }}"
+
+      - name: Compute SHA256
+        id: sha
+        run: |
+          set -euo pipefail
+          sum=$(sha256sum "${{ steps.ver.outputs.exe_name }}" | awk '{print $1}')
+          if [[ -z "$sum" || ${#sum} -ne 64 ]]; then
+            echo "::error::sha256sum returned unexpected output: $sum"
+            exit 1
+          fi
+          echo "sha256=$sum" >> "$GITHUB_OUTPUT"
+
+      - name: Render manifest from template
+        run: |
+          set -euo pipefail
+          mkdir -p rendered/bucket
+          sed -e "s/__PKGVER__/${{ steps.ver.outputs.version }}/g" \
+              -e "s/__SHA256__/${{ steps.sha.outputs.sha256 }}/g" \
+              scoop/hope-agent.json.tmpl > rendered/bucket/hope-agent.json
+
+          if grep -qE '__PKGVER__|__SHA256__' rendered/bucket/hope-agent.json; then
+            echo "::error::rendered manifest still contains template placeholders"
+            cat rendered/bucket/hope-agent.json
+            exit 1
+          fi
+
+          # Validate JSON syntax.
+          python3 -c "import json,sys; json.load(open('rendered/bucket/hope-agent.json'))"
+
+          echo "--- rendered bucket/hope-agent.json ---"
+          cat rendered/bucket/hope-agent.json
+
+      - name: Checkout bucket repo
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.BUCKET_REPO }}
+          token: ${{ secrets.SCOOP_BUCKET_TOKEN }}
+          path: bucket
+
+      - name: Copy rendered manifest into bucket repo
+        run: |
+          set -euo pipefail
+          mkdir -p bucket/bucket
+          cp rendered/bucket/hope-agent.json bucket/bucket/hope-agent.json
+
+      - name: Commit and push if changed
+        working-directory: bucket
+        run: |
+          set -euo pipefail
+          git config user.name  "hope-agent-bot"
+          git config user.email "hope-agent-bot@users.noreply.github.com"
+
+          # Stage first so the diff check covers new and modified files
+          # (git diff alone ignores untracked paths; same gotcha we hit
+          # with the Homebrew tap on first sync).
+          git add bucket/hope-agent.json
+          if git diff --cached --quiet; then
+            echo "No manifest changes for $TAG; skipping push."
+            exit 0
+          fi
+
+          git commit -m "hope-agent ${{ steps.ver.outputs.version }}
+
+          setup.exe sha256: ${{ steps.sha.outputs.sha256 }}
+          Source: ${{ github.repository }}@$TAG
+          "
+          git push origin HEAD

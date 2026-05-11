@@ -164,6 +164,24 @@ Publish Release 后 [`.github/workflows/update-homebrew-tap.yml`](../.github/wor
 
 **模板单一真相源在主仓 [`aur/hope-agent-bin/`](../aur/hope-agent-bin/)**。不要直接 push AUR 仓库——下次发版会被 CI 覆盖。**改 PKGBUILD 字段时必须同步改 .SRCINFO** 字段（两个文件结构是平行的），否则 AUR Web UI 元数据会与 PKGBUILD 不一致。
 
+### 1.8 Scoop bucket 自动同步
+
+与 §1.6 / §1.7 同模式，Release publish 后 [`.github/workflows/update-scoop-bucket.yml`](../.github/workflows/update-scoop-bucket.yml) 由 `release.published` 自动触发：
+
+1. `gh release download` 拉本次 release 的 `Hope.Agent_<version>_x64-setup.exe`
+2. `sha256sum` 算 setup.exe 摘要
+3. `sed` 渲染 [`scoop/hope-agent.json.tmpl`](../scoop/hope-agent.json.tmpl) → `bucket/hope-agent.json`
+4. JSON 语法校验
+5. 用 `SCOOP_BUCKET_TOKEN`（fine-grained PAT，仅授 `shiwenwen/scoop-hope-agent` 的 `Contents: Read and write`）push 到 bucket repo
+
+手动重跑：`gh workflow run update-scoop-bucket.yml -f tag=vX.Y.Z`。
+
+**首次配置**：详见 [`scoop/README.md`](../scoop/README.md)。
+
+**Manifest 单一真相源在主仓 [`scoop/hope-agent.json.tmpl`](../scoop/hope-agent.json.tmpl)**。不要在 bucket repo 直接改 `bucket/hope-agent.json`——下次发版会被 CI 覆盖。
+
+> Scoop 默认对 `.exe` URL 用 7zip 解压（不跑 NSIS installer），所以 manifest 不需要 `installer.script`——`hope-agent.exe` 解压出来就是直接可用的单文件 binary。
+
 ---
 
 ## 2. 新 minor 发版差异
