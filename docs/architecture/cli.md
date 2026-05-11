@@ -113,19 +113,20 @@ hope-agent server [SUBCOMMAND] [OPTIONS]
 | ---- | ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | 1    | language         | 选 12 种 UI 语言之一，写 `config.language` + `user.language`                                                                      |
 | 2    | import-openclaw  | 扫 `~/.openclaw/`；检测到则单 yes/no 一次性导入所有 provider / agent / 全局记忆 / agent 记忆，跳过的或没装的静默跳过           |
-| 3    | mode             | local 还是 remote。**Remote 分支**：提示 URL + 可选 API key，HTTP 探一下 `<url>/api/health`（10s 超时，可选 Bearer），写 `user.server_mode/remote_server_url/remote_api_key` 后**早退**——后续 4-10 步全跳过 |
+| 3    | mode             | local 还是 remote。**Remote 分支**：提示 URL + 可选 API key，HTTP 探一下 `<url>/api/health`（10s 超时，可选 Bearer），写 `user.server_mode/remote_server_url/remote_api_key` 后**早退**——后续 4-11 步全跳过 |
 | 4    | provider         | 主 LLM provider 配置（OAuth / API key），复用 [`oauth.rs`](../../crates/ha-core/src/oauth.rs)                                   |
-| 5    | profile          | 用户名 / 时区 / AI 经验 / 回复偏好                                                                                                |
-| 6    | personality      | Personality preset（default / engineer / creative / companion）                                                                    |
-| 7    | safety           | 工具审批开关（关 = 所有工具自动放行，超时 0s）                                                                                    |
-| 8    | skills           | bundled skills 多选（默认全开，取消勾选写到 `disabled_skills`）                                                                  |
-| 9    | server           | 内嵌 HTTP 的 bind 地址 + 可选 API key（`generate_api_key()` 可生成 `hope_<uuid>`）                                              |
-| 10   | channels         | 列出 13 种 IM channel 提示去 Web GUI 配凭据，CLI 不收集                                                                           |
-| 11   | summary          | 反读所有持久化设置打印 recap：language / provider 含 active model / profile / personality preset / approvals 状态 / 禁用 skills 数 / server bind+key 状态 / Web GUI URL（含 `?token=` 自动拼接，bind 是 `0.0.0.0` 时附 LAN IP 列表，复用 `ha_server::banner::local_ipv4_addresses()`） |
+| 5    | search-provider  | 网页搜索 Provider 配置：DuckDuckGo / SearXNG / Tavily / Bocha / Brave / Perplexity / Google / Grok / Kimi / Skip；空密钥不会覆盖已有值 |
+| 6    | profile          | 用户名 / 时区 / AI 经验 / 回复偏好                                                                                                |
+| 7    | personality      | Personality preset（default / engineer / creative / companion）                                                                    |
+| 8    | safety           | 工具审批开关（关 = 所有工具自动放行，超时 0s）                                                                                    |
+| 9    | skills           | bundled skills 多选（默认全开，取消勾选写到 `disabled_skills`）                                                                  |
+| 10   | server           | 内嵌 HTTP 的 bind 地址 + 可选 API key（`generate_api_key()` 可生成 `hope_<uuid>`）                                              |
+| 11   | channels         | 列出 13 种 IM channel 提示去 Web GUI 配凭据，CLI 不收集                                                                           |
+| 12   | summary          | 反读所有持久化设置打印 recap：language / provider 含 active model / search provider / profile / personality preset / approvals 状态 / 禁用 skills 数 / server bind+key 状态 / Web GUI URL（含 `?token=` 自动拼接，bind 是 `0.0.0.0` 时附 LAN IP 列表，复用 `ha_server::banner::local_ipv4_addresses()`） |
 
 **Remote 模式短路**：在 mode 步选 remote 后向导直接跳到「All done」并 `mark_completed()`——和 GUI `stepsForMode("remote") = ["welcome", "import-openclaw", "mode"]` 行为对齐。一旦指向远程 server，本机不需要再配 provider / agent / channels（那些都在远程那台机器上）。
 
-**与 GUI 的能力对齐**：核心 11 步现在 1:1 对齐，包括 OpenClaw 导入、mode 选择、summary recap 三个之前 CLI 缺失的步骤。剩余差异：CLI 没有 GUI 欢迎页里的 light/dark/auto 主题选择（CLI 是 headless 没意义）；CLI 的 OpenClaw 导入是单 yes/no 一次性收纳所有可导入项（GUI 是 multi-select + agent 名/emoji 编辑），需要细粒度选择请走 GUI；CLI channels 步只列名不收凭据。
+**与 GUI 的能力对齐**：核心 12 步现在 1:1 对齐，包括 OpenClaw 导入、mode 选择、search provider、summary recap 等步骤。剩余差异：CLI 没有 GUI 欢迎页里的 light/dark/auto 主题选择（CLI 是 headless 没意义）；CLI 的 OpenClaw 导入是单 yes/no 一次性收纳所有可导入项（GUI 是 multi-select + agent 名/emoji 编辑），需要细粒度选择请走 GUI；CLI channels 步只列名不收凭据。
 
 ### `install` 平台行为
 

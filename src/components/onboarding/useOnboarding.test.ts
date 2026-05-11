@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest"
 
+import { ONBOARDING_STEPS, stepsForMode } from "./types"
 import { mergeOnboardingDraft } from "./useOnboarding"
 
 describe("mergeOnboardingDraft", () => {
@@ -61,5 +62,19 @@ describe("mergeOnboardingDraft", () => {
       url: "",
       apiKey: "remote-secret",
     })
+  })
+})
+
+describe("onboarding step order", () => {
+  test("adds search provider after model provider for local setup", () => {
+    expect(ONBOARDING_STEPS).toContain("search-provider")
+    expect(ONBOARDING_STEPS.indexOf("search-provider")).toBe(
+      ONBOARDING_STEPS.indexOf("provider") + 1,
+    )
+    expect(stepsForMode("local")).toEqual(ONBOARDING_STEPS)
+  })
+
+  test("keeps remote setup short-circuited before local provider steps", () => {
+    expect(stepsForMode("remote")).toEqual(["welcome", "import-openclaw", "mode"])
   })
 })

@@ -1523,6 +1523,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Guardar y continuar",
+      "subtitle": "Elige el backend de búsqueda web que Hope Agent usará cuando necesite información actual. DuckDuckGo funciona sin clave; los Providers de API se pueden añadir ahora o después.",
+      "title": "Configurar búsqueda web"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1579,6 +1584,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Provider de búsqueda",
         "server": "Access mode",
         "skills": "Skills"
       },

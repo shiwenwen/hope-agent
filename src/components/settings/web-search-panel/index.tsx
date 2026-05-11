@@ -28,7 +28,19 @@ import type { WebSearchConfig } from "./types"
 import { PROVIDER_META, hasRequiredCredentials } from "./constants"
 import { SortableProviderItem } from "./ProviderRow"
 
-export default function WebSearchPanel() {
+interface WebSearchPanelProps {
+  embedded?: boolean
+  onSaved?: () => void
+  saveLabel?: string
+  showAdvanced?: boolean
+}
+
+export default function WebSearchPanel({
+  embedded = false,
+  onSaved,
+  saveLabel,
+  showAdvanced,
+}: WebSearchPanelProps = {}) {
   const { t } = useTranslation()
   const [config, setConfig] = useState<WebSearchConfig | null>(null)
   const [savedJson, setSavedJson] = useState("")
@@ -75,8 +87,9 @@ export default function WebSearchPanel() {
   )
 
   const handleSave = useCallback(async () => {
-    await persistConfig()
-  }, [persistConfig])
+    const ok = await persistConfig()
+    if (ok) onSaved?.()
+  }, [onSaved, persistConfig])
 
   const handleDragEnd = useCallback(
     (event: DragEndEvent) => {
@@ -124,9 +137,11 @@ export default function WebSearchPanel() {
 
   if (!config) return null
 
+  const shouldShowAdvanced = showAdvanced ?? !embedded
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-      <div className="flex-1 overflow-y-auto p-6">
+    <div className={embedded ? "flex flex-col" : "flex-1 flex flex-col min-h-0 overflow-hidden"}>
+      <div className={embedded ? "space-y-4" : "flex-1 overflow-y-auto p-6"}>
         <div className="space-y-4">
           <p className="text-xs text-muted-foreground">{t("settings.webSearchDesc")}</p>
 
@@ -170,7 +185,7 @@ export default function WebSearchPanel() {
             </SortableContext>
           </DndContext>
 
-          {/* Advanced settings */}
+          {shouldShowAdvanced && (
           <div className="rounded-lg border border-border/50 bg-secondary/20 overflow-hidden">
             <Button
               variant="ghost"
@@ -380,14 +395,21 @@ export default function WebSearchPanel() {
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 
       {/* Save — fixed bottom */}
-      <div className="shrink-0 flex justify-end px-6 py-3 border-t border-border/30">
+      <div
+        className={
+          embedded
+            ? "shrink-0 flex justify-end pt-4"
+            : "shrink-0 flex justify-end px-6 py-3 border-t border-border/30"
+        }
+      >
         <Button
           onClick={handleSave}
-          disabled={(!isDirty && saveStatus === "idle") || saving}
+          disabled={(!embedded && !isDirty && saveStatus === "idle") || saving}
           size="sm"
           className={cn(
             saveStatus === "saved" && "bg-green-500/10 text-green-600 hover:bg-green-500/20",
@@ -407,7 +429,7 @@ export default function WebSearchPanel() {
           ) : saveStatus === "failed" ? (
             t("common.saveFailed")
           ) : (
-            t("common.save")
+            saveLabel ?? t("common.save")
           )}
         </Button>
       </div>

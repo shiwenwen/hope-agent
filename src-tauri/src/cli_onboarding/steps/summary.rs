@@ -58,6 +58,13 @@ pub fn run(step: u32, total: u32, provider_done: bool) -> Result<()> {
     };
 
     let skills_label = format!("{} bundled skill(s) disabled", cfg.disabled_skills.len());
+    let search_label = cfg
+        .web_search
+        .providers
+        .iter()
+        .find(|entry| entry.enabled)
+        .map(|entry| entry.id.to_string())
+        .unwrap_or_else(|| "Not configured — DuckDuckGo fallback will be used".to_string());
 
     let server_label = match cfg.server.api_key.as_deref() {
         Some(k) if !k.is_empty() => format!("bind {} · API key set", cfg.server.bind_addr),
@@ -70,6 +77,7 @@ pub fn run(step: u32, total: u32, provider_done: bool) -> Result<()> {
     println!("  Personality  : {personality_label}");
     println!("  Safety       : {safety_label}");
     println!("  Skills       : {skills_label}");
+    println!("  Web search   : {search_label}");
     println!("  Server       : {server_label}");
 
     println!();
