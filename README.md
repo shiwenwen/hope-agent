@@ -90,26 +90,64 @@
 
 ### 普通用户
 
-> 📦 安装包：[Releases](https://github.com/shiwenwen/hope-agent/releases)
+> 📦 各平台完整安装包列表：[Releases](https://github.com/shiwenwen/hope-agent/releases)
 
-**macOS（Homebrew，推荐）：**
+#### macOS
+
+##### Homebrew（推荐）
 
 ```bash
 brew tap shiwenwen/hope-agent
 brew install --cask hope-agent
 ```
 
-> 已经手动装过 `Hope Agent.app`？在 `brew install` 后面加 `--adopt`（让 cask 接管同版本的现有应用，不重新下载）或 `--force`（强制重下覆盖）。
+> 已经手动装过 `Hope Agent.app`？在 `brew install` 后面加 `--adopt`（接管同版本现有应用，不重新下载）或 `--force`（强制重下覆盖）。
 
-装完后：
+##### 手动安装（DMG）
 
-- 桌面 GUI：Launchpad / 应用程序文件夹（点 Hope Agent 图标启动），或终端 `open -a "Hope Agent"`
-- 后台服务：`hope-agent server start`
-- ACP（IDE 集成）：`hope-agent acp`
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*.dmg`，拖到「应用程序」即可。
+
+> 若启动时提示"已损坏"或"无法验证开发者"，请在终端执行：
+>
+> ```bash
+> sudo xattr -cr /Applications/Hope\ Agent.app
+> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
+> ```
 
 当前仅 Apple Silicon 构建，Intel Mac 走 Rosetta 2 自动兼容。
 
-**Arch Linux / Manjaro（AUR）：**
+##### 启动方式
+
+- **桌面 GUI**：Launchpad / 应用程序文件夹（点 Hope Agent 图标），或终端 `open -a "Hope Agent"` / `hope-agent`
+- **后台服务（HTTP/WS daemon）**：`hope-agent server start`
+- **ACP（IDE 集成）**：`hope-agent acp`
+
+#### Windows
+
+##### Scoop（推荐）
+
+```powershell
+scoop bucket add hope-agent https://github.com/shiwenwen/scoop-hope-agent
+scoop install hope-agent
+```
+
+##### 手动安装（installer）
+
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载 `Hope.Agent_*-setup.exe` 双击安装。**Windows 端尚未完成充分测试**，欢迎反馈问题。
+
+> 若启动时提示"由于找不到 MSVCP140_1.dll，无法继续执行代码"或类似缺失 `VCRUNTIME140.dll` / `MSVCP140.dll`，请安装 [Microsoft Visual C++ 2015–2022 运行库（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)后重启应用。
+
+当前仅 x64。
+
+##### 启动方式
+
+- **桌面 GUI**：Start 菜单点「Hope Agent」启动，或 PowerShell `hope-agent`
+- **后台服务（HTTP/WS daemon）**：`hope-agent server start`（PowerShell / cmd）
+- **ACP（IDE 集成）**：`hope-agent acp`
+
+#### Linux
+
+##### Arch Linux / Manjaro（AUR）
 
 ```bash
 yay -S hope-agent-bin   # 或 paru / 任意 AUR helper
@@ -117,23 +155,27 @@ yay -S hope-agent-bin   # 或 paru / 任意 AUR helper
 
 预编译二进制版（沿用 GitHub Release 的 `.deb`），不从源码编译。
 
-**其他平台 / 手动下载：**
+##### 手动安装（AppImage / deb / rpm）
 
-1. 到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载对应平台安装包
-   - macOS：`Hope.Agent_*.dmg`
-   - Linux：`Hope.Agent_*.AppImage` / `Hope.Agent_*.deb` / `Hope.Agent_*.rpm`
-   - Windows：`Hope.Agent_*-setup.exe`（尚未完成充分测试）
-2. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
-3. 桌面安装包内置 GitHub Releases 自动更新；应用内可在 **设置 → 关于** 里检查更新并一键安装
+到 [Releases](https://github.com/shiwenwen/hope-agent/releases) 下载：
 
-> 若 macOS 启动时提示"已损坏"或"无法验证开发者"，请在终端执行以下命令：
->
-> ```bash
-> sudo xattr -cr /Applications/Hope\ Agent.app
-> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
-> ```
+- AppImage：`Hope.Agent_*.AppImage` —— `chmod +x` 后直接运行
+- Debian / Ubuntu：`Hope.Agent_*.deb` —— `sudo dpkg -i Hope.Agent_*.deb`
+- Fedora / RHEL：`Hope.Agent_*.rpm` —— `sudo rpm -i Hope.Agent_*.rpm`
 
-> 若 Windows 启动时提示"由于找不到 MSVCP140_1.dll，无法继续执行代码"或类似缺失 `VCRUNTIME140.dll` / `MSVCP140.dll` 的报错，请安装 [Microsoft Visual C++ 2015–2022 运行库（x64）](https://aka.ms/vs/17/release/vc_redist.x64.exe)后重启应用。
+当前仅 x86_64。
+
+##### 启动方式
+
+- **桌面 GUI**：应用菜单点「Hope Agent」启动，或终端 `hope-agent`
+- **后台服务（HTTP/WS daemon）**：`hope-agent server start`
+- **ACP（IDE 集成）**：`hope-agent acp`
+
+#### 首次启动 & 自动更新
+
+1. 首次启动向导：**选 Provider 模板 → 填 API Key / Codex OAuth 登录 → 开聊**
+2. 桌面应用内置 GitHub Releases 自动更新，应用内 **设置 → 关于** 检查更新并一键安装
+3. 通过 Homebrew / AUR / Scoop 装的版本同样走应用内置 updater；包管理器视角的版本号会保持初装时的，不影响功能
 
 ### 开发者
 
