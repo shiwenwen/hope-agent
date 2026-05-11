@@ -687,42 +687,14 @@ fn convert_message_create(
     // The worker can resolve this from the channel type if needed.
     let thread_id: Option<String> = None;
 
-    // Media: parse attachments
-    let mut media = Vec::new();
-    if let Some(attachments) = d.get("attachments").and_then(|v| v.as_array()) {
-        for att in attachments {
-            let file_id = att["id"].as_str().unwrap_or("").to_string();
-            let file_url = att
-                .get("url")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let mime_type = att
-                .get("content_type")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
-            let file_size = att.get("size").and_then(|v| v.as_u64());
-
-            // Determine media type from MIME
-            let media_type = match mime_type.as_deref() {
-                Some(m) if m.starts_with("image/") => MediaType::Photo,
-                Some(m) if m.starts_with("video/") => MediaType::Video,
-                Some(m) if m.starts_with("audio/") => MediaType::Audio,
-                _ => MediaType::Document,
-            };
-
-            media.push(InboundMedia {
-                media_type,
-                file_id,
-                file_url,
-                mime_type,
-                file_size,
-                caption: None,
-            });
-        }
-    }
+    // Media: parse attachments to deferred refs (downloaded server-side
+    // by DiscordPlugin::materialize_pending_media after gating; CDN URLs
+    // expire ~24h, so a local copy is what the LLM actually wants).
+    let pending_media = super::inbound_media::parse_message_attachments(d);
+    let had_media = !pending_media.is_empty();
 
     // Skip if no text and no media
-    if text.is_none() && media.is_empty() {
+    if text.is_none() && !had_media {
         return None;
     }
 
@@ -746,12 +718,15 @@ fn convert_message_create(
 
     // If text became empty after stripping mentions and there's no media, skip
     let final_text = clean_text.filter(|t| !t.is_empty());
-    if final_text.is_none() && media.is_empty() {
+    if final_text.is_none() && !had_media {
         return None;
     }
 
     // Chat title: use guild name if available, otherwise None
     let chat_title = d.get("guild_id").and_then(|_| None::<String>); // Guild name not available in MESSAGE_CREATE
+
+    let mut raw = d.clone();
+    crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending_media);
 
     Some(MsgContext {
         channel_id: ChannelId::Discord,
@@ -765,11 +740,11 @@ fn convert_message_create(
         thread_id,
         message_id,
         text: final_text,
-        media,
+        media: Vec::new(),
         reply_to_message_id,
         timestamp,
         was_mentioned,
-        raw: d.clone(),
+        raw,
     })
 }
 

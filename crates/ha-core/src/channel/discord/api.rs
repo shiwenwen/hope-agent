@@ -324,4 +324,38 @@ impl DiscordApi {
             .await?;
         Ok(())
     }
+
+    /// Download a Discord CDN attachment to `dest`. The CDN URL is
+    /// short-lived (~24h) but **doesn't require auth** — Discord encodes
+    /// the signature into query params. Host is pinned to
+    /// `*.discordapp.net` / `cdn.discordapp.com` / `media.discordapp.net`
+    /// so a poisoned MESSAGE_CREATE payload can't redirect downloads to
+    /// an attacker host. SSRF check still runs for IP classification.
+    pub async fn download_cdn_to_disk(
+        &self,
+        url: &str,
+        dest: &std::path::Path,
+        cap_bytes: u64,
+    ) -> Result<u64> {
+        let parsed_url = url::Url::parse(url).map_err(|e| anyhow!("Invalid Discord URL: {}", e))?;
+        let host = parsed_url
+            .host_str()
+            .ok_or_else(|| anyhow!("Discord URL has no host: {}", url))?;
+        let host_ok = host == "cdn.discordapp.com"
+            || host == "media.discordapp.net"
+            || host.ends_with(".discordapp.net")
+            || host.ends_with(".discordapp.com");
+        if !host_ok {
+            return Err(anyhow!(
+                "Refusing to download from non-Discord host: {}",
+                host
+            ));
+        }
+        crate::security::ssrf::check_url(url, crate::security::ssrf::SsrfPolicy::Default, &[])
+            .await
+            .map_err(|e| anyhow!("Discord CDN URL blocked: {}", e))?;
+
+        let builder = self.client.get(url);
+        crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes).await
+    }
 }
