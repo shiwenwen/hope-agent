@@ -203,6 +203,10 @@ export interface ContextCompactedEvent {
   messages_to_summarize?: number
 }
 
+export interface RoundLimitReachedEvent {
+  max_rounds?: number
+}
+
 export interface AvailableModel {
   providerId: string
   providerName: string

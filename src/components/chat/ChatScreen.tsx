@@ -1418,6 +1418,9 @@ export default function ChatScreen({
                 void session.handleSwitchSession(sid)
               }}
               onOpenDiff={diffPanel.openDiff}
+              onResume={(message) => {
+                void stream.handleSend(message)
+              }}
             />
 
             {/* Memory extraction toast — absolute-positioned above ChatInput

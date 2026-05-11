@@ -17,7 +17,8 @@ use serde_json::json;
 
 use super::api_types::FunctionCallItem;
 use super::events::{
-    emit_max_rounds_notice, emit_tool_call, emit_tool_result, emit_usage, extract_media_items,
+    emit_max_rounds_notice, emit_round_limit_event, emit_tool_call, emit_tool_result, emit_usage,
+    extract_media_items,
 };
 use super::streaming_adapter::{ExecutedTool, RoundRequest, StreamingChatAdapter};
 use super::types::{AssistantAgent, ChatUsage};
@@ -560,9 +561,10 @@ impl AssistantAgent {
         let cancelled = cancel.load(Ordering::SeqCst);
         let hit_round_limit = round_limit_enabled && !cancelled && round_count == max_rounds;
         let rounds_exhausted = hit_round_limit && !natural_exit;
-        if hit_round_limit {
+        if rounds_exhausted {
             let notice = emit_max_rounds_notice(on_delta, max_rounds);
             collected_text.push_str(&notice);
+            emit_round_limit_event(on_delta, max_rounds);
         }
         if collected_text.is_empty() && !cancelled {
             return Err(anyhow::anyhow!(
