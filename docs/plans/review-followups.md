@@ -854,30 +854,43 @@
 
 ---
 
-### F-082 IM 入站附件路径 12 渠道一致性 hardening（飞书模板外推）
+### F-082 阶段 2 / 3 — Telegram / WeChat hardening 残余
 
-- **来源**：2026-05-09 v0.2.0 飞书入站媒体 review P2 后续盘点 12 渠道现状
-- **现象**：飞书这次把入站附件做成「parse 轻量 ref → 入队 → ack → dispatcher gating → `materialize_pending_media` chunk-streaming 到磁盘 → 512 MiB cap → 失败清理」一整套之后，回头看其它 11 个渠道，行为差异很大、问题各不相同：
-  - **eager-download 阻塞 dispatch（同飞书 review 前的毛病）**：
-    - **Telegram** [`telegram/polling.rs::download_inbound_media_to_temp`](../../crates/ha-core/src/channel/telegram/polling.rs) 在 polling loop 内同步 `bot.download_file(&mut dst)` 拉完才发 `MsgContext`——非 mention 群消息也下载，且没 size cap（teloxide 内部是流式 `&mut File` 的，不至于 OOM，但磁盘 / 时延无界）
-    - **WeChat** [`wechat/media.rs::download_plain_media`](../../crates/ha-core/src/channel/wechat/media.rs) 比飞书旧版还激进：`response.bytes()` 全量到 `Vec<u8>` → AES-128 解密 → `save_inbound_bytes`，单条 100 MB 的群文件吃 100 MB RSS + 解密峰值再翻倍，dispatch 全程被阻塞
-  - **URL pass-through（"做了一半"，下游 LLM 能不能用全看运气）**：
-    - **Discord** [`discord/gateway.rs`](../../crates/ha-core/src/channel/discord/gateway.rs) 直接把 CDN URL 喂 LLM——可以工作但 URL **24h 过期**，超时后 LLM 走 `web_fetch` 会拿到 410；session 中段引用旧附件就失效
-    - **Slack** [`slack/socket.rs::parse_slack_files`](../../crates/ha-core/src/channel/slack/socket.rs) 给的是 `url_private` / `url_private_download`，**需要 `Authorization: Bearer xoxb-…`**，模型 `web_fetch` 没这个 token → 实际上拿到的是个废链接
-    - **Signal** [`signal/client.rs::extract_media`](../../crates/ha-core/src/channel/signal/client.rs) 干脆 `file_url: None`，只给 attachment id —— 模型完全看不到内容
-  - **完全没接（6 渠道）**：Google Chat / iMessage / IRC（协议本身不传媒体，跳过） / LINE / QQ Bot / WhatsApp 入站全 drop——用户发图 agent 看不到
-- **为什么留**：本期 PR scope 是「飞书完整对齐」，跨 channel 的入站附件统一是独立工作量，且每个 channel 的下载语义不同（Discord 公开 CDN / Slack 需 token / Signal 走 signal-cli `--receive-attachments` / WeChat 要 AES-128 解密 / Telegram 走 teloxide），不可能一个 PR 全做完。飞书这次的实现刚好成了模板，但外推应该按 channel 各自一个 follow-up PR 推。
-- **改的话要做什么**：分阶段做。
-  - **阶段 1（高优）**：把飞书现有的 deferred + chunk-streaming + size-cap 三件套抽成 channel-agnostic helper（`channel/inbound_media_common.rs::stream_to_disk(url, headers, dest, cap) -> Result<u64>` + `embed_pending_refs/take_pending_refs` 已经 generic 了），让 Telegram / WeChat 迁过去——`materialize_pending_media` trait 已经存在，直接 override 即可
-  - **阶段 2（中优）**：Slack 改成 server-side 下载（用 bot token 下载 + 写盘）；Signal 改用 signal-cli `--receive-attachments` 让 daemon 自己落盘再读路径；Discord 可选——CDN URL 24h 内能用，要不要 server-side 下载是产品决策（落盘永久 vs URL 短期）
-  - **阶段 3（低优）**：Google Chat / LINE / QQ Bot / WhatsApp / iMessage 补入站媒体解析。这些渠道用户量小、协议各异，按反馈推
-- **影响面**：当前线上能稳定接收图片 / 文件的只有飞书（修复后）+ Telegram + WeChat + Discord（CDN URL 临时窗口内）；Slack / Signal 用户发图 LLM 实际拿不到；6 渠道完全看不到。所有 eager-download 渠道在 mention gating 关闭的群里都会无差别下载非 @bot 的附件——飞书 review P1 揭示的"群里 @ 别人也下载"问题在 Telegram / WeChat 上同样存在。
+> **PR-1（阶段 1 — 9 渠道功能补齐）已落地，详见 Closed**。本条目仅追踪剩余的两条性能 hardening。
+
+- **来源**：2026-05-09 v0.2.0 飞书入站媒体 review P2 + 2026-05-11 阶段 1 PR-1 收尾
+- **残留现象**：
+  - **Telegram** [`telegram/polling.rs::download_inbound_media_to_temp`](../../crates/ha-core/src/channel/telegram/polling.rs) 在 polling loop 内同步 `bot.download_file(&mut dst)` 拉完才发 `MsgContext`——非 mention 群消息也下载，且没 size cap（teloxide 内部是流式 `&mut File` 的，不至于 OOM，但磁盘 / 时延无界）
+  - **WeChat** [`wechat/media.rs::download_plain_media`](../../crates/ha-core/src/channel/wechat/media.rs) `response.bytes()` 全量到 `Vec<u8>` → AES-128 解密 → `save_inbound_bytes`，单条 100 MB 的群文件吃 100 MB RSS + 解密峰值再翻倍，dispatch 全程被阻塞
+- **改的话要做什么**：
+  - **阶段 2（性能优化）**：Telegram / WeChat 迁同一 deferred + stream_to_disk pattern（helper 已抽好，[`crates/ha-core/src/channel/inbound_media_common.rs::stream_to_disk`](../../crates/ha-core/src/channel/inbound_media_common.rs)），消除"群里 @ 别人也下载"流量浪费 + WeChat in-mem 全量。WeChat 阶段 2 阶段保持 in-mem AES 解密 + 加 512MiB cap 兜底（不让大文件爆 RAM）
+  - **阶段 3（PoC）**：WeChat AES streaming 改磁盘缓冲二段法（落盘 .enc → 整文件 decrypt + PKCS#7 unpad → 写解密结果，RSS 上限 = 一次解密 buffer 不再无界）
+- **影响面**：阶段 1 已让所有渠道功能正常；阶段 2 / 3 是 hardening。Telegram / WeChat 当前 eager-download 模式功能正常但有"群里 @ 别人也下载"流量浪费 + WeChat 大文件 RSS 峰值。
 
 ---
 
 ## Closed
 
 > 已修复条目移到此处，附 commit hash + 关闭日期。保留以便后续 grep。
+
+### F-082 阶段 1 — 9 渠道 inbound 附件 deferred + stream_to_disk 一致性
+
+- **关闭于**：2026-05-11，分支 `feature/f-082-inbound-media-hardening`
+- **如何关闭**：把飞书 v0.2.0 留下的「parse 轻量 ref → embed_pending_refs(raw) → 早返回 → dispatcher gating → materialize_pending_media → stream_to_disk」整套抽到 channel-agnostic [`crates/ha-core/src/channel/inbound_media_common.rs`](../../crates/ha-core/src/channel/inbound_media_common.rs)，9 个非飞书渠道（Slack / Signal / Discord / Google Chat / LINE / QQ Bot / WhatsApp）全部接通同一 deferred pattern。飞书自身切到 helper（无行为变化，122 测试零退步）：
+
+  - **helper 模块** — `stream_to_disk(builder, dest, cap_bytes) -> Result<u64>` 双 cap 检查（Content-Length + mid-stream）+ 失败 abort_partial_download；`embed/take_pending_refs<T>` 泛型 envelope；`inbound_temp_path` 安全文件名 + path separator sanitize；`ext_for` 抽出三态 fallback。`crate::test_support::with_env_vars_async` 异步版隔离 helper（避免嵌套 runtime）
+  - **飞书 refactor** — `feishu/inbound_media.rs` 删 167 行重复实现切到 helper；`feishu/api.rs::download_resource_to_file` 100 行 chunk-loop 简化为 ~25 行；零行为变化
+  - **Slack 修复** — bot-token server-side 下载（`files.slack.com` host pin + SSRF）；解决"LLM 拿到 url_private 是个废链接"
+  - **Signal 修复** — copy signal-cli `<data-dir>/attachments/<id>` 本地 attachment store（macOS / Linux / Windows 各默认路径），ext_for 推断；解决"file_url None LLM 完全看不到"
+  - **Discord 修复** — CDN 改 server-side 下载（host pin `*.discordapp.{com,net}`）；解决"24h CDN URL 失效 session 中段 410"
+  - **Google Chat 接入** — `message.attachments[]` UPLOADED_CONTENT 走 `media.download` REST + OAuth Bearer；DRIVE_FILE 元数据保留但内容不下载（Chat scope 不含 Drive）
+  - **LINE 接入** — image/video/audio/file 4 种 binary msg_type 走 `api-data.line.me/v2/bot/message/{id}/content` + Channel Access Token 二段 GET
+  - **QQ Bot 接入** — gateway 4 种事件（C2C/GROUP_AT/AT/DIRECT）共用 `attachments[]` + Tencent CDN host pin（.qq.com / .qpic.cn / .gtimg.cn / .myqcloud.com）
+  - **WhatsApp 接入** — bridge 协议向后兼容地扩展 `BridgeMessage.attachments: Vec<BridgeAttachment>`（旧 bridge serde default 空 vec）；支持 bridge 通过 `authBearer` 透传 WhatsApp Cloud API access token
+
+- **测试**：每渠道 inbound_media 模块 6-7 个 parse 单测覆盖各 media type / 缺字段降级；helper 12 个用例覆盖 embed/take 泛型 round-trip / ext_for 三态 / inbound_temp_path 路径穿越 / wiremock stream_to_disk 四态（cap / 5xx / abort 幂等 / success）。`cargo test -p ha-core --lib channel` 412/412 通过；clippy / fmt 全过
+- **影响面**：12 渠道入站附件（除 iMessage / IRC 协议本身不传媒体）现在一致地走 deferred + stream_to_disk + 512MiB cap + 失败清理 + SSRF/host pin；Slack / Signal 用户发图终于能被 LLM 看到；Discord session 中段引用不再 410；4 新渠道入站附件首次可用
+- **不做的事（留 F-082 残余）**：Telegram / WeChat 仍是 eager-download 模式（功能正常但有性能问题，留 PR-2 阶段 2）；WeChat AES streaming PoC 留 PR-3 阶段 3
 
 ### F-075 ~ F-081 + F-083 ~ F-085 飞书 v0.2.0 review followup 一次性清算（10 条）
 
