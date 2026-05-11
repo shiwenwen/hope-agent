@@ -90,9 +90,11 @@ Ordinary people deserve an AI assistant that just **opens and works** — downlo
 
 ### For users
 
-> 📦 Installers: [Releases](https://github.com/shiwenwen/hope-agent/releases)
+> 📦 Full installer list across platforms: [Releases](https://github.com/shiwenwen/hope-agent/releases)
 
-**macOS (Homebrew, recommended):**
+#### macOS
+
+##### Homebrew (recommended)
 
 ```bash
 brew tap shiwenwen/hope-agent
@@ -101,15 +103,51 @@ brew install --cask hope-agent
 
 > Already have `Hope Agent.app` installed manually? Append `--adopt` to let the cask take over your existing same-version app without re-downloading, or `--force` to overwrite.
 
-After install:
+##### Manual install (DMG)
 
-- Desktop GUI: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` from a terminal
-- Headless server: `hope-agent server start`
-- ACP (IDE integration): `hope-agent acp`
+Download `Hope.Agent_*.dmg` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and drag into Applications.
+
+> If macOS reports "damaged" or "cannot verify the developer" on first launch, run in Terminal:
+>
+> ```bash
+> sudo xattr -cr /Applications/Hope\ Agent.app
+> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
+> ```
 
 Apple Silicon only; Intel Macs run under Rosetta 2.
 
-**Arch Linux / Manjaro (AUR):**
+##### Launch modes
+
+- **Desktop GUI**: Launchpad / Applications folder (click the Hope Agent icon), or `open -a "Hope Agent"` / `hope-agent` from a terminal
+- **Headless server (HTTP/WS daemon)**: `hope-agent server start`
+- **ACP (IDE integration)**: `hope-agent acp`
+
+#### Windows
+
+##### Scoop (recommended)
+
+```powershell
+scoop bucket add hope-agent https://github.com/shiwenwen/scoop-hope-agent
+scoop install hope-agent
+```
+
+##### Manual install (installer)
+
+Download `Hope.Agent_*-setup.exe` from [Releases](https://github.com/shiwenwen/hope-agent/releases) and double-click. **Windows is not yet fully tested** — please file issues if anything breaks.
+
+> If Windows reports "MSVCP140_1.dll was not found" or a similar missing `VCRUNTIME140.dll` / `MSVCP140.dll` error on launch, install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and relaunch.
+
+x64 only.
+
+##### Launch modes
+
+- **Desktop GUI**: click "Hope Agent" in the Start menu, or `hope-agent` from PowerShell
+- **Headless server (HTTP/WS daemon)**: `hope-agent server start` (PowerShell / cmd)
+- **ACP (IDE integration)**: `hope-agent acp`
+
+#### Linux
+
+##### Arch Linux / Manjaro (AUR)
 
 ```bash
 yay -S hope-agent-bin   # or paru / any AUR helper
@@ -117,23 +155,48 @@ yay -S hope-agent-bin   # or paru / any AUR helper
 
 Pre-built binary package (repackaged from the GitHub Release `.deb`) — no source compilation.
 
-**Other platforms / manual download:**
+##### Debian / Ubuntu (apt)
 
-1. Download the installer for your platform from [Releases](https://github.com/shiwenwen/hope-agent/releases):
-   - macOS: `Hope.Agent_*.dmg`
-   - Linux: `Hope.Agent_*.AppImage` / `Hope.Agent_*.deb` / `Hope.Agent_*.rpm`
-   - Windows: `Hope.Agent_*-setup.exe` (not yet fully tested)
-2. First launch: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
-3. Desktop installers ship with GitHub Releases auto-update; inside the app you can go to **Settings → About** to check and install updates
+```bash
+curl -fsSL https://shiwenwen.github.io/hope-agent-linux-repo/pubkey.gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/hope-agent.gpg
+echo "deb [signed-by=/usr/share/keyrings/hope-agent.gpg] https://shiwenwen.github.io/hope-agent-linux-repo/apt stable main" | \
+  sudo tee /etc/apt/sources.list.d/hope-agent.list
+sudo apt update
+sudo apt install hope-agent
+```
 
-> If macOS reports "damaged" or "cannot verify the developer" on first launch, execute the following commands in Terminal:
->
-> ```bash
-> sudo xattr -cr /Applications/Hope\ Agent.app
-> sudo codesign --force --deep --sign - /Applications/Hope\ Agent.app
-> ```
+##### Fedora / RHEL (dnf)
 
-> If Windows reports "MSVCP140_1.dll was not found" or a similar missing `VCRUNTIME140.dll` / `MSVCP140.dll` error on launch, install the [Microsoft Visual C++ 2015–2022 Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and relaunch the application.
+```bash
+sudo dnf config-manager --add-repo \
+  https://shiwenwen.github.io/hope-agent-linux-repo/rpm/hope-agent.repo
+sudo dnf install hope-agent
+```
+
+openSUSE users can `sudo zypper addrepo …` the same URL.
+
+##### Manual install (AppImage / deb / rpm)
+
+From [Releases](https://github.com/shiwenwen/hope-agent/releases):
+
+- AppImage: `Hope.Agent_*.AppImage` — `chmod +x` and run
+- Debian / Ubuntu: `Hope.Agent_*.deb` — `sudo dpkg -i Hope.Agent_*.deb`
+- Fedora / RHEL: `Hope.Agent_*.rpm` — `sudo rpm -i Hope.Agent_*.rpm`
+
+x86_64 only.
+
+##### Launch modes
+
+- **Desktop GUI**: click "Hope Agent" in your app menu, or `hope-agent` from a terminal
+- **Headless server (HTTP/WS daemon)**: `hope-agent server start`
+- **ACP (IDE integration)**: `hope-agent acp`
+
+#### First launch & auto-update
+
+1. First launch wizard: **pick a provider template → paste API key / sign in with Codex OAuth → chat.**
+2. Desktop builds ship with the GitHub Releases auto-updater. Go to **Settings → About** in-app to check for and install updates.
+3. Versions installed via Homebrew / AUR / Scoop also receive updates through the built-in updater; the package manager's recorded version stays pinned to the initial install version and does not affect functionality.
 
 ### For developers
 
