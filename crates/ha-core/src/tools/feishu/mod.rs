@@ -385,6 +385,7 @@ mod tests {
             security: Default::default(),
             auto_approve_tools: false,
             notify_session_eviction: true,
+            notify_startup: true,
         }
     }
 

@@ -522,6 +522,8 @@ Tauri ↔ COMMAND_MAP 差集为 7 条合法非 REST 命令（4 条 Desktop-only 
 |---|---|---|
 | `get_notification_config` | `GET /api/config/notification` | ✅ |
 | `save_notification_config` | `PUT /api/config/notification` | ✅ |
+| `get_startup_notification_config` | `GET /api/config/startup-notification` | ✅ |
+| `save_startup_notification_config` | `PUT /api/config/startup-notification` | ✅ |
 | `get_server_config` | `GET /api/config/server` | ✅ |
 | `save_server_config` | `PUT /api/config/server` | ✅ |
 | `get_server_runtime_status` | `GET /api/server/status` | ✅ (免鉴权) — 返回 `{ boundAddr, startedAt, uptimeSecs, startupError, eventsWsCount, chatWsCount, localDesktopClient, activeChatStreams, activeChatCounts: { desktop, http, channel, total } }`。`activeChatStreams` 是 `activeChatCounts.total` 的 back-compat 别名（在跑的 `run_chat_engine` 数量）。`chatWsCount` 当前仍是独立的 `Arc<AtomicU32>` 计数器（`crates/ha-core/src/server_status.rs::chat_ws_counter`），per-session chat WS 端点已下线但 counter 字段未拆——历史遗留，目前没有 handler 在递增，实测恒为 0。`localDesktopClient` 在 Tauri 命令恒 `true`（桌面 webview 通过 IPC 与后端通信，不走 WS），HTTP 路由恒 `false`，前端把它计入"活跃连接" |

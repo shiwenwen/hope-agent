@@ -167,6 +167,8 @@
     "noAccounts": "IM チャネルアカウントが未設定です",
     "notifySessionEviction": "セッション引き継ぎ通知",
     "notifySessionEvictionHint": "別のチャットが同じセッションを引き継いだことでこのアカウントが切り離された際、IM チャットにシステムメッセージを送ります（1:1 attach）。",
+    "notifyStartup": "再起動時に復旧通知を送信",
+    "notifyStartupHint": "サービス再起動後、このアカウントで直近活発だったチャットに「復旧しました」という短い通知を送信します。",
     "pluginDesc_discord": "Discord Bot チャネル",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1337,6 +1339,8 @@
     "mcpAuthRequiredFallback": "MCP サーバーが OAuth 認可を必要としています",
     "off": "オフ",
     "on": "オン",
+    "startupDesc": "サービス再起動後、過去 72 時間以内に活発だった IM チャットに短い「復旧しました」通知を送信します。アカウントごとのミュートは各 IM チャネル設定で管理します。",
+    "startupToggle": "再起動時の IM 復旧通知",
     "title": "通知設定"
   },
   "onboarding": {

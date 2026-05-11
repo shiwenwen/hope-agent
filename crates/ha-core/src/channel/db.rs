@@ -462,6 +462,51 @@ impl ChannelDB {
         Ok(rows)
     }
 
+    /// List conversations whose `updated_at` falls within the given
+    /// activity window, ordered most-recent-first, filtered to "real"
+    /// user conversations (non-incognito, non-cron, non-subagent).
+    ///
+    /// `window_secs` is the look-back window; `limit` caps the result.
+    /// Used by `startup_watcher` to pick recipients for the "back
+    /// online" notice. The 1:1 attach invariant (`uq_channel_conv_chat`
+    /// + `uq_channel_conv_session`) guarantees each (channel, account,
+    /// chat, thread) appears at most once.
+    pub fn list_recent_active_conversations(
+        &self,
+        window_secs: u64,
+        limit: usize,
+    ) -> Result<Vec<ChannelConversation>> {
+        let conn = self
+            .session_db
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+
+        let cutoff =
+            (chrono::Utc::now() - chrono::Duration::seconds(window_secs as i64)).to_rfc3339();
+        // FULL_COLS would JOIN-collide with `sessions.id` / `sessions.session_id`, so
+        // qualify every column with `cc.` here. Column order must match
+        // `row_to_conversation`.
+        let sql = "SELECT cc.id, cc.channel_id, cc.account_id, cc.chat_id, cc.thread_id, \
+                          cc.session_id, cc.sender_id, cc.sender_name, cc.chat_type, \
+                          cc.source, cc.attached_at, cc.created_at, cc.updated_at \
+                   FROM channel_conversations cc \
+                   JOIN sessions s ON s.id = cc.session_id \
+                   WHERE s.incognito = 0 \
+                     AND s.is_cron = 0 \
+                     AND s.parent_session_id IS NULL \
+                     AND cc.updated_at >= ?1 \
+                   ORDER BY cc.updated_at DESC \
+                   LIMIT ?2";
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt
+            .query_map(params![cutoff, limit as i64], |row| {
+                row_to_conversation(row)
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Look up the IM attach row for a session, if any. With 1:1 attach
     /// the unique index `uq_channel_conv_session` guarantees at most one
     /// row per session.
@@ -716,5 +761,187 @@ impl ChannelDB {
         }
 
         Ok(Some(sid))
+    }
+}
+
+#[cfg(test)]
+mod recent_active_tests {
+    use super::*;
+    use crate::session::SessionDB;
+    use chrono::{Duration, Utc};
+
+    fn temp_db_path(name: &str) -> std::path::PathBuf {
+        let unique = format!(
+            "{}-{}-{}.sqlite3",
+            name,
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        );
+        std::env::temp_dir().join(unique)
+    }
+
+    /// Fresh SessionDB + ChannelDB pair with the channel_conversations
+    /// table migrated. Cleans up on drop via the Cleanup guard the
+    /// caller binds.
+    struct TestDb {
+        channel: ChannelDB,
+        session: Arc<SessionDB>,
+        path: std::path::PathBuf,
+    }
+
+    impl Drop for TestDb {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn open_db(name: &str) -> TestDb {
+        let path = temp_db_path(name);
+        let session = Arc::new(SessionDB::open(&path).expect("open session db"));
+        let channel = ChannelDB::new(session.clone());
+        channel.migrate().expect("migrate channel db");
+        TestDb {
+            channel,
+            session,
+            path,
+        }
+    }
+
+    /// Insert a `channel_conversations` row referencing `session_id`
+    /// with an explicit `updated_at`. Bypasses the helper functions
+    /// because we want to control the timestamp for window filtering.
+    fn insert_conv(
+        db: &TestDb,
+        channel_id: &str,
+        account_id: &str,
+        chat_id: &str,
+        session_id: &str,
+        updated_at: &str,
+    ) {
+        let conn = db.session.conn.lock().expect("lock");
+        conn.execute(
+            "INSERT INTO channel_conversations \
+             (channel_id, account_id, chat_id, thread_id, session_id, chat_type, source, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, NULL, ?4, 'dm', 'inbound', ?5, ?5)",
+            params![channel_id, account_id, chat_id, session_id, updated_at],
+        )
+        .expect("insert channel_conversations");
+    }
+
+    fn mark_cron(db: &TestDb, session_id: &str) {
+        let conn = db.session.conn.lock().expect("lock");
+        conn.execute(
+            "UPDATE sessions SET is_cron = 1 WHERE id = ?1",
+            params![session_id],
+        )
+        .expect("mark cron");
+    }
+
+    fn mark_incognito(db: &TestDb, session_id: &str) {
+        let conn = db.session.conn.lock().expect("lock");
+        conn.execute(
+            "UPDATE sessions SET incognito = 1 WHERE id = ?1",
+            params![session_id],
+        )
+        .expect("mark incognito");
+    }
+
+    #[test]
+    fn filters_incognito_cron_and_subagent_sessions() {
+        let db = open_db("startup-filter");
+        let agent = crate::agent_loader::DEFAULT_AGENT_ID;
+        let now = Utc::now();
+        let stamp = now.to_rfc3339();
+
+        let keep = db.session.create_session(agent).expect("keep").id;
+        let incog = db.session.create_session(agent).expect("incog").id;
+        let cron = db.session.create_session(agent).expect("cron").id;
+        let sub = db
+            .session
+            .create_session_with_parent(agent, Some(&keep))
+            .expect("sub")
+            .id;
+
+        mark_incognito(&db, &incog);
+        mark_cron(&db, &cron);
+
+        insert_conv(&db, "telegram", "acc", "chat-keep", &keep, &stamp);
+        insert_conv(&db, "telegram", "acc", "chat-incog", &incog, &stamp);
+        insert_conv(&db, "telegram", "acc", "chat-cron", &cron, &stamp);
+        insert_conv(&db, "telegram", "acc", "chat-sub", &sub, &stamp);
+
+        let rows = db
+            .channel
+            .list_recent_active_conversations(24 * 3600, 100)
+            .expect("query");
+        let chats: Vec<_> = rows.iter().map(|r| r.chat_id.as_str()).collect();
+        assert_eq!(chats, vec!["chat-keep"], "got: {chats:?}");
+    }
+
+    #[test]
+    fn respects_activity_window_and_global_max() {
+        let db = open_db("startup-window");
+        let agent = crate::agent_loader::DEFAULT_AGENT_ID;
+        let now = Utc::now();
+
+        // 5 sessions, alternating recent / old timestamps + one barely
+        // outside the window.
+        for i in 0..5 {
+            let sid = db.session.create_session(agent).expect("session").id;
+            let chat = format!("chat-{i}");
+            // i=0,1 within window (1h ago), i=2,3 outside (3 days ago),
+            // i=4 barely outside (window + 10s)
+            let offset = match i {
+                0 | 1 => Duration::hours(1),
+                2 | 3 => Duration::days(3),
+                _ => Duration::seconds(48 * 3600 + 10),
+            };
+            let stamp = (now - offset).to_rfc3339();
+            insert_conv(&db, "telegram", "acc", &chat, &sid, &stamp);
+        }
+
+        // 48h window — keeps i=0, i=1; drops i=2, i=3, i=4
+        let rows = db
+            .channel
+            .list_recent_active_conversations(48 * 3600, 100)
+            .expect("query");
+        assert_eq!(rows.len(), 2);
+
+        // global_max=1 caps to most-recent only
+        let rows = db
+            .channel
+            .list_recent_active_conversations(48 * 3600, 1)
+            .expect("query");
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[test]
+    fn multiple_chats_on_one_account_each_returned_once() {
+        let db = open_db("startup-fanout");
+        let agent = crate::agent_loader::DEFAULT_AGENT_ID;
+        let stamp = Utc::now().to_rfc3339();
+
+        // One telegram bot active in 1 DM + 3 group chats.
+        for i in 0..4 {
+            let sid = db.session.create_session(agent).expect("session").id;
+            insert_conv(
+                &db,
+                "telegram",
+                "acc-bot",
+                &format!("chat-{i}"),
+                &sid,
+                &stamp,
+            );
+        }
+
+        let rows = db
+            .channel
+            .list_recent_active_conversations(24 * 3600, 100)
+            .expect("query");
+        assert_eq!(rows.len(), 4, "every chat on the bot should appear once");
+
+        let mut chats: Vec<_> = rows.iter().map(|r| r.chat_id.clone()).collect();
+        chats.sort();
+        assert_eq!(chats, vec!["chat-0", "chat-1", "chat-2", "chat-3"]);
     }
 }

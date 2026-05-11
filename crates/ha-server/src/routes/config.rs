@@ -310,6 +310,26 @@ pub async fn save_notification_config(
     Ok(Json(json!({ "saved": true })))
 }
 
+// ── Startup Notification Config ─────────────────────────────────
+
+/// `GET /api/config/startup-notification` -- get IM startup-notification config.
+pub async fn get_startup_notification_config(
+) -> Result<Json<ha_core::config::StartupNotificationConfig>, AppError> {
+    let store = ha_core::config::cached_config();
+    Ok(Json(store.startup_notification.clone()))
+}
+
+/// `PUT /api/config/startup-notification` -- save IM startup-notification config.
+pub async fn save_startup_notification_config(
+    Json(body): Json<ConfigBody<ha_core::config::StartupNotificationConfig>>,
+) -> Result<Json<Value>, AppError> {
+    ha_core::config::mutate_config(("startup_notification", "http"), |store| {
+        store.startup_notification = body.config;
+        Ok(())
+    })?;
+    Ok(Json(json!({ "saved": true })))
+}
+
 // ── Tool Config ─────────────────────────────────────────────────
 
 /// `GET /api/config/tool-timeout` -- get tool execution timeout (seconds).

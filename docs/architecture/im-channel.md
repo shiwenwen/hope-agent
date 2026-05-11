@@ -671,6 +671,21 @@ CREATE TABLE channel_conversations (
 - **events**:`channel:session_evicted { channelId, accountId, chatId, threadId, sessionId }` —— [`channel/worker/eviction_watcher.rs`](../../crates/ha-core/src/channel/worker/eviction_watcher.rs) 订阅后调对应 plugin 的 `send_message` 发硬编码英文带 emoji 的"this chat has been taken over by another endpoint"通知;`ChannelAccountConfig.notify_session_eviction`(默认 `true`) 可静音
 - **migration**:`migrate()` 检测旧 schema(无 `source` 列或还有 `is_primary` 列)直接 DROP TABLE 重建;IM worker 在下一条入站消息时重新创建对应行(按 user feedback「破坏性改动直接 drop,不留兼容路径」)
 
+### Startup back-online notice
+
+每次进程冷启 / 升级 / launchd/systemd 自动拉起 / 崩溃恢复后,在 IM 端给最近活跃的对话发一条简短系统通知,让用户感知"服务回来了,可以继续发消息"。
+
+- **实现**:[`channel/worker/startup_watcher.rs`](../../crates/ha-core/src/channel/worker/startup_watcher.rs) `spawn_startup_notifier(registry)`,由 [`app_init.rs::spawn_channel_listeners`](../../crates/ha-core/src/app_init.rs) 在三模式(desktop / server / acp)统一入口的末尾调一次。**不订阅 EventBus**,直接在 spawn 内 sleep 3s 等 `start_watchdog::spawn_loop` 完成首轮 `start_account`,再扫一次最近活跃对话,逐 chat 发送。
+- **运行时门**(全部满足才发送):
+  - `runtime_lock::is_primary()` —— 同机 desktop + server 双开时只让 Primary 进程发,Secondary skip
+  - `AppConfig.startup_notification.enabled`(默认 `true`)—— 全局开关,GUI 在通知设置面板
+  - `HOPE_AGENT_CRASH_COUNT >= crash_loop_threshold`(默认 `3`)—— guardian 传入的崩溃计数器满足时整批静音,避免 crash-loop 风暴
+- **最近活跃对话查询**:[`ChannelDB::list_recent_active_conversations(window_secs, limit)`](../../crates/ha-core/src/channel/db.rs) JOIN `channel_conversations × sessions`,过滤 `incognito=0 && is_cron=0 && parent_session_id IS NULL`,按 `cc.updated_at DESC` 排序。**SQL 候选池与发送上限解耦**:SQL `LIMIT` 用内部常量 `CANDIDATE_HARD_CAP=500`(只是防御性大池子);真正的发送数上限 `cfg.global_max`(默认 30) 在 worker 应用层遍历时按 spawn 计数应用——cooldown / silenced / 缺账号 / 缺插件 这些 filter **不消耗** `global_max` 预算,所以前 30 条全在 cooldown 也不会饿死后面可发的 chat。每个 (channel, account, chat, thread) 在表中是唯一行(`uq_channel_conv_chat`),同一 bot 在 1 单聊 + N 群聊里各自都各收到一条。
+- **账号 readiness 等待**:每个 send task 进入 JoinSet 后先 poll [`registry.health(account_id).is_running`](../../crates/ha-core/src/channel/registry.rs),最多等 `ACCOUNT_READY_WAIT_SECS=30`(2s 间隔)。覆盖 OAuth-y 慢握手(Lark / Slack)+ watchdog 首轮失败稍后恢复的场景。超时则当作发送失败(不写 `mark_notified`,下次重启可补发)。
+- **去重**:per-chat sentinel [`startup_state.json`](../../crates/ha-core/src/channel/worker/startup_state.rs) 在 `~/.hope-agent/` 下记录 `last_notified[<ch>:<acc>:<chat>:<thread>] -> RFC3339`;30 min cooldown 内同一 chat 不重复(`cooldown_secs`)。复用 [`platform::write_secure_file`](../../crates/ha-core/src/platform/mod.rs)(tmp + fsync + 0600 + rename),prune 7 天前 entry 防文件膨胀。
+- **per-account 静音**:`ChannelAccountConfig.notify_startup`(默认 `true`),与 `notify_session_eviction` 同款。GUI 在「Channels → 编辑账号」对话框。
+- **文案**:硬编码英文带 emoji,与 `eviction_watcher` 一致(IM 服务器不带收件人 locale,backend 翻译会选错语言)。文本「📡 Hope Agent is back online. If you were waiting on a reply, send your last message again.」
+
 ### GUI ↔ IM live 流式镜像
 
 **实现**([`chat_engine/im_mirror.rs`](../../crates/ha-core/src/chat_engine/im_mirror.rs)):desktop / HTTP 触发的 turn 在 `run_chat_engine` 起始调 `attach_im_live_mirror(session_id, source)`,查 `get_conversation_by_session(session_id)` 拿到 session 的 IM attach(1:1 后 0 或 1 个),拿对应 account 的 `im_reply_mode()` / `show_thinking()` + plugin `capabilities()`,spawn `spawn_channel_stream_task` 起 IM 流式预览任务,把 `ChannelStreamSink` 注册到 [`SinkRegistry`](../../crates/ha-core/src/chat_engine/sink_registry.rs)。引擎 `emit_stream_event` 末尾的 fan-out hook 在每帧把 streaming event 转发到 IM 流式预览任务,IM 用户实时看到 typewriter / per-round 边界 finalize / 媒体投递。

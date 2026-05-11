@@ -167,6 +167,8 @@
     "noAccounts": "Chưa có tài khoản kênh IM nào được cấu hình",
     "notifySessionEviction": "Thông báo tiếp quản phiên",
     "notifySessionEvictionHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này bị tách khỏi phiên vì cuộc trò chuyện khác đã tiếp quản (gắn 1:1).",
+    "notifyStartup": "Gửi thông báo \"đã quay lại trực tuyến\"",
+    "notifyStartupHint": "Sau khi dịch vụ khởi động lại, gửi một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện trên tài khoản này từng hoạt động gần đây.",
     "pluginDesc_discord": "Kênh Discord Bot",
     "pluginDesc_feishu": "Bot Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1337,6 +1339,8 @@
     "mcpAuthRequiredFallback": "Một máy chủ MCP cần ủy quyền OAuth",
     "off": "Tắt",
     "on": "Bật",
+    "startupDesc": "Sau khi dịch vụ khởi động lại, đăng một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện IM từng hoạt động trong 72 giờ qua. Tắt thông báo theo tài khoản nằm trong từng tài khoản kênh.",
+    "startupToggle": "Thông báo \"đã quay lại\" sau khởi động lại",
     "title": "Cài đặt thông báo"
   },
   "onboarding": {

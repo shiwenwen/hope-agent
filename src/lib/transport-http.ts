@@ -315,6 +315,8 @@ const COMMAND_MAP: Record<string, EndpointDef> = {
   // -- Notifications --
   get_notification_config:         { method: "GET",    path: "/api/config/notification" },
   save_notification_config:        { method: "PUT",    path: "/api/config/notification" },
+  get_startup_notification_config: { method: "GET",    path: "/api/config/startup-notification" },
+  save_startup_notification_config:{ method: "PUT",    path: "/api/config/startup-notification" },
 
   // -- Server --
   get_server_config:               { method: "GET",    path: "/api/config/server" },

@@ -167,6 +167,8 @@
     "noAccounts": "Belum ada akaun saluran IM dikonfigurasikan",
     "notifySessionEviction": "Beritahu pengambilalihan sesi",
     "notifySessionEvictionHint": "Hantar mesej sistem ke sembang IM apabila akaun ini diceraikan daripada sesi kerana sembang lain mengambilnya alih (1:1 attach).",
+    "notifyStartup": "Hantar notis \"kembali dalam talian\"",
+    "notifyStartupHint": "Selepas perkhidmatan dimulakan semula, hantar notis pendek \"kembali dalam talian\" ke sembang akaun ini yang aktif baru-baru ini.",
     "pluginDesc_discord": "Saluran Discord Bot",
     "pluginDesc_feishu": "Bot Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1337,6 +1339,8 @@
     "mcpAuthRequiredFallback": "Pelayan MCP memerlukan kebenaran OAuth",
     "off": "Mati",
     "on": "Hidup",
+    "startupDesc": "Selepas perkhidmatan dimulakan semula, terbitkan notis pendek \"kembali dalam talian\" ke sembang IM yang aktif dalam 72 jam yang lalu. Senyapan setiap akaun berada di tetapan akaun saluran masing-masing.",
+    "startupToggle": "Notis \"kembali dalam talian\" selepas mula semula",
     "title": "Tetapan pemberitahuan"
   },
   "onboarding": {

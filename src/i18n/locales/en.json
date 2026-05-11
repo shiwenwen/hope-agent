@@ -167,6 +167,8 @@
     "noAccounts": "No IM channel accounts configured yet",
     "notifySessionEviction": "Notify on session takeover",
     "notifySessionEvictionHint": "Send a system message into the IM chat when this account is evicted from a session because another chat took it over (1:1 attach).",
+    "notifyStartup": "Send back-online notice",
+    "notifyStartupHint": "After a service restart, post a short \"back online\" notice into chats on this account that were active recently.",
     "pluginDesc_discord": "Discord Bot channel",
     "pluginDesc_feishu": "Feishu (飞书) / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1337,6 +1339,8 @@
     "mcpAuthRequiredFallback": "An MCP server needs OAuth authorization",
     "off": "Off",
     "on": "On",
+    "startupDesc": "After a service restart, post a short \"back online\" notice into IM chats that were active in the past 72h. Per-account silencing lives on each channel account.",
+    "startupToggle": "IM back-online notice on restart",
     "title": "Notification Settings"
   },
   "onboarding": {

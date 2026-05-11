@@ -167,6 +167,8 @@
     "noAccounts": "구성된 IM 채널 계정이 없습니다",
     "notifySessionEviction": "세션 인계 알림",
     "notifySessionEvictionHint": "다른 채팅이 같은 세션을 인계받아 이 계정이 분리되었을 때 IM 채팅에 시스템 메시지를 보냅니다(1:1 attach).",
+    "notifyStartup": "재시작 시 복귀 알림 전송",
+    "notifyStartupHint": "서비스 재시작 후 이 계정에서 최근 활성화된 채팅에 짧은 \"다시 온라인\" 알림을 보냅니다.",
     "pluginDesc_discord": "Discord Bot 채널",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1337,6 +1339,8 @@
     "mcpAuthRequiredFallback": "MCP 서버가 OAuth 인증을 필요로 합니다",
     "off": "꺼짐",
     "on": "켜짐",
+    "startupDesc": "서비스 재시작 후 지난 72시간 동안 활성화된 IM 채팅에 짧은 \"다시 온라인\" 알림을 게시합니다. 계정별 음소거는 각 채널 계정에서 관리합니다.",
+    "startupToggle": "재시작 시 IM 복귀 알림",
     "title": "알림 설정"
   },
   "onboarding": {

@@ -124,6 +124,24 @@ pub async fn save_notification_config(
 }
 
 #[tauri::command]
+pub async fn get_startup_notification_config(
+) -> Result<ha_core::config::StartupNotificationConfig, CmdError> {
+    let store = ha_core::config::cached_config();
+    Ok(store.startup_notification.clone())
+}
+
+#[tauri::command]
+pub async fn save_startup_notification_config(
+    config: ha_core::config::StartupNotificationConfig,
+) -> Result<(), CmdError> {
+    ha_core::config::mutate_config(("startup_notification", "settings-ui"), |store| {
+        store.startup_notification = config;
+        Ok(())
+    })
+    .map_err(Into::into)
+}
+
+#[tauri::command]
 pub async fn get_image_generate_config() -> Result<tools::image_generate::ImageGenConfig, CmdError>
 {
     let store = ha_core::config::load_config()?;

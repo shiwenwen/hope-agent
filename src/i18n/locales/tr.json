@@ -167,6 +167,8 @@
     "noAccounts": "Henüz IM kanal hesabı yapılandırılmadı",
     "notifySessionEviction": "Oturum devralma bildirimi",
     "notifySessionEvictionHint": "Bu hesap, başka bir sohbet aynı oturumu devraldığı için ayrıldığında IM sohbetine sistem mesajı gönderir (1:1 attach).",
+    "notifyStartup": "\"Yeniden çevrim içi\" bildirimi gönder",
+    "notifyStartupHint": "Hizmet yeniden başlatıldıktan sonra, bu hesapta yakın zamanda aktif olan sohbetlere kısa bir \"yeniden çevrim içi\" bildirimi gönderir.",
     "pluginDesc_discord": "Discord Bot kanalı",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -1337,6 +1339,8 @@
     "mcpAuthRequiredFallback": "Bir MCP sunucusu OAuth yetkilendirmesi gerektiriyor",
     "off": "Kapalı",
     "on": "Açık",
+    "startupDesc": "Hizmet yeniden başlatıldıktan sonra son 72 saat içinde aktif olan IM sohbetlerine kısa bir \"yeniden çevrim içi\" bildirimi yayınlar. Hesap başına sessize alma her kanal hesabında bulunur.",
+    "startupToggle": "Yeniden başlatma sonrası IM \"yeniden çevrim içi\" bildirimi",
     "title": "Bildirim ayarları"
   },
   "onboarding": {

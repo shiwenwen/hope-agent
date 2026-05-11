@@ -167,6 +167,8 @@
     "noAccounts": "尚未配置任何 IM 渠道賬戶",
     "notifySessionEviction": "工作階段被接管提醒",
     "notifySessionEvictionHint": "當本帳號被另一個聊天接管同一工作階段而被踢出時，向 IM 聊天發送系統訊息提示（1:1 attach）。",
+    "notifyStartup": "服務重啟提醒",
+    "notifyStartupHint": "服務重啟後，向本帳號近期活躍的聊天發送一條「已恢復」系統訊息。",
     "pluginDesc_discord": "Discord Bot 渠道",
     "pluginDesc_feishu": "飛書 / Lark 機器人",
     "pluginDesc_googlechat": "Google Chat（Workspace）",
@@ -1337,6 +1339,8 @@
     "mcpAuthRequiredFallback": "有 MCP 伺服器需要完成 OAuth 授權",
     "off": "關閉",
     "on": "開啟",
+    "startupDesc": "服務重啟後，向最近 72 小時活躍過的 IM 聊天發送一條「已恢復」提示。帳號層級的開關請在各 IM 通道的帳號設定中調整。",
+    "startupToggle": "重啟後向 IM 發送已恢復提示",
     "title": "通知設置"
   },
   "onboarding": {
