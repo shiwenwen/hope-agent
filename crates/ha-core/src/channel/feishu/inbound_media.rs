@@ -224,26 +224,23 @@ pub async fn materialize_inbound(
     }
 
     let ext = ext_for(parsed.file_name.as_deref(), &parsed.media_type);
-    let path = match crate::channel::inbound_media_common::inbound_temp_path(
-        "feishu",
-        &parsed.key,
-        &ext,
-    )
-    .await
-    {
-        Ok(p) => p,
-        Err(e) => {
-            app_warn!(
-                "channel",
-                "feishu:inbound",
-                "[{}] Failed to resolve feishu inbound path for key='{}': {}",
-                account_id,
-                parsed.key,
-                e
-            );
-            return None;
-        }
-    };
+    let path =
+        match crate::channel::inbound_media_common::inbound_temp_path("feishu", &parsed.key, &ext)
+            .await
+        {
+            Ok(p) => p,
+            Err(e) => {
+                app_warn!(
+                    "channel",
+                    "feishu:inbound",
+                    "[{}] Failed to resolve feishu inbound path for key='{}': {}",
+                    account_id,
+                    parsed.key,
+                    e
+                );
+                return None;
+            }
+        };
 
     let on_disk_size = match api
         .download_resource_to_file(

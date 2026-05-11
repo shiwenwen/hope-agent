@@ -163,7 +163,12 @@ pub async fn materialize_inbound(
 mod tests {
     use super::*;
 
-    fn att(url: &str, mime: Option<&str>, name: Option<&str>, size: Option<u64>) -> BridgeAttachment {
+    fn att(
+        url: &str,
+        mime: Option<&str>,
+        name: Option<&str>,
+        size: Option<u64>,
+    ) -> BridgeAttachment {
         BridgeAttachment {
             url: Some(url.to_string()),
             media_type: None,
@@ -176,7 +181,12 @@ mod tests {
 
     #[test]
     fn parse_image_attachment() {
-        let refs = parse_attachments(&[att("https://wa.example/x.jpg", Some("image/jpeg"), Some("cat.jpg"), Some(1024))]);
+        let refs = parse_attachments(&[att(
+            "https://wa.example/x.jpg",
+            Some("image/jpeg"),
+            Some("cat.jpg"),
+            Some(1024),
+        )]);
         assert_eq!(refs.len(), 1);
         assert_eq!(refs[0].media_type, MediaType::Photo);
         assert_eq!(refs[0].file_id, "cat.jpg");
@@ -186,8 +196,18 @@ mod tests {
 
     #[test]
     fn parse_voice_distinct_from_audio() {
-        let v = parse_attachments(&[att("https://wa.example/v.ogg", Some("audio/ogg"), None, None)]);
-        let a = parse_attachments(&[att("https://wa.example/a.mp3", Some("audio/mpeg"), None, None)]);
+        let v = parse_attachments(&[att(
+            "https://wa.example/v.ogg",
+            Some("audio/ogg"),
+            None,
+            None,
+        )]);
+        let a = parse_attachments(&[att(
+            "https://wa.example/a.mp3",
+            Some("audio/mpeg"),
+            None,
+            None,
+        )]);
         assert_eq!(v[0].media_type, MediaType::Voice);
         assert_eq!(a[0].media_type, MediaType::Audio);
     }

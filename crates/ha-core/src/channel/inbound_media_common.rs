@@ -110,7 +110,13 @@ pub async fn inbound_temp_path(
     })?;
     let safe_stem: String = stem
         .chars()
-        .map(|c| if matches!(c, '/' | '\\' | ':') { '_' } else { c })
+        .map(|c| {
+            if matches!(c, '/' | '\\' | ':') {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect();
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -331,12 +337,12 @@ mod tests {
     #[tokio::test]
     async fn inbound_temp_path_sanitizes_separators() {
         let root = tempfile::tempdir().expect("tempdir");
-        let path = crate::test_support::with_env_vars_async(
-            &[("HA_DATA_DIR", root.path())],
-            || async { inbound_temp_path("dummy", "evil/../../etc:passwd", "bin").await },
-        )
-        .await
-        .expect("path");
+        let path =
+            crate::test_support::with_env_vars_async(&[("HA_DATA_DIR", root.path())], || async {
+                inbound_temp_path("dummy", "evil/../../etc:passwd", "bin").await
+            })
+            .await
+            .expect("path");
         let filename = path.file_name().expect("filename").to_string_lossy();
         // Slash / backslash / colon all replaced; ts prefix preserved.
         assert!(!filename.contains('/'), "filename must not contain '/'");

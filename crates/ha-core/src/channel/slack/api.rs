@@ -220,7 +220,8 @@ impl SlackApi {
         let host = parsed_url
             .host_str()
             .ok_or_else(|| anyhow!("Slack URL has no host: {}", url))?;
-        let host_ok = host == "files.slack.com" || host == "slack.com" || host.ends_with(".slack.com");
+        let host_ok =
+            host == "files.slack.com" || host == "slack.com" || host.ends_with(".slack.com");
         if !host_ok {
             return Err(anyhow!(
                 "Refusing to download with bot token from non-Slack host: {}",

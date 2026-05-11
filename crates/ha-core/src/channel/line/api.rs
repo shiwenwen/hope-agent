@@ -193,7 +193,10 @@ impl LineApi {
             "https://api-data.line.me/v2/bot/message/{}/content",
             urlencoding::encode(message_id)
         );
-        let builder = self.client.get(&url).bearer_auth(&self.channel_access_token);
+        let builder = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.channel_access_token);
         crate::channel::inbound_media_common::stream_to_disk(builder, dest, cap_bytes)
             .await
             .context("LINE content download")

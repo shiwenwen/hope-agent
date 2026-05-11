@@ -182,7 +182,9 @@ impl ChannelPlugin for WhatsAppPlugin {
             accounts
                 .get(&account.id)
                 .map(|a| a.api.clone())
-                .ok_or_else(|| anyhow::anyhow!("WhatsApp account '{}' is not running", account.id))?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("WhatsApp account '{}' is not running", account.id)
+                })?
         };
         let results = futures_util::future::join_all(
             pending

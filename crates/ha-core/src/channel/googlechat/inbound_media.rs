@@ -245,7 +245,10 @@ mod tests {
         });
         let refs = parse_message_attachments(&message);
         assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].resource_name, "spaces/AAA/messages/x.x/attachments/yyy");
+        assert_eq!(
+            refs[0].resource_name,
+            "spaces/AAA/messages/x.x/attachments/yyy"
+        );
     }
 
     #[test]

@@ -108,11 +108,12 @@ impl WhatsAppApi {
             if !trimmed.is_empty() {
                 // Accept either a raw token or one already prefixed with
                 // "Bearer " — bridges sometimes pass through verbatim.
-                let header_value = if trimmed.starts_with("Bearer ") || trimmed.starts_with("bearer ") {
-                    trimmed.to_string()
-                } else {
-                    format!("Bearer {}", trimmed)
-                };
+                let header_value =
+                    if trimmed.starts_with("Bearer ") || trimmed.starts_with("bearer ") {
+                        trimmed.to_string()
+                    } else {
+                        format!("Bearer {}", trimmed)
+                    };
                 builder = builder.header("Authorization", header_value);
             }
         }

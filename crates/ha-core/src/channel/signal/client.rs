@@ -471,7 +471,6 @@ impl SignalClient {
 
         false
     }
-
 }
 
 /// 判断 recipient 是否是 Signal 群组 ID。
