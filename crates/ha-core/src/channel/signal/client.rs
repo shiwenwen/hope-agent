@@ -412,8 +412,12 @@ impl SignalClient {
             .and_then(|v| v.as_i64())
             .map(|ts| ts.to_string());
 
-        // Extract inbound media (attachments)
-        let media = self.extract_media(data_message);
+        // Parse attachments to deferred refs (signal-cli has already
+        // written the bytes to its local store; materialize_pending_media
+        // lifts them into hope-agent's inbound-temp/ after gating).
+        let pending = super::inbound_media::parse_message_attachments(data_message);
+        let mut raw = envelope.clone();
+        crate::channel::inbound_media_common::embed_pending_refs(&mut raw, pending);
 
         let msg = MsgContext {
             channel_id: ChannelId::Signal,
@@ -427,11 +431,11 @@ impl SignalClient {
             thread_id: None,
             message_id,
             text,
-            media,
+            media: Vec::new(),
             reply_to_message_id: reply_to,
             timestamp: chrono::Utc::now(),
             was_mentioned,
-            raw: envelope.clone(),
+            raw,
         };
 
         // 缓存 sender_id ←→ message_id 映射，供 outbound reply 拼 quoteAuthor 用
@@ -468,42 +472,6 @@ impl SignalClient {
         false
     }
 
-    /// Extract attachment metadata from the data message.
-    fn extract_media(&self, data_message: &Value) -> Vec<InboundMedia> {
-        let attachments = match data_message.get("attachments") {
-            Some(Value::Array(arr)) => arr,
-            _ => return Vec::new(),
-        };
-
-        attachments
-            .iter()
-            .filter_map(|att| {
-                let id = att.get("id").and_then(|v| v.as_str())?.to_string();
-                let content_type = att
-                    .get("contentType")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let file_size = att.get("size").and_then(|v| v.as_u64());
-
-                let media_type = match content_type.as_deref() {
-                    Some(ct) if ct.starts_with("image/") => MediaType::Photo,
-                    Some(ct) if ct.starts_with("video/") => MediaType::Video,
-                    Some(ct) if ct.starts_with("audio/ogg") => MediaType::Voice,
-                    Some(ct) if ct.starts_with("audio/") => MediaType::Audio,
-                    _ => MediaType::Document,
-                };
-
-                Some(InboundMedia {
-                    media_type,
-                    file_id: id,
-                    file_url: None,
-                    mime_type: content_type,
-                    file_size,
-                    caption: None,
-                })
-            })
-            .collect()
-    }
 }
 
 /// 判断 recipient 是否是 Signal 群组 ID。
