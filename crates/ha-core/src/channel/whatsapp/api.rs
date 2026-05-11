@@ -279,11 +279,9 @@ pub struct BridgeMessage {
     pub attachments: Vec<BridgeAttachment>,
 }
 
-/// Inbound attachment transported through the bridge protocol.
-///
-/// Backward-compatible extension introduced by F-082 — older bridges
-/// can keep emitting messages without this field and hope-agent will
-/// simply see an empty `attachments` vec.
+/// Inbound attachment transported through the bridge protocol. Optional
+/// in the wire format — older bridges that omit the field deserialize
+/// into an empty `attachments` vec.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BridgeAttachment {

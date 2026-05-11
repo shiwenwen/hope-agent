@@ -30,6 +30,17 @@
 
 ## Open
 
+### F-083 抽 `materialize_pending_media` / `materialize_inbound` 共用骨架（消 ~500 LOC 9 渠道样板）
+
+- **来源**：2026-05-11 F-082 `/simplify` review（reuse pass H1+H2）
+- **现象**：F-082 落地后每个 IM 渠道的 [`<channel>/inbound_media.rs::materialize_inbound`](../../crates/ha-core/src/channel/) 都是同一模板（cap-check declared size → `ext_for` + `inbound_temp_path` → `download_*_to_disk` → 构造 `InboundMedia { media_type, file_id, file_url: Some(path.to_string_lossy()), mime_type, file_size, caption: None }`），9 渠道 × ~70 行 ≈ 630 LOC；只有 download 入口（auth header / host pin）真正不同。同款情况在 [`<channel>/mod.rs::materialize_pending_media`](../../crates/ha-core/src/channel/) 也存在（`take_pending_refs → get_api → join_all → push results into msg.media` 全部一致，10 处复制）
+- **为什么留**：F-082 主题是"功能补齐 + 性能 hardening"，先把 12 渠道功能拉齐；样板消除是独立 refactor scope。本期 `/simplify` 已落 5 条相对小的清理（error body cap、BufWriter、`PENDING_MEDIA_KEY` 私有、`media_type_from_mime` 共用、narrating 注释清理），把更大的骨架抽取留作单独 PR 避免一次性扩散面太大
+- **改的话要做什么**：
+  - 在 [`channel/inbound_media_common.rs`](../../crates/ha-core/src/channel/inbound_media_common.rs) 新增 `materialize_via<F, Fut>(channel_id, file_id, file_name, media_type, declared_size, mime_type, download: F) -> Option<InboundMedia>` 或类似的 trait `InboundMediaSource`；每个渠道 `materialize_inbound` 收敛到 ~10 行
+  - 在同文件新增 `materialize_pending_media_default::<P, F, Fut>(msg, refs, run: F)` 把 take_pending_refs + join_all + extend 闭合到一个泛型 helper；9 渠道 `materialize_pending_media` 收敛到 ~6 行（注意 WeChat 多一个 `cdn_base_url`/`client` 参数，可通过闭包捕获）
+- **影响面**：纯样板减少 + 一致性收紧（新增 channel 接 inbound 时模板单点），零行为变化
+- **触发时机建议**：下次新增 IM channel 入站附件接入时，或独立"channel inbound 共用骨架"sweep PR
+
 ### F-071 跨 channel 推广 `json_str_at` 微 helper
 
 - **来源**：2026-05-08 F-070 `/simplify` review

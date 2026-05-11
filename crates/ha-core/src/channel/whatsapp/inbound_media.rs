@@ -45,18 +45,11 @@ pub fn parse_attachments(attachments: &[BridgeAttachment]) -> Vec<ParsedMediaRef
 
             // Prefer MIME for classification; fall back to bridge's
             // coarse `media_type` string when MIME is missing.
-            let media_type = if let Some(ref mime) = mime_type {
-                if mime.starts_with("image/") {
-                    MediaType::Photo
-                } else if mime.starts_with("video/") {
-                    MediaType::Video
-                } else if mime.starts_with("audio/ogg") || mime == "audio/opus" {
-                    MediaType::Voice
-                } else if mime.starts_with("audio/") {
-                    MediaType::Audio
-                } else {
-                    MediaType::Document
-                }
+            let media_type = if mime_type.is_some() {
+                crate::channel::inbound_media_common::media_type_from_mime(
+                    mime_type.as_deref(),
+                    true,
+                )
             } else {
                 match att.media_type.as_deref() {
                     Some("image") => MediaType::Photo,

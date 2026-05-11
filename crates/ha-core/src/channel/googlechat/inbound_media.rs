@@ -88,12 +88,10 @@ pub fn parse_message_attachments(message: &serde_json::Value) -> Vec<ParsedMedia
                 }
             };
 
-            let media_type = match content_type.as_deref() {
-                Some(m) if m.starts_with("image/") => MediaType::Photo,
-                Some(m) if m.starts_with("video/") => MediaType::Video,
-                Some(m) if m.starts_with("audio/") => MediaType::Audio,
-                _ => MediaType::Document,
-            };
+            let media_type = crate::channel::inbound_media_common::media_type_from_mime(
+                content_type.as_deref(),
+                false,
+            );
 
             Some(ParsedMediaRef {
                 media_type,

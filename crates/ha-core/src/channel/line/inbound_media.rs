@@ -5,8 +5,7 @@
 //! LINE Messaging API differs from most platforms: webhook events carry
 //! only the message id and type (`image` / `video` / `audio` / `file`);
 //! the actual bytes have to be fetched via a separate API call to a
-//! different host. Before F-082 hope-agent ignored those types entirely
-//! (only `text` was forwarded as `[image]` / `[video]` placeholders).
+//! different host.
 //!
 //! Reference: <https://developers.line.biz/en/reference/messaging-api/#get-content>
 

@@ -3,12 +3,9 @@
 //!
 //! Slack's message events carry a `files` array whose entries point at
 //! `url_private` / `url_private_download` URLs hosted on `files.slack.com`.
-//! Those URLs **require** an `Authorization: Bearer xoxb-…` header — a
-//! plain `web_fetch` from the LLM side gets a 200 OK with HTML login page,
-//! not the file. F-082 fixes this by downloading server-side: the parsed
-//! ref carries the URL through `MsgContext.raw`, and
-//! [`crate::channel::SlackPlugin::materialize_pending_media`] uses the
-//! bot's stored token to fetch the bytes and persist a local path.
+//! Those URLs require an `Authorization: Bearer xoxb-…` header (a plain
+//! GET returns the login HTML, not the file), so we fetch server-side
+//! using the bot's stored token.
 
 use serde::{Deserialize, Serialize};
 
@@ -57,17 +54,10 @@ pub fn parse_message_media(event: &serde_json::Value) -> Vec<ParsedMediaRef> {
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            let media_type = mime_type.as_deref().map_or(MediaType::Document, |mime| {
-                if mime.starts_with("image/") {
-                    MediaType::Photo
-                } else if mime.starts_with("video/") {
-                    MediaType::Video
-                } else if mime.starts_with("audio/") {
-                    MediaType::Audio
-                } else {
-                    MediaType::Document
-                }
-            });
+            let media_type = crate::channel::inbound_media_common::media_type_from_mime(
+                mime_type.as_deref(),
+                false,
+            );
 
             Some(ParsedMediaRef {
                 media_type,

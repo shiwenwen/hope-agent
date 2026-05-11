@@ -1,12 +1,9 @@
 //! Discord inbound media — parse to refs (no I/O), materialize via
-//! server-side CDN download so the local path outlives Discord's 24-hour
-//! CDN URL TTL.
+//! server-side CDN download.
 //!
-//! Before F-082 the dispatcher saw `file_url: Some(<cdn-url>)` and passed
-//! it to the LLM as-is. The URL works for the first ~24h, but any
-//! reference from a later session round (or after a restart) hits HTTP
-//! 403/410 because Discord re-signs CDN URLs daily. This module fetches
-//! the bytes via the bot's client and keeps a local copy that's safe to
+//! Discord CDN URLs are re-signed roughly every 24h, so passing the raw
+//! URL through to the LLM would hit 403/410 on any later reference. We
+//! fetch bytes via the bot's client and keep a local copy that's safe to
 //! reference for the full session lifetime.
 
 use serde::{Deserialize, Serialize};
@@ -49,12 +46,10 @@ pub fn parse_message_attachments(event: &serde_json::Value) -> Vec<ParsedMediaRe
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
 
-            let media_type = match mime_type.as_deref() {
-                Some(m) if m.starts_with("image/") => MediaType::Photo,
-                Some(m) if m.starts_with("video/") => MediaType::Video,
-                Some(m) if m.starts_with("audio/") => MediaType::Audio,
-                _ => MediaType::Document,
-            };
+            let media_type = crate::channel::inbound_media_common::media_type_from_mime(
+                mime_type.as_deref(),
+                false,
+            );
 
             Some(ParsedMediaRef {
                 media_type,

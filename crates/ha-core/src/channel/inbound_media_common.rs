@@ -4,11 +4,10 @@
 //! download pipeline, size cap, failure cleanup, and pending-ref envelope
 //! while each channel keeps its own protocol-specific `ParsedMediaRef` shape.
 //!
-//! The "deferred materialization" pattern landed in Feishu first (F-082): the
-//! channel's event handler parses media refs synchronously (no I/O), embeds
-//! them into `MsgContext.raw`, sends the message off to the dispatcher early
-//! so the gateway ack lands within its window, and only after access +
-//! mention gating passes does [`ChannelPlugin::materialize_pending_media`]
+//! The channel's event handler parses media refs synchronously (no I/O),
+//! embeds them into `MsgContext.raw`, sends the message off to the dispatcher
+//! early so the gateway ack lands within its window, and only after access
+//! + mention gating passes does [`ChannelPlugin::materialize_pending_media`]
 //! pull the refs back out and call [`stream_to_disk`] to actually download.
 
 use anyhow::{anyhow, Result};
@@ -30,7 +29,7 @@ pub const INBOUND_DOWNLOAD_MAX_BYTES: u64 = 512 * 1024 * 1024;
 /// can't collide. Each channel uses the same key but its own
 /// `ParsedMediaRef`-shaped value type — fine, because a single
 /// `MsgContext` always belongs to exactly one channel.
-pub const PENDING_MEDIA_KEY: &str = "_hopePendingMedia";
+const PENDING_MEDIA_KEY: &str = "_hopePendingMedia";
 
 /// Embed deferred-download refs into an event payload that becomes
 /// `MsgContext.raw`. The dispatcher pulls them back out via
@@ -62,6 +61,27 @@ pub fn take_pending_refs<T: DeserializeOwned>(msg: &mut MsgContext) -> Vec<T> {
         return Vec::new();
     };
     serde_json::from_value(value).unwrap_or_default()
+}
+
+/// Classify a MIME type into the project's MediaType vocabulary. Set
+/// `voice_for_ogg_opus = true` on platforms that use Opus/OGG containers
+/// for voice notes (WhatsApp, Signal); other channels treat all audio
+/// uniformly as MediaType::Audio.
+pub fn media_type_from_mime(mime: Option<&str>, voice_for_ogg_opus: bool) -> MediaType {
+    let Some(mime) = mime else {
+        return MediaType::Document;
+    };
+    if mime.starts_with("image/") {
+        MediaType::Photo
+    } else if mime.starts_with("video/") {
+        MediaType::Video
+    } else if voice_for_ogg_opus && (mime.starts_with("audio/ogg") || mime == "audio/opus") {
+        MediaType::Voice
+    } else if mime.starts_with("audio/") {
+        MediaType::Audio
+    } else {
+        MediaType::Document
+    }
 }
 
 /// Pick a file extension for the on-disk filename. Trusts an original
@@ -150,14 +170,34 @@ pub async fn stream_to_disk(
         .map_err(|e| anyhow!("Send failed: {}", e))?;
     let status = resp.status();
     if !status.is_success() {
-        let body = resp
-            .text()
-            .await
-            .unwrap_or_else(|e| format!("<error reading body: {}>", e));
+        // Cap the error body so a malicious / misconfigured upstream can't
+        // make us buffer a multi-GB response just for the log line.
+        const ERROR_BODY_CAP: usize = 8 * 1024;
+        let mut body = Vec::with_capacity(ERROR_BODY_CAP);
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    body.extend_from_slice(format!("<error reading body: {}>", e).as_bytes());
+                    break;
+                }
+            };
+            let remaining = ERROR_BODY_CAP.saturating_sub(body.len());
+            if remaining == 0 {
+                break;
+            }
+            let take = remaining.min(chunk.len());
+            body.extend_from_slice(&chunk[..take]);
+            if body.len() >= ERROR_BODY_CAP {
+                break;
+            }
+        }
+        let body_text = String::from_utf8_lossy(&body);
         return Err(anyhow!(
             "HTTP {}: {}",
             status,
-            crate::truncate_utf8(&body, 512)
+            crate::truncate_utf8(&body_text, 512)
         ));
     }
 
@@ -173,9 +213,10 @@ pub async fn stream_to_disk(
         }
     }
 
-    let mut file = tokio::fs::File::create(dest)
+    let file = tokio::fs::File::create(dest)
         .await
         .map_err(|e| anyhow!("Failed to open destination {:?}: {}", dest, e))?;
+    let mut writer = tokio::io::BufWriter::with_capacity(64 * 1024, file);
 
     let mut total: u64 = 0;
     let mut stream = resp.bytes_stream();
@@ -183,26 +224,26 @@ pub async fn stream_to_disk(
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                drop(file);
+                drop(writer);
                 abort_partial_download(dest).await;
                 return Err(anyhow!("Failed to read bytes: {}", e));
             }
         };
         let next_total = total.saturating_add(chunk.len() as u64);
         if next_total > cap_bytes {
-            drop(file);
+            drop(writer);
             abort_partial_download(dest).await;
             return Err(anyhow!("exceeds {} byte cap mid-stream", cap_bytes));
         }
-        if let Err(e) = file.write_all(&chunk).await {
-            drop(file);
+        if let Err(e) = writer.write_all(&chunk).await {
+            drop(writer);
             abort_partial_download(dest).await;
             return Err(anyhow!("Failed to write to {:?}: {}", dest, e));
         }
         total = next_total;
     }
-    if let Err(e) = file.flush().await {
-        drop(file);
+    if let Err(e) = writer.flush().await {
+        drop(writer);
         abort_partial_download(dest).await;
         return Err(anyhow!("Failed to flush {:?}: {}", dest, e));
     }

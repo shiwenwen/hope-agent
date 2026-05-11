@@ -2,14 +2,7 @@
 //! channel-agnostic `stream_to_disk` helper + a disk-buffered streaming
 //! AES-128-ECB decrypt.
 //!
-//! Pre-F-082 WeChat's inbound path fetched the full ciphertext into a
-//! `Vec<u8>` (`response.bytes()`), then AES-decrypted that buffer into a
-//! *second* `Vec<u8>`, holding ~2× the file size in RAM. A 100 MB group
-//! file burned ≥200 MB peak RSS while the polling task was blocked on
-//! the download + decrypt cycle. Commit 13 moved the call site behind
-//! `materialize_pending_media` (so the polling loop returned early) but
-//! kept the in-mem AES path. **This commit** plugs the RSS leak entirely
-//! by switching to a two-stage disk-buffered streaming decrypt:
+//! Two-stage disk-buffered streaming decrypt:
 //!
 //! 1. [`stream_to_disk`] writes the ciphertext to
 //!    `inbound-temp/<ts>-<msg>.enc` chunk by chunk (cap + cleanup
@@ -19,18 +12,16 @@
 //!    plaintext to `inbound-temp/<ts>-<msg>.<ext>` block by block.
 //! 3. The intermediate `.enc` file is removed unconditionally.
 //!
-//! Peak RSS is now bounded by the read / write buffers (~16 KiB each)
-//! plus OpenSSL's internal block_size scratch — independent of file
-//! size. ECB blocks are independently invertible, so streaming decrypt
-//! is correct; PKCS#7 unpadding is handled by `Crypter::finalize` at
-//! the tail. If the streaming path fails for any reason, revert this
-//! commit and commit 13's `media::download_inbound_media` delegate is
-//! still wired up as the previous-step fallback.
+//! Peak RSS is bounded by the read / write buffers (~16 KiB each) plus
+//! OpenSSL's internal block_size scratch — independent of file size.
+//! ECB blocks are independently invertible, so streaming decrypt is
+//! correct; PKCS#7 unpadding is handled by `Crypter::finalize` at the
+//! tail.
 
 use serde::{Deserialize, Serialize};
 
 use crate::channel::inbound_media_common::{
-    abort_partial_download, inbound_temp_path, stream_to_disk, INBOUND_DOWNLOAD_MAX_BYTES,
+    abort_partial_download, ext_for, inbound_temp_path, stream_to_disk, INBOUND_DOWNLOAD_MAX_BYTES,
 };
 use crate::channel::types::{InboundMedia, MediaType};
 use crate::channel::wechat::api::{
@@ -236,6 +227,7 @@ async fn streaming_decrypt(
 }
 
 pub async fn materialize_inbound(
+    client: &reqwest::Client,
     parsed: &ParsedMediaRef,
     cdn_base_url: &str,
     account_id: &str,
@@ -309,15 +301,11 @@ pub async fn materialize_inbound(
     } else {
         parsed.message_id.clone()
     };
+    // ext_for would handle the happy path, but its media-type fallback
+    // (Voice → "opus") doesn't match WeChat's protocol-specific defaults
+    // (Voice → "silk"). Fall back to spec.default_ext when no filename.
     let ext = match spec.file_name.as_deref() {
-        Some(name) => std::path::Path::new(name)
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|s| s.to_ascii_lowercase())
-            .filter(|s| {
-                !s.is_empty() && s.len() <= 8 && s.chars().all(|c| c.is_ascii_alphanumeric())
-            })
-            .unwrap_or_else(|| spec.default_ext.to_string()),
+        Some(name) => ext_for(Some(name), &spec.media_type),
         None => spec.default_ext.to_string(),
     };
 
@@ -355,7 +343,6 @@ pub async fn materialize_inbound(
     };
 
     // Stage 1 — stream the ciphertext to disk (cap + cleanup baked in).
-    let client = reqwest::Client::new();
     let builder = client.get(&url);
     if let Err(e) = stream_to_disk(builder, &enc_path, INBOUND_DOWNLOAD_MAX_BYTES).await {
         app_warn!(

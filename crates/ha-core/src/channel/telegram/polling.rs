@@ -133,19 +133,17 @@ async fn convert_update(
     use teloxide::types::UpdateKind;
 
     match &update.kind {
-        UpdateKind::Message(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
-        }
+        UpdateKind::Message(msg) => convert_message(msg, account_id, bot_id, bot_username).await,
         UpdateKind::EditedMessage(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
+            convert_message(msg, account_id, bot_id, bot_username).await
         }
         // Telegram broadcast channel (ChatType::Channel) post —— polling
         // allowed_updates 中已声明，必须在 convert 端配套，否则更新被静默丢弃
         UpdateKind::ChannelPost(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
+            convert_message(msg, account_id, bot_id, bot_username).await
         }
         UpdateKind::EditedChannelPost(msg) => {
-            convert_message(api, msg, account_id, bot_id, bot_username).await
+            convert_message(msg, account_id, bot_id, bot_username).await
         }
         UpdateKind::CallbackQuery(cb) => {
             // Handle approval / ask_user / slash callbacks directly (don't create MsgContext)
@@ -169,18 +167,7 @@ async fn convert_update(
     }
 }
 
-/// Convert a teloxide Message into our MsgContext.
-///
-/// `_api` was used pre-F-082 to inline-download photos / documents inside
-/// the polling loop. After the move to the deferred materialize pattern
-/// the bytes pipeline lives in [`super::inbound_media::materialize_inbound`]
-/// and runs from `materialize_pending_media` only after dispatcher gating
-/// passes. Keeping the parameter so the four `convert_update` call sites
-/// don't have to change shape — also pins the function's caller-shape
-/// against any future flag that does need API access at parse time
-/// (e.g. fetching sender display name).
 async fn convert_message(
-    _api: &TelegramBotApi,
     msg: &teloxide::types::Message,
     account_id: &str,
     bot_id: i64,
@@ -226,10 +213,6 @@ async fn convert_message(
     // Extract text
     let text = msg.text().map(|t| t.to_string());
 
-    // Parse media to deferred refs (downloaded server-side by
-    // TelegramPlugin::materialize_pending_media after dispatcher gating;
-    // pre-F-082 this ran inline inside the polling loop and blocked
-    // getUpdates while the file streamed to disk).
     let pending_media = super::inbound_media::parse_message_media(msg);
     let had_media = !pending_media.is_empty();
 

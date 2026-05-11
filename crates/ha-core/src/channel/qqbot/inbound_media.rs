@@ -62,12 +62,10 @@ pub fn parse_message_attachments(d: &serde_json::Value) -> Vec<ParsedMediaRef> {
                 .map(|s| s.to_string());
             let file_size = att.get("size").and_then(|v| v.as_u64());
 
-            let media_type = match mime_type.as_deref() {
-                Some(m) if m.starts_with("image/") => MediaType::Photo,
-                Some(m) if m.starts_with("video/") => MediaType::Video,
-                Some(m) if m.starts_with("audio/") => MediaType::Audio,
-                _ => MediaType::Document,
-            };
+            let media_type = crate::channel::inbound_media_common::media_type_from_mime(
+                mime_type.as_deref(),
+                false,
+            );
 
             // file_id heuristic: filename → fall back to "qq-<idx>-<short-host>".
             let file_id = file_name.clone().unwrap_or_else(|| {

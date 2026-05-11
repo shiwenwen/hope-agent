@@ -162,17 +162,10 @@ pub(crate) async fn run_polling_loop(
                         }
                     }
 
-                    // Clone item_list before moving update into convert_update
                     let item_list = update.item_list.clone();
                     let msg_id_str = update.message_id.map(|v| v.to_string()).unwrap_or_default();
 
                     if let Some(mut msg) = convert_update(&account_id, update) {
-                        // Parse non-text items into deferred refs and stash
-                        // them on `msg.raw`. Actual CDN download + AES decrypt
-                        // happens in WeChatPlugin::materialize_pending_media
-                        // after dispatcher gating — pre-F-082 this ran inline
-                        // here and blocked the polling task for the full
-                        // ciphertext fetch + decrypt cycle.
                         let pending =
                             super::inbound_media::parse_message_items(&item_list, &msg_id_str);
                         crate::channel::inbound_media_common::embed_pending_refs(

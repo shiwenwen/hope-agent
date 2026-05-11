@@ -4,17 +4,11 @@
 //!
 //! signal-cli 0.13+ saves every inbound attachment to
 //! `<data-dir>/attachments/<attachment-id>` (no extension) as part of
-//! receiving the message — it's the daemon's default behavior, not an
-//! opt-in flag. Before F-082 hope-agent ignored those files and gave the
-//! LLM `file_url: None`; now we copy the file to our own inbound-temp/
-//! with a media-type-derived extension so the agent can read it back via
-//! the usual `read_file` path.
-//!
-//! We **copy** rather than move because the daemon owns the lifecycle of
-//! its attachment store; moving would break signal-cli's own bookkeeping.
-//! F-081's move-not-copy semantics still apply downstream when the
-//! `persist_channel_media_to_session` worker hand-off lifts the file out
-//! of our inbound-temp/.
+//! receiving the message. We copy (not move) the file into our
+//! inbound-temp/ with a media-type-derived extension — the daemon owns
+//! its attachment store, moving would break its own bookkeeping. The
+//! downstream `persist_channel_media_to_session` worker hand-off still
+//! applies move-not-copy semantics off our temp dir.
 
 use serde::{Deserialize, Serialize};
 
@@ -48,13 +42,10 @@ pub fn parse_message_attachments(data_message: &serde_json::Value) -> Vec<Parsed
                 .map(|s| s.to_string());
             let file_size = att.get("size").and_then(|v| v.as_u64());
 
-            let media_type = match mime_type.as_deref() {
-                Some(ct) if ct.starts_with("image/") => MediaType::Photo,
-                Some(ct) if ct.starts_with("video/") => MediaType::Video,
-                Some(ct) if ct.starts_with("audio/ogg") => MediaType::Voice,
-                Some(ct) if ct.starts_with("audio/") => MediaType::Audio,
-                _ => MediaType::Document,
-            };
+            let media_type = crate::channel::inbound_media_common::media_type_from_mime(
+                mime_type.as_deref(),
+                true,
+            );
 
             Some(ParsedMediaRef {
                 media_type,

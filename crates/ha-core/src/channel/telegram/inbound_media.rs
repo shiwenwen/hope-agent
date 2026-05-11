@@ -1,15 +1,9 @@
 //! Telegram inbound media — parse to refs, materialize via authenticated
 //! download (cap + cleanup).
 //!
-//! Pre-F-082 Telegram downloaded every inbound photo / document inline
-//! inside the polling loop ([`polling::download_inbound_media_to_temp`]),
-//! blocking `getUpdates` until the bytes hit disk, with no size cap and
-//! no cleanup. Group messages mentioning *other* users still got their
-//! attachments pulled down — wasted bandwidth + disk. This module moves
-//! Telegram to the same deferred pattern the other 9 channels already
-//! use: parse stays sync, materialization runs only after dispatcher
-//! gating, and bytes stream through [`stream_to_disk`] (cap-aware,
-//! failure-cleaning) rather than teloxide's raw downloader.
+//! Parse stays sync on the polling loop; materialization runs only after
+//! dispatcher gating, and bytes stream through [`stream_to_disk`]
+//! (cap-aware, failure-cleaning) rather than teloxide's raw downloader.
 
 use serde::{Deserialize, Serialize};
 
@@ -29,10 +23,8 @@ pub struct ParsedMediaRef {
 }
 
 /// Parse a teloxide message into deferred-download refs. Currently
-/// covers photo + document (matching pre-F-082 behaviour). Other binary
-/// types (video / audio / voice / sticker / animation) are not yet
-/// emitted to the dispatcher — adding them is a follow-up to F-082
-/// scope, not a regression introduced here.
+/// covers photo + document; video / audio / voice / sticker / animation
+/// are emitted as text-only (follow-up).
 pub fn parse_message_media(msg: &teloxide::types::Message) -> Vec<ParsedMediaRef> {
     let mut refs = Vec::new();
 
