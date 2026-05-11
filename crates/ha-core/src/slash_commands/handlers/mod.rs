@@ -115,7 +115,7 @@ pub async fn dispatch(
             let store = crate::config::cached_config();
             utility::handle_status(session_db()?, &store, session_id, agent_id).await
         }
-        "export" => utility::handle_export(session_db()?, session_id),
+        "export" => utility::handle_export(session_db()?, session_id, args),
         "usage" => utility::handle_usage(session_db()?, session_id),
         "recap" => recap::handle_recap(args).await,
         "search" => utility::handle_search(args),

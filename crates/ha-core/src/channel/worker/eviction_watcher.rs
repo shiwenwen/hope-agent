@@ -95,9 +95,8 @@ pub fn spawn_channel_eviction_watcher(registry: Arc<ChannelRegistry>) {
                 _ => continue,
             };
 
-            let channel_id: crate::channel::types::ChannelId =
-                match serde_json::from_value(serde_json::Value::String(channel_id_str.to_string()))
-                {
+            let channel_id =
+                match crate::channel::types::ChannelId::from_storage_str(channel_id_str) {
                     Ok(c) => c,
                     Err(e) => {
                         app_warn!(

@@ -13,6 +13,8 @@ import type {
   PickedImage,
   DirListing,
   FileSearchResponse,
+  ExportSessionArgs,
+  ExportSessionResult,
 } from "@/lib/transport";
 import type { MediaItem } from "@/types/chat";
 
@@ -119,6 +121,31 @@ export class TauriTransport implements Transport {
       q,
       limit: limit ?? null,
     });
+  }
+
+  async exportSession(args: ExportSessionArgs): Promise<ExportSessionResult | null> {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const ext = args.format;
+    const defaultName =
+      args.defaultFilename && args.defaultFilename.trim().length > 0
+        ? args.defaultFilename
+        : `session.${ext}`;
+    const filterName =
+      ext === "md" ? "Markdown" : ext === "json" ? "JSON" : "HTML";
+    const savedPath = await save({
+      defaultPath: defaultName,
+      filters: [{ name: filterName, extensions: [ext] }],
+    });
+    if (!savedPath) return null;
+    await invoke<string>("export_session_cmd", {
+      sessionId: args.sessionId,
+      format: args.format,
+      includeThinking: args.includeThinking,
+      includeTools: args.includeTools,
+      outputPath: savedPath,
+    });
+    const filename = savedPath.split(/[\\/]/).pop() ?? defaultName;
+    return { filename, savedPath };
   }
 
   /** Absolute server-side path for Tauri file ops. Legacy items may carry

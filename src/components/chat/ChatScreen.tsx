@@ -902,9 +902,12 @@ export default function ChatScreen({
           break
         case "exportFile":
           try {
+            const ext = (action.filename.split(".").pop() ?? "md").toLowerCase()
+            const filterName =
+              ext === "json" ? "JSON" : ext === "html" ? "HTML" : "Markdown"
             const filePath = await save({
               defaultPath: action.filename,
-              filters: [{ name: "Markdown", extensions: ["md"] }],
+              filters: [{ name: filterName, extensions: [ext] }],
             })
             if (filePath) {
               await getTransport().call("write_export_file", {

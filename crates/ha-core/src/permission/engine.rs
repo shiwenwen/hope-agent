@@ -81,7 +81,7 @@ const EDIT_TOOLS: &[&str] = &[
     "write",
     "edit",
     "apply_patch",
-    crate::tools::feishu::drive::TOOL_DRIVE_DOWNLOAD_MEDIA,
+    crate::tools::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA,
 ];
 
 fn is_edit_tool(name: &str) -> bool {

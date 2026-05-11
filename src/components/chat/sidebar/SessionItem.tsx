@@ -1,4 +1,4 @@
-import { useCallback } from "react"
+import { useCallback, useState } from "react"
 import { getTransport } from "@/lib/transport-provider"
 import { logger } from "@/lib/logger"
 import { useTranslation } from "react-i18next"
@@ -29,7 +29,9 @@ import {
   Check,
   Ghost,
   CircleAlert,
+  Download,
 } from "lucide-react"
+import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import type { SessionMeta, AgentSummaryForSidebar } from "@/types/chat"
 import type { ProjectMeta } from "@/types/project"
 import ChannelIcon from "@/components/common/ChannelIcon"
@@ -84,6 +86,7 @@ export default function SessionItem({
   formatRelativeTime,
 }: SessionItemProps) {
   const { t } = useTranslation()
+  const [exportOpen, setExportOpen] = useState(false)
 
   const pendingInteractionCount = session.pendingInteractionCount ?? 0
   const hasPending =
@@ -301,6 +304,10 @@ export default function SessionItem({
           <CheckCheck className="h-4 w-4 mr-2" />
           {t("chat.markAsRead")}
         </ContextMenuItem>
+        <ContextMenuItem onClick={() => setExportOpen(true)}>
+          <Download className="h-4 w-4 mr-2" />
+          {t("chat.exportSession.menuItem")}
+        </ContextMenuItem>
         {/* Project binding — only when a mover is wired AND this session is
             a regular chat (not a sub-agent / cron / channel session, which
             shouldn't be arbitrarily relocated). Channel sessions are filtered
@@ -357,6 +364,14 @@ export default function SessionItem({
             </>
           )}
       </ContextMenuContent>
+      {exportOpen && (
+        <ExportSessionDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          sessionId={session.id}
+          sessionTitle={session.title ?? null}
+        />
+      )}
     </ContextMenu>
   )
 }

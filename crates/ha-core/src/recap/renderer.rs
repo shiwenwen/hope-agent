@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use super::types::{FacetSummary, QuantitativeStats, RecapReport};
+use crate::util::html_escape as escape;
 
 const STYLE: &str = r#"
 :root {
@@ -267,21 +268,6 @@ fn short_count(n: u64) -> String {
     } else {
         n.to_string()
     }
-}
-
-fn escape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for ch in s.chars() {
-        match ch {
-            '<' => out.push_str("&lt;"),
-            '>' => out.push_str("&gt;"),
-            '&' => out.push_str("&amp;"),
-            '"' => out.push_str("&quot;"),
-            '\'' => out.push_str("&#39;"),
-            _ => out.push(ch),
-        }
-    }
-    out
 }
 
 /// Minimal markdown-to-HTML for AI sections. Handles paragraphs, headings,

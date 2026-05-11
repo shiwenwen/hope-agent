@@ -94,6 +94,7 @@ pub struct UpdateAccountParams {
     pub agent_id: Option<String>,
     pub auto_approve_tools: Option<bool>,
     pub notify_session_eviction: Option<bool>,
+    pub notify_startup: Option<bool>,
     pub credentials: Option<Value>,
     pub settings: Option<Value>,
     pub security: Option<SecurityConfig>,
@@ -146,6 +147,7 @@ pub async fn add_account(
         security,
         auto_approve_tools: false,
         notify_session_eviction: true,
+        notify_startup: true,
     };
 
     store.channels.accounts.push(account.clone());
@@ -206,6 +208,9 @@ pub async fn update_account(account_id: &str, params: UpdateAccountParams) -> Re
     }
     if let Some(nse) = params.notify_session_eviction {
         account.notify_session_eviction = nse;
+    }
+    if let Some(ns) = params.notify_startup {
+        account.notify_startup = ns;
     }
     if let Some(c) = params.credentials {
         account.credentials = c;

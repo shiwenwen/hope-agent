@@ -175,3 +175,19 @@ pub struct DetectedGpu {
     /// VRAM in MiB. `None` when the OS reports the adapter but not its memory.
     pub vram_mb: Option<u64>,
 }
+
+/// Whether an `io::Error` from `std::fs::rename` indicates that the source
+/// and destination live on different filesystems (so the caller should fall
+/// back to copy + remove).
+///
+/// Modern stable Rust (≥ 1.85) returns [`std::io::ErrorKind::CrossesDevices`];
+/// older toolchains surface raw OS errors. We accept both for portability.
+///
+/// Unix: `EXDEV` (errno 18 on Linux + macOS + BSDs).
+/// Windows: `ERROR_NOT_SAME_DEVICE` (raw_os_error 17).
+pub fn is_cross_device_rename(err: &std::io::Error) -> bool {
+    if err.kind() == std::io::ErrorKind::CrossesDevices {
+        return true;
+    }
+    imp::is_cross_device_rename_raw(err)
+}

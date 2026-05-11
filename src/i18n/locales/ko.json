@@ -167,6 +167,8 @@
     "noAccounts": "구성된 IM 채널 계정이 없습니다",
     "notifySessionEviction": "세션 인계 알림",
     "notifySessionEvictionHint": "다른 채팅이 같은 세션을 인계받아 이 계정이 분리되었을 때 IM 채팅에 시스템 메시지를 보냅니다(1:1 attach).",
+    "notifyStartup": "재시작 시 복귀 알림 전송",
+    "notifyStartupHint": "서비스 재시작 후 이 계정에서 최근 활성화된 채팅에 짧은 \"다시 온라인\" 알림을 보냅니다.",
     "pluginDesc_discord": "Discord Bot 채널",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -461,7 +463,28 @@
     "taskProgressRunning": "실행 중 {{completed}}/{{total}}",
     "taskProgressCancelling": "중지 중 {{completed}}/{{total}}",
     "taskProgressWaiting": "계속 대기 {{completed}}/{{total}}",
-    "taskProgressFailed": "실패 {{completed}}/{{total}}"
+    "taskProgressFailed": "실패 {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "대화 내보내기",
+      "dialogTitle": "대화 내보내기",
+      "dialogHint": "형식을 선택하고 포함할 항목을 체크하세요.",
+      "formatLabel": "형식",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "포함 항목",
+      "includeTools": "도구 호출 포함",
+      "includeToolsHint": "도구 인수·결과 및 파일 변경 사항.",
+      "includeThinking": "사고 과정 포함",
+      "includeThinkingHint": "모델의 추론 단계(생각의 흐름).",
+      "exportButton": "내보내기",
+      "exporting": "내보내는 중…",
+      "exported": "완료",
+      "failedShort": "실패",
+      "savedTo": "{{path}} 에 내보냈습니다",
+      "downloaded": "{{filename}} 을(를) 다운로드했습니다",
+      "failed": "대화 내보내기에 실패했습니다."
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth 토큰이 더 이상 유효하지 않습니다. 계속하려면 다시 로그인하세요.",
@@ -1341,6 +1364,8 @@
     "mcpAuthRequiredFallback": "MCP 서버가 OAuth 인증을 필요로 합니다",
     "off": "꺼짐",
     "on": "켜짐",
+    "startupDesc": "서비스 재시작 후 지난 72시간 동안 활성화된 IM 채팅에 짧은 \"다시 온라인\" 알림을 게시합니다. 계정별 음소거는 각 채널 계정에서 관리합니다.",
+    "startupToggle": "재시작 시 IM 복귀 알림",
     "title": "알림 설정"
   },
   "onboarding": {

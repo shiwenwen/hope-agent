@@ -167,6 +167,8 @@
     "noAccounts": "Belum ada akaun saluran IM dikonfigurasikan",
     "notifySessionEviction": "Beritahu pengambilalihan sesi",
     "notifySessionEvictionHint": "Hantar mesej sistem ke sembang IM apabila akaun ini diceraikan daripada sesi kerana sembang lain mengambilnya alih (1:1 attach).",
+    "notifyStartup": "Hantar notis \"kembali dalam talian\"",
+    "notifyStartupHint": "Selepas perkhidmatan dimulakan semula, hantar notis pendek \"kembali dalam talian\" ke sembang akaun ini yang aktif baru-baru ini.",
     "pluginDesc_discord": "Saluran Discord Bot",
     "pluginDesc_feishu": "Bot Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -461,7 +463,28 @@
     "taskProgressRunning": "Sedang berjalan {{completed}}/{{total}}",
     "taskProgressCancelling": "Sedang berhenti {{completed}}/{{total}}",
     "taskProgressWaiting": "Menunggu sambung {{completed}}/{{total}}",
-    "taskProgressFailed": "Gagal {{completed}}/{{total}}"
+    "taskProgressFailed": "Gagal {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Eksport perbualan",
+      "dialogTitle": "Eksport perbualan",
+      "dialogHint": "Pilih format dan tetapkan apa yang hendak disertakan.",
+      "formatLabel": "Format",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "Kandungan",
+      "includeTools": "Sertakan panggilan alat",
+      "includeToolsHint": "Argumen, hasil dan perubahan fail.",
+      "includeThinking": "Sertakan proses pemikiran",
+      "includeThinkingHint": "Blok penaakulan model (rantaian pemikiran).",
+      "exportButton": "Eksport",
+      "exporting": "Mengeksport…",
+      "exported": "Selesai",
+      "failedShort": "Gagal",
+      "savedTo": "Dieksport ke {{path}}",
+      "downloaded": "Dimuat turun {{filename}}",
+      "failed": "Gagal mengeksport perbualan."
+    }
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth Codex anda tidak lagi sah. Sila log masuk semula untuk meneruskan.",
@@ -1341,6 +1364,8 @@
     "mcpAuthRequiredFallback": "Pelayan MCP memerlukan kebenaran OAuth",
     "off": "Mati",
     "on": "Hidup",
+    "startupDesc": "Selepas perkhidmatan dimulakan semula, terbitkan notis pendek \"kembali dalam talian\" ke sembang IM yang aktif dalam 72 jam yang lalu. Senyapan setiap akaun berada di tetapan akaun saluran masing-masing.",
+    "startupToggle": "Notis \"kembali dalam talian\" selepas mula semula",
     "title": "Tetapan pemberitahuan"
   },
   "onboarding": {

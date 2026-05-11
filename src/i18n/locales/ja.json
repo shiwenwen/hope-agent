@@ -167,6 +167,8 @@
     "noAccounts": "IM チャネルアカウントが未設定です",
     "notifySessionEviction": "セッション引き継ぎ通知",
     "notifySessionEvictionHint": "別のチャットが同じセッションを引き継いだことでこのアカウントが切り離された際、IM チャットにシステムメッセージを送ります（1:1 attach）。",
+    "notifyStartup": "再起動時に復旧通知を送信",
+    "notifyStartupHint": "サービス再起動後、このアカウントで直近活発だったチャットに「復旧しました」という短い通知を送信します。",
     "pluginDesc_discord": "Discord Bot チャネル",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -461,7 +463,28 @@
     "taskProgressRunning": "実行中 {{completed}}/{{total}}",
     "taskProgressCancelling": "停止中 {{completed}}/{{total}}",
     "taskProgressWaiting": "再開待ち {{completed}}/{{total}}",
-    "taskProgressFailed": "失敗 {{completed}}/{{total}}"
+    "taskProgressFailed": "失敗 {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "会話をエクスポート",
+      "dialogTitle": "会話のエクスポート",
+      "dialogHint": "形式を選び、含める内容にチェックを入れてください。",
+      "formatLabel": "形式",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "含める内容",
+      "includeTools": "ツール呼び出しを含める",
+      "includeToolsHint": "ツールの引数・結果・ファイル差分。",
+      "includeThinking": "思考過程を含める",
+      "includeThinkingHint": "モデルの推論ブロック(思考の連鎖)。",
+      "exportButton": "エクスポート",
+      "exporting": "エクスポート中…",
+      "exported": "エクスポート済み",
+      "failedShort": "失敗",
+      "savedTo": "{{path}} にエクスポートしました",
+      "downloaded": "{{filename}} をダウンロードしました",
+      "failed": "会話のエクスポートに失敗しました。"
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex の OAuth トークンが無効になりました。続行するには再度ログインしてください。",
@@ -1341,6 +1364,8 @@
     "mcpAuthRequiredFallback": "MCP サーバーが OAuth 認可を必要としています",
     "off": "オフ",
     "on": "オン",
+    "startupDesc": "サービス再起動後、過去 72 時間以内に活発だった IM チャットに短い「復旧しました」通知を送信します。アカウントごとのミュートは各 IM チャネル設定で管理します。",
+    "startupToggle": "再起動時の IM 復旧通知",
     "title": "通知設定"
   },
   "onboarding": {

@@ -167,6 +167,8 @@
     "noAccounts": "Henüz IM kanal hesabı yapılandırılmadı",
     "notifySessionEviction": "Oturum devralma bildirimi",
     "notifySessionEvictionHint": "Bu hesap, başka bir sohbet aynı oturumu devraldığı için ayrıldığında IM sohbetine sistem mesajı gönderir (1:1 attach).",
+    "notifyStartup": "\"Yeniden çevrim içi\" bildirimi gönder",
+    "notifyStartupHint": "Hizmet yeniden başlatıldıktan sonra, bu hesapta yakın zamanda aktif olan sohbetlere kısa bir \"yeniden çevrim içi\" bildirimi gönderir.",
     "pluginDesc_discord": "Discord Bot kanalı",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -461,7 +463,28 @@
     "taskProgressRunning": "Çalışıyor {{completed}}/{{total}}",
     "taskProgressCancelling": "Durduruluyor {{completed}}/{{total}}",
     "taskProgressWaiting": "Devam etmeyi bekliyor {{completed}}/{{total}}",
-    "taskProgressFailed": "Başarısız {{completed}}/{{total}}"
+    "taskProgressFailed": "Başarısız {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Sohbeti dışa aktar",
+      "dialogTitle": "Sohbeti dışa aktar",
+      "dialogHint": "Bir biçim seçin ve nelerin dahil edileceğini işaretleyin.",
+      "formatLabel": "Biçim",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "İçerik",
+      "includeTools": "Araç çağrılarını dahil et",
+      "includeToolsHint": "Araç argümanları, sonuçları ve dosya değişiklikleri.",
+      "includeThinking": "Düşünme adımlarını dahil et",
+      "includeThinkingHint": "Modelin akıl yürütme blokları (düşünce zinciri).",
+      "exportButton": "Dışa aktar",
+      "exporting": "Dışa aktarılıyor…",
+      "exported": "Tamamlandı",
+      "failedShort": "Hata",
+      "savedTo": "{{path}} konumuna aktarıldı",
+      "downloaded": "{{filename}} indirildi",
+      "failed": "Sohbet dışa aktarılamadı."
+    }
   },
   "codexAuth": {
     "expiredDescription": "Codex OAuth tokenınız artık geçerli değil. Devam etmek için tekrar oturum açın.",
@@ -1341,6 +1364,8 @@
     "mcpAuthRequiredFallback": "Bir MCP sunucusu OAuth yetkilendirmesi gerektiriyor",
     "off": "Kapalı",
     "on": "Açık",
+    "startupDesc": "Hizmet yeniden başlatıldıktan sonra son 72 saat içinde aktif olan IM sohbetlerine kısa bir \"yeniden çevrim içi\" bildirimi yayınlar. Hesap başına sessize alma her kanal hesabında bulunur.",
+    "startupToggle": "Yeniden başlatma sonrası IM \"yeniden çevrim içi\" bildirimi",
     "title": "Bildirim ayarları"
   },
   "onboarding": {

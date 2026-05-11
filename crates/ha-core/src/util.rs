@@ -74,6 +74,23 @@ pub fn truncate_string_utf8(s: &mut String, max_bytes: usize) -> bool {
 }
 
 /// Mask a secret for display by keeping a small char-count prefix and suffix.
+/// Escape the five HTML-special characters into entities. Shared by the recap
+/// HTML renderer and the session export so both stay in lockstep.
+pub fn html_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Empty values remain empty so callers can distinguish "not configured" from
 /// "configured but hidden".
 pub fn mask_secret_middle(value: &str, prefix_chars: usize, suffix_chars: usize) -> String {

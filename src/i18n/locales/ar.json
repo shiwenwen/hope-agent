@@ -167,6 +167,8 @@
     "noAccounts": "لم يتم تكوين أي حسابات قنوات IM بعد",
     "notifySessionEviction": "إشعار استلام الجلسة",
     "notifySessionEvictionHint": "إرسال رسالة نظام إلى محادثة IM عند فصل هذا الحساب عن جلسة بسبب استيلاء محادثة أخرى عليها (ربط 1:1).",
+    "notifyStartup": "إرسال إشعار «عاد للعمل»",
+    "notifyStartupHint": "بعد إعادة تشغيل الخدمة، يرسل إشعارًا قصيرًا «عاد للعمل» إلى الدردشات التي كانت نشطة مؤخرًا على هذا الحساب.",
     "pluginDesc_discord": "قناة Discord Bot",
     "pluginDesc_feishu": "بوت Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -461,7 +463,28 @@
     "taskProgressRunning": "قيد التنفيذ {{completed}}/{{total}}",
     "taskProgressCancelling": "جارٍ الإيقاف {{completed}}/{{total}}",
     "taskProgressWaiting": "بانتظار المتابعة {{completed}}/{{total}}",
-    "taskProgressFailed": "فشل {{completed}}/{{total}}"
+    "taskProgressFailed": "فشل {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "تصدير المحادثة",
+      "dialogTitle": "تصدير المحادثة",
+      "dialogHint": "اختر تنسيقًا وحدّد ما تريد تضمينه.",
+      "formatLabel": "التنسيق",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "المحتوى",
+      "includeTools": "تضمين استدعاءات الأدوات",
+      "includeToolsHint": "وسيطات الأدوات ونتائجها وتغييرات الملفات.",
+      "includeThinking": "تضمين التفكير",
+      "includeThinkingHint": "كتل تفكير النموذج (سلسلة الأفكار).",
+      "exportButton": "تصدير",
+      "exporting": "جارٍ التصدير…",
+      "exported": "تم التصدير",
+      "failedShort": "فشل",
+      "savedTo": "تم التصدير إلى {{path}}",
+      "downloaded": "تم تنزيل {{filename}}",
+      "failed": "تعذّر تصدير المحادثة."
+    }
   },
   "codexAuth": {
     "expiredDescription": "رمز OAuth لـ Codex لم يعد صالحاً. يرجى تسجيل الدخول مرة أخرى للمتابعة.",
@@ -1341,6 +1364,8 @@
     "mcpAuthRequiredFallback": "خادم MCP يحتاج إلى تفويض OAuth",
     "off": "إيقاف",
     "on": "تشغيل",
+    "startupDesc": "بعد إعادة تشغيل الخدمة، يُنشر إشعار قصير «عاد للعمل» في دردشات الرسائل الفورية التي كانت نشطة خلال آخر 72 ساعة. كتم الصوت لكل حساب يُضبط في إعدادات الحساب على كل قناة.",
+    "startupToggle": "إشعار «عاد للعمل» بعد إعادة التشغيل",
     "title": "إعدادات الإشعارات"
   },
   "onboarding": {

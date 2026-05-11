@@ -1,4 +1,7 @@
 use axum::extract::{Path, Query, State};
+use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
+use axum::http::HeaderValue;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -453,4 +456,89 @@ pub async fn set_session_awareness_config(
     ctx.session_db
         .set_session_awareness_config_json(&id, body.json.as_deref())?;
     Ok(Json(json!({ "saved": true })))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSessionQuery {
+    pub format: String,
+    #[serde(default)]
+    pub include_thinking: bool,
+    #[serde(default)]
+    pub include_tools: bool,
+}
+
+/// `GET /api/sessions/:id/export?format=md&includeThinking=true&includeTools=true`
+/// — return the serialized conversation as a binary download. Browser clients
+/// consume this through `<a download>` / `URL.createObjectURL`. The Tauri
+/// equivalent is the `export_session_cmd` IPC command, which writes to a
+/// user-chosen path instead.
+pub async fn export_session_http(
+    State(ctx): State<Arc<AppContext>>,
+    Path(id): Path<String>,
+    Query(q): Query<ExportSessionQuery>,
+) -> Result<Response, AppError> {
+    let fmt = ha_core::session::export::ExportFormat::parse(&q.format).ok_or_else(|| {
+        AppError::bad_request(format!(
+            "invalid export format `{}` (expected md / json / html)",
+            q.format
+        ))
+    })?;
+    let opts = ha_core::session::export::ExportOptions {
+        format: fmt,
+        include_thinking: q.include_thinking,
+        include_tools: q.include_tools,
+    };
+    let payload = ha_core::session::export::export_session(ctx.session_db.as_ref(), &id, opts)?;
+
+    // RFC 5987: provide both `filename=` (ASCII fallback) and `filename*=UTF-8''...`
+    // so non-ASCII titles (e.g. CJK) survive the trip to the browser.
+    let ascii_fallback = ascii_fallback_name(&payload.filename);
+    let utf8_pct = percent_encode_filename(&payload.filename);
+    let disposition = format!(
+        "attachment; filename=\"{}\"; filename*=UTF-8''{}",
+        ascii_fallback, utf8_pct
+    );
+
+    let mut response = (axum::http::StatusCode::OK, payload.body).into_response();
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static(payload.mime));
+    response.headers_mut().insert(
+        CONTENT_DISPOSITION,
+        HeaderValue::from_str(&disposition)
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment; filename=\"session.txt\"")),
+    );
+    Ok(response)
+}
+
+fn ascii_fallback_name(name: &str) -> String {
+    let stripped: String = name
+        .chars()
+        .map(|c| if c.is_ascii() && c != '"' { c } else { '_' })
+        .collect();
+    if stripped.trim_matches('_').is_empty() {
+        "session".to_string()
+    } else {
+        stripped
+    }
+}
+
+fn percent_encode_filename(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for byte in name.bytes() {
+        // Conservative allow-list per RFC 5987 token chars; everything else
+        // is percent-encoded so the browser reconstructs the original UTF-8.
+        let ok = byte.is_ascii_alphanumeric()
+            || matches!(
+                byte,
+                b'!' | b'#' | b'$' | b'&' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~'
+            );
+        if ok {
+            out.push(byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
 }

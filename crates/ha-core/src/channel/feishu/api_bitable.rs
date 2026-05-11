@@ -115,6 +115,39 @@ pub struct BitableDashboardsPage {
     pub total: Option<u64>,
 }
 
+// ── Request structs (named-field bag style) ─────────────────────
+//
+// list / search / list_views all take (app_token, table_id) + a long
+// optional pagination tail; passing 4-6 positional `Option<&str>` is easy
+// to mis-order. These structs make every field explicit at the call site.
+
+/// Args for [`FeishuApi::bitable_list_records`].
+pub struct BitableListRecordsReq<'a> {
+    pub app_token: &'a str,
+    pub table_id: &'a str,
+    pub view_id: Option<&'a str>,
+    pub filter: Option<&'a str>,
+    pub page_token: Option<&'a str>,
+    pub page_size: Option<u32>,
+}
+
+/// Args for [`FeishuApi::bitable_search_records`].
+pub struct BitableSearchRecordsReq<'a> {
+    pub app_token: &'a str,
+    pub table_id: &'a str,
+    pub body: Value,
+    pub page_token: Option<&'a str>,
+    pub page_size: Option<u32>,
+}
+
+/// Args for [`FeishuApi::bitable_list_views`].
+pub struct BitableListViewsReq<'a> {
+    pub app_token: &'a str,
+    pub table_id: &'a str,
+    pub page_token: Option<&'a str>,
+    pub page_size: Option<u32>,
+}
+
 // ── Public methods on FeishuApi ─────────────────────────────────
 
 impl FeishuApi {
@@ -122,30 +155,25 @@ impl FeishuApi {
     /// — paginated list with optional view + filter expression.
     pub async fn bitable_list_records(
         &self,
-        app_token: &str,
-        table_id: &str,
-        view_id: Option<&str>,
-        filter: Option<&str>,
-        page_token: Option<&str>,
-        page_size: Option<u32>,
+        req: BitableListRecordsReq<'_>,
     ) -> Result<BitableRecordsPage> {
         let mut url = format!(
             "{}/open-apis/bitable/v1/apps/{}/tables/{}/records",
             self.base_url(),
-            app_token,
-            table_id
+            req.app_token,
+            req.table_id
         );
         let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(v) = view_id {
+        if let Some(v) = req.view_id {
             params.push(("view_id", v.to_string()));
         }
-        if let Some(f) = filter {
+        if let Some(f) = req.filter {
             params.push(("filter", f.to_string()));
         }
-        if let Some(t) = page_token {
+        if let Some(t) = req.page_token {
             params.push(("page_token", t.to_string()));
         }
-        if let Some(s) = page_size {
+        if let Some(s) = req.page_size {
             params.push(("page_size", s.to_string()));
         }
         super::api::append_query(&mut url, &params);
@@ -168,30 +196,26 @@ impl FeishuApi {
     /// go on the URL as query params.
     pub async fn bitable_search_records(
         &self,
-        app_token: &str,
-        table_id: &str,
-        body: Value,
-        page_token: Option<&str>,
-        page_size: Option<u32>,
+        req: BitableSearchRecordsReq<'_>,
     ) -> Result<BitableRecordsPage> {
         let mut url = format!(
             "{}/open-apis/bitable/v1/apps/{}/tables/{}/records/search",
             self.base_url(),
-            app_token,
-            table_id
+            req.app_token,
+            req.table_id
         );
         let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(t) = page_token {
+        if let Some(t) = req.page_token {
             params.push(("page_token", t.to_string()));
         }
-        if let Some(s) = page_size {
+        if let Some(s) = req.page_size {
             params.push(("page_size", s.to_string()));
         }
         super::api::append_query(&mut url, &params);
         let resp = self
             .authorized_request(reqwest::Method::POST, &url)
             .await?
-            .json(&body)
+            .json(&req.body)
             .send()
             .await
             .map_err(|e| anyhow!("Failed to POST bitable_search_records: {}", e))?;
@@ -276,22 +300,19 @@ impl FeishuApi {
     /// — paginated list of views in a table.
     pub async fn bitable_list_views(
         &self,
-        app_token: &str,
-        table_id: &str,
-        page_token: Option<&str>,
-        page_size: Option<u32>,
+        req: BitableListViewsReq<'_>,
     ) -> Result<BitableViewsPage> {
         let mut url = format!(
             "{}/open-apis/bitable/v1/apps/{}/tables/{}/views",
             self.base_url(),
-            app_token,
-            table_id
+            req.app_token,
+            req.table_id
         );
         let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(t) = page_token {
+        if let Some(t) = req.page_token {
             params.push(("page_token", t.to_string()));
         }
-        if let Some(s) = page_size {
+        if let Some(s) = req.page_size {
             params.push(("page_size", s.to_string()));
         }
         super::api::append_query(&mut url, &params);
@@ -405,14 +426,14 @@ mod tests {
             .await;
 
         let page = api
-            .bitable_list_records(
-                "bascnAbc",
-                "tblXyz",
-                Some("vewQ"),
-                Some("CurrentValue.[Status]=\"Done\""),
-                None,
-                Some(50),
-            )
+            .bitable_list_records(BitableListRecordsReq {
+                app_token: "bascnAbc",
+                table_id: "tblXyz",
+                view_id: Some("vewQ"),
+                filter: Some("CurrentValue.[Status]=\"Done\""),
+                page_token: None,
+                page_size: Some(50),
+            })
             .await
             .unwrap();
         assert_eq!(page.items.len(), 1);
@@ -448,7 +469,13 @@ mod tests {
             "sort": [{"field_name": "CreatedAt", "desc": true}]
         });
         let page = api
-            .bitable_search_records("bascnAbc", "tblXyz", body, None, Some(100))
+            .bitable_search_records(BitableSearchRecordsReq {
+                app_token: "bascnAbc",
+                table_id: "tblXyz",
+                body,
+                page_token: None,
+                page_size: Some(100),
+            })
             .await
             .unwrap();
         assert!(page.has_more);
@@ -560,7 +587,14 @@ mod tests {
             .mount(&server)
             .await;
         let err = api
-            .bitable_list_records("bascnAbc", "tblXyz", None, None, None, None)
+            .bitable_list_records(BitableListRecordsReq {
+                app_token: "bascnAbc",
+                table_id: "tblXyz",
+                view_id: None,
+                filter: None,
+                page_token: None,
+                page_size: None,
+            })
             .await
             .unwrap_err();
         assert!(err.to_string().contains("99991663"), "{}", err);
@@ -588,7 +622,12 @@ mod tests {
             .mount(&server)
             .await;
         let page = api
-            .bitable_list_views("bascnAbc", "tblXyz", None, None)
+            .bitable_list_views(BitableListViewsReq {
+                app_token: "bascnAbc",
+                table_id: "tblXyz",
+                page_token: None,
+                page_size: None,
+            })
             .await
             .unwrap();
         assert_eq!(page.items.len(), 2);

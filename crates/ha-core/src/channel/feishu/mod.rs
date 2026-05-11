@@ -473,12 +473,12 @@ impl ChannelPlugin for FeishuPlugin {
             return Ok(());
         }
         let api = self.get_account(&account.id).await?;
-        for parsed in &pending {
-            if let Some(m) =
-                inbound_media::materialize_inbound(&api, &msg.message_id, parsed, &account.id).await
-            {
-                msg.media.push(m);
-            }
+        let results = futures_util::future::join_all(pending.iter().map(|parsed| {
+            inbound_media::materialize_inbound(&api, &msg.message_id, parsed, &account.id)
+        }))
+        .await;
+        for m in results.into_iter().flatten() {
+            msg.media.push(m);
         }
         Ok(())
     }

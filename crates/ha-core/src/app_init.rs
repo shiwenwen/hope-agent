@@ -554,6 +554,11 @@ fn spawn_channel_listeners() {
         );
         channel::worker::spawn_channel_eviction_watcher(registry.clone());
         spawn_channel_menu_resync_listener(registry.clone());
+        // Send a single "back online" notice to recently-active IM
+        // conversations after a fresh process boot. Self-gates on
+        // runtime_lock::is_primary() + AppConfig.startup_notification.enabled
+        // and is a no-op otherwise.
+        channel::worker::spawn_startup_notifier(registry.clone());
     }
 }
 

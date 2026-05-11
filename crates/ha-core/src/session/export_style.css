@@ -1,0 +1,89 @@
+:root {
+  color-scheme: light dark;
+  --bg: #fff;
+  --fg: #1f2328;
+  --muted: #656d76;
+  --user-bg: #ddf4ff;
+  --user-border: #b6e3ff;
+  --assistant-bg: #f6f8fa;
+  --assistant-border: #d0d7de;
+  --tool-bg: #fff8c5;
+  --tool-border: #d4a72c;
+  --code-bg: #eaeef2;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --fg: #e6edf3;
+    --muted: #8d96a0;
+    --user-bg: #0c2d6b;
+    --user-border: #1f4d8a;
+    --assistant-bg: #161b22;
+    --assistant-border: #30363d;
+    --tool-bg: #2d2200;
+    --tool-border: #c69026;
+    --code-bg: #161b22;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+main {
+  max-width: 860px;
+  margin: 32px auto;
+  padding: 0 20px 64px;
+}
+h1 { margin: 0 0 4px; font-size: 24px; }
+.meta { color: var(--muted); margin: 0 0 32px; font-size: 13px; }
+.msg {
+  border-radius: 8px;
+  border: 1px solid;
+  padding: 12px 16px;
+  margin: 0 0 16px;
+}
+.msg h2 {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin: 0 0 8px;
+}
+.msg.user { background: var(--user-bg); border-color: var(--user-border); }
+.msg.assistant { background: var(--assistant-bg); border-color: var(--assistant-border); }
+.msg .content p { margin: 0 0 8px; }
+.msg .content p:last-child { margin-bottom: 0; }
+details.tool, details.thinking {
+  margin: 8px 0;
+  background: var(--tool-bg);
+  border: 1px solid var(--tool-border);
+  border-radius: 6px;
+  padding: 6px 12px;
+}
+details.thinking {
+  background: var(--assistant-bg);
+  border-color: var(--assistant-border);
+  color: var(--muted);
+  font-style: italic;
+}
+details > summary {
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+details[open] > summary { margin-bottom: 8px; }
+details h4 { margin: 8px 0 4px; font-size: 12px; }
+pre {
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }

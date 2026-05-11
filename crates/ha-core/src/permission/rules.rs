@@ -132,8 +132,8 @@ pub fn extract_path_arg(tool: &str, args: &serde_json::Value) -> Option<PathBuf>
         // Feishu drive tools touch local paths (upload reads from `path`,
         // download writes to `path`). Treat them like read/write at the
         // protected-path layer so `~/.ssh/...` etc. trigger the same gate.
-        n if n == crate::tools::feishu::drive::TOOL_DRIVE_UPLOAD_MEDIA
-            || n == crate::tools::feishu::drive::TOOL_DRIVE_DOWNLOAD_MEDIA =>
+        n if n == crate::tools::feishu::TOOL_DRIVE_UPLOAD_MEDIA
+            || n == crate::tools::feishu::TOOL_DRIVE_DOWNLOAD_MEDIA =>
         {
             args.get("path").and_then(|v| v.as_str())
         }

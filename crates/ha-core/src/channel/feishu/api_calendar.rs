@@ -16,6 +16,17 @@ use serde_json::Value;
 
 use super::api::FeishuApi;
 
+// ── Request structs ─────────────────────────────────────────────
+
+/// Args for [`FeishuApi::calendar_list_events`].
+pub struct CalendarListEventsReq<'a> {
+    pub calendar_id: &'a str,
+    pub start_time: Option<&'a str>,
+    pub end_time: Option<&'a str>,
+    pub page_token: Option<&'a str>,
+    pub page_size: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CalendarListResult {
     #[serde(default)]
@@ -110,28 +121,24 @@ impl FeishuApi {
     /// `start_time` / `end_time` are RFC3339 strings (or epoch-second strings).
     pub async fn calendar_list_events(
         &self,
-        calendar_id: &str,
-        start_time: Option<&str>,
-        end_time: Option<&str>,
-        page_token: Option<&str>,
-        page_size: Option<u32>,
+        req: CalendarListEventsReq<'_>,
     ) -> Result<CalendarEventsList> {
         let mut url = format!(
             "{}/open-apis/calendar/v4/calendars/{}/events",
             self.base_url(),
-            calendar_id
+            req.calendar_id
         );
         let mut params: Vec<(&str, String)> = Vec::new();
-        if let Some(v) = start_time {
+        if let Some(v) = req.start_time {
             params.push(("start_time", v.to_string()));
         }
-        if let Some(v) = end_time {
+        if let Some(v) = req.end_time {
             params.push(("end_time", v.to_string()));
         }
-        if let Some(v) = page_token {
+        if let Some(v) = req.page_token {
             params.push(("page_token", v.to_string()));
         }
-        if let Some(v) = page_size {
+        if let Some(v) = req.page_size {
             params.push(("page_size", v.to_string()));
         }
         super::api::append_query(&mut url, &params);

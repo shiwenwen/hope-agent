@@ -291,3 +291,37 @@ pub async fn get_session_stream_state(
 ) -> Result<ha_core::chat_engine::SessionStreamState, CmdError> {
     Ok(ha_core::chat_engine::session_stream_state(&session_id))
 }
+
+/// Serialize a session to disk in Markdown / JSON / HTML.
+///
+/// `output_path` is supplied by the frontend's native save dialog
+/// (`@tauri-apps/plugin-dialog`); this command only writes the bytes to that
+/// path. The HTTP twin is `GET /api/sessions/{id}/export` which returns the
+/// payload as a binary response for the browser to download — they share the
+/// same [`ha_core::session::export::export_session`] serializer.
+#[tauri::command]
+pub async fn export_session_cmd(
+    session_id: String,
+    format: String,
+    include_thinking: bool,
+    include_tools: bool,
+    output_path: String,
+    state: State<'_, AppState>,
+) -> Result<String, CmdError> {
+    let fmt = ha_core::session::export::ExportFormat::parse(&format).ok_or_else(|| {
+        anyhow::anyhow!(
+            "invalid export format: `{}` (expected md / json / html)",
+            format
+        )
+    })?;
+    let opts = ha_core::session::export::ExportOptions {
+        format: fmt,
+        include_thinking,
+        include_tools,
+    };
+    let payload =
+        ha_core::session::export::export_session(state.session_db.as_ref(), &session_id, opts)?;
+    std::fs::write(&output_path, &payload.body)
+        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", output_path, e))?;
+    Ok(output_path)
+}

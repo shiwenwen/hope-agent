@@ -411,46 +411,73 @@ fn render_attached_channels_section(sid: &str) -> Option<Vec<String>> {
     ])
 }
 
-/// /export — Export conversation as Markdown.
+/// /export — Export conversation. Supports optional positional args:
+///
+/// ```text
+/// /export                          # markdown, lean (legacy default)
+/// /export md|json|html             # specified format, lean
+/// /export full                     # markdown, full (thinking + tools)
+/// /export <fmt> full               # full
+/// /export <fmt> tools              # only tool_call / tool_result included
+/// /export <fmt> thinking           # only assistant thinking included
+/// /export <fmt> tools thinking     # equivalent to full
+/// ```
+///
+/// Bare `/export` is byte-compatible with the previous Markdown-only handler
+/// — same `## User` / `## Assistant` headings, no thinking, no tools — so any
+/// scripts or muscle-memory keep working. The full / format / GUI surface is
+/// in [`crate::session::export`].
 pub fn handle_export(
     session_db: &Arc<SessionDB>,
     session_id: Option<&str>,
+    args: &str,
 ) -> Result<CommandResult, String> {
     let sid = session_id.ok_or("No active session to export")?;
-    let messages = session_db
-        .load_session_messages(sid)
+    let opts = parse_export_args(args)?;
+    let payload = crate::session::export::export_session(session_db.as_ref(), sid, opts)
         .map_err(|e| e.to_string())?;
 
-    if messages.is_empty() {
-        return Err("No messages to export".into());
-    }
+    // Slash-command path always carries text content; the three serializers
+    // we support all produce UTF-8 output.
+    let content = String::from_utf8(payload.body).map_err(|e| e.to_string())?;
 
-    let session_meta = session_db.get_session(sid).map_err(|e| e.to_string())?;
-    let title = session_meta
-        .and_then(|m| m.title)
-        .unwrap_or_else(|| "Untitled".to_string());
+    Ok(CommandResult {
+        content: format!("Exported as `{}`.", payload.filename),
+        action: Some(CommandAction::ExportFile {
+            content,
+            filename: payload.filename,
+        }),
+    })
+}
 
-    let mut md = format!("# {}\n\n", title);
-    for msg in &messages {
-        match msg.role {
-            MessageRole::User => {
-                md.push_str(&format!("## User\n\n{}\n\n", msg.content));
+fn parse_export_args(args: &str) -> Result<crate::session::export::ExportOptions, String> {
+    use crate::session::export::{ExportFormat, ExportOptions};
+    let mut format: Option<ExportFormat> = None;
+    let mut include_thinking = false;
+    let mut include_tools = false;
+
+    for token in args.split_ascii_whitespace() {
+        let lower = token.to_ascii_lowercase();
+        match lower.as_str() {
+            "md" | "markdown" | "json" | "html" => {
+                if let Some(fmt) = ExportFormat::parse(&lower) {
+                    format = Some(fmt);
+                }
             }
-            MessageRole::Assistant => {
-                md.push_str(&format!("## Assistant\n\n{}\n\n", msg.content));
+            "full" => {
+                include_thinking = true;
+                include_tools = true;
             }
-            _ => {}
+            "tools" => include_tools = true,
+            "thinking" | "think" => include_thinking = true,
+            other => return Err(format!("Unknown /export arg: `{}`", other)),
         }
     }
 
-    let filename = format!("{}.md", sanitize_filename(&title));
-
-    Ok(CommandResult {
-        content: format!("Exported {} messages.", messages.len()),
-        action: Some(CommandAction::ExportFile {
-            content: md,
-            filename,
-        }),
+    Ok(ExportOptions {
+        format: format.unwrap_or(ExportFormat::Markdown),
+        include_thinking,
+        include_tools,
     })
 }
 
@@ -698,21 +725,6 @@ pub fn handle_prompts() -> CommandResult {
         content: String::new(),
         action: Some(CommandAction::ViewSystemPrompt),
     }
-}
-
-/// Simple filename sanitization.
-fn sanitize_filename(name: &str) -> String {
-    name.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' || c == ' ' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect::<String>()
-        .trim()
-        .to_string()
 }
 
 #[cfg(test)]

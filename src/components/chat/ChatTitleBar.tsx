@@ -19,7 +19,9 @@ import {
   Search,
   Send,
   Ghost,
+  Download,
 } from "lucide-react"
+import { ExportSessionDialog } from "@/components/chat/export/ExportSessionDialog"
 import ChannelIcon from "@/components/common/ChannelIcon"
 import { formatCacheUsageDisplay, formatCompactTokenCount } from "./cacheUsageDisplay"
 import { formatMessageTime, getContextUsageTokens } from "./chatUtils"
@@ -131,6 +133,7 @@ export default function ChatTitleBar({
   // Inline title editing
   const [editingTitle, setEditingTitle] = useState(false)
   const [titleValue, setTitleValue] = useState("")
+  const [exportOpen, setExportOpen] = useState(false)
   const titleInputRef = useRef<HTMLInputElement>(null)
 
   const currentSession = currentSessionId ? sessions.find((s) => s.id === currentSessionId) : null
@@ -678,6 +681,17 @@ export default function ChatTitleBar({
             </div>
           </div>
         </div>
+        {/* Export Button — open the export-conversation dialog. */}
+        {currentSessionId && (
+          <IconTip label={t("chat.exportSession.menuItem")}>
+            <button
+              className="pb-1.5 text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => setExportOpen(true)}
+            >
+              <Download className="h-4 w-4" />
+            </button>
+          </IconTip>
+        )}
         {/* Handover Button — push the current session to an IM chat. */}
         {onOpenHandover && currentSessionId && (
           <IconTip label={t("chat.handover.button")}>
@@ -701,6 +715,16 @@ export default function ChatTitleBar({
           </IconTip>
         )}
       </div>
+      {currentSessionId && exportOpen && (
+        <ExportSessionDialog
+          open={exportOpen}
+          onOpenChange={setExportOpen}
+          sessionId={currentSessionId}
+          sessionTitle={
+            sessions.find((s) => s.id === currentSessionId)?.title ?? null
+          }
+        />
+      )}
     </div>
   )
 }

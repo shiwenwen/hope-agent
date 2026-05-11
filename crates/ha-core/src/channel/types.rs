@@ -29,6 +29,18 @@ pub enum ChannelId {
     Custom(String),
 }
 
+impl ChannelId {
+    /// Parse the canonical lowercase form (the value stored in SQLite
+    /// `channel_conversations.channel_id` and emitted by `Display`) back
+    /// to a `ChannelId`, falling back to `Custom(s)` for extension
+    /// channels via the existing `#[serde(untagged)]` variant. Use this
+    /// from EventBus / DB callbacks where you only have the string form
+    /// — both `eviction_watcher` and `startup_watcher` go through here.
+    pub fn from_storage_str(s: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_value(serde_json::Value::String(s.to_string()))
+    }
+}
+
 impl std::fmt::Display for ChannelId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -436,8 +448,14 @@ pub struct EventCommon {
     pub chat_type: ChatType,
     pub timestamp: chrono::DateTime<chrono::Utc>,
     /// Raw platform-specific payload for diagnostics / debugging.
-    #[serde(default)]
-    pub raw: serde_json::Value,
+    /// Wrapped in `Arc` so per-source fan-out (e.g. read-receipt batches with
+    /// 100 message_ids → 100 events) shares one buffer instead of deep-cloning.
+    #[serde(default = "default_raw_arc")]
+    pub raw: std::sync::Arc<serde_json::Value>,
+}
+
+fn default_raw_arc() -> std::sync::Arc<serde_json::Value> {
+    std::sync::Arc::new(serde_json::Value::Null)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -635,6 +653,12 @@ pub struct ChannelAccountConfig {
     /// EventBus topic emitted by `ChannelDB::{attach,update}_session`.
     #[serde(default = "crate::default_true")]
     pub notify_session_eviction: bool,
+    /// When true (default), `channel::worker::startup_watcher` posts a
+    /// short "back online" notice into every chat on this account that
+    /// was active within `AppConfig.startup_notification.window_secs`
+    /// after a fresh process boot. Toggleable per account.
+    #[serde(default = "crate::default_true")]
+    pub notify_startup: bool,
 }
 
 /// Settings JSON key controlling IM reply mode (see [`ImReplyMode`]).
@@ -752,6 +776,7 @@ mod tests {
             security: SecurityConfig::default(),
             auto_approve_tools: false,
             notify_session_eviction: true,
+            notify_startup: true,
         }
     }
 

@@ -219,7 +219,7 @@ impl SlashCommandDef {
             "agents" => "List agents",
             "help" => "Show all commands",
             "status" => "Session status",
-            "export" => "Export as Markdown",
+            "export" => "Export conversation (Markdown / JSON / HTML)",
             "usage" => "Token usage",
             "search" => "Search the web",
             "permission" => "Set tool permission mode",

@@ -15,6 +15,9 @@ pub mod attachments;
 pub mod globals;
 mod util;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 // ── Core modules (migrated from src-tauri) ────────────────────────
 pub mod acp;
 pub mod acp_control;

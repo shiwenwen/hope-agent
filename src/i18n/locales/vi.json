@@ -167,6 +167,8 @@
     "noAccounts": "Chưa có tài khoản kênh IM nào được cấu hình",
     "notifySessionEviction": "Thông báo tiếp quản phiên",
     "notifySessionEvictionHint": "Gửi tin nhắn hệ thống vào cuộc trò chuyện IM khi tài khoản này bị tách khỏi phiên vì cuộc trò chuyện khác đã tiếp quản (gắn 1:1).",
+    "notifyStartup": "Gửi thông báo \"đã quay lại trực tuyến\"",
+    "notifyStartupHint": "Sau khi dịch vụ khởi động lại, gửi một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện trên tài khoản này từng hoạt động gần đây.",
     "pluginDesc_discord": "Kênh Discord Bot",
     "pluginDesc_feishu": "Bot Feishu / Lark",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -461,7 +463,28 @@
     "taskProgressRunning": "Đang thực hiện {{completed}}/{{total}}",
     "taskProgressCancelling": "Đang dừng {{completed}}/{{total}}",
     "taskProgressWaiting": "Đang chờ tiếp tục {{completed}}/{{total}}",
-    "taskProgressFailed": "Thất bại {{completed}}/{{total}}"
+    "taskProgressFailed": "Thất bại {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Xuất cuộc trò chuyện",
+      "dialogTitle": "Xuất cuộc trò chuyện",
+      "dialogHint": "Chọn định dạng và tích chọn nội dung cần đưa vào.",
+      "formatLabel": "Định dạng",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "Nội dung",
+      "includeTools": "Bao gồm lệnh gọi công cụ",
+      "includeToolsHint": "Tham số, kết quả công cụ và thay đổi tệp.",
+      "includeThinking": "Bao gồm quá trình suy luận",
+      "includeThinkingHint": "Khối suy luận của mô hình (chuỗi suy nghĩ).",
+      "exportButton": "Xuất",
+      "exporting": "Đang xuất…",
+      "exported": "Đã xuất",
+      "failedShort": "Lỗi",
+      "savedTo": "Đã xuất tới {{path}}",
+      "downloaded": "Đã tải {{filename}}",
+      "failed": "Không thể xuất cuộc trò chuyện."
+    }
   },
   "codexAuth": {
     "expiredDescription": "Token OAuth của Codex không còn hợp lệ. Vui lòng đăng nhập lại để tiếp tục.",
@@ -1341,6 +1364,8 @@
     "mcpAuthRequiredFallback": "Một máy chủ MCP cần ủy quyền OAuth",
     "off": "Tắt",
     "on": "Bật",
+    "startupDesc": "Sau khi dịch vụ khởi động lại, đăng một thông báo ngắn \"đã quay lại trực tuyến\" vào các cuộc trò chuyện IM từng hoạt động trong 72 giờ qua. Tắt thông báo theo tài khoản nằm trong từng tài khoản kênh.",
+    "startupToggle": "Thông báo \"đã quay lại\" sau khởi động lại",
     "title": "Cài đặt thông báo"
   },
   "onboarding": {

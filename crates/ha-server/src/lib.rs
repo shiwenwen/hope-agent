@@ -160,6 +160,10 @@ fn build_router_with_cors(
             "/sessions/{id}/awareness-config",
             patch(routes::sessions::set_session_awareness_config),
         )
+        .route(
+            "/sessions/{id}/export",
+            get(routes::sessions::export_session_http),
+        )
         .route("/sessions/search", get(routes::sessions::search_sessions))
         // Projects
         .route("/projects", get(routes::projects::list_projects))
@@ -560,6 +564,14 @@ fn build_router_with_cors(
         .route(
             "/config/notification",
             put(routes::config::save_notification_config),
+        )
+        .route(
+            "/config/startup-notification",
+            get(routes::config::get_startup_notification_config),
+        )
+        .route(
+            "/config/startup-notification",
+            put(routes::config::save_startup_notification_config),
         )
         .route(
             "/config/tool-timeout",

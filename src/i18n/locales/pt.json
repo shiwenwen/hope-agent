@@ -167,6 +167,8 @@
     "noAccounts": "Nenhuma conta de canal IM configurada",
     "notifySessionEviction": "Notificar tomada de sessão",
     "notifySessionEvictionHint": "Envia uma mensagem de sistema ao chat de IM quando esta conta é desanexada de uma sessão porque outro chat a assumiu (attach 1:1).",
+    "notifyStartup": "Enviar aviso de volta online",
+    "notifyStartupHint": "Após reinício do serviço, envia um aviso curto \"de volta online\" para os chats desta conta que estiveram ativos recentemente.",
     "pluginDesc_discord": "Canal Discord Bot",
     "pluginDesc_feishu": "Feishu / Lark Bot",
     "pluginDesc_googlechat": "Google Chat (Workspace)",
@@ -461,7 +463,28 @@
     "taskProgressRunning": "Em execução {{completed}}/{{total}}",
     "taskProgressCancelling": "Parando {{completed}}/{{total}}",
     "taskProgressWaiting": "Aguardando continuar {{completed}}/{{total}}",
-    "taskProgressFailed": "Falhou {{completed}}/{{total}}"
+    "taskProgressFailed": "Falhou {{completed}}/{{total}}",
+    "exportSession": {
+      "menuItem": "Exportar conversa",
+      "dialogTitle": "Exportar conversa",
+      "dialogHint": "Escolha um formato e selecione o que incluir.",
+      "formatLabel": "Formato",
+      "formatMarkdown": "Markdown",
+      "formatJson": "JSON",
+      "formatHtml": "HTML",
+      "contentLabel": "Conteúdo",
+      "includeTools": "Incluir chamadas de ferramentas",
+      "includeToolsHint": "Argumentos, resultados e alterações em arquivos.",
+      "includeThinking": "Incluir raciocínio",
+      "includeThinkingHint": "Blocos de raciocínio do modelo (cadeia de pensamento).",
+      "exportButton": "Exportar",
+      "exporting": "Exportando…",
+      "exported": "Exportado",
+      "failedShort": "Falha",
+      "savedTo": "Exportado para {{path}}",
+      "downloaded": "Baixado {{filename}}",
+      "failed": "Falha ao exportar a conversa."
+    }
   },
   "codexAuth": {
     "expiredDescription": "Seu token OAuth do Codex não é mais válido. Faça login novamente para continuar.",
@@ -1341,6 +1364,8 @@
     "mcpAuthRequiredFallback": "Um servidor MCP precisa de autorização OAuth",
     "off": "Desligado",
     "on": "Ligado",
+    "startupDesc": "Após reinício do serviço, publica um aviso curto \"de volta online\" nos chats de IM que estiveram ativos nas últimas 72h. O silenciamento por conta fica em cada conta de canal.",
+    "startupToggle": "Aviso de volta online após reinício",
     "title": "Configurações de notificação"
   },
   "onboarding": {

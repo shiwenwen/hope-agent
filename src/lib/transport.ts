@@ -188,6 +188,45 @@ export interface Transport {
    * - `limit` defaults to 50 server-side; results are pre-sorted by score.
    */
   searchFiles(root: string, q: string, limit?: number): Promise<FileSearchResponse>;
+
+  /**
+   * Export a session's conversation to a file in Markdown / JSON / HTML.
+   *
+   * - Tauri mode: opens the native save dialog, lets the user pick a path,
+   *   then writes the file via `export_session_cmd`. Returns `{ savedPath,
+   *   filename }`.
+   * - HTTP mode: streams the response from
+   *   `GET /api/sessions/{id}/export` and returns a `Blob` plus the
+   *   server-supplied filename. Caller is expected to trigger a browser
+   *   download via `URL.createObjectURL` + `<a download>`.
+   *
+   * Returns `null` only when the user cancels the save dialog (Tauri).
+   * HTTP mode never returns null on success — failures throw.
+   */
+  exportSession(args: ExportSessionArgs): Promise<ExportSessionResult | null>;
+}
+
+/**
+ * Args for {@link Transport.exportSession}.
+ */
+export interface ExportSessionArgs {
+  sessionId: string;
+  /** Default filename to suggest in the save dialog (Tauri) — extension
+   *  derived from `format` if omitted. */
+  defaultFilename?: string;
+  format: "md" | "json" | "html";
+  includeThinking: boolean;
+  includeTools: boolean;
+}
+
+/**
+ * Result of {@link Transport.exportSession}. Exactly one of `savedPath`
+ * (Tauri) or `blob` (HTTP) is set.
+ */
+export interface ExportSessionResult {
+  filename: string;
+  savedPath?: string;
+  blob?: Blob;
 }
 
 /**

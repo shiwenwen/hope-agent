@@ -35,6 +35,11 @@ export interface ChannelAccountConfig {
    *  account is evicted from a session because another chat attached to
    *  the same session_id (1:1 attach invariant). */
   notifySessionEviction?: boolean
+  /** When true (default), `channel::worker::startup_watcher` posts a
+   *  short "back online" notice into chats on this account that were
+   *  active within `startup_notification.window_secs` after a fresh
+   *  process boot. */
+  notifyStartup?: boolean
   credentials: Record<string, unknown>
   settings: Record<string, unknown>
   security: {
