@@ -9,8 +9,8 @@
 //!
 //! Step order mirrors the GUI wizard (see `src/components/onboarding/
 //! types.ts::ONBOARDING_STEPS`): language → import-openclaw → mode →
-//! [if local: provider → profile → personality → safety → skills →
-//! server → channels] → summary. "remote" mode short-circuits after the
+//! [if local: provider → search provider → profile → personality → safety →
+//! skills → server → channels] → summary. "remote" mode short-circuits after the
 //! mode step — when this install just points at someone else's server
 //! there's nothing local to configure, exactly like
 //! `stepsForMode("remote")` in the GUI.
@@ -27,7 +27,7 @@ use super::steps::mode::ModeOutcome;
 /// for the local-install path. Remote mode shows `[step/REMOTE_TOTAL]`
 /// instead — see `REMOTE_TOTAL`. Must stay in sync with the actual
 /// step count below.
-const LOCAL_TOTAL: u32 = 11;
+const LOCAL_TOTAL: u32 = 12;
 const REMOTE_TOTAL: u32 = 4;
 
 /// Run the full wizard. Returns `Ok(())` when every step completed (or
@@ -56,13 +56,14 @@ pub fn run() -> Result<()> {
     }
 
     let provider_done = steps::provider::run(4, LOCAL_TOTAL)?;
-    steps::profile::run(5, LOCAL_TOTAL)?;
-    steps::personality::run(6, LOCAL_TOTAL)?;
-    steps::safety::run(7, LOCAL_TOTAL)?;
-    steps::skills::run(8, LOCAL_TOTAL)?;
-    steps::server::run(9, LOCAL_TOTAL)?;
-    steps::channels::run(10, LOCAL_TOTAL)?;
-    steps::summary::run(11, LOCAL_TOTAL, provider_done)?;
+    steps::search_provider::run(5, LOCAL_TOTAL)?;
+    steps::profile::run(6, LOCAL_TOTAL)?;
+    steps::personality::run(7, LOCAL_TOTAL)?;
+    steps::safety::run(8, LOCAL_TOTAL)?;
+    steps::skills::run(9, LOCAL_TOTAL)?;
+    steps::server::run(10, LOCAL_TOTAL)?;
+    steps::channels::run(11, LOCAL_TOTAL)?;
+    steps::summary::run(12, LOCAL_TOTAL, provider_done)?;
 
     mark_completed()?;
     Ok(())

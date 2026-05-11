@@ -1,4 +1,4 @@
-//! Step 2 — provider + active-model setup.
+//! Provider + active-model setup.
 //!
 //! CLI flow:
 //!   1. Pick a template (OpenAI / Codex OAuth / Anthropic / DeepSeek / Ollama / Custom)

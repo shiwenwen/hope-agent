@@ -1502,6 +1502,11 @@
       "subtitle": "Connect an existing API key (OpenAI, Anthropic, DeepSeek…) or run a local model. You can change or add more later in Settings.",
       "title": "Pick a model provider"
     },
+    "searchProvider": {
+      "saveAndContinue": "Lưu và tiếp tục",
+      "subtitle": "Chọn backend tìm kiếm web mà Hope Agent dùng khi cần thông tin mới nhất. DuckDuckGo không cần khóa; các API Provider có thể thêm bây giờ hoặc sau.",
+      "title": "Cấu hình tìm kiếm web"
+    },
     "rerun": {
       "button": "Re-run setup wizard",
       "confirm": "Re-run",
@@ -1558,6 +1563,7 @@
         "profile": "Profile",
         "provider": "Model provider",
         "safety": "Tool approvals",
+        "searchProvider": "Provider tìm kiếm",
         "server": "Access mode",
         "skills": "Skills"
       },
