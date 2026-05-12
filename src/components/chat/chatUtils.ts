@@ -499,15 +499,20 @@ export async function reloadAndMergeSessionMessages(params: {
   setMessages: (msgs: Message[]) => void
 }): Promise<void> {
   const { sessionId, pageSize, sessionCacheRef, setMessages } = params
-  const existing = sessionCacheRef.current.get(sessionId) ?? []
-  const limit = Math.max(pageSize, existing.length)
+  const existingAtRequestStart = sessionCacheRef.current.get(sessionId) ?? []
+  const limit = Math.max(pageSize, existingAtRequestStart.length)
   try {
     const [msgs] = await getTransport().call<[SessionMessage[], number, boolean]>(
       "load_session_messages_latest_cmd",
       { sessionId, limit },
     )
     const fresh = parseSessionMessages(msgs)
-    const merged = mergeMessagesByDbId(existing, fresh)
+    const existing = sessionCacheRef.current.get(sessionId) ?? existingAtRequestStart
+    const merged = preserveMessagesAppendedDuringReload(
+      mergeMessagesByDbId(existing, fresh),
+      existingAtRequestStart,
+      existing,
+    )
     sessionCacheRef.current.set(sessionId, merged)
     setMessages(merged)
   } catch {
@@ -515,6 +520,40 @@ export async function reloadAndMergeSessionMessages(params: {
     // the next session switch — swallowing here matches the pre-refactor
     // behavior on each of the three call sites.
   }
+}
+
+function transientMessageKey(msg: Message): string {
+  if (typeof msg.dbId === "number") return `db:${msg.dbId}`
+  if (msg._clientId) return `client:${msg._clientId}`
+  return `local:${msg.role}:${msg.timestamp ?? ""}:${msg.content}`
+}
+
+function sameTransientMessage(a: Message, b: Message): boolean {
+  return transientMessageKey(a) === transientMessageKey(b)
+}
+
+function messagesAppendedAfterSnapshot(
+  snapshot: Message[],
+  latest: Message[],
+): Message[] {
+  if (latest.length <= snapshot.length) return []
+  for (let i = 0; i < snapshot.length; i++) {
+    if (!sameTransientMessage(snapshot[i], latest[i])) return []
+  }
+  return latest.slice(snapshot.length)
+}
+
+function preserveMessagesAppendedDuringReload(
+  merged: Message[],
+  snapshotAtRequestStart: Message[],
+  latestExisting: Message[],
+): Message[] {
+  const appended = messagesAppendedAfterSnapshot(snapshotAtRequestStart, latestExisting)
+  if (appended.length === 0) return merged
+
+  const mergedKeys = new Set(merged.map(transientMessageKey))
+  const missing = appended.filter((msg) => !mergedKeys.has(transientMessageKey(msg)))
+  return missing.length > 0 ? [...merged, ...missing] : merged
 }
 
 // Compare two Message snapshots for the purpose of preserving the existing
